@@ -232,11 +232,27 @@ proc main(...args: List[Str]) [fs, process, env, error, io, time] {
   match interpreter.execute(settings.pieces, operands, settings.assignments, settings.sandbox) {
     Ok(status) => { exit status }
     Err(interpreter.AwkError.Syntax {message}) => {
-      eprint f"awk: {message}"
+      let _ = io.write_stderr(f"awk: {message}\n")
+      let _ = io.flush_stderr()
       exit 1
     }
+    Err(interpreter.AwkError.Fatal {message, pending}) => {
+      let _ = io.write_stdout(pending)
+      let _ = io.flush_stdout()
+      let _ = io.write_stderr(f"awk: {message}\n")
+      let _ = io.flush_stderr()
+      exit 2
+    }
+    Err(interpreter.AwkError.Plain {message, pending}) => {
+      let _ = io.write_stdout(pending)
+      let _ = io.flush_stdout()
+      let _ = io.write_stderr(f"awk: {message}\n")
+      let _ = io.flush_stderr()
+      exit 2
+    }
     Err(failure) => {
-      eprint f"awk: {failure.message}"
+      let _ = io.write_stderr(f"awk: fatal: {failure.message}\n")
+      let _ = io.flush_stderr()
       exit 2
     }
   }

@@ -357,12 +357,20 @@ proc check_matrix(ctx: TestContext, prefixes: List[Str]) [fs, process, env, erro
   assert failures.is_empty(), f"{failures.len()} of {selected} cases differ from the recorded GNU awk output:\n{failures.join("\n")}"
 }
 
-test test_awk_matrix_patterns_and_records { |ctx| check_matrix(ctx, ["pat_", "rs_"])? }
-test test_awk_matrix_fields_and_separators { |ctx| check_matrix(ctx, ["fld_", "fs_"])? }
-test test_awk_matrix_getline { |ctx| check_matrix(ctx, ["get_"])? }
-test test_awk_matrix_printf { |ctx| check_matrix(ctx, ["printf"])? }
-test test_awk_matrix_strings_and_numbers { |ctx| check_matrix(ctx, ["str_", "num_"])? }
-test test_awk_matrix_arrays_and_functions { |ctx| check_matrix(ctx, ["arr_", "fn_"])? }
-test test_awk_matrix_streams_and_processes { |ctx| check_matrix(ctx, ["io_"])? }
-test test_awk_matrix_options_and_uninitialized { |ctx| check_matrix(ctx, ["opt_"])? }
-test test_awk_matrix_grammar_and_regex { |ctx| check_matrix(ctx, ["gram_", "rx_", "rxdyn_"])? }
+test test_awk_matrix_patterns_and_records { |ctx| check_matrix(ctx, ["pat_", "rs_"]) }
+test test_awk_matrix_fields_and_separators { |ctx| check_matrix(ctx, ["fld_", "fs_"]) }
+test test_awk_matrix_getline { |ctx| check_matrix(ctx, ["get_"]) }
+test test_awk_matrix_printf { |ctx| check_matrix(ctx, ["printf"]) }
+test test_awk_matrix_strings { |ctx| check_matrix(ctx, ["str_"]) }
+test test_awk_matrix_numbers { |ctx| check_matrix(ctx, ["num_"]) }
+test test_awk_matrix_arrays_and_functions { |ctx| check_matrix(ctx, ["arr_", "fn_"]) }
+test test_awk_matrix_streams_and_processes { |ctx| check_matrix(ctx, ["io_"]) }
+test test_awk_matrix_options_and_uninitialized { |ctx| check_matrix(ctx, ["opt_"]) }
+test test_awk_matrix_grammar { |ctx| check_matrix(ctx, ["gram_"]) }
+test test_awk_matrix_regex { |ctx| check_matrix(ctx, ["rx_", "rxdyn_"]) }
+test test_awk_matrix_for_in_order_and_non_utf8_bytes { |ctx| check_matrix(ctx, ["ord_", "bin_"]) }
+test test_awk_matrix_lexical_forms { |ctx| check_matrix(ctx, ["lex_"]) }
+test test_awk_matrix_special_variables { |ctx| check_matrix(ctx, ["sv_"]) }
+test test_awk_matrix_declaration_and_newline_diagnostics { |ctx| check_matrix(ctx, ["diag_declname_", "diag_newline_in_"]) }
+test test_awk_matrix_rule_and_regexp_constant_diagnostics { |ctx| check_matrix(ctx, ["diag_rule_noaction_", "diag_regexconst_", "diag_string_end_"]) }
+test test_awk_matrix_source_end_diagnostics { |ctx| check_matrix(ctx, ["diag_source_end_"]) }

@@ -960,6 +960,398 @@ group("rxdyn", [
 ])
 
 
+# Subscript order of for-in loops follows the hash tables GNU awk keeps.
+import random as _random
+_rng = _random.Random(2024)
+_words = list(dict.fromkeys("".join(_rng.choice("abcdefghijklmnopqrstuvwxyz0123456789_") for _ in range(_rng.randint(1, 9))) for _ in range(400)))
+_ints = list(dict.fromkeys(_rng.randint(-5000, 90000) for _ in range(400)))
+_nonneg = [n for n in _ints if n >= 0]
+_neg_first = [-7] + _nonneg[:40]
+
+
+def _order_case(name, keys, deletes=()):
+    program = 'BEGIN { n = split("%s", k, " "); for (i = 1; i <= n; i++) a[k[i]]' % " ".join(map(str, keys))
+    if deletes:
+        program += '; m = split("%s", d, " "); for (i = 1; i <= m; i++) delete a[d[i]]' % " ".join(map(str, deletes))
+    program += '; for (x in a) printf "%s ", x; print "" }'
+    C("ord_" + name, program)
+
+
+_order_case("strings_small", _words[:9])
+_order_case("strings_39", _words[:39])
+_order_case("strings_grows_at_143", _words[:143])
+_order_case("strings_200", _words[:200])
+_order_case("strings_with_deletes", _words[:60], _words[5:60:3])
+_order_case("strings_grown_then_deleted", _words[:160], _words[:150])
+_order_case("naturals_ascending", _nonneg[:60])
+_order_case("negative_first", _neg_first)
+_order_case("negative_first_with_strings", _neg_first[:10] + _words[:6] + _neg_first[10:20])
+_order_case("natural_first_with_negatives", _nonneg[:10] + [-3, -40, -500] + _nonneg[10:20])
+_order_case("natural_first_with_strings", _nonneg[:10] + _words[:5] + _nonneg[10:20])
+_order_case("zero_padded", ["01", "1", "001", "10", "2"])
+_order_case("floats", ["1.5", "2", "1", "2.5"])
+_order_case("mixed_string_first", _words[:3] + _nonneg[:12])
+C("ord_delete_all_then_reinsert", 'BEGIN { for (i = 1; i <= 5; i++) a["k" i]; delete a; a[3]; a[1]; a[2]; for (x in a) printf "%s ", x; print "" }')
+C("ord_emptied_by_deletes", 'BEGIN { a["x"]; a["y"]; delete a["x"]; delete a["y"]; a[2]; a[1]; for (x in a) printf "%s ", x; print "" }')
+C("ord_numeric_subscript_from_arithmetic", 'BEGIN { for (i = 10; i > 0; i--) a[i * 2]; for (x in a) printf "%s ", x; print "" }')
+C("ord_asort_destination", 'BEGIN { a["z"] = 3; a["y"] = 1; a["x"] = 2; n = asort(a, b); for (k in b) printf "%s=%s ", k, b[k]; print n }')
+C("ord_split_result", 'BEGIN { n = split("c b a d e f g h i j k", p); for (k in p) printf "%s ", k; print n }')
+C("ord_environ_like", 'BEGIN { a["PATH"]; a["HOME"]; a["USER"]; a["SHELL"]; a["LANG"]; for (k in a) printf "%s ", k; print "" }')
+
+
+# More order stress: interleaved inserts and deletes over random subscripts.
+for _seed in range(6):
+    _r = _random.Random(100 + _seed)
+    _pool = [str(_r.randint(-300, 5000)) if _r.random() < 0.6 else "".join(_r.choice("abcdefgxyz") for _ in range(_r.randint(1, 6))) for _ in range(160)]
+    _pool = list(dict.fromkeys(_pool))
+    _first = _pool[:70]
+    _gone = _r.sample(_first, 30)
+    _later = _pool[70:130]
+    C("ord_mixed_%d" % _seed, 'BEGIN { n = split("%s", k, " "); for (i = 1; i <= n; i++) a[k[i]]; m = split("%s", d, " "); for (i = 1; i <= m; i++) delete a[d[i]]; p = split("%s", l, " "); for (i = 1; i <= p; i++) a[l[i]]; for (x in a) printf "%%s ", x; print "" }' % (" ".join(_first), " ".join(_gone), " ".join(_later)))
+
+
+# Input that is not valid UTF-8 (a Latin-1 byte, a lone continuation byte).
+group("bin", [
+    ("length", '{ print length($0), NF }', b"caf\xe9 x\nabc\n"),
+    ("passthrough", '{ print }', b"caf\xe9\n\x80abc\xff\n"),
+    ("fields", '{ print $1 }', b"caf\xe9 x\n"),
+    ("substr", '{ print substr($0, 4, 1) }', b"caf\xe9 x\n"),
+    ("toupper", '{ print toupper($0) }', b"caf\xe9 x\n"),
+    ("gsub_dot", '{ n = gsub(/./, "x"); print n, $0 }', b"a\xe9b\n"),
+    ("match_class", '{ print match($0, /[a-z]+/), RLENGTH }', b"ab\xe9cd\n"),
+    ("printf_s", '{ printf "[%5s]\\n", $0 }', b"\xe9\n"),
+    ("index", '{ print index($0, "c") }', b"\xe9c\n"),
+    ("split_chars", '{ n = split($0, p, ""); print n }', b"a\xe9b\n"),
+    ("nul_bytes", '{ print length($0), NF }', b"a\x00b c\n"),
+    ("nul_field_sep", 'BEGIN { FS = "\\0" } { print NF }', b"a\x00b\n"),
+    ("print_nul", 'BEGIN { printf "a%cb\\n", 0 }'),
+    ("nul_in_string_compare", '{ print ($0 == "a") }', b"a\x00\n"),
+    ("program_file_binary_args", '{ print $1 }', b"x\xe9 y\n", {"pre": ["-F", " "]}),
+])
+
+
+# Second pass: lexical corners, special variables, field and record edges.
+group("lex", [
+    ("number_forms", 'BEGIN { print 1., .5, 1e2, 1E-2, 0.1e1, 100e-2 }'),
+    ("number_exp_incomplete", 'BEGIN { print 1e, 2 }'),
+    ("number_exp_sign_incomplete", 'BEGIN { print 1e+ }'),
+    ("number_hex_literal", 'BEGIN { print 0x1F, 0Xa, 0x }'),
+    ("number_octal_literal", 'BEGIN { print 010, 08, 0777 }'),
+    ("number_big_integer", 'BEGIN { print 2^53, 2^53 + 1, 2^64, 1e30 }'),
+    ("number_leading_dot_concat", 'BEGIN { print 1 .5 }'),
+    ("number_double_dot", 'BEGIN { print 1.2.3 }'),
+    ("string_escapes_all", 'BEGIN { printf "%s|\\a|\\b|\\f|\\v|\\r|\\\\|\\"|\\/|\\101|\\x41\\n", "s" }'),
+    ("string_unknown_escape", 'BEGIN { print "a\\qb" }'),
+    ("string_octal_overflow", 'BEGIN { print "\\400" }'),
+    ("string_hex_long", 'BEGIN { print "\\x414" }'),
+    ("string_trailing_backslash", 'BEGIN { print "a\\' + '\n' + r'" }'),
+    ("regex_escape_slash", '/a\\/b/ { print "m" }', "a/b\n"),
+    ("regex_in_condition_value", '{ x = /b/; print x }', "abc\nxyz\n"),
+    ("regex_as_arg_to_user_fn", 'function f(v) { return v } { print f(/b/) }', "abc\nxyz\n"),
+    ("regex_negated_group", '!/a|b/ { print }', "a\nc\nb\nd\n"),
+    ("comment_in_rules", '# top\nBEGIN { # c\n print 1 # d\n}\n# e\n'),
+    ("semicolons_between_rules", 'BEGIN { print 1 }; BEGIN { print 2 };'),
+    ("rule_separated_by_newline", 'BEGIN { print 1 }\n\n\nEND { print 2 }', "x\n"),
+    ("pattern_then_newline_brace", '/x/\n{ print "b" }', "x\n"),
+    ("brace_after_pattern_newline_error", 'BEGIN\n{ print 1 }'),
+    ("keyword_func_name_error", 'function if() { }'),
+    ("ident_with_digits_underscore", 'BEGIN { a_1 = 3; _b = 4; print a_1 + _b }'),
+    ("dollar_var_forms", '{ i = 2; print $i, $(i+1), $NF, $(NF-1) }', "a b c d\n"),
+    ("dollar_string_index", '{ print $"2" }', "a b c\n"),
+    ("dollar_float_index", '{ print $1.9, $(1.1) }', "a b c\n"),
+    ("unary_plus_string", 'BEGIN { x = "3x"; print +x, -x, !x }'),
+    ("not_string_zero", 'BEGIN { print !"0", !"", !0, !"a" }'),
+    ("compare_string_constant_numeric", '{ print ($1 == 10), ($1 == "10"), ($1 < 9) }', "10.0\n"),
+    ("uninit_compare_both", 'BEGIN { print (x == 0), (x == ""), (x < 1) }'),
+    ("concat_assoc", 'BEGIN { print 1 " " 2 + 3 " " 4 }'),
+    ("exponent_assoc", 'BEGIN { print 2^3^2, -2^2, (-2)^2, 2**3, 2**-1 }'),
+    ("exponent_assign_star_star", 'BEGIN { x = 2; x **= 3; print x }'),
+    ("modulo_negative_float", 'BEGIN { print -7 % 3, 7 % -3, 5.5 % 2 }'),
+    ("increment_precedence", 'BEGIN { x = 1; print x++ + ++x, x }'),
+    ("in_operator_parenthesized_subscript", 'BEGIN { a[1,2] = 1; print ((1,2) in a), (1 in a) }'),
+    ("ternary_right_assoc_chain", 'BEGIN { print 1 ? 2 : 3 ? 4 : 5, 0 ? 2 : 0 ? 4 : 5 }'),
+    ("logical_short_circuit_side_effect", 'BEGIN { x = 0; 0 && (x = 1); 1 || (x = 2); print x }'),
+    ("regex_match_precedence_not", 'BEGIN { print !"a" ~ "0", ! ("a" ~ "a") }'),
+    ("print_gt_comparison_in_parens", 'BEGIN { print (2 > 1) }'),
+    ("print_ternary_gt", 'BEGIN { print 2 > 1 ? "y" : "n" }'),
+    ("getline_not_at_statement_start_error", 'BEGIN { x = getline < "/dev/null" + 1; print x }'),
+    ("long_line_field_count", 'BEGIN { for (i = 0; i < 20000; i++) printf "f%d ", i; print "" }', None, {"post": []}),
+    ("delete_statement_forms", 'BEGIN { a[1]; a[2]; delete a[1]; delete a; print length(a) }'),
+    ("while_assign_condition", 'BEGIN { while ((x += 2) < 7) print x }'),
+    ("for_in_with_parens", 'BEGIN { a["k"]; for ((k) in a) print k }'),
+    ("for_in_parenthesized_array", 'BEGIN { a["k"]; for (k in (a)) print k }'),
+    ("getline_var_in_for_condition", 'BEGIN { while (("echo 1; echo 2" | getline v) > 0) s += v; print s }'),
+    ("printf_no_args_error", 'BEGIN { printf }'),
+    ("print_empty_parens", 'BEGIN { print () }'),
+    ("printf_empty_parens", 'BEGIN { printf() }'),
+    ("print_parens_then_expr", 'BEGIN { print (1)(2) }'),
+    ("print_parens_list_then_expr_error", 'BEGIN { print (1,2)(3) }'),
+    ("print_parenthesized_list_redirect", 'BEGIN { print("a", "b") > "/dev/stdout" }'),
+    ("exit_code_expression", 'BEGIN { exit 1 + 2 }'),
+    ("exit_in_end_keeps_code", 'END { exit 4 } ', "x\n"),
+    ("exit_in_begin_runs_end", 'BEGIN { exit 3 } END { print "end" }'),
+    ("exit_no_arg_in_end_after_code", 'BEGIN { exit 5 } END { exit }'),
+    ("exit_negative", 'BEGIN { exit -1 }'),
+    ("exit_large", 'BEGIN { exit 256 + 7 }'),
+    ("exit_string", 'BEGIN { exit "3x" }'),
+])
+group("sv", [
+    ("nf_assign_grow", '{ NF = 5; print; print NF }', "a b\n"),
+    ("nf_assign_shrink", '{ NF = 1; print; print NF }', "a b c\n"),
+    ("nf_assign_zero", '{ NF = 0; print "[" $0 "]"; print NF }', "a b c\n"),
+    ("nf_assign_negative", '{ NF = -1 }', "a b\n"),
+    ("nf_field_beyond", '{ $7 = "x"; print; print NF }', "a b\n"),
+    ("nf_decrement_rebuild", '{ $0 = "a  b   c"; NF--; print }'),
+    ("ofs_rebuild_on_assign_field", 'BEGIN { OFS = "-" } { $1 = $1; print }', "a b c\n"),
+    ("ofs_no_rebuild_untouched", 'BEGIN { OFS = "-" } { print; print $1, $2 }', "a b c\n"),
+    ("ofs_change_after_rebuild", '{ $1 = $1; OFS = "-"; print; $1 = $1; print }', "a b c\n"),
+    ("ors_print_vs_printf", 'BEGIN { ORS = "|" } { print; printf "%s", "p" } END { printf "\\n" }', "a\nb\n"),
+    ("rs_assign_mid_stream", '{ print NR ":" $0; RS = ";" }', "a\nb;c;d\n"),
+    ("fs_assign_applies_next_record", '{ FS = ":"; print $1 }', "a:b c\nd:e f\n"),
+    ("fs_single_space_vs_regex", 'BEGIN { FS = "[ ]" } { print NF }', " a  b \n"),
+    ("fs_tab", 'BEGIN { FS = "\\t" } { print NF, $2 }', "a\t\tb\n"),
+    ("fs_pipe_char", 'BEGIN { FS = "|" } { print $2 }', "a|b|c\n"),
+    ("fs_backslash_pipe", 'BEGIN { FS = "\\\\|" } { print $2 }', "a|b|c\n"),
+    ("fs_empty_chars", 'BEGIN { FS = "" } { print NF, $2 }', "abc\n"),
+    ("fs_caret_literal", 'BEGIN { FS = "^" } { print $2 }', "a^b\n"),
+    ("fs_dot_literal_single", 'BEGIN { FS = "." } { print $2 }', "a.b\n"),
+    ("fs_regex_leading_empty", 'BEGIN { FS = ",+" } { print NF, $1 }', ",,a,b\n"),
+    ("nr_assign", 'NR == 2 { NR = 10 } { print NR, FNR }', "a\nb\nc\n"),
+    ("fnr_reset_second_file", '{ print FILENAME, NR, FNR }', None, {"post": ["@DIR@/a", "@DIR@/b"], "files": {"a": "1\n2\n", "b": "3\n"}}),
+    ("rstart_after_failed_match", 'BEGIN { match("abc", /b/); match("abc", /z/); print RSTART, RLENGTH }'),
+    ("subsep_assign_in_loop", 'BEGIN { a[1,2]; SUBSEP = ":"; a[3,4]; for (k in a) n++; print n; print ((3,4) in a), ((1,2) in a) }'),
+    ("convfmt_assign_effect_in_concat", 'BEGIN { CONVFMT = "%.2f"; x = 3.14159; y = x ""; print y; a[x] = 1; for (k in a) print k }'),
+    ("ofmt_integers_unaffected", 'BEGIN { OFMT = "%.2f"; print 3, 3.14159, 1e6, 1e20 }'),
+    ("environ_iteration_key_present", 'BEGIN { print ("MYVAR" in ENVIRON), ENVIRON["MYVAR"] }', None, {"env": {"MYVAR": "v1"}}),
+    ("argv_zero_and_count", 'BEGIN { print ARGV[0], ARGC }'),
+    ("argv_delete_skips", 'BEGIN { delete ARGV[1] } { print }', "stdin\n", {"post": ["@DIR@/nope"]}),
+    ("argv_empty_string_skipped", 'BEGIN { ARGV[1] = "" } { print }', "stdin\n", {"post": ["@DIR@/nope"]}),
+    ("argc_decrease", 'BEGIN { ARGC = 1 } { print }', "stdin\n", {"post": ["@DIR@/nope"]}),
+    ("rlength_after_match_utf8", 'BEGIN { match("héllo wörld", /w.r/); print RSTART, RLENGTH }'),
+    ("filename_in_begin_getline", 'BEGIN { getline; print FILENAME, $0 }', None, {"post": ["@DIR@/a"], "files": {"a": "x\n"}}),
+    ("nf_in_begin_before_input", 'BEGIN { print NF, NR, "[" $0 "]" }'),
+    ("end_dollar0_preserved_nf", 'END { print NF, $1 }', "a b\nc d e\n"),
+    ("dollar0_assign_in_end", 'END { $0 = "x y z"; print NF, $2 }', "q\n"),
+    ("field_assign_numeric_string_compare", '{ $2 = "10"; print ($2 == 10.0) }', "a b\n"),
+    ("field_assign_computed_number_format", '{ $1 = 0.1 + 0.2; print }', "x\n"),
+    ("field_assign_big", '{ $1 = 1e20; $2 = 100000 * 100000; print }', "x y\n"),
+    ("record_with_crlf", '{ print length($0), $NF }', "ab cd\r\nef\r\n"),
+    ("record_only_separators", '{ print NF }', "   \n\t\n"),
+    ("record_leading_trailing_ws", '{ print NF, "[" $1 "]" }', "  a b  \n"),
+    ("empty_lines_count", 'END { print NR }', "\n\n\n"),
+    ("no_trailing_newline_end_nr", 'END { print NR, $0 }', "a\nb"),
+])
+
+
+
+# Third pass: diagnostics for declarations, newlines, and regexp constants.
+group("diag", [
+    ("declname_01", 'function f(NR) {} BEGIN{}'),
+    ("declname_02", 'function NR() {} BEGIN{}'),
+    ("declname_03", 'function f(ENVIRON) {} BEGIN{}'),
+    ("declname_04", 'function ENVIRON() {} BEGIN{}'),
+    ("declname_05", 'function f(FUNCTAB) {} BEGIN{}'),
+    ("declname_06", 'function FUNCTAB() {} BEGIN{}'),
+    ("declname_07", 'function f(SYMTAB) {} BEGIN{}'),
+    ("declname_08", 'function SYMTAB() {} BEGIN{}'),
+    ("declname_09", 'function f(PROCINFO) {} BEGIN{}'),
+    ("declname_10", 'function PROCINFO() {} BEGIN{}'),
+    ("declname_11", 'function f(length) {} BEGIN{}'),
+    ("declname_12", 'function length() {} BEGIN{}'),
+    ("declname_13", 'function f(substr) {} BEGIN{}'),
+    ("declname_14", 'function substr() {} BEGIN{}'),
+    ("declname_15", 'function f(gensub) {} BEGIN{}'),
+    ("declname_16", 'function gensub() {} BEGIN{}'),
+    ("declname_17", 'function f(systime) {} BEGIN{}'),
+    ("declname_18", 'function systime() {} BEGIN{}'),
+    ("declname_19", 'function f(in) {} BEGIN{}'),
+    ("declname_20", 'function in() {} BEGIN{}'),
+    ("declname_21", 'function f(func) {} BEGIN{}'),
+    ("declname_22", 'function func() {} BEGIN{}'),
+    ("declname_23", 'function f(switch) {} BEGIN{}'),
+    ("declname_24", 'function switch() {} BEGIN{}'),
+    ("declname_25", 'function f(case) {} BEGIN{}'),
+    ("declname_26", 'function case() {} BEGIN{}'),
+    ("declname_27", 'function f(BEGINFILE) {} BEGIN{}'),
+    ("declname_28", 'function BEGINFILE() {} BEGIN{}'),
+    ("declname_29", 'function f(ENDFILE) {} BEGIN{}'),
+    ("declname_30", 'function ENDFILE() {} BEGIN{}'),
+    ("declname_31", 'function f(getline) {} BEGIN{}'),
+    ("declname_32", 'function getline() {} BEGIN{}'),
+    ("newline_in_01", 'function f(a) {return a} BEGIN { print f(1\n) }'),
+    ("newline_in_02", 'function f(a,b) {return a} BEGIN { print f(1\n,2) }'),
+    ("newline_in_03", 'function f(a,b) {return a} BEGIN { print f(\n1,2) }'),
+    ("newline_in_04", 'function f(a,b) {return a} BEGIN { print f(1,\n2) }'),
+    ("newline_in_05", 'BEGIN { print (1\n) }'),
+    ("newline_in_06", 'BEGIN { print (\n1) }'),
+    ("newline_in_07", 'BEGIN { x = (1\n) }'),
+    ("newline_in_08", 'BEGIN { x = (\n1) }'),
+    ("newline_in_09", 'BEGIN { a[1,\n2]; print length(a) }'),
+    ("newline_in_10", 'BEGIN { a[\n1]; print length(a) }'),
+    ("newline_in_11", 'BEGIN { print length(\n) }'),
+    ("newline_in_12", 'BEGIN { print substr("abc",\n2) }'),
+    ("newline_in_13", 'BEGIN { print substr("abc"\n,2) }'),
+    ("newline_in_14", 'BEGIN { print substr(\n"abc",2) }'),
+    ("newline_in_15", 'BEGIN { for (k in a\n) print k }'),
+    ("newline_in_16", 'BEGIN { for (\nk in a) print k }'),
+    ("newline_in_17", 'BEGIN { if (1\n) print 1 }'),
+    ("newline_in_18", 'BEGIN { while (\n0) print 1 }'),
+    ("newline_in_19", 'function f(a,\nb) { } BEGIN{}'),
+    ("newline_in_20", 'function f(a\n,b) { } BEGIN{}'),
+    ("newline_in_21", 'function f(\na,b) { } BEGIN{}'),
+    ("newline_in_22", 'function f(a,b\n) { } BEGIN{}'),
+    ("newline_in_23", 'BEGIN { print 1,\n2 }'),
+    ("newline_in_24", 'BEGIN { print 1\n,2 }'),
+    ("newline_in_25", 'BEGIN { x = 1 ?\n2 : 3 }'),
+    ("newline_in_26", 'BEGIN { x = 1 ? 2\n: 3 }'),
+    ("newline_in_27", 'BEGIN { x = 1 ? 2 :\n3 }'),
+    ("newline_in_28", 'BEGIN { x = 1 &&\n1 }'),
+    ("newline_in_29", 'BEGIN { x = 1 ||\n1 }'),
+    ("newline_in_30", 'BEGIN { x = 1\n&& 1 }'),
+    ("newline_in_31", 'BEGIN { x = 1 in\na }'),
+    ("newline_in_32", 'BEGIN { x = 1 ~\n2 }'),
+    ("newline_in_33", 'BEGIN { x = 1 ==\n2 }'),
+    ("newline_in_34", 'BEGIN { x = 1 |\ngetline }'),
+    ("newline_in_35", 'BEGIN { x = 1 +\n2 }'),
+    ("newline_in_36", 'BEGIN { x = 1 ;\n}'),
+    ("newline_in_37", 'BEGIN { x = 1 }\n;'),
+    ("newline_in_38", 'BEGIN { if (1) print 1;\nelse print 2 }'),
+    ("newline_in_39", 'BEGIN { if (1) print 1\nelse print 2 }'),
+    ("newline_in_40", 'BEGIN { if (1) { print 1 }\nelse print 2 }'),
+    ("newline_in_41", 'BEGIN { do print 1\nwhile (0) }'),
+    ("newline_in_42", 'BEGIN { do\nprint 1\nwhile (0) }'),
+    ("newline_in_43", 'BEGIN { do { print 1 }\nwhile (0) }'),
+    ("newline_in_44", 'BEGIN { do print 1; while (0) }'),
+    ("newline_in_45", 'BEGIN { for (i = 0;\ni < 2;\ni++) print i }'),
+    ("newline_in_46", 'BEGIN { for (i = 0\n; i < 2; i++) print i }'),
+    ("newline_in_47", 'BEGIN { for (i = 0; i < 2; i++)\nprint i }'),
+    ("newline_in_48", 'BEGIN { while (i < 2)\ni++; print i }'),
+    ("newline_in_49", 'BEGIN { { print 1 }\n}'),
+    ("newline_in_50", 'BEGIN { x["a"\n] = 1 }'),
+    ("newline_in_51", 'BEGIN { print 1 > \n"/dev/stdout" }'),
+    ("newline_in_52", 'BEGIN { print 1 >\n"/dev/stdout" }'),
+    ("newline_in_53", 'BEGIN { print\n1 }'),
+    ("newline_in_54", 'BEGIN { return\n}'),
+    ("rule_noaction_01", 'BEGIN'),
+    ("rule_noaction_02", 'BEGIN\n'),
+    ("rule_noaction_03", 'BEGIN\n\n\n{x}'),
+    ("rule_noaction_04", 'END\n'),
+    ("rule_noaction_05", 'BEGIN # c\n{}'),
+    ("rule_noaction_06", 'x=1\nBEGIN\nBEGIN {}'),
+    ("rule_noaction_07", 'BEGIN;'),
+    ("rule_noaction_08", 'BEGIN;\n{x}'),
+    ("rule_noaction_09", 'BEGIN ;;\n{x}'),
+    ("rule_noaction_10", 'BEGIN\n# c\n\nEND'),
+    ("rule_noaction_11", 'x=1\nBEGIN\n'),
+    ("rule_noaction_12", 'BEGIN; END; BEGIN { print 1 }'),
+    ("rule_noaction_13", 'BEGIN END'),
+    ("rule_noaction_14", 'BEGIN,END\n'),
+    ("rule_noaction_15", ';'),
+    ("rule_noaction_16", ';\n{x}'),
+    ("rule_noaction_17", ';\n\n;'),
+    ("rule_noaction_18", 'BEGIN { x }\n;'),
+    ("rule_noaction_19", 'BEGIN { x };'),
+    ("rule_noaction_20", 'BEGIN { print 1 };;\nEND { print 2 }'),
+    ("rule_noaction_21", '{ print 1 } ;\n;'),
+    ("regexconst_01", 'function f(v) { return v } { print f(/b/) }'),
+    ("regexconst_02", 'function f(a, v) { return v } { print f(1, /b/), f(/a/, 2) }'),
+    ("regexconst_03", '{ print length(/b/) }'),
+    ("regexconst_04", '{ print substr("abc", /b/) }'),
+    ("regexconst_05", '{ print index("abc", /b/) }'),
+    ("regexconst_06", '{ x = split("abc", a, /b/); print x }'),
+    ("regexconst_07", '{ print match("abc", /b/) }'),
+    ("regexconst_08", '{ print toupper(/b/) }'),
+    ("regexconst_09", 'function f(v) { return v } { print f(!/b/), f((/b/)) }'),
+    ("regexconst_10", 'function f(v) { return v } { print f(/b/ ~ "x") }'),
+    ("regexconst_11", 'function f(v) { return v }\n{ print f(\n /b/) }'),
+    ("regexconst_12", 'BEGIN { print sprintf("%d", /x/) }'),
+    ("regexconst_13", 'BEGIN { x = /a/ + 1 }'),
+    ("regexconst_14", 'BEGIN { print (/a/) }'),
+    ("regexconst_15", '{ print index("abc", /b/) }'),
+    ("regexconst_16", 'BEGIN { print index("abc", /b/) }'),
+    ("regexconst_17", 'BEGIN { if (0) print index("abc", /b/) }'),
+    ("regexconst_18", 'function f() { return index("abc", /b/) } BEGIN { }'),
+    ("regexconst_19", 'BEGIN { print index(/b/, "b") }'),
+    ("regexconst_20", 'BEGIN { x = "a" ~ /a/ ~ "b" }'),
+    ("regexconst_21", 'BEGIN { print /a/ ~ "1" }'),
+    ("regexconst_22", 'BEGIN { print /a/ !~ "1" }'),
+    ("regexconst_23", 'BEGIN { print "a" ~ /a/ }'),
+    ("regexconst_24", 'BEGIN { print (/a/) ~ 1 }'),
+    ("source_end_01", 'BEGIN { print 1\n'),
+    ("source_end_02", 'BEGIN { print 1\n\n'),
+    ("source_end_03", 'BEGIN { print 1\n\nx'),
+    ("source_end_04", '/x/,\n'),
+    ("source_end_05", '/x/,'),
+    ("source_end_06", 'BEGIN { x = 1 +'),
+    ("source_end_07", 'BEGIN { x = 1 +\n'),
+    ("source_end_08", 'BEGIN {'),
+    ("source_end_09", 'BEGIN {\n'),
+    ("source_end_10", 'BEGIN { print 1,'),
+    ("source_end_11", 'BEGIN { print 1,\n'),
+    ("source_end_12", 'BEGIN { print (1'),
+    ("source_end_13", 'BEGIN { print (1\n'),
+    ("source_end_14", 'BEGIN { a['),
+    ("source_end_15", 'BEGIN { a[1'),
+    ("source_end_16", 'BEGIN { print 1 }\n{'),
+    ("source_end_17", 'BEGIN { print 1 }\n{\n'),
+    ("source_end_18", 'function f('),
+    ("source_end_19", 'function f(a'),
+    ("source_end_20", 'function f(a)'),
+    ("source_end_21", 'function f(a)\n'),
+    ("source_end_22", 'BEGIN { if (1'),
+    ("source_end_23", 'BEGIN { if (1)'),
+    ("source_end_24", 'BEGIN { if (1)\n'),
+    ("source_end_25", 'BEGIN { while (1)'),
+    ("source_end_26", 'BEGIN { do'),
+    ("source_end_27", 'BEGIN { do print 1'),
+    ("source_end_28", 'BEGIN { for (;;'),
+    ("source_end_29", 'BEGIN { x = '),
+    ("source_end_30", 'BEGIN { x = \n'),
+    ("source_end_31", 'BEGIN { print 1 >'),
+    ("source_end_32", 'BEGIN { print 1 > \n'),
+    ("source_end_33", 'BEGIN { getline <'),
+    ("source_end_34", 'BEGIN { x ? 1'),
+    ("source_end_35", 'BEGIN { x ? 1 :'),
+    ("source_end_36", 'BEGIN { x = 1 &&'),
+    ("source_end_37", 'BEGIN { x = 1 ||\n'),
+    ("source_end_38", 'BEGIN { print 1; '),
+    ("source_end_39", 'BEGIN { print 1;\n'),
+    ("source_end_40", 'BEGIN { print 1 }\nEND'),
+    ("source_end_41", '/x/ ||'),
+    ("source_end_42", '/x/ ||\n'),
+    ("source_end_43", 'x =='),
+    ("source_end_44", 'a = (1 +\n'),
+    ("source_end_45", '('),
+    ("source_end_46", '(\n'),
+    ("source_end_47", '\n('),
+    ("source_end_48", '# c\n('),
+    ("source_end_49", 'BEGIN { x = "a\n" }'),
+    ("source_end_50", 'BEGIN { x = /a\n/ }'),
+    ("source_end_51", 'BEGIN { x = "abc'),
+    ("source_end_52", 'BEGIN { x = /abc'),
+    ("source_end_53", 'BEGIN { print 1 } }'),
+    ("source_end_54", 'BEGIN { print 1 } }\n'),
+    ("source_end_55", 'BEGIN { ) }'),
+    ("source_end_56", 'BEGIN { ) }\n'),
+    ("source_end_57", 'BEGIN { print @ }'),
+    ("source_end_58", '1 +'),
+    ("source_end_59", '1 +\n'),
+    ("source_end_60", '1 +\n\n\n'),
+    ("string_end_01", 'BEGIN { x = "a\n" }'),
+    ("string_end_02", 'BEGIN { x = "abc'),
+    ("string_end_03", 'BEGIN { x = "abc\n'),
+    ("string_end_04", 'BEGIN { x = "a\\\nb"; print x }'),
+    ("string_end_05", 'BEGIN { print "a\\'),
+    ("string_end_06", 'BEGIN {\n x = "a\n}'),
+    ("string_end_07", 'x = "a\\"'),
+    ("string_end_08", 'BEGIN { x ? 1'),
+    ("string_end_09", 'BEGIN { x ? 1 : 2 ?'),
+    ("string_end_10", 'BEGIN { x = 1 ? 2 : 3'),
+    ("string_end_11", 'BEGIN { x ?\n1 : 2 }'),
+    ("string_end_12", 'BEGIN { print "a" > "/dev/stdout\n"; }'),
+])
+
+
 # Known deviations from the oracle. A deviation either records what this
 # implementation prints instead (`xsh`) or names a channel that is not
 # compared (`loose`); each carries the reason.
@@ -987,3 +1379,5 @@ deviate("opt_characters_as_bytes", "text is always UTF-8 characters", xsh={"stdo
 deviate("opt_dump_variables", "variable dumping is not supported", xsh={"stdout": "", "stderr": REFUSED % "dump-variables", "status": 2})
 deviate("opt_profile", "profiling is not supported", xsh={"stdout": "", "stderr": REFUSED % "profile", "status": 2})
 deviate("opt_debug", "the debugger is not supported", xsh={"stdout": "", "stderr": REFUSED % "debug", "status": 2})
+for _name in ["bin_length", "bin_substr", "bin_toupper", "bin_match_class", "bin_index"]:
+    deviate(_name, "the invalid-multibyte-data warning is not emitted", loose=["stderr"])

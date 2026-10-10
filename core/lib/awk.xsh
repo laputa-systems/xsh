@@ -3,7 +3,7 @@
 # Messages are complete diagnostics without the leading "awk: ". Syntax errors
 # exit 1 after parsing (as gawk does); runtime failures and refused features exit 2.
 ## The failure kinds of the awk interpreter: syntax errors exit 1, the rest 2.
-export error AwkError = Syntax : Usage | Fatal : InvalidArgument | Unsupported : InvalidArgument
+export error AwkError = Syntax : Usage | Fatal(message: Str, pending: Str) : InvalidArgument | Plain(message: Str, pending: Str) : InvalidArgument
 
 # TokCall is a name written immediately before "(". Only that spelling makes a
 # user function call, so "v (a)" stays a concatenation as POSIX requires.
@@ -23,7 +23,7 @@ type Function = {parameters: List[Str], body: Int, site: Str}
 # Child ids address immutable expression and statement arenas, so recursive syntax
 # never requires recursive XSH record types. `site` labels each statement with the
 # source position runtime diagnostics report.
-type Program = {expressions: List[Expression], statements: List[Statement], site: List[Str], begin: List[Int], end: List[Int], rules: List[Rule], functions: Map[Function], notes: List[Str], uses: List[Use], environ: Bool}
+type Program = {expressions: List[Expression], statements: List[Statement], site: List[Str], begin: List[Int], end: List[Int], rules: List[Rule], functions: Map[Function], notes: List[Str], uses: List[Use], environ: Bool, grouped: List[Int]}
 # A name seen as a variable, array or function call, kept for the checks that need every definition.
 type Use = {name: Str, site: Str, call: Bool, argc: Int}
 # A piece is one program source: the command-line text or one -f file.
@@ -34,8 +34,8 @@ type Parsed[T] = {parser: Parser, value: T}
 type Escaped = {content: Str, at: Int, notes: List[Str]}
 
 pure syntax_error(message: Str) -> Error { AwkError.Syntax(message) }
-pure runtime(message: Str) -> Error { AwkError.Fatal(f"fatal: {message}") }
-pure unsupported(message: Str) -> Error { AwkError.Unsupported(f"fatal: unsupported: {message}") }
+pure runtime(message: Str) -> Error { AwkError.Fatal(message: f"fatal: {message}", pending: "") }
+pure unsupported(message: Str) -> Error { AwkError.Fatal(message: f"fatal: unsupported: {message}", pending: "") }
 pure digit(byte: Int) -> Bool { byte >= 48 and byte <= 57 }
 pure letter(byte: Int) -> Bool { byte == 95 or (byte >= 65 and byte <= 90) or (byte >= 97 and byte <= 122) }
 pure hex_digit(byte: Int) -> Bool { digit(byte) or (byte >= 65 and byte <= 70) or (byte >= 97 and byte <= 102) }
@@ -48,18 +48,10 @@ pure octal_literal(text: Str) -> Bool {
   true
 }
 
-# Line number (1-based) of a byte offset within program text.
-pure line_at(text: Str, offset: Int) -> Int {
-  let source = bytes.from_text(text)
-  var line = 1
-  for at in range(if offset > source.len() { source.len() } else { offset }) { if source.byte_at(at) == 10 { line += 1 } }
-  line
-}
-pure label_at(piece: Piece, offset: Int) -> Str { f"{piece.label}:{line_at(piece.text, offset)}" }
 
 # A located diagnostic as gawk prints it: the source line, then a caret under
 # the offending column with the message.
-pure caret_error(piece: Piece, offset: Int, message: Str) -> Str {
+pure caret_error(piece: Piece, offset: Int, message: Str, reported_line_shift: Int = 0) -> Str {
   let source = bytes.from_text(piece.text)
   let at = if offset > source.len() { source.len() } else { offset }
   var line = 1
@@ -70,7 +62,8 @@ pure caret_error(piece: Piece, offset: Int, message: Str) -> Str {
   let text = source[start..end].utf8() ?? ""
   let column = (source[start..at].utf8() ?? "").count_chars()
   let pad = [" " for _ in range(column)].join("")
-  f"{piece.label}:{line}: {text}\nawk: {piece.label}:{line}: {pad}^ {message}"
+  let reported = line + reported_line_shift
+  f"{piece.label}:{reported}: {text}\nawk: {piece.label}:{reported}: {pad}^ {message}"
 }
 
 # Escape processing shared by string literals, option values and operand
@@ -83,6 +76,7 @@ pure escaped(source: Bytes, start: Int, quote: Int) -> Result[Escaped] {
     let byte = source.byte_at(at) ?? 0
     at += 1
     if byte == quote and quote >= 0 { return Ok({content: bytes.from_ints(out)?.utf8()?, at: at, notes: notes}) }
+    if byte == 10 and quote >= 0 { return Err(syntax_error("unterminated string")) }
     if byte != 92 { out += [byte]; continue }
     if at >= source.len() { out += [92]; continue }
     let next = source.byte_at(at) ?? 0
@@ -178,7 +172,14 @@ pure lex(piece: Piece) -> Result[Lexed] {
           tokens += [TokText(text.content)]
           at = text.at
         }
-        Err(_) => { return Err(syntax_error(caret_error(piece, start, "unterminated string"))) }
+        Err(_) => {
+          # A backslash ending the text continues the string over the newline
+          # GNU awk appends, which advances its line count.
+          var stop = start + 1
+          while stop < source.len() and source.byte_at(stop) != 10 { stop += if source.byte_at(stop) == 92 { 2 } else { 1 } }
+          let continued = stop >= source.len() and source.byte_at(source.len() - 1) == 92
+          return Err(syntax_error(caret_error(piece, start, "unterminated string", if continued { 1 } else { 0 })))
+        }
       }
       starts += [start]
       lines += [line]
@@ -271,10 +272,17 @@ pure peek(p: Parser) -> Token { p.tokens[p.at] }
 pure peek_at(p: Parser, offset: Int) -> Token { p.tokens.get(p.at + offset) ?? TokEnd }
 pure is_at(p: Parser, content: Str) -> Bool { spelling(peek(p)) == content }
 pure advance(parser: Parser) -> Parser { var p = parser; p.at += 1; p }
-pure at_end(p: Parser) -> Bool { peek(p) == TokEnd }
-pure newline_or_end(p: Parser) -> Bool { peek(p) == TokEnd or is_at(p, "\n") }
 pure token_start(p: Parser) -> Int { p.starts.get(p.at) ?? 0 }
 pure label_here(p: Parser) -> Str { f"{p.piece.label}:{p.lines.get(p.at) ?? 1}" }
+# The line GNU awk has reached when it reports an error found with the token
+# at the parser position as lookahead: that token's line, or the last line of
+# the source when none remains.
+pure lookahead_line(p: Parser) -> Int {
+  if peek(p) != TokEnd { return p.lines.get(p.at) ?? 1 }
+  let lines = p.piece.text.split("\n").len()
+  let counted = if p.piece.text.ends_with("\n") { lines - 1 } else { lines }
+  if counted < 1 { 1 } else { counted }
+}
 pure label_of(p: Parser, index: Int) -> Str { f"{p.piece.label}:{p.lines.get(index) ?? 1}" }
 
 # The diagnostic for a token the grammar cannot accept. End of a program file
@@ -291,7 +299,54 @@ pure unexpected(p: Parser) -> Error {
     let pad = [" " for _ in range(column)].join("")
     return syntax_error(f"{p.piece.label}:{line}: (END OF FILE)\nawk: {p.piece.label}:{line}: {pad}^ source files / command-line arguments must contain complete functions or rules")
   }
-  syntax_error(caret_error(p.piece, token_start(p), if newline_or_end(p) { "unexpected newline or end of string" } else { "syntax error" }))
+  # GNU awk has already consumed the newline when it complains about it, so
+  # it names the following line while showing the line that holds the newline.
+  if is_at(p, "\n") { return syntax_error(caret_error(p.piece, token_start(p), "unexpected newline or end of string", 1)) }
+  if peek(p) == TokEnd { return syntax_error(end_of_command_error(p)) }
+  syntax_error(caret_error(p.piece, token_start(p), "syntax error"))
+}
+# An error at the end of command-line program text. GNU awk appends a newline
+# and parses it as a token of its own: where the grammar accepts that newline
+# the error is found one token later, on the last line; where it does not, the
+# newline itself is the culprit and the line after it is named. After
+# && || ? and : the lexer skips newlines itself and reports the end of the
+# source in its own words.
+pure end_of_command_error(p: Parser) -> Str {
+  let label = p.piece.label
+  let rows = p.piece.text.split("\n")
+  let trailing_newline = p.piece.text.ends_with("\n")
+  let counted = if trailing_newline { rows.len() - 1 } else { rows.len() }
+  var last = p.at - 1
+  while last >= 0 and spelling(p.tokens[last]) == "\n" { last -= 1 }
+  if last < 0 { return caret_error(p.piece, token_start(p), "unexpected newline or end of string") }
+  let previous = p.tokens[last]
+  let symbol = spelling(previous)
+  if symbol in ["&&", "||", "?", ":"] {
+    let line = rows.len() + 1 + (if trailing_newline { 0 } else { 1 })
+    let before = bytes.from_text(p.piece.text)[0..p.starts[last]].utf8() ?? ""
+    let pieces_before = before.split("\n")
+    let row_start = pieces_before[pieces_before.len() - 1]
+    let pad = [" " for _ in range(row_start.count_chars())].join("")
+    return f"{label}:{line}: (END OF FILE)\nawk: {label}:{line}: {pad}^ source files / command-line arguments must contain complete functions or rules"
+  }
+  var depth = 0
+  for index in range(last + 1) {
+    let text = spelling(p.tokens[index])
+    if text in ["(", "["] { depth += 1 }
+    if text in [")", "]"] { depth -= 1 }
+  }
+  let ends_operand = match previous { TokOp(op) => op in [")", "]", "++", "--"]; TokWord(word) => word != "in"; _ => true }
+  var pending_conditionals = 0
+  for index in range(last + 1) {
+    let text = spelling(p.tokens[index])
+    if text == "?" { pending_conditionals += 1 }
+    if text == ":" { pending_conditionals -= 1 }
+  }
+  let absorbed = symbol in [",", ";", "{", "}"] or (depth <= 0 and pending_conditionals <= 0 and ends_operand)
+  let line = if absorbed { counted } else { counted + 1 }
+  let shown = rows[counted - 1]
+  let pad = [" " for _ in range(shown.count_chars())].join("")
+  f"{label}:{line}: {shown}\nawk: {label}:{line}: {pad}^ unexpected newline or end of string"
 }
 pure require(parser: Parser, content: Str) -> Result[Parser] {
   if is_at(parser, content) { Ok(advance(parser)) } else { Err(unexpected(parser)) }
@@ -324,6 +379,10 @@ pure statement_node(parser: Parser, node: Statement) -> Parsed[Int] {
 }
 
 const BUILTINS = ["length", "substr", "index", "split", "sub", "gsub", "match", "sprintf", "sin", "cos", "atan2", "exp", "log", "sqrt", "int", "rand", "srand", "tolower", "toupper", "system", "close", "fflush", "and", "or", "xor", "lshift", "rshift", "compl", "strtonum", "systime", "strftime", "mktime", "gensub", "asort", "asorti", "patsplit", "typeof", "isarray"]
+# Names no function parameter may take: the POSIX built-in functions. GNU
+# extension functions are accepted as parameter names.
+const POSIX_BUILTINS = ["length", "substr", "index", "split", "sub", "gsub", "match", "sprintf", "sin", "cos", "atan2", "exp", "log", "sqrt", "int", "rand", "srand", "tolower", "toupper", "system", "close", "fflush"]
+const SPECIAL_VARIABLES = ["ARGC", "ARGIND", "ARGV", "BINMODE", "CONVFMT", "ENVIRON", "ERRNO", "FIELDWIDTHS", "FILENAME", "FNR", "FPAT", "FS", "IGNORECASE", "LINT", "NF", "NR", "OFMT", "OFS", "ORS", "PREC", "PROCINFO", "RLENGTH", "ROUNDMODE", "RS", "RSTART", "RT", "SUBSEP", "TEXTDOMAIN"]
 const KEYWORDS = ["BEGIN", "END", "function", "func", "if", "else", "while", "for", "do", "break", "continue", "next", "nextfile", "exit", "return", "delete", "in", "getline", "print", "printf"]
 
 # The tokens that can start an operand of an implicit concatenation.
@@ -340,12 +399,12 @@ pure starts_operand(p: Parser) -> Bool {
 }
 
 pure expression_list(parser: Parser, end: Str) -> Result[Parsed[List[Int]]] {
-  var p = skip_newlines(parser)
+  var p = parser
   var ids: List[Int] = []
   if is_at(p, end) { return Ok({parser: advance(p), value: ids}) }
   loop {
     let parsed = expression(p, 0)?
-    p = skip_newlines(parsed.parser)
+    p = parsed.parser
     ids += [parsed.value]
     if is_at(p, end) { return Ok({parser: advance(p), value: ids}) }
     if ! is_at(p, ",") { return Err(unexpected(p)) }
@@ -361,12 +420,20 @@ pure word_term(parser: Parser, word: Str, tight: Bool) -> Result[Parsed[Int]] {
   if is_at(parser, "(") and (tight or word in BUILTINS) {
     let args = expression_list(advance(parser), ")")?
     var after = args.parser
-    if word not in BUILTINS { after.program.uses += [Use(name: word, site: label_here(parser), call: true, argc: args.value.len())] }
+    if word not in BUILTINS {
+      after.program.uses += [Use(name: word, site: label_here(parser), call: true, argc: args.value.len())]
+      for index in range(args.value.len()) {
+        if is_regex_literal(after.program, args.value[index]) { after.program.notes += [f"{label_of(after, after.at - 1)}: warning: regexp constant for parameter #{index + 1} yields boolean value"] }
+      }
+    }
     if word in ["sub", "gsub"] and args.value.len() == 3 {
       let changeable = match after.program.expressions[args.value[2]] { Variable(_) => true; Index(_, _) => true; Field(_) => true; Text(_) => true; Number(_) => true; _ => false }
       if ! changeable { return Err(syntax_error(caret_error(after.piece, after.starts[after.at - 1], f"{word} third parameter is not a changeable object"))) }
     }
-    if after.sandbox and word == "system" { return Err(AwkError.Fatal(f"{label_here(parser)}: fatal: 'system' function not allowed in sandbox mode")) }
+    if word == "index" and args.value.len() == 2 and is_regex_literal(after.program, args.value[1]) {
+      return Err(AwkError.Plain(message: f"{label_here(parser)}: fatal: index: regexp constant as second argument is not allowed", pending: ""))
+    }
+    if after.sandbox and word == "system" { return Err(AwkError.Plain(message: f"{label_here(parser)}: fatal: 'system' function not allowed in sandbox mode", pending: "")) }
     return Ok(expression_node(after, Call(word, args.value)))
   }
   if word in BUILTINS and word != "length" { return Err(syntax_error(caret_error(parser.piece, token_start(parser), "syntax error"))) }
@@ -379,6 +446,12 @@ pure word_term(parser: Parser, word: Str, tight: Bool) -> Result[Parsed[Int]] {
   # A bare length is the length of the current record, not a variable.
   if word == "length" { return Ok(expression_node(noted, Call(word, []))) }
   Ok(expression_node(noted, Variable(word)))
+}
+# A regexp constant standing on its own; one wrapped in parentheses is not
+# diagnosed by GNU awk and is recorded in grouped.
+pure is_regex_literal(program: Program, id: Int) -> Bool {
+  if id in program.grouped { return false }
+  match program.expressions[id] { RegexLiteral(_) => true; _ => false }
 }
 pure lvalue(program: Program, id: Int) -> Bool {
   match program.expressions[id] { Variable(_) => true; Field(_) => true; Index(_, _) => true; _ => false }
@@ -426,7 +499,7 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
       if word == "getline" {
         let target = getline_target(p)?
         if is_at(target.parser, "<") {
-          if target.parser.sandbox { return Err(AwkError.Fatal(f"{label_here(target.parser)}: fatal: redirection not allowed in sandbox mode")) }
+          if target.parser.sandbox { return Err(AwkError.Plain(message: f"{label_here(target.parser)}: fatal: redirection not allowed in sandbox mode", pending: "")) }
           let file = expression(advance(target.parser), 9)?
           first = expression_node(file.parser, GetlineFile(target.value, file.value))
         } else {
@@ -460,6 +533,7 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
           first = expression_node(array.parser, Member(keys, array.value))
         } else {
           first = {parser: require(after, ")")?, value: inner.value}
+          if is_regex_literal(first.parser.program, inner.value) { first.parser.program.grouped += [inner.value] }
         }
         first.parser.printing = printing
       } else if op == "$" {
@@ -490,7 +564,7 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
     }
     if minimum <= 2 and op == "?" {
       let yes = expression(skip_newlines(advance(p)), 0)?
-      let no = expression(skip_newlines(require(skip_newlines(yes.parser), ":")?), 2)?
+      let no = expression(skip_newlines(require(yes.parser, ":")?), 2)?
       let next = expression_node(no.parser, Conditional(left, yes.value, no.value))
       p = next.parser
       left = next.value
@@ -498,7 +572,7 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
     }
     if p.printing and (op == ">" or op == ">>" or op == "|") and ! (op == "|" and spelling(peek_at(p, 1)) == "getline") { break }
     if minimum <= 8 and op == "|" and spelling(peek_at(p, 1)) == "getline" {
-      if p.sandbox { return Err(AwkError.Fatal(f"{label_here(p)}: fatal: redirection not allowed in sandbox mode")) }
+      if p.sandbox { return Err(AwkError.Plain(message: f"{label_here(p)}: fatal: redirection not allowed in sandbox mode", pending: "")) }
       let target = getline_target(advance(advance(p)))?
       let next = expression_node(target.parser, CommandInput(left, target.value))
       p = next.parser
@@ -507,6 +581,7 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
       continue
     }
     if op == "|&" { return Err(unsupported("coprocess operator `|&'")) }
+    if op == "|" and spelling(peek_at(p, 1)) != "getline" { return Err(unexpected(advance(p))) }
     if minimum <= 5 and op == "in" {
       let array = name(advance(p))?
       let next = expression_node(array.parser, Member([left], array.value))
@@ -528,7 +603,11 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
     } else { relational = false }
     let operator = if concat { "concat" } else { op }
     let right = if concat { expression(p, 9)? } else { expression(skip_newlines_after(p, op), if power == 1 or power == 12 { power } else { power + 1 })? }
-    let next = expression_node(right.parser, if power == 1 { Assign(operator, left, right.value) } else { Binary(operator, left, right.value) })
+    var after_right = right.parser
+    if (op == "~" or op == "!~") and is_regex_literal(after_right.program, left) {
+      after_right.program.notes += [f"{label_of(after_right, after_right.at - 1)}: warning: regular expression on left of `~' or `!~' operator"]
+    }
+    let next = expression_node(after_right, if power == 1 { Assign(operator, left, right.value) } else { Binary(operator, left, right.value) })
     p = next.parser
     left = next.value
   }
@@ -543,11 +622,6 @@ pure skip_newlines_after(parser: Parser, op: Str) -> Parser {
 }
 
 pure terminated(p: Parser) -> Bool { peek(p) == TokEnd or spelling(peek(p)) in [";", "\n", "}"] }
-pure add_bare_error(parser: Parser, message: Str) -> Parser {
-  var p = parser
-  p.errors += [f"{label_here(p)}: {message}"]
-  p
-}
 pure add_error(parser: Parser, message: Str) -> Parser {
   var p = parser
   p.errors += [f"{label_here(p)}: error: {message}"]
@@ -700,6 +774,7 @@ pure statement_inner(parser: Parser) -> Result[Parsed[Int]] {
     p = advance(p)
     var args: List[Int] = []
     if is_at(p, "(") and group_is_argument_list(p) {
+      if is_at(advance(p), ")") { return Err(unexpected(advance(p))) }
       let next = expression_list(advance(p), ")")?
       p = next.parser
       args = next.value
@@ -717,7 +792,7 @@ pure statement_inner(parser: Parser) -> Result[Parsed[Int]] {
     var target: Int? = null
     var mode = ""
     if is_at(p, ">") or is_at(p, ">>") or is_at(p, "|") {
-      if p.sandbox { return Err(AwkError.Fatal(f"{label_here(p)}: fatal: redirection not allowed in sandbox mode")) }
+      if p.sandbox { return Err(AwkError.Plain(message: f"{label_here(p)}: fatal: redirection not allowed in sandbox mode", pending: "")) }
       mode = spelling(peek(p))
       let destination = expression(advance(p), 8)?
       p = destination.parser
@@ -740,23 +815,33 @@ pure parse_piece(program: Program, piece: Piece, sandbox: Bool) -> Result[Parsed
   while peek(p) != TokEnd {
     let word = spelling(peek(p))
     if word == ";" {
-      p = advance(add_bare_error(p, "each rule must have a pattern or an action part"))
-      p = skip_newlines(p)
+      p = skip_newlines(advance(p))
+      p.errors += [f"{p.piece.label}:{lookahead_line(p)}: each rule must have a pattern or an action part"]
       continue
     }
     if word in ["function", "func"] {
       let function_name = name(advance(p))?
       let location = label_here(p)
+      if function_name.value in KEYWORDS or function_name.value in ["switch", "case", "default", "BEGINFILE", "ENDFILE"] {
+        return Err(syntax_error(caret_error(piece, token_start(advance(p)), "syntax error")))
+      }
       if function_name.value in BUILTINS {
         return Err(syntax_error(caret_error(piece, token_start(advance(p)), f"`{function_name.value}' is a built-in function, it cannot be redefined")))
       }
       p = require(function_name.parser, "(")?
+      if function_name.value in SPECIAL_VARIABLES or function_name.value in ["FUNCTAB", "SYMTAB"] {
+        p.errors += [f"{location}: error: function name `{function_name.value}' previously defined"]
+      }
       var parameters: List[Str] = []
-      p = skip_newlines(p)
       if ! is_at(p, ")") {
         loop {
+          let parameter_start = token_start(p)
           let parameter = name(p)?
-          p = skip_newlines(parameter.parser)
+          if parameter.value in KEYWORDS or parameter.value in POSIX_BUILTINS { return Err(syntax_error(caret_error(piece, parameter_start, "syntax error"))) }
+          p = parameter.parser
+          if parameter.value in SPECIAL_VARIABLES {
+            p = add_error(p, f"function `{function_name.value}': parameter `{parameter.value}': POSIX disallows using a special variable as a function parameter")
+          }
           if parameter.value == function_name.value { p = add_error(p, f"function `{function_name.value}': cannot use function name as parameter name") }
           if parameter.value in parameters {
             let first = 1 + [at for at in range(parameters.len()) if parameters[at] == parameter.value][0]
@@ -775,8 +860,16 @@ pure parse_piece(program: Program, piece: Piece, sandbox: Bool) -> Result[Parsed
       p.program.functions = p.program.functions.set(function_name.value, Function(parameters: parameters, body: body.value, site: location))
     } else if word in ["BEGIN", "END"] {
       let after = advance(p)
-      if is_at(after, "\n") or peek(after) == TokEnd {
-        return Err(syntax_error(caret_error(piece, token_start(after), f"{word} blocks must have an action part")))
+      if is_at(after, "\n") or is_at(after, ";") or peek(after) == TokEnd {
+        # GNU awk reports the line of the token that follows the rule's
+        # terminator, or the last line of the source when none follows, and
+        # keeps parsing to report further errors.
+        var ahead = after
+        if is_at(ahead, ";") { ahead = advance(ahead) }
+        ahead = skip_newlines(ahead)
+        ahead.errors += [f"{p.piece.label}:{lookahead_line(ahead)}: {word} blocks must have an action part"]
+        p = ahead
+        continue
       }
       var inner = after
       inner.context = word
@@ -812,7 +905,7 @@ pure parse_piece(program: Program, piece: Piece, sandbox: Bool) -> Result[Parsed
 }
 
 pure parse(pieces: List[Piece], sandbox: Bool) -> Result[Program] {
-  var program = Program(expressions: [], statements: [], site: [], begin: [], end: [], rules: [], functions: {}, notes: [], uses: [], environ: false)
+  var program = Program(expressions: [], statements: [], site: [], begin: [], end: [], rules: [], functions: {}, notes: [], uses: [], environ: false, grouped: [])
   for piece in pieces { program = parse_piece(program, piece, sandbox)?.parser.program }
   var errors: List[Str] = []
   for seen in program.uses {
@@ -915,7 +1008,6 @@ pure truncate(n: Float) -> Float {
   let whole = (if n < 0.0 { n.ceil() } else { n.floor() }) ?? 0
   whole.float()
 }
-pure is_integral(n: Float) -> Bool { n - n == 0.0 and truncate(n) == n }
 pure special_text(n: Float, negative_nan: Bool) -> Str {
   if is_nan(n) { return if negative_nan { "-nan" } else { "+nan" } }
   if n > 0.0 { "+inf" } else { "-inf" }
@@ -1112,7 +1204,14 @@ pure printf(format: Str, values: List[Scalar], conversion: Str) -> Result[Str] {
   Ok(out)
 }
 
-# ---- Regular expressions -------------------------------------------------
+type Reader = {fd: Int, text: Str, at: Int, done: Bool, tail: Bytes, pollable: Bool, lossy: Bool, job: ProcessHandle?, name: Str, command: Bool}
+type Writer = {fd: Int, pending: Str, job: ProcessHandle?, name: Str, command: Bool}
+type Cell = {value: Scalar, seq: Int}
+# kind is 1 when the first subscript was a non-negative integer, 2 for a
+# negative one and 3 otherwise; size and growths track the hash table GNU awk
+# would hold, which fixes the order a for-in loop visits the subscripts in.
+type Table = {cells: Map[Cell], next: Int, kind: Int, size: Int, growths: List[Int]}
+
 #
 # The host POSIX engine works on bytes and does not know the GNU awk
 # conventions (a leading star is literal, backslash escapes inside brackets,
@@ -1121,7 +1220,7 @@ pure printf(format: Str, values: List[Scalar], conversion: Str) -> Result[Str] {
 # offsets map back to the original bytes.
 
 type Match = {start: Int, end: Int}
-type Alphabet = {chars: Map[Str], free: List[Int]}
+type Alphabet = {chars: Map[Str], free: List[Int], invalid: Str}
 
 pure is_ascii_text(content: Str) -> Bool { content.byte_len() == content.count_chars() and "\0" not in content }
 pure shown_char(code: Int) -> Str {
@@ -1258,7 +1357,7 @@ pure rx_translate(pattern: Str, alphabet: Alphabet) -> Result[Str] {
       operand_start = false
       continue
     }
-    if c in [".", "$", "*", "+", "?", "]", "}"] { out += [c] } else { out += [literal_char(c, alphabet)] }
+    if c == "." and ! alphabet.invalid.is_empty() { out += ["[^" + alphabet.invalid + "]"] } else if c in [".", "$", "*", "+", "?", "]", "}"] { out += [c] } else { out += [literal_char(c, alphabet)] }
     at += 1
     operand_start = false
   }
@@ -1326,7 +1425,7 @@ pure rx_bracket(chars: List[Str], start: Int, alphabet: Alphabet) -> Result[Brac
     if current == "]" { has_close = true } else if current == "-" { has_dash = true } else if current == "^" { has_caret = true } else { items += [bracket_char(current, alphabet)] }
   }
   if ! closed { return Err(ere_error("Unmatched [, [^, [:, [., or [=")) }
-  let body = (if has_close { "]" } else { "" }) + items.join("") + (if has_caret { "^" } else { "" }) + (if has_dash { "-" } else { "" })
+  let body = (if has_close { "]" } else { "" }) + items.join("") + (if negate { alphabet.invalid } else { "" }) + (if has_caret { "^" } else { "" }) + (if has_dash { "-" } else { "" })
   Ok({text: "[" + (if negate { "^" } else { "" }) + body + "]", at: at})
 }
 pure bracket_char(character: Str, alphabet: Alphabet) -> Str {
@@ -1361,21 +1460,98 @@ pure make_alphabet(pattern: Str, subject: Str) -> Alphabet {
       if next < free.len() { chars = chars.set(character, shown_char(free[next])); next += 1 } else { chars = chars.set(character, shown_char(free[0])) }
     }
   }
-  {chars: chars, free: free}
+  # Characters standing for invalid input bytes (U+10FF80 and up) never match
+  # "." or a negated bracket expression.
+  var invalid = ""
+  for character in chars.keys() {
+    if code_point(character) >= 1113984 { invalid += chars.get(character) ?? "" }
+  }
+  {chars: chars, free: free, invalid: invalid}
 }
 
-const NO_ALPHABET: Alphabet = {chars: {}, free: []}
+const NO_ALPHABET: Alphabet = {chars: {}, free: [], invalid: ""}
+
+# GNU word-boundary operators (\\<, \\>, \\y, \\B) cannot be expressed to the
+# host engine; one at the very start or end of a pattern is supported by
+# filtering its matches instead.
+type Bounds = {lead: Str, body: Str, trail: Str}
+pure split_boundaries(pattern: Str) -> Bounds {
+  var body = pattern
+  var lead = ""
+  var trail = ""
+  for operator in ["<", "y", "B"] {
+    if lead.is_empty() and body.starts_with("\\" + operator) { lead = operator; body = body.byte_slice(2) }
+  }
+  for operator in [">", "y", "B"] {
+    if trail.is_empty() and body.ends_with("\\" + operator) {
+      var slashes = 0
+      var at = body.byte_len() - 3
+      while at >= 0 and body.byte_at(at) == 92 { slashes += 1; at -= 1 }
+      if slashes % 2 == 0 { trail = operator; body = body.byte_slice(0, length: body.byte_len() - 2) }
+    }
+  }
+  {lead: lead, body: body, trail: trail}
+}
+pure word_byte(byte: Int, marked: List[Bool]) -> Bool {
+  if byte >= 128 { return true }
+  if byte >= 48 and byte <= 57 { return true }
+  if byte >= 65 and byte <= 90 { return true }
+  if byte >= 97 and byte <= 122 { return true }
+  if byte == 95 { return true }
+  marked[byte]
+}
+# Whether the lead and trail boundary conditions hold for a match.
+pure boundaries_hold(subject: Bytes, start: Int, end: Int, lead: Str, trail: Str, marked: List[Bool]) -> Bool {
+  if ! lead.is_empty() {
+    let before = start > 0 and word_byte(subject.byte_at(start - 1) ?? 0, marked)
+    let after = start < subject.len() and word_byte(subject.byte_at(start) ?? 0, marked)
+    let boundary = before != after
+    if lead == "<" and ! (! before and after) { return false }
+    if lead == "y" and ! boundary { return false }
+    if lead == "B" and boundary { return false }
+  }
+  if ! trail.is_empty() {
+    let before = end > 0 and word_byte(subject.byte_at(end - 1) ?? 0, marked)
+    let after = end < subject.len() and word_byte(subject.byte_at(end) ?? 0, marked)
+    let boundary = before != after
+    if trail == ">" and ! (before and ! after) { return false }
+    if trail == "y" and ! boundary { return false }
+    if trail == "B" and boundary { return false }
+  }
+  true
+}
+# Matches of a translated pattern over a byte subject, keeping only those
+# whose boundary conditions hold.
+pure engine_matches(translated: Str, subject: Bytes, bounds: Bounds, marked: List[Bool], ignore_case: Bool) -> Result[List[Match]] {
+  if bounds.lead.is_empty() and bounds.trail.is_empty() {
+    let hits = regex.find_bytes(translated, subject, extended: true, ignore_case: ignore_case)?
+    return Ok([{start: hit.start, end: hit.end} for hit in hits])
+  }
+  var found: List[Match] = []
+  var offset = 0
+  while offset <= subject.len() {
+    let caps = regex.captures_bytes(translated, subject, offset, extended: true, ignore_case: ignore_case)?
+    if caps.is_empty() { break }
+    let span = caps[0] ?? {start: 0, end: 0}
+    if boundaries_hold(subject, span.start, span.end, bounds.lead, bounds.trail, marked) {
+      found += [{start: span.start, end: span.end}]
+      offset = if span.end > span.start { span.end } else { span.end + 1 }
+    } else { offset = span.start + 1 }
+  }
+  Ok(found)
+}
 
 # All non-overlapping leftmost-longest matches of an awk regular expression,
 # as byte offsets into content.
 pure rx_matches(pattern: Str, content: Str, ignore_case: Bool) -> Result[List[Match]] {
+  let bounds = split_boundaries(pattern)
+  var no_marks = [false for _ in range(128)]
   if is_ascii_text(content) and is_ascii_text(pattern) {
-    let translated = rx_translate(pattern, NO_ALPHABET)?
-    let hits = regex.find_bytes(translated, bytes.from_text(content), extended: true, ignore_case: ignore_case)?
-    return Ok([{start: hit.start, end: hit.end} for hit in hits])
+    let translated = rx_translate(bounds.body, NO_ALPHABET)?
+    return engine_matches(translated, bytes.from_text(content), bounds, no_marks, ignore_case)
   }
   let alphabet = make_alphabet(pattern, content)
-  let translated = rx_translate(pattern, alphabet)?
+  let translated = rx_translate(bounds.body, alphabet)?
   let characters = content.split("")
   var mapped: List[Int] = []
   var offsets: List[Int] = []
@@ -1389,13 +1565,12 @@ pure rx_matches(pattern: Str, content: Str, ignore_case: Bool) -> Result[List[Ma
     }
   }
   offsets += [position]
-  let hits = regex.find_bytes(translated, bytes.from_ints(mapped)?, extended: true, ignore_case: ignore_case)?
+  # Characters outside ASCII count as word characters for the boundary tests.
+  for shown in alphabet.chars.values() {
+    if shown.byte_len() == 1 { no_marks[shown.byte_at(0) ?? 0] = true }
+  }
+  let hits = engine_matches(translated, bytes.from_ints(mapped)?, bounds, no_marks, ignore_case)?
   Ok([{start: offsets[hit.start], end: offsets[hit.end]} for hit in hits])
-}
-pure first_match(pattern: Str, content: Str, offset: Int, ignore_case: Bool) -> Result[Match?] {
-  let hits = rx_matches(pattern, content, ignore_case)?
-  for hit in hits { if hit.start >= offset { return Ok(hit) } }
-  Ok(null)
 }
 # Parse-time validation of a regular expression literal.
 pure check_regex(pattern: Str) -> Result[Unit] {
@@ -1432,252 +1607,6 @@ pure rx_captures(pattern: Str, content: Str, ignore_case: Bool) -> Result[List[M
   Ok([if item == null { null } else { {start: offsets[(item ?? {start: 0, end: 0}).start], end: offsets[(item ?? {start: 0, end: 0}).end]} } for item in caps])
 }
 
-# ---- Machine state -------------------------------------------------------
-
-enum Flow { Normal, NextRecord, SkipFile, BreakLoop, ContinueLoop, ExitProgram, ReturnFunction }
-enum Place { Named(Str), FieldPlace(Int), Element(Str, Str) }
-# A function activation: parameter scalars by value, and for array use an
-# alias naming the caller's array (an untyped parameter passed a bare name).
-type Scope = {values: Map[Scalar], arrays: Map[Str], aliases: Map[Str], site: Str}
-type Cell = {value: Scalar, seq: Int}
-type Table = {cells: Map[Cell], next: Int}
-
-# Streams. A reader holds decoded text and a position; a writer holds text
-# not yet flushed. FIFO-backed commands run concurrently with the program.
-type Reader = {fd: Int, text: Str, at: Int, done: Bool, tail: Bytes, pollable: Bool, job: ProcessHandle?, name: Str, command: Bool}
-type Writer = {fd: Int, pending: Str, job: ProcessHandle?, name: Str, command: Bool, fifo: Path?}
-type MainInput = {index: Int, reader: Reader?, opened: Bool, finished: Bool, stdin_used: Bool}
-pure no_reader() -> Reader { Reader(fd: -1, text: "", at: 0, done: true, tail: b"", pollable: false, job: null, name: "", command: false) }
-pure no_writer() -> Writer { Writer(fd: -1, pending: "", job: null, name: "", command: false, fifo: null) }
-# State touched rarely lives behind a one-element list: a record is copied
-# whole whenever the machine is updated, a list only by reference.
-type Cold = {calls: Int, main: MainInput, interactive: Bool, state: Int, generator: List[Int], front: Int, rear: Int, seed: Float, previous_seed: Float, temp_root: FsRoot?, temp_path: Path?, temp_count: Int, running_end: Bool, running_begin: Bool, sandbox: Bool}
-type Machine = {
-  expressions: List[Expression], statements: List[Statement], sites: List[Str], functions: Map[Function],
-  values: Map[Scalar], arrays: Map[Table], scopes: List[Scope], fields: List[Scalar], record: Str,
-  status: Int, flow: Flow, value: Scalar, depth: Int, site: Str,
-  readers: Map[Reader], writers: Map[Writer], cold: List[Cold],
-}
-pure cold(m: Machine) -> Cold { m.cold[0] }
-pure with_cold(machine: Machine, state: Cold) -> Machine {
-  var m = machine
-  m.cold = [state]
-  m
-}
-type Located = {machine: Machine, place: Place}
-type Keyed = {machine: Machine, key: Str}
-
-pure get_scalar(m: Machine, name: Str) -> Scalar {
-  if ! m.scopes.is_empty() {
-    let scope = m.scopes[m.scopes.len() - 1]
-    if name in scope.values { return scope.values.get(name) ?? Empty }
-  }
-  m.values.get(name) ?? Empty
-}
-pure variable_text(m: Machine, name: Str) -> Result[Str] { scalar_text(get_scalar(m, name), plain_text(get_scalar(m, "CONVFMT"))?) }
-pure conversion_format(m: Machine) -> Result[Str] { plain_text(get_scalar(m, "CONVFMT")) }
-pure output_format(m: Machine) -> Result[Str] { plain_text(get_scalar(m, "OFMT")) }
-
-# The array a name denotes in the current activation: a parameter alias or the
-# global array of that name. Untyped parameters are resolved by the caller.
-pure array_name(m: Machine, name: Str) -> Str {
-  if ! m.scopes.is_empty() {
-    let scope = m.scopes[m.scopes.len() - 1]
-    if name in scope.arrays { return scope.arrays.get(name) ?? name }
-    if name in scope.aliases { return scope.aliases.get(name) ?? name }
-  }
-  name
-}
-# True when the name is a parameter of the current activation (so a global of
-# the same name is hidden).
-pure is_local(m: Machine, name: Str) -> Bool {
-  if m.scopes.is_empty() { return false }
-  let scope = m.scopes[m.scopes.len() - 1]
-  name in scope.values or name in scope.arrays or name in scope.aliases
-}
-
-pure table_get(m: Machine, array: Str) -> Table { m.arrays.get(array) ?? Table(cells: {}, next: 0) }
-pure array_size(m: Machine, array: Str) -> Int { table_get(m, array).cells.len() }
-pure array_has(m: Machine, array: Str, key: Str) -> Bool { key in table_get(m, array).cells }
-pure array_find(m: Machine, array: Str, key: Str) -> Scalar? {
-  let cells = table_get(m, array).cells
-  if key not in cells { return null }
-  (cells.get(key) ?? Cell(value: Empty, seq: 0)).value
-}
-pure array_set(machine: Machine, array: Str, key: Str, value: Scalar) -> Machine {
-  var m = machine
-  var table = table_get(m, array)
-  m.arrays = m.arrays.remove(array)
-  var seq = table.next
-  if key in table.cells { seq = (table.cells.get(key) ?? Cell(value: Empty, seq: 0)).seq } else { table.next += 1 }
-  table.cells = table.cells.set(key, Cell(value: value, seq: seq))
-  m.arrays = m.arrays.set(array, table)
-  m
-}
-pure array_remove(machine: Machine, array: Str, key: Str) -> Machine {
-  var m = machine
-  var table = table_get(m, array)
-  m.arrays = m.arrays.remove(array)
-  table.cells = table.cells.remove(key)
-  m.arrays = m.arrays.set(array, table)
-  m
-}
-pure array_clear(machine: Machine, array: Str) -> Machine {
-  var m = machine
-  m.arrays = m.arrays.remove(array)
-  m.arrays = m.arrays.set(array, Table(cells: {}, next: 0))
-  m
-}
-# Subscripts in the order a for-in loop visits them.
-pure array_keys(m: Machine, array: Str) -> List[Str] { table_get(m, array).cells.keys() }
-
-pure result(machine: Machine, value: Scalar) -> Machine { var m = machine; m.value = value; m }
-
-# ---- Diagnostics and low-level streams -----------------------------------
-
-# The shell-style reason of a host error without its path and errno suffix.
-pure reason_of(failure: Error) -> Str {
-  var text = failure.message
-  let cut = text.find(" (os error")
-  if cut != null { text = text.byte_slice(0, length: cut ?? 0) }
-  var tail = text
-  loop {
-    let at = tail.find(": ")
-    if at == null { break }
-    tail = tail.byte_slice((at ?? 0) + 2)
-  }
-  tail
-}
-pure context_text(m: Machine) -> Str {
-  let fnr = number(get_scalar(m, "FNR")) ?? 0.0
-  if fnr > 0.0 {
-    let name = plain_text(get_scalar(m, "FILENAME")) ?? ""
-    let line = float_text(fnr, "%.6g") ?? "0"
-    return f"(FILENAME={name} FNR={line}) "
-  }
-  ""
-}
-pure fatal(m: Machine, text: Str) -> Error {
-  AwkError.Fatal(f"{m.site}: {context_text(m)}fatal: {text}")
-}
-pure bare_fatal(text: Str) -> Error { AwkError.Fatal(f"fatal: {text}") }
-
-proc write_all(fd: Int, data: Bytes) -> Result[Unit] {
-  var rest = data
-  while ! rest.is_empty() {
-    let count = unix.write_fd(fd, rest)?
-    if count <= 0 { return error.fail("write failed") }
-    rest = rest.slice(count, length: rest.len() - count)
-  }
-}
-proc warn(m: Machine, text: Str) -> Result[Unit] {
-  write_all(2, bytes.from_text(f"awk: {m.site}: {context_text(m)}warning: {text}\n"))?
-}
-proc warn_plain(text: Str) -> Result[Unit] {
-  write_all(2, bytes.from_text(f"awk: warning: {text}\n"))?
-}
-proc flush_stdout(machine: Machine) -> Result[Machine] {
-  match io.flush_stdout() {
-    Ok(_) => Ok(machine)
-    Err(failure) => Err(fatal(machine, f"print to \"standard output\" failed ({reason_of(failure)})"))
-  }
-}
-proc flush_writer(machine: Machine, key: Str) -> Result[Machine] {
-  var m = machine
-  var writer = m.writers.get(key) ?? no_writer()
-  if writer.fd >= 0 and ! writer.pending.is_empty() {
-    let data = writer.pending
-    writer.pending = ""
-    m.writers = m.writers.set(key, writer)
-    match write_all(writer.fd, bytes.from_text(data)) {
-      Ok(_) => {}
-      Err(failure) => { return Err(fatal(m, f"print to \"{writer.name}\" failed ({reason_of(failure)})")) }
-    }
-  }
-  Ok(m)
-}
-# Everything the program wrote becomes visible: buffered files and pipes first,
-# then standard output, as GNU awk does before starting a child process.
-proc flush_all(machine: Machine) -> Result[Machine] {
-  var m = machine
-  for key in m.writers.keys() { m = flush_writer(m, key)? }
-  flush_stdout(m)
-}
-
-# A child's exit status as awk numbers it: the exit code, or 256 plus the
-# signal number.
-pure status_code(status: Status) -> Int {
-  if status.signaled() { return 256 + (status.signal_number() ?? 0) }
-  status.exit_code() ?? 0
-}
-
-# A shell prefix that exports the changes the program made to ENVIRON, so
-# children see them as they do under GNU awk.
-proc environment_prefix(m: Machine) -> Str {
-  if "ENVIRON" not in m.arrays { return "" }
-  var prefix = ""
-  let table = table_get(m, "ENVIRON")
-  var current: Map[Str] = {}
-  for entry in env.list() ?? [] { current = current.set(entry.name, entry.value) }
-  for name in table.cells.keys() {
-    if ! binding_name(name) { continue }
-    let wanted = plain_text((table.cells.get(name) ?? Cell(value: Empty, seq: 0)).value) ?? ""
-    if name in current and (current.get(name) ?? "") == wanted { continue }
-    prefix += f"export {name}='{wanted.replace("'", with: "'\\''")}'; "
-  }
-  for name in current.keys() {
-    if name not in table.cells and binding_name(name) { prefix += f"unset {name}; " }
-  }
-  prefix
-}
-type Located2 = {machine: Machine, path: Path}
-proc fifo_path(machine: Machine) -> Result[Located2] {
-  var m = machine
-  var state = cold(m)
-  if state.temp_root == null {
-    let root = fs.tempdir()?
-    state.temp_path = root.host_path()?
-    state.temp_root = root
-  }
-  state.temp_count += 1
-  let base = state.temp_path ?? fp"/tmp"
-  let made = fp"{base}/c{state.temp_count}"
-  m = with_cold(m, state)
-  Ok({machine: m, path: made})
-}
-
-# Starts `sh -c command` with standard output into a FIFO this process reads.
-proc open_command_reader(machine: Machine, command: Str) -> Result[Machine] {
-  # GNU awk does not synchronize its own buffered output before starting an
-  # input command; only output commands and system() flush first.
-  var m = machine
-  let made = fifo_path(m)?
-  m = made.machine
-  let pipe_path = made.path
-  fs.mkfifo(pipe_path, 0o600)?
-  let fd = unix.open_fd(pipe_path, nonblock: true)?
-  let job = spawn run.status sh -c ${environment_prefix(m) + command} > $pipe_path ?
-  m.readers = m.readers.set(f"|{command}", Reader(fd: fd, text: "", at: 0, done: false, tail: b"", pollable: true, job: job, name: command, command: true))
-  Ok(m)
-}
-# Starts `sh -c command` with standard input from a FIFO this process writes.
-proc open_command_writer(machine: Machine, command: Str) -> Result[Machine] {
-  var m = flush_all(machine)?
-  let made = fifo_path(m)?
-  m = made.machine
-  let pipe_path = made.path
-  fs.mkfifo(pipe_path, 0o600)?
-  # Holding the read end open lets the write end open at once; the child then
-  # inherits the read side and the held descriptor is released.
-  let hold = unix.open_fd(pipe_path, nonblock: true)?
-  let fd = unix.open_fd(pipe_path, write: true)?
-  let job = spawn run.status sh -c ${environment_prefix(m) + command} < $pipe_path ?
-  unix.close_fd(hold)?
-  m.writers = m.writers.set(f"|{command}", Writer(fd: fd, pending: "", job: job, name: command, command: true, fifo: pipe_path))
-  Ok(m)
-}
-
-# ---- Reading records -----------------------------------------------------
 
 # How many bytes at the end of data start a UTF-8 sequence that continues in
 # the next chunk (0 when the data ends on a character boundary).
@@ -1694,23 +1623,78 @@ pure incomplete_tail(data: Bytes) -> Int {
   }
   0
 }
-type Chunk = {text: Str, tail: Bytes}
+type Chunk = {text: Str, tail: Bytes, lossy: Bool}
+pure continuation(byte: Int) -> Bool { byte >= 128 and byte <= 191 }
+# Text holds only valid UTF-8, so each byte of input that is not part of a valid
+# sequence is kept as the private-use character U+10FF00 plus the byte (and
+# turned back into that byte on output), as GNU awk keeps such bytes in place.
+pure decode_lossy(data: Bytes) -> Result[Str] {
+  var out: List[Int] = []
+  let size = data.len()
+  var at = 0
+  while at < size {
+    let byte = data.byte_at(at) ?? 0
+    var width = 0
+    if byte < 128 { width = 1 } else if byte >= 194 and byte <= 223 {
+      if at + 1 < size and continuation(data.byte_at(at + 1) ?? 0) { width = 2 }
+    } else if byte >= 224 and byte <= 239 {
+      if at + 2 < size {
+        let second = data.byte_at(at + 1) ?? 0
+        let lowest = if byte == 224 { 160 } else { 128 }
+        let highest = if byte == 237 { 159 } else { 191 }
+        if second >= lowest and second <= highest and continuation(data.byte_at(at + 2) ?? 0) { width = 3 }
+      }
+    } else if byte >= 240 and byte <= 244 {
+      if at + 3 < size {
+        let second = data.byte_at(at + 1) ?? 0
+        let lowest = if byte == 240 { 144 } else { 128 }
+        let highest = if byte == 244 { 143 } else { 191 }
+        if second >= lowest and second <= highest and continuation(data.byte_at(at + 2) ?? 0) and continuation(data.byte_at(at + 3) ?? 0) { width = 4 }
+      }
+    }
+    if width > 0 {
+      for index in range(width) { out += [data.byte_at(at + index) ?? 0] }
+      at += width
+    } else {
+      out += [244, 143, 190 + (byte - 128) / 64, 128 + byte % 64]
+      at += 1
+    }
+  }
+  Ok(bytes.from_ints(out)?.utf8()?)
+}
 pure decode_chunk(carry: Bytes, fresh: Bytes) -> Result[Chunk] {
   let data = if carry.is_empty() { fresh } else { bytes.concat([carry, fresh]) }
   match data.utf8() {
-    Ok(text) => Ok({text: text, tail: b""})
+    Ok(text) => Ok({text: text, tail: b"", lossy: false})
     Err(_) => {
       let keep = incomplete_tail(data)
-      if keep > 0 {
-        let head = data.slice(0, length: data.len() - keep)
-        match head.utf8() {
-          Ok(text) => { return Ok({text: text, tail: data.slice(data.len() - keep, length: keep)}) }
-          Err(_) => {}
-        }
+      let head = if keep > 0 { data.slice(0, length: data.len() - keep) } else { data }
+      let rest = if keep > 0 { data.slice(data.len() - keep, length: keep) } else { b"" }
+      match head.utf8() {
+        Ok(text) => Ok({text: text, tail: rest, lossy: false})
+        Err(_) => Ok({text: decode_lossy(head)?, tail: rest, lossy: true})
       }
-      Err(bare_fatal("unsupported: input is not valid UTF-8"))
     }
   }
+}
+# The bytes to write for text that may hold mapped input bytes.
+pure output_bytes(text: Str, lossy: Bool) -> Bytes {
+  let encoded = bytes.from_text(text)
+  if ! lossy { return encoded }
+  var out: List[Int] = []
+  let size = encoded.len()
+  var at = 0
+  while at < size {
+    let byte = encoded.byte_at(at) ?? 0
+    if byte == 244 and at + 3 < size and encoded.byte_at(at + 1) == 143 and (encoded.byte_at(at + 2) ?? 0) >= 190 and (encoded.byte_at(at + 2) ?? 0) <= 191 {
+      out += [128 + ((encoded.byte_at(at + 2) ?? 190) - 190) * 64 + (encoded.byte_at(at + 3) ?? 128) - 128]
+      at += 4
+    } else {
+      out += [byte]
+      at += 1
+    }
+  }
+  bytes.from_ints(out) ?? encoded
 }
 # Reads another chunk into the reader's buffer; sets done at end of input.
 proc fill(source: Reader) -> Result[Reader] {
@@ -1728,11 +1712,16 @@ proc fill(source: Reader) -> Result[Reader] {
     let chunk = unix.read_fd(r.fd, 65536)?
     if chunk.is_empty() {
       r.done = true
-      if ! r.tail.is_empty() { return Err(bare_fatal("unsupported: input is not valid UTF-8")) }
+      if ! r.tail.is_empty() {
+        r.text += decode_lossy(r.tail)?
+        r.tail = b""
+        r.lossy = true
+      }
       return Ok(r)
     }
     let decoded = decode_chunk(r.tail, chunk)?
     r.tail = decoded.tail
+    if decoded.lossy { r.lossy = true }
     if decoded.text.is_empty() { continue }
     r.text += decoded.text
     return Ok(r)
@@ -1799,10 +1788,924 @@ proc read_record(source: Reader, separator: Str, ignore_case: Bool) -> Result[Re
   Ok({reader: r, record: null, terminator: ""})
 }
 
-# ---- Fields, variables and places ----------------------------------------
+#
+# GNU awk visits an array's subscripts in the order of its internal hash tables.
+# The order is reproduced here from each element's insertion sequence number:
+# a string-keyed array is a chained hash table that grows by fixed steps, a
+# negative-integer-keyed array hashes integers into small buckets, and
+# non-negative integer subscripts list in ascending order ahead of anything
+# that does not fit them.
 
-pure fold_case(m: Machine) -> Bool { truth(get_scalar(m, "IGNORECASE")) ?? false }
+const TABLE_SIZES = [13, 127, 1021, 8191, 131071, 1048573, 8388593, 16777213, 33554393, 67108859, 134217689, 268435399, 536870909, 1073741789, 2147483647]
+const MODULUS = 4294967296
 
+pure next_table_size(size: Int) -> Int {
+  for candidate in TABLE_SIZES { if candidate > size { return candidate } }
+  size
+}
+# 1 for a non-negative integer subscript, 2 for a negative one, 3 otherwise.
+pure subscript_kind(key: Str) -> Int {
+  let size = key.byte_len()
+  if size == 0 or size > 18 { return 3 }
+  var at = 0
+  var negative = false
+  if key.byte_at(0) == 45 { negative = true; at = 1 }
+  if at >= size { return 3 }
+  if (key.byte_at(at) ?? 0) == 48 and (size - at > 1 or negative) { return 3 }
+  for position in range(at, size) { if ! digit(key.byte_at(position) ?? 0) { return 3 } }
+  if negative { return 2 }
+  if size - at > 10 { return 2 }
+  if size - at == 10 and (key.parse_int() ?? 0) > 2147483647 { return 2 }
+  1
+}
+pure xor32(a: Int, b: Int) -> Int { a + b - 2 * a.bit_and(b) }
+# The hash of a string subscript (sdbm, 32 bits).
+pure string_code(key: Str) -> Int {
+  var h = 0
+  for byte in bytes.from_text(key) { h = (byte + h * 65599) % MODULUS }
+  h
+}
+# The hash of an integer subscript (the final mixing step of SuperFastHash).
+pure integer_code(value: Int) -> Int {
+  var k = (value % MODULUS + MODULUS) % MODULUS
+  k = xor32(k, k * 8 % MODULUS)
+  k = (k + k / 32) % MODULUS
+  k = xor32(k, k * 16 % MODULUS)
+  k = (k + k / 131072) % MODULUS
+  k = xor32(k, k * 33554432 % MODULUS)
+  k = (k + k / 64) % MODULUS
+  k
+}
+# Hash chains of string subscripts, newest first. `events` are the insertion
+# sequence numbers at which the table grew; null simulates growth from counts.
+pure string_order(keys: List[Str], seqs: List[Int], events: List[Int]?) -> List[Str] {
+  if keys.is_empty() { return [] }
+  var codes: List[Int] = []
+  for key in keys { codes += [string_code(key)] }
+  var size = 13
+  var chains: List[List[Int]] = [[] for _ in range(size)]
+  var pointer = 0
+  for at in range(keys.len()) {
+    var grow = false
+    if events == null { grow = (at + 1) / size > 10 } else {
+      let recorded = events ?? []
+      if pointer < recorded.len() and recorded[pointer] <= seqs[at] { grow = true; pointer += 1 }
+    }
+    if grow {
+      let bigger = next_table_size(size)
+      var rehashed: List[List[Int]] = [[] for _ in range(bigger)]
+      for index in range(size) {
+        for item in chains[index] { rehashed[codes[item] % bigger] = [item] + rehashed[codes[item] % bigger] }
+      }
+      chains = rehashed
+      size = bigger
+    }
+    chains[codes[at] % size] = [at] + chains[codes[at] % size]
+  }
+  var listing: List[Str] = []
+  for chain in chains { for item in chain { listing += [keys[item]] } }
+  listing
+}
+# Integer subscripts hash into buckets of two, newest bucket first.
+pure integer_order(keys: List[Str], seqs: List[Int], events: List[Int]?) -> List[Str] {
+  if keys.is_empty() { return [] }
+  var values: List[Int] = []
+  for key in keys { values += [key.parse_int() ?? 0] }
+  var size = 13
+  var chains: List[List[List[Int]]] = [[] for _ in range(size)]
+  var pointer = 0
+  for at in range(keys.len()) {
+    var grow = false
+    if events == null { grow = (at + 1) / size > 10 } else {
+      let recorded = events ?? []
+      if pointer < recorded.len() and recorded[pointer] <= seqs[at] { grow = true; pointer += 1 }
+    }
+    if grow {
+      let bigger = next_table_size(size)
+      var rehashed: List[List[List[Int]]] = [[] for _ in range(bigger)]
+      for index in range(size) {
+        for bucket in chains[index] {
+          for item in bucket {
+            let slot = integer_code(values[item]) % bigger
+            if rehashed[slot].is_empty() or rehashed[slot][0].len() >= 2 { rehashed[slot] = [[item]] + rehashed[slot] } else { rehashed[slot][0] = rehashed[slot][0] + [item] }
+          }
+        }
+      }
+      chains = rehashed
+      size = bigger
+    }
+    let slot = integer_code(values[at]) % size
+    if chains[slot].is_empty() or chains[slot][0].len() >= 2 { chains[slot] = [[at]] + chains[slot] } else { chains[slot][0] = chains[slot][0] + [at] }
+  }
+  var listing: List[Str] = []
+  for chain in chains { for bucket in chain { for item in bucket { listing += [keys[item]] } } }
+  listing
+}
+# Non-negative integer subscripts in ascending order.
+pure ascending_integers(keys: List[Str]) -> List[Str] {
+  if keys.len() <= 1 { return keys }
+  var numbers: List[Int] = []
+  for key in keys { numbers += [key.parse_int() ?? 0] }
+  let ordered = merge_integers(numbers)
+  [f"{value}" for value in ordered]
+}
+pure merge_integers(values: List[Int]) -> List[Int] {
+  if values.len() <= 1 { return values }
+  let middle = values.len() / 2
+  let left = merge_integers(values[..middle])
+  let right = merge_integers(values[middle..])
+  var merged: List[Int] = []
+  var i = 0
+  var j = 0
+  while i < left.len() and j < right.len() {
+    if right[j] < left[i] { merged += [right[j]]; j += 1 } else { merged += [left[i]]; i += 1 }
+  }
+  while i < left.len() { merged += [left[i]]; i += 1 }
+  while j < right.len() { merged += [right[j]]; j += 1 }
+  merged
+}
+
+# Non-negative integer subscripts live in power-of-two blocks of leaf arrays;
+# one that would waste too much allocated capacity overflows to the hash table.
+# Returns, for each key in insertion order, whether it stayed in the blocks.
+pure leaf_blocks(keys: List[Str]) -> List[Bool] {
+  var stays: List[Bool] = []
+  var capacity = 0
+  var count = 0
+  var leaves: Map[Bool] = {}
+  for key in keys {
+    let k = key.parse_int() ?? 0
+    var width = 0
+    var remaining = k
+    while remaining > 0 { width += 1; remaining = remaining / 2 }
+    let h1 = if width - 1 < 10 { 10 } else { width }
+    let m = h1 - 1
+    var estimate = if m > 10 { m } else { 10 }
+    while estimate >= 10 { estimate = (estimate + 1) / 2 }
+    var allocated = 1
+    for _ in range(estimate) { allocated *= 2 }
+    if capacity + allocated - count > 2048 {
+      stays += [false]
+      continue
+    }
+    count += 1
+    stays += [true]
+    var level = if m < 10 { 10 } else { m }
+    var base = 0
+    if m >= 10 { base = 1; for _ in range(m) { base *= 2 } }
+    var trail = f"{h1}"
+    loop {
+      let n = (level + 1) / 2
+      var size = 1
+      for _ in range(n) { size *= 2 }
+      let index = (k - base) / size
+      if n > 10 {
+        trail += f"/{index}"
+        base = base + size * index
+        level = n
+      } else {
+        let leaf = f"{trail}:{index}"
+        if leaf not in leaves {
+          leaves = leaves.set(leaf, true)
+          capacity += size
+        }
+        break
+      }
+    }
+  }
+  stays
+}
+# The subscripts of a table in GNU awk's for-in order.
+pure array_order(table: Table) -> List[Str] {
+  if table.cells.is_empty() { return [] }
+  var slots: List[Str] = ["" for _ in range(table.next)]
+  var present: List[Bool] = [false for _ in range(table.next)]
+  for key in table.cells.keys() {
+    let seq = (table.cells.get(key) ?? Cell(value: Empty, seq: 0)).seq
+    slots[seq] = key
+    present[seq] = true
+  }
+  var keys: List[Str] = []
+  var seqs: List[Int] = []
+  for at in range(table.next) { if present[at] { keys += [slots[at]]; seqs += [at] } }
+  let events: List[Int]? = if table.size > 0 { table.growths } else { null }
+  if table.kind == 3 { return string_order(keys, seqs, events) }
+  var strings: List[Str] = []
+  var string_seqs: List[Int] = []
+  var integers: List[Str] = []
+  var integer_seqs: List[Int] = []
+  var naturals: List[Str] = []
+  for at in range(keys.len()) {
+    let kind = subscript_kind(keys[at])
+    if kind == 1 { naturals += [keys[at]] }
+    if kind == 2 { integers += [keys[at]]; integer_seqs += [seqs[at]] }
+    if kind == 3 { strings += [keys[at]]; string_seqs += [seqs[at]] }
+  }
+  if table.kind == 2 {
+    # Every integer subscript is in the integer table, strings in its overflow.
+    var all_seqs: List[Int] = []
+    for at in range(keys.len()) { if subscript_kind(keys[at]) != 3 { all_seqs += [seqs[at]] } }
+    var in_order: List[Str] = []
+    for at in range(keys.len()) { if subscript_kind(keys[at]) != 3 { in_order += [keys[at]] } }
+    return string_order(strings, string_seqs, null) + integer_order(in_order, all_seqs, events)
+  }
+  # Non-negative integers still held by the blocks list ascending after the
+  # overflow table, which is an integer table when its first subscript was an
+  # integer, else a string table.
+  var natural_keys: List[Str] = []
+  for at in range(keys.len()) { if subscript_kind(keys[at]) == 1 { natural_keys += [keys[at]] } }
+  let stays = leaf_blocks(natural_keys)
+  var held: List[Str] = []
+  var overflow: List[Str] = []
+  var overflow_seqs: List[Int] = []
+  var first_overflow_kind = 0
+  var natural_at = 0
+  for at in range(keys.len()) {
+    let kind = subscript_kind(keys[at])
+    var kept = false
+    if kind == 1 {
+      kept = stays[natural_at]
+      natural_at += 1
+    }
+    if kept { held += [keys[at]] } else {
+      if overflow.is_empty() { first_overflow_kind = if kind == 3 { 3 } else { 2 } }
+      overflow += [keys[at]]
+      overflow_seqs += [seqs[at]]
+    }
+  }
+  var head: List[Str] = []
+  if first_overflow_kind == 2 {
+    var overflow_strings: List[Str] = []
+    var overflow_string_seqs: List[Int] = []
+    var overflow_integers: List[Str] = []
+    var overflow_integer_seqs: List[Int] = []
+    for at in range(overflow.len()) {
+      if subscript_kind(overflow[at]) == 3 { overflow_strings += [overflow[at]]; overflow_string_seqs += [overflow_seqs[at]] } else { overflow_integers += [overflow[at]]; overflow_integer_seqs += [overflow_seqs[at]] }
+    }
+    head = string_order(overflow_strings, overflow_string_seqs, null) + integer_order(overflow_integers, overflow_integer_seqs, null)
+  } else { head = string_order(overflow, overflow_seqs, null) }
+  head + ascending_integers(held)
+}
+
+# A table built in one step from cells numbered in insertion order.
+pure grown_table(cells: Map[Cell], first_key: Str) -> Table {
+  let count = cells.len()
+  let kind = if count == 0 { 0 } else { subscript_kind(first_key) }
+  var size = 0
+  var growths: List[Int] = []
+  if kind != 1 and count > 0 {
+    size = 13
+    for seq in range(count) { if (seq + 1) / size > 10 { size = next_table_size(size); growths += [seq] } }
+  }
+  Table(cells: cells, next: count, kind: kind, size: size, growths: growths)
+}
+pure empty_table() -> Table { Table(cells: {}, next: 0, kind: 0, size: 0, growths: []) }
+
+#
+# The program is compiled to a flat list of stack-machine operations and run by
+# one loop that owns every piece of interpreter state as a local variable, so
+# state is updated in place instead of copied through each evaluation step.
+
+# A storage place named by an operation. Field indexes and array subscripts
+# are on the operand stack, below any value being stored.
+enum Spot {
+  SpotGlobal(Str), SpotLocal(Int, Str), SpotField, SpotIndexGlobal(Str, Int), SpotIndexLocal(Int, Str, Int),
+  SpotRecord, SpotNF, SpotNone,
+}
+# How a user-function argument is passed: a computed value (on the stack), or
+# the name of a variable that may turn out to be an array.
+enum Arg { ArgValue, ArgGlobal(Str), ArgLocal(Int) }
+# Jump offsets are relative to the following operation, so code fragments can
+# be concatenated without patching.
+enum Op {
+  OpPushNumber(Float), OpPushText(Str),
+  OpLoadGlobal(Str), OpLoadLocal(Int, Str), OpLoadField, OpLoadIndexGlobal(Str, Int), OpLoadIndexLocal(Int, Str, Int),
+  OpMatchRecord(Str),
+  OpStore(Spot), OpArith(Spot, Str), OpIncrement(Spot, Float, Bool),
+  OpAdd, OpSubtract, OpMultiply, OpDivide, OpModulo, OpPower, OpConcat,
+  OpLess, OpLessEqual, OpEqual, OpNotEqual, OpGreater, OpGreaterEqual,
+  OpMatch, OpNotMatch, OpMatchLiteral(Str), OpNotMatchLiteral(Str),
+  OpNegate, OpPlus, OpNot, OpTruth,
+  OpJump(Int), OpJumpFalse(Int), OpJumpTrue(Int), OpShortAnd(Int), OpShortOr(Int), OpPop,
+  OpJumpUnless(Int, Int), OpStoreGlobal(Str), OpIncGlobal(Str, Float),
+  OpMember(Spot), OpDelete(Spot), OpDeleteAll(Spot),
+  OpForInStart(Spot), OpForInNext(Int, Spot), OpForInEnd,
+  OpCall(Str, List[Arg]), OpReturn, OpReturnEmpty,
+  OpBuiltin(Str, Int),
+  OpArrayBuiltin(Str, List[Spot], Int),
+  OpPrint(Int, Int, Bool, Bool),
+  OpGetlineMain(Spot), OpGetlineFile(Spot), OpGetlineCommand(Spot),
+  OpReadMain(Int), OpNext, OpNextFile, OpExit(Bool),
+  OpSetSite(Int), OpRangeActive(Int, Int), OpSetRange(Int, Bool),
+  OpHalt, OpBreakMarker, OpContinueMarker,
+}
+# One user function activation: parameters by value, and for array use an
+# alias naming the array the parameter stands for.
+type Frame = {slots: List[Scalar], aliases: List[Str], return_to: Int, base: Int, iterators: Int, site: Int}
+type Iteration = {keys: List[Str], at: Int}
+type Linked = {ops: List[Op], entries: Map[Int], labels: List[Str], loop_at: Int, end_at: Int, rules: Int}
+
+pure slot_of(names: List[Str], name: Str) -> Int {
+  for at in range(names.len()) { if names[at] == name { return at } }
+  -1
+}
+pure variable_spot(names: List[Str], name: Str) -> Spot {
+  if name == "NF" { return SpotNF }
+  let slot = slot_of(names, name)
+  if slot >= 0 { SpotLocal(slot, name) } else { SpotGlobal(name) }
+}
+pure array_spot(names: List[Str], name: Str) -> Spot {
+  let slot = slot_of(names, name)
+  if slot >= 0 { SpotLocal(slot, name) } else { SpotGlobal(name) }
+}
+type Place = {ops: List[Op], spot: Spot}
+
+# The code evaluating subscripts or a field index, and the Spot to use.
+pure compile_place(x: List[Expression], names: List[Str], id: Int) -> Result[Place] {
+  match x[id] {
+    Variable(name) => Ok({ops: [], spot: variable_spot(names, name)})
+    Field(child) => {
+      if is_dollar_zero(x, child) { return Ok({ops: [], spot: SpotRecord}) }
+      Ok({ops: compile_expression(x, names, child)?, spot: SpotField})
+    }
+    Index(name, keys) => {
+      var ops: List[Op] = []
+      for key in keys { ops += compile_expression(x, names, key)? }
+      let slot = slot_of(names, name)
+      Ok({ops: ops, spot: if slot >= 0 { SpotIndexLocal(slot, name, keys.len()) } else { SpotIndexGlobal(name, keys.len()) }})
+    }
+    _ => Err(syntax_error("assignment requires variable, field, or array element"))
+  }
+}
+pure is_dollar_zero(x: List[Expression], id: Int) -> Bool {
+  match x[id] { Number(n) => n == 0.0; _ => false }
+}
+
+# Regular expression operands that are literals push their pattern text
+# rather than the result of matching the record.
+pure compile_regex_source(x: List[Expression], names: List[Str], id: Int) -> Result[List[Op]] {
+  match x[id] {
+    RegexLiteral(pattern) => Ok([OpPushText(pattern)])
+    _ => compile_expression(x, names, id)
+  }
+}
+
+pure compile_expression(x: List[Expression], names: List[Str], id: Int) -> Result[List[Op]] {
+  match x[id] {
+    Number(n) => Ok([OpPushNumber(n)])
+    Text(content) => Ok([OpPushText(content)])
+    RegexLiteral(pattern) => Ok([OpMatchRecord(pattern)])
+    Variable(name) => {
+      let slot = slot_of(names, name)
+      Ok([if slot >= 0 { OpLoadLocal(slot, name) } else { OpLoadGlobal(name) }])
+    }
+    Field(child) => Ok(compile_expression(x, names, child)? + [OpLoadField])
+    Index(name, keys) => {
+      var ops: List[Op] = []
+      for key in keys { ops += compile_expression(x, names, key)? }
+      let slot = slot_of(names, name)
+      Ok(ops + [if slot >= 0 { OpLoadIndexLocal(slot, name, keys.len()) } else { OpLoadIndexGlobal(name, keys.len()) }])
+    }
+    Unary(op, child) => Ok(compile_expression(x, names, child)? + [if op == "!" { OpNot } else if op == "-" { OpNegate } else { OpPlus }])
+    Increment(target, delta, post) => {
+      let place = compile_place(x, names, target)?
+      Ok(place.ops + [OpIncrement(place.spot, delta, post)])
+    }
+    Assign(op, target, right) => {
+      let place = compile_place(x, names, target)?
+      let value = compile_expression(x, names, right)?
+      Ok(place.ops + value + [if op == "=" { OpStore(place.spot) } else { OpArith(place.spot, op.byte_slice(0, length: 1)) }])
+    }
+    Conditional(condition, yes, no) => {
+      let cond_ops = compile_expression(x, names, condition)?
+      let then_part = compile_expression(x, names, yes)?
+      let else_part = compile_expression(x, names, no)?
+      Ok(cond_ops + [OpJumpFalse(then_part.len() + 1)] + then_part + [OpJump(else_part.len())] + else_part)
+    }
+    Binary(op, left, right) => {
+      if op == "&&" or op == "||" {
+        let first = compile_expression(x, names, left)?
+        let second = compile_expression(x, names, right)?
+        return Ok(first + [if op == "&&" { OpShortAnd(second.len() + 1) } else { OpShortOr(second.len() + 1) }] + second + [OpTruth])
+      }
+      if op == "~" or op == "!~" {
+        let subject = compile_expression(x, names, left)?
+        match x[right] {
+          RegexLiteral(pattern) => { return Ok(subject + [if op == "~" { OpMatchLiteral(pattern) } else { OpNotMatchLiteral(pattern) }]) }
+          _ => { return Ok(subject + compile_expression(x, names, right)? + [if op == "~" { OpMatch } else { OpNotMatch }]) }
+        }
+      }
+      let first = compile_expression(x, names, left)?
+      let second = compile_expression(x, names, right)?
+      let operation = if op == "+" { OpAdd } else if op == "-" { OpSubtract } else if op == "*" { OpMultiply } else if op == "/" { OpDivide } else if op == "%" { OpModulo } else if op == "^" { OpPower } else if op == "concat" { OpConcat } else if op == "<" { OpLess } else if op == "<=" { OpLessEqual } else if op == "==" { OpEqual } else if op == "!=" { OpNotEqual } else if op == ">" { OpGreater } else { OpGreaterEqual }
+      Ok(first + second + [operation])
+    }
+    Member(keys, array) => {
+      var ops: List[Op] = []
+      for key in keys { ops += compile_expression(x, names, key)? }
+      let slot = slot_of(names, array)
+      Ok(ops + [OpMember(if slot >= 0 { SpotIndexLocal(slot, array, keys.len()) } else { SpotIndexGlobal(array, keys.len()) })])
+    }
+    CommandInput(command, target) => {
+      let source = compile_expression(x, names, command)?
+      if target == null { return Ok(source + [OpGetlineCommand(SpotRecord)]) }
+      let place = compile_place(x, names, target ?? 0)?
+      Ok(source + place.ops + [OpGetlineCommand(place.spot)])
+    }
+    GetlineMain(target) => {
+      if target == null { return Ok([OpGetlineMain(SpotRecord)]) }
+      let place = compile_place(x, names, target ?? 0)?
+      Ok(place.ops + [OpGetlineMain(place.spot)])
+    }
+    GetlineFile(target, file) => {
+      let source = compile_expression(x, names, file)?
+      if target == null { return Ok(source + [OpGetlineFile(SpotRecord)]) }
+      let place = compile_place(x, names, target ?? 0)?
+      Ok(source + place.ops + [OpGetlineFile(place.spot)])
+    }
+    Call(name, args) => compile_call(x, names, name, args)
+  }
+}
+
+# A user function, a builtin that takes values, or one that names arrays or
+# assignable targets.
+pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[Int]) -> Result[List[Op]] {
+  var ops: List[Op] = []
+  if name in BUILTINS {
+    if name in ["sub", "gsub"] {
+      if args.len() < 2 or args.len() > 3 { return Err(fatal_error(f"{name}: wrong number of arguments")) }
+      ops += compile_regex_source(x, names, args[0])? + compile_expression(x, names, args[1])?
+      if args.len() == 2 { return Ok(ops + [OpArrayBuiltin(name, [SpotRecord], 2)]) }
+      match x[args[2]] {
+        Variable(_) => { let place = compile_place(x, names, args[2])?; return Ok(ops + place.ops + [OpArrayBuiltin(name, [place.spot], 2)]) }
+        Field(_) => { let place = compile_place(x, names, args[2])?; return Ok(ops + place.ops + [OpArrayBuiltin(name, [place.spot], 2)]) }
+        Index(_, _) => { let place = compile_place(x, names, args[2])?; return Ok(ops + place.ops + [OpArrayBuiltin(name, [place.spot], 2)]) }
+        _ => { return Ok(ops + compile_expression(x, names, args[2])? + [OpArrayBuiltin(name, [SpotNone], 2)]) }
+      }
+    }
+    if name == "split" {
+      if args.len() < 2 or args.len() > 4 { return Err(fatal_error("split: wrong number of arguments")) }
+      ops += compile_expression(x, names, args[0])?
+      var literal = false
+      if args.len() >= 3 {
+        ops += compile_regex_source(x, names, args[2])?
+        match x[args[2]] { RegexLiteral(_) => { literal = true }; _ => {} }
+      }
+      let array = match x[args[1]] { Variable(variable) => array_spot(names, variable); _ => SpotNone }
+      var spots = [array]
+      if args.len() == 4 { spots += [match x[args[3]] { Variable(variable) => array_spot(names, variable); _ => SpotNone }] }
+      return Ok(ops + [OpArrayBuiltin(if literal { "split_regex" } else { "split" }, spots, args.len())])
+    }
+    if name == "match" {
+      if args.len() < 2 or args.len() > 3 { return Err(fatal_error("match: wrong number of arguments")) }
+      ops += compile_expression(x, names, args[0])? + compile_regex_source(x, names, args[1])?
+      var spots: List[Spot] = []
+      if args.len() == 3 { spots += [match x[args[2]] { Variable(variable) => array_spot(names, variable); _ => SpotNone }] }
+      return Ok(ops + [OpArrayBuiltin("match", spots, args.len())])
+    }
+    if name == "gensub" {
+      if args.len() < 3 or args.len() > 4 { return Err(fatal_error("gensub: wrong number of arguments")) }
+      ops += compile_regex_source(x, names, args[0])?
+      for child in args[1..] { ops += compile_expression(x, names, child)? }
+      return Ok(ops + [OpBuiltin("gensub", args.len())])
+    }
+    if name in ["patsplit", "asort", "asorti", "typeof", "isarray", "length"] and args.len() >= 1 {
+      var spots: List[Spot] = []
+      var plain: List[Int] = []
+      for at in range(args.len()) {
+        let is_array_position = (name == "patsplit" and (at == 1 or at == 3)) or (name in ["asort", "asorti"] and at <= 1) or (name in ["typeof", "isarray", "length"] and at == 0)
+        match x[args[at]] {
+          Variable(variable) => {
+            if is_array_position { spots += [array_spot(names, variable)] } else { plain += [at] }
+          }
+          Index(variable, keys) => {
+            if name in ["typeof", "isarray"] and at == 0 {
+              let place = compile_place(x, names, args[at])?
+              ops += place.ops
+              spots += [place.spot]
+            } else { plain += [at] }
+          }
+          _ => { plain += [at] }
+        }
+      }
+      if name == "length" and args.len() == 1 and ! spots.is_empty() { return Ok([OpArrayBuiltin("length", spots, 1)]) }
+      if name in ["typeof", "isarray"] and ! spots.is_empty() { return Ok(ops + [OpArrayBuiltin(name, spots, 1)]) }
+      if name in ["asort", "asorti"] {
+        var how_ops: List[Op] = []
+        if args.len() == 3 { how_ops = compile_expression(x, names, args[2])? }
+        if spots.len() < 1 { return Err(fatal_error(f"{name}: first argument is not an array")) }
+        return Ok(how_ops + [OpArrayBuiltin(name, spots, args.len())])
+      }
+      if name == "patsplit" {
+        var value_ops = compile_expression(x, names, args[0])?
+        if args.len() >= 3 { value_ops += compile_regex_source(x, names, args[2])? }
+        return Ok(value_ops + [OpArrayBuiltin("patsplit", spots, args.len())])
+      }
+    }
+    for child in args { ops += compile_expression(x, names, child)? }
+    return Ok(ops + [OpBuiltin(name, args.len())])
+  }
+  # Anything else is a user function, resolved when the call runs.
+  var kinds: List[Arg] = []
+  for child in args {
+    match x[child] {
+      Variable(variable) => {
+        let slot = slot_of(names, variable)
+        kinds += [if slot >= 0 { ArgLocal(slot) } else { ArgGlobal(variable) }]
+      }
+      _ => {
+        ops += compile_expression(x, names, child)?
+        kinds += [ArgValue]
+      }
+    }
+  }
+  Ok(ops + [OpCall(name, kinds)])
+}
+
+# Statements. Loop bodies carry BreakMarker and ContinueMarker placeholders
+# that the enclosing loop turns into jumps once its layout is known.
+pure patch_markers(body: List[Op], break_to: Int, continue_to: Int) -> List[Op] {
+  var out: List[Op] = []
+  for at in range(body.len()) {
+    match body[at] {
+      OpBreakMarker => { out += [OpJump(break_to - (at + 1))] }
+      OpContinueMarker => { out += [OpJump(continue_to - (at + 1))] }
+      _ => { out += [body[at]] }
+    }
+  }
+  out
+}
+# A condition's code followed by the jump taken when it is false; a relational
+# comparison fuses into one operation.
+pure compile_condition(x: List[Expression], names: List[Str], id: Int, offset: Int) -> Result[List[Op]] {
+  match x[id] {
+    Binary(op, left, right) => {
+      let code = if op == "<" { 0 } else if op == "<=" { 1 } else if op == "==" { 2 } else if op == "!=" { 3 } else if op == ">" { 4 } else if op == ">=" { 5 } else { -1 }
+      if code >= 0 {
+        return Ok(compile_expression(x, names, left)? + compile_expression(x, names, right)? + [OpJumpUnless(code, offset)])
+      }
+    }
+    _ => {}
+  }
+  Ok(compile_expression(x, names, id)? + [OpJumpFalse(offset)])
+}
+pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str], id: Int) -> Result[List[Op]] {
+  let site = [OpSetSite(id)]
+  match s[id] {
+    Block(body) => {
+      var ops: List[Op] = []
+      for child in body { ops += compile_statement(x, s, names, child)? }
+      Ok(ops)
+    }
+    ExpressionStatement(child) => {
+      # An increment or plain assignment to a global whose value is not used.
+      match x[child] {
+        Increment(target, delta, post) => {
+          match x[target] {
+            Variable(name) => {
+              if slot_of(names, name) < 0 and name != "NF" { return Ok(site + [OpIncGlobal(name, delta)]) }
+            }
+            _ => {}
+          }
+        }
+        Assign(op, target, right) => {
+          match x[target] {
+            Variable(name) => {
+              if op == "=" and slot_of(names, name) < 0 and name != "NF" { return Ok(site + compile_expression(x, names, right)? + [OpStoreGlobal(name)]) }
+            }
+            _ => {}
+          }
+        }
+        _ => {}
+      }
+      Ok(site + compile_expression(x, names, child)? + [OpPop])
+    }
+    Print(args, formatted_output, target, mode) => {
+      var ops = site
+      for child in args { ops += compile_expression(x, names, child)? }
+      var redirect = 0
+      if target != null {
+        ops += compile_expression(x, names, target ?? 0)?
+        redirect = if mode == ">" { 1 } else if mode == ">>" { 2 } else { 3 }
+      }
+      Ok(ops + [OpPrint(args.len(), redirect, target != null, formatted_output)])
+    }
+    If(condition, yes, no) => {
+      let then_part = compile_statement(x, s, names, yes)?
+      if no == null { return Ok(site + compile_condition(x, names, condition, then_part.len())? + then_part) }
+      let else_part = compile_statement(x, s, names, no ?? 0)?
+      Ok(site + compile_condition(x, names, condition, then_part.len() + 1)? + then_part + [OpJump(else_part.len())] + else_part)
+    }
+    While(condition, body) => {
+      let inner = compile_statement(x, s, names, body)?
+      let gate = compile_condition(x, names, condition, inner.len() + 1)?
+      let total = gate.len() + inner.len() + 1
+      let patched = patch_markers(inner, total - gate.len(), 0 - gate.len())
+      Ok(site + gate + patched + [OpJump(0 - total)])
+    }
+    Do(body, condition) => {
+      let inner = compile_statement(x, s, names, body)?
+      let cond_ops = compile_expression(x, names, condition)?
+      let total = inner.len() + cond_ops.len() + 1
+      let patched = patch_markers(inner, total, inner.len())
+      Ok(site + patched + cond_ops + [OpJumpTrue(0 - total)])
+    }
+    For(initial, condition, step, body) => {
+      var init_ops: List[Op] = []
+      if initial != null { init_ops = compile_expression(x, names, initial ?? 0)? + [OpPop] }
+      var step_ops: List[Op] = []
+      if step != null {
+        match x[step ?? 0] {
+          Increment(target, delta, post) => {
+            match x[target] {
+              Variable(name) => {
+                if slot_of(names, name) < 0 and name != "NF" { step_ops = [OpIncGlobal(name, delta)] }
+              }
+              _ => {}
+            }
+          }
+          _ => {}
+        }
+        if step_ops.is_empty() { step_ops = compile_expression(x, names, step ?? 0)? + [OpPop] }
+      }
+      let inner = compile_statement(x, s, names, body)?
+      # [condition + jump] [body] [step] [Jump back]
+      var gate: List[Op] = []
+      if condition != null { gate = compile_condition(x, names, condition ?? 0, inner.len() + step_ops.len() + 1)? }
+      let total = gate.len() + inner.len() + step_ops.len() + 1
+      let patched = patch_markers(inner, total - gate.len(), inner.len())
+      Ok(site + init_ops + gate + patched + step_ops + [OpJump(0 - total)])
+    }
+    Each(variable, array, body) => {
+      let inner = compile_statement(x, s, names, body)?
+      let loop_variable = variable_spot(names, variable)
+      let source = array_spot(names, array)
+      # [ForInStart] [ForInNext exit] [body] [Jump back] [ForInEnd]; break
+      # lands on ForInEnd so the key snapshot is dropped.
+      let patched = patch_markers(inner, inner.len() + 1, 0 - 1)
+      Ok(site + [OpForInStart(source), OpForInNext(inner.len() + 1, loop_variable)] + patched + [OpJump(0 - (inner.len() + 2)), OpForInEnd])
+    }
+    Delete(array, keys) => {
+      let slot = slot_of(names, array)
+      if keys == null { return Ok(site + [OpDeleteAll(if slot >= 0 { SpotLocal(slot, array) } else { SpotGlobal(array) })]) }
+      var ops = site
+      for key in keys ?? [] { ops += compile_expression(x, names, key)? }
+      let count = (keys ?? []).len()
+      Ok(ops + [OpDelete(if slot >= 0 { SpotIndexLocal(slot, array, count) } else { SpotIndexGlobal(array, count) })])
+    }
+    Next => Ok(site + [OpNext])
+    NextFile => Ok(site + [OpNextFile])
+    Break => Ok([OpBreakMarker])
+    Continue => Ok([OpContinueMarker])
+    Exit(child) => {
+      if child == null { return Ok(site + [OpExit(false)]) }
+      Ok(site + compile_expression(x, names, child ?? 0)? + [OpExit(true)])
+    }
+    Return(child) => {
+      if child == null { return Ok(site + [OpReturnEmpty]) }
+      Ok(site + compile_expression(x, names, child ?? 0)? + [OpReturn])
+    }
+  }
+}
+
+
+# Lays out BEGIN code, the record loop with its rules, END code, and the
+# functions after a final Halt.
+pure link(program: Program) -> Result[Linked] {
+  let x = program.expressions
+  let s = program.statements
+  var labels = program.site
+  var begin_ops: List[Op] = []
+  for id in program.begin { begin_ops += compile_statement(x, s, [], id)? }
+  var rule_ops: List[Op] = []
+  var range_index = 0
+  for rule in program.rules {
+    let label = labels.len()
+    labels += [rule.site]
+    let action = compile_statement(x, s, [], rule.action)?
+    if rule.pattern == null { rule_ops += [OpSetSite(label)] + action; continue }
+    let cond_ops = compile_expression(x, [], rule.pattern ?? 0)?
+    if rule.end == null {
+      rule_ops += [OpSetSite(label)] + compile_condition(x, [], rule.pattern ?? 0, action.len())? + action
+      continue
+    }
+    let stop = compile_expression(x, [], rule.end ?? 0)?
+    let index = range_index
+    range_index += 1
+    # [RangeActive -> check] [start] [JumpFalse skip] [SetRange true]
+    # check: [stop] [JumpTrue close] [Jump act] close: [SetRange false] act: [action]
+    let tail = stop + [OpJumpTrue(1), OpJump(1), OpSetRange(index, false)] + action
+    rule_ops += [OpSetSite(label), OpRangeActive(index, cond_ops.len() + 2)] + cond_ops + [OpJumpFalse(1 + tail.len()), OpSetRange(index, true)] + tail
+  }
+  var end_ops: List[Op] = []
+  for id in program.end { end_ops += compile_statement(x, s, [], id)? }
+  let main_section = ! program.rules.is_empty() or ! program.end.is_empty()
+  var ops = begin_ops
+  var loop_at = begin_ops.len()
+  var end_at = begin_ops.len()
+  if main_section {
+    ops += [OpReadMain(rule_ops.len() + 1)] + rule_ops + [OpJump(0 - (rule_ops.len() + 2))]
+    end_at = ops.len()
+  }
+  ops += end_ops + [OpHalt]
+  var entries: Map[Int] = {}
+  for name in program.functions.keys() {
+    let function = program.functions.get(name) ?? Function(parameters: [], body: 0, site: "")
+    entries = entries.set(name, ops.len())
+    ops += compile_statement(x, s, function.parameters, function.body)? + [OpReturnEmpty]
+  }
+  Ok({ops: ops, entries: entries, labels: labels, loop_at: loop_at, end_at: end_at, rules: program.rules.len()})
+}
+
+
+
+pure no_reader() -> Reader { Reader(fd: -1, text: "", at: 0, done: true, tail: b"", pollable: false, lossy: false, job: null, name: "", command: false) }
+pure no_writer() -> Writer { Writer(fd: -1, pending: "", job: null, name: "", command: false) }
+
+# The shell-style reason of a host error without its path and errno suffix.
+pure reason_of(failure: Error) -> Str {
+  var text = failure.message
+  let cut = text.find(" (os error")
+  if cut != null { text = text.byte_slice(0, length: cut ?? 0) }
+  var tail = text
+  loop {
+    let at = tail.find(": ")
+    if at == null { break }
+    tail = tail.byte_slice((at ?? 0) + 2)
+  }
+  tail
+}
+pure fatal_error(text: Str) -> Error { AwkError.Fatal(message: f"fatal: {text}", pending: "") }
+# A failure reported without a source location.
+pure bare_fatal(text: Str) -> Error { AwkError.Plain(message: f"fatal: {text}", pending: "") }
+
+proc write_all(fd: Int, data: Bytes) -> Result[Unit] {
+  var rest = data
+  while ! rest.is_empty() {
+    let count = unix.write_fd(fd, rest)?
+    if count <= 0 { return error.fail("write failed") }
+    rest = rest.slice(count, length: rest.len() - count)
+  }
+}
+proc warn_plain(text: Str) -> Result[Unit] {
+  write_all(2, bytes.from_text(f"awk: warning: {text}\n"))?
+}
+
+# A child's exit status as awk numbers it: the exit code, or 256 plus the
+# signal number.
+pure status_code(status: Status) -> Int {
+  if status.signaled() { return 256 + (status.signal_number() ?? 0) }
+  status.exit_code() ?? 0
+}
+
+# What the program has written but not yet handed to standard output, and the
+# open streams, are flushed together before a child process starts.
+type Flushed = {writers: Map[Writer], failure: Str}
+proc flush_writers(streams: Map[Writer], lossy: Bool) -> Result[Flushed] {
+  var writers = streams
+  for key in writers.keys() {
+    let writer = writers.get(key) ?? no_writer()
+    if writer.fd >= 0 and ! writer.pending.is_empty() {
+      let data = writer.pending
+      writers[key].pending = ""
+      match write_all(writer.fd, output_bytes(data, lossy)) {
+        Ok(_) => {}
+        Err(failure) => { return Ok({writers: writers, failure: f"print to \"{writer.name}\" failed ({reason_of(failure)})"}) }
+      }
+    }
+  }
+  Ok({writers: writers, failure: ""})
+}
+
+# A shell prefix that exports the changes the program made to ENVIRON, so
+# children see them as they do under GNU awk.
+proc environment_prefix(arrays: Map[Table]) -> Str {
+  if "ENVIRON" not in arrays { return "" }
+  var prefix = ""
+  let table = arrays.get("ENVIRON") ?? empty_table()
+  var current: Map[Str] = {}
+  for entry in env.list() ?? [] { current = current.set(entry.name, entry.value) }
+  for name in table.cells.keys() {
+    if ! binding_name(name) { continue }
+    let wanted = plain_text((table.cells.get(name) ?? Cell(value: Empty, seq: 0)).value) ?? ""
+    if name in current and (current.get(name) ?? "") == wanted { continue }
+    prefix += f"export {name}='{wanted.replace("'", with: "'\\''")}'; "
+  }
+  for name in current.keys() {
+    if name not in table.cells and binding_name(name) { prefix += f"unset {name}; " }
+  }
+  prefix
+}
+
+type Temporary = {root: FsRoot?, base: Path?, count: Int}
+type Started = {temporary: Temporary, fifo: Path}
+proc next_fifo(temporary: Temporary) -> Result[Started] {
+  var state = temporary
+  if state.root == null {
+    let root = fs.tempdir()?
+    state.base = root.host_path()?
+    state.root = root
+  }
+  state.count += 1
+  let base = state.base ?? fp"/tmp"
+  let made = fp"{base}/c{state.count}"
+  fs.mkfifo(made, 0o600)?
+  Ok({temporary: state, fifo: made})
+}
+type OpenedReader = {reader: Reader, temporary: Temporary}
+type OpenedWriter = {writer: Writer, temporary: Temporary}
+# Starts `sh -c command` with standard output into a FIFO this process reads.
+proc open_command_reader(temporary: Temporary, command: Str, prefix: Str) -> Result[OpenedReader] {
+  let started = next_fifo(temporary)?
+  let pipe_path = started.fifo
+  let fd = unix.open_fd(pipe_path, nonblock: true)?
+  let job = spawn run.status sh -c ${prefix + command} > $pipe_path ?
+  Ok({reader: Reader(fd: fd, text: "", at: 0, done: false, tail: b"", pollable: true, lossy: false, job: job, name: command, command: true), temporary: started.temporary})
+}
+# Starts `sh -c command` with standard input from a FIFO this process writes.
+proc open_command_writer(temporary: Temporary, command: Str, prefix: Str) -> Result[OpenedWriter] {
+  let started = next_fifo(temporary)?
+  let pipe_path = started.fifo
+  # Holding the read end open lets the write end open at once; the child then
+  # inherits the read side and the held descriptor is released.
+  let hold = unix.open_fd(pipe_path, nonblock: true)?
+  let fd = unix.open_fd(pipe_path, write: true)?
+  let job = spawn run.status sh -c ${prefix + command} < $pipe_path ?
+  unix.close_fd(hold)?
+  Ok({writer: Writer(fd: fd, pending: "", job: job, name: command, command: true), temporary: started.temporary})
+}
+# Opens a file for output: truncated, or appended to (and created when missing).
+proc open_output(target: Path, append: Bool) -> Result[Int] {
+  if append {
+    if ! target.exists() { target.write("")? }
+    return unix.open_fd(target, write: true, flags: ["append"])
+  }
+  target.write("")?
+  unix.open_fd(target, write: true)
+}
+proc open_file_reader(name: Str, stdin_reader: Reader) -> Result[Reader] {
+  if name == "-" or name == "/dev/stdin" { return Ok(stdin_reader) }
+  let metadata = fs.stat(fp"{name}", follow_symlinks: true)?
+  if metadata.kind == "dir" { return Err(error.failure("is a directory")) }
+  let fd = unix.open_fd(fp"{name}")?
+  Ok(Reader(fd: fd, text: "", at: 0, done: false, tail: b"", pollable: false, lossy: false, job: null, name: name, command: false))
+}
+
+## True when the text is a valid awk variable name.
+export pure binding_name(content: Str) -> Bool {
+  if content.is_empty() or ! letter(content.byte_at(0) ?? 0) { return false }
+  for at in range(1, content.byte_len()) { if ! letter(content.byte_at(at) ?? 0) and ! digit(content.byte_at(at) ?? 0) { return false } }
+  true
+}
+# Whether an ARGV entry is a var=value assignment operand.
+pure assignment_operand(argument: Str) -> Bool {
+  let equals = argument.find("=")
+  if equals == null { return false }
+  binding_name(argument.byte_slice(0, length: equals ?? 0))
+}
+
+
+type Generator = {words: List[Int], front: Int, rear: Int}
+# GNU awk's random(): an additive feedback generator seeded by a linear
+# congruential recurrence, with the first 630 outputs discarded.
+pure seed_generator(seed: Int) -> Generator {
+  var words = [0 for _ in range(63)]
+  var word = seed % 4294967296
+  if word < 0 { word += 4294967296 }
+  words[0] = word
+  for index in range(1, 63) {
+    let previous = if words[index - 1] >= 2147483648 { words[index - 1] - 4294967296 } else { words[index - 1] }
+    let high = previous / 127773
+    let low = previous % 127773
+    var value = 16807 * low - 2836 * high
+    if value < 0 { value += 2147483647 }
+    words[index] = value % 4294967296
+  }
+  var front = 1
+  var rear = 0
+  for _ in range(630) {
+    words[front] = (words[front] + words[rear]) % 4294967296
+    front += 1
+    if front >= 63 { front = 0; rear += 1 } else { rear += 1; if rear >= 63 { rear = 0 } }
+  }
+  {words: words, front: front, rear: rear}
+}
+
+
+# The field separator in force: with RS = "" newline separates fields too.
+pure field_separator(globals: Map[Scalar]) -> Result[Str] {
+  var separator = plain_text(globals.get("FS") ?? Empty)?
+  if (plain_text(globals.get("RS") ?? Empty)?).is_empty() and separator != " " and ! separator.is_empty() {
+    if separator.count_chars() == 1 and separator in REGEX_SPECIAL { separator = "\\" + separator }
+    if separator == "\\" { separator = "\\\\" }
+    separator = f"({separator})|\n"
+  }
+  Ok(separator)
+}
+pure fold_case(globals: Map[Scalar]) -> Bool {
+  if "IGNORECASE" not in globals { return false }
+  truth(globals.get("IGNORECASE") ?? Empty) ?? false
+}
 # Splits a record into fields by the current FS rules: " " is runs of blanks
 # and newlines, "" is single characters, one other character is literal, and
 # anything longer is a regular expression (regex_mode forces that for regex
@@ -1851,133 +2754,349 @@ pure split_with_separators(content: Str, separator: Str, regex_mode: Bool, ignor
   if ! (separator == " " and ! regex_mode and rest.is_empty()) { fields += [rest] }
   Ok({fields: fields, separators: if leading.is_empty() { seps } else { [leading] + seps }})
 }
+# Rebuilds $0 from the fields.
+pure joined_fields(fields: List[Scalar], separator: Str, conversion: Str) -> Result[Str] {
+  Ok([scalar_text(value, conversion)? for value in fields].join(separator))
+}
 
-# The field separator in force: with RS = "" newline separates fields too.
-pure field_separator(m: Machine) -> Result[Str] {
-  var separator = variable_text(m, "FS")?
-  if (variable_text(m, "RS")?).is_empty() and separator != " " and ! separator.is_empty() {
-    if separator.count_chars() == 1 and separator in REGEX_SPECIAL { separator = "\\" + separator }
-    if separator == "\\" { separator = "\\\\" }
-    separator = f"({separator})|\n"
+
+type MainState = {reader: Reader, active: Bool, index: Int, opened: Bool, stdin_used: Bool, finished: Bool}
+type Advanced = {state: MainState, stdin: Reader, record: Str?, terminator: Str, filename: Str?, bindings: List[Str], failed: Bool}
+
+# The next record of the main input, opening files named by ARGV on demand.
+# ARGV and ARGC are consulted live, so the program can edit the operand list.
+proc advance_main(start: MainState, standard_input: Reader, operands: Table, count: Int, separator: Str, ignore_case: Bool) -> Result[Advanced] {
+  var state = start
+  var stdin = standard_input
+  var bindings: List[Str] = []
+  var filename: Str? = null
+  loop {
+    if state.finished { return Ok({state: state, stdin: stdin, record: null, terminator: "", filename: filename, bindings: bindings, failed: false}) }
+    if state.active {
+      let uses_stdin = state.reader.fd == 0
+      let current = if uses_stdin { stdin } else { state.reader }
+      let got = read_record(current, separator, ignore_case)?
+      if uses_stdin { stdin = got.reader }
+      state.reader = got.reader
+      if got.record != null { return Ok({state: state, stdin: stdin, record: got.record, terminator: got.terminator, filename: filename, bindings: bindings, failed: false}) }
+      if got.reader.fd > 0 { unix.close_fd(got.reader.fd)? }
+      state.active = false
+      continue
+    }
+    var opened = false
+    while state.index < count {
+      let index = state.index
+      state.index += 1
+      let key = f"{index}"
+      if key not in operands.cells { continue }
+      let argument = plain_text((operands.cells.get(key) ?? Cell(value: Empty, seq: 0)).value)?
+      if argument.is_empty() { continue }
+      if assignment_operand(argument) { bindings += [argument]; continue }
+      state.opened = true
+      if argument == "-" or argument == "/dev/stdin" {
+        filename = argument
+        state.reader = stdin
+        state.active = true
+        opened = true
+        break
+      }
+      match fs.stat(fp"{argument}", follow_symlinks: true) {
+        Ok(info) => {
+          if info.kind == "dir" {
+            warn_plain(f"command line argument `{argument}' is a directory: skipped")?
+            continue
+          }
+        }
+        Err(failure) => { return Err(bare_fatal(f"cannot open file `{argument}' for reading: {reason_of(failure)}")) }
+      }
+      match unix.open_fd(fp"{argument}") {
+        Ok(fd) => {
+          filename = argument
+          state.reader = Reader(fd: fd, text: "", at: 0, done: false, tail: b"", pollable: false, lossy: false, job: null, name: argument, command: false)
+          state.active = true
+          opened = true
+        }
+        Err(failure) => { return Err(bare_fatal(f"cannot open file `{argument}' for reading: {reason_of(failure)}")) }
+      }
+      break
+    }
+    if opened { continue }
+    if ! state.opened and ! state.stdin_used {
+      state.stdin_used = true
+      state.opened = true
+      filename = "-"
+      state.reader = stdin
+      state.active = true
+      continue
+    }
+    state.finished = true
   }
-  Ok(separator)
+  Ok({state: state, stdin: stdin, record: null, terminator: "", filename: filename, bindings: bindings, failed: false})
 }
 
-pure rebuild(machine: Machine) -> Result[Machine] {
-  var m = machine
-  let conversion = conversion_format(m)?
-  m.record = [scalar_text(value, conversion)? for value in m.fields].join(variable_text(m, "OFS")?)
-  m.values = m.values.set("NF", Numeric(m.fields.len().float()))
-  Ok(m)
-}
-# Installs a new record: $0, its fields and NF.
-pure set_record(machine: Machine, content: Str) -> Result[Machine] {
-  var m = machine
-  let separator = field_separator(m)?
-  m.fields = split_fields(content, separator, false, fold_case(m))?
-  m.record = content
-  m.values = m.values.set("NF", Numeric(m.fields.len().float()))
-  Ok(m)
-}
 
-# Checks that a name is not currently an array before a scalar use.
-pure scalar_conflict(m: Machine, name: Str) -> Bool {
-  array_name(m, name) in m.arrays and ! (is_local(m, name) and ! (name in m.scopes[m.scopes.len() - 1].aliases))
-}
-
-proc assign_variable(machine: Machine, name: Str, value: Scalar) -> Result[Machine] {
-  var m = machine
-  if scalar_conflict(m, name) { return Err(fatal(m, f"attempt to use array `{name}' in a scalar context")) }
-  if name == "NF" {
-    let count = integer(number(value)?)?
-    if count < 0 { return Err(fatal(m, "NF set to negative value")) }
-    if count > 10000000 { return Err(fatal(m, f"NF set to too large a value {count}")) }
-    if count < m.fields.len() { m.fields = m.fields[..count] } else { while m.fields.len() < count { m.fields += [Input("", null)] } }
-    return rebuild(m)
-  }
-  if ! m.scopes.is_empty() {
-    var scope = m.scopes[m.scopes.len() - 1]
-    if name in scope.values {
-      scope.values = scope.values.set(name, value)
-      m.scopes[m.scopes.len() - 1] = scope
-      return Ok(m)
+type Closing = {readers: Map[Reader], writers: Map[Writer], code: Int}
+# close(name): finishes a reader or writer with that name and returns its
+# status: 0 for files, the command's exit status for commands, -1 when
+# nothing by that name is open.
+proc close_stream(open_readers: Map[Reader], open_writers: Map[Writer], target: Str, lossy: Bool) -> Result[Closing] {
+  var readers = open_readers
+  var writers = open_writers
+  var code = -1
+  var found = false
+  for key in [f">{target}", f">>{target}", f"|{target}"] {
+    if key not in writers { continue }
+    let writer = writers.get(key) ?? no_writer()
+    writers = writers.remove(key)
+    found = true
+    if writer.fd >= 0 and ! writer.pending.is_empty() { write_all(writer.fd, output_bytes(writer.pending, lossy))? }
+    if writer.fd >= 0 { unix.close_fd(writer.fd)? }
+    code = 0
+    if writer.command {
+      if let handle = writer.job {
+        let status = wait handle ?
+        code = status_code(status)
+      }
     }
   }
-  if array_name(m, name) in m.arrays { return Err(fatal(m, f"attempt to use array `{name}' in a scalar context")) }
-  m.values = m.values.set(name, value)
-  Ok(m)
-}
-
-proc key(machine: Machine, expressions: List[Int]) -> Result[Keyed] {
-  var m = machine
-  var keys: List[Str] = []
-  for id in expressions {
-    m = evaluate(m, id)?
-    if m.flow != Normal { return Ok({machine: m, key: ""}) }
-    keys += [scalar_text(m.value, conversion_format(m)?)?]
-  }
-  Ok({machine: m, key: keys.join(variable_text(m, "SUBSEP")?)})
-}
-# The array a subscripted name refers to, or a fatal error when it is a scalar.
-pure array_ref(m: Machine, name: Str) -> Result[Str] {
-  let resolved = array_name(m, name)
-  if is_local(m, name) {
-    let scope = m.scopes[m.scopes.len() - 1]
-    if name in scope.aliases {
-      let current = scope.values.get(name) ?? Empty
-      match current { Empty => { return Ok(resolved) }; _ => { return Err(fatal(m, f"attempt to use scalar `{name}' as an array")) } }
+  for key in [f"<{target}", f"|{target}"] {
+    if key not in readers { continue }
+    let reader = readers.get(key) ?? no_reader()
+    readers = readers.remove(key)
+    found = true
+    if reader.fd > 0 { unix.close_fd(reader.fd)? }
+    code = 0
+    if reader.command {
+      if let handle = reader.job {
+        let status = wait handle ?
+        code = status_code(status)
+      }
     }
-    if name in scope.values { return Err(fatal(m, f"attempt to use scalar `{name}' as an array")) }
-    return Ok(resolved)
   }
-  if name in m.values { return Err(fatal(m, f"attempt to use scalar `{name}' as an array")) }
-  Ok(resolved)
+  Ok({readers: readers, writers: writers, code: if found { code } else { -1 }})
 }
-proc locate(machine: Machine, id: Int) -> Result[Located] {
-  var m = machine
-  match m.expressions[id] {
-    Variable(name) => Ok({machine: m, place: Named(name)})
-    Field(child) => {
-      m = evaluate(m, child)?
-      let index = integer(number(m.value)?)?
-      if index < 0 { return Err(fatal(m, f"attempt to access field {index}")) }
-      if index > 10000000 { return Err(fatal(m, f"attempt to access field {index}")) }
-      Ok({machine: m, place: FieldPlace(index)})
+# Everything still open is closed at exit: files and commands first (waiting
+# for the commands); standard output is flushed by the caller afterwards.
+proc close_all(open_readers: Map[Reader], open_writers: Map[Writer], lossy: Bool) -> Result[Unit] {
+  for key in open_writers.keys() {
+    let writer = open_writers.get(key) ?? no_writer()
+    if writer.fd >= 0 and ! writer.pending.is_empty() { write_all(writer.fd, output_bytes(writer.pending, lossy))? }
+    if writer.fd >= 0 { unix.close_fd(writer.fd)? }
+    if writer.command {
+      if let handle = writer.job { let _ = wait handle ? }
     }
-    Index(name, keys) => {
-      let found = key(m, keys)?
-      m = found.machine
-      let array = array_ref(m, name)?
-      Ok({machine: m, place: Element(array, found.key)})
-    }
-    _ => Err(fatal(m, "assignment requires variable, field, or array element"))
   }
-}
-pure read_place(m: Machine, place: Place) -> Scalar {
-  match place {
-    Named(name) => get_scalar(m, name)
-    FieldPlace(index) => if index == 0 { Input(m.record, null) } else { m.fields.get(index - 1) ?? Input("", null) }
-    Element(array, key) => array_find(m, array, key) ?? Empty
-  }
-}
-proc write_place(machine: Machine, place: Place, value: Scalar) -> Result[Machine] {
-  var m = machine
-  match place {
-    Named(name) => assign_variable(m, name, value)
-    FieldPlace(index) => {
-      if index == 0 { return set_record(m, scalar_text(value, conversion_format(m)?)?) }
-      while m.fields.len() < index { m.fields += [Input("", null)] }
-      m.fields[index - 1] = value
-      rebuild(m)
+  for key in open_readers.keys() {
+    let reader = open_readers.get(key) ?? no_reader()
+    if reader.fd > 0 { unix.close_fd(reader.fd)? }
+    if reader.command {
+      if let handle = reader.job { let _ = wait handle ? }
     }
-    Element(array, key) => Ok(array_set(m, array, key, value))
   }
 }
 
-# ---- Operators ----------------------------------------------------------
+# Dynamic regular expressions fail at run time with the engine's message.
+pure dynamic_matches(pattern: Str, content: Str, ignore_case: Bool) -> Result[List[Match]] {
+  match rx_matches(pattern, content, ignore_case) {
+    Ok(hits) => Ok(hits)
+    Err(failure) => Err(error.failure(f"fatal: invalid regexp: {failure.message}: /{pattern}/"))
+  }
+}
 
+type SortItem = {rank: Int, number: Float, text: Str, value: Scalar}
+
+pure upper_text(content: Str) -> Str {
+  if is_ascii_text(content) { return content.upper() }
+  [convert_case(character, true) for character in content.split("")].join("")
+}
+pure lower_text(content: Str) -> Str {
+  if is_ascii_text(content) { return content.lower() }
+  [convert_case(character, false) for character in content.split("")].join("")
+}
+# One character at a time, as towupper does: a conversion that would change
+# the length (other than sharp s) leaves the character alone.
+pure convert_case(character: Str, upper: Bool) -> Str {
+  if character == "\u{df}" { return if upper { "\u{1e9e}" } else { character } }
+  if code_point(character) >= 1113984 { return "\u{fffd}" }
+  let changed = if upper { character.upper() } else { character.lower() }
+  if changed.count_chars() == 1 { changed } else { character }
+}
+# Replacement text of sub and gsub with GNU awk's backslash rules: "\\\&" is a
+# literal backslash and ampersand, "\\&" a backslash followed by the matched
+# text, "\&" a literal ampersand; any other backslash stays.
+pure substitute(replacement: Str, matched: Str) -> Str {
+  var out = ""
+  var at = 0
+  while at < replacement.byte_len() {
+    let byte = replacement.byte_at(at) ?? 0
+    if byte == 38 { out += matched; at += 1 } else if byte == 92 {
+      if replacement.byte_slice(at, length: 4) == "\\\\\\&" {
+        out += "\\&"
+        at += 4
+      } else if replacement.byte_slice(at, length: 3) == "\\\\&" {
+        out += "\\" + matched
+        at += 3
+      } else if replacement.byte_slice(at, length: 2) == "\\&" {
+        out += "&"
+        at += 2
+      } else {
+        out += "\\"
+        at += 1
+      }
+    } else {
+      let ampersand = replacement.find("&", at) ?? replacement.byte_len()
+      let slash = replacement.find("\\", at) ?? replacement.byte_len()
+      let end = if ampersand < slash { ampersand } else { slash }
+      out += replacement.byte_slice(at, length: end - at)
+      at = end
+    }
+  }
+  out
+}
+pure strtonum(text: Str) -> Result[Float] {
+  let plain = trimmed(text)
+  var negative = false
+  var body = plain
+  if body.starts_with("-") { negative = true; body = body.byte_slice(1) } else if body.starts_with("+") { body = body.byte_slice(1) }
+  var value = 0.0
+  if (body.starts_with("0x") or body.starts_with("0X")) and body.byte_len() > 2 {
+    var at = 2
+    while at < body.byte_len() and hex_digit(body.byte_at(at) ?? 0) { value = value * 16.0 + digit_value(body.byte_at(at) ?? 48).float(); at += 1 }
+  } else if body.starts_with("0") and body.byte_len() > 1 and octal_literal(body) {
+    for at in range(body.byte_len()) { value = value * 8.0 + digit_value(body.byte_at(at) ?? 48).float() }
+  } else {
+    value = numeric_prefix(body)?
+  }
+  Ok(if negative { -value } else { value })
+}
+pure type_name(value: Scalar) -> Str {
+  match value {
+    Empty => "unassigned"
+    Numeric(_) => "number"
+    Nan(_) => "number"
+    String(_) => "string"
+    Input(_, n) => if n != null { "strnum" } else { "string" }
+  }
+}
+# Sort keys follow the requested order: numbers sort before strings for the
+# value-type orders, and a numeric order compares numeric value only.
+pure sort_item(value: Scalar, subscript: Str, how: Str) -> Result[SortItem] {
+  let text = plain_text(value)?
+  let numeric_order = how.starts_with("@ind_num") or how.starts_with("@val_num")
+  if how.starts_with("@val_str") or how.starts_with("@ind_str") { return Ok({rank: 0, number: 0.0, text: text, value: value}) }
+  if how.starts_with("@ind_num") { return Ok({rank: 0, number: number(input(subscript)?)?, text: subscript, value: value}) }
+  if numeric_order or numeric(value) { return Ok({rank: 0, number: number(value)?, text: text, value: value}) }
+  Ok({rank: 1, number: 0.0, text: text, value: value})
+}
+pure item_before(a: SortItem, b: SortItem, descending: Bool) -> Bool {
+  var less = false
+  if a.rank != b.rank { less = a.rank < b.rank } else if a.rank == 0 and (a.number < b.number or a.number > b.number) { less = a.number < b.number } else { less = a.text < b.text }
+  if descending { return ! less and (a.rank != b.rank or a.number < b.number or a.number > b.number or a.text != b.text) }
+  less
+}
+pure merge_sort(items: List[SortItem], descending: Bool) -> List[SortItem] {
+  if items.len() <= 1 { return items }
+  let middle = items.len() / 2
+  let left = merge_sort(items[..middle], descending)
+  let right = merge_sort(items[middle..], descending)
+  var merged: List[SortItem] = []
+  var i = 0
+  var j = 0
+  while i < left.len() and j < right.len() {
+    if item_before(right[j], left[i], descending) { merged += [right[j]]; j += 1 } else { merged += [left[i]]; i += 1 }
+  }
+  while i < left.len() { merged += [left[i]]; i += 1 }
+  while j < right.len() { merged += [right[j]]; j += 1 }
+  merged
+}
+# Days since 1970-01-01 of a proleptic Gregorian date.
+pure days_from_civil(year: Int, month: Int, day: Int) -> Int {
+  let shifted = if month <= 2 { year - 1 } else { year }
+  let era = if shifted >= 0 { shifted / 400 } else { (shifted - 399) / 400 }
+  let year_of_era = shifted - era * 400
+  let month_index = if month > 2 { month - 3 } else { month + 9 }
+  let day_of_year = (153 * month_index + 2) / 5 + day - 1
+  let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year
+  era * 146097 + day_of_era - 719468
+}
+# mktime("YYYY MM DD HH MM SS [DST]"): out-of-range fields roll over; the
+# result is local time as seconds since the epoch, or -1 for malformed text.
+proc make_time(spec: Str) -> Result[Int] {
+  var parts: List[Int] = []
+  for word in spec.replace("\t", with: " ").replace("\n", with: " ").split(" ") {
+    if word.is_empty() { continue }
+    match word.parse_int_decimal() {
+      Ok(number) => { parts += [number] }
+      Err(_) => { return Ok(-1) }
+    }
+  }
+  if parts.len() < 6 { return Ok(-1) }
+  var year = parts[0]
+  var month = parts[1] - 1
+  year += month / 12
+  month = month % 12
+  if month < 0 { month += 12; year -= 1 }
+  let days = days_from_civil(year, month + 1, 1) + parts[2] - 1
+  let seconds = days * 86400 + parts[3] * 3600 + parts[4] * 60 + parts[5]
+  let calendar = time.to_calendar(seconds * 1000000000, true)?
+  match time.from_calendar(calendar.year, calendar.month, calendar.day, calendar.hour, calendar.minute, calendar.second) {
+    Ok(stamp) => Ok(stamp / 1000000000)
+    Err(_) => Ok(-1)
+  }
+}
+# gensub: how is "g"/"G" for all matches or the number of the match to replace;
+# \\0 and & stand for the match, \\1 to \\9 for groups, \\\\ and \\& for literals.
+proc gensub(globals: Map[Scalar], pattern: Str, replacement: Str, how: Scalar, target: Str) -> Result[Str] {
+  let conversion = plain_text(globals.get("CONVFMT") ?? Empty)?
+  let mode = scalar_text(how, conversion)?
+  var global = false
+  var which = 1
+  if mode.starts_with("g") or mode.starts_with("G") { global = true } else {
+    which = integer(number(how)?)?
+    if which < 1 { which = 1 }
+  }
+  var out = ""
+  var copied = 0
+  var counted = 0
+  var previous_end = -1
+  for hit in rx_matches(pattern, target, fold_case(globals))? {
+    if hit.start == hit.end and previous_end == hit.start { continue }
+    counted += 1
+    previous_end = hit.end
+    if ! global and counted != which { continue }
+    let matched = target.byte_slice(hit.start, length: hit.end - hit.start)
+    var groups: List[Str] = [matched]
+    if "\\" in replacement {
+      let caps = rx_captures(pattern, matched, fold_case(globals))?
+      for item in caps[1..] {
+        if item == null { groups += [""] } else {
+          let span = item ?? Match(start: 0, end: 0)
+          groups += [matched.byte_slice(span.start, length: span.end - span.start)]
+        }
+      }
+    }
+    var piece = ""
+    let chars = replacement.split("")
+    var at = 0
+    while at < chars.len() {
+      let c = chars[at]
+      if c == "\\" and at + 1 < chars.len() {
+        let next = chars[at + 1]
+        if next.byte_len() == 1 and digit(next.byte_at(0) ?? 0) {
+          let index = (next.byte_at(0) ?? 48) - 48
+          piece += if index < groups.len() { groups[index] } else { "" }
+          at += 2
+        } else if next == "&" { piece += "&"; at += 2 } else if next == "\\" { piece += "\\"; at += 2 } else { piece += "\\"; at += 1 }
+      } else if c == "&" { piece += matched; at += 1 } else { piece += c; at += 1 }
+    }
+    out += target.byte_slice(copied, length: hit.start - copied) + piece
+    copied = hit.end
+    if ! global { break }
+  }
+  Ok(out + target.byte_slice(copied))
+}
 pure to_bit_operand(name: Str, position: Int, value: Float) -> Result[Float] {
-  if value < 0.0 { return Err(AwkError.Fatal(f"fatal: {name}: argument {position} negative value {float_text(value, "%.6g") ?? ""} is not allowed")) }
+  if value < 0.0 { return Err(fatal_error(f"{name}: argument {position} negative value {float_text(value, "%.6g") ?? ""} is not allowed")) }
   Ok(truncate(value))
 }
 pure bit_step(name: Str, a: Float, b: Float) -> Float {
@@ -2022,1363 +3141,1166 @@ pure compare(left: Scalar, right: Scalar, conversion: Str) -> Result[Int] {
   Ok(if a < b { -1 } else if a > b { 1 } else { 0 })
 }
 
-# ---- Evaluation ---------------------------------------------------------
 
-proc regex_source(machine: Machine, id: Int) -> Result[Keyed] {
-  match machine.expressions[id] {
-    RegexLiteral(pattern) => Ok({machine: machine, key: pattern})
-    _ => { let m = evaluate(machine, id)?; Ok({machine: m, key: scalar_text(m.value, conversion_format(m)?)?}) }
+pure context_text(globals: Map[Scalar]) -> Str {
+  let fnr = number(globals.get("FNR") ?? Empty) ?? 0.0
+  if fnr > 0.0 {
+    let name = plain_text(globals.get("FILENAME") ?? Empty) ?? ""
+    let line = float_text(fnr, "%.6g") ?? "0"
+    return f"(FILENAME={name} FNR={line}) "
   }
+  ""
 }
-# Dynamic regular expressions fail at run time with the engine's message.
-pure regexp_matches(m: Machine, pattern: Str, content: Str) -> Result[List[Match]] {
-  match rx_matches(pattern, content, fold_case(m)) {
-    Ok(hits) => Ok(hits)
-    Err(failure) => Err(fatal(m, f"invalid regexp: {failure.message}: /{pattern}/"))
+# Relational operators on numbers where NaN is unordered; op is 0 for <, 1 for
+# <=, 2 for ==, 3 for !=, 4 for >, 5 for >=.
+pure relation(op: Int, left: Scalar, right: Scalar, conversion: Str) -> Result[Bool] {
+  if numeric(left) and numeric(right) {
+    let x = number(left)?
+    let y = number(right)?
+    if is_nan(x) or is_nan(y) { return Ok(op == 3) }
   }
+  let order = compare(left, right, conversion)?
+  Ok(if op == 0 { order < 0 } else if op == 1 { order <= 0 } else if op == 2 { order == 0 } else if op == 3 { order != 0 } else if op == 4 { order > 0 } else { order >= 0 })
 }
-pure matches_somewhere(m: Machine, pattern: Str, content: Str) -> Result[Bool] {
-  Ok(! regexp_matches(m, pattern, content)?.is_empty())
+# Subscripts on the stack joined with SUBSEP.
+pure subscript_key(stack: List[Scalar], top: Int, count: Int, separator: Str, conversion: Str) -> Result[Str] {
+  if count == 1 { return scalar_text(stack[top - 1], conversion) }
+  var pieces: List[Str] = []
+  for at in range(top - count, top) { pieces += [scalar_text(stack[at], conversion)?] }
+  Ok(pieces.join(separator))
 }
-
-proc evaluate(machine: Machine, id: Int) -> Result[Machine] {
-  var m = machine
-  if m.flow != Normal { return Ok(m) }
-  match m.expressions[id] {
-    Number(n) => Ok(result(m, Numeric(n)))
-    Text(content) => Ok(result(m, String(content)))
-    RegexLiteral(pattern) => Ok(result(m, Numeric(if matches_somewhere(m, pattern, m.record)? { 1.0 } else { 0.0 })))
-    Variable(name) => {
-      if scalar_conflict(m, name) { return Err(fatal(m, f"attempt to use array `{name}' in a scalar context")) }
-      Ok(result(m, get_scalar(m, name)))
-    }
-    Field(child) => {
-      m = evaluate(m, child)?
-      if m.flow != Normal { return Ok(m) }
-      let index = integer(number(m.value)?)?
-      if index < 0 or index > 10000000 { return Err(fatal(m, f"attempt to access field {index}")) }
-      Ok(result(m, if index == 0 { input(m.record)? } else { m.fields.get(index - 1) ?? Input("", null) }))
-    }
-    Index(name, keys) => {
-      let located = key(m, keys)?
-      m = located.machine
-      if m.flow != Normal { return Ok(m) }
-      let array = array_ref(m, name)?
-      let existing = array_find(m, array, located.key)
-      if existing != null { return Ok(result(m, existing ?? Empty)) }
-      m = array_set(m, array, located.key, Empty)
-      Ok(result(m, Empty))
-    }
-    Unary(op, child) => {
-      m = evaluate(m, child)?
-      if m.flow != Normal { return Ok(m) }
-      if op == "!" { return Ok(result(m, Numeric(if truth(m.value)? { 0.0 } else { 1.0 }))) }
-      match m.value {
-        Nan(positive) => { return Ok(result(m, if op == "-" { Nan(! positive) } else { m.value })) }
-        _ => {}
-      }
-      let n = number(m.value)?
-      if is_nan(n) { return Ok(result(m, if op == "-" { Nan(true) } else { Nan(false) })) }
-      Ok(result(m, Numeric(if op == "-" { -n } else { n })))
-    }
-    Increment(target, delta, post) => {
-      let located = locate(m, target)?
-      m = located.machine
-      if m.flow != Normal { return Ok(m) }
-      let old = number(read_place(m, located.place))?
-      let value = Numeric(old + delta)
-      m = write_place(m, located.place, value)?
-      Ok(result(m, if post { Numeric(old) } else { value }))
-    }
-    Assign(op, target, right) => {
-      let located = locate(m, target)?
-      m = evaluate(located.machine, right)?
-      if m.flow != Normal { return Ok(m) }
-      var value = m.value
-      if op != "=" {
-        let operator = op.byte_slice(0, length: 1)
-        let current = number(read_place(m, located.place))?
-        let operand = number(m.value)?
-        if operator in ["/", "%"] and operand == 0.0 { return Err(fatal(m, f"division by zero attempted in `{op}'")) }
-        value = Numeric(arith(operator, current, operand)?)
-      } else {
-        # Assigning a whole array's name is an error, caught when it was read.
-        match value { Input(content, n) => { value = Input(content, n) }; _ => {} }
-      }
-      m = write_place(m, located.place, value)?
-      Ok(result(m, value))
-    }
-    Conditional(condition, yes, no) => {
-      m = evaluate(m, condition)?
-      if m.flow != Normal { return Ok(m) }
-      evaluate(m, if truth(m.value)? { yes } else { no })
-    }
-    Binary(op, left, right) => {
-      m = evaluate(m, left)?
-      if m.flow != Normal { return Ok(m) }
-      let a = m.value
-      if op in ["&&", "||"] {
-        let yes = truth(a)?
-        if (op == "&&" and ! yes) or (op == "||" and yes) { return Ok(result(m, Numeric(if yes { 1.0 } else { 0.0 }))) }
-        m = evaluate(m, right)?
-        if m.flow != Normal { return Ok(m) }
-        return Ok(result(m, Numeric(if truth(m.value)? { 1.0 } else { 0.0 })))
-      }
-      if op in ["~", "!~"] {
-        let pattern = regex_source(m, right)?
-        m = pattern.machine
-        if m.flow != Normal { return Ok(m) }
-        let hit = matches_somewhere(m, pattern.key, scalar_text(a, conversion_format(m)?)?)?
-        return Ok(result(m, Numeric(if hit != (op == "!~") { 1.0 } else { 0.0 })))
-      }
-      m = evaluate(m, right)?
-      if m.flow != Normal { return Ok(m) }
-      let b = m.value
-      let conversion = conversion_format(m)?
-      if op == "concat" { return Ok(result(m, String(scalar_text(a, conversion)? + scalar_text(b, conversion)?))) }
-      if op in ["==", "!=", "<", ">", "<=", ">="] {
-        let order = compare(a, b, conversion)?
-        let yes = if op == "==" { order == 0 } else if op == "!=" { order != 0 } else if op == "<" { order < 0 } else if op == ">" { order > 0 } else if op == "<=" { order <= 0 } else { order >= 0 }
-        # NaN is unordered: every comparison but != is false.
-        if numeric(a) and numeric(b) {
-          let x = number(a)?
-          let y = number(b)?
-          if is_nan(x) or is_nan(y) { return Ok(result(m, Numeric(if op == "!=" { 1.0 } else { 0.0 }))) }
-        }
-        return Ok(result(m, Numeric(if yes { 1.0 } else { 0.0 })))
-      }
-      let x = number(a)?
-      let y = number(b)?
-      if op == "/" and y == 0.0 { return Err(fatal(m, "division by zero attempted")) }
-      if op == "%" and y == 0.0 { return Err(fatal(m, "division by zero attempted in `%'")) }
-      Ok(result(m, Numeric(arith(op, x, y)?)))
-    }
-    Member(keys, array) => {
-      let found = key(m, keys)?
-      m = found.machine
-      if m.flow != Normal { return Ok(m) }
-      let resolved = array_ref(m, array)?
-      Ok(result(m, Numeric(if array_has(m, resolved, found.key) { 1.0 } else { 0.0 })))
-    }
-    CommandInput(command, target) => {
-      m = evaluate(m, command)?
-      if m.flow != Normal { return Ok(m) }
-      let text = scalar_text(m.value, conversion_format(m)?)?
-      if text.is_empty() { return Err(fatal(m, "expression for `|' redirection has null string value")) }
-      let reader_key = f"|{text}"
-      if reader_key not in m.readers { m = open_command_reader(m, text)? }
-      deliver_record(m, reader_key, target, false)
-    }
-    GetlineMain(target) => {
-      let got = next_main_record(m)?
-      m = got.machine
-      if got.record == null { return Ok(result(m, Numeric(if got.failed { -1.0 } else { 0.0 }))) }
-      let content = got.record ?? ""
-      m = bump_counters(m, false)?
-      m = store_record(m, content, got.terminator, target)?
-      Ok(result(m, Numeric(1.0)))
-    }
-    GetlineFile(target, file) => {
-      m = evaluate(m, file)?
-      if m.flow != Normal { return Ok(m) }
-      let name = scalar_text(m.value, conversion_format(m)?)?
-      if name.is_empty() { return Err(fatal(m, "expression for `<' redirection has null string value")) }
-      let reader_key = f"<{name}"
-      if reader_key not in m.readers {
-        match open_file_reader(m, name) {
-          Ok(opened) => { m = opened }
-          Err(_) => { return Ok(result(m, Numeric(-1.0))) }
-        }
-      }
-      deliver_record(m, reader_key, target, false)
-    }
-    Call(name, args) => call(m, name, args)
-  }
-}
-# Reads the next record of an open stream into $0 or the target variable.
-proc deliver_record(machine: Machine, reader_key: Str, target: Int?, counts: Bool) -> Result[Machine] {
-  var m = machine
-  let reader = m.readers.get(reader_key) ?? no_reader()
-  var got: Read = {reader: reader, record: null, terminator: ""}
-  match read_record(reader, variable_text(m, "RS")?, fold_case(m)) {
-    Ok(read) => { got = read }
-    Err(failure) => { return Ok(result(m, Numeric(-1.0))) }
-  }
-  m.readers = m.readers.set(reader_key, got.reader)
-  if got.record == null { return Ok(result(m, Numeric(0.0))) }
-  m = store_record(m, got.record ?? "", got.terminator, target)?
-  Ok(result(m, Numeric(1.0)))
-}
-proc bump_counters(machine: Machine, command: Bool) -> Result[Machine] {
-  var m = machine
-  m.values = m.values.set("NR", Numeric(number(get_scalar(m, "NR"))? + 1.0))
-  if ! command { m.values = m.values.set("FNR", Numeric(number(get_scalar(m, "FNR"))? + 1.0)) }
-  Ok(m)
-}
-proc store_record(machine: Machine, content: Str, terminator: Str, target: Int?) -> Result[Machine] {
-  var m = machine
-  m.values = m.values.set("RT", String(terminator))
-  if target == null { return set_record(m, content) }
-  let located = locate(m, target ?? 0)?
-  write_place(located.machine, located.place, input(content)?)
+pure no_cell() -> Cell { Cell(value: Empty, seq: -1) }
+# A failure with its source position and context, and the output the program
+# had produced but not yet written.
+pure placed(labels: List[Str], site: Int, globals: Map[Scalar], out: Str, failure: Error) -> Error {
+  AwkError.Fatal(message: f"{labels[site]}: {context_text(globals)}{failure.message}", pending: out)
 }
 
-# ---- Input files ----------------------------------------------------------
-
-proc open_file_reader(machine: Machine, name: Str) -> Result[Machine] {
-  var m = machine
-  if name == "-" or name == "/dev/stdin" {
-    if "<-" not in m.readers {
-      m.readers = m.readers.set("<-", Reader(fd: 0, text: "", at: 0, done: false, tail: b"", pollable: false, job: null, name: "-", command: false))
+# A resolved assignment target. kind: 1 global, 2 NF, 3 local slot, 4 field
+# (slot is the field index), 5 array element (name is the array), 6 $0, 7
+# nowhere (a constant). `used` is how many operands the target took off the
+# stack, and `current` its present value.
+type Target = {kind: Int, name: Str, slot: Int, key: Str, used: Int, current: Scalar}
+pure array_target(array: Str, name: Str, key: Str, used: Int, arrays: Map[Table], globals: Map[Scalar]) -> Result[Target] {
+  if array in globals { return Err(fatal_error(f"attempt to use scalar `{name}' as an array")) }
+  var current: Scalar = Empty
+  if array in arrays { current = (arrays[array].cells.get(key) ?? no_cell()).value }
+  Ok({kind: 5, name: array, slot: 0, key: key, used: used, current: current})
+}
+# top is the stack height with any value to store already removed.
+pure resolve_target(spot: Spot, stack: List[Scalar], top: Int, globals: Map[Scalar], arrays: Map[Table], slots: List[Scalar], aliases: List[Str], fields: List[Scalar], record: Str) -> Result[Target] {
+  let separator = plain_text(globals.get("SUBSEP") ?? Empty)?
+  let conversion = plain_text(globals.get("CONVFMT") ?? Empty)?
+  match spot {
+    SpotGlobal(name) => Ok({kind: 1, name: name, slot: 0, key: "", used: 0, current: globals.get(name) ?? Empty})
+    SpotNF => Ok({kind: 2, name: "NF", slot: 0, key: "", used: 0, current: globals.get("NF") ?? Empty})
+    SpotLocal(slot, name) => Ok({kind: 3, name: name, slot: slot, key: "", used: 0, current: slots[slot]})
+    SpotField => {
+      let index = integer(number(stack[top - 1])?)?
+      if index < 0 or index > 10000000 { return Err(fatal_error(f"attempt to access field {index}")) }
+      let current = if index == 0 { Input(record, null) } else { fields.get(index - 1) ?? Input("", null) }
+      Ok({kind: 4, name: "", slot: index, key: "", used: 1, current: current})
     }
-    m.readers = m.readers.set(f"<{name}", m.readers.get("<-") ?? Reader(fd: 0, text: "", at: 0, done: false, tail: b"", pollable: false, job: null, name: "-", command: false))
-    return Ok(m)
+    SpotRecord => Ok({kind: 6, name: "", slot: 0, key: "", used: 0, current: Input(record, null)})
+    SpotIndexGlobal(name, count) => array_target(name, name, subscript_key(stack, top, count, separator, conversion)?, count, arrays, globals)
+    SpotIndexLocal(slot, name, count) => {
+      let array = aliases[slot]
+      if array == "" or slots[slot] != Empty { return Err(fatal_error(f"attempt to use scalar `{name}' as an array")) }
+      array_target(array, name, subscript_key(stack, top, count, separator, conversion)?, count, arrays, globals)
+    }
+    SpotNone => Ok({kind: 7, name: "", slot: 0, key: "", used: 0, current: Empty})
   }
-  let metadata = fs.stat(fp"{name}", follow_symlinks: true)?
-  if metadata.kind == "dir" { return Err(error.failure("is a directory")) }
-  let fd = unix.open_fd(fp"{name}")?
-  m.readers = m.readers.set(f"<{name}", Reader(fd: fd, text: "", at: 0, done: false, tail: b"", pollable: false, job: null, name: name, command: false))
-  Ok(m)
 }
-type MainRead = {machine: Machine, record: Str?, terminator: Str, failed: Bool}
-
-# Whether an ARGV entry is a var=value assignment operand.
-pure assignment_operand(argument: Str) -> Bool {
-  let equals = argument.find("=")
-  if equals == null { return false }
-  binding_name(argument.byte_slice(0, length: equals ?? 0))
-}
-## True when the text is a valid awk variable name.
-export pure binding_name(content: Str) -> Bool {
-  if content.is_empty() or ! letter(content.byte_at(0) ?? 0) { return false }
-  for at in range(1, content.byte_len()) { if ! letter(content.byte_at(at) ?? 0) and ! digit(content.byte_at(at) ?? 0) { return false } }
-  true
-}
-proc apply_binding(machine: Machine, item: Str) -> Result[Machine] {
-  let equals = item.find("=") ?? 0
-  let name = item.byte_slice(0, length: equals)
-  let decoded = escaped(bytes.from_text(item.byte_slice(equals + 1)), 0, -1)?
-  for note in decoded.notes { warn_plain(note)? }
-  assign_variable(machine, name, input(decoded.content)?)
-}
-
-# The next record of the main input, opening files named by ARGV on demand.
-# ARGV and ARGC are consulted live, so the program can edit the operand list.
-proc next_main_record(machine: Machine) -> Result[MainRead] {
-  var m = machine
-  var state = cold(m)
-  loop {
-    if state.main.finished { return Ok({machine: with_cold(m, state), record: null, terminator: "", failed: false}) }
-    let reader = state.main.reader
-    if reader != null {
-      let source = reader ?? no_reader()
-      var shared_key = ""
-      if source.fd == 0 { shared_key = "<-" }
-      var current = source
-      if ! shared_key.is_empty() { current = m.readers.get(shared_key) ?? source }
-      let got = read_record(current, variable_text(m, "RS")?, fold_case(m))?
-      if ! shared_key.is_empty() { m.readers = m.readers.set(shared_key, got.reader) }
-      state.main.reader = got.reader
-      if got.record != null { return Ok({machine: with_cold(m, state), record: got.record, terminator: got.terminator, failed: false}) }
-      if got.reader.fd > 0 { unix.close_fd(got.reader.fd)? }
-      state.main.reader = null
-      continue
+# The array a spot names, for operations on whole arrays.
+pure array_of(spot: Spot, slots: List[Scalar], aliases: List[Str], globals: Map[Scalar]) -> Result[Str] {
+  match spot {
+    SpotGlobal(name) => {
+      if name in globals { return Err(fatal_error(f"attempt to use scalar `{name}' as an array")) }
+      Ok(name)
     }
-    # Choose the next operand.
-    let count = integer(number(get_scalar(m, "ARGC"))?)?
-    var opened = false
-    while state.main.index < count {
-      let index = state.main.index
-      state.main.index += 1
-      let entry = array_find(m, "ARGV", f"{index}")
-      if entry == null { continue }
-      let argument = plain_text(entry ?? Empty)?
-      if argument.is_empty() { continue }
-      if assignment_operand(argument) {
-        m = with_cold(m, state)
-        m = apply_binding(m, argument)?
-        state = cold(m)
-        continue
-      }
-      state.main.opened = true
-      if argument == "-" or argument == "/dev/stdin" {
-        m.values = m.values.set("FILENAME", String(argument))
-        m.values = m.values.set("FNR", Numeric(0.0))
-        if "<-" not in m.readers { m.readers = m.readers.set("<-", Reader(fd: 0, text: "", at: 0, done: false, tail: b"", pollable: false, job: null, name: "-", command: false)) }
-        state.main.reader = m.readers.get("<-") ?? no_reader()
-        opened = true
-        break
-      }
-      let metadata = fs.stat(fp"{argument}", follow_symlinks: true)
-      match metadata {
-        Ok(info) => {
-          if info.kind == "dir" {
-            warn_plain(f"command line argument `{argument}' is a directory: skipped")?
-            continue
-          }
-        }
-        Err(failure) => { return Err(bare_fatal(f"cannot open file `{argument}' for reading: {reason_of(failure)}")) }
-      }
-      match unix.open_fd(fp"{argument}") {
-        Ok(fd) => {
-          m.values = m.values.set("FILENAME", String(argument))
-          m.values = m.values.set("FNR", Numeric(0.0))
-          state.main.reader = Reader(fd: fd, text: "", at: 0, done: false, tail: b"", pollable: false, job: null, name: argument, command: false)
-          opened = true
-        }
-        Err(failure) => { return Err(bare_fatal(f"cannot open file `{argument}' for reading: {reason_of(failure)}")) }
-      }
-      break
+    SpotLocal(slot, name) => {
+      if aliases[slot] == "" or slots[slot] != Empty { return Err(fatal_error(f"attempt to use scalar `{name}' as an array")) }
+      Ok(aliases[slot])
     }
-    if opened { continue }
-    if ! state.main.opened and ! state.main.stdin_used {
-      state.main.stdin_used = true
-      state.main.opened = true
-      m.values = m.values.set("FILENAME", String("-"))
-      if "<-" not in m.readers { m.readers = m.readers.set("<-", Reader(fd: 0, text: "", at: 0, done: false, tail: b"", pollable: false, job: null, name: "-", command: false)) }
-      state.main.reader = m.readers.get("<-") ?? no_reader()
-      continue
-    }
-    state.main.finished = true
-  }
-  Ok({machine: with_cold(m, state), record: null, terminator: "", failed: false})
-}
-
-# ---- Functions ------------------------------------------------------------
-
-pure upper_text(content: Str) -> Str {
-  if is_ascii_text(content) { return content.upper() }
-  [convert_case(character, true) for character in content.split("")].join("")
-}
-pure lower_text(content: Str) -> Str {
-  if is_ascii_text(content) { return content.lower() }
-  [convert_case(character, false) for character in content.split("")].join("")
-}
-# One character at a time, as towupper does: a conversion that would change
-# the length (other than sharp s) leaves the character alone.
-pure convert_case(character: Str, upper: Bool) -> Str {
-  if character == "\u{df}" { return if upper { "\u{1e9e}" } else { character } }
-  let changed = if upper { character.upper() } else { character.lower() }
-  if changed.count_chars() == 1 { changed } else { character }
-}
-
-pure random_next(machine: Machine) -> Machine {
-  var state = cold(machine)
-  var generator = state.generator
-  generator[state.front] = (generator[state.front] + generator[state.rear]) % 4294967296
-  state.state = generator[state.front] / 2 % 2147483648
-  state.front += 1
-  if state.front >= 63 { state.front = 0; state.rear += 1 } else { state.rear += 1; if state.rear >= 63 { state.rear = 0 } }
-  state.generator = generator
-  with_cold(machine, state)
-}
-pure random_seed(machine: Machine, seed: Int) -> Machine {
-  var state = cold(machine)
-  var generator = [0 for _ in range(63)]
-  var word = seed % 4294967296
-  if word < 0 { word += 4294967296 }
-  generator[0] = word
-  for index in range(1, 63) {
-    let previous = if generator[index - 1] >= 2147483648 { generator[index - 1] - 4294967296 } else { generator[index - 1] }
-    let high = previous / 127773
-    let low = previous % 127773
-    var value = 16807 * low - 2836 * high
-    if value < 0 { value += 2147483647 }
-    generator[index] = value % 4294967296
-  }
-  state.generator = generator
-  state.front = 1
-  state.rear = 0
-  var m = with_cold(machine, state)
-  for _ in range(630) { m = random_next(m) }
-  m
-}
-
-# User function calls. Scalars are passed by value; a bare variable name that
-# is an array or was never given a value is passed by alias, so the callee may
-# use it as an array and the caller sees the result.
-proc call_user(machine: Machine, name: Str, args: List[Int]) -> Result[Machine] {
-  var m = machine
-  let function = m.functions.get(name)?
-  var counters = cold(m)
-  counters.calls += 1
-  let call_id = counters.calls
-  m = with_cold(m, counters)
-  m.depth += 1
-  if m.depth > 1000 { return Err(fatal(m, "function call nesting too deep")) }
-  var scope = Scope(values: {}, arrays: {}, aliases: {}, site: m.site)
-  for at in range(function.parameters.len()) {
-    let parameter = function.parameters[at]
-    if at >= args.len() {
-      scope.values = scope.values.set(parameter, Empty)
-      scope.aliases = scope.aliases.set(parameter, f"\0{call_id}:{parameter}")
-      continue
-    }
-    var passed = false
-    match m.expressions[args[at]] {
-      Variable(variable) => {
-        let resolved = array_name(m, variable)
-        if resolved in m.arrays {
-          scope.aliases = scope.aliases.set(parameter, resolved)
-          scope.values = scope.values.set(parameter, Empty)
-          passed = true
-        } else if is_local(m, variable) {
-          let current = m.scopes[m.scopes.len() - 1]
-          if variable in current.aliases and (current.values.get(variable) ?? Empty) == Empty {
-            scope.aliases = scope.aliases.set(parameter, current.aliases.get(variable) ?? variable)
-            scope.values = scope.values.set(parameter, Empty)
-            passed = true
-          }
-        } else if variable not in m.values {
-          scope.aliases = scope.aliases.set(parameter, variable)
-          scope.values = scope.values.set(parameter, Empty)
-          passed = true
-        }
-      }
-      _ => {}
-    }
-    if ! passed {
-      m = evaluate(m, args[at])?
-      if m.flow != Normal { return Ok(m) }
-      scope.values = scope.values.set(parameter, m.value)
-    }
-  }
-  # Surplus arguments have no parameter to bind, but their side effects still happen, in order.
-  for at in range(args.len()) {
-    if at >= function.parameters.len() {
-      m = evaluate(m, args[at])?
-      if m.flow != Normal { return Ok(m) }
-    }
-  }
-  m.scopes += [scope]
-  let saved_site = m.site
-  m = execute_statement(m, function.body)?
-  m.scopes = m.scopes[..m.scopes.len() - 1]
-  for parameter in function.parameters { m.arrays = m.arrays.remove(f"\0{call_id}:{parameter}") }
-  m.site = saved_site
-  m.depth -= 1
-  if m.flow == ReturnFunction { m.flow = Normal } else if m.flow == Normal { m.value = Empty } else if m.flow not in [ExitProgram, NextRecord, SkipFile] { return Err(fatal(m, "invalid control flow from function")) }
-  Ok(m)
-}
-
-# Replacement text of sub and gsub with GNU awk's backslash rules: "\\\&" is a
-# literal backslash and ampersand, "\\&" a backslash followed by the matched
-# text, "\&" a literal ampersand; any other backslash stays.
-pure substitute(replacement: Str, matched: Str) -> Str {
-  var out = ""
-  var at = 0
-  while at < replacement.byte_len() {
-    let byte = replacement.byte_at(at) ?? 0
-    if byte == 38 { out += matched; at += 1 } else if byte == 92 {
-      if replacement.byte_slice(at, length: 4) == "\\\\\\&" {
-        out += "\\&"
-        at += 4
-      } else if replacement.byte_slice(at, length: 3) == "\\\\&" {
-        out += "\\" + matched
-        at += 3
-      } else if replacement.byte_slice(at, length: 2) == "\\&" {
-        out += "&"
-        at += 2
-      } else {
-        out += "\\"
-        at += 1
-      }
-    } else {
-      let ampersand = replacement.find("&", at) ?? replacement.byte_len()
-      let slash = replacement.find("\\", at) ?? replacement.byte_len()
-      let end = if ampersand < slash { ampersand } else { slash }
-      out += replacement.byte_slice(at, length: end - at)
-      at = end
-    }
-  }
-  out
-}
-pure char_slice_start(content: Str, count: Int) -> Int {
-  if count <= 0 { return 0 }
-  var seen = 0
-  var at = 0
-  for character in content.split("") {
-    if seen == count { break }
-    seen += 1
-    at += character.byte_len()
-  }
-  at
-}
-pure located_result(m: Machine, outcome: Result[Float]) -> Result[Float] {
-  match outcome {
-    Ok(value) => Ok(value)
-    Err(failure) => Err(located(m, failure))
+    _ => Err(fatal_error("an array name is required"))
   }
 }
 
-proc call(machine: Machine, name: Str, args: List[Int]) -> Result[Machine] {
-  var m = machine
-  if name in m.functions { return call_user(m, name, args) }
-  if name in ["sub", "gsub"] {
-    if args.len() < 2 or args.len() > 3 { return Err(fatal(m, f"{name}: wrong number of arguments")) }
-    let pattern = regex_source(m, args[0])?
-    m = evaluate(pattern.machine, args[1])?
-    if m.flow != Normal { return Ok(m) }
-    let replacement = scalar_text(m.value, conversion_format(m)?)?
-    var place: Place = FieldPlace(0)
-    var assignable = true
-    if args.len() == 3 {
-      match m.expressions[args[2]] {
-        Variable(_) => { let located = locate(m, args[2])?; m = located.machine; place = located.place }
-        Field(_) => { let located = locate(m, args[2])?; m = located.machine; place = located.place }
-        Index(_, _) => { let located = locate(m, args[2])?; m = located.machine; place = located.place }
-        _ => {
-          m = evaluate(m, args[2])?
-          assignable = false
-        }
-      }
-    }
-    var content = ""
-    if assignable { content = scalar_text(read_place(m, place), conversion_format(m)?)? } else { content = scalar_text(m.value, conversion_format(m)?)? }
-    var out = ""
-    var copied = 0
-    var count = 0
-    var previous_end = -1
-    for hit in regexp_matches(m, pattern.key, content)? {
-      if hit.start == hit.end and previous_end == hit.start { continue }
-      out += content.byte_slice(copied, length: hit.start - copied) + substitute(replacement, content.byte_slice(hit.start, length: hit.end - hit.start))
-      copied = hit.end
-      previous_end = hit.end
-      count += 1
-      if name == "sub" { break }
-    }
-    out += content.byte_slice(copied)
-    if count > 0 and assignable { m = write_place(m, place, String(out))? }
-    return Ok(result(m, Numeric(count.float())))
-  }
-  if name == "split" {
-    if args.len() < 2 or args.len() > 4 { return Err(fatal(m, "split: wrong number of arguments")) }
-    m = evaluate(m, args[0])?
-    if m.flow != Normal { return Ok(m) }
-    let content = scalar_text(m.value, conversion_format(m)?)?
-    var separator = variable_text(m, "FS")?
-    var regex_mode = false
-    if args.len() >= 3 {
-      match m.expressions[args[2]] { RegexLiteral(_) => { regex_mode = true }; _ => {} }
-      let pattern = regex_source(m, args[2])?
-      m = pattern.machine
-      separator = pattern.key
-    }
-    let array = match m.expressions[args[1]] {
-      Variable(variable) => {
-        match array_ref(m, variable) {
-          Ok(resolved) => resolved
-          Err(_) => { return Err(fatal(m, "split: second argument is not an array")) }
-        }
-      }
-      _ => { return Err(fatal(m, "split: second argument is not an array")) }
-    }
-    if args.len() == 4 {
-      let seps_array = match m.expressions[args[3]] { Variable(variable) => array_ref(m, variable)?; _ => { return Err(fatal(m, "split: fourth argument is not an array")) } }
-      let split = split_with_separators(content, separator, regex_mode, fold_case(m))?
-      m = array_clear(m, array)
-      m = array_clear(m, seps_array)
-      for at in range(split.fields.len()) { m = array_set(m, array, f"{at + 1}", input(split.fields[at])?) }
-      for at in range(split.separators.len()) { m = array_set(m, seps_array, f"{at + 1}", String(split.separators[at])) }
-      return Ok(result(m, Numeric(split.fields.len().float())))
-    }
-    let fields = split_fields(content, separator, regex_mode, fold_case(m))?
-    m = array_clear(m, array)
-    for at in range(fields.len()) { m = array_set(m, array, f"{at + 1}", fields[at]) }
-    return Ok(result(m, Numeric(fields.len().float())))
-  }
-  if name == "match" {
-    if args.len() < 2 or args.len() > 3 { return Err(fatal(m, "match: wrong number of arguments")) }
-    m = evaluate(m, args[0])?
-    if m.flow != Normal { return Ok(m) }
-    let content = scalar_text(m.value, conversion_format(m)?)?
-    let pattern = regex_source(m, args[1])?
-    m = pattern.machine
-    var hit: Match? = null
-    let hits = regexp_matches(m, pattern.key, content)?
-    if ! hits.is_empty() { hit = hits[0] }
-    let start = if hit == null { 0 } else { content.byte_slice(0, length: (hit ?? Match(start: 0, end: 0)).start).count_chars() + 1 }
-    let length = if hit == null { -1 } else { content.byte_slice((hit ?? Match(start: 0, end: 0)).start, length: (hit ?? Match(start: 0, end: 0)).end - (hit ?? Match(start: 0, end: 0)).start).count_chars() }
-    m.values = m.values.set("RSTART", Numeric(start.float()))
-    m.values = m.values.set("RLENGTH", Numeric(length.float()))
-    if args.len() == 3 {
-      let array = match m.expressions[args[2]] { Variable(variable) => array_ref(m, variable)?; _ => { return Err(fatal(m, "match: third argument is not an array")) } }
-      m = array_clear(m, array)
-      if hit != null {
-        let caps = rx_captures(pattern.key, content, fold_case(m))?
-        let separator = variable_text(m, "SUBSEP")?
-        for at in range(caps.len()) {
-          let item = caps[at]
-          if item == null { continue }
-          let span = item ?? Match(start: 0, end: 0)
-          let text = content.byte_slice(span.start, length: span.end - span.start)
-          let from = content.byte_slice(0, length: span.start).count_chars() + 1
-          m = array_set(m, array, f"{at}", input(text)?)
-          m = array_set(m, array, f"{at}{separator}start", Numeric(from.float()))
-          m = array_set(m, array, f"{at}{separator}length", Numeric(text.count_chars().float()))
-        }
-      }
-    }
-    return Ok(result(m, Numeric(start.float())))
-  }
-  if name == "length" and args.len() == 1 {
-    match m.expressions[args[0]] {
-      Variable(variable) => {
-        let array = array_name(m, variable)
-        if array in m.arrays { return Ok(result(m, Numeric(array_size(m, array).float()))) }
-        if is_local(m, variable) {
-          let scope = m.scopes[m.scopes.len() - 1]
-          if variable in scope.aliases and (scope.values.get(variable) ?? Empty) == Empty { return Ok(result(m, Numeric(0.0))) }
-        }
-      }
-      _ => {}
-    }
-  }
-  if name in ["typeof", "isarray"] and args.len() == 1 {
-    match m.expressions[args[0]] {
-      Variable(variable) => {
-        let array = array_name(m, variable)
-        let is_array = array in m.arrays
-        var kind = "untyped"
-        if is_array { kind = "array" } else if is_local(m, variable) {
-          let scope = m.scopes[m.scopes.len() - 1]
-          let current = scope.values.get(variable) ?? Empty
-          kind = type_name(current)
-        } else if variable in m.values { kind = type_name(m.values.get(variable) ?? Empty) }
-        if name == "isarray" { return Ok(result(m, Numeric(if is_array { 1.0 } else { 0.0 }))) }
-        return Ok(result(m, String(kind)))
-      }
-      Index(variable, keys) => {
-        let located = key(m, keys)?
-        m = located.machine
-        let array = array_ref(m, variable)?
-        let found = array_find(m, array, located.key)
-        if name == "isarray" { return Ok(result(m, Numeric(0.0))) }
-        return Ok(result(m, String(if found == null { "unassigned" } else { type_name(found ?? Empty) })))
-      }
-      _ => {}
-    }
-  }
-  if name in ["asort", "asorti"] {
-    if args.len() < 1 or args.len() > 3 { return Err(fatal(m, f"{name}: wrong number of arguments")) }
-    let source = match m.expressions[args[0]] { Variable(variable) => array_ref(m, variable)?; _ => { return Err(fatal(m, f"{name}: first argument is not an array")) } }
-    var destination = source
-    if args.len() >= 2 {
-      destination = match m.expressions[args[1]] { Variable(variable) => array_ref(m, variable)?; _ => { return Err(fatal(m, f"{name}: second argument is not an array")) } }
-    }
-    var how = if name == "asorti" { "@ind_str_asc" } else { "@val_type_asc" }
-    if args.len() == 3 {
-      m = evaluate(m, args[2])?
-      how = scalar_text(m.value, conversion_format(m)?)?
-    }
-    let table = table_get(m, source)
-    var items: List[SortItem] = []
-    for subscript in table.cells.keys() {
-      let held = (table.cells.get(subscript) ?? Cell(value: Empty, seq: 0)).value
-      let shown = if name == "asorti" { input(subscript)? } else { held }
-      items += [sort_item(shown, subscript, how)?]
-    }
-    let ordered = merge_sort(items, how.ends_with("_desc"))
-    m = array_clear(m, destination)
-    for at in range(ordered.len()) {
-      let item = ordered[at]
-      m = array_set(m, destination, f"{at + 1}", if name == "asorti" { String(item.text) } else { item.value })
-    }
-    return Ok(result(m, Numeric(ordered.len().float())))
-  }
-  if name == "gensub" {
-    if args.len() < 3 or args.len() > 4 { return Err(fatal(m, "gensub: wrong number of arguments")) }
-    let given = regex_source(m, args[0])?
-    m = given.machine
-    var rest: List[Scalar] = []
-    for child in args[1..] {
-      m = evaluate(m, child)?
-      if m.flow != Normal { return Ok(m) }
-      rest += [m.value]
-    }
-    let conversion = conversion_format(m)?
-    var target = m.record
-    if rest.len() == 3 { target = scalar_text(rest[2], conversion)? }
-    let replaced = gensub(m, given.key, scalar_text(rest[0], conversion)?, rest[1], target)?
-    return Ok(result(m, String(replaced)))
-  }
-  if name == "patsplit" {
-    if args.len() < 2 or args.len() > 4 { return Err(fatal(m, "patsplit: wrong number of arguments")) }
-    m = evaluate(m, args[0])?
-    let content = scalar_text(m.value, conversion_format(m)?)?
-    let array = match m.expressions[args[1]] { Variable(variable) => array_ref(m, variable)?; _ => { return Err(fatal(m, "patsplit: second argument is not an array")) } }
-    var pattern = ""
-    if args.len() >= 3 {
-      let given = regex_source(m, args[2])?
-      m = given.machine
-      pattern = given.key
-    } else { pattern = variable_text(m, "FPAT")? }
-    if pattern.is_empty() { pattern = "[^[:space:]]+" }
-    var seps_array = ""
-    if args.len() == 4 { seps_array = match m.expressions[args[3]] { Variable(variable) => array_ref(m, variable)?; _ => { return Err(fatal(m, "patsplit: fourth argument is not an array")) } } }
-    m = array_clear(m, array)
-    if ! seps_array.is_empty() { m = array_clear(m, seps_array) }
-    var count = 0
-    var cursor = 0
-    for hit in regexp_matches(m, pattern, content)? {
-      if hit.end == hit.start { continue }
-      count += 1
-      if ! seps_array.is_empty() { m = array_set(m, seps_array, f"{count - 1}", String(content.byte_slice(cursor, length: hit.start - cursor))) }
-      m = array_set(m, array, f"{count}", input(content.byte_slice(hit.start, length: hit.end - hit.start))?)
-      cursor = hit.end
-    }
-    if ! seps_array.is_empty() { m = array_set(m, seps_array, f"{count}", String(content.byte_slice(cursor))) }
-    return Ok(result(m, Numeric(count.float())))
-  }
-  var values: List[Scalar] = []
-  for child in args {
-    m = evaluate(m, child)?
-    if m.flow != Normal { return Ok(m) }
-    values += [m.value]
-  }
-  let conversion = conversion_format(m)?
-  var value: Scalar = Empty
-  if name == "length" {
-    if args.len() > 1 { return Err(fatal(m, "length: wrong number of arguments")) }
-    value = Numeric((if values.is_empty() { m.record } else { scalar_text(values[0], conversion)? }).count_chars().float())
-  } else if name == "substr" {
-    if values.len() < 2 or values.len() > 3 { return Err(fatal(m, "substr: wrong number of arguments")) }
-    let content = scalar_text(values[0], conversion)?
-    let pieces = content.split("")
-    let given = truncate(number(values[1])?)
-    let size = pieces.len()
-    let start = if is_nan(given) or given < 1.0 { 0 } else if given > size.float() { size } else { integer(given - 1.0)? }
-    var length = size
-    if values.len() == 3 {
-      let wanted = truncate(number(values[2])?)
-      length = if is_nan(wanted) or wanted < 0.0 { 0 } else if wanted > size.float() { size } else { integer(wanted)? }
-    }
-    let end = if start + length > size { size } else { start + length }
-    value = String(pieces[start..end].join(""))
-  } else if name == "index" {
-    if values.len() != 2 { return Err(fatal(m, "index: wrong number of arguments")) }
-    let content = scalar_text(values[0], conversion)?
-    let found = content.find(scalar_text(values[1], conversion)?)
-    value = Numeric(if found == null { 0.0 } else { (content.byte_slice(0, length: found ?? 0).count_chars() + 1).float() })
-  } else if name == "tolower" or name == "toupper" {
-    if values.len() != 1 { return Err(fatal(m, f"{name}: wrong number of arguments")) }
-    let text = scalar_text(values[0], conversion)?
-    value = String(if name == "tolower" { lower_text(text) } else { upper_text(text) })
-  } else if name == "sprintf" {
-    if values.is_empty() { return Err(fatal(m, "sprintf: no arguments")) }
-    match printf(scalar_text(values[0], conversion)?, values[1..], conversion) {
-      Ok(rendered) => { value = String(rendered) }
-      Err(failure) => { return Err(located(m, failure)) }
-    }
-  } else if name in ["int", "sqrt", "exp", "log", "sin", "cos"] {
-    if values.len() != 1 { return Err(fatal(m, f"{name}: wrong number of arguments")) }
-    let n = number(values[0])?
-    var computed = 0.0
-    if name == "int" { computed = truncate(n) } else if name == "sqrt" {
-      if n < 0.0 { warn(m, f"sqrt: received negative argument {float_text(n, conversion)?}")? }
-      computed = n.sqrt()
-    } else if name == "log" {
-      if n < 0.0 { warn(m, f"log: received negative argument {float_text(n, conversion)?}")? }
-      computed = n.ln()
-    } else if name == "exp" { computed = n.exp() } else if name == "sin" { computed = n.sin() } else { computed = n.cos() }
-    value = Numeric(computed)
-  } else if name == "atan2" {
-    if values.len() != 2 { return Err(fatal(m, "atan2: wrong number of arguments")) }
-    value = Numeric(number(values[0])?.atan2(number(values[1])?))
-  } else if name in ["and", "or", "xor"] {
-    if values.len() < 2 { return Err(fatal(m, f"fatal: {name}: called with less than two arguments")) }
-    var accumulator = located_result(m, to_bit_operand(name, 1, number(values[0])?))?
-    for at in range(1, values.len()) {
-      let operand = located_result(m, to_bit_operand(name, at + 1, number(values[at])?))?
-      accumulator = if name == "and" and false { accumulator } else { bit_step(name, accumulator, operand) }
-    }
-    value = Numeric(accumulator)
-  } else if name in ["lshift", "rshift"] {
-    if values.len() != 2 { return Err(fatal(m, f"{name}: wrong number of arguments")) }
-    let a = located_result(m, to_bit_operand(name, 1, number(values[0])?))?
-    let b = located_result(m, to_bit_operand(name, 2, number(values[1])?))?
-    value = Numeric(if name == "lshift" { a * 2.0.pow(b) } else { truncate(a / 2.0.pow(b)) })
-  } else if name == "compl" {
-    if values.len() != 1 { return Err(fatal(m, "compl: wrong number of arguments")) }
-    let a = located_result(m, to_bit_operand(name, 1, number(values[0])?))?
-    value = Numeric(9007199254740991.0 - a)
-  } else if name == "strtonum" {
-    if values.len() != 1 { return Err(fatal(m, "strtonum: wrong number of arguments")) }
-    value = Numeric(strtonum(scalar_text(values[0], conversion)?)?)
-  } else if name == "systime" {
-    value = Numeric((time.now() / 1000).float())
-  } else if name == "strftime" {
-    var format = "%a %b %e %H:%M:%S %Z %Y"
-    if values.len() >= 1 { format = scalar_text(values[0], conversion)? }
-    var stamp = time.now() / 1000
-    if values.len() >= 2 { stamp = integer(truncate(number(values[1])?))? }
-    var utc = false
-    if values.len() >= 3 { utc = truth(values[2])? }
-    value = String(time.format(stamp * 1000000000, format, utc)?)
-  } else if name == "mktime" {
-    if values.len() != 1 { return Err(fatal(m, "mktime: wrong number of arguments")) }
-    value = Numeric(make_time(scalar_text(values[0], conversion)?)?.float())
-  } else if name == "rand" {
-    m = random_next(m)
-    let high = cold(m).state.float()
-    m = random_next(m)
-    let low = cold(m).state.float()
-    var draw = 0.5 + (high / 2147483648.0 + low) / 2147483648.0
-    draw = draw - 0.5
-    if draw == 1.0 { draw = 0.0 }
-    value = Numeric(draw)
-  } else if name == "srand" {
-    var state = cold(m)
-    let previous = state.seed
-    var seed = 0.0
-    if values.is_empty() { seed = 0.0 } else { seed = number(values[0])? }
-    state.previous_seed = previous
-    state.seed = seed
-    m = with_cold(m, state)
-    m = random_seed(m, integer(truncate(seed))?)
-    value = Numeric(previous)
-  } else if name == "system" {
-    if values.len() != 1 { return Err(fatal(m, "system: wrong number of arguments")) }
-    let command = scalar_text(values[0], conversion)?
-    m = flush_all(m)?
-    let status = run.status sh -c ${environment_prefix(m) + command}
-    value = Numeric(status_code(status).float())
-  } else if name == "close" {
-    if values.is_empty() or values.len() > 2 { return Err(fatal(m, "close: wrong number of arguments")) }
-    let target = scalar_text(values[0], conversion)?
-    let closed = close_stream(m, target)?
-    m = closed.machine
-    value = Numeric(closed.code.float())
-  } else if name == "fflush" {
-    if values.len() > 1 { return Err(fatal(m, "fflush: wrong number of arguments")) }
-    if values.is_empty() or (scalar_text(values[0], conversion)?).is_empty() {
-      m = flush_all(m)?
-      value = Numeric(0.0)
-    } else {
-      let target = scalar_text(values[0], conversion)?
-      let writer_keys = [key for key in m.writers.keys() if key == f">{target}" or key == f"|{target}" or key == f">>{target}"]
-      if writer_keys.is_empty() and target not in ["/dev/stdout", "/dev/stderr", "-"] {
-        warn(m, f"fflush: `{target}' is not an open file, pipe or co-process")?
-        value = Numeric(-1.0)
-      } else {
-        for key in writer_keys { m = flush_writer(m, key)? }
-        if target in ["/dev/stdout", "-"] { m = flush_stdout(m)? }
-        value = Numeric(0.0)
-      }
-    }
-  } else if name == "typeof" {
-    value = String(if values.len() != 1 { "unknown" } else { match values[0] { Empty => "untyped"; Numeric(_) => "number"; Nan(_) => "number"; String(_) => "string"; Input(_, n) => if n != null { "strnum" } else { "string" } } })
-  } else if name == "isarray" {
-    value = Numeric(0.0)
-  } else {
-    return Err(fatal(m, f"function `{name}' not defined"))
-  }
-  Ok(result(m, value))
-}
-pure strtonum(text: Str) -> Result[Float] {
-  let plain = trimmed(text)
-  var negative = false
-  var body = plain
-  if body.starts_with("-") { negative = true; body = body.byte_slice(1) } else if body.starts_with("+") { body = body.byte_slice(1) }
-  var value = 0.0
-  if (body.starts_with("0x") or body.starts_with("0X")) and body.byte_len() > 2 {
-    var at = 2
-    while at < body.byte_len() and hex_digit(body.byte_at(at) ?? 0) { value = value * 16.0 + digit_value(body.byte_at(at) ?? 48).float(); at += 1 }
-  } else if body.starts_with("0") and body.byte_len() > 1 and octal_literal(body) {
-    for at in range(body.byte_len()) { value = value * 8.0 + digit_value(body.byte_at(at) ?? 48).float() }
-  } else {
-    value = numeric_prefix(body)?
-  }
-  Ok(if negative { -value } else { value })
-}
-
-# ---- gawk extensions -------------------------------------------------------
-
-pure type_name(value: Scalar) -> Str {
-  match value {
-    Empty => "unassigned"
-    Numeric(_) => "number"
-    Nan(_) => "number"
-    String(_) => "string"
-    Input(_, n) => if n != null { "strnum" } else { "string" }
-  }
-}
-type SortItem = {rank: Int, number: Float, text: Str, value: Scalar}
-# Sort keys follow the requested order: numbers sort before strings for the
-# value-type orders, and a numeric order compares numeric value only.
-pure sort_item(value: Scalar, subscript: Str, how: Str) -> Result[SortItem] {
-  let text = plain_text(value)?
-  let numeric_order = how.starts_with("@ind_num") or how.starts_with("@val_num")
-  if how.starts_with("@val_str") or how.starts_with("@ind_str") { return Ok({rank: 0, number: 0.0, text: text, value: value}) }
-  if how.starts_with("@ind_num") { return Ok({rank: 0, number: number(input(subscript)?)?, text: subscript, value: value}) }
-  if numeric_order or numeric(value) { return Ok({rank: 0, number: number(value)?, text: text, value: value}) }
-  Ok({rank: 1, number: 0.0, text: text, value: value})
-}
-pure item_before(a: SortItem, b: SortItem, descending: Bool) -> Bool {
-  var less = false
-  if a.rank != b.rank { less = a.rank < b.rank } else if a.rank == 0 and (a.number < b.number or a.number > b.number) { less = a.number < b.number } else { less = a.text < b.text }
-  if descending { return ! less and (a.rank != b.rank or a.number < b.number or a.number > b.number or a.text != b.text) }
-  less
-}
-pure merge_sort(items: List[SortItem], descending: Bool) -> List[SortItem] {
-  if items.len() <= 1 { return items }
-  let middle = items.len() / 2
-  let left = merge_sort(items[..middle], descending)
-  let right = merge_sort(items[middle..], descending)
-  var merged: List[SortItem] = []
-  var i = 0
-  var j = 0
-  while i < left.len() and j < right.len() {
-    if item_before(right[j], left[i], descending) { merged += [right[j]]; j += 1 } else { merged += [left[i]]; i += 1 }
-  }
-  while i < left.len() { merged += [left[i]]; i += 1 }
-  while j < right.len() { merged += [right[j]]; j += 1 }
-  merged
-}
-
-# Days since 1970-01-01 of a proleptic Gregorian date.
-pure days_from_civil(year: Int, month: Int, day: Int) -> Int {
-  let shifted = if month <= 2 { year - 1 } else { year }
-  let era = if shifted >= 0 { shifted / 400 } else { (shifted - 399) / 400 }
-  let year_of_era = shifted - era * 400
-  let month_index = if month > 2 { month - 3 } else { month + 9 }
-  let day_of_year = (153 * month_index + 2) / 5 + day - 1
-  let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year
-  era * 146097 + day_of_era - 719468
-}
-# mktime("YYYY MM DD HH MM SS [DST]"): out-of-range fields roll over; the
-# result is local time as seconds since the epoch, or -1 for malformed text.
-proc make_time(spec: Str) -> Result[Int] {
-  var parts: List[Int] = []
-  for word in spec.replace("\t", with: " ").replace("\n", with: " ").split(" ") {
-    if word.is_empty() { continue }
-    match word.parse_int_decimal() {
-      Ok(number) => { parts += [number] }
-      Err(_) => { return Ok(-1) }
-    }
-  }
-  if parts.len() < 6 { return Ok(-1) }
-  var year = parts[0]
-  var month = parts[1] - 1
-  year += month / 12
-  month = month % 12
-  if month < 0 { month += 12; year -= 1 }
-  let days = days_from_civil(year, month + 1, 1) + parts[2] - 1
-  let seconds = days * 86400 + parts[3] * 3600 + parts[4] * 60 + parts[5]
-  let calendar = time.to_calendar(seconds * 1000000000, true)?
-  match time.from_calendar(calendar.year, calendar.month, calendar.day, calendar.hour, calendar.minute, calendar.second) {
-    Ok(stamp) => Ok(stamp / 1000000000)
-    Err(_) => Ok(-1)
-  }
-}
-# gensub: how is "g"/"G" for all matches or the number of the match to replace;
-# \\0 and & stand for the match, \\1 to \\9 for groups, \\\\ and \\& for literals.
-proc gensub(m: Machine, pattern: Str, replacement: Str, how: Scalar, target: Str) -> Result[Str] {
-  let conversion = conversion_format(m)?
-  let mode = scalar_text(how, conversion)?
-  var global = false
-  var which = 1
-  if mode.starts_with("g") or mode.starts_with("G") { global = true } else {
-    which = integer(number(how)?)?
-    if which < 1 { which = 1 }
-  }
-  var out = ""
-  var copied = 0
-  var counted = 0
-  var previous_end = -1
-  for hit in regexp_matches(m, pattern, target)? {
-    if hit.start == hit.end and previous_end == hit.start { continue }
-    counted += 1
-    previous_end = hit.end
-    if ! global and counted != which { continue }
-    let matched = target.byte_slice(hit.start, length: hit.end - hit.start)
-    var groups: List[Str] = [matched]
-    if "\\" in replacement {
-      let caps = rx_captures(pattern, matched, fold_case(m))?
-      for item in caps[1..] {
-        if item == null { groups += [""] } else {
-          let span = item ?? Match(start: 0, end: 0)
-          groups += [matched.byte_slice(span.start, length: span.end - span.start)]
-        }
-      }
-    }
-    var piece = ""
-    let chars = replacement.split("")
-    var at = 0
-    while at < chars.len() {
-      let c = chars[at]
-      if c == "\\" and at + 1 < chars.len() {
-        let next = chars[at + 1]
-        if next.byte_len() == 1 and digit(next.byte_at(0) ?? 0) {
-          let index = (next.byte_at(0) ?? 48) - 48
-          piece += if index < groups.len() { groups[index] } else { "" }
-          at += 2
-        } else if next == "&" { piece += "&"; at += 2 } else if next == "\\" { piece += "\\"; at += 2 } else { piece += "\\"; at += 1 }
-      } else if c == "&" { piece += matched; at += 1 } else { piece += c; at += 1 }
-    }
-    out += target.byte_slice(copied, length: hit.start - copied) + piece
-    copied = hit.end
-    if ! global { break }
-  }
-  Ok(out + target.byte_slice(copied))
-}
-
-# ---- Closing streams ------------------------------------------------------
-
-type Closed = {machine: Machine, code: Int}
-# close(name): finishes a reader or writer with that name and returns its
-# status: 0 for files, the command's exit status for commands, -1 when
-# nothing by that name is open.
-proc close_stream(machine: Machine, target: Str) -> Result[Closed] {
-  var m = machine
-  var code = -1
-  var found = false
-  for key in [f">{target}", f">>{target}", f"|{target}"] {
-    if key not in m.writers { continue }
-    m = flush_writer(m, key)?
-    let writer = m.writers.get(key) ?? no_writer()
-    m.writers = m.writers.remove(key)
-    found = true
-    if writer.fd >= 0 { unix.close_fd(writer.fd)? }
-    code = 0
-    if writer.command {
-      m = flush_stdout(m)?
-      if let handle = writer.job {
-        let status = wait handle ?
-        code = status_code(status)
-      }
-    }
-  }
-  for key in [f"<{target}", f"|{target}"] {
-    if key not in m.readers { continue }
-    let reader = m.readers.get(key) ?? no_reader()
-    m.readers = m.readers.remove(key)
-    found = true
-    if reader.fd > 0 { unix.close_fd(reader.fd)? }
-    code = 0
-    if reader.command {
-      if let handle = reader.job {
-        let status = wait handle ?
-        code = status_code(status)
-      }
-    }
-  }
-  Ok({machine: m, code: if found { code } else { -1 }})
-}
-# Everything still open is closed at exit: files and commands first (waiting
-# for the commands), then standard output is flushed.
-proc close_everything(machine: Machine) -> Result[Machine] {
-  var m = machine
-  for key in m.writers.keys() { m = flush_writer(m, key)? }
-  for key in m.writers.keys() {
-    let writer = m.writers.get(key) ?? no_writer()
-    if writer.fd >= 0 { unix.close_fd(writer.fd)? }
-    if writer.command {
-      if let handle = writer.job { let _ = wait handle ? }
-    }
-  }
-  m.writers = {}
-  for key in m.readers.keys() {
-    let reader = m.readers.get(key) ?? no_reader()
-    if reader.fd > 0 { unix.close_fd(reader.fd)? }
-    if reader.command {
-      if let handle = reader.job { let _ = wait handle ? }
-    }
-  }
-  m.readers = {}
-  flush_stdout(m)
-}
-
-# ---- Statements -------------------------------------------------------------
-
-proc execute_statement(machine: Machine, id: Int) -> Result[Machine] {
-  var m = machine
-  if m.flow != Normal { return Ok(m) }
-  m.site = m.sites[id]
-  execute_inner(m, id)
-}
-proc write_stdout_text(machine: Machine, text: Str) -> Result[Machine] {
-  match io.write_stdout(text) {
+# Writes the program's pending standard output to the host.
+proc emit_stdout(text: Str, lossy: Bool) -> Result[Unit] {
+  if text.is_empty() { return Ok() }
+  match io.write_stdout_bytes(output_bytes(text, lossy)) {
     Ok(_) => {}
-    Err(failure) => { return Err(fatal(machine, f"print to \"standard output\" failed ({reason_of(failure)})")) }
+    Err(failure) => { return Err(fatal_error(f"print to \"standard output\" failed ({reason_of(failure)})")) }
   }
-  if cold(machine).interactive { return flush_stdout(machine) }
-  Ok(machine)
-}
-# Opens a file for output: truncated, or appended to (and created when missing).
-proc open_output(target: Path, append: Bool) -> Result[Int] {
-  if append {
-    if ! target.exists() { target.write("")? }
-    return unix.open_fd(target, write: true, flags: ["append"])
+  match io.flush_stdout() {
+    Ok(_) => Ok()
+    Err(failure) => Err(fatal_error(f"print to \"standard output\" failed ({reason_of(failure)})"))
   }
-  target.write("")?
-  unix.open_fd(target, write: true)
-}
-proc print_text(machine: Machine, text: Str, target: Int?, mode: Str) -> Result[Machine] {
-  var m = machine
-  if target == null {
-    m = write_stdout_text(m, text)?
-    return Ok(m)
-  }
-  m = evaluate(m, target ?? 0)?
-  if m.flow != Normal { return Ok(m) }
-  let destination = scalar_text(m.value, conversion_format(m)?)?
-  if destination.is_empty() { return Err(fatal(m, f"expression for `{mode}' redirection has null string value")) }
-  if mode != "|" and destination in ["/dev/stdout", "/dev/fd/1"] {
-    m = write_stdout_text(m, text)?
-    return Ok(m)
-  }
-  if mode != "|" and destination in ["/dev/stderr", "/dev/fd/2"] {
-    write_all(2, bytes.from_text(text))?
-    return Ok(m)
-  }
-  let key = f"{mode}{destination}"
-  if key not in m.writers {
-    if mode == "|" {
-      m = open_command_writer(m, destination)?
-    } else {
-      m = flush_all(m)?
-      let target = fp"{destination}"
-      match open_output(target, mode == ">>") {
-        Ok(fd) => { m.writers = m.writers.set(key, Writer(fd: fd, pending: "", job: null, name: destination, command: false, fifo: null)) }
-        Err(failure) => { return Err(fatal(m, f"cannot redirect to `{destination}': {reason_of(failure)}")) }
-      }
-    }
-  }
-  var writer = m.writers.get(key) ?? no_writer()
-  writer.pending += text
-  m.writers = m.writers.set(key, writer)
-  Ok(m)
-}
-proc execute_inner(machine: Machine, id: Int) -> Result[Machine] {
-  var m = machine
-  match m.statements[id] {
-    Block(body) => {
-      for child in body { m = execute_statement(m, child)?; if m.flow != Normal { return Ok(m) } }
-    }
-    ExpressionStatement(child) => { m = evaluate(m, child)? }
-    Print(args, formatted_output, target, mode) => {
-      var values: List[Scalar] = []
-      for child in args { m = evaluate(m, child)?; if m.flow != Normal { return Ok(m) }; values += [m.value] }
-      let conversion = conversion_format(m)?
-      var text = ""
-      if formatted_output {
-        if values.is_empty() { return Err(fatal(m, "printf: no arguments")) }
-        match printf(scalar_text(values[0], conversion)?, values[1..], conversion) {
-          Ok(rendered) => { text = rendered }
-          Err(failure) => { return Err(located(m, failure)) }
-        }
-      } else {
-        if values.is_empty() { text = m.record } else {
-          let output = output_format(m)?
-          var pieces: List[Str] = []
-          for value in values { pieces += [scalar_text(value, output)?] }
-          text = pieces.join(variable_text(m, "OFS")?)
-        }
-        text += variable_text(m, "ORS")?
-      }
-      m = print_text(m, text, target, mode)?
-    }
-    If(condition, yes, no) => {
-      m = evaluate(m, condition)?
-      if m.flow != Normal { return Ok(m) }
-      if truth(m.value)? { m = execute_statement(m, yes)? } else if no != null { m = execute_statement(m, no ?? 0)? }
-    }
-    While(condition, body) => {
-      loop {
-        m = evaluate(m, condition)?
-        if m.flow != Normal or ! truth(m.value)? { break }
-        m = execute_statement(m, body)?
-        if m.flow == BreakLoop { m.flow = Normal; break }
-        if m.flow == ContinueLoop { m.flow = Normal }
-        if m.flow != Normal { break }
-      }
-    }
-    Do(body, condition) => {
-      loop {
-        m = execute_statement(m, body)?
-        if m.flow == BreakLoop { m.flow = Normal; break }
-        if m.flow == ContinueLoop { m.flow = Normal }
-        if m.flow != Normal { break }
-        m = evaluate(m, condition)?
-        if m.flow != Normal or ! truth(m.value)? { break }
-      }
-    }
-    For(initial, condition, step, body) => {
-      if initial != null { m = evaluate(m, initial ?? 0)? }
-      loop {
-        if m.flow != Normal { break }
-        if condition != null { m = evaluate(m, condition ?? 0)?; if m.flow != Normal or ! truth(m.value)? { break } }
-        m = execute_statement(m, body)?
-        if m.flow == BreakLoop { m.flow = Normal; break }
-        if m.flow == ContinueLoop { m.flow = Normal }
-        if m.flow != Normal { break }
-        if step != null { m = evaluate(m, step ?? 0)? }
-      }
-    }
-    Each(variable, array, body) => {
-      let resolved = array_ref(m, array)?
-      # The loop runs over a snapshot of the subscripts, as GNU awk does.
-      for member in array_keys(m, resolved) {
-        m = assign_variable(m, variable, input_or_string(member)?)?
-        m = execute_statement(m, body)?
-        if m.flow == BreakLoop { m.flow = Normal; break }
-        if m.flow == ContinueLoop { m.flow = Normal }
-        if m.flow != Normal { break }
-      }
-    }
-    Delete(array, keys) => {
-      let resolved = array_ref(m, array)?
-      if keys != null {
-        let found = key(m, keys ?? [])?
-        m = found.machine
-        if m.flow != Normal { return Ok(m) }
-        m = array_remove(m, resolved, found.key)
-      } else {
-        m = array_clear(m, resolved)
-      }
-    }
-    Next => {
-      if cold(m).running_begin { return Err(fatal(m, "`next' cannot be called from a `BEGIN' rule")) }
-      if cold(m).running_end { return Err(fatal(m, "`next' cannot be called from an `END' rule")) }
-      m.flow = NextRecord
-    }
-    NextFile => {
-      if cold(m).running_begin { return Err(fatal(m, "`nextfile' cannot be called from a `BEGIN' rule")) }
-      if cold(m).running_end { return Err(fatal(m, "`nextfile' cannot be called from an `END' rule")) }
-      m.flow = SkipFile
-    }
-    Break => { m.flow = BreakLoop }
-    Continue => { m.flow = ContinueLoop }
-    Exit(child) => {
-      if child != null { m = evaluate(m, child ?? 0)?; if m.flow != Normal { return Ok(m) }; m.status = integer(number(m.value)?)? }
-      m.flow = ExitProgram
-    }
-    Return(child) => {
-      if child != null { m = evaluate(m, child ?? 0)?; if m.flow != Normal { return Ok(m) } } else { m.value = Empty }
-      m.flow = ReturnFunction
-    }
-  }
-  Ok(m)
-}
-# For-in loop variables hold the subscript as a string that still compares as
-# a number when it looks like one.
-pure input_or_string(member: Str) -> Result[Scalar] { Ok(String(member)) }
-pure located(m: Machine, failure: Error) -> Error {
-  AwkError.Fatal(f"{m.site}: {context_text(m)}{failure.message}")
 }
 
-# ---- Program execution ---------------------------------------------------
-
-pure new_machine(program: Program, interactive: Bool, sandbox: Bool) -> Machine {
-  let values: Map[Scalar] = {"FS": String(" "), "OFS": String(" "), "RS": String("\n"), "RT": String(""), "ORS": String("\n"), "SUBSEP": String("\u{1c}"), "OFMT": String("%.6g"), "CONVFMT": String("%.6g"), "NR": Numeric(0.0), "FNR": Numeric(0.0), "NF": Numeric(0.0), "RSTART": Numeric(0.0), "RLENGTH": Numeric(0.0), "FILENAME": String("")}
-  let state = Cold(
-    calls: 0, main: MainInput(index: 1, reader: null, opened: false, finished: false, stdin_used: false), interactive: interactive, state: 0,
-    generator: [], front: 1, rear: 0, seed: 1.0, previous_seed: 0.0, temp_root: null, temp_path: null, temp_count: 0,
-    running_end: false, running_begin: false, sandbox: sandbox,
-  )
-  var m = Machine(
-    expressions: program.expressions, statements: program.statements, sites: program.site, functions: program.functions,
-    values: values, arrays: {}, scopes: [], fields: [], record: "", status: 0, flow: Normal, value: Empty, depth: 0, site: "cmd. line:1",
-    readers: {}, writers: {}, cold: [state],
-  )
-  m = random_seed(m, 1)
-  m
-}
-
-type RuleRun = {machine: Machine, ranges: List[Bool]}
-# Runs every rule whose pattern matches the current record.
-proc run_rules(machine: Machine, rules: List[Rule], ranges: List[Bool]) -> Result[RuleRun] {
-  var m = machine
-  var active = ranges
-  for at in range(rules.len()) {
-    let rule = rules[at]
-    m.site = rule.site
-    var matched = active[at]
-    if ! matched {
-      if rule.pattern == null { matched = true } else {
-        m = evaluate(m, rule.pattern ?? 0)?
-        if m.flow != Normal { break }
-        matched = truth(m.value)?
-      }
-    }
-    if ! matched { continue }
-    if rule.end != null {
-      m = evaluate(m, rule.end ?? 0)?
-      if m.flow != Normal { break }
-      active[at] = ! truth(m.value)?
-    }
-    m = execute_statement(m, rule.action)?
-    if m.flow in [NextRecord, SkipFile, ExitProgram] { break }
-    if m.flow != Normal { return Err(fatal(m, "invalid control flow at top level")) }
-  }
-  Ok({machine: m, ranges: active})
-}
-
-# Runs a parsed program over ARGV-selected input. Returns the exit status.
-proc run_program(program: Program, arguments: List[Str], variables: List[Str], interactive: Bool, sandbox: Bool) -> Result[Int] {
-  var m = new_machine(program, interactive, sandbox)
-  var argv: Map[Cell] = {"0": Cell(value: String("awk"), seq: 0)}
-  for at in range(arguments.len()) { argv = argv.set(f"{at + 1}", Cell(value: input(arguments[at])?, seq: at + 1)) }
-  m.arrays = m.arrays.set("ARGV", Table(cells: argv, next: arguments.len() + 1))
-  m.values = m.values.set("ARGC", Numeric((arguments.len() + 1).float()))
+# Runs a linked program over ARGV-selected input and returns the exit status.
+proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignments: List[Str], interactive: Bool) -> Result[Int] {
+  let ops = linked.ops
+  let labels = linked.labels
+  let entries = linked.entries
+  let functions = program.functions
+  var globals: Map[Scalar] = {"FS": String(" "), "OFS": String(" "), "RS": String("\n"), "RT": String(""), "ORS": String("\n"), "SUBSEP": String("\u{1c}"), "OFMT": String("%.6g"), "CONVFMT": String("%.6g"), "NR": Numeric(0.0), "FNR": Numeric(0.0), "NF": Numeric(0.0), "RSTART": Numeric(0.0), "RLENGTH": Numeric(0.0), "FILENAME": String("")}
+  var arrays: Map[Table] = {}
+  var operand_cells: Map[Cell] = {"0": Cell(value: String("awk"), seq: 0)}
+  for at in range(arguments.len()) { operand_cells = operand_cells.set(f"{at + 1}", Cell(value: input(arguments[at])?, seq: at + 1)) }
+  arrays = arrays.set("ARGV", grown_table(operand_cells, "0"))
+  globals["ARGC"] = Numeric((arguments.len() + 1).float())
   if program.environ {
     var environment: Map[Cell] = {}
     var count = 0
+    var first_name = ""
     for entry in env.list()? {
+      if count == 0 { first_name = entry.name }
       environment = environment.set(entry.name, Cell(value: input(entry.value)?, seq: count))
       count += 1
     }
-    m.arrays = m.arrays.set("ENVIRON", Table(cells: environment, next: count))
+    arrays = arrays.set("ENVIRON", grown_table(environment, first_name))
   }
-  for item in variables { m = apply_binding(m, item)? }
-  var state = cold(m)
-  state.running_begin = true
-  m = with_cold(m, state)
-  for id in program.begin {
-    m = execute_statement(m, id)?
-    if m.flow == ExitProgram { break }
-    if m.flow != Normal { return Err(fatal(m, "invalid control flow in BEGIN")) }
+  for item in assignments {
+    let equals = item.find("=") ?? 0
+    let decoded = escaped(bytes.from_text(item.byte_slice(equals + 1)), 0, -1)?
+    for note in decoded.notes { warn_plain(note)? }
+    globals[item.byte_slice(0, length: equals)] = input(decoded.content)?
   }
-  state = cold(m)
-  state.running_begin = false
-  m = with_cold(m, state)
-  var ranges = [false for _ in program.rules]
-  if m.flow != ExitProgram and (! program.rules.is_empty() or ! program.end.is_empty()) {
+  var fields: List[Scalar] = []
+  var record = ""
+  var stack: List[Scalar] = [Empty for _ in range(512)]
+  var sp = 0
+  var slots: List[Scalar] = []
+  var aliases: List[Str] = []
+  var frames: List[Frame] = []
+  var iterators: List[Iteration] = []
+  var readers: Map[Reader] = {}
+  var writers: Map[Writer] = {}
+  var stdin_reader = Reader(fd: 0, text: "", at: 0, done: false, tail: b"", pollable: false, lossy: false, job: null, name: "-", command: false)
+  var out = ""
+  var lossy = false
+  var status = 0
+  var site = 0
+  var pc = 0
+  var phase = 0
+  var main = MainState(reader: no_reader(), active: false, index: 1, opened: false, stdin_used: false, finished: false)
+  var ranges = [false for _ in range(linked.rules)]
+  var rng = seed_generator(1)
+  var seed_value = 1.0
+  var temporary = Temporary(root: null, base: null, count: 0)
+  var calls = 0
+  var result: Scalar = Empty
+  var produced = false
+  var pending = 0
+  var pending_name = ""
+  var pending_slot = 0
+  var pending_key = ""
+  var pending_value: Scalar = Empty
+  let outcome = try {
     loop {
-      let got = next_main_record(m)?
-      m = got.machine
-      if got.record == null { break }
-      m = bump_counters(m, false)?
-      m = store_record(m, got.record ?? "", got.terminator, null)?
-      let ran = run_rules(m, program.rules, ranges)?
-      m = ran.machine
-      ranges = ran.ranges
-      if m.flow == ExitProgram { break }
-      if m.flow == SkipFile {
-        var main_state = cold(m)
-        let reader = main_state.main.reader
-        if reader != null and (reader ?? no_reader()).fd > 0 {
-          unix.close_fd((reader ?? no_reader()).fd)?
+      let op = ops[pc]
+      pc += 1
+      produced = false
+      pending = 0
+      match op {
+        OpPushNumber(n) => { result = Numeric(n); produced = true }
+        OpPushText(content) => { result = String(content); produced = true }
+        OpLoadGlobal(name) => {
+          if name in globals { result = globals.get(name) ?? Empty } else {
+            if name in arrays { Err(fatal_error(f"attempt to use array `{name}' in a scalar context"))? }
+            result = Empty
+          }
+          produced = true
         }
-        main_state.main.reader = null
-        m = with_cold(m, main_state)
+        OpLoadLocal(slot, name) => {
+          result = slots[slot]
+          if aliases[slot] != "" and aliases[slot] in arrays { Err(fatal_error(f"attempt to use array `{name}' in a scalar context"))? }
+          produced = true
+        }
+        OpLoadField => {
+          let index = integer(number(stack[sp - 1])?)?
+          sp -= 1
+          if index < 0 or index > 10000000 { Err(fatal_error(f"attempt to access field {index}"))? }
+          result = if index == 0 { input(record)? } else { fields.get(index - 1) ?? Input("", null) }
+          produced = true
+        }
+        OpLoadIndexGlobal(name, count) => {
+          let key = subscript_key(stack, sp, count, plain_text(globals.get("SUBSEP") ?? Empty)?, plain_text(globals.get("CONVFMT") ?? Empty)?)?
+          sp -= count
+          if name in globals { Err(fatal_error(f"attempt to use scalar `{name}' as an array"))? }
+          if name not in arrays { arrays[name] = empty_table() }
+          let cell = arrays[name].cells.get(key) ?? no_cell()
+          if cell.seq >= 0 { result = cell.value } else {
+            pending = 5
+            pending_name = name
+            pending_key = key
+            pending_value = Empty
+            result = Empty
+          }
+          produced = true
+        }
+        OpLoadIndexLocal(slot, name, count) => {
+          let key = subscript_key(stack, sp, count, plain_text(globals.get("SUBSEP") ?? Empty)?, plain_text(globals.get("CONVFMT") ?? Empty)?)?
+          sp -= count
+          let array = aliases[slot]
+          if array == "" or slots[slot] != Empty { Err(fatal_error(f"attempt to use scalar `{name}' as an array"))? }
+          if array not in arrays { arrays[array] = empty_table() }
+          let cell = arrays[array].cells.get(key) ?? no_cell()
+          if cell.seq >= 0 { result = cell.value } else {
+            pending = 5
+            pending_name = array
+            pending_key = key
+            pending_value = Empty
+            result = Empty
+          }
+          produced = true
+        }
+        OpMatchRecord(pattern) => {
+          result = Numeric(if dynamic_matches(pattern, record, fold_case(globals))?.is_empty() { 0.0 } else { 1.0 })
+          produced = true
+        }
+        OpStore(spot) => {
+          let target = resolve_target(spot, stack, sp - 1, globals, arrays, slots, aliases, fields, record)?
+          pending_value = stack[sp - 1]
+          pending = target.kind
+          pending_name = target.name
+          pending_slot = target.slot
+          pending_key = target.key
+          # The value replaces the operands of its target and stays as the result.
+          stack[sp - 1 - target.used] = pending_value
+          sp -= target.used
+        }
+        OpArith(spot, operator) => {
+          let operand = number(stack[sp - 1])?
+          if (operator == "/" or operator == "%") and operand == 0.0 { Err(fatal_error(f"division by zero attempted in `{operator}='"))? }
+          let target = resolve_target(spot, stack, sp - 1, globals, arrays, slots, aliases, fields, record)?
+          pending_value = Numeric(arith(operator, number(target.current)?, operand)?)
+          pending = target.kind
+          pending_name = target.name
+          pending_slot = target.slot
+          pending_key = target.key
+          stack[sp - 1 - target.used] = pending_value
+          sp -= target.used
+        }
+        OpIncrement(spot, delta, post) => {
+          let target = resolve_target(spot, stack, sp, globals, arrays, slots, aliases, fields, record)?
+          let old = number(target.current)?
+          pending_value = Numeric(old + delta)
+          pending = target.kind
+          pending_name = target.name
+          pending_slot = target.slot
+          pending_key = target.key
+          sp -= target.used
+          result = if post { Numeric(old) } else { pending_value }
+          produced = true
+        }
+        OpAdd => { let b = number(stack[sp - 1])?; let a = number(stack[sp - 2])?; sp -= 2; result = Numeric(a + b); produced = true }
+        OpSubtract => { let b = number(stack[sp - 1])?; let a = number(stack[sp - 2])?; sp -= 2; result = Numeric(a - b); produced = true }
+        OpMultiply => { let b = number(stack[sp - 1])?; let a = number(stack[sp - 2])?; sp -= 2; result = Numeric(a * b); produced = true }
+        OpDivide => {
+          let b = number(stack[sp - 1])?
+          let a = number(stack[sp - 2])?
+          sp -= 2
+          if b == 0.0 { Err(fatal_error("division by zero attempted"))? }
+          result = Numeric(a / b)
+          produced = true
+        }
+        OpModulo => {
+          let b = number(stack[sp - 1])?
+          let a = number(stack[sp - 2])?
+          sp -= 2
+          if b == 0.0 { Err(fatal_error("division by zero attempted in `%'"))? }
+          result = Numeric(arith("%", a, b)?)
+          produced = true
+        }
+        OpPower => { let b = number(stack[sp - 1])?; let a = number(stack[sp - 2])?; sp -= 2; result = Numeric(a.pow(b)); produced = true }
+        OpConcat => {
+          let conversion = plain_text(globals.get("CONVFMT") ?? Empty)?
+          let b = scalar_text(stack[sp - 1], conversion)?
+          let a = scalar_text(stack[sp - 2], conversion)?
+          sp -= 2
+          result = String(a + b)
+          produced = true
+        }
+        OpLess => { result = Numeric(if relation(0, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?)? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpLessEqual => { result = Numeric(if relation(1, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?)? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpEqual => { result = Numeric(if relation(2, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?)? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpNotEqual => { result = Numeric(if relation(3, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?)? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpGreater => { result = Numeric(if relation(4, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?)? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpGreaterEqual => { result = Numeric(if relation(5, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?)? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpMatch => {
+          let conversion = plain_text(globals.get("CONVFMT") ?? Empty)?
+          let pattern = scalar_text(stack[sp - 1], conversion)?
+          let subject = scalar_text(stack[sp - 2], conversion)?
+          sp -= 2
+          result = Numeric(if dynamic_matches(pattern, subject, fold_case(globals))?.is_empty() { 0.0 } else { 1.0 })
+          produced = true
+        }
+        OpNotMatch => {
+          let conversion = plain_text(globals.get("CONVFMT") ?? Empty)?
+          let pattern = scalar_text(stack[sp - 1], conversion)?
+          let subject = scalar_text(stack[sp - 2], conversion)?
+          sp -= 2
+          result = Numeric(if dynamic_matches(pattern, subject, fold_case(globals))?.is_empty() { 1.0 } else { 0.0 })
+          produced = true
+        }
+        OpMatchLiteral(pattern) => {
+          let subject = scalar_text(stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?)?
+          sp -= 1
+          result = Numeric(if dynamic_matches(pattern, subject, fold_case(globals))?.is_empty() { 0.0 } else { 1.0 })
+          produced = true
+        }
+        OpNotMatchLiteral(pattern) => {
+          let subject = scalar_text(stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?)?
+          sp -= 1
+          result = Numeric(if dynamic_matches(pattern, subject, fold_case(globals))?.is_empty() { 1.0 } else { 0.0 })
+          produced = true
+        }
+        OpNegate => {
+          let value = stack[sp - 1]
+          sp -= 1
+          match value {
+            Nan(positive) => { result = Nan(! positive) }
+            _ => {
+              let n = number(value)?
+              result = if is_nan(n) { Nan(true) } else { Numeric(-n) }
+            }
+          }
+          produced = true
+        }
+        OpPlus => {
+          let value = stack[sp - 1]
+          sp -= 1
+          match value {
+            Nan(_) => { result = value }
+            _ => {
+              let n = number(value)?
+              result = if is_nan(n) { Nan(false) } else { Numeric(n) }
+            }
+          }
+          produced = true
+        }
+        OpNot => {
+          let yes = truth(stack[sp - 1])?
+          sp -= 1
+          result = Numeric(if yes { 0.0 } else { 1.0 })
+          produced = true
+        }
+        OpTruth => {
+          let yes = truth(stack[sp - 1])?
+          sp -= 1
+          result = Numeric(if yes { 1.0 } else { 0.0 })
+          produced = true
+        }
+        OpJumpUnless(code, offset) => {
+          sp -= 2
+          let left = stack[sp]
+          let right = stack[sp + 1]
+          var holds = false
+          match left {
+            Numeric(a) => {
+              match right {
+                Numeric(b) => {
+                  holds = if code == 0 { a < b } else if code == 1 { a <= b } else if code == 2 { a == b } else if code == 3 { a != b } else if code == 4 { a > b } else { a >= b }
+                  if a == -0.0 or b == -0.0 { holds = relation(code, left, right, "%.6g")? }
+                }
+                _ => { holds = relation(code, left, right, plain_text(globals.get("CONVFMT") ?? Empty)?)? }
+              }
+            }
+            _ => { holds = relation(code, left, right, plain_text(globals.get("CONVFMT") ?? Empty)?)? }
+          }
+          if ! holds { pc += offset }
+        }
+        OpStoreGlobal(name) => {
+          if name in arrays { Err(fatal_error(f"attempt to use array `{name}' in a scalar context"))? }
+          globals[name] = stack[sp - 1]
+          sp -= 1
+        }
+        OpIncGlobal(name, delta) => {
+          if name in arrays { Err(fatal_error(f"attempt to use array `{name}' in a scalar context"))? }
+          let current = globals.get(name) ?? Empty
+          match current {
+            Numeric(n) => { globals[name] = Numeric(n + delta) }
+            _ => { globals[name] = Numeric(number(current)? + delta) }
+          }
+        }
+        OpJump(offset) => { pc += offset }
+        OpJumpFalse(offset) => {
+          sp -= 1
+          if ! truth(stack[sp])? { pc += offset }
+        }
+        OpJumpTrue(offset) => {
+          sp -= 1
+          if truth(stack[sp])? { pc += offset }
+        }
+        OpShortAnd(offset) => {
+          sp -= 1
+          if ! truth(stack[sp])? { result = Numeric(0.0); produced = true; pc += offset }
+        }
+        OpShortOr(offset) => {
+          sp -= 1
+          if truth(stack[sp])? { result = Numeric(1.0); produced = true; pc += offset }
+        }
+        OpPop => { sp -= 1 }
+        OpSetSite(index) => { site = index }
+        OpHalt => { break }
+        OpRangeActive(index, offset) => { if ranges[index] { pc += offset } }
+        OpSetRange(index, active) => { ranges[index] = active }
+        OpMember(spot) => {
+          let target = resolve_target(spot, stack, sp, globals, arrays, slots, aliases, fields, record)?
+          sp -= target.used
+          result = Numeric(if target.kind == 5 and target.name in arrays and target.key in arrays[target.name].cells { 1.0 } else { 0.0 })
+          produced = true
+        }
+        OpDelete(spot) => {
+          let target = resolve_target(spot, stack, sp, globals, arrays, slots, aliases, fields, record)?
+          sp -= target.used
+          if target.name in arrays and target.key in arrays[target.name].cells {
+            arrays[target.name].cells = arrays[target.name].cells.remove(target.key)
+            if arrays[target.name].cells.is_empty() { arrays[target.name] = empty_table() }
+          }
+        }
+        OpDeleteAll(spot) => {
+          let array = array_of(spot, slots, aliases, globals)?
+          arrays[array] = empty_table()
+        }
+        OpForInStart(spot) => {
+          let array = array_of(spot, slots, aliases, globals)?
+          iterators += [Iteration(keys: if array in arrays { array_order(arrays[array]) } else { [] }, at: 0)]
+        }
+        OpForInNext(offset, spot) => {
+          let top = iterators.len() - 1
+          if iterators[top].at >= iterators[top].keys.len() { pc += offset } else {
+            pending_value = String(iterators[top].keys[iterators[top].at])
+            iterators[top].at += 1
+            match spot {
+              SpotGlobal(name) => { pending = 1; pending_name = name }
+              SpotLocal(slot, name) => { pending = 3; pending_slot = slot }
+              SpotNF => { pending = 2 }
+              _ => {}
+            }
+          }
+        }
+        OpForInEnd => { iterators = iterators[..iterators.len() - 1] }
+        OpCall(name, kinds) => {
+          if name not in entries { Err(fatal_error(f"function `{name}' not defined"))? }
+          let function = functions.get(name) ?? Function(parameters: [], body: 0, site: "")
+          calls += 1
+          # Arguments computed as values sit on the stack in order; names are
+          # passed as references so the callee may use them as arrays.
+          var computed = 0
+          for kind in kinds {
+            match kind {
+              ArgValue => { computed += 1 }
+              _ => {}
+            }
+          }
+          var taken = sp - computed
+          var new_slots: List[Scalar] = []
+          var new_aliases: List[Str] = []
+          for at in range(function.parameters.len()) {
+            if at >= kinds.len() {
+              new_slots += [Empty]
+              new_aliases += [f"\0{calls}:{at}"]
+              continue
+            }
+            match kinds[at] {
+              ArgValue => {
+                new_slots += [stack[taken]]
+                new_aliases += [""]
+                taken += 1
+              }
+              ArgGlobal(variable) => {
+                if variable in arrays {
+                  new_slots += [Empty]
+                  new_aliases += [variable]
+                } else if variable in globals {
+                  new_slots += [globals.get(variable) ?? Empty]
+                  new_aliases += [""]
+                } else {
+                  new_slots += [Empty]
+                  new_aliases += [variable]
+                }
+              }
+              ArgLocal(slot) => {
+                if aliases[slot] != "" and slots[slot] == Empty {
+                  new_slots += [Empty]
+                  new_aliases += [aliases[slot]]
+                } else {
+                  new_slots += [slots[slot]]
+                  new_aliases += [""]
+                }
+              }
+            }
+          }
+          sp = sp - computed
+          if frames.len() > 2000 { Err(fatal_error("function call nesting too deep"))? }
+          frames += [Frame(slots: slots, aliases: aliases, return_to: pc, base: sp, iterators: iterators.len(), site: site)]
+          slots = new_slots
+          aliases = new_aliases
+          pc = entries.get(name) ?? 0
+        }
+        OpReturn => {
+          let value = stack[sp - 1]
+          let frame = frames[frames.len() - 1]
+          frames = frames[..frames.len() - 1]
+          sp = frame.base
+          slots = frame.slots
+          aliases = frame.aliases
+          iterators = iterators[..frame.iterators]
+          pc = frame.return_to
+          site = frame.site
+          result = value
+          produced = true
+        }
+        OpReturnEmpty => {
+          let frame = frames[frames.len() - 1]
+          frames = frames[..frames.len() - 1]
+          sp = frame.base
+          slots = frame.slots
+          aliases = frame.aliases
+          iterators = iterators[..frame.iterators]
+          pc = frame.return_to
+          site = frame.site
+          result = Empty
+          produced = true
+        }
+        OpReadMain(offset) => {
+          phase = 1
+          let operands = arrays.get("ARGV") ?? empty_table()
+          let got = advance_main(main, stdin_reader, operands, integer(number(globals.get("ARGC") ?? Empty)?)?, plain_text(globals.get("RS") ?? Empty)?, fold_case(globals))?
+          main = got.state
+          stdin_reader = got.stdin
+          if got.state.reader.lossy or got.stdin.lossy { lossy = true }
+          if got.filename != null {
+            globals["FILENAME"] = String(got.filename ?? "")
+            globals["FNR"] = Numeric(0.0)
+          }
+          for item in got.bindings {
+            let equals = item.find("=") ?? 0
+            let decoded = escaped(bytes.from_text(item.byte_slice(equals + 1)), 0, -1)?
+            for note in decoded.notes { warn_plain(note)? }
+            globals[item.byte_slice(0, length: equals)] = input(decoded.content)?
+          }
+          if got.record == null { pc += offset } else {
+            globals["NR"] = Numeric(number(globals.get("NR") ?? Empty)? + 1.0)
+            globals["FNR"] = Numeric(number(globals.get("FNR") ?? Empty)? + 1.0)
+            globals["RT"] = String(got.terminator)
+            pending = 6
+            pending_value = String(got.record ?? "")
+          }
+        }
+        OpNext => {
+          if phase == 0 { Err(fatal_error("`next' cannot be called from a `BEGIN' rule"))? }
+          if phase == 2 { Err(fatal_error("`next' cannot be called from an `END' rule"))? }
+          frames = []
+          sp = 0
+          iterators = []
+          slots = []
+          aliases = []
+          pc = linked.loop_at
+        }
+        OpNextFile => {
+          if phase == 0 { Err(fatal_error("`nextfile' cannot be called from a `BEGIN' rule"))? }
+          if phase == 2 { Err(fatal_error("`nextfile' cannot be called from an `END' rule"))? }
+          if main.active {
+            if main.reader.fd > 0 { unix.close_fd(main.reader.fd)? }
+            main.active = false
+          }
+          frames = []
+          sp = 0
+          iterators = []
+          slots = []
+          aliases = []
+          pc = linked.loop_at
+        }
+        OpExit(has_value) => {
+          if has_value {
+            status = integer(number(stack[sp - 1])?)?
+            sp -= 1
+          }
+          frames = []
+          sp = 0
+          iterators = []
+          slots = []
+          aliases = []
+          if phase == 2 { break }
+          phase = 2
+          pc = linked.end_at
+        }
+        OpPrint(count, redirect, has_destination, is_printf) => {
+          var destination = ""
+          if has_destination {
+            destination = scalar_text(stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?)?
+            sp -= 1
+          }
+          let conversion = plain_text(globals.get("CONVFMT") ?? Empty)?
+          var text = ""
+          if is_printf {
+            if count == 0 { Err(fatal_error("printf: no arguments"))? }
+            text = printf(scalar_text(stack[sp - count], conversion)?, stack[sp - count + 1..sp], conversion)?
+          } else {
+            if count == 0 { text = record } else {
+              let output_format = plain_text(globals.get("OFMT") ?? Empty)?
+              var pieces: List[Str] = []
+              for at in range(sp - count, sp) { pieces += [scalar_text(stack[at], output_format)?] }
+              text = pieces.join(plain_text(globals.get("OFS") ?? Empty)?)
+            }
+            text += plain_text(globals.get("ORS") ?? Empty)?
+          }
+          sp -= count
+          if ! has_destination or (redirect != 3 and (destination == "/dev/stdout" or destination == "/dev/fd/1")) {
+            out += text
+            if interactive or out.byte_len() > 8192 {
+              emit_stdout(out, lossy)?
+              out = ""
+            }
+          } else if redirect != 3 and (destination == "/dev/stderr" or destination == "/dev/fd/2") {
+            write_all(2, output_bytes(text, lossy))?
+          } else {
+            if destination.is_empty() { Err(fatal_error(f"expression for `{if redirect == 1 { ">" } else if redirect == 2 { ">>" } else { "|" }}' redirection has null string value"))? }
+            let key = f"{if redirect == 1 { ">" } else if redirect == 2 { ">>" } else { "|" }}{destination}"
+            if key not in writers {
+              if redirect == 3 {
+                # Output commands synchronize everything written so far first.
+                let flushed = flush_writers(writers, lossy)?
+                writers = flushed.writers
+                if ! flushed.failure.is_empty() { Err(fatal_error(flushed.failure))? }
+                emit_stdout(out, lossy)?
+                out = ""
+                let started = open_command_writer(temporary, destination, environment_prefix(arrays))?
+                writers[key] = started.writer
+                temporary = started.temporary
+              } else {
+                match open_output(fp"{destination}", redirect == 2) {
+                  Ok(fd) => { writers[key] = Writer(fd: fd, pending: "", job: null, name: destination, command: false) }
+                  Err(failure) => { Err(fatal_error(f"cannot redirect to `{destination}': {reason_of(failure)}"))? }
+                }
+              }
+            }
+            writers[key].pending += text
+          }
+        }
+        OpGetlineMain(spot) => {
+          let target = resolve_target(spot, stack, sp, globals, arrays, slots, aliases, fields, record)?
+          sp -= target.used
+          phase = if phase == 0 { 0 } else { phase }
+          let operands = arrays.get("ARGV") ?? empty_table()
+          let got = advance_main(main, stdin_reader, operands, integer(number(globals.get("ARGC") ?? Empty)?)?, plain_text(globals.get("RS") ?? Empty)?, fold_case(globals))?
+          main = got.state
+          stdin_reader = got.stdin
+          if got.state.reader.lossy or got.stdin.lossy { lossy = true }
+          if got.filename != null {
+            globals["FILENAME"] = String(got.filename ?? "")
+            globals["FNR"] = Numeric(0.0)
+          }
+          for item in got.bindings {
+            let equals = item.find("=") ?? 0
+            let decoded = escaped(bytes.from_text(item.byte_slice(equals + 1)), 0, -1)?
+            for note in decoded.notes { warn_plain(note)? }
+            globals[item.byte_slice(0, length: equals)] = input(decoded.content)?
+          }
+          if got.record == null { result = Numeric(0.0) } else {
+            globals["NR"] = Numeric(number(globals.get("NR") ?? Empty)? + 1.0)
+            globals["FNR"] = Numeric(number(globals.get("FNR") ?? Empty)? + 1.0)
+            globals["RT"] = String(got.terminator)
+            pending = if target.kind == 7 { 0 } else { target.kind }
+            pending_name = target.name
+            pending_slot = target.slot
+            pending_key = target.key
+            pending_value = if target.kind == 6 { String(got.record ?? "") } else { input(got.record ?? "")? }
+            result = Numeric(1.0)
+          }
+          produced = true
+        }
+        OpGetlineFile(spot) => {
+          let target = resolve_target(spot, stack, sp, globals, arrays, slots, aliases, fields, record)?
+          sp -= target.used
+          let name = scalar_text(stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?)?
+          sp -= 1
+          if name.is_empty() { Err(fatal_error("expression for `<' redirection has null string value"))? }
+          result = Numeric(-1.0)
+          var reader = no_reader()
+          var usable = true
+          var uses_stdin = name == "-" or name == "/dev/stdin"
+          if uses_stdin { reader = stdin_reader } else {
+            let key = f"<{name}"
+            if key not in readers {
+              match open_file_reader(name, stdin_reader) {
+                Ok(opened) => { readers[key] = opened }
+                Err(failure) => {
+                  usable = false
+                  globals["ERRNO"] = String(reason_of(failure))
+                }
+              }
+            }
+            if usable { reader = readers.get(key) ?? no_reader() }
+          }
+          if usable {
+            match read_record(reader, plain_text(globals.get("RS") ?? Empty)?, fold_case(globals)) {
+              Ok(got) => {
+                if got.reader.lossy { lossy = true }
+                if uses_stdin { stdin_reader = got.reader } else { readers[f"<{name}"] = got.reader }
+                if got.record == null { result = Numeric(0.0) } else {
+                  globals["RT"] = String(got.terminator)
+                  pending = if target.kind == 7 { 0 } else { target.kind }
+                  pending_name = target.name
+                  pending_slot = target.slot
+                  pending_key = target.key
+                  pending_value = if target.kind == 6 { String(got.record ?? "") } else { input(got.record ?? "")? }
+                  result = Numeric(1.0)
+                }
+              }
+              Err(_) => { result = Numeric(-1.0) }
+            }
+          }
+          produced = true
+        }
+        OpGetlineCommand(spot) => {
+          let target = resolve_target(spot, stack, sp, globals, arrays, slots, aliases, fields, record)?
+          sp -= target.used
+          let command = scalar_text(stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?)?
+          sp -= 1
+          if command.is_empty() { Err(fatal_error("expression for `|' redirection has null string value"))? }
+          let key = f"|{command}"
+          if key not in readers {
+            let started = open_command_reader(temporary, command, environment_prefix(arrays))?
+            readers[key] = started.reader
+            temporary = started.temporary
+          }
+          result = Numeric(-1.0)
+          match read_record(readers.get(key) ?? no_reader(), plain_text(globals.get("RS") ?? Empty)?, fold_case(globals)) {
+            Ok(got) => {
+              if got.reader.lossy { lossy = true }
+              readers[key] = got.reader
+              if got.record == null { result = Numeric(0.0) } else {
+                globals["RT"] = String(got.terminator)
+                pending = if target.kind == 7 { 0 } else { target.kind }
+                pending_name = target.name
+                pending_slot = target.slot
+                pending_key = target.key
+                pending_value = if target.kind == 6 { String(got.record ?? "") } else { input(got.record ?? "")? }
+                result = Numeric(1.0)
+              }
+            }
+            Err(_) => { result = Numeric(-1.0) }
+          }
+          produced = true
+        }
+        OpBuiltin(name, count) => {
+          let base = sp - count
+          let values = stack[base..sp]
+          sp = base
+          let conversion = plain_text(globals.get("CONVFMT") ?? Empty)?
+          result = Empty
+          if name == "length" {
+            result = Numeric((if count == 0 { record } else { scalar_text(values[0], conversion)? }).count_chars().float())
+          } else if name == "substr" {
+            if count < 2 or count > 3 { Err(fatal_error("substr: wrong number of arguments"))? }
+            let content = scalar_text(values[0], conversion)?
+            let pieces = content.split("")
+            let given = truncate(number(values[1])?)
+            let size = pieces.len()
+            let first = if is_nan(given) or given < 1.0 { 0 } else if given > size.float() { size } else { integer(given - 1.0)? }
+            var length = size
+            if count == 3 {
+              let wanted = truncate(number(values[2])?)
+              length = if is_nan(wanted) or wanted < 0.0 { 0 } else if wanted > size.float() { size } else { integer(wanted)? }
+            }
+            let end = if first + length > size { size } else { first + length }
+            result = String(pieces[first..end].join(""))
+          } else if name == "index" {
+            if count != 2 { Err(fatal_error("index: wrong number of arguments"))? }
+            let content = scalar_text(values[0], conversion)?
+            let found = content.find(scalar_text(values[1], conversion)?)
+            result = Numeric(if found == null { 0.0 } else { (content.byte_slice(0, length: found ?? 0).count_chars() + 1).float() })
+          } else if name == "tolower" or name == "toupper" {
+            if count != 1 { Err(fatal_error(f"{name}: wrong number of arguments"))? }
+            let text = scalar_text(values[0], conversion)?
+            result = String(if name == "tolower" { lower_text(text) } else { upper_text(text) })
+          } else if name == "sprintf" {
+            if count == 0 { Err(fatal_error("sprintf: no arguments"))? }
+            result = String(printf(scalar_text(values[0], conversion)?, values[1..], conversion)?)
+          } else if name == "int" or name == "sqrt" or name == "exp" or name == "log" or name == "sin" or name == "cos" {
+            if count != 1 { Err(fatal_error(f"{name}: wrong number of arguments"))? }
+            let n = number(values[0])?
+            var computed = 0.0
+            if name == "int" { computed = truncate(n) } else if name == "sqrt" {
+              if n < 0.0 { write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: sqrt: received negative argument {float_text(n, conversion)?}\n"))? }
+              computed = n.sqrt()
+            } else if name == "log" {
+              if n < 0.0 { write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: log: received negative argument {float_text(n, conversion)?}\n"))? }
+              computed = n.ln()
+            } else if name == "exp" { computed = n.exp() } else if name == "sin" { computed = n.sin() } else { computed = n.cos() }
+            result = Numeric(computed)
+          } else if name == "atan2" {
+            if count != 2 { Err(fatal_error("atan2: wrong number of arguments"))? }
+            result = Numeric(number(values[0])?.atan2(number(values[1])?))
+          } else if name == "rand" {
+            var high = 0
+            var low = 0
+            rng.words[rng.front] = (rng.words[rng.front] + rng.words[rng.rear]) % 4294967296
+            high = rng.words[rng.front] / 2 % 2147483648
+            rng.front += 1
+            if rng.front >= 63 { rng.front = 0; rng.rear += 1 } else { rng.rear += 1; if rng.rear >= 63 { rng.rear = 0 } }
+            rng.words[rng.front] = (rng.words[rng.front] + rng.words[rng.rear]) % 4294967296
+            low = rng.words[rng.front] / 2 % 2147483648
+            rng.front += 1
+            if rng.front >= 63 { rng.front = 0; rng.rear += 1 } else { rng.rear += 1; if rng.rear >= 63 { rng.rear = 0 } }
+            var draw = 0.5 + (high.float() / 2147483648.0 + low.float()) / 2147483648.0
+            draw = draw - 0.5
+            if draw == 1.0 { draw = 0.0 }
+            result = Numeric(draw)
+          } else if name == "srand" {
+            let previous = seed_value
+            seed_value = if count == 0 { (time.now() / 1000).float() } else { number(values[0])? }
+            rng = seed_generator(integer(truncate(seed_value))?)
+            result = Numeric(previous)
+          } else if name == "system" {
+            if count != 1 { Err(fatal_error("system: wrong number of arguments"))? }
+            let command = scalar_text(values[0], conversion)?
+            let flushed = flush_writers(writers, lossy)?
+            writers = flushed.writers
+            if ! flushed.failure.is_empty() { Err(fatal_error(flushed.failure))? }
+            emit_stdout(out, lossy)?
+            out = ""
+            let finished = run.status sh -c ${environment_prefix(arrays) + command}
+            result = Numeric(status_code(finished).float())
+          } else if name == "close" {
+            if count < 1 or count > 2 { Err(fatal_error("close: wrong number of arguments"))? }
+            let closed = close_stream(readers, writers, scalar_text(values[0], conversion)?, lossy)?
+            readers = closed.readers
+            writers = closed.writers
+            result = Numeric(closed.code.float())
+          } else if name == "fflush" {
+            if count > 1 { Err(fatal_error("fflush: wrong number of arguments"))? }
+            let target = if count == 0 { "" } else { scalar_text(values[0], conversion)? }
+            if target.is_empty() {
+              let flushed = flush_writers(writers, lossy)?
+              writers = flushed.writers
+              if ! flushed.failure.is_empty() { Err(fatal_error(flushed.failure))? }
+              emit_stdout(out, lossy)?
+              out = ""
+              result = Numeric(0.0)
+            } else {
+              var found = false
+              for key in [f">{target}", f">>{target}", f"|{target}"] {
+                if key in writers {
+                  found = true
+                  let held = writers[key]
+                  if held.fd >= 0 and ! held.pending.is_empty() {
+                    write_all(held.fd, output_bytes(held.pending, lossy))?
+                    writers[key].pending = ""
+                  }
+                }
+              }
+              if target in ["/dev/stdout", "-"] {
+                found = true
+                emit_stdout(out, lossy)?
+                out = ""
+              }
+              if found { result = Numeric(0.0) } else {
+                write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: fflush: `{target}' is not an open file, pipe or co-process\n"))?
+                result = Numeric(-1.0)
+              }
+            }
+          } else if name == "and" or name == "or" or name == "xor" {
+            if count < 2 { Err(fatal_error(f"{name}: called with less than two arguments"))? }
+            var accumulator = to_bit_operand(name, 1, number(values[0])?)?
+            for at in range(1, count) { accumulator = bit_step(name, accumulator, to_bit_operand(name, at + 1, number(values[at])?)?) }
+            result = Numeric(accumulator)
+          } else if name == "lshift" or name == "rshift" {
+            if count != 2 { Err(fatal_error(f"{name}: wrong number of arguments"))? }
+            let a = to_bit_operand(name, 1, number(values[0])?)?
+            let b = to_bit_operand(name, 2, number(values[1])?)?
+            result = Numeric(if name == "lshift" { a * 2.0.pow(b) } else { truncate(a / 2.0.pow(b)) })
+          } else if name == "compl" {
+            if count != 1 { Err(fatal_error("compl: wrong number of arguments"))? }
+            result = Numeric(9007199254740991.0 - to_bit_operand(name, 1, number(values[0])?)?)
+          } else if name == "strtonum" {
+            if count != 1 { Err(fatal_error("strtonum: wrong number of arguments"))? }
+            result = Numeric(strtonum(scalar_text(values[0], conversion)?)?)
+          } else if name == "typeof" {
+            result = String(if count == 1 { type_name(values[0]) } else { "unknown" })
+          } else if name == "isarray" {
+            result = Numeric(0.0)
+          } else if name == "systime" {
+            result = Numeric((time.now() / 1000).float())
+          } else if name == "strftime" {
+            var format = "%a %b %e %H:%M:%S %Z %Y"
+            if count >= 1 { format = scalar_text(values[0], conversion)? }
+            var stamp = time.now() / 1000
+            if count >= 2 { stamp = integer(truncate(number(values[1])?))? }
+            var utc = false
+            if count >= 3 { utc = truth(values[2])? }
+            result = String(time.format(stamp * 1000000000, format, utc)?)
+          } else if name == "mktime" {
+            if count != 1 { Err(fatal_error("mktime: wrong number of arguments"))? }
+            result = Numeric(make_time(scalar_text(values[0], conversion)?)?.float())
+          } else if name == "gensub" {
+            var target = record
+            if count == 4 { target = scalar_text(values[3], conversion)? }
+            result = String(gensub(globals, scalar_text(values[0], conversion)?, scalar_text(values[1], conversion)?, values[2], target)?)
+          } else {
+            Err(fatal_error(f"function `{name}' not defined"))?
+          }
+          produced = true
+        }
+        OpArrayBuiltin(name, spots, count) => {
+          let conversion = plain_text(globals.get("CONVFMT") ?? Empty)?
+          let ignore_case = fold_case(globals)
+          result = Empty
+          if name == "length" {
+            var size = -1
+            match spots[0] {
+              SpotGlobal(variable) => {
+                if variable in arrays { size = arrays[variable].cells.len() } else { result = Numeric((scalar_text(globals.get(variable) ?? Empty, conversion)?).count_chars().float()) }
+              }
+              SpotLocal(slot, variable) => {
+                if aliases[slot] != "" and slots[slot] == Empty {
+                  size = if aliases[slot] in arrays { arrays[aliases[slot]].cells.len() } else { 0 }
+                } else { result = Numeric((scalar_text(slots[slot], conversion)?).count_chars().float()) }
+              }
+              _ => {}
+            }
+            if size >= 0 { result = Numeric(size.float()) }
+          } else if name == "typeof" or name == "isarray" {
+            var kind = "untyped"
+            var is_array = false
+            match spots[0] {
+              SpotGlobal(variable) => {
+                if variable in arrays { kind = "array"; is_array = true } else if variable in globals { kind = type_name(globals.get(variable) ?? Empty) }
+              }
+              SpotLocal(slot, variable) => {
+                if aliases[slot] != "" and slots[slot] == Empty {
+                  if aliases[slot] in arrays { kind = "array"; is_array = true }
+                } else { kind = type_name(slots[slot]) }
+              }
+              _ => {
+                let target = resolve_target(spots[0], stack, sp, globals, arrays, slots, aliases, fields, record)?
+                sp -= target.used
+                let present = target.name in arrays and target.key in arrays[target.name].cells
+                kind = if present { type_name(target.current) } else { "unassigned" }
+              }
+            }
+            result = if name == "isarray" { Numeric(if is_array { 1.0 } else { 0.0 }) } else { String(kind) }
+          } else if name == "sub" or name == "gsub" {
+            var target = resolve_target(spots[0], stack, sp, globals, arrays, slots, aliases, fields, record)?
+            sp -= target.used
+            var current = target.current
+            match spots[0] {
+              SpotNone => { current = stack[sp - 1]; sp -= 1 }
+              _ => {}
+            }
+            let replacement = scalar_text(stack[sp - 1], conversion)?
+            let pattern = scalar_text(stack[sp - 2], conversion)?
+            sp -= 2
+            let content = scalar_text(current, conversion)?
+            var rebuilt = ""
+            var copied = 0
+            var changes = 0
+            var previous_end = -1
+            for hit in dynamic_matches(pattern, content, ignore_case)? {
+              if hit.start == hit.end and previous_end == hit.start { continue }
+              rebuilt += content.byte_slice(copied, length: hit.start - copied) + substitute(replacement, content.byte_slice(hit.start, length: hit.end - hit.start))
+              copied = hit.end
+              previous_end = hit.end
+              changes += 1
+              if name == "sub" { break }
+            }
+            rebuilt += content.byte_slice(copied)
+            if changes > 0 and target.kind != 7 {
+              pending = target.kind
+              pending_name = target.name
+              pending_slot = target.slot
+              pending_key = target.key
+              pending_value = String(rebuilt)
+            }
+            result = Numeric(changes.float())
+          } else if name == "split" or name == "split_regex" {
+            let base = sp - (if count >= 3 { 2 } else { 1 })
+            let content = scalar_text(stack[base], conversion)?
+            var separator = plain_text(globals.get("FS") ?? Empty)?
+            if count >= 3 { separator = scalar_text(stack[base + 1], conversion)? }
+            sp = base
+            let regex_mode = name == "split_regex"
+            var array = ""
+            match array_of(spots[0], slots, aliases, globals) {
+              Ok(named) => { array = named }
+              Err(_) => { Err(fatal_error("split: second argument is not an array"))? }
+            }
+            if count == 4 {
+              let seps_array = array_of(spots[1], slots, aliases, globals)?
+              let parts = split_with_separators(content, separator, regex_mode, ignore_case)?
+              var cells: Map[Cell] = {}
+              for at in range(parts.fields.len()) { cells = cells.set(f"{at + 1}", Cell(value: input(parts.fields[at])?, seq: at)) }
+              arrays[array] = grown_table(cells, "1")
+              var separator_cells: Map[Cell] = {}
+              for at in range(parts.separators.len()) { separator_cells = separator_cells.set(f"{at + 1}", Cell(value: String(parts.separators[at]), seq: at)) }
+              arrays[seps_array] = grown_table(separator_cells, "1")
+              result = Numeric(parts.fields.len().float())
+            } else {
+              let pieces = split_fields(content, separator, regex_mode, ignore_case)?
+              var cells: Map[Cell] = {}
+              for at in range(pieces.len()) { cells = cells.set(f"{at + 1}", Cell(value: pieces[at], seq: at)) }
+              arrays[array] = grown_table(cells, "1")
+              result = Numeric(pieces.len().float())
+            }
+          } else if name == "match" {
+            let pattern = scalar_text(stack[sp - 1], conversion)?
+            let content = scalar_text(stack[sp - 2], conversion)?
+            sp -= 2
+            let hits = dynamic_matches(pattern, content, ignore_case)?
+            let first = if hits.is_empty() { Match(start: 0, end: 0) } else { hits[0] }
+            let start = if hits.is_empty() { 0 } else { content.byte_slice(0, length: first.start).count_chars() + 1 }
+            let length = if hits.is_empty() { -1 } else { content.byte_slice(first.start, length: first.end - first.start).count_chars() }
+            globals["RSTART"] = Numeric(start.float())
+            globals["RLENGTH"] = Numeric(length.float())
+            if count == 3 {
+              let array = array_of(spots[0], slots, aliases, globals)?
+              var cells: Map[Cell] = {}
+              if ! hits.is_empty() {
+                let caps = rx_captures(pattern, content, ignore_case)?
+                let separator = plain_text(globals.get("SUBSEP") ?? Empty)?
+                var number_of = 0
+                for at in range(caps.len()) {
+                  if caps[at] == null { continue }
+                  let span = caps[at] ?? Match(start: 0, end: 0)
+                  let text = content.byte_slice(span.start, length: span.end - span.start)
+                  let from = content.byte_slice(0, length: span.start).count_chars() + 1
+                  cells = cells.set(f"{at}", Cell(value: input(text)?, seq: number_of))
+                  cells = cells.set(f"{at}{separator}start", Cell(value: Numeric(from.float()), seq: number_of + 1))
+                  cells = cells.set(f"{at}{separator}length", Cell(value: Numeric(text.count_chars().float()), seq: number_of + 2))
+                  number_of += 3
+                }
+              }
+              arrays[array] = grown_table(cells, "0")
+            }
+            result = Numeric(start.float())
+          } else if name == "asort" or name == "asorti" {
+            var how = if name == "asorti" { "@ind_str_asc" } else { "@val_type_asc" }
+            if count == 3 {
+              how = scalar_text(stack[sp - 1], conversion)?
+              sp -= 1
+            }
+            let source = array_of(spots[0], slots, aliases, globals)?
+            var destination = source
+            if spots.len() >= 2 { destination = array_of(spots[1], slots, aliases, globals)? }
+            var items: List[SortItem] = []
+            if source in arrays {
+              for subscript in arrays[source].cells.keys() {
+                let held = (arrays[source].cells.get(subscript) ?? no_cell()).value
+                let shown = if name == "asorti" { input(subscript)? } else { held }
+                items += [sort_item(shown, subscript, how)?]
+              }
+            }
+            let ordered = merge_sort(items, how.ends_with("_desc"))
+            var cells: Map[Cell] = {}
+            for at in range(ordered.len()) { cells = cells.set(f"{at + 1}", Cell(value: if name == "asorti" { String(ordered[at].text) } else { ordered[at].value }, seq: at)) }
+            arrays[destination] = grown_table(cells, "1")
+            result = Numeric(ordered.len().float())
+          } else if name == "patsplit" {
+            let base = sp - (if count >= 3 { 2 } else { 1 })
+            let content = scalar_text(stack[base], conversion)?
+            var pattern = plain_text(globals.get("FPAT") ?? Empty)?
+            if count >= 3 { pattern = scalar_text(stack[base + 1], conversion)? }
+            sp = base
+            if pattern.is_empty() { pattern = "[^[:space:]]+" }
+            let array = array_of(spots[0], slots, aliases, globals)?
+            var cells: Map[Cell] = {}
+            var separator_cells: Map[Cell] = {}
+            var matched = 0
+            var cursor = 0
+            for hit in dynamic_matches(pattern, content, ignore_case)? {
+              if hit.end == hit.start { continue }
+              matched += 1
+              separator_cells = separator_cells.set(f"{matched - 1}", Cell(value: String(content.byte_slice(cursor, length: hit.start - cursor)), seq: matched))
+              cells = cells.set(f"{matched}", Cell(value: input(content.byte_slice(hit.start, length: hit.end - hit.start))?, seq: matched))
+              cursor = hit.end
+            }
+            separator_cells = separator_cells.set(f"{matched}", Cell(value: String(content.byte_slice(cursor)), seq: matched + 1))
+            arrays[array] = grown_table(cells, "1")
+            if count == 4 {
+              let seps_array = array_of(spots[1], slots, aliases, globals)?
+              arrays[seps_array] = grown_table(separator_cells, "0")
+            }
+            result = Numeric(matched.float())
+          } else {
+            Err(fatal_error(f"function `{name}' not defined"))?
+          }
+          produced = true
+        }
+        _ => { Err(fatal_error("unimplemented operation"))? }
       }
-      m.flow = Normal
+      if produced {
+        stack[sp] = result
+        sp += 1
+      }
+      if pending != 0 {
+        if pending == 1 {
+          if pending_name in arrays { Err(fatal_error(f"attempt to use array `{pending_name}' in a scalar context"))? }
+          globals[pending_name] = pending_value
+        } else if pending == 3 {
+          slots[pending_slot] = pending_value
+        } else if pending == 5 {
+          if pending_name not in arrays { arrays[pending_name] = empty_table() }
+          let cell = arrays[pending_name].cells.get(pending_key) ?? no_cell()
+          if cell.seq >= 0 { arrays[pending_name].cells[pending_key].value = pending_value } else {
+            if arrays[pending_name].cells.is_empty() {
+              arrays[pending_name].kind = subscript_kind(pending_key)
+              arrays[pending_name].size = 0
+              arrays[pending_name].growths = []
+            }
+            if arrays[pending_name].kind != 1 {
+              if arrays[pending_name].size == 0 { arrays[pending_name].size = 13 }
+              if (arrays[pending_name].cells.len() + 1) / arrays[pending_name].size > 10 {
+                arrays[pending_name].size = next_table_size(arrays[pending_name].size)
+                arrays[pending_name].growths += [arrays[pending_name].next]
+              }
+            }
+            arrays[pending_name].cells[pending_key] = Cell(value: pending_value, seq: arrays[pending_name].next)
+            arrays[pending_name].next += 1
+          }
+        } else if pending == 2 {
+          let count = integer(number(pending_value)?)?
+          if count < 0 { Err(fatal_error("NF set to negative value"))? }
+          if count > 10000000 { Err(fatal_error(f"NF set to too large a value {count}"))? }
+          if count < fields.len() { fields = fields[..count] } else { while fields.len() < count { fields += [Input("", null)] } }
+          record = joined_fields(fields, plain_text(globals.get("OFS") ?? Empty)?, plain_text(globals.get("CONVFMT") ?? Empty)?)?
+          globals["NF"] = Numeric(count.float())
+        } else if pending == 4 {
+          if pending_slot < 0 or pending_slot > 10000000 { Err(fatal_error(f"attempt to access field {pending_slot}"))? }
+          if pending_slot == 0 {
+            record = scalar_text(pending_value, plain_text(globals.get("CONVFMT") ?? Empty)?)?
+            fields = split_fields(record, field_separator(globals)?, false, fold_case(globals))?
+            globals["NF"] = Numeric(fields.len().float())
+          } else {
+            while fields.len() < pending_slot { fields += [Input("", null)] }
+            fields[pending_slot - 1] = pending_value
+            record = joined_fields(fields, plain_text(globals.get("OFS") ?? Empty)?, plain_text(globals.get("CONVFMT") ?? Empty)?)?
+            globals["NF"] = Numeric(fields.len().float())
+          }
+        } else if pending == 6 {
+          record = scalar_text(pending_value, plain_text(globals.get("CONVFMT") ?? Empty)?)?
+          fields = split_fields(record, field_separator(globals)?, false, fold_case(globals))?
+          globals["NF"] = Numeric(fields.len().float())
+        }
+      }
     }
+    close_all(readers, writers, lossy)?
+    emit_stdout(out, lossy)?
+    out = ""
+    (status % 256 + 256) % 256
   }
-  m.flow = Normal
-  state = cold(m)
-  state.running_end = true
-  m = with_cold(m, state)
-  for id in program.end {
-    m = execute_statement(m, id)?
-    if m.flow == ExitProgram { break }
-    if m.flow != Normal { return Err(fatal(m, "invalid control flow in END")) }
+  match outcome {
+    Ok(value) => Ok(value)
+    Err(AwkError.Plain {message}) => Err(AwkError.Plain(message: message, pending: out))
+    Err(failure) => Err(placed(labels, site, globals, out, failure))
   }
-  m = close_everything(m)?
-  Ok((m.status % 256 + 256) % 256)
 }
+
 
 ## Parse and execute a program; the pieces are the command-line text or -f files
 ## in order, and variable items (name=value, escapes undecoded) are applied
@@ -3394,6 +4316,6 @@ export proc execute(pieces: List[Piece], arguments: List[Str], variables: List[S
     }
   }
   for note in program.notes { write_all(2, bytes.from_text(f"awk: {note}\n"))? }
-  let result = run_program(program, arguments, variables, unix.isatty(1), sandbox)
-  result
+  let linked = link(program)?
+  run_machine(program, linked, arguments, variables, unix.isatty(1))
 }
