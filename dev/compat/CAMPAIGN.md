@@ -1,5 +1,46 @@
 # XSH Core Compatibility Campaign
 
+## Handoff (2026-10-10, Claude Code session)
+
+Status: paused, incomplete. `master` is clean. The pinned uutils suite
+(`results/uutils-integration.json`, native x86_64 musl, unprivileged user) is
+**5,612 / 5,941 passing** with 12 excluded, up 98 from 5,514 and from 5,491 at the
+start of this session, with no regression on any test that passed before. The
+BusyBox results file was **not** refreshed (its runner hit a root-owned
+`.work/tmp`); the lane gates recorded awk +16, sed +15, tar +15, diff +7,
+decompressors +9, grep +2 over the 561 / 680 baseline.
+
+Rules in force (details in `.claude/skills/xsh-compat-campaign/SKILL.md`): upstream
+tests are read-only and never special-cased; XSH first, Rust only for the smallest
+reusable OS or byte primitive; for GNU coreutils applets GNU behavior and wording
+win over uutils and BusyBox, for other applets the BusyBox suite is the contract;
+language gaps are fixed by the integrator, not just logged.
+
+Resume: `python3 .claude/skills/xsh-compat-campaign/scripts/lane.py plan`, create
+lanes with `lane.py new`, review each diff, `lane.py accept`. Build with
+`LD_PRELOAD=/usr/lib/libjemalloc.so.2 cargo build --release --target
+x86_64-unknown-linux-musl -p xsh --bins -p xsht --bin xsht`. Set `TMPDIR` to a
+directory that is not setgid (a setgid scratch directory fakes about 20 mkdir,
+install and chgrp failures).
+
+Open items, with the evidence in `ledger/` (`requests.md`, `language-gaps.md`,
+`native-review.md`):
+
+- Exclusions proposed, none applied (owner approval needed): wording-only uutils
+  and clap text (nl, tr, tty, expr, uniq, chroot, rm preserve-root, version lines,
+  `-d=` spellings, `--random-seed`); the list is in `ledger/requests.md`.
+- Parked branches: `wip/bb-misc`, `wip/sort2`, `wip/tail2`, `wip/lang-diag`
+  (ungated), `ext/bb-patch` (gate passes but drops git rename/copy/delete support),
+  `ext/shuf-random-seed`, `wording/{nl,tr,uniq,expr}`.
+- Native requests still open: `unix.fadvise` (dd nocache), `process.command_argv`
+  process-group option (timeout --foreground), `env.entries`, getrandom startup
+  panic (regex-lite keeps `std` by decision; `test_shuf::test_getrandom_fail`).
+- After parity: move policy out of Rust (`compression.transform`, `linux.module_plan`,
+  `block_signatures`, `time.format` policy, speed-only `bytes.squeeze` and friends).
+- Not mine, still present: worktrees `../xsh-resume-lanes/{cp,cp-wave4}`,
+  `.work/worktrees/text-b2-wave4`, branch `lane/native-unix-support`.
+
+
 Status: active; resumed on 2026-10-07. The full campaign remains incomplete.
 Campaign platform scope is x86_64 only; ARM64 verification is out of scope.
 The 2026-10-06 wind-down report below is historical and does not describe the

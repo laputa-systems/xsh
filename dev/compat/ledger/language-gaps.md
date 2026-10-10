@@ -1,0 +1,19 @@
+- bytes-enc: `gnu.read_operand` takes `Str`, so every applet that takes `List[Bytes]` argv re-implements a bytes-named file read (`Path.parse_bytes` + `read_bytes`, with `-` for stdin). A bytes-aware `gnu.read_operand` (or `Path` operand helper) in the shared library would remove the copies.
+- idtools: `user.groups` returns gid-sorted, not getgrouplist order; no way to ask for the libc order from XSH.
+- file-publish: a bare statement call whose value is a `Result` (e.g. `fs.set_owner(...)`) propagates the error silently with no `?`; the lane found this only by probing. A checker diagnostic or an explicit rule in the spec would help. `Path.mkdir` has no `mode:` (only `fs.mkdir` does), so creating a directory with a mode needs a chmod and a window of wrong permissions.
+- proc: `process.command_argv` always puts the child in a new group unless `detach`/`new_session`; there is no way to spawn a child in the caller's process group (needed by timeout --foreground).
+- misc-a: `env.list()` rejects any non-UTF-8 value, so printenv reads /proc/self/environ as bytes (Linux-only); `env.path(name)` returns Ok with an empty path for an unset name.
+- test: `Bytes` has no ordering operator, so `<` and `>` on undecodable operands compare placeholder text.
+- ls/join: no strcoll/LC_COLLATE binding; collation approximated.
+- date: modified directives (%-d, %^A) in non-Gregorian locales; local-zone rules outside the native time range are approximated via 400-year cycle shifts.
+- cp: no unit literal `Ok(())`; `Path.mkdir(mode:)` fchmods the exact mode (umask/setgid computed by hand); `fp` cannot interpolate Bytes.
+- perm: `return` cannot be an expression-match arm.
+- textio: no inotify; follow-by-name is polling only.
+- sort: `cli` optional_value consumes the next operand (`--check FILE`); `bytes.read_at` needs the full count; no arbitrary-precision decimal, child-process pipes, or SIGINT hook.
+- adapter: `process.command_argv` rejects `List[Bytes]` (converted via Path.parse_bytes); `let _ = fallible()` still raised the error (used `match`); xsh starts down to `ulimit -n 5`.
+- native-fs (shuf seed): no Int xor/shift/rotate and no hash of Bytes (hash.sha3 over Bytes would be a small native).
+- bb-diff: a local named `patch` fails `xsht check` with check.standard-module-shadow (clear but easy to hit); `diff.unified` only takes file paths, so -b/-B comparison keys go through a scratch dir; Str is the only line type so -b/-B require UTF-8 input.
+- bb-sed: `Ok(run)` is a parse error ("expected pattern"; `run` is reserved and the diagnostic does not say so); `if let x = s.field` inside `if s.field != null` fails with "pattern condition cannot fail" (narrowing not explained); no Path append, so sed `w` output is buffered and written after the run (under -i with several files the last file's w output wins; GNU accumulates). Optional Rust: src/modules/regex/posix.rs rejects NUL (CString::new).
+- bb-awk: `eprint`, `run.text` and `io.write_stderr` are commands, not allowed in `pure` functions, so a whole evaluator had to become `proc`; `range(a, b)` with a > b counts down instead of being empty.
+- bb-patch: `Path.is_symlink()` raises ENOENT for a missing path; a match arm binding over `T?` stays nullable (`guard let` needed); a record type cannot be written inline as a `Result` payload type; `Str.lines()` strips CR; no `List.map`; `Int` has no `&`/`~` operators (`bit_and`/`clear_bits`).
+- bb-tar: `Path.is_dir()` fails on a missing path while `exists()` returns Ok(false); `run.text ... == x` inside an `assert` parses the comparison as command arguments; no in-memory codec (`archive.decompress_bytes` takes a Path); `"d" * n` undefined for Str; shadowing of `run`, `when`, `group`, `user`, `path`.

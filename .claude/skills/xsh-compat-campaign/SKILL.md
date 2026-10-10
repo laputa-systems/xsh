@@ -72,6 +72,14 @@ coreutils (awk, sed, tar, patch, diff, the gzip family, grep, xargs, tree, ...)
 the pinned BusyBox suite is the contract, and BusyBox wording is correct there.
 Say which class an applet is in when writing its brief.
 
+**Language gaps are the integrator's to fix.** Lanes report `Language gaps:`;
+do not just log them. Triage the ledger (`dev/compat/ledger/language-gaps.md`),
+and fix them in the language, stdlib and diagnostics as lanes of their own
+(`lane.py new NAME --native --goal TEXT --own PATHS --check CMD...`): reserved
+word and narrowing diagnostics, missing small stdlib operations, spec wording.
+Contract changes are reported to the owner first; spec and tests change in the
+same lane.
+
 ## Tooling
 
 `scripts/lane.py` (next to this file), always run from the primary checkout:

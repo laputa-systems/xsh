@@ -517,7 +517,7 @@ Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.
 - `unix.cpu_features() -> List[Str]` — Lists supported host CPU features used by hardware-accelerated utilities.
 - `unix.dup_fd(source: Int, target: Int) -> Result[Unit, Error]` — Duplicates a current process descriptor onto another descriptor.
 - `unix.exec(command: Command) -> Result[Unit, Error]` — Replaces the current Unix process with a typed command.
-- `unix.exec_env(command: Command, environment: Map[Str], argv0: Str? = default) -> Result[Unit, Error]` — Replaces the current process with an explicit environment and optional argv0.
+- `unix.exec_env(command: Command, environment: Map[Str], argv0: Str? = default, block_signals: List[Str] = default) -> Result[Unit, Error] (+1 overloads)` — Replaces the current process with an explicit environment and optional argv0.
 - `unix.foreground_group(fd: Int = default) -> Result[Int, Error]` — Reads or changes the foreground process group of a terminal, or its session.
 - `unix.id() -> Result[{egid: Int, euid: Int, gid: Int, groups: List[{gid: Int, name: Str}], uid: Int}, Error]` — Returns Unix identity information for the selected process or user.
 - `unix.isatty(fd: Int = default) -> Bool` — Identifies a terminal: whether a descriptor is one, its device name, or the controlling one.
@@ -526,7 +526,7 @@ Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.
 - `unix.load_average() -> Result[{fifteen: Float, five: Float, one: Float}, Error]` — Reads the system load averages.
 - `unix.notify_close(fd: Int) -> Result[Unit, Error]` — Signals readiness or closes a Unix service notification channel.
 - `unix.notify_ready(fd: Int) -> Result[Bool, Error]` — Signals readiness or closes a Unix service notification channel.
-- `unix.open_fd(path: Path, write: Bool = default, nonblock: Bool = default) -> Result[Int, Error]` — Opens a path as a bare descriptor number, or closes one.
+- `unix.open_fd(path: Path, write: Bool = default, nonblock: Bool = default, flags: List[Str] = default) -> Result[Int, Error]` — Opens a path as a bare descriptor number, or closes one.
 - `unix.open_pty() -> Result[{master: Int, name: Str, replica: Int}, Error]` — Opens a pseudo-terminal pair.
 - `unix.pid1_setup(signals: List[Str], subreaper: Bool = default, allow_non_pid1: Bool = default) -> Result[Unit, Error]` — Coordinates Unix PID 1 or process-group lifecycle state.
 - `unix.poll_fd(fd: Int, events: List[Str], timeout_ms: Int = default) -> Result[List[Str], Error]` — Waits for descriptor readiness and reports terminal conditions.
