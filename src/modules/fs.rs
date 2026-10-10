@@ -1826,13 +1826,114 @@ fn remove_path_with_policy_unnamed(
     span: Span,
 ) -> Result<(), RuntimeError> {
     let result = match std::fs::symlink_metadata(&path) {
-        Ok(metadata) if metadata.is_dir() && recursive => std::fs::remove_dir_all(&path),
+        Ok(metadata) if metadata.is_dir() && recursive => remove_tree(&path),
         Ok(metadata) if metadata.is_dir() => std::fs::remove_dir(&path),
         Ok(_) => std::fs::remove_file(&path),
         Err(error) if missing_ok && error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error),
     };
     result.map_err(|error| RuntimeError::host("fs-remove", &error).with_span(span))
+}
+
+/// Removes the directory tree at `path` without recursion and with a constant
+/// number of descriptors open, so neither the thread stack, RLIMIT_NOFILE, nor
+/// PATH_MAX bounds the depth (a standard recursive removal holds one
+/// descriptor per level). Each level is entered with `openat`, and an emptied
+/// directory is left by reopening `..` and requiring it to be the directory
+/// that was entered from, so a tree rearranged mid-walk fails instead of
+/// removing something outside it. The first error stops the walk.
+fn remove_tree(path: &Path) -> std::io::Result<()> {
+    struct Level {
+        name: OsString,
+        identity: (u64, u64),
+        subdirectories: Vec<OsString>,
+    }
+
+    const OPEN_DIRECTORY: rfs::OFlags = rfs::OFlags::RDONLY
+        .union(rfs::OFlags::DIRECTORY)
+        .union(rfs::OFlags::NOFOLLOW)
+        .union(rfs::OFlags::CLOEXEC);
+
+    fn open_level(
+        parent: &std::fs::File,
+        name: &std::ffi::OsStr,
+    ) -> std::io::Result<(std::fs::File, (u64, u64))> {
+        let directory = std::fs::File::from(
+            rfs::openat(parent, name, OPEN_DIRECTORY, rfs::Mode::empty())
+                .map_err(std::io::Error::from)?,
+        );
+        let stat = rfs::fstat(&directory).map_err(std::io::Error::from)?;
+        Ok((directory, (stat.st_dev as u64, stat.st_ino as u64)))
+    }
+
+    // Unlinks everything that is not a directory and returns the directories
+    // still to be emptied. Linux reports EISDIR for unlink on a directory;
+    // other systems report EPERM, so that case is confirmed with a stat.
+    fn empty_files(directory: &std::fs::File) -> std::io::Result<Vec<OsString>> {
+        let mut entries = RootDirectoryEntries::open(directory)?;
+        let mut subdirectories = Vec::new();
+        while let Some(entry) = entries.read() {
+            let name = entry?;
+            if name.as_bytes() == b"." || name.as_bytes() == b".." {
+                continue;
+            }
+            match rfs::unlinkat(directory, &name, AtFlags::empty()) {
+                Ok(()) => {}
+                Err(rustix::io::Errno::ISDIR) => subdirectories.push(name),
+                Err(rustix::io::Errno::PERM) => {
+                    let stat = rfs::statat(directory, &name, AtFlags::SYMLINK_NOFOLLOW)
+                        .map_err(std::io::Error::from)?;
+                    if rfs::FileType::from_raw_mode(stat.st_mode as _) == rfs::FileType::Directory {
+                        subdirectories.push(name);
+                    } else {
+                        return Err(std::io::Error::from(rustix::io::Errno::PERM));
+                    }
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(subdirectories)
+    }
+
+    let root = std::fs::File::from(
+        rfs::openat(CWD, path, OPEN_DIRECTORY, rfs::Mode::empty())
+            .map_err(std::io::Error::from)?,
+    );
+    let stat = rfs::fstat(&root).map_err(std::io::Error::from)?;
+    let mut current = root;
+    let mut levels = vec![Level {
+        name: OsString::new(),
+        identity: (stat.st_dev as u64, stat.st_ino as u64),
+        subdirectories: empty_files(&current)?,
+    }];
+    loop {
+        let top = levels.last_mut().expect("the root level stays until the end");
+        if let Some(name) = top.subdirectories.pop() {
+            let (child, identity) = open_level(&current, &name)?;
+            levels.push(Level {
+                name,
+                identity,
+                subdirectories: empty_files(&child)?,
+            });
+            current = child;
+            continue;
+        }
+        let emptied = levels.pop().expect("a level was just inspected");
+        let Some(parent_level) = levels.last() else {
+            drop(current);
+            return std::fs::remove_dir(path);
+        };
+        let (parent, identity) = open_level(&current, std::ffi::OsStr::new(".."))?;
+        if identity != parent_level.identity {
+            return Err(std::io::Error::other(
+                "directory tree changed while it was being removed",
+            ));
+        }
+        drop(current);
+        rfs::unlinkat(&parent, &emptied.name, AtFlags::REMOVEDIR)
+            .map_err(std::io::Error::from)?;
+        current = parent;
+    }
 }
 
 pub(crate) fn mkdir_path(
