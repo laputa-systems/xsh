@@ -68,12 +68,18 @@ proc duration(text: Str) [process, env] -> Duration {
   parsed ?? 0ms
 }
 
-proc send(handle: ProcessHandle, signal: Str, verbose: Bool, command: Str) [process, env, error] {
+proc send(handle: ProcessHandle, signal: Str, verbose: Bool, foreground: Bool, command: Str) [process, env, error] {
   if verbose {
     gnu.error(f"sending signal {signal} to command {gnu.quote(command)}")
   }
-  # Managed children own a process group whose identifier is the leader pid.
-  if let Err(failure) = process.kill_group(handle.pid, signal) {
+  # A managed child leads a process group named by its pid. A foreground child
+  # shares timeout's own group, which must not receive the signal.
+  let sent = if foreground {
+    process.kill(handle.pid, signal: signal)
+  } else {
+    process.kill_group(handle.pid, signal)
+  }
+  if let Err(failure) = sent {
     if failure.errno != 3 {
       gnu.error(f"failed to send signal: {gnu.strerror(failure)}")
       exit 125
@@ -137,13 +143,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     exit 125
   }
   let named = chosen?
-  if opts.foreground {
-    gnu.error("--foreground is unsupported: managed children require their own process group")
-    exit 125
-  }
   let command = opts.command[1..]
   proc_launch.check_command(command[0])
-  let launched = spawn run @command
+  let plan = process.command_argv(command[0], command, same_group: opts.foreground)
+  let launched = spawn plan
   if let Err(failure) = launched {
     gnu.error(f"failed to run command {gnu.quote(command[0])}: {failure.message}")
     exit 126
@@ -152,18 +155,18 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if limit == 0ms { exit (wait_until_exit(child)?).shell_code()? }
   let completed = wait_for(child, limit)?
   if let finished = completed { exit finished.shell_code()? }
-  send(child, if named.number == 0 { "0" } else { named.name }, opts.verbose, command[0])
+  send(child, if named.number == 0 { "0" } else { named.name }, opts.verbose, opts.foreground, command[0])
   # A stopped command must resume to observe a pending signal; signal zero
   # only probes the process and leaves nothing pending.
   if named.number != 0 and named.name != "KILL" and named.name != "CONT" {
-    send(child, "CONT", false, command[0])
+    send(child, "CONT", false, opts.foreground, command[0])
   }
   if grace != 0ms {
     let stopped = wait_for(child, grace)?
     if let finished = stopped {
       exit if opts.preserve { finished.shell_code()? } else if named.number == 9 { 137 } else { 124 }
     }
-    send(child, "KILL", opts.verbose, command[0])
+    send(child, "KILL", opts.verbose, opts.foreground, command[0])
     let _ = wait_until_exit(child)?
     exit 137
   }

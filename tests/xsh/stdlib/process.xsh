@@ -637,6 +637,48 @@ test test_process_spawn_options_and_kill_are_observable { |ctx|
   test.error_kind(process.kill(2147483647, signal: "0"), "process-missing")
 }
 
+# A parent that ignores SIGCHLD passes that disposition through exec. The
+# runtime must still observe the exit status of the commands it runs.
+test test_children_are_waited_for_when_sigchld_is_inherited_ignored { |ctx|
+  let root = test.temp_dir(ctx, name: "sigchld-ignored")?
+  let inner = fp"{root}/inner.xsh"
+  let outer = fp"{root}/outer.xsh"
+  let out = fp"{root}/stdout"
+  let xsh = ctx.xsh_bin.display()
+  inner.write(r"""let status = process.run(process.command_argv("sh", ["sh", "-c", "exit 7"]))?
+print ${status.exited_with(7)}
+""")?
+  outer.write(f"""process.set_signal_action("CHLD", "ignore")?
+unix.exec(process.command_argv("{xsh}", ["{xsh}", "{inner.display()}"]))?
+""")?
+  let command = process.command_argv(ctx.xsh_bin, [xsh, outer.display()], stdout: out)
+  assert process.run(command)?.exited_with(0)
+  assert out.read_text()? == "true\n"
+}
+
+# `same_group` keeps the child in the caller's process group. Cancelling it
+# must signal only that pid: a group signal would also terminate this test.
+test test_spawn_same_group_stays_in_the_callers_group_and_cancels_only_the_child { |ctx|
+  let own = process.group_id()?
+  let leader_plan = process.command_argv("sleep", ["sleep", "10"])
+  let leader = spawn leader_plan?
+  assert process.group_id(leader.pid)? == leader.pid
+  leader.cancel(signal: "KILL", kill_after: 0ms)?
+
+  let shared_plan = process.command_argv("sleep", ["sleep", "10"], same_group: true)
+  let shared = spawn shared_plan?
+  assert process.group_id(shared.pid)? == own
+  shared.cancel(signal: "TERM", kill_after: 0ms)?
+  test.error_kind(process.kill(shared.pid, signal: "0"), "process-missing")
+}
+
+test test_spawn_same_group_conflicts_with_a_new_group_or_session { |ctx|
+  let with_detach = process.command_argv("sleep", ["sleep", "10"], detach: true, same_group: true)
+  test.error_kind(spawn with_detach, "spawn-options")
+  let with_session = process.command_argv("sleep", ["sleep", "10"], new_session: true, same_group: true)
+  test.error_kind(spawn with_session, "spawn-options")
+}
+
 # A scope cancels and reaps the non-detached children it still owns before its
 # deferred actions run: each child here would write its marker after 300 ms,
 # and the action looks 600 ms later, past the moment a surviving child would

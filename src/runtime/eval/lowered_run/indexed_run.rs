@@ -7449,7 +7449,7 @@ impl Evaluator {
             FullTag::ExprProcessCommandArgv => {
                 let target = indexed_raw(&mut payload, call_span)?;
                 let argv = indexed_raw(&mut payload, call_span)?;
-                let mut optional = [None; 13];
+                let mut optional = [None; 14];
                 for value in &mut optional {
                     *value = indexed_optional_raw(&mut payload, call_span)?;
                 }
@@ -7486,7 +7486,8 @@ impl Evaluator {
                     ignore_hup,
                     cpu_max,
                     accept,
-                ]: [Option<LoweredValue>; 13] = evaluated
+                    same_group,
+                ]: [Option<LoweredValue>; 14] = evaluated
                     .try_into()
                     .expect("indexed command optional field count");
                 ControlFlow::Continue(lowered_command_plan_value(
@@ -7505,6 +7506,7 @@ impl Evaluator {
                     ignore_hup,
                     cpu_max,
                     accept,
+                    same_group,
                     span,
                 )?)
             }
@@ -7536,6 +7538,7 @@ impl Evaluator {
                 let mut detach = None;
                 let mut new_session = None;
                 let mut ignore_hup = None;
+                let mut same_group = None;
                 for entry in entries {
                     match entry {
                         ProcessCommandEntry::Field { name, value, span } => {
@@ -7604,6 +7607,10 @@ impl Evaluator {
                                 "ignore_hup" => {
                                     ignore_hup =
                                         Some(lowered_bool_builder_field(value, "ignore_hup", span)?)
+                                }
+                                "same_group" => {
+                                    same_group =
+                                        Some(lowered_bool_builder_field(value, "same_group", span)?)
                                 }
                                 _ => {
                                     return Err(RuntimeError::new(
@@ -7716,6 +7723,7 @@ impl Evaluator {
                                 detach: false,
                                 new_session: false,
                                 ignore_hup: false,
+                                same_group: false,
                             });
                         }
                     }
@@ -7761,6 +7769,9 @@ impl Evaluator {
                 }
                 if let Some(value) = ignore_hup {
                     plan.ignore_hup = value;
+                }
+                if let Some(value) = same_group {
+                    plan.same_group = value;
                 }
                 self.trace_exit(
                     TraceKind::ModuleResult,
@@ -7990,6 +8001,7 @@ impl Evaluator {
                     detach: plan.detach,
                     new_session: plan.new_session,
                     ignore_hup: plan.ignore_hup,
+                    same_group: plan.same_group,
                 };
                 let invocation = self.invocation_from_command_plan(&plan, span)?;
                 return self.eval_lowered_spawn_invocation(invocation, options, span);

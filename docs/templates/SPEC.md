@@ -3801,15 +3801,18 @@ declare locals, and entries such as `run` are interpreted by the API. Unknown,
 duplicate, missing, or invalid fields are check-time errors located in the
 block. `process.command` accepts `cwd`, `env`, `stdin` (`Path` or `Bytes`),
 `stdout`, `stderr`, `stdout_append`, `stderr_append`, `timeout`, `cpu_max`,
-`accept`, `detach`, `new_session`, `ignore_hup`, and exactly one `run` or
-`run.status` entry. Missing or multiple run entries are rejected with
+`accept`, `detach`, `new_session`, `ignore_hup`, `same_group`, and exactly one
+`run` or `run.status` entry. Missing or multiple run entries are rejected with
 `check.builder-check`. `process.command_argv(target, argv)` builds the same plan from data; its
 `argv` includes `argv[0]`. When the executable is `argv[0]`, the vector alone is
 the command (`run @argv`, 11.1); `command_argv` is for an executable that
 intentionally differs from it. `process.run(plan)` returns `Ok(Status)` for any
 completed process and `Err` for setup, timeout, or cancellation failures.
 Pipelines, captures, propagation, and redirection syntax are not plan inputs;
-use the builder fields for redirections.
+use the builder fields for redirections. `same_group` applies to `spawn`: the
+child stays in the caller's process group instead of leading its own, so
+cancelling its handle signals only its pid, and it conflicts with `detach` and
+`new_session`.
 
 ## 12. Signals, Cancellation, And Exit Status
 
@@ -3832,6 +3835,9 @@ evaluation and blocking host calls observe a signal at the next checkpoint.
 At startup, the script runner leaves inherited `SIGINT` and `SIGTERM` actions
 set to `SIG_IGN` unchanged, so an ignored signal remains ignored across an
 `exec` into XSH.
+An inherited ignored `SIGCHLD` is the exception: the runner restores its default
+action, because a kernel that discards child statuses would leave every started
+command unobservable.
 
 ### 12.2 Signal hooks
 

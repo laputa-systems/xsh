@@ -1201,7 +1201,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("process", "command_argv") => Some((
             "Builds a command plan from an executable and argv list.",
-            "Arguments remain separate values; no shell expansion, word splitting, or implicit command execution occurs. Stdin accepts Path or Bytes; byte content is delivered exactly while captured output drains, without a temporary file. Optional accept declares unique ordinary exit codes in 0..255 and is retained by execution and owned waits.",
+            "Arguments remain separate values; no shell expansion, word splitting, or implicit command execution occurs. Stdin accepts Path or Bytes; byte content is delivered exactly while captured output drains, without a temporary file. Optional accept declares unique ordinary exit codes in 0..255 and is retained by execution and owned waits. Optional same_group applies to spawn: the child stays in the caller's process group instead of leading its own, so its handle signals and cancels address the child's pid alone and never the caller's group; it conflicts with detach and new_session.",
             &["process", "argv", "plan"],
         )),
         ("process", "run") => Some((

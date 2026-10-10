@@ -17,7 +17,7 @@ use crate::modules::{
 use crate::runtime::process::{
     CancellationPolicy, ChildWaitOutcome, FileRedirectionMode, ManagedStdio, ProcessEnd,
     ProcessInvocation, ProcessRedirection, ProcessSegmentStatus, ProcessStatus, RedirectionStream,
-    SpawnManagedOptions, SpawnOptions, WAIT_POLL, cancel_managed, path_bytes, poll_managed,
+    ProcessGroupConfig, SpawnManagedOptions, SpawnOptions, WAIT_POLL, cancel_managed, path_bytes, poll_managed,
     resolve_executable, run_capture_with_stderr_policy, run_inherit_with_policy,
     run_pipeline_inherit_with_policy, run_quiet_with_policy, spawn_command, spawn_managed,
 };
@@ -2576,6 +2576,7 @@ fn lowered_command_plan_value(
     ignore_hup: Option<LoweredValue>,
     cpu_max: Option<LoweredValue>,
     accept: Option<LoweredValue>,
+    same_group: Option<LoweredValue>,
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
     let target = lowered_command_target_bytes(target, span)?;
@@ -2623,6 +2624,7 @@ fn lowered_command_plan_value(
     let detach = lowered_bool_arg_or(detach, false, "process.command_argv", span)?;
     let new_session = lowered_bool_arg_or(new_session, false, "process.command_argv", span)?;
     let ignore_hup = lowered_bool_arg_or(ignore_hup, false, "process.command_argv", span)?;
+    let same_group = lowered_bool_arg_or(same_group, false, "process.command_argv", span)?;
     let cpu_max = match cpu_max {
         Some(value) => {
             let value = lowered_int_arg(Some(value), "process.command_argv", span)?;
@@ -2650,6 +2652,7 @@ fn lowered_command_plan_value(
         detach,
         new_session,
         ignore_hup,
+        same_group,
     })))
 }
 
@@ -8115,6 +8118,7 @@ impl Evaluator {
                     detach: plan.detach,
                     new_session: plan.new_session,
                     ignore_hup: plan.ignore_hup,
+                    same_group: plan.same_group,
                 };
                 self.flush_shared_stdio();
                 match spawn_command(&invocation, options) {
@@ -12209,6 +12213,9 @@ impl Evaluator {
         managed_options.stderr = ManagedStdio::Inherit;
         managed_options.apply_redirections = true;
         managed_options.spawn = options;
+        if options.same_group {
+            managed_options.group = ProcessGroupConfig::Inherit;
+        }
         self.trace_spawn_start(span, &invocation, options.detach || options.new_session);
         self.flush_shared_stdio();
         match spawn_managed(&invocation, managed_options) {

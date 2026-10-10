@@ -68,7 +68,20 @@ pub(crate) fn apply_sigpipe_disposition_to_child() {
 }
 
 pub fn install_cancellation_signal_handlers() -> io::Result<SignalHandlerGuard> {
+    restore_default_sigchld();
     SignalHandlerGuard::install_many_preserving_ignored(&[libc::SIGINT, libc::SIGTERM])
+}
+
+/// An ignored SIGCHLD makes the kernel discard children's exit statuses, so
+/// every wait fails with ECHILD and the runtime cannot observe the processes
+/// it starts. A parent that ignores SIGCHLD (`trap '' CHLD`) is inherited
+/// across exec, so the runtime takes back the default action, which also
+/// keeps what its children inherit well defined.
+fn restore_default_sigchld() {
+    // SAFETY: SIG_DFL is a valid disposition and SIGCHLD may be changed.
+    unsafe {
+        libc::signal(libc::SIGCHLD, libc::SIG_DFL);
+    }
 }
 
 pub fn install_interactive_signal_handlers() -> io::Result<SignalHandlerGuard> {
@@ -589,6 +602,10 @@ pub struct SpawnOptions {
     pub detach: bool,
     pub new_session: bool,
     pub ignore_hup: bool,
+    /// Keep the child in the caller's process group instead of giving it its
+    /// own, so a terminal's foreground group still reaches it. Signals then
+    /// address the child's pid alone: the group also holds the caller.
+    pub same_group: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -738,7 +755,7 @@ fn feed_input(input: &mut Option<InputDelivery>) -> Result<(), RunError> {
 pub struct ManagedChild {
     child: std::process::Child,
     pub pid: u32,
-    pub pgid: libc::pid_t,
+    group: ProcessGroup,
     pub target: Vec<u8>,
     pub argv: Vec<Vec<u8>>,
     pub cwd: PathBuf,
@@ -758,7 +775,7 @@ impl ManagedChild {
     }
 
     pub fn process_group(&self) -> ProcessGroup {
-        ProcessGroup { pgid: self.pgid }
+        self.group
     }
 }
 
@@ -1397,16 +1414,21 @@ pub fn spawn_managed(
     invocation: &ProcessInvocation,
     options: SpawnManagedOptions,
 ) -> Result<ManagedChild, RunError> {
+    if options.spawn.same_group && (options.spawn.detach || options.spawn.new_session) {
+        return Err(RunError::new(
+            "spawn-options",
+            "same_group conflicts with detach and new_session, which leave the caller's group",
+        ));
+    }
     let executable = resolve_executable(invocation)?;
     let cgroup = CgroupScope::cpu_max(invocation.cpu_max, "xsh-spawn").map_err(map_cgroup_error)?;
     let mut command = command_with_managed_stdio(invocation, executable, options)?;
     let mut child = command.spawn().map_err(map_spawn_error)?;
     let pid = child.id();
     let group = match options.group {
-        ProcessGroupConfig::Join(pgid) => ProcessGroup { pgid },
-        ProcessGroupConfig::Inherit | ProcessGroupConfig::NewRoot => {
-            ProcessGroup::from_child(&child)
-        }
+        ProcessGroupConfig::Join(pgid) => ProcessGroup::from_pgid(pgid),
+        ProcessGroupConfig::NewRoot => ProcessGroup::from_child(&child),
+        ProcessGroupConfig::Inherit => ProcessGroup::from_child(&child).signaling_pid_only(),
     };
     if options.group.parent_sets_group() {
         assign_child_to_process_group(&child, group);
@@ -1420,7 +1442,7 @@ pub fn spawn_managed(
     let mut managed = ManagedChild {
         child,
         pid,
-        pgid: group.pgid,
+        group,
         target: invocation.target.clone(),
         argv: invocation.argv.clone(),
         cwd: invocation.cwd.clone(),
@@ -1692,17 +1714,31 @@ struct StartedChild {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ProcessGroup {
     pgid: libc::pid_t,
+    /// The member is not the group's leader and shares the caller's group, so
+    /// `pgid` holds the member's pid and signals must not be sent to the group.
+    pid_only: bool,
 }
 
 impl ProcessGroup {
     fn from_child(child: &std::process::Child) -> Self {
         Self {
             pgid: child.id() as libc::pid_t,
+            pid_only: false,
+        }
+    }
+
+    fn signaling_pid_only(self) -> Self {
+        Self {
+            pid_only: true,
+            ..self
         }
     }
 
     pub fn from_pgid(pgid: libc::pid_t) -> Self {
-        Self { pgid }
+        Self {
+            pgid,
+            pid_only: false,
+        }
     }
 
     pub fn signal(self, signal: i32) {
@@ -1739,7 +1775,7 @@ impl ForegroundTerminal {
             return None;
         }
         let previous = termios::tcgetpgrp(stdio::stdin()).ok()?.as_raw_pid();
-        if previous == group.pgid {
+        if group.pid_only || previous == group.pgid {
             return None;
         }
         if tcsetpgrp_ignoring_ttou(fd, group.pgid).is_ok() {
@@ -2055,7 +2091,12 @@ fn signal_process_group(group: ProcessGroup, signal: i32) {
     let Some(signal) = signal_from_i32(signal) else {
         return;
     };
-    if let Err(error) = rprocess::kill_process_group(pgid, signal) {
+    let result = if group.pid_only {
+        rprocess::kill_process(pgid, signal)
+    } else {
+        rprocess::kill_process_group(pgid, signal)
+    };
+    if let Err(error) = result {
         let error = io::Error::from(error);
         if !matches!(error.raw_os_error(), Some(libc::ESRCH)) {
             let _ = error;

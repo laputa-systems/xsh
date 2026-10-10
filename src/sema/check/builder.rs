@@ -290,6 +290,7 @@ pub(super) fn builder_field_type(kind: BuilderKind, name: &str) -> Option<Type> 
         (BuilderKind::ProcessCommand, "detach") => Some(Type::Bool),
         (BuilderKind::ProcessCommand, "new_session") => Some(Type::Bool),
         (BuilderKind::ProcessCommand, "ignore_hup") => Some(Type::Bool),
+        (BuilderKind::ProcessCommand, "same_group") => Some(Type::Bool),
         _ => None,
     }
 }

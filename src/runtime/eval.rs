@@ -1148,6 +1148,7 @@ struct LoweredProcessCommandArgv {
     ignore_hup: Option<BuildExprId>,
     cpu_max: Option<BuildExprId>,
     accept: Option<BuildExprId>,
+    same_group: Option<BuildExprId>,
     span: Span,
 }
 
