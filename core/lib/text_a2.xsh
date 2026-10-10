@@ -161,6 +161,12 @@ export pure padding(count: Int, character = " ") -> Str {
   result
 }
 
+# Tab-list errors end with the diagnostic alone; GNU expand and unexpand print no usage hint for them.
+proc tab_error(message: Str) [process, env] -> Unit {
+  gnu.error(message)
+  exit 1
+}
+
 ## Parse GNU tab lists, including final /N and +N continuation stops.
 export proc tabs(values: List[Str]) -> Tabs {
   var stops: List[Int] = []
@@ -169,7 +175,7 @@ export proc tabs(values: List[Str]) -> Tabs {
   var last_marker = ""
   for value in values {
     for part in value.replace(",", with: " ").fields() {
-      if interval > 0 { gnu.usage_error(f"{gnu.quote_value(last_marker)} specifier only allowed with the last value") }
+      if interval > 0 { tab_error(f"{gnu.quote_value(last_marker)} specifier only allowed with the last value") }
       var prefix = 0
       var marker = ""
       while prefix < part.byte_len() and part.byte_slice(prefix, length: 1) in ["/", "+"] {
@@ -181,21 +187,21 @@ export proc tabs(values: List[Str]) -> Tabs {
       if ! rx"^[0-9]+$".matches(digits) {
         for offset in range(digits.byte_len()) {
           let mark = digits.byte_slice(offset, length: 1)
-          if mark in ["/", "+"] { gnu.usage_error(f"{gnu.quote_value(mark)} specifier not at start of number: {gnu.quote_value(digits.byte_slice(offset))}") }
+          if mark in ["/", "+"] { tab_error(f"{gnu.quote_value(mark)} specifier not at start of number: {gnu.quote_value(digits.byte_slice(offset))}") }
         }
         var first_invalid = 0
         while first_invalid < digits.byte_len() and rx"^[0-9]$".matches(digits.byte_slice(first_invalid, length: 1)) { first_invalid += 1 }
-        gnu.usage_error(f"tab size contains invalid character(s): {gnu.quote_value(digits.byte_slice(first_invalid))}")
+        tab_error(f"tab size contains invalid character(s): {gnu.quote_value(digits.byte_slice(first_invalid))}")
       }
-      guard let number = digits.parse_int() else { |_| gnu.usage_error(f"tab stop is too large {gnu.quote_value(digits)}"); exit 1 }
+      guard let number = digits.parse_int() else { |_| tab_error(f"tab stop is too large {gnu.quote_value(digits)}"); exit 1 }
       if number == 0 and extended and ! stops.is_empty() { continue }
-      if number <= 0 { gnu.usage_error("tab size cannot be 0") }
+      if number <= 0 { tab_error("tab size cannot be 0") }
       if extended {
         interval = number
         last_marker = marker
         relative = marker == "+"
       } else {
-        if ! stops.is_empty() and number <= stops[-1] { gnu.usage_error("tab sizes must be ascending") }
+        if ! stops.is_empty() and number <= stops[-1] { tab_error("tab sizes must be ascending") }
         stops += [number]
       }
     }

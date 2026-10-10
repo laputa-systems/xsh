@@ -15,7 +15,6 @@ proc bound(raw: Str, remaining: Str, fields: Bool) -> Int {
     gnu.usage_error(f"{if fields { "field number" } else { "byte/character offset" }} {gnu.quote_value(raw)} is too large")
     exit 1
   }
-  if value == 0 { gnu.usage_error(if fields { "fields are numbered from 1" } else { "byte/character positions are numbered from 1" }) }
   value
 }
 
@@ -27,7 +26,9 @@ proc ranges(spec: Str, fields: Bool) -> List[Span] {
       if parts.len() > 2 { gnu.usage_error(if fields { "invalid field range" } else { "invalid byte or character range" }) }
       if word == "-" { gnu.usage_error("invalid range with no endpoint: -") }
       let first = if parts[0] == "" { 1 } else { bound(parts[0], word, fields) }
-      let last = if parts.len() == 1 { first } else if parts[1] == "" { 9223372036854775807 } else { bound(parts[1], parts[1], fields) }
+      # Only the start of a range (or a lone number) is numbered from 1; a zero end is a decreasing range instead.
+      if first == 0 { gnu.usage_error(if fields { "fields are numbered from 1" } else { "byte/character positions are numbered from 1" }) }
+      let last =if parts.len() == 1 { first } else if parts[1] == "" { 9223372036854775807 } else { bound(parts[1], parts[1], fields) }
       if first > last { gnu.usage_error("invalid decreasing range") }
       yield {first: first, last: last}
     }

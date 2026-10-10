@@ -31,3 +31,11 @@ test test_expand_accepts_non_utf8_path_bytes { |ctx|
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/expand.xsh" -- $input
   assert output == "a       b\n"
 }
+
+test test_expand_tab_list_errors_have_no_usage_hint { |ctx|
+  let input = test.temp_file(ctx, name: "tabs", contents: b"a\n")?
+  let error = test.temp_path(ctx, name: "tab-error")
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/expand.xsh" -- --tabs=0 $input 2> $error
+  assert status.exited_with(1)
+  assert error.read_text()? == "expand: tab size cannot be 0\n"
+}

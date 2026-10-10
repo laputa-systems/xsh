@@ -9,6 +9,13 @@ proc invoke(ctx: TestContext, args: List[Str], input = b"") [fs, process, error]
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
 }
 
+test test_od_formats_share_one_block_width { |ctx|
+  # Each -t column pads its fields to the widest block of all formats, as GNU od does.
+  let input = b"1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n"
+  let output = invoke(ctx, ["-An", "-tdS", "-txC"], input)?.stdout
+  assert output == b"   2609   2610   2611   2612   2613   2614   2615   2616\n  31 0a  32 0a  33 0a  34 0a  35 0a  36 0a  37 0a  38 0a\n   2617  12337  12554   2609  12849  12554   2611  13361\n  39 0a  31 30  0a 31  31 0a  31 32  0a 31  33 0a  31 34\n  12554   2613  13873  12554   2615  14385  12554   2617\n  0a 31  35 0a  31 36  0a 31  37 0a  31 38  0a 31  39 0a\n"
+}
+
 test test_od_default_and_byte_formats { |ctx|
   assert invoke(ctx, [], b"abcdefghijklmnopqrstuvwxyz\n")?.stdout == b"0000000 061141 062143 063145 064147 065151 066153 067155 070157\n0000020 071161 072163 073165 074167 075171 000012\n0000033\n"
   assert invoke(ctx, ["-An", "-tx1"], b"\0\xff\xfe")?.stdout == b" 00 ff fe\n"

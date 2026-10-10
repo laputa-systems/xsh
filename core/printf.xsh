@@ -734,16 +734,8 @@ proc conversion_text(spec: PrintfSpec, argument: PrintfArgument, width: Int, pre
   }
 
   if spec.conversion == "c" {
-    let quoted = (argument.data.byte_at(0) ?? 0) in [34, 39]
-    let value_data = if quoted { argument.data[1..] } else { argument.data }
-    let value = if quoted { argument.text.byte_slice(1) } else { argument.text }
-    let character: Bytes = if let Ok(number) = value.parse_int() {
-      bytes.from_text(codepoint_text(number)?)
-    } else if value == "" {
-      b"\0"
-    } else {
-      value_data[0..1]
-    }
+    # The operand is text even when it looks numeric: GNU prints its first byte, or NUL when it is empty.
+    let character: Bytes = if argument.data.len() == 0 { b"\0" } else { argument.data[0..1] }
     let padding_count = field_width - 1
     if field_width > 1000000 {
       write_field(previous_output, b"", character, b"", padding_count, b" ", left)
@@ -976,7 +968,7 @@ proc main(...argv: List[Bytes]) [error, io, process, env] {
       return
     }
   }
-  return Err(usage_error("printf", "FORMAT [ARG...]")) when arguments.is_empty()
+  if arguments.is_empty() { gnu.missing_operand() }
   let format = arguments[0]
   var values: List[PrintfArgument] = []
   for value in arguments[1..] { values += [printf_argument(value)?] }

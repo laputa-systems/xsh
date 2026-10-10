@@ -37,3 +37,14 @@ test test_unexpand_accepts_non_utf8_path_bytes { |ctx|
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- -a $input
   assert output == "a\tb\n"
 }
+
+test test_unexpand_obsolete_tab_stop_overflow_omits_the_value { |ctx|
+  let input = test.temp_file(ctx, name: "tabs", contents: b"a\n")?
+  let error = test.temp_path(ctx, name: "tab-error")
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- -18446744073709551616 $input 2> $error
+  assert status.exited_with(1)
+  assert error.read_text()? == "unexpand: tab stop is too large\n"
+  let explicit = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- -t 18446744073709551616 $input 2> $error
+  assert explicit.exited_with(1)
+  assert "unexpand: tab stop is too large " in error.read_text()?, "the -t form quotes the value"
+}

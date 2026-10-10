@@ -77,7 +77,7 @@ Optional precision (%.1f) will override the input determined precision.
 type NumfmtOptions = {
   debug: Bool,
   delimiter: Str?,
-  field: Str,
+  fields: List[Str],
   format: Str?,
   from: Str,
   from_unit: Str,
@@ -1616,11 +1616,18 @@ proc settings_from(opts: NumfmtOptions, byte_delimiter: Bool) [process, env, io]
   var lows: List[Int] = []
   var highs: List[Int] = []
 
-  if "-" in opts.field.replace(" ", with: ",").split(",") {
+  # GNU rejects a second --field while parsing options, so it reports no usage hint.
+  if opts.fields.len() > 1 {
+    gnu.error("multiple field specifications")
+    exit 1
+  }
+  let field = if opts.fields.is_empty() { "1" } else { opts.fields[0] }
+
+  if "-" in field.replace(" ", with: ",").split(",") {
     lows = [1]
     highs = [9223372036854775806]
   } else {
-    for item in opts.field.replace(" ", with: ",").split(",") {
+    for item in field.replace(" ", with: ",").split(",") {
       let range = parse_range(item)
 
       if range.err != "" {
@@ -1713,7 +1720,7 @@ proc main(...argv: List[Bytes]) [process, env, error, io] {
       gnu: {status: 1},
       debug: {form: "--debug", default: false},
       delimiter: {form: "-d --delimiter X"},
-      field: {form: "--field FIELDS", default: "1"},
+      fields: {form: "--field FIELDS", repeated: true},
       format: {form: "--format FORMAT"},
       from: {form: "--from UNIT", default: "none"},
       from_unit: {form: "--from-unit N", default: "1"},

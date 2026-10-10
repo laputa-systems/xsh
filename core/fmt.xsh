@@ -57,79 +57,140 @@ pure sentence(word: Bytes) -> Bool {
   (word.byte_at(at) ?? 0) in [46, 33, 63]
 }
 
-pure spacing(previous: Word, current: Word, uniform: Bool) -> Int {
-  if uniform or current.new_line { if sentence(previous.data) { 2 } else { 1 } } else { current.gap }
+# The space written before words[index]. Uniform spacing and a new input line use two spaces only
+# after a word that ends a sentence in the input (final), not after any sentence-like word.
+pure spacing(words: List[Word], index: Int, uniform: Bool) -> Int {
+  if uniform or words[index].new_line { if final_word(words, index - 1) { 2 } else { 1 } } else { words[index].gap }
 }
 
 pure final_word(words: List[Word], index: Int) -> Bool {
   index + 1 == words.len() or (sentence(words[index].data) and (words[index + 1].new_line or words[index + 1].gap > 1))
 }
 
-pure break_cost(words: List[Word], begin: Int) -> Int {
+# GNU fmt lays out a paragraph in buffers of at most this many words and word characters. A
+# fuller buffer is cut at a low-cost break and its tail starts the next buffer, so these limits
+# change the output of long paragraphs.
+const MAX_BUFFER_WORDS = 998
+const MAX_BUFFER_CHARS = 5000
+
+# Costs of a break before words[begin]. The previous word only counts inside the buffer that
+# starts at block_start, because a buffer's first line has no earlier line to be compared with.
+pure break_cost(words: List[Word], begin: Int, block_start: Int) -> Int {
   var cost = 4900
-  if begin > 0 {
+  if begin > block_start {
     let previous = words[begin - 1].data
     let last = previous.byte_at(previous.len() - 1) ?? 0
-    if sentence(previous) { cost += if final_word(words, begin - 1) { -2500 } else { 360000 } } else if (last >= 33 and last <= 47) or (last >= 58 and last <= 64) or (last >= 91 and last <= 96) or (last >= 123 and last <= 126) { cost -= 1600 } else if begin > 1 and final_word(words, begin - 2) { cost += 40000 / (previous.len() + 2) }
+    if sentence(previous) { cost += if final_word(words, begin - 1) { -2500 } else { 360000 } } else if (last >= 33 and last <= 47) or (last >= 58 and last <= 64) or (last >= 91 and last <= 96) or (last >= 123 and last <= 126) { cost -= 1600 } else if begin > block_start + 1 and final_word(words, begin - 2) { cost += 40000 / (previous.len() + 2) }
   }
   let first = words[begin].data.byte_at(0) ?? 0
   if first in [34, 39, 40, 91, 96] { cost -= 1600 } else if final_word(words, begin) { cost += 22500 / (words[begin].data.len() + 2) }
   cost
 }
 
+type Flushed = {next_start: Int, last_length: Int}
+
+# Costs of the cheapest layout of words[begin..end) for every suffix, indexed by end - start.
+# A buffer's first line is measured with first_length and cannot be compared with the line
+# before it unless previous_length (the last line already written) is known.
+pure layout_buffer(words: List[Word], begin: Int, end: Int, width: Int, goal: Int, first_length: Int, later_length: Int, uniform: Bool, previous_length: Int) -> List[Layout] {
+  var layouts: List[Layout] = [{cost: 0, length: 0, next: end}]
+  for offset in range(end - begin) {
+    let start = end - offset - 1
+    var length = if start == begin { first_length } else { later_length }
+    var best = {cost: 9223372036854775807, length: 0, next: start + 1}
+    for stop in range(start + 1, end + 1) {
+      length += words[stop - 1].data.len() + (if stop > start + 1 { spacing(words, stop - 1, uniform) } else { 0 })
+      break when length > width and stop > start + 1
+      let suffix = layouts[end - stop]
+      var cost = suffix.cost
+      if stop < end {
+        let departure = goal - length
+        cost += 100 * departure * departure
+        if suffix.next < end { let difference = length - suffix.length; cost += 50 * difference * difference }
+      }
+      if start == begin and previous_length > 0 { let difference = length - previous_length; cost += 50 * difference * difference }
+      if cost < best.cost { best = {cost: cost, length: length, next: stop} }
+    }
+    layouts += [{cost: best.cost + break_cost(words, start, begin), length: best.length, next: best.next}]
+  }
+  layouts
+}
+
+# Writes words[begin..end) as lines. A flush instead cuts at the line start that GNU's
+# credit-biased comparison prefers and writes only the lines before that cut.
+proc emit_buffer(words: List[Word], begin: Int, end: Int, flushing: Bool, first: Str, later: Str, uniform: Bool, width: Int, goal: Int, previous_length: Int) -> Flushed {
+  let layouts = layout_buffer(words, begin, end, width, goal, first.byte_len(), later.byte_len(), uniform, previous_length)
+  var cut = end
+  if flushing {
+    var best_break = 9223372036854775807
+    var candidate = layouts[end - begin].next
+    while candidate < end {
+      let following = layouts[end - candidate].next
+      let line_cost = layouts[end - candidate].cost - layouts[end - following].cost
+      if line_cost < best_break { cut = candidate; best_break = line_cost }
+      if best_break <= 9223372036854775807 - 3 { best_break += 3 }
+      candidate = following
+    }
+  }
+  var line_start = begin
+  var last_length = previous_length
+  while line_start < cut {
+    let line = layouts[end - line_start]
+    last_length = line.length
+    var out: List[Bytes] = [bytes.from_text(if line_start == begin { first } else { later })]
+    for index in range(line_start, line.next) {
+      if index > line_start { out += [bytes.from_text(text.padding(spacing(words, index, uniform)))] }
+      out += [words[index].data]
+    }
+    gnu.write_bytes(bytes.concat([@out, b"\n"]))
+    line_start = line.next
+  }
+  {next_start: cut, last_length: last_length}
+}
+
 # Optimize each suffix once. Costs favor sentence boundaries, discourage
 # false sentence breaks after initials, and balance neighboring filled lines.
-
 proc paragraph(lines: List[Bytes], width: Int, goal: Int, quick: Bool, first: Str, later: Str, uniform: Bool) {
   let words = lines |> flat-map { |line| word_parts(line) }
   if words.is_empty() { return }
-  var breaks: List[Int] = []
   if quick {
+    var breaks: List[Int] = []
     var begin = 0
     while begin < words.len() {
       var end = begin
       var length = if begin == 0 { first.byte_len() } else { later.byte_len() }
       while end < words.len() {
-        let added = words[end].data.len() + (if end > begin { spacing(words[end - 1], words[end], uniform) } else { 0 })
+        let added = words[end].data.len() + (if end > begin { spacing(words, end, uniform) } else { 0 })
         break when length + added > width and end > begin
         length += added; end += 1
       }
       breaks += [end]; begin = end
     }
-  } else {
-    var layouts: List[Layout] = [{cost: 0, length: 0, next: words.len()}]
-    for offset in range(words.len()) {
-      let begin = words.len() - offset - 1
-      var length = if begin == 0 { first.byte_len() } else { later.byte_len() }
-      var best = {cost: 9223372036854775807, length: 0, next: begin + 1}
-      for end in range(begin + 1, words.len() + 1) {
-        length += words[end - 1].data.len() + (if end > begin + 1 { spacing(words[end - 2], words[end - 1], uniform) } else { 0 })
-        break when length > width and end > begin + 1
-        let suffix = layouts[words.len() - end]
-        var cost = suffix.cost
-        if end < words.len() {
-          let departure = goal - length
-          cost += 100 * departure * departure
-          if suffix.next < words.len() { let difference = length - suffix.length; cost += 50 * difference * difference }
-        }
-        if cost < best.cost { best = {cost: cost, length: length, next: end} }
+    var line_start = 0
+    for end in breaks {
+      var out: List[Bytes] = [bytes.from_text(if line_start == 0 { first } else { later })]
+      for item in words[line_start..end] |> enumerate() {
+        if item.index > 0 { out += [bytes.from_text(text.padding(spacing(words, line_start + item.index, uniform)))] }
+        out += [item.value.data]
       }
-      layouts += [{cost: best.cost + break_cost(words, begin), length: best.length, next: best.next}]
+      gnu.write_bytes(bytes.concat([@out, b"\n"])); line_start = end
     }
+  } else {
     var begin = 0
-    while begin < words.len() {
-      let next = layouts[words.len() - begin].next
-      breaks += [next]; begin = next
+    var previous_length = 0
+    var chars = 0
+    for index in range(words.len()) {
+      let size = words[index].data.len()
+      if index > begin and (index - begin == MAX_BUFFER_WORDS or chars + size > MAX_BUFFER_CHARS) {
+        let flushed = emit_buffer(words, begin, index, true, first, later, uniform, width, goal, previous_length)
+        begin = flushed.next_start
+        previous_length = flushed.last_length
+        chars = 0
+        for at in range(begin, index) { chars += words[at].data.len() }
+      }
+      chars += size
     }
-  }
-  var begin = 0
-  for end in breaks {
-    var out: List[Bytes] = [bytes.from_text(if begin == 0 { first } else { later })]
-    for item in words[begin..end] |> enumerate() {
-      if item.index > 0 { out += [bytes.from_text(text.padding(spacing(words[begin + item.index - 1], item.value, uniform)))] }
-      out += [item.value.data]
-    }
-    gnu.write_bytes(bytes.concat([@out, b"\n"])); begin = end
+    let _ = emit_buffer(words, begin, words.len(), false, first, later, uniform, width, goal, previous_length)
   }
 }
 
@@ -172,7 +233,8 @@ proc main(...argv: List[Bytes]) {
   let requested_width = if opts.width != "" { size(opts.width, "width") } else { -1 }
   let goal_value = if opts.goal == "" { 0 } else { size(opts.goal, "goal") }
   let width = if requested_width >= 0 { requested_width } else if opts.goal != "" and goal_value < 65 { goal_value + 10 } else { 75 }
-  let goal = if opts.goal == "" { width * 93 / 100 } else { goal_value }
+  # Without -g the goal is LEEWAY (7) percent short of the width, computed as GNU does.
+  let goal = if opts.goal == "" { width * 187 / 200 } else { goal_value }
   if goal > width { gnu.error("GOAL cannot be greater than WIDTH."); exit 1 }
   var failed = false
   let paths = if opts.paths.is_empty() { [b"-"] } else { text.argument_bytes_list(arguments, opts.paths) }

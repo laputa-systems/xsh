@@ -493,13 +493,15 @@ pure general_numeric_sort_key(line: Str, stable: Bool) -> GeneralNumericSortKey 
     return {key: "0", raw: if stable { "" } else { line }}
   }
   let number = general_numeric_value(line)
-  let special = number.format()
-  if special == "NaN" { return {key: "1", raw: if stable { "" } else { line }} }
-  if special == "-Infinity" { return {key: "2", raw: if stable { "" } else { line }} }
-  if special == "Infinity" { return {key: "6", raw: if stable { "" } else { line }} }
+  # Specials come from the text, not the Float: a finite decimal beyond the Float range is still a number.
   let unsigned_prefix = if prefix.starts_with("-") or prefix.starts_with("+") { prefix.byte_slice(1) } else { prefix }
+  if unsigned_prefix.lower().starts_with("nan") { return {key: "1", raw: if stable { "" } else { line }} }
+  if unsigned_prefix.lower().starts_with("inf") {
+    let infinity_key = if prefix.starts_with("-") { "2" } else { "6" }
+    return {key: infinity_key, raw: if stable { "" } else { line }}
+  }
   let display = if unsigned_prefix.lower().starts_with("0x") {
-    if let Ok(exact) = number.format_number("g", 17) { exact } else { special }
+    if let Ok(exact) = number.format_number("g", 17) { exact } else { number.format() }
   } else if prefix.starts_with("-") {
     f"-{unsigned_prefix}"
   } else {
@@ -531,7 +533,7 @@ pure general_numeric_sort_key(line: Str, stable: Bool) -> GeneralNumericSortKey 
   while first_significant < digits.byte_len() and digits.byte_slice(first_significant, length: 1) == "0" {
     first_significant += 1
   }
-  if first_significant == digits.byte_len() or number == 0.0 {
+  if first_significant == digits.byte_len() {
     return {key: "4", raw: if stable { "" } else { line }}
   }
   var normalized = digits.byte_slice(first_significant)
@@ -924,21 +926,49 @@ pure version_hex_byte(byte: Int) -> Str {
   digits.byte_slice(byte / 16, length: 1) + digits.byte_slice(byte % 16, length: 1)
 }
 
-## Encode natural version chunks into a lexically sortable key without narrowing numeric runs.
+# The lines in reverse input order.
+pure reversed_lines(lines: List[Str]) -> List[Str] {
+  collect { for index in range(lines.len()) { yield lines[lines.len() - 1 - index] } }
+}
+
+# Sort key whose plain order is GNU's filenvercmp order (used by sort -V). Operands are split like
+# filevercmp's file suffixes: the prefix before a trailing `.alpha...` run is compared first, and the
+# whole name breaks ties. A leading dot ranks "." before ".." before other dot names, then ordinary names.
 pure version_key(line: Str) -> Str {
-  if line == "" { return "00" }
-  if line == "." { return "01" }
-  if line == ".." { return "02" }
+  if line == "" { return "A" }
+  if line == "." { return "B" }
+  if line == ".." { return "C" }
+  let input = bytes.from_text(line)
+  let class = if input.byte_at(0) == 46 { "D" } else { "E" }
+  let prefix = version_prefix_length(input)
+  class + version_revision_key(line.byte_slice(0, length: prefix)) + version_revision_key(line)
+}
 
-  var remainder = line
-  var key = ""
-  while remainder.starts_with(".") {
-    key += "03"
-    remainder = remainder.byte_slice(1)
+# The length of the name without its suffix, following filenvercmp's forward scan: a suffix is a
+# run of `.` followed by a letter or `~` and then alphanumerics or `~`.
+pure version_prefix_length(input: Bytes) -> Int {
+  let count = input.len()
+  var at = 0
+  var prefix = 0
+  while at < count {
+    at += 1
+    prefix = at
+    while at + 1 < count and input.byte_at(at) == 46 and (is_ascii_letter(input.byte_at(at + 1) ?? 0) or input.byte_at(at + 1) == 126) {
+      at += 2
+      while at < count and (is_ascii_digit(input.byte_at(at) ?? 0) or is_ascii_letter(input.byte_at(at) ?? 0) or input.byte_at(at) == 126) { at += 1 }
+    }
   }
-  key += "04"
+  prefix
+}
 
-  let input = bytes.from_text(remainder)
+# Encodes a name as tokens whose plain order matches filenvercmp's element order: `~` < a zero run
+# followed by `~` < end < a zero run followed by another byte < digit run < letter < other byte.
+# filenvercmp skips a zero run that meets the end of the other name, so a zero run at the end is
+# dropped and an interior one is ranked by the byte after it. A digit run compares by its
+# significant digits, length first, so leading zeros and the run's own length keep numeric order.
+pure version_revision_key(text: Str) -> Str {
+  let input = bytes.from_text(text)
+  var key = ""
   var at = 0
   while at < input.len() {
     let byte = input.byte_at(at) ?? 0
@@ -948,25 +978,24 @@ pure version_key(line: Str) -> Str {
 
       var significant = at
       while significant < end and input.byte_at(significant) == 48 { significant += 1 }
-      let significant_length = end - significant
-      key += "01"
-      for _ in range(significant_length) { key += "1" }
-      key += "0"
-      while significant < end {
-        key += remainder.byte_slice(significant, length: 1)
-        significant += 1
+      if significant == end {
+        if end < input.len() {
+          key += if input.byte_at(end) == 126 { "1a" } else { "2a" }
+        }
+      } else {
+        key += "3" + padded_decimal(end - significant, 20) + text.byte_slice(significant, length: end - significant)
       }
       at = end
     } else if byte == 126 {
-      key += "00"
+      key += "0"
       at += 1
     } else {
-      key += if is_ascii_letter(byte) { "02" } else { "03" }
+      key += if is_ascii_letter(byte) { "4" } else { "5" }
       key += version_hex_byte(byte)
       at += 1
     }
   }
-  key + "01"
+  key + "2"
 }
 
 pure version_sort_key(line: Str, stable: Bool) -> TextSortKey {
@@ -1361,10 +1390,12 @@ pure sort_input_lines(input_lines: List[Str], opts: SortOptions, has_key: Bool, 
       unique_input |> sort-by general_numeric_sort_key(., opts.stable or opts.unique)
     }
   } else if is_version_sort(opts) {
+    # A descending sort reverses the order of equal keys, which --stable and --unique must keep in input order.
+    let ordered = if opts.reverse and (opts.stable or opts.unique) { reversed_lines(unique_input) } else { unique_input }
     if opts.reverse {
-      unique_input |> sort-by(desc: true) version_sort_key(., opts.stable)
+      ordered |> sort-by(desc: true) version_sort_key(., opts.stable or opts.unique)
     } else {
-      unique_input |> sort-by version_sort_key(., opts.stable)
+      ordered |> sort-by version_sort_key(., opts.stable or opts.unique)
     }
   } else if is_numeric_sort(opts) {
     ## Keep the first spelling for each number before a reverse sort can reorder equal keys.
@@ -1398,6 +1429,8 @@ pure unique_sorted_lines(sorted: List[Str], opts: SortOptions, has_key: Bool) ->
     sorted |> unique-by human_numeric_sort_key(., true)
   } else if opts.unique and is_general_numeric_sort(opts) {
     sorted |> unique-by general_numeric_sort_key(., true)
+  } else if opts.unique and is_version_sort(opts) {
+    sorted |> unique-by version_key(.)
   } else if opts.unique and is_numeric_sort(opts) {
     sorted |> unique-by numeric_sort_key(., true)
   } else if opts.unique {
@@ -1896,7 +1929,9 @@ proc create_sort_temp_root(directory: Str?) [fs, io, process, env, error] -> FsR
   match created {
     Ok(root) => root
     Err(failure) => {
-      gnu.error(f"cannot create temporary file: {gnu.strerror(failure)}")
+      # GNU names the directory it tried, falling back to $TMPDIR and then /tmp.
+      let location = if let temp_dir = directory { temp_dir } else { match env.get("TMPDIR") { Ok(value) => value, Err(_) => "/tmp" } }
+      gnu.error(f"cannot create temporary file in {gnu.quote(location)}: {gnu.strerror(failure)}")
       exit 2
     }
   }
@@ -2519,6 +2554,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     if ! paths.is_empty() {
       gnu.error(f"extra operand {gnu.quote(paths[0])}")
       eprint "file operands cannot be combined with --files0-from"
+      gnu.try_help()
       exit 2
     }
 

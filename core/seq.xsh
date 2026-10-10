@@ -741,7 +741,8 @@ stream sequence_lines(first: Num, step: Num, last: Num, spec: Spec, forward: Boo
     let from = value_of(first, scale)
     let stop = value_of(last, scale)
     let inc = if step.kind == "fin" { value_of(step, scale) } else { {neg: step.neg, digits: "0"} }
-    let plain = spec.conv == "f" and spec.precision == scale and spec.prefix == "" and spec.suffix == "" and ! spec.left and ! spec.plus and ! spec.space and ! spec.alt
+    # plain_line pads with zeros, so a width without the zero flag (as in -f %3.0f) must go through format_number.
+    let plain = spec.conv == "f" and spec.precision == scale and spec.prefix == "" and spec.suffix == "" and ! spec.left and ! spec.plus and ! spec.space and ! spec.alt and (spec.zero or spec.width == 0)
     let small = from.digits.byte_len() <= 17 and stop.digits.byte_len() <= 17 and inc.digits.byte_len() <= 17
 
     if first.kind == "inf" {

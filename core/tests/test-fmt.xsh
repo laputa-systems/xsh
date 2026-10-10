@@ -40,3 +40,16 @@ test test_fmt_avoids_false_sentence_breaks_and_sentence_widows { |ctx|
   let balanced = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/fmt.xsh" -- -g25 -w30 $sentences
   assert balanced == "One short sentence.\nA slightly longer sentence\nfollows the first sentence.\n"
 }
+
+test test_fmt_split_only_handles_a_paragraph_longer_than_one_buffer { |ctx|
+  # 1015 words is past GNU's 998-word buffer, so the paragraph is laid out in two flushes.
+  var text = " y"
+  for _ in range(1014) { text += " y" }
+  let input = test.temp_file(ctx, name: "long", contents: bytes.from_text(text + "\n"))?
+  var line = " y"
+  for _ in range(34) { line += " y" }
+  var expected = ""
+  for _ in range(29) { expected += line + "\n" }
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/fmt.xsh" -- -s $input
+  assert output == expected
+}

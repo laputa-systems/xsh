@@ -133,6 +133,12 @@ pure float_text(value: Float, format: Str) -> Result[Str] {
   Ok(best)
 }
 
+# Extra width before field `index` of a block: the block's padding is shared out across its
+# fields with integer division, so the field widths sum to the block width.
+pure field_pad_at(fields: Int, index: Int, pad: Int) -> Int {
+  pad / fields * index + pad % fields * index / fields
+}
+
 pure item(data: Bytes, fmt: Format, big: Bool) -> Result[Str] {
   let byte = data.byte_at(0) ?? 0
   if fmt.kind == "f" {
@@ -385,14 +391,17 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     guard let parsed = formats(text) else { |failure| gnu.usage_error(failure.message); return }
     selected += parsed
   }
-  var alignment = 0
   var unit = 1
   for fmt in selected {
-    let scaled = (fmt.chars + 1) * 8 / fmt.size
-    if scaled > alignment { alignment = scaled }
     if fmt.size > unit { unit = fmt.size }
   }
   if width % unit != 0 { gnu.error(f"warning: invalid width {width}; using {unit} instead"); width = unit }
+  # Every format's columns share the widest block, so narrower formats pad their fields to it.
+  var block_width = 0
+  for fmt in selected {
+    let scaled = (fmt.chars + 1) * (width / fmt.size)
+    if scaled > block_width { block_width = scaled }
+  }
   # GNU's padding offset calculation squares the field count; reject widths
   # whose intermediate value cannot fit the signed Int representation.
   for fmt in selected {
@@ -473,16 +482,22 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       previous = block
       for index in range(selected.len()) {
         let fmt = selected[index]
-        let alignment_indent = if selected.len() == 2 and selected[0].kind == "f" and selected[0].size == 8 and fmt.kind == "x" and fmt.size == 2 { 1 } else { 0 }
-        var line = if index == 0 { address(skip + offset, opts.address, label, skip) } else { spaces(address(skip + offset, opts.address, label, skip).byte_len() + alignment_indent) }
+        var line = if index == 0 { address(skip + offset, opts.address, label, skip) } else { spaces(address(skip + offset, opts.address, label, skip).byte_len()) }
+        let fields = width / fmt.size
+        let pad = block_width - fmt.chars * fields
+        var printed = 0
+        var column = 0
         for part in block.chunks(fmt.size) {
           let padded = bytes.concat([part, bytes.zero(fmt.size - part.len())?])
           let value = item(padded, fmt, big)?
-          line += " " + spaces(alignment * fmt.size / 8 - 1 - value.byte_len()) + value
+          let field = fmt.chars + field_pad_at(fields, fields - printed, pad) - field_pad_at(fields, fields - printed - 1, pad)
+          line += spaces(field - value.byte_len()) + value
+          column += field
+          printed += 1
         }
         if fmt.ascii {
           let text = [if byte >= 32 and byte <= 126 { bytes.from_ints([byte])?.utf8() ?? "." } else { "." } for byte in [block.byte_at(i) ?? 0 for i in range(block.len())]].join("")
-          let padding = (width + fmt.size - 1) / fmt.size * ((alignment * fmt.size + 7) / 8) - (block.len() + fmt.size - 1) / fmt.size * ((alignment * fmt.size + 7) / 8)
+          let padding = block_width - column
 
           if padding > 1048576 {
             gnu.write_text(line)

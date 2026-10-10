@@ -330,6 +330,51 @@ test test_sort_merge_unique_and_output_file { |ctx|
   assert stderr.read_bytes()?.is_empty()
 }
 
+test test_sort_version_order_follows_filenvercmp { |ctx|
+  let input = test.temp_file(ctx, name: "versions", contents: b"x0a\nx\nx0~\nx~\nx5\na1\na01\na1.\n.\n..\n.x\n0~\n~\n.x000~10\n..0\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/sort.xsh" -- -V -s $input
+  assert output == ".\n..\n.x000~10\n.x\n..0\n~\n0~\na1\na01\na1.\nx~\nx0~\nx\nx0a\nx5\n"
+  let reversed = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/sort.xsh" -- -V -s -r $input
+  assert reversed == "x5\nx0a\nx\nx0~\nx~\na1.\na1\na01\n0~\n~\n..0\n.x\n.x000~10\n..\n.\n"
+}
+
+test test_sort_version_unique_and_reverse_keep_equal_lines_in_input_order { |ctx|
+  let input = test.temp_file(ctx, name: "versions", contents: b"a1\nb\na01\na\na1.\na\nc\n")?
+  let unique = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/sort.xsh" -- -V -u $input
+  assert unique == "a\na1\na1.\nb\nc\n"
+  let stable_reverse = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/sort.xsh" -- -s -V -r $input
+  assert stable_reverse == "c\nb\na1.\na1\na01\na\na\n"
+}
+
+test test_sort_general_numeric_keeps_values_beyond_double_range_apart { |ctx|
+  let input = test.temp_file(ctx, name: "floats", contents: b"2.2250738585072014e-308\n-3.3621031431120935063e-4932\n1e400\n-inf\n1e10\n1e1\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/sort.xsh" -- -s -g $input
+  assert output == "-inf\n-3.3621031431120935063e-4932\n2.2250738585072014e-308\n1e1\n1e10\n1e400\n"
+  let tiny = test.temp_file(ctx, name: "tiny", contents: b"3.3621031431120935063e-4932\n0\n")?
+  let tiny_sorted = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/sort.xsh" -- -g $tiny
+  assert tiny_sorted == "0\n3.3621031431120935063e-4932\n"
+}
+
+test test_sort_merge_temp_directory_failure_names_the_directory { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-temp-missing")?
+  let missing = fp"{root}/missing"
+  let first = test.temp_file(ctx, name: "first", contents: b"a\n")?
+  let second = test.temp_file(ctx, name: "second", contents: b"b\n")?
+  let third = test.temp_file(ctx, name: "third", contents: b"c\n")?
+  let error = test.temp_path(ctx, name: "temp-error")
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/sort.xsh" -- -m --batch-size=2 -T $missing $first $second $third 2> $error
+  assert status.exited_with(2)
+  assert error.read_text()?.starts_with(f"sort: cannot create temporary file in '{missing.display()}': ")
+}
+
+test test_sort_files0_from_extra_operand_has_usage_hint { |ctx|
+  let list = test.temp_file(ctx, name: "list", contents: b"a\0")?
+  let error = test.temp_path(ctx, name: "files0-error")
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/sort.xsh" -- --files0-from $list no-such 2> $error
+  assert status.exited_with(2)
+  assert error.read_text()?.ends_with("file operands cannot be combined with --files0-from\nTry 'sort --help' for more information.\n")
+}
+
 test test_sort_batch_size_validation { |ctx|
   let root = test.temp_dir(ctx, name: "sort-batch-size")?
   let script = fp"{ctx.core_dir}/sort.xsh"
