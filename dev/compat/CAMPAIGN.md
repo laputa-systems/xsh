@@ -121,6 +121,32 @@ A real GNU oracle is one command away: `docker run --rm alpine:edge sh -c
 container. Use it to settle "GNU or uutils?" for any exclusion before adding
 it, and as the validation oracle for ported native tests (see above).
 
+## Expanded campaign execution (started 2026-10-10)
+
+Scope: the 26 commands `parity.json` lists as missing (20 required, 6
+optional), then Gate 5 for the 9 unaudited utilities, Gate 7 (a deterministic
+test for every command in `surface.json`, differential where a reference exists)
+and Gate 8 (clean-image smoke). The uutils, GNU and BusyBox suites are at the
+parity state above and no longer the driver.
+
+Tooling added for it:
+
+- `dev/compat/oracle.sh -- COMMAND...` runs a reference tool (util-linux,
+  iproute2, iputils, net-tools, traceroute, ethtool, iw, smartmontools,
+  nvme-cli, efibootmgr, cpio, curl, wget, netcat-openbsd, eudev, ...) in the
+  throwaway `xsh-oracle` container: no network by default, UID 1000, only an
+  explicit `--mount` shared; `--userns` and `--netadmin` add the capabilities a
+  namespace or link test needs. Oracles only; never a runtime dependency.
+- `dev/compat/docker-xsht.sh -- test FILE...` runs `xsht` from a lane worktree
+  inside the `xsh-test` image, same options for capabilities.
+
+Lane rules for new commands: native typed API first (Rust only for the syscall,
+ioctl or netlink boundary, added in new files where possible), the applet in
+XSH over it, `core/tests/test-CMD.xsh` pinned to the reference tool's output on
+fixtures (volatile identifiers compared by parsed meaning), destructive
+operations only against files, namespaces and synthetic fixtures, no accepted
+option that does nothing.
+
 ## Handoff (2026-10-10, first Claude Code session)
 
 Status: paused, incomplete. `master` is clean. The pinned uutils suite
