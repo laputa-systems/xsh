@@ -1070,6 +1070,12 @@
       "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
     },
     {
+      "id": "test_rmdir::test_verbose_nested_failure",
+      "utility": "rmdir",
+      "category": "gnu-semantics",
+      "reason": "expects \"failed to remove 'dir/ect'\" for a non-empty ancestor under -p; GNU rmdir (coreutils rmdir.c remove_parents) prints \"failed to remove directory 'dir/ect'\" for ancestors and \"failed to remove 'X'\" only for the named operand, which XSH matches"
+    },
+    {
       "id": "test_seq::diagnostics::test_plain_message_when_stderr_is_a_pipe",
       "utility": "seq",
       "category": "gnu-semantics",
