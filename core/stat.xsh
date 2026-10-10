@@ -490,10 +490,33 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
   {output: output, invalid: null, warning: warning}
 }
 
-type StatOptions = {format: Str, printf: Str?, file_system: Bool, terse: Bool, dereference: Bool, help: Bool, version: Bool, paths: List[Str]}
+type StatOptions = {format: Str, printf: Str?, file_system: Bool, terse: Bool, dereference: Bool, cached: List[Str], help: Bool, version: Bool, paths: List[Str]}
+
+const CACHED_MODES = ["default", "never", "always"]
 
 pure valid_stat_quote_style(style: Str) -> Bool {
   style in ["literal", "shell", "shell-always", "shell-escape", "shell-escape-always", "c", "escape", "locale", "clocale"]
+}
+
+# GNU `argmatch`: an exact mode wins, otherwise a unique prefix. The empty
+# string matches every mode, so it is ambiguous rather than invalid.
+proc validate_cached_mode(text: Str) [process, env] -> Unit {
+  return when text in CACHED_MODES
+
+  let found = [mode for mode in CACHED_MODES if mode.starts_with(text)]
+
+  return when found.len() == 1
+
+  let kind = if found.is_empty() { "invalid" } else { "ambiguous" }
+  gnu.error(f"{kind} argument {gnu.quote_value(text)} for '--cached'")
+  eprint "Valid arguments are:"
+
+  for mode in CACHED_MODES {
+    eprint f"  - {gnu.quote_value(mode)}"
+  }
+
+  gnu.try_help()
+  exit 1
 }
 
 proc main(...argv: List[Bytes]) [fs, env, io, time, error] {
@@ -505,13 +528,17 @@ proc main(...argv: List[Bytes]) [fs, env, io, time, error] {
     file_system: {form: "-f --file-system", default: false},
     terse: {form: "-t --terse", default: false},
     dereference: {form: "-L --dereference", default: false},
+    cached: {form: "--cached MODE", repeated: true},
     help: {form: "--help", default: false, stop: true},
     version: {form: "--version", default: false, stop: true},
     paths: {form: "...PATH"},
   })?
-  let {format, printf, file_system, terse, dereference, help, version, paths, ..} = opts
+  let {format, printf, file_system, terse, dereference, cached, help, version, paths, ..} = opts
 
-  if help { gnu.help("Usage: stat [OPTION]... FILE...\nDisplay file or filesystem status.\n  -L, --dereference  follow links\n  -f, --file-system  display filesystem status\n  -c, --format=FORMAT  use the specified format\n      --printf=FORMAT  use the specified format without a trailing newline\n  -t, --terse  print information in terse form\n"); return }
+  # Every occurrence is checked, in command-line order, before --help or
+  # --version is honored, matching GNU's option loop.
+  for mode in cached { validate_cached_mode(mode) }
+  if help { gnu.help("Usage: stat [OPTION]... FILE...\nDisplay file or filesystem status.\n  -L, --dereference  follow links\n  -f, --file-system  display filesystem status\n      --cached=MODE  specify how to use cached attributes\n  -c, --format=FORMAT  use the specified format\n      --printf=FORMAT  use the specified format without a trailing newline\n  -t, --terse  print information in terse form\n"); return }
   if version { gnu.version("stat"); return }
   if paths.is_empty() {
     gnu.error("the following required arguments were not provided: <file>")
