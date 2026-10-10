@@ -477,3 +477,72 @@ test test_tail_warning_write_failure_exits_with_status_one { |ctx|
 
   assert status.exit_code()? == 1
 }
+
+type DebugCase = {args: List[Str], stderr: Str}
+
+test test_tail_debug_reports_the_follow_implementation_like_gnu { |ctx|
+  let root = test.temp_dir(ctx, name: "tail-debug")?
+  fp"{root}/n20".write(numbers(1, 20))
+  fs.mkfifo(fp"{root}/fifo", 0o600)
+
+  let plain = tail_run(ctx, root, ["--debug", "n20"])?
+  assert plain.status == 0
+  assert plain.stdout == numbers(11, 20)
+  assert plain.stderr == "", "--debug only reports when following"
+
+  let stdin_pipe = tail_run(ctx, root, ["--debug", "-f", "--pid=2147483647"], b"a\n")?
+  assert stdin_pipe.stdout == b"a\n"
+  assert stdin_pipe.stderr == "", "a piped standard input is never followed, so nothing is reported"
+
+  let by_descriptor = tail_run(ctx, root, ["--debug", "-f", "--pid=2147483647", "n20"])?
+  assert by_descriptor.stdout == numbers(11, 20)
+  assert by_descriptor.stderr == "tail: using notification mode\n", by_descriptor.stderr
+
+  let by_name = tail_run(ctx, root, ["--debug", "-F", "--pid=2147483647", "n20"])?
+  assert by_name.stderr == "tail: using notification mode\n", by_name.stderr
+
+  let fifo = tail_run(ctx, root, ["--debug", "-f", "--pid=2147483647", "fifo"])?
+  assert fifo.status == 0
+  assert fifo.stderr == "tail: using notification mode\n", fifo.stderr
+
+  let disabled = tail_run(ctx, root, ["---disable-inotify", "--debug", "-f", "--pid=2147483647", "n20"])?
+  assert disabled.stderr == "tail: using polling mode\n", disabled.stderr
+
+  let missing = tail_run(ctx, root, ["--debug", "-f", "--pid=2147483647", "missing"])?
+  assert missing.status == 1
+  assert missing.stderr == "tail: cannot open 'missing' for reading: No such file or directory\ntail: using polling mode\ntail: no files remaining\n", missing.stderr
+
+  let device = tail_run(ctx, root, ["--debug", "-f", "--pid=2147483647", "/dev/null"])?
+  assert device.status == 0
+  assert device.stderr == "tail: using polling mode\n", device.stderr
+
+  let named_device = tail_run(ctx, root, ["--debug", "--follow=name", "--pid=2147483647", "/dev/null"])?
+  assert named_device.stderr == "tail: using polling mode\n", named_device.stderr
+}
+
+test test_tail_debug_reports_blocking_and_polling_while_following { |ctx|
+  let root = test.temp_dir(ctx, name: "tail-debug-follow")?
+  fp"{root}/n20".write(numbers(1, 20))
+  let timeout = fp"{ctx.core_dir}/timeout.xsh"
+  let tail = fp"{ctx.core_dir}/tail.xsh"
+
+  let cases: List[DebugCase] = [
+    {args: ["--debug", "-f", "/dev/null"], stderr: "tail: using blocking mode\n"},
+    {args: ["---disable-inotify", "--debug", "-f", "/dev/null"], stderr: "tail: using blocking mode\n"},
+    {args: ["--debug", "-f", "n20", "/dev/null"], stderr: "tail: using polling mode\n"},
+  ]
+
+  for case in cases {
+    let stdout = fp"{root}/stdout"
+    let stderr = fp"{root}/stderr"
+    let argv = [ctx.xsh_bin.display(), timeout.display(), ".2", ctx.xsh_bin.display(), tail.display()].extend(case.args)
+    let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 2s)
+    let status = process.run(plan)?
+
+    assert status.exit_code()? == 124, f"exit={status.exit_code()?} stderr={stderr.read_text()?}"
+    assert stderr.read_text()? == case.stderr, stderr.read_text()?
+  }
+
+  let help = tail_run(ctx, root, ["--help"])?.stdout as Str
+  assert "      --debug       indicate which --follow implementation is used\n" in help
+}
