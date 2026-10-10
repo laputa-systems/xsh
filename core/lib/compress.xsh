@@ -52,7 +52,6 @@ pure decoded_name(name: Str, format: Str) -> Str? {
   if format == "xz" and name.ends_with(".txz") { return name.byte_slice(0, length: name.byte_len() - 4) + ".tar" }
   if format == "lzma" and name.ends_with(".tlz") { return name.byte_slice(0, length: name.byte_len() - 4) + ".tar" }
   if format == "zstd" and name.ends_with(".tzst") { return name.byte_slice(0, length: name.byte_len() - 5) + ".tar" }
-  if format == "bz2" { return name + ".out" }
   null
 }
 
@@ -146,8 +145,8 @@ export proc execute(argv: List[Str], format: Str, decoding: Bool, cat: Bool) [fs
       if decode {
         let output = decoded_name(name, format)
         if output == null {
-          if ! quiet { gnu.error(f"{name}: unknown suffix -- ignored") }
-          status = combined_status(status, if format in ["bz2", "zstd"] { 1 } else { 2 }, format)
+          if ! quiet { gnu.error(f"{name}: unknown suffix - ignored") }
+          status = combined_status(status, 1, format)
           continue
         }
         destination = fp"{output}"
@@ -187,8 +186,19 @@ export proc execute(argv: List[Str], format: Str, decoding: Bool, cat: Bool) [fs
         if verbose and ! quiet { gnu.error(f"{name}: {if testing { "OK" } else { "done" }}") }
       }
       Err(failure) => {
-        if ! quiet { gnu.name_error(name, failure) }
-        status = combined_status(status, if format == "bz2" and decode and gnu.errno(failure) == 0 { 2 } else { 1 }, format)
+        if ! quiet {
+          # A codec failure has no OS error number; these BusyBox-worded
+          # diagnostics replace the codec's own text for bzip2 and lzma input.
+          if decode and gnu.errno(failure) == 0 and format in ["bz2", "lzma"] {
+            gnu.error(if format == "bz2" { "bunzip error -5" } else { "corrupted data" })
+          } else if destination != null and gnu.errno(failure) == 17 {
+            # EEXIST from the no-clobber publish step: the output name already exists.
+            gnu.error(f"can't open {gnu.quote(f"{destination}")}: {gnu.strerror(failure)}")
+          } else {
+            gnu.name_error(name, failure)
+          }
+        }
+        status = combined_status(status, 1, format)
       }
     }
   }
