@@ -542,6 +542,24 @@
       "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
     },
     {
+      "id": "test_ln::test_hard_logical_dir_fail",
+      "utility": "ln",
+      "category": "gnu-semantics",
+      "reason": "expects 'failed to create hard link' for -L on a missing or directory source; GNU ln 9.11 (clean Alpine container) prints 'failed to access ...: No such file or directory' (missing) or '...: hard link not allowed for directory', which XSH matches"
+    },
+    {
+      "id": "test_ln::test_ln_seen_file",
+      "utility": "ln",
+      "category": "gnu-semantics",
+      "reason": "expects \"will not overwrite just-created\" without -f; GNU ln 9.11 prints \"failed to create hard link 'c/f': File exists\" and only reports just-created with -f, which XSH matches"
+    },
+    {
+      "id": "test_ln::test_symlink_missing_destination",
+      "utility": "ln",
+      "category": "gnu-semantics",
+      "reason": "expects no help hint after 'missing destination file operand'; GNU ln 9.11 adds \"Try 'ln --help' for more information.\", which XSH matches"
+    },
+    {
       "id": "test_logname::test_help",
       "utility": "logname",
       "category": "help-text",
@@ -1260,6 +1278,18 @@
       "utility": "sort",
       "category": "gnu-semantics",
       "reason": "expects uutils' own diagnostic text for this error; GNU's differs and XSH follows GNU"
+    },
+    {
+      "id": "test_sort::test_separator_attached_equals_double",
+      "utility": "sort",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' 'separator must be exactly one character long'; GNU sort 9.11 (clean Alpine container) prints \"multi-character tab '...'\", which XSH matches"
+    },
+    {
+      "id": "test_sort::test_separator_attached_equals_multi_char",
+      "utility": "sort",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' 'separator must be exactly one character long'; GNU sort 9.11 (clean Alpine container) prints \"multi-character tab '...'\", which XSH matches"
     },
     {
       "id": "test_sort::test_tmp_files_are_private",
