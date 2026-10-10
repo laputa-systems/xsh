@@ -19,8 +19,8 @@ proc size(value: Str, message: Str, minimum = 1) -> Int {
   exit 1
 }
 
-proc page_error(value: Str) {
-  gnu.error(f"invalid page range {gnu.quote_value(value)}")
+proc page_error(value: Str, quiet: Bool) {
+  if ! quiet { gnu.error(f"invalid page range {gnu.quote_value(value)}") }
   exit 1
 }
 
@@ -41,14 +41,14 @@ pure decimal_greater(left: Str, right: Str) -> Bool {
 }
 
 type PageNumber = {value: Int, display: Str}
-proc page_number(value: Str, range: Str) -> PageNumber {
+proc page_number(value: Str, range: Str, quiet: Bool) -> PageNumber {
   if rx"^-[0-9]+$".matches(value) {
     gnu.error(f"invalid --pages argument {gnu.quote_value(range)}")
     exit 1
   }
-  if ! rx"^\+?[0-9]+$".matches(value) { page_error(range) }
+  if ! rx"^\+?[0-9]+$".matches(value) { page_error(range, quiet) }
   let digits = page_decimal(value)
-  if digits == "0" { page_error(range) }
+  if digits == "0" { page_error(range, quiet) }
   if decimal_greater(digits, "18446744073709551615") {
     gnu.error(f"invalid page range {gnu.quote_value(range)}: Value too large for defined data type")
     exit 1
@@ -76,10 +76,11 @@ pure modernize(argv: List[Str]) -> List[Str] {
 }
 
 type TabOption = {character: Int, width: Int}
-proc optional_number(digits: Str, option: Str, minimum = 1) -> Int {
+# The -e width diagnostic omits the overflow note that the -n diagnostic carries.
+proc optional_number(digits: Str, option: Str, minimum = 1, overflow_note = true) -> Int {
   let number = digits.parse_int() ?? -1
   if number < minimum or number > 2147483647 {
-    let overflow = rx"^[0-9]+$".matches(digits) and (number < 0 or number > 2147483647)
+    let overflow = overflow_note and rx"^[0-9]+$".matches(digits) and (number < 0 or number > 2147483647)
     gnu.usage_error(f"'{option}' extra characters or invalid number in the argument: {gnu.quote_value(digits)}{if overflow { ": Value too large for data type" } else { "" }}")
   }
   number
@@ -93,7 +94,7 @@ proc tab_option(spec: Str, option: Str) -> TabOption {
   let character = if numeric { 9 } else { bytes.from_text(spec[..1]).byte_at(0) ?? 9 }
   if ! numeric and bytes.from_text(spec[..1]).len() > 1 { gnu.usage_error(f"'{option}' extra characters or invalid number in the argument") }
   let digits = if numeric { spec } else { spec[1..] }
-  let width = if digits == "" { 8 } else { optional_number(digits, option) }
+  let width = if digits == "" { 8 } else { optional_number(digits, option, 1, false) }
   {character: character, width: width}
 }
 
@@ -137,6 +138,17 @@ pure display_columns(data: Bytes, start = 0) -> Int {
   column - start
 }
 
+# Cells of a multi-column page are padded by byte count, with each tab counted as
+# eight columns, so that the separator after a padded cell lands on the next
+# column start.
+pure cell_width(data: Bytes) -> Int {
+  var tabs = 0
+  for at in range(data.len()) {
+    if data.byte_at(at) == 9 { tabs += 1 }
+  }
+  data.len() + 7 * tabs
+}
+
 pure expansion_overflows(data: Bytes, tab_width: Int, tab_byte: Int) -> Bool {
   var column = 0
   var at = 0
@@ -156,13 +168,16 @@ pure expansion_overflows(data: Bytes, tab_width: Int, tab_byte: Int) -> Bool {
   false
 }
 
+# A tab counts as one column when clipping, matching cell_width's byte-based
+# padding, so a cell holding a tab is cut by character count.
 pure clip_columns(data: Bytes, width: Int) -> Bytes {
   var columns = 0
   var at = 0
   while at < data.len() {
     let unit = text.character(data, at)
-    break when columns + unit.width > width
-    columns += unit.width; at += unit.size
+    let unit_width = if data.byte_at(at) == 9 { 1 } else { unit.width }
+    break when columns + unit_width > width
+    columns += unit_width; at += unit.size
   }
   data[..at]
 }
@@ -177,13 +192,10 @@ proc write_padding(count: Int, character = " ") {
   }
 }
 
-proc number_field(value: Int, width: Int, separator: Str, column: Int, aligned: Bool) -> Bytes {
+proc number_field(value: Int, width: Int, separator: Str) -> Bytes {
   let raw = f"{value}"
   let digits = raw.byte_slice(if raw.byte_len() > width { raw.byte_len() - width } else { 0 })
-  if ! aligned { return bytes.from_text(text.padding(width - digits.byte_len()) + digits + separator) }
-  let suffix = if separator == "\t" { text.padding(8 - width % 8) } else { separator }
-  let prefix = bytes.from_text(text.padding(width - digits.byte_len()) + digits + suffix)
-  if separator == "\t" { text.unexpand(prefix, {stops: [], interval: 8, relative: false}, true, column_start: column) } else { prefix }
+  bytes.from_text(text.padding(width - digits.byte_len()) + digits + separator)
 }
 
 proc main(...argv: List[Str]) {
@@ -229,11 +241,13 @@ proc main(...argv: List[Str]) {
   let first_number = size(opts.first_number, "'-N NUMBER' invalid starting line number", -2147483648)
   var line_number = first_number
   let pages = opts.page_range.split(":")
-  if pages.len() > 2 or pages[0] == "" { page_error(opts.page_range) }
-  let first_page = page_number(pages[0], opts.page_range)
-  let last_page = if pages.len() == 1 or pages[1] == "" { {value: 9223372036854775807, display: "18446744073709551615"} } else { page_number(pages[1], opts.page_range) }
-  if decimal_greater(first_page.display, last_page.display) { page_error(opts.page_range) }
-  let date_format = opts.date_format ?? (if (env.get_or("POSIXLY_CORRECT", "") ?? "") != "" { "%b %e %H:%M %Y" } else { "%Y-%m-%d %H:%M" })
+  if pages.len() > 2 or pages[0] == "" { page_error(opts.page_range, opts.quiet) }
+  let first_page = page_number(pages[0], opts.page_range, opts.quiet)
+  let last_page = if pages.len() == 1 or pages[1] == "" { {value: 9223372036854775807, display: "18446744073709551615"} } else { page_number(pages[1], opts.page_range, opts.quiet) }
+  if decimal_greater(first_page.display, last_page.display) { page_error(opts.page_range, opts.quiet) }
+  let posix_time = (env.get_or("LC_ALL", "") ?? "") == "POSIX" or (env.get_or("LC_TIME", "") ?? "") == "POSIX"
+  let posix_format = (env.get_or("POSIXLY_CORRECT", "") ?? "") != "" and posix_time
+  let date_format = opts.date_format ?? (if posix_format { "%b %e %H:%M %Y" } else { "%Y-%m-%d %H:%M" })
   let headers = ! opts.omit_header and ! opts.omit_pages and length > 10
   let capacity = if opts.omit_pages { 2147483647 } else { if headers { length - 10 } else if length > 0 { length } else { 66 } }
   let rows_per_page = if opts.double { if capacity / 2 > 0 { capacity / 2 } else { 1 } } else { capacity }
@@ -251,8 +265,7 @@ proc main(...argv: List[Str]) {
   }
   let expansion = if let spec = opts.expand_tabs { tab_option(spec, "-e") } else { {character: 9, width: 8} }
   let output_tab = if let spec = opts.output_tabs { tab_option(spec, "-i") } else { {character: 9, width: 8} }
-  let separator = opts.separator_string ?? opts.separator ?? (if opts.join { "\t" } else { " " })
-  let separated = opts.separator != null or opts.separator_string != null
+  let separator = if opts.join { "" } else { opts.separator_string ?? opts.separator ?? "\t" }
   let names = if opts.paths.is_empty() { ["-"] } else { opts.paths }
   var inputs: List[List[Bytes]] = []
   var labels: List[Str] = []
@@ -263,7 +276,7 @@ proc main(...argv: List[Str]) {
       if ! opts.quiet { gnu.name_error(name, failure) }
       failed = true; continue
     }
-    let expand_input = opts.expand_tabs != null or columns > 1 or opts.merge
+    let expand_input = opts.expand_tabs != null
     if expand_input and expansion_overflows(data, expansion.width, expansion.character) { gnu.error("integer overflow"); exit 1 }
     let expanded = if expand_input { text.expand(data, {stops: [], interval: expansion.width, relative: false}, tab_byte: expansion.character) } else { data }
     let printable = if opts.control or opts.nonprinting { controls(expanded, opts.control) } else { expanded }
@@ -275,8 +288,7 @@ proc main(...argv: List[Str]) {
   if opts.merge { groups = if inputs.is_empty() { 0 } else { 1 } }
   for batch in range(groups) {
     let count = if opts.merge { inputs.len() } else { columns }
-    let number_prefix_width = if opts.merge and opts.numbers != null { number_width + (if number_sep == "\t" { 8 - number_width % 8 } else { bytes.from_text(number_sep).len() }) } else { 0 }
-    let column_width = if count > 1 { (width - number_prefix_width - count + 1) / count } else { width }
+    let column_width = if count > 1 { (width - count + 1) / count } else { width }
     if count > 1 and column_width <= 0 { gnu.usage_error("page width too narrow") }
     let lines = if opts.merge { [] } else { inputs[batch] }
     var total = lines.len()
@@ -293,7 +305,7 @@ proc main(...argv: List[Str]) {
         }
       }
       if ! opts.merge and at + take < total and lines[at + take] == b"\x0c" { forced = true }
-      let row_count = if opts.merge { take } else { (take + count - 1) / count }
+      let row_count = if opts.merge { per_page } else { (take + count - 1) / count }
       let shown = page >= first_page.value and page <= last_page.value
       if shown and headers {
         let date = time.format(if opts.merge { time.now() * 1000000 } else { timestamps[batch] }, format: date_format)?
@@ -302,7 +314,7 @@ proc main(...argv: List[Str]) {
         let spare = width - date.byte_len() - label.byte_len() - page_text.byte_len()
         let left = if spare > 0 { spare / 2 } else { 1 }
         let right = if spare > 0 { spare - left } else { 1 }
-        gnu.write_text("\n\n"); write_padding(offset)
+        gnu.write_text("\n\n")
         gnu.write_text(date + text.padding(left) + label + text.padding(right) + page_text + "\n\n\n")
       }
       for row in range(row_count) {
@@ -319,23 +331,20 @@ proc main(...argv: List[Str]) {
           if column > last_column { break }
           let present = if opts.merge { index < inputs[column].len() } else { index < at + take }
           let line = if ! present { b"" } else if opts.merge { inputs[column][index] } else { lines[index] }
-          if column > 0 { chunks += [bytes.from_text(separator)]; column_start += bytes.from_text(separator).len() }
-          let prefix = if opts.numbers != null and (! opts.merge or column == 0) and present {
-            number_field(if opts.merge { line_number } else { first_number + index }, number_width, number_sep, column_start, count > 1)
-          } else { b"" }
-          let prefix_width = display_columns(prefix, column_start)
-          let bounded = ! opts.join and ((count > 1 and ! separated) or opts.page_width != "")
-          let field_capacity = column_width + (if opts.merge and column == 0 { prefix_width } else { 0 })
-          var body = if bounded { clip_columns(line, field_capacity - prefix_width) } else { line }
-          if count > 1 and ! separated and ! opts.join {
-            var end = body.len()
-            while end > 0 and body.byte_at(end - 1) == 32 { end -= 1 }
-            body = body[..end]
+          if column > 0 {
+            chunks += [bytes.from_text(separator), bytes.from_text(text.padding(offset))]
+            column_start += bytes.from_text(separator).len() + offset
           }
+          let prefix = if opts.numbers != null and (! opts.merge or column == 0) and present {
+            number_field(if opts.merge { line_number } else { first_number + index }, number_width, number_sep)
+          } else { b"" }
+          let prefix_width = display_columns(prefix)
+          let bounded = ! opts.join and (count > 1 or opts.page_width != "")
+          let body = if bounded { clip_columns(line, column_width - prefix_width) } else { line }
           let field = bytes.concat([prefix, body])
           chunks += [field]
           let field_width = display_columns(field, column_start)
-          let pad = if count > 1 and column < last_column and ! opts.join and ! separated { field_capacity - field_width } else { 0 }
+          let pad = if count > 1 and ! opts.join { column_width - cell_width(field) } else { 0 }
           chunks += [bytes.from_text(text.padding(pad))]
           column_start += field_width + (if pad > 0 { pad } else { 0 })
           if opts.merge and column == 0 { line_number += 1 }
@@ -343,7 +352,7 @@ proc main(...argv: List[Str]) {
         if shown {
           write_padding(offset)
           let raw = bytes.concat(chunks)
-          if opts.output_tabs != null or (count > 1 and ! separated and ! opts.join) {
+          if opts.output_tabs != null {
             let compressed = text.unexpand(raw, {stops: [], interval: output_tab.width, relative: false}, true, column_start: offset)
             let remapped: List[Bytes] = collect {
               for at in range(compressed.len()) {
