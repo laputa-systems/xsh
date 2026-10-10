@@ -254,6 +254,23 @@ pure with_root_name(data: Bytes, root: Path) -> Bytes {
   }
 }
 
+## The standard input of a case. `@seq:N` stands for the numbers 1 to N one
+## per line and `@wide:N` for N long words, so large inputs stay out of the
+## stored corpus; anything else is the bytes themselves.
+export pure expand_input(data: Bytes) -> Bytes {
+  let text = data.utf8() ?? ""
+  var lines: List[Str] = []
+  if text.starts_with("@seq:") {
+    for number in range(1, (text.byte_slice(5).parse_int() ?? 0) + 1) { lines += [f"{number}\n"] }
+    return bytes.from_text(lines.join(""))
+  }
+  if text.starts_with("@wide:") {
+    for number in range(1, (text.byte_slice(6).parse_int() ?? 0) + 1) { lines += [f"word{number}-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx "] }
+    return bytes.from_text(lines.join(""))
+  }
+  data
+}
+
 ## Run one case of a corpus and return what the applet printed.
 export proc invoke(xsh_bin: Path, script: Path, root: Path, work: Path, c: Case) [fs, process, time, error] -> Result[Observed, Error] {
   let identity = unix.id()?
@@ -265,7 +282,7 @@ export proc invoke(xsh_bin: Path, script: Path, root: Path, work: Path, c: Case)
   let out = fp"{work}/stdout"
   let err = fp"{work}/stderr"
   let cwd = if "t" in c.flags { fp"{root}/tree" } else { root }
-  let plan = process.command_argv(xsh_bin, args, cwd, {LC_ALL: "C", TZ: "UTC"}, c.input, out, err)
+  let plan = process.command_argv(xsh_bin, args, cwd, {LC_ALL: "C", TZ: "UTC"}, expand_input(c.input), out, err)
   let status = process.run(plan)?
   var stdout = out.read_bytes()?
   if "d" in c.flags {

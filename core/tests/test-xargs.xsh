@@ -88,3 +88,25 @@ test test_xargs_trailing_blanks_continue_logical_line { |ctx|
   let out = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/xargs.xsh" -- -L1 sh -c "printf '%s\\n' \"$#\"" sh < $input
   assert out == "2\n1\n"
 }
+
+use core.lib.findutils_fixture as fixture
+
+# Every command line of the recorded GNU xargs corpus, in four shares that run
+# in parallel; the corpus and the fixture tree are described in
+# tests/data/findutils/regen.xsh.
+proc check_share(ctx: TestContext, part: Int) [fs, process, time, error] -> Result[Unit, Error] {
+  let root = test.temp_dir(ctx, name: f"xargs-corpus-{part}")?
+  let work = test.temp_dir(ctx, name: f"xargs-corpus-out-{part}")?
+  fixture.build(root)?
+  fixture.build_hostile(root)?
+  defer fixture.restore(root)
+  let corpus = fp"{ctx.core_dir}/tests/data/findutils/xargs.jsonl"
+  let failures = fixture.run_corpus(ctx.xsh_bin, fp"{ctx.core_dir}/xargs.xsh", corpus, root, work, part, 4)?
+  assert failures.is_empty(), failures.join("\n")
+  Ok()
+}
+
+test test_xargs_matches_recorded_gnu_output_0 { |ctx| check_share(ctx, 0)? }
+test test_xargs_matches_recorded_gnu_output_1 { |ctx| check_share(ctx, 1)? }
+test test_xargs_matches_recorded_gnu_output_2 { |ctx| check_share(ctx, 2)? }
+test test_xargs_matches_recorded_gnu_output_3 { |ctx| check_share(ctx, 3)? }

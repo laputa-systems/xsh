@@ -23,6 +23,18 @@ pure glibc_wording(data: Bytes) -> Bytes {
   }
 }
 
+# The oracle's xargs aborts with SIGSEGV (status 139) in a few paths that GNU
+# xargs documents: a child exiting 255 or dying from a signal ends the run with
+# status 124 or 125. Those cases record the documented status instead; any
+# other crash fails the regeneration.
+pure documented_status(name: Str) -> Int {
+  match name {
+    "exit_255" | "exit_255_stops" | "exit_status_precedence" | "P_255_stops" | "exit_zero_255" => 124
+    "exit_signal" | "exit_signal_term" | "cmd_status_125_sig_after_fail" => 125
+    _ => -1
+  }
+}
+
 # `run NAME FLAGS COMMAND...` leaves out/NAME.{out,err,status}. A `d` case first
 # gets a fresh small tree named scratch and afterwards appends the
 # `cap` file it wrote and a bytewise-sorted listing of scratch, which is what
@@ -63,7 +75,7 @@ proc main(program: Str) {
     fp"{root}/in".mkdir()?
     var script: List[Str] = ["cd /fixture", "export TZ=UTC LC_ALL=C", driver_function()]
     for c in cases {
-      if ! c.input.is_empty() { fp"{root}/in/{c.name}".write(c.input)? }
+      if ! c.input.is_empty() { fp"{root}/in/{c.name}".write(fixture.expand_input(c.input))? }
       var words: List[Str] = []
       for arg in c.args { words += [quote(fixture.resolve_ids(arg, identity.uid, identity.gid))] }
       script += [f"run {c.name} '{c.flags}' {program} {words.join(" ")}"]
@@ -77,8 +89,13 @@ proc main(program: Str) {
     for c in cases {
       var stdout = fp"{root}/out/{c.name}.out".read_bytes()?
       var stderr = fp"{root}/out/{c.name}.err".read_bytes()?
-      let code = (fp"{root}/out/{c.name}.status".read_text()?).trim().parse_int() ?? -1
+      var code = (fp"{root}/out/{c.name}.status".read_text()?).trim().parse_int() ?? -1
       stderr = glibc_wording(stderr)
+      if code == 139 {
+        let documented = documented_status(c.name)
+        assert documented > 0, f"{c.name}: the oracle crashed"
+        code = documented
+      }
       if "u" in c.flags { stdout = fixture.mark_ids(stdout, identity.uid, identity.gid) }
       if "l" in c.flags { stdout = fixture.normalize_ls(stdout) }
       records += [{name: c.name, flags: c.flags, args: c.args, input: fixture.stored_text(c.input), input_hex: fixture.stored_hex(c.input), status: code, stdout: fixture.stored_text(stdout), stdout_hex: fixture.stored_hex(stdout), stderr: fixture.stored_text(stderr), stderr_hex: fixture.stored_hex(stderr)}]
