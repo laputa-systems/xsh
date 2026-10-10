@@ -8,7 +8,9 @@ use crate::runtime::process::{
 };
 use crate::runtime::value::{LiveStream, RuntimeError, StreamValue, Value};
 use crate::source::Span;
+use rustix::event::{PollFd, PollFlags, poll};
 use rustix::fd::BorrowedFd;
+use rustix::time::Timespec;
 use rustix::{fs as rfs, io as rio, pipe as rpipe, process as rprocess, stdio, termios};
 use std::ffi::{CString, OsString};
 use std::fs::File;
@@ -1471,12 +1473,12 @@ fn fadvise_native(
     let kind = "unix-fadvise";
     let fd = raw_fd_arg(fd, kind, span)?;
     let advice = match advice {
-        "normal" => libc::POSIX_FADV_NORMAL,
-        "sequential" => libc::POSIX_FADV_SEQUENTIAL,
-        "random" => libc::POSIX_FADV_RANDOM,
-        "noreuse" => libc::POSIX_FADV_NOREUSE,
-        "willneed" => libc::POSIX_FADV_WILLNEED,
-        "dontneed" => libc::POSIX_FADV_DONTNEED,
+        "normal" => rfs::Advice::Normal,
+        "sequential" => rfs::Advice::Sequential,
+        "random" => rfs::Advice::Random,
+        "noreuse" => rfs::Advice::NoReuse,
+        "willneed" => rfs::Advice::WillNeed,
+        "dontneed" => rfs::Advice::DontNeed,
         other => {
             return Err(RuntimeError::new(
                 "invalid-argument",
@@ -1488,26 +1490,26 @@ fn fadvise_native(
     if offset < 0 || length < 0 {
         return Err(RuntimeError::new(kind, "offset and length must be non-negative").with_span(span));
     }
-    let offset = libc::off_t::try_from(offset)
-        .map_err(|_| RuntimeError::new(kind, "offset is outside the host range").with_span(span))?;
-    let length = libc::off_t::try_from(length)
-        .map_err(|_| RuntimeError::new(kind, "length is outside the host range").with_span(span))?;
+    // The kernel treats a zero length as "to the end of the file", which the
+    // optional length spells as `None`.
+    let length = std::num::NonZeroU64::new(length as u64);
+    let offset = offset as u64;
     // The kernel accepts advice for a character device or socket and does
     // nothing with it; the call reports the unseekable kinds the way it does a
     // pipe, so a caller learns that no cache was affected.
-    let mut status = std::mem::MaybeUninit::<libc::stat>::uninit();
-    if unsafe { libc::fstat(fd, status.as_mut_ptr()) } != 0 {
-        return Err(RuntimeError::host(kind, &io::Error::last_os_error()).with_span(span));
+    // SAFETY: the number is only addressed by value; the kernel rejects a
+    // descriptor that is not open.
+    let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
+    let status = rfs::fstat(borrowed)
+        .map_err(|error| RuntimeError::host(kind, &io::Error::from(error)).with_span(span))?;
+    if !matches!(
+        rfs::FileType::from_raw_mode(status.st_mode),
+        rfs::FileType::RegularFile | rfs::FileType::BlockDevice
+    ) {
+        return Err(RuntimeError::host(kind, &io::Error::from(rio::Errno::SPIPE)).with_span(span));
     }
-    let file_kind = unsafe { status.assume_init() }.st_mode & libc::S_IFMT;
-    if file_kind != libc::S_IFREG && file_kind != libc::S_IFBLK {
-        return Err(RuntimeError::host(kind, &io::Error::from_raw_os_error(libc::ESPIPE)).with_span(span));
-    }
-    // posix_fadvise returns the error number instead of setting errno.
-    match unsafe { libc::posix_fadvise(fd, offset, length, advice) } {
-        0 => Ok(()),
-        number => Err(RuntimeError::host(kind, &io::Error::from_raw_os_error(number)).with_span(span)),
-    }
+    rfs::fadvise(borrowed, offset, length, advice)
+        .map_err(|error| RuntimeError::host(kind, &io::Error::from(error)).with_span(span))
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
@@ -1563,8 +1565,10 @@ const DIRECT_ALIGNMENT: usize = 4096;
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn is_direct(fd: libc::c_int) -> bool {
-    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-    flags >= 0 && flags & libc::O_DIRECT != 0
+    // SAFETY: the number is only addressed by value; the kernel rejects a
+    // descriptor that is not open.
+    let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
+    rfs::fcntl_getfl(borrowed).is_ok_and(|flags| flags.contains(rfs::OFlags::DIRECT))
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
@@ -1606,20 +1610,21 @@ fn write_fd_native(fd: i64, data: &[u8], span: Span) -> Result<usize, RuntimeErr
     } else {
         None
     };
-    let source = match bounce.as_mut() {
-        Some(buffer) => buffer.bytes().as_ptr(),
-        None => data.as_ptr(),
+    let source: &[u8] = match bounce.as_mut() {
+        Some(buffer) => buffer.bytes(),
+        None => &data[..count],
     };
+    // SAFETY: the number is only addressed by value; the kernel rejects a
+    // descriptor that is not open.
+    let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
     loop {
-        let written = unsafe { libc::write(fd, source.cast(), count) };
-        if written >= 0 {
-            return Ok(written as usize);
+        match rio::write(borrowed, source) {
+            Ok(written) => return Ok(written),
+            Err(rio::Errno::INTR) => continue,
+            Err(error) => {
+                return Err(RuntimeError::host(kind, &io::Error::from(error)).with_span(span));
+            }
         }
-        let error = io::Error::last_os_error();
-        if error.kind() == io::ErrorKind::Interrupted {
-            continue;
-        }
-        return Err(RuntimeError::host(kind, &error).with_span(span));
     }
 }
 
@@ -1629,18 +1634,17 @@ fn seek_fd_native(fd: i64, offset: i64, span: Span) -> Result<i64, RuntimeError>
     if offset < 0 {
         return Err(RuntimeError::new(kind, "offset must be non-negative").with_span(span));
     }
-    let offset = libc::off_t::try_from(offset)
-        .map_err(|_| RuntimeError::new(kind, "offset is outside the host range").with_span(span))?;
+    // SAFETY: the number is only addressed by value; the kernel rejects a
+    // descriptor that is not open.
+    let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
     loop {
-        let position = unsafe { libc::lseek(fd, offset, libc::SEEK_SET) };
-        if position >= 0 {
-            return Ok(position as i64);
+        match rfs::seek(borrowed, rfs::SeekFrom::Start(offset as u64)) {
+            Ok(position) => return Ok(position as i64),
+            Err(rio::Errno::INTR) => continue,
+            Err(error) => {
+                return Err(RuntimeError::host(kind, &io::Error::from(error)).with_span(span));
+            }
         }
-        let error = io::Error::last_os_error();
-        if error.kind() == io::ErrorKind::Interrupted {
-            continue;
-        }
-        return Err(RuntimeError::host(kind, &error).with_span(span));
     }
 }
 
@@ -1665,25 +1669,27 @@ fn read_fd_native(fd: i64, max_bytes: i64, span: Span) -> Result<Vec<u8>, Runtim
             .map_err(|error| RuntimeError::new(kind, error.to_string()).with_span(span))?;
         data.resize(count, 0);
     }
+    // SAFETY: the number is only addressed by value; the kernel rejects a
+    // descriptor that is not open.
+    let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
     loop {
-        let (target, capacity) = match bounce.as_mut() {
-            Some(buffer) => (buffer.bytes().as_mut_ptr(), count),
-            None => (data.as_mut_ptr(), data.len()),
+        let target: &mut [u8] = match bounce.as_mut() {
+            Some(buffer) => buffer.bytes(),
+            None => &mut data[..],
         };
-        let read = unsafe { libc::read(fd, target.cast(), capacity) };
-        if read >= 0 {
-            let read = read as usize;
-            if let Some(buffer) = bounce.as_mut() {
-                return Ok(buffer.bytes()[..read].to_vec());
+        match rio::read(borrowed, target) {
+            Ok(read) => {
+                if let Some(buffer) = bounce.as_mut() {
+                    return Ok(buffer.bytes()[..read].to_vec());
+                }
+                data.truncate(read);
+                return Ok(data);
             }
-            data.truncate(read);
-            return Ok(data);
+            Err(rio::Errno::INTR) => continue,
+            Err(error) => {
+                return Err(RuntimeError::host(kind, &io::Error::from(error)).with_span(span));
+            }
         }
-        let error = io::Error::last_os_error();
-        if error.kind() == io::ErrorKind::Interrupted {
-            continue;
-        }
-        return Err(RuntimeError::host(kind, &error).with_span(span));
     }
 }
 
@@ -1713,11 +1719,11 @@ fn poll_fd_native(
     if timeout_ms < -1 {
         return Err(RuntimeError::new(kind, "timeout_ms must be -1 or non-negative").with_span(span));
     }
-    let mut requested = 0;
+    let mut requested = PollFlags::empty();
     for event in events {
         requested |= match event.as_str() {
-            "readable" => libc::POLLIN,
-            "writable" => libc::POLLOUT,
+            "readable" => PollFlags::IN,
+            "writable" => PollFlags::OUT,
             _ => return Err(RuntimeError::new(kind,
                 format!("unknown requested event {event}; expected readable or writable")).with_span(span)),
         };
@@ -1728,36 +1734,38 @@ fn poll_fd_native(
         Some(Instant::now().checked_add(Duration::from_millis(timeout_ms as u64))
             .ok_or_else(|| RuntimeError::new(kind, "timeout_ms is too large").with_span(span))?)
     };
-    let mut descriptor = libc::pollfd { fd, events: requested, revents: 0 };
+    // SAFETY: the number is only addressed by value; the kernel reports a
+    // descriptor that is not open as an invalid-descriptor event.
+    let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
     loop {
-        let timeout = match deadline {
-            None => -1,
-            Some(deadline) => {
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                let millis = remaining.as_millis()
-                    + u128::from(remaining.subsec_nanos() % 1_000_000 != 0);
-                millis.min(libc::c_int::MAX as u128) as libc::c_int
+        let timeout = deadline.map(|deadline| {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let millis = remaining.as_millis()
+                + u128::from(remaining.subsec_nanos() % 1_000_000 != 0);
+            Timespec {
+                tv_sec: (millis / 1000) as i64,
+                tv_nsec: (millis % 1000) as i64 * 1_000_000,
+            }
+        });
+        let mut descriptors = [PollFd::new(&borrowed, requested)];
+        let ready = match poll(&mut descriptors, timeout.as_ref()) {
+            Ok(ready) => ready,
+            Err(rio::Errno::INTR) => continue,
+            Err(error) => {
+                return Err(RuntimeError::host(kind, &io::Error::from(error)).with_span(span));
             }
         };
-        let ready = unsafe { libc::poll(&mut descriptor, 1, timeout) };
-        if ready == -1 {
-            let error = io::Error::last_os_error();
-            if error.kind() == io::ErrorKind::Interrupted {
-                continue;
-            }
-            return Err(RuntimeError::host(kind, &error).with_span(span));
-        }
         if ready == 0 && deadline.is_some_and(|deadline| Instant::now() < deadline) {
             continue;
         }
+        let revents = descriptors[0].revents();
         return Ok([
-            (libc::POLLIN, "readable"),
-            (libc::POLLOUT, "writable"),
-            (libc::POLLERR, "error"),
-            (libc::POLLHUP, "hangup"),
-            (libc::POLLNVAL, "invalid"),
-        ].into_iter().filter_map(|(flag, event)|
-            (descriptor.revents & flag != 0).then_some(event)).collect());
+            (PollFlags::IN, "readable"),
+            (PollFlags::OUT, "writable"),
+            (PollFlags::ERR, "error"),
+            (PollFlags::HUP, "hangup"),
+            (PollFlags::NVAL, "invalid"),
+        ].into_iter().filter_map(|(flag, event)| revents.contains(flag).then_some(event)).collect());
     }
 }
 
