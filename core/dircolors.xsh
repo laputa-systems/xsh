@@ -67,13 +67,37 @@ pure shell_output_field(text: Str) -> Str {
   output
 }
 
-proc main(...argv: List[Str]) [process, env, io, fs, error] {
+# Operands that are not UTF-8 reach the text parser as NUL markers; these helpers
+# recover the raw bytes for opening files and for naming them in messages.
+proc display_name(name: Bytes) [env] -> Str {
+  match name.utf8() {
+    Ok(text) => text
+    Err(_) => gnu.quote_bytes(name, always: false)
+  }
+}
+
+proc extra_operand(name: Bytes) [process, env] -> Unit {
+  gnu.usage_error(f"extra operand {gnu.quote_bytes(name)}")
+}
+
+proc is_directory(name: Bytes) [fs, error] -> Result[Bool] {
+  Path.parse_bytes(name)?.is_dir()
+}
+
+proc read_database(name: Bytes) [fs, error, io] -> Result[Bytes, Error] {
+  return io.stdin_bytes() when name == b"-"
+
+  Path.parse_bytes(name)?.read_bytes()
+}
+
+proc main(...argv: List[Bytes]) [process, env, io, fs, error] {
+  let prepared = gnu.prepare_arguments(argv)
   var shell = ""
   var database = false
   var display = false
   var file = ""
   var operands = false
-  for arg in argv {
+  for arg in prepared.text {
     if ! operands and arg == "--" { operands = true; continue }
     if ! operands and arg == "--help" {
       gnu.help("Usage: dircolors [OPTION]... [FILE]\nOutput commands to set LS_COLORS.\n  -b, --sh, --bourne-shell  Bourne shell output\n  -c, --csh, --c-shell      C shell output\n  -p, --print-database      output default database\n      --print-ls-colors     display color codes\nFILE defaults to the built-in database; '-' reads standard input.")
@@ -98,13 +122,13 @@ proc main(...argv: List[Str]) [process, env, io, fs, error] {
         }
       }
     } else {
-      if file != "" { gnu.extra_operand(arg) }
+      if file != "" { extra_operand(gnu.argument_bytes(arg, prepared.raw)) }
       file = arg
     }
   }
   if (shell != "" and (database or display)) or (database and display) { gnu.usage_error("options are mutually exclusive") }
   if database {
-    if file != "" { gnu.extra_operand(file) }
+    if file != "" { extra_operand(gnu.argument_bytes(file, prepared.raw)) }
     gnu.write_text(colors.DATABASE)
     return
   }
@@ -114,16 +138,18 @@ proc main(...argv: List[Str]) [process, env, io, fs, error] {
     shell = if fp"{selected}".basename() == "csh" or fp"{selected}".basename() == "tcsh" { "c" } else { "b" }
   }
   var input = colors.DATABASE
+  let file_bytes = gnu.argument_bytes(file, prepared.raw)
+  let file_name = display_name(file_bytes)
   if file != "" {
-    if file != "-" and (fp"{file}".is_dir() ?? false) { gnu.error(f"expected file, got directory {gnu.quote(file)}"); exit 1 }
-    match gnu.read_operand(file) {
+    if file != "-" and (is_directory(file_bytes) ?? false) { gnu.error(f"expected file, got directory {gnu.quote_bytes(file_bytes)}"); exit 1 }
+    match read_database(file_bytes) {
       Ok(data) => {
         match data.utf8() {
           Ok(value) => input = value
           else => { gnu.error("database is not UTF-8"); exit 1 }
         }
       }
-      Err(failure) => { gnu.name_error(file, failure); exit 1 }
+      Err(failure) => { gnu.error(f"{gnu.quote_bytes(file_bytes, always: false)}: {gnu.strerror(failure)}"); exit 1 }
     }
   }
   let term = env.get_or("TERM", "none") ?? "none"
@@ -138,13 +164,13 @@ proc main(...argv: List[Str]) [process, env, io, fs, error] {
     var line = original.trim()
     if line == "" or line.starts_with("#") { continue }
     let words = line.replace("\t", with: " ").split(" ") |> where . != ""
-    if words.len() < 2 { gnu.error(f"{file}:{line_number}: invalid line; missing second token"); exit 1 }
+    if words.len() < 2 { gnu.error(f"{file_name}:{line_number}: invalid line; missing second token"); exit 1 }
     let key = words[0]
     var value = line.byte_slice(key.byte_len()).trim()
-    if value.starts_with("#") { gnu.error(f"{file}:{line_number}: invalid line; missing second token"); exit 1 }
+    if value.starts_with("#") { gnu.error(f"{file_name}:{line_number}: invalid line; missing second token"); exit 1 }
     let value_comment_at = value.find("#") ?? -1
     if value_comment_at >= 0 { value = value.byte_slice(0, value_comment_at).trim() }
-    if value == "" { gnu.error(f"{file}:{line_number}: invalid line; missing second token"); exit 1 }
+    if value == "" { gnu.error(f"{file_name}:{line_number}: invalid line; missing second token"); exit 1 }
     if key.lower() == "term" or key.lower() == "colorterm" {
       if ! selectors or entries { selected = false; entries = false; selectors = true }
       if term_matches(value, if key.lower() == "term" { term } else { colorterm }) { selected = true }
@@ -155,7 +181,7 @@ proc main(...argv: List[Str]) [process, env, io, fs, error] {
     if key.lower() == "options" or key.lower() == "color" or key.lower() == "eightbit" { continue }
     let named = color_key(key)
     let code = if key.starts_with(".") { f"*{key}" } else if key.starts_with("*") { key } else { named }
-    if code == "" { gnu.error(f"{file}:{line_number}: unrecognized keyword {gnu.quote(key)}"); exit 1 }
+    if code == "" { gnu.error(f"{file_name}:{line_number}: unrecognized keyword {gnu.quote(key)}"); exit 1 }
     if display { output = f"{output}\x1b[{value}m{code}\t{value}\x1b[0m\n" } else {
       let escaped_code = shell_output_field(code)
       let escaped_value = shell_output_field(value)
