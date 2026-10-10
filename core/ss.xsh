@@ -8,6 +8,7 @@
 use lib.gnu
 use lib.accounts
 use lib.net_sockets as sockets
+use lib.selinux
 
 const USAGE = """Usage: ss [ OPTIONS ]
        ss [ OPTIONS ] [ FILTER ]
@@ -1095,91 +1096,29 @@ proc render(rows: List[List[Str]], visible: List[Bool], config: Config) [process
   gnu.write_text(out)
 }
 
-proc sockstat_number(text: Str, section: Str, key: Str) -> Int {
-  for line in text.lines() {
-    if !line.starts_with(section + ":") { continue }
-    let fields = line.fields()
-    for index in range(fields.len()) {
-      if fields[index] == key and index + 1 < fields.len() {
-        return fields[index + 1].parse_int() ?? 0
-      }
-    }
-  }
-  0
-}
-
 proc print_summary() [fs, process, env, io, error] {
-  let v4 = fp"/proc/net/sockstat".read_text()
-  let v6 = fp"/proc/net/sockstat6".read_text()
-  let snmp = fp"/proc/net/snmp".read_text()
-  if let Err(failure) = v4 {
-    fail(f"cannot read /proc/net/sockstat: {gnu.strerror(failure)}", 1)
+  let counts = match sockets.summary() {
+    Ok(counts) => counts
+    Err(failure) => { fail(failure.message, 1); return }
   }
-  let four = v4 ?? ""
-  let six = v6 ?? ""
-  var estab = 0
-  let snmp_text = snmp ?? ""
-  var header: List[Str] = []
-  for line in snmp_text.lines() {
-    if !line.starts_with("Tcp:") { continue }
-    let fields = line.fields()
-    if header.is_empty() {
-      header = fields
-    } else {
-      for index in range(header.len()) {
-        if header[index] == "CurrEstab" and index < fields.len() { estab = fields[index].parse_int() ?? 0 }
-      }
-    }
-  }
-  let used = sockstat_number(four, "sockets", "used")
-  let tcp4 = sockstat_number(four, "TCP", "inuse")
-  let orphans = sockstat_number(four, "TCP", "orphan")
-  let waiting = sockstat_number(four, "TCP", "tw")
-  let allocated = sockstat_number(four, "TCP", "alloc")
-  let tcp6 = sockstat_number(six, "TCP6", "inuse")
-  let udp4 = sockstat_number(four, "UDP", "inuse")
-  let udp6 = sockstat_number(six, "UDP6", "inuse")
-  let raw4 = sockstat_number(four, "RAW", "inuse")
-  let raw6 = sockstat_number(six, "RAW6", "inuse")
-  let frag4 = sockstat_number(four, "FRAG", "inuse")
-  let frag6 = sockstat_number(six, "FRAG6", "inuse")
-  let ip4 = raw4 + udp4 + tcp4
-  let ip6 = raw6 + udp6 + tcp6
-  var out = f"Total: {used}\n"
-  out += f"TCP:   {allocated + waiting} (estab {estab}, closed {allocated + waiting - tcp4 - tcp6}, orphaned {orphans}, timewait {waiting})\n\n"
+  let ip4 = counts.raw4 + counts.udp4 + counts.tcp4
+  let ip6 = counts.raw6 + counts.udp6 + counts.tcp6
+  let waiting = counts.time_wait
+  let allocated = counts.allocated
+  var out = f"Total: {counts.used}\n"
+  out += f"TCP:   {allocated + waiting} (estab {counts.established}, closed {allocated + waiting - counts.tcp4 - counts.tcp6}, orphaned {counts.orphaned}, timewait {waiting})\n\n"
   out += "Transport Total     IP        IPv6\n"
-  out += summary_line("RAW", raw4 + raw6, raw4, raw6)
-  out += summary_line("UDP", udp4 + udp6, udp4, udp6)
-  out += summary_line("TCP", tcp4 + tcp6, tcp4, tcp6)
+  out += summary_line("RAW", counts.raw4 + counts.raw6, counts.raw4, counts.raw6)
+  out += summary_line("UDP", counts.udp4 + counts.udp6, counts.udp4, counts.udp6)
+  out += summary_line("TCP", counts.tcp4 + counts.tcp6, counts.tcp4, counts.tcp6)
   out += summary_line("INET", ip4 + ip6, ip4, ip6)
-  out += summary_line("FRAG", frag4 + frag6, frag4, frag6)
+  out += summary_line("FRAG", counts.frag4 + counts.frag6, counts.frag4, counts.frag6)
   out += "\n"
   gnu.write_text(out)
 }
 
 pure summary_line(name: Str, total: Int, four: Int, six: Int) -> Str {
   f"{name}\t  {f"{total}" + spaces(9 - f"{total}".byte_len())} {f"{four}" + spaces(9 - f"{four}".byte_len())} {f"{six}" + spaces(9 - f"{six}".byte_len())}\n"
-}
-
-# Maps the decimal cgroup id (the directory inode on the unified hierarchy)
-# of every directory under the cgroup2 mount to its path relative to it.
-proc cgroup_names() [fs, error] -> Map[Str, Str] {
-  var found: Map[Str, Str] = {}
-  let root = p"/sys/fs/cgroup"
-  if let Ok(top) = fs.stat(root) {
-    found[f"{top.ino}"] = "/"
-    if let Ok(entries) = fs.walk(root, stat: true) {
-      for entry in entries {
-        if entry.kind != "dir" { continue }
-        if let Ok(info) = fs.stat(entry.path) {
-          let shown = entry.path.display()
-          let relative = shown.byte_slice(root.display().byte_len())
-          found[f"{info.ino}"] = if relative == "" { "/" } else { relative }
-        }
-      }
-    }
-  }
-  found
 }
 
 proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
@@ -1193,7 +1132,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
     return
   }
   if config.context {
-    if fp"/sys/fs/selinux/enforce".exists() ?? false {
+    if selinux.mounted() {
       fail("SELinux contexts are not supported", 1)
     }
     fail("SELinux is not enabled.", 1)
@@ -1295,10 +1234,8 @@ proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
   for cond in program {
     if cond.kind == "cgroup" {
       any_cgroup = true
-      let base = p"/sys/fs/cgroup"
-      let target = fp"{base}{cond.text}"
-      if let Ok(info) = fs.stat(target) {
-        group_ids[cond.text] = info.ino
+      if let id = sockets.cgroup_id(cond.text) {
+        group_ids[cond.text] = id
       } else {
         eprint "Invalid cgroup2 path"
         eprint f"Cannot parse cgroup {cond.text}."
@@ -1306,16 +1243,8 @@ proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
       }
     }
   }
-  var low = 0
-  var high = 65535
-  if let Ok(content) = fp"/proc/sys/net/ipv4/ip_local_port_range".read_text() {
-    let parts = content.fields()
-    if parts.len() == 2 {
-      low = parts[0].parse_int() ?? 0
-      high = parts[1].parse_int() ?? 65535
-    }
-  }
-  let context: Context = {low: low, high: high, devices: devices, cgroups: group_ids}
+  let ports = sockets.local_port_range()
+  let context: Context = {low: ports.low, high: ports.high, devices: devices, cgroups: group_ids}
 
   let want_info = config.info
   var found: List[sockets.DiagSocket] = []
@@ -1342,18 +1271,8 @@ proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
       if family_is_inet and config.family != family { continue }
       let listed = sockets.collect_inet(channel, family, sockets.protocol_number(table), states, config.memory, want_info)
       if let Ok(list) = listed {
-        var matched = 0
         for item in list {
-          if item.netid == table {
-            found += [item]
-            matched += 1
-          }
-        }
-        # Without the raw_diag module the kernel answers a raw dump with
-        # nothing, so the procfs table stands in when the dump found no sockets.
-        if table == "raw" and matched == 0 {
-          let fallback = sockets.collect_raw_proc(family, states)
-          if let Ok(more) = fallback { found = found.extend(more) }
+          if item.netid == table { found += [item] }
         }
       } else if let Err(failure) = listed {
         eprint f"ss: cannot list {table} sockets: {gnu.strerror(failure)}"
@@ -1364,7 +1283,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, net, error] {
 
   let owners = if config.processes { sockets.owners()? } else { [] }
   var cgroup_map: Map[Str, Str] = {}
-  if config.extended and !found.is_empty() { cgroup_map = cgroup_names() }
+  if config.extended and !found.is_empty() { cgroup_map = sockets.cgroup_names() }
   var interfaces: List[Device] = devices
   if interfaces.is_empty() {
     var bound = false

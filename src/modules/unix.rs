@@ -571,6 +571,19 @@ pub(crate) fn id(span: Span) -> Result<Value, RuntimeError> {
         Ok(groups) => groups,
         Err(error) => return Ok(Value::err(Value::Error(Box::new(error)))),
     };
+    // The kernel's own list, unsorted and without the primary gid unless the
+    // kernel holds it there, which is what a privilege dump must show.
+    let supplementary = match rprocess::getgroups() {
+        Ok(gids) => gids
+            .into_iter()
+            .map(|gid| Value::Int(i64::from(gid.as_raw())))
+            .collect::<Vec<_>>(),
+        Err(error) => {
+            return Ok(Value::err(Value::Error(Box::new(
+                RuntimeError::host("unix-id", &io::Error::from(error)).with_span(span),
+            ))));
+        }
+    };
     Ok(Value::ok(Value::Record(
         crate::runtime::value::RecordMap::from([
             (
@@ -590,6 +603,7 @@ pub(crate) fn id(span: Span) -> Result<Value, RuntimeError> {
                 Value::Int(rprocess::getegid().as_raw() as i64),
             ),
             (Arc::from("groups"), Value::List(groups)),
+            (Arc::from("supplementary"), Value::List(supplementary)),
         ]),
     )))
 }

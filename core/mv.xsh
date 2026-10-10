@@ -1,6 +1,7 @@
 #!/bin/xsh
 use lib.gnu
 use lib.file_publish as files
+use lib.selinux
 
 type Options = {
   no_target_directory: Bool, no_clobber: Bool, force: Bool, interactive: Bool, exchange: Bool,
@@ -30,13 +31,6 @@ pure permission_text(mode: Int) -> Str {
     text += letter
   }
   text
-}
-
-# libselinux treats SELinux as enabled when the kernel lists selinuxfs. Labelling
-# the destination is not implemented, so --context is only accepted when there is
-# no SELinux to label for; GNU's no-op in that case is then exact.
-proc selinux_enabled() -> Result[Bool] {
-  Ok("selinuxfs" in fp"/proc/filesystems".read_text()?)
 }
 
 proc usage_error(message: Str) -> Unit {
@@ -383,7 +377,9 @@ proc main(...argv: List[Str]) {
     gnu.usage_error("cannot combine --backup with -n/--no-clobber or --update=none-fail")
   }
   files.validate_backup(backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")
-  if opts.context and selinux_enabled()? {
+  # Labelling the destination is not implemented, so --context is only accepted
+  # where there is no SELinux to label for; GNU's no-op is then exact.
+  if opts.context and selinux.enabled()? {
     gnu.error("--context (-Z) is not supported on SELinux-enabled systems")
     exit 1
   }

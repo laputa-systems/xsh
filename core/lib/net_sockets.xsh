@@ -11,6 +11,8 @@
 ##! effort: a process whose descriptors cannot be read (another user's, without
 ##! privilege) contributes nothing, exactly as for the reference tool.
 
+use gnu
+
 ## Address family number of IPv4 sockets.
 export const AF_INET = 2
 ## Address family number of unix-domain sockets.
@@ -20,6 +22,7 @@ export const AF_INET6 = 10
 const IPPROTO_TCP = 6
 const IPPROTO_UDP = 17
 const IPPROTO_RAW = 255
+const ENOENT = 2
 # inet_diag attribute numbers, which net_constants does not name.
 const INET_DIAG_INFO = 2
 const INET_DIAG_CONG = 4
@@ -325,18 +328,24 @@ proc dump(nl: Int, payload: Bytes) [process, error] -> Result[List[LinuxNetlinkM
 
 ## Dumps the inet sockets of one family and transport protocol whose kernel
 ## state is in the `states` bitmask. `memory` and `tcp_info` request the
-## SKMEMINFO and INET_DIAG_INFO/CONG attributes. The netlink primitive reports
-## no error when the kernel lacks the diag module for a protocol (the dump just
-## ends), so an empty list does not prove there are no sockets.
-export proc collect_inet(nl: Int, family: Int, protocol: Int, states: Int, memory: Bool, tcp_info: Bool) [process, error] -> Result[List[DiagSocket], Error] {
+## SKMEMINFO and INET_DIAG_INFO/CONG attributes. A kernel without the diag
+## module for a protocol ends the dump with ENOENT; raw sockets then come from
+## procfs, as the reference tool does, and every other protocol reports the
+## error.
+export proc collect_inet(nl: Int, family: Int, protocol: Int, states: Int, memory: Bool, tcp_info: Bool) [fs, process, error] -> Result[List[DiagSocket], Error] {
   # idiag_ext is a bitmask of (attribute - 1): SHUTDOWN is always wanted so
   # the extended view can show it; MEMINFO and SKMEMINFO follow -m; INFO,
   # VEGASINFO and CONG follow -i.
   let extensions = 128 + (if memory { 1 + 64 } else { 0 }) + (if tcp_info { 2 + 4 + 8 } else { 0 })
   let request = inet_request(family, protocol, extensions, states)?
-  let replies = dump(nl, request)?
+  let outcome = dump(nl, request)
+  if let Err(failure) = outcome {
+    return collect_raw_proc(family, states) when protocol == IPPROTO_RAW and (failure.errno ?? 0) == ENOENT
+
+    return Err(failure)
+  }
   var found: List[DiagSocket] = []
-  for reply in replies {
+  for reply in outcome? {
     if let item = decode_inet(reply.payload, protocol) { found += [item] }
   }
   Ok(found)
@@ -380,12 +389,11 @@ pure proc_address(text: Str, size: Int) -> Bytes {
   bytes.from_ints(raw) ?? b""
 }
 
-## Raw sockets from /proc/net/raw or raw6, for kernels without the raw_diag
-## module (sock_diag then answers with nothing instead of an error). The
-## reference tool falls back to the same files. The rows carry no memory,
-## shutdown or cgroup attributes, so `detailed` is false and callers print no
-## extended text for them.
-export proc collect_raw_proc(family: Int, states: Int) [fs, error] -> Result[List[DiagSocket], Error] {
+# Raw sockets from procfs, for kernels without the raw_diag module. The
+# reference tool falls back to the same files. The rows carry no memory,
+# shutdown or cgroup attributes, so `detailed` is false and callers print no
+# extended text for them.
+proc collect_raw_proc(family: Int, states: Int) [fs, error] -> Result[List[DiagSocket], Error] {
   var found: List[DiagSocket] = []
   let source = if family == AF_INET6 { fp"/proc/net/raw6" } else { fp"/proc/net/raw" }
   let size = if family == AF_INET6 { 16 } else { 4 }
@@ -416,6 +424,116 @@ export proc collect_raw_proc(family: Int, states: Int) [fs, error] -> Result[Lis
     }]
   }
   Ok(found)
+}
+
+## The kernel's socket counters: sockets in use, TCP connection states and the
+## in-use count of each transport per address family, as `ss -s` reports them.
+export type Summary = {
+  used: Int, established: Int, allocated: Int, orphaned: Int, time_wait: Int,
+  tcp4: Int, tcp6: Int, udp4: Int, udp6: Int, raw4: Int, raw6: Int, frag4: Int, frag6: Int,
+}
+
+# The number after KEY in the line that starts with SECTION and a colon.
+pure sockstat_number(text: Str, section: Str, key: Str) -> Int {
+  for line in text.lines() {
+    if !line.starts_with(section + ":") { continue }
+    let fields = line.fields()
+    for index in range(fields.len()) {
+      if fields[index] == key and index + 1 < fields.len() {
+        return fields[index + 1].parse_int() ?? 0
+      }
+    }
+  }
+  0
+}
+
+## Reads the socket counters of the network namespace. The IPv4 table is
+## required; a missing IPv6 or SNMP table (a kernel without them) counts as zero.
+export proc summary() [fs, error] -> Result[Summary, Error] {
+  let v4 = fp"/proc/net/sockstat".read_text()
+  if let Err(failure) = v4 {
+    return Err(error.failure(f"cannot read /proc/net/sockstat: {gnu.strerror(failure)}"))
+  }
+  let four = v4 ?? ""
+  let six = fp"/proc/net/sockstat6".read_text() ?? ""
+  var established = 0
+  var header: List[Str] = []
+  for line in (fp"/proc/net/snmp".read_text() ?? "").lines() {
+    if !line.starts_with("Tcp:") { continue }
+    let fields = line.fields()
+    if header.is_empty() {
+      header = fields
+    } else {
+      for index in range(header.len()) {
+        if header[index] == "CurrEstab" and index < fields.len() { established = fields[index].parse_int() ?? 0 }
+      }
+    }
+  }
+  Ok({
+    used: sockstat_number(four, "sockets", "used"),
+    established: established,
+    allocated: sockstat_number(four, "TCP", "alloc"),
+    orphaned: sockstat_number(four, "TCP", "orphan"),
+    time_wait: sockstat_number(four, "TCP", "tw"),
+    tcp4: sockstat_number(four, "TCP", "inuse"),
+    tcp6: sockstat_number(six, "TCP6", "inuse"),
+    udp4: sockstat_number(four, "UDP", "inuse"),
+    udp6: sockstat_number(six, "UDP6", "inuse"),
+    raw4: sockstat_number(four, "RAW", "inuse"),
+    raw6: sockstat_number(six, "RAW6", "inuse"),
+    frag4: sockstat_number(four, "FRAG", "inuse"),
+    frag6: sockstat_number(six, "FRAG6", "inuse"),
+  })
+}
+
+## The inclusive range of ports the kernel assigns to unbound outgoing sockets.
+export type PortRange = {low: Int, high: Int}
+
+## The local port range. A kernel that does not report it yields the whole port
+## space.
+export proc local_port_range() [process, error] -> PortRange {
+  var low = 0
+  var high = 65535
+  if let Ok(content) = linux.sysctl_get("net.ipv4.ip_local_port_range") {
+    let parts = content.fields()
+    if parts.len() == 2 {
+      low = parts[0].parse_int() ?? 0
+      high = parts[1].parse_int() ?? 65535
+    }
+  }
+  {low: low, high: high}
+}
+
+# The cgroup2 mount the socket `cgroup` attribute and filter are relative to.
+const CGROUP_ROOT = "/sys/fs/cgroup"
+
+## The cgroup id (the directory inode on the unified hierarchy) of the cgroup2
+## directory `relative` names, or null when there is none.
+export proc cgroup_id(relative: Str) [fs, error] -> Int? {
+  if let Ok(info) = fs.stat(fp"{CGROUP_ROOT}{relative}") { return info.ino }
+
+  null
+}
+
+## Maps the decimal cgroup id of every directory under the cgroup2 mount to its
+## path relative to it.
+export proc cgroup_names() [fs, error] -> Map[Str, Str] {
+  var found: Map[Str, Str] = {}
+  let root = fp"{CGROUP_ROOT}"
+  if let Ok(top) = fs.stat(root) {
+    found[f"{top.ino}"] = "/"
+    if let Ok(entries) = fs.walk(root, stat: true) {
+      for entry in entries {
+        if entry.kind != "dir" { continue }
+        if let Ok(info) = fs.stat(entry.path) {
+          let shown = entry.path.display()
+          let relative = shown.byte_slice(root.display().byte_len())
+          found[f"{info.ino}"] = if relative == "" { "/" } else { relative }
+        }
+      }
+    }
+  }
+  found
 }
 
 ## Opens the sock_diag netlink channel the collectors share.

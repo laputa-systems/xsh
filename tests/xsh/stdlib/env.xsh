@@ -517,3 +517,25 @@ test test_env_text_reads_of_non_utf8_values_stop_a_script { |ctx|
     assert "invalid-utf8" in output.stderr, output.stderr
   }
 }
+
+test test_env_entries_report_raw_bytes_in_name_order {
+  env ({XSH_ENTRIES_B: "second", XSH_ENTRIES_A: "h\u{e9}llo"}) {
+    let entries = env.entries()?
+    var names: List[Bytes] = []
+    for entry in entries { names += [entry.name] }
+    assert b"XSH_ENTRIES_A" in names and b"XSH_ENTRIES_B" in names
+
+    for entry in entries {
+      if entry.name == b"XSH_ENTRIES_A" { assert entry.value == bytes.from_text("h\u{e9}llo") }
+      if entry.name == b"XSH_ENTRIES_B" { assert entry.value == b"second" }
+    }
+
+    # The same variables as env.list, byte for byte and in the same order.
+    let listed = env.list()?
+    assert listed.len() == entries.len()
+    for index in range(listed.len()) {
+      assert entries[index].name == bytes.from_text(listed[index].name)
+      assert entries[index].value == bytes.from_text(listed[index].value)
+    }
+  } ?
+}

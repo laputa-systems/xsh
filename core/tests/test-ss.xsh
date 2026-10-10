@@ -505,3 +505,40 @@ test test_net_sockets_counter_text_follows_the_reference_tool { |ctx|
   assert sockets.skmem_text(memory) == "skmem:(r0,rb131072,t0,tb2626560,f0,w0,o0,bl0,d0)"
   assert sockets.hex(0) == "0" and sockets.hex(255) == "ff" and sockets.hex(65536) == "10000"
 }
+
+test test_net_sockets_summary_counts_the_scene { |ctx|
+  let scene = build_scene()?
+  defer close_scene(scene)
+  let counts = sockets.summary()?
+  assert counts.tcp4 >= 3 and counts.used >= counts.tcp4
+  assert counts.udp4 >= 1
+  assert counts.allocated >= counts.tcp4
+  let ports = sockets.local_port_range()
+  assert 0 <= ports.low and ports.low <= ports.high and ports.high <= 65535
+}
+
+test test_net_sockets_resolve_cgroup_ids_through_the_unified_hierarchy { |ctx|
+  # The cgroup2 root is its own id and names itself "/"; a path that is not a
+  # directory of the hierarchy has no id.
+  assert sockets.cgroup_id("/definitely/not/a/cgroup") == null
+  if let root = sockets.cgroup_id("") {
+    assert sockets.cgroup_names().get(f"{root}")? == "/"
+  }
+}
+
+test test_net_sockets_raw_dump_falls_back_to_procfs_only_without_a_handler { |ctx|
+  # A kernel without raw_diag ends the dump with ENOENT. Raw sockets then come
+  # from procfs, while the same ending for any other protocol is an error.
+  let fixture = test.temp_file(ctx, name: "diag.jsonl", contents: b"")?
+  let log = test.temp_file(ctx, name: "diag.log", contents: b"")?
+  fixture.write(json.encode_lines([{op: "netlink_request", type: 20, errno: 2}])?)
+  test.linux_fake(ctx, {netlink_fixture: fixture, log: log})?
+  let channel = sockets.open()?
+  defer unix.close_fd(channel)
+  let raw = sockets.collect_inet(channel, sockets.AF_INET, 255, 4095, false, false)?
+  for item in raw { assert item.netid == "raw" }
+  match sockets.collect_inet(channel, sockets.AF_INET, 17, 4095, false, false) {
+    Ok(_) => assert false, "a dump without a handler must fail for udp"
+    Err(failure) => assert failure.errno == 2
+  }
+}

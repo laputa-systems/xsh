@@ -62,3 +62,20 @@ test test_user_groups_primary_gid_override_does_not_grant_account_default {
   test.error_kind(user.groups("definitely-missing-xsh-user", primary_gid: -1), "user-groups")
   test.error_kind(user.groups(account.name, primary_gid: 4294967295), "user-groups")
 }
+
+# The process's supplementary list is what the kernel holds, in its order: it
+# is the Groups line of the process status, not the sorted identity set that
+# `groups` presents with the primary gid added.
+test test_unix_id_supplementary_is_the_kernel_group_list {
+  let identity = unix.id()?
+  var from_status: List[Int] = []
+  for line in fp"/proc/self/status".lines()? {
+    if line.starts_with("Groups:") {
+      for word in line.byte_slice(7).fields() { from_status += [word.parse_int()?] }
+    }
+  }
+  assert identity.supplementary == from_status
+  for gid in identity.supplementary {
+    assert gid in [entry.gid for entry in identity.groups]
+  }
+}

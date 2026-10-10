@@ -6,7 +6,7 @@ use super::streams::fs_entry_stream;
 use super::{
     ApiArgCheck, ApiDocs, ApiSpec, BTreeMap, ModuleEntry, ModuleSig, RuntimeOp, Type,
     archive_entry_type, btree_map, default_param, diff_result_type, dns_host_type, dns_lookup_type,
-    elf_info_type, env_entry_type, env_path_entry_type, fs_copy_tree_result_type,
+    elf_info_type, env_entry_type, env_path_entry_type, env_raw_entry_type, fs_copy_tree_result_type,
     fs_filesystem_stats_type, fs_lock_type, fs_mount_type, fs_remove_manifest_result_type,
     fs_root_type, group_record_type, hash_check_line_type, linux_blkid_type,
     linux_block_device_type, linux_disk_usage_type, linux_file_attrs_type, linux_fsck_type,
@@ -1261,6 +1261,15 @@ fn env_module() -> ModuleSig {
                 result(Type::List(Box::new(env_entry_type()))),
                 false,
                 RuntimeOp::EnvList,
+            ),
+        ),
+        (
+            "entries",
+            sig(
+                Vec::new(),
+                result(Type::List(Box::new(env_raw_entry_type()))),
+                false,
+                RuntimeOp::EnvEntries,
             ),
         ),
         (
@@ -4600,6 +4609,11 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
             "Describes one environment variable entry.",
             "The raw and decoded forms preserve the distinction between host bytes and UTF-8 text.",
             &["env", "configuration", "record"],
+        ),
+        "EnvRawEntry" => (
+            "Describes one environment variable entry as host bytes.",
+            "Neither the name nor the value is required to be UTF-8, so the entry reports exactly what the host holds.",
+            &["env", "configuration", "bytes", "record"],
         ),
         "EnvPathEntry" => (
             "Describes one component of an environment path list.",

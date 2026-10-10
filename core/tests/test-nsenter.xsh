@@ -1,3 +1,5 @@
+use core.lib.proc_target as target_files
+
 type Ran = {status: Int, signaled: Bool, stdout: Str, stderr: Str}
 
 # A process that holds a set of namespaces open while a test enters them.
@@ -201,4 +203,14 @@ test test_nsenter_reports_commands_it_cannot_start { |ctx|
   let directory = nsenter(ctx, base.extend(["/"]))?
   assert directory.status == 126
   assert directory.stderr == "nsenter: failed to execute /: Permission denied\n"
+}
+
+test test_target_files_name_the_namespaces_root_and_cwd_of_a_process {
+  let own = process.current_pid()?
+  assert target_files.namespace_file(own, "net") == fp"/proc/{own}/ns/net"
+  # The handle is the one the kernel exposes for this very process, so it
+  # resolves to the same namespace as the self link.
+  assert target_files.namespace_file(own, "net").readlink()? == fp"/proc/self/ns/net".readlink()?
+  assert fs.stat(target_files.root_dir(own), follow_symlinks: true)?.kind == "dir"
+  assert fs.stat(target_files.cwd_dir(own), follow_symlinks: true)?.kind == "dir"
 }

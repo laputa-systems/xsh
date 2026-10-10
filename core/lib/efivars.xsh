@@ -78,6 +78,21 @@ export pure hex_bytes(data: Bytes) -> Str {
   words.join(" ")
 }
 
+# Where the kernel exposes firmware variables on a UEFI boot.
+const KERNEL_STORE_DIR = "/sys/firmware/efi/efivars"
+
+## The directory holding the variables: `EFIVARFS_PATH` when set, so a fixture
+## or an alternate mount can stand in, and the kernel's location otherwise.
+export proc store_dir() [env] -> Path {
+  fp"{env.get_or("EFIVARFS_PATH", KERNEL_STORE_DIR) ?? KERNEL_STORE_DIR}"
+}
+
+## Whether the platform exposes EFI variables at `dir`. A machine booted
+## through legacy firmware has no such directory.
+export proc supported(dir: Path) [fs] -> Bool {
+  dir.exists() ?? false
+}
+
 ## Opens `dir` for variable access. Unless `any_dir` is set the directory must
 ## look like efivarfs: only regular files named NAME-GUID. A mistaken
 ## variable directory such as `/etc` is refused before anything is written.

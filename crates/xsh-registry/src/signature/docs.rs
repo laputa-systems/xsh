@@ -579,6 +579,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Conversion errors are returned as data, so malformed configuration cannot become a silent default.",
             &["env", "configuration", "typed"],
         )),
+        ("env", "entries") => Some((
+            "Reads every environment variable with its name and value as raw bytes.",
+            "Unlike `env.list` it never rejects an entry that is not valid UTF-8, so callers can pass such values through unchanged; entries are ordered by name.",
+            &["env", "configuration", "bytes"],
+        )),
         ("env", "path" | "path_list" | "path_entries") => Some((
             "Reads a path-valued environment variable into typed path data.",
             "Empty components and platform path separators are preserved according to the explicit path-list contract.",

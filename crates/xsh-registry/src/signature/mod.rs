@@ -1,7 +1,7 @@
 pub use crate::api_docs::ApiDocs;
 use crate::records::{
     archive_entry_type, diff_result_type, dns_host_type, dns_lookup_type, elf_info_type,
-    env_entry_type, env_path_entry_type, fs_copy_tree_result_type, fs_entry_type,
+    env_entry_type, env_path_entry_type, env_raw_entry_type, fs_copy_tree_result_type, fs_entry_type,
     fs_filesystem_stats_type, fs_lock_type, fs_mount_type, fs_remove_manifest_result_type,
     fs_root_children_result_type, fs_root_filesystem_stats_type, fs_root_read_result_type,
     fs_root_readlink_result_type, fs_root_type, group_record_type, hash_check_line_type,

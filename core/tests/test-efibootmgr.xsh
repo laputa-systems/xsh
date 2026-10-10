@@ -1,3 +1,5 @@
+use core.lib.efivars as efi
+
 type Run = {success: Bool, status: Int, stdout: Str, stderr: Str, stdout_bytes: Bytes, stderr_bytes: Bytes}
 
 const GUID_SUFFIX = "-8be4df61-93ca-11d2-aa0d-00e098032b8c"
@@ -464,4 +466,13 @@ test test_efibootmgr_numeric_arguments_report_the_offending_column { |ctx|
   let quiet = invoke(ctx, dir, ["-q", "-t", "8"])
   assert quiet.status == 0
   assert quiet.stdout == ""
+}
+
+test test_efivars_store_dir_follows_the_override_and_support_follows_existence { |ctx|
+  let root = test.temp_dir(ctx, name: "efivars-dir")?
+  env ({EFIVARFS_PATH: root.display()}) {
+    assert efi.store_dir() == root
+    assert efi.supported(efi.store_dir())
+    assert ! efi.supported(fp"{root}/absent")
+  } ?
 }
