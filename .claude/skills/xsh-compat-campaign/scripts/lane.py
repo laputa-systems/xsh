@@ -7,6 +7,7 @@
                                        a lane over several utilities and shared library files
     lane.py brief UTIL [--donor REV]   print the lane brief
     lane.py gate  UTIL [--committed]   acceptance: ownership, native test, uutils slice
+    lane.py accept LANE... [-m TEXT]   after reviewing the diff: committed gate, merge --no-ff, drop
     lane.py drop  UTIL... [--force]    remove a merged lane's worktree and branch
 
 A lane owns exactly core/UTIL.xsh and core/tests/test-UTIL.xsh in its own
@@ -93,7 +94,9 @@ def owned(lane: str) -> set[str]:
 
 
 def results_at(rev: str) -> dict:
-    return json.loads(git("show", f"{rev}:{RESULTS_PATH}", cwd=MASTER))["utilities"]
+    """Per-utility results committed at REV, or {} when REV has none (a branch that never ran the suite)."""
+    text = git("show", f"{rev}:{RESULTS_PATH}", cwd=MASTER, check=False)
+    return json.loads(text)["utilities"] if text else {}
 
 
 def excluded_at(rev: str) -> set[str]:
@@ -113,7 +116,7 @@ def targets(utils: list[str], donor: str | None) -> list[str]:
         if donor:
             other = results_at(donor).get(util)
             if other is None:
-                sys.exit(f"{util}: no entry at {donor}")
+                continue
             failing = [t for t in failing if t not in set(other["failing"])]
         out += failing
     return sorted(out)
@@ -140,13 +143,19 @@ def plan(donor: str) -> None:
 def brief(util: str, donor: str | None) -> str:
     info = spec(util)
     utils = info["utils"]
-    fix = targets(utils, donor)
+    fix = targets(utils, None)
+    proven = targets(utils, donor) if donor else []
+    fix = proven + [t for t in fix if t not in set(proven)]
     files = sorted(owned(util))
+    watch = info.get("watch", [])
+    watch_note = (f"\nThe gate also runs these consumers of your library files and fails on any regression there: "
+                  f"{', '.join(watch)}.") if watch else ""
     scratch = SCRATCH / util
     scratch.mkdir(parents=True, exist_ok=True)
     (scratch / "targets.txt").write_text("\n".join(fix) + "\n")
     sha = git("rev-parse", "--short", "master", cwd=MASTER).strip()
-    shown = "\n".join(f"    {t}" for t in fix[:40])
+    shown = "\n".join(f"    {t}" + ("   (donor passes: port first)" if t in set(proven) else "")
+                      for t in fix[:40])
     more = f"\n    ... {len(fix) - 40} more in {scratch}/targets.txt" if len(fix) > 40 else ""
     wt = lane_dir(util)
     py = f"python3 {MASTER}/.claude/skills/xsh-compat-campaign/scripts/lane.py"
@@ -174,9 +183,11 @@ You own exactly (use absolute paths under the worktree):
 Never edit anything else (other core/lib/*, dev/*, src/*, crates/*, docs/*, results, gaps.json).
 Anything you need elsewhere goes in your report under Requests: with the exact symbol or file.
 
-Goal: make these uutils tests pass ({len(fix)} total; all currently fail on master):
+Goal: make these uutils tests pass ({len(fix)} total; all currently fail on master).
+Some tests may be impossible for a host reason (a permission or group the unprivileged test user lacks):
+if a test fails identically on an untouched copy, say so under Requests: as `host-conflict` and move on.
 {shown}{more}
-Every uutils test that passes on master today must keep passing; the gate reports regressions by ID.
+Every uutils test that passes on master today must keep passing; the gate reports regressions by ID.{watch_note}
 {donor_block}
 Specification: {" and ".join(f"{UUTILS_ROOT}/src/uu/{u}/ with {UUTILS_ROOT}/tests/by-util/test_{u}.rs" for u in utils)}
 (read-only; never copy wholesale). GNU wording wins over clap wording. Tests in
@@ -203,7 +214,8 @@ Loop (keep it this tight):
   3. Milestone only, at most 6 times: {py} gate {util}
      It takes minutes and queues behind other lanes. It prints GATE PASS or GATE FAIL
      with the exact test IDs that regressed or are still failing.
-  4. On GATE PASS: git add {" ".join(files)} && git commit -m "{util}: <what changed>"
+  4. On GATE PASS: git add -A && git commit -m "{util}: <what changed>"   (the gate already proved
+     that only owned files changed; a test file that does not exist yet may be created)
 Stop and report when GATE PASS and committed, or after 3 failed attempts on one test ID
 (list it as unresolved and move on), or after 6 gate runs.
 Scope: pass tests. No formatting, linting, refactors, cleanup of unrelated code, or performance work.
@@ -213,7 +225,7 @@ Report (under 150 words): gate result line, tests fixed vs unresolved, Requests:
 """
 
 
-def new(lanes: list[str], donor: str | None, utils: list[str] | None, own: list[str]) -> None:
+def new(lanes: list[str], donor: str | None, utils: list[str] | None, own: list[str], watch: list[str]) -> None:
     if utils and len(lanes) != 1:
         sys.exit("--utils describes exactly one lane")
     for util in lanes:
@@ -222,7 +234,7 @@ def new(lanes: list[str], donor: str | None, utils: list[str] | None, own: list[
             sys.exit(f"{wt} already exists")
         (SCRATCH / util).mkdir(parents=True, exist_ok=True)
         (SCRATCH / util / "lane.json").write_text(json.dumps(
-            {"utils": utils or [util], "own": own, "donor": donor}))
+            {"utils": utils or [util], "own": own, "watch": watch, "donor": donor}))
         git("worktree", "add", "-b", f"claude/{util}", str(wt), "master", cwd=MASTER)
         text = brief(util, donor)
         (SCRATCH / util / "brief.txt").write_text(text)
@@ -255,7 +267,10 @@ def gate(util: str, committed: bool) -> int:
     (scratch / "tmp").mkdir(exist_ok=True)
 
     utils = spec(util)["utils"]
-    for name in utils:
+    watched = [w for w in spec(util).get("watch", []) if w not in utils]
+    for name in utils + watched:
+        if not (wt / f"core/tests/test-{name}.xsh").exists():
+            continue
         native = subprocess.run([str(XSHT), "test", f"core/tests/test-{name}.xsh"], cwd=wt, env=env,
                                 capture_output=True, text=True, timeout=600)
         if native.returncode != 0:
@@ -263,7 +278,7 @@ def gate(util: str, committed: bool) -> int:
 
     # A report from an earlier run must never stand in for this one.
     (scratch / "uutils-integration.json").unlink(missing_ok=True)
-    slice_run = subprocess.run(["dev/compat/run-uutils.sh", *utils], cwd=wt, env=env,
+    slice_run = subprocess.run(["dev/compat/run-uutils.sh", *utils, *watched], cwd=wt, env=env,
                                capture_output=True, text=True)
     (scratch / "run.log").write_text(slice_run.stdout + slice_run.stderr)
     if slice_run.returncode != 0:
@@ -279,7 +294,7 @@ def gate(util: str, committed: bool) -> int:
     skip = excluded_at("master")
     targets_file = SCRATCH / util / "targets.txt"
     target_ids = targets_file.read_text().split() if targets_file.exists() else []
-    for name in utils:
+    for name in utils + watched:
         base = results_at("master")[name]
         new_entry = report.get(name)
         if new_entry is None:
@@ -292,7 +307,7 @@ def gate(util: str, committed: bool) -> int:
                      f"{len(fixed)} fixed, {len(regressed)} regressed")
         if regressed:
             fail.append(f"regressed in {name}: " + ", ".join(regressed))
-        remaining = [t for t in target_ids if t in new_entry["failing"]]
+        remaining = [t for t in target_ids if t in new_entry["failing"]] if name in utils else []
         if remaining:
             lines.append(f"still failing from the target list ({len(remaining)}): " + ", ".join(remaining[:20]))
     summary = "\n".join(lines)
@@ -305,6 +320,23 @@ def gate(util: str, committed: bool) -> int:
             print(f"  {line}")
         return 1
     print("GATE PASS" if "(no gain)" not in summary else "GATE NOOP")
+    return 0
+
+
+def accept(lanes: list[str], note: str | None) -> int:
+    """The integrator's merge step. Review `git diff master...claude/LANE` before calling this."""
+    for lane in lanes:
+        gate_out = subprocess.run([sys.executable, str(HERE), "gate", lane, "--committed"],
+                                  capture_output=True, text=True)
+        if gate_out.returncode != 0:
+            print(gate_out.stdout + gate_out.stderr)
+            print(f"{lane}: gate failed, not merged")
+            return 1
+        summary = "; ".join(l for l in gate_out.stdout.splitlines()
+                            if l.startswith("uutils "))
+        message = f"{lane}: {note + ' ' if note else ''}({summary})\n\nCo-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+        git("merge", "--no-ff", "-q", f"claude/{lane}", "-m", message, cwd=MASTER)
+        drop([lane], False)
     return 0
 
 
@@ -329,9 +361,13 @@ def main() -> int:
         if name == "new":
             p.add_argument("--utils", dest="members", nargs="+")
             p.add_argument("--own", nargs="+", default=[])
+            p.add_argument("--watch", nargs="+", default=[])
     p = sub.add_parser("gate")
     p.add_argument("util")
     p.add_argument("--committed", action="store_true")
+    p = sub.add_parser("accept")
+    p.add_argument("lanes", nargs="+")
+    p.add_argument("-m", dest="note")
     p = sub.add_parser("drop")
     p.add_argument("utils", nargs="+")
     p.add_argument("--force", action="store_true")
@@ -339,11 +375,13 @@ def main() -> int:
     if args.cmd == "plan":
         plan(args.donor)
     elif args.cmd == "new":
-        new(args.utils, args.donor, args.members, args.own)
+        new(args.utils, args.donor, args.members, args.own, args.watch)
     elif args.cmd == "brief":
         print(brief(args.utils[0], args.donor))
     elif args.cmd == "gate":
         return gate(args.util, args.committed)
+    elif args.cmd == "accept":
+        return accept(args.lanes, args.note)
     else:
         drop(args.utils, args.force)
     return 0

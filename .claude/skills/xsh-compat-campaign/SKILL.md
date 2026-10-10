@@ -36,8 +36,9 @@ and GNU tests, fixtures, and harness inputs are the oracle. Nobody (lane,
 coordinator, or script) edits, deletes, skips, adds to, or special-cases them,
 and no adapter or applet branches on the harness (`XSH_EXECUTION_PHRASE`,
 `xsh-uutests`). `lane.py gate` fails when the checkout under `UUTILS_ROOT` is
-not exactly the pinned commit with a clean `tests/` and `src/`; also keep those
-trees read-only (`chmod -R a-w tests src`). An exclusion is the only sanctioned
+not exactly the pinned commit with a clean `tests/` and `src/`. Do not make
+those trees read-only: tests copy fixtures with their mode and write to them,
+so a read-only checkout fails tests that pass. An exclusion is the only sanctioned
 way a test stops counting: by exact ID, with a category and reason, in
 `dev/compat/exclusions.json`. The coordinator proposes exclusions and the
 owner approves them; never add one to hide a real failure. Native tests under
