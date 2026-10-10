@@ -34,6 +34,32 @@ test test_dircolors_value_comment_without_space { |ctx|
   assert output == "LS_COLORS='di=32:';\nexport LS_COLORS\n"
 }
 
+test test_dircolors_non_utf8_file_operand { |ctx|
+  let root = test.temp_dir(ctx, name: "dircolors-non-utf8")?
+  let database = Path.parse_bytes(bytes.concat([root.bytes(), b"/colors-\xff\xfe"]))?
+  database.write(b"NORMAL 00\n*.txt 32\n")
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/dircolors.xsh"
+  let words: List[Union[Str, Path]] = [ctx.xsh_bin, script, database]
+  let status = process.run(process.command_argv(ctx.xsh_bin, words, root, {LC_ALL: "C", SHELL: "bash"}, b"", stdout, stderr))?
+  assert status.exit_code()? == 0, stderr.read_text()?
+  assert stdout.read_text()? == "LS_COLORS='no=00:*.txt=32:';\nexport LS_COLORS\n"
+}
+
+test test_dircolors_missing_non_utf8_file_operand_reports_name { |ctx|
+  let root = test.temp_dir(ctx, name: "dircolors-missing-non-utf8")?
+  let missing = Path.parse_bytes(bytes.concat([root.bytes(), b"/absent-\xff\xfe"]))?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/dircolors.xsh"
+  let words: List[Union[Str, Path]] = [ctx.xsh_bin, script, missing]
+  let status = process.run(process.command_argv(ctx.xsh_bin, words, root, {LC_ALL: "C", SHELL: "bash"}, b"", stdout, stderr))?
+  assert status.exit_code()? == 1
+  assert stdout.read_text()? == ""
+  assert "No such file or directory" in stderr.read_text()?, stderr.read_text()?
+}
+
 test test_dircolors_shell_escapes_single_quotes { |ctx|
   let target = test.temp_file(ctx, name: "single-quote-colors.txt", contents: b"EXEC 'echo Hello;:'\n")?
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/dircolors.xsh" -- -b $target
