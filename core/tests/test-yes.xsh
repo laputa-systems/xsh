@@ -53,3 +53,16 @@ test test_yes_help_version_and_invalid_options { |ctx|
   assert bad.status == 1
   assert bad.stderr == "yes: unrecognized option '--definitely-invalid'\nTry 'yes --help' for more information.\n", bad.stderr
 }
+
+test test_yes_write_errors_name_standard_output { |ctx|
+  let root = test.temp_dir(ctx, name: "yes-full")?
+  let err = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/yes.xsh"
+  for size in [1, 16384] {
+    let word = [ "x" for _ in range(size) ].join("")
+    let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), word], root, {LC_ALL: "C"}, b"", p"/dev/full", err)
+    let status = process.run(plan)?
+    assert status.exit_code()? == 1, f"size {size}"
+    assert err.read_text()? == "yes: standard output: No space left on device\n", f"size {size}"
+  }
+}

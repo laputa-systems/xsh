@@ -37,6 +37,8 @@ type Sig = {name: Str, number: Int}
 const SIGNAL_WORD = rx"^[A-Za-z][A-Za-z0-9+-]*$"
 const DIGITS = rx"^[0-9]+$"
 const PID_WORD = rx"^[ \t\n\u{b}\u{c}\r]*[+-]?[0-9]+$"
+# `-0` stays an option error: it would name the caller's own group.
+const NEGATIVE_PID_WORD = rx"^-[1-9][0-9]*$"
 
 # A signal named by number or by name (any case, optional SIG prefix, RTMIN+N
 # and RTMAX-N); anything else, including padded or signed numbers, is not one.
@@ -154,6 +156,24 @@ proc list_signals(operands: List[Str]) [process, env, error, io] {
   exit 1 when failed
 }
 
+# A negative process id such as `-1234` is an operand, not an option cluster.
+# Words that are the value of -s, -n, or --signal are skipped, so a signal
+# number like `-9` in that position is not read as a process id.
+pure separate_negative_pids(args: List[Str]) -> List[Str] {
+  var index = 0
+
+  while index < args.len() {
+    let word = args[index]
+
+    return args when word == "--"
+    return args[..index].extend(["--"]).extend(args[index..]) when NEGATIVE_PID_WORD.matches(word)
+
+    index += if word == "-s" or word == "-n" or word == "--signal" { 2 } else { 1 }
+  }
+
+  args
+}
+
 # A process id the way `strtoimax` and `pid_t` accept it.
 pure parse_pid(text: Str) -> Int? {
   return null when ! PID_WORD.matches(text)
@@ -206,10 +226,10 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   }
 
   let opts: KillOptions = cli.applet(
-    args,
+    separate_negative_pids(args),
     {
       gnu: {status: 1},
-      list: {form: "-l --list", default: false},
+      list: {form: "-l -L --list", default: false},
       table: {form: "-t --table", default: false},
       signal: {form: "-s -n --signal SIGNAL"},
       help: {form: "--help", default: false, stop: true},
@@ -229,6 +249,10 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   }
 
   if opts.list or opts.table {
+    if opts.list and opts.table {
+      gnu.usage_error("cannot combine -l and -t")
+    }
+
     if opts.signal != null or obsolete != null {
       gnu.usage_error("cannot combine signal with -l or -t")
     }

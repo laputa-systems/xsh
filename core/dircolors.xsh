@@ -80,6 +80,30 @@ proc extra_operand(name: Bytes) [process, env] -> Unit {
   gnu.usage_error(f"extra operand {gnu.quote_bytes(name)}")
 }
 
+# Long options in the order GNU lists their possibilities; `--help` and
+# `--version` are included so that their abbreviations resolve like the rest.
+const LONG_OPTIONS = ["--bourne-shell", "--c-shell", "--csh", "--help", "--print-database", "--print-ls-colors", "--sh", "--version"]
+
+# The long options an argument names: an exact name, or every name it prefixes
+# (getopt_long accepts any unambiguous abbreviation).
+pure long_candidates(arg: Str) -> List[Str] {
+  if arg in LONG_OPTIONS { return [arg] }
+  [name for name in LONG_OPTIONS if name.starts_with(arg)]
+}
+
+# Aliases of one option (`--csh` and `--c-shell`) are not ambiguous with each
+# other, as in getopt_long; the action is what distinguishes options.
+pure long_action(name: Str) -> Str {
+  match name {
+    "--sh" | "--bourne-shell" => "bourne"
+    "--csh" | "--c-shell" => "csh"
+    "--print-database" => "print-database"
+    "--print-ls-colors" => "print-ls-colors"
+    "--help" => "help"
+    else => "version"
+  }
+}
+
 proc is_directory(name: Bytes) [fs, error] -> Result[Bool] {
   Path.parse_bytes(name)?.is_dir()
 }
@@ -99,18 +123,26 @@ proc main(...argv: List[Bytes]) [process, env, io, fs, error] {
   var operands = false
   for arg in prepared.text {
     if ! operands and arg == "--" { operands = true; continue }
-    if ! operands and arg == "--help" {
-      gnu.help("Usage: dircolors [OPTION]... [FILE]\nOutput commands to set LS_COLORS.\n  -b, --sh, --bourne-shell  Bourne shell output\n  -c, --csh, --c-shell      C shell output\n  -p, --print-database      output default database\n      --print-ls-colors     display color codes\nFILE defaults to the built-in database; '-' reads standard input.")
-      return
-    }
-    if ! operands and arg == "--version" { gnu.version("dircolors"); return }
     if ! operands and arg.starts_with("--") {
-      match arg {
-        "--sh" | "--bourne-shell" => shell = "b"
-        "--csh" | "--c-shell" => shell = "c"
-        "--print-database" => database = true
-        "--print-ls-colors" => display = true
-        else => gnu.usage_error(f"unrecognized option {gnu.quote(arg)}")
+      let found = long_candidates(arg)
+      if found.is_empty() { gnu.usage_error(f"unrecognized option {gnu.quote(arg)}") }
+      let action = long_action(found[0])
+      if [name for name in found if long_action(name) != action].len() > 0 {
+        gnu.usage_error(f"option '{arg}' is ambiguous; possibilities: {[f"'{name}'" for name in found].join(" ")}")
+      }
+      match action {
+        "bourne" => shell = "b"
+        "csh" => shell = "c"
+        "print-database" => database = true
+        "print-ls-colors" => display = true
+        "help" => {
+          gnu.help("Usage: dircolors [OPTION]... [FILE]\nOutput commands to set LS_COLORS.\n  -b, --sh, --bourne-shell  Bourne shell output\n  -c, --csh, --c-shell      C shell output\n  -p, --print-database      output default database\n      --print-ls-colors     display color codes\nFILE defaults to the built-in database; '-' reads standard input.")
+          return
+        }
+        "version" => {
+          gnu.version("dircolors")
+          return
+        }
       }
     } else if ! operands and arg.starts_with("-") and arg != "-" {
       for flag in arg.byte_slice(1) {
@@ -126,7 +158,8 @@ proc main(...argv: List[Bytes]) [process, env, io, fs, error] {
       file = arg
     }
   }
-  if (shell != "" and (database or display)) or (database and display) { gnu.usage_error("options are mutually exclusive") }
+  if database and display { gnu.usage_error("options --print-database and --print-ls-colors are mutually exclusive") }
+  if shell != "" and (database or display) { gnu.usage_error("the options to output non shell syntax,\nand to select a shell syntax are mutually exclusive") }
   if database {
     if file != "" { extra_operand(gnu.argument_bytes(file, prepared.raw)) }
     gnu.write_text(colors.DATABASE)
@@ -164,13 +197,13 @@ proc main(...argv: List[Bytes]) [process, env, io, fs, error] {
     var line = original.trim()
     if line == "" or line.starts_with("#") { continue }
     let words = line.replace("\t", with: " ").split(" ") |> where . != ""
-    if words.len() < 2 { gnu.error(f"{file_name}:{line_number}: invalid line; missing second token"); exit 1 }
+    if words.len() < 2 { gnu.error(f"{file_name}:{line_number}: invalid line;  missing second token"); exit 1 }
     let key = words[0]
     var value = line.byte_slice(key.byte_len()).trim()
-    if value.starts_with("#") { gnu.error(f"{file_name}:{line_number}: invalid line; missing second token"); exit 1 }
+    if value.starts_with("#") { gnu.error(f"{file_name}:{line_number}: invalid line;  missing second token"); exit 1 }
     let value_comment_at = value.find("#") ?? -1
     if value_comment_at >= 0 { value = value.byte_slice(0, value_comment_at).trim() }
-    if value == "" { gnu.error(f"{file_name}:{line_number}: invalid line; missing second token"); exit 1 }
+    if value == "" { gnu.error(f"{file_name}:{line_number}: invalid line;  missing second token"); exit 1 }
     if key.lower() == "term" or key.lower() == "colorterm" {
       if ! selectors or entries { selected = false; entries = false; selectors = true }
       if term_matches(value, if key.lower() == "term" { term } else { colorterm }) { selected = true }

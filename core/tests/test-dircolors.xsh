@@ -65,3 +65,28 @@ test test_dircolors_shell_escapes_single_quotes { |ctx|
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/dircolors.xsh" -- -b $target
   assert output == "LS_COLORS='ex='\\''echo Hello;\\:'\\'':';\nexport LS_COLORS\n"
 }
+
+test test_dircolors_long_options_abbreviate_and_clash { |ctx|
+  let script = fp"{ctx.core_dir}/dircolors.xsh"
+  let listing = run.capture --text ${ctx.xsh_bin} $script -- -p --print-ls
+  assert listing.status.exited_with(1)
+  assert listing.stderr == "dircolors: options --print-database and --print-ls-colors are mutually exclusive\nTry 'dircolors --help' for more information.\n", listing.stderr
+
+  let shell = run.capture --text ${ctx.xsh_bin} $script -- -b --print-database
+  assert shell.status.exited_with(1)
+  assert shell.stderr == "dircolors: the options to output non shell syntax,\nand to select a shell syntax are mutually exclusive\nTry 'dircolors --help' for more information.\n", shell.stderr
+
+  let abbreviated = run.capture --text ${ctx.xsh_bin} $script -- --c --print-database
+  assert abbreviated.status.exited_with(1)
+  assert abbreviated.stderr.starts_with("dircolors: the options to output non shell syntax,\n"), abbreviated.stderr
+
+  assert "TERM screen*" in run.text ${ctx.xsh_bin} $script -- --print-d
+}
+
+test test_dircolors_missing_second_token_names_the_line { |ctx|
+  let script = fp"{ctx.core_dir}/dircolors.xsh"
+  let target = test.temp_file(ctx, name: "short-colors.txt", contents: b"NORMAL 00\nexec\n")?
+  let bad = run.capture --text ${ctx.xsh_bin} $script -- -b $target
+  assert bad.status.exited_with(1)
+  assert bad.stderr == f"dircolors: {target}:2: invalid line;  missing second token\n", bad.stderr
+}
