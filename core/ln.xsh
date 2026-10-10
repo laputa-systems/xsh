@@ -9,11 +9,45 @@ type Options = {
   hard_dir: Bool, help: Bool, version: Bool, paths: List[Str],
 }
 
+# GNU's accepted backup types, grouped as its usage listing shows them.
+const BACKUP_TYPE_GROUPS = [["none", "off"], ["simple", "never"], ["existing", "nil"], ["numbered", "t"]]
+
+# The backup type named by TEXT. CONTEXT names where the value came from, because
+# GNU names VERSION_CONTROL in its diagnostic when that variable supplied it.
+proc backup_control(text: Str, context: Str) [process, env] -> Str {
+  for pair in BACKUP_TYPE_GROUPS {
+    return text when text in pair
+  }
+
+  var message = f"invalid argument {gnu.quote_value(text)} for {gnu.quote_value(context)}\nValid arguments are:"
+  for pair in BACKUP_TYPE_GROUPS {
+    message = f"{message}\n  - {gnu.quote_value(pair[0])}, {gnu.quote_value(pair[1])}"
+  }
+  gnu.usage_error(message)
+  ""
+}
+
+# A bare -b, --backup, or -S selects the type named by VERSION_CONTROL. An empty
+# or unset value means "existing", which is also GNU's default.
+proc version_control_backup() [process, env] -> Str {
+  let named = env.get_or("VERSION_CONTROL", "") ?? ""
+
+  return "existing" when named == ""
+
+  backup_control(named, "$VERSION_CONTROL")
+}
+
 proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: Str) -> Result[Bool] {
   if ! opts.symbolic {
-    # The source is still statted for directories so a missing source fails before the destination changes.
-    let source_meta = fs.stat(source, follow_symlinks: opts.logical)?
-    if source_meta.kind == "dir" and ! opts.hard_dir { gnu.error(f"{gnu.quote_bytes(source.bytes())}: hard link not allowed for directory"); return false }
+    # The source is statted before the destination changes, so a missing source is an access error that removes nothing.
+    let source_meta = match fs.stat(source, follow_symlinks: opts.logical) {
+      Ok(meta) => meta
+      Err(failure) => {
+        gnu.error(f"failed to access {gnu.quote_bytes(source.bytes())}: {gnu.strerror(failure)}")
+        return false
+      }
+    }
+    if source_meta.kind == "dir" and ! opts.hard_dir { gnu.error(f"{gnu.quote_bytes(source.bytes(), always: false)}: hard link not allowed for directory"); return false }
   }
   var existing = files.present(target)?
   # Only -f, -i, or a backup may remove the destination. Without them an existing
@@ -23,19 +57,18 @@ proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
     gnu.error(f"{gnu.quote_bytes(target.bytes(), always: false)}: cannot overwrite directory")
     exit 1
   }
-  if existing and replacing and files.same_entry(source, target)? {
+  # GNU backs up a destination that names the source before making a symbolic
+  # link, so the link may name its own destination. A hard link to itself is refused.
+  let self_symlink_with_backup = opts.symbolic and backup != "none"
+  if existing and replacing and ! self_symlink_with_backup and files.same_entry(source, target)? {
     gnu.error(f"{gnu.quote_bytes(source.bytes())} and {gnu.quote_bytes(target.bytes())} are the same file")
     exit 1
   }
   if existing and policy == "interactive" and ! files.confirm(target, "replace")? { return false }
   var saved: Path? = null
   if existing and backup != "none" {
-    saved = files.backup_name(target, backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")?
+    saved = files.backup_name(target, backup, opts.suffix ?? "~")?
     if saved != null {
-      if files.same_entry(saved, source)? {
-        gnu.error(f"backing up {gnu.quote_bytes(target.bytes())} might destroy source; {gnu.quote_bytes(source.bytes())} not linked")
-        exit 1
-      }
       target.rename(to: saved, overwrite: true)
       existing = false
     }
@@ -70,7 +103,7 @@ proc main(...argv: List[Bytes]) {
     physical: {form: "-P --physical", default: false},
     relative: {form: "-r --relative", default: false},
     verbose: {form: "-v --verbose", default: false},
-    backup: {form: "--backup[=CONTROL]", optional_default: "existing"},
+    backup: {form: "--backup[=CONTROL]", optional_default: ""},
     simple_backup: {form: "-b", default: false},
     suffix: {form: "-S --suffix SUFFIX"},
     hard_dir: {form: "-d -F --directory", default: false},
@@ -80,46 +113,82 @@ proc main(...argv: List[Bytes]) {
   })?
   if opts.help { gnu.help("Usage: ln [OPTION]... TARGET [LINK_NAME]\n  or: ln [OPTION]... TARGET... DIRECTORY\nCreate hard or symbolic links."); return }
   if opts.version { gnu.version("ln"); return }
-  if opts.paths.is_empty() { gnu.missing_operand() }
-  if opts.relative and ! opts.symbolic { gnu.usage_error("cannot do --relative without --symbolic") }
-  if opts.target != null and opts.no_target_directory { gnu.usage_error("cannot combine --target-directory and --no-target-directory") }
+  if opts.paths.is_empty() { gnu.usage_error("missing file operand") }
+  if opts.relative and ! opts.symbolic {
+    gnu.error("cannot do --relative without --symbolic")
+    exit 1
+  }
   var paths: List[Path] = []
   for raw_path in opts.paths { paths += [Path.parse_bytes(gnu.argument_bytes(raw_path, prepared.raw))?] }
   let target_directory: Path? = if let target_text = opts.target {
     Path.parse_bytes(gnu.argument_bytes(target_text, prepared.raw))?
   } else { null }
-  if opts.no_target_directory and opts.paths.len() == 1 {
-    gnu.error(f"missing destination file operand after {gnu.quote_bytes(paths[0].bytes())}")
+  # GNU follows a symbolic link named by -t even under -n, and every failure to
+  # examine it is an access error. This runs before the -T conflict checks.
+  if let directory = target_directory {
+    match fs.stat(directory, follow_symlinks: true) {
+      Ok(meta) => {
+        if meta.kind != "dir" {
+          gnu.error(f"target {gnu.quote_bytes(directory.bytes())} is not a directory")
+          exit 1
+        }
+      }
+      Err(failure) => {
+        gnu.error(f"failed to access {gnu.quote_bytes(directory.bytes())}: {gnu.strerror(failure)}")
+        exit 1
+      }
+    }
+  }
+  if opts.target != null and opts.no_target_directory {
+    gnu.error("cannot combine --target-directory and --no-target-directory")
     exit 1
+  }
+  if opts.no_target_directory {
+    if paths.len() == 1 {
+      gnu.usage_error(f"missing destination file operand after {gnu.quote_bytes(paths[0].bytes())}")
+    }
+    if paths.len() > 2 {
+      gnu.usage_error(f"extra operand {gnu.quote_bytes(paths[2].bytes())}")
+    }
   }
   let implicit = target_directory == null and paths.len() == 1
   let dest = target_directory ?? (if implicit { p"." } else { paths[-1] })
   let sources = if target_directory != null or implicit { paths } else { paths |> take(paths.len() - 1) }
-  var is_dir = false
-  if ! opts.no_target_directory {
+  var is_dir = target_directory != null
+  if target_directory == null and ! opts.no_target_directory {
     match files.directory(dest, ! opts.no_dereference) {
       Ok(found) => is_dir = found
-      Err(failure) => { gnu.error(f"cannot access {gnu.quote_bytes(dest.bytes())}: {gnu.strerror(failure)}"); exit 1 }
+      Err(failure) => { gnu.error(f"failed to access {gnu.quote_bytes(dest.bytes())}: {gnu.strerror(failure)}"); exit 1 }
     }
   }
-  if (sources.len() > 1 or target_directory != null) and ! is_dir {
-    gnu.error(f"target {gnu.quote_bytes(dest.bytes())}: Not a directory")
+  if sources.len() > 1 and ! is_dir {
+    match fs.stat(dest, follow_symlinks: ! opts.no_dereference) {
+      Ok(_) => gnu.error(f"target {gnu.quote_bytes(dest.bytes())}: Not a directory")
+      Err(failure) => gnu.error(f"target {gnu.quote_bytes(dest.bytes())}: {gnu.strerror(failure)}")
+    }
     exit 1
   }
   opts.logical = files.logical(prepared.text)?
   let policy = files.overwrite(prepared.text, "default", no_clobber: false)?
-  let backup = opts.backup ?? (if opts.simple_backup or opts.suffix != null { env.get_or("VERSION_CONTROL", "existing") ?? "existing" } else { "none" })
-  let configured_suffix = opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~"
-  if "/" in configured_suffix {
-    # A backup suffix cannot name another path or escape the destination directory.
-    opts.suffix = "~"
+  var backup = "none"
+  if let requested = opts.backup {
+    backup = if requested == "" { version_control_backup() } else { backup_control(requested, "backup type") }
+  } else if opts.simple_backup or opts.suffix != null {
+    backup = version_control_backup()
   }
-  files.validate_backup(backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")
+  var suffix = opts.suffix ?? ""
+  if suffix == "" { suffix = env.get_or("SIMPLE_BACKUP_SUFFIX", "") ?? "" }
+  # A backup suffix cannot name another path or escape the destination directory.
+  if suffix == "" or "/" in suffix { suffix = "~" }
+  opts.suffix = suffix
+  let replacing = policy != "default" or backup != "none"
   var failed = false
   var seen: List[Path] = []
   for source in sources {
     let target = if is_dir { files.destination(dest, source) } else { dest }
-    if target in seen {
+    # A plain link into a name this run already created fails with EEXIST below;
+    # only a replacing link reports the overwrite it would have performed.
+    if replacing and target in seen {
       gnu.error(f"will not overwrite just-created {gnu.quote_bytes(target.bytes())} with {gnu.quote_bytes(source.bytes())}")
       failed = true
       continue
@@ -129,12 +198,8 @@ proc main(...argv: List[Bytes]) {
       Err(failure) => {
         let kind = if opts.symbolic { "symbolic link" } else { "hard link" }
         let code = gnu.errno(failure)
-        # A missing source keeps the destination-only wording; a failed-access report for it is not produced yet.
-        let source_missing = code == 2 and ! files.present(source)?
-        if opts.logical and ! opts.symbolic and code == 2 and files.present(source)? {
-          gnu.error(f"failed to access {gnu.quote_bytes(source.bytes())}: {gnu.strerror(failure)}")
-        } else if ! opts.symbolic and code != 17 and ! source_missing {
-          # EEXIST (17) names only the destination; other hard-link failures also name the source.
+        # EEXIST (17) names only the destination; other hard-link failures also name the source.
+        if ! opts.symbolic and code != 17 {
           gnu.error(f"failed to create hard link {gnu.quote_bytes(target.bytes())} => {gnu.quote_bytes(source.bytes())}: {gnu.strerror(failure)}")
         } else { gnu.error(f"failed to create {kind} {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}") }
         failed = true
