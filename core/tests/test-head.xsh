@@ -175,3 +175,15 @@ test test_head_elided_standard_input_is_rewound_to_the_unprinted_tail { |ctx|
   let output = run.text @args
   assert output == "x\ny\nz\n"
 }
+
+test test_head_reads_a_regular_file_shorter_than_its_stat_size { |ctx|
+  let attribute = p"/sys/kernel/profiling"
+  if ! attribute.exists() {
+    test.skip("/sys/kernel/profiling is not available")
+  }
+
+  let root = test.temp_dir(ctx, name: "head")?
+  let content = attribute.read_bytes()?
+  assert head_run(ctx, root, ["-c", "-1", "/sys/kernel/profiling"])?.stdout == content[..content.len() - 1]
+  assert head_run(ctx, root, ["-c", "100", "/sys/kernel/profiling"])?.stdout == content
+}
