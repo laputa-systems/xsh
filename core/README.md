@@ -48,6 +48,16 @@ the feature. Keep usage errors local and explicit unless the applet follows
 GNU diagnostics (see above), preserve Unix-compatible stdout shapes, and cover
 behavior through `core/tests/*.xsh`.
 
+`unshare` and `nsenter` run their command through `linux.run_in_namespaces`,
+which makes every namespace change in a forked child (a user namespace needs a
+single-threaded process, and scripts do not run in one), so the command is
+always a child of the applet and the applet reports its status or repeats its
+signal death. `lsns` formats `linux.namespaces`. `unshare` refuses the
+persistent `--mount=FILE` forms, which need a process outside the new
+namespaces to bind the namespace file; `nsenter` adds
+`--preserve-credentials` for entering a user namespace whose `setgroups` is
+denied, the case every unprivileged `unshare --map-root-user` creates.
+
 `system-report` is documented in `core/SYSTEM-REPORT.md`.
 
 `core/wc.xsh` reads raw bytes for line and byte counts, so `-l` and `-c`
