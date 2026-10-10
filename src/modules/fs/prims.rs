@@ -237,40 +237,68 @@ fn chmod_nofollow(path: &std::path::Path, mode: Mode) -> rustix::io::Result<()> 
     rfs::chmodat(CWD, path, mode, AtFlags::SYMLINK_NOFOLLOW)
 }
 
-fn timespec(ns: Option<i64>, now: bool, field: &str, span: Span) -> Result<Timespec, RuntimeError> {
-    match (ns, now) {
-        (Some(_), true) => Err(RuntimeError::new(
-            "fs-set-times",
-            format!("{field}_ns and {field}_now are mutually exclusive"),
-        )
-        .with_span(span)),
-        (None, true) => Ok(Timespec {
+/// One timestamp's request: the nanosecond count since the epoch, a whole
+/// second count with its own nanosecond part, the kernel's current time, or
+/// nothing (left unchanged). The seconds form exists because the signed
+/// nanosecond count cannot reach years far from 1970 that `utimensat` accepts.
+pub(crate) struct TimeRequest {
+    pub(crate) ns: Option<i64>,
+    pub(crate) sec: Option<i64>,
+    pub(crate) nsec: Option<i64>,
+    pub(crate) now: bool,
+}
+
+fn timespec(request: &TimeRequest, field: &str, span: Span) -> Result<Timespec, RuntimeError> {
+    let fail = |message: String| RuntimeError::new("fs-set-times", message).with_span(span);
+    let TimeRequest { ns, sec, nsec, now } = *request;
+    let sources =
+        usize::from(ns.is_some()) + usize::from(sec.is_some()) + usize::from(now);
+    if sources > 1 {
+        return Err(fail(format!(
+            "{field}_ns, {field}_sec and {field}_now are mutually exclusive"
+        )));
+    }
+    if nsec.is_some() && sec.is_none() {
+        return Err(fail(format!("{field}_nsec requires {field}_sec")));
+    }
+    match (ns, sec, now) {
+        (_, _, true) => Ok(Timespec {
             tv_sec: 0,
             tv_nsec: UTIME_NOW as _,
         }),
-        (None, false) => Ok(Timespec {
-            tv_sec: 0,
-            tv_nsec: UTIME_OMIT as _,
-        }),
-        (Some(ns), false) => Ok(Timespec {
+        (Some(ns), _, _) => Ok(Timespec {
             tv_sec: ns.div_euclid(NANOS) as _,
             tv_nsec: ns.rem_euclid(NANOS) as _,
+        }),
+        (None, Some(sec), _) => {
+            let nsec = nsec.unwrap_or(0);
+            if !(0..NANOS).contains(&nsec) {
+                return Err(fail(format!(
+                    "{field}_nsec must be between 0 and 999999999"
+                )));
+            }
+            Ok(Timespec {
+                tv_sec: sec as _,
+                tv_nsec: nsec as _,
+            })
+        }
+        (None, None, false) => Ok(Timespec {
+            tv_sec: 0,
+            tv_nsec: UTIME_OMIT as _,
         }),
     }
 }
 
 pub(crate) struct SetTimes {
-    pub(crate) atime_ns: Option<i64>,
-    pub(crate) mtime_ns: Option<i64>,
-    pub(crate) atime_now: bool,
-    pub(crate) mtime_now: bool,
+    pub(crate) atime: TimeRequest,
+    pub(crate) mtime: TimeRequest,
     pub(crate) follow_symlinks: bool,
 }
 
 pub(crate) fn set_times(path: PathBuf, times: SetTimes, span: Span) -> Result<(), RuntimeError> {
     let timestamps = Timestamps {
-        last_access: timespec(times.atime_ns, times.atime_now, "atime", span)?,
-        last_modification: timespec(times.mtime_ns, times.mtime_now, "mtime", span)?,
+        last_access: timespec(&times.atime, "atime", span)?,
+        last_modification: timespec(&times.mtime, "mtime", span)?,
     };
     let flags = if times.follow_symlinks {
         AtFlags::empty()
@@ -565,9 +593,6 @@ fn copy_file_unnamed(
             if !(kind.is_file() || kind.is_fifo() || kind.is_char_device() || kind.is_block_device()) {
                 return Err(fail("destination is not a regular file, FIFO, or device"));
             }
-            if !kind.is_file() && options.reflink == Policy::Always {
-                return Err(host(std::io::Error::from_raw_os_error(libc::ENOTSUP)));
-            }
             true
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => match std::fs::symlink_metadata(&dest) {
@@ -585,10 +610,19 @@ fn copy_file_unnamed(
         }
         Err(error) => return Err(host(error)),
     };
-    if !kind.is_file() && options.reflink == Policy::Always {
-        return Err(host(std::io::Error::from_raw_os_error(libc::ENOTSUP)));
-    }
-    let input = File::open(&source).map_err(host)?;
+    // A clone request never transfers bytes, so opening a FIFO must not wait
+    // for its peer: the kernel's refusal (or ENXIO without a reader) is the
+    // answer.
+    let open_flags = if options.reflink == Policy::Always {
+        libc::O_NONBLOCK
+    } else {
+        0
+    };
+    let input = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(open_flags)
+        .open(&source)
+        .map_err(host)?;
     let metadata = input.metadata().map_err(host)?;
     let opened_kind = metadata.file_type();
     if !(opened_kind.is_file() || opened_kind.is_fifo() || opened_kind.is_char_device() || opened_kind.is_block_device()) {
@@ -605,6 +639,7 @@ fn copy_file_unnamed(
             .create_new(!options.overwrite)
             .truncate(false)
             .mode(mode)
+            .custom_flags(open_flags)
             .open(&dest)
     };
     let mut destination_replaced = false;
@@ -648,7 +683,10 @@ fn copy_file_unnamed(
         output.set_len(0).map_err(host)?;
         transfer(&input, &output, &metadata, len, &options, span)
     } else if options.reflink == Policy::Always {
-        Err(host(std::io::Error::from_raw_os_error(libc::ENOTSUP)))
+        // The kernel names why a non-regular destination cannot be a clone
+        // (EINVAL on a device, EXDEV across mounts); the call reports that
+        // errno rather than a generic refusal chosen here.
+        clone_always(&input, &output, len, span)
     } else {
         copy_special_destination(&input, &output)
             .map(|bytes| (METHOD_USER, bytes, 0))
@@ -666,6 +704,27 @@ fn copy_file_unnamed(
     ])))
 }
 
+/// Clones `input` into `output` or fails with the kernel's errno: a clone
+/// request that cannot be honoured is an error, never a fallback to copying.
+fn clone_always(
+    input: &File,
+    output: &File,
+    len: u64,
+    span: Span,
+) -> Result<(&'static str, u64, u64), RuntimeError> {
+    #[cfg(target_os = "linux")]
+    let cloned: std::io::Result<()> = rfs::ioctl_ficlone(output, input).map_err(Into::into);
+    #[cfg(not(target_os = "linux"))]
+    let cloned: std::io::Result<()> = {
+        let _ = (input, output);
+        Err(std::io::Error::from_raw_os_error(libc::ENOTSUP))
+    };
+    match cloned {
+        Ok(()) => Ok((METHOD_CLONE, len, 0)),
+        Err(error) => Err(RuntimeError::host("fs-copy", &error).with_span(span)),
+    }
+}
+
 fn transfer(
     input: &File,
     output: &File,
@@ -675,17 +734,12 @@ fn transfer(
     span: Span,
 ) -> Result<(&'static str, u64, u64), RuntimeError> {
     let host = |error: std::io::Error| RuntimeError::host("fs-copy", &error).with_span(span);
-    #[cfg(target_os = "linux")]
-    if options.reflink != Policy::Never {
-        match rfs::ioctl_ficlone(output, input) {
-            Ok(()) => return Ok((METHOD_CLONE, len, 0)),
-            Err(error) if options.reflink == Policy::Always => return Err(host(error.into())),
-            Err(_) => {}
-        }
-    }
-    #[cfg(not(target_os = "linux"))]
     if options.reflink == Policy::Always {
-        return Err(host(std::io::Error::from_raw_os_error(libc::ENOTSUP)));
+        return clone_always(input, output, len, span);
+    }
+    #[cfg(target_os = "linux")]
+    if options.reflink == Policy::Auto && rfs::ioctl_ficlone(output, input).is_ok() {
+        return Ok((METHOD_CLONE, len, 0));
     }
     if stream_source(input, metadata).map_err(host)? || options.sparse == Policy::Always {
         let (bytes, written) = copy_stream(input, output, options.sparse == Policy::Always).map_err(host)?;

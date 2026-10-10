@@ -3421,8 +3421,11 @@ impl Evaluator {
         command_name: String,
         cwd: Option<PathBuf>,
     ) -> Self {
-        let cwd =
-            cwd.unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+        let cwd = cwd.unwrap_or_else(|| {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            PROCESS_CWD.get_or_init(|| cwd.clone());
+            cwd
+        });
         let mut evaluator = Self {
             sources,
             command_name,
@@ -6909,6 +6912,20 @@ impl Evaluator {
             .insert(function, ModuleExportSignature { pure, sig });
     }
 
+    /// Resolve a `PathValue` to the path handed to the kernel. A relative
+    /// path stays relative while the evaluator's working directory is the
+    /// process's own, so the kernel sees exactly what the program wrote
+    /// (one `lstat` of the operand, no anchoring); otherwise it is anchored
+    /// at the evaluator's working directory.
+    pub(super) fn kernel_path(&self, path: &PathValue) -> PathBuf {
+        let path = pathbuf_from_path_value(path);
+        if path.is_absolute() || PROCESS_CWD.get() == Some(&self.cwd) {
+            path
+        } else {
+            self.cwd.join(path)
+        }
+    }
+
     /// Resolve a `PathValue` to a host filesystem path, anchoring relative
     /// paths at the evaluator's current working directory.
     pub(super) fn host_path(&self, path: &PathValue) -> PathBuf {
@@ -6920,6 +6937,11 @@ impl Evaluator {
         }
     }
 }
+
+/// The process's working directory as seen by the first evaluator started
+/// from it. The interpreter never changes the process directory (`cd` scopes
+/// only move the evaluator's own), so this stays the kernel's view.
+static PROCESS_CWD: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
 pub(super) fn path_parent(path: &PathValue) -> Result<PathValue, RuntimeError> {
     let pathbuf = pathbuf_from_path_value(path);

@@ -8,6 +8,14 @@ test test_touch { |ctx|
   assert ! missing.exists()?
 }
 
+test test_touch_sets_a_date_outside_the_nanosecond_range { |ctx|
+  let root = test.temp_dir(ctx, name: "touch-year-zero")?
+  let target = fp"{root}/target"
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/touch.xsh" -- -d 0000-01-01 $target
+  assert target.exists()?
+  assert fs.stat(target)?.mtime_ns < -2000000000000000000
+}
+
 test test_touch_accepts_non_utf8_operand { |ctx|
   let root = test.temp_dir(ctx, name: "touch-raw-path")?
   let target = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?

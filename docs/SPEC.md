@@ -5170,9 +5170,13 @@ fp"{key}.pub".write("public\n", mode: 0o644)
   it. `fs.stat` returns every `lstat` field (`follow_symlinks: true` gives
   `stat`): full file kind (`fifo`, `socket`, `block`, `char`), `nlink`, `dev`,
   `ino`, `rdev`, and nanosecond `atime_ns`/`mtime_ns`/`ctime_ns`; two paths are
-  one file when `dev` and `ino` match. `fs.set_owner`, `fs.set_times` (explicit
-  nanoseconds, kernel "now", or unchanged per field), and `fs.link` take
-  `follow_symlinks`, and so does the method `PATH.chmod(mode,
+  one file when `dev` and `ino` match. A relative path is passed to the kernel
+  as written while the evaluator's directory is the process directory (one
+  `lstat` or `stat` of the operand); inside a `cd` scope it is anchored at the
+  scope's directory. `fs.set_owner`, `fs.set_times` (explicit
+  nanoseconds, whole seconds with a nanosecond part for instants outside the
+  signed nanosecond range, kernel "now", or unchanged per field), and
+  `fs.link` take `follow_symlinks`, and so does the method `PATH.chmod(mode,
   follow_symlinks: B)`, which follows a final symlink by default.
   `follow_symlinks: false` changes the path itself: on anything but a symlink
   that is the same change, and on a symlink it changes the link's own mode
@@ -5194,7 +5198,9 @@ fp"{key}.pub".write("public\n", mode: 0o644)
   `fs.copy_file` also streams virtual files, FIFOs, and devices with bounded
   buffers. A FIFO or device destination receives all bytes under every sparse
   policy, keeps its file type, and reports zero hole bytes; `reflink: "always"`
-  fails there. Equal source/destination identities are refused before any
+  still asks the kernel to clone, so it fails there with the kernel's errno
+  (`EINVAL` for a device destination, `EXDEV` across mounts) and never copies
+  by another method. Equal source/destination identities are refused before any
   truncation. `force: true` retries only a failed destination open, after the
   source is pinned, and never overrides `overwrite: false`.
 - `fs.xattr_list/get/set/remove` use raw `Bytes` values on Linux and macOS;

@@ -744,7 +744,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("fs", "stat") => Some((
             "Reads complete metadata for a path without following a final symlink unless asked.",
-            "The record is a point-in-time snapshot with nanosecond times, link count, device and inode identity, and the full file kind; fs.metadata keeps the narrower FsEntry shape.",
+            "The record is a point-in-time snapshot with nanosecond times, link count, device and inode identity, and the full file kind; fs.metadata keeps the narrower FsEntry shape. A relative path reaches the kernel unchanged (one lstat or stat of the operand, errors naming it as written) while the evaluator's directory is the process directory, and is anchored at the evaluator's directory inside a cd scope.",
             &["filesystem", "metadata", "inspection"],
         )),
         ("fs", "set_owner") => Some((
@@ -754,7 +754,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("fs", "set_times") => Some((
             "Sets access and modification times with nanosecond precision.",
-            "Each time is set to an explicit nanosecond value, set to the kernel's current time, or left unchanged; symlinks are not followed unless asked.",
+            "Each time is set from atime_ns/mtime_ns (nanoseconds since the epoch), from atime_sec/mtime_sec with an optional atime_nsec/mtime_nsec in [0, 1e9) for instants outside the signed nanosecond range, to the kernel's current time with atime_now/mtime_now, or left unchanged; at most one source per time; symlinks are not followed unless asked.",
             &["filesystem", "timestamps", "metadata"],
         )),
         ("fs", "mknod") => Some((
@@ -834,7 +834,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("fs", "copy_file") => Some((
             "Copies file, FIFO, or device bytes with sparse and reflink control.",
-            "Virtual files, FIFOs, and devices stream until EOF using bounded memory. FIFO and device destinations receive every byte without truncation or sparse seeks, report hole_bytes zero for every sparse policy, and reject reflink always with ENOTSUP. bytes reports the logical length copied, including holes. sparse and reflink accept auto, always, or never; overwrite false creates the destination exclusively; creation mode is the only metadata copied. Source identity is checked before destination truncation. force defaults to false; when true and overwrite is true, only a destination-open failure may unlink and reopen an existing destination after the source is pinned. Source failures and transfer failures never trigger replacement. destination_replaced reports an actual successful force unlink and reopen, without inferring it from inode numbers.",
+            "Virtual files, FIFOs, and devices stream until EOF using bounded memory. FIFO and device destinations receive every byte without truncation or sparse seeks, report hole_bytes zero for every sparse policy, and attempt reflink always as a clone request that fails with the kernel's errno (EINVAL for a device, EXDEV across mounts) instead of copying. bytes reports the logical length copied, including holes. sparse and reflink accept auto, always, or never; overwrite false creates the destination exclusively; creation mode is the only metadata copied. Source identity is checked before destination truncation. force defaults to false; when true and overwrite is true, only a destination-open failure may unlink and reopen an existing destination after the source is pinned. Source failures and transfer failures never trigger replacement. destination_replaced reports an actual successful force unlink and reopen, without inferring it from inode numbers.",
             &["filesystem", "copy", "sparse"],
         )),
         ("fs", "fsync" | "sync") => Some((

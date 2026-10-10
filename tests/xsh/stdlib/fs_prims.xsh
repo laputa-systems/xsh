@@ -51,6 +51,23 @@ test test_stat_reports_every_lstat_field { |ctx|
   assert fs.stat(/dev/null)?.kind == "char"
 }
 
+test test_stat_resolves_relative_paths_against_the_evaluator_directory { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-stat-relative")?
+  fp"{root}/inner".mkdir()
+  fp"{root}/inner/file".write("abc")
+  fp"{root}/file".write("a")
+  cd root {
+    assert fs.stat(p"file")?.size == 1
+    assert fs.stat(p"inner/file")?.size == 3
+    cd (fp"{root}/inner") {
+      assert fs.stat(p"file")?.size == 3
+      assert fs.stat(p"../file")?.size == 1
+    }
+    assert fs.stat(p"file")?.size == 1
+  }
+  assert fs.stat(p"missing-relative-operand") is Err(_)
+}
+
 test test_stat_follows_symlinks_only_when_asked { |ctx|
   let root = test.temp_dir(ctx, name: "fs-stat-link")?
   let file = fp"{root}/file"
@@ -116,6 +133,32 @@ test test_set_times_sets_nanosecond_values_and_omits_the_rest { |ctx|
 
   fs.set_times(file, mtime_ns: -1500000000)
   assert fs.stat(file)?.mtime_ns == -1500000000
+}
+
+test test_set_times_sec_and_nsec_set_instants_the_nanosecond_count_cannot_hold { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-set-times-sec")?
+  let file = fp"{root}/file"
+  file.write("x")
+
+  fs.set_times(file, atime_sec: 1700000000, atime_nsec: 123456789, mtime_sec: 1600000000)
+  let both = fs.stat(file)?
+  assert both.atime_ns == 1700000000123456789
+  assert both.mtime_ns == 1600000000000000000
+
+  fs.set_times(file, mtime_sec: -62167219200)
+  let year_zero = fs.stat(file)?
+  assert year_zero.atime_ns == 1700000000123456789
+  assert year_zero.mtime_ns < -2000000000000000000
+
+  let mixed = fs.set_times(file, mtime_ns: 1, mtime_sec: 1)
+  assert mixed is Err(_)
+  test.error_kind(mixed, "fs-set-times")
+  let orphan = fs.set_times(file, atime_nsec: 5)
+  assert orphan is Err(_)
+  test.error_kind(orphan, "fs-set-times")
+  let range = fs.set_times(file, atime_sec: 1, atime_nsec: 1000000000)
+  assert range is Err(_)
+  test.error_kind(range, "fs-set-times")
 }
 
 test test_set_times_now_uses_the_kernel_clock { |ctx|
@@ -671,6 +714,21 @@ test test_copy_file_streams_to_devices_without_truncating_or_claiming_holes { |c
     }
     assert fs.stat(/dev/full)?.kind == "char"
   }
+}
+
+test test_copy_file_reflink_always_reports_the_kernel_errno_for_devices { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-copy-reflink-device")?
+  if p"/dev/full".exists()? {
+    let device = fs.copy_file(/dev/null, /dev/full, reflink: "always")
+    assert device is Err(_)
+    test.error_kind(device, "fs-copy")
+    if let Err(failure) = device { assert failure.errno == 22 }
+  }
+  let target = fp"{root}/target"
+  let crossing = fs.copy_file(/dev/null, target, reflink: "always")
+  assert crossing is Err(_)
+  if let Err(failure) = crossing { assert failure.errno == 18 }
+  assert ! target.exists()?
 }
 
 test test_copy_file_streams_every_byte_to_a_fifo_destination { |ctx|
