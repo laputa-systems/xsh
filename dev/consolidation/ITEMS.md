@@ -28,7 +28,7 @@ Resumed bounded slices have separate worktrees and disjoint shared-file hunks:
 | W5 grouping | immediate-child policy wrapper and exhaustive grouping classifiers | +80 / 650, explicit semantic cases offset later |
 | W6 expression hooks | next six rule bodies and exact table/dispatcher registration | net <= 0 / 2,200 |
 | R3 checked transfer facts | affine locals, shared type predicate, strict transfer-site facts | +600 / 1,800 |
-| R3 runtime bridge | statement/instruction sidecar and typed transfer continuations | +120 / 1,500 |
+| R3 runtime bridge | strict statement/instruction sidecar and typed transfer continuations | +340 / 1,500, expanded for all transfer sinks; final deletion offsets required |
 | R4 stream ownership | stream tokens, scope registry, boundary stamping and worker teardown | +250 / 1,800 |
 | W9 namespace isolation | restore qualified callable maps at module boundaries | +40 / 650 |
 | W9 borrowed bundle view | resolved reachable modules, source identities, shared declaration consumers | +200 / 2,000, interim; final W9 net reduction required |

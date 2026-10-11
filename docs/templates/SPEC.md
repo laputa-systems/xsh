@@ -2715,9 +2715,9 @@ locations. A primary cleanup failure in a function that returns a `Result` is
 the `Err` that function returns, from any of its blocks, so its caller matches
 or propagates it like any other; in any other function it is a failure of the
 call, which `try` captures. A deferred block cannot `return`, `yield`, `break`, or `continue`
-out of its body. Owned process handles and network jobs are cleaned up before
-the block's defers run; roots and locks still owned by the block are released
-after its defers (11.8).
+out of its body. Owned open streams, process handles, and network jobs are
+stopped before the block's defers run; roots and locks still owned by the block
+are released after its defers (11.8).
 
 `errdefer action` or `errdefer { ... }` registers cleanup that runs only when
 control leaves the enclosing block with an error:
@@ -3534,12 +3534,12 @@ The value may leave the scope, as the tail or through an assignment, but it
 names a released resource afterwards. The scope needs the `fs` effect and is
 rejected in pure functions.
 
-`lint.prefer-with-scope`, an opt-in note (16.1; `[lint] prefer-with-scope = true`
-or `--only`), reports `let NAME = OPEN?` directly followed by
-`defer NAME.close()` or `defer fs.unlock(NAME)` where the handle stays in its
-block. It offers no rewrite: the two shapes differ where the release fails
-after the block reached its end, which a `defer` raises from the enclosing
-function and the scope returns as its `Err`.
+`lint.redundant-close` reports a deferred close of a locally created `FsRoot`
+when checked binding identities prove that removing it preserves cleanup
+order. Its fix removes the defer. Earlier deferred actions, aliases, escapes,
+unknown helper calls, and another explicit release prevent that fix. There is
+no corresponding fix for `defer fs.unlock(lock)`: its release failure is
+observable, while ordinary scope cleanup drops capability-release errors.
 
 ### 10.5 Environment access
 
@@ -3843,14 +3843,29 @@ reachable from an outer value. Passing a handle as an argument lends it; it
 does not transfer ownership.
 
 Scope exit has two phases around its deferred actions. First, the scope stops
-its owned activities: non-detached process handles are cancelled and reaped,
-detached handles are released to a background reaper, and network jobs are
-cancelled and drained. Then the scope's `defer` actions run. After them, the
-scope closes its still-owned roots and unlocks its still-owned locks, newest
-first; closing a temporary root also removes its directory. A defer can use
-these capabilities and can release them early. An explicit `root.close()` or
-`fs.unlock(lock)` returns an error for an already released capability, while
-scope cleanup skips a capability released earlier.
+its owned activities: open streams are cancelled, non-detached process handles
+are cancelled and reaped, detached handles are released to a background
+reaper, and network jobs are cancelled and drained. Cancelling a suspended
+script producer runs that producer's own defers. Then the scope's `defer`
+actions run. After them, the scope closes its still-owned roots and unlocks its
+still-owned locks, newest first; closing a temporary root also removes its
+directory. A defer can use these capabilities and can release them early. An
+explicit `root.close()` or `fs.unlock(lock)` returns an error for an already
+released capability, while scope cleanup skips a capability released earlier.
+For an exact local `ProcessHandle`, `NetJob`, `FsRoot`, or `FsLock`, a direct
+unconditional consuming operation makes later uses of that binding a
+`check.use-after-release` error:
+
+```xsh
+{{.spec.use_after_release.source}}
+```
+
+The check follows binding identity within its block. A release hidden in a
+branch, loop, deferred action, short-circuit expression, pipeline, or another
+function does not establish that the local was consumed. Reassigning a mutable
+local gives it a fresh live value. Alias locals, resources stored in containers,
+and values reached through projections are not tracked. `ProcessHandle.cancel`
+remains allowed after release because cancellation is idempotent.
 Ordinary block cleanup drops capability-release errors. A `with` resource
 scope (10.4) reports a release failure as its `Err` when the body reaches its
 end. Activities created by a defer are stopped as the scope finishes.
