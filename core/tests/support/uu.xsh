@@ -9,7 +9,9 @@
 ##!     uu.stdout_only(r, "a\n")
 ##!
 ##! Applets run by their real script path with `LC_ALL=C` and `TZ=UTC`, the
-##! environment used by the suite. Only PATH, LD_PRELOAD, and LLVM_PROFILE_FILE
+##! environment used by the suite. Committed executable aliases use test-owned
+##! symlinks outside that working directory and retain their invoked names.
+##! Only PATH, LD_PRELOAD, and LLVM_PROFILE_FILE
 ##! are inherited before caller overrides. Runs use a private scratch directory
 ##! that is also the working directory. Each assertion names what it checked so
 ##! a failure points at the transcribed line.
@@ -95,6 +97,27 @@ proc launch_metadata(vars: Record, umask: Int?) [error] -> Result[Str, Error] {
   json.encode({caller_keys: vars.keys(), umask: umask})
 }
 
+type Alias = {name: Str, target: Str}
+
+# An alias needs its own lexical script name and nearby imports. Keep these
+# launch fixtures outside the working directory so listings cannot observe them.
+proc applet_script(s: Scene, util: Str) [fs, error] -> Result[Path, Error] {
+  let script = fp"{s.ctx.core_dir}/{util}.xsh"
+  return Ok(script) when script.exists()?
+  let registry = fp"{s.ctx.core_dir}/../dev/compat/aliases.json"
+  let aliases = json.get(json.decode(registry.read_text()?)?, ["aliases"])?.require(List[Alias])?
+  for alias in aliases {
+    if alias.name == util {
+      let bin = test.temp_dir(s.ctx, name: "uu-applets")?
+      let named = fp"{bin}/{util}.xsh"
+      named.symlink(to: fp"{s.ctx.core_dir}/{alias.target}.xsh")?
+      fp"{bin}/lib".symlink(to: fp"{s.ctx.core_dir}/lib")?
+      return Ok(named)
+    }
+  }
+  Ok(script)
+}
+
 ## Full lossless launcher argv for callers that wrap an applet in another process.
 ## Run in the scene directory and pass the same vars to the outer command;
 ## metadata carries override names while values travel through its environment.
@@ -104,11 +127,12 @@ export proc argv(
   args: List[Path],
   vars: Record = {},
   umask: Int? = null,
-) [error] -> Result[List[Path], Error] {
-  let script = fp"{s.ctx.core_dir}/{util}.xsh"
+) [fs, error] -> Result[List[Path], Error] {
+  let metadata = launch_metadata(vars, umask)?
+  let script = applet_script(s, util)?
   let words = [s.ctx.xsh_bin, script, p"--"].extend(args)
   let launcher = fp"{s.ctx.core_dir}/tests/support/uu-launch.xsh"
-  Ok([s.ctx.xsh_bin, launcher, Path(launch_metadata(vars, umask)?)].extend(words))
+  Ok([s.ctx.xsh_bin, launcher, Path(metadata)].extend(words))
 }
 
 ## Creates an isolated applet command for callers that own spawning and waiting.
@@ -127,7 +151,7 @@ export proc command(
   stderr_append: Bool = false,
   timeout: Duration = 0ms,
   umask: Int? = null,
-) [process, env, error] -> Result[Command, Error] {
+) [fs, process, env, error] -> Result[Command, Error] {
   let out = stdout ?? fp"{s.root}/.uu-stdout"
   let err = stderr ?? fp"{s.root}/.uu-stderr"
   let argv = argv(s, util, [Path(word) for word in args], vars, umask)?

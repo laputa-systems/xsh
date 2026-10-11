@@ -233,3 +233,31 @@ test test_uu_support_argv_shell_wrapper_preserves_launch_contract { |ctx|
     stdout: output, stderr: error, timeout: 2s))?.exited_with(0)
   assert uu.mode(s, "wrapped-directory")? == 0o700
 }
+
+
+test test_uu_support_dir_alias_preserves_name_and_defaults { |ctx|
+  let s = uu.scene(ctx)?
+  uu.write(s, "a b", "")?
+  uu.write(s, "c", "")?
+  uu.stdout_only(uu.invoke(s, "dir", [])?, "a\\ b  c\n")
+  let invalid = uu.invoke(s, "dir", ["-/"])?
+  uu.fails_with_code(invalid, 2)
+  uu.stderr_only(invalid, "dir: invalid option -- '/'\nTry 'dir --help' for more information.\n")
+}
+
+test test_uu_support_bracket_alias_requires_closing_operand { |ctx|
+  let s = uu.scene(ctx)?
+  let valid = uu.invoke(s, "[", ["value", "]"])?
+  uu.succeeds(valid)
+  uu.no_output(valid)
+  let missing = uu.invoke_paths(s, "[", [p"value"])?
+  uu.fails_with_code(missing, 2)
+  uu.stderr_only(missing, "[: missing ']'\n")
+}
+
+test test_uu_support_unknown_applet_remains_missing { |ctx|
+  let s = uu.scene(ctx)?
+  let result = uu.invoke(s, "uu-no-such-applet", [])?
+  uu.fails(result)
+  uu.stderr_contains(result, "uu-no-such-applet.xsh")
+}

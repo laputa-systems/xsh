@@ -25,14 +25,15 @@ REPO = Path(__file__).resolve().parents[3]
 def rewrite_helper(source: str, reference: str) -> str:
     if reference not in ("gnu", "busybox"):
         raise ValueError(f"unknown reference: {reference}")
-    script = '  let script = fp"{s.ctx.core_dir}/{util}.xsh"'
+    script = '  let script = applet_script(s, util)?'
     path_argv = '  let words = [s.ctx.xsh_bin, script, p"--"].extend(args)'
-    launcher = '  Ok([s.ctx.xsh_bin, launcher, Path(launch_metadata(vars, umask)?)].extend(words))'
-    signature = ') [error] -> Result[List[Path], Error] {'
+    launcher = '  Ok([s.ctx.xsh_bin, launcher, Path(metadata)].extend(words))'
+    signature = ') [fs, error] -> Result[List[Path], Error] {'
+    metadata = '  let metadata = launch_metadata(vars, umask)?'
     command = 'process.command_argv(s.ctx.xsh_bin, argv,'
     text_call = '  let argv = argv(s, util, [Path(word) for word in args], vars, umask)?'
     path_call = '  let argv = argv(s, util, args, vars, umask)?'
-    for fragment, expected in ((script, 1), (path_argv, 1), (launcher, 1), (signature, 1), (command, 6), (text_call, 2), (path_call, 1)):
+    for fragment, expected in ((script, 1), (path_argv, 1), (launcher, 1), (metadata, 1), (signature, 1), (command, 6), (text_call, 2), (path_call, 1)):
         actual = source.count(fragment)
         if actual != expected:
             raise ValueError(f"uu helper launch shape changed: expected {expected} occurrences of {fragment!r}, got {actual}")
@@ -43,7 +44,7 @@ def rewrite_helper(source: str, reference: str) -> str:
         target = '  let executable = p"/bin/busybox"'
         path_words = '[executable, fp"{util}"]'
     return (source.replace(script, target)
-        .replace(signature, ') [process, env, error] -> Result[List[Path], Error] {')
+        .replace(signature, ') [fs, process, env, error] -> Result[List[Path], Error] {')
         .replace(path_argv, f'  let words = {path_words}.extend(args)'))
 
 

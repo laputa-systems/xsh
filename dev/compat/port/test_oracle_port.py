@@ -55,30 +55,31 @@ class OraclePortTests(unittest.TestCase):
             self.assertEqual(rewritten.count(".extend(args)"), self.helper.count(".extend(args)"))
             self.assertIn("timeout: timeout", rewritten)
             self.assertEqual(rewritten.count("launch_metadata(vars, umask)?"), 1)
+            self.assertNotIn("let script = applet_script(s, util)?", rewritten)
             self.assertIn("umask: Int? = null", rewritten)
             self.assertIn("export proc command(", rewritten)
             self.assertIn("export proc argv(", rewritten)
             self.assertEqual(rewritten.count("let argv = argv(s, util,"), 3)
-            self.assertIn('Ok([s.ctx.xsh_bin, launcher, Path(launch_metadata(vars, umask)?)].extend(words))', rewritten)
+            self.assertIn('Ok([s.ctx.xsh_bin, launcher, Path(metadata)].extend(words))', rewritten)
 
     def test_rewrite_changes_only_central_target_words_and_required_effects(self):
         for reference, target, words in (
             ("gnu", '  let executable = process.which(util)?', '[executable]'),
             ("busybox", '  let executable = p"/bin/busybox"', '[executable, fp"{util}"]'),
         ):
-            expected = self.helper.replace('  let script = fp"{s.ctx.core_dir}/{util}.xsh"', target)
+            expected = self.helper.replace('  let script = applet_script(s, util)?', target)
             expected = expected.replace('  let words = [s.ctx.xsh_bin, script, p"--"].extend(args)',
                                         f'  let words = {words}.extend(args)')
-            expected = expected.replace(') [error] -> Result[List[Path], Error] {',
-                                        ') [process, env, error] -> Result[List[Path], Error] {')
+            expected = expected.replace(') [fs, error] -> Result[List[Path], Error] {',
+                                        ') [fs, process, env, error] -> Result[List[Path], Error] {')
             self.assertEqual(oracle_port.rewrite_helper(self.helper, reference), expected)
 
     def test_changed_launch_shape_fails_before_running_oracle(self):
         for before, after in (
-            ("let script =", "let applet ="),
+            ("let script = applet_script(s, util)?", "let applet = applet_script(s, util)?"),
             ("launch_metadata(vars, umask)?", "launch_metadata(vars, null)?"),
             ("let argv = argv(s, util, args, vars, umask)?", "let argv = argv(s, util, args, vars, null)?"),
-            (") [error] -> Result[List[Path], Error] {", ") [env, error] -> Result[List[Path], Error] {"),
+            (") [fs, error] -> Result[List[Path], Error] {", ") [env, error] -> Result[List[Path], Error] {"),
         ):
             with self.subTest(fragment=before), self.assertRaisesRegex(ValueError, "helper launch shape changed"):
                 oracle_port.rewrite_helper(self.helper.replace(before, after, 1), "gnu")
