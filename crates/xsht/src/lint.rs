@@ -28,8 +28,8 @@ mod prefer_collect;
 mod prefer_tempdir;
 #[path = "lint_prefer_wait_until.rs"]
 mod prefer_wait_until;
-#[path = "lint_prefer_with_scope.rs"]
-mod prefer_with_scope;
+#[path = "lint_redundant_close.rs"]
+mod redundant_close;
 #[path = "lint_prefer_within.rs"]
 mod prefer_within;
 #[path = "lint_redundant_use_alias.rs"]
@@ -256,9 +256,9 @@ pub struct LintOptions {
     pub prefer_text_pattern: bool,
     /// Opt in to `lint.prefer-rel-path`.
     pub prefer_rel_path: bool,
-    /// Opt in to `lint.prefer-with-scope`, which has no fix and reports
-    /// every handle whose release is deferred where it is opened.
-    pub prefer_with_scope: bool,
+    /// The checked binding identities and local types used by the resource
+    /// release lint. Workspace linting shares one immutable check output.
+    pub checked_output: Option<std::sync::Arc<xsh::frontend::check::CheckOutput>>,
     /// The file and module roots a return-annotation proof loads imports
     /// with. Without them only a file with no user imports is provable.
     pub return_proof: Option<ReturnProofContext>,
@@ -334,7 +334,7 @@ impl Default for LintOptions {
             prefer_set: false,
             prefer_text_pattern: false,
             prefer_rel_path: false,
-            prefer_with_scope: false,
+            checked_output: None,
             return_proof: None,
             runless: false,
             runless_except: Vec::new(),
@@ -394,7 +394,7 @@ pub struct Linter<'a> {
     prefer_inferred_proc_returns: bool,
     prefer_text_pattern: bool,
     prefer_rel_path: bool,
-    prefer_with_scope: bool,
+    checked_output: Option<std::sync::Arc<xsh::frontend::check::CheckOutput>>,
     return_proof: Option<ReturnProofContext>,
     proc_return_candidates: Vec<inferred_proc_return::ProcReturnCandidate>,
     return_removal_before: Option<Option<CheckedReturnRemovalFacts>>,
@@ -583,17 +583,32 @@ impl<'a> Linter<'a> {
         // turned off.
         let named = |code: DiagnosticCode| only.as_deref().is_some_and(|only| only.contains(&code));
         let prefer_set_advice = options.prefer_set || named(DiagnosticCode::LintPreferSet);
+        let resource_close_selected = lint_code_selected(
+            only.as_deref(),
+            Some(DiagnosticCode::LintRedundantClose),
+        ) && !options
+            .excluded_rules
+            .contains(&DiagnosticCode::LintRedundantClose);
+        let check_output_needed = resource_close_selected
+            || (options.function_effect_facts.is_empty()
+                && !options.function_effect_facts_checked);
+        let checked_output = options.checked_output.or_else(|| {
+            check_output_needed.then(|| std::sync::Arc::new(check_effects()))
+        });
         // A project whose `check --annotate` writes return annotations keeps
         // them, however their removal was asked for.
         let removes_returns = !options.annotation_policy_writes_returns;
         let excluded_rules = options.excluded_rules;
         let message_payload_constructors = options.message_payload_constructors;
-        let checked_effects =
-            if options.function_effect_facts.is_empty() && !options.function_effect_facts_checked {
-                check_effects().function_effect_facts
-            } else {
-                options.function_effect_facts
-            };
+        let checked_effects = if options.function_effect_facts.is_empty()
+            && !options.function_effect_facts_checked
+        {
+            checked_output
+                .as_ref()
+                .map_or_else(BTreeMap::default, |checked| checked.function_effect_facts.clone())
+        } else {
+            options.function_effect_facts
+        };
         let mut linter = Self {
             record_constructors: xsh::frontend::check::RecordConstructors::collect(program),
             arena: &program.arena,
@@ -626,8 +641,7 @@ impl<'a> Linter<'a> {
             prefer_text_pattern: options.prefer_text_pattern
                 || named(DiagnosticCode::LintPreferTextPattern),
             prefer_rel_path: options.prefer_rel_path || named(DiagnosticCode::LintPreferRelPath),
-            prefer_with_scope: options.prefer_with_scope
-                || named(DiagnosticCode::LintPreferWithScope),
+            checked_output,
             prefer_inferred_proc_returns: removes_returns
                 && (options.prefer_inferred_proc_returns
                     || named(DiagnosticCode::LintPreferInferredProcReturn)),
@@ -1033,9 +1047,7 @@ impl<'a> Linter<'a> {
         prefer_within::lint_repeated_timeouts(self, statements);
         prefer_collect::lint_built_lists(self, statements);
         prefer_wait_until::lint_polling_loops(self, statements);
-        if self.prefer_with_scope {
-            prefer_with_scope::lint_deferred_releases(self, statements);
-        }
+        redundant_close::lint_deferred_root_closes(self, statements);
         self.lint_statement_sequence(statements);
         self.lint_implicit_main(statements);
         self.lint_unused_types();
@@ -5663,7 +5675,7 @@ mod effect_fact_tests {
     use xsh::frontend::syntax::parser::Parser;
 
     #[test]
-    fn checked_empty_effect_facts_avoid_duplicate_frontend_checking() {
+    fn checked_empty_effect_facts_avoid_duplicate_frontend_checking_when_resource_lint_is_unselected() {
         let source = "print \"ready\"\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty());
@@ -5674,6 +5686,7 @@ mod effect_fact_tests {
                 source,
                 LintOptions {
                     function_effect_facts_checked: supplied,
+                    only: Some(vec![DiagnosticCode::LintPreferWithin]),
                     ..LintOptions::default()
                 },
                 true,

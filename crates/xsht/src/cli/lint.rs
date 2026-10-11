@@ -672,6 +672,7 @@ fn lint_workspace_root(
         });
     }
 
+    let checked = Arc::new(checked);
     let mut keys = reachable
         .iter()
         .filter(|key| key.as_str() != root)
@@ -702,6 +703,7 @@ fn lint_workspace_root(
             bundle.modules.clear();
         }
         let mut options = module.config.lint_options.clone();
+        options.checked_output = Some(Arc::clone(&checked));
         set_checked_lint_facts_for_source(&mut options, &checked, module.source_id);
         let lint_started = Instant::now();
         let mut linted = if key == root {
@@ -1384,7 +1386,6 @@ fn lint_config_for_file(
         prefer_item_shorthand: tool_config.config.lint.prefer_item_shorthand,
         prefer_tempdir_scope: tool_config.config.lint.prefer_tempdir_scope,
         prefer_text_pattern: tool_config.config.lint.prefer_text_pattern,
-        prefer_with_scope: tool_config.config.lint.prefer_with_scope,
         prefer_inferred_proc_returns: tool_config.config.lint.prefer_inferred_proc_returns,
         // A project that asks `xsht check --annotate` to write returns does
         // not also want them removed.
@@ -1407,6 +1408,7 @@ fn lint_config_for_file(
         callable_effects: Default::default(),
         function_effect_facts: Default::default(),
         function_effect_facts_checked: false,
+        checked_output: None,
         assertion_effect_spans: Default::default(),
         statement_expression_spans: Default::default(),
         propagating_statements: Default::default(),
@@ -1450,7 +1452,7 @@ fn lint_one_file_with_fixes(
     config: &ResolvedLintConfig,
 ) -> LintResult {
     let symbols = SymbolOwner::new();
-    let checked_program = symbols.with_current(|| {
+    let mut checked_program = symbols.with_current(|| {
         parse_load_check_text(
             file,
             text.clone(),
@@ -1471,11 +1473,14 @@ fn lint_one_file_with_fixes(
             },
         };
     }
-    let checked = checked_program
-        .checked
-        .as_ref()
-        .expect("checked program after clean parse");
+    let checked = std::sync::Arc::new(
+        checked_program
+            .checked
+            .take()
+            .expect("checked program after clean parse"),
+    );
     let mut lint_options = config.lint_options.clone();
+    lint_options.checked_output = Some(std::sync::Arc::clone(&checked));
     lint_options.function_return_types = checked.function_return_types.clone();
     lint_options.expr_types = checked.expr_types.clone();
     lint_options.proven_nonnull_fallback_receivers =
@@ -1498,7 +1503,7 @@ fn lint_one_file_with_fixes(
     lint_options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
     lint_options.redundant_variant_qualifiers = checked.redundant_variant_qualifiers.clone();
     lint_options.message_payload_constructors =
-        checked_message_payload_constructors(checked).cloned();
+        checked_message_payload_constructors(&checked).cloned();
     lint_options.statically_resolved_call_spans = if checked.diagnostics.iter().all(spelling_only) {
         checked.statically_resolved_call_spans.clone()
     } else {
@@ -1742,7 +1747,7 @@ fn apply_cst_fixes(
         }
         candidate = next;
         let symbols = SymbolOwner::new();
-        let program = symbols.with_current(|| {
+        let mut program = symbols.with_current(|| {
             parse_load_check_text(
                 file,
                 candidate.clone(),
@@ -1755,10 +1760,12 @@ fn apply_cst_fixes(
                 DiagnosticRenderer::new().render(&program.parsed.diagnostics, &program.sources)
             );
         }
-        let checked = program
-            .checked
-            .as_ref()
-            .expect("checked program after clean parse");
+        let checked = std::sync::Arc::new(
+            program
+                .checked
+                .take()
+                .expect("checked program after clean parse"),
+        );
         if !check_diagnostics_are_preserved(original_check_diagnostics, &checked.diagnostics) {
             return Err(DiagnosticRenderer::new().render(&checked.diagnostics, &program.sources));
         }
@@ -1781,6 +1788,7 @@ fn apply_cst_fixes(
             }));
         }
         let mut options = config.lint_options.clone();
+        options.checked_output = Some(std::sync::Arc::clone(&checked));
         options.function_return_types = checked.function_return_types.clone();
         options.expr_types = checked.expr_types.clone();
         options.proven_nonnull_fallback_receivers =
@@ -1802,7 +1810,7 @@ fn apply_cst_fixes(
         options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
         options.redundant_variant_qualifiers = checked.redundant_variant_qualifiers.clone();
         options.message_payload_constructors =
-            checked_message_payload_constructors(checked).cloned();
+            checked_message_payload_constructors(&checked).cloned();
         options.statically_resolved_call_spans = if checked.diagnostics.iter().all(spelling_only) {
             checked.statically_resolved_call_spans.clone()
         } else {
@@ -2493,9 +2501,11 @@ print ${name}
             xsh::frontend::check::CheckOptions::default(),
         );
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let checked = std::sync::Arc::new(checked);
         for key in reachable {
             let module = &workspace.modules[&key];
             let mut projected = LintOptions::default();
+            projected.checked_output = Some(std::sync::Arc::clone(&checked));
             super::set_checked_lint_facts_for_source(&mut projected, &checked, module.source_id);
             let mut complete = projected.clone();
             complete.function_return_types = checked.function_return_types.clone();

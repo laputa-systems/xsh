@@ -18,7 +18,7 @@ use super::{
     lint_prefer_match_else, lint_prefer_non_empty_argv, lint_prefer_propagation,
     lint_prefer_text_pattern, lint_redundant_discard, lint_redundant_propagation, lint_run_argv,
     literal_command_word, parse_command_word_reference, prefer_atomically, prefer_collect,
-    prefer_repeat, prefer_tempdir, prefer_wait_until, prefer_with_scope, prefer_within,
+    prefer_repeat, prefer_tempdir, prefer_wait_until, prefer_within, redundant_close,
     result_ok_type_expr, result_path_type_expr, result_unit_type_expr,
     scan_run_propagate_deletion_span, simple_command_value_expr, type_expr_kind,
 };
@@ -1594,9 +1594,7 @@ impl<'a> Linter<'a> {
         prefer_within::lint_repeated_timeouts(self, &stmts);
         prefer_collect::lint_built_lists(self, &stmts);
         prefer_wait_until::lint_polling_loops(self, &stmts);
-        if self.prefer_with_scope {
-            prefer_with_scope::lint_deferred_releases(self, &stmts);
-        }
+        redundant_close::lint_deferred_root_closes(self, &stmts);
         self.lint_statement_sequence(&stmts);
     }
 

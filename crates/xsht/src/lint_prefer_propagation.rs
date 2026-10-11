@@ -207,8 +207,10 @@ fn propagation_fix(
 
 #[cfg(test)]
 mod tests {
-    use super::super::lint_redundant_propagation::tests::{apply, lint_rule};
-    use xsh::diagnostic::{Diagnostic, DiagnosticCode};
+    use super::super::lint_redundant_propagation::tests::{
+        apply, checked, lint_checked, lint_rule,
+    };
+    use xsh::diagnostic::{Diagnostic, DiagnosticCode, Severity};
 
     fn lint(source: &str) -> Vec<Diagnostic> {
         lint_rule(source, DiagnosticCode::LintPreferPropagation)
@@ -231,8 +233,31 @@ mod tests {
     }
 
     fn unflagged(body: &str) {
+        unflagged_with_check_diagnostics(body, &[]);
+    }
+
+    fn unflagged_with_check_diagnostics(body: &str, expected_codes: &[DiagnosticCode]) {
         let source = format!("{PRELUDE}{body}");
-        let diagnostics = lint(&source);
+        let (program, checked) = checked(&source);
+        let check_diagnostics = checked
+            .diagnostics
+            .iter()
+            .map(|diagnostic| (diagnostic.severity, diagnostic.code))
+            .collect::<Vec<_>>();
+        let expected_diagnostics = expected_codes
+            .iter()
+            .map(|&code| (Severity::Warning, Some(code)))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            check_diagnostics, expected_diagnostics,
+            "{body}\nchecker diagnostics"
+        );
+        let diagnostics = lint_checked(
+            &program,
+            &source,
+            checked,
+            DiagnosticCode::LintPreferPropagation,
+        );
         assert!(diagnostics.is_empty(), "{body}\n{diagnostics:?}");
     }
 
@@ -288,8 +313,9 @@ mod tests {
             "proc work() [io, error] -> Result[Int, E] {\n  match step(false) {\n    Ok(_) => print \"ok\"\n    Err(problem) => return Err(problem)\n  }\n  1\n}\n",
         );
         // The error is replaced, wrapped, or not returned.
-        unflagged(
+        unflagged_with_check_diagnostics(
             "proc work() [error] -> Result[Int, E] {\n  match step(false) {\n    Ok(_) => {}\n    Err(problem) => return Err(E.Bad(problem.message))\n  }\n  match step(false) {\n    Ok(_) => {}\n    Err(_) => return Err(E.Bad(\"other\"))\n  }\n  match step(false) {\n    Ok(_) => {}\n    Err(problem) => return Ok(problem.message.byte_len())\n  }\n  1\n}\n",
+            &[DiagnosticCode::CheckErrorCause],
         );
         // A guard makes the arm conditional.
         unflagged(

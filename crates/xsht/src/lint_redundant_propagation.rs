@@ -499,7 +499,7 @@ pub(super) fn redundant_condition_propagation(
 #[cfg(test)]
 pub(super) mod tests {
     use super::super::{LintOptions, Linter};
-    use xsh::diagnostic::{Diagnostic, DiagnosticCode};
+    use xsh::diagnostic::{Diagnostic, DiagnosticCode, Severity};
     use xsh::frontend::check::{CheckOutput, Checker};
     use xsh::frontend::source::SourceId;
     use xsh::frontend::syntax::arena::ArenaProgram;
@@ -510,7 +510,10 @@ pub(super) mod tests {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, source);
         assert!(
-            checked.diagnostics.is_empty(),
+            checked
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.severity != Severity::Error),
             "{source}\n{:?}",
             checked.diagnostics
         );
@@ -524,7 +527,7 @@ pub(super) mod tests {
         lint_checked(&program, source, checked, rule)
     }
 
-    fn lint_checked(
+    pub(in super::super) fn lint_checked(
         program: &ArenaProgram,
         source: &str,
         checked: CheckOutput,
