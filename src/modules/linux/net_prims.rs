@@ -7,9 +7,6 @@
 //! and every descriptor a primitive creates is returned to the script (which
 //! closes it with `unix.close_fd`) or closed before the primitive returns.
 
-// Only the Linux implementation consumes the argument and record helpers.
-#![cfg_attr(not(target_os = "linux"), allow(dead_code))]
-
 use crate::modules::RuntimeOp;
 use crate::runtime::value::{RecordMap, RuntimeError, Value};
 use crate::source::Span;
