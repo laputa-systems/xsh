@@ -90,6 +90,63 @@ impl<'a> ValueView<'a> {
         })
     }
 
+    fn is_map(self) -> bool {
+        matches!(
+            self,
+            Self::Runtime(Value::Map(_))
+                | Self::Lowered(LoweredValue::Map(_))
+                | Self::Map(_)
+                | Self::EmptyMap
+        )
+    }
+
+    fn is_stream(self) -> bool {
+        matches!(
+            self,
+            Self::Runtime(Value::Stream(_)) | Self::Lowered(LoweredValue::Stream(_))
+        )
+    }
+
+    pub(super) fn type_name(self) -> &'static str {
+        if matches!(self, Self::Lowered(LoweredValue::OmittedArgument)) {
+            return "omitted argument";
+        }
+        if let Some(ty) = self.scalar_type() {
+            return match ty {
+                // The lowered executor exposes process errors as its Error
+                // storage value, and diagnostics retain that public name.
+                Type::ProcessError => "Error",
+                Type::Tag(_) => "Tag",
+                ty => ty
+                    .builtin_type_name()
+                    .expect("runtime scalar types have builtin names")
+                    .as_str(),
+            };
+        }
+        if self.list_len().is_some() {
+            return "List";
+        }
+        if self.is_map() {
+            return "Map";
+        }
+        if self.set().is_some() {
+            return "Set";
+        }
+        if self.is_stream() {
+            return "Stream";
+        }
+        if self.is_record(false) {
+            return "Record";
+        }
+        if self.module_len().is_some() {
+            return "Module";
+        }
+        if self.result().is_some() {
+            return "Result";
+        }
+        unreachable!("every runtime value view has a type name")
+    }
+
     fn integer(self) -> Option<i64> {
         match self {
             Self::Runtime(Value::Int(value)) | Self::Lowered(LoweredValue::Int(value)) => Some(*value),
@@ -310,6 +367,29 @@ mod tests {
     #[global_allocator]
     static ALLOCATOR: CountingAllocator = CountingAllocator::new(std::alloc::System);
 
+    #[test]
+    fn process_error_type_name_matches_the_lowered_executor() {
+        let runtime = crate::runtime::value::run_error_constructor("test", "failure");
+        let lowered = LoweredValue::Error(Box::new(runtime.clone()));
+
+        assert_eq!(runtime.type_name(), "Error");
+        assert_eq!(lowered.type_name(), "Error");
+    }
+
+    #[test]
+    fn lowered_view_type_names_keep_internal_argument_and_slice_labels() {
+        let text = LoweredValue::StrView(
+            super::super::LoweredStrView::try_new(Arc::from("text"), 0, 4).unwrap(),
+        );
+        let bytes = LoweredValue::BytesView(
+            super::super::LoweredBytesView::try_new(Arc::from(&b"text"[..]), 0, 4).unwrap(),
+        );
+
+        assert_eq!(LoweredValue::OmittedArgument.type_name(), "omitted argument");
+        assert_eq!(text.type_name(), "Str");
+        assert_eq!(bytes.type_name(), "Bytes");
+    }
+
     // Allocation accounting needs the host allocator boundary; native tests
     // cover the same shapes and their visible type-test outcomes.
     #[test]
@@ -364,6 +444,14 @@ mod tests {
 
             enable_tracking();
             begin_stage();
+            let names = [
+                ValueView::Runtime(&runtime_module).type_name(),
+                ValueView::Lowered(&lowered_module).type_name(),
+                ValueView::Runtime(&fields).type_name(),
+                ValueView::Lowered(&stats).type_name(),
+                ValueView::Lowered(&stats_blob).type_name(),
+                ValueView::Runtime(&entry).type_name(),
+            ];
             let matched = [
                 value_matches_static_type(ValueView::Runtime(&runtime_module), &module_type),
                 value_matches_static_type(ValueView::Lowered(&lowered_module), &module_type),
@@ -373,6 +461,7 @@ mod tests {
                 value_matches_static_type(ValueView::Runtime(&entry), &entry_type),
             ];
             let traffic = end_stage();
+            assert_eq!(names, ["Module", "Module", "Record", "Record", "Record", "Record"]);
             assert!(matched.into_iter().all(|matched| matched));
             assert!(traffic.tracking_active);
             assert_eq!(traffic.alloc_count, 0);

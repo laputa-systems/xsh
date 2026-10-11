@@ -96,6 +96,17 @@ test test_runtime_mock_type_contract_accepts_process_errors_as_errors { |ctx|
   assert response is Err(_ is ProcessError)
 }
 
+test test_process_error_require_diagnostic_keeps_the_executor_type_name {
+  let failure = try run.text false
+  match failure {
+    Err(process_error) => match process_error.require(Str) {
+      Err(mismatch) => assert mismatch.message == "schema check failed at $: expected Str, found Error", mismatch.message
+      Ok(_) => assert false, "a process error satisfied a Str requirement"
+    }
+    Ok(_) => assert false, "false unexpectedly succeeded"
+  }
+}
+
 test test_runtime_module_type_tests_keep_optional_exact_and_callable_kinds { |ctx|
   let root = test.temp_dir(ctx, name: "type-module")?
   let file = fp"{root}/module.xsh"

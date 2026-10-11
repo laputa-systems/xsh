@@ -947,38 +947,7 @@ impl Value {
     }
 
     pub fn type_name(&self) -> &'static str {
-        match self {
-            Self::Null => "Null",
-            Self::Bool(_) => "Bool",
-            Self::Int(_) => "Int",
-            Self::Float(_) => "Float",
-            Self::Duration(_) => "Duration",
-            Self::Str(_) => "Str",
-            Self::Bytes(_) => "Bytes",
-            Self::Digest(_) => "Digest",
-            Self::Regex(_) => "Regex",
-            Self::Path(_) => "Path",
-            Self::List(_) => "List",
-            Self::Map(_) => "Map",
-            Self::Set(_) => "Set",
-            Self::Stream(_) => "Stream",
-            Self::Record(_) | Self::FsEntry(_) => "Record",
-            Self::Module(_) => "Module",
-            Self::Result(_) => "Result",
-            Self::Status(_) => "Status",
-            Self::EnvPathList => "EnvPathList",
-            Self::Error(_) => "Error",
-            Self::RunError(_) => "RunError",
-            Self::Pure(_) => "Pure",
-            Self::Proc(_) => "Proc",
-            Self::Command(_) => "Command",
-            Self::ProcessHandle(_) => "ProcessHandle",
-            Self::NetJob(_) => "NetJob",
-            Self::FsRoot(_) => "FsRoot",
-            Self::FsLock(_) => "FsLock",
-            Self::Unit => "Unit",
-            Self::Tag { .. } => "Tag",
-        }
+        crate::runtime::eval::runtime_value_type_name(self)
     }
 
     pub fn error_kind(&self) -> Option<&str> {

@@ -65,6 +65,11 @@ mod set;
 mod validated;
 mod type_view;
 use type_view::{ValueView, value_matches_static_type};
+
+pub(crate) fn runtime_value_type_name(value: &Value) -> &'static str {
+    ValueView::Runtime(value).type_name()
+}
+
 #[cfg(feature = "native-tests")]
 pub use modules::{LinuxFake, UnixFake};
 mod net_job;
@@ -2092,40 +2097,7 @@ impl LoweredValue {
     }
 
     fn type_name(&self) -> &'static str {
-        match self {
-            Self::Null => "Null",
-            Self::OmittedArgument => "omitted argument",
-            Self::Unit => "Unit",
-            Self::Int(_) => "Int",
-            Self::Float(_) => "Float",
-            Self::Duration(_) => "Duration",
-            Self::Bool(_) => "Bool",
-            Self::Str(_) | Self::StrView(_) => "Str",
-            Self::Bytes(_) | Self::BytesView(_) => "Bytes",
-            Self::Digest(_) => "Digest",
-            Self::Regex(_) => "Regex",
-            Self::Status(_) => "Status",
-            Self::Path(_) => "Path",
-            Self::FsEntry(_) => "Record",
-            Self::Command(_) => "Command",
-            Self::ProcessHandle(_) => "ProcessHandle",
-            Self::NetJob(_) => "NetJob",
-            Self::FsRoot(_) => "FsRoot",
-            Self::FsLock(_) => "FsLock",
-            Self::Stream(_) => "Stream",
-            Self::Pure(_) => "Pure",
-            Self::Proc(_) => "Proc",
-            Self::Error(_) => "Error",
-            Self::Record(_) | Self::RecordVec(_) | Self::Stats { .. } | Self::StatsBlob(_) => {
-                "Record"
-            }
-            Self::Module(_) => "Module",
-            Self::List(_) | Self::SharedList(_) => "List",
-            Self::Map(_) => "Map",
-            Self::Set(_) => "Set",
-            Self::Tag(_) => "Tag",
-            Self::ResultOk(_) | Self::ResultErr(_) => "Result",
-        }
+        ValueView::Lowered(self).type_name()
     }
 }
 
