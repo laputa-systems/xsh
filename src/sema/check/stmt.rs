@@ -969,6 +969,7 @@ impl Checker {
                     use_stmt.path,
                     use_stmt.alias,
                     use_stmt.resolved.as_deref(),
+                    use_stmt.searched_candidates.as_deref(),
                     stmt.span,
                 );
             }

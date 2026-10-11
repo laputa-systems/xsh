@@ -325,37 +325,32 @@ pub fn entry_source_from_text(file: &str, text: String) -> EntrySource {
 
 pub fn entry_source_from_bytes(file: &str, bytes: Vec<u8>) -> EntrySource {
     let mut sources = SourceMap::new();
-    let (source_id, invalid_offset) = match sources.add_file_from_utf8(file, bytes.clone()) {
-        Ok(source_id) => {
-            return EntrySource {
-                sources,
-                source_id,
-                diagnostics: Vec::new(),
-            };
-        }
+    let (source_id, diagnostics) = add_source_bytes(&mut sources, file, bytes);
+    EntrySource { sources, source_id, diagnostics }
+}
+
+/// Add source bytes without crossing an invalid UTF-8 boundary silently.
+/// Lossy text is retained only so the diagnostic can point at the bad bytes.
+pub fn add_source_bytes(
+    sources: &mut SourceMap,
+    file: &str,
+    bytes: Vec<u8>,
+) -> (SourceId, Vec<Diagnostic>) {
+    match sources.add_file_from_utf8(file, bytes.clone()) {
+        Ok(source_id) => (source_id, Vec::new()),
         Err(error) => {
             let text = String::from_utf8_lossy(&bytes).into_owned();
-            (sources.add_file(file, text), error.offset)
+            let offset = error.offset.min(text.len());
+            let source_id = sources.add_file(file, text);
+            (source_id, vec![
+                Diagnostic::error("source file is not valid UTF-8")
+                    .with_code(DiagnosticCode::SourceInvalidUtf8)
+                    .with_label(Label::primary(
+                        Span::new(source_id, offset, offset),
+                        "invalid UTF-8 starts here",
+                    )),
+            ])
         }
-    };
-    let offset = {
-        let text = sources
-            .get(source_id)
-            .expect("source was just inserted")
-            .text();
-        invalid_offset.min(text.len())
-    };
-    EntrySource {
-        sources,
-        source_id,
-        diagnostics: vec![
-            Diagnostic::error("source file is not valid UTF-8")
-                .with_code(DiagnosticCode::SourceInvalidUtf8)
-                .with_label(Label::primary(
-                    Span::new(source_id, offset, offset),
-                    "invalid UTF-8 starts here",
-                )),
-        ],
     }
 }
 
@@ -739,10 +734,7 @@ impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
             let Some((use_id, path, span)) = self.arena.use_stmt_for_statement(stmt) else {
                 continue;
             };
-            if path.len() == 1 && api_spec().is_standard_module(&path[0].as_str()) {
-                continue;
-            }
-            if let Some(key) = self.load_module(importer, &path, span) {
+            if let Some(key) = self.load_module(importer, &path, use_id, span) {
                 self.arena.set_use_resolved(use_id, Arc::from(key.as_str()));
             }
         }
@@ -817,20 +809,31 @@ impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
         );
     }
 
-    fn load_module(&mut self, importer: &Path, path: &[Name], span: Span) -> Option<String> {
-        let (module_path, bytes) =
-            match read_module_from_candidates(importer, path, &self.module_roots) {
-                Ok(found) => found,
-                Err(message) => {
-                    self.diagnostics.push(
-                        Diagnostic::error("failed to read module")
-                            .with_code(DiagnosticCode::ParseModuleRead)
-                            .with_label(Label::primary(span, message)),
-                    );
-                    return None;
-                }
-            };
-        self.load_file_bytes(&module_path, bytes, span)
+    fn load_module(
+        &mut self,
+        importer: &Path,
+        path: &[Name],
+        use_id: crate::syntax::arena::UseStmtId,
+        span: Span,
+    ) -> Option<String> {
+        match resolve_user_module(importer, path, &self.module_roots) {
+            Ok(UserModuleResolution::Standard) => None,
+            Ok(UserModuleResolution::Missing(paths)) => {
+                self.arena.set_use_searched_candidates(use_id, paths);
+                None
+            }
+            Ok(UserModuleResolution::Found { path, bytes }) => {
+                self.load_file_bytes(&path, bytes, span)
+            }
+            Err(message) => {
+                self.diagnostics.push(
+                    Diagnostic::error("failed to read module")
+                        .with_code(DiagnosticCode::ParseModuleRead)
+                        .with_label(Label::primary(span, message)),
+                );
+                None
+            }
+        }
     }
 
     fn load_file_bytes(
@@ -852,30 +855,11 @@ impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
             return Some(key);
         }
         let source_name = module_path.to_string_lossy().into_owned();
-        let source_id = match self
-            .sources
-            .add_file_from_utf8(source_name.clone(), bytes.clone())
-        {
-            Ok(source_id) => source_id,
-            Err(error) => {
-                let text = String::from_utf8_lossy(&bytes).into_owned();
-                let source_id = self.sources.add_file(source_name, text);
-                let offset = error.offset.min(
-                    self.sources
-                        .get(source_id)
-                        .map_or(0, crate::source::SourceFile::len),
-                );
-                self.diagnostics.push(
-                    Diagnostic::error("source file is not valid UTF-8")
-                        .with_code(DiagnosticCode::SourceInvalidUtf8)
-                        .with_label(Label::primary(
-                            Span::new(source_id, offset, offset),
-                            "invalid UTF-8 starts here",
-                        )),
-                );
-                return None;
-            }
-        };
+        let (source_id, diagnostics) = add_source_bytes(self.sources, &source_name, bytes);
+        if !diagnostics.is_empty() {
+            self.diagnostics.extend(diagnostics);
+            return None;
+        }
         let text = self
             .sources
             .get(source_id)
@@ -942,41 +926,33 @@ pub fn module_key(path: &Path) -> String {
         .into_owned()
 }
 
-#[allow(clippy::single_call_fn)]
-fn read_module_from_candidates(
-    importer: &Path,
-    path: &[Name],
-    extra_roots: &[PathBuf],
-) -> Result<(PathBuf, Vec<u8>), String> {
-    let candidates = resolve_module_path_candidates(importer, path, extra_roots);
-    let mut failures = Vec::new();
-    for candidate in candidates {
-        match fs::read(&candidate) {
-            Ok(bytes) => return Ok((candidate, bytes)),
-            Err(error) => failures.push(format!("`{}`: {error}", candidate.display())),
-        }
-    }
-    Err(format!(
-        "failed to read module; tried {}. Set XSH_MODULE_PATH, or `module_path` in the project's xsht-config.ini, to add module search roots",
-        failures.join(", ")
-    ))
+/// The filesystem outcome of resolving one import. Absence remains checker
+/// input; a candidate that cannot be read is a loading error.
+pub enum UserModuleResolution {
+    Standard,
+    Found { path: PathBuf, bytes: Vec<u8> },
+    Missing(Arc<[PathBuf]>),
 }
 
-/// Resolve a user import using the same search order as the runtime loader.
-///
-/// Tooling that builds a workspace graph must be able to discover imports
-/// without constructing a fresh arena-backed loader for every entry file.
-/// Standard-library modules are intentionally reported as absent because they
-/// do not correspond to user source files.
+/// Resolve a user import using the language's search order. A standard module
+/// has no source file, and missing candidates retain their actual search paths.
 pub fn resolve_user_module(
     importer: &Path,
     path: &[Name],
     extra_roots: &[PathBuf],
-) -> Result<Option<(PathBuf, Vec<u8>)>, String> {
+) -> Result<UserModuleResolution, String> {
     if path.len() == 1 && api_spec().is_standard_module(&path[0].as_str()) {
-        return Ok(None);
+        return Ok(UserModuleResolution::Standard);
     }
-    read_module_from_candidates(importer, path, extra_roots).map(Some)
+    let candidates = resolve_module_path_candidates(importer, path, extra_roots);
+    for candidate in &candidates {
+        match fs::read(candidate) {
+            Ok(bytes) => return Ok(UserModuleResolution::Found { path: candidate.clone(), bytes }),
+            Err(error) if matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => {}
+            Err(error) => return Err(format!("`{}`: {error}", candidate.display())),
+        }
+    }
+    Ok(UserModuleResolution::Missing(candidates.into()))
 }
 
 /// Where a `use` may load from, in search order: beside the importing file,
@@ -1023,6 +999,41 @@ fn module_path_from_base(base: &Path, path: &[Name]) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Search provenance is exposed through the Rust frontend, so the host
+    // test compares loaded imports and imports parsed without resolution.
+    #[test]
+    fn only_loaded_missing_imports_record_filesystem_candidates() {
+        let root = tempfile::TempDir::new().expect("create module fixture");
+        let entry = root.path().join("entry.xsh");
+        let module_root = root.path().join("modules");
+        let source = "use unavailable_module\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        let parsed_use = parsed.arena.arena.use_stmt(
+            match parsed.arena.arena.stmt(parsed.arena.statement_ids().next().unwrap()).kind {
+                ArenaStmtKind::Use(id) => id,
+                _ => panic!("expected import"),
+            },
+        );
+        assert!(parsed_use.searched_candidates.is_none());
+
+        let (_, loaded) = parse_load_entry_source_arena_only(
+            entry.to_str().expect("fixture path"),
+            entry_source_from_text(entry.to_str().unwrap(), source.to_string()),
+            vec![module_root.clone()],
+        );
+        assert!(loaded.diagnostics.is_empty(), "{:?}", loaded.diagnostics);
+        let loaded_use = loaded.arena.arena.use_stmt(
+            match loaded.arena.arena.stmt(loaded.arena.statement_ids().next().unwrap()).kind {
+                ArenaStmtKind::Use(id) => id,
+                _ => panic!("expected import"),
+            },
+        );
+        assert!(loaded_use.resolved.is_none());
+        let searched = loaded_use.searched_candidates.as_deref().expect("actual search paths");
+        assert_eq!(searched.first(), Some(&root.path().join("unavailable_module.xsh")));
+        assert!(searched.contains(&module_root.join("unavailable_module.xsh")));
+    }
 
     #[test]
     fn compact_file_unit_wraps_parsed_arena_without_checker_runtime_state() {

@@ -4,7 +4,7 @@ use super::{
     BTreeMap, Checker, CoreCommand, ErrorFamilyInfo, ErrorVariantInfo, FxHashSet, Name,
     QualifiedName, Span, TagVariantInfo, Type, TypeAnnRef, TypeDefBody, UserModuleSig, api_spec,
 };
-use crate::diagnostic::DiagnosticCode;
+use crate::diagnostic::{Diagnostic, DiagnosticCode, Label};
 use crate::sema::check::{
     Binding, ContractParam, FunctionParamSig, FunctionSig, ModuleContractEntry,
     ModuleContractEntryKind, SchemaField, TagVariant, standard_record_type,
@@ -602,6 +602,7 @@ impl Checker {
                         use_stmt.path,
                         use_stmt.alias,
                         use_stmt.resolved.as_deref(),
+                        use_stmt.searched_candidates.as_deref(),
                         stmt.span,
                     );
                 }
@@ -1142,6 +1143,7 @@ impl Checker {
         path: ArenaRange,
         alias: Option<Name>,
         resolved: Option<&str>,
+        searched_candidates: Option<&[std::path::PathBuf]>,
         span: Span,
     ) {
         let path_names: Vec<Name> = arena.arena.names(path).collect();
@@ -1162,11 +1164,22 @@ impl Checker {
             return;
         }
         if path_names.len() != 1 || api_spec().module(&path_names[0].as_str()).is_none() {
-            self.error(
-                span,
-                "only standard modules can be imported",
-                DiagnosticCode::CheckUnknownModule,
-            );
+            let mut diagnostic = Diagnostic::error("only standard modules can be imported")
+                .with_code(DiagnosticCode::CheckUnknownModule)
+                .with_label(Label::primary(span, "unknown module"));
+            if let Some(paths) = searched_candidates {
+                diagnostic.labels.push(Label::secondary(
+                    span,
+                    format!(
+                        "module search tried {}",
+                        paths.iter()
+                            .map(|path| format!("`{}`", path.display()))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                ));
+            }
+            self.diagnostics.push(diagnostic);
             return;
         }
         if let Some(alias) = alias {

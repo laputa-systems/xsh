@@ -10,6 +10,7 @@ use crate::syntax::token::{TokenTable, TokenTag};
 use std::mem::size_of;
 use std::num::NonZeroU32;
 use std::ops::{Deref, DerefMut};
+use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
 macro_rules! id_type {
@@ -1437,6 +1438,10 @@ impl<'a> ArenaProgramBuilder<'a> {
 
     pub fn set_use_resolved(&mut self, use_id: UseStmtId, key: Arc<str>) {
         self.lowerer.arena.use_stmts[use_id.index()].resolved = Some(key);
+    }
+
+    pub fn set_use_searched_candidates(&mut self, use_id: UseStmtId, paths: Arc<[PathBuf]>) {
+        self.lowerer.arena.use_stmts[use_id.index()].searched_candidates = Some(paths);
     }
 
     pub fn push_arena_module(&mut self, key: String, name: Name, statements: ArenaRange) {
@@ -6957,6 +6962,9 @@ pub struct ArenaUseStmt {
     pub path: ArenaRange,
     pub alias: Option<Name>,
     pub resolved: Option<Arc<str>>,
+    /// The loader's actual search paths for a user import it could not find.
+    /// An import parsed without filesystem loading has no search metadata.
+    pub searched_candidates: Option<Arc<[PathBuf]>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -8184,6 +8192,7 @@ impl ArenaLowerer<'_> {
             path,
             alias,
             resolved,
+            searched_candidates: None,
         });
         id
     }

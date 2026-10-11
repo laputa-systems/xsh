@@ -19,7 +19,9 @@ use xsh::diagnostic::{
     Diagnostic, DiagnosticCode, DiagnosticFamily, DiagnosticRenderer, Label, Severity,
 };
 use xsh::frontend::check::CheckOptions;
-use xsh::frontend::load::{module_key, parse_load_check_text, resolve_user_module};
+use xsh::frontend::load::{
+    UserModuleResolution, add_source_bytes, module_key, parse_load_check_text, resolve_user_module,
+};
 use xsh::frontend::source::{SourceId, SourceMap, Span};
 use xsh::frontend::symbols::{Name, SymbolOwner};
 use xsh::frontend::syntax::arena::{
@@ -369,32 +371,9 @@ impl WorkspaceLoader {
         }
 
         let display_path = path.to_string_lossy().into_owned();
-        let (source_id, text, mut diagnostics) = match self
-            .sources
-            .add_file_from_utf8(display_path.clone(), bytes.clone())
-        {
-            Ok(source_id) => {
-                let text = self
-                    .sources
-                    .get(source_id)
-                    .expect("source was just inserted")
-                    .text()
-                    .to_string();
-                (source_id, text, Vec::new())
-            }
-            Err(error) => {
-                let text = String::from_utf8_lossy(&bytes).into_owned();
-                let source_id = self.sources.add_file(display_path, text.clone());
-                let offset = error.offset.min(text.len());
-                let diagnostic = Diagnostic::error("source file is not valid UTF-8")
-                    .with_code(DiagnosticCode::SourceInvalidUtf8)
-                    .with_label(Label::primary(
-                        Span::new(source_id, offset, offset),
-                        "invalid UTF-8 starts here",
-                    ));
-                (source_id, text, vec![diagnostic])
-            }
-        };
+        let (source_id, mut diagnostics) =
+            add_source_bytes(&mut self.sources, &display_path, bytes);
+        let text = self.sources.get(source_id).expect("source was just inserted").text().to_string();
 
         let fragment = Parser::parse_source_into_arena_builder(source_id, &text, &mut self.builder);
         diagnostics.extend(fragment.diagnostics);
@@ -453,8 +432,11 @@ impl WorkspaceLoader {
                 )
             };
             match resolve_user_module(&importer, &path, &roots) {
-                Ok(None) => {}
-                Ok(Some((module_path, module_bytes))) => {
+                Ok(UserModuleResolution::Standard) => {}
+                Ok(UserModuleResolution::Missing(paths)) => {
+                    self.builder.set_use_searched_candidates(use_id, paths);
+                }
+                Ok(UserModuleResolution::Found { path: module_path, bytes: module_bytes }) => {
                     let target_key = module_key(&module_path);
                     let cycle = self.stack.contains(&target_key);
                     match self.load(module_path, module_bytes, roots) {
@@ -2546,7 +2528,7 @@ print ${name}
             ),
             (
                 "##! Choices.\nuse missing\n## An option.\nexport type Choice = One | Two\n",
-                Some("parse.module-read"),
+                Some("check.unknown-module"),
             ),
             (
                 "##! Choices.\n## An option.\nexport type Choice = One | Two\nlet broken: Int = \"wrong\"\n",
