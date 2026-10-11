@@ -701,6 +701,8 @@ pub(super) fn indexed_frame_apply_tag(tag: FullTag) -> bool {
             | FullTag::ExprStrByteLen
             | FullTag::ExprStrByteAt
             | FullTag::ExprStrPredicate
+            | FullTag::ExprGlob
+            | FullTag::ExprLastStatus
     )
 }
 
@@ -790,6 +792,7 @@ pub(super) fn indexed_str_byte_at_value(
 }
 
 pub(super) fn indexed_frame_apply_value(
+    evaluator: &Evaluator,
     execution: &FullExecution<'_>,
     instruction: u32,
     values: Vec<LoweredValue>,
@@ -863,6 +866,29 @@ pub(super) fn indexed_frame_apply_value(
                 &receiver, predicate, &needle, span,
             )?))
         }
+        ExprView::Glob { pattern, span } => {
+            assert!(values.next().is_none(), "glob has no operands");
+            let matches = crate::runtime::eval::expand_glob_pattern(&evaluator.cwd, pattern, span)?;
+            let values = matches
+                .into_iter()
+                .map(|bytes| {
+                    PathValue::new(bytes)
+                        .map(LoweredValue::Path)
+                        .map_err(|error| error.with_span(span))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(LoweredValue::List(values))
+        }
+        ExprView::LastStatus { span } => {
+            assert!(values.next().is_none(), "last status has no operands");
+            evaluator
+                .last_status
+                .clone()
+                .map(|status| LoweredValue::Status(Box::new(status)))
+                .ok_or_else(|| {
+                    RuntimeError::new("last-status", "`$?` is not set").with_span(span)
+                })
+        }
         _ => unreachable!("frame apply tag has a matching typed view"),
     }
 }
@@ -879,7 +905,18 @@ impl Evaluator {
         self.sync_indexed_root_slots(slots, call_span)?;
         let frame_scheduled = execution
             .instruction_id(instruction)
-            .map(|(tag, _)| matches!(tag, FullTag::ExprPipeline | FullTag::ExprBinary))
+            .map(|(tag, _)| {
+                matches!(
+                    tag,
+                    FullTag::ExprPipeline
+                        | FullTag::ExprBinary
+                        | FullTag::ExprPatternIf
+                        | FullTag::ExprStrMatch
+                        | FullTag::ExprTagMatch
+                        | FullTag::ExprGlob
+                        | FullTag::ExprLastStatus
+                )
+            })
             .map_err(|error| indexed_error(error, call_span))?;
         let result = if self.force_frames || frame_scheduled {
             self.eval_indexed_expr_with_frames(execution, instruction, slots, call_span)
@@ -1068,80 +1105,6 @@ impl Evaluator {
                 }
                 ControlFlow::Continue(LoweredValue::Bool(true))
             }
-            FullTag::ExprPatternIf => {
-                let (_, mut branches) = execution
-                    .block(&mut payload, BLOCK_LIST)
-                    .map_err(|error| indexed_error(error, call_span))?;
-                let count = indexed_raw(&mut branches, call_span)? as usize;
-                let mut decoded = Vec::with_capacity(count);
-                for _ in 0..count {
-                    let condition = indexed_raw(&mut branches, call_span)?;
-                    let value = indexed_raw(&mut branches, call_span)?;
-                    let captures =
-                        indexed_decode::<Vec<usize>>(&mut branches, execution, call_span)?;
-                    decoded.push((condition, value, captures));
-                }
-                indexed_finish(branches, call_span)?;
-                let else_value = indexed_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                for (condition, value, captures) in decoded {
-                    let scope_id = self.enter_owned_host_scope();
-                    let result = (|| {
-                        match self.eval_indexed_bool(execution, condition, slots, span)? {
-                            ControlFlow::Continue(false) => return Ok(StmtFlow::None),
-                            ControlFlow::Break(value) => return Ok(StmtFlow::Propagate(value)),
-                            ControlFlow::Continue(true) => {}
-                        }
-                        match self.eval_indexed_expr(execution, value, slots, span)? {
-                            ControlFlow::Continue(value) => Ok(StmtFlow::Value(value)),
-                            ControlFlow::Break(value) => Ok(StmtFlow::Return(value)),
-                        }
-                    })();
-                    match self.finish_indexed_pattern_scope(scope_id, &captures, slots, result)? {
-                        StmtFlow::None => {}
-                        StmtFlow::Value(value) => return Ok(ControlFlow::Continue(value)),
-                        StmtFlow::Propagate(value) | StmtFlow::Return(value) => {
-                            return Ok(ControlFlow::Break(value));
-                        }
-                        _ => unreachable!("expression branch produced statement control flow"),
-                    }
-                }
-                self.eval_indexed_expr(execution, else_value, slots, span)?
-            }
-            FullTag::ExprStrMatch | FullTag::ExprTagMatch => {
-                let value = indexed_raw(&mut payload, call_span)?;
-                let arm_count = indexed_raw(&mut payload, call_span)? as usize;
-                let mut arms = Vec::with_capacity(arm_count);
-                for _ in 0..arm_count {
-                    arms.push((
-                        indexed_decode::<Arc<str>>(&mut payload, execution, call_span)?,
-                        indexed_raw(&mut payload, call_span)?,
-                    ));
-                }
-                let fallback = indexed_optional_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let key = if tag == FullTag::ExprStrMatch {
-                    lowered_str_key(&value)
-                } else {
-                    lowered_tag_key(&value)
-                };
-                if let Some(key) = key
-                    && let Some((_, arm)) =
-                        arms.iter().find(|(candidate, _)| candidate.as_ref() == key)
-                {
-                    return self.eval_indexed_expr(execution, *arm, slots, call_span);
-                }
-                if let Some(fallback) = fallback {
-                    return self.eval_indexed_expr(execution, fallback, slots, call_span);
-                }
-                return Err(lowered_match_no_arm(span));
-            }
             FullTag::ExprResultFallback => {
                 let left = indexed_raw(&mut payload, call_span)?;
                 let right = indexed_raw(&mut payload, call_span)?;
@@ -1182,27 +1145,6 @@ impl Evaluator {
                 }
                 parts.finish()?;
                 ControlFlow::Continue(fmt.finish()?)
-            }
-            FullTag::ExprGlob => {
-                let pattern = indexed_decode::<Arc<str>>(&mut payload, execution, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let matches = crate::runtime::eval::expand_glob_pattern(&self.cwd, &pattern, span)?;
-                let mut values = Vec::with_capacity(matches.len());
-                for bytes in matches {
-                    values.push(LoweredValue::Path(
-                        PathValue::new(bytes).map_err(|error| error.with_span(span))?,
-                    ));
-                }
-                ControlFlow::Continue(LoweredValue::List(values))
-            }
-            FullTag::ExprLastStatus => {
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let status = self.last_status.clone().ok_or_else(|| {
-                    RuntimeError::new("last-status", "`$?` is not set").with_span(span)
-                })?;
-                ControlFlow::Continue(LoweredValue::Status(Box::new(status)))
             }
             FullTag::ExprMapLiteral => {
                 let mut map = BTreeMap::new();
@@ -1291,7 +1233,10 @@ impl Evaluator {
             // iteration and stream cancellation, and the boundaries that
             // captures, error contexts and context scopes put around their bodies.
             FullTag::ExprIf
+            | FullTag::ExprPatternIf
             | FullTag::ExprMatch
+            | FullTag::ExprStrMatch
+            | FullTag::ExprTagMatch
             | FullTag::ExprListComp
             | FullTag::ExprMapComp
             | FullTag::ExprCapture

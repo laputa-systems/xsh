@@ -1,5 +1,5 @@
 use super::{
-    Arc, Evaluator, FullExecution, LoweredValue, Name, RuntimeError, Span, StmtFlow, Value,
+    Arc, Evaluator, FullExecution, LoweredValue, Name, RuntimeError, Span, Value,
     indexed_error, lowered_error_value_has_facet, lowered_record_field,
     lowered_value_from_runtime_any, ValueView, value_matches_static_type,
 };
@@ -476,39 +476,4 @@ impl Evaluator {
         Ok(matched)
     }
 
-    pub(super) fn finish_indexed_pattern_scope(
-        &mut self,
-        scope_id: u64,
-        captures: &[usize],
-        slots: &mut [LoweredValue],
-        result: Result<StmtFlow, RuntimeError>,
-    ) -> Result<StmtFlow, RuntimeError> {
-        let parent_scope = self.parent_owned_host_scope();
-        if let Ok(
-            StmtFlow::Value(value)
-            | StmtFlow::Return(value)
-            | StmtFlow::Propagate(value)
-            | StmtFlow::Break(Some(value)),
-        ) = &result
-        {
-            self.transfer_owned_host_resources_in_lowered_value(value, parent_scope);
-        }
-        if let Err(error) = &result
-            && error.abort.is_none()
-            && error.propagated
-        {
-            self.transfer_owned_host_resources_in_runtime_error(error, parent_scope);
-        }
-        // Captures are iteration/branch locals. Retain escaping values before
-        // releasing these references and the condition's temporary resources.
-        for slot in captures {
-            slots[*slot] = LoweredValue::Unit;
-        }
-        let cleanup = self.exit_owned_host_scope(scope_id);
-        match (result, cleanup) {
-            (Err(error), _) => Err(error),
-            (Ok(_), Err(error)) => Err(error),
-            (Ok(flow), Ok(())) => Ok(flow),
-        }
-    }
 }

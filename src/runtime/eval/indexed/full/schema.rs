@@ -689,7 +689,7 @@ instruction_schema! {
             branches: Vec<(BuildExprId, BuildExprId, Vec<usize>)>,
             else_value: BuildExprId,
             span: Span,
-        } => ExprPatternIf = 35 [0; Operands; LegacyRecursive];
+        } => ExprPatternIf = 35 [0; Operands; FrameControl];
         MatchExpr {
             value: BuildExprId,
             arms: Vec<(BuildPatternId, Option<BuildExprId>, BuildExprId)>,
@@ -700,13 +700,13 @@ instruction_schema! {
             arms: FxHashMap<Arc<str>, BuildExprId>,
             fallback: Option<BuildExprId>,
             span: Span,
-        } => ExprStrMatch = 37 [0; Operands; LegacyRecursive];
+        } => ExprStrMatch = 37 [0; Operands; FrameControl];
         TagMatchExpr {
             value: BuildExprId,
             arms: FxHashMap<Arc<str>, BuildExprId>,
             fallback: Option<BuildExprId>,
             span: Span,
-        } => ExprTagMatch = 38 [0; Operands; LegacyRecursive];
+        } => ExprTagMatch = 38 [0; Operands; FrameControl];
         ResultFallback {
             left: BuildExprId,
             right: BuildExprId,
@@ -716,17 +716,16 @@ instruction_schema! {
             parts: Vec<LoweredFmtPart>,
             span: Span,
         } => ExprPathFmtString = 41 [0; Operands; FrameControl];
-        // A `g"..."` glob literal. Expanded against the current cwd at eval time into
-        // a `List[Path]` (mirrors the recursive evaluator's `eval_glob`).
+        // A `g"..."` glob literal expands against the current cwd at evaluation time.
         Glob {
             pattern: Arc<str>,
             span: Span,
-        } => ExprGlob = 42 [0; Operands; LegacyRecursive];
+        } => ExprGlob = 42 [0; Scheduled; FrameApply];
         // The `$?` last-process-status expression. Reads the evaluator's tracked
         // `last_status` at eval time, erroring if no process has run yet.
         LastStatus {
             span: Span,
-        } => ExprLastStatus = 43 [0; Operands; LegacyRecursive];
+        } => ExprLastStatus = 43 [0; Scheduled; FrameApply];
         Record(entries: Vec<LoweredRecordEntry>) => ExprRecord = 44 [0; Operands; FrameControl];
         // A missing key identifies a Map spread; keyed entries evaluate key before value.
         MapLiteral(entries: Vec<(Option<BuildExprId>, BuildExprId, Span)>) => ExprMapLiteral = 45 [0; Operands; FrameControl];
@@ -1382,8 +1381,6 @@ mod tests {
             ExprResultFallback
             ExprFmtString
             ExprPathFmtString
-            ExprGlob
-            ExprLastStatus
             ExprRecord
             ExprMapLiteral
             ExprRecordUpdate
@@ -1418,7 +1415,7 @@ mod tests {
             ExprTry
         "#;
         let names: Vec<_> = operands.split_whitespace().collect();
-        assert_eq!(names.len(), 74);
+        assert_eq!(names.len(), 72);
         for tag in INSTRUCTION_TAGS {
             let expected = if names.contains(&tag.name()) { InPlaceClass::Operands } else { InPlaceClass::Scheduled };
             assert_eq!(tag.in_place_class(), expected, "{}", tag.name());
@@ -1427,6 +1424,8 @@ mod tests {
         let scheduled_apply = [
             "ExprFunctionRef",
             "ExprPathFrom",
+            "ExprGlob",
+            "ExprLastStatus",
             "ExprEmptyMap",
             "ExprRange",
             "ExprTag",
@@ -1435,7 +1434,7 @@ mod tests {
             "ExprStrByteAt",
             "ExprStrPredicate",
         ];
-        assert_eq!(scheduled_apply.len(), 9);
+        assert_eq!(scheduled_apply.len(), 11);
         for name in scheduled_apply {
             let tag = INSTRUCTION_TAGS
                 .iter()
@@ -1489,6 +1488,8 @@ mod tests {
                 "ExprFunctionRef",
                 "ExprPathFrom",
                 "ExprParam",
+                "ExprGlob",
+                "ExprLastStatus",
                 "ExprList",
                 "ExprListBuild",
                 "ExprEmptyMap",
@@ -1511,6 +1512,13 @@ mod tests {
             FullTag::ExprLoop.frame_strategy(),
             FrameStrategy::LegacyRecursive
         );
+        for tag in [
+            FullTag::ExprPatternIf,
+            FullTag::ExprStrMatch,
+            FullTag::ExprTagMatch,
+        ] {
+            assert_eq!(tag.frame_strategy(), FrameStrategy::FrameControl, "{}", tag.name());
+        }
     }
 
     #[test]
