@@ -17,6 +17,7 @@ export type TreeNode = {
   orphan: Bool,
   cycle_break: Bool,
   cpu_total: rates.Rate,
+  cpu_total_per_core: rates.Rate,
   rss_total_bytes: Int?,
 }
 
@@ -145,6 +146,7 @@ export pure build(
       orphan: orphan,
       cycle_break: row.pid in cycle_breaks,
       cpu_total: row.cpu_percent,
+      cpu_total_per_core: row.cpu_percent_per_core,
       rss_total_bytes: row.rss_bytes,
     })
   }
@@ -171,14 +173,16 @@ export pure build(
       let pid = preorder[preorder.len() - index - 1]
       if let Ok(node) = nodes.get(pid) {
         var cpu_total = node.row.cpu_percent
+        var cpu_total_per_core = node.row.cpu_percent_per_core
         var rss_total = node.row.rss_bytes
         for child_pid in node.children {
           if let Ok(child) = nodes.get(child_pid) {
             cpu_total = add_rate(cpu_total, child.cpu_total)
+            cpu_total_per_core = add_rate(cpu_total_per_core, child.cpu_total_per_core)
             rss_total = add_bytes(rss_total, child.rss_total_bytes)
           }
         }
-        nodes = nodes.set(pid, {...node, cpu_total: cpu_total, rss_total_bytes: rss_total})
+        nodes = nodes.set(pid, {...node, cpu_total: cpu_total, cpu_total_per_core: cpu_total_per_core, rss_total_bytes: rss_total})
       }
     }
   }

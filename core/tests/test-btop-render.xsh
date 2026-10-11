@@ -7,6 +7,8 @@ use core.lib.btop_color as color
 use core.lib.btop_input as input
 use core.lib.btop_model as model
 use core.lib.btop_rates as rates
+use core.lib.btop_disks as disks
+use core.lib.system_report as report
 use core.tests.support.btop as fixture
 use tui
 
@@ -98,7 +100,7 @@ test test_btop_g4a_default_panels_use_upstream_relative_geometry_and_memory_disk
   assert screen.lines[8].split("")[44].starts_with("╭")
   assert screen.lines[17].starts_with("╭") and "Network" in screen.lines[17]
   assert screen.lines[17].split("")[44] != "╭"
-  assert "Disks unavailable" in screen.lines.join("\n")
+  assert "Storage absent" in screen.lines.join("\n")
   assert screen.row_roles[8] == color.Memory
   assert screen.row_roles[17] == color.Network
   assert "Processes" in (screen.lines[8].split("") |> drop(44).join(""))
@@ -134,6 +136,97 @@ test test_btop_g4a_cpu_memory_and_network_graphs_render_retained_history {
   assert "TX 2.00 KiB/s" in screen.lines.join("\n")
 }
 
+test test_btop_g4a_disk_panel_lists_mount_usage_rates_and_io_graph_modes {
+  let bundle = fs.tempdir()?
+  defer bundle.close()
+  fixture.write_b3_bundle(bundle, [])
+  let loaded = replay.load(bundle.host_path()?)?
+  let base = replay.models(loaded.observations)[1]
+  let first: disks.Device = {
+    identity: "41:8:0",
+    identity_state: report.Observed,
+    name: "sda",
+    major: 8,
+    minor: 0,
+    mount_targets: ["/mnt/data"],
+    filesystem: "ext4",
+    capacity_state: report.Observed,
+    capacity_age_ns: 1000000000,
+    total_bytes: 1073741824,
+    used_bytes: 268435456,
+    available_bytes: 805306368,
+    read_sectors: 10,
+    read_state: report.Observed,
+    read_bytes_per_second: {state: rates.Observed, value: 1024.0},
+    write_sectors: 20,
+    write_state: report.Observed,
+    write_bytes_per_second: {state: rates.Observed, value: 2048.0},
+    in_flight: 0,
+    in_flight_state: report.Observed,
+  }
+  let second: disks.Device = {
+    ...first,
+    identity: "52:259:0",
+    name: "nvme0n1",
+    major: 259,
+    minor: 0,
+    mount_targets: ["/var"],
+    total_bytes: 2147483648,
+    used_bytes: 1073741824,
+    available_bytes: 1073741824,
+  }
+  let value = {...base, storage: {block_state: report.Observed, mount_state: report.Observed, devices: [first, second]}}
+  let histories = graphs.observe(graphs.empty(), value)?
+  let initial = ui.initial(value, render.process_capacity(40))
+  let capabilities = terminal.detect({term: "xterm-256color", colorterm: "", no_color: false, lc_all: "C.UTF-8", lc_ctype: "", lang: "", rows: 40, cols: 120})
+  let screen = render.render_view_with_graphs(value, initial, 120, 40, [], histories, capabilities)?
+
+  assert "sda /mnt/data" in screen.lines.join("\n")
+  assert "nvme0n1 /var" in screen.lines.join("\n")
+  assert "256M/1G R1K/s W2K/s" in screen.lines.join("\n")
+  assert "IO " in screen.lines.join("\n")
+  assert "sda /mnt/data" in tui.cell_slice(screen.lines[14], 33, 32)
+  assert "256M/1G R1K/s W2K/s" in tui.cell_slice(screen.lines[15], 33, 32)
+  assert "nvme0n1 /var" in tui.cell_slice(screen.lines[16], 33, 32)
+  assert "1G/2G R1K/s W2K/s" in tui.cell_slice(screen.lines[17], 33, 32)
+  assert "IO " in tui.cell_slice(screen.lines[18], 33, 32)
+  assert screen.row_roles[14] == color.Memory
+
+  let io_view = ui.reduce(initial, input.Pressed(input.Text("i")), value)
+  let io_screen = render.render_view_with_graphs(value, io_view, 120, 40, [], histories, capabilities)?
+  assert tui.cell_slice(io_screen.lines[18], 33, 32).starts_with("R ")
+  assert tui.cell_slice(io_screen.lines[19], 33, 32).starts_with("W ")
+
+  let hidden_view = ui.reduce(initial, input.Pressed(input.Text("d")), value)
+  let hidden_screen = render.render_view_with_graphs(value, hidden_view, 120, 40, [], histories, capabilities)?
+  assert "Disks hidden" in hidden_screen.lines.join("\n")
+  assert "sda /mnt/data" not in hidden_screen.lines.join("\n")
+}
+
+test test_btop_network_interface_keys_select_rates_and_reset_display_totals {
+  let bundle = fs.tempdir()?
+  defer bundle.close()
+  fixture.write_b3_bundle(bundle, [])
+  let loaded = replay.load(bundle.host_path()?)?
+  let value = replay.models(loaded.observations)[1]
+  let initial = ui.initial(value, render.process_capacity(24))
+  let selected_state = ui.reduce(initial, input.Pressed(input.Text("n")), value)
+  let selected_history = graphs.observe(graphs.empty(), value, selected_state.network_interface)?
+  let capabilities = terminal.detect({term: "xterm-256color", colorterm: "", no_color: false, lc_all: "C.UTF-8", lc_ctype: "", lang: "", rows: 24, cols: 80})
+  let selected_screen = render.render_view_with_graphs(value, selected_state, 80, 24, [], selected_history, capabilities)?
+
+  assert "Interface lo" in selected_screen.lines.join("\n")
+  assert "RX 0.00 B/s  64 B total" in selected_screen.lines.join("\n")
+
+  let reset_state = ui.reduce(initial, input.Pressed(input.Text("z")), value)
+  let reset_screen = render.render_view_with_graphs(value, reset_state, 80, 24, [], graphs.observe(graphs.empty(), value)?, capabilities)?
+  assert "RX 10.00 KiB/s  0 B total" in reset_screen.lines.join("\n")
+
+  let restored_state = ui.reduce(reset_state, input.Pressed(input.Text("z")), value)
+  let restored_screen = render.render_view_with_graphs(value, restored_state, 80, 24, [], graphs.observe(graphs.empty(), value)?, capabilities)?
+  assert "RX 10.00 KiB/s  986.56 KiB total" in restored_screen.lines.join("\n")
+}
+
 test test_btop_g4a_process_tree_golden_shows_depth_collapse_and_aggregation {
   let bundle = fs.tempdir()?
   defer bundle.close()
@@ -151,9 +244,9 @@ test test_btop_g4a_process_tree_golden_shows_depth_collapse_and_aggregation {
   let value: model.Model = {
     ...base,
     processes: [
-      {...rows[0], parent_pid: 0, cpu_percent: {state: rates.Observed, value: 10.0}, cpu_average_percent: {state: rates.Observed, value: 10.0}, rss_bytes: 100},
-      {...rows[1], parent_pid: 42, cpu_percent: {state: rates.Observed, value: 3.0}, cpu_average_percent: {state: rates.Observed, value: 3.0}, rss_bytes: 20},
-      {...rows[2], parent_pid: 43, cpu_percent: {state: rates.Observed, value: 2.0}, cpu_average_percent: {state: rates.Observed, value: 2.0}, rss_bytes: 10},
+      {...rows[0], parent_pid: 0, cpu_percent: {state: rates.Observed, value: 10.0}, cpu_percent_per_core: {state: rates.Observed, value: 20.0}, cpu_average_percent: {state: rates.Observed, value: 10.0}, rss_bytes: 100},
+      {...rows[1], parent_pid: 42, cpu_percent: {state: rates.Observed, value: 3.0}, cpu_percent_per_core: {state: rates.Observed, value: 6.0}, cpu_average_percent: {state: rates.Observed, value: 3.0}, rss_bytes: 20},
+      {...rows[2], parent_pid: 43, cpu_percent: {state: rates.Observed, value: 2.0}, cpu_percent_per_core: {state: rates.Observed, value: 4.0}, cpu_average_percent: {state: rates.Observed, value: 2.0}, rss_bytes: 10},
     ],
   }
   let initial = ui.initial(value, render.process_capacity(24))
@@ -172,6 +265,11 @@ test test_btop_g4a_process_tree_golden_shows_depth_collapse_and_aggregation {
   let aggregate_child = aggregate_screen.lines[12].split("") |> drop(45) |> join("")
   assert aggregate_parent.starts_with("> [-] 42 1000 15.0% 130 B")
   assert aggregate_child.starts_with("    [-] 43 1000 5.0% 30 B")
+
+  let per_core = render.render_view(value, {...aggregate_state, process_cpu_per_core: true}, 80, 24, [])?
+  let per_core_parent = per_core.lines[11].split("") |> drop(45) |> join("")
+  assert "CPU/core%" in per_core.lines[9]
+  assert per_core_parent.starts_with("> [-] 42 1000 30.0% 130 B")
 
   let collapsed = ui.reduce(tree_mode, input.Pressed(input.Text("-")), value)
   let collapsed_screen = render.render_view(value, collapsed, 80, 24, [])?

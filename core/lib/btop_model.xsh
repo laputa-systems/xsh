@@ -36,6 +36,7 @@ export type ProcessRow = {
   uid_state: MetadataState,
   command: Str,
   cpu_percent: rates.Rate,
+  cpu_percent_per_core: rates.Rate,
   cpu_average_percent: rates.Rate,
   rss_bytes: Int?,
 }
@@ -73,7 +74,17 @@ export type MemoryPanel = {
   swap_free_state: report.ObservationState,
 }
 
-## Keeps one deterministically selected interface and its interval byte rates.
+## Keeps one interface's counters and interval byte rates for display selection.
+export type NetworkMetric = {
+  name: Str,
+  ifindex: Int?,
+  rx_bytes: Int,
+  tx_bytes: Int,
+  rx_bytes_per_second: rates.Rate,
+  tx_bytes_per_second: rates.Rate,
+}
+
+## Keeps the deterministic default interface and every measured interface.
 export type NetworkPanel = {
   source_state: report.ObservationState,
   interface_name: Str?,
@@ -81,6 +92,7 @@ export type NetworkPanel = {
   tx_bytes: Int?,
   rx_bytes_per_second: rates.Rate,
   tx_bytes_per_second: rates.Rate,
+  interfaces: List[NetworkMetric],
 }
 
 ## Holds the display-ready values for one sampling instant.
@@ -163,41 +175,74 @@ pure cpu_interval(current: Observation, previous: Observation?, gap: Bool) -> ra
   rates.cpu_percent(current.cpu.stat.aggregate, before.cpu.stat.aggregate)
 }
 
+pure prior_interface(
+  source: network.NetworkSource,
+  current: network.NetworkInterface,
+) -> network.NetworkInterface? {
+  for candidate in source.interfaces {
+    if candidate.name == current.name { return candidate }
+  }
+  null
+}
+
 pure interface_rate(
   current_observation: Observation,
-  current: network.NetworkInterface?,
+  current: network.NetworkInterface,
   previous: Observation?,
   receive: Bool,
   gap: Bool,
 ) -> rates.Rate {
-  if current == null {
-    return rate(rates.Unavailable)
-  }
-
-  if previous == null {
-    return rate(rates.Warming)
-  }
+  if previous == null { return rate(rates.Warming) }
 
   let before = previous ?? current_observation
   if current_observation.at_ns <= before.at_ns {
     return rate(rates.Invalid)
   }
 
-  if let prior = observed_interface(before.network) {
-    let now = current
-    if prior.name != now.name or prior.ifindex == null or now.ifindex == null or prior.ifindex != now.ifindex {
+  if let prior = prior_interface(before.network, current) {
+    if prior.ifindex == null or current.ifindex == null or prior.ifindex != current.ifindex {
       return rate(rates.Warming)
     }
-    if gap {
-      return rate(rates.Gap)
-    }
+    if gap { return rate(rates.Gap) }
 
-    let now_bytes = if receive { now.rx_bytes } else { now.tx_bytes }
+    let now_bytes = if receive { current.rx_bytes } else { current.tx_bytes }
     let prior_bytes = if receive { prior.rx_bytes } else { prior.tx_bytes }
     return rates.counter_rate(now_bytes, prior_bytes, elapsed_ns: current_observation.at_ns - before.at_ns)
   }
 
   rate(rates.Warming)
+}
+
+pure network_metrics(
+  current: Observation,
+  previous: Observation?,
+  gap: Bool,
+) -> List[NetworkMetric] {
+  collect {
+    for interface in current.network.interfaces {
+      yield {
+        name: interface.name,
+        ifindex: interface.ifindex,
+        rx_bytes: interface.rx_bytes,
+        tx_bytes: interface.tx_bytes,
+        rx_bytes_per_second: interface_rate(current, interface, previous, true, gap),
+        tx_bytes_per_second: interface_rate(current, interface, previous, false, gap),
+      }
+    }
+  }
+}
+
+pure find_network_metric(values: List[NetworkMetric], name: Str?) -> NetworkMetric? {
+  if name == null { return null }
+  for value in values {
+    if value.name == (name ?? "") { return value }
+  }
+  null
+}
+
+## Selects an already-derived network interface without changing its history.
+export pure network_metric(value: NetworkPanel, name: Str?) -> NetworkMetric? {
+  find_network_metric(value.interfaces, if name == null { value.interface_name } else { name })
 }
 
 const PROCESS_METADATA_TTL_NS = 5000000000
@@ -259,6 +304,7 @@ pure process_rate(
   previous_process: processes.Process?,
   row: processes.Process,
   gap: Bool,
+  per_core: Bool = false,
 ) -> rates.Rate {
   if row.cpu_ticks == null {
     return rate(rates.Unavailable)
@@ -292,6 +338,7 @@ pure process_rate(
       current.cpu.stat.aggregate,
       before.cpu.stat.aggregate,
       if core_count == 0 { 1 } else { core_count },
+      per_core: per_core,
     )
   }
 
@@ -362,6 +409,11 @@ export pure step_cached(
   let storage_previous: disks.Source? = if let before = baseline { before.storage } else { null }
   let storage_previous_at: Int? = if let before = baseline { before.at_ns } else { null }
   let selected = observed_interface(current.network)
+  let interface_metrics = network_metrics(current, baseline, gap)
+  let selected_metric = find_network_metric(
+    interface_metrics,
+    if let interface = selected { interface.name } else { null },
+  )
   let core_rows: List[CoreUsage] = collect {
     for core in current.cpu.stat.cores {
       yield {id: core.id, utilization: core_rate(current, baseline, prior_cores, core, gap)}
@@ -381,6 +433,7 @@ export pure step_cached(
           uid_state: uid.state,
           command: process_row.command,
           cpu_percent: process_rate(current, baseline, matched.previous, process_row, gap),
+          cpu_percent_per_core: process_rate(current, baseline, matched.previous, process_row, gap, per_core: true),
           cpu_average_percent: process_average_rate(current, process_row),
           rss_bytes: process_row.rss_bytes,
         },
@@ -417,8 +470,9 @@ export pure step_cached(
         interface_name: if let chosen = selected { chosen.name } else { null },
         rx_bytes: if let chosen = selected { chosen.rx_bytes } else { null },
         tx_bytes: if let chosen = selected { chosen.tx_bytes } else { null },
-        rx_bytes_per_second: interface_rate(current, selected, baseline, true, gap),
-        tx_bytes_per_second: interface_rate(current, selected, baseline, false, gap),
+        rx_bytes_per_second: if let chosen = selected_metric { chosen.rx_bytes_per_second } else { rate(rates.Unavailable) },
+        tx_bytes_per_second: if let chosen = selected_metric { chosen.tx_bytes_per_second } else { rate(rates.Unavailable) },
+        interfaces: interface_metrics,
       },
       process_state: current.processes.state,
       processes: process_rows
@@ -453,6 +507,7 @@ pure process_wire(row: ProcessRow) -> Any {
     uid_state: row.uid_state,
     command: row.command,
     cpu_percent: row.cpu_percent,
+    cpu_percent_per_core: row.cpu_percent_per_core,
     cpu_average_percent: row.cpu_average_percent,
     rss_bytes: row.rss_bytes,
   }
@@ -466,6 +521,17 @@ pure network_wire(value: NetworkPanel) -> Any {
     tx_bytes: counter_wire_text(value.tx_bytes),
     rx_bytes_per_second: value.rx_bytes_per_second,
     tx_bytes_per_second: value.tx_bytes_per_second,
+    interfaces: [
+      {
+        name: item.name,
+        ifindex: item.ifindex,
+        rx_bytes: f"{item.rx_bytes}",
+        tx_bytes: f"{item.tx_bytes}",
+        rx_bytes_per_second: item.rx_bytes_per_second,
+        tx_bytes_per_second: item.tx_bytes_per_second,
+      }
+      for item in value.interfaces
+    ],
   }
 }
 

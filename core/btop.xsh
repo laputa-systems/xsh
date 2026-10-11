@@ -89,6 +89,7 @@ proc wait_until(
   var view = initial_ui
   var last_drawn_ui = initial_ui
   var committed = initial_committed
+  var current_histories = histories
   while true {
     let now = time.monotonic()?
     let now_ms = now / 1000000
@@ -97,14 +98,17 @@ proc wait_until(
     let timed_input = apply_events(value, view, timed.events, local_display)
     view = timed_input.ui
     if timed_input.quit {
-      return Ok({quit: true, input: decoder, ui: view, committed: committed, graphs: histories})
+      return Ok({quit: true, input: decoder, ui: view, committed: committed, graphs: current_histories})
     }
     if view != last_drawn_ui {
-      committed = draw(value, view, current_rows, current_cols, committed, histories, capabilities, local_display)?
+      if view.network_interface != last_drawn_ui.network_interface {
+        current_histories = graph_series.observe(current_histories, value, view.network_interface)?
+      }
+      committed = draw(value, view, current_rows, current_cols, committed, current_histories, capabilities, local_display)?
       last_drawn_ui = view
     }
     if now >= deadline_ns {
-      return Ok({quit: false, input: decoder, ui: view, committed: committed, graphs: histories})
+      return Ok({quit: false, input: decoder, ui: view, committed: committed, graphs: current_histories})
     }
     let remaining_ms = (deadline_ns - now) / 1000000
     var wait_ms = if remaining_ms <= 0 { 1 } else if remaining_ms > WAIT_SLICE_MS { WAIT_SLICE_MS } else { remaining_ms }
@@ -125,10 +129,13 @@ proc wait_until(
       let received = apply_events(value, view, decoded.events, local_display)
       view = received.ui
       if received.quit {
-        return Ok({quit: true, input: decoder, ui: view, committed: committed, graphs: histories})
+        return Ok({quit: true, input: decoder, ui: view, committed: committed, graphs: current_histories})
       }
       if view != last_drawn_ui {
-        committed = draw(value, view, current_rows, current_cols, committed, histories, capabilities, local_display)?
+        if view.network_interface != last_drawn_ui.network_interface {
+          current_histories = graph_series.observe(current_histories, value, view.network_interface)?
+        }
+        committed = draw(value, view, current_rows, current_cols, committed, current_histories, capabilities, local_display)?
         last_drawn_ui = view
       }
     }
@@ -137,10 +144,10 @@ proc wait_until(
       current_rows = size.rows
       current_cols = size.cols
       view = ui.resize(view, value, renderer.process_capacity(current_rows))
-      committed = draw(value, view, current_rows, current_cols, committed, histories, capabilities, local_display)?
+      committed = draw(value, view, current_rows, current_cols, committed, current_histories, capabilities, local_display)?
     }
   }
-  Ok({quit: false, input: decoder, ui: view, committed: committed, graphs: histories})
+  Ok({quit: false, input: decoder, ui: view, committed: committed, graphs: current_histories})
 }
 
 pure limited_observations(observations: List[model.Observation], count: Int?) -> List[model.Observation] {
@@ -186,10 +193,11 @@ proc dump_frames(
     let capabilities = terminal.detect(display)
     var lines: List[Str] = []
     for frame in frames {
-      histories = graph_series.observe(histories, frame)?
+      let view = ui.initial(frame, renderer.process_capacity(display.rows))
+      histories = graph_series.observe(histories, frame, view.network_interface)?
       let screen = renderer.render_view_with_graphs(
         frame,
-        ui.initial(frame, renderer.process_capacity(display.rows)),
+        view,
         display.cols,
         display.rows,
         [],
@@ -223,9 +231,9 @@ proc interactive_replay(bundle: replay.Bundle, count: Int?) [process, time, io, 
   var rows = session.capabilities.rows
   var cols = session.capabilities.cols
   var histories = graph_series.empty()
-  histories = graph_series.observe(histories, frames[0])?
   var decoder = input.initial()
   var view = ui.initial(frames[0], renderer.process_capacity(rows))
+  histories = graph_series.observe(histories, frames[0], view.network_interface)?
   var committed = surface.initial()
   committed = draw(frames[0], view, rows, cols, committed, histories, session.capabilities)?
   for index in range(1, frames.len()) {
@@ -250,9 +258,9 @@ proc interactive_replay(bundle: replay.Bundle, count: Int?) [process, time, io, 
     let size = unix.window_size(1)?
     rows = size.rows
     cols = size.cols
-    histories = graph_series.observe(histories, frames[index])?
     view = ui.refresh(view, frames[index])
     view = ui.resize(view, frames[index], renderer.process_capacity(rows))
+    histories = graph_series.observe(histories, frames[index], view.network_interface)?
     committed = draw(frames[index], view, rows, cols, committed, histories, session.capabilities)?
   }
   return
@@ -307,8 +315,8 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
   var metadata_cache = first_model.metadata
   var current = first_model.value
   var local_display = sysproc.collect_local_display(root, observation.processes.processes)
-  var histories = graph_series.observe(graph_series.empty(), current)?
   var view = ui.initial(current, renderer.process_capacity(rows))
+  var histories = graph_series.observe(graph_series.empty(), current, view.network_interface)?
   var committed = surface.initial()
   while true {
     committed = draw(current, view, rows, cols, committed, histories, session.capabilities, local_display)?
@@ -373,8 +381,8 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
       let next_model = model.step_cached(observation, previous, metadata_cache, gap: ticket.coalesced > 0)
       metadata_cache = next_model.metadata
       current = next_model.value
-      histories = graph_series.observe(histories, current)?
       view = ui.refresh(view, current, local_display)
+      histories = graph_series.observe(histories, current, view.network_interface)?
     } else {
       return Err(error.failure("sample deadline expired without a due ticket"))
     }

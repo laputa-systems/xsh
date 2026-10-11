@@ -12,6 +12,7 @@ pure process_row(pid: Int, parent_pid: Int, start_ticks: Int, cpu_rate: rates.Ra
     uid_state: model.Fresh,
     command: f"process-{pid}",
     cpu_percent: cpu_rate,
+    cpu_percent_per_core: cpu_rate,
     cpu_average_percent: cpu_rate,
     rss_bytes: rss_bytes,
   }

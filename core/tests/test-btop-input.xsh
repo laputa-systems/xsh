@@ -45,6 +45,13 @@ test test_btop_g2_input_emits_multiple_events_from_one_read {
   assert decoded.state.pending.is_empty()
 }
 
+test test_btop_input_unsupported_mouse_sequences_are_ignored {
+  let decoded = input.push(input.initial(), b"\x1b[<0;12;4M\x1b[<0;12;4m", 100)
+
+  assert decoded.events.is_empty()
+  assert decoded.state.pending.is_empty()
+}
+
 test test_btop_g2_input_escape_timeout_has_replayable_boundary {
   let waiting = input.push(input.initial(), b"\x1b", 100)
   let before = input.timeout(waiting.state, 134)

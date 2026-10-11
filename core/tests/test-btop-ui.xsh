@@ -160,9 +160,9 @@ test test_btop_ui_process_tree_toggle_collapse_children_and_aggregate {
   let value: model.Model = {
     ...base,
     processes: [
-      {...rows[0], parent_pid: 0, cpu_percent: {state: rates.Observed, value: 10.0}, cpu_average_percent: {state: rates.Observed, value: 10.0}, rss_bytes: 100},
-      {...rows[1], parent_pid: 42, cpu_percent: {state: rates.Observed, value: 3.0}, cpu_average_percent: {state: rates.Observed, value: 3.0}, rss_bytes: 20},
-      {...rows[2], parent_pid: 43, cpu_percent: {state: rates.Observed, value: 2.0}, cpu_average_percent: {state: rates.Observed, value: 2.0}, rss_bytes: 10},
+      {...rows[0], parent_pid: 0, cpu_percent: {state: rates.Observed, value: 10.0}, cpu_percent_per_core: {state: rates.Observed, value: 20.0}, cpu_average_percent: {state: rates.Observed, value: 10.0}, rss_bytes: 100},
+      {...rows[1], parent_pid: 42, cpu_percent: {state: rates.Observed, value: 3.0}, cpu_percent_per_core: {state: rates.Observed, value: 6.0}, cpu_average_percent: {state: rates.Observed, value: 3.0}, rss_bytes: 20},
+      {...rows[2], parent_pid: 43, cpu_percent: {state: rates.Observed, value: 2.0}, cpu_percent_per_core: {state: rates.Observed, value: 4.0}, cpu_average_percent: {state: rates.Observed, value: 2.0}, rss_bytes: 10},
     ],
   }
   let initial = ui.initial(value, 3)
@@ -214,21 +214,29 @@ test test_btop_ui_process_tree_toggle_collapse_children_and_aggregate {
   assert [row.pid for row in ui.visible_processes(value, flat_again)] == [42, 43, 44]
 }
 
-test test_btop_ui_out_of_scope_process_actions_are_noops {
+test test_btop_ui_out_of_scope_bindings_do_not_mutate_the_view {
   let root = fs.tempdir()?
   defer root.close()
   let frames = prepare_frames(root)?
   let value = frames[1]
   let initial = ui.initial(value, 3)
   for key in [
-    "m", "p", "P", "1", "2", "3", "4", "5", "o", "?", "h", "H",
+    "m", "p", "P", "1", "2", "3", "4", "5", "o", "?", "h", "H", "F",
     "j", "k", "l", "g", "G", "K", "u", "t", "s", "N",
+    "w", "W", "v", "V", "x", "X",
   ] {
     assert press(initial, value, input.Text(key)) == initial
   }
-  for key in [input.Escape, input.Enter, input.Tab, input.Cancel, input.Function(1), input.Function(2), input.Control(18)] {
+  for key in [
+    input.Escape, input.Enter, input.Tab, input.Backspace, input.Delete, input.Cancel,
+    input.Function(1), input.Function(2), input.Control(18), input.Control(26),
+  ] {
     assert press(initial, value, key) == initial
   }
+  for number in range(3, 13) {
+    assert press(initial, value, input.Function(number)) == initial
+  }
+  assert ui.reduce(initial, input.Paste("n", false), value) == initial
   assert press(initial, value, input.Text("C")) == initial
   assert press(initial, value, input.Text("E")) == initial
   assert press(initial, value, input.Text("+")) == initial
@@ -244,6 +252,8 @@ test test_btop_ui_pinned_network_and_process_memory_bindings_toggle_only_their_v
   assert initial.process_memory_bytes
   assert initial.network_auto
   assert initial.network_sync
+  assert initial.show_disks and ! initial.disk_io_mode
+  assert ! initial.process_cpu_per_core
 
   let manual_network = press(initial, value, input.Text("a"))
   assert ! manual_network.network_auto
@@ -255,6 +265,31 @@ test test_btop_ui_pinned_network_and_process_memory_bindings_toggle_only_their_v
   assert ! percent_memory.process_memory_bytes
   assert percent_memory.sort == initial.sort
   assert percent_memory.selected == initial.selected
+
+  let per_core = press(initial, value, input.Text("c"))
+  assert per_core.process_cpu_per_core
+  assert per_core.process_memory_bytes == initial.process_memory_bytes
+  assert per_core.selected == initial.selected
+
+  let disks_hidden = press(initial, value, input.Text("d"))
+  assert ! disks_hidden.show_disks
+  assert disks_hidden.disk_io_mode == initial.disk_io_mode
+  let disk_io = press(initial, value, input.Text("i"))
+  assert disk_io.disk_io_mode
+  assert disk_io.show_disks == initial.show_disks
+
+  let next_network = press(initial, value, input.Text("n"))
+  assert next_network.network_interface == "lo"
+  let previous_network = press(next_network, value, input.Text("b"))
+  assert previous_network.network_interface == "eth0"
+
+  let totals_reset = press(initial, value, input.Text("z"))
+  let selected_network = ui.selected_network_interface(totals_reset, value)
+  assert ui.network_total_bytes(totals_reset, selected_network, true) == 0
+  assert ui.network_total_bytes(totals_reset, selected_network, false) == 0
+  let totals_restored = press(totals_reset, value, input.Text("z"))
+  assert ui.network_total_bytes(totals_restored, ui.selected_network_interface(totals_restored, value), true) == 1010240
+  assert ui.network_total_bytes(totals_restored, ui.selected_network_interface(totals_restored, value), false) == 502048
 }
 
 test test_btop_ui_supports_every_pinned_process_sort_and_direction {

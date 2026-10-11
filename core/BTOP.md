@@ -3,9 +3,9 @@
 This is the fixed Linux monitor for the in-scope default behavior inventoried
 from btop v1.4.7. The collector, interval reducer, replay loader, terminal loop,
 process-list state, and renderer are XSH. It shows CPU, memory, network, and
-process panels in a bounded terminal-cell layout. CPU temperature, frequency,
-and battery status appear as CPU-panel readings when their kernel sources are
-observed.
+process panels in a bounded terminal-cell layout. The memory panel includes
+mounted-device capacity and block I/O. CPU temperature, frequency, and battery
+status appear as CPU-panel readings when their kernel sources are observed.
 
 ## Running the monitor
 
@@ -77,7 +77,9 @@ each process's `utime + stime` over the aggregate CPU interval; CPU lazy sorts b
 the process's lifetime-average CPU and promotes recent high-use processes. RSS
 uses resident pages times the injected page size. A process's start time is
 part of its identity, so a reused PID has no inherited rate or display text.
-Model JSON rows include the lifetime-average CPU rate used by CPU lazy sorting.
+The `c` key switches process CPU display and direct sorting from the all-core
+percentage to the per-logical-core percentage. Model JSON rows include both
+rates and the lifetime-average CPU rate used by CPU lazy sorting.
 
 Collection classes use absolute deadlines: counters refresh each second, gauges
 every five seconds, blocking capacity reads every thirty seconds, and inventory
@@ -90,9 +92,11 @@ marker; after that it is unavailable. A command change, source change, process
 exit, or PID reuse invalidates that cached UID.
 
 When a counter deadline is skipped, interval rates show `gap` for that sample
-and resume after the next complete interval. Model dumps encode network byte
-counters and process start ticks as canonical decimal strings; internal rate
-math keeps them as signed 64-bit integers. Disk sector counters and mount
+and resume after the next complete interval. `network.interfaces` in model
+dumps includes the derived counters and rates for each observed interface; the
+top-level network values describe the pinned default interface. Network byte
+counters and process start ticks are canonical decimal strings, while internal
+rate math keeps them as signed 64-bit integers. Disk sector counters and mount
 capacity bytes use the same decimal-string wire form.
 
 CPU rates use the first eight aggregate `/proc/stat` counters, subtract guest
@@ -123,6 +127,11 @@ name-sorted non-loopback interface, or loopback only when it is the only
 interface, and displays byte totals and interval rates in bytes per second
 with binary KiB/s and MiB/s labels. The network source's observed empty list
 remains distinct from a failed read.
+`b` and `n` cycle through observed interface names in sorted order. Selecting a
+different interface starts its network graph at that interface's current
+sample instead of carrying the previous interface's history. `z` toggles the
+displayed byte totals between source counters and values since the current
+interface's offset; it does not alter interval rates.
 
 Block statistics refresh with the one-second counter sample. Read and write
 sector deltas use Linux's fixed 512-byte accounting sectors, independent of
@@ -133,8 +142,8 @@ device's `diskseq` and major/minor pair; a partition inherits its containing
 disk's sequence. If that identity is unavailable, the row retains capacity
 but its I/O rates stay unavailable. Mount capacity refreshes every thirty
 seconds, keeps total, used, and user-available bytes separate, and comes from
-captured statvfs results during replay. The model carries `capacity_age_ns` so
-the disk panel can label values reused between those refreshes.
+captured statvfs results during replay. The model carries `capacity_age_ns` for
+consumers that need the age of a reused capacity observation.
 
 If collection finishes after multiple deadlines, the monitor records the
 skipped intervals and starts one fresh sample instead of running a catch-up
@@ -168,10 +177,17 @@ clipping.
 
 The `%` key switches the process memory column from bytes to a percentage of
 total physical memory. `a` toggles automatic network graph scaling and `y`
-uses one shared scale for receive and transmit. These controls change only the
-current view; the monitor has no settings menu or configuration file. Other
-upstream controls outside the read-only contract, including process actions,
-menu keys, panel-layout keys, and alternate vim bindings, have no effect.
+uses one shared scale for receive and transmit. `d` hides or shows mounted disk
+details. The default disk view shows each visible device and mount with used
+and total capacity plus read/write byte rates; `i` switches from a combined
+I/O graph to separate read and write graphs. The graphs follow the first
+identified mounted device by disk sequence and device number. The selected
+process identity stays visible across updates and sort changes, so the
+read-only list follows it without a separate follow mode. These controls change
+only the current view;
+the monitor has no settings menu or configuration file. Other upstream controls
+outside the read-only contract, including process actions, menu keys,
+panel-layout keys, and alternate vim bindings, have no effect.
 
 Terminal input and alternate-screen modes are owned by one XSH session and are
 restored on normal return, key exit, EOF, handled write failure, partial start,
@@ -198,10 +214,11 @@ The default layout places CPU across the top at 32% of terminal height. The
 lower area puts Memory / Disks in the left 55% and Processes on the right; the
 Network panel replaces the lower 60% of the left column. The memory panel
 reserves a disk section even when no device rows are available. CPU, memory,
-network, and temperature graphs retain up to 600 source samples independently
-of the visible width; resize changes only the viewport. Braille graphs are
-used with UTF-8 terminals and ASCII marks otherwise. Graph gaps preserve time
-positions and autoscaling includes every retained spike.
+network, temperature, and the selected-device I/O graphs retain up to 600
+source samples independently of the visible width; resize changes only the
+viewport. Braille graphs are used with UTF-8 terminals and ASCII marks
+otherwise. Graph gaps preserve time positions and autoscaling includes every
+retained spike.
 
 The built-in panel palette is defined in truecolor. It maps to the nearest
 xterm 256-color cube or grayscale entry, then to the nearest standard 16-color
@@ -278,8 +295,9 @@ Focused host release tests are kept with the implementation:
   real delta with a fresh full frame and drive interactive sorting, filtering,
   selection, and resize.
 - The release PTY latency probe sent 100 sort events between replay frames 60
-  seconds apart. On Alpine x86_64 musl, input-to-present p95 was 1.277 ms and
-  p99 was 1.376 ms; replay sampling stayed on its separate recorded interval.
+  seconds apart. The final run on Alpine x86_64 musl measured input-to-present
+  p95 2.955 ms and p99 3.014 ms; replay sampling stayed on its separate
+  recorded interval.
 - `rg -n -i btop src crates stdlib` found no monitor-specific native code.
 
 These tests establish host release behavior. Linux qualification is recorded
@@ -287,9 +305,8 @@ separately in `dev/btop-progress.json`.
 
 ## Current limits
 
-The disk readers and rate model are implemented, but the memory panel currently
-shows an explicit unavailable marker in the disk section. Battery behavior is
-fixture-tested only; live hardware battery behavior has not been verified.
+Battery behavior is fixture-tested only; live hardware battery behavior has
+not been verified.
 GPU, process details and mutations, configuration menus, signal-driven
 terminal restoration, and non-Linux live collectors are outside this monitor
 surface.

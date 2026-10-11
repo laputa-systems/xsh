@@ -31,8 +31,16 @@ export type State = {
   collapsed: Set[Str],
   aggregate_children: Bool,
   process_memory_bytes: Bool,
+  process_cpu_per_core: Bool,
   network_auto: Bool,
   network_sync: Bool,
+  network_interface: Str?,
+  network_offset_interface: Str?,
+  network_offset_ifindex: Int?,
+  network_rx_offset: Int?,
+  network_tx_offset: Int?,
+  show_disks: Bool,
+  disk_io_mode: Bool,
 }
 type LocalDisplayIndex = Map[Int, processes.LocalProcessDisplay]
 
@@ -43,6 +51,7 @@ export type VisibleRow = {
   has_children: Bool,
   collapsed: Bool,
   cpu_total: rates.Rate,
+  cpu_total_per_core: rates.Rate,
   rss_total_bytes: Int?,
 }
 
@@ -115,7 +124,11 @@ pure cpu_value(value: rates.Rate) -> Float {
   if rate_available(value) { value.value ?? 0.0 } else { 0.0 }
 }
 
-pure promote_cpu_spikes(rows: List[model.ProcessRow]) -> List[model.ProcessRow] {
+pure displayed_cpu(row: model.ProcessRow, state: State) -> rates.Rate {
+  if state.process_cpu_per_core { row.cpu_percent_per_core } else { row.cpu_percent }
+}
+
+pure promote_cpu_spikes(rows: List[model.ProcessRow], state: State) -> List[model.ProcessRow] {
   if rows.is_empty() { return rows }
   var maximum = 10.0
   var target = 30.0
@@ -124,7 +137,7 @@ pure promote_cpu_spikes(rows: List[model.ProcessRow]) -> List[model.ProcessRow] 
   var ordered = rows
   for index in range(ordered.len()) {
     let row = ordered[index]
-    let value = cpu_value(row.cpu_percent)
+    let value = cpu_value(displayed_cpu(row, state))
     if index <= 5 and value > maximum {
       maximum = value
     } else if index == 6 {
@@ -164,13 +177,13 @@ pure sort_processes(
       |> sort-by(desc: !state.reverse) { |row| row.rss_bytes ?? 0 }
       |> sort-by { |row| if row.rss_bytes == null { 1 } else { 0 } }
     CpuDirect => by_pid
-      |> sort-by(desc: !state.reverse) { |row| cpu_sort_value(row.cpu_percent, 10) }
-      |> sort-by { |row| if rate_available(row.cpu_percent) { 0 } else { 1 } }
+      |> sort-by(desc: !state.reverse) { |row| cpu_sort_value(displayed_cpu(row, state), 10) }
+      |> sort-by { |row| if rate_available(displayed_cpu(row, state)) { 0 } else { 1 } }
     CpuLazy => by_pid
       |> sort-by(desc: !state.reverse) { |row| cpu_sort_value(row.cpu_average_percent, 1000000) }
       |> sort-by { |row| if rate_available(row.cpu_average_percent) { 0 } else { 1 } }
   }
-  if state.sort == CpuLazy and !state.reverse { promote_cpu_spikes(ordered) } else { ordered }
+  if state.sort == CpuLazy and !state.reverse { promote_cpu_spikes(ordered, state) } else { ordered }
 }
 
 pure local_display_index(values: List[processes.LocalProcessDisplay]) -> LocalDisplayIndex {
@@ -213,6 +226,7 @@ pure process_tree_rows(
         has_children: false,
         collapsed: false,
         cpu_total: row.cpu_percent,
+        cpu_total_per_core: row.cpu_percent_per_core,
         rss_total_bytes: row.rss_bytes,
       }
       for row in filtered
@@ -277,6 +291,7 @@ pure process_tree_rows(
       has_children: has_children,
       collapsed: collapsed,
       cpu_total: node.cpu_total,
+      cpu_total_per_core: node.cpu_total_per_core,
       rss_total_bytes: node.rss_total_bytes,
     }]
     if collapsed { hidden_depth = node.depth }
@@ -310,6 +325,82 @@ pure active_collapses(state: State, value: model.Model) -> Set[Str] {
     if key in identities { retained = retained.add(key) }
   }
   retained
+}
+
+pure active_network_interface(state: State, value: model.Model) -> Str? {
+  if state.network_interface != null {
+    for interface in value.network.interfaces {
+      if interface.name == (state.network_interface ?? "") { return state.network_interface }
+    }
+  }
+  value.network.interface_name
+}
+
+## Returns the selected interface's already-derived rates and counters.
+export pure selected_network_interface(state: State, value: model.Model) -> model.NetworkMetric? {
+  model.network_metric(value.network, active_network_interface(state, value))
+}
+
+## Returns a selected network counter after applying the optional display offset.
+export pure network_total_bytes(state: State, interface: model.NetworkMetric?, receive: Bool) -> Int? {
+  if let selected = interface {
+    let current = if receive { selected.rx_bytes } else { selected.tx_bytes }
+    if state.network_offset_interface != selected.name or state.network_offset_ifindex != selected.ifindex { return current }
+    let offset = if receive { state.network_rx_offset } else { state.network_tx_offset }
+    if offset == null { return current }
+    if current < (offset ?? 0) { return null }
+    return current - (offset ?? 0)
+  }
+  null
+}
+
+pure toggle_network_offset(state: State, value: model.Model) -> State {
+  if let interface = selected_network_interface(state, value) {
+    if state.network_offset_interface == interface.name and state.network_offset_ifindex == interface.ifindex and
+        state.network_rx_offset != null and state.network_tx_offset != null {
+      return {
+        ...state,
+        network_offset_interface: null,
+        network_offset_ifindex: null,
+        network_rx_offset: null,
+        network_tx_offset: null,
+      }
+    }
+    return {
+      ...state,
+      network_offset_interface: interface.name,
+      network_offset_ifindex: interface.ifindex,
+      network_rx_offset: interface.rx_bytes,
+      network_tx_offset: interface.tx_bytes,
+    }
+  }
+  state
+}
+
+pure select_network_interface(state: State, value: model.Model, direction: Int) -> State {
+  let interfaces = value.network.interfaces
+  if interfaces.is_empty() { return state }
+  let selected_name = active_network_interface(state, value)
+  var selected_index: Int? = null
+  for index in range(interfaces.len()) {
+    if interfaces[index].name == selected_name { selected_index = index }
+  }
+  let current = selected_index ?? 0
+  let next = if direction < 0 {
+    if current == 0 { interfaces.len() - 1 } else { current - 1 }
+  } else if current + 1 == interfaces.len() {
+    0
+  } else {
+    current + 1
+  }
+  {
+    ...state,
+    network_interface: interfaces[next].name,
+    network_offset_interface: null,
+    network_offset_ifindex: null,
+    network_rx_offset: null,
+    network_tx_offset: null,
+  }
 }
 
 pure collapse_selected(state: State, value: model.Model, action: Str) -> State {
@@ -399,7 +490,11 @@ pure reconcile(
   value: model.Model,
   local_display: List[processes.LocalProcessDisplay] = [],
 ) -> State {
-  let current = {...state, collapsed: active_collapses(state, value)}
+  let current = {
+    ...state,
+    collapsed: active_collapses(state, value),
+    network_interface: active_network_interface(state, value),
+  }
   let rows = visible_processes(value, current, local_display)
   if rows.is_empty() { return {...current, selected: null, scroll: 0} }
   let selected = if selected_index(rows, current.selected) != null {
@@ -439,8 +534,16 @@ export pure initial(value: model.Model, visible_rows: Int) -> State {
     collapsed: set.empty(),
     aggregate_children: defaults.aggregate_process_children(),
     process_memory_bytes: defaults.process_memory_in_bytes(),
+    process_cpu_per_core: defaults.process_per_core_enabled(),
     network_auto: defaults.network_auto_enabled(),
     network_sync: defaults.network_scales_synchronized(),
+    network_interface: value.network.interface_name,
+    network_offset_interface: null,
+    network_offset_ifindex: null,
+    network_rx_offset: null,
+    network_tx_offset: null,
+    show_disks: defaults.disks_enabled(),
+    disk_io_mode: defaults.disk_io_mode_enabled(),
   }, value)
 }
 
@@ -540,10 +643,16 @@ pure browse_key(
     }
     input.Left => reconcile({...state, sort: previous_sort(state.sort)}, value, local_display)
     input.Right => reconcile({...state, sort: next_sort(state.sort)}, value, local_display)
+    input.Text("b") => reconcile(select_network_interface(state, value, -1), value, local_display)
+    input.Text("n") => reconcile(select_network_interface(state, value, 1), value, local_display)
     input.Text("r") => reconcile({...state, reverse: !state.reverse}, value, local_display)
+    input.Text("c") => reconcile({...state, process_cpu_per_core: !state.process_cpu_per_core}, value, local_display)
+    input.Text("z") => reconcile(toggle_network_offset(state, value), value, local_display)
     input.Text("a") => reconcile({...state, network_auto: !state.network_auto}, value, local_display)
     input.Text("y") => reconcile({...state, network_sync: !state.network_sync}, value, local_display)
     input.Text("%") => reconcile({...state, process_memory_bytes: !state.process_memory_bytes}, value, local_display)
+    input.Text("d") => {...state, show_disks: !state.show_disks}
+    input.Text("i") => {...state, disk_io_mode: !state.disk_io_mode}
     input.Text("e") => reconcile({...state, tree_view: !state.tree_view}, value, local_display)
     input.Text("E") => if state.tree_view { reconcile(toggle_all_children(state, value), value, local_display) } else { state }
     input.Text("+") => if state.tree_view { reconcile(collapse_selected(state, value, "expand"), value, local_display) } else { state }

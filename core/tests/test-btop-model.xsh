@@ -35,17 +35,22 @@ test test_btop_model_matches_the_independent_b3_monitor_oracle {
   assert (first.cpu_cores |> map .utilization.state) == [rates.Warming, rates.Warming]
   assert first.network.rx_bytes_per_second.state == rates.Warming
   assert first.processes[0].cpu_percent.state == rates.Warming
+  assert first.processes[0].cpu_percent_per_core.state == rates.Warming
   assert next.cpu_percent.value?.format(precision: 1) == "40.0"
   assert (next.cpu_cores |> map .id) == [0, 1]
   assert next.cpu_cores[0].utilization.value == 40.0
   assert next.cpu_cores[1].utilization.value == 40.0
   assert next.processes[0].cpu_percent.value?.format(precision: 1) == "12.5"
+  assert next.processes[0].cpu_percent_per_core.value?.format(precision: 1) == "25.0"
   assert next.processes[0].rss_bytes == 67108864
   assert next.processes[0].uid == 1000
   assert next.memory.used_bytes.value == 805306368
   assert next.network.interface_name == "eth0"
   assert next.network.rx_bytes_per_second.value == 10240.0
   assert next.network.tx_bytes_per_second.value == 2048.0
+  assert [interface.name for interface in next.network.interfaces] == ["eth0", "lo"]
+  assert next.network.interfaces[0].rx_bytes_per_second.value == 10240.0
+  assert next.network.interfaces[1].rx_bytes_per_second.value == 0.0
   assert next.memory.swap_total_state == report.Absent
   assert next.memory.swap_used_bytes.state == rates.Unavailable
 }

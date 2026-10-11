@@ -85,10 +85,14 @@ test test_btop_headless_model_dump_encodes_wide_counters_as_decimal_strings { |c
   let second_frame = json.decode(model_lines[1])?
   let receive = json.get(second_frame, ["network", "rx_bytes"])?.require(Str)?
   let transmit = json.get(second_frame, ["network", "tx_bytes"])?.require(Str)?
+  let interface_receive = json.get(second_frame, ["network", "interfaces", 0, "rx_bytes"])?.require(Str)?
   let start_ticks = json.get(second_frame, ["processes", 0, "start_ticks"])?.require(Str)?
+  let per_core_state = json.get(second_frame, ["processes", 0, "cpu_percent_per_core", "state"])?.require(Str)?
   assert receive == "9007199254741092"
   assert transmit == "9223372036854775807"
+  assert interface_receive == "9007199254741092"
   assert start_ticks == "9223372036854775807"
+  assert per_core_state == "observed"
 }
 
 test test_btop_headless_replay_syscall_trace_has_no_child_or_sleep { |ctx|

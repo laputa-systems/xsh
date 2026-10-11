@@ -11,6 +11,7 @@ use btop_surface as surface
 use btop_terminal as terminal
 use btop_ui as ui
 use btop_defaults as defaults
+use btop_disks as disks
 use sys_proc as processes
 use sys_cpu as syscpu
 use system_report as report
@@ -250,7 +251,14 @@ pure process_text(
   } else {
     row.command
   }
-  let cpu_text = if state.aggregate_children { rate_text(entry.cpu_total) } else { rate_text(row.cpu_percent) }
+  let process_cpu = if state.aggregate_children {
+    if state.process_cpu_per_core { entry.cpu_total_per_core } else { entry.cpu_total }
+  } else if state.process_cpu_per_core {
+    row.cpu_percent_per_core
+  } else {
+    row.cpu_percent
+  }
+  let cpu_text = rate_text(process_cpu)
   let rss_bytes = if state.aggregate_children { entry.rss_total_bytes } else { row.rss_bytes }
   let rss = if state.process_memory_bytes {
     bytes_text(rss_bytes)
@@ -328,7 +336,8 @@ pure process_content(
   } else {
     f"{sort_line} | f filter"
   }
-  var lines = ["PID USER CPU% RSS COMMAND", filter_line]
+  let cpu_column = if state.process_cpu_per_core { "CPU/core%" } else { "CPU%" }
+  var lines = [f"PID USER {cpu_column} RSS COMMAND", filter_line]
   if value.process_state != report.Observed {
     lines += [f"Processes {state_text(value.process_state)}"]
   } else if value.processes.is_empty() {
@@ -455,17 +464,22 @@ pure network_panel_content(
   }
   let receive = history_rows(histories.network_receive, capabilities, graph_width, 1, false, maxima.receive)?
   let transmit = history_rows(histories.network_transmit, capabilities, graph_width, 1, true, maxima.transmit)?
-  let interface = if value.network.interface_name == null {
+  let selected = ui.selected_network_interface(state, value)
+  let interface = if selected == null {
     f"Interface {state_text(value.network.source_state)}"
   } else {
-    f"Interface {value.network.interface_name ?? ""}"
+    f"Interface {(selected ?? value.network.interfaces[0]).name}"
   }
   let scaling = f"Auto {if state.network_auto {"on"} else {"off"}} Sync {if state.network_sync {"on"} else {"off"}}"
+  let rx_rate = if let current = selected { current.rx_bytes_per_second } else { {state: rates.Unavailable, value: null} }
+  let tx_rate = if let current = selected { current.tx_bytes_per_second } else { {state: rates.Unavailable, value: null} }
+  let rx_total = ui.network_total_bytes(state, selected, true)
+  let tx_total = ui.network_total_bytes(state, selected, false)
   Ok([
     f"{interface} | {scaling}",
-    f"RX {byte_rate_text(value.network.rx_bytes_per_second)}  {bytes_text(value.network.rx_bytes)} total",
+    f"RX {byte_rate_text(rx_rate)}  {bytes_text(rx_total)} total",
     receive[0],
-    f"TX {byte_rate_text(value.network.tx_bytes_per_second)}  {bytes_text(value.network.tx_bytes)} total",
+    f"TX {byte_rate_text(tx_rate)}  {bytes_text(tx_total)} total",
     transmit[0],
   ])
 }
@@ -482,8 +496,86 @@ pure network_graph_maximum(history: graph.History) -> Float {
   if maximum < 10240.0 { 10240.0 } else { maximum * 1.3 }
 }
 
-pure disks_placeholder() -> List[Str] {
-  ["Disks unavailable", "Capacity unavailable", "I/O unavailable"]
+pure compact_bytes(value: Int?) -> Str {
+  if value == null { return "?" }
+  let amount = (value ?? 0).float()
+  if amount >= 1073741824.0 { return f"{(amount / 1073741824.0).format(precision: 0)}G" }
+  if amount >= 1048576.0 { return f"{(amount / 1048576.0).format(precision: 0)}M" }
+  if amount >= 1024.0 { return f"{(amount / 1024.0).format(precision: 0)}K" }
+  f"{value ?? 0}B"
+}
+
+pure compact_rate(value: rates.Rate) -> Str {
+  if value.state == rates.Observed and value.value != null {
+    let amount = value.value ?? 0.0
+    if amount >= 1073741824.0 { return f"{(amount / 1073741824.0).format(precision: 0)}G/s" }
+    if amount >= 1048576.0 { return f"{(amount / 1048576.0).format(precision: 0)}M/s" }
+    if amount >= 1024.0 { return f"{(amount / 1024.0).format(precision: 0)}K/s" }
+    return f"{amount.format(precision: 0)}B/s"
+  }
+  match value.state {
+    rates.Warming => "warming"
+    rates.Reset => "reset"
+    rates.Gap => "gap"
+    rates.Invalid => "invalid"
+    else => "unavailable"
+  }
+}
+
+pure device_line(device: disks.Device) -> Str {
+  let name = device.name ?? f"{device.major}:{device.minor}"
+  let mount = if device.mount_targets.is_empty() { "?" } else { device.mount_targets[0] }
+  f"{name} {mount}"
+}
+
+pure device_usage_line(device: disks.Device) -> Str {
+  let capacity = if device.capacity_state == report.Observed and device.total_bytes != null and device.used_bytes != null {
+    f"{compact_bytes(device.used_bytes)}/{compact_bytes(device.total_bytes)}"
+  } else {
+    state_text(device.capacity_state)
+  }
+  f"{capacity} R{compact_rate(device.read_bytes_per_second)} W{compact_rate(device.write_bytes_per_second)}"
+}
+
+pure disk_panel_content(
+  value: model.Model,
+  state: ui.State,
+  histories: graph_series.Histories,
+  capabilities: terminal.Capabilities,
+  width: Int,
+  height: Int,
+) -> Result[List[Str], Error] {
+  if ! state.show_disks { return Ok(["Disks hidden"]) }
+  if value.storage.devices.is_empty() {
+    if value.storage.mount_state == report.Observed and value.storage.block_state == report.Observed {
+      return Ok(["No mounted block devices"])
+    }
+    let source_state = if value.storage.mount_state != report.Observed { value.storage.mount_state } else { value.storage.block_state }
+    return Ok([f"Storage {state_text(source_state)}"])
+  }
+
+  let graph_count = if state.disk_io_mode { 2 } else { 1 }
+  let device_slots = (height - graph_count) / 2
+  let shown_devices = if device_slots < value.storage.devices.len() { device_slots } else { value.storage.devices.len() }
+  var lines: List[Str] = []
+  for index in range(shown_devices) {
+    let device = value.storage.devices[index]
+    lines += [device_line(device), device_usage_line(device)]
+  }
+  if shown_devices < value.storage.devices.len() and lines.len() < height - graph_count {
+    lines += [f"+{value.storage.devices.len() - shown_devices} more disks"]
+  }
+
+  if state.disk_io_mode {
+    let read_graph = history_rows(histories.disk_read, capabilities, if width > 7 { width - 7 } else { 1 }, 1, false, null)?
+    let write_graph = history_rows(histories.disk_write, capabilities, if width > 7 { width - 7 } else { 1 }, 1, true, null)?
+    lines += [f"R {read_graph[0]}"]
+    lines += [f"W {write_graph[0]}"]
+  } else {
+    let graph = history_rows(histories.disk_total, capabilities, if width > 3 { width - 3 } else { 1 }, 1, false, null)?
+    lines += [f"IO {graph[0]}"]
+  }
+  Ok(lines)
 }
 
 ## Renders a default process view at the injected window size.
@@ -532,7 +624,9 @@ export pure render_view_with_graphs(
   let cpu_rows = panel(width, cpu_height, "CPU", cpu_content_rows)
   let memory_left_width = (memory_width - 3) / 2
   let memory_left = memory_panel_content(value, histories.memory, capabilities, memory_left_width)?
-  let memory_rows = split_panel(memory_width, memory_height, "Memory / Disks", memory_left, disks_placeholder())
+  let memory_right_width = memory_width - 3 - memory_left_width
+  let disk_content = disk_panel_content(value, state, histories, capabilities, memory_right_width, memory_height - 2)?
+  let memory_rows = split_panel(memory_width, memory_height, "Memory / Disks", memory_left, disk_content)
   let network_content_rows = network_panel_content(value, state, histories, capabilities, memory_width - 2)?
   let network_rows = panel(memory_width, network_height, "Network", network_content_rows)
   let view = ui.resize(state, value, process_capacity(height))

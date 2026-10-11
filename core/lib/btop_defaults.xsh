@@ -77,6 +77,15 @@ export pure aggregate_process_children() -> Bool { PROC_AGGREGATE }
 ## Returns whether process memory starts in byte units.
 export pure process_memory_in_bytes() -> Bool { PROC_MEM_BYTES }
 
+## Returns whether process CPU starts normalized per logical core.
+export pure process_per_core_enabled() -> Bool { PROC_PER_CORE }
+
+## Returns whether mounted disk details are visible in the default memory box.
+export pure disks_enabled() -> Bool { SHOW_DISKS }
+
+## Returns whether disk I/O is shown as separate read and write graphs.
+export pure disk_io_mode_enabled() -> Bool { IO_MODE }
+
 ## Returns the pinned automatic network-scaling default.
 export pure network_auto_enabled() -> Bool { NET_AUTO }
 

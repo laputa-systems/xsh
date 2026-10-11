@@ -894,7 +894,6 @@ fn btop_replay_filter_sort_selection_and_resize_use_the_decoded_input() {
             write_btop_process(&bundle, frame, pid, start_ticks, cpu_ticks, rss_pages);
         }
     }
-
     let terminal = Terminal::new(24, 80);
     set_master_nonblocking(&terminal.master);
     let original_attrs = termios_snapshot(terminal.slave.as_raw_fd());
@@ -993,6 +992,98 @@ fn btop_replay_filter_sort_selection_and_resize_use_the_decoded_input() {
     assert!((0..screen.rows).any(|row| screen.line(row).contains("> 44")));
     assert!((0..screen.rows).any(|row| screen.line(row).contains("43 1000")));
     assert!((0..screen.rows).any(|row| screen.line(row).contains("44 1000")));
+    screen.assert_modes_restored();
+}
+
+#[test]
+fn btop_replay_network_and_cpu_view_keys_change_rendered_cells() {
+    let directory = tempfile::tempdir().unwrap();
+    let bundle = directory.path().join("bundle");
+    fs::create_dir(&bundle).unwrap();
+    write_btop_bundle(
+        &bundle,
+        &[
+            ([100, 50, 850, 0], 1_000_000, 500_000, 0),
+            ([160, 70, 970, 0], 1_010_240, 502_048, 60_000_000_000),
+        ],
+    );
+    for (frame, loopback_bytes) in [(0, 64), (1, 128)] {
+        let proc = bundle.join(format!("frames/{frame}/proc"));
+        let net_dev = proc.join("net/dev");
+        let mut contents = fs::read_to_string(&net_dev).unwrap();
+        contents.push_str(&format!("lo: {loopback_bytes} 1 0 0 0 0 0 0 {loopback_bytes} 1 0 0 0 0 0 0\n"));
+        fs::write(net_dev, contents).unwrap();
+        for (interface, ifindex) in [("eth0", 2), ("lo", 1)] {
+            let path = bundle.join(format!("frames/{frame}/sys/class/net/{interface}"));
+            fs::create_dir_all(&path).unwrap();
+            fs::write(path.join("ifindex"), format!("{ifindex}\n")).unwrap();
+        }
+        write_btop_process(&bundle, frame, 42, 1000, if frame == 0 { 10 } else { 11 }, 10);
+    }
+    let model_dump = directory.path().join("hotkey-model.jsonl");
+    let mut headless = btop_applet(directory.path(), &bundle, 2);
+    headless.args(["--headless", "--dump-model", model_dump.to_str().unwrap()]);
+    let model_result = headless.output().unwrap();
+    assert!(model_result.status.success(), "headless fixture capture failed: {}", String::from_utf8_lossy(&model_result.stderr));
+    let model_dump = fs::read_to_string(model_dump).unwrap();
+    assert!(model_dump.contains("\"name\":\"lo\""), "loopback is missing from replay models: {model_dump}");
+
+    let terminal = Terminal::new(24, 80);
+    set_master_nonblocking(&terminal.master);
+    let original_attrs = termios_snapshot(terminal.slave.as_raw_fd());
+    let mut command = btop_applet(directory.path(), &bundle, 2);
+    command.stdin(terminal.stdio()).stdout(terminal.stdio()).stderr(Stdio::piped());
+    let mut child = Running::spawn(&mut command);
+    drop(command);
+    let mut output = Vec::new();
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(10), |bytes| {
+        bytes.windows(b"Interface eth0".len()).any(|window| window == b"Interface eth0")
+            && bytes.windows(b"PID USER CPU% RSS COMMAND".len()).any(|window| window == b"PID USER CPU% RSS COMMAND")
+    });
+    let mut screen = VirtualTerminal::new(24, 80);
+    screen.feed(&output);
+    let mut captured = output.len();
+
+    let before_per_core = synchronized_frames(&output);
+    terminal.master.try_clone().unwrap().write_all(b"c").unwrap();
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
+        synchronized_frames(bytes) > before_per_core
+    });
+    screen.feed(&output[captured..]);
+    assert!((0..screen.rows).any(|row| screen.line(row).contains("CPU/core%")));
+    captured = output.len();
+
+    assert!(child.0.try_wait().unwrap().is_none(), "monitor exited before network selection");
+    let before_interface_cycle = synchronized_frames(&output);
+    terminal.master.try_clone().unwrap().write_all(b"n").unwrap();
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
+        synchronized_frames(bytes) > before_interface_cycle
+    });
+    assert!(child.0.try_wait().unwrap().is_none(), "monitor exited while handling network selection");
+    screen.feed(&output[captured..]);
+    assert!(
+        (0..screen.rows).any(|row| screen.line(row).contains("Interface lo")),
+        "network key did not render loopback: {}; bytes={:?}",
+        (0..screen.rows).map(|row| screen.line(row)).collect::<Vec<_>>().join("\n"),
+        String::from_utf8_lossy(&output[captured..]),
+    );
+    captured = output.len();
+
+    let before_total_offset = synchronized_frames(&output);
+    terminal.master.try_clone().unwrap().write_all(b"z").unwrap();
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
+        synchronized_frames(bytes) > before_total_offset
+    });
+    screen.feed(&output[captured..]);
+    assert!((0..screen.rows).any(|row| screen.line(row).contains("0 B total")));
+
+    terminal.master.try_clone().unwrap().write_all(b"q").unwrap();
+    let result = child.finish();
+    append_terminal_output(&mut terminal.master.try_clone().unwrap(), &mut output);
+    screen.feed(&output[captured..]);
+    assert!(result.status.success(), "hotkey replay exited with {}: {}", result.status, String::from_utf8_lossy(&result.stderr));
+    assert!(result.stderr.is_empty(), "unexpected btop error: {}", String::from_utf8_lossy(&result.stderr));
+    assert_eq!(termios_snapshot(terminal.slave.as_raw_fd()), original_attrs);
     screen.assert_modes_restored();
 }
 
