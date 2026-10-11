@@ -23,10 +23,9 @@ ratchets. Keep sibling Laputa verification focused and lightweight.
 
 Explicitly delegate every ready independent item, using as many available
 slots as ownership and dependencies permit. All subagents use
-`gpt-6.1-sol`: `medium` for routine work, `high` for complex implementation
-and review. Set model and reasoning effort on each spawn; use a fresh
-context and a self-contained brief when the tool requires it. No Luna or
-unassigned nested delegation.
+`gpt-6-luna` at `xhigh`, as the owner directed on resume. Set model and
+reasoning effort on each spawn; use a fresh context and a self-contained
+brief when the tool requires it. No unassigned nested delegation.
 
 Briefs name the base commit, worktree/branch, owned paths, approved contract,
 observable end state, metric and size budget, exact gates, commit authority,
