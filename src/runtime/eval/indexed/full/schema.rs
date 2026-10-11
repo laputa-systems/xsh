@@ -385,6 +385,12 @@ macro_rules! pattern_schema {
 }
 
 macro_rules! instruction_schema {
+    (@eager_atom) => {
+        false
+    };
+    (@eager_atom EagerAtom) => {
+        true
+    };
     (
         $(
             $row:ident => $view:ident [$kind:ident] {
@@ -393,7 +399,7 @@ macro_rules! instruction_schema {
                     $variant:ident
                     $(($($tuple_field:ident: $tuple_ty:ty),* $(,)?))?
                     $({$($(#[$field_attr:meta])* $field:ident: $field_ty:ty),* $(,)?})?
-                    => $tag:ident = $ordinal:literal [$effects:expr; $class:ident; $strategy:ident];
+                    => $tag:ident = $ordinal:literal [$effects:expr; $class:ident; $strategy:ident $(; $classification:ident)?];
                 )*
             }
         )*
@@ -433,6 +439,12 @@ macro_rules! instruction_schema {
             pub(in crate::runtime::eval) fn frame_strategy(self) -> FrameStrategy {
                 match self {
                     $($(Self::$tag => FrameStrategy::$strategy,)*)*
+                }
+            }
+
+            pub(in crate::runtime::eval) fn is_eager_atom(self) -> bool {
+                match self {
+                    $($(Self::$tag => instruction_schema!(@eager_atom $($classification)?),)*)*
                 }
             }
 
@@ -663,17 +675,17 @@ instruction_schema! {
         } => BoolLiteralCompareSlot = 17 [0; Operands; FrameApply];
     }
     BuildExprRow => ExprView [Expr] {
-        Null => ExprNull = 18 [0; Operands; FrameApply];
-        Unit => ExprUnit = 19 [0; Operands; FrameApply];
-        Int(value: i64) => ExprInt = 20 [0; Operands; FrameApply];
-        Float(value: FloatValue) => ExprFloat = 21 [0; Operands; FrameApply];
-        Duration(value: DurationValue) => ExprDuration = 22 [0; Operands; FrameApply];
-        Bool(value: bool) => ExprBool = 23 [0; Operands; FrameApply];
-        Str(value: Arc<str>) => ExprStr = 24 [0; Operands; FrameApply];
-        Bytes(value: Arc<[u8]>) => ExprBytes = 25 [0; Operands; FrameApply];
-        PreparedRegex(value: RegexValue) => ExprPreparedRegex = 26 [0; Operands; FrameApply];
-        PreparedConstant(value: PreparedConstantValue) => ExprPreparedConstant = 27 [0; Operands; FrameApply];
-        Path(value: PathValue) => ExprPath = 28 [0; Operands; FrameApply];
+        Null => ExprNull = 18 [0; Operands; FrameApply; EagerAtom];
+        Unit => ExprUnit = 19 [0; Operands; FrameApply; EagerAtom];
+        Int(value: i64) => ExprInt = 20 [0; Operands; FrameApply; EagerAtom];
+        Float(value: FloatValue) => ExprFloat = 21 [0; Operands; FrameApply; EagerAtom];
+        Duration(value: DurationValue) => ExprDuration = 22 [0; Operands; FrameApply; EagerAtom];
+        Bool(value: bool) => ExprBool = 23 [0; Operands; FrameApply; EagerAtom];
+        Str(value: Arc<str>) => ExprStr = 24 [0; Operands; FrameApply; EagerAtom];
+        Bytes(value: Arc<[u8]>) => ExprBytes = 25 [0; Operands; FrameApply; EagerAtom];
+        PreparedRegex(value: RegexValue) => ExprPreparedRegex = 26 [0; Operands; FrameApply; EagerAtom];
+        PreparedConstant(value: PreparedConstantValue) => ExprPreparedConstant = 27 [0; Operands; FrameApply; EagerAtom];
+        Path(value: PathValue) => ExprPath = 28 [0; Operands; FrameApply; EagerAtom];
         FunctionRef {
             function: FunctionName,
             pure: bool,
@@ -682,7 +694,7 @@ instruction_schema! {
             value: BuildExprId,
             span: Span,
         } => ExprPathFrom = 30 [0; Scheduled; FrameApply];
-        Param(slot: usize) => ExprParam = 31 [0; Operands; FrameApply];
+        Param(slot: usize) => ExprParam = 31 [0; Operands; FrameApply; EagerAtom];
         ComparisonChain {
             pairs: Vec<BuildExprId>,
             assertion: bool,
@@ -1355,7 +1367,8 @@ pattern_schema! {
 #[cfg(test)]
 mod tests {
     use super::{
-        FrameStrategy, FullPatternTag, FullTag, INSTRUCTION_TAGS, InPlaceClass, PATTERN_TAGS,
+        FrameStrategy, FullPatternTag, FullTag, INSTRUCTION_TAGS, InPlaceClass, InstructionKind,
+        PATTERN_TAGS,
     };
 
     #[test]
@@ -1587,6 +1600,40 @@ mod tests {
             FullTag::StmtRun,
         ] {
             assert_eq!(tag.frame_strategy(), FrameStrategy::FrameControl, "{}", tag.name());
+        }
+    }
+
+    #[test]
+    fn eager_atom_classification_matches_schema_rows() {
+        let expected = [
+            FullTag::ExprNull,
+            FullTag::ExprUnit,
+            FullTag::ExprInt,
+            FullTag::ExprFloat,
+            FullTag::ExprDuration,
+            FullTag::ExprBool,
+            FullTag::ExprStr,
+            FullTag::ExprBytes,
+            FullTag::ExprPreparedRegex,
+            FullTag::ExprPreparedConstant,
+            FullTag::ExprPath,
+            FullTag::ExprParam,
+        ];
+        let classified: Vec<_> = INSTRUCTION_TAGS
+            .iter()
+            .copied()
+            .filter(|tag| tag.is_eager_atom())
+            .collect();
+        assert_eq!(classified, expected);
+
+        for tag in INSTRUCTION_TAGS {
+            assert_eq!(tag.is_eager_atom(), expected.contains(tag), "{}", tag.name());
+        }
+        for tag in expected {
+            assert_eq!(tag.kind(), InstructionKind::Expr, "{}", tag.name());
+            assert_eq!(tag.effects(), 0, "{}", tag.name());
+            assert_eq!(tag.in_place_class(), InPlaceClass::Operands, "{}", tag.name());
+            assert_eq!(tag.frame_strategy(), FrameStrategy::FrameApply, "{}", tag.name());
         }
     }
 

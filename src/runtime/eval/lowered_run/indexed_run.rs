@@ -340,24 +340,6 @@ enum ContextScopeRestore {
     },
 }
 
-fn is_eager_atom(tag: FullTag) -> bool {
-    matches!(
-        tag,
-        FullTag::ExprNull
-            | FullTag::ExprUnit
-            | FullTag::ExprInt
-            | FullTag::ExprFloat
-            | FullTag::ExprDuration
-            | FullTag::ExprBool
-            | FullTag::ExprStr
-            | FullTag::ExprBytes
-            | FullTag::ExprPreparedRegex
-            | FullTag::ExprPreparedConstant
-            | FullTag::ExprPath
-            | FullTag::ExprParam
-    )
-}
-
 fn indexed_eager_atom_value<'a>(
     execution: &FullExecution<'a>,
     tag: FullTag,
@@ -1526,7 +1508,7 @@ impl Evaluator {
                 _ => unreachable!("selection tag has a matching typed view"),
             };
         }
-        if tag.frame_strategy() == FrameStrategy::FrameApply && is_eager_atom(tag) {
+        if tag.is_eager_atom() {
             return Ok(ControlFlow::Continue(indexed_eager_atom_value(
                 execution,
                 tag,

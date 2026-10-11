@@ -5916,7 +5916,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         {
             return Err(frame_strategy_error(tag, span));
         }
-        if strategy == FrameStrategy::FrameApply && super::is_eager_atom(tag) {
+        if tag.is_eager_atom() {
             let call = &mut self.calls[index];
             let value = super::indexed_eager_atom_value(
                 &call.execution,
