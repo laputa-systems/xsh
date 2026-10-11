@@ -142,8 +142,10 @@ test a_script_without_a_project_config_has_no_project_roots { |ctx|
 
   let output = run.capture --text "xsh" fp"{root}/bin/entry.xsh"
   assert ! output.status.ok, output.stdout
-  assert "failed to read module" in output.stderr, output.stderr
-  assert "`module_path` in the project's xsht-config.ini" in output.stderr, output.stderr
+  assert output.stdout == "", output.stdout
+  assert "err[check.unknown-module]" in output.stderr, output.stderr
+  assert f"{root}/bin/shared/answers.xsh" in output.stderr, output.stderr
+  assert f"{root}/lib/shared/answers.xsh" not in output.stderr, output.stderr
 }
 
 # The config is found from the script's absolute location, so starting the
@@ -183,20 +185,30 @@ test answers_are_not_found_from_the_starting_directory {
   cd root {
     let run_output = run.capture --text "xsh" "sub/entry.xsh"
     assert ! run_output.status.ok, run_output.stdout
-    assert "failed to read module" in run_output.stderr, run_output.stderr
+    assert run_output.stdout == "", run_output.stdout
+    assert "err[check.unknown-module]" in run_output.stderr, run_output.stderr
+    assert "sub/shared/answers.xsh" in run_output.stderr, run_output.stderr
+    assert f"{root}/shared/answers.xsh" not in run_output.stderr, run_output.stderr
 
     let check_output = run.capture --text "xsht" check "sub/entry.xsh"
     assert ! check_output.status.ok, check_output.stderr
-    assert "failed to read module" in check_output.stderr, check_output.stderr
+    assert "err[check.unknown-module]" in check_output.stderr, check_output.stderr
+    assert "sub/shared/answers.xsh" in check_output.stderr, check_output.stderr
+    assert f"{root}/shared/answers.xsh" not in check_output.stderr, check_output.stderr
 
     let lint_output = run.capture --text "xsht" lint "sub/entry.xsh"
-    assert "failed to read module" in lint_output.stderr, lint_output.stderr
+    assert "err[check.unknown-module]" in lint_output.stderr, lint_output.stderr
+    assert "sub/shared/answers.xsh" in lint_output.stderr, lint_output.stderr
+    assert f"{root}/shared/answers.xsh" not in lint_output.stderr, lint_output.stderr
 
     # `xsht test` discovers `tests/` from the starting directory, and still
     # does not resolve the test file's import through that directory.
     let test_output = run.capture --text "xsht" test
     assert ! test_output.status.ok, test_output.stdout
-    assert "failed to read module" in f"{test_output.stdout}{test_output.stderr}", test_output.stderr
+    let test_report = f"{test_output.stdout}{test_output.stderr}"
+    assert "err[check.unknown-module]" in test_report, test_report
+    assert "tests/shared/answers.xsh" in test_report, test_report
+    assert f"{root}/shared/answers.xsh" not in test_report, test_report
   }
 }
 
