@@ -140,12 +140,7 @@ proc change(target: Path, spec: Str, reference: Int?, opts: perm.Options, top: B
         gnu.error(f"cannot operate on dangling symlink {gnu.quote(f"{target}")}")
       } else { gnu.cannot_access(f"{target}", failure) }
     }
-    # A dangling link has no referent mode to report, so verbose output uses GNU's fixed mode line.
-    if opts.verbosity == "verbose" {
-      if dangling {
-        gnu.write_text(f"failed to change mode of {gnu.quote(f"{target}")} from 0000 (---------) to 1500 (r-x-----T)\n")
-      } else { gnu.write_text(f"{gnu.quote(f"{target}")} could not be accessed\n") }
-    }
+    if opts.verbosity == "verbose" { gnu.write_text(f"{gnu.quote(f"{target}")} could not be accessed\n") }
     return false
   }
   let meta = found?
