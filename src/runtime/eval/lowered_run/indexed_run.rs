@@ -45,7 +45,9 @@ use super::{
 use crate::map_key::MapKey;
 use crate::runtime::eval::BuildExprId;
 use crate::runtime::eval::indexed::IrVerifyError;
-use crate::runtime::eval::indexed::full::decode::{ErrorExprView, ListPosition, ListView};
+use crate::runtime::eval::indexed::full::decode::{
+    ErrorExprView, FmtPartView, ListPosition, ListView, RecordEntryView,
+};
 use crate::runtime::eval::indexed::full::{
     BLOCK_LIST, BLOCK_STATEMENTS, FrameStrategy, FullDriverTag, FullExecution, FullFunctionView,
     FullPayload, FullProgram, FullStageTag, FullTag,
@@ -83,7 +85,7 @@ use calls::{
 use operands::{
     indexed_error, indexed_value, indexed_decode, indexed_raw, indexed_string, indexed_finish,
     indexed_optional_raw, decode_record_updates, decode_comparison_chain, decode_match_expr,
-    decode_module_call, decode_assign_path, decode_comp_qualifiers, fmt_operands,
+    decode_module_call, decode_assign_path, decode_comp_qualifiers, decode_fmt,
 };
 
 use process::run_target_and_leading_argv;
@@ -234,245 +236,54 @@ impl IndexedCallee {
     }
 }
 
-/// One decoded entry of an aggregate literal's operand list.
-trait IndexedOperand: Sized {
-    fn decode<'a>(
-        execution: &FullExecution<'a>,
-        input: &mut FullPayload<'a>,
-        build: bool,
-        span: Span,
-    ) -> Result<Self, RuntimeError>;
-}
-
-/// A list element: its instruction, whether it splices, and its span.
-impl IndexedOperand for (u32, bool, Span) {
-    #[inline]
-    fn decode<'a>(
-        execution: &FullExecution<'a>,
-        input: &mut FullPayload<'a>,
-        build: bool,
-        span: Span,
-    ) -> Result<Self, RuntimeError> {
-        if !build {
-            return Ok((indexed_raw(input, span)?, false, span));
-        }
-        let splice = indexed_decode::<bool>(input, execution, span)?;
-        Ok((
-            indexed_raw(input, span)?,
-            splice,
-            indexed_decode::<Span>(input, execution, span)?,
-        ))
-    }
-}
-
-/// A map literal entry: its optional computed key, value, and span.
-impl IndexedOperand for (Option<u32>, u32, Span) {
-    #[inline]
-    fn decode<'a>(
-        execution: &FullExecution<'a>,
-        input: &mut FullPayload<'a>,
-        _: bool,
-        span: Span,
-    ) -> Result<Self, RuntimeError> {
-        Ok((
-            indexed_optional_raw(input, span)?,
-            indexed_raw(input, span)?,
-            indexed_decode::<Span>(input, execution, span)?,
-        ))
-    }
-}
-
-impl IndexedOperand for IndexedRecordEntry {
-    #[inline]
-    fn decode<'a>(
-        execution: &FullExecution<'a>,
-        input: &mut FullPayload<'a>,
-        _: bool,
-        span: Span,
-    ) -> Result<Self, RuntimeError> {
-        Ok(match indexed_raw(input, span)? {
-            0 => Self::Field {
-                name: indexed_decode(input, execution, span)?,
-                instruction: indexed_raw(input, span)?,
-            },
-            1 => Self::Spread(indexed_raw(input, span)?),
-            _ => {
-                return Err(
-                    RuntimeError::new("indexed-ir", "invalid indexed record entry").with_span(span),
-                );
-            }
-        })
-    }
-}
-
-impl IndexedOperand for IndexedFmtPart {
-    #[inline]
-    fn decode<'a>(
-        execution: &FullExecution<'a>,
-        input: &mut FullPayload<'a>,
-        _: bool,
-        span: Span,
-    ) -> Result<Self, RuntimeError> {
-        Ok(match indexed_raw(input, span)? {
-            0 => Self::Text(indexed_decode(input, execution, span)?),
-            1 => Self::Expr(
-                indexed_raw(input, span)?,
-                indexed_decode(input, execution, span)?,
-                indexed_decode(input, execution, span)?,
-            ),
-            _ => {
-                return Err(
-                    RuntimeError::new("indexed-ir", "invalid indexed format part").with_span(span),
-                );
-            }
-        })
-    }
-}
-
-/// An aggregate literal's operand list, decoded one entry at a time so the
-/// recursive path needs no intermediate list; the frame path collects it. Both
-/// dispatch paths evaluate these operands in source order.
-struct IndexedOperands<'e, 'a, T> {
-    execution: &'e FullExecution<'a>,
-    input: FullPayload<'a>,
-    remaining: usize,
-    build: bool,
+fn append_indexed_record_entry(
+    entry: RecordEntryView<'_>,
+    fields: &mut Vec<(Name, LoweredValue)>,
+    value: LoweredValue,
     span: Span,
-    entry: std::marker::PhantomData<T>,
-}
-
-impl<'e, 'a, T: IndexedOperand> IndexedOperands<'e, 'a, T> {
-    fn new(
-        execution: &'e FullExecution<'a>,
-        payload: &mut FullPayload<'a>,
-        build: bool,
-        span: Span,
-    ) -> Result<Self, RuntimeError> {
-        let (_, mut input) = execution
-            .block(payload, BLOCK_LIST)
-            .map_err(|error| indexed_error(error, span))?;
-        let remaining = indexed_raw(&mut input, span)? as usize;
-        Ok(Self {
-            execution,
-            input,
-            remaining,
-            build,
-            span,
-            entry: std::marker::PhantomData,
-        })
+) -> Result<(), RuntimeError> {
+    if let RecordEntryView::Field(name, _) = entry {
+        lowered_record_vec_append_or_replace_unsorted(fields, name, value);
+        return Ok(());
     }
-
-    /// Decodes a list, map, or record literal, whose payload holds only the operand list.
-    fn literal(
-        execution: &'e FullExecution<'a>,
-        mut payload: FullPayload<'a>,
-        build: bool,
-        span: Span,
-    ) -> Result<Self, RuntimeError> {
-        let operands = Self::new(execution, &mut payload, build, span)?;
-        indexed_finish(payload, span)?;
-        Ok(operands)
-    }
-
-    fn len(&self) -> usize {
-        self.remaining
-    }
-
-    #[inline]
-    fn next_operand(&mut self) -> Result<Option<T>, RuntimeError> {
-        if self.remaining == 0 {
-            return Ok(None);
-        }
-        self.remaining -= 1;
-        Ok(Some(T::decode(
-            self.execution,
-            &mut self.input,
-            self.build,
-            self.span,
-        )?))
-    }
-
-    fn finish(self) -> Result<(), RuntimeError> {
-        indexed_finish(self.input, self.span)
-    }
-
-    fn into_vec(mut self) -> Result<Vec<T>, RuntimeError> {
-        let mut items = Vec::with_capacity(self.remaining);
-        while let Some(item) = self.next_operand()? {
-            items.push(item);
-        }
-        self.finish()?;
-        Ok(items)
-    }
-}
-
-enum IndexedRecordEntry {
-    Field { name: Name, instruction: u32 },
-    Spread(u32),
-}
-
-impl IndexedRecordEntry {
-    fn instruction(&self) -> u32 {
-        match self {
-            Self::Field { instruction, .. } | Self::Spread(instruction) => *instruction,
-        }
-    }
-
-    fn append(
-        &self,
-        fields: &mut Vec<(Name, LoweredValue)>,
-        value: LoweredValue,
-        span: Span,
-    ) -> Result<(), RuntimeError> {
-        if let Self::Field { name, .. } = self {
-            lowered_record_vec_append_or_replace_unsorted(fields, *name, value);
-            return Ok(());
-        }
-        match value {
-            LoweredValue::Record(record) | LoweredValue::Module(record) => {
-                for (key, value) in record.iter() {
-                    lowered_record_vec_append_or_replace_unsorted(
-                        fields,
-                        Name::intern(key.as_ref()),
-                        value.clone(),
-                    );
-                }
-            }
-            LoweredValue::RecordVec(record) => {
-                for (key, value) in record.iter() {
-                    lowered_record_vec_append_or_replace_unsorted(fields, *key, value.clone());
-                }
-            }
-            LoweredValue::Stats {
-                blanks,
-                code,
-                comments,
-            } => {
-                for (key, value) in lowered_inline_stats_to_record_vec(blanks, code, comments) {
-                    lowered_record_vec_append_or_replace_unsorted(fields, key, value);
-                }
-            }
-            LoweredValue::StatsBlob(stats) => {
-                for (key, value) in stats.to_record_vec() {
-                    lowered_record_vec_append_or_replace_unsorted(fields, key, value);
-                }
-            }
-            value => {
-                return Err(RuntimeError::new(
-                    "type-error",
-                    format!("record spread expected Record, found {}", value.type_name()),
-                )
-                .with_span(span));
+    match value {
+        LoweredValue::Record(record) | LoweredValue::Module(record) => {
+            for (key, value) in record.iter() {
+                lowered_record_vec_append_or_replace_unsorted(
+                    fields,
+                    Name::intern(key.as_ref()),
+                    value.clone(),
+                );
             }
         }
-        Ok(())
+        LoweredValue::RecordVec(record) => {
+            for (key, value) in record.iter() {
+                lowered_record_vec_append_or_replace_unsorted(fields, *key, value.clone());
+            }
+        }
+        LoweredValue::Stats {
+            blanks,
+            code,
+            comments,
+        } => {
+            for (key, value) in lowered_inline_stats_to_record_vec(blanks, code, comments) {
+                lowered_record_vec_append_or_replace_unsorted(fields, key, value);
+            }
+        }
+        LoweredValue::StatsBlob(stats) => {
+            for (key, value) in stats.to_record_vec() {
+                lowered_record_vec_append_or_replace_unsorted(fields, key, value);
+            }
+        }
+        value => {
+            return Err(RuntimeError::new(
+                "type-error",
+                format!("record spread expected Record, found {}", value.type_name()),
+            )
+            .with_span(span));
+        }
     }
-}
-
-#[derive(Clone)]
-enum IndexedFmtPart {
-    Text(Arc<str>),
-    Expr(u32, Span, Option<FormatSpec>),
+    Ok(())
 }
 
 /// A formatted string or path being assembled from its parts.
@@ -1796,17 +1607,13 @@ impl Evaluator {
                 };
             }
             FullTag::ExprFmtString | FullTag::ExprPathFmtString => {
-                let (mut parts, mut fmt) = fmt_operands(
-                    execution,
-                    payload,
-                    tag == FullTag::ExprPathFmtString,
-                    call_span,
-                )?;
-                while let Some(part) = parts.next_operand()? {
-                    match part {
-                        IndexedFmtPart::Text(text) => fmt.push_text(&text),
-                        IndexedFmtPart::Expr(expr, span, spec) => {
-                            match self.eval_indexed_expr(execution, expr, slots, span)? {
+                let (mut parts, mut fmt) =
+                    decode_fmt(execution, tag, payload, call_span)?;
+                while let Some(part) = parts.next() {
+                    match part.map_err(|error| indexed_error(error, call_span))? {
+                        FmtPartView::Text(text) => fmt.push_text(text.as_ref()),
+                        FmtPartView::Expr(expr, span, spec) => {
+                            match self.eval_indexed_expr(execution, expr.raw(), slots, span)? {
                                 ControlFlow::Continue(value) => {
                                     fmt.push_value(&value, span, spec.as_ref())?
                                 }
@@ -1815,17 +1622,20 @@ impl Evaluator {
                         }
                     }
                 }
-                parts.finish()?;
                 ControlFlow::Continue(fmt.finish()?)
             }
             FullTag::ExprMapLiteral => {
                 let mut map = BTreeMap::new();
-                let mut entries = IndexedOperands::<(Option<u32>, u32, Span)>::literal(
-                    execution, payload, false, call_span,
-                )?;
-                while let Some((key, value, span)) = entries.next_operand()? {
+                let view = ExprView::decode(execution, tag, payload)
+                    .map_err(|error| indexed_error(error, call_span))?;
+                let ExprView::MapLiteral(mut entries) = view else {
+                    unreachable!("map literal tag has a typed map view")
+                };
+                while let Some(entry) = entries.next() {
+                    let (key, value, span) =
+                        entry.map_err(|error| indexed_error(error, call_span))?;
                     let key = if let Some(key) = key {
-                        let key = match self.eval_indexed_expr(execution, key, slots, span)? {
+                        let key = match self.eval_indexed_expr(execution, key.raw(), slots, span)? {
                             ControlFlow::Continue(value) => value,
                             ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                         };
@@ -1833,13 +1643,12 @@ impl Evaluator {
                     } else {
                         None
                     };
-                    let value = match self.eval_indexed_expr(execution, value, slots, span)? {
+                    let value = match self.eval_indexed_expr(execution, value.raw(), slots, span)? {
                         ControlFlow::Continue(value) => value,
                         ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                     };
                     append_lowered_map_literal(&mut map, key, value, span)?;
                 }
-                entries.finish()?;
                 ControlFlow::Continue(LoweredValue::Map(Arc::new(map)))
             }
             FullTag::ExprRecordUpdate => {
@@ -1862,43 +1671,69 @@ impl Evaluator {
                 ControlFlow::Continue(lowered_record_update_batch(base, replacements, span)?)
             }
             FullTag::ExprRecord => {
-                let mut entries = IndexedOperands::<IndexedRecordEntry>::literal(
-                    execution, payload, false, call_span,
-                )?;
+                let view = ExprView::decode(execution, tag, payload)
+                    .map_err(|error| indexed_error(error, call_span))?;
+                let ExprView::Record(mut entries) = view else {
+                    unreachable!("record literal tag has a typed record view")
+                };
                 let mut record = Vec::with_capacity(entries.len());
-                while let Some(entry) = entries.next_operand()? {
+                while let Some(entry) = entries.next() {
+                    let entry = entry.map_err(|error| indexed_error(error, call_span))?;
+                    let instruction = match &entry {
+                        RecordEntryView::Field(_, value) | RecordEntryView::Spread(value) => {
+                            value.raw()
+                        }
+                    };
                     match self.eval_indexed_expr(
                         execution,
-                        entry.instruction(),
+                        instruction,
                         slots,
                         call_span,
                     )? {
                         ControlFlow::Continue(value) => {
-                            entry.append(&mut record, value, call_span)?
+                            append_indexed_record_entry(entry, &mut record, value, call_span)?
                         }
                         ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                     }
                 }
-                entries.finish()?;
                 ControlFlow::Continue(finish_record_entries(record))
             }
-            FullTag::ExprList | FullTag::ExprListBuild => {
-                let mut items = IndexedOperands::<(u32, bool, Span)>::literal(
-                    execution,
-                    payload,
-                    tag == FullTag::ExprListBuild,
-                    call_span,
-                )?;
+            FullTag::ExprList => {
+                let view = ExprView::decode(execution, tag, payload)
+                    .map_err(|error| indexed_error(error, call_span))?;
+                let ExprView::List(mut items) = view else {
+                    unreachable!("list literal tag has a typed list view")
+                };
                 let mut result = Vec::with_capacity(items.len());
-                while let Some((expr, splice, span)) = items.next_operand()? {
-                    match self.eval_indexed_expr(execution, expr, slots, span)? {
+                while let Some(item) = items.next() {
+                    let expr = item.map_err(|error| indexed_error(error, call_span))?;
+                    let span = call_span;
+                    match self.eval_indexed_expr(execution, expr.raw(), slots, span)? {
+                        ControlFlow::Continue(value) => {
+                            append_lowered_list_element(&mut result, value, false, span)?
+                        }
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    }
+                }
+                ControlFlow::Continue(LoweredValue::List(result))
+            }
+            FullTag::ExprListBuild => {
+                let view = ExprView::decode(execution, tag, payload)
+                    .map_err(|error| indexed_error(error, call_span))?;
+                let ExprView::ListBuild(mut items) = view else {
+                    unreachable!("list build tag has a typed list build view")
+                };
+                let mut result = Vec::with_capacity(items.len());
+                while let Some(item) = items.next() {
+                    let (splice, expr, span) =
+                        item.map_err(|error| indexed_error(error, call_span))?;
+                    match self.eval_indexed_expr(execution, expr.raw(), slots, span)? {
                         ControlFlow::Continue(value) => {
                             append_lowered_list_element(&mut result, value, splice, span)?
                         }
                         ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                     }
                 }
-                items.finish()?;
                 ControlFlow::Continue(LoweredValue::List(result))
             }
             // These run on the frames, which own branch selection, comprehension

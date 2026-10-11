@@ -1,8 +1,11 @@
 use super::{
     Arc, BLOCK_LIST, BinaryOp, FullExecution, FullPayload, FullTag, IndexedAssignStep,
-    IndexedCompQualifier, IndexedFmt, IndexedFmtPart, IndexedModuleCall, IndexedOperands,
-    IrVerifyError, Name, RuntimeError, RuntimeOp, Span,
+    IndexedCompQualifier, IndexedFmt, IndexedModuleCall, IrVerifyError, Name, RuntimeError,
+    RuntimeOp, Span,
 };
+use crate::runtime::eval::LoweredFmtPart;
+use crate::runtime::eval::indexed::full::decode::ListView;
+use crate::runtime::eval::indexed::full::schema::ExprView;
 
 pub(super) fn indexed_error(error: IrVerifyError, span: Span) -> RuntimeError {
     RuntimeError::new(
@@ -235,22 +238,22 @@ pub(super) fn decode_comp_qualifiers<'a>(
     Ok(qualifiers)
 }
 
-/// Format parts and the accumulator, whose path span follows the parts.
-pub(super) fn fmt_operands<'e, 'a>(
-    execution: &'e FullExecution<'a>,
-    mut payload: FullPayload<'a>,
-    path: bool,
+/// Decode format parts through the expression row schema and keep their list borrowed.
+pub(super) fn decode_fmt<'a>(
+    execution: &FullExecution<'a>,
+    tag: FullTag,
+    payload: FullPayload<'a>,
     span: Span,
-) -> Result<(IndexedOperands<'e, 'a, IndexedFmtPart>, IndexedFmt), RuntimeError> {
-    let operands = IndexedOperands::new(execution, &mut payload, false, span)?;
-    let path_span = if path {
-        Some(indexed_decode::<Span>(&mut payload, execution, span)?)
-    } else {
-        None
+) -> Result<(ListView<'a, LoweredFmtPart>, IndexedFmt), RuntimeError> {
+    let view = ExprView::decode(execution, tag, payload)
+        .map_err(|error| indexed_error(error, span))?;
+    let (parts, path_span) = match view {
+        ExprView::FmtString(parts) => (parts, None),
+        ExprView::PathFmtString { parts, span } => (parts, Some(span)),
+        _ => unreachable!("format string tag has a typed format view"),
     };
-    indexed_finish(payload, span)?;
     Ok((
-        operands,
+        parts,
         IndexedFmt {
             text: String::new(),
             native: Vec::new(),

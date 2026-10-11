@@ -9,8 +9,8 @@ use super::{
     Evaluator,
     FormatSpec, FrameStrategy, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag,
     FunctionHeader,
-    IndexedAssignStep, IndexedCompQualifier, IndexedFmt, IndexedFmtPart, IndexedOperands,
-    IndexedRecordEntry, LoweredFunctionKey, LoweredFunctionKind, LoweredReturnKind,
+    IndexedAssignStep, IndexedCompQualifier, IndexedFmt, LoweredFunctionKey, LoweredFunctionKind,
+    LoweredReturnKind,
     LoweredStrPredicate, LoweredType,
     LoweredTypeCheck, LoweredValue, Name, RegisteredDefer, ResolvedAssignStep, RuntimeError, Span,
     RedirectionKind, RunArg, RunKind, StmtFlow, StreamValue, TraceArg, TraceKind, TracePayload,
@@ -21,7 +21,7 @@ use super::{
     bind_lowered_comp_target, capture_checked_error, check_env_name,
     checked_indexed_assignment, comparison_link_holds, decode_assign_path, decode_comp_qualifiers,
     decode_comparison_chain, decode_match_expr, decode_module_call, decode_record_updates,
-    finish_record_entries, fmt_operands, indexed_assignment_operand, indexed_callable_identity,
+    decode_fmt, finish_record_entries, indexed_assignment_operand, indexed_callable_identity,
     indexed_decode, indexed_error, indexed_finish, indexed_optional_raw, indexed_raw,
     indexed_string, indexed_value, lowered_binary_value, lowered_bytes_parts,
     lowered_comp_iterable, lowered_condition_bool, lowered_err_with_cause, lowered_fallback_value,
@@ -34,15 +34,16 @@ use super::{
 };
 use super::{LoweredMapCursor, LoweredScalarCursor};
 use crate::map_key::MapKey;
-use crate::runtime::eval::indexed::full::schema::{BoolView, IntView};
+use crate::runtime::eval::indexed::full::schema::{BoolView, ExprView, IntView};
 use crate::runtime::eval::indexed::full::schema::StmtView;
 use crate::runtime::eval::indexed::full::decode::{
-    ListPosition, ListView, ProcessCommandBuilderEntryView, RunArgKindView, RunArgView, RunEnvView,
-    ScanConditionView,
+    FmtPartView, ListPosition, ListView, ProcessCommandBuilderEntryView, RecordEntryView,
+    RunArgKindView, RunArgView, RunEnvView, ScanConditionView,
 };
 use crate::runtime::eval::{
-    BuildExprId, LoweredCompTarget, LoweredProcessCommandBuilderEntry,
-    LoweredRunArg, LoweredRunEnv, LoweredRunPipelineSegment, LoweredRunRedirection,
+    BuildExprId, LoweredCompTarget, LoweredFmtPart, LoweredProcessCommandBuilderEntry,
+    LoweredRecordEntry, LoweredRunArg, LoweredRunEnv, LoweredRunPipelineSegment,
+    LoweredRunRedirection,
     visit_retained_lowered_value, visit_retained_lowered_values,
 };
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
@@ -741,9 +742,188 @@ impl RetryFrameState {
 }
 
 struct FmtState {
-    parts: Vec<IndexedFmtPart>,
-    index: usize,
+    instruction: u32,
+    position: ListPosition<LoweredFmtPart>,
     fmt: IndexedFmt,
+    span: Span,
+}
+
+type IndexedMapLiteralEntry = (Option<BuildExprId>, BuildExprId, Span);
+
+enum IndexedListLiteralPosition {
+    List(ListPosition<BuildExprId>),
+    Build(ListPosition<(bool, BuildExprId, Span)>),
+}
+
+struct ListItemsState {
+    instruction: u32,
+    position: IndexedListLiteralPosition,
+    splice: bool,
+    item_span: Span,
+    values: Vec<LoweredValue>,
+    span: Span,
+}
+
+struct MapLiteralState {
+    instruction: u32,
+    position: ListPosition<IndexedMapLiteralEntry>,
+    fields: BTreeMap<MapKey, LoweredValue>,
+    key: Option<MapKey>,
+    reading_key: bool,
+    span: Span,
+}
+
+struct RecordItemsState {
+    instruction: u32,
+    position: ListPosition<LoweredRecordEntry>,
+    fields: Vec<(Name, LoweredValue)>,
+    span: Span,
+}
+
+enum IndexedListLiteralView<'a> {
+    List(ListView<'a, BuildExprId>),
+    Build(ListView<'a, (bool, BuildExprId, Span)>),
+}
+
+impl IndexedListLiteralView<'_> {
+    fn len(&self) -> usize {
+        match self {
+            Self::List(items) => items.len(),
+            Self::Build(items) => items.len(),
+        }
+    }
+
+    fn preflight(&mut self, span: Span) -> Result<(), RuntimeError> {
+        match self {
+            Self::List(items) => items.preflight(),
+            Self::Build(items) => items.preflight(),
+        }
+        .map_err(|error| indexed_error(error, span))
+    }
+
+    fn position(&self) -> IndexedListLiteralPosition {
+        match self {
+            Self::List(items) => IndexedListLiteralPosition::List(items.position()),
+            Self::Build(items) => IndexedListLiteralPosition::Build(items.position()),
+        }
+    }
+
+    fn resume(
+        &mut self,
+        position: IndexedListLiteralPosition,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        match (self, position) {
+            (Self::List(items), IndexedListLiteralPosition::List(position)) => {
+                items.resume(position)
+            }
+            (Self::Build(items), IndexedListLiteralPosition::Build(position)) => {
+                items.resume(position)
+            }
+            _ => return Err(RuntimeError::new("indexed-ir", "list cursor is invalid").with_span(span)),
+        }
+        .map_err(|error| indexed_error(error, span))
+    }
+
+    fn next_operand(&mut self, span: Span) -> Result<Option<(u32, bool, Span)>, RuntimeError> {
+        let operand = match self {
+            Self::List(items) => items
+                .next()
+                .transpose()
+                .map_err(|error| indexed_error(error, span))?
+                .map(|instruction| (instruction.raw(), false, span)),
+            Self::Build(items) => items
+                .next()
+                .transpose()
+                .map_err(|error| indexed_error(error, span))?
+                .map(|(splice, instruction, span)| (instruction.raw(), splice, span)),
+        };
+        Ok(operand)
+    }
+}
+
+fn indexed_list_literal_view<'a>(
+    execution: &FullExecution<'a>,
+    tag: FullTag,
+    payload: FullPayload<'a>,
+    span: Span,
+) -> Result<IndexedListLiteralView<'a>, RuntimeError> {
+    let view = ExprView::decode(execution, tag, payload)
+        .map_err(|error| indexed_error(error, span))?;
+    match view {
+        ExprView::List(items) => Ok(IndexedListLiteralView::List(items)),
+        ExprView::ListBuild(items) => Ok(IndexedListLiteralView::Build(items)),
+        _ => Err(RuntimeError::new("indexed-ir", "list literal view is invalid").with_span(span)),
+    }
+}
+
+fn indexed_list_literal_view_at<'a>(
+    execution: &FullExecution<'a>,
+    instruction: u32,
+    span: Span,
+) -> Result<IndexedListLiteralView<'a>, RuntimeError> {
+    let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
+    indexed_list_literal_view(execution, tag, payload, span)
+}
+
+fn indexed_map_literal_view<'a>(
+    execution: &FullExecution<'a>,
+    tag: FullTag,
+    payload: FullPayload<'a>,
+    span: Span,
+) -> Result<ListView<'a, IndexedMapLiteralEntry>, RuntimeError> {
+    match ExprView::decode(execution, tag, payload)
+        .map_err(|error| indexed_error(error, span))?
+    {
+        ExprView::MapLiteral(entries) => Ok(entries),
+        _ => Err(RuntimeError::new("indexed-ir", "map literal view is invalid").with_span(span)),
+    }
+}
+
+fn indexed_map_literal_view_at<'a>(
+    execution: &FullExecution<'a>,
+    instruction: u32,
+    span: Span,
+) -> Result<ListView<'a, IndexedMapLiteralEntry>, RuntimeError> {
+    let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
+    indexed_map_literal_view(execution, tag, payload, span)
+}
+
+fn indexed_record_literal_view<'a>(
+    execution: &FullExecution<'a>,
+    tag: FullTag,
+    payload: FullPayload<'a>,
+    span: Span,
+) -> Result<ListView<'a, LoweredRecordEntry>, RuntimeError> {
+    match ExprView::decode(execution, tag, payload)
+        .map_err(|error| indexed_error(error, span))?
+    {
+        ExprView::Record(entries) => Ok(entries),
+        _ => Err(RuntimeError::new("indexed-ir", "record literal view is invalid").with_span(span)),
+    }
+}
+
+fn indexed_record_literal_view_at<'a>(
+    execution: &FullExecution<'a>,
+    instruction: u32,
+    span: Span,
+) -> Result<ListView<'a, LoweredRecordEntry>, RuntimeError> {
+    let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
+    indexed_record_literal_view(execution, tag, payload, span)
+}
+
+fn indexed_fmt_parts_view_at<'a>(
+    execution: &FullExecution<'a>,
+    instruction: u32,
+    span: Span,
+) -> Result<ListView<'a, LoweredFmtPart>, RuntimeError> {
+    let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
+    match ExprView::decode(execution, tag, payload)
+        .map_err(|error| indexed_error(error, span))?
+    {
+        ExprView::FmtString(parts) | ExprView::PathFmtString { parts, .. } => Ok(parts),
+        _ => Err(RuntimeError::new("indexed-ir", "format string view is invalid").with_span(span)),
+    }
 }
 
 struct FrameAssertionState {
@@ -1491,7 +1671,7 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     FmtValue {
-        state: FmtState,
+        state: Box<FmtState>,
         span: Span,
         spec: Option<FormatSpec>,
         next: Box<FrameContinuation>,
@@ -1502,17 +1682,11 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     ListItems {
-        items: Vec<(u32, bool, Span)>,
-        index: usize,
-        values: Vec<LoweredValue>,
+        state: Box<ListItemsState>,
         next: Box<FrameContinuation>,
     },
     MapLiteralItems {
-        entries: Vec<(Option<u32>, u32, Span)>,
-        index: usize,
-        fields: BTreeMap<MapKey, LoweredValue>,
-        key: Option<MapKey>,
-        reading_key: bool,
+        state: Box<MapLiteralState>,
         next: Box<FrameContinuation>,
     },
     RecordUpdateBase {
@@ -1529,10 +1703,7 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     RecordItems {
-        entries: Vec<IndexedRecordEntry>,
-        index: usize,
-        fields: Vec<(Name, LoweredValue)>,
-        span: Span,
+        state: Box<RecordItemsState>,
         next: Box<FrameContinuation>,
     },
     ListCompIter {
@@ -1687,12 +1858,12 @@ impl FrameContinuation {
                 visit_retained_lowered_values(values, visitor);
                 next.visit_retained_values(visitor);
             }
-            C::ListItems { values, next, .. } => {
-                visit_retained_lowered_values(values, visitor);
+            C::ListItems { state, next } => {
+                visit_retained_lowered_values(&state.values, visitor);
                 next.visit_retained_values(visitor);
             }
-            C::MapLiteralItems { fields, next, .. } => {
-                visit_retained_lowered_values(fields.values(), visitor);
+            C::MapLiteralItems { state, next } => {
+                visit_retained_lowered_values(state.fields.values(), visitor);
                 next.visit_retained_values(visitor);
             }
             C::RecordUpdateItems { base, values, next, .. } => {
@@ -1700,8 +1871,11 @@ impl FrameContinuation {
                 visit_retained_lowered_values(values.iter().map(|(_, value, _)| value), visitor);
                 next.visit_retained_values(visitor);
             }
-            C::RecordItems { fields, next, .. } => {
-                visit_retained_lowered_values(fields.iter().map(|(_, value)| value), visitor);
+            C::RecordItems { state, next } => {
+                visit_retained_lowered_values(
+                    state.fields.iter().map(|(_, value)| value),
+                    visitor,
+                );
                 next.visit_retained_values(visitor);
             }
             C::ListCompIter { state, next }
@@ -1762,6 +1936,7 @@ fn with_initializer_handler(
             | FrameContinuation::FmtValue { next, .. }
             | FrameContinuation::ResultFallback { next, .. }
             | FrameContinuation::ListItems { next, .. }
+            | FrameContinuation::MapLiteralItems { next, .. }
             | FrameContinuation::RecordItems { next, .. }
             | FrameContinuation::ListCompIter { next, .. }
             | FrameContinuation::ListCompCondition { next, .. }
@@ -5746,23 +5921,30 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             // Falling back to the recursive evaluator here would nest another explicit runner for each Result
             // call in the expression and consume native stack even when the outer loop itself is iterative.
             FullTag::ExprList | FullTag::ExprListBuild => {
-                let items = IndexedOperands::<(u32, bool, Span)>::literal(
+                let mut items = indexed_list_literal_view(
                     &self.calls[index].execution,
+                    tag,
                     payload,
-                    tag == FullTag::ExprListBuild,
                     span,
-                )?
-                .into_vec()?;
-                if let Some(&(instruction, _, item_span)) = items.first() {
-                    let values = Vec::with_capacity(items.len());
+                )?;
+                items.preflight(span)?;
+                let capacity = items.len();
+                if let Some((operand, splice, item_span)) = items.next_operand(span)? {
+                    let position = items.position();
+                    let values = Vec::with_capacity(capacity);
                     self.push_expr(
                         index,
-                        instruction,
+                        operand,
                         item_span,
                         FrameContinuation::ListItems {
-                            items,
-                            index: 0,
-                            values,
+                            state: Box::new(ListItemsState {
+                                instruction,
+                                position,
+                                splice,
+                                item_span,
+                                values,
+                                span,
+                            }),
                             next: Box::new(next),
                         },
                     );
@@ -5775,34 +5957,24 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
             }
             FullTag::ExprMapLiteral => {
-                let entries = IndexedOperands::<(Option<u32>, u32, Span)>::literal(
+                let mut entries = indexed_map_literal_view(
                     &self.calls[index].execution,
+                    tag,
                     payload,
-                    false,
                     span,
-                )?
-                .into_vec()?;
-                if let Some(&(key, value, entry_span)) = entries.first() {
-                    self.push_expr(
-                        index,
-                        key.unwrap_or(value),
-                        entry_span,
-                        FrameContinuation::MapLiteralItems {
-                            entries,
-                            index: 0,
-                            fields: BTreeMap::new(),
-                            key: None,
-                            reading_key: key.is_some(),
-                            next: Box::new(next),
-                        },
-                    );
-                } else {
-                    self.push_value(
-                        index,
-                        FrameValue::Value(LoweredValue::Map(Arc::new(BTreeMap::new()))),
-                        next,
-                    );
-                }
+                )?;
+                entries
+                    .preflight()
+                    .map_err(|error| indexed_error(error, span))?;
+                let position = entries.position();
+                self.step_map_literal(
+                    index,
+                    instruction,
+                    position,
+                    BTreeMap::new(),
+                    span,
+                    next,
+                )?;
             }
             FullTag::ExprRecordUpdate => {
                 let base = indexed_raw(&mut payload, span)?;
@@ -5823,34 +5995,25 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
             }
             FullTag::ExprRecord => {
-                let entries = IndexedOperands::<IndexedRecordEntry>::literal(
+                let mut entries = indexed_record_literal_view(
                     &self.calls[index].execution,
+                    tag,
                     payload,
-                    false,
                     span,
-                )?
-                .into_vec()?;
-                if let Some(entry) = entries.first() {
-                    let instruction = entry.instruction();
-                    self.push_expr(
-                        index,
-                        instruction,
-                        span,
-                        FrameContinuation::RecordItems {
-                            entries,
-                            index: 0,
-                            fields: Vec::new(),
-                            span,
-                            next: Box::new(next),
-                        },
-                    );
-                } else {
-                    self.push_value(
-                        index,
-                        FrameValue::Value(finish_record_entries(Vec::new())),
-                        next,
-                    );
-                }
+                )?;
+                entries
+                    .preflight()
+                    .map_err(|error| indexed_error(error, span))?;
+                let capacity = entries.len();
+                let position = entries.position();
+                self.step_record_items(
+                    index,
+                    instruction,
+                    position,
+                    Vec::with_capacity(capacity),
+                    span,
+                    next,
+                )?;
             }
             FullTag::ExprListComp | FullTag::ExprMapComp => {
                 let map = tag == FullTag::ExprMapComp;
@@ -5879,20 +6042,24 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.step_comp_qualifier(index, state, next)?;
             }
             FullTag::ExprFmtString | FullTag::ExprPathFmtString => {
-                let (parts, fmt) = fmt_operands(
+                let (mut parts, fmt) = decode_fmt(
                     &self.calls[index].execution,
+                    tag,
                     payload,
-                    tag == FullTag::ExprPathFmtString,
                     span,
                 )?;
-                let parts = parts.into_vec()?;
+                parts
+                    .preflight()
+                    .map_err(|error| indexed_error(error, span))?;
+                let position = parts.position();
                 self.step_fmt(
                     index,
-                    FmtState {
-                        parts,
-                        index: 0,
+                    Box::new(FmtState {
+                        instruction,
+                        position,
                         fmt,
-                    },
+                        span,
+                    }),
                     next,
                 )?;
             }
@@ -8243,87 +8410,72 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 },
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },
-            FrameContinuation::ListItems {
-                items,
-                index: item_index,
-                mut values,
-                next,
-            } => match value {
+            FrameContinuation::ListItems { mut state, next } => match value {
                 FrameValue::Value(value) => {
-                    let (_, splice, item_span) = items[item_index];
-                    append_lowered_list_element(&mut values, value, splice, item_span)?;
-                    if let Some(&(instruction, _, span)) = items.get(item_index + 1) {
-                        self.push_expr(
-                            index,
-                            instruction,
-                            span,
-                            FrameContinuation::ListItems {
-                                items,
-                                index: item_index + 1,
-                                values,
-                                next,
-                            },
-                        );
-                    } else {
-                        self.push_value(
-                            index,
-                            FrameValue::Value(LoweredValue::List(values)),
-                            *next,
-                        );
-                    }
+                    append_lowered_list_element(
+                        &mut state.values,
+                        value,
+                        state.splice,
+                        state.item_span,
+                    )?;
+                    self.step_list_literal(index, *state, *next)?;
                 }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::MapLiteralItems {
-                entries,
-                index: entry_index,
-                mut fields,
-                key,
-                reading_key,
-                next,
-            } => match value {
+            FrameContinuation::MapLiteralItems { mut state, next } => match value {
                 FrameValue::Value(value) => {
-                    let (_, value_instruction, span) = entries[entry_index];
-                    if reading_key {
-                        let key = Some(lowered_map_literal_key(&value, span)?);
+                    let mut entries = indexed_map_literal_view_at(
+                        &self.calls[index].execution,
+                        state.instruction,
+                        state.span,
+                    )?;
+                    entries
+                        .resume(state.position)
+                        .map_err(|error| indexed_error(error, state.span))?;
+                    let (_, value_instruction, entry_span) = entries
+                        .next()
+                        .transpose()
+                        .map_err(|error| indexed_error(error, state.span))?
+                        .ok_or_else(|| {
+                            RuntimeError::new("indexed-ir", "map literal cursor ended early")
+                                .with_span(state.span)
+                        })?;
+                    if state.reading_key {
+                        let key = Some(lowered_map_literal_key(&value, entry_span)?);
                         self.push_expr(
                             index,
-                            value_instruction,
-                            span,
+                            value_instruction.raw(),
+                            entry_span,
                             FrameContinuation::MapLiteralItems {
-                                entries,
-                                index: entry_index,
-                                fields,
-                                key,
-                                reading_key: false,
+                                state: Box::new(MapLiteralState {
+                                    instruction: state.instruction,
+                                    position: state.position,
+                                    fields: std::mem::take(&mut state.fields),
+                                    key,
+                                    reading_key: false,
+                                    span: state.span,
+                                }),
                                 next,
                             },
                         );
                     } else {
-                        append_lowered_map_literal(&mut fields, key, value, span)?;
-                        if let Some(&(key, value, span)) = entries.get(entry_index + 1) {
-                            self.push_expr(
-                                index,
-                                key.unwrap_or(value),
-                                span,
-                                FrameContinuation::MapLiteralItems {
-                                    entries,
-                                    index: entry_index + 1,
-                                    fields,
-                                    key: None,
-                                    reading_key: key.is_some(),
-                                    next,
-                                },
-                            );
-                        } else {
-                            self.push_value(
-                                index,
-                                FrameValue::Value(LoweredValue::Map(Arc::new(fields))),
-                                *next,
-                            );
-                        }
+                        let position = entries.position();
+                        append_lowered_map_literal(
+                            &mut state.fields,
+                            state.key.take(),
+                            value,
+                            entry_span,
+                        )?;
+                        self.step_map_literal(
+                            index,
+                            state.instruction,
+                            position,
+                            std::mem::take(&mut state.fields),
+                            state.span,
+                            *next,
+                        )?;
                     }
                 }
                 FrameValue::Break(value) => {
@@ -8395,36 +8547,39 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::RecordItems {
-                entries,
-                index: entry_index,
-                mut fields,
-                span,
-                next,
-            } => match value {
+            FrameContinuation::RecordItems { mut state, next } => match value {
                 FrameValue::Value(value) => {
-                    entries[entry_index].append(&mut fields, value, span)?;
-                    if let Some(entry) = entries.get(entry_index + 1) {
-                        let instruction = entry.instruction();
-                        self.push_expr(
-                            index,
-                            instruction,
-                            span,
-                            FrameContinuation::RecordItems {
-                                entries,
-                                index: entry_index + 1,
-                                fields,
-                                span,
-                                next,
-                            },
-                        );
-                    } else {
-                        self.push_value(
-                            index,
-                            FrameValue::Value(finish_record_entries(fields)),
-                            *next,
-                        );
-                    }
+                    let mut entries = indexed_record_literal_view_at(
+                        &self.calls[index].execution,
+                        state.instruction,
+                        state.span,
+                    )?;
+                    entries
+                        .resume(state.position)
+                        .map_err(|error| indexed_error(error, state.span))?;
+                    let entry = entries
+                        .next()
+                        .transpose()
+                        .map_err(|error| indexed_error(error, state.span))?
+                        .ok_or_else(|| {
+                            RuntimeError::new("indexed-ir", "record literal cursor ended early")
+                                .with_span(state.span)
+                        })?;
+                    let position = entries.position();
+                    super::append_indexed_record_entry(
+                        entry,
+                        &mut state.fields,
+                        value,
+                        state.span,
+                    )?;
+                    self.step_record_items(
+                        index,
+                        state.instruction,
+                        position,
+                        std::mem::take(&mut state.fields),
+                        state.span,
+                        *next,
+                    )?;
                 }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
@@ -9256,20 +9411,165 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         Ok(())
     }
 
+    fn step_list_literal(
+        &mut self,
+        index: usize,
+        mut state: ListItemsState,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        let mut items = indexed_list_literal_view_at(
+            &self.calls[index].execution,
+            state.instruction,
+            state.span,
+        )?;
+        items.resume(state.position, state.span)?;
+        if let Some((operand, splice, item_span)) = items.next_operand(state.span)? {
+            state.position = items.position();
+            state.splice = splice;
+            state.item_span = item_span;
+            self.push_expr(
+                index,
+                operand,
+                item_span,
+                FrameContinuation::ListItems {
+                    state: Box::new(state),
+                    next: Box::new(next),
+                },
+            );
+        } else {
+            self.push_value(
+                index,
+                FrameValue::Value(LoweredValue::List(state.values)),
+                next,
+            );
+        }
+        Ok(())
+    }
+
+    fn step_map_literal(
+        &mut self,
+        index: usize,
+        instruction: u32,
+        position: ListPosition<IndexedMapLiteralEntry>,
+        fields: BTreeMap<MapKey, LoweredValue>,
+        span: Span,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        let mut entries = indexed_map_literal_view_at(
+            &self.calls[index].execution,
+            instruction,
+            span,
+        )?;
+        entries
+            .resume(position)
+            .map_err(|error| indexed_error(error, span))?;
+        let entry_position = entries.position();
+        if let Some((key, value, entry_span)) = entries
+            .next()
+            .transpose()
+            .map_err(|error| indexed_error(error, span))?
+        {
+            let reading_key = key.is_some();
+            let operand = key.unwrap_or(value);
+            self.push_expr(
+                index,
+                operand.raw(),
+                entry_span,
+                FrameContinuation::MapLiteralItems {
+                    state: Box::new(MapLiteralState {
+                        instruction,
+                        position: entry_position,
+                        fields,
+                        key: None,
+                        reading_key,
+                        span,
+                    }),
+                    next: Box::new(next),
+                },
+            );
+        } else {
+            self.push_value(
+                index,
+                FrameValue::Value(LoweredValue::Map(Arc::new(fields))),
+                next,
+            );
+        }
+        Ok(())
+    }
+
+    fn step_record_items(
+        &mut self,
+        index: usize,
+        instruction: u32,
+        position: ListPosition<LoweredRecordEntry>,
+        fields: Vec<(Name, LoweredValue)>,
+        span: Span,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        let mut entries = indexed_record_literal_view_at(
+            &self.calls[index].execution,
+            instruction,
+            span,
+        )?;
+        entries
+            .resume(position)
+            .map_err(|error| indexed_error(error, span))?;
+        let entry_position = entries.position();
+        if let Some(entry) = entries
+            .next()
+            .transpose()
+            .map_err(|error| indexed_error(error, span))?
+        {
+            let operand = match &entry {
+                RecordEntryView::Field(_, value) | RecordEntryView::Spread(value) => *value,
+            };
+            self.push_expr(
+                index,
+                operand.raw(),
+                span,
+                FrameContinuation::RecordItems {
+                    state: Box::new(RecordItemsState {
+                        instruction,
+                        position: entry_position,
+                        fields,
+                        span,
+                    }),
+                    next: Box::new(next),
+                },
+            );
+        } else {
+            self.push_value(
+                index,
+                FrameValue::Value(finish_record_entries(fields)),
+                next,
+            );
+        }
+        Ok(())
+    }
+
     fn step_fmt(
         &mut self,
         index: usize,
-        mut state: FmtState,
+        mut state: Box<FmtState>,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
-        while let Some(part) = state.parts.get(state.index).cloned() {
-            state.index += 1;
+        let mut parts = indexed_fmt_parts_view_at(
+            &self.calls[index].execution,
+            state.instruction,
+            state.span,
+        )?;
+        parts
+            .resume(state.position)
+            .map_err(|error| indexed_error(error, state.span))?;
+        while let Some(part) = parts.next() {
+            let part = part.map_err(|error| indexed_error(error, state.span))?;
+            state.position = parts.position();
             match part {
-                IndexedFmtPart::Text(text) => state.fmt.push_text(&text),
-                IndexedFmtPart::Expr(instruction, span, spec) => {
+                FmtPartView::Text(text) => state.fmt.push_text(text.as_ref()),
+                FmtPartView::Expr(instruction, span, spec) => {
                     self.push_expr(
                         index,
-                        instruction,
+                        instruction.raw(),
                         span,
                         FrameContinuation::FmtValue {
                             state,
