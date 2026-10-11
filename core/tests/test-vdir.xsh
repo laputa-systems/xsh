@@ -54,11 +54,14 @@ test test_vdir_lists_long_by_default { |ctx|
   assert ls_in(ctx, work, ["-C"], {LC_ALL: "C", TZ: "UTC", TIME_STYLE: "invalid"})?.status == 0, "the time style is only checked for long listings"
 }
 
-test test_vdir_explicit_literal_style_preserves_newlines { |ctx|
+test test_vdir_explicit_literal_style_hides_long_listing_newlines_unless_shown { |ctx|
   let work = sandbox(ctx)?
   fp"{work}/a\nb".write("")
-  let result = ls_in(ctx, work, [], {LC_ALL: "C", TZ: "UTC", QUOTING_STYLE: "literal"})?
-  assert " a\nb\n" in result.text, result.text
+  let style_env = {LC_ALL: "C", TZ: "UTC", QUOTING_STYLE: "literal"}
+  let hidden = ls_in(ctx, work, [], style_env)?
+  assert " a?b\n" in hidden.text, hidden.text
+  let shown = ls_in(ctx, work, ["--show-control-chars"], style_env)?
+  assert " a\nb\n" in shown.text, shown.text
 }
 
 test test_vdir_time_selection_keeps_name_order { |ctx|
