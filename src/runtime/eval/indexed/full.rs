@@ -7520,6 +7520,48 @@ run true
     }
 
     #[test]
+    fn statement_block_position_rejects_a_foreign_store() {
+        let program = fixture(
+            "statement-block-position.xsh",
+            "proc main() [io] {\n  print \"first\"\n  print \"second\"\n}\n",
+        );
+        program.symbol_owner().with_current(|| {
+            let function = program
+                .function_view(
+                    LoweredFunctionKey::Name(program_name(&program, "main")),
+                    LoweredFunctionKind::Proc,
+                )
+                .expect("main resolves")
+                .expect("main exists");
+            let execution = function.execution().expect("main execution decodes");
+            let (body, _) = function.body(&execution).expect("main body decodes");
+            let statements = execution
+                .statement_block_view_id(body)
+                .expect("main statements borrow");
+            let position = statements.position();
+
+            let foreign_store = Arc::new(program.store.clone());
+            let foreign_execution = FullExecution {
+                decoder: FullDecoder {
+                    store: &foreign_store,
+                    owner: execution.decoder.owner,
+                    instruction_range: execution.decoder.instruction_range.clone(),
+                    instruction_states: None,
+                    instruction_proof: None,
+                    block_states: None,
+                    slot_count: execution.decoder.slot_count,
+                    pattern_ceiling: Cell::new(usize::MAX),
+                    verified: false,
+                },
+            };
+            let mut foreign_statements = foreign_execution
+                .statement_block_view_id(body)
+                .expect("cloned store has the same block layout");
+            assert!(foreign_statements.resume(position).is_err());
+        });
+    }
+
+    #[test]
     fn statement_env_validates_all_names_before_evaluating_values() {
         let source = r#"
 proc mark() -> Str { print "evaluated"; return "value" }
@@ -8626,9 +8668,9 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
         let _ = fixture("local-inference.xsh", source);
     }
 
-    /// A loop reuses its statement list rather than allocating per iteration.
+    /// A resumed statement cursor runs the block body once per loop iteration.
     #[test]
-    fn loop_iterations_reuse_their_statement_list() {
+    fn loop_statement_cursor_preserves_iteration_order() {
         run_with_large_stack(|| {
             let program = Arc::new(fixture(
                 "indexed-list-reuse.xsh",
@@ -8646,19 +8688,6 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
                 .expect("main exists")
                 .expect("main runs");
             assert_eq!(evaluator.stdout, b"index=200\n");
-            let scratch = &evaluator.frame_scratch;
-            // The first iteration fills the pool, so one of the two hundred
-            // takes is the fresh one.
-            assert!(
-                scratch.reused_statements >= 199,
-                "each iteration takes its statement list back from the pool (reused {})",
-                scratch.reused_statements
-            );
-            assert!(
-                scratch.fresh_statements <= 8,
-                "a 200-iteration loop must not build a list per iteration (fresh {})",
-                scratch.fresh_statements
-            );
         });
     }
 

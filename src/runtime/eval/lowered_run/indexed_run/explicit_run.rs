@@ -5,7 +5,7 @@ use super::serial_pipeline::{
 };
 use super::super::LoweredRetryDelays;
 use super::{
-    Arc, AssignOp, BLOCK_LIST, BLOCK_STATEMENTS, BTreeMap, BinaryOp, CommandPlan, ControlFlow,
+    Arc, AssignOp, BLOCK_LIST, BTreeMap, BinaryOp, CommandPlan, ControlFlow,
     Evaluator,
     FormatSpec, FrameStrategy, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag,
     FunctionHeader,
@@ -36,6 +36,7 @@ use super::{
 };
 use super::{LoweredMapCursor, LoweredScalarCursor};
 use crate::map_key::MapKey;
+use crate::runtime::eval::indexed::IrBlockId;
 use crate::runtime::eval::indexed::full::schema::{BoolView, ExprView, IntView};
 use crate::runtime::eval::indexed::full::schema::StmtView;
 use crate::runtime::eval::indexed::full::decode::{
@@ -75,6 +76,107 @@ fn indexed_run_arg(kind: RunArgKindView<'_>, span: Span) -> super::RunArg {
         RunArgKindView::Splice(value) => (2, value.raw()),
     };
     super::RunArg { mode, value, span }
+}
+
+/// A statement block that has passed its eager list validation.
+#[derive(Clone, Copy)]
+pub(super) struct StatementBlock(IrBlockId);
+
+/// The next statement to run without owning copies of the block's rows.
+pub(super) enum StatementCursor {
+    Block {
+        block: StatementBlock,
+        position: ListPosition<BuildStmtId>,
+    },
+    Single(Option<u32>),
+    Empty,
+}
+
+impl StatementBlock {
+    fn from_view(
+        mut statements: ListView<'_, BuildStmtId>,
+        span: Span,
+    ) -> Result<(Self, ListPosition<BuildStmtId>), RuntimeError> {
+        statements
+            .preflight()
+            .map_err(|error| indexed_error(error, span))?;
+        Ok((Self(statements.block_identity()), statements.position()))
+    }
+
+    fn open(
+        execution: &FullExecution<'_>,
+        raw: u32,
+        span: Span,
+    ) -> Result<(Self, ListPosition<BuildStmtId>), RuntimeError> {
+        let statements = execution
+            .statement_block_view(raw)
+            .map_err(|error| indexed_error(error, span))?;
+        Self::from_view(statements, span)
+    }
+
+    fn open_id(
+        execution: &FullExecution<'_>,
+        id: IrBlockId,
+        span: Span,
+    ) -> Result<(Self, ListPosition<BuildStmtId>), RuntimeError> {
+        let statements = execution
+            .statement_block_view_id(id)
+            .map_err(|error| indexed_error(error, span))?;
+        Self::from_view(statements, span)
+    }
+}
+
+impl StatementCursor {
+    pub(super) fn block(
+        execution: &FullExecution<'_>,
+        raw: u32,
+        span: Span,
+    ) -> Result<Self, RuntimeError> {
+        let (block, position) = StatementBlock::open(execution, raw, span)?;
+        Ok(Self::Block { block, position })
+    }
+
+    pub(super) fn function_body(
+        execution: &FullExecution<'_>,
+        id: IrBlockId,
+        span: Span,
+    ) -> Result<Self, RuntimeError> {
+        let (block, position) = StatementBlock::open_id(execution, id, span)?;
+        Ok(Self::Block { block, position })
+    }
+
+    fn single(statement: u32) -> Self {
+        Self::Single(Some(statement))
+    }
+
+    fn empty() -> Self {
+        Self::Empty
+    }
+
+    fn next(
+        &mut self,
+        execution: &FullExecution<'_>,
+        span: Span,
+    ) -> Result<Option<u32>, RuntimeError> {
+        match self {
+            Self::Block { block, position } => {
+                let mut statements = execution
+                    .statement_block_view_id(block.0)
+                    .map_err(|error| indexed_error(error, span))?;
+                statements
+                    .resume(*position)
+                    .map_err(|error| indexed_error(error, span))?;
+                let statement = statements
+                    .next()
+                    .transpose()
+                    .map_err(|error| indexed_error(error, span))?;
+                *position = statements.position();
+                Ok(statement.map(|statement| statement.raw()))
+            }
+            Self::Single(statement) => Ok(statement.take()),
+            Self::Empty => Ok(None),
+        }
+    }
 }
 
 /// Reopens one borrowed statement-list row at its saved position.
@@ -2338,7 +2440,7 @@ enum FrameWork {
     },
     CompCleanup(CompStreams),
     Statements {
-        statements: Vec<u32>,
+        cursor: StatementCursor,
         complete_call: bool,
         scope_id: Option<u64>,
     },
@@ -2643,10 +2745,9 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         span: Span,
     ) -> Result<StmtFlow, RuntimeError> {
-        let mut statements = self.frame_scratch.take_statements();
-        decode_statement_block_into(execution, block, span, &mut statements)?;
+        let cursor = StatementCursor::block(execution, block, span)?;
         let work = FrameWork::Statements {
-            statements,
+            cursor,
             complete_call: true,
             scope_id: None,
         };
@@ -2661,10 +2762,8 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         span: Span,
     ) -> Result<StmtFlow, RuntimeError> {
-        let mut statements = self.frame_scratch.take_statements();
-        statements.push(statement);
         let work = FrameWork::Statements {
-            statements,
+            cursor: StatementCursor::single(statement),
             complete_call: true,
             scope_id: None,
         };
@@ -2839,24 +2938,16 @@ pub(super) enum ProducerStep {
 /// Reusable vectors for frame work and decoded operands.
 ///
 /// Calls repeatedly decode short argument lists into vectors.
-/// Bounded pools reuse their storage after evaluation, along with work stacks,
-/// slot scopes, and statement lists, the same way `lowered_slot_pool` does for
-/// slots.
+/// Bounded pools reuse their storage after evaluation, along with work stacks
+/// and slot scopes, the same way `lowered_slot_pool` does for slots.
 #[derive(Default)]
 pub(in crate::runtime::eval) struct FrameScratch {
     work: Vec<Vec<FrameWork>>,
     slot_scopes: Vec<Vec<u64>>,
-    statements: Vec<Vec<u32>>,
     call_args: Vec<Vec<(u32, u32)>>,
     /// A frame's block scopes and their defer offsets, taken when the frame
     /// opens its first block.
     block_stacks: Vec<(Vec<u64>, Vec<usize>)>,
-    /// How many statement lists were handed out fresh, and how many came back
-    /// from the pool. A loop that reuses its body's list moves only the second:
-    /// that is the claim `loop_iterations_reuse_their_statement_list` reads, and
-    /// it is not visible from a run's values.
-    pub(in crate::runtime::eval) fresh_statements: usize,
-    pub(in crate::runtime::eval) reused_statements: usize,
 }
 
 impl FrameScratch {
@@ -2871,19 +2962,6 @@ impl FrameScratch {
         scopes.clear();
         scopes.resize(len, fill);
         scopes
-    }
-
-    fn take_statements(&mut self) -> Vec<u32> {
-        match self.statements.pop() {
-            Some(statements) => {
-                self.reused_statements += 1;
-                statements
-            }
-            None => {
-                self.fresh_statements += 1;
-                Vec::new()
-            }
-        }
     }
 
     fn take_block_stacks(&mut self) -> (Vec<u64>, Vec<usize>) {
@@ -2902,29 +2980,9 @@ impl FrameScratch {
         self.call_args.push(args);
     }
 
-    /// Returns a statement list whose entries have all run.
-    ///
-    /// A `Statements` work item owns its list, so the list is dropped when the
-    /// item is exhausted — on every loop iteration, unless it comes back here.
-    fn recycle_statements(&mut self, mut statements: Vec<u32>) {
-        if self.statements.len() >= Self::POOL_CAP {
-            return;
-        }
-        statements.clear();
-        self.statements.push(statements);
-    }
 
     /// Returns a finished frame's vectors to the pools, cleared for reuse.
     pub(super) fn recycle(&mut self, call: &mut CallFrame<'_>) {
-        for work in call.work.drain(..) {
-            let FrameWork::Statements { mut statements, .. } = work else {
-                continue;
-            };
-            statements.clear();
-            if self.statements.len() < Self::POOL_CAP {
-                self.statements.push(statements);
-            }
-        }
         call.work.clear();
         if self.work.len() < Self::POOL_CAP {
             self.work.push(std::mem::take(&mut call.work));
@@ -2966,10 +3024,10 @@ pub(super) struct ProducerFrameState {
 
 impl ProducerFrameState {
     /// The state of a producer whose body has not run yet.
-    pub(super) fn begin_body(statements: Vec<u32>, slots: Vec<LoweredValue>) -> Self {
+    pub(super) fn begin_body(cursor: StatementCursor, slots: Vec<LoweredValue>) -> Self {
         Self {
             work: vec![FrameWork::Statements {
-                statements,
+                cursor,
                 complete_call: true,
                 scope_id: None,
             }],
@@ -3122,14 +3180,14 @@ impl<'p> CallFrame<'p> {
             )
         });
         for work in &mut self.work {
-            if let FrameWork::Statements { statements, .. } = work {
-                statements.clear();
+            if let FrameWork::Statements { cursor, .. } = work {
+                *cursor = StatementCursor::empty();
             }
         }
         self.work.insert(
             0,
             FrameWork::Statements {
-                statements: Vec::new(),
+                cursor: StatementCursor::empty(),
                 complete_call: true,
                 scope_id: None,
             },
@@ -4334,11 +4392,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let execution = view
             .execution()
             .map_err(|error| indexed_error(error, call_span))?;
-        let (_, body) = view
+        let (body, _) = view
             .body(&execution)
             .map_err(|error| indexed_error(error, call_span))?;
-        let mut statements = self.evaluator.frame_scratch.take_statements();
-        decode_statements_into(body, call_span, &mut statements)?;
+        let cursor = StatementCursor::function_body(&execution, body, call_span)?;
         let (frame_kind, enter_kind) = match kind {
             LoweredFunctionKind::Pure => (TracebackFrameKind::Pure, TraceKind::PureEnter),
             LoweredFunctionKind::Proc => (TracebackFrameKind::Proc, TraceKind::ProcEnter),
@@ -4384,7 +4441,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             work: {
                 let mut work = self.evaluator.frame_scratch.take_work();
                 work.push(FrameWork::Statements {
-                    statements,
+                    cursor,
                     complete_call: true,
                     scope_id: None,
                 });
@@ -4627,23 +4684,22 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             )
             .with_span(self.calls[index].call_span));
         }
-        let Some(FrameWork::Statements { statements, .. }) = self.calls[index].work.last_mut()
-        else {
-            unreachable!("step_statements runs a statement list");
+        let statement = {
+            let call = &mut self.calls[index];
+            let Some(FrameWork::Statements { cursor, .. }) = call.work.last_mut() else {
+                unreachable!("step_statements runs a statement list");
+            };
+            cursor.next(&call.execution, call.call_span)?
         };
-        let Some(statement) = statements.pop() else {
+        let Some(statement) = statement else {
             let Some(FrameWork::Statements {
-                statements,
                 complete_call,
                 scope_id,
+                ..
             }) = self.calls[index].work.pop()
             else {
                 unreachable!("step_statements runs a statement list");
             };
-            // A list that ran to its end goes back to the pool here: its
-            // entries are done with, and a loop body would otherwise allocate a
-            // fresh list on every iteration.
-            self.evaluator.frame_scratch.recycle_statements(statements);
             return if complete_call {
                 self.complete_call(index, StmtFlow::None)
             } else {
@@ -5095,7 +5151,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.calls[index].block_scopes.push(scope_id);
                 self.calls[index].block_defer_offsets.push(defer_offset);
                 self.calls[index].work.push(FrameWork::Statements {
-                    statements: Vec::new(),
+                    cursor: StatementCursor::empty(),
                     complete_call: false,
                     scope_id: Some(scope_id),
                 });
@@ -9410,12 +9466,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             });
         if can_finish_after_discarding_root_statements {
             while let Some(work) = self.calls[index].work.pop() {
-                let FrameWork::Statements { statements, .. } = work else {
+                let FrameWork::Statements { .. } = work else {
                     unreachable!("synchronous pure return only retains root statements");
                 };
-                self.evaluator
-                    .frame_scratch
-                    .recycle_statements(statements);
             }
             return self.finish_call(index, flow);
         }
@@ -11943,7 +11996,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.calls[index].block_scopes.push(scope_id);
         self.calls[index].block_defer_offsets.push(defer_offset);
         self.calls[index].work.push(FrameWork::Statements {
-            statements: Vec::new(),
+            cursor: StatementCursor::empty(),
             complete_call: false,
             scope_id: Some(scope_id),
         });
@@ -11960,14 +12013,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             self.calls[index].slots[slot] = LoweredValue::Unit;
         }
         let Some(FrameWork::Statements {
-            statements,
             scope_id: Some(scope_id),
             ..
         }) = self.calls[index].work.pop()
         else {
             unreachable!("pattern condition owns its scope");
         };
-        self.evaluator.frame_scratch.recycle_statements(statements);
         self.exit_block_scope(
             index,
             scope_id,
@@ -12195,8 +12246,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         body: u32,
         span: Span,
     ) -> Result<(), RuntimeError> {
-        let mut statements = self.evaluator.frame_scratch.take_statements();
-        decode_statement_block_into(&self.calls[index].execution, body, span, &mut statements)?;
+        let cursor = StatementCursor::block(&self.calls[index].execution, body, span)?;
         let scope_id = self.evaluator.enter_owned_host_scope();
         let defer_offset = self.calls[index].defers.len();
         if self.calls[index].block_scopes.capacity() == 0 {
@@ -12207,7 +12257,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.calls[index].block_scopes.push(scope_id);
         self.calls[index].block_defer_offsets.push(defer_offset);
         self.calls[index].work.push(FrameWork::Statements {
-            statements,
+            cursor,
             complete_call: false,
             scope_id: Some(scope_id),
         });
@@ -12449,11 +12499,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
             }
             FrameWork::Statements {
-                statements,
                 scope_id,
                 ..
             } => {
-                self.evaluator.frame_scratch.recycle_statements(statements);
                 let Some(scope_id) = scope_id else {
                     self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
                     return Ok(());
@@ -12890,53 +12938,6 @@ fn update_context_traceback(evaluator: &mut Evaluator, value: &LoweredValue) {
         };
         traceback.error = crate::trace::TraceError::from_value(error);
     }
-}
-
-/// The instructions of a statement block, reversed so a frame can pop them.
-///
-/// The payload spells the block's statements in the order they run, and a frame
-/// pops from the end of this list, so the list is reversed here: the last
-/// element is the block's first statement.
-pub(super) fn decode_statements(
-    payload: FullPayload<'_>,
-    span: Span,
-) -> Result<Vec<u32>, RuntimeError> {
-    let mut statements = Vec::new();
-    decode_statements_into(payload, span, &mut statements)?;
-    Ok(statements)
-}
-
-/// Fills `statements` with a block's instructions, reversed so a frame pops
-/// them in the order they run.
-///
-/// Taking the vector from a pool is what keeps a loop iteration from allocating
-/// one; the caller hands it back through `FrameScratch::recycle`.
-pub(super) fn decode_statements_into(
-    mut payload: FullPayload<'_>,
-    span: Span,
-    statements: &mut Vec<u32>,
-) -> Result<(), RuntimeError> {
-    let len = indexed_raw(&mut payload, span)? as usize;
-    statements.clear();
-    statements.reserve(len);
-    for _ in 0..len {
-        statements.push(indexed_raw(&mut payload, span)?);
-    }
-    indexed_finish(payload, span)?;
-    statements.reverse();
-    Ok(())
-}
-
-fn decode_statement_block_into(
-    execution: &FullExecution<'_>,
-    block: u32,
-    span: Span,
-    statements: &mut Vec<u32>,
-) -> Result<(), RuntimeError> {
-    let (_, payload) = execution
-        .block_id(block, BLOCK_STATEMENTS)
-        .map_err(|error| indexed_error(error, span))?;
-    decode_statements_into(payload, span, statements)
 }
 
 pub(super) fn decode_call_args_into<'a>(

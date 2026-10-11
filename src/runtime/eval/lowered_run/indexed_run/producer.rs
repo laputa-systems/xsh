@@ -12,7 +12,7 @@
 //! exactly the work between two yields, and puts the frame back.
 
 use super::explicit_run::{
-    CallFrame, ExplicitFrames, ProducerFrameState, ProducerStep, decode_statements,
+    CallFrame, ExplicitFrames, ProducerFrameState, ProducerStep, StatementCursor,
 };
 use super::{
     Arc, Evaluator, LoweredFunctionKey, LoweredFunctionKind, LoweredValue, RuntimeError, Span,
@@ -223,16 +223,16 @@ impl Evaluator {
         let execution = view
             .execution()
             .map_err(|error| super::indexed_error(error, call_span))?;
-        let (_, body) = view
+        let (body, _) = view
             .body(&execution)
             .map_err(|error| super::indexed_error(error, call_span))?;
-        let statements = decode_statements(body, call_span)?;
+        let cursor = StatementCursor::function_body(&execution, body, call_span)?;
         let definition_span = view
             .definition_span()
             .map_err(|error| super::indexed_error(error, call_span))?;
         // The call scope is entered on the first pull, so a producer whose body
         // never starts never owns one.
-        let frame = ProducerFrameState::begin_body(statements, slots);
+        let frame = ProducerFrameState::begin_body(cursor, slots);
         let header = view
             .header()
             .map_err(|error| super::indexed_error(error, call_span))?;

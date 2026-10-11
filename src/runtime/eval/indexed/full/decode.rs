@@ -10,7 +10,7 @@ use super::{
 use super::{
     Arc, AssignOp, BinaryOp, BuildBoolId, BuildExprId, BuildIntId, BuildPatternId, BuildStmtId,
     Cell, DurationValue, FloatValue, FormatSpec, FullCodec, FullCursor, FullDecoder,
-    FullExecution, FullStore, FunctionName, HashAlgorithm, IrFunctionId,
+    FullExecution, FullStore, FunctionName, HashAlgorithm, IrBlockId, IrFunctionId,
     IrVerifyError, LoweredFunctionKey, LoweredModuleExport,
     LoweredStrPredicate, LoweredTopLevelSlot, LoweredType, LoweredValue, Name,
     NameText, PathValue, PreparedConstantValue, QualifiedName, RedirectionKind, RegexValue,
@@ -429,6 +429,7 @@ impl<'a, T> ListView<'a, T> {
 }
 impl ListView<'_, BuildStmtId> {
     pub(in crate::runtime::eval) fn block_id(&self) -> u32 { self.block.raw() }
+    pub(in crate::runtime::eval) fn block_identity(&self) -> IrBlockId { self.block }
 }
 impl<'a> ListView<'a, LoweredPipelineStage> {
     pub(in crate::runtime::eval) fn next_with_id(
@@ -465,14 +466,30 @@ impl<T: VectorElement> BorrowCodec for Vec<T> where Vec<T>: FullCodec {
 }
 
 impl<'program> FullExecution<'program> {
-    /// The reducer projection shortcut only accepts empty bodies, so inspect
-    /// their statement list through the same borrowed cursor validation used
-    /// for other full-IR lists.
+    /// Opens a statement list after checking its store, owner, and block kind.
     pub(in crate::runtime::eval) fn statement_block_view<'execution>(
         &'execution self,
         raw: u32,
     ) -> Result<ListView<'execution, BuildStmtId>, IrVerifyError> {
         let (block, payload) = self.block_id(raw, super::BLOCK_STATEMENTS)?;
+        Self::statement_list_view(self, block, payload)
+    }
+
+    /// Opens a statement list from a typed block identity, with the same checks
+    /// as the raw-ID path used by instruction and pipeline decoders.
+    pub(in crate::runtime::eval) fn statement_block_view_id<'execution>(
+        &'execution self,
+        id: IrBlockId,
+    ) -> Result<ListView<'execution, BuildStmtId>, IrVerifyError> {
+        let (block, payload) = self.block_id(id.raw(), super::BLOCK_STATEMENTS)?;
+        Self::statement_list_view(self, block, payload)
+    }
+
+    fn statement_list_view<'execution>(
+        &'execution self,
+        block: IrBlockId,
+        payload: super::FullPayload<'execution>,
+    ) -> Result<ListView<'execution, BuildStmtId>, IrVerifyError> {
         ListView::from_block(
             DecodeContext::new(self),
             block,
