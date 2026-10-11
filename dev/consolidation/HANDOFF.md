@@ -16,6 +16,20 @@ its reuse/domain unit, shared-arena integration case, module/stream native
 gates and all 46 sema integration tests. These are lane results; the joint
 optimized build and focused combined gates remain in progress.
 
+Joint `d15511a3` optimized build now passes. Its frozen pair is in
+`.work/consolidation/restart/joint-d155-bin` (xsh SHA-256
+`a10e1bdd27d12a5a6e065a2518360a8f3b8478e7f4b85b255b4ab4fe5ce40dde`,
+xsht `39271709b4eb79388d70b6d4a46ca2398823d253ca796c2193ba9f6c75ff17b1`).
+Combined native gates pass pattern conditionals 15/15, compact declarations
+4/4, module-command contracts 6/6 and resource ownership 22/22. Both the
+ListRest corruption unit and module preparation/domain unit pass one actual
+case each using the rebuilt static test harness. The initial timeout argument
+`30` was invalid, and an initial wrong module filename ran zero cases; those
+logs are retained and excluded. Corrected runs use `30s` and the actual file.
+Thirteen lint-proven redundant FsRoot defers are removed in `78052d1d`;
+all 13 nearest native cases and the retained child/parent lifecycle case pass.
+The intentionally retained child defer still has its lint finding.
+
 The public lint Rust options now accept shared `checked_output` rather than
 21 separately copied fact maps; synthetic maps remain test-only. Cross-root
 module reuse, the complete lint declaration/dispatch table, all frame and
