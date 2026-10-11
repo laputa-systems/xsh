@@ -17,7 +17,7 @@ proc main(...argv: List[Bytes]) {
   let opts: Options = cli.applet(text.numeric_options(arguments.values, "-t"), {
     gnu: {status: 1},
     tabs: {form: "-t --tabs LIST", repeated: true},
-    all: {form: "-a --all", default: false}, first: {form: "-f --first-only", default: false},
+    all: {form: "-a --all", default: false}, first: {form: "--first-only", default: false},
     help: {form: "--help", default: false, stop: true},
     version: {form: "--version", default: false, stop: true},
     paths: {form: "...FILE"},

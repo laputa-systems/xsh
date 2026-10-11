@@ -327,3 +327,17 @@ test test_rm_interactive_once_prompts_for_write_protected_files_on_a_terminal { 
     file.chmod(0o600)
   }
 }
+
+
+test test_rm_verbose_preserves_one_operand_trailing_slash { |ctx|
+  let root = test.temp_dir(ctx, name: "rm-trailing-slashes")?
+  fp"{root}/a".mkdir()
+  fp"{root}/a/x".write("")
+  let out = fp"{root}/out"
+  let err = fp"{root}/err"
+  let status = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), fp"{ctx.core_dir}/rm.xsh".display(), "-rv", "a///"],
+    root, {LC_ALL: "C"}, b"", out, err))?
+  assert status.exited_with(0), err.read_text()?
+  assert out.read_text()? == "removed 'a/x'\nremoved directory 'a/'\n"
+}

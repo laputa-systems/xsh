@@ -48,3 +48,13 @@ test test_unexpand_obsolete_tab_stop_overflow_omits_the_value { |ctx|
   assert explicit.exited_with(1)
   assert "unexpand: tab stop is too large " in error.read_text()?, "the -t form quotes the value"
 }
+
+
+test test_unexpand_first_only_has_no_short_alias { |ctx|
+  let input = test.temp_file(ctx, name: "spaces", contents: b"        a       b\n")?
+  let first = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- -t8 --first-only $input
+  assert first == "\ta       b\n"
+  let invalid = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- -f $input
+  assert invalid.status.exited_with(1)
+  assert invalid.stderr == "unexpand: invalid option -- 'f'\nTry 'unexpand --help' for more information.\n"
+}
