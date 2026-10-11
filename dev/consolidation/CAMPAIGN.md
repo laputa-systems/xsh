@@ -224,7 +224,7 @@ performance gates; they do not introduce new acceptance thresholds here.
 | Whole-program copies made to lower one stage that names a callable | 1 | 0 |
 | `xsht lint` on this repository | about 17 s against a 15 s budget | inside the budget, measured alone |
 | Wall time of the full gate sequence | about 8 minutes on the 32-thread machine, before the two targets Setup adds | measured at functional close with those targets included; stricter target set afterwards |
-| Lines under a blanket `allow(dead_code)` | about 15,800 | 0 |
+| Lines under a blanket `allow(dead_code)` | 47,061 under the corrected scope definition (the original report recorded 47,705) | 0 |
 | Entries under "Defects" in `TODO.md` | all open | closed, or moved out with a reason |
 | Non-test Rust lines, `src/` and `crates/xsht/src` | 205,864 and 60,041 | lower |
 
@@ -232,6 +232,27 @@ The lowering type-expression resolver metric counts lowerer functions that take
 a `TypeExprId`, dispatch on `ArenaTypeExprTag`, and construct a semantic `Type`
 or `LoweredType`. Syntax-name renderers and wrappers around already checked
 types do not resolve type expressions.
+
+The blanket dead-code measure counts retained production lines covered by
+file or module inner allowances and outer module/impl/trait/extern-block
+scopes, including such scopes written inside macro expansions. Attributes on a
+macro definition do not propagate to its expanded items, and an attribute on a
+macro invocation is ignored, so both are listed as item allowances instead.
+Narrow allowances on individual functions, types, variants, or fields are
+listed in separate start and current inventories, including inherited module
+coverage. The original baseline files remain unchanged; the companion ratchet
+report changes only the blanket metric row and records its checked source and
+scanner hashes.
+
+The same scanner accepts both stage-table forms present at the frozen start
+and current source trees. At the start commit, `full.rs` used a handwritten
+`FullStageTag` enum and `impl_stage_codec!` table; the previous scanner rejected
+that layout because it required the generated table. The scanner validates the
+legacy tag and codec rows together but continues to count variants only from
+`LoweredPipelineStage`, avoiding double counting. The generated table now has
+seven context names, including four borrowed-view contexts, so the scanner
+accepts the complete supported sequence and rejects partial or overlapping
+authority layouts.
 
 ## Setup
 
@@ -241,8 +262,13 @@ parallel while that work proceeds.
 
 - **Baseline and ratchets.** One XSH program under `dev/` measures every row
   above and writes `dev/consolidation/baseline.json`; `cargo dev check` fails
-  when a structural measure rises. Timing samples are recorded without a new
-  ratchet. Lane tooling for this campaign is XSH, not Python.
+  when a structural measure rises. The original baseline and metadata remain
+  immutable, while `baseline-blanket-scope.json` supplies the corrected scope
+  row after both pinned source trees are measured by the same scanner. Its
+  provenance enumerates every original-to-remeasured metric difference and
+  binds the companion to the original start commit, source manifest, scanner,
+  and ratchet fixtures. Timing samples are recorded without a new ratchet.
+  Lane tooling for this campaign is XSH, not Python.
 - **Lane gate.** `cargo dev` gains a command that maps changed paths to the
   rows of the gate table in `docs/TESTING.md` and runs them. The full
   sequence the integrator runs once per batch adds two targets the default
@@ -821,11 +847,14 @@ owner's request. The campaign is not complete.
   temporarily mask the known directory-symlink cycle and WIP compatibility
   subtree; those mounts are removed before native tests. Production corpus
   helpers are being fixed with retained symlink/WIP regressions.
-- The source scanner passed 13 fixtures and measured the exact starting
-  tree: 189,274 / 49,968 non-test Rust lines and 47,705 lines under inherited
-  blanket dead-code allowances. Semantic/performance rows remain unmeasured.
-  Batch ratchets use a recorded, bounded intermediate envelope; final close
-  requires the unchanged baseline and no envelope.
+- The source scanner was remeasured against the exact starting tree: 189,274 /
+  49,968 non-test Rust lines and 47,061 lines under blanket dead-code scopes.
+  Its earlier report recorded 47,705 because it treated narrow item allowances
+  as scopes; those items are now separately inventoried. The same scanner
+  measures the current source tree and retains the complete start report as a
+  diagnostic artifact. Semantic/performance rows remain unmeasured. Batch
+  ratchets use a recorded, bounded intermediate envelope; final close requires
+  the corrected companion baseline and no envelope.
 - Lexical identities, authoritative instructions, resource scope ownership,
   opaque Any, borrowed value/type predicates, common lint descent and module
   command plans now run on independent file sets. Remaining dependencies are

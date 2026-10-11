@@ -43,6 +43,40 @@ proc tree(ctx: TestContext) [fs, error] -> Result[Path] {
   root
 }
 
+proc install_blanket_baseline(root: Path, original: metrics.Report, corrected: metrics.Report) [fs, error] -> Result[Path] {
+  fp"{root}/dev/consolidation".mkdir()
+  fp"{root}/dev/tests".mkdir()
+  fp"{root}/dev/consolidation_metrics.xsh".write("scanner fixture\n")
+  fp"{root}/dev/tests/test-consolidation-ratchets.xsh".write("ratchet fixture\n")
+  let original_path = fp"{root}/dev/consolidation/baseline.json"
+  let corrected_path = fp"{root}/dev/consolidation/baseline-blanket-scope.json"
+  json.write(original_path, original)
+  json.write(corrected_path, corrected)
+  let original_hash = hash.sha256(original_path)?.hex().lower()
+  let corrected_hash = hash.sha256(corrected_path)?.hex().lower()
+  let source_manifest_hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  json.write(fp"{root}/dev/consolidation/baseline-metadata.json", {
+    start_commit: "fixture", source_manifest_sha256: source_manifest_hash, baseline_report_sha256: original_hash,
+  })
+  let blanket = corrected.metrics |> where .name == "blanket_dead_code_lines" |> collect
+  assert blanket.len() == 1
+  let provenance: metrics.BlanketBaselineProvenance = {
+    schema: 1,
+    start_commit: "fixture",
+    source_manifest_sha256: source_manifest_hash,
+    original_baseline_path: "dev/consolidation/baseline.json",
+    original_baseline_sha256: original_hash,
+    corrected_baseline_path: "dev/consolidation/baseline-blanket-scope.json",
+    corrected_baseline_sha256: corrected_hash,
+    corrected_blanket_lines: blanket[0].value,
+    scanner_sha256: hash.sha256(fp"{root}/dev/consolidation_metrics.xsh")?.hex().lower(),
+    ratchet_tests_sha256: hash.sha256(fp"{root}/dev/tests/test-consolidation-ratchets.xsh")?.hex().lower(),
+  }
+  let provenance_path = fp"{root}/dev/consolidation/blanket-metric-provenance.json"
+  json.write(provenance_path, provenance)
+  provenance_path
+}
+
 test test_literal_delimiters_comments_and_lifetimes_do_not_own_items {
   let source = "fn live<'a>(s: &'a str) -> &'a str {\n let a = \"} // indexed_raw() \\\"\";\n let b = br###\"/* { indexed_finish() */\"###;\n let c = cr#\"} cfg(test)\"#;\n let d = b'}'; let e = '\\u{7d}';\n /* nested /* } */ indexed_decode() { */\n s\n}\n#[cfg(test)]\nmod tests {\n let a = r#\"} /*\"#;\n #[cfg(test)] mod nested { fn hidden() {} }\n}\n// retained comment\n\n"
   let scan = metrics.scan_file("src/fixture.rs", source)?
@@ -110,6 +144,57 @@ test test_inline_path_and_external_blanket_scopes_follow_module_ownership { |ctx
   let blanket = report.metrics |> where .name == "blanket_dead_code_lines" |> collect
   assert blanket[0].value == 5
   assert (blanket[0].evidence |> where .path == "src/thread_files/tls.rs" |> count()) == 2
+}
+
+test test_dead_code_blanket_metric_separates_item_and_scope_allowances {
+  let narrow = "#[allow(dead_code)]\nfn hidden() {}\n#[allow(dead_code)]\nstruct Item;\n#[allow(dead_code)]\nenum Kind { A, B }\n"
+  let scan = metrics.scan_file("src/fixture.rs", narrow)?
+  assert value(scan, "blanket_dead_code_lines") == 0
+  assert (scan.item_allowances |> map .target |> collect) == ["fn::hidden", "struct::Item", "enum::Kind"]
+  assert (scan.item_allowances |> where .covered_by_local_scope |> count()) == 0
+
+  let field = "struct Owner {\n    #[allow(dead_code)]\n    value: usize,\n}\n"
+  let field_scan = metrics.scan_file("src/fixture.rs", field)?
+  assert value(field_scan, "blanket_dead_code_lines") == 0
+  assert field_scan.item_allowances[0].target == "field::Owner.value"
+
+  let broad = "#[allow(dead_code)]\nmod child { fn hidden() {} }\n#[allow(dead_code)]\nimpl Thing { fn hidden() {} }\n#[allow(dead_code)]\ntrait Contract { fn hidden(); }\n"
+  let scopes = metrics.scan_file("src/fixture.rs", broad)?
+  assert value(scopes, "blanket_dead_code_lines") == scopes.count.production
+  assert scopes.item_allowances.is_empty()
+}
+
+test test_macro_generated_scopes_follow_rust_lint_attributes {
+  let macro_definition = "#[allow(dead_code)]\nmacro_rules! generated { () => { fn generated_function() {} struct GeneratedType; }; }\ngenerated!();\n"
+  let macro_definition_scan = metrics.scan_file("src/fixture.rs", macro_definition)?
+  assert value(macro_definition_scan, "blanket_dead_code_lines") == 0
+  assert macro_definition_scan.item_allowances[0].kind == "macro_definition"
+
+  let macro_invocation = "macro_rules! generated { () => { fn generated_function() {} struct GeneratedType; }; }\n#[allow(dead_code)]\ngenerated!();\n"
+  let macro_invocation_scan = metrics.scan_file("src/fixture.rs", macro_invocation)?
+  assert value(macro_invocation_scan, "blanket_dead_code_lines") == 0
+  assert macro_invocation_scan.item_allowances[0].kind == "macro_invocation"
+
+  let generated = "macro_rules! generated {\n    () => {\n        #[allow(dead_code)]\n        mod generated_items {\n            fn generated_function() {}\n            struct GeneratedType;\n        }\n    };\n}\ngenerated!();\n"
+  let generated_scan = metrics.scan_file("src/fixture.rs", generated)?
+  assert value(generated_scan, "blanket_dead_code_lines") == 5
+  assert generated_scan.item_allowances.is_empty()
+}
+
+test test_inner_blankets_and_inherited_module_scopes_cover_item_inventory { |ctx|
+  let local = "impl Thing {\n#![allow(dead_code)]\n#[allow(dead_code)]\nfn hidden() {}\n}\n"
+  let scan = metrics.scan_file("src/fixture.rs", local)?
+  assert value(scan, "blanket_dead_code_lines") == scan.count.production
+  assert scan.item_allowances[0].covered_by_local_scope
+
+  let root = tree(ctx)?
+  fp"{root}/src/lib.rs".write("#[allow(dead_code)]\n#[path = \"external.rs\"]\nmod external;\n")
+  fp"{root}/src/external.rs".write("#[allow(dead_code)]\nfn hidden() {}\n")
+  let measured = metrics.measure_with_allowances(root, ["src", "crates/xsht/src"])?
+  assert measured.item_allowances.entries.len() == 1
+  assert measured.item_allowances.entries[0].path == "src/external.rs"
+  assert measured.item_allowances.entries[0].inherited_module_scope
+  assert ! measured.item_allowances.entries[0].covered_by_local_scope
 }
 
 test test_inner_cfg_and_braced_constant_initializers_have_exact_boundaries {
@@ -247,7 +332,32 @@ test test_pipeline_stage_schema_requires_one_valid_authority_table {
   assert "multiple pipeline stage schema tables" in rejection(f"{table} {table}")
   assert "no supported table invocation" in rejection("macro_rules! pipeline_stage_schema { () => {}; }")
   assert "multiple pipeline stage schema definitions" in rejection("macro_rules! pipeline_stage_schema { () => {}; } macro_rules! pipeline_stage_schema { () => {}; }")
-  assert "unrecognized generated pipeline stage schema layout" in rejection_at("src/runtime/eval/indexed/full.rs", "enum LoweredPipelineStage { Old, }")
+  assert "unrecognized handwritten pipeline stage layout" in rejection_at("src/runtime/eval/indexed/full.rs", "enum LoweredPipelineStage { Old, }")
+}
+
+test test_legacy_pipeline_stage_layout_is_validated_without_double_counting {
+  let indexed = p"dev/tests/fixtures/consolidation-legacy-full-pipeline.rs".read_text()?
+  let encoded_tags = metrics.scan_file("src/runtime/eval/indexed/full.rs", indexed)?
+  assert value(encoded_tags, "stage_variants") == 0
+
+  let semantic = p"dev/tests/fixtures/consolidation-legacy-eval-pipeline.rs".read_text()?
+  let lowered_stages = metrics.scan_file("src/runtime/eval.rs", semantic)?
+  assert value(lowered_stages, "stage_variants") == 46
+  assert value(encoded_tags, "stage_variants") + value(lowered_stages, "stage_variants") == 46
+}
+
+test test_pipeline_stage_authority_layouts_reject_overlap_and_partial_legacy_shapes {
+  let legacy = p"dev/tests/fixtures/consolidation-legacy-full-pipeline.rs".read_text()?
+  let generated = "macro_rules! pipeline_stage_schema { () => {}; }\npipeline_stage_schema! { @context stage_builder stage_decoder stage_payload; One unit {}; }\n"
+  assert "overlap" in rejection_at("src/runtime/eval/indexed/full.rs", f"{legacy}\n{generated}")
+  assert "unrecognized handwritten pipeline stage layout" in rejection_at("src/runtime/eval/indexed/full.rs", "enum FullStageTag { TextLines, }\n")
+  let changed_codec = legacy.replace("=> TextLines {", with: "=> JsonLines {")
+  assert "handwritten pipeline stage codec" in rejection_at("src/runtime/eval/indexed/full.rs", changed_codec)
+}
+
+test test_pipeline_stage_schema_accepts_complete_borrowed_view_context_only {
+  assert "malformed pipeline stage schema context" in rejection("pipeline_stage_schema! { @context stage_builder stage_decoder stage_payload stage_view_context; One unit {}; }")
+  assert "malformed pipeline stage schema context" in rejection("pipeline_stage_schema! { @context stage_builder stage_decoder stage_payload stage_view_context stage_view_input stage_view_value; One unit {}; }")
 }
 
 test test_generated_pipeline_stage_schema_counts_current_source {
@@ -293,6 +403,41 @@ test test_structural_rise_fails_with_the_metric_and_values { |ctx|
   assert json.get(json.read(fp"{root}/audit.json")?, ["rises"])?.require(List[Any])?.len() == 1
   assert ! test.run_script(ctx, driver, ["final-close", @flags, "--envelope", fp"{root}/envelope.json".display()])?.success
   json.write(fp"{root}/envelope.json", {start_commit: "fixture", limits: [{...approved, metric: "unknown"}]}); assert ! test.run_script(ctx, driver, ["check", @flags, "--envelope", fp"{root}/envelope.json".display()])?.success
+}
+
+test test_corrected_blanket_baseline_requires_provenance_and_changes_only_its_metric { |ctx|
+  let root = tree(ctx)?
+  let original: metrics.Report = {schema: 1, sources: [], metrics: [
+    {name: "manual_payload_calls", value: 1, evidence: []},
+    {name: "blanket_dead_code_lines", value: 7, evidence: [{path: "src/lib.rs", line: 1, detail: "old blanket scope"}]},
+  ], reviews: []}
+  let corrected: metrics.Report = {...original, metrics: collect {
+    for row in original.metrics { yield if row.name == "blanket_dead_code_lines" { {...row, value: 3, evidence: []} } else { row } }
+  }}
+  let current: metrics.Report = {...corrected, metrics: collect {
+    for row in corrected.metrics { yield if row.name == "blanket_dead_code_lines" { {...row, value: 0} } else { row } }
+  }}
+  let current_path = fp"{root}/current.json"
+  json.write(current_path, current)
+  let provenance_path = install_blanket_baseline(root, original, corrected)?
+  let baseline_path = fp"{root}/dev/consolidation/baseline-blanket-scope.json"
+  let driver = p"dev/consolidation/metrics.xsh".read_text()?
+  let flags = ["--root", root.display(), "--source-root", "src", "--xsht-source-root", "crates/xsht/src", "--input", current_path.display(), "--baseline", baseline_path.display(), "--output", fp"{root}/saved.json".display(), "--audit", fp"{root}/audit.json".display()]
+  assert ! test.run_script(ctx, driver, ["check", @flags])?.success
+  let valid_provenance = json.read(provenance_path)?.require(metrics.BlanketBaselineProvenance)?
+  assert test.run_script(ctx, driver, ["check", @flags, "--baseline-provenance", provenance_path.display()])?.success
+
+  let unrelated_change: metrics.Report = {...corrected, metrics: collect {
+    for row in corrected.metrics { yield if row.name == "manual_payload_calls" { {...row, value: 9} } else { row } }
+  }}
+  json.write(baseline_path, unrelated_change)
+  json.write(provenance_path, {...valid_provenance, corrected_baseline_sha256: hash.sha256(baseline_path)?.hex().lower()})
+  assert ! test.run_script(ctx, driver, ["check", @flags, "--baseline-provenance", provenance_path.display()])?.success
+
+  json.write(baseline_path, corrected)
+  json.write(provenance_path, valid_provenance)
+  fp"{root}/dev/consolidation_metrics.xsh".write("tampered scanner fixture\n")
+  assert ! test.run_script(ctx, driver, ["check", @flags, "--baseline-provenance", provenance_path.display()])?.success
 }
 
 type ReviewFixture = {root: Path, commit: Str, sources: List[metrics.ReviewSource], artifact: metrics.ReviewArtifact}

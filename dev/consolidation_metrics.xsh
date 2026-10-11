@@ -13,6 +13,12 @@ type CfgPredicate = {start: Int, end: Int}
 type InlineModule = {end: Int, directory: Str}
 type ModuleEdge = {owner: Str, target: Str, excluded: Bool, dead_code: Bool}
 type FunctionRegion = {name: Str, params_start: Int, params_end: Int, body_start: Int, body_end: Int}
+type LegacyPipelineStageLayout = {tag_definitions: Int, tag_variants: List[Str], codec_definitions: Int, codec_tables: Int, codec_variants: List[Str], semantic_definitions: Int}
+type AttributeTarget = {kind: Str, name: Str, first: Int, last: Int}
+## An outer item allowance kept separate from blanket scopes for review.
+export type ItemAllowance = {path: Str, line: Int, last_line: Int, target: Str, kind: Str, covered_by_local_scope: Bool, inherited_module_scope: Bool}
+type DeadCodeAnalysis = {blanket: List[Evidence], items: List[ItemAllowance]}
+type StructuralScan = {metrics: List[Metric], item_allowances: List[ItemAllowance]}
 
 ## One physical Rust file, with exact excluded spans and retained line numbers.
 export type SourceCount = {path: Str, physical: Int, production: Int, retained_lines: List[Int], excluded: List[Span]}
@@ -32,8 +38,15 @@ export type ReviewSource = {path: Str, oid: Str}
 export type ReviewEvidenceBundle = {schema: Int, source_commit: Str, sources: List[ReviewSource], rows: List[ReviewProof]}
 ## Versioned report; semantic review rows cannot masquerade as measured structural metrics.
 export type Report = {schema: Int, sources: List[SourceCount], metrics: List[Metric], reviews: List[Review]}
-## A lexically validated Rust file, including module edges and exact structural occurrences.
-export type SourceScan = {count: SourceCount, modules: List[RustModule], metrics: List[Metric]}
+## Per-source inventory of narrow dead-code allowances, including inherited module coverage.
+export type AllowanceInventory = {schema: Int, entries: List[ItemAllowance]}
+## A source measurement and its separate item-allowance inventory.
+export type Measurement = {report: Report, item_allowances: AllowanceInventory}
+## Proof that the scoped baseline changes only the blanket row and still names the original source tree.
+export type BlanketBaselineProvenance = {schema: Int, start_commit: Str, source_manifest_sha256: Str, original_baseline_path: Str, original_baseline_sha256: Str, corrected_baseline_path: Str, corrected_baseline_sha256: Str, corrected_blanket_lines: Int, scanner_sha256: Str, ratchet_tests_sha256: Str}
+type BlanketBaselineMetadata = {start_commit: Str, source_manifest_sha256: Str, baseline_report_sha256: Str}
+## A lexically validated Rust file with module edges, structural occurrences, and item allowances.
+export type SourceScan = {count: SourceCount, modules: List[RustModule], metrics: List[Metric], item_allowances: List[ItemAllowance]}
 
 const REVIEW_REQUIREMENTS: List[Review] = [
   {name: "operand_behavior_differences", requirement: "Verified per-instruction behavior comparison and retained oracle tests; source arm counts cannot establish equivalence."},
@@ -401,6 +414,103 @@ proc scope_start(source_path: Str, lexed: Lexed, opening: Int) [error] -> Result
   start
 }
 
+pure struct_body_name(lexed: Lexed, opening: Int) -> Str {
+  var cursor = opening - 1
+  while cursor >= 0 {
+    let value = lexed.tokens[cursor].text
+    if value == "struct" { return lexed.tokens[cursor + 1].text }
+    if value in [";", "{", "}"] { return "" }
+    cursor -= 1
+  }
+  ""
+}
+
+proc attributed_item_target(source_path: Str, lexed: Lexed, attr: Attribute) [error] -> Result[AttributeTarget] {
+  var cursor = attr.end + 1
+  while (lexed.tokens.get(cursor) ?? end_token).text == "#" {
+    if (lexed.tokens.get(cursor + 1) ?? end_token).text != "[" { invalid(source_path, lexed.tokens[cursor].line, "unsupported dead_code allowance target")? }
+    cursor = lexed.mates[f"{cursor + 1}"] + 1
+  }
+  while true {
+    let value = (lexed.tokens.get(cursor) ?? end_token).text
+    if value == "pub" { cursor += 1; if (lexed.tokens.get(cursor) ?? end_token).text == "(" { cursor = lexed.mates[f"{cursor}"] + 1 }; continue }
+    if value in ["unsafe", "async", "default", "auto"] or (value == "const" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "fn") { cursor += 1; continue }
+    if value == "extern" {
+      cursor += 1
+      if (lexed.tokens.get(cursor) ?? end_token).literal { cursor += 1 }
+      if (lexed.tokens.get(cursor) ?? end_token).text == "{" {
+        let last = item_end(source_path, lexed, attr.end + 1)?
+        return {kind: "extern_block", name: "extern", first: lexed.tokens[attr.start].line, last: lexed.tokens[last].line}
+      }
+      continue
+    }
+    let record = struct_body_name(lexed, attr.scope)
+    if record != "" and (lexed.tokens.get(cursor + 1) ?? end_token).text == ":" {
+      let last = item_end(source_path, lexed, attr.end + 1)?
+      return {kind: "field", name: f"{record}.{value}", first: lexed.tokens[attr.start].line, last: lexed.tokens[last].line}
+    }
+    let kind = if value == "mod" { "module" } else if value == "impl" { "impl" } else if value == "trait" { "trait" } else if value in ["fn", "struct", "enum", "union", "type", "const", "static", "use", "extern"] { value } else if value in ["macro_rules", "macro"] and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" { "macro_definition" } else if ident_start(first(value)) {
+      var after = cursor + 1
+      while (lexed.tokens.get(after) ?? end_token).text == ":" and (lexed.tokens.get(after + 1) ?? end_token).text == ":" { after += 2; if ! ident_start(first((lexed.tokens.get(after) ?? end_token).text)) { break }; after += 1 }
+      if (lexed.tokens.get(after) ?? end_token).text == "!" { "macro_invocation" } else { "" }
+    } else { "" }
+    if kind == "" { invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, "unsupported dead_code allowance target")? }
+    let name = if kind in ["module", "fn", "struct", "enum", "union", "trait", "type", "const", "static", "macro_definition"] { (lexed.tokens.get(cursor + (if kind == "macro_definition" { 2 } else { 1 })) ?? end_token).text } else { kind }
+    let last = item_end(source_path, lexed, attr.end + 1)?
+    return {kind: kind, name: name, first: lexed.tokens[attr.start].line, last: lexed.tokens[last].line}
+  }
+  {kind: "", name: "", first: 0, last: 0}
+}
+
+pure attribute_allows_dead_code(lexed: Lexed, attr: Attribute) -> Bool {
+  let kind = attr.start + (if attr.inner { 3 } else { 2 })
+  var cursor = kind
+  while cursor < attr.end {
+    if lexed.tokens[cursor].text == "allow" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "(" {
+      let end = lexed.mates[f"{cursor + 1}"]
+      var argument = cursor + 2
+      while argument < end { if lexed.tokens[argument].text == "dead_code" { return true }; argument += 1 }
+      cursor = end + 1
+    } else { cursor += 1 }
+  }
+  false
+}
+
+proc dead_code_allowance_analysis(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[Attribute], count: SourceCount) [error] -> Result[DeadCodeAnalysis] {
+  var blanket: List[Evidence] = []
+  var scopes: List[Span] = []
+  var items: List[ItemAllowance] = []
+  for attr in attrs {
+    if inside(lexed.tokens[attr.start], spans) or ! attr.condition_active or ! attribute_allows_dead_code(lexed, attr) { continue }
+    var target: AttributeTarget = {kind: "", name: "", first: 0, last: 0}
+    var is_scope = attr.inner
+    var detail = "allow(dead_code) inner scope"
+    if attr.inner {
+      let first = if attr.scope < 0 { 1 } else { lexed.tokens[scope_start(source_path, lexed, attr.scope)?].line }
+      let last = if attr.scope < 0 { lexed.lines } else { lexed.tokens[lexed.mates[f"{attr.scope}"]].line }
+      target = {kind: "inner_scope", name: "scope", first: first, last: last}
+    } else {
+      target = attributed_item_target(source_path, lexed, attr)?
+      is_scope = target.kind in ["module", "impl", "trait", "extern_block"]
+      detail = f"allow(dead_code) {target.kind} scope"
+    }
+    if is_scope {
+      scopes += [{start: 0, end: 0, line: target.first, last_line: target.last}]
+      for line in count.retained_lines { if line >= target.first and line <= target.last { blanket += [{path: source_path, line: line, detail: detail}] } }
+    } else {
+      items += [{path: source_path, line: lexed.tokens[attr.start].line, last_line: target.last, target: f"{target.kind}::{target.name}", kind: target.kind, covered_by_local_scope: false, inherited_module_scope: false}]
+    }
+  }
+  let covered = collect {
+    for item in items {
+      var is_covered = false
+      for scope in scopes { if item.line >= scope.line and item.line <= scope.last_line { is_covered = true } }
+      yield {...item, covered_by_local_scope: is_covered}
+    }
+  }
+  {blanket: blanket, items: covered}
+}
+
 proc excluded_spans(source_path: Str, lexed: Lexed, attrs: List[Attribute]) [error] -> Result[List[Span]] {
   var spans: List[Span] = []
   var cursor = 0
@@ -585,6 +695,96 @@ proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int) [
   variants
 }
 
+proc legacy_stage_enum_variants(source_path: Str, lexed: Lexed, opening: Int) [error] -> Result[List[Str]] {
+  let closing = lexed.mates[f"{opening}"]
+  var cursor = opening + 1
+  var variants: List[Str] = []
+  while cursor < closing {
+    let variant = lexed.tokens[cursor]
+    if ! ident_start(first(variant.text)) or variant.text in variants { invalid(source_path, variant.line, "malformed or repeated handwritten FullStageTag variant")? }
+    variants += [variant.text]
+    cursor += 1
+    if cursor < closing {
+      if lexed.tokens[cursor].text != "," { invalid(source_path, lexed.tokens[cursor].line, "handwritten FullStageTag variants must be unit entries")? }
+      cursor += 1
+    }
+  }
+  variants
+}
+
+proc legacy_stage_codec_variants(source_path: Str, lexed: Lexed, opening: Int) [error] -> Result[List[Str]] {
+  let closing = lexed.mates[f"{opening}"]
+  var cursor = opening + 1
+  var variants: List[Str] = []
+  while cursor < closing {
+    if lexed.tokens[cursor].text == "," { cursor += 1; continue }
+    let row = lexed.tokens[cursor]
+    var paths: List[Str] = []
+    var arrows: List[Int] = []
+    var member = cursor
+    while member < closing and lexed.tokens[member].text != "," {
+      let value = lexed.tokens[member].text
+      if value in ["(", "[", "{"] { member = lexed.mates[f"{member}"] + 1; continue }
+      if value == "LoweredPipelineStage" and (lexed.tokens.get(member + 1) ?? end_token).text == ":" and (lexed.tokens.get(member + 2) ?? end_token).text == ":" { paths += [(lexed.tokens.get(member + 3) ?? end_token).text] }
+      if value == "=" and (lexed.tokens.get(member + 1) ?? end_token).text == ">" { arrows += [member]; member += 2; continue }
+      member += 1
+    }
+    if paths.len() != 2 or paths[0] != paths[1] or arrows.len() != 2 { invalid(source_path, row.line, f"malformed handwritten pipeline stage codec row ({paths.len()} variant paths, {arrows.len()} arrows)")? }
+    let tag = (lexed.tokens.get(arrows[0] + 2) ?? end_token).text
+    let fields = arrows[0] + 3
+    if tag != paths[0] or lexed.tokens[fields].text != "{" or lexed.mates[f"{fields}"] + 1 != arrows[1] {
+      invalid(source_path, row.line, "handwritten pipeline stage codec tag or payload does not match its variant")?
+    }
+    variants += [paths[0]]
+    cursor = member + 1
+  }
+  variants
+}
+
+proc legacy_pipeline_stage_layout(source_path: Str, lexed: Lexed, spans: List[Span]) [error] -> Result[LegacyPipelineStageLayout] {
+  var tag_definitions = 0
+  var tag_variants: List[Str] = []
+  var codec_definitions = 0
+  var codec_tables = 0
+  var codec_variants: List[Str] = []
+  var semantic_definitions = 0
+  var cursor = 0
+  while cursor < lexed.tokens.len() {
+    let item = lexed.tokens[cursor]
+    if ! item.literal and ! inside(item, spans) {
+      let next = (lexed.tokens.get(cursor + 1) ?? end_token).text
+      if item.text == "enum" and next in ["FullStageTag", "LoweredPipelineStage"] {
+        let opening = cursor + 2
+        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "malformed handwritten pipeline stage enum")? }
+        if next == "FullStageTag" { tag_definitions += 1; tag_variants = legacy_stage_enum_variants(source_path, lexed, opening)? } else { semantic_definitions += 1 }
+        cursor = lexed.mates[f"{opening}"] + 1
+        continue
+      }
+      if item.text == "macro_rules" and next == "!" and (lexed.tokens.get(cursor + 2) ?? end_token).text == "impl_stage_codec" {
+        codec_definitions += 1
+        let opening = cursor + 3
+        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "malformed handwritten pipeline stage codec definition")? }
+        let closing = lexed.mates[f"{opening}"]
+        for required in ["FullCodec", "LoweredPipelineStage", "FullStageTag", "encode", "decode", "verify"] {
+          if ! contains_token(lexed, opening + 1, closing, required) { invalid(source_path, item.line, "incomplete handwritten pipeline stage codec definition")? }
+        }
+        cursor = closing + 1
+        continue
+      }
+      if item.text == "impl_stage_codec" and next == "!" {
+        codec_tables += 1
+        let opening = cursor + 2
+        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "handwritten pipeline stage codec table must use a block")? }
+        codec_variants = legacy_stage_codec_variants(source_path, lexed, opening)?
+        cursor = lexed.mates[f"{opening}"] + 1
+        continue
+      }
+    }
+    if item.text in ["(", "[", "{"] { cursor = lexed.mates[f"{cursor}"] + 1 } else { cursor += 1 }
+  }
+  {tag_definitions: tag_definitions, tag_variants: tag_variants, codec_definitions: codec_definitions, codec_tables: codec_tables, codec_variants: codec_variants, semantic_definitions: semantic_definitions}
+}
+
 # The generated lowered-stage enum has no source members; its schema invocation owns them.
 proc pipeline_stage_schema_variants(source_path: Str, lexed: Lexed, opening: Int) [error] -> Result[List[Evidence]] {
   let closing = lexed.mates[f"{opening}"]
@@ -593,13 +793,11 @@ proc pipeline_stage_schema_variants(source_path: Str, lexed: Lexed, opening: Int
     invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "malformed pipeline stage schema context")?
   }
   cursor += 2
-  for context in ["stage_builder", "stage_decoder", "stage_payload"] {
-    if (lexed.tokens.get(cursor) ?? end_token).text != context {
-      invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "malformed pipeline stage schema context")?
-    }
-    cursor += 1
-  }
-  if (lexed.tokens.get(cursor) ?? end_token).text != ";" {
+  var context: List[Str] = []
+  while cursor < closing and lexed.tokens[cursor].text != ";" { context += [lexed.tokens[cursor].text]; cursor += 1 }
+  let core_context = ["stage_builder", "stage_decoder", "stage_payload"]
+  let view_context = [@core_context, "stage_view_context", "stage_view_input", "stage_view_value", "stage_view_expectations"]
+  if context != core_context and context != view_context or (lexed.tokens.get(cursor) ?? end_token).text != ";" {
     invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "malformed pipeline stage schema context")?
   }
   cursor += 1
@@ -823,8 +1021,9 @@ proc lowering_type_resolver_evidence(source_path: Str, lexed: Lexed, spans: List
   found
 }
 
-proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[Attribute], count: SourceCount) [error] -> Result[List[Metric]] {
+proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[Attribute], count: SourceCount) [error] -> Result[StructuralScan] {
   let families = ["ArenaExprKind", "ArenaStmtKind", "ArenaPatternKind"]
+  let legacy_stages = legacy_pipeline_stage_layout(source_path, lexed, spans)?
   var aliases: Map[Str] = {}
   var calls: List[Evidence] = []
   var optional: List[Evidence] = []
@@ -842,7 +1041,6 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
   var pipeline_stage_schema_calls = 0
   var pipeline_stage_schema_definitions = 0
   var pipeline_stage_schema_definition = false
-  var blanket: List[Evidence] = []
   var cursor = 0
   while cursor < lexed.tokens.len() {
     let item = lexed.tokens[cursor]
@@ -964,32 +1162,22 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
   if pipeline_stage_schema_definitions > 1 { invalid(source_path, 1, "multiple pipeline stage schema definitions in one source file")? }
   if pipeline_stage_schema_calls > 1 { invalid(source_path, 1, "multiple pipeline stage schema tables in one source file")? }
   if pipeline_stage_schema_definition and pipeline_stage_schema_calls != 1 { invalid(source_path, 1, "pipeline stage schema definition has no supported table invocation")? }
-  if source_path == "src/runtime/eval/indexed/full.rs" and pipeline_stage_schema_calls != 1 { invalid(source_path, 1, "unrecognized generated pipeline stage schema layout")? }
-  for attr in attrs {
-    if inside(lexed.tokens[attr.start], spans) or ! attr.condition_active { continue }
-    let kind = attr.start + (if attr.inner { 3 } else { 2 })
-    var allowed = false
-    var member = kind
-    while member < attr.end {
-      if (lexed.tokens.get(member) ?? end_token).text == "allow" and (lexed.tokens.get(member + 1) ?? end_token).text == "(" {
-        let end = lexed.mates[f"{member + 1}"]
-        var argument = member + 2
-        while argument < end { if (lexed.tokens.get(argument) ?? end_token).text == "dead_code" { allowed = true }; argument += 1 }
-      }
-      member += 1
-    }
-    if allowed {
-      let last = if attr.inner { if attr.scope < 0 { lexed.lines } else { lexed.tokens[lexed.mates[f"{attr.scope}"]].line } } else { lexed.tokens[item_end(source_path, lexed, attr.end + 1)?].line }
-      let first = if attr.inner { if attr.scope < 0 { 1 } else { lexed.tokens[scope_start(source_path, lexed, attr.scope)?].line } } else { lexed.tokens[attr.start].line }
-      for line in count.retained_lines { if line >= first and line <= last { blanket += [{path: source_path, line: line, detail: "allow(dead_code) scope"}] } }
-    }
+  let has_legacy_stage_layout = legacy_stages.tag_definitions > 0 or legacy_stages.codec_definitions > 0 or legacy_stages.codec_tables > 0 or legacy_stages.semantic_definitions > 0
+  let has_generated_stage_layout = pipeline_stage_schema_definitions > 0 or pipeline_stage_schema_calls > 0
+  if has_generated_stage_layout and has_legacy_stage_layout { invalid(source_path, 1, "pipeline stage schema and handwritten pipeline stage layouts overlap")? }
+  if source_path == "src/runtime/eval/indexed/full.rs" {
+    if pipeline_stage_schema_calls > 0 {
+      if pipeline_stage_schema_definitions != 1 or pipeline_stage_schema_calls != 1 { invalid(source_path, 1, "unrecognized generated pipeline stage schema layout")? }
+    } else if legacy_stages.tag_definitions == 1 and legacy_stages.codec_definitions == 1 and legacy_stages.codec_tables == 1 and legacy_stages.semantic_definitions == 0 and legacy_stages.tag_variants.len() == 46 and legacy_stages.codec_variants == legacy_stages.tag_variants {
+    } else if has_legacy_stage_layout { invalid(source_path, 1, "unrecognized handwritten pipeline stage layout")? } else { invalid(source_path, 1, "unrecognized generated pipeline stage schema layout")? }
   }
+  let allowances = dead_code_allowance_analysis(source_path, lexed, spans, attrs, count)?
   # Overlapping blanket scopes own a physical line only once.
   var seen: Map[Bool] = {}
   let unique = collect {
-    for found in blanket { if ! (seen.get(f"{found.line}") ?? false) { yield found; seen[f"{found.line}"] = true } }
+    for found in allowances.blanket { if ! (seen.get(f"{found.line}") ?? false) { yield found; seen[f"{found.line}"] = true } }
   }
-  [metric("instruction_variants", instructions), metric("pattern_variants", patterns), metric("stage_variants", stages), metric("manual_payload_calls", calls), metric("optional_raw_calls", optional), metric("wide_arena_wildcards", wildcards), metric("static_type_predicate_definitions", predicates), metric("type_storage_mapping_definitions", mappings), metric("lowering_type_resolver_definitions", resolvers), metric("nested_machine_factory_calls", factories), metric("blanket_dead_code_lines", unique)]
+  {metrics: [metric("instruction_variants", instructions), metric("pattern_variants", patterns), metric("stage_variants", stages), metric("manual_payload_calls", calls), metric("optional_raw_calls", optional), metric("wide_arena_wildcards", wildcards), metric("static_type_predicate_definitions", predicates), metric("type_storage_mapping_definitions", mappings), metric("lowering_type_resolver_definitions", resolvers), metric("nested_machine_factory_calls", factories), metric("blanket_dead_code_lines", unique)], item_allowances: allowances.items}
 }
 
 ## Scans one physical source file without executing Rust or inspecting literal text as code.
@@ -998,15 +1186,15 @@ export proc scan_file(source_path: Str, source: Str) [error] -> Result[SourceSca
   let attrs = attributes(source_path, lexed)?
   let spans = excluded_spans(source_path, lexed, attrs)?
   let count = count_lines(source_path, lexed, spans)
-  let metrics = structural(source_path, lexed, spans, attrs, count)?
-  let blanket = metrics |> where .name == "blanket_dead_code_lines" |> collect
+  let analysis = structural(source_path, lexed, spans, attrs, count)?
+  let blanket = analysis.metrics |> where .name == "blanket_dead_code_lines" |> collect
   let allowed = blanket[0].evidence |> map .line |> collect
   let edges = collect {
     for edge in modules(source_path, lexed, attrs, spans)? {
       yield {name: edge.name, directory: edge.directory, explicit_path: edge.explicit_path, excluded: edge.excluded, dead_code: edge.line in allowed, line: edge.line}
     }
   }
-  {count: count, modules: edges, metrics: metrics}
+  {count: count, modules: edges, metrics: analysis.metrics, item_allowances: analysis.item_allowances}
 }
 
 proc module_target(root: Path, owner: Str, edge: RustModule) [fs, error] -> Result[Str] {
@@ -1019,6 +1207,11 @@ proc module_target(root: Path, owner: Str, edge: RustModule) [fs, error] -> Resu
 
 ## Measures both production source roots; external test modules are removed through their module edges.
 export proc measure(root: Path, source_roots: List[Str]) [fs, error] -> Result[Report, Error] {
+  measure_with_allowances(root, source_roots)?.report
+}
+
+## The separate allowance inventory uses the same live-module and inheritance traversal as the report.
+export proc measure_with_allowances(root: Path, source_roots: List[Str]) [fs, error] -> Result[Measurement, Error] {
   if (source_roots |> sort) != ["crates/xsht/src", "src"] { return Err(MetricError.Contract(detail: "source roots must be exactly src and crates/xsht/src")) }
   let base = root.resolve()?
   var scans: List[SourceScan] = []
@@ -1051,6 +1244,7 @@ export proc measure(root: Path, source_roots: List[Str]) [fs, error] -> Result[R
     }
   }
   var sources: List[SourceCount] = []
+  var item_allowances: List[ItemAllowance] = []
   var totals: Map[Int] = {}
   var occurrences: Map[List[Evidence]] = {}
   for scan in scans {
@@ -1068,9 +1262,12 @@ export proc measure(root: Path, source_roots: List[Str]) [fs, error] -> Result[R
       totals[row.name] = (totals.get(row.name) ?? 0) + (if live { amount } else { 0 })
       occurrences[row.name] = (occurrences.get(row.name) ?? []) + (if live { found } else { [] })
     }
+    if live {
+      for item in scan.item_allowances { item_allowances += [{...item, inherited_module_scope: inherited.get(count.path) ?? false}] }
+    }
   }
   let metrics = collect { for name in totals.keys() |> sort { yield {name: name, value: totals[name], evidence: occurrences[name]} } }
-  {schema: 1, sources: sources, metrics: metrics, reviews: REVIEW_REQUIREMENTS}
+  {report: {schema: 1, sources: sources, metrics: metrics, reviews: REVIEW_REQUIREMENTS}, item_allowances: {schema: 1, entries: item_allowances}}
 }
 
 ## Fails on a structural rise or a changed metric schema; baseline files decode through Report.
@@ -1104,6 +1301,48 @@ export proc assert_final_close(current: Report, baseline: Report) [error] -> Res
   if metric_value(current, "blanket_dead_code_lines")? != 0 {
     return Err(MetricError.Contract(detail: "final close requires zero blanket_dead_code_lines"))
   }
+}
+
+## A companion ratchet baseline is accepted only when its original source identity and scanner inputs remain pinned.
+export proc verify_blanket_baseline(root: Path, baseline_path: Str, provenance_path: Str, baseline: Report) [fs, error] -> Result[Unit, Error] {
+  let provenance = json.read(fp"{provenance_path}")?.require(BlanketBaselineProvenance)?
+  if provenance.schema != 1 or provenance.original_baseline_path != "dev/consolidation/baseline.json" or provenance.corrected_baseline_path != "dev/consolidation/baseline-blanket-scope.json" {
+    return Err(MetricError.Contract(detail: "unsupported or noncanonical corrected blanket baseline provenance"))
+  }
+  let original_path = fp"{root}/{provenance.original_baseline_path}"
+  let corrected_path = fp"{root}/{provenance.corrected_baseline_path}"
+  let metadata_path = fp"{root}/dev/consolidation/baseline-metadata.json"
+  let original_hash = hash.sha256(original_path)?.hex().lower()
+  let corrected_hash = hash.sha256(fp"{baseline_path}")?.hex().lower()
+  let companion_hash = hash.sha256(corrected_path)?.hex().lower()
+  let scanner_hash = hash.sha256(fp"{root}/dev/consolidation_metrics.xsh")?.hex().lower()
+  let ratchet_hash = hash.sha256(fp"{root}/dev/tests/test-consolidation-ratchets.xsh")?.hex().lower()
+  if original_hash != provenance.original_baseline_sha256.lower() or corrected_hash != provenance.corrected_baseline_sha256.lower() or companion_hash != provenance.corrected_baseline_sha256.lower() {
+    return Err(MetricError.Contract(detail: "corrected blanket baseline or preserved original baseline hash mismatch"))
+  }
+  if scanner_hash != provenance.scanner_sha256.lower() or ratchet_hash != provenance.ratchet_tests_sha256.lower() {
+    return Err(MetricError.Contract(detail: "corrected blanket baseline scanner or ratchet fixture hash mismatch"))
+  }
+  let metadata = json.read(metadata_path)?.require(BlanketBaselineMetadata)?
+  if metadata.start_commit != provenance.start_commit or metadata.source_manifest_sha256.lower() != provenance.source_manifest_sha256.lower() or metadata.baseline_report_sha256.lower() != provenance.original_baseline_sha256.lower() {
+    return Err(MetricError.Contract(detail: "corrected blanket baseline no longer matches the original start-source identity"))
+  }
+  let original = json.read(original_path)?.require(Report)?
+  if original.schema != baseline.schema or original.sources != baseline.sources or original.reviews != baseline.reviews or original.metrics.len() != baseline.metrics.len() {
+    return Err(MetricError.Contract(detail: "corrected blanket baseline changes unrelated report structure"))
+  }
+  var blanket_rows = 0
+  for old in original.metrics {
+    let updated = baseline.metrics |> where .name == old.name |> collect
+    if updated.len() != 1 { return Err(MetricError.Contract(detail: f"corrected blanket baseline changes metric inventory at {old.name}")) }
+    if old.name == "blanket_dead_code_lines" {
+      blanket_rows += 1
+      if updated[0].value != provenance.corrected_blanket_lines { return Err(MetricError.Contract(detail: "corrected blanket baseline count does not match its provenance")) }
+    } else if updated[0] != old {
+      return Err(MetricError.Contract(detail: f"corrected blanket baseline changes unrelated metric {old.name}"))
+    }
+  }
+  if blanket_rows != 1 { return Err(MetricError.Contract(detail: "corrected blanket baseline must contain exactly one blanket metric")) }
 }
 
 pure valid_object_id(value: Str) -> Bool {

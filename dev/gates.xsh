@@ -126,7 +126,8 @@ export pure batch_checks(ctx: context.Context, profile: tests.TestProfile) -> Li
     stages.command("batch-ratchets", ctx.target.triple, xsh,
       [xsh, "dev/consolidation/metrics.xsh", "check", "--root", ctx.root.display(),
         "--source-root", "src", "--xsht-source-root", "crates/xsht/src",
-        "--baseline", "dev/consolidation/baseline.json", "--envelope", "dev/consolidation/envelope.json",
+        "--baseline", "dev/consolidation/baseline-blanket-scope.json", "--baseline-provenance", "dev/consolidation/blanket-metric-provenance.json",
+        "--envelope", "dev/consolidation/envelope.json",
         "--output", ".work/consolidation/current.json", "--audit", ".work/consolidation/rises.json"], ctx.root, {}),
   ]
 }

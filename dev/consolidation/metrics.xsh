@@ -1,7 +1,7 @@
 #!/usr/bin/env -S xsh --
 use consolidation_metrics as metrics
 
-type Options = {action: Str, root: Path, source: Str, xsht_source: Str, output: Path, audit: Str, baseline: Str, envelope: Str, input: Str, review_evidence: Str}
+type Options = {action: Str, root: Path, source: Str, xsht_source: Str, output: Path, audit: Str, baseline: Str, baseline_provenance: Str, envelope: Str, input: Str, item_inventory: Str, review_evidence: Str}
 type Limit = {metric: Str, ceiling: Int, approval: Str, reason: Str, remove_when: Str}
 type Envelope = {start_commit: Str, limits: List[Limit]}
 type Metadata = {start_commit: Str}
@@ -12,12 +12,19 @@ type Audit = {schema: Int, mode: Str, envelope: Str, rises: List[Rise]}
 proc execute(o: Options) [fs, error, io] -> Result[Unit] {
   if o.action not in ["measure", "check", "final-close"] { fail "expected measure, check, or final-close" }
   if ([o.source, o.xsht_source] |> sort) != ["crates/xsht/src", "src"] { fail "explicit source roots must be src and crates/xsht/src" }
-  let current = if o.input == "" { metrics.measure(o.root, [o.source, o.xsht_source])? } else { json.read(fp"{o.input}")?.require(metrics.Report)? }
+  let measured = if o.input == "" { metrics.measure_with_allowances(o.root, [o.source, o.xsht_source])? } else { if o.item_inventory != "" { fail "--item-inventory requires a source measurement" }; {report: json.read(fp"{o.input}")?.require(metrics.Report)?, item_allowances: {schema: 1, entries: []}} }
+  let current = measured.report
   json.write(o.output, current)
+  if o.item_inventory != "" { json.write(fp"{o.item_inventory}", measured.item_allowances) }
   metrics.assert_not_risen(current, current)?
   if o.action == "measure" { return }
   if o.baseline == "" or o.audit == "" { fail "checks require --baseline and --audit" }
   let baseline = json.read(fp"{o.baseline}")?.require(metrics.Report)?
+  if o.baseline_provenance != "" {
+    metrics.verify_blanket_baseline(o.root, o.baseline, o.baseline_provenance, baseline)?
+  } else if o.baseline.ends_with("baseline-blanket-scope.json") {
+    fail "the corrected blanket baseline requires --baseline-provenance"
+  }
   metrics.assert_not_risen(baseline, baseline)?
   var ceilings = baseline
   var limits: List[Limit] = []
@@ -74,7 +81,8 @@ let options: Options = cli.parse(args, {
   action: {positional: true, form: "ACTION"}, root: {form: "--root PATH", kind: "Path", required: true},
   source: {form: "--source-root SOURCE", required: true}, xsht_source: {form: "--xsht-source-root SOURCE", required: true},
   output: {form: "--output PATH", kind: "Path", required: true}, audit: {form: "--audit PATH", default: ""},
-  baseline: {form: "--baseline PATH", default: ""}, envelope: {form: "--envelope PATH", default: ""}, input: {form: "--input PATH", default: ""},
+  baseline: {form: "--baseline PATH", default: ""}, baseline_provenance: {form: "--baseline-provenance PATH", default: ""}, envelope: {form: "--envelope PATH", default: ""}, input: {form: "--input PATH", default: ""},
+  item_inventory: {form: "--item-inventory PATH", default: ""},
   review_evidence: {form: "--review-evidence PATH", default: ""},
 })?
 match execute(options) {
