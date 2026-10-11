@@ -725,6 +725,18 @@ pure constructs_semantic_type(lexed: Lexed, region: FunctionRegion) -> Bool {
   false
 }
 
+pure type_expr_return_contains(lexed: Lexed, region: FunctionRegion, value: Str) -> Bool {
+  var cursor = region.params_end + 1
+  let signature_end = region.body_start - 1
+  while cursor + 1 < signature_end {
+    if lexed.tokens[cursor].text == "-" and lexed.tokens[cursor + 1].text == ">" {
+      return contains_token(lexed, cursor + 2, signature_end, value)
+    }
+    cursor += 1
+  }
+  false
+}
+
 # Count semantic walks over type-expression tags, not wrappers or name rendering.
 proc lowering_type_resolver_evidence(source_path: Str, lexed: Lexed, spans: List[Span]) [error] -> Result[List[Evidence]] {
   if source_path != "src/runtime/eval/lower.rs" and ! source_path.starts_with("src/runtime/eval/lower/") { return [] }
@@ -737,11 +749,16 @@ proc lowering_type_resolver_evidence(source_path: Str, lexed: Lexed, spans: List
       if region.body_start >= 0 {
         let type_dispatch = contains_token(lexed, region.body_start, region.body_end, "ArenaTypeExprTag")
         let recursive = recursive_type_expr_call(lexed, region)
-        if type_dispatch and recursive {
-          if constructs_semantic_type(lexed, region) {
-            found += [evidence(source_path, item, region.name)]
-          } else if ! contains_token(lexed, region.params_end + 1, region.body_start, "String") {
-            invalid(source_path, item.line, "unclassified recursive type-expression walker")?
+        if type_dispatch {
+          let returns_string = type_expr_return_contains(lexed, region, "String")
+          if ! returns_string {
+            let returns_semantic_type = type_expr_return_contains(lexed, region, "Type") or type_expr_return_contains(lexed, region, "LoweredType")
+            let constructs_type = constructs_semantic_type(lexed, region)
+            if constructs_type {
+              found += [evidence(source_path, item, region.name)]
+            } else if returns_semantic_type or recursive {
+              invalid(source_path, item.line, "unclassified type-expression tag walker")?
+            }
           }
         }
       }

@@ -173,6 +173,15 @@ test test_lowering_type_resolver_metric_recognizes_recursive_semantic_walkers {
   assert resolvers[0].evidence[0].detail == "resolve_runtime_type"
 }
 
+test test_lowering_type_resolver_metric_recognizes_nonrecursive_primitive_walkers {
+  let source = "fn lower_primitive_type(arena: &AstArena, ty: TypeExprId) -> Type {\n let index = ty.index();\n match arena.type_expr_tags[index] {\n ArenaTypeExprTag::Bool => Type::Bool,\n ArenaTypeExprTag::Int => Type::Int,\n }\n}\n"
+  let scan = metrics.scan_file("src/runtime/eval/lower/types.rs", source)?
+  let resolvers = scan.metrics |> where .name == "lowering_type_resolver_definitions" |> collect
+  assert resolvers.len() == 1
+  assert resolvers[0].value == 1
+  assert resolvers[0].evidence[0].detail == "lower_primitive_type"
+}
+
 test test_lowering_type_resolver_metric_excludes_checked_type_wrappers_and_renderers {
   let source = "fn compact_type_check(kind: LoweredType, checked: &Type, name: Arc<str>) -> Option<LoweredTypeCheck> {\n (needs_static_check(kind) || checked.is_validated()).then(|| LoweredTypeCheck { ty: checked.clone(), name })\n}\nfn compact_type_expr_name_string(arena: &AstArena, ty: TypeExprId) -> String {\n let index = ty.index();\n match arena.type_expr_tags[index] {\n ArenaTypeExprTag::List => compact_type_expr_name_string(arena, TypeExprId::from_index(index)),\n ArenaTypeExprTag::Named => String::new(),\n }\n}\n"
   let scan = metrics.scan_file("src/runtime/eval/lower/types.rs", source)?
@@ -181,10 +190,15 @@ test test_lowering_type_resolver_metric_excludes_checked_type_wrappers_and_rende
 
 test test_lowering_type_resolver_metric_rejects_unclassified_recursive_walkers {
   let source = "fn walk_type_expr(arena: &AstArena, ty: TypeExprId) -> UnknownType {\n let index = ty.index();\n match arena.type_expr_tags[index] {\n ArenaTypeExprTag::List => walk_type_expr(arena, TypeExprId::from_index(index)),\n ArenaTypeExprTag::Named => UnknownType::fallback(),\n }\n}\n"
-  assert "unclassified recursive type-expression walker" in rejection_at("src/runtime/eval/lower/types.rs", source)
+  assert "unclassified type-expression tag walker" in rejection_at("src/runtime/eval/lower/types.rs", source)
 }
 
-test test_current_lowering_tree_has_no_recursive_type_expr_resolvers {
+test test_lowering_type_resolver_metric_rejects_indirect_semantic_walkers {
+  let source = "fn resolve_primitive_type(arena: &AstArena, ty: TypeExprId) -> Result<Type, TypeError> {\n let index = ty.index();\n match arena.type_expr_tags[index] {\n ArenaTypeExprTag::Bool => build_bool_type(arena, ty),\n ArenaTypeExprTag::Int => build_int_type(arena, ty),\n }\n}\n"
+  assert "unclassified type-expression tag walker" in rejection_at("src/runtime/eval/lower/types.rs", source)
+}
+
+test test_current_lowering_tree_has_no_type_expr_resolvers {
   let root = p".".resolve()?
   var count = 0
   for entry in fs.walk(p"src/runtime/eval/lower")? |> where .kind == "file" and .path.ext() == "rs" |> sort-by .path {
