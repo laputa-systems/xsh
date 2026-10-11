@@ -26,6 +26,9 @@ mod call;
 #[path = "check/callable_alias.rs"]
 mod callable_alias;
 mod collect;
+mod checked_declarations;
+pub use checked_declarations::{CheckedDeclarations, CheckedErrorDeclaration, CheckedFunctionDeclaration,
+    CheckedFunctionKind, CheckedTypeDeclaration, InstantiatedTypeExpressions, ResolvedTypeExpressions};
 mod scopecheck;
 pub use scopecheck::{BindingDeclaration, BindingId, BindingKind, ResolvedBindings};
 #[path = "check/command.rs"]
@@ -159,6 +162,8 @@ pub struct CheckedStreamStage {
 
 #[derive(Clone, Debug, Default)]
 pub struct CheckOutput {
+    pub checked_declarations: CheckedDeclarations,
+    pub resolved_type_expressions: ResolvedTypeExpressions,
     pub resolved_bindings: Arc<ResolvedBindings>,
     pub static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
     pub local_binding_types: BTreeMap<Span, Type>,
@@ -772,6 +777,8 @@ struct BoundaryContext {
 
 #[derive(Clone)]
 pub struct Checker {
+    checked_declarations: CheckedDeclarations,
+    resolved_type_expressions: ResolvedTypeExpressions,
     resolved_bindings: Arc<ResolvedBindings>,
     boundary: BoundaryContext,
     local_inference: local_inference::LocalInference,
@@ -996,7 +1003,10 @@ impl Checker {
             checker.effect_graph = effect_graph;
             checker.check_program_arena_with_type_program(program, source, type_program);
             let callable_effects = checker.callable_effects();
+            let checked_declarations = checker.take_checked_declarations();
             CheckOutput {
+                checked_declarations,
+                resolved_type_expressions: checker.resolved_type_expressions,
                 static_callable_aliases: checker.static_callable_aliases,
                 typed_callable_calls: checker.typed_callable_calls,
                 local_binding_types: checker.local_inference.checked_bindings,
@@ -1190,7 +1200,10 @@ impl Checker {
             checker.effect_graph = effect_graph;
             checker.check_program_arena(&main_program, main.1);
             let callable_effects = checker.callable_effects();
+            let checked_declarations = checker.take_checked_declarations();
             CheckOutput {
+                checked_declarations,
+                resolved_type_expressions: checker.resolved_type_expressions,
                 static_callable_aliases: checker.static_callable_aliases,
                 typed_callable_calls: checker.typed_callable_calls,
                 local_binding_types: checker.local_inference.checked_bindings,
@@ -1247,6 +1260,8 @@ impl Checker {
 
     pub(crate) fn new(options: CheckOptions) -> Self {
         let mut checker = Self {
+            checked_declarations: CheckedDeclarations::default(),
+            resolved_type_expressions: ResolvedTypeExpressions::default(),
             boundary: BoundaryContext::default(),
             static_callable_aliases: BTreeMap::new(),
             typed_callable_calls: BTreeMap::new(),
@@ -1344,6 +1359,7 @@ impl Checker {
             statement_root: None,
         };
         checker.register_builtin_process_error_family();
+        checker.checked_declarations.builtin_error_families = checker.error_families.clone();
         checker.define_standard_values();
         checker
     }
@@ -1515,7 +1531,9 @@ impl Checker {
         self.check_public_result_types(program, &statements);
         self.exit_status_statement = None;
         self.resolve_checked_types();
-        let (_, diagnostics) = crate::sema::cli_entry::validate_cli_entry(
+        let instances: Vec<_> = self.record_constructor_instances.iter().map(|(&span, fact)| (span, fact.clone())).collect();
+        for (span, fact) in instances { self.publish_constructor_type_expressions(program, span, &fact); }
+        let (entries, diagnostics) = crate::sema::cli_entry::validate_cli_entry(
             program,
             |parameter| {
                 self.checked_parameter_type(program, parameter)
@@ -1530,6 +1548,7 @@ impl Checker {
                     .analyze_expression(&program.arena, expr)
             },
         );
+        self.checked_declarations.cli_entries = entries;
         self.diagnostics.extend(diagnostics);
     }
 

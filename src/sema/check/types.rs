@@ -500,6 +500,14 @@ impl Checker {
     }
 
     pub(super) fn type_from_arena(&mut self, program: &ArenaProgram, type_id: TypeExprId) -> Type {
+        let ty = self.resolve_type_expression(program, type_id);
+        if !self.collecting_effects {
+            self.resolved_type_expressions.annotations.insert((self.current_namespace, type_id), ty.clone());
+        }
+        ty
+    }
+
+    fn resolve_type_expression(&mut self, program: &ArenaProgram, type_id: TypeExprId) -> Type {
         let tag = program.arena.type_expr_tags[type_id.index()];
         let data = program.arena.type_expr_data[type_id.index()];
         let span = program.arena.type_expr_span(type_id);

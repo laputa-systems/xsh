@@ -994,13 +994,15 @@ impl Checker {
                 self.current_exported = previous_exported;
             }
             ArenaStmtKind::TypeDef(def_id) => {
-                let def = arena.arena.type_def(def_id);
-                self.check_type_def_arena(arena, source, def, stmt.span);
+                self.check_type_def_arena(arena, source, def_id, stmt.span);
             }
             ArenaStmtKind::ErrorDef(def_id) => {
                 self.check_error_def_arena(arena, source, def_id);
             }
             ArenaStmtKind::ProcDef(def_id) | ArenaStmtKind::CliMain(def_id) => {
+                if matches!(stmt.kind, ArenaStmtKind::CliMain(_)) {
+                    self.publish_function_declaration(arena, def_id, super::CheckedFunctionKind::CliMain, None);
+                }
                 let def = arena.arena.function_def(def_id).clone();
                 self.check_function_arena(arena, source, &def, false);
             }

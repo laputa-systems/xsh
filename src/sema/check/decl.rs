@@ -1,7 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
 use super::{
-    BTreeMap, Checker, CoreCommand, ErrorFamilyInfo, ErrorVariantInfo, FxHashSet, Name,
+    BTreeMap, Checker, CheckedFunctionKind, CoreCommand, ErrorFamilyInfo, ErrorVariantInfo, FxHashSet, Name,
     QualifiedName, Span, TagVariantInfo, Type, TypeAnnRef, TypeDefBody, UserModuleSig, api_spec,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Label};
@@ -11,7 +11,7 @@ use crate::sema::check::{
 };
 use crate::syntax::arena::{
     ArenaBindingTargetKind, ArenaModuleContractEntryKind, ArenaProgram, ArenaRange, ArenaStmtKind,
-    ArenaTypeDef, ArenaTypeDefBody, ArenaUserModule, ErrorDefId, FunctionDefId, StmtId, TypeExprId,
+    ArenaTypeDef, ArenaTypeDefBody, ArenaUserModule, ErrorDefId, FunctionDefId, StmtId, TypeDefId, TypeExprId,
 };
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
@@ -262,14 +262,14 @@ impl Checker {
             match kind {
                 ArenaStmtKind::ProcDef(def_id) => {
                     let def = program.arena.function_def(def_id);
-                    let sig = self.function_sig_arena(program, source, def_id);
+                    let sig = self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Proc);
                     if !def.test_declaration {
                         self.procs.insert(def.name, sig);
                     }
                 }
                 ArenaStmtKind::PureDef(def_id) => {
                     let def = program.arena.function_def(def_id);
-                    let mut sig = self.function_sig_arena(program, source, def_id);
+                    let mut sig = self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Pure);
                     if def.return_ty_defaulted {
                         sig.return_ty = Type::Unknown;
                     }
@@ -277,7 +277,7 @@ impl Checker {
                 }
                 ArenaStmtKind::StreamDef(def_id) => {
                     let def = program.arena.function_def(def_id);
-                    let sig = self.function_sig_arena(program, source, def_id);
+                    let sig = self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Stream);
                     self.streams.insert(def.name, sig);
                 }
                 ArenaStmtKind::ErrorDef(_) => {}
@@ -412,7 +412,7 @@ impl Checker {
                             DiagnosticCode::CheckDuplicateName,
                         );
                     }
-                    let sig = self.function_sig_arena(program, source, def_id);
+                    let sig = self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Proc);
                     if !def.test_declaration {
                         self.procs.insert(def.name, sig);
                     }
@@ -427,7 +427,7 @@ impl Checker {
                             DiagnosticCode::CheckDuplicateName,
                         );
                     }
-                    let mut sig = self.function_sig_arena(program, source, def_id);
+                    let mut sig = self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Pure);
                     if def.return_ty_defaulted {
                         sig.return_ty = Type::Unknown;
                     }
@@ -443,7 +443,7 @@ impl Checker {
                             DiagnosticCode::CheckDuplicateName,
                         );
                     }
-                    let sig = self.function_sig_arena(program, source, def_id);
+                    let sig = self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Stream);
                     self.streams.insert(def.name, sig);
                 }
                 _ => {}
@@ -459,7 +459,7 @@ impl Checker {
                     self.check_type_def_arena(
                         program,
                         source,
-                        def,
+                        def_id,
                         program.arena.stmt(stmt_id).span,
                     );
                 }
@@ -538,25 +538,25 @@ impl Checker {
                             self.check_function_arena(program, source, &def, false);
                             exports
                                 .procs
-                                .insert(def.name, self.function_sig_arena(program, source, def_id));
+                                .insert(def.name, self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Proc));
                         }
                         ArenaStmtKind::PureDef(def_id) => {
                             let def = program.arena.function_def(def_id).clone();
                             self.check_function_arena(program, source, &def, true);
                             exports
                                 .pures
-                                .insert(def.name, self.function_sig_arena(program, source, def_id));
+                                .insert(def.name, self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Pure));
                         }
                         ArenaStmtKind::StreamDef(def_id) => {
                             let def = program.arena.function_def(def_id).clone();
                             self.check_stream_function_arena(program, source, &def);
                             exports
                                 .streams
-                                .insert(def.name, self.function_sig_arena(program, source, def_id));
+                                .insert(def.name, self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Stream));
                         }
                         ArenaStmtKind::TypeDef(def_id) => {
                             let def = program.arena.type_def(def_id);
-                            self.check_type_def_arena(program, source, def, inner.span);
+                            self.check_type_def_arena(program, source, def_id, inner.span);
                             exports.types.insert(
                                 def.name,
                                 type_def_body_arena(
@@ -625,8 +625,7 @@ impl Checker {
                     stmt.span,
                 ),
                 ArenaStmtKind::TypeDef(def_id) => {
-                    let def = program.arena.type_def(*def_id);
-                    self.check_type_def_arena(program, source, def, stmt.span);
+                    self.check_type_def_arena(program, source, *def_id, stmt.span);
                 }
                 ArenaStmtKind::ErrorDef(def_id) => {
                     self.check_error_def_arena(program, source, *def_id);
@@ -668,10 +667,11 @@ impl Checker {
         program: &ArenaProgram,
         _source: &str,
         def_id: FunctionDefId,
+        kind: CheckedFunctionKind,
     ) -> FunctionSig {
         let def = program.arena.function_def(def_id);
         let effect_declaration = self.effect_declaration_id(program, def.body);
-        FunctionSig {
+        let signature = FunctionSig {
             effect_declaration: Some(effect_declaration),
             inferred_effects: self.effect_graph.is_inferred(effect_declaration),
             explicit_return: !def.return_ty_defaulted,
@@ -713,8 +713,11 @@ impl Checker {
                 })
                 .flatten(),
             effects: self.effective_function_effects(program, def),
-        }
+        };
+        self.publish_function_declaration(program, def_id, kind, Some(&signature));
+        signature
     }
+
 }
 
 pub(super) fn callable_type_from_function_signature(sig: &FunctionSig) -> super::CallableType {
@@ -1192,12 +1195,17 @@ impl Checker {
     }
 
     pub(super) fn check_type_def_arena(
-        &mut self,
-        arena: &ArenaProgram,
-        source: &str,
-        def: &ArenaTypeDef,
-        span: Span,
+        &mut self, arena: &ArenaProgram, source: &str, id: TypeDefId, span: Span,
     ) {
+        let def = arena.arena.type_def(id);
+        let checked = self.check_type_declaration_contents(arena, source, id, def, span);
+        self.publish_type_declaration(arena, id, checked);
+    }
+
+    fn check_type_declaration_contents(
+        &mut self, arena: &ArenaProgram, source: &str, id: TypeDefId,
+        def: &ArenaTypeDef, span: Span,
+    ) -> bool {
         // A nominal identity names one record type. Resolution rejects the
         // same declaration where the type is used; a declaration nothing
         // uses is reported here.
@@ -1213,7 +1221,7 @@ impl Checker {
                 ),
                 DiagnosticCode::CheckSchema,
             );
-            return;
+            return false;
         }
         // A range bounds one integer type, so its declaration has no
         // parameter to apply.
@@ -1226,7 +1234,7 @@ impl Checker {
                 ),
                 DiagnosticCode::CheckSchema,
             );
-            return;
+            return false;
         }
         if !def.type_parameters.is_empty() {
             let mut names = FxHashSet::default();
@@ -1262,11 +1270,18 @@ impl Checker {
                 }
             }
             let namespace = self.current_namespace;
-            match self
+            let checked = match self
                 .record_constructors
                 .template_field_types(&arena.arena, def, namespace)
             {
                 Ok(fields) => {
+                    if !self.collecting_effects && let ArenaTypeDefBody::RecordSchema(schema_fields) = def.body {
+                        for field in arena.arena.schema_fields(schema_fields) {
+                            if let Some(ty) = fields.get(&field.name) {
+                                self.resolved_type_expressions.templates.insert((id, field.ty), ty.clone());
+                            }
+                        }
+                    }
                     if let ArenaTypeDefBody::RecordSchema(schema_fields) = def.body {
                         let mut field_names = FxHashSet::default();
                         for field in arena.arena.schema_fields(schema_fields) {
@@ -1309,10 +1324,11 @@ impl Checker {
                             );
                         }
                     }
+                    true
                 }
-                Err(error) => self.error(span, &error.message, error.code),
-            }
-            return;
+                Err(error) => { self.error(span, &error.message, error.code); false }
+            };
+            return checked;
         }
         match &def.body {
             ArenaTypeDefBody::Alias(ty) => {
@@ -1422,6 +1438,7 @@ impl Checker {
                 }
             }
         }
+        true
     }
 
     pub(super) fn check_error_def_arena(
@@ -1480,6 +1497,7 @@ impl Checker {
         }
         self.error_families
             .insert(def.name, ErrorFamilyInfo { variants });
+        self.publish_error_declaration(arena, id);
     }
 }
 

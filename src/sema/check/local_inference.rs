@@ -309,6 +309,8 @@ impl Checker {
     /// facts carry no additional constraints, and copying them makes each probe
     /// pay for every earlier body, including captured module contracts.
     pub(super) fn constraint_probe(&mut self) -> Self {
+        let checked_declarations = std::mem::take(&mut self.checked_declarations);
+        let resolved_type_expressions = std::mem::take(&mut self.resolved_type_expressions);
         let block_exit_bindings = std::mem::take(&mut self.block_exit_bindings);
         let expr_types = std::mem::take(&mut self.expr_types);
         let projections = std::mem::take(&mut self.projections);
@@ -339,6 +341,8 @@ impl Checker {
             std::mem::take(&mut self.definitely_exiting_block_spans);
         let checked_bindings = std::mem::take(&mut self.local_inference.checked_bindings);
         let probe = self.clone();
+        self.checked_declarations = checked_declarations;
+        self.resolved_type_expressions = resolved_type_expressions;
         self.block_exit_bindings = block_exit_bindings;
         self.expr_types = expr_types;
         self.projections = projections;
@@ -663,6 +667,42 @@ mod tests {
             let mut checker = Checker::new(super::super::CheckOptions::default());
             let contract = Span::new(SourceId::new(0), 0, 1);
             let name = super::super::Name::intern("captured");
+            let function = crate::syntax::arena::FunctionDefId::from_index(0);
+            checker.checked_declarations.functions.insert(
+                function,
+                super::super::CheckedFunctionDeclaration {
+                    name,
+                    namespace: None,
+                    internal: false,
+                    kind: super::super::CheckedFunctionKind::Proc,
+                    signature: None,
+                    body: contract,
+                    parameter_spans: Vec::new(),
+                },
+            );
+            let type_id = crate::syntax::arena::TypeExprId::from_index(0);
+            let type_definition = crate::syntax::arena::TypeDefId::from_index(0);
+            checker
+                .resolved_type_expressions
+                .annotations
+                .insert((None, type_id), Type::Int);
+            checker
+                .resolved_type_expressions
+                .templates
+                .insert((type_definition, type_id), Type::Str);
+            checker
+                .resolved_type_expressions
+                .instantiations
+                .insert(
+                    contract,
+                    super::super::InstantiatedTypeExpressions {
+                        instance: crate::sema::constants::SchemaInstance {
+                            definition: type_definition,
+                            arguments: vec![Type::Bool],
+                        },
+                        expressions: rustc_hash::FxHashMap::from_iter([(type_id, Type::Bool)]),
+                    },
+                );
             checker.define(name, super::super::Binding::new(Type::Int, false), contract);
             checker.parameter_types.insert(contract, Type::Str);
             checker.function_return_types.insert(contract, Type::Bool);
@@ -682,7 +722,24 @@ mod tests {
                 0,
                 "checked expression facts copied into the constraint probe"
             );
+            assert!(probe.checked_declarations.functions.is_empty());
+            assert!(probe.resolved_type_expressions.annotations.is_empty());
+            assert!(probe.resolved_type_expressions.templates.is_empty());
+            assert!(probe.resolved_type_expressions.instantiations.is_empty());
             assert_eq!(checker.expr_types.len(), 256);
+            assert_eq!(checker.checked_declarations.functions.len(), 1);
+            assert_eq!(
+                checker.resolved_type_expressions.annotations[&(None, type_id)],
+                Type::Int
+            );
+            assert_eq!(
+                checker.resolved_type_expressions.templates[&(type_definition, type_id)],
+                Type::Str
+            );
+            assert_eq!(
+                checker.resolved_type_expressions.instantiations[&contract].expressions[&type_id],
+                Type::Bool
+            );
             assert_eq!(probe.lookup(name).unwrap().ty, Type::Int);
             assert_eq!(probe.parameter_types[&contract], Type::Str);
             assert_eq!(probe.function_return_types[&contract], Type::Bool);
