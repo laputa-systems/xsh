@@ -48,3 +48,8 @@ Treat production/touched-line caps and final strict source shrink as advisory,
 retain exact accounting and original baselines, and keep structural/correctness/
 ownership/platform/documentation/performance acceptance requirements. Do not
 block a reviewed functional slice solely on source growth or chase layout cuts.
+
+The owner excluded ARM64 and macOS on 2026-10-11. Development and final
+platform acceptance use host-native x86_64 Linux musl in the pinned
+`Dockerfile.test` environment. Older ARM final-gate requirements are superseded;
+preserve historical artifacts and clean up only campaign-owned resources.

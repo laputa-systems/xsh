@@ -15,6 +15,11 @@ no longer block acceptance; measured performance has priority. Report exact
 counts and preserve original baselines. Structural targets, correctness and
 final verification remain required.
 
+**Owner platform update, 2026-10-11:** ARM64 and macOS are out of scope.
+All development and final platform gates use host-native x86_64 Linux musl
+in the pinned Docker environment. Older ARM final-gate requirements below
+are historical and superseded; retain their artifacts.
+
 Every editing item has one exclusive source/test owner in its own worktree.
 The integrator owns shared registrations, facades, registry, documentation,
 development automation, and merges. Source changes are accepted only after

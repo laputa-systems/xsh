@@ -93,9 +93,9 @@ All Linux support goes through the `Dockerfile.test` environment. Linux builds,
 tests, and verification run in the image that file defines (`xsh-test`), driven
 by `cargo dev test linux` or `cargo dev test linux --ci`; the
 development target is the host-native supported musl target with the flags
-in `dev/targets.xsh::docker_test_env`; the consolidation campaign verifies
-`aarch64-unknown-linux-musl` again at final acceptance. The owner approved
-native x86_64 musl development verification on 2026-10-11. Do not substitute another Linux toolchain,
+in `dev/targets.xsh::docker_test_env`. The owner scoped the consolidation
+campaign to host-native x86_64 Linux musl verification on 2026-10-11;
+ARM64 and macOS are excluded, including final acceptance. Do not substitute another Linux toolchain,
 image, or libc: the container pins the compiler, the musl CRT objects, and the
 `__isoc23_*` symbol aliases that this tree links against, so a build outside it
 is not evidence about Linux support.

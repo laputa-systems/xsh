@@ -1,5 +1,40 @@
 # Consolidation restart handoff
 
+## Owner platform scope and integration checkpoint — 2026-10-11
+
+The owner explicitly excluded ARM64 and macOS. Development and final platform
+acceptance are host-native x86_64 Linux musl in the pinned Docker environment.
+This supersedes every older ARM final-gate requirement in this log. Preserve
+historical artifacts; clean up only campaign-owned runtime registrations.
+
+Root accepted through `431677d2`: cold builder/retry state `d5e24a24`, process
+stream ownership repair `13ff7089`, scalar statement views `0526ad9b`, singleton
+assignment reader `509a19d6`, active deferred cleanup `0bb30154`, cold process
+state `bc71a8c6`, scalar expression views `ffc6bb56`, and dead statement fallback
+retirement `431677d2`. The original two stream failures remain archived; the
+repair restores registration at the active lexical owner before continuation.
+
+The combined optimized build at `0bb30154` passed **48 normal files and 24
+forced-frame files**, including both repaired stream cases. Frozen matching
+binaries, tracked-source hashes, exact commands and manifests are in the restart
+directory's `joint-0bb-bin`, `joint-0bb-source.json`, `joint-0bb-gates`, and
+`joint-0bb-forced-gates`. This evidence qualifies 0bb only; later accepted source
+needs the next combined build. No final campaign acceptance is claimed.
+
+Sealed slices awaiting parent integration include deferred-cleanup allocation
+improvements, statement branches, expression sequence/If/aggregate cursors,
+pipeline borrowed readers, value/pattern/driver schema authorities, and the
+complete lint fact-demand walk. Aggregate cursor slope checks use 72 pinned
+Docker runs with revision-matched linked runtimes: ordinary allocation slopes
+match the baseline, while forced-frame slopes improve. Initial per-operand
+boxing is superseded by the same-continuation-box fix; integrate both commits.
+
+Typed-callee corruption gates pass 11/11 and the native suite passes 21/21 on
+the private source. Cross-program ownership remains active. W9's corrected
+publication comparison recovered generic instantiation facts; annotation vector
+ordering is under exact comparison. Its fresh-check CPU regression remains
+unresolved. Source budgets remain advisory, with performance prioritized.
+
 ## Combined frame verification — 2026-10-11, `55d16b01`
 
 The pinned optimized build passes. Frozen binaries/source hashes are in

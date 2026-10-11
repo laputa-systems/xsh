@@ -213,6 +213,14 @@ documentation, platform gates and performance verification remain required.
 Remove genuine duplication and unused code; do not compress layout to improve
 counts. A passing source count is not performance evidence.
 
+## Owner update — platform scope, 2026-10-11
+
+ARM64 and macOS are outside this campaign. Development and final platform
+verification use host-native x86_64 Linux musl in the pinned `Dockerfile.test`
+environment. This supersedes all older ARM final-verification requirements;
+Linux correctness and performance gates remain required. Preserve historical
+ARM artifacts and remove only campaign-owned runtime registrations at cleanup.
+
 ## Planning figures
 
 Setup records every row at the start commit. Structural counts are ratchets
