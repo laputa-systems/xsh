@@ -14,6 +14,13 @@ If standard error is a terminal, redirect it to standard output.
 
 type Options = {help: Bool, version: Bool, command: List[Str]}
 
+# An advisory must reach the original stderr before exec replaces this process.
+# Retrying a failed write after redirecting stderr could pollute command output.
+proc advisory(message: Str, failure_status: Int) [io, process] {
+  if io.write_stderr(f"{gnu.prog()}: {message}\n") is Err(_) { exit failure_status }
+  if io.flush_stderr() is Err(_) { exit failure_status }
+}
+
 # Attempt cwd first, preserving existing permissions and creating private output.
 proc output_file(failure_status: Int) [fs, process, env, error] -> Path {
   let local = p"nohup.out"
@@ -53,20 +60,26 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let error_terminal = unix.isatty(2)
   if input_terminal {
     if let Err(failure) = unix.redirect_fd(0, /dev/null, write: true) {
-      gnu.error(f"failed to redirect standard input: {gnu.strerror(failure)}")
+      gnu.error(f"failed to render standard input unusable: {gnu.strerror(failure)}")
       exit failure_status
     }
   }
   if output_terminal {
     let destination = output_file(failure_status)
     let prefix = if input_terminal { "ignoring input and appending output to" } else { "appending output to" }
-    eprint --flush f"{gnu.prog()}: {prefix} {gnu.quote(destination.display())}"
-  } else if input_terminal {
-    eprint --flush f"{gnu.prog()}: ignoring input"
+    advisory(f"{prefix} {gnu.quote(destination.display())}", failure_status)
+  } else if input_terminal and ! error_terminal {
+    advisory("ignoring input", failure_status)
   }
   if error_terminal {
-    if ! output_terminal { eprint --flush f"{gnu.prog()}: redirecting stderr to stdout" }
-    unix.dup_fd(1, 2)?
+    if ! output_terminal {
+      let prefix = if input_terminal { "ignoring input and redirecting" } else { "redirecting" }
+      advisory(f"{prefix} standard error to standard output", failure_status)
+    }
+    if let Err(failure) = unix.dup_fd(1, 2) {
+      gnu.error(f"failed to redirect standard error: {gnu.strerror(failure)}")
+      exit failure_status
+    }
   }
   process.set_signal_action("HUP", "ignore")?
   proc_launch.check_command(opts.command[0])
