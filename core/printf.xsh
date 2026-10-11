@@ -614,8 +614,8 @@ proc conversion_text(spec: PrintfSpec, argument: PrintfArgument, width: Int, pre
     let source = if quoted { f"{character.value}" } else { argument.text }
     let alternate = spec.flags.find("#") != null
     let hexadecimal = spec.conversion in ["a", "A"]
-    let x87_hexadecimal = hexadecimal and numeric.long_double_precision() == 64
-    let parsed = numeric.format_long_double(source, spec.conversion, if x87_hexadecimal { null } else { precision }, alternate: alternate)?
+    let x87_hexadecimal = hexadecimal and system.long_double_precision() == 64
+    let parsed = system.format_long_double(source, spec.conversion, if x87_hexadecimal { null } else { precision }, alternate: alternate)?
     let issue = if quoted { character.issue } else if parsed.consumed == 0 { "expected a numeric value" } else if parsed.range_error { "Numerical result out of range" } else if parsed.consumed < source.byte_len() { "value not completely converted" } else { null }
     if let message = issue { gnu.error(f"{gnu.quote_value(argument.text)}: {message}") }
     let body = if x87_hexadecimal { hex_long_double(parsed.text, precision, alternate) } else { parsed.text }
