@@ -306,8 +306,8 @@ separately in `dev/btop-progress.json`.
 ## Campaign completion summary
 
 This implementation targets the fixed default behavior inventoried from btop
-v1.4.7 on Linux. All G0–G3 and G4a product assertions passed with host release
-evidence. The final pinned Linux lane attempt failed before tests started:
+v1.4.7 on Linux. All G0–G3 and G4a behavioral assertions passed with host
+release evidence. The final pinned Linux lane attempt failed before tests started:
 Docker could not execute `cargo` in its ARM64 container on this x86_64 runner.
 The monitor therefore has host-only evidence and no ARM64 Linux qualification.
 XSH's platform scope excludes ARM64 on Linux and other non-macOS systems; ARM64
@@ -331,10 +331,20 @@ seconds), above the 50 ms target. PTY input-to-present latency was 2.955 ms at
 p95 and 3.014 ms at p99. These absolute timings are runner-specific. Battery
 behavior remains fixture-tested only; no live battery hardware was available.
 
+This run intentionally excludes configuration files and user options beyond
+the replay harness flags; settings, help, preset, and theme menus; runtime
+sampling-interval, panel, and graph-mode changes; mouse and vim-key input;
+packaging aliases, installers, and VM integration; process actions and detail
+views; and terminal restoration after signal-driven termination.
+
+Follow-on work has separate entry conditions. Safe process actions and detail
+views start after this G4a gate passes. Multi-battery and power edges, ZFS, and
+GPU collectors start after G4b, with eligible hardware or an explicit
+decoder-only decision. Full benchmark lanes, endurance, fault injection, and
+bounded fuzzing start after G4a. Live macOS collection starts only after Linux
+product qualification; replay alone does not qualify a live collector.
+
 ## Current limits
 
-Battery behavior is fixture-tested only; live hardware battery behavior has
-not been verified.
-GPU, process details and mutations, configuration menus, signal-driven
-terminal restoration, and non-Linux live collectors are outside this monitor
-surface.
+Live battery behavior has not been verified. GPU, process actions and detail
+views, and non-Linux btop collectors are outside this monitor surface.

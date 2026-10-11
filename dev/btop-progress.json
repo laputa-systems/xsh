@@ -6,7 +6,7 @@
     "commit": "6e39144aaf5a6bc01b9f795010b0914431067183"
   },
   "gate": "G4a",
-  "last_green_commit": "c3ab7dcd",
+  "last_green_commit": "85bc7009",
   "audit": {
     "new_core_script": "New core/*.xsh applets are installed by the release script at dev/release.xsh:146-160; dev/tests/test-repository-contracts.xsh owns the required core script inventory and contract checks. No separate command registration is needed.",
     "launcher_argument_separator": "Use xsh SCRIPT -- ARGS for an applet and xsh -- SCRIPT ARGS for an explicit script; src/entrypoints/xsh.rs:90-120.",
@@ -66,7 +66,7 @@
       "implemented": false,
       "status": "blocked_external",
       "tests": [],
-      "evidence": "The pinned arm64 Docker image built, but Docker could not start its cargo process on this x86_64 host: Exec format error. No suite tests ran; duration to suite start was not measured."
+      "evidence": "The G0 baseline and final lane attempts both failed before tests on this x86_64 host: Docker could not exec cargo in the pinned ARM64 image (Exec format error). No suite tests ran or duration was measured. Linux ARM64 is outside supported product scope; ARM64 macOS remains in scope."
     },
     {
       "id": "g1.monotonic_api",
@@ -1411,26 +1411,45 @@
     {
       "id": "g4.keys.default_only",
       "gate": "G4a",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-ui.xsh::test_btop_ui_pinned_network_and_process_memory_bindings_toggle_only_their_views",
+        "core/tests/test-btop-ui.xsh::test_btop_ui_process_tree_toggle_collapse_children_and_aggregate",
+        "core/tests/test-btop-ui.xsh::test_btop_ui_out_of_scope_bindings_do_not_mutate_the_view",
+        "core/tests/test-btop-input.xsh::test_btop_input_unsupported_mouse_sequences_are_ignored",
+        "tests/core_compat_extra/pty.rs::btop_replay_network_and_cpu_view_keys_change_rendered_cells"
+      ],
+      "evidence": "The release reducer tests cover every delivered default binding, tree controls, deferred/out-of-scope keyboard no-ops, and inert mouse sequences. PTY replay confirms c/n/z change rendered cells; the final full native suite passed 121/121."
     },
     {
       "id": "g4.semantic_goldens",
       "gate": "G4a",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-render.xsh::test_btop_g4a_default_panels_use_upstream_relative_geometry_and_memory_disks_section",
+        "core/tests/test-btop-render.xsh::test_btop_g4a_cpu_memory_and_network_graphs_render_retained_history",
+        "core/tests/test-btop-render.xsh::test_btop_g4a_process_tree_golden_shows_depth_collapse_and_aggregation",
+        "core/tests/test-btop-render.xsh::test_btop_g4a_disk_panel_lists_mount_usage_rates_and_io_graph_modes",
+        "core/tests/test-btop-color.xsh::test_btop_palette_maps_fixed_truecolor_roles_to_supported_depths",
+        "core/tests/test-btop-color.xsh::test_btop_surface_commits_palette_roles_and_resets_each_colored_row",
+        "tests/core_compat_extra/pty.rs::btop_surface_delta_reconstructs_the_same_cells_as_a_fresh_full_frame"
+      ],
+      "evidence": "Region-level expected cells cover panel geometry, graph values, process-tree depth and aggregates, disk capacities and rates, palette styles and color-depth mappings. The independent VT oracle reconstructs delta output and matches a fresh full frame; renderer 8/8 and PTY 11/11 passed."
     },
     {
       "id": "g4.disk.defaults",
       "gate": "G4a",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-defaults.xsh::test_btop_default_constants_match_the_ledger_extraction",
+        "core/tests/test-btop-ui.xsh::test_btop_ui_pinned_network_and_process_memory_bindings_toggle_only_their_views",
+        "core/tests/test-btop-render.xsh::test_btop_g4a_disk_panel_lists_mount_usage_rates_and_io_graph_modes",
+        "core/tests/test-btop-disks.xsh::test_btop_model_carries_disk_rates_and_captured_capacity"
+      ],
+      "evidence": "Pinned defaults show disks and combined I/O mode initially; the rendered panel lists mounted devices, captured capacity and rates, with i selecting split graphs and d hiding details. The host release btop suite passed 121/121."
     },
     {
       "id": "g4.defaults.constants",
@@ -1447,9 +1466,9 @@
     {
       "id": "g0.linux_baseline",
       "kind": "external",
-      "reason": "The pinned Linux lane targets aarch64-unknown-linux-musl but this host is x86_64 and has no ARM64 binfmt handler; Docker returns Exec format error before tests start.",
+      "reason": "Both pinned Linux lane attempts targeted aarch64-unknown-linux-musl on this x86_64 host without ARM64 binfmt; Docker returned Exec format error before tests. Linux ARM64 is outside product support scope; macOS ARM64 remains in scope.",
       "reproducer": "TARGET=aarch64-unknown-linux-musl cargo dev test linux",
-      "unblock_command": "Run the same pinned lane on an ARM64 host or on a host with the repository-required ARM64 binfmt support, then compare final failures with the baseline."
+      "unblock_command": "No in-scope action for this run; ARM64 Linux is outside product support scope, while ARM64 macOS remains supported."
     }
   ],
   "contract_changes": [
@@ -1566,13 +1585,37 @@
       "name": "btop fixed default inventory",
       "commit": "65528bda",
       "summary": "All 56 in-scope pinned defaults are named typed constants in one module and are cross-checked against the G0 ledger extraction. The monitor continues to expose no product option or configuration-file interface."
+    },
+    {
+      "kind": "data_format",
+      "name": "btop model dump per-core process and per-interface network metrics",
+      "commit": "85bc7009",
+      "summary": "Process rows expose per-logical-core CPU rates, and network model dumps include identity-bound counters and derived rates for each observed interface."
+    },
+    {
+      "kind": "behavior",
+      "name": "btop network interface view and total offset",
+      "commit": "85bc7009",
+      "summary": "The b/n keys select name-sorted interfaces with fresh graph history; z toggles the selected interface's displayed counters to and from an offset without changing rates."
+    },
+    {
+      "kind": "behavior",
+      "name": "btop mounted disk panel and default view keys",
+      "commit": "85bc7009",
+      "summary": "The memory surface includes mounted-device capacity, read/write rates, and a selected-device I/O graph. The d/i keys hide disk details or select split read/write graphs; in-scope view bindings are fixed and unsupported actions are inert."
+    },
+    {
+      "kind": "platform",
+      "name": "XSH ARM64 support scope",
+      "commit": "9ab17429",
+      "summary": "Project documentation declares ARM64 supported on macOS and outside supported product scope on Linux and other operating systems; internal Linux ARM64 target infrastructure remains unchanged."
     }
   ],
   "limitations": [
-    "G0 host evidence is host-only because the pinned ARM64 Docker lane failed before the test suite started; its failing test set is empty because no tests ran.",
-    "The G0 lane attempt did not record wall-clock duration to suite start; no duration is inferred from the log.",
+    "All Linux evidence is host-only: the G0 baseline and final ARM64 Docker lane attempts both failed before tests started. Linux ARM64 is outside product support scope; the internal target and CI configuration are retained. ARM64 macOS remains in scope.",
+    "Neither ARM64 lane attempt reached the suite, so its failure count is empty and elapsed time to suite start is not measured.",
     "No live battery hardware was available; battery and sensor behavior is fixture-tested only.",
-    "The B8 preloaded 1,000-process model/render/diff target was missed on Alpine x86_64 musl release: p95 2.886 s and p99 2.979 s at 120x40, versus the 50 ms p95 target. The measured profile is in .work/btop-campaign/g3-gate-btop-final2.log; absolute timings are runner-specific."
+    "The B8 preloaded 1,000-process model/render/diff target was missed on Alpine x86_64 musl release: the final 120x40 profile measured p95 2.631 s and p99 2.692 s versus the 50 ms p95 target. Its process-join hard gate passed at 2.04x for 1,000 to 2,000 processes. The final profile is in .work/btop-campaign/g4a-final-btop-suite-2.log; absolute timings are runner-specific."
   ],
   "measurements": {
     "coverage_sha256": "b43040859dfa851f8f484714381a08e48cf3da65361d95e2f634790eb7f4f02f",
@@ -1653,7 +1696,18 @@
       "suite_started": false,
       "failing_tests": [],
       "failure_stage": "Docker could not exec cargo: Exec format error",
-      "log": ".work/btop-campaign/linux-baseline.log"
+      "log": ".work/btop-campaign/linux-baseline.log",
+      "final_attempt": {
+        "status": "blocked_external",
+        "target": "aarch64-unknown-linux-musl",
+        "command": "TARGET=aarch64-unknown-linux-musl cargo dev test linux",
+        "suite_started": false,
+        "failing_tests": [],
+        "failure_stage": "Docker could not exec cargo: Exec format error",
+        "elapsed_seconds": null,
+        "log": ".work/btop-campaign/g4a-final-linux.log",
+        "scope": "Linux ARM64 is outside supported product scope; no further architecture setup was pursued. ARM64 macOS remains in scope."
+      }
     },
     "reference_build": {
       "status": "not_attempted",
@@ -2149,6 +2203,111 @@
         "failed": 0,
         "log": ".work/btop-campaign/g4a-process-tree-ledger.log"
       }
+    },
+    "g4a_completion": {
+      "host_only": true,
+      "code_commit": "85bc7009",
+      "documentation_commit": "9ab17429",
+      "xsh_check": {
+        "files": 13,
+        "log": ".work/btop-campaign/g4a-final-check.log"
+      },
+      "native_btop_tests": {
+        "passed": 121,
+        "failed": 0,
+        "command": "xsht test -j 1 --nocapture core/tests/test-btop",
+        "log": ".work/btop-campaign/g4a-final-btop-suite-2.log"
+      },
+      "input_tests": {
+        "passed": 7,
+        "failed": 0,
+        "log": ".work/btop-campaign/g4a-final-input.log"
+      },
+      "ui_tests": {
+        "passed": 9,
+        "failed": 0,
+        "log": ".work/btop-campaign/g4a-final-ui.log"
+      },
+      "renderer_tests": {
+        "passed": 8,
+        "failed": 0,
+        "log": ".work/btop-campaign/g4a-final-render.log"
+      },
+      "graph_tests": {
+        "passed": 5,
+        "failed": 0,
+        "log": ".work/btop-campaign/g4a-final-graphs.log"
+      },
+      "pty_tests": {
+        "passed": 11,
+        "failed": 0,
+        "command": "cargo test --release --test core_compat_extra pty::btop_ -- --test-threads=1 --nocapture",
+        "build_log": ".work/btop-campaign/g4a-final-pty-build.log",
+        "log": ".work/btop-campaign/g4a-final-pty.log"
+      },
+      "input_to_present_latency": {
+        "runner": "Alpine x86_64 musl release, 80x24, 100 key events, replay interval 60000 ms",
+        "p95_ms": 2.955,
+        "p99_ms": 3.014,
+        "log": ".work/btop-campaign/g4a-final-pty.log"
+      },
+      "process_join_scaling": {
+        "seed": 424242,
+        "repeats": 5,
+        "median_1000_ns": 8163219,
+        "median_2000_ns": 16623071,
+        "ratio": 2.04,
+        "target_ratio_max": 3.0
+      },
+      "model_render_diff": {
+        "seed": 424242,
+        "runner": "Alpine x86_64 musl release",
+        "processes": 1000,
+        "size": "120x40",
+        "samples": 20,
+        "p95_ns": 2631381444,
+        "p99_ns": 2691705115,
+        "target_p95_ns": 50000000,
+        "log": ".work/btop-campaign/g4a-final-btop-suite-2.log"
+      },
+      "repository_contract_tests": {
+        "passed": 5,
+        "failed": 0,
+        "log": ".work/btop-campaign/g4a-final-repo-contracts.log"
+      },
+      "native_origin_checks": {
+        "busybox": "638/638",
+        "gnu": "514/514",
+        "uutils": "5653/5653",
+        "log": ".work/btop-campaign/g4a-final-origins.log"
+      },
+      "docs_check": {
+        "status": "passed",
+        "tests": 3,
+        "log": ".work/btop-campaign/g4a-final-docs-check-3.log"
+      },
+      "ledger_test": {
+        "passed": 1,
+        "failed": 0,
+        "log": ".work/btop-campaign/g4a-final-ledger-test-3.log"
+      },
+      "release_build": {
+        "status": "passed",
+        "command": "cargo build --release -p xsh --bins -p xsht --bin xsht",
+        "log": ".work/btop-campaign/g4a-final-release-build.log"
+      },
+      "no_native_btop_search": {
+        "command": "rg -n -i btop src crates stdlib",
+        "status": "no matches",
+        "log": ".work/btop-campaign/g4a-final-no-native-btop.log"
+      },
+      "linux_lane": {
+        "status": "blocked_external",
+        "suite_started": false,
+        "failing_tests": [],
+        "log": ".work/btop-campaign/g4a-final-linux.log",
+        "baseline_comparison": "Both G0 and final attempts failed before suite startup, so no test failure-set comparison was possible."
+      }
     }
   },
   "defaults": [
@@ -2490,7 +2649,6 @@
     }
   ],
   "next": [
-    "Audit and implement the remaining in-scope hotkeys in the frozen inventory; retain disk keys d/i for the final disk-section slice. Add a test that checks deferred and out-of-scope actions have no effect.",
-    "Last, replace the memory-panel disk placeholder with captured mount capacity, block I/O rates, and an I/O graph; then finish G4a semantic goldens and run the final gates."
+    "No further in-scope product work remains. Host release gates are complete; Linux ARM64 is outside product support scope and both pinned lane attempts are recorded above."
   ]
 }
