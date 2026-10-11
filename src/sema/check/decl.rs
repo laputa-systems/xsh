@@ -334,6 +334,9 @@ impl Checker {
         let saved_procs = self.procs.clone();
         let saved_pures = self.pures.clone();
         let saved_streams = self.streams.clone();
+        let saved_qualified_procs = self.qualified_procs.clone();
+        let saved_qualified_pures = self.qualified_pures.clone();
+        let saved_qualified_streams = self.qualified_streams.clone();
         let saved_type_defs = self.type_defs.clone();
         let saved_tag_variants = self.tag_variants.clone();
         let saved_type_namespaces = self.type_namespaces.clone();
@@ -654,6 +657,9 @@ impl Checker {
         self.procs = saved_procs;
         self.pures = saved_pures;
         self.streams = saved_streams;
+        self.qualified_procs = saved_qualified_procs;
+        self.qualified_pures = saved_qualified_pures;
+        self.qualified_streams = saved_qualified_streams;
         self.type_defs = saved_type_defs;
         self.tag_variants = saved_tag_variants;
         self.type_namespaces = saved_type_namespaces;
