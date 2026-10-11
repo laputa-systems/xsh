@@ -6,7 +6,7 @@
     "commit": "6e39144aaf5a6bc01b9f795010b0914431067183"
   },
   "gate": "G1",
-  "last_green_commit": "ee7a73fa",
+  "last_green_commit": "766d5ebf",
   "audit": {
     "new_core_script": "New core/*.xsh applets are installed by the release script at dev/release.xsh:146-160; dev/tests/test-repository-contracts.xsh owns the required core script inventory and contract checks. No separate command registration is needed.",
     "launcher_argument_separator": "Use xsh SCRIPT -- ARGS for an applet and xsh -- SCRIPT ARGS for an explicit script; src/entrypoints/xsh.rs:90-120.",
@@ -82,50 +82,63 @@
     {
       "id": "g1.cpu.aggregate",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_rates_match_the_independent_gate_one_oracle"
+      ],
+      "evidence": "The independent B3 counter literals produce 40.0% aggregate busy time."
     },
     {
       "id": "g1.cpu.cold",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_rates_distinguish_warming_idle_reset_and_invalid_interval"
+      ],
+      "evidence": "A first CPU observation reports warming with no fabricated rate."
     },
     {
       "id": "g1.cpu.idle_interval",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_rates_distinguish_warming_idle_reset_and_invalid_interval"
+      ],
+      "evidence": "A complete idle interval reports 0.0% busy time."
     },
     {
       "id": "g1.proc.cpu_total",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_rates_match_the_independent_gate_one_oracle"
+      ],
+      "evidence": "The B3 process delta reports 12.5% of total-machine CPU."
     },
     {
       "id": "g1.proc.cpu_per_core",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_rates_match_the_independent_gate_one_oracle"
+      ],
+      "evidence": "The B3 process delta reports 25.0% under the per-core convention."
     },
     {
       "id": "g1.proc.rss",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_process_source_keeps_identity_uid_cpu_ticks_and_rss",
+        "core/tests/test-btop-sources.xsh::test_btop_rates_match_the_independent_gate_one_oracle"
+      ],
+      "evidence": "The rooted statm reader and page conversion produce 67,108,864 bytes from 16,384 pages at 4,096 bytes per page."
     },
     {
       "id": "g1.proc.sort_ties",
@@ -146,66 +159,83 @@
     {
       "id": "g1.net.rates",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_rates_match_the_independent_gate_one_oracle"
+      ],
+      "evidence": "Independent interface counter literals produce RX 10,240 B/s and TX 2,048 B/s."
     },
     {
       "id": "g1.net.unavailable",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_network_source_distinguishes_empty_from_unavailable"
+      ],
+      "evidence": "An absent proc/net/dev source and an observed empty table retain different states."
     },
     {
       "id": "g1.net.select",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_network_source_selects_name_order_and_skips_loopback"
+      ],
+      "evidence": "Selection is name-sorted and chooses eth0 while skipping loopback."
     },
     {
       "id": "g1.mem.used",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_rates_match_the_independent_gate_one_oracle"
+      ],
+      "evidence": "The B3 memory counters produce 805,306,368 used bytes."
     },
     {
       "id": "g1.mem.swap_absent_vs_zero",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_memory_source_distinguishes_absent_from_zero_counters"
+      ],
+      "evidence": "Observed zero swap counters remain distinct from absent swap fields."
     },
     {
       "id": "g1.mem.malformed",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_memory_source_marks_malformed_and_truncated_values"
+      ],
+      "evidence": "Malformed meminfo values withhold only their field; valid neighbors remain available."
     },
     {
       "id": "g1.src.zero_vs_absent",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_memory_source_distinguishes_absent_from_zero_counters"
+      ],
+      "evidence": "The rooted memory reader distinguishes observed zero from a missing counter."
     },
     {
       "id": "g1.src.truncation_no_prefix",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_cpu_source_withholds_a_truncated_stat_prefix",
+        "core/tests/test-btop-sources.xsh::test_btop_memory_source_marks_malformed_and_truncated_values"
+      ],
+      "evidence": "Truncated proc/stat and meminfo reads expose no prefix values."
     },
     {
       "id": "g1.screen.80x24",
@@ -290,10 +320,13 @@
     {
       "id": "g1.regress.system_report",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "tests/xsh/system-report.xsh::test_system_report_memory_reports_malformed_and_oversized_meminfo_fields",
+        "tests/xsh/system-report.xsh::test_system_report_memory_accepts_tabbed_values_and_withholds_duplicate_fields"
+      ],
+      "evidence": "The shared meminfo parser keeps the system-report duplicate, malformed, range, and vendor-counter behavior; the full 133-test system-report suite passed."
     },
     {
       "id": "g1.regress.top",
@@ -1262,6 +1295,33 @@
         }
       ],
       "host_only": true
+    },
+    "g1_readers": {
+      "checks": [
+        {
+          "command": "TMPDIR=.work/tmp .work/btop-campaign/target/release/xsht check core/lib/sys_mem.xsh core/lib/system_report_live.xsh core/tests/test-btop-sources.xsh",
+          "status": "passed"
+        },
+        {
+          "command": "TMPDIR=.work/tmp .work/btop-campaign/target/release/xsht test core/tests/test-btop-sources.xsh",
+          "passed": 10,
+          "failed": 0,
+          "log": ".work/btop-campaign/g1-source-tests.log"
+        },
+        {
+          "command": "TMPDIR=.work/tmp .work/btop-campaign/target/release/xsht test core/tests/test-sys-",
+          "passed": 25,
+          "failed": 0,
+          "log": ".work/btop-campaign/g1-sys-regression.log"
+        },
+        {
+          "command": "TMPDIR=.work/tmp .work/btop-campaign/target/release/xsht test tests/xsh/system-report.xsh",
+          "passed": 133,
+          "failed": 0,
+          "log": ".work/btop-campaign/g1-system-report-regression.log"
+        }
+      ],
+      "shared_meminfo_parser": "core/lib/sys_mem.xsh is the only standard /proc/meminfo parser; system-report consumes its counters, field states, and issues."
     }
   },
   "defaults": [
@@ -1603,6 +1663,6 @@
     }
   ],
   "next": [
-    "G1: add rooted sys_cpu, sys_mem, sys_net, and sys_proc readers with raw-fixture tests."
+    "G1: implement the shared btop model, rooted source adaptation, and deterministic raw-fixture replay, then the four-panel screen and CLI."
   ]
 }
