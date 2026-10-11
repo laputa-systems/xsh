@@ -497,6 +497,68 @@ test test_uu_ls_invalid_utf8 { |ctx|
   uu.succeeds(r)
 }
 
+test test_uu_ls_invalid_utf8_operands_sort_by_raw_bytes { |ctx|
+  let s = uu.scene(ctx)?
+  uu.at_bytes(s, b"aa\xfe")?.write(b"")?
+  uu.at_bytes(s, b"aa\xff")?.write(b"")?
+  let high = Path.parse_bytes(b"aa\xff")?
+  let low = Path.parse_bytes(b"aa\xfe")?
+  let r = uu.invoke_paths(s, "ls", [p"--quoting-style=literal", p"-1", high, low], vars: {LC_ALL: "C"})?
+  uu.succeeds(r)
+  uu.stdout_only_bytes(r, b"aa\xfe\naa\xff\n")
+}
+
+test test_uu_ls_invalid_utf8_operand_after_double_dash { |ctx|
+  let s = uu.scene(ctx)?
+  uu.at_bytes(s, b"-\xff")?.write(b"")?
+  let operand = Path.parse_bytes(b"-\xff")?
+  let r = uu.invoke_paths(s, "ls", [p"--quoting-style=literal", p"-1", p"--", operand], vars: {LC_ALL: "C"})?
+  uu.succeeds(r)
+  uu.stdout_only_bytes(r, b"-\xff\n")
+}
+
+test test_uu_ls_invalid_utf8_operand_does_not_alias_marker_text { |ctx|
+  let s = uu.scene(ctx)?
+  uu.touch(s, "--xsh-raw-arg:4")?
+  uu.at_bytes(s, b"aa\xfe")?.write(b"")?
+  let operand = Path.parse_bytes(b"aa\xfe")?
+  let r = uu.invoke_paths(
+    s,
+    "ls",
+    [p"--quoting-style=literal", p"-1", p"--", p"--xsh-raw-arg:4", operand],
+    vars: {LC_ALL: "C"},
+  )?
+  uu.succeeds(r)
+  uu.stdout_only_bytes(r, b"--xsh-raw-arg:4\naa\xfe\n")
+}
+
+test test_uu_ls_invalid_utf8_operand_after_posix_operand { |ctx|
+  let s = uu.scene(ctx)?
+  uu.touch(s, "first")?
+  uu.at_bytes(s, b"-\xff")?.write(b"")?
+  let operand = Path.parse_bytes(b"-\xff")?
+  let r = uu.invoke_paths(s, "ls", [p"-1", p"first", operand], vars: {LC_ALL: "C", POSIXLY_CORRECT: "1"})?
+  uu.succeeds(r)
+  uu.stdout_only_bytes(r, b"-\xff\nfirst\n")
+}
+
+test test_uu_ls_invalid_utf8_option_is_rejected_with_raw_diagnostic { |ctx|
+  let s = uu.scene(ctx)?
+  for argument in [b"-\xff", b"--bad\xff"] {
+    let r = uu.invoke_paths(s, "ls", [Path.parse_bytes(argument)?], vars: {LC_ALL: "C"})?
+    uu.fails_with_code(r, 2)
+    uu.no_stdout(r)
+    uu.stderr_is_bytes(
+      r,
+      if argument.starts_with(b"--") {
+        b"ls: unrecognized option '--bad\xff'\nTry 'ls --help' for more information.\n"
+      } else {
+        b"ls: invalid option -- '\xff'\nTry 'ls --help' for more information.\n"
+      },
+    )
+  }
+}
+
 # origin: uutils test_ls::test_invalid_value_returns_1
 test test_uu_ls_invalid_value_returns_1 { |ctx|
   let s = uu.scene(ctx)?

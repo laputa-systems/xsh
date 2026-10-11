@@ -2,6 +2,7 @@
 use lib.gnu
 use lib.fs_misc
 use lib.capability
+use lib.text_a2 as text
 
 const USAGE = """Usage: {prog} [OPTION]... [FILE]...
 List information about the FILEs (the current directory by default).
@@ -554,32 +555,73 @@ proc apply(c: Cfg, id: Str, v: Str?, tty: Bool) [process, env] -> Cfg {
 }
 
 # Result of option parsing: the settings and the file operands.
-type Parsed = {cfg: Cfg, operands: List[Str]}
+type Parsed = {cfg: Cfg, operands: List[Bytes]}
 
 proc usage_failure(message: Str) [process, env] -> Unit {
   gnu.usage_error(message, 2)
 }
 
+# Preserve undecodable option bytes in GNU's diagnostic instead of printing
+# a replacement character.
+proc raw_option_failure(raw: Bytes) [process, env, io, error] {
+  let prefix = bytes.from_text(f"{gnu.prog()}: ")
+  let hint = bytes.from_text(f"Try '{gnu.phrase()} --help' for more information.\n")
+
+  if raw.starts_with(b"--") {
+    io.write_stderr_bytes(bytes.concat([prefix, b"unrecognized option '", raw, b"'\n", hint]))?
+    io.flush_stderr()?
+    exit 2
+  }
+
+  for at in range(raw.len() - 1) {
+    let letter = raw[at + 1..at + 2]
+    let found = [opt for opt in OPTS if opt.short != "" and bytes.from_text(opt.short) == letter]
+
+    if found.is_empty() {
+      io.write_stderr_bytes(bytes.concat([prefix, b"invalid option -- '", letter, b"'\n", hint]))?
+      io.flush_stderr()?
+      exit 2
+    }
+
+    if found[0].arg > 0 {
+      io.write_stderr_bytes(bytes.concat([prefix, b"invalid option -- '", letter, b"'\n", hint]))?
+      io.flush_stderr()?
+      exit 2
+    }
+  }
+
+  io.write_stderr_bytes(bytes.concat([prefix, b"unrecognized option '", raw, b"'\n", hint]))?
+  io.flush_stderr()?
+  exit 2
+}
+
 # GNU getopt_long over `argv`, applying each option as it is met so the last
 # of several conflicting options wins and errors appear in command-line order.
-proc parse_args(argv: List[Str], start: Cfg, tty: Bool) [process, env, io] -> Parsed {
+proc parse_args(argv: List[Str], arguments: text.RawArguments, start: Cfg, tty: Bool) [process, env, io, error] -> Parsed {
   var cfg = start
   let posix = env.get("POSIXLY_CORRECT") is Ok(_)
   var only_operands = false
   var index = 0
 
-  let operands: List[Str] = collect {
+  let operands: List[Bytes] = collect {
     while index < argv.len() {
-      let arg = argv[index]
+      let argument_index = index
+      let arg = argv[argument_index]
       index += 1
 
+      # Match by argv index so marker-looking text cannot alias a later argument.
+      let original = arguments.original[argument_index]
       if only_operands or arg == "-" or ! arg.starts_with("-") {
-        yield arg
+        yield original
         if posix {
           only_operands = true
         }
 
         continue
+      }
+
+      if arg.starts_with("--xsh-raw-arg:") and original != bytes.from_text(arg) {
+        raw_option_failure(original)
       }
 
       if arg == "--" {
@@ -2118,6 +2160,7 @@ pure file_time(ctx: Ctx, f: File) -> Int {
 
 const RAW_NAME_DIGITS = "0123456789abcdef"
 
+# Two hex digits per byte preserve bytewise order in a string sort key.
 pure raw_name_key(raw: Bytes) -> Str {
   collect {
     for byte in raw {
@@ -3004,7 +3047,7 @@ proc flush(out: List[Bytes]) [process, env, io] -> Unit {
   }
 }
 
-proc list_all(ctx: Ctx, operands: List[Str]) [fs, process, env, error, io] -> Int {
+proc list_all(ctx: Ctx, operands: List[Bytes]) [fs, process, env, error, io] -> Int {
   let cfg = ctx.cfg
   let indent = if cfg.dired { "  " } else { "" }
   var status = 0
@@ -3032,7 +3075,7 @@ proc list_all(ctx: Ctx, operands: List[Str]) [fs, process, env, error, io] -> In
     }
   } else {
     for operand in operands {
-      let g = gobble(ctx, bytes.from_text(operand), b"", true, "")
+      let g = gobble(ctx, operand, b"", true, "")
       status = max_of(status, g.status)
 
       if let found = g.file {
@@ -3473,7 +3516,8 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
   }
 }
 
-proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
+proc main(...argv: List[Bytes]) [fs, process, env, time, error, io] {
+  let arguments = text.normalize_arguments(argv)
   let prog = gnu.prog()
   let tty = stdout_is_tty()
   var quoting: Str? = null
@@ -3548,7 +3592,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
     time_style: null,
   )
 
-  let parsed = parse_args(argv, start, tty)
+  let parsed = parse_args(arguments.values, arguments, start, tty)
   let ctx = build_ctx(parsed.cfg, tty)
   let status = max_of(list_all(ctx, parsed.operands), if warning_failed { 2 } else { 0 })
 
