@@ -169,6 +169,11 @@ unsupported behavior becomes a diagnostic and never a runnable placeholder.
 slot bounds, IDs, locations, patterns, stages, and literal and semantic pools
 before a `FullProgram` exists. Runtime decoders rely on that contract.
 
+Specialized `Path` calls use the receiver in `CheckedApiCall`, including
+null-safe calls. A shared method name alone cannot select a filesystem
+instruction: imported procedures may export those names with their own
+parameters and defaults. `tests/xsh/lowering-coverage.xsh` covers those calls.
+
 `SlotScope` assigns separate slots to pipeline callback parameters even when
 they shadow enclosing bindings. Lowering restores the enclosing slot and
 checked type after the callback; fold initializers use the enclosing scope.
