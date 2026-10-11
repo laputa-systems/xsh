@@ -185,7 +185,7 @@ test test_md5sum_invalid_modes_omit_help_hint { |ctx|
 
   let ignore_missing = invoke(ctx, ["--ignore-missing"], b"")?
   assert ignore_missing.status == 1
-  assert ignore_missing.stderr == "md5sum: the --ignore-missing option is meaningful only when verifying checksums\n"
+  assert ignore_missing.stderr == "md5sum: the --ignore-missing option is meaningful only when verifying checksums\nTry 'md5sum --help' for more information.\n"
 }
 
 test test_md5sum_missing_check_path_keeps_original_name { |ctx|

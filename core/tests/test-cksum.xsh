@@ -74,7 +74,7 @@ test test_cksum_debug_reports_cpu_features_and_honors_tunables { |ctx|
   let names = if info.machine.starts_with("x86") or (info.machine.starts_with("i") and info.machine.ends_with("86")) { ["avx512", "avx2", "pclmul"] } else if info.machine == "aarch64" { ["vmull"] } else { [] }
   var expected = ""
   for name in names {
-    let enabled = name in features
+    let enabled = if name == "avx512" or name == "avx2" { name in features and "vpclmulqdq" in features } else if name == "pclmul" { name in features and "avx" in features } else { name in features }
     expected += if enabled { f"cksum: using {name} hardware support\n" } else { f"cksum: {name} support not detected\n" }
     if enabled { break }
   }
@@ -373,4 +373,22 @@ test test_cksum_short_attached_equals_is_part_of_value { |ctx|
   assert length.status == 1
   assert length.stdout == b""
   assert length.stderr.find("invalid length: '=8'") != null
+}
+
+test test_cksum_debug_requires_crc_instruction_features { |ctx|
+  let machine = system.uname()?.machine
+  if !machine.starts_with("x86") and !(machine.starts_with("i") and machine.ends_with("86")) { test.skip("x86 CRC instruction selection") }
+  let disabled = invoke_with_tunables(ctx, ["--debug"], b"abc", "glibc.cpu.hwcaps=-VPCLMULQDQ,-AVX")?
+  assert disabled.status == 0
+  assert disabled.stdout == b"1219131554 3\n"
+  assert disabled.stderr == "cksum: avx512 support not detected\ncksum: avx2 support not detected\ncksum: pclmul support not detected\n"
+  let pclmul_disabled = invoke_with_tunables(ctx, ["--debug"], b"abc", "glibc.cpu.hwcaps=-VPCLMULQDQ,-PCLMULQDQ")?
+  assert pclmul_disabled.stderr == disabled.stderr
+}
+
+test test_cksum_ignore_missing_requires_check_and_help_hint { |ctx|
+  let result = invoke(ctx, ["--ignore-missing"], b"abc")?
+  assert result.status == 1
+  assert result.stdout == b""
+  assert result.stderr == "cksum: the --ignore-missing option is meaningful only when verifying checksums\nTry 'cksum --help' for more information.\n"
 }

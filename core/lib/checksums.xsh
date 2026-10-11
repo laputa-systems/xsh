@@ -54,10 +54,12 @@ pure warning_mode(argv: List[Str]) -> Bool {
 
 pure feature_aliases(feature: Str) -> List[Str] {
   match feature {
-    "avx512" => ["AVX512", "AVX512F"]
+    "avx512" => ["AVX512F", "AVX512BW"]
     "avx2" => ["AVX2"]
-    "pclmul" => ["PCLMUL", "PMULL"]
-    "vmull" => ["VMULL"]
+    "avx" => ["AVX"]
+    "vpclmulqdq" => ["VPCLMULQDQ"]
+    "pclmul" => ["PCLMULQDQ"]
+    "vmull" => ["PMULL"]
     _ => []
   }
 }
@@ -82,13 +84,19 @@ pure feature_disabled(feature: Str, tunables: Str) -> Bool {
   false
 }
 
+# Vector CRC multiplication needs VPCLMULQDQ; the scalar candidate also
+# needs AVX. CPU aggregates alone do not establish those instructions.
 proc cpu_feature_debug() [env, process, error] {
   let machine = system.uname()?.machine
   let features = unix.cpu_features()
   let tunables = env.get("GLIBC_TUNABLES") ?? ""
   let names = if machine.starts_with("x86") or (machine.starts_with("i") and machine.ends_with("86")) { ["avx512", "avx2", "pclmul"] } else if machine == "aarch64" { ["vmull"] } else { [] }
   for name in names {
-    let enabled = name in features and ! feature_disabled(name, tunables)
+    let required = if name == "avx512" or name == "avx2" { [name, "vpclmulqdq"] } else if name == "pclmul" { [name, "avx"] } else { [name] }
+    var enabled = true
+    for feature in required {
+      if feature not in features or feature_disabled(feature, tunables) { enabled = false }
+    }
     let message = if enabled { f"using {name} hardware support" } else { f"{name} support not detected" }
     gnu.error(message)
     if enabled { break }
@@ -655,8 +663,7 @@ export proc execute(argv: List[Str], default_algorithm: Str, cksum = false) [fs,
       if flag != "" { gnu.usage_error(f"the --{flag} option is meaningful only when verifying checksums") }
     }
     if opts.ignore_missing {
-      gnu.error("the --ignore-missing option is meaningful only when verifying checksums")
-      exit 1
+      gnu.usage_error("the --ignore-missing option is meaningful only when verifying checksums")
     }
   }
   if opts.tag and opts.text and !binary { gnu.error("--tag does not support --text mode"); exit 1 }
