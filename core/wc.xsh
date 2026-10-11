@@ -41,7 +41,35 @@ type WcOptions = {
   files: List[Str],
 }
 
-type Counts = {lines: Int, words: Int, chars: Int, bytes: Int, longest: Int}
+# File sizes fit signed integers, but their GNU byte total can reach UINT64_MAX.
+# Decimal limbs preserve that total without overflowing XSH integer arithmetic.
+type ByteCount = {high: UInt, low: UInt, overflow: Bool}
+const BYTE_BASE = 1000000000
+const BYTE_MAX_HIGH = 18446744073
+const BYTE_MAX_LOW = 709551615
+
+pure byte_count(size: Int) -> ByteCount {
+  {high: size / BYTE_BASE, low: size % BYTE_BASE, overflow: false}
+}
+
+pure add_bytes(left: ByteCount, right: ByteCount) -> ByteCount {
+  let low = left.low + right.low
+  let high = left.high + right.high + low / BYTE_BASE
+  let remainder = low % BYTE_BASE
+  if left.overflow or right.overflow or high > BYTE_MAX_HIGH or (high == BYTE_MAX_HIGH and remainder > BYTE_MAX_LOW) {
+    return {high: BYTE_MAX_HIGH, low: BYTE_MAX_LOW, overflow: true}
+  }
+  {high: high, low: remainder, overflow: false}
+}
+
+pure byte_text(count: ByteCount) -> Str {
+  if count.high == 0 { f"{count.low}" } else {
+    let tail = f"{count.low}"
+    f"{count.high}" + "000000000".byte_slice(tail.byte_len()) + tail
+  }
+}
+
+type Counts = {lines: Int, words: Int, chars: Int, bytes: ByteCount, longest: Int}
 type InputResult = {counts: Counts, output: Str, diagnostic: Str?, name_failure: Error?, flush: Bool}
 type WcState = {total: Counts, output: Str, seen: Int, failed: Bool}
 
@@ -147,7 +175,7 @@ pure longest_line(text: Str) -> Int {
   let flat = text.replace("\r", with: "\n").replace("\u{c}", with: "\n")
   var best = 0
 
-  if ! rx"[\t\x00-\x08\x0b\x0e-\x1f\x7f-\x9f]".matches(flat) and ! rx"[\x{300}-\x{36f}\x{483}-\x{489}\x{591}-\x{5bd}\x{200b}-\x{200f}\x{1100}-\x{115f}\x{2e80}-\x{ffff}\x{1f300}-\x{1f9ff}\x{20000}-\x{3fffd}]".matches(
+  if ! rx"[\t\x00-\x08\x0b\x0e-\x1f\x7f-\x9f]".matches(flat) and ! rx"[\x{300}-\x{36f}\x{483}-\x{489}\x{591}-\x{5bd}\x{200b}-\x{200f}\x{2060}-\x{2064}\x{1100}-\x{115f}\x{2e80}-\x{ffff}\x{1f300}-\x{1f9ff}\x{20000}-\x{3fffd}]".matches(
     flat,
   ) {
     for line in flat.split("\n") {
@@ -182,8 +210,22 @@ pure longest_line(text: Str) -> Int {
   best
 }
 
-pure count_data(data: Bytes, shown: Shown, posix: Bool) -> Counts {
-  var counts = {lines: 0, words: 0, chars: 0, bytes: data.len(), longest: 0}
+# Single-byte locales count every byte as a character; GNU also treats the
+# nonbreaking-space byte as a word separator unless POSIX mode is requested.
+pure byte_words(data: Bytes, posix: Bool) -> Int {
+  var words = 0
+  var in_word = false
+  for at in range(data.len()) {
+    let byte = data.byte_at(at) ?? 0
+    let space = byte == 32 or (byte >= 9 and byte <= 13) or (! posix and byte == 160)
+    if ! space and ! in_word { words += 1 }
+    in_word = ! space
+  }
+  words
+}
+
+pure count_data(data: Bytes, shown: Shown, posix: Bool, utf8: Bool) -> Counts {
+  var counts = {lines: 0, words: 0, chars: 0, bytes: byte_count(data.len()), longest: 0}
 
   if shown.lines {
     counts = {...counts, lines: tio.line_ends(data, false).len()}
@@ -193,16 +235,20 @@ pure count_data(data: Bytes, shown: Shown, posix: Bool) -> Counts {
     let text = decode(data)
 
     if shown.words {
-      let words = if posix { rx"[^\t-\r ]+".find(text.marked).len() } else { text.marked.count_words() }
+      let words = if ! utf8 { byte_words(data, posix) } else if posix {
+        rx"[^\t-\r \x{1680}\x{2000}-\x{2006}\x{2008}-\x{200a}\x{2028}\x{2029}\x{205f}\x{3000}]+".find(text.marked).len()
+      } else {
+        rx"[^\t-\r \x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{2060}\x{3000}]+".find(text.marked).len()
+      }
       counts = {...counts, words: words}
     }
 
     if shown.chars {
-      counts = {...counts, chars: text.clean.count_chars()}
+      counts = {...counts, chars: if utf8 { text.clean.count_chars() } else { data.len() }}
     }
 
     if shown.longest {
-      counts = {...counts, longest: longest_line(text.clean)}
+      counts = {...counts, longest: longest_line(if utf8 { text.clean } else { rx"[^\x00-\x7f]".replace(text.clean, with: "") })}
     }
   }
 
@@ -214,32 +260,27 @@ pure add_counts(left: Counts, right: Counts) -> Counts {
     lines: left.lines + right.lines,
     words: left.words + right.words,
     chars: left.chars + right.chars,
-    bytes: left.bytes + right.bytes,
+    bytes: add_bytes(left.bytes, right.bytes),
     longest: if right.longest > left.longest { right.longest } else { left.longest },
   }
 }
 
-pure digits(value: Int) -> Int {
-  f"{value}".byte_len()
-}
-
-pure column(value: Int, width: Int) -> Str {
-  let text = f"{value}"
+pure column(text: Str, width: Int) -> Str {
 
   if text.byte_len() >= width { text } else { tui.left_pad(text, width) }
 }
 
 pure line_for(counts: Counts, shown: Shown, width: Int, title: Str) -> Str {
   let cells: List[Str] = collect {
-    yield column(counts.lines, width) when shown.lines
+    yield column(f"{counts.lines}", width) when shown.lines
 
-    yield column(counts.words, width) when shown.words
+    yield column(f"{counts.words}", width) when shown.words
 
-    yield column(counts.chars, width) when shown.chars
+    yield column(f"{counts.chars}", width) when shown.chars
 
-    yield column(counts.bytes, width) when shown.bytes
+    yield column(byte_text(counts.bytes), width) when shown.bytes
 
-    yield column(counts.longest, width) when shown.longest
+    yield column(f"{counts.longest}", width) when shown.longest
 
     yield title when title != ""
   }
@@ -258,21 +299,21 @@ proc number_width(inputs: List[Input], shown: Shown) [fs, error] -> Int {
   return 1 when shown_count(shown) == 1 and inputs.len() == 1
 
   var minimum = 1
-  var total = 0
+  var total = byte_count(0)
 
   for input in inputs {
     if input.stdin {
       minimum = 7
     } else if let Ok(entry) = input.path.metadata() {
       if entry.kind == "file" {
-        total += entry.size
+        total = add_bytes(total, byte_count(entry.size))
       } else {
         minimum = 7
       }
     }
   }
 
-  let wide = if total == 0 { 1 } else { digits(total) }
+  let wide = byte_text(total).byte_len()
 
   if wide > minimum { wide } else { minimum }
 }
@@ -341,12 +382,13 @@ proc count_input(
   input: Input,
   shown: Shown,
   posix: Bool,
+  utf8: Bool,
   only_bytes: Bool,
   implicit: Bool,
   mode: Str,
   width: Int,
 ) [fs, error, io] -> InputResult {
-  let zero = Counts(lines: 0, words: 0, chars: 0, bytes: 0, longest: 0)
+  let zero = Counts(lines: 0, words: 0, chars: 0, bytes: byte_count(0), longest: 0)
 
   if input.issue != "" {
     return {counts: zero, output: "", diagnostic: input.issue, name_failure: null, flush: false}
@@ -357,13 +399,13 @@ proc count_input(
   var counted: Counts? = null
 
   if input.stdin and only_bytes {
-    var byte_count = 0
+    var stdin_size = byte_count(0)
 
     loop {
       match io.stdin_read(65536) {
         Ok(chunk) => {
           if chunk.is_empty() { break }
-          byte_count += chunk.len()
+          stdin_size = add_bytes(stdin_size, byte_count(chunk.len()))
         }
         Err(failure) => {
           read_error = gnu.strerror(failure)
@@ -372,7 +414,7 @@ proc count_input(
       }
     }
 
-    counted = {lines: 0, words: 0, chars: 0, bytes: byte_count, longest: 0}
+    counted = {lines: 0, words: 0, chars: 0, bytes: stdin_size, longest: 0}
   } else if input.stdin {
     match io.stdin_bytes() {
       Ok(read) => data = read
@@ -382,7 +424,7 @@ proc count_input(
     if only_bytes {
       if let Ok(entry) = input.path.metadata() {
         if entry.kind == "file" and entry.size > MEBIBYTE {
-          counted = {lines: 0, words: 0, chars: 0, bytes: entry.size, longest: 0}
+          counted = {lines: 0, words: 0, chars: 0, bytes: byte_count(entry.size), longest: 0}
         }
       }
     }
@@ -401,7 +443,7 @@ proc count_input(
     }
   }
 
-  let counts = counted ?? count_data(data, shown, posix)
+  let counts = counted ?? count_data(data, shown, posix, utf8)
   let title = if input.stdin and implicit {
     ""
   } else if input.name.find("\n") != null {
@@ -425,17 +467,17 @@ proc count_input(
   {counts: counts, output: output, diagnostic: null, name_failure: null, flush: false}
 }
 
-proc write_streamed_line(name: Str, output: Str) [process, env, io, error] {
+proc write_streamed_line(output: Str) [process, env, io, error] {
   if output == "" { return }
 
   if let Err(failure) = io.write_stdout(output) {
-    gnu.error(f"failed to print result for {gnu.quote_maybe(name)}: {gnu.strerror(failure)}")
+    gnu.error(f"write error: {gnu.strerror(failure)}")
     io.flush_stderr()?
     exit 1
   }
 
   if let Err(failure) = io.flush_stdout() {
-    gnu.error(f"failed to print result for {gnu.quote_maybe(name)}: {gnu.strerror(failure)}")
+    gnu.error(f"write error: {gnu.strerror(failure)}")
     io.flush_stderr()?
     exit 1
   }
@@ -446,13 +488,14 @@ proc count_one(
   input: Input,
   shown: Shown,
   posix: Bool,
+  utf8: Bool,
   only_bytes: Bool,
   implicit: Bool,
   mode: Str,
   width: Int,
   stream_output: Bool,
 ) [fs, process, env, error, io] -> WcState {
-  let result = count_input(input, shown, posix, only_bytes, implicit, mode, width)
+  let result = count_input(input, shown, posix, utf8, only_bytes, implicit, mode, width)
   var output = state.output + result.output
   let total = add_counts(state.total, result.counts)
   let seen = state.seen + 1
@@ -477,7 +520,7 @@ proc count_one(
 
   if stream_output {
     if output != "" {
-      write_streamed_line(input.name, output)?
+      write_streamed_line(output)?
       output = ""
     }
   }
@@ -516,7 +559,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   # The XSH line counter uses scalar code on every platform.
   if opts.debug {
-    gnu.error("debug: hardware support disabled")
+    gnu.error("avx512 support not detected")
+    gnu.error("avx2 support not detected")
     io.flush_stderr()?
   }
 
@@ -613,10 +657,16 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     number_width([item for item in inputs if item.issue == ""], shown)
   }
 
+  var locale = ""
+  for name in ["LC_ALL", "LC_CTYPE", "LANG"] {
+    locale = env.get_or(name, "") ?? ""
+    if locale != "" { break }
+  }
+  let utf8 = locale.lower().find("utf-8") != null or locale.lower().find("utf8") != null
   let posix = posix_mode()
   let only_bytes = shown.bytes and ! shown.lines and ! shown.words and ! shown.chars and ! shown.longest
   var state: WcState = {
-    total: Counts(lines: 0, words: 0, chars: 0, bytes: 0, longest: 0),
+    total: Counts(lines: 0, words: 0, chars: 0, bytes: byte_count(0), longest: 0),
     output: "",
     seen: 0,
     failed: false,
@@ -648,7 +698,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
           gnu.error("file names that are not valid UTF-8 are not supported")
           exit 1
         }
-        state = count_one(state, files0_input(name, "-", index, true), shown, posix, only_bytes, implicit, mode, width, true)
+        state = count_one(state, files0_input(name, "-", index, true), shown, posix, utf8, only_bytes, implicit, mode, width, true)
         start = at + 1
       }
 
@@ -661,11 +711,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         gnu.error("file names that are not valid UTF-8 are not supported")
         exit 1
       }
-      state = count_one(state, files0_input(name, "-", index, true), shown, posix, only_bytes, implicit, mode, width, true)
+      state = count_one(state, files0_input(name, "-", index, true), shown, posix, utf8, only_bytes, implicit, mode, width, true)
     }
   } else {
     for input in inputs {
-      state = count_one(state, input, shown, posix, only_bytes, implicit, mode, width, false)
+      state = count_one(state, input, shown, posix, utf8, only_bytes, implicit, mode, width, false)
     }
   }
 
@@ -673,6 +723,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var out = state.output
 
   if show_total {
+    if state.total.bytes.overflow {
+      gnu.error("total bytes: Value too large for defined data type")
+      state = {...state, failed: true}
+    }
     out += line_for(state.total, shown, width, if mode == "only" { "" } else { "total" })
   }
 

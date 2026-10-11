@@ -7,7 +7,7 @@ proc wc_in(
   dir: Path,
   args: List[Str],
   input = b"",
-  vars: Record = {LC_ALL: "C"},
+  vars: Record = {LC_ALL: "C.UTF-8"},
 ) [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "wc-run")?
   let stdin = test.temp_file(ctx, name: "wc-stdin", contents: input)?
@@ -237,7 +237,7 @@ test test_wc_files0_stops_after_stdout_write_error { |ctx|
   let status = process.run(plan)?
 
   assert status.exited_with(1), stderr.read_text()?
-  assert stderr.read_text()? == "wc: failed to print result for /dev/null: No space left on device\n"
+  assert stderr.read_text()? == "wc: write error: No space left on device\n"
 }
 
 test test_wc_errors_are_reported_per_input_and_set_the_status { |ctx|
@@ -264,7 +264,7 @@ test test_wc_names_with_newlines_are_quoted_in_the_output { |ctx|
 test test_wc_debug_reports_scalar_line_counting { |ctx|
   let result = wc_run(ctx, ["--debug"])?
   assert result.status == 0
-  assert result.stderr == "wc: debug: hardware support disabled\n", result.stderr
+  assert result.stderr == "wc: avx512 support not detected\nwc: avx2 support not detected\n", result.stderr
 }
 
 test test_wc_help_and_version { |ctx|
@@ -279,4 +279,41 @@ test test_wc_help_and_version { |ctx|
   let unknown = wc_run(ctx, ["-q"])?
   assert unknown.status == 1
   assert unknown.stderr == "wc: invalid option -- 'q'\nTry 'wc --help' for more information.\n", unknown.stderr
+}
+
+test test_wc_c_locale_counts_bytes_and_byte_words { |ctx|
+  let dir = test.temp_dir(ctx, name: "wc-c-locale")?
+  let input = bytes.from_text("a\u{2003}b\u{a0}c\u{2060}d\n")
+  let result = wc_in(ctx, dir, ["-wmcL"], input, {LC_ALL: "C"})?
+  assert result.status == 0, result.stderr
+  assert result.stdout == "      3      13      13       4\n", result.stdout
+  let strict = wc_in(ctx, dir, ["-w"], input, {LC_ALL: "C", POSIXLY_CORRECT: ""})?
+  assert strict.stdout == "1\n", strict.stdout
+}
+
+test test_wc_utf8_word_joiner_and_posix_whitespace { |ctx|
+  let dir = test.temp_dir(ctx, name: "wc-utf8-words")?
+  let input = bytes.from_text("a\u{2060}b\u{2003}c")
+  let result = wc_in(ctx, dir, ["-w"], input)?
+  assert result.stdout == "3\n", result.stdout
+  assert wc_in(ctx, dir, ["-L"], bytes.from_text("a\u{2060}b"))?.stdout == "2\n"
+  let strict = wc_in(ctx, dir, ["-w"], input, {LC_ALL: "C.UTF-8", POSIXLY_CORRECT: "1"})?
+  assert strict.stdout == "2\n", strict.stdout
+}
+
+test test_wc_sparse_totals_and_alignment_overflow { |ctx|
+  let dir = test.temp_dir(ctx, name: "wc-sparse")?
+  let file = fp"{dir}/a"
+  file.write("")?
+  file.truncate(9223372036854775807)?
+  let doubled = wc_in(ctx, dir, ["-c", "a", "a"])?
+  assert doubled.status == 0, doubled.stderr
+  assert doubled.stdout == " 9223372036854775807 a\n 9223372036854775807 a\n18446744073709551614 total\n", doubled.stdout
+  let overflow = wc_in(ctx, dir, ["-c", "a", "a", "a"])?
+  assert overflow.status == 1
+  assert overflow.stdout == " 9223372036854775807 a\n 9223372036854775807 a\n 9223372036854775807 a\n18446744073709551615 total\n", overflow.stdout
+  assert overflow.stderr == "wc: total bytes: Value too large for defined data type\n", overflow.stderr
+  let hidden = wc_in(ctx, dir, ["-c", "--total=never", "a", "a", "a"])?
+  assert hidden.status == 0, hidden.stderr
+  assert hidden.stdout == " 9223372036854775807 a\n 9223372036854775807 a\n 9223372036854775807 a\n", hidden.stdout
 }
