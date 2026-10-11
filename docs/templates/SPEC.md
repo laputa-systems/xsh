@@ -3884,7 +3884,12 @@ OS signal handlers only record that a signal arrived. XSH code runs only at
 checkpoints: between statements, at loop iterations, around deferred actions,
 while waiting on processes, pipelines, and network jobs, during `time.sleep`,
 and while scheduling or collecting parallel stream work. CPU-bound expression
-evaluation and blocking host calls observe a signal at the next checkpoint.
+evaluation and blocking host calls observe a signal at the next checkpoint. A
+top-level runner clears prior signal state before installing its handlers; a
+signal recorded afterward remains pending while the source is loaded and
+checked, and is handled at the first execution checkpoint. An embedding host
+that starts another independent run in the same process clears old state before
+preparing that run; nested work shares the active run's signal state.
 At startup, the script runner leaves inherited `SIGINT` and `SIGTERM` actions
 set to `SIG_IGN` unchanged, so an ignored signal remains ignored across an
 `exec` into XSH.

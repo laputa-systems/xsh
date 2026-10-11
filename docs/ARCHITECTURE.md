@@ -538,6 +538,10 @@ double-fork, `setsid`, or create their own groups have left XSH's control.
 the first primary signal and one escalation. At checkpoints the evaluator runs a
 matching hook (once, with its own defers and its own process work), forwards to
 active groups, cancels live handles, or skips cleanup after escalation.
+Top-level entrypoints clear prior signal state before installing handlers;
+signals recorded afterward remain pending through source preparation until an
+execution checkpoint. An embedding host clears old state before an independent
+run, while nested work shares the active run's signal state.
 
 **Status is data; failure is control.** The substrate returns structured
 outcomes; the evaluator decides whether to set `$?`, wrap `Ok`, propagate `Err`,

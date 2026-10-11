@@ -4970,7 +4970,6 @@ impl Evaluator {
                 last_status: self.last_status.take(),
             });
         }
-        crate::runtime::process::clear_cancellation_request();
         let script_span = plan.script_span;
         self.trace_enter(
             TraceKind::ScriptEnter,

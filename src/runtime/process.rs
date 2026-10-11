@@ -130,6 +130,9 @@ pub fn initialize_interactive_process_group() -> io::Result<Option<InteractivePr
     }))
 }
 
+/// Clears prior signal state before the owner starts an independent cancellation epoch.
+/// Call this before installing handlers or preparing a new run, never after a
+/// handler may have recorded a signal for the active run.
 pub fn clear_cancellation_request() {
     PRIMARY_SIGNAL.store(0, Ordering::SeqCst);
     ESCALATION_SIGNAL.store(0, Ordering::SeqCst);
