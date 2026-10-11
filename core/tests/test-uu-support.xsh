@@ -150,3 +150,60 @@ test test_uu_support_command_preserves_parallel_input_and_append_output { |ctx|
   assert lines == ["child-0", "child-1", "child-2"]
   for index in range(3) { uu.file_is(s, f"stderr-{index}", "") }
 }
+
+
+test test_uu_support_child_umask_preserves_runner_and_launch_contract { |ctx|
+  let s = uu.scene(ctx)?
+  let original = fs.umask()?
+  for mask in [0o000, 0o022, 0o077, 0o160, 119] {
+    let name = f"masked-{mask}"
+    uu.succeeds(uu.invoke(s, "mkdir", [name], umask: mask)?)
+    assert uu.mode(s, name)? == 0o777.clear_bits(mask)
+    assert fs.umask()? == original
+  }
+  uu.succeeds(uu.invoke(s, "mkdir", ["default"])?)
+  assert uu.mode(s, "default")? == 0o777.clear_bits(original)
+  let usage = uu.invoke(s, "basename", [], umask: 0o077)?
+  uu.fails(usage)
+  uu.stderr_contains(usage, "Try 'basename --help' for more information.")
+  let overridden = uu.invoke(s, "printenv", ["LC_ALL", "TZ", "UU_CHILD"],
+    vars: {LC_ALL: "POSIX", UU_CHILD: "preserved"}, umask: 0o077)?
+  uu.stdout_only(overridden, "POSIX\nUTC\npreserved\n")
+  let environment = uu.invoke(s, "printenv", [], umask: 0o077)?
+  uu.succeeds(environment)
+  for line in environment.stdout.utf8()?.split("\n") {
+    if line != "" { assert line.split("=")[0] in ["LC_ALL", "TZ", "PATH", "LD_PRELOAD", "LLVM_PROFILE_FILE"] }
+  }
+}
+
+test test_uu_support_child_umask_applies_to_path_and_parallel_commands { |ctx|
+  let s = uu.scene(ctx)?
+  let raw = Path.parse_bytes(b"raw\xff")?
+  uu.stdout_only_bytes(uu.invoke_paths(s, "echo", [raw], umask: 0o077)?, b"raw\xff\n")
+  uu.succeeds(uu.invoke_paths(s, "mkdir", [p"from-path"], umask: 0o077)?)
+  assert uu.mode(s, "from-path")? == 0o700
+  uu.write(s, "input", "")?
+  uu.succeeds(uu.invoke_from_path(s, "mkdir", ["from-input"], uu.at(s, "input"), umask: 0o027)?)
+  assert uu.mode(s, "from-input")? == 0o750
+  var children: List[ProcessHandle] = []
+  for index in range(3) {
+    let plan = uu.command(s, "mkdir", [f"parallel-{index}"], umask: 0o022,
+      stdout: uu.at(s, f"stdout-{index}"), stderr: uu.at(s, f"stderr-{index}"))?
+    children += [spawn plan?]
+  }
+  for child in children { assert (wait child?).exited_with(0) }
+  for index in range(3) { assert uu.mode(s, f"parallel-{index}")? == 0o755 }
+}
+
+
+test test_uu_support_child_umask_rejects_non_permission_bits { |ctx|
+  let s = uu.scene(ctx)?
+  for mask in [-1, 512] {
+    let checked = test.run_script(ctx,
+      "use support.uu as uu\nlet root = Path(args[0])\nlet context: TestContext = {name: \"mask probe\", file: root, temp_root: root, core_dir: root, xsh_bin: root}\nlet s: uu.Scene = {ctx: context, root: root}\nlet _ = uu.command(s, \"mkdir\", [\"rejected\"], umask: " + f"{mask}" + ")?\n",
+      args: [s.root.display()], env: {XSH_MODULE_PATH: fp"{ctx.core_dir}/tests"})?
+    assert ! checked.success
+    assert "umask must contain only permission bits" in checked.stderr, checked.stderr
+  }
+  assert ! uu.exists(s, "rejected")?
+}

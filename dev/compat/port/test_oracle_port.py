@@ -55,6 +55,8 @@ class OraclePortTests(unittest.TestCase):
             self.assertNotIn('script, p"--"', rewritten)
             self.assertEqual(rewritten.count(".extend(args)"), self.helper.count(".extend(args)"))
             self.assertIn("timeout: timeout", rewritten)
+            self.assertEqual(rewritten.count("launch_metadata(vars, umask)?"), 3)
+            self.assertIn("umask: Int? = null", rewritten)
             self.assertIn("export proc command(", rewritten)
 
     def test_changed_launch_shape_fails_before_running_oracle(self):
