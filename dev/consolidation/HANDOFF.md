@@ -1,5 +1,53 @@
 # Consolidation restart handoff
 
+## Integration checkpoint — 2026-10-11, `bfb18460`
+
+The campaign remains active under the owner's unattended completion instruction.
+All subagents use Luna xhigh. The historical checkpoints below retain their
+source-qualified results and do not describe the current tree.
+
+Since `9ff2c334`, the integrator accepted stage order/drain oracles
+(`b6c737e4`), exhaustive lint and semantic policy cases (`1ae2c671`,
+`cb5ea4fc`), borrowed captured-resource traversal and balanced failure cleanup
+(`fd27eb38`, `f6fe4479`), and strong script-stream ownership with removal of
+the global producer registry and statement sweeps (`a5f8b89f`). The latter's
+follow-up `08479519` clears an unstarted cancelled producer's frame; a
+test-first host regression reproduces the retained-resource cycle without
+that fix. Ownership, producer and error-cleanup lane gates pass 26/26, 6/6
+and 16/16, with eight capture lifecycle units passing. The last joint frozen
+pair is `joint-cb5e-bin`, before strong ownership; its 48 combined native
+cases pass. A source-matched joint build after the next accepted batch remains
+required.
+
+Structural scope correction is integrated in `381e06b6`, with documentation
+clarified in `bfb18460`. Original baseline bytes are unchanged. The verified
+companion measures blanket scope with the same canonical scanner on both
+revisions: start 47,061 lines and `9ff2c334` 10,770 lines. Item allowances are
+inventoried separately; they are not a replacement for blanket removal.
+Provenance and 38 ratchet / seven gate cases pass. The latest root has not
+yet been recounted. Final source shrink and zero structural targets remain
+unchanged.
+
+Frozen baseline coverage completed 6,122 outcomes in 545 groups, plus 18
+isolated exact-ID replays. Original 107.77 GiB raw evidence, original failures
+and invalid/truncated profiles are preserved. Bounded aggregation and exact
+object attribution are complete; the sole final xsh mismatch is an external
+`ignore` dependency function from mixed-domain data, with its exact attribution
+recorded. The source-owned decoder inventory initially has 41 covered and 72
+zero rows in 21 groups; a separate targeted pattern profile proves two more
+rows. Missing rows still require source-reachable tests or exact writer and
+caller closure. Passing stage tests did not hit the old indexed block decoder
+rows and are not coverage acceptance. Artifacts live under
+`.work/consolidation/coverage/profile-aggregate/`.
+
+Private work remains unaccepted: the full lint table, source-owned lint proof
+transport, complete per-module records, typed-callee verifier follow-ups,
+typed frame cohorts and the full 46-row stage engine. W9 may retain one
+file-local effect probe and final pass, as its approved design specifies;
+preparation reuse around repeated whole-bundle probes is not its end state.
+Stage scheduling, runtime reader migration, final dead-code and classifier
+closure, docs, final platform and performance gates remain outstanding.
+
 ## Integration checkpoint — 2026-10-11, `9ff2c334`
 
 The campaign remains active and unattended, with Luna xhigh subagents.
