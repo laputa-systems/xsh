@@ -10,6 +10,19 @@ evidence; interrupted gates still require rerunning. Integration resumed at
 daemon, but the pinned image is not currently listed. Builds remain held
 while the preserved test environment is recovered.
 
+Recovery update: the original native image is absent from Docker's store.
+The compatibility session rebuilt the byte-identical `Dockerfile.test`
+(SHA-256 `7b8017b69d3ecc51f04ac2fe481af7e5059e0bcf0f1494fb39abecadcfb0e5ff`).
+Resumed native gates use immutable image
+`sha256:65dc744f6c560f189716ea193bd765149f4691c80392663e630813033ebc53a3`.
+The base and rustup installer layers match; rustc commit `574ff7d98`,
+LLVM 23.1.1, clang 23.1.3-r0, and musl/musl-dev 1.2.6-r5 match retained
+historical evidence. Rootfs hashes differ, so this is regenerated environment
+evidence, not byte identity with the old image. Primary/secondary/third native
+wrappers pin the resumed image; their original copies remain on disk.
+Image metadata and compiler/CRT/libc hashes are saved under
+`.work/consolidation/restart/resumed-native-*`. Focused lane gates are released.
+
 Active independent lanes: W1 schema classes, module hooks, checked declaration
 facts, source-aware check session and telemetry, BindingId adapter, grammar,
 fuzz grammar, lint rule inventory, and opaque Any discovery. Each uses its
