@@ -6,7 +6,7 @@
     "commit": "6e39144aaf5a6bc01b9f795010b0914431067183"
   },
   "gate": "G4a",
-  "last_green_commit": "65528bda",
+  "last_green_commit": "c3ab7dcd",
   "audit": {
     "new_core_script": "New core/*.xsh applets are installed by the release script at dev/release.xsh:146-160; dev/tests/test-repository-contracts.xsh owns the required core script inventory and contract checks. No separate command registration is needed.",
     "launcher_argument_separator": "Use xsh SCRIPT -- ARGS for an applet and xsh -- SCRIPT ARGS for an explicit script; src/entrypoints/xsh.rs:90-120.",
@@ -1357,42 +1357,56 @@
     {
       "id": "g4.proc.defaults",
       "gate": "G4a",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-ui.xsh::test_btop_ui_process_tree_toggle_collapse_children_and_aggregate",
+        "core/tests/test-btop-defaults.xsh::test_btop_default_constants_match_the_ledger_extraction"
+      ],
+      "evidence": "The initial process view matches the pinned CPU-lazy descending, flat-tree, non-aggregating defaults; the fixed-default test compares all extracted values to the ledger."
     },
     {
       "id": "g4.proc.sorting",
       "gate": "G4a",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-ui.xsh::test_btop_ui_supports_every_pinned_process_sort_and_direction",
+        "core/tests/test-btop-ui.xsh::test_btop_ui_process_tree_toggle_collapse_children_and_aggregate"
+      ],
+      "evidence": "The UI covers every pinned sort and direction; tree siblings preserve the active sort with PID-stable ordering."
     },
     {
       "id": "g4.proc.tree",
       "gate": "G4a",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-ui.xsh::test_btop_ui_process_tree_toggle_collapse_children_and_aggregate"
+      ],
+      "evidence": "The read-only tree toggle renders the root, child, and grandchild at their derived depths."
     },
     {
       "id": "g4.proc.collapse_expand",
       "gate": "G4a",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-ui.xsh::test_btop_ui_process_tree_toggle_collapse_children_and_aggregate"
+      ],
+      "evidence": "Selected-node +, -, and Space, selected-child C, and all-row E transitions show and hide the expected descendants."
     },
     {
       "id": "g4.proc.aggregation",
       "gate": "G4a",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-ui.xsh::test_btop_ui_process_tree_toggle_collapse_children_and_aggregate",
+        "core/tests/test-btop-process-tree.xsh::test_btop_process_tree_aggregates_descendants_once_and_withholds_incomplete_rates",
+        "core/tests/test-btop-render.xsh::test_btop_g4a_process_tree_golden_shows_depth_collapse_and_aggregation"
+      ],
+      "evidence": "Descendant CPU and RSS are accumulated once over the complete tree and rendered as region-level expected values; unknown CPU remains unavailable."
     },
     {
       "id": "g4.keys.default_only",
@@ -2107,6 +2121,34 @@
         "failed": 0,
         "log": ".work/btop-campaign/g4a-defaults-ledger.log"
       }
+    },
+    "g4a_process_tree": {
+      "host_only": true,
+      "code_commit": "c3ab7dcd",
+      "xsh_check": {
+        "files": 6,
+        "log": ".work/btop-campaign/g4a-process-tree-check.log"
+      },
+      "ui_tests": {
+        "passed": 9,
+        "failed": 0,
+        "log": ".work/btop-campaign/g4a-process-tree-ui.log"
+      },
+      "renderer_tests": {
+        "passed": 6,
+        "failed": 0,
+        "log": ".work/btop-campaign/g4a-process-tree-render.log"
+      },
+      "default_tests": {
+        "passed": 1,
+        "failed": 0,
+        "log": ".work/btop-campaign/g4a-process-tree-defaults.log"
+      },
+      "ledger_test": {
+        "passed": 1,
+        "failed": 0,
+        "log": ".work/btop-campaign/g4a-process-tree-ledger.log"
+      }
     }
   },
   "defaults": [
@@ -2448,6 +2490,7 @@
     }
   ],
   "next": [
-    "G4a process tree: wire the pinned tree toggle, expand/collapse operations, collapse-all behavior, deterministic ordering, and optional child aggregation into the read-only process view."
+    "Audit and implement the remaining in-scope hotkeys in the frozen inventory; retain disk keys d/i for the final disk-section slice. Add a test that checks deferred and out-of-scope actions have no effect.",
+    "Last, replace the memory-panel disk placeholder with captured mount capacity, block I/O rates, and an I/O graph; then finish G4a semantic goldens and run the final gates."
   ]
 }
