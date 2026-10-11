@@ -225,6 +225,7 @@ mod tests {
             &parsed.arena,
             source,
             LintOptions {
+                checked_output: Some(std::sync::Arc::new(checked.clone())),
                 expr_types: checked.expr_types,
                 prefer_text_pattern: enabled,
                 ..LintOptions::default()

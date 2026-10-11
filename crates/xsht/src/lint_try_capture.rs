@@ -1,6 +1,6 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
-use xsh::frontend::check::{CheckBundleView, CheckOutput, Checker, CheckOptions, Type};
+use xsh::frontend::check::{CheckBundleView, CheckOptions, CheckOutput, Type};
 use xsh::frontend::source::Span;
 use xsh::frontend::symbols::Name;
 use xsh::frontend::syntax::arena::{
@@ -8,21 +8,19 @@ use xsh::frontend::syntax::arena::{
     ArenaStmtKind, ExprId,
 };
 use xsh::frontend::syntax::node::BinaryOp;
-use xsh::frontend::syntax::parser::Parser;
 
 /// Eliminate a closed, straight-line fallible helper at its sole eager fallback
 /// use. Restricting the body to immutable locals and scalar methods excludes
 /// captures, callable defaults, resource escape, and lexical control transfers.
-pub(super) fn lint_try_capture_helpers(view: &CheckBundleView<'_>, source: &str) -> Vec<Diagnostic> {
+pub(super) fn lint_try_capture_helpers(
+    view: &CheckBundleView<'_>,
+    source: &str,
+    check_original: Option<std::sync::Arc<CheckOutput>>,
+) -> Vec<Diagnostic> {
     let program = view.program();
-    let before = std::cell::LazyCell::new(|| {
-        Checker::check_bundle_view_with_type_program(
-            view,
-            source,
-            CheckOptions::default(),
-            std::sync::Arc::new(program.clone()),
-        )
-    });
+    let Some(before) = check_original else {
+        return Vec::new();
+    };
     let statements = view.statement_ids().collect::<Vec<_>>();
     let mut diagnostics = Vec::new();
     for pair in statements.windows(2) {
@@ -173,11 +171,17 @@ pub(super) fn lint_try_capture_helpers(view: &CheckBundleView<'_>, source: &str)
         let mut rewritten = source.to_owned();
         rewritten.replace_range(call_span.range(), &replacement);
         rewritten.replace_range(definition.span.range(), "");
-        let parsed = Parser::parse_source_arena_only(definition.span.source_id, &rewritten);
-        if !parsed.diagnostics.is_empty() {
+        let snapshot = super::probes::LintProbeTransport::standalone(
+            definition.span.source_id,
+            &rewritten,
+            CheckOptions::default(),
+        );
+        if !snapshot.parse_diagnostics.is_empty() {
             continue;
         }
-        let after = Checker::check_arena(&parsed.arena, &rewritten);
+        let Some(after) = snapshot.checked.as_ref() else {
+            continue;
+        };
         if !after.diagnostics.is_empty() {
             continue;
         }
@@ -187,7 +191,7 @@ pub(super) fn lint_try_capture_helpers(view: &CheckBundleView<'_>, source: &str)
             body: body_span,
             replacement_len: replacement.len(),
         };
-        if !same_checked_facts(program, &parsed.arena, &before, &after, edits, helper.name) {
+        if !same_checked_facts(program, &snapshot.program, &before, after, edits) {
             continue;
         }
         diagnostics.push(Diagnostic::warning("use a local Result capture for this single-use closed helper")
@@ -324,23 +328,36 @@ fn same_checked_facts(
     before: &CheckOutput,
     after: &CheckOutput,
     edits: CaptureEdits,
-    helper: Name,
 ) -> bool {
     let shape = |program: &ArenaProgram, ty: &Type| {
         program
             .symbol_owner()
             .with_current(|| super::checked_return_type_shape(ty))
     };
-    let helper_name = helper.to_string();
-    before.expr_types.iter().all(|(span, ty)| edits.map(*span).is_none_or(|mapped|
+    let source_id = edits.definition.source_id;
+    let before_effects = before
+        .function_effect_facts
+        .iter()
+        .filter(|(id, _)| id.body.source_id == source_id && id.body != edits.body)
+        .filter_map(|(id, fact)| {
+            Some(((id.namespace.clone(), edits.map(id.body)?), fact.effective.clone()))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let after_effects = after
+        .function_effect_facts
+        .iter()
+        .filter(|(id, _)| id.body.source_id == source_id)
+        .map(|(id, fact)| ((id.namespace.clone(), id.body), fact.effective.clone()))
+        .collect::<BTreeMap<_, _>>();
+    before.expr_types.iter().filter(|(span, _)| span.source_id == source_id).all(|(span, ty)| edits.map(*span).is_none_or(|mapped|
         after.expr_types.get(&mapped).is_some_and(|other| shape(before_program, ty) == shape(after_program, other))))
         // Unannotated immutable body locals take their initializer types, which
         // are compared above. The callable-local inference map is not populated
         // for the corresponding straight-line capture block.
-        && before.local_binding_types.iter().filter(|(span, _)| !(edits.body.start() <= span.start() && span.end() <= edits.body.end())).all(|(span, ty)| edits.map(*span).is_none_or(|mapped|
+        && before.local_binding_types.iter().filter(|(span, _)| span.source_id == source_id && !(edits.body.start() <= span.start() && span.end() <= edits.body.end())).all(|(span, ty)| edits.map(*span).is_none_or(|mapped|
             after.local_binding_types.get(&mapped).is_some_and(|other| shape(before_program, ty) == shape(after_program, other))))
-        && before.statement_positions.iter().all(|(span, position)| edits.map(*span).is_none_or(|mapped| after.statement_positions.get(&mapped) == Some(position)))
-        && before.callable_effects.iter().filter(|(name, _)| *name != &helper_name).all(|(name, effects)| after.callable_effects.get(name) == Some(effects))
+        && before.statement_positions.iter().filter(|(span, _)| span.source_id == source_id).all(|(span, position)| edits.map(*span).is_none_or(|mapped| after.statement_positions.get(&mapped) == Some(position)))
+        && before_effects == after_effects
 }
 
 #[cfg(test)]

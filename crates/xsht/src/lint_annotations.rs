@@ -2,7 +2,7 @@ use super::{
     ArenaBindingTargetKind, ArenaExpr, ArenaExprKind, ArenaExprOrRun, ArenaStmtKind,
     ArenaTypeExprKind, ArenaTypeExprTag, BinaryOp, BindingTargetId, BlockId, Diagnostic,
     DiagnosticCode, Effect, ExprId, FixHint, FunctionDefId, FxHashSet, Label, Linter, Name,
-    Severity, Span, StmtId, Symbol, Type, TypeExprId, checked_return_removal_facts,
+    Severity, Span, StmtId, Symbol, Type, TypeExprId,
     effects_annotation, effects_covers_any, inferred_proc_return,
     is_map_empty_call, ok_call_arg, return_value_is_ok_unit, scan_after_type, scan_back_space,
     scan_before_arrow, scan_before_colon, scan_effect_list_span, scan_return_stmt_span,
@@ -67,10 +67,11 @@ impl<'a> Linter<'a> {
             return;
         }
         if self.return_removal_before.is_none() {
-            self.return_removal_before = Some(checked_return_removal_facts(
+            self.return_removal_before = Some(self.checked_return_removal_probe(
                 self.source,
                 ty_span.source_id,
                 None,
+                true,
             ));
         }
         let Some(before) = self.return_removal_before.as_ref().unwrap().as_ref() else {
@@ -78,10 +79,11 @@ impl<'a> Linter<'a> {
         };
         let mut rewritten = self.source.to_string();
         rewritten.replace_range(start..ty_span.end(), "");
-        let after = checked_return_removal_facts(
+        let after = self.checked_return_removal_probe(
             &rewritten,
             ty_span.source_id,
             Some((start, ty_span.end() - start)),
+            true,
         );
         if Some(before) != after.as_ref() {
             return;
@@ -127,10 +129,11 @@ impl<'a> Linter<'a> {
             return;
         }
         if self.return_removal_before.is_none() {
-            self.return_removal_before = Some(checked_return_removal_facts(
+            self.return_removal_before = Some(self.checked_return_removal_probe(
                 self.source,
                 span.source_id,
                 None,
+                true,
             ));
         }
         let Some(before) = self.return_removal_before.as_ref().unwrap().as_ref() else {
@@ -138,10 +141,11 @@ impl<'a> Linter<'a> {
         };
         let mut rewritten = self.source.to_string();
         rewritten.replace_range(start..span.end(), "");
-        let after = checked_return_removal_facts(
+        let after = self.checked_return_removal_probe(
             &rewritten,
             span.source_id,
             Some((start, span.end() - start)),
+            true,
         );
         if Some(before) != after.as_ref() {
             return;
@@ -208,19 +212,21 @@ impl<'a> Linter<'a> {
         let start = self.source[..clause.start()].trim_end_matches(' ').len();
         let span = Span::new(clause.source_id, start, clause.end());
         if self.return_removal_before.is_none() {
-            self.return_removal_before = Some(checked_return_removal_facts(
+            self.return_removal_before = Some(self.checked_return_removal_probe(
                 self.source,
                 span.source_id,
                 None,
+                true,
             ));
         }
         if let Some(before) = self.return_removal_before.as_ref().unwrap() {
             let mut rewritten = self.source.to_string();
             rewritten.replace_range(span.start()..span.end(), "");
-            let after = checked_return_removal_facts(
+            let after = self.checked_return_removal_probe(
                 &rewritten,
                 span.source_id,
                 Some((span.start(), span.end() - span.start())),
+                true,
             );
             if after.as_ref() != Some(before) {
                 return;

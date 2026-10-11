@@ -635,14 +635,16 @@ impl<'a> Linter<'a> {
                 );
                 let mut candidate = self.source.to_string();
                 candidate.replace_range(edit.range(), &replacement);
-                let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(
+                let snapshot = super::probes::LintProbeTransport::standalone(
                     edit.source_id,
                     &candidate,
+                    xsh::frontend::check::CheckOptions::default(),
                 );
-                if parsed.diagnostics.is_empty()
-                    && xsh::frontend::check::Checker::check_arena(&parsed.arena, &candidate)
-                        .diagnostics
-                        .is_empty()
+                if snapshot.parse_diagnostics.is_empty()
+                    && snapshot
+                        .checked
+                        .as_ref()
+                        .is_some_and(|checked| checked.diagnostics.is_empty())
                 {
                     diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
                         edit,
@@ -1076,14 +1078,16 @@ impl<'a> Linter<'a> {
         );
         let mut candidate = self.source.to_owned();
         candidate.replace_range(edit.range(), &replacement);
-        let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(
+        let snapshot = super::probes::LintProbeTransport::standalone(
             edit.source_id,
             &candidate,
+            xsh::frontend::check::CheckOptions::default(),
         );
-        if !parsed.diagnostics.is_empty()
-            || !xsh::frontend::check::Checker::check_arena(&parsed.arena, &candidate)
-                .diagnostics
-                .is_empty()
+        if !snapshot.parse_diagnostics.is_empty()
+            || !snapshot
+                .checked
+                .as_ref()
+                .is_some_and(|checked| checked.diagnostics.is_empty())
         {
             return;
         }

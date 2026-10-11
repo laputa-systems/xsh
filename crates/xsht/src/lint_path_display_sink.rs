@@ -197,6 +197,7 @@ mod tests {
         let checked = Checker::check_arena(&parsed.arena, source);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let options = LintOptions {
+            checked_output: Some(std::sync::Arc::new(checked.clone())),
             expr_types: checked.expr_types,
             only: Some(vec![DiagnosticCode::LintPathDisplaySink]),
             ..LintOptions::default()

@@ -15,10 +15,11 @@ fn migration(source: &str) -> Vec<Diagnostic> {
         None,
         Some(SourceId::new(0)),
     );
+    let baseline = std::sync::Arc::new(checked);
     parsed
         .arena
         .symbol_owner()
-        .with_current(|| lint_try_capture_helpers(&view, source))
+        .with_current(|| lint_try_capture_helpers(&view, source, Some(baseline)))
 }
 
 fn apply(diagnostics: &[Diagnostic], source: &str) -> String {
@@ -52,6 +53,72 @@ fn single_use_read_port_helper_becomes_a_checked_local_capture() {
         "\nlet port = try {\n  let content = p\"port\".read_text()?\n  content.trim().parse_int()?\n} ?? 8080\nprint $port\n"
     );
     assert!(migration(&fixed).is_empty());
+}
+
+#[test]
+fn capture_proof_compares_the_rewritten_source_when_other_module_facts_are_present() {
+    use xsh::frontend::check::{EffectDeclarationId, FunctionEffectFact, StatementPosition, Type};
+    use xsh::frontend::source::Span;
+    use xsh::frontend::symbols::Name;
+
+    let source = "proc read_port() [error] -> Result[Int] { \"7\".parse_int()? }\nlet port = read_port() ?? 8080\nprint $port\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let mut checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let imported_span = Span::new(SourceId::new(1), 0, 1);
+    checked.expr_types.insert(imported_span, Type::Int);
+    checked.local_binding_types.insert(imported_span, Type::Int);
+    checked
+        .statement_positions
+        .insert(imported_span, StatementPosition::Statement);
+    checked.callable_effects.insert("imported".to_owned(), None);
+    parsed.arena.symbol_owner().with_current(|| {
+        checked.function_effect_facts.insert(
+            EffectDeclarationId {
+                namespace: Some(Name::intern("imported")),
+                body: imported_span,
+            },
+            FunctionEffectFact::default(),
+        );
+    });
+    let view = CheckBundleView::for_root(
+        &parsed.arena,
+        parsed.arena.statements,
+        None,
+        Some(SourceId::new(0)),
+    );
+    let diagnostics = parsed.arena.symbol_owner().with_current(|| {
+        lint_try_capture_helpers(&view, source, Some(std::sync::Arc::new(checked)))
+    });
+
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert_eq!(diagnostics[0].code, Some(DiagnosticCode::LintPreferTryCapture));
+    assert_eq!(diagnostics[0].fix_hints.len(), 2);
+}
+
+#[test]
+fn capture_proof_still_requires_the_complete_original_bundle_to_be_clean() {
+    let source = "proc read_port() [error] -> Result[Int] { \"7\".parse_int()? }\nlet port = read_port() ?? 8080\nprint $port\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let mut checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    checked.diagnostics.push(
+        xsh::diagnostic::Diagnostic::warning("diagnostic from another loaded source")
+            .with_span(xsh::frontend::source::Span::new(SourceId::new(1), 0, 0)),
+    );
+    let view = CheckBundleView::for_root(
+        &parsed.arena,
+        parsed.arena.statements,
+        None,
+        Some(SourceId::new(0)),
+    );
+    let diagnostics = parsed.arena.symbol_owner().with_current(|| {
+        lint_try_capture_helpers(&view, source, Some(std::sync::Arc::new(checked)))
+    });
+
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
 }
 
 #[test]
@@ -151,8 +218,16 @@ fn local_capture_helpers_leave_native_tests_and_statement_boundaries_unchanged()
 fn checked_local_capture_rule_is_exposed_by_the_linter_library() {
     let source = "proc read_port() [error] -> Result[Int] { \"7\".parse_int()? }\nlet port = read_port() ?? 8080\nprint $port\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    let output =
-        super::super::Linter::lint(&parsed.arena, source, super::super::LintOptions::default());
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = super::super::Linter::lint(
+        &parsed.arena,
+        source,
+        super::super::LintOptions {
+            checked_output: Some(std::sync::Arc::new(checked)),
+            ..super::super::LintOptions::default()
+        },
+    );
     let diagnostics = output
         .diagnostics
         .into_iter()

@@ -8,8 +8,8 @@ use crate::xsht::edit::{
     SourceEdit, apply_cst_guarded_edits, apply_cst_guarded_migration_edits, migration_lint_code,
 };
 use crate::xsht::lint::{
-    CallableEdgeFacts, LintOptions, Linter, finalize_callable_reachability,
-    lint_code_selected, lint_unused_callable_enabled, range_source_id,
+    CallableEdgeFacts, LintOptions, LintProbeTransport, Linter, finalize_callable_reachability,
+    lint_code_selected, lint_requires_check_output, lint_unused_callable_enabled, range_source_id,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::fs;
@@ -694,7 +694,6 @@ fn lint_workspace_root(
                     let facts = collect_workspace_module_callable_edges(
                         &view,
                         &module.text,
-                        &checked,
                     );
                     callable_edge_facts.publish(module.source_id, facts);
                 }
@@ -707,7 +706,7 @@ fn lint_workspace_root(
             workspace.module_view(&key)
         };
         let mut options = module.config.lint_options.clone();
-        options.checked_output = Some(Arc::clone(&checked));
+        options.checked_output = lint_requires_check_output(&options).then(|| Arc::clone(&checked));
         let lint_started = Instant::now();
         let run = if key == root {
             Linter::lint_view_with_callable_edges(
@@ -777,7 +776,6 @@ fn lint_workspace_root(
                         collect_workspace_module_callable_edges(
                             &module_view,
                             source,
-                            &checked,
                         ),
                     );
                 }
@@ -795,11 +793,9 @@ fn lint_workspace_root(
 fn collect_workspace_module_callable_edges<'a>(
     view: &CheckBundleView<'a>,
     source: &'a str,
-    checked: &Arc<xsh::frontend::check::CheckOutput>,
 ) -> CallableEdgeFacts {
     let mut options = LintOptions::default();
     options.only = Some(vec![DiagnosticCode::LintUnusedCallable]);
-    options.checked_output = Some(Arc::clone(checked));
     #[cfg(test)]
     {
         options.function_effect_facts_checked = true;
@@ -1514,7 +1510,8 @@ fn lint_one_file_with_fixes(
             .expect("checked program after clean parse"),
     );
     let mut lint_options = config.lint_options.clone();
-    lint_options.checked_output = Some(std::sync::Arc::clone(&checked));
+    lint_options.checked_output = lint_requires_check_output(&lint_options)
+        .then(|| std::sync::Arc::clone(&checked));
     let linted = Linter::lint(&checked_program.parsed.arena, &text, lint_options);
 
     let mut ast_fixes = collect_fix_spans(&linted.diagnostics);
@@ -1640,24 +1637,19 @@ fn validate_fixed_text(
     config: &ResolvedLintConfig,
     original_check_diagnostics: &[Diagnostic],
 ) -> Result<Vec<RenderedDiagnostic>, FixedTextValidationError> {
-    let symbols = SymbolOwner::new();
-    let checked_program = symbols.with_current(|| {
-        parse_load_check_text(
-            file,
-            text.to_string(),
-            config.module_roots.clone(),
-            CheckOptions::default(),
-        )
-    });
-    if !checked_program.parsed.diagnostics.is_empty() {
+    let context = fixed_text_proof_context(file, config);
+    let snapshot = LintProbeTransport::loaded(&context, text, CheckOptions::default())
+        .expect("single-entry fixed-text checks always return the entry");
+    if !snapshot.parse_diagnostics.is_empty() {
+        let sources = snapshot.sources.as_ref().expect("loaded probe has source map");
         return Err(FixedTextValidationError::Diagnostics(
             render_diagnostics_with_keys(
-                &checked_program.parsed.diagnostics,
-                &checked_program.sources,
+                &snapshot.parse_diagnostics,
+                sources,
             ),
         ));
     }
-    let checked = checked_program
+    let checked = snapshot
         .checked
         .as_ref()
         .expect("checked program after clean parse");
@@ -1667,8 +1659,9 @@ fn validate_fixed_text(
         } else {
             &checked.diagnostics
         };
+        let sources = snapshot.sources.as_ref().expect("loaded probe has source map");
         return Err(FixedTextValidationError::Diagnostics(
-            render_diagnostics_with_keys(diagnostics, &checked_program.sources),
+            render_diagnostics_with_keys(diagnostics, sources),
         ));
     }
     let only = config.lint_options.only.as_deref();
@@ -1680,8 +1673,22 @@ fn validate_fixed_text(
         .collect::<Vec<_>>();
     Ok(render_diagnostics_with_keys(
         &selected,
-        &checked_program.sources,
+        snapshot.sources.as_ref().expect("loaded probe has source map"),
     ))
+}
+
+fn fixed_text_proof_context(
+    file: &str,
+    config: &ResolvedLintConfig,
+) -> crate::xsht::lint::ReturnProofContext {
+    config
+        .lint_options
+        .return_proof
+        .clone()
+        .unwrap_or_else(|| crate::xsht::lint::ReturnProofContext {
+            file: file.to_owned(),
+            module_roots: config.module_roots.clone(),
+        })
 }
 
 fn apply_cst_fixes(
@@ -1752,28 +1759,29 @@ fn apply_cst_fixes(
             return Err(format!("xsht: safe fixes for {file} do not converge\n"));
         }
         candidate = next;
-        let symbols = SymbolOwner::new();
-        let mut program = symbols.with_current(|| {
-            parse_load_check_text(
-                file,
-                candidate.clone(),
-                config.module_roots.clone(),
-                CheckOptions::default(),
-            )
-        });
-        if !program.parsed.diagnostics.is_empty() {
-            return Err(
-                DiagnosticRenderer::new().render(&program.parsed.diagnostics, &program.sources)
-            );
+        let context = fixed_text_proof_context(file, config);
+        let mut snapshot = LintProbeTransport::loaded(
+            &context,
+            &candidate,
+            CheckOptions::default(),
+        )
+        .expect("single-entry fixed-text checks always return the entry");
+        let sources = snapshot
+            .sources
+            .as_ref()
+            .expect("loaded probe has source map")
+            .clone();
+        if !snapshot.parse_diagnostics.is_empty() {
+            return Err(DiagnosticRenderer::new().render(&snapshot.parse_diagnostics, &sources));
         }
         let checked = std::sync::Arc::new(
-            program
+            snapshot
                 .checked
                 .take()
                 .expect("checked program after clean parse"),
         );
         if !check_diagnostics_are_preserved(original_check_diagnostics, &checked.diagnostics) {
-            return Err(DiagnosticRenderer::new().render(&checked.diagnostics, &program.sources));
+            return Err(DiagnosticRenderer::new().render(&checked.diagnostics, &sources));
         }
         // Only the selected codes are reported; the rest of the file's check
         // diagnostics were there before and are not this run's subject.
@@ -1785,7 +1793,7 @@ fn apply_cst_fixes(
             .collect::<Vec<_>>();
         remaining_diagnostics = Some(render_diagnostics_with_keys(
             &selected_checks,
-            &program.sources,
+            &sources,
         ));
         if migrating_syntax {
             return Ok(Some(ValidatedFixedText {
@@ -1794,16 +1802,18 @@ fn apply_cst_fixes(
             }));
         }
         let mut options = config.lint_options.clone();
-        options.checked_output = Some(std::sync::Arc::clone(&checked));
+        options.checked_output = lint_requires_check_output(&options)
+            .then(|| std::sync::Arc::clone(&checked));
+        options.return_proof = Some(context);
         let linted = if is_module {
-            Linter::lint_module(&program.parsed.arena, &candidate, options)
+            Linter::lint_module(&snapshot.program, &candidate, options)
         } else {
-            Linter::lint(&program.parsed.arena, &candidate, options)
+            Linter::lint(&snapshot.program, &candidate, options)
         };
-        fixes = collect_fix_spans_for_source(&linted.diagnostics, SourceId::new(0));
+        fixes = collect_fix_spans_for_source(&linted.diagnostics, snapshot.source_id);
         fixes.extend(collect_fix_spans_for_source(
             &selected_checks,
-            SourceId::new(0),
+            snapshot.source_id,
         ));
         if fixes.is_empty() {
             return Ok(Some(ValidatedFixedText {

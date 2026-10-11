@@ -153,8 +153,9 @@ use reachability::{CallableEdgeCollector, CallableEdgeOwner, CallableReachabilit
 mod probes;
 use probes::{
     CheckedReturnRemovalFacts, CheckedLocalAnnotationFacts, standalone_annotation_imports_available,
-    checked_return_removal_facts, checked_return_type_shape,
+    checked_return_type_shape, checked_source_effect_bodies,
 };
+pub(crate) use probes::LintProbeTransport;
 
 #[path = "lint_fixes.rs"]
 mod fixes;
@@ -440,6 +441,10 @@ pub(crate) fn lint_unused_callable_enabled(options: &LintOptions) -> bool {
     rules::RuleSelection::new(options).enabled(DiagnosticCode::LintUnusedCallable)
 }
 
+pub(crate) fn lint_requires_check_output(options: &LintOptions) -> bool {
+    rules::RuleSelection::new(options).requires_check_output()
+}
+
 pub(crate) fn finalize_callable_reachability(
     view: &CheckBundleView<'_>,
     source_facts: &FxHashMap<SourceId, CallableEdgeFacts>,
@@ -544,6 +549,8 @@ struct Binding {
 
 pub struct Linter<'a> {
     arena: &'a AstArena,
+    source_id: Option<SourceId>,
+    effect_body_spans: Vec<Span>,
     /// Parenthesis spans and propagation contexts accumulated by the source walk.
     paren_groups: &'a [(ExprId, Span)],
     expr_positions: Option<lint_redundant_propagation::ExprPositions>,
@@ -795,7 +802,15 @@ impl<'a> Linter<'a> {
         source: &'a str,
         options: LintOptions,
     ) -> LintOutput {
-        Self::lint_view_internal(view, source, options, false, false, true).output
+        Self::lint_view_internal(
+            view,
+            source,
+            options,
+            false,
+            false,
+            true,
+        )
+        .output
     }
 
     pub(crate) fn lint_view_with_callable_edges(
@@ -839,6 +854,14 @@ impl<'a> Linter<'a> {
         defer_callable_reachability: bool,
     ) -> LintRun {
         let program = view.program();
+        let source_id = view_source_id(view);
+        let effect_body_spans = checked_source_effect_bodies(
+            program,
+            view.statement_ids(),
+            source,
+        )
+        .filter(|(id, _)| Some(*id) == source_id)
+        .map_or_else(Vec::new, |(_, bodies)| bodies);
         // Constructor facts intern qualified enum names after checking. Retain
         // those names in the source program even when the caller is a worker.
         let _symbols = program.symbol_owner().enter();
@@ -884,6 +907,8 @@ impl<'a> Linter<'a> {
         let mut linter = Self {
             record_constructors: xsh::frontend::check::RecordConstructors::collect_view(view),
             arena: &program.arena,
+            source_id,
+            effect_body_spans,
             paren_groups: &program.paren_groups,
             expr_positions: None,
             duration_conversion_module_unshadowed: !view
@@ -3636,35 +3661,36 @@ impl<'a> Linter<'a> {
                         .map(checked_return_type_shape)
                         .collect::<Vec<_>>()
                 });
-            let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(
+            let snapshot = probes::LintProbeTransport::standalone(
                 call.span.source_id,
                 &candidate,
+                xsh::frontend::check::CheckOptions::default(),
             );
-            if parsed.diagnostics.is_empty() {
-                let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, &candidate);
-                let equivalent = checked.diagnostics.is_empty()
-                    && parsed.arena.symbol_owner().with_current(|| {
-                        checked
-                            .record_constructor_instances
-                            .get(&call_span)
-                            .is_some_and(|fact| {
-                                checked_return_type_shape(&fact.ty) == shape
-                                    && Some(
-                                        fact.instance
-                                            .arguments
-                                            .iter()
-                                            .map(checked_return_type_shape)
-                                            .collect::<Vec<_>>(),
-                                    ) == selected
-                            })
-                    });
-                if equivalent {
-                    diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
-                        callee_span,
-                        "infer the same concrete constructor instance",
-                        replacement,
-                    ));
-                }
+            let equivalent = snapshot.parse_diagnostics.is_empty()
+                && snapshot.checked.as_ref().is_some_and(|checked| {
+                    checked.diagnostics.is_empty()
+                        && snapshot.program.symbol_owner().with_current(|| {
+                            checked
+                                .record_constructor_instances
+                                .get(&call_span)
+                                .is_some_and(|fact| {
+                                    checked_return_type_shape(&fact.ty) == shape
+                                        && Some(
+                                            fact.instance
+                                                .arguments
+                                                .iter()
+                                                .map(checked_return_type_shape)
+                                                .collect::<Vec<_>>(),
+                                        ) == selected
+                                })
+                        })
+                });
+            if equivalent {
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
+                    callee_span,
+                    "infer the same concrete constructor instance",
+                    replacement,
+                ));
             }
         }
         self.diagnostics.push(diagnostic);
@@ -4009,14 +4035,16 @@ impl<'a> Linter<'a> {
                     let replacement = format!("...{receiver}");
                     let mut candidate = self.source.to_string();
                     candidate.replace_range(edit_span.range(), &replacement);
-                    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(
+                    let snapshot = probes::LintProbeTransport::standalone(
                         call_span.source_id,
                         &candidate,
+                        xsh::frontend::check::CheckOptions::default(),
                     );
-                    if parsed.diagnostics.is_empty()
-                        && xsh::frontend::check::Checker::check_arena(&parsed.arena, &candidate)
-                            .diagnostics
-                            .is_empty()
+                    if snapshot.parse_diagnostics.is_empty()
+                        && snapshot
+                            .checked
+                            .as_ref()
+                            .is_some_and(|checked| checked.diagnostics.is_empty())
                     {
                         diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
                             edit_span,
@@ -6248,6 +6276,7 @@ mod annotation_probe_tests {
     use super::{LintOptions, Linter};
     use std::cell::Cell;
     use xsh::diagnostic::DiagnosticCode;
+    use xsh::frontend::check::Checker;
     use xsh::frontend::source::SourceId;
     use xsh::frontend::syntax::parser::Parser;
 
@@ -6298,10 +6327,12 @@ mod annotation_probe_tests {
         let reported = |source: &str| {
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
             Linter::lint(
                 &parsed.arena,
                 source,
                 LintOptions {
+                    checked_output: Some(std::sync::Arc::new(checked)),
                     prefer_inferred_pure_returns: true,
                     function_effect_facts_checked: true,
                     ..LintOptions::default()
@@ -6381,11 +6412,6 @@ mod local_annotation_probe_tests {
     thread_local! {
         static ORIGINALS: Cell<usize> = const { Cell::new(0) };
         static CANDIDATES: Cell<usize> = const { Cell::new(0) };
-        static ORIGINAL_CHECKS: Cell<usize> = const { Cell::new(0) };
-    }
-
-    pub(super) fn record_original_check() {
-        ORIGINAL_CHECKS.with(|checks| checks.set(checks.get() + 1));
     }
 
     pub(super) fn record_original() {
@@ -6479,11 +6505,11 @@ mod local_annotation_probe_tests {
             );
             ORIGINALS.with(|originals| originals.set(0));
             CANDIDATES.with(|candidates| candidates.set(0));
-            ORIGINAL_CHECKS.with(|checks| checks.set(0));
             let output = Linter::lint(
                 &parsed.arena,
                 &source,
                 LintOptions {
+                    checked_output: Some(std::sync::Arc::new(checked.clone())),
                     function_effect_facts_checked: true,
                     ..LintOptions::default()
                 },
@@ -6502,11 +6528,6 @@ mod local_annotation_probe_tests {
             assert_eq!(
                 CANDIDATES.with(Cell::get),
                 if missing_import { 0 } else { 12 }
-            );
-            assert_eq!(
-                ORIGINAL_CHECKS.with(Cell::get),
-                usize::from(!missing_import),
-                "an unresolved standalone import already proves the original unavailable"
             );
         }
     }

@@ -705,4 +705,34 @@ mod tests {
         );
         assert!(parse_test(&["--force-frames", "--force-frames"].map(str::to_string)).is_err());
     }
+
+    #[test]
+    fn lint_list_preserves_the_rule_catalog_and_fixable_alias_order() {
+        let lint_codes = crate::xsht::lint::lint_rule_codes().collect::<Vec<_>>();
+        let aliases = DiagnosticCode::ALL
+            .iter()
+            .copied()
+            .filter(|code| code.family() != DiagnosticFamily::Lint && code.fixable())
+            .collect::<Vec<_>>();
+        assert_eq!(lint_codes.len(), 147);
+        assert_eq!(aliases.len(), 9);
+        assert!(aliases.iter().all(|code| code.lint_selectable()));
+
+        let expected = lint_codes
+            .into_iter()
+            .chain(aliases)
+            .map(|code| code.name())
+            .collect::<Vec<_>>();
+        let rendered = lint_code_list("jsonl").expect("lint JSONL listing");
+        let listed = rendered
+            .lines()
+            .map(|line| {
+                line.strip_prefix("{\"code\":\"")
+                    .and_then(|line| line.split_once("\",\"summary\":"))
+                    .map(|(code, _)| code)
+                    .expect("JSONL row starts with code")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(listed, expected);
+    }
 }

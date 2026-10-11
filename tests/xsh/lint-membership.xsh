@@ -89,7 +89,7 @@ proc main() {
 test test_lint_diagnoses_unsafe_membership_inside_conditions_without_hoisting { |ctx|
   let root = test.temp_dir(ctx, name: "membership-unsafe")?
   let file = fp"{root}/membership.xsh"
-  let source = r"""proc main(source_path: Path, names: List[Str]) [fs, error] {
+  let source = r"""proc probe(source_path: Path, names: List[Str]) [fs, error] {
   if source_path.read_text()?.contains("needle") {}
   if names.contains(source_path.read_text()?) {}
 }
@@ -186,7 +186,7 @@ test test_lint_migrates_explicitly_propagated_read_membership_without_null_safe_
   assert ".contains(" not in fixed, fixed
   assert count(fixed, "source_path.read_text()?") == 2, fixed
 
-  let unsafe = r"""proc main(source_path: Path) [fs, error] {
+  let unsafe = r"""proc probe(source_path: Path) [fs, error] {
   if source_path.read_text()?.contains("needle") {}
 }
 """
@@ -267,7 +267,7 @@ test test_lint_named_assertion_snapshots_preserve_runtime_source_order { |ctx|
 test test_lint_leaves_dynamic_and_comment_bearing_migrations_actionable { |ctx|
   let root = test.temp_dir(ctx, name: "membership-actionable")?
   let file = fp"{root}/membership.xsh"
-  let dynamic = "proc main(value: Any) { test.contains(value, 1)? }\n"
+  let dynamic = "proc probe(value: Any) { test.contains(value, 1)? }\n"
   let report = reported(file, dynamic)?
   assert count(report, "warn[lint.prefer-in]") == 1, report
   assert "help: " not in report, report

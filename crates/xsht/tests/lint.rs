@@ -678,8 +678,20 @@ fn private_effects_removal_retains_bounds_entry_points_exports_and_recursion() {
 #[test]
 fn signature_cli_migration_retains_comments_and_advanced_cli_policy() {
     let simple = "type Options = {jobs: Int}\nproc main(...argv: List[Str]) [error] {\n  # Preserve the options explanation.\n  let {jobs}: Options = cli.parse(argv, {jobs: {kind: \"Int\", default: 4, help: \"Int, default: 4\"}})?\n  print $jobs\n}\n";
-    let parsed = parse_lint_source(simple);
-    let diagnostics = Linter::lint(&parsed.arena, simple, LintOptions::default()).diagnostics;
+    let lint_with_checked = |source: &str| {
+        let parsed = parse_lint_source(source);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        Linter::lint(
+            &parsed.arena,
+            source,
+            LintOptions {
+                checked_output: Some(std::sync::Arc::new(checked)),
+                ..LintOptions::default()
+            },
+        )
+        .diagnostics
+    };
+    let diagnostics = lint_with_checked(simple);
     let diagnostic = diagnostics
         .iter()
         .find(|diagnostic| {
@@ -696,8 +708,7 @@ fn signature_cli_migration_retains_comments_and_advanced_cli_policy() {
         simple.replace("Int, default: 4", "Number of workers"),
         simple.replace("default: 4", "default: cpu.count()"),
     ] {
-        let parsed = parse_lint_source(&source);
-        let diagnostics = Linter::lint(&parsed.arena, &source, LintOptions::default()).diagnostics;
+        let diagnostics = lint_with_checked(&source);
         assert!(
             !diagnostics
                 .iter()

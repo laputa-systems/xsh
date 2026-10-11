@@ -1,12 +1,11 @@
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
-use xsh::frontend::check::{CheckBundleView, Checker, StatementPosition, Type};
+use xsh::frontend::check::{CheckBundleView, StatementPosition, Type};
 use xsh::frontend::source::Span;
 use xsh::frontend::symbols::Name;
 use xsh::frontend::syntax::arena::{
-    ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaProgram,
+    ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun,
     ArenaStmtKind, DeferTrigger, ExprId, FunctionDefId, StmtId,
 };
-use xsh::frontend::syntax::parser::Parser;
 
 /// `let root = fs.tempdir()?`, `defer root.close()?`, and optionally
 /// `let dir = root.host_path()?` open a directory that lives until the
@@ -75,12 +74,10 @@ pub(super) fn lint_tempdir_scopes(
             ));
         }
     }
-    // Both sides are checked as standalone files: the workspace arena holds
-    // other modules, which a reparsed candidate does not.
-    let before = std::cell::LazyCell::new(|| {
-        let parsed = Parser::parse_source_arena_only(source_id, linter.source);
-        diagnostic_keys(&parsed.arena, linter.source)
-    });
+    let before = linter
+        .checked_output
+        .as_deref()
+        .map(|checked| diagnostic_keys(checked, source_id));
     let mut found = Vec::new();
     for (statements, script) in &lists {
         for index in 0..statements.len() {
@@ -98,10 +95,31 @@ pub(super) fn lint_tempdir_scopes(
     }
     for site in found {
         let fix = rewrite(linter, &site).filter(|(span, replacement)| {
+            let Some(before) = before.as_ref() else {
+                return false;
+            };
             let mut candidate = linter.source.to_owned();
             candidate.replace_range(span.range(), replacement);
-            let parsed = Parser::parse_source_arena_only(source_id, &candidate);
-            parsed.diagnostics.is_empty() && diagnostic_keys(&parsed.arena, &candidate) == *before
+            let snapshot = if let Some(context) = linter.return_proof.as_ref() {
+                let Some(snapshot) = super::probes::LintProbeTransport::loaded(
+                    context,
+                    &candidate,
+                    xsh::frontend::check::CheckOptions::default(),
+                ) else {
+                    return false;
+                };
+                snapshot
+            } else {
+                super::probes::LintProbeTransport::standalone(
+                    source_id,
+                    &candidate,
+                    xsh::frontend::check::CheckOptions::default(),
+                )
+            };
+            snapshot.parse_diagnostics.is_empty()
+                && snapshot.checked.as_ref().is_some_and(|checked| {
+                    diagnostic_keys(checked, snapshot.source_id) == *before
+                })
         });
         let mut diagnostic = Diagnostic::warning(
             "this temporary directory is used only through its path; a `tempdir` scope binds the path and removes the directory",
@@ -381,13 +399,22 @@ fn word_count(text: &str, word: &str) -> usize {
         .count()
 }
 
-/// Checker diagnostics without positions, so a rewrite that moves text can
-/// be compared with the original. A file that only checks with its imports
-/// keeps the same unresolved-import diagnostics in both.
-fn diagnostic_keys(program: &ArenaProgram, source: &str) -> Vec<String> {
-    let mut keys = Checker::check_arena(program, source)
+/// Compare this source's diagnostics without their positions, so moved text
+/// does not change the keys and another module's diagnostics do not interfere.
+fn diagnostic_keys(
+    checked: &xsh::frontend::check::CheckOutput,
+    source_id: xsh::frontend::source::SourceId,
+) -> Vec<String> {
+    let mut keys = checked
         .diagnostics
-        .into_iter()
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic.span.is_some_and(|span| span.source_id == source_id)
+                || diagnostic
+                    .labels
+                    .iter()
+                    .any(|label| label.span.source_id == source_id)
+        })
         .map(|diagnostic| format!("{:?} {}", diagnostic.code, diagnostic.message))
         .collect::<Vec<_>>();
     keys.sort();
@@ -396,6 +423,7 @@ fn diagnostic_keys(program: &ArenaProgram, source: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    use super::diagnostic_keys;
     use crate::xsht::lint::{LintOptions, Linter};
     use xsh::diagnostic::{Diagnostic, DiagnosticCode};
     use xsh::frontend::check::Checker;
@@ -411,6 +439,7 @@ mod tests {
             &parsed.arena,
             source,
             LintOptions {
+                checked_output: Some(std::sync::Arc::new(checked.clone())),
                 expr_types: checked.expr_types,
                 statement_positions: checked.statement_positions,
                 function_return_types: checked.function_return_types,
@@ -421,6 +450,55 @@ mod tests {
         .into_iter()
         .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferTempdirScope))
         .collect()
+    }
+
+    #[test]
+    fn tempdir_fix_ignores_diagnostics_from_other_workspace_sources() {
+        let source = "let scratch = fs.tempdir()?\ndefer scratch.close()?\nlet dir = scratch.host_path()?\nprint $dir\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let mut checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        checked.diagnostics.push(
+            Diagnostic::warning("diagnostic owned by another workspace source")
+                .with_span(xsh::frontend::source::Span::new(SourceId::new(1), 0, 0)),
+        );
+
+        let linted = Linter::lint(
+            &parsed.arena,
+            source,
+            LintOptions {
+                checked_output: Some(std::sync::Arc::new(checked.clone())),
+                expr_types: checked.expr_types,
+                statement_positions: checked.statement_positions,
+                function_return_types: checked.function_return_types,
+                ..LintOptions::default()
+            },
+        );
+        let diagnostic = linted
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferTempdirScope))
+            .expect("the source-local proof must survive another source's diagnostics");
+        assert_eq!(diagnostic.fix_hints.len(), 1);
+    }
+
+    #[test]
+    fn tempdir_diagnostic_comparison_retains_current_source_diagnostics() {
+        let source_id = SourceId::new(0);
+        let mut checked = xsh::frontend::check::CheckOutput::default();
+        checked.diagnostics.extend([
+            Diagnostic::warning("diagnostic owned by this source")
+                .with_span(xsh::frontend::source::Span::new(source_id, 0, 1)),
+            Diagnostic::warning("diagnostic owned by another source").with_span(
+                xsh::frontend::source::Span::new(SourceId::new(1), 0, 1),
+            ),
+        ]);
+
+        assert_eq!(
+            diagnostic_keys(&checked, source_id),
+            vec!["None diagnostic owned by this source".to_string()]
+        );
     }
 
     fn fixed(source: &str) -> String {
