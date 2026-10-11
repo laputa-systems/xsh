@@ -6335,6 +6335,7 @@ impl AstArena {
         }
     }
 
+    // Imported-module spans are source-local, so slicing must use the matching source identity.
     pub(crate) fn text_value_for_source<'a>(
         &self,
         text: &'a ArenaText,
