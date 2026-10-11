@@ -138,8 +138,8 @@ fn test_ls_capabilities() {
     let output = Running::spawn(&mut command).finish();
     success(&output);
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("\x1b[30;41mtest/cap_pos.txt"));
-    assert!(stdout.contains("\x1b[30;41mcap_pos.txt"));
+    assert!(stdout.contains("\x1b[30;41mtest/cap_pos.txt"), "{stdout:?}");
+    assert!(stdout.contains("\x1b[30;41mcap_pos.txt"), "{stdout:?}");
     assert!(!stdout.contains("0;41mcap_neg.txt"));
     let mut command = applet("ls", directory.path());
     command.env("LS_COLORS", "di=:no=30;41:*.txt=31;41").args(["--color=always", "test/cap_pos.txt"]);
