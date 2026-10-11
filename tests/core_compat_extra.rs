@@ -3,7 +3,7 @@
 #[macro_use]
 mod release_binary;
 
-use std::io::{Read, Write};
+use std::io::Read;
 use std::os::fd::AsRawFd;
 use std::path::Path;
 use std::process::{Child, Command, Output, Stdio};
@@ -155,24 +155,3 @@ impl Drop for Running {
         self.0.wait().expect("reap owned applet");
     }
 }
-
-fn assert_silent_failure(output: Output) {
-    assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
-    assert!(output.stderr.is_empty(), "{}", String::from_utf8_lossy(&output.stderr));
-}
-
-// The stdin producer is joined only after the child's bounded wait, so a child
-// that stops reading cannot leave a blocked fixture writer behind.
-fn pipe_input(mut command: Command, bytes: Vec<u8>) -> Output {
-    command.stdin(Stdio::piped());
-    let mut child = Running::spawn(&mut command);
-    let mut stdin = child.0.stdin.take().expect("piped stdin");
-    let writer = std::thread::spawn(move || stdin.write_all(&bytes));
-    let output = child.finish();
-    if let Err(error) = writer.join().expect("join stdin producer") {
-        assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
-    }
-    output
-}
-
