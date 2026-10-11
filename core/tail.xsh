@@ -480,9 +480,9 @@ proc parent_missing(name: Str) [fs] -> Bool {
   }
 }
 
-# A name that is missing or dangling. A name already waiting stays silent. A name
-# that stops being tailed becomes `vanished`, which lets a later pass notice that
-# its directory was removed as well.
+# A name that is missing or dangling. A previously tailed name stays eligible for
+# reopening while another operand is live; retrying also keeps a name that was
+# missing at startup.
 proc gone_step(file: NameFile, failure: Error, retrying: Bool, last: Str) [fs, process, env] -> NameStep {
   if file.state == "tailing" {
     name_gone(file.label, failure)
@@ -491,7 +491,7 @@ proc gone_step(file: NameFile, failure: Error, retrying: Bool, last: Str) [fs, p
   let was_tailed = file.state == "tailing" or file.state == "vanished"
   let state = if was_tailed { "vanished" } else { "waiting" }
 
-  {file: {...file, state: state}, last: last, keep: retrying, failed: ! retrying, dir_removed: was_tailed and file.dir_watched and parent_missing(file.name)}
+  {file: {...file, state: state}, last: last, keep: retrying or was_tailed, failed: ! retrying, dir_removed: was_tailed and file.dir_watched and parent_missing(file.name)}
 }
 
 # A name that is a directory, FIFO, or a link that was not a link at startup.
@@ -583,8 +583,9 @@ proc follow_name_once(file: NameFile, retrying: Bool, headers: Bool, last: Str) 
   {file: current, last: position, keep: true, failed: failed, dir_removed: false}
 }
 
-# Follow named files by checking each name every pass. A name that is gone is
-# kept waiting only with retry; otherwise it is given up.
+# Follow named files by checking each name every pass. A gone name remains on the
+# watch list while another named operand is still open; retry also keeps the loop
+# alive when every name is missing.
 # With inotify in use, GNU reports the first removed directory and switches to
 # polling for the rest of the run; that switch is reproduced once here.
 proc follow_names(files: List[NameFile], headers: Bool, retrying: Bool, pid: Int, interval: Duration, after: Str, inotify: Bool) [fs, process, time, env, error, io] -> Bool {
@@ -613,15 +614,16 @@ proc follow_names(files: List[NameFile], headers: Bool, retrying: Bool, pid: Int
     }
 
     active = next
-    break when active.is_empty()
+    let has_tailing_name = ![file for file in active if file.state == "tailing"].is_empty()
+    if active.is_empty() or (!retrying and !has_tailing_name) {
+      gnu.error("no files remaining")
+      break
+    }
+
     let alive = pid == 0 or ! [entry for entry in process.list()? if entry.pid == pid].is_empty()
     break when ! alive
     io.flush_stderr()?
     time.sleep(poll_pause(interval))?
-  }
-
-  if active.is_empty() {
-    gnu.error("no files remaining")
   }
 
   failed
