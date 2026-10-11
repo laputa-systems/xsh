@@ -132,24 +132,6 @@ impl LintExprVisitor<'_, '_> {
         }
         if !self.suppress_expr_autofixes {
             rules::expression(self.linter, expr);
-            if let ArenaExprKind::Match { arms, .. } = self.linter.arena.expr(expr).kind {
-                self.linter.lint_adjacent_pattern_arms(
-                    self.linter
-                        .arena
-                        .match_expr_arms(arms)
-                        .iter()
-                        .map(|arm| {
-                            (
-                                arm.pattern,
-                                arm.guard,
-                                Err(arm.value),
-                                self.linter.arena.span(arm.span),
-                            )
-                        })
-                        .collect(),
-                );
-            }
-            self.linter.lint_boolean_match(expr);
             self.linter.lint_pattern_conditional_expr(expr);
             self.linter.lint_error_fallback_block(expr);
             self.linter.lint_path_roundtrip(expr);

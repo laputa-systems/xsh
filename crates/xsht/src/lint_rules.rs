@@ -1,7 +1,8 @@
 use super::{
-    ArenaCallArgKind, ArenaExprKind, ArenaExprOrRun, ArenaRecordFieldKind, ArenaStmtKind,
+    ArenaCallArgKind, ArenaExprKind, ArenaExprOrRun, ArenaPatternKind, ArenaRecordFieldKind,
+    ArenaStmtKind,
     AstArena, BinaryOp, Diagnostic, DiagnosticCode, ExprId, FixHint, Label, Linter, Name,
-    Severity, Span, StmtId, Type, is_module_call, list_splice_element_type_is_precise,
+    PatternArm, Severity, Span, StmtId, Type, is_module_call, list_splice_element_type_is_precise,
     lint_code_selected, pipeline_argument_expr, same_ordering_operand, span_may_contain_comment,
     widen_over_grouping,
 };
@@ -49,7 +50,23 @@ const EXPRESSION_RULES: &[ExpressionRule] = &[
     ExpressionRule { code: DiagnosticCode::LintPreferComparisonChain, enabled: always_enabled, apply: |linter, expr| linter.lint_comparison_chain(expr) },
     ExpressionRule { code: DiagnosticCode::LintLookupAbsence, enabled: always_enabled, apply: |linter, expr| linter.lint_lookup_sentinel(expr) },
     ExpressionRule { code: DiagnosticCode::LintPreferOptionalPostfix, enabled: always_enabled, apply: |linter, expr| linter.lint_optional_postfix(expr) },
+    ExpressionRule { code: DiagnosticCode::LintIdenticalMatchArms, enabled: always_enabled, apply: lint_expression_adjacent_pattern_arms },
+    ExpressionRule { code: DiagnosticCode::LintBooleanPatternTest, enabled: always_enabled, apply: |linter, expr| linter.lint_boolean_match(expr) },
 ];
+
+fn lint_expression_adjacent_pattern_arms(linter: &mut Linter<'_>, expr: ExprId) {
+    if let ArenaExprKind::Match { arms, .. } = linter.arena.expr(expr).kind {
+        let arms = linter.arena.match_expr_arms(arms).iter().map(|arm| {
+            (
+                arm.pattern,
+                arm.guard,
+                Err(arm.value),
+                linter.arena.span(arm.span),
+            )
+        }).collect();
+        linter.lint_adjacent_pattern_arms(arms);
+    }
+}
 
 pub(super) fn expression(linter: &mut Linter<'_>, expr: ExprId) {
     for rule in EXPRESSION_RULES {
@@ -925,6 +942,189 @@ impl<'a> Linter<'a> {
                 "build one spliced list literal",
                 format!("[{}]", entries.join(", ")),
             ));
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
+    pub(super) fn lint_adjacent_pattern_arms(&mut self, arms: Vec<PatternArm>) {
+        // Bodies compare by canonical tree, not spelling, so formatting cannot
+        // change which arms merge.
+        let keys: Vec<String> = arms
+            .iter()
+            .map(|arm| super::super::format::canonical_subtree(self.arena, self.source, arm.2))
+            .collect();
+        let mut start = 0;
+        while start + 1 < arms.len() {
+            let body_span = match arms[start].2 {
+                Ok(block) => self.arena.span(self.arena.block(block).span),
+                Err(expr) => self.arena.expr(expr).span,
+            };
+            let Some(body) = self.source.get(body_span.range()) else {
+                return;
+            };
+            if arms[start].1.is_some() {
+                start += 1;
+                continue;
+            }
+            let mut end = start + 1;
+            while end < arms.len() && arms[end].1.is_none() && keys[end] == keys[start] {
+                end += 1;
+            }
+            if end == start + 1 {
+                start = end;
+                continue;
+            }
+            let span = Span::new(
+                arms[start].3.source_id,
+                arms[start].3.start(),
+                arms[end - 1].3.end(),
+            );
+            let Some(original) = self.source.get(span.range()) else {
+                return;
+            };
+            if original.contains('#') {
+                start = end;
+                continue;
+            }
+            let patterns: Option<Vec<_>> = arms[start..end]
+                .iter()
+                .map(|(pattern, _, _, _)| {
+                    self.source
+                        .get(self.arena.span(self.arena.pattern(*pattern).span).range())
+                })
+                .collect();
+            let Some(patterns) = patterns else { return };
+            let replacement = format!("{} => {}", patterns.join(" | "), body);
+            let mut candidate = self.source.to_string();
+            candidate.replace_range(span.range(), &replacement);
+            let (_, cst_errors) =
+                xsh::frontend::syntax::cst::SyntaxTree::parse(span.source_id, &candidate);
+            let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(
+                span.source_id,
+                &candidate,
+            );
+            if cst_errors.is_empty() && parsed.diagnostics.is_empty() {
+                let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, &candidate);
+                // Rechecking the combined pattern proves equal resolved capture types,
+                // including nominal constructor payloads and aliases of those types.
+                if checked.diagnostics.is_empty() {
+                    self.diagnostics.push(
+                        Diagnostic::new(
+                            Severity::Warning,
+                            "adjacent match arms can share an alternative pattern",
+                        )
+                        .with_code(DiagnosticCode::LintIdenticalMatchArms)
+                        .with_label(Label::secondary(
+                            span,
+                            "unguarded arms share a checked body and capture contract",
+                        ))
+                        .with_fix_hint(FixHint::replacement(
+                            span,
+                            "combine the compatible alternatives",
+                            replacement,
+                        )),
+                    );
+                }
+            }
+            start = end;
+        }
+    }
+
+    fn lint_boolean_match(&mut self, expr: ExprId) {
+        let expression = self.arena.expr(expr);
+        let ArenaExprKind::Match { value, arms } = expression.kind else {
+            return;
+        };
+        let [selected, complement] = self.arena.match_expr_arms(arms) else {
+            return;
+        };
+        let wildcard_complement = matches!(
+            self.arena.pattern(complement.pattern).kind,
+            ArenaPatternKind::Wildcard
+        );
+        let result_complement = matches!(
+            self.expr_types.get(&self.arena.expr(value).span),
+            Some(Type::Result(_, _))
+        ) && match (
+            self.arena.pattern(selected.pattern).kind.clone(),
+            self.arena.pattern(complement.pattern).kind.clone(),
+        ) {
+            (
+                ArenaPatternKind::Constructor {
+                    name: left,
+                    arg: Some(left_arg),
+                },
+                ArenaPatternKind::Constructor {
+                    name: right,
+                    arg: Some(right_arg),
+                },
+            ) => {
+                ((left == "Ok" && right == "Err") || (left == "Err" && right == "Ok"))
+                    && matches!(
+                        self.arena.pattern(left_arg).kind,
+                        ArenaPatternKind::Wildcard
+                    )
+                    && matches!(
+                        self.arena.pattern(right_arg).kind,
+                        ArenaPatternKind::Wildcard
+                    )
+            }
+            _ => false,
+        };
+        if selected.guard.is_some()
+            || complement.guard.is_some()
+            || !(wildcard_complement || result_complement)
+        {
+            return;
+        }
+        let (ArenaExprKind::Bool(yes), ArenaExprKind::Bool(no)) = (
+            self.arena.expr(selected.value).kind,
+            self.arena.expr(complement.value).kind,
+        ) else {
+            return;
+        };
+        if yes == no {
+            return;
+        }
+        let span = expression.span;
+        let mut diagnostic =
+            Diagnostic::new(Severity::Warning, "boolean match can use a pattern test")
+                .with_code(DiagnosticCode::LintBooleanPatternTest)
+                .with_label(Label::secondary(
+                    span,
+                    "test the selected pattern with `is`",
+                ));
+        if self.pattern_test_fix_is_nonbinding(selected.pattern)
+            && self
+                .source
+                .get(span.range())
+                .is_some_and(|source| !source.contains('#'))
+        {
+            let subject = self.arena.expr(value).span;
+            let pattern = self.arena.span(self.arena.pattern(selected.pattern).span);
+            if let (Some(subject), Some(pattern)) = (
+                self.source.get(subject.range()),
+                self.source.get(pattern.range()),
+            ) {
+                let pattern = if matches!(
+                    self.arena.pattern(selected.pattern).kind,
+                    ArenaPatternKind::Alternation(_)
+                ) {
+                    format!("({pattern})")
+                } else {
+                    pattern.to_string()
+                };
+                let replacement = if yes {
+                    format!("(({subject}) is {pattern})")
+                } else {
+                    format!("!(({subject}) is {pattern})")
+                };
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
+                    span,
+                    "use a non-binding pattern test",
+                    replacement,
+                ));
+            }
         }
         self.diagnostics.push(diagnostic);
     }
