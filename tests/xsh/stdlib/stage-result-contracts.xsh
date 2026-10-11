@@ -134,38 +134,44 @@ print ${groups[0].key is Ok(1)} ${groups[0].items.len()} ${groups[1].key is Err(
 """
 }
 
-test test_flat_map_preserves_existing_result_collection_boundary { |ctx|
-  let accepted = test.run_script(
+test test_flat_map_requires_list_or_stream_and_explicit_result_propagation { |ctx|
+  let list = test.run_xsh(
     ctx,
-    r"""let values = [1, 2] |> flat-map { |item| Ok([item, item]) }
+    r"""let values = [1, 2] |> flat-map { |item| [item, item] }
 print ${values.len()} ${values[0]} ${values[3]}
 """,
   )?
-  {
-    let {success: assertion_condition, stderr: assertion_message, ..} = accepted
-    assert assertion_condition, assertion_message
-  }
-  assert accepted.stdout == """4 1 2
+  assert list.success, list.stderr
+  assert list.stdout == """4 1 2
 """
-  let failed = test.run_script(
+
+  let implicit_ok = test.run_xsh(
     ctx,
-    r"""error ExpansionError = Stop(message: Str)
+    "let values = [1, 2] |> flat-map { |item| Ok([item, item]) }\n",
+  )?
+  assert implicit_ok.status == 2, implicit_ok.stderr
+  assert "check.flat-map" in implicit_ok.stderr, implicit_ok.stderr
+
+  let set_result = test.run_xsh(
+    ctx,
+    "let values = [1, 2] |> flat-map { |item| set.from([item]) }\n",
+  )?
+  assert set_result.status == 2, set_result.stderr
+  assert "check.flat-map" in set_result.stderr, set_result.stderr
+
+  let explicit = test.run_xsh(
+    ctx,
+    r"""error ExpansionError = Stop(item: Int)
 pure expand(item: Int) -> Result[List[Int], ExpansionError] {
-  if item == 2 { Err(ExpansionError.Stop(message: "stop expanding")) } else { [item] }
+  if item == 2 { Err(ExpansionError.Stop(item)) } else { [item] }
 }
-let values = [1, 2, 3] |> flat-map { |item| expand(item) }
+let outcome = try { [1, 2, 3] |> flat-map { |item| expand(item)? } }
+print ${outcome is Err(ExpansionError.Stop {item: 2})}
 """,
   )?
-  {
-    let assertion_condition = ! failed.success
-    let assertion_message = failed.stdout
-    assert assertion_condition, assertion_message
-  }
-  {
-    let assertion_condition = "stop expanding" in failed.stderr
-    let assertion_message = failed.stderr
-    assert assertion_condition, assertion_message
-  }
+  assert explicit.success, explicit.stderr
+  assert explicit.stdout == """true
+"""
 }
 
 test test_par_map_explicit_callback_propagation_retains_nominal_error { |ctx|

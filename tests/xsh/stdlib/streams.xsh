@@ -2742,6 +2742,23 @@ proc main() [error] {
   assert "kind=stream.stage.exit name=\"map\"" in live_error.stderr
   assert "invalid" in live_error.stderr
 
+  let flat_map_error = test.run_xsht_trace(
+    ctx,
+    r"""
+let values = ["only"]
+stream numbers() [] -> Stream[Int] { yield 1 }
+proc main() [error] {
+  let expanded = numbers() |> flat-map { |index| [values[index]] } |> collect()
+}
+""",
+    ["--trace", "--raw"],
+  )?
+  assert flat_map_error.status == 3
+  assert "stream stage `map` item 0 failed" in flat_map_error.stderr
+  assert "kind=stream.item.error" in flat_map_error.stderr
+  assert "name=\"map\"" in flat_map_error.stderr
+  assert "item_index=0" in flat_map_error.stderr
+
   let par_error = test.run_xsht_trace(
     ctx,
     """

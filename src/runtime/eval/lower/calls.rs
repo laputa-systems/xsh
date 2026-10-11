@@ -1354,21 +1354,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             }
                         ));
                     }
-                    if module == "regex" && name == "compile" && positional.len() == 1 {
-                        return Some(push_build_row!(
-                            self,
-                            expr,
-                            BuildExprRow::RegexCompile {
-                                pattern: self.lower_expr(
-                                    positional[0],
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?,
-                                span,
-                            }
-                        ));
-                    }
                     if module == "map" && name == "empty" && positional.is_empty() {
                         return Some(push_build_row!(self, expr, BuildExprRow::EmptyMap));
                     }
@@ -1385,36 +1370,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 self.lower_expr(positional[0], slots, current_function, item_slot)?;
                             return Some(self.set_of_list(items, span));
                         }
-                    }
-                    if module == "bytes" && name == "concat" && positional.len() == 1 {
-                        return Some(push_build_row!(
-                            self,
-                            expr,
-                            BuildExprRow::BytesConcat {
-                                arg: self.lower_expr(
-                                    positional[0],
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?,
-                                span,
-                            }
-                        ));
-                    }
-                    if module == "json" && name == "encode" && positional.len() == 1 {
-                        return Some(push_build_row!(
-                            self,
-                            expr,
-                            BuildExprRow::JsonEncode {
-                                value: self.lower_expr(
-                                    positional[0],
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?,
-                                span,
-                            }
-                        ));
                     }
                     if module == "hash"
                         && name == "verify_file"

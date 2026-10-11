@@ -286,12 +286,16 @@ pub(in crate::runtime::eval) trait VectorElement: FullCodec { const BLOCK_FLAGS:
 /// entry at a time, so opening a list never materializes its children.
 pub(in crate::runtime::eval) struct ListView<'a, T> {
     context: DecodeContext<'a>,
+    block: super::IrBlockId,
     input: FullCursor<'a>,
     remaining: usize,
     element: PhantomData<T>,
 }
 impl<T> ListView<'_, T> {
     pub(in crate::runtime::eval) fn len(&self) -> usize { self.remaining }
+}
+impl ListView<'_, BuildStmtId> {
+    pub(in crate::runtime::eval) fn block_id(&self) -> u32 { self.block.raw() }
 }
 impl<'a, T: BorrowCodec> Iterator for ListView<'a, T> {
     type Item = Result<T::View<'a>, IrVerifyError>;
@@ -309,10 +313,10 @@ impl<T: VectorElement> BorrowCodec for Vec<T> where Vec<T>: FullCodec {
     type View<'a> = ListView<'a, T>;
     fn borrow<'a>(context: DecodeContext<'a>, input: &mut FullCursor<'a>)
     -> Result<Self::View<'a>, IrVerifyError> {
-        let (_, mut entries) = context.decoder().block(input, T::BLOCK_FLAGS)?;
+        let (block, mut entries) = context.decoder().block(input, T::BLOCK_FLAGS)?;
         let remaining = entries.raw()? as usize;
         if remaining == 0 { entries.finish()?; }
-        Ok(ListView { context, input: entries, remaining, element: PhantomData })
+        Ok(ListView { context, block, input: entries, remaining, element: PhantomData })
     }
 }
 

@@ -1,8 +1,8 @@
 use super::{
-    Arc, AssertionFailure, AssertionWork, BLOCK_LIST, BinaryOp, BinaryWork, ControlFlow, Evaluator,
-    FullExecution, FullTag, LoweredStrPredicate, LoweredValue, Name, RuntimeError, Span, StmtFlow,
+    Arc, AssertionFailure, BinaryOp, BinaryWork, ControlFlow, Evaluator,
+    FullExecution, FullTag, LoweredValue, Name, RuntimeError, Span, StmtFlow,
     TraceKind, TracePayload, Value, bytes_contains, checked_int_binary, indexed_decode,
-    indexed_error, indexed_finish, indexed_optional_raw, indexed_raw, indexed_value,
+    indexed_error, indexed_finish, indexed_raw, indexed_value,
     lowered_binary_value, lowered_contains_value,
     lowered_path_method_value, lowered_record_field_value, lowered_record_vec_or_stats,
     lowered_result_err_value, lowered_status_segment_record,
@@ -10,6 +10,7 @@ use super::{
     lowered_str_predicate_text, lowered_str_value, lowered_trim_is_empty_value,
     lowered_trim_str_predicate_value, lowered_value_from_runtime_any,
 };
+use crate::runtime::eval::indexed::full::schema::{BoolView, IntView};
 
 // Diagnostics retain only bounded scalar text; reporting never traverses or
 // materializes containers and never reevaluates an operand.
@@ -324,235 +325,6 @@ impl Evaluator {
         self.lowered_question_propagation_value(lowered_result_err_value(error), span)
     }
 
-    pub(super) fn eval_indexed_assertion_statement(
-        &mut self,
-        execution: &FullExecution<'_>,
-        condition: u32,
-        message: Option<u32>,
-        slots: &mut [LoweredValue],
-        span: Span,
-    ) -> Result<StmtFlow, RuntimeError> {
-        let failure = match self.eval_indexed_assertion(execution, condition, slots, span)? {
-            ControlFlow::Continue(None) => return Ok(StmtFlow::None),
-            ControlFlow::Continue(Some(failure)) => failure,
-            ControlFlow::Break(value) => return Ok(StmtFlow::Propagate(value)),
-        };
-        let context = if let Some(message) = message {
-            let value = match self.eval_indexed_expr(execution, message, slots, span)? {
-                ControlFlow::Continue(value) => value,
-                ControlFlow::Break(value) => return Ok(StmtFlow::Propagate(value)),
-            };
-            Some(match value {
-                LoweredValue::Str(text) => bounded_assertion_text(&text, 1024),
-                LoweredValue::StrView(text) => bounded_assertion_text(text.as_str(), 1024),
-                _ => {
-                    return Err(RuntimeError::new(
-                        "type-error",
-                        "assert message requires Str",
-                    )
-                    .with_span(span));
-                }
-            })
-        } else {
-            None
-        };
-        Ok(StmtFlow::Propagate(self.indexed_assertion_failed(
-            failure,
-            context.as_deref(),
-            span,
-        )?))
-    }
-
-    pub(super) fn eval_indexed_assertion(
-        &mut self,
-        execution: &FullExecution<'_>,
-        condition: u32,
-        slots: &mut [LoweredValue],
-        span: Span,
-    ) -> Result<ControlFlow<LoweredValue, Option<AssertionFailure>>, RuntimeError> {
-        let mut work = vec![AssertionWork::Expr(condition)];
-        let mut result = (true, None);
-        while let Some(item) = work.pop() {
-            match item {
-                AssertionWork::Left { op, right } => {
-                    if (op == BinaryOp::And && !result.0) || (op == BinaryOp::Or && result.0) {
-                        if !result.0 {
-                            let failure = result
-                                .1
-                                .get_or_insert_with(|| "boolean assertion failed".into());
-                            *failure = bounded_assertion_text(
-                                &format!("{failure} (right operand skipped)"),
-                                1024,
-                            );
-                        }
-                    } else {
-                        work.push(AssertionWork::Right {
-                            op,
-                            left_failure: result.1.take(),
-                        });
-                        work.push(AssertionWork::Expr(right));
-                    }
-                }
-                AssertionWork::Right { op, left_failure } => {
-                    if op == BinaryOp::Or
-                        && !result.0
-                        && let Some(left_failure) = left_failure
-                    {
-                        let right = result
-                            .1
-                            .take()
-                            .unwrap_or_else(|| "boolean assertion failed".into());
-                        result.1 = Some(bounded_assertion_text(
-                            &format!("{left_failure}; {right}"),
-                            1024,
-                        ));
-                    }
-                }
-                AssertionWork::Expr(instruction) => {
-                    let (tag, mut payload) =
-                        indexed_value(execution.instruction_id(instruction), span)?;
-                    if tag == FullTag::ExprBinary {
-                        let op = indexed_decode::<BinaryOp>(&mut payload, execution, span)?;
-                        let left = indexed_raw(&mut payload, span)?;
-                        let right = indexed_raw(&mut payload, span)?;
-                        let operand_span = indexed_decode::<Span>(&mut payload, execution, span)?;
-                        indexed_finish(payload, span)?;
-                        if matches!(op, BinaryOp::And | BinaryOp::Or) {
-                            work.push(AssertionWork::Left { op, right });
-                            work.push(AssertionWork::Expr(left));
-                            continue;
-                        }
-                        if assertion_comparison_op(op) {
-                            let left = match self.eval_indexed_expr(
-                                execution,
-                                left,
-                                slots,
-                                operand_span,
-                            )? {
-                                ControlFlow::Continue(value) => value,
-                                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                            };
-                            let right = match self.eval_indexed_expr(
-                                execution,
-                                right,
-                                slots,
-                                operand_span,
-                            )? {
-                                ControlFlow::Continue(value) => value,
-                                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                            };
-                            let passed =
-                                crate::runtime::eval::lowered_ops::lowered_assertion_comparison(
-                                    op,
-                                    &left,
-                                    &right,
-                                    operand_span,
-                                )?;
-                            if !passed && instruction == condition {
-                                return Ok(ControlFlow::Continue(Some(
-                                    AssertionFailure::Operands(left, right),
-                                )));
-                            }
-                            result = (
-                                passed,
-                                if passed {
-                                    None
-                                } else {
-                                    Some(comparison_failure_text(op, &left, &right, operand_span))
-                                },
-                            );
-                            continue;
-                        }
-                    }
-                    if tag == FullTag::ExprComparisonChain {
-                        let (_, mut pairs) = execution
-                            .block(&mut payload, BLOCK_LIST)
-                            .map_err(|error| indexed_error(error, span))?;
-                        let len = indexed_raw(&mut pairs, span)? as usize;
-                        indexed_decode::<bool>(&mut payload, execution, span)?;
-                        indexed_finish(payload, span)?;
-                        let mut previous = None;
-                        result = (true, None);
-                        for index in 0..len {
-                            let pair = indexed_raw(&mut pairs, span)?;
-                            let (pair_tag, mut pair_payload) =
-                                indexed_value(execution.instruction_id(pair), span)?;
-                            if pair_tag != FullTag::ExprBinary {
-                                return Err(RuntimeError::new(
-                                    "indexed-ir",
-                                    "comparison chain requires binary pairs",
-                                )
-                                .with_span(span));
-                            }
-                            let op =
-                                indexed_decode::<BinaryOp>(&mut pair_payload, execution, span)?;
-                            let left = indexed_raw(&mut pair_payload, span)?;
-                            let right = indexed_raw(&mut pair_payload, span)?;
-                            let operand_span =
-                                indexed_decode::<Span>(&mut pair_payload, execution, span)?;
-                            indexed_finish(pair_payload, span)?;
-                            let left = match previous.take() {
-                                Some(value) => value,
-                                None => match self.eval_indexed_expr(
-                                    execution,
-                                    left,
-                                    slots,
-                                    operand_span,
-                                )? {
-                                    ControlFlow::Continue(value) => value,
-                                    ControlFlow::Break(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
-                                },
-                            };
-                            let right = match self.eval_indexed_expr(
-                                execution,
-                                right,
-                                slots,
-                                operand_span,
-                            )? {
-                                ControlFlow::Continue(value) => value,
-                                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                            };
-                            if lowered_binary_value(op, left.clone(), right.clone(), operand_span)?
-                                == LoweredValue::Bool(false)
-                            {
-                                let mut failure =
-                                    comparison_failure_text(op, &left, &right, operand_span);
-                                if index + 1 < len {
-                                    failure.push_str(" (later operands skipped)");
-                                }
-                                result = (false, Some(failure));
-                                break;
-                            }
-                            previous = Some(right);
-                        }
-                        continue;
-                    }
-                    match self.eval_indexed_expr(execution, instruction, slots, span) {
-                        Ok(ControlFlow::Continue(LoweredValue::Bool(passed))) => {
-                            result = (passed, None)
-                        }
-                        Ok(ControlFlow::Continue(_)) => {
-                            return Err(RuntimeError::new(
-                                "type-error",
-                                "assert condition requires Bool",
-                            )
-                            .with_span(span));
-                        }
-                        Ok(ControlFlow::Break(value)) => return Ok(ControlFlow::Break(value)),
-                        Err(error) => return Err(error),
-                    }
-                }
-            }
-        }
-        Ok(ControlFlow::Continue(match result {
-            (true, _) => None,
-            (false, Some(failure)) => Some(AssertionFailure::Reached(failure)),
-            (false, None) => Some(AssertionFailure::False),
-        }))
-    }
-
     pub(super) fn eval_indexed_binary_stack(
         &mut self,
         execution: &FullExecution<'_>,
@@ -735,81 +507,14 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<ControlFlow<LoweredValue, i64>, RuntimeError> {
-        let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
-        let value = match tag {
-            FullTag::IntInt => {
-                let value = indexed_decode::<i64>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                value
-            }
-            FullTag::IntSlot => {
-                let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let LoweredValue::Int(value) = slots[slot] else {
-                    return Err(
-                        RuntimeError::new("type-error", "lowered expression expected Int")
-                            .with_span(call_span),
-                    );
-                };
-                value
-            }
-            FullTag::IntBinary => {
-                let op = indexed_decode::<BinaryOp>(&mut payload, execution, call_span)?;
-                let left = indexed_raw(&mut payload, call_span)?;
-                let right = indexed_raw(&mut payload, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let left = match self.eval_indexed_typed_int(execution, left, slots, call_span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let right = match self.eval_indexed_typed_int(execution, right, slots, call_span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                checked_int_binary(op, left, right, call_span)?
-            }
-            FullTag::IntStrByteLenSlot => {
-                let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                lowered_str_byte_len_value(&slots[slot], span)?
-            }
-            FullTag::IntStrCountLinesSlot => {
-                let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                lowered_str_count_lines_value(&slots[slot], span)?
-            }
-            FullTag::IntStrByteAtSlot => {
-                let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
-                let index = indexed_raw(&mut payload, call_span)?;
-                let default = indexed_optional_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let index = match self.eval_indexed_typed_int(execution, index, slots, call_span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let default = match default {
-                    Some(default) => {
-                        match self.eval_indexed_typed_int(execution, default, slots, call_span)? {
-                            ControlFlow::Continue(value) => value,
-                            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                        }
-                    }
-                    None => -1,
-                };
-                lowered_str_byte_at_value(&slots[slot], index, default, span)?
-            }
-            _ => {
-                return Err(RuntimeError::new(
-                    "indexed-ir",
-                    format!("direct indexed int evaluator does not support {tag:?}"),
-                )
-                .with_span(call_span));
-            }
-        };
-        Ok(ControlFlow::Continue(value))
+        match eval_indexed_typed_scalar(execution, instruction, slots, call_span, true)? {
+            TypedScalarValue::Int(value) => Ok(ControlFlow::Continue(value)),
+            TypedScalarValue::Bool(_) => Err(RuntimeError::new(
+                "indexed-ir",
+                "typed integer evaluator produced Bool",
+            )
+            .with_span(call_span)),
+        }
     }
 
     pub(super) fn eval_indexed_typed_bool(
@@ -819,138 +524,14 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<ControlFlow<LoweredValue, bool>, RuntimeError> {
-        let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
-        let value = match tag {
-            FullTag::BoolBool => {
-                let value = indexed_decode::<bool>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                value
-            }
-            FullTag::BoolSlot => {
-                let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                match &slots[slot] {
-                    LoweredValue::Bool(value) => *value,
-                    LoweredValue::Status(status) => status.success,
-                    _ => {
-                        return Err(RuntimeError::new(
-                            "type-error",
-                            "lowered expression expected Bool",
-                        )
-                        .with_span(call_span));
-                    }
-                }
-            }
-            FullTag::BoolNot => {
-                let value = indexed_raw(&mut payload, call_span)?;
-                indexed_finish(payload, call_span)?;
-                match self.eval_indexed_typed_bool(execution, value, slots, call_span)? {
-                    ControlFlow::Continue(value) => !value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                }
-            }
-            FullTag::BoolAnd | FullTag::BoolOr => {
-                let left = indexed_raw(&mut payload, call_span)?;
-                let right = indexed_raw(&mut payload, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let left = match self.eval_indexed_typed_bool(execution, left, slots, call_span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                if tag == FullTag::BoolAnd && !left {
-                    return Ok(ControlFlow::Continue(false));
-                }
-                if tag == FullTag::BoolOr && left {
-                    return Ok(ControlFlow::Continue(true));
-                }
-                return self.eval_indexed_typed_bool(execution, right, slots, call_span);
-            }
-            FullTag::BoolIntCompare => {
-                let op = indexed_decode::<BinaryOp>(&mut payload, execution, call_span)?;
-                let left = indexed_raw(&mut payload, call_span)?;
-                let right = indexed_raw(&mut payload, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let left = match self.eval_indexed_typed_int(execution, left, slots, call_span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let right = match self.eval_indexed_typed_int(execution, right, slots, call_span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                match op {
-                    BinaryOp::Eq => left == right,
-                    BinaryOp::Ne => left != right,
-                    BinaryOp::Lt => left < right,
-                    BinaryOp::Le => left <= right,
-                    BinaryOp::Gt => left > right,
-                    BinaryOp::Ge => left >= right,
-                    _ => unreachable!("verified typed comparison"),
-                }
-            }
-            FullTag::BoolStrPredicateSlot => {
-                let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
-                let predicate =
-                    indexed_decode::<LoweredStrPredicate>(&mut payload, execution, call_span)?;
-                let needle = indexed_decode::<Arc<[u8]>>(&mut payload, execution, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                lowered_str_predicate_text(&slots[slot], predicate, &needle, span)?
-            }
-            FullTag::BoolContainsSlot => {
-                let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
-                let needle = indexed_decode::<LoweredValue>(&mut payload, execution, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                lowered_contains_value(&slots[slot], &needle, span)?
-            }
-            FullTag::BoolStrContainsSlot => {
-                let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
-                let needle = indexed_decode::<Arc<str>>(&mut payload, execution, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                if let Some(text) = lowered_str_value(&slots[slot]) {
-                    bytes_contains(text.as_bytes(), needle.as_bytes())
-                } else {
-                    lowered_contains_value(&slots[slot], &LoweredValue::Str(needle), span)?
-                }
-            }
-            FullTag::BoolTrimEmptySlot => {
-                let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                lowered_trim_is_empty_value(&slots[slot], span)?
-            }
-            FullTag::BoolTrimStrPredicateSlot => {
-                let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
-                let predicate =
-                    indexed_decode::<LoweredStrPredicate>(&mut payload, execution, call_span)?;
-                let needle = indexed_decode::<Arc<[u8]>>(&mut payload, execution, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                lowered_trim_str_predicate_value(&slots[slot], predicate, &needle, span)?
-            }
-            FullTag::BoolLiteralCompareSlot => {
-                let op = indexed_decode::<BinaryOp>(&mut payload, execution, call_span)?;
-                let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
-                let value = indexed_decode::<LoweredValue>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let equal = slots[slot] == value;
-                match op {
-                    BinaryOp::Eq => equal,
-                    BinaryOp::Ne => !equal,
-                    _ => unreachable!("verified literal comparison"),
-                }
-            }
-            _ => {
-                return Err(RuntimeError::new(
-                    "indexed-ir",
-                    format!("direct indexed bool evaluator does not support {tag:?}"),
-                )
-                .with_span(call_span));
-            }
-        };
-        Ok(ControlFlow::Continue(value))
+        match eval_indexed_typed_scalar(execution, instruction, slots, call_span, false)? {
+            TypedScalarValue::Bool(value) => Ok(ControlFlow::Continue(value)),
+            TypedScalarValue::Int(_) => Err(RuntimeError::new(
+                "indexed-ir",
+                "typed boolean evaluator produced Int",
+            )
+            .with_span(call_span)),
+        }
     }
 
     pub(super) fn eval_indexed_bool(
@@ -960,6 +541,24 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<ControlFlow<LoweredValue, bool>, RuntimeError> {
+        let (tag, _) = indexed_value(execution.instruction_id(instruction), call_span)?;
+        if matches!(
+            tag,
+            FullTag::BoolBool
+                | FullTag::BoolSlot
+                | FullTag::BoolNot
+                | FullTag::BoolAnd
+                | FullTag::BoolOr
+                | FullTag::BoolIntCompare
+                | FullTag::BoolStrPredicateSlot
+                | FullTag::BoolContainsSlot
+                | FullTag::BoolStrContainsSlot
+                | FullTag::BoolTrimEmptySlot
+                | FullTag::BoolTrimStrPredicateSlot
+                | FullTag::BoolLiteralCompareSlot
+        ) {
+            return self.eval_indexed_typed_bool(execution, instruction, slots, call_span);
+        }
         match self.eval_indexed_expr(execution, instruction, slots, call_span)? {
             ControlFlow::Break(value) => Ok(ControlFlow::Break(value)),
             ControlFlow::Continue(value) => {
@@ -967,4 +566,265 @@ impl Evaluator {
             }
         }
     }
+}
+
+enum TypedScalarValue {
+    Int(i64),
+    Bool(bool),
+}
+
+enum TypedScalarWork {
+    Int(u32),
+    Bool(u32),
+    ApplyIntBinary { op: BinaryOp, span: Span },
+    ApplyBoolNot,
+    ApplyBoolBranch { op: FullTag, right: u32 },
+    ApplyBoolIntCompare { op: BinaryOp },
+    ApplyIntByteAt {
+        slot: usize,
+        default: Option<u32>,
+        span: Span,
+    },
+}
+
+fn eval_indexed_typed_scalar(
+    execution: &FullExecution<'_>,
+    instruction: u32,
+    slots: &mut [LoweredValue],
+    call_span: Span,
+    integer: bool,
+) -> Result<TypedScalarValue, RuntimeError> {
+    let mut work = vec![if integer {
+        TypedScalarWork::Int(instruction)
+    } else {
+        TypedScalarWork::Bool(instruction)
+    }];
+    let mut values = Vec::new();
+    while let Some(task) = work.pop() {
+        match task {
+            TypedScalarWork::Int(instruction) => {
+                let (tag, payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
+                let view = IntView::decode(execution, tag, payload)
+                    .map_err(|error| indexed_error(error, call_span))?;
+                match view {
+                    IntView::Int(value) => values.push(TypedScalarValue::Int(value)),
+                    IntView::Slot(slot) => {
+                        let LoweredValue::Int(value) = slots[slot] else {
+                            return Err(RuntimeError::new(
+                                "type-error",
+                                "lowered expression expected Int",
+                            )
+                            .with_span(call_span));
+                        };
+                        values.push(TypedScalarValue::Int(value));
+                    }
+                    IntView::Binary { op, left, right } => {
+                        work.push(TypedScalarWork::ApplyIntBinary {
+                            op,
+                            span: call_span,
+                        });
+                        work.push(TypedScalarWork::Int(right.raw()));
+                        work.push(TypedScalarWork::Int(left.raw()));
+                    }
+                    IntView::StrByteLenSlot { slot, span } => {
+                        values.push(TypedScalarValue::Int(lowered_str_byte_len_value(
+                            &slots[slot], span,
+                        )?));
+                    }
+                    IntView::StrCountLinesSlot { slot, span } => {
+                        values.push(TypedScalarValue::Int(lowered_str_count_lines_value(
+                            &slots[slot], span,
+                        )?));
+                    }
+                    IntView::StrByteAtSlot {
+                        slot,
+                        index,
+                        default,
+                        span,
+                    } => {
+                        work.push(TypedScalarWork::ApplyIntByteAt {
+                            slot,
+                            default: default.map(|id| id.raw()),
+                            span,
+                        });
+                        work.push(TypedScalarWork::Int(index.raw()));
+                    }
+                }
+            }
+            TypedScalarWork::Bool(instruction) => {
+                let (tag, payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
+                let view = BoolView::decode(execution, tag, payload)
+                    .map_err(|error| indexed_error(error, call_span))?;
+                match view {
+                    BoolView::Bool(value) => values.push(TypedScalarValue::Bool(value)),
+                    BoolView::Slot(slot) => {
+                        let value = match &slots[slot] {
+                            LoweredValue::Bool(value) => *value,
+                            LoweredValue::Status(status) => status.success,
+                            _ => {
+                                return Err(RuntimeError::new(
+                                    "type-error",
+                                    "lowered expression expected Bool",
+                                )
+                                .with_span(call_span));
+                            }
+                        };
+                        values.push(TypedScalarValue::Bool(value));
+                    }
+                    BoolView::Not(value) => {
+                        work.push(TypedScalarWork::ApplyBoolNot);
+                        work.push(TypedScalarWork::Bool(value.raw()));
+                    }
+                    BoolView::And(left, right) => {
+                        work.push(TypedScalarWork::ApplyBoolBranch {
+                            op: FullTag::BoolAnd,
+                            right: right.raw(),
+                        });
+                        work.push(TypedScalarWork::Bool(left.raw()));
+                    }
+                    BoolView::Or(left, right) => {
+                        work.push(TypedScalarWork::ApplyBoolBranch {
+                            op: FullTag::BoolOr,
+                            right: right.raw(),
+                        });
+                        work.push(TypedScalarWork::Bool(left.raw()));
+                    }
+                    BoolView::IntCompare { op, left, right } => {
+                        work.push(TypedScalarWork::ApplyBoolIntCompare { op });
+                        work.push(TypedScalarWork::Int(right.raw()));
+                        work.push(TypedScalarWork::Int(left.raw()));
+                    }
+                    BoolView::StrPredicateSlot {
+                        slot,
+                        predicate,
+                        needle,
+                        span,
+                    } => values.push(TypedScalarValue::Bool(lowered_str_predicate_text(
+                        &slots[slot], predicate, needle, span,
+                    )?)),
+                    BoolView::ContainsSlot { slot, needle, span } => {
+                        let needle = needle
+                            .materialize()
+                            .map_err(|error| indexed_error(error, span))?;
+                        values.push(TypedScalarValue::Bool(lowered_contains_value(
+                            &slots[slot], &needle, span,
+                        )?));
+                    }
+                    BoolView::StrContainsSlot { slot, needle, span } => {
+                        let result = if let Some(text) = lowered_str_value(&slots[slot]) {
+                            bytes_contains(text.as_bytes(), needle.as_bytes())
+                        } else {
+                            lowered_contains_value(
+                                &slots[slot],
+                                &LoweredValue::Str(Arc::from(needle)),
+                                span,
+                            )?
+                        };
+                        values.push(TypedScalarValue::Bool(result));
+                    }
+                    BoolView::TrimEmptySlot { slot, span } => {
+                        values.push(TypedScalarValue::Bool(lowered_trim_is_empty_value(
+                            &slots[slot], span,
+                        )?));
+                    }
+                    BoolView::TrimStrPredicateSlot {
+                        slot,
+                        predicate,
+                        needle,
+                        span,
+                    } => values.push(TypedScalarValue::Bool(lowered_trim_str_predicate_value(
+                        &slots[slot], predicate, needle, span,
+                    )?)),
+                    BoolView::LiteralCompareSlot { op, slot, value } => {
+                        let value = value
+                            .materialize()
+                            .map_err(|error| indexed_error(error, call_span))?;
+                        let equal = slots[slot] == value;
+                        let result = match op {
+                            BinaryOp::Eq => equal,
+                            BinaryOp::Ne => !equal,
+                            _ => unreachable!("verified literal comparison"),
+                        };
+                        values.push(TypedScalarValue::Bool(result));
+                    }
+                }
+            }
+            TypedScalarWork::ApplyIntBinary { op, span } => {
+                let Some(TypedScalarValue::Int(right)) = values.pop() else {
+                    return Err(typed_scalar_stack_error("integer right operand", call_span));
+                };
+                let Some(TypedScalarValue::Int(left)) = values.pop() else {
+                    return Err(typed_scalar_stack_error("integer left operand", call_span));
+                };
+                values.push(TypedScalarValue::Int(checked_int_binary(op, left, right, span)?));
+            }
+            TypedScalarWork::ApplyBoolNot => {
+                let Some(TypedScalarValue::Bool(value)) = values.pop() else {
+                    return Err(typed_scalar_stack_error("boolean operand", call_span));
+                };
+                values.push(TypedScalarValue::Bool(!value));
+            }
+            TypedScalarWork::ApplyBoolBranch { op, right } => {
+                let Some(TypedScalarValue::Bool(left)) = values.pop() else {
+                    return Err(typed_scalar_stack_error("boolean left operand", call_span));
+                };
+                if (op == FullTag::BoolAnd && !left) || (op == FullTag::BoolOr && left) {
+                    values.push(TypedScalarValue::Bool(left));
+                } else {
+                    work.push(TypedScalarWork::Bool(right));
+                }
+            }
+            TypedScalarWork::ApplyBoolIntCompare { op } => {
+                let Some(TypedScalarValue::Int(right)) = values.pop() else {
+                    return Err(typed_scalar_stack_error("integer right comparison operand", call_span));
+                };
+                let Some(TypedScalarValue::Int(left)) = values.pop() else {
+                    return Err(typed_scalar_stack_error("integer left comparison operand", call_span));
+                };
+                let result = match op {
+                    BinaryOp::Eq => left == right,
+                    BinaryOp::Ne => left != right,
+                    BinaryOp::Lt => left < right,
+                    BinaryOp::Le => left <= right,
+                    BinaryOp::Gt => left > right,
+                    BinaryOp::Ge => left >= right,
+                    _ => unreachable!("verified typed comparison"),
+                };
+                values.push(TypedScalarValue::Bool(result));
+            }
+            TypedScalarWork::ApplyIntByteAt {
+                slot,
+                default,
+                span,
+            } => {
+                let Some(TypedScalarValue::Int(index)) = values.pop() else {
+                    return Err(typed_scalar_stack_error("byte index", call_span));
+                };
+                let value = lowered_str_byte_at_value(&slots[slot], index, -1, span)?;
+                if value == -1 {
+                    if let Some(default) = default {
+                        work.push(TypedScalarWork::Int(default));
+                    } else {
+                        values.push(TypedScalarValue::Int(-1));
+                    }
+                } else {
+                    values.push(TypedScalarValue::Int(value));
+                }
+            }
+        }
+    }
+    if values.len() != 1 {
+        return Err(typed_scalar_stack_error("one final result", call_span));
+    }
+    values
+        .pop()
+        .ok_or_else(|| typed_scalar_stack_error("final result", call_span))
+}
+
+fn typed_scalar_stack_error(expected: &str, span: Span) -> RuntimeError {
+    RuntimeError::new(
+        "indexed-ir",
+        format!("typed scalar evaluator expected {expected}"),
+    )
+    .with_span(span)
 }

@@ -604,70 +604,70 @@ macro_rules! instruction_schema {
 
 instruction_schema! {
     BuildIntRow => IntView [Int] {
-        Int(value: i64) => IntInt = 0 [0; Operands; LegacyRecursive];
-        Slot(slot: usize) => IntSlot = 1 [0; Operands; LegacyRecursive];
+        Int(value: i64) => IntInt = 0 [0; Operands; FrameApply];
+        Slot(slot: usize) => IntSlot = 1 [0; Operands; FrameApply];
         Binary {
             op: BinaryOp,
             left: BuildIntId,
             right: BuildIntId,
-        } => IntBinary = 2 [0; Operands; LegacyRecursive];
+        } => IntBinary = 2 [0; Operands; FrameApply];
         StrByteLenSlot {
             slot: usize,
             span: Span,
-        } => IntStrByteLenSlot = 3 [0; Operands; LegacyRecursive];
+        } => IntStrByteLenSlot = 3 [0; Operands; FrameApply];
         StrCountLinesSlot {
             slot: usize,
             span: Span,
-        } => IntStrCountLinesSlot = 4 [0; Operands; LegacyRecursive];
+        } => IntStrCountLinesSlot = 4 [0; Operands; FrameApply];
         StrByteAtSlot {
             slot: usize,
             index: BuildIntId,
             default: Option<BuildIntId>,
             span: Span,
-        } => IntStrByteAtSlot = 5 [0; Operands; LegacyRecursive];
+        } => IntStrByteAtSlot = 5 [0; Operands; FrameApply];
     }
     BuildBoolRow => BoolView [Bool] {
-        Bool(value: bool) => BoolBool = 6 [0; Operands; LegacyRecursive];
-        Slot(slot: usize) => BoolSlot = 7 [0; Operands; LegacyRecursive];
-        Not(value: BuildBoolId) => BoolNot = 8 [0; Operands; LegacyRecursive];
-        And(left: BuildBoolId, right: BuildBoolId) => BoolAnd = 9 [0; Operands; LegacyRecursive];
-        Or(left: BuildBoolId, right: BuildBoolId) => BoolOr = 10 [0; Operands; LegacyRecursive];
+        Bool(value: bool) => BoolBool = 6 [0; Operands; FrameApply];
+        Slot(slot: usize) => BoolSlot = 7 [0; Operands; FrameApply];
+        Not(value: BuildBoolId) => BoolNot = 8 [0; Operands; FrameApply];
+        And(left: BuildBoolId, right: BuildBoolId) => BoolAnd = 9 [0; Operands; FrameApply];
+        Or(left: BuildBoolId, right: BuildBoolId) => BoolOr = 10 [0; Operands; FrameApply];
         IntCompare {
             op: BinaryOp,
             left: BuildIntId,
             right: BuildIntId,
-        } => BoolIntCompare = 11 [0; Operands; LegacyRecursive];
+        } => BoolIntCompare = 11 [0; Operands; FrameApply];
         StrPredicateSlot {
             slot: usize,
             predicate: LoweredStrPredicate,
             needle: Arc<[u8]>,
             span: Span,
-        } => BoolStrPredicateSlot = 12 [0; Operands; LegacyRecursive];
+        } => BoolStrPredicateSlot = 12 [0; Operands; FrameApply];
         ContainsSlot {
             slot: usize,
             needle: LoweredValue,
             span: Span,
-        } => BoolContainsSlot = 13 [0; Operands; LegacyRecursive];
+        } => BoolContainsSlot = 13 [0; Operands; FrameApply];
         StrContainsSlot {
             slot: usize,
             needle: Arc<str>,
             span: Span,
-        } => BoolStrContainsSlot = 14 [0; Operands; LegacyRecursive];
+        } => BoolStrContainsSlot = 14 [0; Operands; FrameApply];
         TrimEmptySlot {
             slot: usize,
             span: Span,
-        } => BoolTrimEmptySlot = 15 [0; Operands; LegacyRecursive];
+        } => BoolTrimEmptySlot = 15 [0; Operands; FrameApply];
         TrimStrPredicateSlot {
             slot: usize,
             predicate: LoweredStrPredicate,
             needle: Arc<[u8]>,
             span: Span,
-        } => BoolTrimStrPredicateSlot = 16 [0; Operands; LegacyRecursive];
+        } => BoolTrimStrPredicateSlot = 16 [0; Operands; FrameApply];
         LiteralCompareSlot {
             op: BinaryOp,
             slot: usize,
             value: LoweredValue,
-        } => BoolLiteralCompareSlot = 17 [0; Operands; LegacyRecursive];
+        } => BoolLiteralCompareSlot = 17 [0; Operands; FrameApply];
     }
     BuildExprRow => ExprView [Expr] {
         Null => ExprNull = 18 [0; Operands; FrameApply];
@@ -684,11 +684,11 @@ instruction_schema! {
         FunctionRef {
             function: FunctionName,
             pure: bool,
-        } => ExprFunctionRef = 29 [0; Operands; LegacyRecursive];
+        } => ExprFunctionRef = 29 [0; Scheduled; FrameApply];
         PathFrom {
             value: BuildExprId,
             span: Span,
-        } => ExprPathFrom = 30 [0; Operands; LegacyRecursive];
+        } => ExprPathFrom = 30 [0; Scheduled; FrameApply];
         Param(slot: usize) => ExprParam = 31 [0; Operands; FrameApply];
         ComparisonChain {
             pairs: Vec<BuildExprId>,
@@ -759,23 +759,18 @@ instruction_schema! {
         // Each element records whether it splices, its value, and its source span.
         ListBuild(values: Vec<(bool, BuildExprId, Span)>) => ExprListBuild = 48 [0; Operands; FrameApply];
         // The `map.empty()` builtin constructor (empty list literals already lower via `List`).
-        EmptyMap => ExprEmptyMap = 49 [0; Operands; LegacyRecursive];
-        // The `bytes.concat(<List[Bytes]>)` builtin constructor.
-        BytesConcat {
-            arg: BuildExprId,
-            span: Span,
-        } => ExprBytesConcat = 50 [0; Operands; LegacyRecursive];
+        EmptyMap => ExprEmptyMap = 49 [0; Scheduled; FrameApply];
         Range {
             start: BuildExprId,
             end: BuildExprId,
             span: Span,
-        } => ExprRange = 51 [0; Operands; LegacyRecursive];
+        } => ExprRange = 51 [0; Scheduled; FrameApply];
         Tag {
             type_name: Name,
             name: Arc<str>,
             fields: Vec<BuildExprId>,
             wire: Option<Arc<crate::sema::wire_enums::WireEnumMapping>>,
-        } => ExprTag = 52 [0; Operands; LegacyRecursive];
+        } => ExprTag = 52 [0; Scheduled; FrameApply];
         ListComp {
             value: BuildExprId,
             qualifiers: LoweredCompQualifiers,
@@ -816,7 +811,7 @@ instruction_schema! {
             start: Option<BuildExprId>,
             end: Option<BuildExprId>,
             span: Span,
-        } => ExprSlice = 59 [0; Operands; LegacyRecursive];
+        } => ExprSlice = 59 [0; Scheduled; FrameApply];
         Method {
             receiver: BuildExprId,
             name: NameText,
@@ -826,22 +821,18 @@ instruction_schema! {
         StrByteLen {
             receiver: BuildExprId,
             span: Span,
-        } => ExprStrByteLen = 61 [0; Operands; LegacyRecursive];
+        } => ExprStrByteLen = 61 [0; Scheduled; FrameApply];
         StrByteAt {
             receiver: BuildExprId,
             index: BuildExprId,
             span: Span,
-        } => ExprStrByteAt = 62 [0; Operands; LegacyRecursive];
+        } => ExprStrByteAt = 62 [0; Scheduled; FrameApply];
         StrPredicate {
             receiver: BuildExprId,
             predicate: LoweredStrPredicate,
             needle: BuildExprId,
             span: Span,
-        } => ExprStrPredicate = 63 [0; Operands; LegacyRecursive];
-        RegexCompile {
-            pattern: BuildExprId,
-            span: Span,
-        } => ExprRegexCompile = 64 [0; Operands; LegacyRecursive];
+        } => ExprStrPredicate = 63 [0; Scheduled; FrameApply];
         Require {
             value: BuildExprId,
             check: LoweredTypeCheck,
@@ -986,10 +977,6 @@ instruction_schema! {
             missing_ok: Option<BuildExprId>,
             span: Span,
         } => ExprPathRemove = 94 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands; LegacyRecursive];
-        JsonEncode {
-            value: BuildExprId,
-            span: Span,
-        } => ExprJsonEncode = 95 [0; Operands; LegacyRecursive];
         ArchiveTarCreate {
             path: BuildExprId,
             root: BuildExprId,
@@ -1135,7 +1122,7 @@ instruction_schema! {
             op: AssignOp,
             value: BuildIntId,
             span: Span,
-        } => StmtAssignFieldInt = 122 [0; Scheduled; LegacyRecursive];
+        } => StmtAssignFieldInt = 122 [0; Scheduled; FrameControl];
         AssignPath {
             slot: usize,
             path: LoweredAssignPath,
@@ -1149,11 +1136,11 @@ instruction_schema! {
             op: AssignOp,
             value: BuildIntId,
             span: Span,
-        } => StmtAssignInt = 124 [0; Scheduled; LegacyRecursive];
+        } => StmtAssignInt = 124 [0; Scheduled; FrameControl];
         AssignBool {
             slot: usize,
             value: BuildBoolId,
-        } => StmtAssignBool = 125 [0; Scheduled; LegacyRecursive];
+        } => StmtAssignBool = 125 [0; Scheduled; FrameControl];
         Value {
             value: BuildExprId,
         } => StmtValue = 126 [0; Scheduled; FrameControl];
@@ -1404,8 +1391,6 @@ mod tests {
             ExprPreparedRegex
             ExprPreparedConstant
             ExprPath
-            ExprFunctionRef
-            ExprPathFrom
             ExprParam
             ExprComparisonChain
             ExprBinary
@@ -1424,18 +1409,9 @@ mod tests {
             ExprRecordUpdate
             ExprList
             ExprListBuild
-            ExprEmptyMap
-            ExprBytesConcat
-            ExprRange
-            ExprTag
             ExprField
             ExprIndex
             ExprIndexFromEnd
-            ExprSlice
-            ExprStrByteLen
-            ExprStrByteAt
-            ExprStrPredicate
-            ExprRegexCompile
             ExprRequire
             ExprCheckedValue
             ExprFsFiles
@@ -1455,7 +1431,6 @@ mod tests {
             ExprPathWrite
             ExprPathMkdir
             ExprPathRemove
-            ExprJsonEncode
             ExprFail
             ExprOk
             ExprErr
@@ -1463,15 +1438,37 @@ mod tests {
             ExprTry
         "#;
         let names: Vec<_> = operands.split_whitespace().collect();
-        assert_eq!(names.len(), 86);
+        assert_eq!(names.len(), 74);
         for tag in INSTRUCTION_TAGS {
             let expected = if names.contains(&tag.name()) { InPlaceClass::Operands } else { InPlaceClass::Scheduled };
             assert_eq!(tag.in_place_class(), expected, "{}", tag.name());
         }
+
+        let scheduled_apply = [
+            "ExprFunctionRef",
+            "ExprPathFrom",
+            "ExprEmptyMap",
+            "ExprRange",
+            "ExprTag",
+            "ExprSlice",
+            "ExprStrByteLen",
+            "ExprStrByteAt",
+            "ExprStrPredicate",
+        ];
+        assert_eq!(scheduled_apply.len(), 9);
+        for name in scheduled_apply {
+            let tag = INSTRUCTION_TAGS
+                .iter()
+                .copied()
+                .find(|tag| tag.name() == name)
+                .expect("scheduled frame-apply tag is in the instruction schema");
+            assert_eq!(tag.frame_strategy(), FrameStrategy::FrameApply, "{name}");
+            assert_eq!(tag.in_place_class(), InPlaceClass::Scheduled, "{name}");
+        }
     }
 
     #[test]
-    fn frame_apply_strategy_covers_the_first_ordered_value_cohort() {
+    fn frame_apply_strategy_covers_the_ordered_value_cohorts() {
         let eager: Vec<_> = INSTRUCTION_TAGS
             .iter()
             .filter(|tag| tag.frame_strategy() == FrameStrategy::FrameApply)
@@ -1480,6 +1477,24 @@ mod tests {
         assert_eq!(
             eager,
             [
+                "IntInt",
+                "IntSlot",
+                "IntBinary",
+                "IntStrByteLenSlot",
+                "IntStrCountLinesSlot",
+                "IntStrByteAtSlot",
+                "BoolBool",
+                "BoolSlot",
+                "BoolNot",
+                "BoolAnd",
+                "BoolOr",
+                "BoolIntCompare",
+                "BoolStrPredicateSlot",
+                "BoolContainsSlot",
+                "BoolStrContainsSlot",
+                "BoolTrimEmptySlot",
+                "BoolTrimStrPredicateSlot",
+                "BoolLiteralCompareSlot",
                 "ExprNull",
                 "ExprUnit",
                 "ExprInt",
@@ -1491,12 +1506,21 @@ mod tests {
                 "ExprPreparedRegex",
                 "ExprPreparedConstant",
                 "ExprPath",
+                "ExprFunctionRef",
+                "ExprPathFrom",
                 "ExprParam",
                 "ExprList",
                 "ExprListBuild",
+                "ExprEmptyMap",
+                "ExprRange",
+                "ExprTag",
                 "ExprField",
                 "ExprIndex",
                 "ExprIndexFromEnd",
+                "ExprSlice",
+                "ExprStrByteLen",
+                "ExprStrByteAt",
+                "ExprStrPredicate",
             ]
         );
         assert_eq!(
@@ -1507,6 +1531,41 @@ mod tests {
             FullTag::ExprLoop.frame_strategy(),
             FrameStrategy::LegacyRecursive
         );
+    }
+
+    #[test]
+    fn frame_apply_strategy_covers_typed_integer_and_boolean_instructions() {
+        let typed = [
+            FullTag::IntInt,
+            FullTag::IntSlot,
+            FullTag::IntBinary,
+            FullTag::IntStrByteLenSlot,
+            FullTag::IntStrCountLinesSlot,
+            FullTag::IntStrByteAtSlot,
+            FullTag::BoolBool,
+            FullTag::BoolSlot,
+            FullTag::BoolNot,
+            FullTag::BoolAnd,
+            FullTag::BoolOr,
+            FullTag::BoolIntCompare,
+            FullTag::BoolStrPredicateSlot,
+            FullTag::BoolContainsSlot,
+            FullTag::BoolStrContainsSlot,
+            FullTag::BoolTrimEmptySlot,
+            FullTag::BoolTrimStrPredicateSlot,
+            FullTag::BoolLiteralCompareSlot,
+        ];
+        for tag in typed {
+            assert_eq!(tag.frame_strategy(), FrameStrategy::FrameApply, "{}", tag.name());
+        }
+        for tag in [
+            FullTag::StmtAssignFieldInt,
+            FullTag::StmtAssignInt,
+            FullTag::StmtAssignBool,
+            FullTag::StmtAssert,
+        ] {
+            assert_eq!(tag.frame_strategy(), FrameStrategy::FrameControl, "{}", tag.name());
+        }
     }
 
     #[test]

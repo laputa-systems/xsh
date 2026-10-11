@@ -3267,6 +3267,13 @@ impl<'a> FullExecution<'a> {
         ))
     }
 
+    pub(in crate::runtime::eval) fn stage_view(
+        &self,
+        raw: u32,
+    ) -> Result<StageView<'a>, IrVerifyError> {
+        StageView::decode(DecodeContext::new(self), raw)
+    }
+
     pub(in crate::runtime::eval) fn value_id(
         &self,
         raw: u32,
@@ -6985,6 +6992,27 @@ macro_rules! pipeline_stage_schema {
             $($view_variants)*
         }
 
+        impl<'a> StageView<'a> {
+            pub(in crate::runtime::eval) fn decode(
+                $stage_view_context: DecodeContext<'a>,
+                raw: u32,
+            ) -> Result<Self, IrVerifyError> {
+                let (tag, mut $stage_payload) =
+                    $stage_view_context.stage_payload(raw)?;
+                let view = match tag {
+                    $($borrow_arms)*
+                };
+                $stage_payload.finish()?;
+                Ok(view)
+            }
+
+            pub(in crate::runtime::eval) fn tag(&self) -> FullStageTag {
+                match self {
+                    $($view_tag_arms)*
+                }
+            }
+        }
+
         impl FullCodec for LoweredPipelineStage {
             fn encode(
                 &self,
@@ -7051,20 +7079,7 @@ macro_rules! pipeline_stage_schema {
                 $stage_view_input: &mut FullCursor<'a>,
             ) -> Result<Self::View<'a>, IrVerifyError> {
                 let raw = $stage_view_input.raw()?;
-                let (tag, mut $stage_payload) =
-                    $stage_view_context.stage_payload(raw)?;
-                let view = match tag {
-                    $($borrow_arms)*
-                };
-                $stage_payload.finish()?;
-                Ok(view)
-            }
-        }
-
-        #[cfg(test)]
-        fn stage_view_tag($stage_view_value: &StageView<'_>) -> FullStageTag {
-            match $stage_view_value {
-                $($view_tag_arms)*
+                StageView::decode($stage_view_context, raw)
             }
         }
 
@@ -8001,6 +8016,36 @@ run true
     }
 
     #[test]
+    fn frame_apply_child_keeps_selection_on_the_explicit_machine() {
+        let source = r#"
+pure selected() -> Path {
+  return if true { Path("x") } else { Path("y") }
+}
+"#;
+        let program = Arc::new(fixture("frame-apply-selection.xsh", source));
+        FullVerifier::verify(&program).unwrap();
+        let marks = program.store.in_place.get().expect("verification installs marks");
+        let selection = function_instruction_indices(&program, "selected", FullTag::ExprIf);
+        assert_eq!(selection.len(), 1);
+        assert!(!marks[selection[0]]);
+        let paths = function_instruction_indices(&program, "selected", FullTag::ExprPathFrom);
+        assert_eq!(paths.len(), 2);
+        assert!(paths.iter().all(|path| !marks[*path]));
+
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let result = evaluator
+            .call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "selected")),
+                LoweredFunctionKind::Pure,
+                &[],
+                Span::new(program.store.source_id, 0, 0),
+            )
+            .expect("selection function exists");
+        assert_eq!(result.unwrap(), Value::Path(PathValue::from_text("x").unwrap()));
+    }
+
+    #[test]
     fn in_place_marks_follow_verified_operands_and_selection_runs_directly() {
         let source = r#"
 pure leaf() -> Int { return 7 }
@@ -8135,7 +8180,6 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
             ExprList
             ExprListBuild
             ExprEmptyMap
-            ExprBytesConcat
             ExprRange
             ExprTag
             ExprListComp
@@ -8149,7 +8193,6 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
             ExprStrByteLen
             ExprStrByteAt
             ExprStrPredicate
-            ExprRegexCompile
             ExprRequire
             ExprCheckedValue
             ExprRunCapture
@@ -8180,7 +8223,6 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
             ExprPathWrite
             ExprPathMkdir
             ExprPathRemove
-            ExprJsonEncode
             ExprArchiveTarCreate
             ExprModuleCall
             ExprProcessCommandArgv
@@ -8242,13 +8284,15 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
             StmtDefaultParameter
         "#;
         let names: Vec<_> = expected.split_whitespace().collect();
-        assert_eq!(schema::INSTRUCTION_TAGS.len(), 155);
-        let expected_ordinals = (0usize..158).filter(|ordinal| ![97, 98, 147].contains(ordinal));
+        let dead_ordinals = [50, 64, 95, 97, 98, 147];
+        assert_eq!(schema::INSTRUCTION_TAGS.len(), 152);
+        let expected_ordinals = (0usize..158).filter(|ordinal| !dead_ordinals.contains(ordinal));
         for ((tag, name), ordinal) in schema::INSTRUCTION_TAGS.iter().zip(names).zip(expected_ordinals) {
             assert_eq!(*tag as usize, ordinal);
             assert_eq!(tag.name(), name);
         }
-        assert!(!schema::INSTRUCTION_TAGS.iter().any(|tag| [97, 98, 147].contains(&(*tag as usize))));
+        assert!(!schema::INSTRUCTION_TAGS.iter().any(|tag| dead_ordinals.contains(&(*tag as usize))));
+        assert_eq!(*schema::INSTRUCTION_TAGS.last().unwrap() as usize, 157);
         fn previous_effects(tags: &[FullTag]) -> u32 {
             tags.iter().fold(0, |effects, tag| {
                 effects
@@ -9472,12 +9516,30 @@ pure selected() -> Str {
         };
         for (index, owned) in rows.into_iter().enumerate() {
             let view = views.next().unwrap().unwrap();
-            assert_eq!(stage_view_tag(&view) as usize, index);
+            assert_eq!(view.tag() as usize, index);
             assert_stage_view_matches(owned, view, &expectations);
         }
         assert!(views.next().is_none());
         assert_eq!(payload.raw().unwrap(), 0x5a5a);
         payload.finish().unwrap();
+    }
+
+    #[test]
+    fn borrowed_stage_body_reuses_its_validated_statement_block() {
+        let (builder, _, _, _, _) = stage_view_fixture();
+        let execution = schema_execution_with_slots(&builder.store, 25);
+        let StageView::Tee { body, .. } = execution.stage_view(20).unwrap() else {
+            panic!("stage 20 is the Tee fixture row");
+        };
+        let (_, mut statements) = execution
+            .block_id(body.block_id(), BLOCK_STATEMENTS)
+            .unwrap();
+        assert_eq!(statements.raw().unwrap(), 2);
+        let first = statements.raw().unwrap();
+        let second = statements.raw().unwrap();
+        statements.finish().unwrap();
+        assert_eq!(execution.instruction_id(first).unwrap().0, FullTag::StmtValue);
+        assert_eq!(execution.instruction_id(second).unwrap().0, FullTag::StmtExpr);
     }
 
     #[test]

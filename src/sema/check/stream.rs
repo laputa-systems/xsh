@@ -410,9 +410,7 @@ impl Checker {
             }
             StreamStageKind::FlatMap => {
                 self.check_stage_no_args_arena(arena, stage);
-                let actual = result_ok_or_self(
-                    &self.check_required_stream_block_arena(arena, source, stage, &item_ty),
-                );
+                let actual = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
                 match actual.into_unvalidated() {
                     Type::List(item) | Type::Stream(item) => Type::Stream(item),
                     Type::Unknown => Type::Stream(Box::new(Type::Unknown)),
@@ -991,13 +989,6 @@ fn stream_type_from_input(ty: Type) -> Result<Type, Type> {
         Type::Result(ok, _) => stream_type_from_input(*ok),
         Type::Unknown => Ok(Type::Stream(Box::new(Type::Unknown))),
         other => Err(other),
-    }
-}
-
-fn result_ok_or_self(ty: &Type) -> Type {
-    match ty {
-        Type::Result(ok, _) => (**ok).clone(),
-        _ => ty.clone(),
     }
 }
 

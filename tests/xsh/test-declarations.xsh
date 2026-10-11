@@ -162,6 +162,68 @@ let selected: Int = [7][selected_index]
 
 test frame_routed_child_keeps_assertion_failure_details { |ctx|
   test.expect(ctx, "assert false, \"frame assertion\"\n", status: 3, stderr: ["frame assertion"])?
+  test.expect(
+    ctx,
+    "assert 1 == 2\n",
+    status: 3,
+    stderr: ["1 == 2", "left: 1", "right: 2"],
+  )?
+}
+
+test frame_routed_typed_scalars_keep_short_circuit_and_error_flow { |ctx|
+  let typed = r"""pure frame_typed_and(keep: Bool) -> Bool {
+  keep and 1 / 0 == 0
+}
+pure frame_typed_or(keep: Bool) -> Bool {
+  keep or 1 / 0 == 0
+}
+pure frame_typed_sum(left: Int, right: Int) -> Int {
+  left + right
+}
+pure frame_typed_byte(text: Str, index: Int) -> Int {
+  let byte = text.byte_at(index) ?? -1
+  byte
+}
+"""
+  test.expect(
+    ctx,
+    typed + "assert !frame_typed_and(false)\nassert frame_typed_or(true)\nassert frame_typed_sum(20, 22) == 42\nassert frame_typed_byte(\"x\", 0) == 120\nassert frame_typed_byte(\"x\", 1) == -1\n",
+    status: 0,
+  )?
+
+  test.expect(ctx, "var selected: Bool = false\nselected = true\nassert selected\n", status: 0)?
+  test.expect(
+    ctx,
+    "type FrameTypedRow = {value: Int}\nvar row: FrameTypedRow = {value: 4}\nrow.value += 1\nassert row.value == 5\n",
+    status: 0,
+  )?
+
+  test.expect(
+    ctx,
+    r"""let no: Result[Bool, Str] = Ok(false)
+let bad: Result[Bool, Str] = Err("cannot stat bad")
+let yes: Result[Bool, Str] = Ok(true)
+var value: Int = 7
+if (no and bad) or yes { value += 1 }
+assert value == 8
+
+""",
+    status: 0,
+  )?
+
+  test.expect(
+    ctx,
+    "let bad: Result[Bool, Str] = Err(\"cannot stat bad\")\nif bad and true { assert false }\n",
+    status: 3,
+    stderr: ["propagated error"],
+  )?
+
+  test.expect(
+    ctx,
+    "var value: Int = 9223372036854775807\nvalue += 1\n",
+    status: 3,
+    stderr: ["integer-overflow"],
+  )?
 }
 
 test ordinary_child_keeps_recursive_fallback_for_unsupported_expressions { |ctx|

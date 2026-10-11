@@ -4110,8 +4110,8 @@ uses the enclosing scope before the callback parameters are bound.
 - `each` and `tee` callbacks are statement bodies: a `Result[Unit]` failure
   propagates.
 - `flat-map` accepts a `List` or `Stream` per item (a live stream is drained
-  before the next item). A `Result` of a list is unwrapped, and `Err` fails the
-  stage.
+  before the next item). It does not unwrap a `Result`; use `?` to propagate a
+  callback error.
 - `fold` and `reduce` callbacks must return exactly the accumulator's type and
   run serially. A `Result[T]` accumulator keeps `Err` values as data.
 - `reduce-by` keeps one accumulator per key, and its callback must return the
