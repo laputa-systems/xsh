@@ -6,7 +6,7 @@
     "commit": "6e39144aaf5a6bc01b9f795010b0914431067183"
   },
   "gate": "G3",
-  "last_green_commit": "0d9aea4c",
+  "last_green_commit": "2d117e88",
   "audit": {
     "new_core_script": "New core/*.xsh applets are installed by the release script at dev/release.xsh:146-160; dev/tests/test-repository-contracts.xsh owns the required core script inventory and contract checks. No separate command registration is needed.",
     "launcher_argument_separator": "Use xsh SCRIPT -- ARGS for an applet and xsh -- SCRIPT ARGS for an explicit script; src/entrypoints/xsh.rs:90-120.",
@@ -775,50 +775,63 @@
     {
       "id": "g3.mem.categories",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_memory_source_keeps_overlapping_categories_as_raw_counters"
+      ],
+      "evidence": "Host release: free, buffers, cache, active/inactive, dirty, and writeback counters remain independent raw byte values; all 16 source-reader tests passed in .work/btop-campaign/g3-memory-source-tests.log."
     },
     {
       "id": "g3.mem.absent_available",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_memory_source_distinguishes_absent_from_zero_counters"
+      ],
+      "evidence": "Host release: absent MemAvailable is not substituted with zero; all 16 source-reader tests passed in .work/btop-campaign/g3-memory-source-tests.log."
     },
     {
       "id": "g3.mem.no_swap",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_memory_source_distinguishes_absent_from_zero_counters",
+        "core/tests/test-btop-model.xsh::test_btop_model_matches_the_independent_b3_monitor_oracle"
+      ],
+      "evidence": "Host release: absent swap remains distinct from two observed zero counters and unavailable derived usage; all 16 source-reader tests passed in .work/btop-campaign/g3-memory-source-tests.log."
     },
     {
       "id": "g3.mem.duplicates",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_memory_source_withholds_duplicate_fields"
+      ],
+      "evidence": "Host release: duplicate MemTotal values are withheld as malformed while other unique counters remain observed; all 16 source-reader tests passed in .work/btop-campaign/g3-memory-source-tests.log."
     },
     {
       "id": "g3.mem.malformed",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_memory_source_marks_malformed_and_truncated_values"
+      ],
+      "evidence": "Host release: malformed and truncated MemTotal inputs expose neither a byte value nor a parsed prefix; all 16 source-reader tests passed in .work/btop-campaign/g3-memory-source-tests.log."
     },
     {
       "id": "g3.mem.large",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_memory_source_checks_large_kilobyte_conversions"
+      ],
+      "evidence": "Host release: the largest exact kB conversion is accepted and the next value is rejected at the exact JSON integer boundary; all 16 source-reader tests passed in .work/btop-campaign/g3-memory-source-tests.log."
     },
     {
       "id": "g3.net.selection",
@@ -1926,6 +1939,6 @@
     }
   ],
   "next": [
-    "G3 S3.3: add memory category derivation and fixtures for absent MemAvailable, no swap, duplicate fields, malformed values, and large counters."
+    "G3 S3.4: verify network selection, rename and replacement epochs, reset, empty and unavailable sources, namespace changes, and units."
   ]
 }
