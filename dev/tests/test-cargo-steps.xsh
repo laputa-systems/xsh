@@ -147,8 +147,8 @@ test_workflows.rust(ctx)?
   let preloaded = f"preload={library}"
   assert log.read_lines()? == [
     f"build --release -p xsh --bin xsh -p xsht --bin xsht {preloaded}",
-    f"test --release --test integration --test ambient_fs_policy --test symbol_plateau --no-run {preloaded}",
-    "test --release --test integration --test ambient_fs_policy --test symbol_plateau -- -Zunstable-options --report-time preload=",
+    f"test --release --test integration --test ambient_fs_policy --test symbol_plateau --test core_compat_boundaries --test core_compat_extra --no-run {preloaded}",
+    "test --release --test integration --test ambient_fs_policy --test symbol_plateau --test core_compat_boundaries --test core_compat_extra -- --skip split:: -Zunstable-options --report-time preload=",
     f"test --lib --no-run {preloaded}",
     "test --lib -- -Zunstable-options --report-time preload=",
   ]
@@ -167,7 +167,7 @@ test_workflows.rust(ctx)?
   )?
   assert log.read_lines()? == [
     "build --release -p xsh --bin xsh -p xsht --bin xsht preload=",
-    "test --release --test integration --test ambient_fs_policy --test symbol_plateau -- -Zunstable-options --report-time preload=",
+    "test --release --test integration --test ambient_fs_policy --test symbol_plateau --test core_compat_boundaries --test core_compat_extra -- --skip split:: -Zunstable-options --report-time preload=",
     "test --lib -- -Zunstable-options --report-time preload=",
   ]
 }

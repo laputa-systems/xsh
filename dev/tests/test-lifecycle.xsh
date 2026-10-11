@@ -362,6 +362,7 @@ test test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary { |ctx
   let default = process.command {
     cwd = root
     stdout = output
+    env = {XSH_DEV: ""}
     run make --no-print-directory -n build
   }
   assert process.run(default)?.exited_with(0)
@@ -371,6 +372,7 @@ test test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary { |ctx
   let lint_check = process.command {
     cwd = root
     stdout = output
+    env = {XSH_DEV: ""}
     run make --no-print-directory -n check
   }
   assert process.run(lint_check)?.exited_with(0)
@@ -380,6 +382,7 @@ test test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary { |ctx
   let override = process.command {
     cwd = root
     stdout = output
+    env = {XSH_DEV: ""}
     run make --no-print-directory -n build "XSH_DEV=/missing/xsh"
   }
   assert process.run(override)?.exited_with(0)
