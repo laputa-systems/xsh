@@ -1,5 +1,59 @@
 # Consolidation restart handoff
 
+## Reader integration and native image recovery — 2026-10-11, `a5ad6e9f`
+
+Accepted since the last checkpoint: isolated command decoder coverage
+(`4e77164b`), shared borrowed type naming (`0922848b`, -2 production lines),
+dead archive/command/simple-error representations (`08a9fc5a`, -271), and
+borrowed pattern matching (`ed805ec8`, -143). Surviving instruction ordinals
+retain holes 97, 98 and 147; pattern ordinal 14 is also a hole. Type naming
+uses the executor's existing `Error` label for process-error values. Pattern
+lane native gates pass 74/74 and schema/store/corruption units 20/20. Three
+existing negative fixtures now have the missing match-arm commas and retain
+their original checker assertions; their parser failures were reproduced on
+the source-matched frozen reference before repair.
+
+`a5ad6e9f` fixes CoreAssert grouping at its actual cause: a selected module
+can have statements while the workspace's global root is empty. The existing
+grouping normalizer now receives the selected source identity. The original
+fixture and recheck, a selected-module unit, and a complex-expression/source-
+order native regression pass. The complete lint table remains private and
+still requires deletion offsets; this repair does not accept that table.
+
+The decoder closure ledger now reconciles all original 115 rows, the final
+41/72/2 canonical counts, finalized pattern and StmtProc overlays, and exact
+writer/caller proofs for every remaining zero row. It explicitly supersedes
+the earlier 110-row prose. There is no unresolved source-reachable row in
+that frozen inventory. It qualifies reader migration, not final current-tree
+coverage. Ledger JSON SHA is
+`8d4127de341932898b6a94499492c4c574c33c5dd6f5abf55fb2c4ab2cbf6d82`,
+in the preserved coverage-baseline worktree's
+`.work/consolidation/coverage/profile-aggregate/decoder-closure-ledger/`.
+Original failures, corrupt profiles and the external dependency mismatch
+remain recorded. Metadata preflight confirms all 10,996 original raw files
+and 115,716,334,536 bytes remain present at their expected sizes.
+
+External Docker cleanup removed native index `65dc744f...`. Recovery from
+cached layers produced protected tag `xsh-test:consolidation-native` with
+index `3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c`.
+Its AMD64 manifest
+`e8459b82618dff6d193055ecb58e9988382beccd4fb8f54f8e6082836f90b6cf`
+and all 15 rootfs layers are exactly the old payload; only the outer
+provenance index differs. Compiler, LLVM, Clang, musl, CRT hashes and alias
+smoke checks match. The three ignored native wrappers now pin that index
+and set `RUSTUP_HOME=/root/.rustup` for unprivileged compiler probes. Receipts
+are under root `.work/consolidation/infra/recovery-native/`. Do not substitute
+the mutable `latest` tag or change the ARM image.
+
+Private work remains active: complete module records pass unchanged
+1,415-source/four-mode checker parity but are over their source budget;
+the full stage engine and borrowed views are undergoing final metric/gate
+checks; typed/frame and filesystem cohorts await combined integration;
+typed callee proof must preserve indexed and composite callable initializers;
+the lint walker still needs genuine graph/collector deletion offsets. Final
+source shrink, zero structural counts, documentation, platform, semantic
+review and performance acceptance remain required.
+
 ## Recount and reader preparation — 2026-10-11, `78aaa3af`
 
 The exact `6db4c917` production recount is complete. `src` has 193,062

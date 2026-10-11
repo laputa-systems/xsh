@@ -46,9 +46,9 @@ Resumed bounded slices have separate worktrees and disjoint shared-file hunks:
 | W5 remaining lint policies | explicit core and sequence boundaries | +250 lexical / 1,400 interim, separate from rule-table scope |
 | W9 selected-entry preparation | borrowed entry ranges through compact preparation and evaluator construction | +180 lexical / 1,400 interim, separate from full module records |
 | W6 shared checker probes | source-owned candidate checking and fixed-text validation through one transport | +275 lexical / 1,600 interim; preserve named entry policies and complete body-proof inventory |
-| W4 typed callee expressions | independently checked field/call-result types and strict verifier derivation | +350 lexical / 2,200 interim; no copied call-signature proof |
+| W4 typed callee expressions | independently checked field/call-result types and strict verifier derivation | +650 lexical / 2,200 interim; preserve legal callable initializers and reject malformed/cyclic metadata; no copied call-signature proof |
 | Structural metric scope correction | exact legacy/current schema validation and blanket-versus-item scope inventory | +240 development lexical / 1,200; integrated +233, Rust production unchanged; preserve original baseline bytes and final zero target |
-| W2 complete stage engine | all 46 rows on the active frame machine; remove recursive pipeline materializer | net <= 0 / 5,000 interim touched; lifecycle and counter closure gate acceptance |
+| W2 complete stage engine | all 46 rows on the active frame machine; remove recursive pipeline materializer and use borrowed stage views | net <= 0 / 5,800 interim touched; stable statement-list references avoid copied row metadata; lifecycle and counter closure gate acceptance |
 | W2 next operand apply cohort | nine operand rows and shared operand continuation; preserve observable order | +350 lexical / 1,600 interim; final deletion offsets required |
 | W1 stable live wire ordinals | preserve surviving tag numbers after three proven-dead row deletions | net <= 0 / 250 touched; no decoder fallback |
 | W1 decoder gap tests | isolated native stage and pattern scenarios plus exact frozen counter proof | zero production / 500 test touched per owner; unreachable arms need writer/caller closure |
