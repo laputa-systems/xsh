@@ -4,6 +4,14 @@ Choose the narrowest useful command first, then run the broader gate for the
 area touched. This file owns the gate commands; architecture and invariants are
 in `docs/ARCHITECTURE.md`.
 
+The consolidation batch also measures production source and structural ratchets
+with `dev/consolidation/metrics.xsh`. It writes the current report and every
+baseline rise to `.work/consolidation/current.json` and `rises.json`. Temporary
+ceilings are explicit in `dev/consolidation/envelope.json`, with approval, reason
+and removal condition for each metric. Missing or unknown limits fail. Final
+closure rejects that envelope, uses the unchanged starting baseline, and requires
+independently reviewed semantic evidence as well as mechanical counts.
+
 ## Native tests first
 
 Language behavior is specified in the native XSH corpus: a `test NAME { ... }`
