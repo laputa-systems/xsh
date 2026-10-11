@@ -3895,6 +3895,15 @@ impl Evaluator {
         allow_checker_only: bool,
         declarations: CompactDeclOutput,
     ) -> Result<CompactIndexedRunPlan, Diagnostic> {
+        if !allow_checker_only
+            && let Some(span) = compact_reveal_type_call_span(program)
+        {
+            return Err(compact_lowerability_diagnostic(
+                span,
+                "`reveal_type` is available only through `xsht check`",
+                DiagnosticCode::CheckRevealType,
+            ));
+        }
         // Text-only embedding APIs supply UTF-8 words; a checked byte entry
         // exposes their exact bytes through both main and imported args readers.
         if !self.interactive && crate::sema::check::byte_argument_main(program, &declarations.parameter_types) {
@@ -7066,6 +7075,13 @@ fn compact_expr_is_reveal_type_call(program: &ArenaProgram, expr: ExprId) -> boo
         return false;
     };
     matches!(program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "reveal_type")
+}
+
+fn compact_reveal_type_call_span(program: &ArenaProgram) -> Option<Span> {
+    (0..program.arena.expr_tags.len()).find_map(|index| {
+        let expr = ExprId::from_index(index);
+        compact_expr_is_reveal_type_call(program, expr).then(|| program.arena.expr(expr).span)
+    })
 }
 
 fn compact_root_proc_main_requires_auto_call_indexed(

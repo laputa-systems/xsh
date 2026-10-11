@@ -278,6 +278,28 @@ test test_xsh_rejects_reveal_type { |ctx|
   test.expect(ctx, "reveal_type(1)\n", status: 2, stderr: ["err[check.reveal-type]"])?
 }
 
+test test_xsh_rejects_reveal_type_in_unused_and_imported_bodies { |ctx|
+  test.expect(
+    ctx,
+    "proc unused() { let value = reveal_type(1) }\n",
+    status: 2,
+    stderr: ["err[check.reveal-type]"],
+  )?
+
+  let root = project(
+    ctx,
+    {
+      "main.xsh": "use helper\n",
+      "helper.xsh": "proc unused() { let value = reveal_type(1) }\n",
+    },
+  )?
+  cd $root {
+    let rejected = run.capture --text "xsh" main.xsh
+    assert rejected.status.exited_with(2), rejected.stderr
+    assert "err[check.reveal-type]" in rejected.stderr, rejected.stderr
+  }
+}
+
 test test_check_rejects_undefined_utility_commands { |ctx|
   let file = test.temp_file(ctx, name: "utility.xsh", contents: bytes.from_text("echo hi\n"))?
   let checked = run.capture --text "xsht" check $file

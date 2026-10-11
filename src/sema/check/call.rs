@@ -836,19 +836,12 @@ impl Checker {
         for arg in args.iter().skip(1) {
             self.check_call_arg_arena(arena, source, &arg.kind, None);
         }
-        if self.options.reveal_types {
-            if args.len() == 1
-                && let Some(arg) = args.first()
-                && matches!(arg.kind, ArenaCallArgKind::Positional(_))
-            {
-                self.reveal_type(&revealed, call_arg_span_arena(arena, &arg.kind));
-            }
-        } else {
-            self.error(
-                span,
-                "`reveal_type` is available only through `xsht check`",
-                DiagnosticCode::CheckRevealType,
-            );
+        if self.options.reveal_types
+            && args.len() == 1
+            && let Some(arg) = args.first()
+            && matches!(arg.kind, ArenaCallArgKind::Positional(_))
+        {
+            self.reveal_type(&revealed, call_arg_span_arena(arena, &arg.kind));
         }
         Type::Unit
     }
@@ -2594,6 +2587,83 @@ mod error_constructor_tests {
                 "error E = Triple(zulu: Int, mike: Str, alpha: Bool) | Usage\nlet a = {call}\n"
             );
             assert!(bindings(&source).is_empty(), "{call} published a binding");
+        }
+    }
+}
+
+#[cfg(test)]
+mod reveal_type_tests {
+    use crate::diagnostic::DiagnosticCode;
+    use crate::sema::check::{CheckOptions, Checker};
+    use crate::source::SourceId;
+    use crate::syntax::parser::Parser;
+
+    fn checked(source: &str, options: CheckOptions) -> crate::sema::check::CheckOutput {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        parsed
+            .arena
+            .symbol_owner()
+            .with_current(|| Checker::check_arena_with_options(&parsed.arena, source, options))
+    }
+
+    fn option_combinations(source: &str) -> Vec<crate::sema::check::CheckOutput> {
+        [false, true]
+            .into_iter()
+            .flat_map(|reveal_types| {
+                [false, true].map(|embedded_bodies| {
+                    checked(
+                        source,
+                        CheckOptions {
+                            reveal_types,
+                            embedded_bodies,
+                            ..CheckOptions::default()
+                        },
+                    )
+                })
+            })
+            .collect()
+    }
+
+    #[test]
+    fn reveal_type_option_only_publishes_revealed_types() {
+        let outputs = option_combinations("proc unused() { reveal_type(1) }\n");
+        let diagnostics = &outputs[0].diagnostics;
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        for output in &outputs[1..] {
+            assert_eq!(&output.diagnostics, diagnostics);
+        }
+        assert!(outputs[0].reveal_types.is_empty());
+        assert!(outputs[1].reveal_types.is_empty());
+        assert_eq!(outputs[2].reveal_types.len(), 1);
+        assert_eq!(outputs[3].reveal_types.len(), 1);
+    }
+
+    #[test]
+    fn reveal_type_argument_diagnostics_are_independent_of_publication() {
+        for (source, expected_code) in [
+            ("reveal_type()\n", DiagnosticCode::CheckArity),
+            ("reveal_type(1, 2)\n", DiagnosticCode::CheckArity),
+            ("reveal_type(value: 1)\n", DiagnosticCode::CheckNamedArg),
+            (
+                "let values = [1]\nreveal_type(@values)\n",
+                DiagnosticCode::CheckCallSplice,
+            ),
+        ] {
+            let outputs = option_combinations(source);
+            let diagnostics = &outputs[0].diagnostics;
+            assert!(
+                diagnostics.iter().any(|diagnostic| diagnostic.code == Some(expected_code)),
+                "{source}: {diagnostics:?}"
+            );
+            for output in &outputs[1..] {
+                assert_eq!(
+                    &output.diagnostics,
+                    diagnostics,
+                    "diagnostics changed with checker options for {source}"
+                );
+            }
+            assert!(outputs.iter().all(|output| output.reveal_types.is_empty()));
         }
     }
 }
