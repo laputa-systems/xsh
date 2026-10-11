@@ -162,25 +162,101 @@ impl IrVerifyError {
 
 #[cfg(test)]
 pub(super) mod tests {
-    pub(in crate::runtime::eval) fn collect_xsh_paths(
-        path: &std::path::Path,
-        paths: &mut Vec<std::path::PathBuf>,
-    ) {
-        if path.is_file() {
-            if path.extension().is_some_and(|extension| extension == "xsh") {
-                paths.push(path.to_path_buf());
-            }
-            return;
+    // Corpus selection owns disk paths, including directory links that can
+    // cycle and file links whose source must remain readable through the link.
+    #[test]
+    fn corpus_walk_skips_directory_links_and_only_excludes_compat_work() {
+        let fixture = tempfile::tempdir().expect("create corpus fixture");
+        let root = fixture.path();
+        let source_paths = [
+            "core/nested/keep.xsh",
+            "core/dev/compat/keep.xsh",
+            "dev/build.xsh",
+            "dev/compat/unfinished.xsh",
+            "dev/compat-extra/keep.xsh",
+        ];
+        for relative in source_paths {
+            let path = root.join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).expect("create source directory");
+            std::fs::write(path, "print fixture\n").expect("write source");
         }
-        let Ok(entries) = std::fs::read_dir(path) else {
-            return;
-        };
-        for entry in entries.flatten() {
-            collect_xsh_paths(&entry.path(), paths);
-        }
+        std::fs::write(root.join("core/nested/notes.txt"), "notes").expect("write non-source");
+        std::os::unix::fs::symlink(".", root.join("core/nested/cycle"))
+            .expect("create directory cycle");
+        let directory_link = root.join("linked-directory");
+        std::os::unix::fs::symlink("core", &directory_link).expect("create directory link");
+        let file_link = root.join("linked.xsh");
+        std::os::unix::fs::symlink("core/nested/keep.xsh", &file_link).expect("create file link");
+        let mut paths = Vec::new();
+        collect_xsh_paths(root, root, &mut paths).expect("collect fixture sources");
+        paths.sort();
+        let mut expected: Vec<_> = source_paths
+            .iter()
+            .filter(|path| **path != "dev/compat/unfinished.xsh")
+            .map(|path| root.join(path))
+            .collect();
+        expected.push(file_link.clone());
+        expected.sort();
+        assert_eq!(paths, expected);
+        paths.clear();
+        collect_xsh_paths(root, &directory_link, &mut paths).expect("ignore directory link");
+        assert!(paths.is_empty(), "a directory link is not a corpus root");
+        assert_eq!(read_xsh_source(&file_link).unwrap(), "print fixture\n");
     }
 
-    pub(super) fn read_xsh_source(path: &std::path::Path) -> std::io::Result<String> {
+    #[test]
+    fn corpus_source_read_errors_name_the_path() {
+        let fixture = tempfile::tempdir().expect("create source fixture");
+        let missing = fixture.path().join("missing.xsh");
+        let error = read_xsh_source(&missing).expect_err("the source does not exist");
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+        assert!(error.to_string().contains(missing.to_str().unwrap()), "{error}");
+    }
+
+    #[test]
+    fn corpus_walk_reports_missing_paths() {
+        let fixture = tempfile::tempdir().expect("create corpus fixture");
+        let missing = fixture.path().join("missing");
+        let error = collect_xsh_paths(fixture.path(), &missing, &mut Vec::new())
+            .expect_err("the corpus directory does not exist");
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+        assert!(error.to_string().contains(missing.to_str().unwrap()), "{error}");
+    }
+
+    // Directory links are fixtures rather than source trees. File links keep
+    // their existing source spelling; unfinished compatibility work is omitted
+    // only at the repository's exact subtree.
+    pub(in crate::runtime::eval) fn collect_xsh_paths(
+        root: &std::path::Path,
+        path: &std::path::Path,
+        paths: &mut Vec<std::path::PathBuf>,
+    ) -> std::io::Result<()> {
+        if path.strip_prefix(root).is_ok_and(|relative| relative == std::path::Path::new("dev/compat")) {
+            return Ok(());
+        }
+        let kind = std::fs::symlink_metadata(path)
+            .map_err(|error| std::io::Error::new(error.kind(), format!("{}: {error}", path.display())))?
+            .file_type();
+        if !kind.is_dir() {
+            if path.extension().is_some_and(|extension| extension == "xsh")
+                && (kind.is_file() || (kind.is_symlink() && path.is_file()))
+            {
+                paths.push(path.to_path_buf());
+            }
+            return Ok(());
+        }
+        let entries = std::fs::read_dir(path)
+            .map_err(|error| std::io::Error::new(error.kind(), format!("{}: {error}", path.display())))?;
+        for entry in entries {
+            let entry = entry
+                .map_err(|error| std::io::Error::new(error.kind(), format!("{}: {error}", path.display())))?;
+            collect_xsh_paths(root, &entry.path(), paths)?;
+        }
+        Ok(())
+    }
+
+    pub(in crate::runtime::eval) fn read_xsh_source(path: &std::path::Path) -> std::io::Result<String> {
         std::fs::read_to_string(path)
+            .map_err(|error| std::io::Error::new(error.kind(), format!("{}: {error}", path.display())))
     }
 }

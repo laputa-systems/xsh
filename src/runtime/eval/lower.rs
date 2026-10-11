@@ -6800,13 +6800,16 @@ mod drift_tests {
                 let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
                 let mut paths = Vec::new();
                 for dir in ["core", "dev", "examples", "showcase", "stdlib", "tests"] {
-                    super::super::indexed::tests::collect_xsh_paths(&root.join(dir), &mut paths);
+                    let path = root.join(dir);
+                    super::super::indexed::tests::collect_xsh_paths(root, &path, &mut paths)
+                        .unwrap_or_else(|error| panic!("cannot collect {}: {error}", path.display()));
                 }
                 paths.sort();
                 let mut lowered = 0;
                 for path in paths {
                     let name = path.to_string_lossy();
-                    let source = std::fs::read_to_string(&path).expect("corpus source is readable");
+                    let source = super::super::indexed::tests::read_xsh_source(&path)
+                        .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
                     let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
                         &name,
                         crate::loader::entry_source_from_text(&name, source.clone()),
