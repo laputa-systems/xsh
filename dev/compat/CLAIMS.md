@@ -71,3 +71,23 @@ the integrator owns the runtime cleanup, signal, and stdin corrections.
 | `text-b1` | `1233171b` |
 | `text-b2` | `97171c3f` |
 | `printf-env` | `a211cee4`, `deff787c` |
+
+## Native port continuation (2026-10-11, Codex)
+
+Integration is isolated on `codex/compat-native` in `../xsh-codex-compat`,
+starting at `96bf2dc3`. The primary checkout and existing Claude worktrees
+are read-only. Every subagent uses `gpt-6-luna` with `xhigh` reasoning.
+The owner confirmed original GNU and BusyBox behavioral tests with origin
+IDs, without copying GPL script text. No changes are pushed.
+
+| Lane | Owned scope |
+|---|---|
+| `port_tooling` | `dev/compat/port/lanes.py` and focused generator tests |
+| `retirement_audit` | `dev/compat/port/suite_sources.py`, after coordinating the generator interface |
+| `pilot_review` | pilot/helper audit; `dev/compat/port/oracle_port.py` and its focused tests |
+| `port_ratchet` | `dev/compat/port/check_port.py`, focused tests; read-only imported-helper lowering investigation |
+| integrator | shared test helper, exceptions, claims, campaign status and integration |
+
+The full native baseline runs first in `xsh-test`, UID 1000, tmpfs `/tmp`,
+with three jobs. Pilot arch, cat and tr ports precede the full transcription
+fan-out. Script lanes share the existing release binaries read-only.
