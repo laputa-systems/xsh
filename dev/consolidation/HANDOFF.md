@@ -1,5 +1,46 @@
 # Consolidation restart handoff
 
+## Master integration checks and remaining reviews — 2026-10-11
+
+Master `dc0ad171` passes the pinned x86_64 musl verification build. Its
+runtime/API/time/system gates pass; initial btop and TUI failures exposed a
+missing core module search path and three positional symlink calls. Accepted
+`a458238f` as `0065d41c`: those calls now retain their original operands and
+assertions with `target:` / `path:` labels. With `XSH_MODULE_PATH` set to the
+master core directory, all 121 btop tests and 15 TUI tests pass using the
+frozen dc0 pair (`master-0065-core-gates/manifest.json`).
+
+Statement-block cursors `5e6b65b0` are accepted as `f884f8ad`; merge conflicts
+retain the newer typed imports and remove both obsolete statement and branch
+pools. The lane removes pool-counter assertions because the pool is gone,
+keeps the 200-iteration observable result, and adds foreign-store cursor
+validation. Master f884's pinned optimized build passes; its matching frozen
+pair/source manifest are `master-f884-bin` / `master-f884-source.json`.
+All 119 indexed full-program Rust units pass, including the unchanged height
+boundary assertions and the corrected checked-slot diagnostic regression.
+The broader normal/forced native integration gates are running, not yet
+claimed green. Build output identifies one obsolete `BLOCK_STATEMENTS`
+import, reserved for the next source cleanup batch.
+
+The isolated CPU0 W9 reference/candidate/candidate/reference run holds all
+three compile locks and passes all four profiles with repeat-identical
+publication and diagnostic receipts. Default checker CPU is about 4.31 s
+reference versus 7.37 s candidate; serialization costs are similar. Resource
+analysis visits each imported module twice. A root-owner traversal fix must
+retain cached module facts and exact publication before the full 6,760
+comparisons restart. Raw logs and command manifest are `w9-isolated-*`.
+
+Cross-program ownership and the Root-compatible typed-callee port remain
+unsealed. Independent review is checking early external-kind resolution
+before argument effects and missing loop/record callable-slot producer
+proofs; both lanes retain their prior green tests and are adding specific
+regressions where reachable. Residual scalar/control/defer typed readers are
+active from f884; call-argument cursors wait for program ownership. Schema
+authority for eager-atom membership has a separate read-only design task.
+Performance samples taken under unrelated load remain unqualified. ARM64
+and macOS remain excluded; all final platform work is native x86_64 Linux
+musl in the pinned image. No final structural/performance closure is claimed.
+
 ## Integration moved to master — 2026-10-11, `e4261855`
 
 The owner requested merging consolidation into updated master and continuing
