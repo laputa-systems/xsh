@@ -16,8 +16,11 @@ RUN make distclean \
     && make defconfig
 # Modern Linux headers removed CBQ structures used by this release's tc.
 # tc is outside the frozen command surface; every frozen applet is checked below.
+# Compression levels must affect gzip output for its frozen comparison test.
 RUN sed -i 's/^CONFIG_TC=y$/# CONFIG_TC is not set/' .config \
+    && sed -i 's/^# CONFIG_FEATURE_GZIP_LEVELS is not set$/CONFIG_FEATURE_GZIP_LEVELS=y/' .config \
     && make oldconfig </dev/null \
+    && grep -Fx 'CONFIG_FEATURE_GZIP_LEVELS=y' .config \
     && make -j8 \
     && ./busybox | head -1 | grep '^BusyBox v1.36.1 ' \
     && ./busybox --list > /built-applets \
@@ -33,4 +36,5 @@ COPY --from=build /required-applets /usr/share/busybox-oracle/required-applets
 RUN /bin/busybox | head -1 | grep '^BusyBox v1.36.1 ' \
     && /bin/busybox --list > /built-applets \
     && while read -r applet; do grep -Fx "$applet" /built-applets || exit 1; done < /usr/share/busybox-oracle/required-applets \
+    && test "$(/bin/busybox gzip -c -1 /bin/busybox | wc -c)" -gt "$(/bin/busybox gzip -c -9 /bin/busybox | wc -c)" \
     && rm /built-applets

@@ -7,6 +7,9 @@ defconfig`. It disables `CONFIG_TC` because current Linux headers removed the
 CBQ structures used by that release's `tc`; this command is outside the frozen
 surface. Every command in `freeze.json`'s `busybox` section must appear in the
 built binary's applet list, including `awk`, `sed`, `patch`, and `taskset`.
+`CONFIG_FEATURE_GZIP_LEVELS` is enabled because the frozen compression test
+requires `gzip -1` and `gzip -9` to produce different streams; `defconfig`
+otherwise accepts both options while silently using level 6 for each.
 
 Prepare a fresh context from the locked reference tree and its archive:
 
