@@ -11877,8 +11877,8 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
                 "typed call kind does not match its callable type",
             );
 
-            // The row names a type that is not a callable type: here `Int`,
-            // the pure signature's return type.
+            // The row names `Int` instead of the callee slot's checked callable
+            // type. Exact slot correlation rejects it before callable-shape validation.
             let semantic = &program.store.semantic;
             let scale = TypeId::from_raw(program.store.extra[pure_call + 2]).unwrap();
             let int = semantic
@@ -11886,7 +11886,7 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
                 .unwrap();
             let mut untyped = (*program).clone();
             untyped.store.extra[pure_call + 2] = int.raw();
-            rejected(&untyped, "typed call signature is not a callable type");
+            rejected(&untyped, "typed call signature differs from its callee slot's callable type");
 
             let arguments = |program: &FullProgram| {
                 let block = IrBlockId::from_raw(program.store.extra[pure_call + 3]).unwrap();
