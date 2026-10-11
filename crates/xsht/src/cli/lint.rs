@@ -302,7 +302,6 @@ struct ResolvedLintConfig {
 }
 
 struct WorkspaceModule {
-    key: String,
     path: PathBuf,
     source_id: SourceId,
     text: String,
@@ -344,7 +343,6 @@ fn workspace_modules(loaded: FxHashMap<String, LoadedModule>) -> FxHashMap<Strin
                 module_roots: module.module_roots.clone(),
             };
             (key, WorkspaceModule {
-                key: module.key,
                 path: module.path,
                 source_id: module.source_id,
                 text: module.text,
@@ -497,90 +495,6 @@ fn lint_workspace_with_parallelism(
     results
 }
 
-// A lint traversal owns one source range. Imported declarations retain their
-// contracts in the program, while checked expression and statement facts use
-// that source's spans. Ordered ranges avoid walking or cloning other files.
-fn source_checked_map<T: Clone>(
-    facts: &std::collections::BTreeMap<Span, T>,
-    source_id: SourceId,
-) -> std::collections::BTreeMap<Span, T> {
-    facts
-        .range(Span::at(source_id, 0)..)
-        .take_while(|(span, _)| span.source_id == source_id)
-        .map(|(span, fact)| (*span, fact.clone()))
-        .collect()
-}
-
-fn source_checked_set(
-    facts: &std::collections::BTreeSet<Span>,
-    source_id: SourceId,
-) -> std::collections::BTreeSet<Span> {
-    facts
-        .range(Span::at(source_id, 0)..)
-        .take_while(|span| span.source_id == source_id)
-        .copied()
-        .collect()
-}
-
-/// The constructor facts `lint.prefer-implicit-message` counts calls with.
-/// A check that reported an error did not reach every call, and a count that
-/// misses one would delete a payload a call still names.
-fn checked_message_payload_constructors(
-    checked: &xsh::frontend::check::CheckOutput,
-) -> Option<&std::collections::BTreeMap<Span, xsh::frontend::check::MessagePayloadConstructor>> {
-    checked
-        .diagnostics
-        .iter()
-        .all(|diagnostic| diagnostic.severity != Severity::Error)
-        .then_some(&checked.message_payload_constructors)
-}
-
-fn set_checked_lint_facts_for_source(
-    options: &mut LintOptions,
-    checked: &xsh::frontend::check::CheckOutput,
-    source_id: SourceId,
-) {
-    options.function_return_types = source_checked_map(&checked.function_return_types, source_id);
-    options.expr_types = source_checked_map(&checked.expr_types, source_id);
-    options.proven_nonnull_fallback_receivers =
-        source_checked_set(&checked.proven_nonnull_fallback_receivers, source_id);
-    options.requirement_targets = source_checked_map(&checked.requirement_targets, source_id);
-    options.requirement_expected_targets =
-        source_checked_map(&checked.requirement_expected_targets, source_id);
-    options.statement_positions = source_checked_map(&checked.statement_positions, source_id);
-    options.callable_effects = checked.callable_effects.clone();
-    options.function_effect_facts = checked
-        .function_effect_facts
-        .iter()
-        .filter(|(id, _)| id.body.source_id == source_id)
-        .map(|(id, fact)| (*id, fact.clone()))
-        .collect();
-    options.function_effect_facts_checked = true;
-    options.assertion_effect_spans = source_checked_set(&checked.assertion_effect_spans, source_id);
-    options.statement_expression_spans =
-        source_checked_set(&checked.statement_expression_spans, source_id);
-    options.propagating_statements = source_checked_set(&checked.propagating_statements, source_id);
-    options.discardable_bindings = source_checked_set(&checked.discardable_bindings, source_id);
-    options.redundant_condition_propagations =
-        source_checked_set(&checked.redundant_condition_propagations, source_id);
-    options.unvalidated_command_vectors =
-        source_checked_map(&checked.unvalidated_command_vectors, source_id);
-    options.membership_migration_spans =
-        source_checked_set(&checked.membership_migration_spans, source_id);
-    options.standard_call_spans = source_checked_map(&checked.standard_call_spans, source_id);
-    options.definitely_exiting_block_spans =
-        source_checked_set(&checked.definitely_exiting_block_spans, source_id);
-    options.redundant_variant_qualifiers =
-        source_checked_map(&checked.redundant_variant_qualifiers, source_id);
-    options.message_payload_constructors = checked_message_payload_constructors(checked)
-        .map(|constructors| source_checked_map(constructors, source_id));
-    options.statically_resolved_call_spans = if checked.diagnostics.iter().all(spelling_only) {
-        source_checked_set(&checked.statically_resolved_call_spans, source_id)
-    } else {
-        Default::default()
-    };
-}
-
 fn lint_workspace_root(
     workspace: &LintWorkspace,
     root: &str,
@@ -704,7 +618,6 @@ fn lint_workspace_root(
         }
         let mut options = module.config.lint_options.clone();
         options.checked_output = Some(Arc::clone(&checked));
-        set_checked_lint_facts_for_source(&mut options, &checked, module.source_id);
         let lint_started = Instant::now();
         let mut linted = if key == root {
             Linter::lint(bundle, &module.text, options)
@@ -1399,28 +1312,7 @@ fn lint_config_for_file(
         runless,
         runless_except: tool_config.config.lint.runless_except,
         interactive_command_replacement: None,
-        function_return_types: Default::default(),
-        expr_types: Default::default(),
-        proven_nonnull_fallback_receivers: Default::default(),
-        requirement_targets: Default::default(),
-        requirement_expected_targets: Default::default(),
-        statement_positions: Default::default(),
-        callable_effects: Default::default(),
-        function_effect_facts: Default::default(),
-        function_effect_facts_checked: false,
         checked_output: None,
-        assertion_effect_spans: Default::default(),
-        statement_expression_spans: Default::default(),
-        propagating_statements: Default::default(),
-        discardable_bindings: Default::default(),
-        redundant_condition_propagations: Default::default(),
-        unvalidated_command_vectors: Default::default(),
-        membership_migration_spans: Default::default(),
-        standard_call_spans: Default::default(),
-        statically_resolved_call_spans: Default::default(),
-        definitely_exiting_block_spans: Default::default(),
-        redundant_variant_qualifiers: Default::default(),
-        message_payload_constructors: None,
         dead_code: !is_path_excluded(
             &tool_config.config_dir,
             Path::new(file),
@@ -1436,6 +1328,7 @@ fn lint_config_for_file(
             })
             .map(|rule| rule.rule)
             .collect(),
+        ..LintOptions::default()
     };
     Ok(ResolvedLintConfig {
         lint_options,
@@ -1444,6 +1337,7 @@ fn lint_config_for_file(
     })
 }
 
+#[cfg(test)]
 #[allow(clippy::single_call_fn)]
 fn lint_one_file_with_fixes(
     index: usize,
@@ -1481,34 +1375,6 @@ fn lint_one_file_with_fixes(
     );
     let mut lint_options = config.lint_options.clone();
     lint_options.checked_output = Some(std::sync::Arc::clone(&checked));
-    lint_options.function_return_types = checked.function_return_types.clone();
-    lint_options.expr_types = checked.expr_types.clone();
-    lint_options.proven_nonnull_fallback_receivers =
-        checked.proven_nonnull_fallback_receivers.clone();
-    lint_options.requirement_targets = checked.requirement_targets.clone();
-    lint_options.requirement_expected_targets = checked.requirement_expected_targets.clone();
-    lint_options.statement_positions = checked.statement_positions.clone();
-    lint_options.callable_effects = checked.callable_effects.clone();
-    lint_options.function_effect_facts = checked.function_effect_facts.clone();
-    lint_options.function_effect_facts_checked = true;
-    lint_options.assertion_effect_spans = checked.assertion_effect_spans.clone();
-    lint_options.statement_expression_spans = checked.statement_expression_spans.clone();
-    lint_options.propagating_statements = checked.propagating_statements.clone();
-    lint_options.discardable_bindings = checked.discardable_bindings.clone();
-    lint_options.redundant_condition_propagations =
-        checked.redundant_condition_propagations.clone();
-    lint_options.unvalidated_command_vectors = checked.unvalidated_command_vectors.clone();
-    lint_options.membership_migration_spans = checked.membership_migration_spans.clone();
-    lint_options.standard_call_spans = checked.standard_call_spans.clone();
-    lint_options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
-    lint_options.redundant_variant_qualifiers = checked.redundant_variant_qualifiers.clone();
-    lint_options.message_payload_constructors =
-        checked_message_payload_constructors(&checked).cloned();
-    lint_options.statically_resolved_call_spans = if checked.diagnostics.iter().all(spelling_only) {
-        checked.statically_resolved_call_spans.clone()
-    } else {
-        Default::default()
-    };
     let linted = Linter::lint(&checked_program.parsed.arena, &text, lint_options);
 
     let mut ast_fixes = collect_fix_spans(&linted.diagnostics);
@@ -1789,33 +1655,6 @@ fn apply_cst_fixes(
         }
         let mut options = config.lint_options.clone();
         options.checked_output = Some(std::sync::Arc::clone(&checked));
-        options.function_return_types = checked.function_return_types.clone();
-        options.expr_types = checked.expr_types.clone();
-        options.proven_nonnull_fallback_receivers =
-            checked.proven_nonnull_fallback_receivers.clone();
-        options.requirement_targets = checked.requirement_targets.clone();
-        options.requirement_expected_targets = checked.requirement_expected_targets.clone();
-        options.statement_positions = checked.statement_positions.clone();
-        options.callable_effects = checked.callable_effects.clone();
-        options.function_effect_facts = checked.function_effect_facts.clone();
-        options.function_effect_facts_checked = true;
-        options.assertion_effect_spans = checked.assertion_effect_spans.clone();
-        options.statement_expression_spans = checked.statement_expression_spans.clone();
-        options.propagating_statements = checked.propagating_statements.clone();
-        options.discardable_bindings = checked.discardable_bindings.clone();
-        options.redundant_condition_propagations = checked.redundant_condition_propagations.clone();
-        options.unvalidated_command_vectors = checked.unvalidated_command_vectors.clone();
-        options.membership_migration_spans = checked.membership_migration_spans.clone();
-        options.standard_call_spans = checked.standard_call_spans.clone();
-        options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
-        options.redundant_variant_qualifiers = checked.redundant_variant_qualifiers.clone();
-        options.message_payload_constructors =
-            checked_message_payload_constructors(&checked).cloned();
-        options.statically_resolved_call_spans = if checked.diagnostics.iter().all(spelling_only) {
-            checked.statically_resolved_call_spans.clone()
-        } else {
-            Default::default()
-        };
         let linted = if is_module {
             Linter::lint_module(&program.parsed.arena, &candidate, options)
         } else {
@@ -1852,6 +1691,7 @@ fn render_diagnostics_with_keys(
         .collect()
 }
 
+#[cfg(test)]
 #[allow(clippy::single_call_fn)]
 fn collect_fix_spans(diagnostics: &[Diagnostic]) -> Vec<(usize, usize, String)> {
     collect_fix_spans_by_code(diagnostics, |_| true)
@@ -1868,6 +1708,7 @@ fn collect_fix_spans_for_source(
     )
 }
 
+#[cfg(test)]
 fn collect_fix_spans_by_code(
     diagnostics: &[Diagnostic],
     include: impl Fn(&Diagnostic) -> bool,
@@ -2169,7 +2010,7 @@ mod tests {
     }
 
     #[test]
-    fn lint_workspace_copies_only_current_source_checked_facts() {
+    fn lint_workspace_shares_the_unfiltered_checked_output() {
         let local = SourceId::new(1);
         let foreign = SourceId::new(2);
         let local_span = Span::new(local, 10, 12);
@@ -2194,18 +2035,20 @@ mod tests {
             checked.proven_nonnull_fallback_receivers.insert(span);
             checked.propagating_statements.insert(span);
         }
+        let checked = std::sync::Arc::new(checked);
         let mut options = LintOptions::default();
-        super::set_checked_lint_facts_for_source(&mut options, &checked, local);
-        assert_eq!(options.expr_types.len(), 1);
+        options.checked_output = Some(std::sync::Arc::clone(&checked));
+        let shared = options.checked_output.as_ref().unwrap();
+        assert!(std::sync::Arc::ptr_eq(shared, &checked));
+        assert_eq!(shared.expr_types.len(), 101);
         assert_eq!(
-            options.expr_types.get(&local_span),
+            shared.expr_types.get(&local_span),
             Some(&xsh::frontend::check::Type::Int)
         );
-        assert_eq!(options.statement_positions.len(), 1);
-        assert_eq!(options.proven_nonnull_fallback_receivers.len(), 1);
-        assert!(options.propagating_statements.contains(&local_span));
-        assert_eq!(options.propagating_statements.len(), 1);
-        assert!(options.function_effect_facts_checked);
+        assert_eq!(shared.statement_positions.len(), 101);
+        assert_eq!(shared.proven_nonnull_fallback_receivers.len(), 101);
+        assert!(shared.propagating_statements.contains(&local_span));
+        assert_eq!(shared.propagating_statements.len(), 101);
     }
 
     #[test]
@@ -2504,31 +2347,25 @@ print ${name}
         let checked = std::sync::Arc::new(checked);
         for key in reachable {
             let module = &workspace.modules[&key];
-            let mut projected = LintOptions::default();
-            projected.checked_output = Some(std::sync::Arc::clone(&checked));
-            super::set_checked_lint_facts_for_source(&mut projected, &checked, module.source_id);
-            let mut complete = projected.clone();
-            complete.function_return_types = checked.function_return_types.clone();
-            complete.expr_types = checked.expr_types.clone();
-            complete.statement_positions = checked.statement_positions.clone();
-            complete.standard_call_spans = checked.standard_call_spans.clone();
-            complete.function_effect_facts = checked.function_effect_facts.clone();
-            assert!(projected.expr_types.len() < complete.expr_types.len());
+            assert!(checked
+                .expr_types
+                .keys()
+                .any(|span| span.source_id != module.source_id));
+            let mut shared = LintOptions::default();
+            shared.checked_output = Some(std::sync::Arc::clone(&checked));
             bundle.statements = module.statements;
             if key != root {
                 bundle.modules.clear();
             }
-            let lint = |options| {
-                if key == root {
-                    crate::xsht::lint::Linter::lint(&bundle, &module.text, options)
-                } else {
-                    crate::xsht::lint::Linter::lint_module(&bundle, &module.text, options)
-                }
+            let output = if key == root {
+                crate::xsht::lint::Linter::lint(&bundle, &module.text, shared)
+            } else {
+                crate::xsht::lint::Linter::lint_module(&bundle, &module.text, shared)
             };
-            assert_eq!(
-                format!("{:?}", lint(projected).diagnostics),
-                format!("{:?}", lint(complete).diagnostics)
-            );
+            assert!(output.diagnostics.iter().all(|diagnostic| diagnostic
+                .labels
+                .iter()
+                .all(|label| label.span.source_id == module.source_id)));
         }
     }
 

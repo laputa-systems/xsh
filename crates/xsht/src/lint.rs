@@ -185,6 +185,8 @@ use sequence::{return_value_is_ok_unit, ok_call_arg};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Deref;
+use std::sync::Arc;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label, Severity};
 use xsh::frontend::check::Type;
 use xsh::frontend::source::Span;
@@ -229,6 +231,89 @@ pub struct LintOutput {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[cfg(test)]
+trait EmptyFact {
+    fn is_empty(&self) -> bool;
+}
+
+#[cfg(test)]
+impl<K: Ord, V> EmptyFact for BTreeMap<K, V> {
+    fn is_empty(&self) -> bool { BTreeMap::is_empty(self) }
+}
+
+#[cfg(test)]
+impl<T: Ord> EmptyFact for BTreeSet<T> {
+    fn is_empty(&self) -> bool { BTreeSet::is_empty(self) }
+}
+
+// Lint rules borrow checker facts from the immutable result shared by CLI linting.
+struct CheckedFact<T> {
+    checked: Option<Arc<xsh::frontend::check::CheckOutput>>,
+    unavailable: T,
+    select: for<'checked> fn(&'checked xsh::frontend::check::CheckOutput) -> &'checked T,
+    #[cfg(test)]
+    local: Option<T>,
+}
+
+#[cfg(not(test))]
+impl<T: Default> CheckedFact<T> {
+    fn new(
+        checked: Option<Arc<xsh::frontend::check::CheckOutput>>,
+        select: for<'checked> fn(&'checked xsh::frontend::check::CheckOutput) -> &'checked T,
+    ) -> Self {
+        Self {
+            checked,
+            unavailable: T::default(),
+            select,
+        }
+    }
+}
+
+#[cfg(test)]
+impl<T: EmptyFact + Default> CheckedFact<T> {
+    fn new(
+        checked: Option<Arc<xsh::frontend::check::CheckOutput>>,
+        local: T,
+        select: for<'checked> fn(&'checked xsh::frontend::check::CheckOutput) -> &'checked T,
+        force_local: bool,
+    ) -> Self {
+        let local = (force_local || !local.is_empty()).then_some(local);
+        Self {
+            checked,
+            unavailable: T::default(),
+            select,
+            local,
+        }
+    }
+}
+
+#[cfg(not(test))]
+impl<T> Deref for CheckedFact<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.checked
+            .as_deref()
+            .map_or(&self.unavailable, self.select)
+    }
+}
+
+#[cfg(test)]
+impl<T: EmptyFact> Deref for CheckedFact<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.local.as_ref().map_or_else(
+            || {
+                self.checked
+                    .as_deref()
+                    .map_or(&self.unavailable, self.select)
+            },
+            |local| local,
+        )
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct LintOptions {
     pub prefer_inferred_pure_returns: bool,
@@ -240,6 +325,7 @@ pub struct LintOptions {
     /// variants, which `lint.prefer-implicit-message` reads. `None` when the
     /// caller has no check of the file or the check reported an error: the
     /// facts of such a program do not cover every call, so the rule is silent.
+    #[cfg(test)]
     pub message_payload_constructors:
         Option<BTreeMap<Span, xsh::frontend::check::MessagePayloadConstructor>>,
     /// Opt in to `lint.prefer-inferred-proc-return`.
@@ -256,8 +342,7 @@ pub struct LintOptions {
     pub prefer_text_pattern: bool,
     /// Opt in to `lint.prefer-rel-path`.
     pub prefer_rel_path: bool,
-    /// The checked binding identities and local types used by the resource
-    /// release lint. Workspace linting shares one immutable check output.
+    /// The immutable checked facts shared by every lint rule in a workspace.
     pub checked_output: Option<std::sync::Arc<xsh::frontend::check::CheckOutput>>,
     /// The file and module roots a return-annotation proof loads imports
     /// with. Without them only a file with no user imports is provable.
@@ -265,41 +350,61 @@ pub struct LintOptions {
     pub runless: bool,
     pub runless_except: Vec<String>,
     pub interactive_command_replacement: Option<fn(&str) -> Option<&'static str>>,
+    #[cfg(test)]
     pub function_return_types: BTreeMap<Span, Type>,
+    #[cfg(test)]
     pub expr_types: BTreeMap<Span, Type>,
+    #[cfg(test)]
     pub proven_nonnull_fallback_receivers: BTreeSet<Span>,
+    #[cfg(test)]
     pub requirement_targets: BTreeMap<Span, xsh::frontend::check::RequirementTarget>,
+    #[cfg(test)]
     pub requirement_expected_targets: BTreeMap<Span, xsh::frontend::check::RequirementTarget>,
+    #[cfg(test)]
     pub statement_positions: BTreeMap<Span, xsh::frontend::check::StatementPosition>,
+    #[cfg(test)]
     pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
+    #[cfg(test)]
     pub function_effect_facts: BTreeMap<
         xsh::frontend::check::EffectDeclarationId,
         xsh::frontend::check::FunctionEffectFact,
     >,
     /// A checked source without callable declarations supplies a valid empty
     /// fact set. Distinguish it from a caller requesting effect analysis.
+    #[cfg(test)]
     pub function_effect_facts_checked: bool,
+    #[cfg(test)]
     pub assertion_effect_spans: BTreeSet<Span>,
+    #[cfg(test)]
     pub statement_expression_spans: BTreeSet<Span>,
     /// Expression statements whose `Result[Unit]` value propagates instead of
     /// becoming a body's value; empty without checked facts.
+    #[cfg(test)]
     pub propagating_statements: BTreeSet<Span>,
     /// The checker's `let _ = VALUE` statements whose binding is redundant.
+    #[cfg(test)]
     pub discardable_bindings: BTreeSet<Span>,
     /// `expr?` in a control position of a condition, where the position
     /// propagates the `Result[Bool]` without the `?`; empty without checked
     /// facts.
+    #[cfg(test)]
     pub redundant_condition_propagations: BTreeSet<Span>,
     /// Spliced `run` targets typed as a list without a validation; empty
     /// without checked facts.
+    #[cfg(test)]
     pub unvalidated_command_vectors: BTreeMap<Span, Type>,
+    #[cfg(test)]
     pub membership_migration_spans: BTreeSet<Span>,
+    #[cfg(test)]
     pub standard_call_spans: BTreeMap<Span, (String, String)>,
 
+    #[cfg(test)]
     pub statically_resolved_call_spans: BTreeSet<Span>,
+    #[cfg(test)]
     pub definitely_exiting_block_spans: BTreeSet<Span>,
     /// Qualified variant constructors whose expected type selects the same
     /// variant, with the qualifier a leading dot replaces.
+    #[cfg(test)]
     pub redundant_variant_qualifiers: BTreeMap<Span, Span>,
     pub dead_code: bool,
     pub native_test_file: bool,
@@ -328,6 +433,7 @@ impl Default for LintOptions {
             prefer_env_string: true,
             prefer_item_shorthand: true,
             prefer_tempdir_scope: true,
+            #[cfg(test)]
             message_payload_constructors: None,
             prefer_inferred_proc_returns: false,
             annotation_policy_writes_returns: false,
@@ -339,25 +445,45 @@ impl Default for LintOptions {
             runless: false,
             runless_except: Vec::new(),
             interactive_command_replacement: None,
+            #[cfg(test)]
             function_return_types: BTreeMap::default(),
+            #[cfg(test)]
             expr_types: BTreeMap::default(),
+            #[cfg(test)]
             proven_nonnull_fallback_receivers: BTreeSet::default(),
+            #[cfg(test)]
             requirement_targets: BTreeMap::default(),
+            #[cfg(test)]
             requirement_expected_targets: BTreeMap::default(),
+            #[cfg(test)]
             statement_positions: BTreeMap::default(),
+            #[cfg(test)]
             callable_effects: FxHashMap::default(),
+            #[cfg(test)]
             function_effect_facts: BTreeMap::default(),
+            #[cfg(test)]
             function_effect_facts_checked: false,
+            #[cfg(test)]
             assertion_effect_spans: BTreeSet::default(),
+            #[cfg(test)]
             statement_expression_spans: BTreeSet::default(),
+            #[cfg(test)]
             propagating_statements: BTreeSet::default(),
+            #[cfg(test)]
             discardable_bindings: BTreeSet::default(),
+            #[cfg(test)]
             redundant_condition_propagations: BTreeSet::default(),
+            #[cfg(test)]
             unvalidated_command_vectors: BTreeMap::default(),
+            #[cfg(test)]
             membership_migration_spans: BTreeSet::default(),
+            #[cfg(test)]
             standard_call_spans: BTreeMap::default(),
+            #[cfg(test)]
             statically_resolved_call_spans: BTreeSet::default(),
+            #[cfg(test)]
             definitely_exiting_block_spans: BTreeSet::default(),
+            #[cfg(test)]
             redundant_variant_qualifiers: BTreeMap::default(),
             dead_code: true,
             native_test_file: false,
@@ -406,12 +532,12 @@ pub struct Linter<'a> {
     interactive_command_replacement: Option<fn(&str) -> Option<&'static str>>,
     scopes: Vec<FxHashMap<String, Binding>>,
     diagnostics: Vec<Diagnostic>,
-    checked_function_returns: BTreeMap<Span, Type>,
-    expr_types: BTreeMap<Span, Type>,
-    proven_nonnull_fallback_receivers: BTreeSet<Span>,
-    requirement_targets: BTreeMap<Span, xsh::frontend::check::RequirementTarget>,
-    requirement_expected_targets: BTreeMap<Span, xsh::frontend::check::RequirementTarget>,
-    statement_positions: BTreeMap<Span, xsh::frontend::check::StatementPosition>,
+    checked_function_returns: CheckedFact<BTreeMap<Span, Type>>,
+    expr_types: CheckedFact<BTreeMap<Span, Type>>,
+    proven_nonnull_fallback_receivers: CheckedFact<BTreeSet<Span>>,
+    requirement_targets: CheckedFact<BTreeMap<Span, xsh::frontend::check::RequirementTarget>>,
+    requirement_expected_targets: CheckedFact<BTreeMap<Span, xsh::frontend::check::RequirementTarget>>,
+    statement_positions: CheckedFact<BTreeMap<Span, xsh::frontend::check::StatementPosition>>,
     result_unit_functions: Vec<bool>,
     result_path_functions: Vec<bool>,
     result_return_ok_types: Vec<Option<Type>>,
@@ -419,23 +545,23 @@ pub struct Linter<'a> {
     /// The body of each function being linted, beside its entry in
     /// `function_return_types`.
     function_bodies: Vec<BlockId>,
-    checked_effects: BTreeMap<
+    checked_effects: CheckedFact<BTreeMap<
         xsh::frontend::check::EffectDeclarationId,
         xsh::frontend::check::FunctionEffectFact,
-    >,
-    assertion_effect_spans: BTreeSet<Span>,
-    statement_expression_spans: BTreeSet<Span>,
-    membership_migration_spans: BTreeSet<Span>,
-    standard_call_spans: BTreeMap<Span, (String, String)>,
+    >>,
+    assertion_effect_spans: CheckedFact<BTreeSet<Span>>,
+    statement_expression_spans: CheckedFact<BTreeSet<Span>>,
+    membership_migration_spans: CheckedFact<BTreeSet<Span>>,
+    standard_call_spans: CheckedFact<BTreeMap<Span, (String, String)>>,
     statement_call_spans: BTreeMap<Span, Span>,
     whole_statement_call_spans: BTreeMap<Span, Span>,
     whole_statement_values: std::sync::OnceLock<FxHashSet<ExprId>>,
     guarded_statement_depth: usize,
-    propagating_statements: BTreeSet<Span>,
-    discardable_bindings: BTreeSet<Span>,
-    redundant_condition_propagations: BTreeSet<Span>,
+    propagating_statements: CheckedFact<BTreeSet<Span>>,
+    discardable_bindings: CheckedFact<BTreeSet<Span>>,
+    redundant_condition_propagations: CheckedFact<BTreeSet<Span>>,
     /// Empty without checked facts.
-    unvalidated_command_vectors: BTreeMap<Span, Type>,
+    unvalidated_command_vectors: CheckedFact<BTreeMap<Span, Type>>,
     /// Inside a proc or pure body: whether `?` may replace `return Err(e)`
     /// there without changing the function's effect contract.
     propagation_function: Option<bool>,
@@ -445,9 +571,9 @@ pub struct Linter<'a> {
     propagation_boundary_depth: usize,
     negated_call_spans: BTreeMap<Span, Span>,
     size_products: lint_size_literal::SizeProducts,
-    statically_resolved_call_spans: BTreeSet<Span>,
-    definitely_exiting_block_spans: BTreeSet<Span>,
-    redundant_variant_qualifiers: BTreeMap<Span, Span>,
+    statically_resolved_call_spans: CheckedFact<BTreeSet<Span>>,
+    definitely_exiting_block_spans: CheckedFact<BTreeSet<Span>>,
+    redundant_variant_qualifiers: CheckedFact<BTreeMap<Span, Span>>,
     /// Where the pattern of each arm of a real `match` starts. A pattern test
     /// or condition also stores its pattern as an arm, and is not one.
     match_arm_head_starts: FxHashSet<usize>,
@@ -583,15 +709,18 @@ impl<'a> Linter<'a> {
         // turned off.
         let named = |code: DiagnosticCode| only.as_deref().is_some_and(|only| only.contains(&code));
         let prefer_set_advice = options.prefer_set || named(DiagnosticCode::LintPreferSet);
+        #[cfg(test)]
+        let checked_effects_needed =
+            options.function_effect_facts.is_empty() && !options.function_effect_facts_checked;
+        #[cfg(not(test))]
+        let checked_effects_needed = true;
         let resource_close_selected = lint_code_selected(
             only.as_deref(),
             Some(DiagnosticCode::LintRedundantClose),
         ) && !options
             .excluded_rules
             .contains(&DiagnosticCode::LintRedundantClose);
-        let check_output_needed = resource_close_selected
-            || (options.function_effect_facts.is_empty()
-                && !options.function_effect_facts_checked);
+        let check_output_needed = resource_close_selected || checked_effects_needed;
         let checked_output = options.checked_output.or_else(|| {
             check_output_needed.then(|| std::sync::Arc::new(check_effects()))
         });
@@ -599,16 +728,37 @@ impl<'a> Linter<'a> {
         // them, however their removal was asked for.
         let removes_returns = !options.annotation_policy_writes_returns;
         let excluded_rules = options.excluded_rules;
+        #[cfg(test)]
         let message_payload_constructors = options.message_payload_constructors;
-        let checked_effects = if options.function_effect_facts.is_empty()
-            && !options.function_effect_facts_checked
-        {
-            checked_output
-                .as_ref()
-                .map_or_else(BTreeMap::default, |checked| checked.function_effect_facts.clone())
-        } else {
-            options.function_effect_facts
-        };
+        #[cfg(not(test))]
+        let message_payload_constructors = None;
+        #[cfg(test)]
+        let checked_effects_shared = !options.function_effect_facts_checked;
+        let statically_resolved_output = checked_output
+            .as_ref()
+            .filter(|checked| {
+                checked.diagnostics.iter().all(|diagnostic| {
+                    diagnostic.code == Some(DiagnosticCode::CheckRedundantParens)
+                })
+            })
+            .cloned();
+        macro_rules! checked_fact {
+            ($field:ident, $checked:expr, $selector:expr, $force_local:expr) => {{
+                #[cfg(test)]
+                {
+                    CheckedFact::new(
+                        $checked,
+                        options.$field,
+                        $selector,
+                        $force_local,
+                    )
+                }
+                #[cfg(not(test))]
+                {
+                    CheckedFact::new($checked, $selector)
+                }
+            }};
+        }
         let mut linter = Self {
             record_constructors: xsh::frontend::check::RecordConstructors::collect(program),
             arena: &program.arena,
@@ -641,7 +791,7 @@ impl<'a> Linter<'a> {
             prefer_text_pattern: options.prefer_text_pattern
                 || named(DiagnosticCode::LintPreferTextPattern),
             prefer_rel_path: options.prefer_rel_path || named(DiagnosticCode::LintPreferRelPath),
-            checked_output,
+            checked_output: checked_output.clone(),
             prefer_inferred_proc_returns: removes_returns
                 && (options.prefer_inferred_proc_returns
                     || named(DiagnosticCode::LintPreferInferredProcReturn)),
@@ -656,37 +806,127 @@ impl<'a> Linter<'a> {
             interactive_command_replacement: options.interactive_command_replacement,
             scopes: vec![FxHashMap::default()],
             diagnostics: Vec::new(),
-            checked_function_returns: options.function_return_types,
-            expr_types: options.expr_types,
-            proven_nonnull_fallback_receivers: options.proven_nonnull_fallback_receivers,
-            requirement_targets: options.requirement_targets,
-            requirement_expected_targets: options.requirement_expected_targets,
-            statement_positions: options.statement_positions,
+            checked_function_returns: checked_fact!(
+                function_return_types,
+                checked_output.clone(),
+                |checked| &checked.function_return_types,
+                false
+            ),
+            expr_types: checked_fact!(
+                expr_types,
+                checked_output.clone(),
+                |checked| &checked.expr_types,
+                false
+            ),
+            proven_nonnull_fallback_receivers: checked_fact!(
+                proven_nonnull_fallback_receivers,
+                checked_output.clone(),
+                |checked| &checked.proven_nonnull_fallback_receivers,
+                false
+            ),
+            requirement_targets: checked_fact!(
+                requirement_targets,
+                checked_output.clone(),
+                |checked| &checked.requirement_targets,
+                false
+            ),
+            requirement_expected_targets: checked_fact!(
+                requirement_expected_targets,
+                checked_output.clone(),
+                |checked| &checked.requirement_expected_targets,
+                false
+            ),
+            statement_positions: checked_fact!(
+                statement_positions,
+                checked_output.clone(),
+                |checked| &checked.statement_positions,
+                false
+            ),
             result_unit_functions: Vec::new(),
             result_path_functions: Vec::new(),
             result_return_ok_types: Vec::new(),
             function_return_types: Vec::new(),
             function_bodies: Vec::new(),
-            checked_effects,
-            assertion_effect_spans: options.assertion_effect_spans,
-            statement_expression_spans: options.statement_expression_spans,
-            membership_migration_spans: options.membership_migration_spans,
-            standard_call_spans: options.standard_call_spans,
+            checked_effects: checked_fact!(
+                function_effect_facts,
+                checked_output.clone(),
+                |checked| &checked.function_effect_facts,
+                !checked_effects_shared
+            ),
+            assertion_effect_spans: checked_fact!(
+                assertion_effect_spans,
+                checked_output.clone(),
+                |checked| &checked.assertion_effect_spans,
+                false
+            ),
+            statement_expression_spans: checked_fact!(
+                statement_expression_spans,
+                checked_output.clone(),
+                |checked| &checked.statement_expression_spans,
+                false
+            ),
+            membership_migration_spans: checked_fact!(
+                membership_migration_spans,
+                checked_output.clone(),
+                |checked| &checked.membership_migration_spans,
+                false
+            ),
+            standard_call_spans: checked_fact!(
+                standard_call_spans,
+                checked_output.clone(),
+                |checked| &checked.standard_call_spans,
+                false
+            ),
             statement_call_spans: BTreeMap::new(),
             whole_statement_call_spans: BTreeMap::new(),
             whole_statement_values: std::sync::OnceLock::new(),
             guarded_statement_depth: 0,
-            propagating_statements: options.propagating_statements,
-            discardable_bindings: options.discardable_bindings,
-            redundant_condition_propagations: options.redundant_condition_propagations,
-            unvalidated_command_vectors: options.unvalidated_command_vectors,
+            propagating_statements: checked_fact!(
+                propagating_statements,
+                checked_output.clone(),
+                |checked| &checked.propagating_statements,
+                false
+            ),
+            discardable_bindings: checked_fact!(
+                discardable_bindings,
+                checked_output.clone(),
+                |checked| &checked.discardable_bindings,
+                false
+            ),
+            redundant_condition_propagations: checked_fact!(
+                redundant_condition_propagations,
+                checked_output.clone(),
+                |checked| &checked.redundant_condition_propagations,
+                false
+            ),
+            unvalidated_command_vectors: checked_fact!(
+                unvalidated_command_vectors,
+                checked_output.clone(),
+                |checked| &checked.unvalidated_command_vectors,
+                false
+            ),
             propagation_function: None,
             propagation_boundary_depth: 0,
             negated_call_spans: BTreeMap::new(),
             size_products: lint_size_literal::SizeProducts::default(),
-            statically_resolved_call_spans: options.statically_resolved_call_spans,
-            definitely_exiting_block_spans: options.definitely_exiting_block_spans,
-            redundant_variant_qualifiers: options.redundant_variant_qualifiers,
+            statically_resolved_call_spans: checked_fact!(
+                statically_resolved_call_spans,
+                statically_resolved_output,
+                |checked| &checked.statically_resolved_call_spans,
+                false
+            ),
+            definitely_exiting_block_spans: checked_fact!(
+                definitely_exiting_block_spans,
+                checked_output.clone(),
+                |checked| &checked.definitely_exiting_block_spans,
+                false
+            ),
+            redundant_variant_qualifiers: checked_fact!(
+                redundant_variant_qualifiers,
+                checked_output.clone(),
+                |checked| &checked.redundant_variant_qualifiers,
+                false
+            ),
             match_arm_head_starts: FxHashSet::default(),
             inferred_variant_patterns_reported: FxHashSet::default(),
             dead_code: options.dead_code,
@@ -769,7 +1009,19 @@ impl<'a> Linter<'a> {
             .diagnostics
             .extend(fail_candidates.finish(&program.arena, source));
         // Offered declaration deletions suppress overlapping payload fixes.
-        if let Some(constructors) = &message_payload_constructors {
+        // An incomplete check cannot prove every constructor call, so the
+        // implicit-message rule stays silent in that case.
+        let checked_message_payloads = linter.checked_output.as_deref().and_then(|checked| {
+            checked
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.severity != Severity::Error)
+                .then_some(&checked.message_payload_constructors)
+        });
+        if let Some(constructors) = message_payload_constructors
+            .as_ref()
+            .or(checked_message_payloads)
+        {
             let implicit_messages = lint_implicit_message::lint_implicit_messages(
                 program,
                 source,

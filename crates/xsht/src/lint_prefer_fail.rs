@@ -591,8 +591,9 @@ mod tests {
                 }
             }
             if kept.is_empty() {
-                // Other rules may rewrite control flow while the nominal error stays.
-                assert!(current.contains("error AppError = Failed(message: Str)"), "{current}");
+                // Other rules may rewrite control flow or the explicit message field
+                // while the nominal error family stays.
+                assert!(current.contains("error AppError = Failed"), "{current}");
                 assert!(current.contains("AppError.Failed("), "{current}");
                 assert!(lint(&current).iter().all(|diagnostic| diagnostic.fix_hints.is_empty()));
                 return;

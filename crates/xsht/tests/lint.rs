@@ -320,7 +320,7 @@ fn linter_map_entry_iteration_keeps_mutation_annotations_comments_and_unknown_me
             &parsed.arena,
             &source,
             LintOptions {
-                expr_types: checked.expr_types,
+                checked_output: Some(std::sync::Arc::new(checked)),
                 ..LintOptions::default()
             },
         );
@@ -421,7 +421,7 @@ fn value_pipeline_hole_lint_retains_effect_order_optional_calls_and_context() {
             &parsed.arena,
             source,
             LintOptions {
-                expr_types: checked.expr_types,
+                checked_output: Some(std::sync::Arc::new(checked)),
                 ..LintOptions::default()
             },
         );
@@ -440,7 +440,7 @@ fn value_pipeline_hole_lint_retains_effect_order_optional_calls_and_context() {
         &parsed.arena,
         source,
         LintOptions {
-            expr_types: checked.expr_types,
+            checked_output: Some(std::sync::Arc::new(checked)),
             ..LintOptions::default()
         },
     );
@@ -482,7 +482,7 @@ fn duration_arithmetic_conversion_refuses_custom_module_alias() {
         &loaded.parsed.arena,
         source,
         LintOptions {
-            expr_types: checked.expr_types,
+            checked_output: Some(std::sync::Arc::new(checked)),
             ..LintOptions::default()
         },
     );
@@ -640,7 +640,7 @@ fn absence_lookup_literal_fallback_fix_rechecks_and_converges() {
         &parsed.arena,
         source,
         LintOptions {
-            expr_types: checked.expr_types,
+            checked_output: Some(std::sync::Arc::new(checked)),
             ..LintOptions::default()
         },
     );
@@ -665,7 +665,7 @@ fn absence_lookup_literal_fallback_fix_rechecks_and_converges() {
         &parsed.arena,
         &formatted.formatted,
         LintOptions {
-            expr_types: checked.expr_types,
+            checked_output: Some(std::sync::Arc::new(checked)),
             ..LintOptions::default()
         },
     );
@@ -692,7 +692,7 @@ fn absence_lookup_path_literal_fallback_fix_rechecks_and_converges() {
         &parsed.arena,
         source,
         LintOptions {
-            expr_types: checked.expr_types,
+            checked_output: Some(std::sync::Arc::new(checked)),
             ..LintOptions::default()
         },
     );
@@ -710,7 +710,7 @@ fn absence_lookup_path_literal_fallback_fix_rechecks_and_converges() {
     assert_parse_check_standalone("Path lookup fallback", &fixed);
     let parsed = parse_lint_source(&fixed);
     let checked = Checker::check_arena(&parsed.arena, &fixed);
-    assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics
+    assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions { checked_output: Some(std::sync::Arc::new(checked)), ..LintOptions::default() }).diagnostics
         .iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.lookup-fallback")));
 }
 
@@ -723,7 +723,7 @@ fn absence_lookup_immutable_fallback_fix_preserves_typed_parameter_and_alias() {
         &parsed.arena,
         source,
         LintOptions {
-            expr_types: checked.expr_types,
+            checked_output: Some(std::sync::Arc::new(checked)),
             ..LintOptions::default()
         },
     );
@@ -757,7 +757,7 @@ fn absence_lookup_fallback_fix_refuses_eager_effects_failure_comments_and_named_
             &parsed.arena,
             source,
             LintOptions {
-                expr_types: checked.expr_types,
+                checked_output: Some(std::sync::Arc::new(checked)),
                 ..LintOptions::default()
             },
         );
@@ -802,7 +802,7 @@ fn linter_env_strings_ignore_shadowed_env_bindings() {
         &parsed.arena,
         source,
         LintOptions {
-            expr_types: checked.expr_types,
+            checked_output: Some(std::sync::Arc::new(checked)),
             ..LintOptions::default()
         },
     )
