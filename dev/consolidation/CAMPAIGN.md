@@ -1,6 +1,8 @@
 # XSH Consolidation Campaign
 
-Status: active, Setup and implementation in progress. The owner approved the entire campaign
+Status: paused for an owner-requested reboot on 2026-10-11. Setup and implementation
+are incomplete; the restart checkpoint is [`HANDOFF.md`](HANDOFF.md).
+The owner approved the entire campaign
 and all six designs on 2026-10-11, including the Codex model policy and
 completeness-first sequence. The start commit is
 `5e66b6b896a47d0c692739135d51200b007a2a67`; integration is on `consolidation`
@@ -701,6 +703,15 @@ time and native-suite time, with thin LTO excluded.
 | Freeze on expressive surface | Rules |
 
 ## Handoff log
+
+### 2026-10-11 — paused for reboot
+
+The owner paused implementation and requested a durable restart handoff. See
+[`HANDOFF.md`](HANDOFF.md) for the integration checkpoint, unmerged commits,
+unfinished diffs, completed versus interrupted gates, environment recovery,
+and remaining campaign work. All owned jobs are stopped. Required artifacts
+and extra source snapshots are on disk outside `/tmp`; resume only on the
+owner's request. The campaign is not complete.
 
 ### 2026-10-11 — approval and Setup started
 
