@@ -130,7 +130,7 @@ export proc build_distribution(
   }
 
   if use_docker {
-    docker.run_internal(ctx, "dist", false, [], [])
+    docker.run_internal(ctx, "dist", false, [])
   } else {
     native_dist(ctx, "DIST_BUILD_STD_FLAGS")
   }

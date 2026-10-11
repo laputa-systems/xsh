@@ -29,6 +29,8 @@ export proc rust(ctx: context.Context) [fs, process, env, error, io] -> Result[U
         "--test",
         "core_compat_extra",
         "--",
+        "--skip",
+        "split::",
         "-Zunstable-options",
         "--report-time",
       ],
@@ -89,14 +91,8 @@ export proc xsh(ctx: context.Context) [fs, process, env, error, io] -> Result[Un
 export proc linux_test(ctx: context.Context, ci: Bool) [process, env, error, io] -> Result[Unit, Error] {
   let operation = if ci { "test-linux-ci" } else { "test-linux" }
   let split_operation = if ci { "test-linux-ci-split" } else { "test-linux-split" }
-  docker.run_internal(ctx, operation, true, [], [])
-  docker.run_internal(
-    ctx,
-    split_operation,
-    true,
-    [],
-    ["--cpus=0.01", "--memory=1g", "--memory-swap=1g"],
-  )
+  docker.run_internal(ctx, operation, true, [])
+  docker.run_internal(ctx, split_operation, true, [])
 }
 
 ## Runs the selected Darwin CI test contract directly on macOS.

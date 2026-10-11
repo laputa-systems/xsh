@@ -79,12 +79,11 @@ test test_docker_argv_is_direct_and_carries_mount_environment_policy {
     ctx,
     "xsh-test",
     "linux/arm64",
-    "dist",
+    "test-linux",
     true,
     501,
     20,
     "25",
-    [],
     [],
   )
   assert argv[0] == "docker"
@@ -98,28 +97,35 @@ test test_docker_argv_is_direct_and_carries_mount_environment_policy {
   assert "dev/main.xsh" in argv
   assert "sh" not in argv
   assert "-c" not in argv
+  assert "--cpus=0.01" not in argv
+  assert "--memory=1g" not in argv
+  assert "--memory-swap=1g" not in argv
 }
 
 test test_docker_argv_applies_split_resource_limits_before_the_image {
   let ctx = fixtures.linux_aarch64_context(/repo, "dev")?
-  let argv = docker_workflows.internal_argv(
-    ctx,
-    "xsh-test",
-    "linux/arm64",
-    "test-linux-split",
-    true,
-    501,
-    20,
-    "",
-    ["--cpus=0.01", "--memory=1g", "--memory-swap=1g"],
-    [],
-  )
-  assert argv[6] == "--cpus=0.01"
-  assert argv[7] == "--memory=1g"
-  assert argv[8] == "--memory-swap=1g"
-  assert argv[9] == "--privileged"
-  assert argv[10] == "-v"
-  assert argv[-1] == "test-linux-split"
+  for operation in ["test-linux-split", "test-linux-ci-split"] {
+    let argv = docker_workflows.internal_argv(
+      ctx,
+      "xsh-test",
+      "linux/arm64",
+      operation,
+      true,
+      501,
+      20,
+      "",
+      [],
+    )
+    var docker_options_before_image: List[Str] = []
+    for argument in argv {
+      if argument == "xsh-test" { break }
+      docker_options_before_image += [argument]
+    }
+    assert "--cpus=0.01" in docker_options_before_image
+    assert "--memory=1g" in docker_options_before_image
+    assert "--memory-swap=1g" in docker_options_before_image
+    assert argv[-1] == operation
+  }
 }
 
 test test_release_names_and_core_paths_are_deterministic {
