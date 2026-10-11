@@ -6277,7 +6277,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 FrameValue::Value(value) => {
                     match self.evaluator.indexed_question_value(value, span)? {
                         Ok(value) => self.push_value(index, FrameValue::Value(value), *next),
-                        Err(value) => self.push_value(index, FrameValue::Break(value), *next),
+                        Err(value) => {
+                            let ControlFlow::Break(value) = self
+                                .evaluator
+                                .preserve_lexical_expression_flow::<()>(StmtFlow::Propagate(value))
+                            else {
+                                unreachable!("propagation crosses an expression boundary")
+                            };
+                            self.push_value(index, FrameValue::Break(value), *next);
+                        }
                     }
                 }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
