@@ -36,7 +36,7 @@ operand remains open.
 
 
 An applet never spells a `/proc` or `/sys` path itself
-(`dev/compat/check_kernel_reads.py` fails the build when one does); it asks the
+(`dev/checks/check_kernel_reads.py` fails the build when one does); it asks the
 owner of that kernel interface. Beyond the native modules, those owners are
 `lib/selinux.xsh` (whether the kernel lists or mounts selinuxfs, shared by
 `mkdir`, `mknod`, `mv`, `install` and `ss`), `lib/proc_target.xsh` (the

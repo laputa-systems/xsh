@@ -225,9 +225,8 @@ gate inside the image, run the container-built
 `target/aarch64-unknown-linux-musl/release/xsht`.
 The image includes Python 3 for repository metadata checks,
 util-linux `setpriv` for tests that drop to an unprivileged user, and a `compat`
-account with UID/GID 1000 for those runs. Bash, make, Perl, autotools, the
-uutils GNU preparation tools, and ACL/capability/crypto headers support the
-GNU compatibility suite and runner.
+account with UID/GID 1000 for those runs. ACL, capability, and crypto headers
+support platform boundary tests for those interfaces.
 
 ## Interactive parity
 

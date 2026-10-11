@@ -11,8 +11,9 @@ before it starts, or it is parked under the rules in "Unattended operation".
 
 ## Start condition and sequence
 
-1. The compatibility campaign (`dev/compat/CAMPAIGN.md`) finishes its
-   correctness work: parity, the native port, and harness retirement.
+1. The command compatibility campaign finishes its correctness work: parity,
+   the native port, frozen-origin accounting, and retirement of its original
+   test harness.
 2. This campaign runs.
 3. Compatibility performance work (utility throughput, speed-only native
    primitives, moving policy out of Rust) runs after this campaign closes, on
@@ -41,8 +42,8 @@ tests this plan adopts as its own:
 
 ## Rules
 
-Lane process, roles, and review follow the compatibility campaign unless a
-rule below says otherwise.
+This campaign's lane process, roles, and review are defined by the rules
+below.
 
 **Roles and models.** One coordinating session, on its own model, is the
 integrator and the only one that merges. Implementation lanes are `xsh-lane`
