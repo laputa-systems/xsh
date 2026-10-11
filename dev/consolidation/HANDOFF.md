@@ -1,5 +1,43 @@
 # Consolidation restart handoff
 
+## Display/cursor integration and combined gates — 2026-10-11, `982bd755`
+
+Accepted borrowed display `9225089c` as `d75d942e`: scalar output shares one
+borrowed view operation and error fields use canonical data accessors. The
+current lowered executor retains its Status/Error/Result policies; the Runtime
+helper remains scalar-only for native assertion diagnostics. Canonical growth
+is one production line, covered only by the concrete negative reader batch,
+not a claim that its individual zero-growth estimate was met. Source-matched
+private optimized verification passes its display unit and eight focused cases.
+
+Accepted `0a10e7bf` as `982bd755`, only the checked typed list cursor API and
+its wrong-list boundary regression. The cursor carries store/block identity,
+offset and remaining count; runtime continuations keep the program's Arc owner
+stable through producer suspension. Its 56 production lines belong to the
+statement cohort's total, counted once. Print/Cd/Env itself remains private:
+its measured +291 exceeds the +200 grant, and genuine duplication removal is
+required before acceptance. Branch PatternIf follows this sealed API to remove
+its copied future-branch descriptors while retaining current capture cleanup.
+
+The combined pre-display/cursor source at `e708d1b5` passes all 18 focused
+native file gates, including forced frame/stage oracles. Its matching binaries
+and 2,206 source hashes are frozen under `joint-e708-bin` and
+`joint-e708-source.json`. The source-matched root harness also passes ten
+focused serializer/frame/retired-flag/layout units. The first stdin launch did
+not execute tests because the wrapper does not forward stdin; its empty output
+is not evidence. The corrected file-based driver and manifest are preserved.
+These gates do not qualify later display/cursor source or final acceptance.
+
+A root whole-tree recount started at `c29ac5a7` was invalidated by concurrent
+source integration and is explicitly marked invalid. A fresh isolated checkout
+at `982bd755` is being measured; no new whole-tree count is yet claimed.
+W9's repaired first paired shard passes 100 sources in all four option modes;
+full 1,690-source parity remains running. Its original candidate panic artifact
+was overwritten on retry and the retained failure note is explicitly
+reconstructed, not a source-matched original receipt. Subsequent attempts must
+retain distinct output directories. All final structural/source/platform/
+documentation/performance gates remain open.
+
 ## Borrowed JSON and indexed subtraction — 2026-10-11, `e708d1b5`
 
 Accepted binary retirement `b414d80a` as `29027228`: general ExprBinary
