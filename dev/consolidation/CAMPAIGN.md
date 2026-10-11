@@ -853,8 +853,10 @@ owner's request. The campaign is not complete.
   as scopes; those items are now separately inventoried. The same scanner
   measures the current source tree and retains the complete start report as a
   diagnostic artifact. Semantic/performance rows remain unmeasured. Batch
-  ratchets use a recorded, bounded intermediate envelope; final close requires
-  the corrected companion baseline and no envelope.
+  ratchets use a recorded, bounded intermediate envelope. This campaign uses
+  the corrected companion at final close, without an envelope; the CLI also
+  preserves original-baseline checks and independently enforces zero blankets
+  and source reduction.
 - Lexical identities, authoritative instructions, resource scope ownership,
   opaque Any, borrowed value/type predicates, common lint descent and module
   command plans now run on independent file sets. Remaining dependencies are
