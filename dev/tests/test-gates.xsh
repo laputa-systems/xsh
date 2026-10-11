@@ -108,7 +108,7 @@ test test_batch_automatic_checks_use_retained_repository_gates {
   let ratchets = checks[3]
   assert ratchets.argv[1] == "dev/consolidation/metrics.xsh"
   assert ["--root", ctx.root.display(), "--source-root", "src", "--xsht-source-root", "crates/xsht/src"] == ratchets.argv[3..9]
-  assert ["--baseline", "dev/consolidation/baseline-blanket-scope.json", "--baseline-provenance", "dev/consolidation/blanket-metric-provenance.json", "--envelope", "dev/consolidation/envelope.json", "--output", ".work/consolidation/current.json", "--audit", ".work/consolidation/rises.json"] == ratchets.argv[9..]
+  assert ["--baseline", "dev/consolidation/baseline-blanket-scope.json", "--baseline-provenance", "dev/consolidation/blanket-metric-provenance.json", "--envelope", "dev/consolidation/envelope-upstream.json", "--output", ".work/consolidation/current.json", "--audit", ".work/consolidation/rises.json"] == ratchets.argv[9..]
   for spec in checks {
     assert spec.executable != "python3"
     assert [arg for arg in spec.argv |> where .starts_with("dev/compat/")].is_empty()

@@ -1,0 +1,26 @@
+{
+  "start_commit": "5e66b6b896a47d0c692739135d51200b007a2a67",
+  "limits": [
+    {
+      "metric": "source_lines_src",
+      "ceiling": 193749,
+      "approval": "Owner approved completed master integration; integrator carries exact upstream delta, 2026-10-11",
+      "reason": "Bounded partition, child enumeration, resource, diagnostic, evaluator, Any and command-plan prerequisites; every completed removal slice retains its own net-reduction target. Completed master 4b0b4e7c contributes 575 lexical production lines in this root, separately measured in upstream-source-delta.json. This derived envelope preserves the campaign growth allowance.",
+      "remove_when": "All workstreams reach their structural end states; final closure requires fewer source lines than the unchanged starting baseline."
+    },
+    {
+      "metric": "source_lines_xsht",
+      "ceiling": 50367,
+      "approval": "Owner approved completed master integration; integrator carries exact upstream delta, 2026-10-11",
+      "reason": "Temporary lint partition scaffolding; common descent and rule registration remove the old duplicated paths. Completed master 4b0b4e7c contributes -1 lexical production lines in this root, separately measured in upstream-source-delta.json. This derived envelope preserves the campaign growth allowance.",
+      "remove_when": "The common lint descent and rule table replace their predecessors; final closure requires fewer source lines than the unchanged baseline."
+    },
+    {
+      "metric": "blanket_dead_code_lines",
+      "ceiling": 52005,
+      "approval": "Campaign integrator, inherited scopes during approved prerequisite partitions, 2026-10-11",
+      "reason": "Existing inherited blanket scopes temporarily cover bounded prerequisite scaffolding. This permits no new blanket allowance or hidden unused path.",
+      "remove_when": "Dead paths and blanket allowances are removed; final closure requires this metric to be zero and rejects this envelope."
+    }
+  ]
+}

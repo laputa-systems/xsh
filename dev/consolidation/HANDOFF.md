@@ -50,7 +50,14 @@ stream ownership. Obsolete compatibility corpus exclusions are removed in `9650c
 verification passes two corpus-walker units, one fuzz walker unit and the
 checker-publication integration case. Directory links remain excluded, file
 links remain readable and nested development sources participate normally.
-Exact upstream source accounting is running separately. W9 review found that
+Exact upstream accounting measures 22 changed Rust files with the same
+canonical scanner: `src` +575 and `crates/xsht/src` -1. Per-file counts and source
+hashes are recorded in `upstream-source-delta.json`; the derived
+`envelope-upstream.json` carries precisely those deltas into interim ceilings
+193,749 / 50,367. The original envelope and both baseline files remain unchanged;
+final closure still rejects all envelopes and compares against original source
+counts. Detailed runner/binary/image receipts remain in the private
+`upstream-source-count` worktree's `.work/upstream-source-accounting/`. W9 review found that
 Entry records are not yet cached and Bytes entries check Str-domain modules
 first; its expanded bounded grant in ITEMS requires closing both gaps and
 removing actual dead preparation state, without waiving final shrink. Typed

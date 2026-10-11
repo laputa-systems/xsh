@@ -126,7 +126,7 @@ export pure batch_checks(ctx: context.Context, profile: tests.TestProfile) -> Li
       [xsh, "dev/consolidation/metrics.xsh", "check", "--root", ctx.root.display(),
         "--source-root", "src", "--xsht-source-root", "crates/xsht/src",
         "--baseline", "dev/consolidation/baseline-blanket-scope.json", "--baseline-provenance", "dev/consolidation/blanket-metric-provenance.json",
-        "--envelope", "dev/consolidation/envelope.json",
+        "--envelope", "dev/consolidation/envelope-upstream.json",
         "--output", ".work/consolidation/current.json", "--audit", ".work/consolidation/rises.json"], ctx.root, {}),
   ]
 }
