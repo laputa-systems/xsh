@@ -273,10 +273,21 @@ export proc read_link(s: Scene, name: Str) [fs, error] -> Result[Str, Error] {
   Ok(fp"{s.root}/{name}".readlink()?.display())
 }
 
-## Appends text to a file (`append`).
-export proc append(s: Scene, name: Str, content: Str) [fs, error] -> Result[Unit, Error] {
-  let current = if fp"{s.root}/{name}".exists()? { fp"{s.root}/{name}".read_bytes()? } else { b"" }
-  fp"{s.root}/{name}".write(bytes.concat([current, bytes.from_text(content)]))?
+## Appends UTF-8 text without reading or truncating the file, creating it if absent.
+export proc append(s: Scene, name: Str, content: Str) [fs, process, io, error] -> Result[Unit, Error] {
+  let fd = unix.open_fd(/dev/null)?
+  var open = true
+  defer { if open { unix.close_fd(fd) } }
+  unix.redirect_fd(fd, fp"{s.root}/{name}", write: true, append: true)?
+  let data = bytes.from_text(content)
+  var offset = 0
+  while offset < data.len() {
+    let written = unix.write_fd(fd, data.slice(offset))?
+    assert written > 0, "append made no progress"
+    offset += written
+  }
+  open = false
+  unix.close_fd(fd)?
   Ok()
 }
 

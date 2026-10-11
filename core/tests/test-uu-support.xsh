@@ -1,5 +1,33 @@
 use support.uu as uu
 
+test test_uu_support_append_creates_and_preserves_exact_bytes { |ctx|
+  let s = uu.scene(ctx)?
+  uu.append(s, "created", "é\0\n")?
+  assert uu.at(s, "created").read_bytes()? == bytes.from_text("é\0\n")
+  uu.write_bytes(s, "binary", b"\xff\0prefix")?
+  let file = uu.at(s, "binary")
+  let before = fs.stat(file)?
+  let reader = unix.open_fd(file)?
+  defer unix.close_fd(reader)
+  assert unix.read_fd(reader, 2)? == b"\xff\0"
+  uu.append(s, "binary", "é\0\n")?
+  assert fs.stat(file)?.ino == before.ino
+  assert unix.read_fd(reader, 100)? == bytes.concat([b"prefix", bytes.from_text("é\0\n")])
+  assert file.read_bytes()? == bytes.concat([b"\xff\0prefix", bytes.from_text("é\0\n")])
+}
+
+test test_uu_support_append_only_requires_write_permission { |ctx|
+  if unix.id()?.uid == 0 { test.skip("write-only permissions require an unprivileged runner") }
+  let s = uu.scene(ctx)?
+  uu.write(s, "write-only", "prefix")?
+  let file = uu.at(s, "write-only")
+  file.chmod(0o200)?
+  defer file.chmod(0o600)
+  uu.append(s, "write-only", "suffix")?
+  file.chmod(0o600)?
+  assert file.read_bytes()? == b"prefixsuffix"
+}
+
 test test_uu_support_standalone_usage_name { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "basename", [])?
