@@ -196,6 +196,15 @@ fn generated_programs_are_grammar_sentences() {
 }
 
 #[test]
+fn generated_string_replacement_uses_the_required_with_label() {
+    let generated = xsh_fuzz::generator::generate(4, &GenConfig::default());
+    let report = check_text(xsh_fuzz::mutate::MUTANT_FILE, &generated.source);
+    assert!(report.accepted(), "{report:?}\n{}", generated.source);
+    assert!(generated.source.contains(".replace("), "{}", generated.source);
+    assert!(generated.source.contains(", with: "), "{}", generated.source);
+}
+
+#[test]
 fn oracle_methods_match_the_registry() {
     xsh_fuzz::methods::verify_against_registry().unwrap();
 }
