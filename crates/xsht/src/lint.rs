@@ -3185,7 +3185,47 @@ impl<'a> Linter<'a> {
                 self.can_bare_chain_base(base)
                     && matches!(self.arena.expr(index).kind, ArenaExprKind::Int(_))
             }
-            _ => false,
+            ArenaExprKind::Null
+            | ArenaExprKind::Bool(_)
+            | ArenaExprKind::Bytes(_)
+            | ArenaExprKind::Regex(_)
+            | ArenaExprKind::EnvString(_)
+            | ArenaExprKind::Item
+            | ArenaExprKind::LastStatus
+            | ArenaExprKind::List(_)
+            | ArenaExprKind::ListComp { .. }
+            | ArenaExprKind::MapComp { .. }
+            | ArenaExprKind::Set(_)
+            | ArenaExprKind::SetComp { .. }
+            | ArenaExprKind::Record(_)
+            | ArenaExprKind::If { .. }
+            | ArenaExprKind::Match { .. }
+            | ArenaExprKind::PatternTest { .. }
+            | ArenaExprKind::PatternCondition { .. }
+            | ArenaExprKind::Unary { .. }
+            | ArenaExprKind::ComparisonChain(_)
+            | ArenaExprKind::Binary { .. }
+            | ArenaExprKind::ValuePipelineCall { .. }
+            | ArenaExprKind::Slice { .. }
+            | ArenaExprKind::EnvPathList
+            | ArenaExprKind::Pipeline { .. }
+            | ArenaExprKind::StructuredPipeline { .. }
+            | ArenaExprKind::Run(_)
+            | ArenaExprKind::Spawn(_)
+            | ArenaExprKind::Wait(_)
+            | ArenaExprKind::BuilderCall { .. }
+            | ArenaExprKind::Try(_)
+            | ArenaExprKind::Capture(_)
+            | ArenaExprKind::Require { .. }
+            | ArenaExprKind::Convert { .. }
+            | ArenaExprKind::Collect { .. }
+            | ArenaExprKind::Loop { .. }
+            | ArenaExprKind::Retry { .. }
+            | ArenaExprKind::ValueBlock(_)
+            | ArenaExprKind::ErrorContext { .. }
+            | ArenaExprKind::ContextScope { .. }
+            | ArenaExprKind::TempDirScope { .. }
+            | ArenaExprKind::ResourceScope { .. } => false,
         }
     }
 
@@ -3979,7 +4019,52 @@ impl<'a> Linter<'a> {
             ArenaExprKind::Ident(_) if immutable_read => {
                 self.expr_types.get(&fallback_node.span).cloned()
             }
-            _ => None,
+            ArenaExprKind::GlobStr(_)
+            | ArenaExprKind::Regex(_)
+            | ArenaExprKind::FmtString(_)
+            | ArenaExprKind::PathFmtString(_)
+            | ArenaExprKind::Item
+            | ArenaExprKind::LastStatus
+            | ArenaExprKind::ListComp { .. }
+            | ArenaExprKind::MapComp { .. }
+            | ArenaExprKind::Set(_)
+            | ArenaExprKind::SetComp { .. }
+            | ArenaExprKind::Record(_)
+            | ArenaExprKind::If { .. }
+            | ArenaExprKind::Match { .. }
+            | ArenaExprKind::PatternTest { .. }
+            | ArenaExprKind::PatternCondition { .. }
+            | ArenaExprKind::Unary { .. }
+            | ArenaExprKind::ComparisonChain(_)
+            | ArenaExprKind::Binary { .. }
+            | ArenaExprKind::Call { .. }
+            | ArenaExprKind::ValuePipelineCall { .. }
+            | ArenaExprKind::Field { .. }
+            | ArenaExprKind::NullSafeField { .. }
+            | ArenaExprKind::Index { .. }
+            | ArenaExprKind::Slice { .. }
+            | ArenaExprKind::EnvString(_)
+            | ArenaExprKind::EnvPathList
+            | ArenaExprKind::Pipeline { .. }
+            | ArenaExprKind::StructuredPipeline { .. }
+            | ArenaExprKind::Run(_)
+            | ArenaExprKind::Spawn(_)
+            | ArenaExprKind::Wait(_)
+            | ArenaExprKind::BuilderCall { .. }
+            | ArenaExprKind::Try(_)
+            | ArenaExprKind::Capture(_)
+            | ArenaExprKind::Require { .. }
+            | ArenaExprKind::Convert { .. }
+            | ArenaExprKind::Collect { .. }
+            | ArenaExprKind::Loop { .. }
+            | ArenaExprKind::Retry { .. }
+            | ArenaExprKind::ValueBlock(_)
+            | ArenaExprKind::ErrorContext { .. }
+            | ArenaExprKind::ContextScope { .. }
+            | ArenaExprKind::TempDirScope { .. }
+            | ArenaExprKind::ResourceScope { .. }
+            | ArenaExprKind::List(_)
+            | ArenaExprKind::Ident(_) => None,
         };
         let inert = matches!(
             fallback_node.kind,
@@ -5839,9 +5924,60 @@ fn top_level_phase(arena: &AstArena, stmt: StmtId, source: &str) -> TopLevelPhas
             ArenaStmtKind::ProcDef(_)
             | ArenaStmtKind::PureDef(_)
             | ArenaStmtKind::SignalHook(_) => TopLevelPhase::Function,
-            _ => TopLevelPhase::Body,
+            ArenaStmtKind::Use(_)
+            | ArenaStmtKind::Export(_)
+            | ArenaStmtKind::ErrorDef(_)
+            | ArenaStmtKind::Const { .. }
+            | ArenaStmtKind::Let { .. }
+            | ArenaStmtKind::Var { .. }
+            | ArenaStmtKind::Assign { .. }
+            | ArenaStmtKind::CliMain(_)
+            | ArenaStmtKind::StreamDef(_)
+            | ArenaStmtKind::Return(_)
+            | ArenaStmtKind::Yield(_)
+            | ArenaStmtKind::YieldDelegate(_)
+            | ArenaStmtKind::Defer(_, _)
+            | ArenaStmtKind::If { .. }
+            | ArenaStmtKind::While { .. }
+            | ArenaStmtKind::For { .. }
+            | ArenaStmtKind::With { .. }
+            | ArenaStmtKind::Loop { .. }
+            | ArenaStmtKind::Guard { .. }
+            | ArenaStmtKind::Sugar { .. }
+            | ArenaStmtKind::Assert { .. }
+            | ArenaStmtKind::Break { .. }
+            | ArenaStmtKind::Continue
+            | ArenaStmtKind::Exit(_)
+            | ArenaStmtKind::Match { .. }
+            | ArenaStmtKind::Command(_)
+            | ArenaStmtKind::TailBareIdent(_)
+            | ArenaStmtKind::Expr(_) => TopLevelPhase::Body,
         },
-        _ => TopLevelPhase::Body,
+        ArenaStmtKind::ErrorDef(_)
+        | ArenaStmtKind::Const { .. }
+        | ArenaStmtKind::Let { .. }
+        | ArenaStmtKind::Var { .. }
+        | ArenaStmtKind::Assign { .. }
+        | ArenaStmtKind::StreamDef(_)
+        | ArenaStmtKind::Return(_)
+        | ArenaStmtKind::Yield(_)
+        | ArenaStmtKind::YieldDelegate(_)
+        | ArenaStmtKind::Defer(_, _)
+        | ArenaStmtKind::If { .. }
+        | ArenaStmtKind::While { .. }
+        | ArenaStmtKind::For { .. }
+        | ArenaStmtKind::With { .. }
+        | ArenaStmtKind::Loop { .. }
+        | ArenaStmtKind::Guard { .. }
+        | ArenaStmtKind::Sugar { .. }
+        | ArenaStmtKind::Assert { .. }
+        | ArenaStmtKind::Break { .. }
+        | ArenaStmtKind::Continue
+        | ArenaStmtKind::Exit(_)
+        | ArenaStmtKind::Match { .. }
+        | ArenaStmtKind::Command(_)
+        | ArenaStmtKind::TailBareIdent(_)
+        | ArenaStmtKind::Expr(_) => TopLevelPhase::Body,
     }
 }
 

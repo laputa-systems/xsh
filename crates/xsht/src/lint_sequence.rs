@@ -173,7 +173,10 @@ pub(super) fn stmt_pushes_to(arena: &AstArena, stmt: StmtId, name: xsh::frontend
                 .any(|operand| match *operand {
                     ArenaSugarOperand::Block(block) => block_pushes_to(arena, block, name),
                     ArenaSugarOperand::Stmt(stmt) => stmt_pushes_to(arena, stmt, name),
-                    _ => false,
+                    ArenaSugarOperand::Expr(_)
+                    | ArenaSugarOperand::BindingTarget(_)
+                    | ArenaSugarOperand::TypeExpr(_)
+                    | ArenaSugarOperand::Name(_) => false,
                 })
         }
         ArenaStmtKind::Guard { else_block, .. } => block_pushes_to(arena, else_block, name),
@@ -185,7 +188,29 @@ pub(super) fn stmt_pushes_to(arena: &AstArena, stmt: StmtId, name: xsh::frontend
             .match_arms(arms)
             .iter()
             .any(|arm| block_pushes_to(arena, arm.block, name)),
-        _ => false,
+        ArenaStmtKind::Use(_)
+        | ArenaStmtKind::TypeDef(_)
+        | ArenaStmtKind::ErrorDef(_)
+        | ArenaStmtKind::Const { .. }
+        | ArenaStmtKind::Let { .. }
+        | ArenaStmtKind::Var { .. }
+        | ArenaStmtKind::Assign { .. }
+        | ArenaStmtKind::ProcDef(_)
+        | ArenaStmtKind::CliMain(_)
+        | ArenaStmtKind::PureDef(_)
+        | ArenaStmtKind::StreamDef(_)
+        | ArenaStmtKind::SignalHook(_)
+        | ArenaStmtKind::Return(_)
+        | ArenaStmtKind::Yield(_)
+        | ArenaStmtKind::YieldDelegate(_)
+        | ArenaStmtKind::Defer(_, _)
+        | ArenaStmtKind::Assert { .. }
+        | ArenaStmtKind::Break { .. }
+        | ArenaStmtKind::Continue
+        | ArenaStmtKind::Exit(_)
+        | ArenaStmtKind::Command(_)
+        | ArenaStmtKind::TailBareIdent(_)
+        | ArenaStmtKind::Expr(_) => false,
     }
 }
 
@@ -228,7 +253,10 @@ pub(super) fn stmt_assigns_non_push_to(
                         block_assigns_non_push_to(arena, block, name)
                     }
                     ArenaSugarOperand::Stmt(stmt) => stmt_assigns_non_push_to(arena, stmt, name),
-                    _ => false,
+                    ArenaSugarOperand::Expr(_)
+                    | ArenaSugarOperand::BindingTarget(_)
+                    | ArenaSugarOperand::TypeExpr(_)
+                    | ArenaSugarOperand::Name(_) => false,
                 })
         }
         ArenaStmtKind::Guard { else_block, .. } => {
@@ -245,7 +273,29 @@ pub(super) fn stmt_assigns_non_push_to(
             .match_arms(arms)
             .iter()
             .any(|arm| block_assigns_non_push_to(arena, arm.block, name)),
-        _ => false,
+        ArenaStmtKind::Use(_)
+        | ArenaStmtKind::TypeDef(_)
+        | ArenaStmtKind::ErrorDef(_)
+        | ArenaStmtKind::Const { .. }
+        | ArenaStmtKind::Let { .. }
+        | ArenaStmtKind::Var { .. }
+        | ArenaStmtKind::Assign { .. }
+        | ArenaStmtKind::ProcDef(_)
+        | ArenaStmtKind::CliMain(_)
+        | ArenaStmtKind::PureDef(_)
+        | ArenaStmtKind::StreamDef(_)
+        | ArenaStmtKind::SignalHook(_)
+        | ArenaStmtKind::Return(_)
+        | ArenaStmtKind::Yield(_)
+        | ArenaStmtKind::YieldDelegate(_)
+        | ArenaStmtKind::Defer(_, _)
+        | ArenaStmtKind::Assert { .. }
+        | ArenaStmtKind::Break { .. }
+        | ArenaStmtKind::Continue
+        | ArenaStmtKind::Exit(_)
+        | ArenaStmtKind::Command(_)
+        | ArenaStmtKind::TailBareIdent(_)
+        | ArenaStmtKind::Expr(_) => false,
     }
 }
 
