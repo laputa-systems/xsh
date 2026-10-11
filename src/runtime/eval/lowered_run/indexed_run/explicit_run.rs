@@ -1634,12 +1634,12 @@ enum FrameContinuation {
         span: Span,
     },
     AssertionChainLeft {
-        state: FrameAssertionState,
+        state: Box<FrameAssertionState>,
         instruction: u32,
         pairs: ComparisonChainPosition,
     },
     AssertionChainRight {
-        state: FrameAssertionState,
+        state: Box<FrameAssertionState>,
         instruction: u32,
         pairs: ComparisonChainPosition,
         op: BinaryOp,
@@ -1928,11 +1928,15 @@ impl FrameContinuation {
             C::TypedBoolNot { next, .. }
             | C::TypedIntByteAtIndex { next, .. }
             | C::TypedIntByteAtFallback { next, .. } => next.visit_retained_values(visitor),
-            C::AssertionValue(state)
-            | C::AssertionComparisonLeft { state, .. }
-            | C::AssertionChainLeft { state, .. } => state.visit_retained_values(visitor),
-            C::AssertionComparisonRight { state, left, .. }
-            | C::AssertionChainRight { state, left, .. } => {
+            C::AssertionValue(state) | C::AssertionComparisonLeft { state, .. } => {
+                state.visit_retained_values(visitor);
+            }
+            C::AssertionChainLeft { state, .. } => state.visit_retained_values(visitor),
+            C::AssertionComparisonRight { state, left, .. } => {
+                state.visit_retained_values(visitor);
+                visit_retained_lowered_value(left, visitor);
+            }
+            C::AssertionChainRight { state, left, .. } => {
                 state.visit_retained_values(visitor);
                 visit_retained_lowered_value(left, visitor);
             }
@@ -6686,7 +6690,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             first,
                             state.span,
                             FrameContinuation::AssertionChainLeft {
-                                state,
+                                state: Box::new(state),
                                 instruction,
                                 pairs: pairs.position(),
                             },
@@ -7911,7 +7915,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         state.passed = false;
                         state.reached = Some(failure);
                         state.failure = None;
-                        self.calls[index].work.push(FrameWork::Assertion(state));
+                        self.calls[index].work.push(FrameWork::Assertion(*state));
                     } else if !pairs.is_exhausted() {
                         let (op, next_right, span, pairs) = comparison_pair_at(
                             &self.calls[index].execution,
@@ -7943,7 +7947,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         state.passed = true;
                         state.reached = None;
                         state.failure = None;
-                        self.calls[index].work.push(FrameWork::Assertion(state));
+                        self.calls[index].work.push(FrameWork::Assertion(*state));
                     }
                 }
                 FrameValue::Break(value) => {
