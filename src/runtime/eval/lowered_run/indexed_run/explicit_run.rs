@@ -1795,7 +1795,7 @@ impl ScanLinesSource {
 /// Keeps cleanup-only evaluator state balanced while a deferred expression suspends.
 struct CleanupActionGuard {
     shielded_deadlines: Vec<crate::runtime::eval::WithinDeadline>,
-    cleanup_error_contexts: Vec<crate::runtime::value::ErrorContext>,
+    previous_cleanup_contexts: Vec<crate::runtime::value::ErrorContext>,
 }
 
 enum CleanupGroupResume {
@@ -1924,7 +1924,7 @@ enum FrameWork {
     ClearSlots(Vec<usize>),
     GuardFailureEnd(Span),
     CleanupGroup(Box<CleanupGroup>),
-    CleanupBoundary(Box<CleanupActionGuard>),
+    CleanupBoundary(CleanupActionGuard),
     Discard(Box<DiscardState>),
     // A lexical expression retains its destination across producer suspension.
     // Its statement scope owns defers; this boundary consumes only the body value.
@@ -3687,7 +3687,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         ..
                     } => self.evaluator.restore_indexed_context_scope(restore),
                     FrameWork::CleanupBoundary(guard) => {
-                        self.restore_cleanup_action_guard(*guard)
+                        self.restore_cleanup_action_guard(guard);
                     }
                     FrameWork::Discard(state) => {
                         self.evaluator.cleanup_error_contexts = state.previous_cleanup_contexts;
@@ -9412,7 +9412,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.evaluator.cleanup_error_contexts = previous;
     }
 
-    fn restore_cleanup_action_guard(&mut self, guard: CleanupActionGuard) {
+    fn restore_cleanup_action_guard(
+        &mut self,
+        guard: CleanupActionGuard,
+    ) -> Vec<crate::runtime::value::ErrorContext> {
         self.evaluator.cleanup_depth = self
             .evaluator
             .cleanup_depth
@@ -9420,7 +9423,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             .expect("deferred action cleanup depth is balanced");
         self.evaluator
             .unshield_within_deadlines(guard.shielded_deadlines);
-        self.evaluator.cleanup_error_contexts = guard.cleanup_error_contexts;
+        std::mem::replace(
+            &mut self.evaluator.cleanup_error_contexts,
+            guard.previous_cleanup_contexts,
+        )
     }
 
     fn continue_cleanup_action(
@@ -9443,10 +9449,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let Some(FrameWork::CleanupBoundary(guard)) = self.calls[index].work.pop() else {
             unreachable!("successful cleanup action owns its boundary");
         };
-        self.restore_cleanup_action_guard(*guard);
+        let cleanup_contexts = self.restore_cleanup_action_guard(guard);
         let Some(FrameWork::CleanupGroup(group)) = self.calls[index].work.pop() else {
             unreachable!("successful cleanup action owns its group");
         };
+        let mut group = group;
+        group.cleanup_contexts = cleanup_contexts;
         self.evaluator.pending_traceback = None;
         self.calls[index].work.push(FrameWork::CleanupGroup(group));
         Ok(())
@@ -9489,9 +9497,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             let guard = CleanupActionGuard {
                 shielded_deadlines: self.evaluator.shield_within_deadlines(),
-                cleanup_error_contexts: std::mem::replace(
+                previous_cleanup_contexts: std::mem::replace(
                     &mut self.evaluator.cleanup_error_contexts,
-                    group.cleanup_contexts.clone(),
+                    std::mem::take(&mut group.cleanup_contexts),
                 ),
             };
             self.evaluator.cleanup_depth += 1;
@@ -9501,7 +9509,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 .push(FrameWork::CleanupGroup(group));
             self.calls[index]
                 .work
-                .push(FrameWork::CleanupBoundary(Box::new(guard)));
+                .push(FrameWork::CleanupBoundary(guard));
             self.push_expr(
                 index,
                 deferred.value(),
@@ -11630,7 +11638,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
             }
             FrameWork::CleanupBoundary(guard) => {
-                self.restore_cleanup_action_guard(*guard);
+                let cleanup_contexts = self.restore_cleanup_action_guard(guard);
+                if let Some(FrameWork::CleanupGroup(group)) = self.calls[index].work.last_mut() {
+                    group.cleanup_contexts = cleanup_contexts;
+                }
                 self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
             }
             FrameWork::CleanupGroup(_) => {
@@ -11784,7 +11795,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let Some(FrameWork::CleanupGroup(group)) = self.calls[index].work.pop() else {
                     unreachable!("deferred flow boundary retains its cleanup group");
                 };
-                self.restore_cleanup_action_guard(*guard);
+                let cleanup_contexts = self.restore_cleanup_action_guard(guard);
+                let mut group = group;
+                group.cleanup_contexts = cleanup_contexts;
                 self.evaluator.pending_traceback = state.primary_traceback.take();
                 let flow = match flow {
                     StmtFlow::Propagate(value) => {
@@ -11854,7 +11867,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         else {
                             unreachable!("cleanup failure retains its action boundary");
                         };
-                        self.restore_cleanup_action_guard(*guard);
+                        let cleanup_contexts = self.restore_cleanup_action_guard(guard);
                         let error = self.pending_error.take().expect("callback error");
                         let traceback = self.evaluator.pending_traceback.take();
                         self.evaluator.pending_value_block_flow.take();
@@ -11863,6 +11876,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         else {
                             unreachable!("cleanup action boundary retains its group");
                         };
+                        let mut group = group;
+                        group.cleanup_contexts = cleanup_contexts;
                         self.record_cleanup_action_failure(group, error, traceback);
                         return Ok(());
                     }
