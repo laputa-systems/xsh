@@ -6,7 +6,7 @@
     "commit": "6e39144aaf5a6bc01b9f795010b0914431067183"
   },
   "gate": "G3",
-  "last_green_commit": "ee073975",
+  "last_green_commit": "30bfa289",
   "audit": {
     "new_core_script": "New core/*.xsh applets are installed by the release script at dev/release.xsh:146-160; dev/tests/test-repository-contracts.xsh owns the required core script inventory and contract checks. No separate command registration is needed.",
     "launcher_argument_separator": "Use xsh SCRIPT -- ARGS for an applet and xsh -- SCRIPT ARGS for an explicit script; src/entrypoints/xsh.rs:90-120.",
@@ -1088,18 +1088,28 @@
     {
       "id": "g3.counter.precision",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_counter_precision_preserves_small_deltas_at_large_bases",
+        "core/tests/test-btop-sources.xsh::test_btop_counter_precision_withholds_aggregate_sum_overflow",
+        "core/tests/test-btop-sources.xsh::test_btop_process_source_keeps_i64_start_identity_outside_report_json_v1",
+        "core/tests/test-btop-cli.xsh::test_btop_headless_model_dump_encodes_wide_counters_as_decimal_strings"
+      ],
+      "evidence": "Host release: rates preserve small deltas at wide i64 bases, withhold aggregate overflow, and process start identity remains i64 in the monitor while report JSON v1 keeps its existing exact-number bound. The full 85-test btop native suite passed; wide model-dump counters encode as canonical decimal strings. See .work/btop-campaign/g3-s37-btop-final.log and g3-s37-system-report-final.log."
     },
     {
       "id": "g3.clock.edge_cases",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-model.xsh::test_btop_model_does_not_mix_source_identities_or_invalid_intervals",
+        "core/tests/test-btop-model.xsh::test_btop_model_marks_missed_samples_as_gaps_and_ignores_uptime_jumps_for_rates",
+        "core/tests/test-btop-replay.xsh::test_btop_replay_marks_a_coalesced_pause_interval_as_a_gap",
+        "core/tests/test-btop-loop.xsh::test_btop_loop_coalesces_overdue_deadlines_without_catch_up_bursts"
+      ],
+      "evidence": "Host release: equal/reversed/invalid intervals do not produce rates, uptime jumps do not contaminate interval rates, and overdue live or replay samples produce an explicit gap state without catch-up bursts. The full 85-test btop native suite passed; serial PTY suite passed 10/10 (input-to-present p95 1.841 ms, p99 2.260 ms). See .work/btop-campaign/g3-s37-btop-final.log and g3-s37-pty-final.log."
     },
     {
       "id": "g3.disk.block_io",
@@ -1422,6 +1432,24 @@
       "name": "btop CPU telemetry panel",
       "commit": "ee073975",
       "summary": "The CPU panel shows observed package/core temperature, frequency, and battery readings from existing rooted system-report readers; live gauge observations refresh on the five-second schedule."
+    },
+    {
+      "kind": "data_format",
+      "name": "btop model dump: wide counters",
+      "commit": "30bfa289",
+      "summary": "Network byte counters and process start ticks are emitted as canonical decimal strings so values above JSON exact-integer range remain lossless."
+    },
+    {
+      "kind": "behavior",
+      "name": "btop interval-rate gaps",
+      "commit": "30bfa289",
+      "summary": "Missed sample deadlines and coalesced replay intervals produce an explicit gap rate state instead of deriving a rate across an unknown interval."
+    },
+    {
+      "kind": "behavior",
+      "name": "btop process start identity precision",
+      "commit": "30bfa289",
+      "summary": "Monitor process identity accepts i64 start ticks through the shared proc-stat parser; system-report JSON v1 retains its existing exact-number bound."
     }
   ],
   "limitations": [
@@ -1728,6 +1756,42 @@
         "p99_ms": 1.137
       },
       "battery_live_hardware": "Not verified; battery selection and derived readings are fixture-tested only."
+    },
+    "g3_s3_7": {
+      "host_only": true,
+      "native_monitor_tests": {
+        "passed": 85,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-s37-btop-final.log"
+      },
+      "system_report_tests": {
+        "passed": 133,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-s37-system-report-final.log"
+      },
+      "system_report_check_tests": {
+        "passed": 224,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-s37-system-report-check-final.log"
+      },
+      "repository_contract_tests": {
+        "passed": 5,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-s37-repo-contracts-final.log"
+      },
+      "pty_tests": {
+        "passed": 10,
+        "failed": 0,
+        "command": "core_compat_extra btop_ --nocapture --test-threads=1",
+        "log": ".work/btop-campaign/g3-s37-pty-final.log"
+      },
+      "input_to_present_latency": {
+        "runner": "Alpine x86_64 musl release, 80x24, 100 sort inputs, replay interval 60000 ms",
+        "p95_ms": 1.841,
+        "p99_ms": 2.26,
+        "log": ".work/btop-campaign/g3-s37-pty-final.log"
+      },
+      "report_json_v1": "The exact-number bound for process start ticks is unchanged; the monitor policy accepts i64 identity values."
     }
   },
   "defaults": [
@@ -2069,6 +2133,6 @@
     }
   ],
   "next": [
-    "G3 S3.7: verify i64 counter precision and monotonic clock edge behavior."
+    "G3 S3.8: verify disk I/O counters, in-flight reads, stacked-device deduplication, and mount capacity."
   ]
 }
