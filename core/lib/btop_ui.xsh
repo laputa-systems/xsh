@@ -5,6 +5,8 @@
 use core.lib.btop_input as input
 use core.lib.btop_model as model
 use core.lib.btop_rates as rates
+use core.lib.btop_process_tree as process_tree
+use core.lib.btop_defaults as defaults
 use core.lib.sys_proc as processes
 
 const MAX_FILTER_CHARS = 128
@@ -25,11 +27,31 @@ export type State = {
   filter_draft: Str,
   scroll: Int,
   visible_rows: Int,
+  tree_view: Bool,
+  collapsed: Set[Str],
+  aggregate_children: Bool,
+  process_memory_bytes: Bool,
+  network_auto: Bool,
+  network_sync: Bool,
 }
 type LocalDisplayIndex = Map[Int, processes.LocalProcessDisplay]
 
+## Holds the row and tree metadata needed by the process panel.
+export type VisibleRow = {
+  row: model.ProcessRow,
+  depth: Int,
+  has_children: Bool,
+  collapsed: Bool,
+  cpu_total: rates.Rate,
+  rss_total_bytes: Int?,
+}
+
 pure identity(row: model.ProcessRow) -> Identity {
   {pid: row.pid, start_ticks: row.start_ticks}
+}
+
+pure identity_key(identity: Identity) -> Str {
+  f"{identity.pid}:{identity.start_ticks}"
 }
 
 pure same_identity(left: Identity?, right: Identity) -> Bool {
@@ -151,22 +173,205 @@ pure sort_processes(
   if state.sort == CpuLazy and !state.reverse { promote_cpu_spikes(ordered) } else { ordered }
 }
 
+pure local_display_index(values: List[processes.LocalProcessDisplay]) -> LocalDisplayIndex {
+  var display_index: LocalDisplayIndex = {}
+  for display in values {
+    display_index = display_index.set(display.pid, display)
+  }
+  display_index
+}
+
+pure filter_text(state: State) -> Str {
+  if state.editing_filter { state.filter_draft } else { state.filter }
+}
+
+pure filter_matches(
+  rows: List[model.ProcessRow],
+  state: State,
+  values: LocalDisplayIndex,
+) -> List[model.ProcessRow] {
+  var visible: List[model.ProcessRow] = []
+  let filter = filter_text(state)
+  for row in rows {
+    if matches(row, filter, values) { visible += [row] }
+  }
+  visible
+}
+
+pure process_tree_rows(
+  value: model.Model,
+  state: State,
+  values: LocalDisplayIndex,
+) -> List[VisibleRow] {
+  let ordered = sort_processes(value.processes, state, values)
+  let filtered = filter_matches(ordered, state, values)
+  if ! state.tree_view {
+    return [
+      {
+        row: row,
+        depth: 0,
+        has_children: false,
+        collapsed: false,
+        cpu_total: row.cpu_percent,
+        rss_total_bytes: row.rss_bytes,
+      }
+      for row in filtered
+    ]
+  }
+
+  let hierarchy = process_tree.build(value.processes, state.aggregate_children, ordered)
+  var matching: Set[Int] = set.empty()
+  for row in filtered { matching = matching.add(row.pid) }
+  var included: Set[Int] = set.empty()
+  if filter_text(state) == "" {
+    for pid in hierarchy.preorder { included = included.add(pid) }
+  } else {
+    for pid in hierarchy.preorder {
+      var cursor: Int? = pid
+      for _ in range(hierarchy.preorder.len()) {
+        if cursor == null { break }
+        let current = cursor ?? pid
+        if current in matching {
+          included = included.add(pid)
+          break
+        }
+        if let Ok(node) = hierarchy.nodes.get(current) {
+          cursor = node.parent_pid
+        } else {
+          cursor = null
+        }
+      }
+      if pid in matching {
+        if let Ok(node) = hierarchy.nodes.get(pid) {
+          var parent = node.parent_pid
+          for _ in range(hierarchy.preorder.len()) {
+            if parent == null { break }
+            let parent_pid = parent ?? pid
+            included = included.add(parent_pid)
+            if let Ok(parent_node) = hierarchy.nodes.get(parent_pid) {
+              parent = parent_node.parent_pid
+            } else {
+              parent = null
+            }
+          }
+        }
+      }
+    }
+  }
+
+  var visible: List[VisibleRow] = []
+  var hidden_depth: Int? = null
+  for pid in hierarchy.preorder {
+    let node = hierarchy.nodes[pid]
+    if hidden_depth != null {
+      if node.depth > (hidden_depth ?? node.depth) { continue }
+      hidden_depth = null
+    }
+    if pid not in included { continue }
+    let key = identity_key(identity(node.row))
+    let has_children = ! node.children.is_empty()
+    let collapsed = has_children and key in state.collapsed
+    visible += [{
+      row: node.row,
+      depth: node.depth,
+      has_children: has_children,
+      collapsed: collapsed,
+      cpu_total: node.cpu_total,
+      rss_total_bytes: node.rss_total_bytes,
+    }]
+    if collapsed { hidden_depth = node.depth }
+  }
+  visible
+}
+
+## Returns filtered, sorted rows with deterministic tree and aggregate state.
+export pure visible_tree_rows(
+  value: model.Model,
+  state: State,
+  local_display: List[processes.LocalProcessDisplay] = [],
+) -> List[VisibleRow] {
+  process_tree_rows(value, state, local_display_index(local_display))
+}
+
 ## Applies filtering and stable sorting to the complete process set.
 export pure visible_processes(
   value: model.Model,
   state: State,
   local_display: List[processes.LocalProcessDisplay] = [],
 ) -> List[model.ProcessRow] {
-  var display_index: LocalDisplayIndex = {}
-  for display in local_display {
-    display_index = display_index.set(display.pid, display)
+  [entry.row for entry in visible_tree_rows(value, state, local_display)]
+}
+
+pure active_collapses(state: State, value: model.Model) -> Set[Str] {
+  var identities: Set[Str] = set.empty()
+  for row in value.processes { identities = identities.add(identity_key(identity(row))) }
+  var retained: Set[Str] = set.empty()
+  for key in state.collapsed {
+    if key in identities { retained = retained.add(key) }
   }
-  var rows: List[model.ProcessRow] = []
-  let filter = if state.editing_filter { state.filter_draft } else { state.filter }
-  for row in value.processes {
-    if matches(row, filter, display_index) { rows += [row] }
+  retained
+}
+
+pure collapse_selected(state: State, value: model.Model, action: Str) -> State {
+  if state.selected == null { return state }
+  let tree = process_tree.build(value.processes)
+  let selected = state.selected ?? {pid: 0, start_ticks: 0}
+  if let Ok(node) = tree.nodes.get(selected.pid) {
+    if node.row.start_ticks != selected.start_ticks or node.children.is_empty() { return state }
+    let key = identity_key(selected)
+    var collapsed = state.collapsed
+    if action == "collapse" {
+      collapsed = collapsed.add(key)
+    } else if action == "expand" {
+      collapsed = collapsed.remove(key)
+    } else if key in collapsed {
+      collapsed = collapsed.remove(key)
+    } else {
+      collapsed = collapsed.add(key)
+    }
+    return {...state, collapsed: collapsed}
   }
-  sort_processes(rows, state, display_index)
+  state
+}
+
+pure toggle_selected_children(state: State, value: model.Model) -> State {
+  if state.selected == null { return state }
+  let tree = process_tree.build(value.processes)
+  let selected = state.selected ?? {pid: 0, start_ticks: 0}
+  if let Ok(node) = tree.nodes.get(selected.pid) {
+    if node.row.start_ticks != selected.start_ticks { return state }
+    var collapsed = state.collapsed
+    for child_pid in node.children {
+      if let Ok(child) = tree.nodes.get(child_pid) {
+        if ! child.children.is_empty() {
+          let key = identity_key(identity(child.row))
+          collapsed = if key in collapsed { collapsed.remove(key) } else { collapsed.add(key) }
+        }
+      }
+    }
+    return {...state, collapsed: collapsed}
+  }
+  state
+}
+
+pure toggle_all_children(state: State, value: model.Model) -> State {
+  let tree = process_tree.build(value.processes)
+  var collapse = false
+  for pid in tree.preorder {
+    let node = tree.nodes[pid]
+    if node.parent_pid != null and ! node.children.is_empty() and identity_key(identity(node.row)) not in state.collapsed {
+      collapse = true
+    }
+  }
+  var collapsed = state.collapsed
+  for pid in tree.preorder {
+    let node = tree.nodes[pid]
+    if node.parent_pid != null and ! node.children.is_empty() {
+      let key = identity_key(identity(node.row))
+      collapsed = if collapse { collapsed.add(key) } else { collapsed.remove(key) }
+    }
+  }
+  {...state, collapsed: collapsed}
 }
 
 pure selected_index(rows: List[model.ProcessRow], selected: Identity?) -> Int? {
@@ -194,14 +399,15 @@ pure reconcile(
   value: model.Model,
   local_display: List[processes.LocalProcessDisplay] = [],
 ) -> State {
-  let rows = visible_processes(value, state, local_display)
-  if rows.is_empty() { return {...state, selected: null, scroll: 0} }
-  let selected = if selected_index(rows, state.selected) != null {
-    state.selected
+  let current = {...state, collapsed: active_collapses(state, value)}
+  let rows = visible_processes(value, current, local_display)
+  if rows.is_empty() { return {...current, selected: null, scroll: 0} }
+  let selected = if selected_index(rows, current.selected) != null {
+    current.selected
   } else {
     identity(rows[0])
   }
-  {...state, selected: selected, scroll: bounded_scroll(state, rows, selected)}
+  {...current, selected: selected, scroll: bounded_scroll(current, rows, selected)}
 }
 
 ## Keeps a view attached to live process lifetimes after each completed sample.
@@ -222,13 +428,19 @@ export pure is_selected(state: State, row: model.ProcessRow) -> Bool {
 export pure initial(value: model.Model, visible_rows: Int) -> State {
   reconcile({
     selected: null,
-    sort: .CpuLazy,
-    reverse: false,
+    sort: if defaults.process_sorting() == "cpu lazy" { .CpuLazy } else { .Pid },
+    reverse: defaults.process_reversed(),
     filter: "",
     editing_filter: false,
     filter_draft: "",
     scroll: 0,
     visible_rows: if visible_rows < 0 { 0 } else { visible_rows },
+    tree_view: defaults.process_tree_enabled(),
+    collapsed: set.empty(),
+    aggregate_children: defaults.aggregate_process_children(),
+    process_memory_bytes: defaults.process_memory_in_bytes(),
+    network_auto: defaults.network_auto_enabled(),
+    network_sync: defaults.network_scales_synchronized(),
   }, value)
 }
 
@@ -329,6 +541,15 @@ pure browse_key(
     input.Left => reconcile({...state, sort: previous_sort(state.sort)}, value, local_display)
     input.Right => reconcile({...state, sort: next_sort(state.sort)}, value, local_display)
     input.Text("r") => reconcile({...state, reverse: !state.reverse}, value, local_display)
+    input.Text("a") => reconcile({...state, network_auto: !state.network_auto}, value, local_display)
+    input.Text("y") => reconcile({...state, network_sync: !state.network_sync}, value, local_display)
+    input.Text("%") => reconcile({...state, process_memory_bytes: !state.process_memory_bytes}, value, local_display)
+    input.Text("e") => reconcile({...state, tree_view: !state.tree_view}, value, local_display)
+    input.Text("E") => if state.tree_view { reconcile(toggle_all_children(state, value), value, local_display) } else { state }
+    input.Text("+") => if state.tree_view { reconcile(collapse_selected(state, value, "expand"), value, local_display) } else { state }
+    input.Text("-") => if state.tree_view { reconcile(collapse_selected(state, value, "collapse"), value, local_display) } else { state }
+    input.Text(" ") => if state.tree_view { reconcile(collapse_selected(state, value, "toggle"), value, local_display) } else { state }
+    input.Text("C") => if state.tree_view { reconcile(toggle_selected_children(state, value), value, local_display) } else { state }
     input.Text("f") | input.Text("/") => {...state, editing_filter: true, filter_draft: state.filter}
     input.Delete => reconcile({...state, filter: "", filter_draft: ""}, value)
     else => state

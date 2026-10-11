@@ -151,6 +151,112 @@ test test_btop_ui_resize_preserves_identity_and_clamps_scroll {
   assert ui.selection_position(accepted, value) == null
 }
 
+test test_btop_ui_process_tree_toggle_collapse_children_and_aggregate {
+  let root = fs.tempdir()?
+  defer root.close()
+  let frames = prepare_frames(root)?
+  let base = frames[1]
+  let rows = base.processes |> sort-by { |row| row.pid }
+  let value: model.Model = {
+    ...base,
+    processes: [
+      {...rows[0], parent_pid: 0, cpu_percent: {state: rates.Observed, value: 10.0}, cpu_average_percent: {state: rates.Observed, value: 10.0}, rss_bytes: 100},
+      {...rows[1], parent_pid: 42, cpu_percent: {state: rates.Observed, value: 3.0}, cpu_average_percent: {state: rates.Observed, value: 3.0}, rss_bytes: 20},
+      {...rows[2], parent_pid: 43, cpu_percent: {state: rates.Observed, value: 2.0}, cpu_average_percent: {state: rates.Observed, value: 2.0}, rss_bytes: 10},
+    ],
+  }
+  let initial = ui.initial(value, 3)
+  assert ! initial.tree_view
+  assert initial.sort == .CpuLazy and ! initial.reverse
+  assert initial.filter == "" and ! initial.editing_filter
+  assert ! initial.aggregate_children
+  assert initial.process_memory_bytes and initial.network_auto and initial.network_sync
+  assert [row.pid for row in ui.visible_processes(value, initial)] == [42, 43, 44]
+
+  let tree_mode = press(initial, value, input.Text("e"))
+  assert tree_mode.tree_view
+  let visible = ui.visible_tree_rows(value, tree_mode)
+  assert [entry.row.pid for entry in visible] == [42, 43, 44]
+  assert [entry.depth for entry in visible] == [0, 1, 2]
+  assert visible[0].has_children and ! visible[0].collapsed
+
+  let sibling_value: model.Model = {
+    ...value,
+    processes: [value.processes[0], value.processes[1], {...value.processes[2], parent_pid: 42}],
+  }
+  let pid_descending = ui.visible_tree_rows(sibling_value, {...tree_mode, sort: .Pid, reverse: false})
+  assert [entry.row.pid for entry in pid_descending] == [42, 44, 43]
+  assert [entry.depth for entry in pid_descending] == [0, 1, 1]
+
+  let collapsed = press(tree_mode, value, input.Text("-"))
+  assert [entry.row.pid for entry in ui.visible_tree_rows(value, collapsed)] == [42]
+  let expanded = press(collapsed, value, input.Text("+"))
+  assert [entry.row.pid for entry in ui.visible_tree_rows(value, expanded)] == [42, 43, 44]
+  let child_toggle = press(expanded, value, input.Text("C"))
+  assert [entry.row.pid for entry in ui.visible_tree_rows(value, child_toggle)] == [42, 43]
+  let child_expanded = press(child_toggle, value, input.Text("C"))
+  assert [entry.row.pid for entry in ui.visible_tree_rows(value, child_expanded)] == [42, 43, 44]
+  let all_collapsed = press(child_expanded, value, input.Text("E"))
+  assert [entry.row.pid for entry in ui.visible_tree_rows(value, all_collapsed)] == [42, 43]
+  let all_expanded = press(all_collapsed, value, input.Text("E"))
+  assert [entry.row.pid for entry in ui.visible_tree_rows(value, all_expanded)] == [42, 43, 44]
+  let space_collapsed = press(all_expanded, value, input.Text(" "))
+  assert [entry.row.pid for entry in ui.visible_tree_rows(value, space_collapsed)] == [42]
+
+  let aggregate = ui.visible_tree_rows(value, {...all_expanded, aggregate_children: true})
+  assert aggregate[0].cpu_total.value == 15.0
+  assert aggregate[0].rss_total_bytes == 130
+  assert aggregate[1].cpu_total.value == 5.0
+  assert aggregate[1].rss_total_bytes == 30
+
+  let flat_again = press(all_expanded, value, input.Text("e"))
+  assert ! flat_again.tree_view
+  assert [row.pid for row in ui.visible_processes(value, flat_again)] == [42, 43, 44]
+}
+
+test test_btop_ui_out_of_scope_process_actions_are_noops {
+  let root = fs.tempdir()?
+  defer root.close()
+  let frames = prepare_frames(root)?
+  let value = frames[1]
+  let initial = ui.initial(value, 3)
+  for key in [
+    "m", "p", "P", "1", "2", "3", "4", "5", "o", "?", "h", "H",
+    "j", "k", "l", "g", "G", "K", "u", "t", "s", "N",
+  ] {
+    assert press(initial, value, input.Text(key)) == initial
+  }
+  for key in [input.Escape, input.Enter, input.Tab, input.Cancel, input.Function(1), input.Function(2), input.Control(18)] {
+    assert press(initial, value, key) == initial
+  }
+  assert press(initial, value, input.Text("C")) == initial
+  assert press(initial, value, input.Text("E")) == initial
+  assert press(initial, value, input.Text("+")) == initial
+  assert press(initial, value, input.Text("-")) == initial
+}
+
+test test_btop_ui_pinned_network_and_process_memory_bindings_toggle_only_their_views {
+  let root = fs.tempdir()?
+  defer root.close()
+  let frames = prepare_frames(root)?
+  let value = frames[1]
+  let initial = ui.initial(value, 3)
+  assert initial.process_memory_bytes
+  assert initial.network_auto
+  assert initial.network_sync
+
+  let manual_network = press(initial, value, input.Text("a"))
+  assert ! manual_network.network_auto
+  assert manual_network.network_sync
+  let separate_network = press(initial, value, input.Text("y"))
+  assert separate_network.network_auto
+  assert ! separate_network.network_sync
+  let percent_memory = press(initial, value, input.Text("%"))
+  assert ! percent_memory.process_memory_bytes
+  assert percent_memory.sort == initial.sort
+  assert percent_memory.selected == initial.selected
+}
+
 test test_btop_ui_supports_every_pinned_process_sort_and_direction {
   let root = fs.tempdir()?
   defer root.close()

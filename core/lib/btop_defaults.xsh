@@ -62,6 +62,33 @@ const SHOW_BATTERY: Bool = true
 const SELECTED_BATTERY: Str = "Auto"
 const SHOW_BATTERY_WATTS: Bool = true
 
+## Returns the pinned process sort used by the initial view.
+export pure process_sorting() -> Str { PROC_SORTING }
+
+## Returns whether process sorting starts reversed.
+export pure process_reversed() -> Bool { PROC_REVERSED }
+
+## Returns the pinned tree-view default.
+export pure process_tree_enabled() -> Bool { PROC_TREE }
+
+## Returns the pinned child-resource aggregation default.
+export pure aggregate_process_children() -> Bool { PROC_AGGREGATE }
+
+## Returns whether process memory starts in byte units.
+export pure process_memory_in_bytes() -> Bool { PROC_MEM_BYTES }
+
+## Returns the pinned automatic network-scaling default.
+export pure network_auto_enabled() -> Bool { NET_AUTO }
+
+## Returns the pinned synchronized network-scale default.
+export pure network_scales_synchronized() -> Bool { NET_SYNC }
+
+## Returns the fixed download graph limit in mebibits per second.
+export pure network_download_mibits() -> Int { NET_DOWNLOAD }
+
+## Returns the fixed upload graph limit in mebibits per second.
+export pure network_upload_mibits() -> Int { NET_UPLOAD }
+
 ## Returns every fixed setting exactly once for ledger cross-checking.
 export pure records() -> List[Default] {
   [

@@ -56,8 +56,12 @@ pure add_bytes(left: Int?, right: Int?) -> Int? {
 }
 
 ## Builds one adjacency index, cutting self-links, reused-parent edges, and cycles.
-export pure build(rows: List[model.ProcessRow], aggregate_children: Bool = false) -> ProcessTree {
-  let ordered = rows |> sort-by .pid
+export pure build(
+  rows: List[model.ProcessRow],
+  aggregate_children: Bool = false,
+  ordered_rows: List[model.ProcessRow]? = null,
+) -> ProcessTree {
+  let ordered = if ordered_rows == null { rows |> sort-by .pid } else { ordered_rows ?? rows }
   let by_pid = process_index(ordered)
   var parent_by_pid: Map[Int, Int] = {}
   var orphan_by_pid: Map[Int, Bool] = {}

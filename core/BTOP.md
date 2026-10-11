@@ -155,6 +155,24 @@ Backspace removes one character, and Delete clears the filter. Bracketed paste
 stays inert. Resize preserves the selected process identity and redraws the
 current view.
 
+The process list starts flat, sorted by CPU lazy, with child aggregation off.
+`e` switches to a process tree while keeping the selected sort order; tree
+siblings use that same order with PID as the stable tie-break. `+` expands the
+selected node, `-` collapses it, Space toggles it, and `C` toggles the selected
+node's immediate child nodes. `E` toggles every non-root parent between
+expanded and collapsed. Collapse state is tied to PID and start time, so a
+reused PID does not inherit another process lifetime's view state. When child
+aggregation is enabled in the fixed model defaults, CPU and resident memory
+are accumulated from the complete process tree before filtering and viewport
+clipping.
+
+The `%` key switches the process memory column from bytes to a percentage of
+total physical memory. `a` toggles automatic network graph scaling and `y`
+uses one shared scale for receive and transmit. These controls change only the
+current view; the monitor has no settings menu or configuration file. Other
+upstream controls outside the read-only contract, including process actions,
+menu keys, panel-layout keys, and alternate vim bindings, have no effect.
+
 Terminal input and alternate-screen modes are owned by one XSH session and are
 restored on normal return, key exit, EOF, handled write failure, partial start,
 and runtime error. A process killed by a signal or a dead terminal transport
@@ -269,8 +287,9 @@ separately in `dev/btop-progress.json`.
 
 ## Current limits
 
-The renderer remains ASCII, has no graphs, and uses a fixed four-panel
-arrangement. Battery behavior is fixture-tested only; live hardware battery
-behavior has not been verified. Process actions, configuration, settings menus,
-GPU and disk collection, and non-Linux live collectors are outside this monitor
+The disk readers and rate model are implemented, but the memory panel currently
+shows an explicit unavailable marker in the disk section. Battery behavior is
+fixture-tested only; live hardware battery behavior has not been verified.
+GPU, process details and mutations, configuration menus, signal-driven
+terminal restoration, and non-Linux live collectors are outside this monitor
 surface.

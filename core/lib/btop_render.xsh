@@ -10,6 +10,7 @@ use btop_sensors as sensors
 use btop_surface as surface
 use btop_terminal as terminal
 use btop_ui as ui
+use btop_defaults as defaults
 use sys_proc as processes
 use sys_cpu as syscpu
 use system_report as report
@@ -229,7 +230,13 @@ pure battery_text(value: sensors.Battery) -> Str {
   f"Battery {value.name ?? "?"} {percent} {value.status ?? "unknown"}{power}"
 }
 
-pure process_text(row: model.ProcessRow, local_display: List[processes.LocalProcessDisplay]) -> Str {
+pure process_text(
+  value: model.Model,
+  entry: ui.VisibleRow,
+  state: ui.State,
+  local_display: List[processes.LocalProcessDisplay],
+) -> Str {
+  let row = entry.row
   let account = if let display = ui.local_display(row, local_display) {
     display.user_name
   } else if row.uid == null {
@@ -243,7 +250,26 @@ pure process_text(row: model.ProcessRow, local_display: List[processes.LocalProc
   } else {
     row.command
   }
-  f"{row.pid} {user_label} {rate_text(row.cpu_percent)} {bytes_text(row.rss_bytes)} {command}"
+  let cpu_text = if state.aggregate_children { rate_text(entry.cpu_total) } else { rate_text(row.cpu_percent) }
+  let rss_bytes = if state.aggregate_children { entry.rss_total_bytes } else { row.rss_bytes }
+  let rss = if state.process_memory_bytes {
+    bytes_text(rss_bytes)
+  } else if rss_bytes != null and value.memory.total_bytes != null and (value.memory.total_bytes ?? 0) > 0 {
+    f"{((rss_bytes ?? 0).float() * 100.0 / (value.memory.total_bytes ?? 1).float()).format(precision: 1)}%"
+  } else {
+    "unavailable"
+  }
+  let indent = repeated("  ", entry.depth)
+  let tree_marker = if ! state.tree_view {
+    ""
+  } else if entry.has_children {
+    if entry.collapsed { "[+] " } else { "[-] " }
+  } else if entry.depth > 0 {
+    "└ "
+  } else {
+    ""
+  }
+  f"{indent}{tree_marker}{row.pid} {user_label} {cpu_text} {rss} {command}"
 }
 
 pure memory_percent_text(value: model.Model) -> Str {
@@ -308,7 +334,7 @@ pure process_content(
   } else if value.processes.is_empty() {
     lines += ["No visible processes"]
   } else {
-    let rows = ui.visible_processes(value, state, local_display)
+    let rows = ui.visible_tree_rows(value, state, local_display)
     if rows.is_empty() {
       lines += ["No matching processes"]
     } else {
@@ -316,7 +342,7 @@ pure process_content(
         let at = state.scroll + index
         if at < rows.len() {
           let row = rows[at]
-          lines += [surface.selected_row(process_text(row, local_display), ui.is_selected(state, row), width)]
+          lines += [surface.selected_row(process_text(value, row, state, local_display), ui.is_selected(state, row.row), width)]
         } else {
           lines += [""]
         }
@@ -406,25 +432,54 @@ pure memory_panel_content(
 
 pure network_panel_content(
   value: model.Model,
+  state: ui.State,
   histories: graph_series.Histories,
   capabilities: terminal.Capabilities,
   width: Int,
 ) -> Result[List[Str], Error] {
   let graph_width = if width > 0 { width } else { 1 }
-  let receive = history_rows(histories.network_receive, capabilities, graph_width, 1, false, null)?
-  let transmit = history_rows(histories.network_transmit, capabilities, graph_width, 1, true, null)?
+  let receive_max = network_graph_maximum(histories.network_receive)
+  let transmit_max = network_graph_maximum(histories.network_transmit)
+  let maxima = if state.network_auto {
+    if state.network_sync {
+      let shared = if receive_max > transmit_max { receive_max } else { transmit_max }
+      {receive: shared, transmit: shared}
+    } else {
+      {receive: receive_max, transmit: transmit_max}
+    }
+  } else {
+    {
+      receive: defaults.network_download_mibits().float() * 1048576.0 / 8.0,
+      transmit: defaults.network_upload_mibits().float() * 1048576.0 / 8.0,
+    }
+  }
+  let receive = history_rows(histories.network_receive, capabilities, graph_width, 1, false, maxima.receive)?
+  let transmit = history_rows(histories.network_transmit, capabilities, graph_width, 1, true, maxima.transmit)?
   let interface = if value.network.interface_name == null {
     f"Interface {state_text(value.network.source_state)}"
   } else {
     f"Interface {value.network.interface_name ?? ""}"
   }
+  let scaling = f"Auto {if state.network_auto {"on"} else {"off"}} Sync {if state.network_sync {"on"} else {"off"}}"
   Ok([
-    interface,
+    f"{interface} | {scaling}",
     f"RX {byte_rate_text(value.network.rx_bytes_per_second)}  {bytes_text(value.network.rx_bytes)} total",
     receive[0],
     f"TX {byte_rate_text(value.network.tx_bytes_per_second)}  {bytes_text(value.network.tx_bytes)} total",
     transmit[0],
   ])
+}
+
+pure network_graph_maximum(history: graph.History) -> Float {
+  var maximum = 0.0
+  for sample in history.samples {
+    if sample.state == graph.Observed {
+      if let value = sample.value {
+        if value > maximum { maximum = value }
+      }
+    }
+  }
+  if maximum < 10240.0 { 10240.0 } else { maximum * 1.3 }
 }
 
 pure disks_placeholder() -> List[Str] {
@@ -478,7 +533,7 @@ export pure render_view_with_graphs(
   let memory_left_width = (memory_width - 3) / 2
   let memory_left = memory_panel_content(value, histories.memory, capabilities, memory_left_width)?
   let memory_rows = split_panel(memory_width, memory_height, "Memory / Disks", memory_left, disks_placeholder())
-  let network_content_rows = network_panel_content(value, histories, capabilities, memory_width - 2)?
+  let network_content_rows = network_panel_content(value, state, histories, capabilities, memory_width - 2)?
   let network_rows = panel(memory_width, network_height, "Network", network_content_rows)
   let view = ui.resize(state, value, process_capacity(height))
   let process_rows = panel(
