@@ -12,7 +12,7 @@ use super::{
     FullExecution, FullStore, FunctionName, HashAlgorithm, IrFunctionId,
     IrVerifyError, LoweredFunctionKey, LoweredStrPredicate, LoweredType, LoweredValue, Name,
     NameText, PathValue, PreparedConstantValue, QualifiedName, RedirectionKind, RegexValue,
-    RunKind, RuntimeOp, Span, Type, TypeId,
+    ReduceByOp, RunKind, RuntimeOp, Span, Type, TypeId,
 };
 use super::schema::InstructionKind;
 use std::marker::PhantomData;
@@ -54,6 +54,19 @@ impl<'a> DecodeContext<'a> {
             pattern_ceiling: Cell::new(usize::MAX),
             verified: self.verified,
         }
+    }
+
+    /// Opens a tagged stage row without materializing its stored payload.
+    pub(super) fn stage_payload(
+        self,
+        raw: u32,
+    ) -> Result<(super::FullStageTag, FullCursor<'a>), IrVerifyError> {
+        let index = raw as usize;
+        let tag = self.store.stages.get(index).copied()
+            .ok_or_else(|| IrVerifyError::new("pipeline stage id is out of bounds"))?;
+        let data = self.store.stage_data.get(index).copied()
+            .ok_or_else(|| IrVerifyError::new("pipeline stage id is out of bounds"))?;
+        Ok((tag, FullCursor::new(self.store.payload(data.range())?)))
     }
 }
 
@@ -153,7 +166,7 @@ macro_rules! scalar_field {
 scalar_field!(
     bool, usize, i64, u32, u64, FloatValue, DurationValue, Name, QualifiedName, Span,
     BinaryOp, AssignOp, RuntimeOp, LoweredStrPredicate, RedirectionKind, RunKind,
-    HashAlgorithm, FormatSpec, crate::runtime::eval::EndDistance,
+    HashAlgorithm, FormatSpec, ReduceByOp, crate::runtime::eval::EndDistance,
     crate::syntax::arena::ContextScopeKind, crate::syntax::arena::RetrySchedule,
 );
 

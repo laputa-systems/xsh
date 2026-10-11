@@ -6743,17 +6743,240 @@ impl FullCodec for ScanCheck {
 
 
 
+#[cfg(test)]
+struct StageViewExpectations<'a> {
+    store: &'a FullStore,
+    expressions: &'a [BuildExprRow],
+    statements: &'a [BuildStmtRow],
+}
+
+#[cfg(test)]
+fn stage_view_decoder(store: &FullStore) -> FullDecoder<'_> {
+    FullDecoder {
+        store,
+        owner: 0,
+        instruction_range: 0..store.tags.len(),
+        instruction_states: None,
+        instruction_proof: None,
+        block_states: None,
+        slot_count: 1,
+        pattern_ceiling: Cell::new(usize::MAX),
+        verified: false,
+    }
+}
+
+#[cfg(test)]
+fn assert_expression_instruction_matches(
+    actual: decode::ExprInstructionId<'_>,
+    expected: BuildExprId,
+    expectations: &StageViewExpectations<'_>,
+) {
+    let row = expectations.expressions.get(expected.index())
+        .expect("fixture expression ID refers to its owned row");
+    let index = actual.raw() as usize;
+    let tag = expectations.store.tags[index];
+    let data = expectations.store.data[index];
+    let mut payload = FullCursor::new(expectations.store.payload(data.range()).unwrap());
+    let decoder = stage_view_decoder(expectations.store);
+    match row {
+        BuildExprRow::Int(value) => {
+            assert_eq!(tag, FullTag::ExprInt);
+            assert_eq!(i64::decode(&decoder, &mut payload).unwrap(), *value);
+        }
+        BuildExprRow::Bool(value) => {
+            assert_eq!(tag, FullTag::ExprBool);
+            assert_eq!(bool::decode(&decoder, &mut payload).unwrap(), *value);
+        }
+        _ => panic!("stage view fixture uses scalar expression rows"),
+    }
+    payload.finish().unwrap();
+}
+
+#[cfg(test)]
+fn assert_statement_instruction_matches(
+    actual: decode::StmtInstructionId<'_>,
+    expected: BuildStmtId,
+    expectations: &StageViewExpectations<'_>,
+) {
+    let row = expectations.statements.get(expected.index())
+        .expect("fixture statement ID refers to its owned row");
+    let index = actual.raw() as usize;
+    let tag = expectations.store.tags[index];
+    let data = expectations.store.data[index];
+    let mut payload = FullCursor::new(expectations.store.payload(data.range()).unwrap());
+    let execution = FullExecution { decoder: stage_view_decoder(expectations.store) };
+    let context = DecodeContext::new(&execution);
+    match row {
+        BuildStmtRow::Value { value } => {
+            assert_eq!(tag, FullTag::StmtValue);
+            let actual = BuildExprId::borrow(context, &mut payload).unwrap();
+            assert_expression_instruction_matches(actual, *value, expectations);
+        }
+        BuildStmtRow::Expr { value, span } => {
+            assert_eq!(tag, FullTag::StmtExpr);
+            let actual = BuildExprId::borrow(context, &mut payload).unwrap();
+            assert_expression_instruction_matches(actual, *value, expectations);
+            assert_eq!(Span::borrow(context, &mut payload).unwrap(), *span);
+        }
+        _ => panic!("stage view fixture uses value and expression statement rows"),
+    }
+    payload.finish().unwrap();
+}
+
+#[cfg(test)]
+trait StageFieldMatch<T> {
+    fn assert_matches(self, expected: &T, expectations: &StageViewExpectations<'_>);
+}
+
+#[cfg(test)]
+macro_rules! stage_scalar_match {
+    ($($ty:ty),* $(,)?) => {$(
+        impl StageFieldMatch<$ty> for $ty {
+            fn assert_matches(self, expected: &$ty, _expectations: &StageViewExpectations<'_>) {
+                assert_eq!(self, *expected);
+            }
+        }
+    )* };
+}
+
+#[cfg(test)]
+stage_scalar_match!(usize, bool, ReduceByOp);
+
+#[cfg(test)]
+impl<'a> StageFieldMatch<BuildExprId> for decode::ExprInstructionId<'a> {
+    fn assert_matches(self, expected: &BuildExprId, expectations: &StageViewExpectations<'_>) {
+        assert_expression_instruction_matches(self, *expected, expectations);
+    }
+}
+
+#[cfg(test)]
+impl<'a> StageFieldMatch<BuildStmtId> for decode::StmtInstructionId<'a> {
+    fn assert_matches(self, expected: &BuildStmtId, expectations: &StageViewExpectations<'_>) {
+        assert_statement_instruction_matches(self, *expected, expectations);
+    }
+}
+
+#[cfg(test)]
+impl<'a> StageFieldMatch<String> for &'a str {
+    fn assert_matches(self, expected: &String, _expectations: &StageViewExpectations<'_>) {
+        assert_eq!(self, expected.as_str());
+    }
+}
+
+#[cfg(test)]
+impl<T, V> StageFieldMatch<Option<T>> for Option<V>
+where
+    V: StageFieldMatch<T>,
+{
+    fn assert_matches(self, expected: &Option<T>, expectations: &StageViewExpectations<'_>) {
+        match (self, expected) {
+            (Some(view), Some(expected)) => view.assert_matches(expected, expectations),
+            (None, None) => {}
+            _ => panic!("borrowed pipeline stage option differs"),
+        }
+    }
+}
+
+#[cfg(test)]
+impl<'a, T> StageFieldMatch<Vec<T>> for decode::ListView<'a, T>
+where
+    T: BorrowCodec,
+    T::View<'a>: StageFieldMatch<T>,
+{
+    fn assert_matches(
+        mut self,
+        expected: &Vec<T>,
+        expectations: &StageViewExpectations<'_>,
+    ) {
+        assert_eq!(self.len(), expected.len());
+        for expected in expected {
+            self.next()
+                .expect("stage list has an encoded element")
+                .unwrap()
+                .assert_matches(expected, expectations);
+        }
+        assert!(self.next().is_none());
+    }
+}
+
+#[cfg(test)]
+trait StageFieldsMatch<T> {
+    fn assert_matches(self, expected: &T, expectations: &StageViewExpectations<'_>);
+}
+
+#[cfg(test)]
+impl StageFieldsMatch<()> for () {
+    fn assert_matches(self, _expected: &(), _expectations: &StageViewExpectations<'_>) {}
+}
+
+#[cfg(test)]
+macro_rules! stage_fields_match {
+    ($($view_ty:ident:$expected_ty:ident:$view:ident:$index:tt),+ $(,)?) => {
+        impl<$($view_ty, $expected_ty),+> StageFieldsMatch<($($expected_ty,)+)>
+            for ($($view_ty,)+)
+        where
+            $($view_ty: StageFieldMatch<$expected_ty>),+
+        {
+            fn assert_matches(
+                self,
+                expected: &($($expected_ty,)+),
+                expectations: &StageViewExpectations<'_>,
+            ) {
+                let ($($view,)+) = self;
+                $($view.assert_matches(&expected.$index, expectations);)+
+            }
+        }
+    };
+}
+
+#[cfg(test)]
+stage_fields_match!(V0:E0:view0:0);
+#[cfg(test)]
+stage_fields_match!(V0:E0:view0:0, V1:E1:view1:1);
+#[cfg(test)]
+stage_fields_match!(V0:E0:view0:0, V1:E1:view1:1, V2:E2:view2:2);
+#[cfg(test)]
+stage_fields_match!(V0:E0:view0:0, V1:E1:view1:1, V2:E2:view2:2, V3:E3:view3:3);
+#[cfg(test)]
+stage_fields_match!(V0:E0:view0:0, V1:E1:view1:1, V2:E2:view2:2, V3:E3:view3:3, V4:E4:view4:4);
+#[cfg(test)]
+stage_fields_match!(V0:E0:view0:0, V1:E1:view1:1, V2:E2:view2:2, V3:E3:view3:3, V4:E4:view4:4, V5:E5:view5:5);
+#[cfg(test)]
+stage_fields_match!(V0:E0:view0:0, V1:E1:view1:1, V2:E2:view2:2, V3:E3:view3:3, V4:E4:view4:4, V5:E5:view5:5, V6:E6:view6:6);
+#[cfg(test)]
+stage_fields_match!(V0:E0:view0:0, V1:E1:view1:1, V2:E2:view2:2, V3:E3:view3:3, V4:E4:view4:4, V5:E5:view5:5, V6:E6:view6:6, V7:E7:view7:7);
+#[cfg(test)]
+stage_fields_match!(V0:E0:view0:0, V1:E1:view1:1, V2:E2:view2:2, V3:E3:view3:3, V4:E4:view4:4, V5:E5:view5:5, V6:E6:view6:6, V7:E7:view7:7, V8:E8:view8:8);
+
+#[cfg(test)]
+fn assert_stage_fields_match<V, T>(
+    view: V,
+    expected: &T,
+    expectations: &StageViewExpectations<'_>,
+)
+where
+    V: StageFieldsMatch<T>,
+{
+    view.assert_matches(expected, expectations);
+}
+
 macro_rules! pipeline_stage_schema {
     (
         @build
         [$stage_builder:ident]
         [$stage_decoder:ident]
         [$stage_payload:ident]
+        [$stage_view_context:ident] [$stage_view_input:ident]
+        [$stage_view_value:ident] [$stage_view_expectations:ident]
         [$($variants:tt)*]
         [$($tags:tt)*]
         [$($encode_arms:tt)*]
         [$($decode_arms:tt)*]
         [$($verify_arms:tt)*]
+        [$($view_variants:tt)*]
+        [$($borrow_arms:tt)*]
+        [$($view_tag_arms:tt)*]
+        [$($view_match_arms:tt)*]
         ;
     ) => {
         #[derive(Clone, Debug)]
@@ -6765,6 +6988,10 @@ macro_rules! pipeline_stage_schema {
         #[repr(u8)]
         pub(in crate::runtime::eval) enum FullStageTag {
             $($tags)*
+        }
+
+        pub(in crate::runtime::eval) enum StageView<'a> {
+            $($view_variants)*
         }
 
         impl FullCodec for LoweredPipelineStage {
@@ -6823,17 +7050,60 @@ macro_rules! pipeline_stage_schema {
                 $stage_payload.finish()
             }
         }
+
+        // A stage view must consume its complete tagged row before it escapes.
+        impl BorrowCodec for LoweredPipelineStage {
+            type View<'a> = StageView<'a>;
+
+            fn borrow<'a>(
+                $stage_view_context: DecodeContext<'a>,
+                $stage_view_input: &mut FullCursor<'a>,
+            ) -> Result<Self::View<'a>, IrVerifyError> {
+                let raw = $stage_view_input.raw()?;
+                let (tag, mut $stage_payload) =
+                    $stage_view_context.stage_payload(raw)?;
+                let view = match tag {
+                    $($borrow_arms)*
+                };
+                $stage_payload.finish()?;
+                Ok(view)
+            }
+        }
+
+        #[cfg(test)]
+        fn stage_view_tag($stage_view_value: &StageView<'_>) -> FullStageTag {
+            match $stage_view_value {
+                $($view_tag_arms)*
+            }
+        }
+
+        #[cfg(test)]
+        fn assert_stage_view_matches(
+            owned: LoweredPipelineStage,
+            $stage_view_value: StageView<'_>,
+            $stage_view_expectations: &StageViewExpectations<'_>,
+        ) {
+            match owned {
+                $($view_match_arms)*
+            }
+        }
     };
     (
         @build
         [$stage_builder:ident]
         [$stage_decoder:ident]
         [$stage_payload:ident]
+        [$stage_view_context:ident] [$stage_view_input:ident]
+        [$stage_view_value:ident] [$stage_view_expectations:ident]
         [$($variants:tt)*]
         [$($tags:tt)*]
         [$($encode_arms:tt)*]
         [$($decode_arms:tt)*]
         [$($verify_arms:tt)*]
+        [$($view_variants:tt)*]
+        [$($borrow_arms:tt)*]
+        [$($view_tag_arms:tt)*]
+        [$($view_match_arms:tt)*]
         ;
         $variant:ident unit {};
         $($rest:tt)*
@@ -6843,6 +7113,8 @@ macro_rules! pipeline_stage_schema {
             [$stage_builder]
             [$stage_decoder]
             [$stage_payload]
+            [$stage_view_context] [$stage_view_input]
+            [$stage_view_value] [$stage_view_expectations]
             [$($variants)* $variant,]
             [$($tags)* $variant,]
             [$($encode_arms)*
@@ -6856,6 +7128,15 @@ macro_rules! pipeline_stage_schema {
                 FullStageTag::$variant => LoweredPipelineStage::$variant,
             ]
             [$($verify_arms)* FullStageTag::$variant => {},]
+            [$($view_variants)* $variant,]
+            [$($borrow_arms)* FullStageTag::$variant => StageView::$variant,]
+            [$($view_tag_arms)* StageView::$variant => FullStageTag::$variant,]
+            [$($view_match_arms)*
+                LoweredPipelineStage::$variant => match $stage_view_value {
+                    StageView::$variant => {},
+                    _ => panic!("borrowed pipeline stage tag differs"),
+                },
+            ]
             ;
             $($rest)*
         );
@@ -6865,11 +7146,17 @@ macro_rules! pipeline_stage_schema {
         [$stage_builder:ident]
         [$stage_decoder:ident]
         [$stage_payload:ident]
+        [$stage_view_context:ident] [$stage_view_input:ident]
+        [$stage_view_value:ident] [$stage_view_expectations:ident]
         [$($variants:tt)*]
         [$($tags:tt)*]
         [$($encode_arms:tt)*]
         [$($decode_arms:tt)*]
         [$($verify_arms:tt)*]
+        [$($view_variants:tt)*]
+        [$($borrow_arms:tt)*]
+        [$($view_tag_arms:tt)*]
+        [$($view_match_arms:tt)*]
         ;
         $variant:ident tuple { $($field:ident : $field_ty:ty),+ $(,)? };
         $($rest:tt)*
@@ -6879,6 +7166,8 @@ macro_rules! pipeline_stage_schema {
             [$stage_builder]
             [$stage_decoder]
             [$stage_payload]
+            [$stage_view_context] [$stage_view_input]
+            [$stage_view_value] [$stage_view_expectations]
             [$($variants)* $variant($($field_ty),*),]
             [$($tags)* $variant,]
             [$($encode_arms)*
@@ -6900,6 +7189,31 @@ macro_rules! pipeline_stage_schema {
                     $(<$field_ty>::verify($stage_decoder, &mut $stage_payload)?;)*
                 },
             ]
+            [$($view_variants)*
+                $variant($(<$field_ty as BorrowCodec>::View<'a>),*),
+            ]
+            [$($borrow_arms)*
+                FullStageTag::$variant => {
+                    $(let $field = <$field_ty>::borrow(
+                        $stage_view_context,
+                        &mut $stage_payload,
+                    )?;)*
+                    StageView::$variant($($field),*)
+                },
+            ]
+            [$($view_tag_arms)*
+                StageView::$variant(..) => FullStageTag::$variant,
+            ]
+            [$($view_match_arms)*
+                LoweredPipelineStage::$variant($($field),*) => {
+                    let expected = ($($field,)*);
+                    let actual = match $stage_view_value {
+                        StageView::$variant($($field),*) => ($($field,)*),
+                        _ => panic!("borrowed pipeline stage tag differs"),
+                    };
+                    assert_stage_fields_match(actual, &expected, $stage_view_expectations);
+                },
+            ]
             ;
             $($rest)*
         );
@@ -6909,11 +7223,17 @@ macro_rules! pipeline_stage_schema {
         [$stage_builder:ident]
         [$stage_decoder:ident]
         [$stage_payload:ident]
+        [$stage_view_context:ident] [$stage_view_input:ident]
+        [$stage_view_value:ident] [$stage_view_expectations:ident]
         [$($variants:tt)*]
         [$($tags:tt)*]
         [$($encode_arms:tt)*]
         [$($decode_arms:tt)*]
         [$($verify_arms:tt)*]
+        [$($view_variants:tt)*]
+        [$($borrow_arms:tt)*]
+        [$($view_tag_arms:tt)*]
+        [$($view_match_arms:tt)*]
         ;
         $variant:ident struct { $($field:ident : $field_ty:ty),+ $(,)? };
         $($rest:tt)*
@@ -6923,6 +7243,8 @@ macro_rules! pipeline_stage_schema {
             [$stage_builder]
             [$stage_decoder]
             [$stage_payload]
+            [$stage_view_context] [$stage_view_input]
+            [$stage_view_value] [$stage_view_expectations]
             [$($variants)* $variant { $($field: $field_ty),* },]
             [$($tags)* $variant,]
             [$($encode_arms)*
@@ -6944,17 +7266,52 @@ macro_rules! pipeline_stage_schema {
                     $(<$field_ty>::verify($stage_decoder, &mut $stage_payload)?;)*
                 },
             ]
+            [$($view_variants)*
+                $variant { $($field: <$field_ty as BorrowCodec>::View<'a>),* },
+            ]
+            [$($borrow_arms)*
+                FullStageTag::$variant => {
+                    $(let $field = <$field_ty>::borrow(
+                        $stage_view_context,
+                        &mut $stage_payload,
+                    )?;)*
+                    StageView::$variant { $($field),* }
+                },
+            ]
+            [$($view_tag_arms)*
+                StageView::$variant { .. } => FullStageTag::$variant,
+            ]
+            [$($view_match_arms)*
+                LoweredPipelineStage::$variant { $($field),* } => {
+                    let expected = ($($field,)*);
+                    let actual = match $stage_view_value {
+                        StageView::$variant { $($field),* } => ($($field,)*),
+                        _ => panic!("borrowed pipeline stage tag differs"),
+                    };
+                    assert_stage_fields_match(actual, &expected, $stage_view_expectations);
+                },
+            ]
             ;
             $($rest)*
         );
     };
-    (@context $stage_builder:ident $stage_decoder:ident $stage_payload:ident; $($schema:tt)*) => {
+    (
+        @context
+        $stage_builder:ident
+        $stage_decoder:ident
+        $stage_payload:ident
+        $stage_view_context:ident $stage_view_input:ident
+        $stage_view_value:ident $stage_view_expectations:ident;
+        $($schema:tt)*
+    ) => {
         pipeline_stage_schema!(
             @build
             [$stage_builder]
             [$stage_decoder]
             [$stage_payload]
-            [] [] [] [] []
+            [$stage_view_context] [$stage_view_input]
+            [$stage_view_value] [$stage_view_expectations]
+            [] [] [] [] [] [] [] [] []
             ;
             $($schema)*
         );
@@ -6962,7 +7319,12 @@ macro_rules! pipeline_stage_schema {
 }
 
 pipeline_stage_schema! {
-    @context stage_builder stage_decoder stage_payload;
+    @context
+    stage_builder
+    stage_decoder
+    stage_payload
+    stage_view_context stage_view_input
+    stage_view_value stage_view_expectations;
     TextLines unit {};
     JsonLines unit {};
     Where struct {
@@ -7276,6 +7638,10 @@ run true
     }
 
     fn schema_execution(store: &FullStore) -> FullExecution<'_> {
+        schema_execution_with_slots(store, 1)
+    }
+
+    fn schema_execution_with_slots(store: &FullStore, slot_count: u32) -> FullExecution<'_> {
         FullExecution {
             decoder: FullDecoder {
                 store,
@@ -7284,11 +7650,129 @@ run true
                 instruction_states: None,
                 instruction_proof: None,
                 block_states: None,
-                slot_count: 1,
+                slot_count,
                 pattern_ceiling: Cell::new(usize::MAX),
                 verified: false,
             },
         }
+    }
+
+    fn stage_view_fixture() -> (
+        FullBuilder,
+        Vec<LoweredPipelineStage>,
+        u32,
+        Vec<BuildExprRow>,
+        Vec<BuildStmtRow>,
+    ) {
+        let mut scratch = BuildScratch::default();
+        let expression0 = scratch.expr(BuildExprRow::Int(17));
+        let expression1 = scratch.expr(BuildExprRow::Bool(true));
+        let statement0 = scratch.stmt(BuildStmtRow::Value { value: expression0 });
+        let statement1 = scratch.stmt(BuildStmtRow::Expr {
+            value: expression1,
+            span: Span::at(SourceId::new(0), 0),
+        });
+        let expression_rows = scratch.expressions.clone();
+        let statement_rows = scratch.statements.clone();
+        let scratch = Rc::new(RefCell::new(scratch));
+        let expression = BuildExprId::new;
+        let body = || vec![statement0, statement1];
+        let stages = vec![
+            LoweredPipelineStage::TextLines,
+            LoweredPipelineStage::JsonLines,
+            LoweredPipelineStage::Where { slot: 2, predicate: expression(0) },
+            LoweredPipelineStage::WhereBlock { slot: 3, body: body(), value: expression(1) },
+            LoweredPipelineStage::Map { slot: 4, value: expression(0) },
+            LoweredPipelineStage::MapBlock { slot: 5, body: body(), value: expression(1) },
+            LoweredPipelineStage::FlatMap { slot: 6, value: expression(0) },
+            LoweredPipelineStage::FlatMapBlock { slot: 7, body: body(), value: expression(1) },
+            LoweredPipelineStage::BytesChunks { size: expression(0) },
+            LoweredPipelineStage::BatchCount { count: expression(1) },
+            LoweredPipelineStage::BatchMaxArgv { max_argv: Some(expression(0)) },
+            LoweredPipelineStage::BatchMaxBytes { max_bytes: expression(1) },
+            LoweredPipelineStage::BatchLimits { configuration: expression(0) },
+            LoweredPipelineStage::Shuffle { seed: Some(expression(1)) },
+            LoweredPipelineStage::Fold {
+                acc_slot: 8,
+                item_slot: 9,
+                initial: expression(0),
+                body: body(),
+                value: expression(1),
+            },
+            LoweredPipelineStage::ReduceBy {
+                item_slot: 10,
+                body: body(),
+                value: expression(1),
+                op: ReduceByOp::Sum,
+                jobs: Some(expression(0)),
+            },
+            LoweredPipelineStage::ReduceByConfigured {
+                item_slot: 11,
+                body: body(),
+                value: expression(0),
+                configuration: expression(1),
+            },
+            LoweredPipelineStage::ParMap {
+                slot: 12,
+                jobs: Some(expression(1)),
+                value: expression(0),
+            },
+            LoweredPipelineStage::ParMapBlock {
+                slot: 13,
+                body: body(),
+                jobs: None,
+                value: expression(1),
+            },
+            LoweredPipelineStage::ParMapFlatMapReduceBy {
+                slot: 14,
+                body: Some(body()),
+                jobs: Some(expression(0)),
+                value: expression(1),
+                flatten: true,
+                reduce_item_slot: 15,
+                reduce_body: body(),
+                reduce_value: expression(0),
+                op: ReduceByOp::Max,
+            },
+            LoweredPipelineStage::Tee { slot: 15, body: body() },
+            LoweredPipelineStage::Each { slot: 16, body: body() },
+            LoweredPipelineStage::TablePrint {
+                columns: Some(vec!["name".to_string(), "size".to_string()]),
+            },
+            LoweredPipelineStage::TablePrintConfigured { columns: expression(1) },
+            LoweredPipelineStage::Enumerate,
+            LoweredPipelineStage::Zip { other: expression(0) },
+            LoweredPipelineStage::Sort { descending: Some(expression(1)) },
+            LoweredPipelineStage::SortBy { slot: 17, key: expression(0), descending: None },
+            LoweredPipelineStage::GroupBy { slot: 18, key: expression(1) },
+            LoweredPipelineStage::CountBy { slot: 19, key: expression(0) },
+            LoweredPipelineStage::Any { slot: 20, predicate: expression(1) },
+            LoweredPipelineStage::AnyBlock { slot: 21, body: body(), value: expression(0) },
+            LoweredPipelineStage::All { slot: 22, predicate: expression(0) },
+            LoweredPipelineStage::AllBlock { slot: 23, body: body(), value: expression(1) },
+            LoweredPipelineStage::UniqueBy { slot: 24, key: expression(0) },
+            LoweredPipelineStage::Count,
+            LoweredPipelineStage::Sum,
+            LoweredPipelineStage::Collect,
+            LoweredPipelineStage::First,
+            LoweredPipelineStage::Last,
+            LoweredPipelineStage::Min,
+            LoweredPipelineStage::Max,
+            LoweredPipelineStage::Take(expression(0)),
+            LoweredPipelineStage::Drop(expression(1)),
+            LoweredPipelineStage::Repeat { count: expression(1) },
+            LoweredPipelineStage::Range { start: expression(0), end: expression(1) },
+        ];
+        assert_eq!(stages.len(), 46);
+
+        let mut builder = FullBuilder::new(SourceId::new(0));
+        builder.current_owner = Some(0);
+        builder.current_slot_count = 25;
+        builder.active_scratch = Some(scratch);
+        let mut encoded = Vec::new();
+        stages.encode(&mut builder, &mut encoded).unwrap();
+        assert_eq!(encoded.len(), 1);
+        (builder, stages, encoded[0], expression_rows, statement_rows)
     }
 
     fn pattern_view_fixture() -> (FullBuilder, Vec<u32>) {
@@ -8978,6 +9462,86 @@ pure selected() -> Str {
             ],
             std::array::from_fn::<_, 46, _>(|index| index as u8),
         );
+    }
+
+    #[test]
+    fn stage_schema_views_match_all_owned_fields_and_leave_trailing_fields() {
+        let (builder, rows, block, expressions, statements) = stage_view_fixture();
+        let execution = schema_execution_with_slots(&builder.store, 25);
+        let owned_block = [block];
+        let mut owned_input = FullCursor::new(&owned_block);
+        let decoded_owned = Vec::<LoweredPipelineStage>::decode(&execution.decoder, &mut owned_input)
+            .unwrap();
+        owned_input.finish().unwrap();
+        assert_eq!(decoded_owned.len(), rows.len());
+
+        let outer_payload = [block, 0x5a5a];
+        let mut payload = FullPayload {
+            store: &builder.store,
+            cursor: FullCursor::new(&outer_payload),
+        };
+        let mut views = payload.borrow::<Vec<LoweredPipelineStage>>(&execution).unwrap();
+        assert_eq!(views.len(), 46);
+        let expectations = StageViewExpectations {
+            store: &builder.store,
+            expressions: &expressions,
+            statements: &statements,
+        };
+        for (index, owned) in rows.into_iter().enumerate() {
+            let view = views.next().unwrap().unwrap();
+            assert_eq!(stage_view_tag(&view) as usize, index);
+            assert_stage_view_matches(owned, view, &expectations);
+        }
+        assert!(views.next().is_none());
+        assert_eq!(payload.raw().unwrap(), 0x5a5a);
+        payload.finish().unwrap();
+    }
+
+    #[test]
+    fn stage_schema_views_reject_malformed_trailing_and_foreign_payloads() {
+        let (builder, _, _, _, _) = stage_view_fixture();
+
+        let mut malformed = builder.store.clone();
+        let reduce_by = malformed.stage_data[15].range();
+        malformed.extra[reduce_by.start as usize + 3] = u32::MAX;
+        let malformed_execution = schema_execution_with_slots(&malformed, 25);
+        let mut malformed_payload = FullPayload {
+            store: &malformed,
+            cursor: FullCursor::new(&[15]),
+        };
+        let error = match malformed_payload.borrow::<LoweredPipelineStage>(&malformed_execution) {
+            Err(error) => error,
+            Ok(_) => panic!("invalid reduce-by operation was accepted"),
+        };
+        assert!(error.message.contains("reduce-by operation is invalid"));
+
+        let mut trailing = builder.store.clone();
+        let start = u32::try_from(trailing.extra.len()).unwrap();
+        trailing.extra.push(0);
+        trailing.stage_data[0] = IrData { lhs: start, rhs: 1 };
+        let trailing_execution = schema_execution_with_slots(&trailing, 25);
+        let mut trailing_payload = FullPayload {
+            store: &trailing,
+            cursor: FullCursor::new(&[0]),
+        };
+        let error = match trailing_payload.borrow::<LoweredPipelineStage>(&trailing_execution) {
+            Err(error) => error,
+            Ok(_) => panic!("trailing stage row word was accepted"),
+        };
+        assert!(error.message.contains("full IR payload has trailing words"));
+
+        let other_store = builder.store.clone();
+        let other_execution = schema_execution_with_slots(&other_store, 25);
+        let mut foreign_payload = FullPayload {
+            store: &builder.store,
+            cursor: FullCursor::new(&[15]),
+        };
+        let error = match foreign_payload.borrow::<LoweredPipelineStage>(&other_execution) {
+            Err(error) => error,
+            Ok(_) => panic!("foreign stage payload was accepted"),
+        };
+        assert!(error.message.contains("another program"));
+        assert_eq!(foreign_payload.raw().unwrap(), 15);
     }
 
     #[test]
