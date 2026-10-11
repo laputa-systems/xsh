@@ -31,3 +31,14 @@ test test_locale_french_bytes_and_encoding_aliases {
   assert (system.locale_numeric_info("C.UTF-8")?).decimal_point == b"."
   assert (system.locale_numeric_info("C")?).thousands_separator == b""
 }
+
+test test_locale_lowercase_iso_alias_preserves_metadata {
+  guard system.uname()?.sysname == "Linux" else {
+    test.skip("Linux supplies the committed GNU libc locale metadata")
+    return
+  }
+  for name in ["en_US", "fr_FR", "sv_SE"] {
+    assert system.locale_numeric_info(name + ".iso8859-1")? == system.locale_numeric_info(name + ".ISO8859-1")?
+    assert system.locale_time_info(name + ".iso8859-1")? == system.locale_time_info(name + ".ISO8859-1")?
+  }
+}

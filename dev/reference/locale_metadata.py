@@ -50,7 +50,7 @@ def aliases_for(name):
         return [stem + suffix for suffix in (".UTF-8", ".utf-8", ".UTF8")]
     if name.endswith(".iso88591"):
         stem = name[:-9]
-        return [stem + suffix for suffix in (".ISO-8859-1", ".iso-8859-1", ".ISO8859-1", ".ISO88591")]
+        return [stem + suffix for suffix in (".ISO-8859-1", ".iso-8859-1", ".ISO8859-1", ".iso8859-1", ".ISO88591")]
     if name.endswith(".gb18030"):
         return [name[:-8] + ".GB18030"]
     return []
