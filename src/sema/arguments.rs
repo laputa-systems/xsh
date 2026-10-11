@@ -4,6 +4,7 @@ use super::types::{CallableParamType, Type};
 use crate::source::Span;
 use crate::symbol::Name;
 use crate::syntax::arena::{ArenaCallArg, ArenaCallArgKind, ArenaProgram, ExprId};
+use rustc_hash::FxHashMap;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ArgumentValueSource {
@@ -152,14 +153,17 @@ pub fn bind_static_arguments(
     params: &[CallableParamType],
     args: &[ExpandedArgument],
 ) -> Result<StaticArgumentBinding, ArgumentExpansionError> {
+    let mut named_slots = FxHashMap::default();
+    for (slot, param) in params.iter().enumerate().filter(|(_, param)| !param.rest) {
+        // Malformed declarations retain the first parameter for consistent recovery.
+        named_slots.entry(param.name).or_insert(slot);
+    }
     let mut occupied = vec![false; params.len()];
     let mut argument_slots = Vec::with_capacity(args.len());
     let mut next = 0;
     for arg in args {
         let slot = if let Some(name) = arg.name {
-            params
-                .iter()
-                .position(|param| !param.rest && param.name == name)
+            named_slots.get(&name).copied()
                 .ok_or_else(|| ArgumentExpansionError {
                     span: arg.span,
                     message: format!("unknown named parameter `{name}`"),

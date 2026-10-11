@@ -23,6 +23,29 @@ pure spread_rest(first: Int, ...items: List[Int]) -> List[Int] {
   [first, @items]
 }
 
+test test_named_argument_spread_handles_sixteen_thousand_fields_with_a_wall_guard { |ctx|
+  let entries = collect {
+    var index = 0
+    while index < 16000 {
+      yield {parameter: f"field{index}: Int", field: f"field{index}: {index}"}
+      index += 1
+    }
+  }
+  let parameters = (entries |> map .parameter).join(", ")
+  let fields = (entries |> map .field).join(", ")
+  let source = f"pure endpoints({parameters}) -> Int {{ field0 + field15999 }}\nprint endpoints(...{{{fields}}})\n"
+  let script = test.temp_file(ctx, name: "wide-named-spread.xsh", contents: bytes.from_text(source))?
+  let root = test.temp_dir(ctx, name: "wide-named-spread")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let status = process.run(process.command_argv(
+    ctx.xsh_bin, [ctx.xsh_bin.display(), script.display()], root,
+    stdout: stdout, stderr: stderr, timeout: 10s,
+  ))?
+  assert status.exited_with(0), stderr.read_text()?
+  assert stdout.read_text()? == "15999\n"
+}
+
 test test_named_argument_spreads_use_visible_fields_and_constructor_defaults {
   let options = {first: 2, second: 3}
   assert spread_sum(...options) == 5

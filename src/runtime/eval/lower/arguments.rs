@@ -366,15 +366,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             return self.lower_call_args(args, slots, current_function, item_slot);
         }
         let (params, argument_slots) = (params?, argument_slots?);
+        let mut by_slot = vec![Vec::new(); argument_slots.iter().copied().max()? + 1];
+        for (arg, &slot) in args.iter().zip(argument_slots) { by_slot[slot].push(arg); }
         let mut values = Vec::new();
-        #[allow(clippy::needless_range_loop)]
-        for slot in 0..=argument_slots.iter().copied().max()? {
-            let mut entries = args
-                .iter()
-                .zip(argument_slots)
-                .filter(|(_, bound)| **bound == slot)
-                .peekable();
-            if entries.peek().is_none() {
+        for (slot, entries) in by_slot.into_iter().enumerate() {
+            if entries.is_empty() {
                 if params[slot].rest {
                     continue;
                 }
@@ -404,20 +400,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 };
                 values.push(LoweredCallArg::Single(value));
             }
-            for (arg, _) in entries {
-                values.push(match arg.kind {
-                    ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. } => {
-                        LoweredCallArg::Single(self.lower_expr(
-                            value,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?)
-                    }
-                    ArenaCallArgKind::Splice { value, .. } => LoweredCallArg::Splice(
-                        self.lower_expr(value, slots, current_function, item_slot)?,
-                    ),
+            for arg in entries {
+                let expr = match arg.kind {
+                    ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. }
+                    | ArenaCallArgKind::Splice { value, .. } => value,
                     ArenaCallArgKind::NamedSpread { .. } => return None,
+                };
+                let value = self.lower_expr(expr, slots, current_function, item_slot)?;
+                values.push(if matches!(arg.kind, ArenaCallArgKind::Splice { .. }) {
+                    LoweredCallArg::Splice(value)
+                } else {
+                    LoweredCallArg::Single(value)
                 });
             }
         }
