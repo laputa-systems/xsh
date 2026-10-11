@@ -4436,8 +4436,8 @@ fn time_module() -> ModuleSig {
 }
 
 fn tui_module() -> ModuleSig {
-    // Escape-sequence producers execute as embedded XSH. Padding keeps its
-    // native width scan; `read_secret` owns terminal I/O and stays native.
+    // Escape-sequence producers execute as embedded XSH. Text width stays
+    // native for its pinned Unicode data; `read_secret` owns terminal I/O.
     let escapes = [
         ("reset", RuntimeOp::TuiReset),
         ("bold", RuntimeOp::TuiBold),
@@ -4483,6 +4483,66 @@ fn tui_module() -> ModuleSig {
             RuntimeOp::TuiRightPad,
         ),
     ));
+    entries.extend([
+        (
+            "cell_width",
+            sig(
+                vec![param("text", Type::Str)],
+                Type::Int,
+                true,
+                RuntimeOp::TuiCellWidth,
+            ),
+        ),
+        (
+            "cell_clip",
+            sig(
+                vec![param("text", Type::Str), param("width", Type::Int)],
+                Type::Str,
+                true,
+                RuntimeOp::TuiCellClip,
+            ),
+        ),
+        (
+            "cell_slice",
+            sig(
+                vec![
+                    param("text", Type::Str),
+                    param("start", Type::Int),
+                    param("width", Type::Int),
+                ],
+                Type::Str,
+                true,
+                RuntimeOp::TuiCellSlice,
+            ),
+        ),
+        (
+            "cell_left_pad",
+            sig(
+                vec![param("text", Type::Str), param("width", Type::Int)],
+                Type::Str,
+                true,
+                RuntimeOp::TuiCellLeftPad,
+            ),
+        ),
+        (
+            "cell_right_pad",
+            sig(
+                vec![param("text", Type::Str), param("width", Type::Int)],
+                Type::Str,
+                true,
+                RuntimeOp::TuiCellRightPad,
+            ),
+        ),
+        (
+            "safe_single_line",
+            sig(
+                vec![param("text", Type::Str)],
+                Type::Str,
+                true,
+                RuntimeOp::TuiSafeSingleLine,
+            ),
+        ),
+    ]);
     entries.push((
         "read_secret",
         sig(

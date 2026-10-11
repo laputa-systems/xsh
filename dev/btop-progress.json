@@ -366,202 +366,263 @@
     {
       "id": "g2.term.cleanup",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "tests/core_compat_extra/pty.rs::btop_replay_finite_completion_restores_terminal_attributes",
+        "tests/core_compat_extra/pty.rs::btop_replay_updates_after_resize_and_quits_with_restored_terminal",
+        "tests/core_compat_extra/pty.rs::btop_replay_ctrl_c_byte_exits_and_restores_terminal",
+        "tests/core_compat_extra/pty.rs::btop_replay_stdin_eof_restores_terminal_attributes",
+        "tests/core_compat_extra/pty.rs::btop_replay_write_failure_restores_input_terminal_attributes",
+        "tests/core_compat_extra/pty.rs::btop_terminal_cleanup_runs_after_runtime_error_during_presentation",
+        "tests/core_compat_extra/pty.rs::btop_terminal_partial_start_failure_restores_input_terminal_attributes"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.term.nontty",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-terminal.xsh::test_btop_terminal_refuses_piped_input_before_reading_it"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.caps.detect",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-terminal.xsh::test_btop_terminal_capabilities_follow_environment_and_geometry"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.loop.deadline",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-loop.xsh::test_btop_loop_separates_due_and_completed_sample_times"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.loop.coalesce",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-loop.xsh::test_btop_loop_coalesces_overdue_deadlines_without_catch_up_bursts"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.terminal.sync",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "tests/core_compat_extra/pty.rs::btop_replay_finite_completion_restores_terminal_attributes"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.input.split_points",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-input.xsh::test_btop_g2_input_split_points_cover_utf8_csi_and_ss3"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.input.multi_per_read",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-input.xsh::test_btop_g2_input_emits_multiple_events_from_one_read"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.input.esc_timeout",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-input.xsh::test_btop_g2_input_escape_timeout_has_replayable_boundary"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.input.malformed_utf8",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-input.xsh::test_btop_g2_input_malformed_utf8_replaces_bad_bytes_and_finishes_partial"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.input.bounded",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-input.xsh::test_btop_g2_input_sequence_and_paste_buffers_stay_bounded"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.input.paste_inert",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-input.xsh::test_btop_g2_input_bracketed_paste_keeps_hotkeys_and_enter_inert"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.text.width",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "tests/xsh/stdlib/tui.xsh::test_tui_cell_text_width_policy",
+        "tests/xsh/stdlib/tui.xsh::test_tui_cell_text_clip_and_pad"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.text.hostile",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "tests/xsh/stdlib/tui.xsh::test_tui_safe_single_line_makes_hostile_text_inert"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.surface.clip",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-surface.xsh::test_btop_surface_rectangles_intersect_and_clip_by_cells",
+        "core/tests/test-btop-surface.xsh::test_btop_surface_widgets_keep_geometry_and_text_inert"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.surface.diff_equals_full",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "tests/core_compat_extra/pty.rs::btop_surface_delta_reconstructs_the_same_cells_as_a_fresh_full_frame"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.surface.partial_write_recovery",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-surface.xsh::test_btop_surface_commits_only_complete_updates_and_recovers_with_full_redraw"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.surface.unchanged_zero_bytes",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-surface.xsh::test_btop_surface_commits_only_complete_updates_and_recovers_with_full_redraw"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.surface.bottom_right",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-surface.xsh::test_btop_surface_bottom_right_frame_uses_control_sequences_without_linefeed"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.ui.select_identity",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-ui.xsh::test_btop_ui_keeps_selection_by_process_lifetime_across_sort_and_pid_reuse"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.ui.sort_reverse",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-ui.xsh::test_btop_ui_keeps_selection_by_process_lifetime_across_sort_and_pid_reuse",
+        "tests/core_compat_extra/pty.rs::btop_replay_filter_sort_selection_and_resize_use_the_decoded_input"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.ui.filter",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-ui.xsh::test_btop_ui_filter_edit_accept_cancel_clear_and_paste_are_explicit",
+        "tests/core_compat_extra/pty.rs::btop_replay_filter_sort_selection_and_resize_use_the_decoded_input"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.ui.resize",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-ui.xsh::test_btop_ui_resize_preserves_identity_and_clamps_scroll",
+        "tests/core_compat_extra/pty.rs::btop_replay_filter_sort_selection_and_resize_use_the_decoded_input"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.generic_app",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "tests/xsh/stdlib/tui.xsh::test_tui_public_apis_compose_a_generic_table_input_and_overlay"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g2.no_native_btop",
       "gate": "G2",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-cli.xsh::test_btop_headless_replay_syscall_trace_has_no_child_or_sleep"
+      ],
+      "evidence": "Host release: focused XSH tests passed in .work/btop-campaign/g2-btop-native.log; public TUI and API suites passed in .work/btop-campaign/g2-api-tool.log; Rust PTY suite passed 10/10 in .work/btop-campaign/g2-pty-final.log. See measurements.g2 for build, docs, registry, VT-oracle, and latency evidence."
     },
     {
       "id": "g3.sched.class",
@@ -1366,6 +1427,66 @@
         ".work/btop-campaign/g1-pty-build.log",
         ".work/btop-campaign/g1-docs-check.log"
       ]
+    },
+    "g2": {
+      "host_only": true,
+      "release_build": {
+        "status": "passed",
+        "command": "cargo build --release -p xsh --bins -p xsht --bin xsht",
+        "log": ".work/btop-campaign/g2-build-after-ptytest.log"
+      },
+      "native_monitor_tests": {
+        "passed": 43,
+        "failed": 0,
+        "log": ".work/btop-campaign/g2-btop-native.log"
+      },
+      "pty_tests": {
+        "passed": 10,
+        "failed": 0,
+        "command": "cargo test --release --test core_compat_extra btop_ -- --test-threads=1 --nocapture",
+        "log": ".work/btop-campaign/g2-pty-final.log"
+      },
+      "public_tui_tests": {
+        "passed": 15,
+        "failed": 0,
+        "log": ".work/btop-campaign/g2-tui-generic-app.log"
+      },
+      "api_tests": {
+        "passed": 67,
+        "failed": 0,
+        "log": ".work/btop-campaign/g2-api-tool.log"
+      },
+      "tty_primitive_tests": {
+        "passed": 13,
+        "failed": 0,
+        "log": ".work/btop-campaign/g2-tty-prims.log"
+      },
+      "registry_tests": {
+        "passed": 17,
+        "failed": 0,
+        "command": "cargo test -p xsh-registry",
+        "log": ".work/btop-campaign/g2-registry.log"
+      },
+      "docs_check": {
+        "status": "passed",
+        "command": "make docs-check",
+        "log": ".work/btop-campaign/g2-make-docs-check.log"
+      },
+      "virtual_terminal_oracle": "PTY scenarios and delta-vs-full reconstruction use the bounded semantic VT model; all 10 btop PTY tests passed.",
+      "input_to_present_latency": {
+        "runner": "Alpine x86_64 musl release",
+        "columns": 80,
+        "rows": 24,
+        "samples": 100,
+        "replay_interval_ms": 60000,
+        "p95_ms": 1.032,
+        "p99_ms": 1.181,
+        "log": ".work/btop-campaign/g2-pty-final.log"
+      },
+      "no_native_btop_search": {
+        "command": "rg -n -i btop src crates stdlib",
+        "status": "no matches"
+      }
     }
   },
   "defaults": [
@@ -1707,6 +1828,6 @@
     }
   ],
   "next": [
-    "G2: close every terminal-session path, starting with EOF, handled write failure, render/runtime failure, and partial initialization; keep input, source collection, and rendering independently testable."
+    "G2 evidence is complete on host release; create the G2 gate-exit commit, then begin G3 S3.1 scheduling and cache invariants."
   ]
 }

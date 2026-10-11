@@ -14,8 +14,12 @@ test test_btop_replay_is_deterministic_and_uses_the_shared_model {
   fixture.write_b3_bundle(bundle, default_processes())
   let bundle_path = bundle.host_path()?
 
-  let first = replay.models(replay.load(bundle_path)?)
-  let second = replay.models(replay.load(bundle_path)?)
+  let loaded = replay.load(bundle_path)?
+  let repeated = replay.load(bundle_path)?
+  let first = replay.models(loaded.observations)
+  let second = replay.models(repeated.observations)
+  assert loaded.display.term == "xterm-256color"
+  assert loaded.display.rows == 24 and loaded.display.cols == 80
   assert first.len() == 2
   assert first[0].cpu_percent.state == rates.Warming
   assert first[1].cpu_percent.value?.format(precision: 1) == "40.0"
@@ -49,7 +53,8 @@ test test_btop_replay_never_falls_back_to_missing_host_sources {
   defer bundle.close()
   fixture.write_b3_bundle(bundle, default_processes())
   bundle.remove(p"frames/1/proc/stat")
-  let observations = replay.load(bundle.host_path()?)?
+  let loaded = replay.load(bundle.host_path()?)?
+  let observations = loaded.observations
   let frames = replay.models(observations)
 
   assert observations[1].cpu.stat.state == report.Absent
@@ -63,7 +68,18 @@ test test_btop_replay_rejects_nonincreasing_frame_times {
   fixture.write_b3_bundle(bundle, default_processes())
   bundle.write(
     p"manifest.json",
-    """{"schema":1,"page_size_bytes":4096,"clock_ticks_per_second":100,"source_id":"bad-time","frames":[{"at_ns":2000000000},{"at_ns":2000000000}]}\n""",
+    """{"schema":2,"page_size_bytes":4096,"clock_ticks_per_second":100,"source_id":"bad-time","display":{"term":"xterm","colorterm":"","no_color":false,"lc_all":"C.UTF-8","lc_ctype":"","lang":"","rows":24,"cols":80},"frames":[{"at_ns":2000000000},{"at_ns":2000000000}]}\n""",
+  )
+  test.error_kind(replay.load(bundle.host_path()?), "validation")
+}
+
+test test_btop_replay_rejects_the_g1_manifest_schema_without_display_inputs {
+  let bundle = fs.tempdir()?
+  defer bundle.close()
+  fixture.write_b3_bundle(bundle, default_processes())
+  bundle.write(
+    p"manifest.json",
+    """{"schema":1,"page_size_bytes":4096,"clock_ticks_per_second":100,"source_id":"legacy","frames":[{"at_ns":1000000000}]}\n""",
   )
   test.error_kind(replay.load(bundle.host_path()?), "validation")
 }

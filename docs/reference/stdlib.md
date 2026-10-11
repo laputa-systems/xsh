@@ -555,6 +555,11 @@ Terminal styling, control sequences, and width-aware text padding.
 
 - `tui.blue() -> Str` — Returns a terminal control sequence for the selected display operation.
 - `tui.bold() -> Str` — Returns a terminal control sequence for the selected display operation.
+- `tui.cell_clip(text: Str, width: Int) -> Str` — Clips safe single-line text to a terminal-cell width.
+- `tui.cell_left_pad(text: Str, width: Int) -> Str` — Pads safe single-line text using terminal-cell width.
+- `tui.cell_right_pad(text: Str, width: Int) -> Str` — Pads safe single-line text using terminal-cell width.
+- `tui.cell_slice(text: Str, start: Int, width: Int) -> Str` — Extracts a safe single-line range measured in terminal cells.
+- `tui.cell_width(text: Str) -> Int` — Returns the terminal-cell width of safe single-line text.
 - `tui.clear() -> Str` — Returns a terminal control sequence for the selected display operation.
 - `tui.cyan() -> Str` — Returns a terminal control sequence for the selected display operation.
 - `tui.dim() -> Str` — Returns a terminal control sequence for the selected display operation.
@@ -563,12 +568,13 @@ Terminal styling, control sequences, and width-aware text padding.
 - `tui.green() -> Str` — Returns a terminal control sequence for the selected display operation.
 - `tui.hide_cursor() -> Str` — Returns a terminal control sequence for the selected display operation.
 - `tui.home() -> Str` — Returns a terminal control sequence for the selected display operation.
-- `tui.left_pad(text: Str, width: Int) -> Str` — Pads text to a terminal display width.
+- `tui.left_pad(text: Str, width: Int) -> Str` — Pads text using the legacy Unicode-scalar width count.
 - `tui.magenta() -> Str` — Returns a terminal control sequence for the selected display operation.
 - `tui.read_secret(prompt: Str) -> Result[Str, Error]` — Reads a secret from a terminal without echoing it.
 - `tui.red() -> Str` — Returns a terminal control sequence for the selected display operation.
 - `tui.reset() -> Str` — Returns a terminal control sequence for the selected display operation.
-- `tui.right_pad(text: Str, width: Int) -> Str` — Pads text to a terminal display width.
+- `tui.right_pad(text: Str, width: Int) -> Str` — Pads text using the legacy Unicode-scalar width count.
+- `tui.safe_single_line(text: Str) -> Str` — Makes untrusted text inert and safe for one terminal display line.
 - `tui.show_cursor() -> Str` — Returns a terminal control sequence for the selected display operation.
 - `tui.white() -> Str` — Returns a terminal control sequence for the selected display operation.
 - `tui.yellow() -> Str` — Returns a terminal control sequence for the selected display operation.

@@ -142,6 +142,75 @@ b  """
    """
 }
 
+test test_tui_cell_text_width_policy {
+  assert tui.cell_width("日本") == 4
+  assert tui.cell_width("e\u{301}") == 1
+  assert tui.cell_width("\u{301}") == 1
+  assert tui.cell_width("·") == 1
+  assert tui.cell_width("😀") == 2
+  assert tui.cell_width("👩‍🔬") == 2
+}
+
+test test_tui_cell_text_clip_and_pad {
+  assert tui.cell_clip("A界B", 3) == "A界"
+  assert tui.cell_clip("a界", 2) == "a"
+  assert tui.cell_clip("界", 1) == ""
+  assert tui.cell_clip("👩‍🔬x", 2) == "👩‍🔬"
+  assert tui.cell_clip("界", 0) == ""
+  assert tui.cell_clip("界", -1) == ""
+  assert tui.cell_left_pad("界", 3) == " 界"
+  assert tui.cell_right_pad("界", 3) == "界 "
+  assert tui.cell_left_pad("界", 2) == "界"
+  assert tui.cell_right_pad("界", 2) == "界"
+}
+
+test test_tui_cell_slice_keeps_nonzero_offsets_aligned {
+  assert tui.cell_slice("a界b", 1, 2) == "界"
+  assert tui.cell_slice("a界b", 0, 2) == "a "
+  assert tui.cell_slice("a界b", 2, 2) == " b"
+  assert tui.cell_slice("👩‍🔬x", 1, 2) == " x"
+  assert tui.cell_slice("a界b", -1, 2) == "a "
+  assert tui.cell_slice("a界b", 0, -1) == ""
+  assert tui.cell_slice("a界b", 5, 2) == ""
+}
+
+test test_tui_safe_single_line_makes_hostile_text_inert {
+  let hostile = "a\u{1b}[31mred\u{1b}[0m\r\nb\u{1b}]0;title\u{7}c\u{202e}d\u{2028}e"
+  let safe = tui.safe_single_line(hostile)
+  assert safe == "a [31mred [0m  b ]0;title c�d e"
+  assert "\u{1b}" not in safe
+  assert "\u{7}" not in safe
+  assert "\r" not in safe
+  assert "\n" not in safe
+  assert "\u{202e}" not in safe
+  assert "\u{2028}" not in safe
+}
+
+test test_tui_public_apis_compose_a_generic_table_input_and_overlay { |ctx|
+  let source = """
+use lib.gnu
+let query = io.stdin_line()?.trim().lower()
+let entries = ["CPU 40.0%", "Memory 75.0%", "Network 10 KiB/s"]
+var lines: List[Str] = []
+for entry in entries {
+  if entry.lower().find(query) != null {
+    lines += [tui.cell_right_pad(tui.safe_single_line(entry), 24)]
+  }
+}
+lines += [tui.cell_right_pad("Filter: " + query, 24)]
+lines += [tui.cell_right_pad(f"[{lines.len() - 1} rows]  [q] quit", 24)]
+gnu.write_text(lines.join("\\n") + "\\n")
+"""
+  let output = test.run_xsh(ctx, source, [], [], stdin: b"network\n")?
+  assert output.success, output.stderr
+  let lines = output.stdout.lines()
+  assert lines.len() == 3
+  assert lines[0].trim() == "Network 10 KiB/s"
+  assert lines[1].trim() == "Filter: network"
+  assert lines[2].trim() == "[1 rows]  [q] quit"
+  for line in lines { assert tui.cell_width(line) == 24 }
+}
+
 # An `ESC` that does not open a CSI sequence is an ordinary character and keeps
 # its width; an unterminated CSI sequence runs to the end of the value and
 # contributes nothing.

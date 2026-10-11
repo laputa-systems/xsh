@@ -1581,9 +1581,34 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             &["tui", "terminal", "control-sequence"],
         )),
         ("tui", "left_pad" | "right_pad") => Some((
-            "Pads text to a terminal display width.",
-            "Width is measured for terminal cells rather than raw byte length, so wide characters affect the result.",
-            &["tui", "terminal", "width"],
+            "Pads text using the legacy Unicode-scalar width count.",
+            "The count excludes CR, LF, and CSI sequences beginning with ESC [. It is not terminal-cell width: wide characters and combining marks each count as one scalar. Text is never truncated, and negative widths act as zero.",
+            &["tui", "terminal", "legacy-width"],
+        )),
+        ("tui", "cell_width") => Some((
+            "Returns the terminal-cell width of safe single-line text.",
+            "Sanitizes the input with tui.safe_single_line, then measures it with unicode-width 0.2.2 (Unicode 16.0.0 data): East Asian Ambiguous characters are narrow, combining marks are zero-width when attached to a base, and recognized emoji sequences use their sequence width. A leading zero-width scalar is shown as U+FFFD so it cannot attach to text before the value.",
+            &["tui", "terminal", "unicode", "cell-width"],
+        )),
+        ("tui", "cell_clip") => Some((
+            "Clips safe single-line text to a terminal-cell width.",
+            "Sanitizes the input with tui.safe_single_line. Negative widths act as zero. Clipping keeps combining and variation marks, emoji modifiers, regional-indicator pairs, and recognized emoji ZWJ sequences intact, and never emits a partial two-cell cluster. Other multi-scalar shaping is clipped at scalar boundaries.",
+            &["tui", "terminal", "unicode", "cell-width"],
+        )),
+        ("tui", "cell_slice") => Some((
+            "Extracts a safe single-line range measured in terminal cells.",
+            "Sanitizes the input with tui.safe_single_line. Negative start and width values act as zero. A cluster wholly inside the requested range is copied; a cluster crossed by either boundary is represented by spaces for its intersecting cells, so a wide glyph is never split and following text keeps its cell position. Text past the end of the input is not padded.",
+            &["tui", "terminal", "unicode", "cell-width", "slice"],
+        )),
+        ("tui", "cell_left_pad" | "cell_right_pad") => Some((
+            "Pads safe single-line text using terminal-cell width.",
+            "Sanitizes the input with tui.safe_single_line, then adds spaces on the requested side until the display is at least the requested width. Negative widths act as zero. Text that already meets or exceeds the width is not truncated.",
+            &["tui", "terminal", "unicode", "cell-width"],
+        )),
+        ("tui", "safe_single_line") => Some((
+            "Makes untrusted text inert and safe for one terminal display line.",
+            "Maps ESC and all other C0/C1 controls to spaces, so CSI and OSC payload text stays ordinary text. Unicode line/paragraph separators also become spaces; bidi formatting controls become U+FFFD. A leading zero-width scalar becomes U+FFFD, while combining marks and emoji joiners are preserved.",
+            &["tui", "terminal", "text-safety"],
         )),
         ("tui", "read_secret") => Some((
             "Reads a secret from a terminal without echoing it.",

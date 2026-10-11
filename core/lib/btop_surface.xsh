@@ -1,0 +1,220 @@
+##! Builds bounded cell surfaces and computes recoverable terminal updates.
+##!
+##! Rows are sanitized and padded at construction, while the committed surface
+##! changes only after the complete update has reached the output sink.
+use tui
+
+const MAX_DIMENSION = 2000
+const MAX_CELLS = 200000
+
+## Names a rectangle in terminal cells.
+export type Rect = {x: Int, y: Int, width: Int, height: Int}
+
+## Stores fixed-width sanitized display rows.
+export type Surface = {width: Int, height: Int, lines: List[Str]}
+
+## Represents the screen state known to have been written in full.
+export type Committed = {surface: Surface?, valid: Bool}
+
+## Carries one desired frame and its full or delta terminal bytes.
+export type Update = {surface: Surface, bytes: Str, full_redraw: Bool}
+
+pure valid_dimensions(width: Int, height: Int) -> Bool {
+  if width < 0 or height < 0 or width > MAX_DIMENSION or height > MAX_DIMENSION {
+    return false
+  }
+  if width == 0 { return true }
+  height <= MAX_CELLS / width
+}
+
+pure repeated(character: Str, count: Int) -> Str {
+  var result = ""
+  for _ in range(count) { result += character }
+  result
+}
+
+pure fit(value: Str, width: Int) -> Str {
+  tui.cell_right_pad(tui.cell_clip(tui.safe_single_line(value), width), width)
+}
+
+## Creates a blank surface after checking its total cell bound.
+export pure blank(width: Int, height: Int) -> Result[Surface, Error] {
+  if ! valid_dimensions(width, height) {
+    return Err(error.failure("surface dimensions exceed the cell bound"))
+  }
+  let line = repeated(" ", width)
+  var lines: List[Str] = []
+  for _ in range(height) { lines += [line] }
+  Ok({width: width, height: height, lines: lines})
+}
+
+## Builds a fixed-size surface, clipping and padding each row by display cells.
+export pure from_lines(width: Int, height: Int, source: List[Str]) -> Result[Surface, Error] {
+  if ! valid_dimensions(width, height) or source.len() > height {
+    return Err(error.failure("surface rows do not fit the requested geometry"))
+  }
+  var lines: List[Str] = []
+  for row in range(height) {
+    let value = if row < source.len() { source[row] } else { "" }
+    lines += [fit(value, width)]
+  }
+  Ok({width: width, height: height, lines: lines})
+}
+
+## Builds a clipped title and body inside a complete rectangular border.
+export pure bordered(width: Int, height: Int, title: Str, body: List[Str]) -> Result[Surface, Error] {
+  if width < 2 or height < 3 or ! valid_dimensions(width, height) {
+    return Err(error.failure("bordered surface requires at least 2x3 cells"))
+  }
+  let inner_width = width - 2
+  let edge = "+" + repeated("-", inner_width) + "+"
+  var lines = [edge, "|" + fit(title, inner_width) + "|"]
+  for row in range(height - 3) {
+    let value = if row < body.len() { body[row] } else { "" }
+    lines += ["|" + fit(value, inner_width) + "|"]
+  }
+  lines += [edge]
+  from_lines(width, height, lines)
+}
+
+pure valid_rect(rect: Rect) -> Bool {
+  rect.width >= 0 and rect.height >= 0 and
+    rect.width <= MAX_DIMENSION and rect.height <= MAX_DIMENSION and
+    rect.x >= -MAX_DIMENSION and rect.x <= MAX_DIMENSION and
+    rect.y >= -MAX_DIMENSION and rect.y <= MAX_DIMENSION
+}
+
+## Returns the cell intersection or null for invalid or disjoint rectangles.
+export pure intersect(left: Rect, right: Rect) -> Rect? {
+  if ! valid_rect(left) or ! valid_rect(right) { return null }
+  let x = if left.x > right.x { left.x } else { right.x }
+  let y = if left.y > right.y { left.y } else { right.y }
+  let right_edge = if left.x + left.width < right.x + right.width { left.x + left.width } else { right.x + right.width }
+  let bottom_edge = if left.y + left.height < right.y + right.height { left.y + left.height } else { right.y + right.height }
+  if x >= right_edge or y >= bottom_edge { return null }
+  {x: x, y: y, width: right_edge - x, height: bottom_edge - y}
+}
+
+## Clips a surface to its intersection with a cell rectangle.
+export pure clip_rect(surface: Surface, rectangle: Rect) -> Result[Surface, Error] {
+  if ! valid_rect(rectangle) {
+    return Err(error.failure("surface clip rectangle exceeds the geometry bound"))
+  }
+  let clipped = intersect(
+    {x: 0, y: 0, width: surface.width, height: surface.height},
+    rectangle,
+  )
+  if clipped == null { return blank(0, 0) }
+  let area = clipped ?? {x: 0, y: 0, width: 0, height: 0}
+  var lines: List[Str] = []
+  for y in range(area.y, area.y + area.height) {
+    lines += [tui.cell_right_pad(tui.cell_slice(surface.lines[y], area.x, area.width), area.width)]
+  }
+  Ok({width: area.width, height: area.height, lines: lines})
+}
+
+## Draws a bounded ASCII meter; missing or non-finite values use question marks.
+export pure meter(value: Float?, width: Int) -> Str {
+  if width <= 0 or width > MAX_DIMENSION { return "" }
+  if value == null { return "?" + repeated(" ", width - 1) }
+  let amount = value ?? 0.0
+  if amount != amount { return "?" + repeated(" ", width - 1) }
+  let bounded = if amount < 0.0 { 0.0 } else if amount > 100.0 { 100.0 } else { amount }
+  let filled = (bounded * width.float() / 100.0).floor() ?? 0
+  repeated("#", filled) + repeated("-", width - filled)
+}
+
+## Builds one padded table row from columns with explicit cell widths.
+export pure table_row(columns: List[Str], widths: List[Int], separator: Str = " ") -> Result[Str, Error] {
+  if columns.len() != widths.len() {
+    return Err(error.failure("table column and width counts differ"))
+  }
+  var row = ""
+  for index in range(columns.len()) {
+    let width = widths[index]
+    if width < 0 or width > MAX_DIMENSION {
+      return Err(error.failure("table column width exceeds the cell bound"))
+    }
+    if index > 0 { row += tui.safe_single_line(separator) }
+    row += fit(columns[index], width)
+  }
+  Ok(row)
+}
+
+## Adds a selection marker and clips the value to one terminal row.
+export pure selected_row(value: Str, selected: Bool, width: Int) -> Str {
+  if width <= 0 { return "" }
+  let marker = if selected { "> " } else { "  " }
+  if width == 1 { return if selected { ">" } else { " " } }
+  tui.cell_right_pad(marker + tui.cell_clip(tui.safe_single_line(value), width - 2), width)
+}
+
+## Returns a bounded viewport with blank rows after the visible input ends.
+export pure viewport(rows: List[Str], offset: Int, height: Int) -> List[Str] {
+  if height <= 0 or height > MAX_DIMENSION { return [] }
+  let start = if offset < 0 { 0 } else { offset }
+  var visible: List[Str] = []
+  for row in range(height) {
+    let at = start + row
+    visible += [if at < rows.len() { rows[at] } else { "" }]
+  }
+  visible
+}
+
+## Shows a cell-positioned cursor while scrolling long input through a fixed field.
+export pure input_field(value: Str, cursor_cell: Int, width: Int) -> Str {
+  if width <= 0 or width > MAX_DIMENSION { return "" }
+  let safe = tui.safe_single_line(value)
+  let cursor = if cursor_cell < 0 { 0 } else { cursor_cell }
+  let start = if cursor >= width { cursor - width + 1 } else { 0 }
+  let visible = tui.cell_slice(safe, start, width)
+  let cursor_at = cursor - start
+  let before = tui.cell_slice(visible, 0, cursor_at)
+  let after = tui.cell_slice(visible, cursor_at + 1, width - cursor_at - 1)
+  tui.cell_right_pad(before + "_" + after, width)
+}
+
+## Represents a screen with no known fully committed frame.
+export pure initial() -> Committed {
+  {surface: null, valid: false}
+}
+
+pure full_bytes(surface: Surface) -> Str {
+  var output = "\u{1b}[2J"
+  for row in range(surface.height) {
+    output += f"\u{1b}[{row + 1};1H" + surface.lines[row] + "\u{1b}[K\u{1b}[0m"
+  }
+  output
+}
+
+## Computes changed rows without advancing the committed screen.
+export pure prepare(committed: Committed, desired: Surface) -> Update {
+  if ! committed.valid or committed.surface == null {
+    return {surface: desired, bytes: full_bytes(desired), full_redraw: true}
+  }
+  let previous = committed.surface ?? desired
+  if previous.width != desired.width or previous.height != desired.height {
+    return {surface: desired, bytes: full_bytes(desired), full_redraw: true}
+  }
+  var output = ""
+  for row in range(desired.height) {
+    if previous.lines[row] != desired.lines[row] {
+      output += f"\u{1b}[{row + 1};1H" + desired.lines[row] + "\u{1b}[K\u{1b}[0m"
+    }
+  }
+  {surface: desired, bytes: output, full_redraw: false}
+}
+
+## Commits only a complete write; partial and abandoned updates require redraw.
+export pure complete(update: Update, written_bytes: Int) -> Committed {
+  let expected = bytes.from_text(update.bytes).len()
+  if written_bytes != expected {
+    return {surface: null, valid: false}
+  }
+  {surface: update.surface, valid: true}
+}
+
+## Invalidates a previously committed frame after an abandoned or failed update.
+export pure invalidate(committed: Committed) -> Committed {
+  {surface: committed.surface, valid: false}
+}

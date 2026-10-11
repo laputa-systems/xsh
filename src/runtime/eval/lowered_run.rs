@@ -8940,6 +8940,35 @@ impl Evaluator {
                 let text = lowered_str_arg_owned(values.pop(), "", "tui.right_pad", span)?;
                 LoweredValue::Str(tui::right_pad(&text, width).into())
             }
+            RuntimeOp::TuiCellWidth if values.len() == 1 => {
+                let text = lowered_str_arg_owned(values.pop(), "", "tui.cell_width", span)?;
+                LoweredValue::Int(tui::cell_width(&text))
+            }
+            RuntimeOp::TuiCellClip if values.len() == 2 => {
+                let width = lowered_int_arg(values.pop(), "tui.cell_clip", span)?;
+                let text = lowered_str_arg_owned(values.pop(), "", "tui.cell_clip", span)?;
+                LoweredValue::Str(tui::cell_clip(&text, width).into())
+            }
+            RuntimeOp::TuiCellSlice if values.len() == 3 => {
+                let width = lowered_int_arg(values.pop(), "tui.cell_slice", span)?;
+                let start = lowered_int_arg(values.pop(), "tui.cell_slice", span)?;
+                let text = lowered_str_arg_owned(values.pop(), "", "tui.cell_slice", span)?;
+                LoweredValue::Str(tui::cell_slice(&text, start, width).into())
+            }
+            RuntimeOp::TuiCellLeftPad if values.len() == 2 => {
+                let width = lowered_int_arg(values.pop(), "tui.cell_left_pad", span)?;
+                let text = lowered_str_arg_owned(values.pop(), "", "tui.cell_left_pad", span)?;
+                LoweredValue::Str(tui::cell_left_pad(&text, width).into())
+            }
+            RuntimeOp::TuiCellRightPad if values.len() == 2 => {
+                let width = lowered_int_arg(values.pop(), "tui.cell_right_pad", span)?;
+                let text = lowered_str_arg_owned(values.pop(), "", "tui.cell_right_pad", span)?;
+                LoweredValue::Str(tui::cell_right_pad(&text, width).into())
+            }
+            RuntimeOp::TuiSafeSingleLine if values.len() == 1 => {
+                let text = lowered_str_arg_owned(values.pop(), "", "tui.safe_single_line", span)?;
+                LoweredValue::Str(tui::safe_single_line(&text).into())
+            }
             RuntimeOp::TuiReadSecret if values.len() == 1 => {
                 let prompt = lowered_str_arg_owned(values.pop(), "", "tui.read_secret", span)?;
                 match tui::read_secret(&prompt) {

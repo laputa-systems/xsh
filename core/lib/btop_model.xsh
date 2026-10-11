@@ -24,6 +24,7 @@ export type Observation = {
 ## Retains one process row and its interval percentage before terminal formatting.
 export type ProcessRow = {
   pid: Int,
+  start_ticks: Int,
   uid: Int?,
   command: Str,
   cpu_percent: rates.Rate,
@@ -245,6 +246,7 @@ export pure step(current: Observation, previous: Observation?) -> Model {
   for process_row in current.processes.processes {
     let row: ProcessRow = {
       pid: process_row.pid,
+      start_ticks: process_row.start_ticks,
       uid: process_row.uid,
       command: process_row.command,
       cpu_percent: process_rate(current, baseline, process_row),

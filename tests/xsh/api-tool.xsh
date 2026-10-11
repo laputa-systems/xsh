@@ -367,6 +367,38 @@ test test_api_module_member_jsonl_matches_text_signature {
   )
 }
 
+test test_api_tui_cell_text_contracts_are_explicit {
+  api(
+    [
+      "module:tui.cell_width",
+      "module:tui.cell_clip",
+      "module:tui.cell_slice",
+      "module:tui.cell_left_pad",
+      "module:tui.cell_right_pad",
+      "module:tui.safe_single_line",
+    ],
+  )? |> assert_contains(
+    _,
+    [
+      "tui.cell_width(text: Str) -> Int",
+      "tui.cell_clip(text: Str, width: Int) -> Str",
+      "tui.cell_slice(text: Str, start: Int, width: Int) -> Str",
+      "tui.cell_left_pad(text: Str, width: Int) -> Str",
+      "tui.cell_right_pad(text: Str, width: Int) -> Str",
+      "tui.safe_single_line(text: Str) -> Str",
+      "Unicode 16.0.0",
+      "East Asian Ambiguous characters are narrow",
+      "combining marks are zero-width",
+      "emoji ZWJ sequences",
+      "represented by spaces for its intersecting cells",
+      "ESC and all other C0/C1 controls",
+      "CSI and OSC payload text stays ordinary text",
+      "Unicode line/paragraph separators",
+      "bidi formatting controls become U+FFFD",
+    ],
+  )
+}
+
 test test_api_module_overview_stays_concise {
   let stdout = api(["module:env"])?
   assert_contains(stdout, ["status: matches", "api: module.env\n"])

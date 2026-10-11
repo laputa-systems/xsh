@@ -620,6 +620,12 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::TimeDurationCompact
             | RuntimeOp::TuiLeftPad
             | RuntimeOp::TuiRightPad
+            | RuntimeOp::TuiCellWidth
+            | RuntimeOp::TuiCellClip
+            | RuntimeOp::TuiCellSlice
+            | RuntimeOp::TuiCellLeftPad
+            | RuntimeOp::TuiCellRightPad
+            | RuntimeOp::TuiSafeSingleLine
             | RuntimeOp::TuiReadSecret
             | RuntimeOp::LinuxWriteDevice
             | RuntimeOp::LinuxReadDevice

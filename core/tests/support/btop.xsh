@@ -76,6 +76,6 @@ export proc write_b3_bundle(root: FsRoot, process_rows: List[ProcessFixture]) [f
   )
   root.write(
     p"manifest.json",
-    """{"schema":1,"page_size_bytes":4096,"clock_ticks_per_second":100,"source_id":"b3-fixture","frames":[{"at_ns":1000000000},{"at_ns":2000000000}]}\n""",
+    """{"schema":2,"page_size_bytes":4096,"clock_ticks_per_second":100,"source_id":"b3-fixture","display":{"term":"xterm-256color","colorterm":"","no_color":false,"lc_all":"C.UTF-8","lc_ctype":"","lang":"","rows":24,"cols":80},"frames":[{"at_ns":1000000000},{"at_ns":2000000000}]}\n""",
   )
 }

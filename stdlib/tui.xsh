@@ -3,9 +3,9 @@
 # purity, effects, and docs) stays in the standard API registry; only the
 # escape-sequence table lives here.
 #
-# `tui.left_pad`, `tui.right_pad`, and `tui.read_secret` stay native. Padding
-# retains its width scan, while secret input owns terminal mode and descriptor
-# lifetime.
+# `tui.left_pad`, `tui.right_pad`, the cell-aware text operations, and
+# `tui.read_secret` stay native. The cell operations use pinned Unicode width
+# data; secret input owns terminal mode and descriptor lifetime.
 
 ## Return the SGR reset sequence, ending all active styling.
 export pure reset() -> Str {

@@ -1900,6 +1900,7 @@ dependencies = [
  "syscalls",
  "tar",
  "tempfile",
+ "unicode-width",
  "walkdir",
  "xsh-applets",
  "xsh-net",

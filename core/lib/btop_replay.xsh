@@ -4,6 +4,7 @@
 ##! page size, tick rate, and source identity come from the bundle manifest.
 use btop_model as model
 use btop_source as source
+use btop_terminal as terminal
 
 type ReplayTimestamp = {at_ns: Int}
 type ReplayManifest = {
@@ -11,8 +12,12 @@ type ReplayManifest = {
   page_size_bytes: Int,
   clock_ticks_per_second: Int,
   source_id: Str,
+  display: terminal.Inputs,
   frames: List[ReplayTimestamp],
 }
+
+## Holds the raw observations and recorded display policy for one replay.
+export type Bundle = {observations: List[model.Observation], display: terminal.Inputs}
 
 proc capture_frame(
   root: FsRoot,
@@ -28,7 +33,7 @@ proc capture_frame(
 }
 
 ## Captures every frame in order and rejects ambiguous timing or metadata.
-export proc load(bundle_path: Path) [fs, error] -> Result[List[model.Observation], Error] {
+export proc load(bundle_path: Path) [fs, error] -> Result[Bundle, Error] {
   let root = fs.open_root(bundle_path)?
   defer root.close()
   let manifest_text = root.read_text(p"manifest.json")?
@@ -38,11 +43,18 @@ export proc load(bundle_path: Path) [fs, error] -> Result[List[model.Observation
   guard let manifest = decoded.require(ReplayManifest) else { |failure|
     return Err(error.failure(f"invalid btop replay manifest fields: {failure.message}"))
   }
-  if manifest.schema != 1 {
+  if manifest.schema != 2 {
     return Err(error.failure(f"unsupported btop replay schema {manifest.schema}"))
   }
   if manifest.page_size_bytes <= 0 or manifest.clock_ticks_per_second <= 0 or manifest.source_id == "" {
     return Err(error.failure("btop replay metadata requires positive rates and a source identity"))
+  }
+  if manifest.display.rows <= 0 or manifest.display.cols <= 0 or
+      manifest.display.rows > 2000 or manifest.display.cols > 2000 or
+      manifest.display.term.byte_len() > 256 or manifest.display.colorterm.byte_len() > 256 or
+      manifest.display.lc_all.byte_len() > 256 or manifest.display.lc_ctype.byte_len() > 256 or
+      manifest.display.lang.byte_len() > 256 {
+    return Err(error.failure("btop replay display inputs exceed their bounds"))
   }
   if manifest.frames.is_empty() {
     return Err(error.failure("btop replay must contain at least one frame"))
@@ -65,7 +77,7 @@ export proc load(bundle_path: Path) [fs, error] -> Result[List[model.Observation
     )?]
     previous_at_ns = at_ns
   }
-  Ok(observations)
+  Ok({observations: observations, display: manifest.display})
 }
 
 ## Applies the same interval reducer to every frame without waiting for wall time.

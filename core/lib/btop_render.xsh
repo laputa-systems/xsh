@@ -4,6 +4,8 @@
 ##! writes them so a refresh never exposes a partially assembled screen.
 use btop_model as model
 use btop_rates as rates
+use btop_surface as surface
+use btop_ui as ui
 use sys_cpu as syscpu
 use system_report as report
 use tui
@@ -20,18 +22,14 @@ pure repeated(character: Str, count: Int) -> Str {
 }
 
 pure safe_line(value: Str) -> Str {
-  value.replace("\u{1b}", with: "?").replace("\r", with: " ").replace("\n", with: " ").replace("\t", with: " ")
+  tui.safe_single_line(value)
 }
 
 pure fit(value: Str, width: Int) -> Str {
-  let safe = safe_line(value)
   if width <= 0 {
     return ""
   }
-  if safe.count_chars() <= width {
-    return tui.right_pad(safe, width)
-  }
-  tui.right_pad(safe.split("") |> take(width).join(""), width)
+  tui.cell_right_pad(tui.cell_clip(safe_line(value), width), width)
 }
 
 pure panel(width: Int, height: Int, title: Str, content: List[Str]) -> List[Str] {
@@ -168,22 +166,65 @@ pure network_content(value: model.Model) -> List[Str] {
   ]
 }
 
-pure process_content(value: model.Model) -> List[Str] {
-  var lines = ["PID UID CPU% RSS COMMAND"]
+pure process_content(value: model.Model, state: ui.State, capacity: Int, width: Int) -> List[Str] {
+  let sort_name = match state.sort {
+    ui.Cpu => "CPU"
+    ui.Pid => "PID"
+    ui.Memory => "RSS"
+  }
+  let direction = match state.sort {
+    ui.Cpu => if state.reverse { "ascending" } else { "descending" }
+    ui.Pid => if state.reverse { "descending" } else { "ascending" }
+    ui.Memory => if state.reverse { "ascending" } else { "descending" }
+  }
+  let sort_line = f"Sort {sort_name} {direction} | r reverse"
+  let filter_line = if state.editing_filter {
+    f"Filter: {state.filter_draft}_ | Enter accept, Esc cancel"
+  } else if state.filter != "" {
+    f"Filter: {state.filter} | f edit, Del clear"
+  } else {
+    f"{sort_line} | f filter"
+  }
+  var lines = ["PID UID CPU% RSS COMMAND", filter_line]
   if value.process_state != report.Observed {
     lines += [f"Processes {state_text(value.process_state)}"]
   } else if value.processes.is_empty() {
     lines += ["No visible processes"]
   } else {
-    for row in value.processes {
-      lines += [process_text(row)]
+    let rows = ui.visible_processes(value, state)
+    if rows.is_empty() {
+      lines += ["No matching processes"]
+    } else {
+      for index in range(capacity) {
+        let at = state.scroll + index
+        if at < rows.len() {
+          let row = rows[at]
+          lines += [surface.selected_row(process_text(row), ui.is_selected(state, row), width)]
+        } else {
+          lines += [""]
+        }
+      }
     }
   }
   lines
 }
 
-## Renders the temporary G1 panel layout at the injected window size.
+## Returns the process rows that fit below the fixed panel headings.
+export pure process_capacity(height: Int) -> Int {
+  if height < 24 { return 0 }
+  let remaining = height - 1
+  let top_height = remaining / 2
+  let bottom_height = remaining - top_height
+  if bottom_height <= 5 { 0 } else { bottom_height - 5 }
+}
+
+## Renders a default process view at the injected window size.
 export pure render(value: model.Model, width: Int, height: Int) -> Screen {
+  render_view(value, ui.initial(value, process_capacity(height)), width, height)
+}
+
+## Renders current selection, sort, filter, and scroll state without I/O.
+export pure render_view(value: model.Model, state: ui.State, width: Int, height: Int) -> Screen {
   if width < 80 or height < 24 {
     return {
       width: width,
@@ -210,7 +251,13 @@ export pure render(value: model.Model, width: Int, height: Int) -> Screen {
   )
   let memory_rows = panel(right_width, top_height, "Memory", memory_content(value))
   let network_rows = panel(left_width, bottom_height, "Network", network_content(value))
-  let process_rows = panel(right_width, bottom_height, "Processes", process_content(value))
+  let view = ui.resize(state, value, process_capacity(height))
+  let process_rows = panel(
+    right_width,
+    bottom_height,
+    "Processes",
+    process_content(value, view, process_capacity(height), right_width - 2),
+  )
   var lines = [header]
   for index in range(top_height) {
     lines += [f"{cpu_panel[index]}{memory_rows[index]}"]

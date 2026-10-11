@@ -648,8 +648,8 @@ const COMBINATIONS: &[(&str, &[&str], &[(&str, i64)])] = &[
         "raw",
         &[
             "-ignbrk", "-brkint", "-ignpar", "-parmrk", "-inpck", "-istrip", "-inlcr", "-igncr",
-            "-icrnl", "-ixon", "-ixoff", "-icanon", "-opost", "-isig", "-iuclc", "-xcase",
-            "-ixany", "-imaxbel",
+            "-icrnl", "-ixon", "-ixoff", "-icanon", "-iexten", "-echo", "-opost", "-isig",
+            "-iuclc", "-xcase", "-ixany", "-imaxbel",
         ],
         &[("min", 1), ("time", 0)],
     ),
