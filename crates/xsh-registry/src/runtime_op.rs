@@ -1,5 +1,7 @@
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum RuntimeOp {
+    LocaleNumericInfo,
+    LocaleTimeInfo,
     NumericParseLongDouble,
     NumericFormatLongDouble,
     NumericLongDoublePrecision,

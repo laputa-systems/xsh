@@ -575,6 +575,8 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::UnixSeekFd
             | RuntimeOp::UnixFadvise
             | RuntimeOp::UnixCpuFeatures
+            | RuntimeOp::LocaleNumericInfo
+            | RuntimeOp::LocaleTimeInfo
             | RuntimeOp::NumericParseLongDouble
             | RuntimeOp::NumericFormatLongDouble
             | RuntimeOp::NumericLongDoublePrecision

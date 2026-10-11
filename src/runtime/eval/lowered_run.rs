@@ -8443,6 +8443,15 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
+            RuntimeOp::LocaleNumericInfo | RuntimeOp::LocaleTimeInfo => {
+                let name = lowered_str_arg_owned(values.first().cloned(), "", "locale", span)?;
+                let result = if op == RuntimeOp::LocaleNumericInfo {
+                    crate::modules::locale::numeric_info(&name, span)
+                } else {
+                    crate::modules::locale::time_info(&name, span)
+                };
+                lowered_runtime_result(result, span)?
+            }
             RuntimeOp::NumericLongDoublePrecision => LoweredValue::Int(crate::modules::numeric::precision()),
             RuntimeOp::NumericParseLongDouble => {
                 let text = lowered_str_arg_owned(values.first().cloned(), "", "numeric.parse_long_double", span)?;

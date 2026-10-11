@@ -101,6 +101,7 @@ pub(in crate::signature) fn build_api_spec() -> ApiSpec {
                 name: "linux",
                 sig: linux_module(),
             },
+            ModuleEntry { name: "locale", sig: locale_module() },
             ModuleEntry {
                 name: "map",
                 sig: map_module(),
@@ -5101,5 +5102,18 @@ fn numeric_module() -> ModuleSig {
         ("parse_long_double", sig(vec![param("text", Type::Str)], result(parsed), true, RuntimeOp::NumericParseLongDouble)),
         ("format_long_double", sig(vec![param("text", Type::Str), param("conversion", Type::Str), default_param("precision", Type::Optional(Box::new(Type::Int))), default_param("alternate", Type::Bool)], result(formatted), true, RuntimeOp::NumericFormatLongDouble)),
         ("long_double_precision", sig(vec![], Type::Int, true, RuntimeOp::NumericLongDoublePrecision)),
+    ])
+}
+
+fn locale_module() -> ModuleSig {
+    let numeric = Type::Record(btree_map(vec![
+        ("decimal_point", Type::Bytes), ("thousands_separator", Type::Bytes),
+    ]));
+    let time = Type::Record(btree_map(vec![
+        ("abbreviated_months", Type::List(Box::new(Type::Bytes))),
+    ]));
+    module_sig(vec![
+        ("numeric_info", sig(vec![param("name", Type::Str)], result(numeric), false, RuntimeOp::LocaleNumericInfo)),
+        ("time_info", sig(vec![param("name", Type::Str)], result(time), false, RuntimeOp::LocaleTimeInfo)),
     ])
 }

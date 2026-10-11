@@ -617,6 +617,16 @@ again to be a `Port`, and `+=` on a variable of a bounded type is
 {{.spec.bounded_int_unvalidated.source}}
 ```
 
+`locale.numeric_info(name)` returns native decimal and thousands separators as
+`Bytes`; `locale.time_info(name)` returns twelve abbreviated month names as
+`List[Bytes]` in January-to-December order. Each opens an isolated locale for
+its category and copies metadata without changing process or thread locale.
+Names must be explicit and contain no NUL (`locale-name`); unavailable or
+unsupported metadata returns `locale-unavailable`. On musl only `C`, `POSIX`,
+and `C.UTF-8` are supported: accepting another name in libc does not establish
+that its numeric or time data is available. Other targets query installed
+native locales. Returned bytes retain the locale's encoding.
+
 `numeric.parse_long_double` and `numeric.format_long_double` keep numeric text
 at the native C `long double` boundary without a binary64 intermediate. Their
 locale is always C. Precision and range follow the target C ABI;

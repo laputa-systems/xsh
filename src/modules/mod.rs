@@ -15,6 +15,7 @@ pub(crate) mod linux;
 pub(crate) mod mime;
 pub(crate) mod net;
 pub(crate) mod numeric;
+pub(crate) mod locale;
 pub(crate) mod patch;
 pub(crate) mod process;
 pub(crate) mod regex;
