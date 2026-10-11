@@ -96,6 +96,9 @@ def rules(suite: str, util: str, fixture_owner: bool, has_fixtures: bool) -> str
 Keep its observable arguments, input data, expected output and status. Put the
 exact `# origin: {suite} <full frozen id>` immediately above each `test` line.
 Use the exact native test name listed beside each ID below.
+Use `support.uu` for applet launches in every suite so the integrator can run
+the same assertions against the reference tool with `port/oracle_port.py`.
+Request exact stream or process boundary support instead of bypassing the oracle.
 
 Propose an exception only when the exact observable boundary cannot be owned by
 an XSH test. In your lane's scratch `exceptions.json`, state the boundary and

@@ -9,7 +9,8 @@
 ##!     uu.stdout_only(r, "a\n")
 ##!
 ##! Applets run by their real script path with `LC_ALL=C` and `TZ=UTC`, the
-##! environment the suite itself ran them in, inside a private scratch directory
+##! environment used by the suite. Only PATH, LD_PRELOAD, and LLVM_PROFILE_FILE
+##! are inherited before caller overrides. Runs use a private scratch directory
 ##! that is also the working directory. Each assertion names what it checked so
 ##! a failure points at the transcribed line.
 
@@ -87,26 +88,85 @@ export proc exists(s: Scene, name: Str) [fs, error] -> Result[Bool, Error] {
   Ok(fp"{s.root}/{name}".exists()?)
 }
 
-## Runs `util` with `args`, feeding `stdin`. `vars` is the whole environment (default `LC_ALL=C TZ=UTC`).
+## Runs `util` with `args`, feeding `stdin`. `vars` overrides the isolated test environment.
+## Explicit output paths belong to the caller and are neither captured nor removed.
 export proc invoke(
   s: Scene,
   util: Str,
   args: List[Str],
   stdin: Bytes = b"",
-  vars: Record = {LC_ALL: "C", TZ: "UTC"},
+  vars: Record = {},
+  stdout: Path? = null,
+  stderr: Path? = null,
+  stdout_append: Bool = false,
+  stderr_append: Bool = false,
 ) [fs, process, env, error] -> Result[Ran, Error] {
+  let out = stdout ?? fp"{s.root}/.uu-stdout"
+  let err = stderr ?? fp"{s.root}/.uu-stderr"
+  let script = fp"{s.ctx.core_dir}/{util}.xsh"
+  let words = [s.ctx.xsh_bin.display(), script.display()].extend(args)
+  let launcher = fp"{s.ctx.core_dir}/tests/support/uu-launch.xsh"
+  let argv = [s.ctx.xsh_bin.display(), launcher.display(), json.encode(vars.keys())?].extend(words)
+  let plan = process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append)
+  finish(s, util, args, plan, stdout == null, stderr == null)
+}
+
+proc finish(s: Scene, util: Str, args: List[Str], plan: Command, capture_stdout: Bool = true, capture_stderr: Bool = true) [fs, process, error] -> Result[Ran, Error] {
   let out = fp"{s.root}/.uu-stdout"
   let err = fp"{s.root}/.uu-stderr"
-  let script = fp"{s.ctx.core_dir}/{util}.xsh"
-  let argv = [s.ctx.xsh_bin.display(), script.display()].extend(args)
-  let plan = process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err)
   let status = process.run(plan)?
   let code = status.exit_code()?
-  let stdout = out.read_bytes()?
-  let stderr = err.read_bytes()?
-  out.remove()?
-  err.remove()?
+  let stdout = if capture_stdout { out.read_bytes()? } else { b"" }
+  let stderr = if capture_stderr { err.read_bytes()? } else { b"" }
+  if capture_stdout { out.remove()? }
+  if capture_stderr { err.remove()? }
   Ok({util: util, args: args, status: code, stdout: stdout, stderr: stderr})
+}
+
+## The lossless path of a byte name inside the scene.
+export proc at_bytes(s: Scene, name: Bytes) [error] -> Result[Path, Error] {
+  Path.parse_bytes(bytes.concat([s.root.bytes(), b"/", name]))
+}
+
+## Runs an applet with lossless native path words, including non-UTF-8 arguments.
+export proc invoke_paths(
+  s: Scene,
+  util: Str,
+  args: List[Path],
+  stdin: Bytes = b"",
+  vars: Record = {},
+) [fs, process, env, error] -> Result[Ran, Error] {
+  let script = fp"{s.ctx.core_dir}/{util}.xsh"
+  let words = [s.ctx.xsh_bin, script].extend(args)
+  let launcher = fp"{s.ctx.core_dir}/tests/support/uu-launch.xsh"
+  let argv = [s.ctx.xsh_bin, launcher, Path(json.encode(vars.keys())?)].extend(words)
+  let plan = process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin,
+    fp"{s.root}/.uu-stdout", fp"{s.root}/.uu-stderr")
+  finish(s, util, [word.display() for word in args], plan)
+}
+
+## Opens a path as standard input, preserving directory and device read errors.
+## Explicit output paths belong to the caller and are neither captured nor removed.
+export proc invoke_from_path(
+  s: Scene,
+  util: Str,
+  args: List[Str],
+  stdin: Path,
+  vars: Record = {},
+  stdout: Path? = null,
+  stderr: Path? = null,
+  stdout_append: Bool = false,
+  stderr_append: Bool = false,
+) [fs, process, env, error] -> Result[Ran, Error] {
+  let out = stdout ?? fp"{s.root}/.uu-stdout"
+  let err = stderr ?? fp"{s.root}/.uu-stderr"
+  let script = fp"{s.ctx.core_dir}/{util}.xsh"
+  let words = [s.ctx.xsh_bin.display(), script.display()].extend(args)
+  let launcher = fp"{s.ctx.core_dir}/tests/support/uu-launch.xsh"
+  let argv = [s.ctx.xsh_bin.display(), launcher.display(), json.encode(vars.keys())?].extend(words)
+  let plan = process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin,
+    out, err, stdout_append, stderr_append)
+  finish(s, util, args, plan, stdout == null, stderr == null)
 }
 
 ## Creates a directory and every missing parent (`mkdir_all`).
@@ -185,13 +245,14 @@ export proc size(s: Scene, name: Str) [fs, error] -> Result[Int, Error] {
 ## Asserts that `name` holds exactly `expected` (`assert_eq!(at.read(name), expected)`).
 export proc file_is(s: Scene, name: Str, expected: Str) [fs, error] {
   let actual = fp"{s.root}/{name}".read_bytes()?
-  assert text(actual) == expected, f"{name}: {text(actual)} expected {expected}"
+  assert actual == bytes.from_text(expected), f"{name}: {text(actual)} expected {expected}"
 }
 
 pure shown(r: Ran) -> Str {
   f"{r.util} {r.args.join(" ")}"
 }
 
+# A diagnostic rendering only; assertions compare bytes or require valid UTF-8.
 pure text(data: Bytes) -> Str {
   data.utf8() ?? "(non-UTF-8 output)"
 }
@@ -213,7 +274,7 @@ export proc fails_with_code(r: Ran, code: Int) {
 
 ## Asserts standard output equals `expected`.
 export proc stdout_is(r: Ran, expected: Str) {
-  assert text(r.stdout) == expected, f"{shown(r)}: stdout {text(r.stdout)} expected {expected}"
+  assert r.stdout == bytes.from_text(expected), f"{shown(r)}: stdout {text(r.stdout)} expected {expected}"
 }
 
 ## Asserts standard output bytes equal `expected`.
@@ -223,22 +284,31 @@ export proc stdout_is_bytes(r: Ran, expected: Bytes) {
 
 ## Asserts standard error equals `expected`.
 export proc stderr_is(r: Ran, expected: Str) {
-  assert text(r.stderr) == expected, f"{shown(r)}: stderr {text(r.stderr)} expected {expected}"
+  assert r.stderr == bytes.from_text(expected), f"{shown(r)}: stderr {text(r.stderr)} expected {expected}"
 }
 
 ## Asserts standard output contains `needle`.
 export proc stdout_contains(r: Ran, needle: Str) {
-  assert needle in text(r.stdout), f"{shown(r)}: stdout {text(r.stdout)} lacks {needle}"
+  match r.stdout.utf8() {
+    Ok(actual) => assert needle in actual, f"{shown(r)}: stdout {actual} lacks {needle}",
+    Err(_) => assert false, f"{shown(r)}: stdout is not valid UTF-8",
+  }
 }
 
 ## Asserts standard error contains `needle`.
 export proc stderr_contains(r: Ran, needle: Str) {
-  assert needle in text(r.stderr), f"{shown(r)}: stderr {text(r.stderr)} lacks {needle}"
+  match r.stderr.utf8() {
+    Ok(actual) => assert needle in actual, f"{shown(r)}: stderr {actual} lacks {needle}",
+    Err(_) => assert false, f"{shown(r)}: stderr is not valid UTF-8",
+  }
 }
 
 ## Asserts standard output starts with `prefix`.
 export proc stdout_str_starts_with(r: Ran, prefix: Str) {
-  assert text(r.stdout).starts_with(prefix), f"{shown(r)}: stdout {text(r.stdout)} does not start with {prefix}"
+  match r.stdout.utf8() {
+    Ok(actual) => assert actual.starts_with(prefix), f"{shown(r)}: stdout {actual} does not start with {prefix}",
+    Err(_) => assert false, f"{shown(r)}: stdout is not valid UTF-8",
+  }
 }
 
 ## Asserts empty standard output.
@@ -267,4 +337,15 @@ export proc stdout_only(r: Ran, expected: Str) {
 export proc stderr_only(r: Ran, expected: Str) {
   stderr_is(r, expected)
   no_stdout(r)
+}
+
+## Asserts standard output bytes equal `expected` and standard error is empty.
+export proc stdout_only_bytes(r: Ran, expected: Bytes) {
+  stdout_is_bytes(r, expected)
+  no_stderr(r)
+}
+
+## Asserts standard error bytes equal `expected`.
+export proc stderr_is_bytes(r: Ran, expected: Bytes) {
+  assert r.stderr == expected, f"{shown(r)}: stderr bytes differ: {r.stderr.len()} bytes, expected {expected.len()}"
 }
