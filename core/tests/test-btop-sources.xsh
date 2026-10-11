@@ -1,10 +1,15 @@
+use core.lib.btop_model as model
 use core.lib.btop_rates as rates
+use core.lib.btop_render as renderer
+use core.lib.btop_source as btop_source
 use core.lib.sys_cpu as syscpu
 use core.lib.sys_mem as memory
 use core.lib.sys_net as network
 use core.lib.sys_proc as processes
 use core.lib.sys_source as src
 use core.lib.system_report as report
+use core.lib.btop_ui as ui
+use core.tests.support.btop as fixture
 
 proc write_proc_stat(root: FsRoot, aggregate: Str, cpu0: Str, cpu1: Str) [fs, error] {
   root.mkdir(p"proc", parents: true)
@@ -294,6 +299,68 @@ test test_btop_process_read_tape_withholds_pid_reuse_and_disappearance {
   )
   assert disappeared.process == null
   assert disappeared.issues[0].state == report.Disappeared
+}
+
+test test_btop_local_command_line_is_identity_checked_and_never_captured {
+  let root = fs.tempdir()?
+  defer root.close()
+  fixture.write_b3_frame(
+    root,
+    "frame",
+    0,
+    [{pid: 42, start_ticks: 1000, cpu_ticks: 10, rss_pages: 2, uid: 1000}],
+  )
+  let frame_root = root.open_root(p"frame")?
+  defer frame_root.close()
+  frame_root.write(p"proc/42/cmdline", b"worker\0--secret-argument\0")
+  frame_root.write(p"proc/42/environ", b"BTOP_PRIVATE_ENV=do-not-render\0")
+
+  let observation = btop_source.capture(frame_root, "private-fixture", 1000000000, 4096, 100)?
+  let value = model.step(observation, null)
+  let local_display = processes.collect_local_display(frame_root, observation.processes.processes)
+  assert local_display.len() == 1
+  assert local_display[0].command_line == "worker --secret-argument"
+  let screen = renderer.render_view(value, ui.initial(value, renderer.process_capacity(24)), 80, 24, local_display)
+  assert "worker --se" in screen.lines.join("\n")
+  assert "BTOP_PRIVATE_ENV" not in screen.lines.join("\n")
+  let observation_json = json.encode(observation)?
+  let model_json = json.encode(value)?
+  assert "--secret-argument" not in observation_json
+  assert "--secret-argument" not in model_json
+  assert "BTOP_PRIVATE_ENV" not in observation_json
+  assert "BTOP_PRIVATE_ENV" not in model_json
+
+  frame_root.write(p"proc/42/stat", process_stat(42, 2000, 10, 0, 2))
+  let changed_identity = processes.collect_local_display(frame_root, observation.processes.processes)
+  assert changed_identity[0].command_line == null
+}
+
+test test_btop_process_average_cpu_uses_process_lifetime_ticks {
+  let root = fs.tempdir()?
+  defer root.close()
+  fixture.write_b3_frame(
+    root,
+    "frame",
+    1,
+    [
+      {pid: 42, start_ticks: 1000, cpu_ticks: 11, rss_pages: 2, uid: 1000},
+      {pid: 43, start_ticks: 2000, cpu_ticks: 45, rss_pages: 2, uid: 1000},
+      {pid: 44, start_ticks: 3000, cpu_ticks: 40, rss_pages: 2, uid: 1000},
+    ],
+  )
+  let frame_root = root.open_root(p"frame")?
+  defer frame_root.close()
+  let observation = btop_source.capture(frame_root, "average-fixture", 1000000000, 4096, 100)?
+  let value = model.step(observation, null)
+  assert value.processes[0].pid == 42
+  assert value.processes[0].cpu_average_percent.state == rates.Observed
+  assert (value.processes[0].cpu_average_percent.value ?? 0.0) > 0.70
+  assert (value.processes[0].cpu_average_percent.value ?? 0.0) < 0.72
+  assert value.processes[1].pid == 43
+  assert (value.processes[1].cpu_average_percent.value ?? 0.0) > 8.17
+  assert (value.processes[1].cpu_average_percent.value ?? 0.0) < 8.19
+  assert value.processes[2].pid == 44
+  assert value.processes[2].cpu_average_percent.state == rates.Invalid
 }
 
 test test_btop_process_source_exposes_a_reused_pid_as_a_new_identity {

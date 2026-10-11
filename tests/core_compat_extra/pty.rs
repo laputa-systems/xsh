@@ -855,31 +855,31 @@ fn btop_replay_filter_sort_selection_and_resize_use_the_decoded_input() {
     let mut output = Vec::new();
 
     wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(3), |bytes| {
-        bytes.windows(b"PID UID CPU% RSS COMMAND".len()).any(|window| window == b"PID UID CPU% RSS COMMAND")
+        bytes.windows(b"PID USER CPU% RSS COMMAND".len()).any(|window| window == b"PID USER CPU% RSS COMMAND")
             && synchronized_frames(bytes) >= 1
     });
     let mut screen = VirtualTerminal::new(24, 80);
     let mut captured = output.len();
     screen.feed(&output);
-    assert!((0..screen.rows).any(|row| screen.line(row).contains("> 42")));
+    assert!((0..screen.rows).any(|row| screen.line(row).contains("> 43")));
 
     terminal.master.try_clone().unwrap().write_all(b"\x1b[B").unwrap();
     wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
-        synchronized_frames(bytes) >= 2 && bytes.windows(b"> 43".len()).any(|window| window == b"> 43")
+        synchronized_frames(bytes) >= 2 && bytes.windows(b"> 42".len()).any(|window| window == b"> 42")
     });
     screen.feed(&output[captured..]);
     captured = output.len();
 
     terminal.master.try_clone().unwrap().write_all(b"r").unwrap();
     wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
-        synchronized_frames(bytes) >= 3 && bytes.windows(b"Sort CPU ascending".len()).any(|window| window == b"Sort CPU ascending")
+        synchronized_frames(bytes) >= 3 && bytes.windows(b"Sort CPU lazy ascending".len()).any(|window| window == b"Sort CPU lazy ascending")
     });
     screen.feed(&output[captured..]);
     captured = output.len();
 
     terminal.master.try_clone().unwrap().write_all(b"\x1b[C").unwrap();
     wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
-        synchronized_frames(bytes) >= 4 && bytes.windows(b"Sort PID descending".len()).any(|window| window == b"Sort PID descending")
+        synchronized_frames(bytes) >= 4 && bytes.windows(b"Sort PID ascending".len()).any(|window| window == b"Sort PID ascending")
     });
     screen.feed(&output[captured..]);
     captured = output.len();

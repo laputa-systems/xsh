@@ -31,6 +31,7 @@ export type ProcessRow = {
   uid_state: MetadataState,
   command: Str,
   cpu_percent: rates.Rate,
+  cpu_average_percent: rates.Rate,
   rss_bytes: Int?,
 }
 
@@ -264,6 +265,21 @@ pure process_rate(current: Observation, previous: Observation?, prior_rows: Map[
   rate(rates.Warming)
 }
 
+pure process_average_rate(current: Observation, row: processes.Process) -> rates.Rate {
+  if row.cpu_ticks == null or current.cpu.uptime.seconds == null or current.clock_ticks_per_second <= 0 {
+    return rate(rates.Unavailable)
+  }
+  let ticks_per_second = current.clock_ticks_per_second.float()
+  let elapsed_seconds = (current.cpu.uptime.seconds ?? 0.0) - row.start_ticks.float() / ticks_per_second
+  if elapsed_seconds <= 0.0 {
+    return rate(rates.Invalid)
+  }
+  {
+    state: rates.Observed,
+    value: (row.cpu_ticks ?? 0).float() / ticks_per_second / elapsed_seconds * 100.0,
+  }
+}
+
 pure cached_uid(row: processes.Process, current: Observation, cache: MetadataCache) -> UidResult {
   if let uid = row.uid {
     let entry = {start_ticks: row.start_ticks, command: row.command, uid: uid, observed_at_ns: current.at_ns}
@@ -320,6 +336,7 @@ export pure step_cached(current: Observation, previous: Observation?, metadata: 
       uid_state: uid.state,
       command: process_row.command,
       cpu_percent: process_rate(current, baseline, prior_rows, process_row),
+      cpu_average_percent: process_average_rate(current, process_row),
       rss_bytes: process_row.rss_bytes,
     }
     process_rows += [row]

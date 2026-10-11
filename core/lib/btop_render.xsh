@@ -6,6 +6,7 @@ use btop_model as model
 use btop_rates as rates
 use btop_surface as surface
 use btop_ui as ui
+use sys_proc as processes
 use sys_cpu as syscpu
 use system_report as report
 use tui
@@ -137,15 +138,21 @@ pure load_text(value: syscpu.LoadAverage) -> Str {
   f"{value.values[0].format(precision: 2)} {value.values[1].format(precision: 2)} {value.values[2].format(precision: 2)}"
 }
 
-pure process_text(row: model.ProcessRow) -> Str {
-  let uid = if row.uid == null {
+pure process_text(row: model.ProcessRow, local_display: List[processes.LocalProcessDisplay]) -> Str {
+  let account = if let display = ui.local_display(row, local_display) {
+    display.user_name
+  } else if row.uid == null {
     "?"
-  } else if row.uid_state == model.Stale {
-    f"~{row.uid ?? 0}"
   } else {
     f"{row.uid ?? 0}"
   }
-  f"{row.pid} {uid} {rate_text(row.cpu_percent)} {bytes_text(row.rss_bytes)} {row.command}"
+  let user_label = if row.uid_state == model.Stale { f"~{account}" } else { account }
+  let command = if let display = ui.local_display(row, local_display) {
+    display.command_line ?? row.command
+  } else {
+    row.command
+  }
+  f"{row.pid} {user_label} {rate_text(row.cpu_percent)} {bytes_text(row.rss_bytes)} {command}"
 }
 
 pure memory_content(value: model.Model) -> List[Str] {
@@ -172,16 +179,26 @@ pure network_content(value: model.Model) -> List[Str] {
   ]
 }
 
-pure process_content(value: model.Model, state: ui.State, capacity: Int, width: Int) -> List[Str] {
+pure process_content(
+  value: model.Model,
+  state: ui.State,
+  capacity: Int,
+  width: Int,
+  local_display: List[processes.LocalProcessDisplay],
+) -> List[Str] {
   let sort_name = match state.sort {
-    ui.Cpu => "CPU"
     ui.Pid => "PID"
+    ui.Name => "NAME"
+    ui.Cmd => "COMMAND"
+    ui.ThreadCount => "THREADS"
+    ui.UserName => "USER"
     ui.Memory => "RSS"
+    ui.CpuDirect => "CPU direct"
+    ui.CpuLazy => "CPU lazy"
   }
   let direction = match state.sort {
-    ui.Cpu => if state.reverse { "ascending" } else { "descending" }
-    ui.Pid => if state.reverse { "descending" } else { "ascending" }
-    ui.Memory => if state.reverse { "ascending" } else { "descending" }
+    ui.Pid | ui.ThreadCount | ui.Memory | ui.CpuDirect | ui.CpuLazy => if state.reverse { "ascending" } else { "descending" }
+    ui.Name | ui.Cmd | ui.UserName => if state.reverse { "descending" } else { "ascending" }
   }
   let sort_line = f"Sort {sort_name} {direction} | r reverse"
   let filter_line = if state.editing_filter {
@@ -191,13 +208,13 @@ pure process_content(value: model.Model, state: ui.State, capacity: Int, width: 
   } else {
     f"{sort_line} | f filter"
   }
-  var lines = ["PID UID CPU% RSS COMMAND", filter_line]
+  var lines = ["PID USER CPU% RSS COMMAND", filter_line]
   if value.process_state != report.Observed {
     lines += [f"Processes {state_text(value.process_state)}"]
   } else if value.processes.is_empty() {
     lines += ["No visible processes"]
   } else {
-    let rows = ui.visible_processes(value, state)
+    let rows = ui.visible_processes(value, state, local_display)
     if rows.is_empty() {
       lines += ["No matching processes"]
     } else {
@@ -205,7 +222,7 @@ pure process_content(value: model.Model, state: ui.State, capacity: Int, width: 
         let at = state.scroll + index
         if at < rows.len() {
           let row = rows[at]
-          lines += [surface.selected_row(process_text(row), ui.is_selected(state, row), width)]
+          lines += [surface.selected_row(process_text(row, local_display), ui.is_selected(state, row), width)]
         } else {
           lines += [""]
         }
@@ -226,11 +243,17 @@ export pure process_capacity(height: Int) -> Int {
 
 ## Renders a default process view at the injected window size.
 export pure render(value: model.Model, width: Int, height: Int) -> Screen {
-  render_view(value, ui.initial(value, process_capacity(height)), width, height)
+  render_view(value, ui.initial(value, process_capacity(height)), width, height, [])
 }
 
 ## Renders current selection, sort, filter, and scroll state without I/O.
-export pure render_view(value: model.Model, state: ui.State, width: Int, height: Int) -> Screen {
+export pure render_view(
+  value: model.Model,
+  state: ui.State,
+  width: Int,
+  height: Int,
+  local_display: List[processes.LocalProcessDisplay] = [],
+) -> Screen {
   if width < 80 or height < 24 {
     return {
       width: width,
@@ -262,7 +285,7 @@ export pure render_view(value: model.Model, state: ui.State, width: Int, height:
     right_width,
     bottom_height,
     "Processes",
-    process_content(value, view, process_capacity(height), right_width - 2),
+    process_content(value, view, process_capacity(height), right_width - 2, local_display),
   )
   var lines = [header]
   for index in range(top_height) {

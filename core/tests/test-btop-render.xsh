@@ -22,8 +22,8 @@ test test_btop_g1_screen_places_all_panel_values_at_80_by_24 {
   assert "Interface eth0" in screen.lines[14]
   assert "RX 10.00 KiB/s" in screen.lines[15]
   assert "TX 2.00 KiB/s" in screen.lines[16]
-  assert "PID UID CPU% RSS COMMAND" in (screen.lines[14].split("") |> drop(40).join(""))
-  assert "Sort CPU descending" in (screen.lines[15].split("") |> drop(40).join(""))
+  assert "PID USER CPU% RSS COMMAND" in (screen.lines[14].split("") |> drop(40).join(""))
+  assert "Sort CPU lazy descending" in (screen.lines[15].split("") |> drop(40).join(""))
   assert "> 42 1000 12.5% 64.00 MiB" in (screen.lines[16].split("") |> drop(40).join(""))
 }
 

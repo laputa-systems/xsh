@@ -28,6 +28,8 @@ ends when its last selected frame is processed; headless replay performs no
 terminal access and does not wait between frames. Model dumps contain one JSON model per line.
 Screen dumps contain one JSON record per line with the timestamp, dimensions,
 minimum-size state, and rendered lines; their diagnostic canvas is 80 by 24.
+Live process command lines are added only to the interactive display; they do
+not enter model or screen dumps or replay observations.
 
 The replay bundle uses manifest schema 2 and contains recorded terminal inputs
 as well as rooted source frames:
@@ -57,11 +59,12 @@ Schema 1 bundles are rejected because they do not pin display capability inputs.
 The live collector samples from a rooted view of `/proc` on one-second absolute
 monotonic deadlines. The first CPU, process, and network rates are shown as `warming`; an observed zero
 counter or rate stays distinct from an absent, malformed, reset, or unavailable
-source. CPU usage uses aggregate `/proc/stat` counters. Process CPU uses each
-process's `utime + stime` over the aggregate CPU interval; RSS uses resident
-pages times the injected page size. Rows sort by descending observed CPU, then
-ascending PID, with non-observed rates after observed rates. A process's start
-time is part of its identity, so a reused PID has no inherited rate.
+source. CPU usage uses aggregate `/proc/stat` counters. Process CPU direct uses
+each process's `utime + stime` over the aggregate CPU interval; CPU lazy sorts by
+the process's lifetime-average CPU and promotes recent high-use processes. RSS
+uses resident pages times the injected page size. A process's start time is
+part of its identity, so a reused PID has no inherited rate or display text.
+Model JSON rows include the lifetime-average CPU rate used by CPU lazy sorting.
 
 Collection classes use absolute deadlines: counters refresh each second, gauges
 every five seconds, blocking capacity reads every thirty seconds, and inventory
@@ -89,10 +92,18 @@ remains distinct from a failed read.
 If collection finishes after multiple deadlines, the monitor records the
 skipped intervals and starts one fresh sample instead of running a catch-up
 burst. Replay uses recorded display inputs and frame timestamps without
-consulting live sources. `q`, `Q`, the raw Ctrl-C byte, or stdin EOF exits
-without Return. Outside the filter editor, arrows select a process by PID and
-start time, Left/Right changes CPU/PID/RSS sorting, `r` reverses the selected
-order, and `f` or `/` opens the filter editor. Enter accepts, Escape cancels,
+consulting live sources. The default process view uses CPU lazy sorting; the
+sort cycle is PID, name, command line, threads, user, memory, CPU direct, and
+CPU lazy. Each mode follows its pinned ascending or descending default, and
+`r` reverses it. The live display reads bounded `/proc/[pid]/cmdline` bytes
+between matching process-stat identity checks, replaces NUL argument
+separators with spaces, and falls back to the process name when the read is
+unavailable. It never reads `/proc/[pid]/environ`; command-line text stays out
+of observations, model JSON, screen dumps, and replay. `q`, `Q`, the raw
+Ctrl-C byte, or stdin EOF exits without Return. Outside the filter editor,
+arrows select a process by PID and start time, Left/Right changes the sort,
+and `f` or `/` opens the filter editor. The filter searches PID, UID, process
+name, resolved user, and the live command line. Enter accepts, Escape cancels,
 Backspace removes one character, and Delete clears the filter. Bracketed paste
 stays inert. Resize preserves the selected process identity and redraws the
 current view.
@@ -128,6 +139,7 @@ than 80 by 24 displays a safe size message.
 | Raw memory categories (free, buffers, cache, active/inactive, dirty/writeback) | `/proc/meminfo` | `sys_mem.parse` | bytes, gauges | Categories remain independent because their accounting overlaps |
 | Interface name, RX/TX totals and rates | `/proc/net/dev`, `/sys/class/net/[name]/ifindex` | `sys_net.collect`, `sys_net.selected_interface`, `btop_rates.counter_rate` | bytes and bytes/second; totals are counters | Bounded reads; rates require matching observed interface indices across samples |
 | PID, PPID, thread count, UID, command, CPU and RSS | `/proc/[pid]/stat`, `status`, `statm` | `sys_proc.collect`, `system_report_live.parse_proc_stat`, `btop_rates.process_percent` | identity, counts, ticks and bytes | PID/start-time race is withheld; RSS page conversion is checked; cached UID expires after five seconds |
+| Process user label and local command line | `/proc/[pid]/cmdline`; UID resolved through the host account database | `sys_proc.collect_local_display` | display-only user name and argument text | 4096-byte bounded command line; stat identity checked before and after; no environment read or replay capture |
 
 The system-report and btop paths share the `/proc/meminfo` parser. Process
 `stat` parsing also reuses `system_report_live.parse_proc_stat`; it retains
@@ -140,7 +152,7 @@ Focused host release tests are kept with the implementation:
 - `core/tests/test-btop-sources.xsh` covers raw readers, the B3 arithmetic
   literals, zero versus absent, truncation, process identity, and rate resets.
 - `core/tests/test-btop-model.xsh` and `core/tests/test-btop-replay.xsh` cover
-  deterministic reduction, process ordering and lifetime, strict replay times,
+  deterministic reduction, process lifetime rates, strict replay times,
   missing fields, and frozen raw fixture digests.
 - `core/tests/test-btop-process-tree.xsh` covers orphan, self-parent, cycle,
   PID-reuse parent edges, deterministic adjacency, and descendant aggregation.
@@ -153,7 +165,8 @@ Focused host release tests are kept with the implementation:
   terminal restoration. The runtime-error case uses the existing `ptytest`
   semantic terminal model.
 - `core/tests/test-btop-loop.xsh` and `test-btop-ui.xsh` cover absolute sample
-  deadlines, coalesced work, identity selection, sorting, filtering, and resize.
+  deadlines, coalesced work, identity selection, every pinned process sort and
+  direction, CPU-lazy spike promotion, local-text filtering, and resize.
 - `core/tests/test-btop-schedule.xsh` covers source-class deadlines,
   invalidation, coalescing, and checked monotonic bounds. The model tests cover
   UID expiry, exec and credential changes, PID reuse, exit eviction, and churn.

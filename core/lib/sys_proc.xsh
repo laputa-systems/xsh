@@ -23,6 +23,13 @@ export type ProcessSource = {
   processes: List[Process],
   issues: List[src.Issue],
 }
+## Holds user-facing process text outside observations and exported model frames.
+export type LocalProcessDisplay = {
+  pid: Int,
+  start_ticks: Int,
+  command_line: Str?,
+  user_name: Str,
+}
 
 ## Holds one accepted process or the issues that withheld its identity.
 export type ProcessRead = {process: Process?, issues: List[src.Issue]}
@@ -41,6 +48,87 @@ pure page_bytes(pages: Int?, page_size_bytes: Int) -> Int? {
   let count = pages ?? 0
   return null when count > 9223372036854775807 / page_size_bytes
   count * page_size_bytes
+}
+
+pure display_bytes(data: Bytes) -> Str {
+  var parts: List[Str] = []
+  var start = 0
+  for at in range(data.len()) {
+    if data.byte_at(at) == 0 {
+      if at > start {
+        let argument = data[start..at]
+        let text = if let Ok(decoded) = argument.utf8() {
+          decoded
+        } else if let Ok(display_path) = Path.parse_bytes(argument) {
+          display_path.display()
+        } else {
+          "?"
+        }
+        parts += [text]
+      }
+      start = at + 1
+    }
+  }
+  if start < data.len() {
+    let argument = data[start..data.len()]
+    let text = if let Ok(decoded) = argument.utf8() {
+      decoded
+    } else if let Ok(display_path) = Path.parse_bytes(argument) {
+      display_path.display()
+    } else {
+      "?"
+    }
+    parts += [text]
+  }
+  parts.join(" ")
+}
+
+pure stat_matches_process(source: src.SourceRead, process_row: Process) -> Bool {
+  if source.observation.state != report.Observed or source.observation.value == null {
+    return false
+  }
+  if let Ok(stat) = live.parse_proc_stat(source.observation.value ?? "") {
+    return stat.pid == process_row.pid and stat.start_ticks == process_row.start_ticks
+  }
+  false
+}
+
+## Reads display-only text from the host procfs and verifies its process lifetime.
+## Command-line bytes stay outside observations because they can contain secrets.
+export proc collect_local_display(root: FsRoot, process_rows: List[Process]) [fs, error] -> List[LocalProcessDisplay] {
+  var displays: List[LocalProcessDisplay] = []
+  var user_names: Map[Int, Str] = {}
+  for row in process_rows {
+    let process_path = fp"proc/{row.pid}"
+    let before = src.read_source_text(root, fp"{process_path}/stat", max_bytes: 16384)
+    let command = root.read_result(fp"{process_path}/cmdline", max_bytes: 4096)?
+    let after = src.read_source_text(root, fp"{process_path}/stat", max_bytes: 16384)
+    var command_line: Str? = null
+    if stat_matches_process(before, row) and stat_matches_process(after, row) and
+        command.state == "observed" and command.data != null {
+      let text = display_bytes(command.data ?? b"")
+      if text != "" {
+        command_line = if command.truncated { f"{text} …" } else { text }
+      }
+    }
+    let user_name = if row.uid == null {
+      "?"
+    } else {
+      let uid = row.uid ?? 0
+      if let Ok(name) = user_names.get(uid) {
+        name
+      } else {
+        let name = match user.by_uid(uid) {
+          Ok(account) => account.name
+          Err(_) => f"{uid}"
+        }
+        user_names = user_names.set(uid, name)
+        name
+      }
+    }
+    displays += [{pid: row.pid, start_ticks: row.start_ticks, command_line: command_line, user_name: user_name}]
+  }
+  displays
 }
 
 pure parse_status_uid(source: src.SourceRead, pid: Int) -> UidParse {

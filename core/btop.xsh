@@ -9,6 +9,7 @@ use core.lib.btop_source as source
 use core.lib.btop_surface as surface
 use core.lib.btop_terminal as terminal
 use core.lib.btop_ui as ui
+use core.lib.sys_proc as sysproc
 use core.lib.sys_source as src
 use lib.gnu
 
@@ -26,8 +27,15 @@ const WAIT_SLICE_MS = 100
 
 type WaitResult = {quit: Bool, input: input.State, ui: ui.State, committed: surface.Committed}
 
-proc draw(value: model.Model, view: ui.State, rows: Int, cols: Int, committed: surface.Committed) [io, error] -> Result[surface.Committed, Error] {
-  let screen = renderer.render_view(value, view, cols, rows)
+proc draw(
+  value: model.Model,
+  view: ui.State,
+  rows: Int,
+  cols: Int,
+  committed: surface.Committed,
+  local_display: List[sysproc.LocalProcessDisplay] = [],
+) [io, error] -> Result[surface.Committed, Error] {
+  let screen = renderer.render_view(value, view, cols, rows, local_display)
   let desired = surface.from_lines(cols, rows, screen.lines)?
   let update = surface.prepare(committed, desired)
   terminal.present(update.bytes)
@@ -36,7 +44,12 @@ proc draw(value: model.Model, view: ui.State, rows: Int, cols: Int, committed: s
 
 type InputResult = {quit: Bool, ui: ui.State}
 
-pure apply_events(value: model.Model, initial_ui: ui.State, events: List[input.Event]) -> InputResult {
+pure apply_events(
+  value: model.Model,
+  initial_ui: ui.State,
+  events: List[input.Event],
+  local_display: List[sysproc.LocalProcessDisplay] = [],
+) -> InputResult {
   var view = initial_ui
   for event in events {
     if event == input.Eof or event == input.Pressed(input.Cancel) {
@@ -45,7 +58,7 @@ pure apply_events(value: model.Model, initial_ui: ui.State, events: List[input.E
     if ! view.editing_filter and (event == input.Pressed(input.Text("q")) or event == input.Pressed(input.Text("Q"))) {
       return {quit: true, ui: view}
     }
-    view = ui.reduce(view, event, value)
+    view = ui.reduce(view, event, value, local_display)
   }
   {quit: false, ui: view}
 }
@@ -58,6 +71,7 @@ proc wait_until(
   initial_input: input.State,
   initial_ui: ui.State,
   initial_committed: surface.Committed,
+  local_display: List[sysproc.LocalProcessDisplay] = [],
 ) [process, time, io, error] -> Result[WaitResult, Error] {
   var current_rows = rows
   var current_cols = cols
@@ -70,13 +84,13 @@ proc wait_until(
     let now_ms = now / 1000000
     let timed = input.timeout(decoder, now_ms)
     decoder = timed.state
-    let timed_input = apply_events(value, view, timed.events)
+    let timed_input = apply_events(value, view, timed.events, local_display)
     view = timed_input.ui
     if timed_input.quit {
       return Ok({quit: true, input: decoder, ui: view, committed: committed})
     }
     if view != last_drawn_ui {
-      committed = draw(value, view, current_rows, current_cols, committed)?
+      committed = draw(value, view, current_rows, current_cols, committed, local_display)?
       last_drawn_ui = view
     }
     if now >= deadline_ns {
@@ -98,13 +112,13 @@ proc wait_until(
       let read_now_ms = time.monotonic()? / 1000000
       let decoded = if chunk.is_empty() { input.finish(decoder) } else { input.push(decoder, chunk, read_now_ms) }
       decoder = decoded.state
-      let received = apply_events(value, view, decoded.events)
+      let received = apply_events(value, view, decoded.events, local_display)
       view = received.ui
       if received.quit {
         return Ok({quit: true, input: decoder, ui: view, committed: committed})
       }
       if view != last_drawn_ui {
-        committed = draw(value, view, current_rows, current_cols, committed)?
+        committed = draw(value, view, current_rows, current_cols, committed, local_display)?
         last_drawn_ui = view
       }
     }
@@ -113,7 +127,7 @@ proc wait_until(
       current_rows = size.rows
       current_cols = size.cols
       view = ui.resize(view, value, renderer.process_capacity(current_rows))
-      committed = draw(value, view, current_rows, current_cols, committed)?
+      committed = draw(value, view, current_rows, current_cols, committed, local_display)?
     }
   }
   Ok({quit: false, input: decoder, ui: view, committed: committed})
@@ -245,15 +259,16 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
   let first_model = model.step_cached(observation, previous, model.empty_metadata_cache("live:/"))
   var metadata_cache = first_model.metadata
   var current = first_model.value
+  var local_display = sysproc.collect_local_display(root, observation.processes.processes)
   var view = ui.initial(current, renderer.process_capacity(rows))
   var committed = surface.initial()
   while true {
-    committed = draw(current, view, rows, cols, committed)?
+    committed = draw(current, view, rows, cols, committed, local_display)?
     sampled += 1
     if count != null and sampled >= (count ?? 0) {
       break
     }
-    let waited = wait_until(schedule.next_due_ns, current, rows, cols, decoder, view, committed)?
+    let waited = wait_until(schedule.next_due_ns, current, rows, cols, decoder, view, committed, local_display)?
     decoder = waited.input
     view = waited.ui
     committed = waited.committed
@@ -284,17 +299,18 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
       let _ = scheduler.complete(ticket, time.monotonic()?)?
       previous = observation
       observation = next_observation
+      local_display = sysproc.collect_local_display(root, observation.processes.processes)
       let next_model = model.step_cached(observation, previous, metadata_cache)
       metadata_cache = next_model.metadata
       current = next_model.value
-      view = ui.refresh(view, current)
+      view = ui.refresh(view, current, local_display)
     } else {
       return Err(error.failure("sample deadline expired without a due ticket"))
     }
     let size = unix.window_size(1)?
     rows = size.rows
     cols = size.cols
-    view = ui.resize(view, current, renderer.process_capacity(rows))
+    view = ui.resize(view, current, renderer.process_capacity(rows), local_display)
   }
   return
 }

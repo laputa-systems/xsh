@@ -5,14 +5,15 @@
 use core.lib.btop_input as input
 use core.lib.btop_model as model
 use core.lib.btop_rates as rates
+use core.lib.sys_proc as processes
 
 const MAX_FILTER_CHARS = 128
 
 ## Names one process lifetime independently of its current sort position.
 export type Identity = {pid: Int, start_ticks: Int}
 
-## Selects one supported process-list ordering.
-export enum Sort { Cpu, Pid, Memory }
+## Selects one pinned process-list ordering.
+export enum Sort { Pid, Name, Cmd, ThreadCount, UserName, Memory, CpuDirect, CpuLazy }
 
 ## Retains process identity, list view, and an optional filter edit draft.
 export type State = {
@@ -25,6 +26,7 @@ export type State = {
   scroll: Int,
   visible_rows: Int,
 }
+type LocalDisplayIndex = Map[Int, processes.LocalProcessDisplay]
 
 pure identity(row: model.ProcessRow) -> Identity {
   {pid: row.pid, start_ticks: row.start_ticks}
@@ -34,74 +36,137 @@ pure same_identity(left: Identity?, right: Identity) -> Bool {
   left != null and (left ?? right) == right
 }
 
-pure matches(row: model.ProcessRow, filter: Str) -> Bool {
+## Finds display-only metadata for the same process lifetime.
+export pure local_display(row: model.ProcessRow, values: List[processes.LocalProcessDisplay]) -> processes.LocalProcessDisplay? {
+  for value in values {
+    if value.pid == row.pid and value.start_ticks == row.start_ticks { return value }
+  }
+  null
+}
+
+pure indexed_local_display(row: model.ProcessRow, values: LocalDisplayIndex) -> processes.LocalProcessDisplay? {
+  if let Ok(value) = values.get(row.pid) {
+    if value.start_ticks == row.start_ticks { return value }
+  }
+  null
+}
+
+pure command_text(row: model.ProcessRow, values: LocalDisplayIndex) -> Str {
+  if let value = indexed_local_display(row, values) {
+    if let command = value.command_line { return command }
+  }
+  row.command
+}
+
+pure user_text(row: model.ProcessRow, values: LocalDisplayIndex) -> Str {
+  if let value = indexed_local_display(row, values) { return value.user_name }
+  if row.uid == null { "?" } else { f"{row.uid ?? 0}" }
+}
+
+pure matches(row: model.ProcessRow, filter: Str, values: LocalDisplayIndex) -> Bool {
   if filter == "" { return true }
   let needle = filter.lower()
   f"{row.pid}".find(needle) != null or
     (if row.uid == null { "?" } else { f"{row.uid ?? 0}" }).lower().find(needle) != null or
-    row.command.lower().find(needle) != null
+    row.command.lower().find(needle) != null or
+    command_text(row, values).lower().find(needle) != null or
+    user_text(row, values).lower().find(needle) != null
 }
 
-pure rate_before(left: rates.Rate, right: rates.Rate, reverse: Bool) -> Bool {
-  if left.state == rates.Observed and right.state != rates.Observed { return true }
-  if left.state != rates.Observed and right.state == rates.Observed { return false }
-  if left.state != rates.Observed { return false }
-  if left.value == null and right.value != null { return false }
-  if left.value != null and right.value == null { return true }
-  let left_value = left.value ?? 0.0
-  let right_value = right.value ?? 0.0
-  if left_value == right_value { return false }
-  if reverse { left_value < right_value } else { left_value > right_value }
+pure rate_available(value: rates.Rate) -> Bool {
+  value.state == rates.Observed and value.value != null
 }
 
-pure optional_int_before(left: Int?, right: Int?, reverse: Bool) -> Bool {
-  if left == null and right != null { return false }
-  if left != null and right == null { return true }
-  let left_value = left ?? 0
-  let right_value = right ?? 0
-  if left_value == right_value { return false }
-  if reverse { left_value < right_value } else { left_value > right_value }
-}
-
-pure before(left: model.ProcessRow, right: model.ProcessRow, state: State) -> Bool {
-  let primary_before = match state.sort {
-    Cpu => rate_before(left.cpu_percent, right.cpu_percent, state.reverse)
-    Pid => if state.reverse { left.pid > right.pid } else { left.pid < right.pid }
-    Memory => optional_int_before(left.rss_bytes, right.rss_bytes, state.reverse)
+pure cpu_sort_value(value: rates.Rate, scale: Int) -> Int {
+  if !rate_available(value) { return 0 }
+  let scaled = (value.value ?? 0.0) * scale.float()
+  if let Ok(units) = scaled.round() {
+    units
+  } else if scaled < 0.0 {
+    -9223372036854775807
+  } else {
+    9223372036854775807
   }
-  if primary_before { return true }
-  let right_before = match state.sort {
-    Cpu => rate_before(right.cpu_percent, left.cpu_percent, state.reverse)
-    Pid => if state.reverse { right.pid > left.pid } else { right.pid < left.pid }
-    Memory => optional_int_before(right.rss_bytes, left.rss_bytes, state.reverse)
-  }
-  if right_before { return false }
-  if left.pid != right.pid { return left.pid < right.pid }
-  left.start_ticks < right.start_ticks
 }
 
-pure insert(rows: List[model.ProcessRow], row: model.ProcessRow, state: State) -> List[model.ProcessRow] {
-  var result: List[model.ProcessRow] = []
-  var inserted = false
-  for current in rows {
-    if ! inserted and before(row, current, state) {
-      result += [row]
-      inserted = true
+pure cpu_value(value: rates.Rate) -> Float {
+  if rate_available(value) { value.value ?? 0.0 } else { 0.0 }
+}
+
+pure promote_cpu_spikes(rows: List[model.ProcessRow]) -> List[model.ProcessRow] {
+  if rows.is_empty() { return rows }
+  var maximum = 10.0
+  var target = 30.0
+  var offset = 0
+  var moved = 0
+  var ordered = rows
+  for index in range(ordered.len()) {
+    let row = ordered[index]
+    let value = cpu_value(row.cpu_percent)
+    if index <= 5 and value > maximum {
+      maximum = value
+    } else if index == 6 {
+      target = if maximum > 30.0 { maximum } else { 10.0 }
     }
-    result += [current]
+    if index == offset and value > 30.0 {
+      offset += 1
+    } else {
+      if value > target {
+        ordered = ordered[..offset]
+          .extend([row])
+          .extend(ordered[offset..index])
+          .extend(ordered[index + 1..])
+        moved += 1
+        if moved > 10 { break }
+      }
+    }
   }
-  if ! inserted { result += [row] }
-  result
+  ordered
+}
+
+pure sort_processes(
+  rows: List[model.ProcessRow],
+  state: State,
+  values: LocalDisplayIndex,
+) -> List[model.ProcessRow] {
+  let by_pid = rows |> sort-by { |row| row.pid }
+  let ordered = match state.sort {
+    Pid => by_pid |> sort-by(desc: !state.reverse) { |row| row.pid }
+    Name => by_pid |> sort-by(desc: state.reverse) { |row| row.command }
+    Cmd => by_pid |> sort-by(desc: state.reverse) { |row| command_text(row, values) }
+    ThreadCount => by_pid
+      |> sort-by(desc: !state.reverse) { |row| row.thread_count ?? 0 }
+      |> sort-by { |row| if row.thread_count == null { 1 } else { 0 } }
+    UserName => by_pid |> sort-by(desc: state.reverse) { |row| user_text(row, values) }
+    Memory => by_pid
+      |> sort-by(desc: !state.reverse) { |row| row.rss_bytes ?? 0 }
+      |> sort-by { |row| if row.rss_bytes == null { 1 } else { 0 } }
+    CpuDirect => by_pid
+      |> sort-by(desc: !state.reverse) { |row| cpu_sort_value(row.cpu_percent, 10) }
+      |> sort-by { |row| if rate_available(row.cpu_percent) { 0 } else { 1 } }
+    CpuLazy => by_pid
+      |> sort-by(desc: !state.reverse) { |row| cpu_sort_value(row.cpu_average_percent, 1000000) }
+      |> sort-by { |row| if rate_available(row.cpu_average_percent) { 0 } else { 1 } }
+  }
+  if state.sort == CpuLazy and !state.reverse { promote_cpu_spikes(ordered) } else { ordered }
 }
 
 ## Applies filtering and stable sorting to the complete process set.
-export pure visible_processes(value: model.Model, state: State) -> List[model.ProcessRow] {
+export pure visible_processes(
+  value: model.Model,
+  state: State,
+  local_display: List[processes.LocalProcessDisplay] = [],
+) -> List[model.ProcessRow] {
+  var display_index: LocalDisplayIndex = {}
+  for display in local_display {
+    display_index = display_index.set(display.pid, display)
+  }
   var rows: List[model.ProcessRow] = []
   let filter = if state.editing_filter { state.filter_draft } else { state.filter }
   for row in value.processes {
-    if matches(row, filter) { rows = insert(rows, row, state) }
+    if matches(row, filter, display_index) { rows += [row] }
   }
-  rows
+  sort_processes(rows, state, display_index)
 }
 
 pure selected_index(rows: List[model.ProcessRow], selected: Identity?) -> Int? {
@@ -124,8 +189,12 @@ pure bounded_scroll(state: State, rows: List[model.ProcessRow], selected: Identi
   current
 }
 
-pure reconcile(state: State, value: model.Model) -> State {
-  let rows = visible_processes(value, state)
+pure reconcile(
+  state: State,
+  value: model.Model,
+  local_display: List[processes.LocalProcessDisplay] = [],
+) -> State {
+  let rows = visible_processes(value, state, local_display)
   if rows.is_empty() { return {...state, selected: null, scroll: 0} }
   let selected = if selected_index(rows, state.selected) != null {
     state.selected
@@ -136,8 +205,12 @@ pure reconcile(state: State, value: model.Model) -> State {
 }
 
 ## Keeps a view attached to live process lifetimes after each completed sample.
-export pure refresh(state: State, value: model.Model) -> State {
-  reconcile(state, value)
+export pure refresh(
+  state: State,
+  value: model.Model,
+  local_display: List[processes.LocalProcessDisplay] = [],
+) -> State {
+  reconcile(state, value, local_display)
 }
 
 ## Identifies the selected process row without relying on its list position.
@@ -149,7 +222,7 @@ export pure is_selected(state: State, row: model.ProcessRow) -> Bool {
 export pure initial(value: model.Model, visible_rows: Int) -> State {
   reconcile({
     selected: null,
-    sort: .Cpu,
+    sort: .CpuLazy,
     reverse: false,
     filter: "",
     editing_filter: false,
@@ -160,16 +233,39 @@ export pure initial(value: model.Model, visible_rows: Int) -> State {
 }
 
 ## Keeps the selected identity visible after terminal geometry changes.
-export pure resize(state: State, value: model.Model, visible_rows: Int) -> State {
-  reconcile({...state, visible_rows: if visible_rows < 0 { 0 } else { visible_rows}}, value)
+export pure resize(
+  state: State,
+  value: model.Model,
+  visible_rows: Int,
+  local_display: List[processes.LocalProcessDisplay] = [],
+) -> State {
+  reconcile({...state, visible_rows: if visible_rows < 0 { 0 } else { visible_rows}}, value, local_display)
 }
 
 pure next_sort(sort: Sort) -> Sort {
-  match sort { Cpu => .Pid, Pid => .Memory, Memory => .Cpu }
+  match sort {
+    Pid => .Name
+    Name => .Cmd
+    Cmd => .ThreadCount
+    ThreadCount => .UserName
+    UserName => .Memory
+    Memory => .CpuDirect
+    CpuDirect => .CpuLazy
+    CpuLazy => .Pid
+  }
 }
 
 pure previous_sort(sort: Sort) -> Sort {
-  match sort { Cpu => .Memory, Memory => .Pid, Pid => .Cpu }
+  match sort {
+    Pid => .CpuLazy
+    Name => .Pid
+    Cmd => .Name
+    ThreadCount => .Cmd
+    UserName => .ThreadCount
+    Memory => .UserName
+    CpuDirect => .Memory
+    CpuLazy => .CpuDirect
+  }
 }
 
 pure drop_last(text: Str) -> Str {
@@ -178,8 +274,13 @@ pure drop_last(text: Str) -> Str {
   characters |> take(characters.len() - 1) |> join("")
 }
 
-pure move(state: State, value: model.Model, amount: Int) -> State {
-  let rows = visible_processes(value, state)
+pure move(
+  state: State,
+  value: model.Model,
+  amount: Int,
+  local_display: List[processes.LocalProcessDisplay],
+) -> State {
+  let rows = visible_processes(value, state, local_display)
   if rows.is_empty() { return {...state, selected: null, scroll: 0} }
   let start = selected_index(rows, state.selected) ?? 0
   let target = if start + amount < 0 {
@@ -206,23 +307,28 @@ pure edit_key(state: State, key: input.Key) -> State {
   }
 }
 
-pure browse_key(state: State, value: model.Model, key: input.Key) -> State {
+pure browse_key(
+  state: State,
+  value: model.Model,
+  key: input.Key,
+  local_display: List[processes.LocalProcessDisplay],
+) -> State {
   match key {
-    input.Up => move(state, value, -1)
-    input.Down => move(state, value, 1)
-    input.PageUp => move(state, value, -(if state.visible_rows < 1 { 1 } else { state.visible_rows }))
-    input.PageDown => move(state, value, if state.visible_rows < 1 { 1 } else { state.visible_rows })
+    input.Up => move(state, value, -1, local_display)
+    input.Down => move(state, value, 1, local_display)
+    input.PageUp => move(state, value, -(if state.visible_rows < 1 { 1 } else { state.visible_rows }), local_display)
+    input.PageDown => move(state, value, if state.visible_rows < 1 { 1 } else { state.visible_rows }, local_display)
     input.Home => {
-      let rows = visible_processes(value, state)
+      let rows = visible_processes(value, state, local_display)
       if rows.is_empty() { {...state, selected: null, scroll: 0} } else { {...state, selected: identity(rows[0]), scroll: 0} }
     }
     input.End => {
-      let rows = visible_processes(value, state)
-      if rows.is_empty() { {...state, selected: null, scroll: 0} } else { move(state, value, rows.len()) }
+      let rows = visible_processes(value, state, local_display)
+      if rows.is_empty() { {...state, selected: null, scroll: 0} } else { move(state, value, rows.len(), local_display) }
     }
-    input.Left => reconcile({...state, sort: previous_sort(state.sort)}, value)
-    input.Right => reconcile({...state, sort: next_sort(state.sort)}, value)
-    input.Text("r") => reconcile({...state, reverse: !state.reverse}, value)
+    input.Left => reconcile({...state, sort: previous_sort(state.sort)}, value, local_display)
+    input.Right => reconcile({...state, sort: next_sort(state.sort)}, value, local_display)
+    input.Text("r") => reconcile({...state, reverse: !state.reverse}, value, local_display)
     input.Text("f") | input.Text("/") => {...state, editing_filter: true, filter_draft: state.filter}
     input.Delete => reconcile({...state, filter: "", filter_draft: ""}, value)
     else => state
@@ -230,24 +336,38 @@ pure browse_key(state: State, value: model.Model, key: input.Key) -> State {
 }
 
 ## Applies one decoded key while treating paste as inert text.
-export pure reduce(state: State, event: input.Event, value: model.Model) -> State {
+export pure reduce(
+  state: State,
+  event: input.Event,
+  value: model.Model,
+  local_display: List[processes.LocalProcessDisplay] = [],
+) -> State {
   match event {
     input.Pressed(key) => {
-      let updated = if state.editing_filter { edit_key(state, key) } else { browse_key(state, value, key) }
-      reconcile(updated, value)
+      let updated = if state.editing_filter { edit_key(state, key) } else { browse_key(state, value, key, local_display) }
+      reconcile(updated, value, local_display)
     }
     else => state
   }
 }
 
 ## Replays a complete read without allowing paste payload keys to activate.
-export pure reduce_events(state: State, events: List[input.Event], value: model.Model) -> State {
+export pure reduce_events(
+  state: State,
+  events: List[input.Event],
+  value: model.Model,
+  local_display: List[processes.LocalProcessDisplay] = [],
+) -> State {
   var current = state
-  for event in events { current = reduce(current, event, value) }
+  for event in events { current = reduce(current, event, value, local_display) }
   current
 }
 
 ## Returns the selected process position in the filtered sorted rows.
-export pure selection_position(state: State, value: model.Model) -> Int? {
-  selected_index(visible_processes(value, state), state.selected)
+export pure selection_position(
+  state: State,
+  value: model.Model,
+  local_display: List[processes.LocalProcessDisplay] = [],
+) -> Int? {
+  selected_index(visible_processes(value, state, local_display), state.selected)
 }

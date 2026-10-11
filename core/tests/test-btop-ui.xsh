@@ -1,7 +1,9 @@
 use core.lib.btop_input as input
 use core.lib.btop_model as model
+use core.lib.btop_rates as rates
 use core.lib.btop_source as source
 use core.lib.btop_ui as ui
+use core.lib.sys_proc as processes
 use core.tests.support.btop as fixture
 
 proc capture(root: FsRoot, prefix: Path, at_ns: Int) [fs, error] -> Result[model.Observation, Error] {
@@ -62,13 +64,16 @@ test test_btop_ui_keeps_selection_by_process_lifetime_across_sort_and_pid_reuse 
   let first = frames[1]
   let second = frames[2]
   let initial = ui.initial(first, 1)
+  assert initial.sort == ui.CpuLazy
+  assert [row.pid for row in ui.visible_processes(first, initial)] == [43, 42, 44]
+  let direct = {...initial, sort: ui.CpuDirect}
 
-  assert [row.pid for row in ui.visible_processes(first, initial)] == [43, 44, 42]
-  assert initial.selected == {pid: 43, start_ticks: 2000}
-  let after_pid_reuse = ui.refresh(initial, second)
+  assert [row.pid for row in ui.visible_processes(first, direct)] == [43, 44, 42]
+  assert direct.selected == {pid: 43, start_ticks: 2000}
+  let after_pid_reuse = ui.refresh(direct, second)
   assert after_pid_reuse.selected == {pid: 44, start_ticks: 3000}
   assert after_pid_reuse.selected != {pid: 43, start_ticks: 2000}
-  let selected = press(initial, first, input.Down)
+  let selected = press(direct, first, input.Down)
   assert selected.selected == {pid: 44, start_ticks: 3000}
   assert selected.scroll == 1
 
@@ -77,9 +82,9 @@ test test_btop_ui_keeps_selection_by_process_lifetime_across_sort_and_pid_reuse 
   assert [row.pid for row in ui.visible_processes(first, reversed)] == [42, 44, 43]
   assert reversed.selected == selected.selected
 
-  let by_pid = press(reversed, first, input.Right)
+  let by_pid = press(press(reversed, first, input.Right), first, input.Right)
   assert by_pid.sort == ui.Pid
-  assert [row.pid for row in ui.visible_processes(first, by_pid)] == [44, 43, 42]
+  assert [row.pid for row in ui.visible_processes(first, by_pid)] == [42, 43, 44]
   assert by_pid.selected == selected.selected
 
   let replaced_pid = ui.resize(by_pid, second, 2)
@@ -131,7 +136,7 @@ test test_btop_ui_resize_preserves_identity_and_clamps_scroll {
   let value = frames[1]
   let initial = ui.initial(value, 1)
   let selected = press(press(initial, value, input.Down), value, input.Down)
-  assert selected.selected == {pid: 42, start_ticks: 1000}
+  assert selected.selected == {pid: 44, start_ticks: 3000}
   assert selected.scroll == 2
 
   let larger = ui.resize(selected, value, 3)
@@ -144,4 +149,116 @@ test test_btop_ui_resize_preserves_identity_and_clamps_scroll {
   assert accepted.selected == null
   assert accepted.scroll == 0
   assert ui.selection_position(accepted, value) == null
+}
+
+test test_btop_ui_supports_every_pinned_process_sort_and_direction {
+  let root = fs.tempdir()?
+  defer root.close()
+  let frames = prepare_frames(root)?
+  let sampled = frames[1]
+  let sampled_rows = sampled.processes |> sort-by { |row| row.pid }
+  let value: model.Model = {
+    ...sampled,
+    processes: [
+      {
+        ...sampled_rows[0],
+        command: "zebra",
+        uid: 200,
+        thread_count: 2,
+        rss_bytes: 100,
+        cpu_percent: {state: rates.Observed, value: 3.0},
+        cpu_average_percent: {state: rates.Observed, value: 90.0},
+      },
+      {
+        ...sampled_rows[1],
+        command: "alpha",
+        uid: 100,
+        thread_count: 8,
+        rss_bytes: 300,
+        cpu_percent: {state: rates.Observed, value: 8.0},
+        cpu_average_percent: {state: rates.Observed, value: 10.0},
+      },
+      {
+        ...sampled_rows[2],
+        command: "beta",
+        uid: 150,
+        thread_count: 4,
+        rss_bytes: 200,
+        cpu_percent: {state: rates.Observed, value: 5.0},
+        cpu_average_percent: {state: rates.Observed, value: 50.0},
+      },
+    ],
+  }
+  let local_display: List[processes.LocalProcessDisplay] = [
+    {pid: 42, start_ticks: 1000, command_line: "zebra --slow", user_name: "zed"},
+    {pid: 43, start_ticks: 2000, command_line: "alpha --zzz", user_name: "amy"},
+    {pid: 44, start_ticks: 3000, command_line: "beta --fast", user_name: "bea"},
+  ]
+  let initial = ui.initial(value, 3)
+
+  let pid = {...initial, sort: ui.Pid}
+  assert [row.pid for row in ui.visible_processes(value, pid, local_display)] == [44, 43, 42]
+  assert [row.pid for row in ui.visible_processes(value, {...pid, reverse: true}, local_display)] == [42, 43, 44]
+  assert [row.pid for row in ui.visible_processes(value, {...pid, sort: ui.Name}, local_display)] == [43, 44, 42]
+  assert [row.pid for row in ui.visible_processes(value, {...pid, sort: ui.Name, reverse: true}, local_display)] == [42, 44, 43]
+  assert [row.pid for row in ui.visible_processes(value, {...pid, sort: ui.Cmd}, local_display)] == [43, 44, 42]
+  assert [row.pid for row in ui.visible_processes(value, {...pid, sort: ui.Cmd, reverse: true}, local_display)] == [42, 44, 43]
+  assert [row.pid for row in ui.visible_processes(value, {...pid, sort: ui.ThreadCount}, local_display)] == [43, 44, 42]
+  assert [row.pid for row in ui.visible_processes(value, {...pid, sort: ui.ThreadCount, reverse: true}, local_display)] == [42, 44, 43]
+  assert [row.pid for row in ui.visible_processes(value, {...pid, sort: ui.UserName}, local_display)] == [43, 44, 42]
+  assert [row.pid for row in ui.visible_processes(value, {...pid, sort: ui.UserName, reverse: true}, local_display)] == [42, 44, 43]
+  assert [row.pid for row in ui.visible_processes(value, {...pid, sort: ui.Memory}, local_display)] == [43, 44, 42]
+  assert [row.pid for row in ui.visible_processes(value, {...pid, sort: ui.Memory, reverse: true}, local_display)] == [42, 44, 43]
+  assert [row.pid for row in ui.visible_processes(value, {...pid, sort: ui.CpuDirect}, local_display)] == [43, 44, 42]
+  assert [row.pid for row in ui.visible_processes(value, {...pid, sort: ui.CpuDirect, reverse: true}, local_display)] == [42, 44, 43]
+  assert [row.pid for row in ui.visible_processes(value, {...pid, sort: ui.CpuLazy}, local_display)] == [42, 44, 43]
+  assert [row.pid for row in ui.visible_processes(value, {...pid, sort: ui.CpuLazy, reverse: true}, local_display)] == [43, 44, 42]
+}
+
+test test_btop_ui_filter_searches_local_command_line_and_resolved_user {
+  let root = fs.tempdir()?
+  defer root.close()
+  let frames = prepare_frames(root)?
+  let value = frames[1]
+  let local_display: List[processes.LocalProcessDisplay] = [
+    {pid: 42, start_ticks: 1000, command_line: "zebra --slow", user_name: "zed"},
+    {pid: 43, start_ticks: 2000, command_line: "alpha --secret-argument", user_name: "amy"},
+    {pid: 44, start_ticks: 3000, command_line: "beta --fast", user_name: "bea"},
+  ]
+  let initial = ui.initial(value, 3)
+  let by_argument = {...initial, filter: "secret-argument"}
+  assert [row.pid for row in ui.visible_processes(value, by_argument, local_display)] == [43]
+  let by_username = {...initial, filter: "bea"}
+  assert [row.pid for row in ui.visible_processes(value, by_username, local_display)] == [44]
+}
+
+test test_btop_ui_cpu_lazy_promotes_recent_spikes_ahead_of_lifetime_average {
+  let root = fs.tempdir()?
+  defer root.close()
+  fixture.write_b3_frame(
+    root,
+    "spikes",
+    0,
+    [
+      {pid: pid, start_ticks: 1000, cpu_ticks: pid, rss_pages: 2, uid: 1000}
+      for pid in range(42, 50)
+    ],
+  )
+  let frame_root = root.open_root(p"spikes")?
+  defer frame_root.close()
+  let observation = source.capture(frame_root, "spikes", 1000000000, 4096, 100)?
+  let sampled = model.step(observation, null)
+  let value: model.Model = {
+    ...sampled,
+    processes: [
+      {
+        ...row,
+        cpu_percent: {state: rates.Observed, value: if row.pid == 42 { 20.0 } else { row.pid.float() - 41.0 }},
+        cpu_average_percent: {state: rates.Observed, value: row.pid.float() - 41.0},
+      }
+      for row in sampled.processes
+    ],
+  }
+  let lazy = {...ui.initial(value, 8), sort: ui.CpuLazy}
+  assert [row.pid for row in ui.visible_processes(value, lazy)] == [42, 49, 48, 47, 46, 45, 44, 43]
 }
