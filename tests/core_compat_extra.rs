@@ -21,6 +21,8 @@ mod cp;
 mod lifecycle;
 #[path = "core_compat_extra/descriptor.rs"]
 mod descriptor;
+#[path = "core_compat_extra/rm.rs"]
+mod rm;
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 
