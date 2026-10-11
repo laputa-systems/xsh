@@ -1,5 +1,34 @@
 # Consolidation restart handoff
 
+## Additional upstream interactive update — 2026-10-11, `e553e259`
+
+Frozen master `76bc2de8` is merged cleanly in `ee6e12b2`. Its restored
+interactive implementation remains opt-in through `xshi/laputa-asterinas`;
+ordinary builds retain the disabled stub. The evaluator helper's removed cfg
+was already absent in the refactored root, so this merge introduces no source
+growth in either ratcheted Rust root. `8db3dfe8` migrates its new CLI target to
+the existing strict verification/release binary helper. `e553e259` corrects
+the documentation's feature-specific gates and marks missing PTY scenario
+drivers explicitly rather than claiming those historical goldens are runnable.
+
+Pinned native optimized feature-on builds and gates pass: 290 xshi units,
+seven CLI checks (including two binary-profile helper checks), and one repeated
+input/embedded preparation regression. Expected division-by-zero and blocked
+directory-environment messages in the latter log do not represent test failures.
+The feature-off build also passes and returns exit 1 with its exact disabled
+diagnostic. Frozen feature-on binary/harnesses, source hashes and gate receipts
+are under `.work/consolidation/restart/upstream-xshi-feature-on*`; the default
+receipt is `upstream-xshi-default-manifest.json`. The feature-on xsh library
+build has one existing dead-code warning for the native-test cancellation
+variant. Neither gate proves end-to-end terminal parity. Existing development
+product builds still select the default stub; release smoke expectations need
+to respect that optional feature contract at final verification.
+
+The root `adc08a9f` explicit-frame harness now passes all five focused units.
+Its build and run logs are `joint-adc08-unit-{build,run}.log`. This closes the
+pending root harness check in the previous checkpoint, not the remaining
+consolidation workstreams or final gates.
+
 ## Frame/stage integration — 2026-10-11, `adc08a9f`
 
 Accepted `ef7b317c` as `1819fa28`: borrowed frame apply and the single
