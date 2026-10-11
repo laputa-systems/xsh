@@ -29,6 +29,63 @@ fuzz grammar, lint rule inventory, and opaque Any discovery. Each uses its
 existing worktree and preserves unfinished diffs. Source-aware session plumbing
 now has an assigned owner; shared-file edits are scoped to disjoint hunks.
 
+### Resumed integration and outstanding gates
+
+Implementation now includes W1 `1867ad25`, class column `8bccf75f`, module
+hooks `562bb656`, stage constructor reconciliation `052e6192`, named argument
+indexing `6154d0d1`, shared lazy-consumer descent `2b83fc91`, lint selection
+`8f68cf1f`, schema-aware metrics `ba614735`, and declaration/type facts
+`4b0ebefc`. These are prerequisite slices, not closed workstreams.
+
+The class test passed 1/1 after resume. Joint all-feature compilation passed
+after the two stage constructors adopted `call_plan`; the optimized product
+build passed. Six actual focused files passed 54 native cases: module commands,
+checker commands, command operation boundaries, stdlib CLI, named argument
+spreading, and stage functions. Two initially mistyped filters ran zero tests;
+those logs are retained but excluded from evidence, and the correct files
+were run. The lint selector's literal `lint::` gate passed 282/282. Scanner
+tests passed 15/15 and the current generated schema counts 158 instructions.
+Generated documentation remains pending; canonical R2 cleanup prose is updated
+in `c6b4d97c`. No full integration or ARM gate has passed.
+
+E's focused declaration/fact units and neighboring native cases passed. Its
+signature-CLI unresolved-name failure reproduced on exact before-E `d561e2c4`;
+it was not introduced by E. A new source-session joint worktree at
+`xsh-consolidation-lanes/check-session-joint` carries the required helper and
+all loaded XSHT/runner callers. The original dirty session draft is retained.
+The BindingId joint worktree is `xsh-consolidation-lanes/lower-bindings-joint`;
+it preserves the integrated stage lowering and drops only its two obsolete
+pipeline lookup edits. Source-aware checking is needed for imported command
+word identities; the adapter fixes the broader unresolved command-splice sites.
+The adapter's fold-layout leak has a failing reproduction and cleanup fix.
+Do not delete legacy constant maps until the joint adapter gates pass.
+
+Opaque Any broad discovery ran twice with changed source between runs. The
+preserved first candidate recorded 3,304 passed / 21 failed / 32 skipped;
+the refreshed candidate recorded 2,812 / 54 / 32. Nine hidden fixture files
+were migrated in `f632c945` and `ed43ecac`, retaining behavior and rejected
+program coverage; their original opacity-pair gates passed 62 and 93 cases.
+The refreshed candidate's six original focused files passed 102/102. Most
+remaining failures are the known command-site identity regression; R3/R4 and
+other distinct failures remain recorded. Any is not integrated or accepted.
+Raw logs and classifications remain under the Any lane's `.work/any/logs/`.
+
+The Linux errno test now returns 1 instead of 97 with frozen baseline, Any,
+and current integration binaries in the resumed environment. The unchanged
+socket wrapper and pre-reboot passing test establish an environment difference;
+do not claim an Any regression or a green Linux gate. Evidence is under
+`.work/consolidation/restart/net-errno/`. Security settings and the assertion
+have not been changed.
+
+Source-session/telemetry has a bounded interim +450 production / 2,200 touched
+allowance for mandatory source plumbing and retained fact/index accounting,
+offset by the prerequisite batch's source reductions. This does not waive
+the final reduction requirement. R3 facts use explicit true/false entries at
+typed transfer sites; absent facts cannot silently mean scalar values. R4,
+W3 fact consumers, coverage resumption, and reveal publication versus entry
+legality have assigned preparation/implementation owners. The owner explicitly
+requested unattended continuation through completion; no further pause exists.
+
 Paused at the owner's request on 2026-10-11 for a computer reboot. The campaign
 is **incomplete**. Do not resume implementation, tests, or profiling until the
 owner resumes it. This checkpoint supersedes older progress rows; approved

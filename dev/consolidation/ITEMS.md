@@ -55,7 +55,12 @@ budget before consumer deletion offsets it. Grammar rule sharing has +80.
 Boundary-context A has +100 / 1,800 touched; effect sets +150 / 900 touched;
 resource foundation preparation +600 / 2,500 touched. Subsequent scoped
 exceptions: R2 +250 / 1,800 touched, explicit Any rejection +80 / 1,800,
-module command facts +100 / 800, ordinary diagnostics +100 / 900. W1
+module command facts +100 / 800, ordinary diagnostics +100 / 900. The restart
+handoff's combined module-plan core and execution-hook allowance is +250
+production lines; core +95 and hooks +86 fit that scope, while the hooks fit
+the earlier facts-only allowance. The resumed source-session and telemetry
+adapter allows +450 / 2,200 with prerequisite removal offsets and no final
+ratchet waiver. W1
 construction/schema allows 4,500 touched with a completed net reduction of
 at least 200 lines. These are scoped
 exceptions to the default zero-growth budget, not waivers of final ratchets.
