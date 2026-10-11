@@ -51,7 +51,7 @@ impl<'a> BundleView<'a> {
             .filter(|module| module.internal || reachable.contains(module.key.as_str()))
             .collect::<Vec<_>>();
         let source_ids = entry_source_id.into_iter()
-            .chain(program.module_doc().map(|span| span.source_id))
+            .chain(program.module_doc_for(program.statements).map(|span| span.source_id))
             .chain(program.statement_ids().map(|id| program.arena.stmt(id).span.source_id))
             .chain(modules.iter().flat_map(|module| program.module_statements(module)
                 .map(|id| program.arena.stmt(id).span.source_id)))
