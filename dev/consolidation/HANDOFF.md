@@ -1,5 +1,39 @@
 # Consolidation restart handoff
 
+## Native runner performance and accepted follow-ups — 2026-10-11
+
+The owner explicitly added full `xsht test` parallelization, test-pollution
+repairs and a hard measured target of at least 4x lower wall time. The
+`native_test_parallelism` Luna xhigh lane is reading the runner and designing
+its isolated baseline/candidate full-suite comparison; no speedup is claimed.
+Use the existing default run as the baseline, identical test inputs and
+resource limits, and preserve correctness and isolation. This extends the
+older exclusion of native runner changes; it does not authorize skipping
+slow tests or substituting a deliberately single-worker baseline.
+
+Master f884's full relevant integration subset is green: 84 normal files,
+35 forced-frame files and 119 indexed verifier units. The frozen pair/source
+and both command manifests remain under `master-f884-*`. Accepted scalar
+control/defer views `08f5acf0` as `e1e43cb7` reduce 33 manual payload calls;
+private 74/74 tests pass per mode, with unchanged allocation slopes. Accepted
+resource/opaque-Any documentation `a5e8718a` as `34fd393e`: 19 edited snippets
+pass the frozen optimized checker; generated documentation remains pending.
+The canonical XSHT guide also replaces the removed with-scope lint guidance.
+These later source changes still need their combined build/gates.
+
+Cross-program CPU0 measurements use matching d5/candidate verification
+binaries, hold all three compile locks and exit 0. Docker multiplexes labels
+and timings from separate streams, so their ordered sequences are paired,
+not neighboring log lines. A previously prepared wrong release-baseline
+script was never run and is retained as invalid. Common and dynamic CPU are
+comparable; no stricter or full-host-idle claim is made. Independent review
+finds the early external-kind lookup safe under fixed stdlib linkage.
+Typed-callee loop-slot corruption now reproduces a real verifier acceptance
+hole; its coordinated fact/signature mutation stays as a regression while
+producer provenance is completed. W9's imported resource traversal has a
+red counter test (two owner visits instead of one); its root-only entry pass
+must preserve every profile's published facts before acceptance.
+
 ## Master integration checks and remaining reviews — 2026-10-11
 
 Master `dc0ad171` passes the pinned x86_64 musl verification build. Its

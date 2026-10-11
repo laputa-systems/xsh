@@ -230,6 +230,20 @@ environment. This supersedes all older ARM final-verification requirements;
 Linux correctness and performance gates remain required. Preserve historical
 ARM artifacts and remove only campaign-owned runtime registrations at cleanup.
 
+## Owner update — full native test throughput, 2026-10-11
+
+The owner added parallelizing the complete `xsht test` suite and repairing
+any test pollution that obstructs it, with at least a fourfold reduction in
+wall time. This explicitly extends the earlier test-runner exclusions and
+performance sequence. Compare the full unchanged test manifest using the
+same pinned x86_64 Linux image, compiler profile and CPU/memory allocation;
+record current default-run baseline and candidate elapsed time, outcomes,
+worker count, source/binary hashes and raw logs. Merely selecting a slow
+single-worker baseline does not establish the requested speedup. Preserve
+per-test isolation, cancellation, timeout, cleanup, coverage and reporting
+contracts. Coordinate full-suite runs and timings with the integrator so
+only one full native suite runs at once and campaign builds do not compete.
+
 ## Planning figures
 
 Setup records every row at the start commit. Structural counts are ratchets
