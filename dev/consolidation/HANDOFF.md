@@ -1,5 +1,36 @@
 # Consolidation restart handoff
 
+## Integration moved to master — 2026-10-11, `e4261855`
+
+The owner requested merging consolidation into updated master and continuing
+the campaign on master. Integration now uses `/home/josh/d/laputa-systems/xsh`
+on branch `master`; all future accepted changes land there. Merge parents are
+master `58d321d9` (completed btop) and consolidation `a376c097`. The old
+consolidation worktree stays at its preserved checkpoint, with all private
+lanes and frozen binaries intact. `.work/consolidation` in master points to
+the existing artifact directory; the three pinned build wrappers now accept
+the master path, retain their original locks, and mount the artifact directory.
+A private writable copy of the prior dependency/build cache seeds master.
+
+Conflicts retained the consolidation lowering partition, with btop’s seven
+new RuntimeOps ported to `lower/api.rs`; the API snapshot combines btop’s
+functions with consolidation’s nominal FsLock representation (108 standard
+records, 953 queryable/documented items). Linux verification instructions keep
+verification/release profiles and the explicit x86_64-only campaign scope.
+Merged-source build and btop/API/runtime integration gates remain pending.
+
+Before the move, Root36’s optimized lint build passed 18 native files plus
+256 lint, 41 CLI, and one catalog Rust unit. The current observer passed its
+6 tests and 38 current ratchets; original scanner/test bytes remain preserved.
+Accepted after Root36: observer `0cca7cd5` / `2b0f2313` as `9db514d8` /
+`c9e9561e`, height fixture `79623ce4` as `827d1250`, sequence cursors and
+one-box assertion `5bf5895c` / `ae3bc8fa` as `c46f924a` / `7e5951f1`, and
+assignment/comprehension cursors `0f8279b2` as `a376c097`. These later runtime
+slices still need the combined master gate. Statement-block cursors are sealed
+privately and await review; cross-program ownership, Root-compatible typed
+proof and W9 correctness/performance remain active. ARM64 and macOS are out
+of scope; source ceilings are advisory and performance remains the priority.
+
 ## Combined cursor/schema batch and lint integration — 2026-10-11
 
 Root's pinned optimized build at `fb813cc0` passes. The frozen matching pair

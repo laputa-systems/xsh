@@ -13,8 +13,9 @@ The owner approved the campaign and all six designs on 2026-10-11. Existing
 approval persists across resumed sessions. Continue independent work while
 recording concrete contract or oracle conflicts for the integrator.
 
-One integrator owns the `consolidation` branch, shared paths, review, and
-merges. Every editing lane has its own worktree and exclusive file set.
+One integrator owns the `master` branch in `/home/josh/d/laputa-systems/xsh`,
+shared paths, review, and merges. The owner moved the campaign to master after
+merging consolidation alongside the completed btop work on 2026-10-11. Every editing lane has its own worktree and exclusive file set.
 Compatibility updates do not silently change the original baseline. Integrate
 between campaigns only at recorded batch boundaries. The owner completed
 compatibility and approved integrating master on 2026-10-11; its retained

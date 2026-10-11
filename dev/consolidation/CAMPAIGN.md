@@ -213,6 +213,15 @@ documentation, platform gates and performance verification remain required.
 Remove genuine duplication and unused code; do not compress layout to improve
 counts. A passing source count is not performance evidence.
 
+## Owner update — continue on master, 2026-10-11
+
+The owner merged the completed btop work into master and requested merging
+consolidation back into master, then continuing this campaign there. Master's
+`58d321d9` and consolidation's `a376c097` are merged as `e4261855` in
+`/home/josh/d/laputa-systems/xsh`. This supersedes older integration-branch
+instructions. The integrator owns master; private lanes stay isolated and
+retain their exact baselines and artifacts. No push is authorized.
+
 ## Owner update — platform scope, 2026-10-11
 
 ARM64 and macOS are outside this campaign. Development and final platform

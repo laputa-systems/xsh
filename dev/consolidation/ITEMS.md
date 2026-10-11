@@ -2,8 +2,8 @@
 
 Approved campaign: `CAMPAIGN.md`. Start commit:
 `5e66b6b896a47d0c692739135d51200b007a2a67`. Integration branch:
-`consolidation`; compatibility has a separate worktree and does not move this
-baseline. All six design drafts were approved on 2026-10-11.
+`master` in `/home/josh/d/laputa-systems/xsh`; the owner merged consolidation
+into master on 2026-10-11. Private lanes and original baselines remain preserved. All six design drafts were approved on 2026-10-11.
 
 **Resumed after reboot on 2026-10-11, with Luna xhigh subagents.** [`HANDOFF.md`](HANDOFF.md) records the
 latest checkpoint and supersedes the older progress states below. Unfinished
