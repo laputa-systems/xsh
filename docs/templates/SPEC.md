@@ -617,15 +617,23 @@ again to be a `Port`, and `+=` on a variable of a bounded type is
 {{.spec.bounded_int_unvalidated.source}}
 ```
 
-`locale.numeric_info(name)` returns native decimal and thousands separators as
-`Bytes`; `locale.time_info(name)` returns twelve abbreviated month names as
-`List[Bytes]` in January-to-December order. Each opens an isolated locale for
-its category and copies metadata without changing process or thread locale.
-Names must be explicit and contain no NUL (`locale-name`); unavailable or
-unsupported metadata returns `locale-unavailable`. On musl only `C`, `POSIX`,
-and `C.UTF-8` are supported: accepting another name in libc does not establish
-that its numeric or time data is available. Other targets query installed
-native locales. Returned bytes retain the locale's encoding.
+`locale.numeric_info(name)` returns decimal and thousands separators as `Bytes`;
+`locale.time_info(name)` returns twelve abbreviated month names as `List[Bytes]`
+in January-to-December order. Neither changes process or thread locale. Names
+must be explicit and contain no NUL (`locale-name`); unavailable metadata
+returns `locale-unavailable`. Returned bytes retain the locale's encoding.
+These APIs provide numeric and month metadata, not collation or character classes.
+
+On musl, metadata comes from an immutable byte projection of GNU libc 2.43
+locale facts, rather than musl's C-only numeric and time data. Supported names
+are `C`, `POSIX`, `C.utf8`; UTF-8 variants of `am_ET`, `de_DE`, `en_US`, `es_ES`,
+`fa_IR`, `fr_FR`, `hu_HU`, `it_IT`, `ja_JP`, `pt_BR`, `sv_SE`, `th_TH`, `zh_CN`;
+ISO-8859-1 variants of `en_US`, `fr_FR`, `sv_SE` (including those bare names);
+and `zh_CN.gb18030`. Exact encoding suffix aliases are `.utf8`, `.UTF-8`,
+`.utf-8`, `.UTF8`; `.iso88591`, `.ISO-8859-1`, `.iso-8859-1`, `.ISO8859-1`,
+`.ISO88591`; and `.gb18030`, `.GB18030`. Other names fail rather than falling
+back to C. On other targets, each query opens an isolated native locale and
+copies its installed metadata before freeing the handle.
 
 `numeric.parse_long_double` and `numeric.format_long_double` keep numeric text
 at the native C `long double` boundary without a binary64 intermediate. Their
