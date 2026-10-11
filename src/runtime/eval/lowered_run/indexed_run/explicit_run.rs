@@ -1246,7 +1246,7 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     ProcessRun {
-        state: ProcessExecutionState,
+        state: Box<ProcessExecutionState>,
         next: Box<FrameContinuation>,
     },
     SpawnCommand {
@@ -3006,7 +3006,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         };
         self.step_process_run(
             index,
-            ProcessExecutionState {
+            Box::new(ProcessExecutionState {
                 instruction,
                 tag,
                 span,
@@ -3021,7 +3021,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 invocation: ProcessInvocationBuilder::new(),
                 invocations: Vec::new(),
                 pipeline_head: None,
-            },
+            }),
             next,
         )
     }
@@ -3068,7 +3068,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn step_process_run(
         &mut self,
         index: usize,
-        mut state: ProcessExecutionState,
+        mut state: Box<ProcessExecutionState>,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
         loop {
@@ -3328,7 +3328,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn continue_process_run(
         &mut self,
         index: usize,
-        mut state: ProcessExecutionState,
+        mut state: Box<ProcessExecutionState>,
         value: LoweredValue,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
