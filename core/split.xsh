@@ -387,8 +387,23 @@ pure suffix_name(index: Int, naming: Naming) -> Str {
   fill + digits
 }
 
-pure output_name(index: Int, naming: Naming) -> Bytes {
-  bytes.concat([naming.prefix, bytes.from_text(suffix_name(index, naming)), naming.extra])
+# Name buffers can exceed the process's address space even for a valid width.
+# Report the allocator's failure as GNU does, without imposing a width limit.
+proc checked_suffix(index: Int, naming: Naming) [process, env, error] -> Result[Str] {
+  match try { suffix_name(index, naming) } {
+    Ok(tail) => Ok(tail)
+    Err(failure) => {
+      if gnu.errno(failure) == 12 {
+        gnu.error("memory exhausted")
+        exit 1
+      }
+      Err(failure)
+    }
+  }
+}
+
+pure output_name(tail: Str, naming: Naming) -> Bytes {
+  bytes.concat([naming.prefix, bytes.from_text(tail), naming.extra])
 }
 
 pure contains_slash(value: Bytes) -> Bool {
@@ -652,14 +667,14 @@ proc filter_bytes_from_stdin(command: Str, naming: Naming, size: Int, verbose: B
       return
     }
 
-    let tail = suffix_name(made, naming)
+    let tail = checked_suffix(made, naming)?
 
     if tail == "" {
       gnu.error("output file suffixes exhausted")
       exit 1
     }
 
-    let name = Path.parse_bytes(output_name(made, naming))?
+    let name = Path.parse_bytes(output_name(tail, naming))?
 
     if verbose {
       gnu.write_text(f"creating file {gnu.quote_bytes(name.bytes())}\n")
@@ -800,14 +815,14 @@ proc feed_filter_record(
   var current = pipes
 
   if current[slot] == null {
-    let tail = suffix_name(slot, naming)
+    let tail = checked_suffix(slot, naming)?
 
     if tail == "" {
       gnu.error("output file suffixes exhausted")
       exit 1
     }
 
-    let name = Path.parse_bytes(output_name(slot, naming))?
+    let name = Path.parse_bytes(output_name(tail, naming))?
 
     if verbose {
       gnu.write_text(f"creating file {gnu.quote_bytes(name.bytes())}\n")
@@ -870,14 +885,14 @@ proc filter_round_robin_stdin(command: Str, naming: Naming, count: Int, sep: Int
   if ! elide {
     for slot in range(pipes.len()) {
       if pipes[slot] == null {
-        let tail = suffix_name(slot, naming)
+        let tail = checked_suffix(slot, naming)?
 
         if tail == "" {
           gnu.error("output file suffixes exhausted")
           exit 1
         }
 
-        let name = Path.parse_bytes(output_name(slot, naming))?
+        let name = Path.parse_bytes(output_name(tail, naming))?
 
         if verbose {
           gnu.write_text(f"creating file {gnu.quote_bytes(name.bytes())}\n")
@@ -1333,7 +1348,16 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     } else if chunks.kind == "l" {
       pieces = chunk_lines(data, ends, chunks.n, chunks.k, opts.elide)
     } else {
-      pieces = round_robin(data, ends, chunks.n, chunks.k, opts.elide)
+      match try { round_robin(data, ends, chunks.n, chunks.k, opts.elide) } {
+        Ok(value) => pieces = value
+        Err(failure) => {
+          if gnu.errno(failure) == 12 {
+            gnu.error("memory exhausted")
+            exit 1
+          }
+          return Err(failure)?
+        }
+      }
     }
 
     if opts.elide {
@@ -1360,14 +1384,14 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   var made = 0
 
   for piece in pieces {
-    let tail = suffix_name(made, naming)
+    let tail = checked_suffix(made, naming)?
 
     if tail == "" {
       gnu.error("output file suffixes exhausted")
       exit 1
     }
 
-    let name = Path.parse_bytes(output_name(made, naming))?
+    let name = Path.parse_bytes(output_name(tail, naming))?
 
     if input_ino >= 0 {
       if let Ok(found) = fs.stat(name, follow_symlinks: true) {

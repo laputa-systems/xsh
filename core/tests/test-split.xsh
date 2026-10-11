@@ -390,3 +390,12 @@ test test_split_bare_size_units_and_gnu_validation { |ctx|
   let directory = split_run(ctx, root, ["-", "d-"], b"a")?
   assert directory.stderr == "split: d-aa: Is a directory\n", directory.stderr
 }
+
+test test_split_round_robin_allocation_failure_is_an_applet_error { |ctx|
+  let root = test.temp_dir(ctx, name: "split-round-robin-allocation")?
+  let result = split_run(ctx, root, ["--number=r/18446744073709551616"])?
+  assert result.status == 1, result.stderr
+  assert result.stderr == "split: memory exhausted\n", result.stderr
+  assert result.stdout == b""
+  assert ! fp"{root}/xaa".exists()?
+}
