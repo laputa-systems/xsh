@@ -448,19 +448,28 @@ impl DiagnosticRenderer {
         let Some(line_text) = file.line_text(start.line) else {
             return;
         };
+        let excerpt = source_excerpt(
+            line_text,
+            start.column,
+            underline_width(file, label.span, start.line, start.column),
+        );
 
         output.push_str("  ");
+        if excerpt.leading {
+            output.push('…');
+        }
         if self.color {
-            highlight_xsh_line(line_text, output);
+            highlight_xsh_line(excerpt.text, output);
         } else {
-            output.push_str(line_text);
+            output.push_str(excerpt.text);
+        }
+        if excerpt.trailing {
+            output.push('…');
         }
         output.push('\n');
 
         output.push_str("  ");
-        let prefix_width = start.column.saturating_sub(1);
-        output.push_str(&" ".repeat(prefix_width));
-        let underline_width = underline_width(file, label.span, start.line, start.column);
+        output.push_str(&" ".repeat(excerpt.marker_indent));
         let marker = match label.style {
             LabelStyle::Primary => '^',
             LabelStyle::Secondary => '-',
@@ -469,7 +478,10 @@ impl DiagnosticRenderer {
         if self.color {
             output.push_str(severity_sgr(severity));
         }
-        output.push_str(&marker.to_string().repeat(underline_width.max(1)));
+        output.push_str(&marker.to_string().repeat(excerpt.marker_width));
+        if excerpt.marker_clipped {
+            output.push('…');
+        }
         if let Some(message) = &label.message {
             output.push(' ');
             output.push_str(message);
@@ -478,6 +490,54 @@ impl DiagnosticRenderer {
             output.push_str(SGR_RESET);
         }
         output.push('\n');
+    }
+}
+
+struct SourceExcerpt<'a> {
+    text: &'a str,
+    leading: bool,
+    trailing: bool,
+    marker_indent: usize,
+    marker_width: usize,
+    marker_clipped: bool,
+}
+
+// Source and marker columns share one Unicode-scalar window, including the
+// two-space margin and ellipses. Leave a column for an empty end-of-line span.
+// A location can extend past the carriage returns trimmed from line text.
+fn source_excerpt(line: &str, column: usize, underline_width: usize) -> SourceExcerpt<'_> {
+    const WIDTH: usize = 160 - 2;
+    let line_width = line.chars().count();
+    let label_start = column.saturating_sub(1);
+    let virtual_width = line_width.max(label_start + underline_width);
+    let (first, last) = if virtual_width <= WIDTH {
+        (0, line_width)
+    } else {
+        let content_width = WIDTH - 2;
+        let before = (content_width - underline_width.min(content_width)) / 2;
+        let first = label_start
+            .saturating_sub(before)
+            .min(virtual_width.saturating_sub(content_width));
+        (first, (first + content_width).min(line_width))
+    };
+    let byte_at = |index| line.char_indices().nth(index).map_or(line.len(), |(byte, _)| byte);
+    let leading = first > 0;
+    let trailing = last < line_width;
+    let marker_indent = usize::from(leading) + label_start.saturating_sub(first);
+    let visible_width = if trailing {
+        last.saturating_sub(label_start).max(1)
+    } else {
+        WIDTH - marker_indent
+    };
+    let marker_clipped = underline_width > visible_width;
+    let marker_width = underline_width.min(visible_width - usize::from(marker_clipped && !trailing));
+    SourceExcerpt {
+        text: &line[byte_at(first)..byte_at(last)],
+        leading,
+        trailing,
+        marker_indent,
+        marker_width,
+        marker_clipped,
     }
 }
 
@@ -635,5 +695,121 @@ mod tests {
         assert_eq!(machine.span.unwrap().start_column, 1);
         assert_eq!(machine.labels[0].span.end_column, 8);
         assert_eq!(machine.fix_hints[0].message, "use one of the core commands");
+    }
+
+    fn without_color(text: &str) -> String {
+        let mut in_escape = false;
+        text.chars()
+            .filter(|&ch| {
+                if ch == '\x1b' {
+                    in_escape = true;
+                    false
+                } else if in_escape {
+                    in_escape = ch != 'm';
+                    false
+                } else {
+                    true
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn clipped_unicode_context_keeps_markers_and_machine_spans_aligned() {
+        let source = format!("{}NEEDLE{}", "α".repeat(1000), "β".repeat(1000));
+        let mut sources = SourceMap::new();
+        let id = sources.add_file("example.xsh", source);
+        let span = Span::new(id, 2000, 2006);
+        let diagnostic = Diagnostic::error("invalid value")
+            .with_span(span)
+            .with_label(Label::primary(span, ""))
+            .with_fix_hint(FixHint::replacement(span, "replace value", "0"));
+        let before = diagnostic.to_machine(&sources);
+        let plain = DiagnosticRenderer::new().with_color(false)
+            .render(std::slice::from_ref(&diagnostic), &sources);
+        let color = DiagnosticRenderer::new().with_color(true)
+            .render(std::slice::from_ref(&diagnostic), &sources);
+
+        assert_eq!(without_color(&color), plain);
+        let lines = plain.lines().collect::<Vec<_>>();
+        assert!(lines[1].ends_with(":1:1001"));
+        assert!(lines[2].starts_with("  …") && lines[2].ends_with('…'));
+        assert!(lines[2].chars().count() <= 160);
+        assert!(lines[3].chars().count() <= 160);
+        assert_eq!(lines[2].chars().position(|ch| ch == 'N'), lines[3].find('^'));
+        assert!(lines[3].ends_with("^^^^^^"));
+        assert_eq!(diagnostic.to_machine(&sources), before);
+        let machine_span = before.span.unwrap();
+        assert_eq!((machine_span.start_offset, machine_span.end_offset), (2000, 2006));
+        assert_eq!((machine_span.start_column, machine_span.end_column), (1001, 1007));
+        assert_eq!(before.labels[0].span, machine_span);
+        assert_eq!(before.fix_hints[0].span.as_ref(), Some(&machine_span));
+    }
+
+    #[test]
+    fn clips_long_empty_end_and_multiline_labels_in_plain_and_color() {
+        let line = "α".repeat(2000);
+        let source = format!("{line}\ntail\n");
+        let mut sources = SourceMap::new();
+        let id = sources.add_file("example.xsh", source);
+        let cases = [
+            (Span::new(id, 0, 4000), 1, true),
+            (Span::new(id, 3800, 3802), 1901, false),
+            (Span::new(id, 4000, 4000), 2001, false),
+            (Span::new(id, 2000, 4005), 1001, true),
+        ];
+        for (span, column, clipped_marker) in cases {
+            let diagnostic = Diagnostic::error("invalid value")
+                .with_label(Label::secondary(span, ""));
+            let plain = DiagnosticRenderer::new().with_color(false)
+                .render(std::slice::from_ref(&diagnostic), &sources);
+            let color = DiagnosticRenderer::new().with_color(true)
+                .render(std::slice::from_ref(&diagnostic), &sources);
+            assert_eq!(without_color(&color), plain);
+            let lines = plain.lines().collect::<Vec<_>>();
+            assert!(lines[1].ends_with(&format!(":1:{column}")));
+            assert!(lines[2].chars().count() <= 160);
+            assert!(lines[3].chars().count() <= 160);
+            assert!(lines[2].contains('…'));
+            assert!(lines[3].contains('-'));
+            assert_eq!(lines[3].ends_with('…'), clipped_marker);
+            if span.is_empty() {
+                assert_eq!(lines[2].chars().count(), lines[3].chars().count() - 1);
+                assert!(lines[3].ends_with('-'));
+            }
+        }
+    }
+
+    #[test]
+    fn short_unicode_crlf_context_preserves_its_existing_marker_width() {
+        let mut sources = SourceMap::new();
+        let id = sources.add_file("example.xsh", "α\r\n");
+        let diagnostic = Diagnostic::error("invalid value")
+            .with_label(Label::primary(Span::new(id, 0, 3), ""));
+        let plain = DiagnosticRenderer::new().with_color(false).render(&[diagnostic], &sources);
+        assert_eq!(plain, "err: invalid value\n  example.xsh:1:1\n  α\n  ^^\n");
+    }
+
+    #[test]
+    fn bounds_markers_when_locations_extend_past_trimmed_carriage_returns() {
+        let source = format!("α{}", "\r".repeat(2000));
+        let end = source.len();
+        let mut sources = SourceMap::new();
+        let id = sources.add_file("example.xsh", source);
+        for span in [Span::new(id, end, end), Span::new(id, 0, end)] {
+            let diagnostic = Diagnostic::error("invalid value")
+                .with_label(Label::primary(span, ""));
+            let rendered = DiagnosticRenderer::new().with_color(false)
+                .render(std::slice::from_ref(&diagnostic), &sources);
+            let lines = rendered.lines().collect::<Vec<_>>();
+            assert!(lines[2].chars().count() <= 160);
+            assert!(lines[3].chars().count() <= 160);
+            assert!(lines[3].contains('^'));
+            if span.is_empty() {
+                assert!(lines[1].ends_with(":1:2002"));
+            } else {
+                assert!(lines[3].ends_with('…'));
+            }
+        }
     }
 }
