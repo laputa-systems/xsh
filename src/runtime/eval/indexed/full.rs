@@ -2,7 +2,7 @@ pub(in crate::runtime::eval) mod decode;
 pub(in crate::runtime::eval) mod in_place;
 pub(in crate::runtime::eval) mod schema;
 
-use decode::{BorrowCodec, DecodeContext, PatternId};
+use decode::{BorrowCodec, DecodeContext, PatternId, StageRef};
 pub(in crate::runtime::eval) use schema::{BuildPatternRow, FullDriverTag};
 pub(in crate::runtime::eval) use schema::{
     BuildBoolRow, BuildExprRow, BuildIntRow, BuildStmtRow, FrameStrategy, FullTag,
@@ -6614,6 +6614,17 @@ macro_rules! pipeline_stage_schema {
             }
         }
 
+        impl LoweredPipelineStage {
+            pub(in crate::runtime::eval) fn borrow_with_id<'a>(
+                context: DecodeContext<'a>,
+                input: &mut FullCursor<'a>,
+            ) -> Result<StageRef<'a>, IrVerifyError> {
+                let raw = input.raw()?;
+                let view = StageView::decode(context, raw)?;
+                Ok(StageRef::new(raw, view))
+            }
+        }
+
         impl FullCodec for LoweredPipelineStage {
             fn encode(
                 &self,
@@ -6679,8 +6690,7 @@ macro_rules! pipeline_stage_schema {
                 $stage_view_context: DecodeContext<'a>,
                 $stage_view_input: &mut FullCursor<'a>,
             ) -> Result<Self::View<'a>, IrVerifyError> {
-                let raw = $stage_view_input.raw()?;
-                StageView::decode($stage_view_context, raw)
+                Ok(Self::borrow_with_id($stage_view_context, $stage_view_input)?.view)
             }
         }
 
@@ -9314,12 +9324,38 @@ pure selected() -> Str {
             statements: &statements,
         };
         for (index, owned) in rows.into_iter().enumerate() {
-            let view = views.next().unwrap().unwrap();
-            assert_eq!(view.tag() as usize, index);
-            assert_stage_view_matches(owned, view, &expectations);
+            let stage = views.next_with_id().unwrap().unwrap();
+            assert_eq!(stage.id.raw(), index as u32);
+            assert_eq!(stage.view.tag() as usize, index);
+            assert_stage_view_matches(owned, stage.view, &expectations);
         }
-        assert!(views.next().is_none());
+        assert!(views.next_with_id().is_none());
         assert_eq!(payload.raw().unwrap(), 0x5a5a);
+        payload.finish().unwrap();
+    }
+
+    #[test]
+    fn borrowed_stage_list_views_reject_trailing_words() {
+        let (builder, _, block, _, _) = stage_view_fixture();
+        let mut trailing = builder.store.clone();
+        let block = IrBlockId::from_raw(block).unwrap();
+        trailing.extra.push(0);
+        trailing.blocks[block.index()].instructions.len += 1;
+        let execution = schema_execution_with_slots(&trailing, 25);
+        let encoded_block = [block.raw()];
+        let mut payload = FullPayload {
+            store: &trailing,
+            cursor: FullCursor::new(&encoded_block),
+        };
+        let mut stages = payload.borrow::<Vec<LoweredPipelineStage>>(&execution).unwrap();
+        for _ in 0..45 {
+            stages.next_with_id().unwrap().unwrap();
+        }
+        let error = match stages.next_with_id().unwrap() {
+            Err(error) => error,
+            Ok(_) => panic!("stage list with trailing words was accepted"),
+        };
+        assert!(error.message.contains("full IR payload has trailing words"));
         payload.finish().unwrap();
     }
 

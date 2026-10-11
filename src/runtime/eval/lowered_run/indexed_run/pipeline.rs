@@ -1,12 +1,14 @@
 use super::{
-    Arc, BLOCK_LIST, BLOCK_STATEMENTS, BTreeMap, ControlFlow, Evaluator, FullExecution,
+    Arc, BTreeMap, ControlFlow, Evaluator, FullExecution,
     FullStageTag, FullTag, LoweredProjectedReduceState, LoweredReduceProjection, LoweredValue,
-    MapKey, Name, ParMapItemOutcome, ReduceByOp, RuntimeError, Span, StmtFlow, Traceback,
-    indexed_decode, indexed_error, indexed_finish, indexed_raw, indexed_string, indexed_value,
+    MapKey, ParMapItemOutcome, ReduceByOp, RuntimeError, Span, StmtFlow, Traceback,
+    ExprView, indexed_error, indexed_value,
     lowered_error_message, lowered_inline_stats_field_value, lowered_record_vec_get,
     lowered_reduce_fields_owned, lowered_reduce_group_insert, lowered_reduce_key_value_owned,
     lowered_stats_field_value, lowered_value_from_runtime_any,
 };
+use crate::runtime::eval::indexed::full::decode::{ListView, RecordEntryView};
+use crate::runtime::eval::LoweredRecordEntry;
 
 /// Whether a `par-map` item failed: by a runtime error, by a failure that is
 /// propagating out of its callback, or by returning an `Err` from the
@@ -648,26 +650,30 @@ impl Evaluator {
         }
     }
 
-    pub(super) fn indexed_field_projection<'program>(
-        execution: &'program FullExecution<'program>,
+    pub(super) fn indexed_field_projection<'execution>(
+        execution: &'execution FullExecution<'_>,
         instruction: u32,
         item_slot: usize,
         span: Span,
-    ) -> Result<Option<&'program str>, RuntimeError> {
-        let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), span)?;
+    ) -> Result<Option<&'execution str>, RuntimeError> {
+        let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
         if tag != FullTag::ExprField {
             return Ok(None);
         }
-        let base = indexed_raw(&mut payload, span)?;
-        let name = indexed_string(&mut payload, execution, span)?;
-        indexed_decode::<Span>(&mut payload, execution, span)?;
-        indexed_finish(payload, span)?;
-        let (base_tag, mut base_payload) = indexed_value(execution.instruction_id(base), span)?;
+        let ExprView::Field { base, name, .. } =
+            ExprView::decode(execution, tag, payload).map_err(|error| indexed_error(error, span))?
+        else {
+            unreachable!("field tag has a matching borrowed view")
+        };
+        let (base_tag, base_payload) = indexed_value(execution.instruction_id(base.raw()), span)?;
         if base_tag != FullTag::ExprParam {
             return Ok(None);
         }
-        let slot = indexed_decode::<usize>(&mut base_payload, execution, span)?;
-        indexed_finish(base_payload, span)?;
+        let ExprView::Param(slot) = ExprView::decode(execution, base_tag, base_payload)
+            .map_err(|error| indexed_error(error, span))?
+        else {
+            unreachable!("parameter tag has a matching borrowed view")
+        };
         Ok((slot == item_slot).then_some(name))
     }
 
@@ -677,22 +683,31 @@ impl Evaluator {
         slots: &'slots [LoweredValue],
         span: Span,
     ) -> Result<Option<&'slots LoweredValue>, RuntimeError> {
-        let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), span)?;
+        let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
         match tag {
             FullTag::ExprParam => {
-                let slot = indexed_decode::<usize>(&mut payload, execution, span)?;
-                indexed_finish(payload, span)?;
+                let ExprView::Param(slot) = ExprView::decode(execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("parameter tag has a matching borrowed view")
+                };
                 slots.get(slot).map(Some).ok_or_else(|| {
                     RuntimeError::new("indexed-ir", "field base slot is out of bounds")
                         .with_span(span)
                 })
             }
             FullTag::ExprField => {
-                let base = indexed_raw(&mut payload, span)?;
-                let name = indexed_string(&mut payload, execution, span)?;
-                let field_span = indexed_decode::<Span>(&mut payload, execution, span)?;
-                indexed_finish(payload, span)?;
-                let Some(base) = Self::indexed_field_chain_ref(execution, base, slots, field_span)?
+                let ExprView::Field {
+                    base,
+                    name,
+                    span: field_span,
+                } = ExprView::decode(execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("field tag has a matching borrowed view")
+                };
+                let Some(base) =
+                    Self::indexed_field_chain_ref(execution, base.raw(), slots, field_span)?
                 else {
                     return Ok(None);
                 };
@@ -730,58 +745,50 @@ impl Evaluator {
         }
     }
 
-    pub(super) fn indexed_record_fields(
-        execution: &FullExecution<'_>,
+    pub(super) fn indexed_record_fields<'execution>(
+        execution: &'execution FullExecution<'_>,
         instruction: u32,
         span: Span,
-    ) -> Result<Option<Vec<(Name, u32)>>, RuntimeError> {
-        let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), span)?;
+    ) -> Result<Option<ListView<'execution, LoweredRecordEntry>>, RuntimeError> {
+        let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
         if tag != FullTag::ExprRecord {
             return Ok(None);
         }
-        let (_, mut entries) = execution
-            .block(&mut payload, BLOCK_LIST)
-            .map_err(|error| indexed_error(error, span))?;
-        let len = indexed_raw(&mut entries, span)? as usize;
-        indexed_finish(payload, span)?;
-        let mut fields = Vec::with_capacity(len);
-        for _ in 0..len {
-            if indexed_raw(&mut entries, span)? != 0 {
-                return Ok(None);
-            }
-            fields.push((
-                indexed_decode::<Name>(&mut entries, execution, span)?,
-                indexed_raw(&mut entries, span)?,
-            ));
-        }
-        indexed_finish(entries, span)?;
-        Ok(Some(fields))
+        let ExprView::Record(entries) =
+            ExprView::decode(execution, tag, payload).map_err(|error| indexed_error(error, span))?
+        else {
+            unreachable!("record tag has a matching borrowed view")
+        };
+        Ok(Some(entries))
     }
 
-    pub(super) fn indexed_reduce_projection<'program>(
-        execution: &'program FullExecution<'program>,
+    pub(super) fn indexed_reduce_projection<'execution>(
+        execution: &'execution FullExecution<'_>,
         item_slot: usize,
         body: u32,
         value: u32,
         op: ReduceByOp,
         span: Span,
-    ) -> Result<Option<LoweredReduceProjection<'program>>, RuntimeError> {
+    ) -> Result<Option<LoweredReduceProjection<'execution>>, RuntimeError> {
         if op != ReduceByOp::Sum {
             return Ok(None);
         }
-        let (_, mut statements) = execution
-            .block_id(body, BLOCK_STATEMENTS)
+        let statements = execution
+            .statement_block_view(body)
             .map_err(|error| indexed_error(error, span))?;
-        if indexed_raw(&mut statements, span)? != 0 {
+        if statements.len() != 0 {
             return Ok(None);
         }
-        indexed_finish(statements, span)?;
         let Some(entries) = Self::indexed_record_fields(execution, value, span)? else {
             return Ok(None);
         };
         let mut key_field = None;
         let mut value_fields = None;
-        for (name, expr) in entries {
+        for entry in entries {
+            let (name, expr) = match entry.map_err(|error| indexed_error(error, span))? {
+                RecordEntryView::Field(name, value) => (name, value.raw()),
+                RecordEntryView::Spread(_) => return Ok(None),
+            };
             match name.as_str().as_str() {
                 "key" => {
                     key_field = Self::indexed_field_projection(execution, expr, item_slot, span)?;
@@ -791,7 +798,11 @@ impl Evaluator {
                         return Ok(None);
                     };
                     let mut projected = Vec::with_capacity(fields.len());
-                    for (name, expr) in fields {
+                    for field in fields {
+                        let (name, expr) = match field.map_err(|error| indexed_error(error, span))? {
+                            RecordEntryView::Field(name, value) => (name, value.raw()),
+                            RecordEntryView::Spread(_) => return Ok(None),
+                        };
                         let Some(source) =
                             Self::indexed_field_projection(execution, expr, item_slot, span)?
                         else {

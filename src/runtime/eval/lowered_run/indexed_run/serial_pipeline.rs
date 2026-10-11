@@ -1,9 +1,9 @@
 use super::{
-    Arc, BTreeMap, BLOCK_LIST, ControlFlow, DEFAULT_PAR_MAP_WORKERS, Evaluator, FullExecution,
-    FullPayload, FullStageTag, FullTag,
+    Arc, BTreeMap, ControlFlow, DEFAULT_PAR_MAP_WORKERS, Evaluator, FullExecution,
+    FullStageTag, FullTag,
     LoweredValue, RuntimeError, SmallVec, Span, StreamValue, TraceError, TraceKind,
-    TracePayload, ReduceByOp, btree_map, bytes_module, compare_lowered_sort_keys, indexed_decode,
-    indexed_allocation_error, indexed_error, indexed_finish, indexed_range_values, indexed_raw, indexed_value,
+    TracePayload, ReduceByOp, btree_map, bytes_module, compare_lowered_sort_keys,
+    indexed_allocation_error, indexed_error, indexed_range_values, indexed_value,
     lowered_bytes_value, lowered_count_key, lowered_nonnegative_count, lowered_pipeline_input,
     lowered_pipeline_item_count, lowered_pipeline_record_list,
     lowered_reduce_fields_owned, lowered_reduce_group_insert, lowered_reduce_key_value_owned,
@@ -11,7 +11,9 @@ use super::{
     lowered_str_view_value, lowered_table_print_value, lowered_value_argv_len,
     lowered_value_from_runtime_any,
 };
-use crate::runtime::eval::indexed::full::StageView;
+use crate::runtime::eval::indexed::full::decode::ListView;
+use crate::runtime::eval::indexed::full::schema::ExprView;
+use crate::runtime::eval::indexed::full::{LoweredPipelineStage, StageView};
 use crate::map_key::MapKey;
 
 // Serial stages run on each live source item before the next pull. Bounded
@@ -218,18 +220,18 @@ pub(super) fn indexed_for_pipeline_input(
     instruction: u32,
     call_span: Span,
 ) -> Result<Option<(u32, Span, SmallVec<[IndexedLiveSerialStage; 4]>)>, RuntimeError> {
-    let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
+    let (tag, payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
     if tag != FullTag::ExprPipeline {
         return Ok(None);
     }
-    let input = indexed_raw(&mut payload, call_span)?;
-    let (_, mut stages) = execution
-        .block(&mut payload, BLOCK_LIST)
-        .map_err(|error| indexed_error(error, call_span))?;
-    let stage_count = indexed_raw(&mut stages, call_span)? as usize;
-    let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-    indexed_finish(payload, call_span)?;
-    let decoded = decode_serial_prefix(execution, stages, stage_count, span)?;
+    let ExprView::ListPipeline { input, stages, span } =
+        ExprView::decode(execution, tag, payload).map_err(|error| indexed_error(error, call_span))?
+    else {
+        unreachable!("pipeline tag has a matching borrowed view")
+    };
+    let input = input.raw();
+    let stage_count = stages.len();
+    let decoded = decode_serial_prefix(stages, span)?;
     if decoded.len() != stage_count
         || decoded.is_empty()
         || decoded
@@ -259,18 +261,18 @@ pub(super) fn indexed_value_pipeline_input(
     instruction: u32,
     call_span: Span,
 ) -> Result<Option<(u32, Span, SmallVec<[IndexedLiveSerialStage; 4]>)>, RuntimeError> {
-    let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
+    let (tag, payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
     if tag != FullTag::ExprPipeline {
         return Ok(None);
     }
-    let input = indexed_raw(&mut payload, call_span)?;
-    let (_, mut stages) = execution
-        .block(&mut payload, BLOCK_LIST)
-        .map_err(|error| indexed_error(error, call_span))?;
-    let stage_count = indexed_raw(&mut stages, call_span)? as usize;
-    let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-    indexed_finish(payload, call_span)?;
-    let decoded = decode_serial_complete(execution, stages, stage_count, span)?;
+    let ExprView::ListPipeline { input, stages, span } =
+        ExprView::decode(execution, tag, payload).map_err(|error| indexed_error(error, call_span))?
+    else {
+        unreachable!("pipeline tag has a matching borrowed view")
+    };
+    let input = input.raw();
+    let stage_count = stages.len();
+    let decoded = decode_serial_complete(stages, span)?;
     if decoded.len() != stage_count {
         return Ok(None);
     }
@@ -2574,36 +2576,33 @@ impl IndexedStageEngine {
 // Decode stage shape before running the input. A `for` loop can keep this
 // state across body executions without evaluating the input expression again.
 pub(super) fn decode_serial_prefix(
-    execution: &FullExecution<'_>,
-    stages: FullPayload<'_>,
-    stage_count: usize,
+    stages: ListView<'_, LoweredPipelineStage>,
     span: Span,
 ) -> Result<SmallVec<[IndexedLiveSerialStage; 4]>, RuntimeError> {
-    decode_serial_stages(execution, stages, stage_count, span, true)
+    decode_serial_stages(stages, span, true)
 }
 
 pub(super) fn decode_serial_complete(
-    execution: &FullExecution<'_>,
-    stages: FullPayload<'_>,
-    stage_count: usize,
+    stages: ListView<'_, LoweredPipelineStage>,
     span: Span,
 ) -> Result<SmallVec<[IndexedLiveSerialStage; 4]>, RuntimeError> {
-    decode_serial_stages(execution, stages, stage_count, span, false)
+    decode_serial_stages(stages, span, false)
 }
 
 fn decode_serial_stages(
-    execution: &FullExecution<'_>,
-    mut stages: FullPayload<'_>,
-    stage_count: usize,
+    mut stages: ListView<'_, LoweredPipelineStage>,
     span: Span,
     stop_after_terminal: bool,
 ) -> Result<SmallVec<[IndexedLiveSerialStage; 4]>, RuntimeError> {
     let mut prefix: SmallVec<[IndexedLiveSerialStage; 4]> = SmallVec::new();
+    let stage_count = stages.len();
     for _ in 0..stage_count {
-        let stage = indexed_raw(&mut stages, span)?;
-        let view = execution
-            .stage_view(stage)
+        let stage = stages
+            .next_with_id()
+            .expect("stage cursor length matches its remaining entries")
             .map_err(|error| indexed_error(error, span))?;
+        let instruction = stage.id.raw();
+        let view = stage.view;
         let tag = view.tag();
         let state = match view {
             StageView::Tee { .. }
@@ -2628,7 +2627,7 @@ fn decode_serial_stages(
             _ => IndexedSerialState::Materialized,
         };
         let decoded = IndexedLiveSerialStage {
-            instruction: stage,
+            instruction,
             tag,
             state,
         };

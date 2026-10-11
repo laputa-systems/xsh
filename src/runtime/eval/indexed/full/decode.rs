@@ -4,6 +4,7 @@ use super::{
     LoweredTypeCheck, ScanBytes, ScanCheck, ScanCondition, LoweredCallArg, LoweredFmtPart,
     LoweredRecordEntry, LoweredAssignStep, LoweredCompTarget, LoweredCompQualifier,
     LoweredProcessCommandBuilderEntry, LoweredErrorExpr,
+    LoweredPipelineStage,
 };
 
 use super::{
@@ -97,6 +98,32 @@ pub(in crate::runtime::eval) type IntInstructionId<'a> =
     InstructionId<'a, { InstructionKind::Int as u8 }>;
 pub(in crate::runtime::eval) type BoolInstructionId<'a> =
     InstructionId<'a, { InstructionKind::Bool as u8 }>;
+
+/// A stage identity remains tied to the program that supplied its borrowed view.
+#[derive(Clone, Copy)]
+pub(in crate::runtime::eval) struct StageId<'a> {
+    raw: u32,
+    program: PhantomData<&'a super::FullStore>,
+}
+
+impl StageId<'_> {
+    pub(in crate::runtime::eval) fn raw(self) -> u32 { self.raw }
+}
+
+/// Pairing the identity with its decoded row avoids decoding a stage twice.
+pub(in crate::runtime::eval) struct StageRef<'a> {
+    pub(in crate::runtime::eval) id: StageId<'a>,
+    pub(in crate::runtime::eval) view: super::StageView<'a>,
+}
+
+impl<'a> StageRef<'a> {
+    pub(super) fn new(raw: u32, view: super::StageView<'a>) -> Self {
+        StageRef {
+            id: StageId { raw, program: PhantomData },
+            view,
+        }
+    }
+}
 
 macro_rules! instruction_id {
     ($build:ty, $kind:ident, $view:ident) => {
@@ -389,8 +416,32 @@ impl<T> ListView<'_, T> {
         Ok(())
     }
 }
+impl<'a, T> ListView<'a, T> {
+    fn from_block(
+        context: DecodeContext<'a>,
+        block: super::IrBlockId,
+        mut input: FullCursor<'a>,
+    ) -> Result<Self, IrVerifyError> {
+        let remaining = input.raw()? as usize;
+        if remaining == 0 { input.finish()?; }
+        Ok(ListView { context, block, input, remaining, element: PhantomData })
+    }
+}
 impl ListView<'_, BuildStmtId> {
     pub(in crate::runtime::eval) fn block_id(&self) -> u32 { self.block.raw() }
+}
+impl<'a> ListView<'a, LoweredPipelineStage> {
+    pub(in crate::runtime::eval) fn next_with_id(
+        &mut self,
+    ) -> Option<Result<StageRef<'a>, IrVerifyError>> {
+        if self.remaining == 0 { return None; }
+        self.remaining -= 1;
+        let value = LoweredPipelineStage::borrow_with_id(self.context, &mut self.input);
+        if self.remaining == 0 {
+            if let Err(error) = self.input.finish() { return Some(Err(error)); }
+        }
+        Some(value)
+    }
 }
 impl<'a, T: BorrowCodec> Iterator for ListView<'a, T> {
     type Item = Result<T::View<'a>, IrVerifyError>;
@@ -408,10 +459,25 @@ impl<T: VectorElement> BorrowCodec for Vec<T> where Vec<T>: FullCodec {
     type View<'a> = ListView<'a, T>;
     fn borrow<'a>(context: DecodeContext<'a>, input: &mut FullCursor<'a>)
     -> Result<Self::View<'a>, IrVerifyError> {
-        let (block, mut entries) = context.decoder().block(input, T::BLOCK_FLAGS)?;
-        let remaining = entries.raw()? as usize;
-        if remaining == 0 { entries.finish()?; }
-        Ok(ListView { context, block, input: entries, remaining, element: PhantomData })
+        let (block, entries) = context.decoder().block(input, T::BLOCK_FLAGS)?;
+        ListView::from_block(context, block, entries)
+    }
+}
+
+impl<'program> FullExecution<'program> {
+    /// The reducer projection shortcut only accepts empty bodies, so inspect
+    /// their statement list through the same borrowed cursor validation used
+    /// for other full-IR lists.
+    pub(in crate::runtime::eval) fn statement_block_view<'execution>(
+        &'execution self,
+        raw: u32,
+    ) -> Result<ListView<'execution, BuildStmtId>, IrVerifyError> {
+        let (block, payload) = self.block_id(raw, super::BLOCK_STATEMENTS)?;
+        ListView::from_block(
+            DecodeContext::new(self),
+            block,
+            payload.cursor,
+        )
     }
 }
 
