@@ -311,9 +311,19 @@ block-device copy regression cannot open a host device. The same tests accept
 1 GiB for the large virtual `dd` buffer case; its empty input must not commit
 the virtual allocation to physical memory.
 
-Successful `date --set` tests require a disposable virtual machine: Linux time
-namespaces isolate monotonic and boot clocks, but not the realtime clock. They
-must never run in a container sharing the host clock.
+Successful `date --set` tests require a disposable QEMU guest: Linux time
+namespaces isolate monotonic and boot clocks, but not the realtime clock. Run
+the ignored `date_clock::` cases only with a software-emulated machine such as
+`-machine q35,accel=tcg -rtc base=2020-01-01T00:00:00,clock=vm`, with no
+network or host device passthrough. Supply a fresh 256-bit lowercase
+`xsh_disposable_nonce` boot argument and have the guest init process expose the
+same value as `XSH_DISPOSABLE_QEMU_NONCE`. Before starting `date`, the tests
+require the matching nonce, QEMU's DMI identity, its emulated CMOS RTC, and
+guest root; they must never run in a container sharing the host clock. Run the
+same filter with
+`XSH_CORE_COMPAT_REFERENCE_DIR=/usr/local/bin` inside the guest for GNU 9.12.
+The retained btrfs reflink case also checks for that disposable guest before
+mounting its private filesystem image.
 
 The two infinite `/dev/zero` split cases use a separate pinned container with
 CPU quota `--cpus=0.01` and a 1 GiB memory limit. They require that quota, wait

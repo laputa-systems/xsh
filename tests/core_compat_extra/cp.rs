@@ -8,6 +8,34 @@ fn copied(command: &mut std::process::Command) {
     assert!(output.status.success(), "cp failed: {}", String::from_utf8_lossy(&output.stderr));
 }
 
+#[cfg(target_os = "linux")]
+pub(super) fn require_disposable_qemu_guest() {
+    // Match a fresh marker supplied by the QEMU launch to the one exposed by
+    // the guest init process, so an arbitrary environment variable cannot arm
+    // a clock-setting test on the machine that runs the test binary.
+    let vendor = std::fs::read_to_string("/sys/class/dmi/id/sys_vendor")
+        .expect("BLOCKED: privileged boundary requires a disposable QEMU guest");
+    assert_eq!(vendor.trim(), "QEMU", "BLOCKED: boundary tests must run in QEMU");
+    let rtc = std::fs::read_to_string("/sys/class/rtc/rtc0/name")
+        .expect("BLOCKED: disposable QEMU guest must expose its emulated RTC");
+    assert!(rtc.trim().starts_with("rtc_cmos"), "BLOCKED: boundary tests require QEMU's emulated CMOS RTC");
+    assert_eq!(unsafe { libc::geteuid() }, 0, "BLOCKED: boundary tests require guest root");
+    let command_line = std::fs::read_to_string("/proc/cmdline")
+        .expect("BLOCKED: disposable guest boot marker is unavailable");
+    let markers: Vec<_> = command_line
+        .split_ascii_whitespace()
+        .filter_map(|field| field.strip_prefix("xsh_disposable_nonce="))
+        .collect();
+    assert_eq!(markers.len(), 1, "BLOCKED: boundary tests require one disposable-guest nonce");
+    let nonce = std::env::var("XSH_DISPOSABLE_QEMU_NONCE")
+        .expect("BLOCKED: disposable guest init did not provide the boot nonce");
+    assert!(
+        nonce.len() == 64 && nonce.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()),
+        "BLOCKED: disposable-guest nonce must be 256-bit lowercase hexadecimal"
+    );
+    assert_eq!(markers[0], nonce, "BLOCKED: guest init nonce does not match the boot marker");
+}
+
 // origin: uutils test_cp::test_closes_file_descriptors
 #[cfg(target_os = "linux")]
 #[test]
@@ -235,6 +263,7 @@ mod privileged {
     // origin: uutils test_cp::test_cp_reflink_always_override
     #[test]
     fn test_cp_reflink_always_override() {
+        super::require_disposable_qemu_guest();
         mount_worker("cp::privileged::test_cp_reflink_always_override", || {
             let directory = tempfile::tempdir().unwrap();
             std::fs::create_dir_all(directory.path().join("disk_root/dir")).unwrap();
