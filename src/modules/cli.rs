@@ -343,7 +343,7 @@ struct FormSpec {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum ArgValueType {
+pub(crate) enum ArgValueType {
     Str,
     Int,
     UInt,
@@ -2708,6 +2708,19 @@ fn value_choice_text(value: &Value) -> Option<String> {
     }
 }
 
+/// Parse a command word using the scalar spellings shared by CLI operands.
+pub(crate) fn parse_scalar_word(raw: &str, value_ty: &ArgValueType) -> Result<Value, RuntimeError> {
+    let value = match value_ty {
+        ArgValueType::Str => Some(Value::Str(raw.into())),
+        ArgValueType::Int => raw.parse::<i64>().ok().map(Value::Int),
+        ArgValueType::UInt => parse_uint(raw).map(Value::Int),
+        ArgValueType::Bool => parse_bool(raw).map(Value::Bool),
+        ArgValueType::Path => return PathValue::from_text(raw).map(Value::Path),
+        ArgValueType::Duration => DurationValue::from_literal(raw).map(Value::Duration),
+    };
+    value.ok_or_else(|| RuntimeError::new("type-error", format!("expects {value_ty:?}, got `{raw}`")))
+}
+
 fn convert_arg_value(
     name: &str,
     raw: &str,
@@ -2715,38 +2728,13 @@ fn convert_arg_value(
     index: usize,
     span: Span,
 ) -> Result<Value, RuntimeError> {
-    match value_ty {
-        ArgValueType::Str => Ok(Value::Str(raw.into())),
-        ArgValueType::Int => raw.parse::<i64>().map(Value::Int).map_err(|_| {
-            cli_error(
-                format!("option --{name} expects Int at argv[{index}], got `{raw}`"),
-                span,
-            )
-        }),
-        ArgValueType::UInt => parse_uint(raw).map(Value::Int).ok_or_else(|| {
-            cli_error(
-                format!("option --{name} expects UInt at argv[{index}], got `{raw}`"),
-                span,
-            )
-        }),
-        ArgValueType::Bool => parse_bool(raw).map(Value::Bool).ok_or_else(|| {
-            cli_error(
-                format!("option --{name} expects Bool at argv[{index}], got `{raw}`"),
-                span,
-            )
-        }),
-        ArgValueType::Path => PathValue::from_text(raw)
-            .map(Value::Path)
-            .map_err(|error| error.with_span(span)),
-        ArgValueType::Duration => DurationValue::from_literal(raw)
-            .map(Value::Duration)
-            .ok_or_else(|| {
-                cli_error(
-                    format!("option --{name} expects Duration at argv[{index}], got `{raw}`"),
-                    span,
-                )
-            }),
-    }
+    parse_scalar_word(raw, value_ty).map_err(|error| {
+        if *value_ty == ArgValueType::Path {
+            error.with_span(span)
+        } else {
+            cli_error(format!("option --{name} expects {value_ty:?} at argv[{index}], got `{raw}`"), span)
+        }
+    })
 }
 
 fn convert_command_arg_value(
@@ -2756,39 +2744,13 @@ fn convert_command_arg_value(
     index: usize,
     span: Span,
 ) -> Result<Value, RuntimeError> {
-    match value_ty {
-        ArgValueType::Str => Ok(Value::Str(raw.into())),
-        ArgValueType::Int => raw.parse::<i64>().map(Value::Int).map_err(|_| {
-            cli_commands_error(
-                format!("positional `{name}` expects Int at argv[{index}], got `{raw}`"),
-                span,
-            )
-        }),
-        ArgValueType::UInt => parse_uint(raw).map(Value::Int).ok_or_else(|| {
-            cli_commands_error(
-                format!("positional `{name}` expects UInt at argv[{index}], got `{raw}`"),
-                span,
-            )
-        }),
-        ArgValueType::Bool => parse_bool(raw).map(Value::Bool).ok_or_else(|| {
-            cli_commands_error(
-                format!("positional `{name}` expects Bool at argv[{index}], got `{raw}`"),
-                span,
-            )
-        }),
-        ArgValueType::Path => {
-            let path = PathValue::from_text(raw).map_err(|error| error.with_span(span))?;
-            Ok(Value::Path(path))
+    parse_scalar_word(raw, value_ty).map_err(|error| {
+        if *value_ty == ArgValueType::Path {
+            error.with_span(span)
+        } else {
+            cli_commands_error(format!("positional `{name}` expects {value_ty:?} at argv[{index}], got `{raw}`"), span)
         }
-        ArgValueType::Duration => DurationValue::from_literal(raw)
-            .map(Value::Duration)
-            .ok_or_else(|| {
-                cli_commands_error(
-                    format!("positional `{name}` expects Duration at argv[{index}], got `{raw}`"),
-                    span,
-                )
-            }),
-    }
+    })
 }
 
 fn parse_bool(raw: &str) -> Option<bool> {

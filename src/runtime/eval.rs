@@ -45,6 +45,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use xsh_root::Root;
 
+mod call_plan;
+use call_plan::ModuleCallPlan;
 mod indexed;
 mod lower;
 use indexed::full::{FullBuilder, FullProgram};
