@@ -40,20 +40,24 @@ pure decimal_greater(left: Str, right: Str) -> Bool {
   false
 }
 
-# A malformed or overflowing number is an `--pages` argument error, not a page
-# range error; zero and a reversed range are the page range errors.
 type PageNumber = {value: Int, display: Str}
 proc page_number(value: Str, range: Str) -> PageNumber {
-  if rx"^-[0-9]+$".matches(value) or ! rx"^\+?[0-9]+$".matches(value) {
+  # A missing numeric prefix is an argument error; trailing text after a valid
+  # page number is a range error unless the numeric prefix itself overflows.
+  let parts = rx"^(\+?[0-9]+)(.*)$".captures(value)
+  if rx"^-[0-9]+$".matches(value) or parts.is_empty() {
     gnu.error(f"invalid --pages argument {gnu.quote_value(range)}")
     exit 1
   }
-  let digits = page_decimal(value)
+  let digits = page_decimal(parts[1])
+  let suffix = parts[2]
   if digits == "0" { page_error(range) }
   if decimal_greater(digits, "18446744073709551615") {
-    gnu.error(f"invalid --pages argument {gnu.quote_value(range)}")
+    let message = if suffix == "" { f"--pages argument {gnu.quote_value(range)} too large" } else { f"invalid suffix in --pages argument {gnu.quote_value(range)}" }
+    gnu.error(message)
     exit 1
   }
+  if suffix != "" { page_error(range) }
   match digits.parse_int() {
     Ok(number) => {value: number, display: digits},
     Err(_) => {value: 9223372036854775807, display: digits},

@@ -185,14 +185,15 @@ test test_pr_offset_indents_the_row { |ctx|
   assert output == "  a\t    b\n"
 }
 
-test test_pr_malformed_page_numbers_name_the_pages_argument { |ctx|
+test test_pr_page_number_diagnostics_match_gnu { |ctx|
   let input = test.temp_file(ctx, name: "lines", contents: b"a\n")?
   let error = test.temp_path(ctx, name: "error")
   let too_big = [ "9" for _ in range(81) ].join("")
   for case in [["--pages=x", "x"], ["--pages=9x", "9x"], ["--pages=1:-1", "1:-1"], [f"--pages={too_big}h", f"{too_big}h"], [f"--pages={too_big}", too_big]] {
     let status = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- ${case[0]} $input 2> $error
     assert status.exited_with(1), case[0]
-    assert error.read_text()? == f"pr: invalid --pages argument '{case[1]}'\n", case[0]
+    let diagnostic = if case[0] == "--pages=9x" { f"pr: invalid page range '{case[1]}'\n" } else if case[0] == f"--pages={too_big}h" { f"pr: invalid suffix in --pages argument '{case[1]}'\n" } else if case[0] == f"--pages={too_big}" { f"pr: --pages argument '{case[1]}' too large\n" } else { f"pr: invalid --pages argument '{case[1]}'\n" }
+    assert error.read_text()? == diagnostic, case[0]
   }
 }
 
