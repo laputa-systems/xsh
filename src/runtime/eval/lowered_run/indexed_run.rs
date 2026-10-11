@@ -66,10 +66,14 @@ use xsh_registry::stream_parameters::DEFAULT_PAR_MAP_WORKERS;
 
 /// Eager sequence materialization reports host capacity failures through XSH errors.
 fn indexed_allocation_error(kind: &str, span: Span) -> RuntimeError {
-    RuntimeError::host(
+    let mut error = RuntimeError::host(
         kind,
         &std::io::Error::from_raw_os_error(libc::ENOMEM),
-    ).with_span(span)
+    ).with_span(span);
+    // Materialization failure belongs to the checked expression, so local
+    // Result boundaries must capture it just like explicit propagation.
+    error.propagated = true;
+    error
 }
 
 fn indexed_range_values(start: i64, end: i64, span: Span) -> Result<Vec<LoweredValue>, RuntimeError> {
