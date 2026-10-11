@@ -250,9 +250,7 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
   var input = source
   let existence = target.exists()
   if let Err(failure) = existence {
-    if failure.errno == 20 {
-      invalid(f"cannot create regular file {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")?
-    }
+    invalid(f"cannot stat {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")?
   }
   let exists = existence?
   var created = ! exists
@@ -283,11 +281,19 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
       }
     }
   }
+  var output = ""
+  var announced = false
   if meta.kind == "dir" {
     if ! opts.recursive { invalid(f"-r not specified; omitting directory {gnu.quote_bytes(source.bytes())}")? }
     for ancestor in ancestors {
       if ancestor.dev == meta.dev and ancestor.ino == meta.ino {
         invalid(f"cannot copy cyclic symbolic link {gnu.quote_bytes(source.bytes())}")?
+      }
+    }
+    if exists and dest_kind == "dir" {
+      let destination_meta = fs.stat(target, follow_symlinks: true)?
+      if meta.dev == destination_meta.dev and meta.ino == destination_meta.ino {
+        invalid(f"{gnu.quote_bytes(source.bytes())} and {gnu.quote_bytes(target.bytes())} are the same file")?
       }
     }
     if command_line and inside(source, target) {
@@ -310,13 +316,7 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
     }
     if ! exists { mkdir_copy(target, meta.mode, opts) }
     if opts.verbose and ! exists {
-      let target_bytes = target.bytes()
-      let verbose_target = if opts.parents or target_bytes.byte_at(target_bytes.len() - 1) == 47 {
-        target_bytes
-      } else {
-        bytes.concat([target_bytes, b"/"])
-      }
-      gnu.write_text(f"{gnu.quote_bytes(source.bytes())} -> {gnu.quote_bytes(verbose_target)}\n")
+      gnu.write_text(f"{gnu.quote_bytes(source.bytes())} -> {gnu.quote_bytes(target.bytes())}\n")
     }
     var failed = false
     if ! opts.one_fs or command_line or meta.dev == root_dev {
@@ -395,7 +395,7 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
       invalid(f"{gnu.quote_bytes(source.bytes())} and {gnu.quote_bytes(target.bytes())} are the same file")?
     }
     if (opts.hardlink or opts.symlink) and ! opts.force and ! opts.remove and opts.backup == "none" {
-      let kind = if opts.hardlink { "hard link" } else { "symlink" }
+      let kind = if opts.hardlink { "hard link" } else { "symbolic link" }
       invalid(f"cannot create {kind} {gnu.quote_bytes(target.bytes())} to {gnu.quote_bytes(source.bytes())}: File exists")?
     }
     if opts.attributes and meta.kind == "symlink" and ! opts.remove and opts.backup == "none" {
@@ -415,9 +415,13 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
       (! follow and meta.kind != "file" and ! opts.attributes) {
       # A special file cannot be created over an existing non-directory, so a
       # non-dereferenced special source replaces the destination first.
+      if opts.verbose and remove_readonly {
+        output += f"{gnu.quote_bytes(source.bytes())} -> {gnu.quote_bytes(target.bytes())}\n"
+        announced = true
+      }
       target.remove()
       created = true
-      if opts.verbose { gnu.write_text(f"removed {gnu.quote_bytes(target.bytes())}\n") }
+      if opts.verbose { output += f"removed {gnu.quote_bytes(target.bytes())}\n" }
     } else if dest_kind == "symlink" and ! (e"POSIXLY_CORRECT" is Ok(_)) {
       if let Err(failure) = fs.stat(target, follow_symlinks: true) {
         if failure.errno == 2 {
@@ -425,6 +429,9 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
         }
       }
     }
+  }
+  if opts.verbose and ! announced {
+    output += f"{gnu.quote_bytes(source.bytes())} -> {gnu.quote_bytes(target.bytes())}\n"
   }
   var linked = false
   if opts.links and ! opts.symlink and ! opts.hardlink {
@@ -471,29 +478,25 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
       if opts.debug {
         # Virtual files can report a size that differs from the bytes read; use
         # that together with allocated blocks to distinguish them from holes.
-        let source_has_holes = meta.blocks_512 < meta.size / 512
         let virtual_source = meta.kind == "file" and meta.blocks_512 == 0 and meta.size != result.bytes
+        let source_has_holes = ! virtual_source and meta.blocks_512 < meta.size / 512
         let source_has_data = if meta.kind != "file" or meta.size == 0 {
           result.bytes > 0
         } else {
           meta.blocks_512 > 0 or virtual_source
         }
-        let offload = if opts.reflink == "always" {
+        let offload = if opts.reflink == "auto" and opts.sparse == "auto" and result.offload_error != null {
+          gnu.strerror(result.offload_error)
+        } else if result.method == "clone" {
           "unknown"
         } else if opts.reflink == "auto" and opts.sparse == "auto" {
-          if source_has_data and (meta.size == 0 or (source_has_holes and meta.blocks_512 == 0)) {
-            "unsupported"
-          } else if (source_has_data and meta.size > 0) or (meta.size > 0 and meta.size < 512) {
-            "yes"
-          } else {
-            "unknown"
-          }
+          if result.method == "copy_file_range" { "yes" } else { "unknown" }
         } else if meta.kind != "file" or source_has_data or meta.size < 512 {
           "avoided"
         } else {
           "unknown"
         }
-        let reflink = if opts.reflink == "always" { "yes" } else if opts.reflink == "never" or opts.sparse == "never" { "no" } else { "unsupported" }
+        let reflink = if result.method == "clone" { "yes" } else if opts.reflink == "never" or opts.sparse == "never" { "no" } else if result.reflink_error != null { gnu.strerror(result.reflink_error) } else { "unknown" }
         let sparse = if opts.sparse == "always" {
           if source_has_holes and source_has_data { "SEEK_HOLE + zeros" } else if source_has_holes { "SEEK_HOLE" } else { "zeros" }
         } else if opts.reflink == "always" {
@@ -503,13 +506,14 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
         } else {
           "no"
         }
-        gnu.write_text(f"copy offload: {offload}, reflink: {reflink}, sparse detection: {sparse}\n")
+        output += f"copy offload: {offload}, reflink: {reflink}, sparse detection: {sparse}\n"
       }
     }
     preserve(input, target, opts, follow, meta, created: created)?
   }
   copies += [{dev: meta.dev, ino: meta.ino, path: target_key, kind: fs.stat(target)?.kind}]
-  if opts.verbose { gnu.write_text(f"{gnu.quote_bytes(source.bytes())} -> {gnu.quote_bytes(target.bytes())}\n") }
+  # Copying commits the destination before a verbose output failure is reported.
+  if output != "" { gnu.write_text(output) }
   Ok({copies: copies, failed: false})
 }
 
@@ -618,8 +622,8 @@ proc main(...raw_argv: List[Bytes]) {
         "update" => opts.update = option_value(value ?? "older", ["all", "older", "none", "none-fail"], "update")
         "T" | "no-target-directory" => opts.no_target = true
         "t" | "target-directory" => { if opts.target != null { gnu.usage_error("multiple target directories specified") }; opts.target = val }
-        "l" | "link" => { opts.hardlink = true; opts.symlink = false }
-        "s" | "symbolic-link" => { opts.symlink = true; opts.hardlink = false }
+        "l" | "link" => opts.hardlink = true
+        "s" | "symbolic-link" => opts.symlink = true
         "p" => { opts.mode = true; opts.no_mode = false; opts.owner = true; opts.times = true }
         "preserve" | "no-preserve" => {
           let attrs = (value ?? "mode,ownership,timestamps").split(",")
@@ -669,8 +673,9 @@ proc main(...raw_argv: List[Bytes]) {
   if ! (opts.reflink in ["auto", "always", "never"]) { gnu.usage_error(f"invalid argument {gnu.quote(opts.reflink)} for 'reflink'") }
   opts.backup = option_value(opts.backup, ["none", "off", "simple", "never", "existing", "nil", "numbered", "t"], "backup")
   if opts.backup in ["none", "off"] { opts.backup = "none" } else if opts.backup in ["simple", "never"] { opts.backup = "simple" } else if ! (opts.backup in ["existing", "nil", "numbered", "t"]) { gnu.usage_error(f"invalid argument {gnu.quote(opts.backup)} for 'backup'") }
+  if opts.hardlink and opts.symlink { gnu.usage_error("cannot make both hard and symbolic links") }
   if opts.reflink == "always" and opts.sparse != "auto" { gnu.usage_error("--reflink can be used only with --sparse=auto") }
-  if opts.backup != "none" and opts.overwrite == "never" { gnu.usage_error("options --backup and --no-clobber are mutually exclusive") }
+  if opts.backup != "none" and opts.overwrite == "never" { gnu.usage_error("--backup is mutually exclusive with -n or --update=none-fail") }
   if opts.backup != "none" and opts.update in ["none", "none-fail"] { gnu.usage_error("--backup is mutually exclusive with -n or --update=none-fail") }
   if opts.no_target and opts.target != null { gnu.usage_error("cannot combine --target-directory (-t) and --no-target-directory (-T)") }
   if operands.is_empty() { gnu.missing_operand() }
@@ -687,16 +692,24 @@ proc main(...raw_argv: List[Bytes]) {
   }
   if dest.display().ends_with("/") and fs.stat(dest, follow_symlinks: true) is Err(_) and
     (! opts.recursive or fs.stat(Path.parse_bytes(source_args[0])?, follow_symlinks: true)?.kind != "dir") {
-    gnu.error(f"{gnu.quote_bytes(dest.bytes())} is not a directory")
+    gnu.error(f"cannot create regular file {gnu.quote_bytes(dest.bytes())}: Not a directory")
     exit 1
   }
   if opts.parents and ! directory { gnu.usage_error("with --parents, the destination must be a directory") }
-  if (sources.len() > 1 or opts.target != null) and ! directory { gnu.usage_error(f"target {gnu.quote_bytes(dest.bytes())} is not a directory") }
+  if (sources.len() > 1 or opts.target != null) and ! directory {
+    let kind = if opts.target != null { "target directory" } else { "target" }
+    let lookup = fs.stat(dest, follow_symlinks: true)
+    let reason = if let Err(failure) = lookup { gnu.strerror(failure) } else { "Not a directory" }
+    gnu.error(f"{kind} {gnu.quote_bytes(dest.bytes())}: {reason}")
+    exit 1
+  }
   var saved: List[FileIdentity] = []
   var failed = false
   for text in source_args {
     if text == b"" { gnu.error("cannot stat '': No such file or directory"); failed = true; continue }
-    let source = Path.parse_bytes(if opts.strip { strip_end(text) } else { text })?
+    # GNU strips source slashes only when copying into a target directory;
+    # a two-operand file copy still asks the kernel to resolve the original name.
+    let source = Path.parse_bytes(if opts.strip and directory { strip_end(text) } else { text })?
     var target = if directory { child_path(dest, basename_path(source)?) } else { dest }
     if opts.parents {
       target = Path.parse_bytes(bytes.concat([dest.bytes(), b"/", strip_start(text)]))?
@@ -708,7 +721,11 @@ proc main(...raw_argv: List[Bytes]) {
         Err(failure) => { report(source, target, failure); failed = true; continue }
       }
     }
-    match fs.stat(source, follow_symlinks: true) {
+    # Following a symbolic link can advance its access time even on failure.
+    # Validate with the copy's dereference policy before capturing its metadata.
+    let follow = opts.dereference == "all" or opts.dereference == "command" or
+      (opts.dereference == "default" and (! opts.recursive or opts.hardlink))
+    match fs.stat(source, follow_symlinks: follow) {
       Err(failure) => {
         if fs.stat(source) is Ok(_) and (opts.dereference == "none" or opts.recursive) {
           match copy_node(source, target, opts, true, 0, [], saved) {

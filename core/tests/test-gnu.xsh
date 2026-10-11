@@ -351,3 +351,14 @@ test test_gnu_quote_value_uses_locale_style_c_escapes { |ctx|
   let utf8 = probe(ctx, ["quote-value", "a²\t"], locale: "en_US.UTF-8")?
   assert utf8.stdout == "‘a²\\t’\n", "a UTF-8 locale prints curly quotes and printable text as is"
 }
+
+test test_gnu_strerror_uses_gnu_names_for_musl_errno_spellings { |ctx|
+  for sample in [
+    {message: "clone: Cross-device link (os error 18)", expected: "18|Invalid cross-device link\n"},
+    {message: "clone: Not supported (os error 95)", expected: "95|Operation not supported\n"},
+    {message: "parse: Result not representable (os error 34)", expected: "34|Numerical result out of range\n"},
+  ] {
+    let result = probe(ctx, ["synthetic", sample.message])?
+    assert result.stdout == sample.expected
+  }
+}
