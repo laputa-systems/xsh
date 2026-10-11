@@ -1,5 +1,58 @@
 # Consolidation restart handoff
 
+## Completed compatibility integration — 2026-10-11, `ca11c451`
+
+At the owner's request, master `4b0b4e7c` is merged in `654bfad3` rather than
+rewriting the consolidation history. Master includes the completed native
+compatibility corpus and retirement of `dev/compat`; retained repository checks
+now live under `dev/checks` and `core/tests/origins`. The original consolidation
+baseline, corrected blanket companion, source-bound historical profiles and
+private lanes are preserved. Upstream source additions require separate exact
+accounting; they are not consolidation growth or permission to weaken final
+source shrink. No final gate is claimed.
+
+Twelve conflicts were reconciled with the campaign's moved owners. Upstream
+Path-method dispatch guards are ported to `lower/calls.rs`, native operation
+support to `lower/api.rs`, and optional Unix exec working directories to
+`lowered_run/module_unix.rs`. The rooted-children ordered option retains the
+current capability and resource owners. Catchable eager range/repeat allocation
+failures are ported to the current pipeline implementation; retired legacy
+bodies were not restored. Development workflows retain target-specific
+verification profiles and add the ordinary/privileged core boundary targets
+and separately bounded split runs. `ca11c451` restores the required enum
+import, adapts new fixtures to result-returning APIs and target-specific product
+paths, and migrates new process-test callers to the existing strict
+verification/release binary helper.
+
+The combined optimized binary build and three targeted Rust harness builds
+pass. Focused native verification passes 174 cases with three capability skips:
+collections, Unix process, numeric, locale, bytes, filesystem primitives and
+rooted children, runtime type names, development gate/cargo/target/lifecycle
+plans and all five retained repository-contract checks. Rust CLI/startup and
+two cancellation filters pass 19 cases. The first scoped cancellation run was
+interrupted during the test helper's implicit workspace tool build; it is not a
+pass. The explicit prebuild and separately recorded retry complete, but that
+retry also rebuilt workspace tools and is not performance evidence. Initial
+merge failures and corrected results are all retained under root
+`.work/consolidation/restart/upstream-4b0*`. The binary-only `lint_files` warning
+remains. Imported byte fixtures and upstream whitespace are preserved.
+
+Frozen current binaries and source hashes are in `joint-ca11-bin` and
+`joint-ca11-source.json`; the original native gate manifest binds the initial
+merged binary pair separately. Docker was stopped after interruption and was
+restarted; the exact protected native image still exists at `3b8b0133...`.
+Do not substitute the mutable image tag or host toolchain.
+
+Private frame/stage joint integration now starts at `ca11c451`, including the
+complete sealed frame cohort, scalar borrowed readers and all 46 scheduled
+stages. It must retain the newly merged allocation regressions and strong
+stream ownership. Removal of obsolete compatibility corpus exclusions,
+exact upstream source accounting, W9 deletion analysis and typed-callee
+invariant review are running in separate private lanes. The prior module,
+lint-table, proof transport, verifier and filesystem candidates remain on disk;
+none was reset or implicitly accepted during this merge. Full structural,
+semantic, final platform, documentation and performance closure remains open.
+
 ## Reader integration and native image recovery — 2026-10-11, `a5ad6e9f`
 
 Accepted since the last checkpoint: isolated command decoder coverage

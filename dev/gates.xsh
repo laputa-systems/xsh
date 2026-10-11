@@ -113,8 +113,8 @@ proc docs_gate(ctx: context.Context, profile: tests.TestProfile) [fs, process, e
     xsh: tests.product_path(ctx, profile, "xsh"), xsht: tests.product_path(ctx, profile, "xsht")))
 }
 
-## Automatic repository checks exclude the compatibility directory while its
-## sources are under active change. Explicit compatibility tools remain available.
+## Automatic repository checks include the retained command contracts and
+## source-bound consolidation ratchets.
 export pure batch_checks(ctx: context.Context, profile: tests.TestProfile) -> List[contract.CommandSpec] {
   let xsht = tests.product_path(ctx, profile, "xsht").display()
   let xsh = tests.product_path(ctx, profile, "xsh").display()
@@ -132,7 +132,7 @@ export pure batch_checks(ctx: context.Context, profile: tests.TestProfile) -> Li
 }
 
 ## Runs the complete sequence at an integration boundary without source-tree
-## formatters, autofixers, or paused compatibility ratchets.
+## formatters or autofixers.
 export proc batch(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
   let profile = tests.execution_profile()?
   tests.full(ctx, profile, privileged: ctx.target.os == "linux")
