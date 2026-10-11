@@ -300,7 +300,8 @@ settings, and treat single-run latency changes as inconclusive.
   and `par-map` worker allocation; pair memory claims with a host RSS check.
   It and `xsht frontend-stats` are not listed in `xsht --help`.
 
-Core applet host boundaries run with `cargo test --release --test core_compat_extra`.
+The ordinary core applet host-boundary target runs with
+`cargo test --release --test core_compat_extra -- --skip split::`.
 The `linux-priv-tests` feature enables the credential, device, and private mount
 namespace cases in the pinned Linux image; these require root and fail when a
 required capability is absent. Their scratch tmpfs must use `nodev` so a
@@ -320,4 +321,6 @@ for the owned applet to open the device, observe it running without output
 chunks, then kill and reap it explicitly. Their child address space is capped
 at 768 MiB. Run them with the `split::` filter; omit that filter's two cases
 from the ordinary host-boundary gate so its CPU budget does not change the
-resource fixture.
+resource fixture. `cargo dev test linux` and `cargo dev test linux --ci` run the
+ordinary suite first, then run `core_compat_extra` with `split::` in the
+separately constrained container.

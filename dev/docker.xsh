@@ -77,10 +77,12 @@ export pure internal_argv(
   host_uid: Int,
   host_gid: Int,
   stress_repeat: Str,
+  docker_options: List[Str],
   extra: List[Str],
 ) -> List[Str] {
   # PID 1 must reap orphaned jobs after an interactive shell exits.
   var argv = ["docker", "run", "--rm", "--init", "--platform", selected_platform]
+  argv += docker_options
 
   if privileged {
     argv += ["--privileged"]
@@ -134,6 +136,7 @@ export proc run_internal(
   operation: Str,
   privileged: Bool,
   extra: List[Str],
+  docker_options: List[Str],
 ) [process, env, error, io] -> Result[Unit, Error] {
   let image = ensure_image(ctx)?
   let selected_platform = platform(ctx)?
@@ -148,6 +151,7 @@ export proc run_internal(
     identity.uid,
     identity.gid,
     stress_repeat,
+    docker_options,
     extra,
   )
   stages.execute(

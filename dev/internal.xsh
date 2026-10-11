@@ -96,6 +96,9 @@ export proc linux_developer_test(ctx: context.Context) [fs, process, env, error,
         "core_compat_extra",
         "--test",
         "linux_priv",
+        "--",
+        "--skip",
+        "split::",
       ],
       ctx.root,
       {XSH_OS_STRESS_REPEAT: if stress_repeat == "" { "25" } else { stress_repeat }},
@@ -199,7 +202,67 @@ export proc linux_ci_test(ctx: context.Context) [fs, process, env, error, io] ->
         ctx.target.triple,
         "--",
         "--nocapture",
+        "--skip",
+        "split::",
       ],
+      ctx.root,
+      environment,
+    ),
+  )
+}
+
+## Runs only the resource-sensitive split lifecycle tests in their constrained container.
+export proc linux_split_resource_test(ctx: context.Context, ci: Bool) [fs, process, env, error, io] -> Result[Unit, Error] {
+  stages.ensure_dir(ctx.target_dir)
+  defer repair_target(ctx)
+  stages.execute(
+    stages.command(
+      "linux-git-safe-directory",
+      ctx.target.triple,
+      "git",
+      ["git", "config", "--global", "--add", "safe.directory", "/work"],
+      ctx.root,
+      {},
+    ),
+  )
+  let environment = if ci { targets.docker_test_env(ctx.target.triple)? } else { {} }
+  let command = if ci {
+    [
+      "cargo",
+      "test",
+      "--locked",
+      "--profile",
+      ctx.profile,
+      "--features",
+      "linux-priv-tests net tools",
+      "--target",
+      ctx.target.triple,
+      "--test",
+      "core_compat_extra",
+      "split::",
+      "--",
+      "--test-threads=1",
+    ]
+  } else {
+    [
+      "cargo",
+      "test",
+      "--release",
+      "--features",
+      "linux-priv-tests",
+      "--test",
+      "core_compat_extra",
+      "split::",
+      "--",
+      "--test-threads=1",
+    ]
+  }
+  cargo_steps.run_test(
+    stages.command(
+      if ci { "linux-ci-split-resource-test" } else { "linux-split-resource-test" },
+      ctx.target.triple,
+      "cargo",
+      command,
       ctx.root,
       environment,
     ),

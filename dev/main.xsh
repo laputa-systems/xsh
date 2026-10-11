@@ -63,6 +63,8 @@ enum InternalOperation {
     Dist,
     TestLinux,
     TestLinuxCi,
+    TestLinuxSplit,
+    TestLinuxCiSplit,
     Coverage,
 }
 
@@ -71,6 +73,8 @@ pure internal_operation(value: Str) -> Result[InternalOperation] {
     "dist" => Dist
     "test-linux" => TestLinux
     "test-linux-ci" => TestLinuxCi
+    "test-linux-split" => TestLinuxSplit
+    "test-linux-ci-split" => TestLinuxCiSplit
     "coverage" => Coverage
     else => Err(usage(f"unsupported internal operation {value}"))
   }
@@ -331,6 +335,8 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
         Dist => return container_internal.container_dist(ctx)
         TestLinux => return container_internal.linux_developer_test(ctx)
         TestLinuxCi => return container_internal.linux_ci_test(ctx)
+        TestLinuxSplit => return container_internal.linux_split_resource_test(ctx, false)
+        TestLinuxCiSplit => return container_internal.linux_split_resource_test(ctx, true)
         Coverage => return container_internal.container_coverage(ctx)
       }
     }

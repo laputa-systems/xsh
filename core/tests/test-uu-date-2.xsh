@@ -1284,7 +1284,6 @@ test test_uu_date_date_thai_locale_solar_calendar { |ctx|
   }
 }
 
-# origin: uutils test_date::test_date_set_valid_2
 test test_uu_date_date_set_valid_2 { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "date", ["--set", "Sat 20 Mar 2021 14:53:01 AWST"], vars: {"LC_ALL": "C", "TZ": "UTC0"})?
