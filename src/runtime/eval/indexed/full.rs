@@ -46,6 +46,20 @@ use std::mem::size_of;
 use std::rc::Rc;
 use std::sync::Arc;
 
+fn is_resource_transfer_instruction(tag: FullTag) -> bool {
+    matches!(
+        tag,
+        FullTag::StmtReturn
+            | FullTag::StmtValue
+            | FullTag::StmtBreakValue
+            | FullTag::StmtAssign
+            | FullTag::StmtAssignField
+            | FullTag::StmtAssignPath
+            | FullTag::StmtYield
+            | FullTag::StmtYieldDelegate
+    )
+}
+
 const DRIVER_OWNER_BIT: u32 = 1 << 31;
 const DRIVER_SLOT_READ: u8 = 1;
 const DRIVER_SLOT_WRITE: u8 = 1 << 1;
@@ -276,6 +290,9 @@ struct FullFunctionMetadata {
 struct FullStore {
     source_id: SourceId,
     tags: Vec<FullTag>,
+    /// Private true marks come only from checked facts emitted by the builder.
+    /// They stay beside the instruction stream and never enter encoded payloads.
+    resource_transfers: Vec<bool>,
     data: Vec<IrData>,
     extra: Vec<u32>,
     patterns: Vec<FullPatternTag>,
@@ -325,6 +342,7 @@ impl Default for FullStore {
         Self {
             source_id: SourceId::new(0),
             tags: Vec::new(),
+            resource_transfers: Vec::new(),
             data: Vec::new(),
             extra: Vec::new(),
             patterns: Vec::new(),
@@ -462,6 +480,7 @@ impl FullStore {
     fn retained_bytes(&self) -> usize {
         size_of::<Self>()
             + self.tags.capacity() * size_of::<FullTag>()
+            + self.resource_transfers.capacity() * size_of::<bool>()
             + self.data.capacity() * size_of::<IrData>()
             + self.extra.capacity() * size_of::<u32>()
             + self.patterns.capacity() * size_of::<FullPatternTag>()
@@ -529,6 +548,7 @@ impl FullStore {
 
     fn shrink_to_fit(&mut self) {
         self.tags.shrink_to_fit();
+        self.resource_transfers.shrink_to_fit();
         self.data.shrink_to_fit();
         self.extra.shrink_to_fit();
         self.patterns.shrink_to_fit();
@@ -2370,6 +2390,7 @@ impl FullBuilder {
             .map_err(|_| IrBuildError::format("instruction_overflow", None, 0, 0))?;
         let range = self.push_extra(payload)?;
         self.store.tags.push(tag);
+        self.store.resource_transfers.push(false);
         self.store.data.push(IrData::new(range.start, range.len));
         debug_assert_eq!(
             function,
@@ -2599,6 +2620,7 @@ impl FullBuilder {
 
     fn rewind(&mut self, checkpoint: FullCheckpoint) {
         self.store.tags.truncate(checkpoint.tags);
+        self.store.resource_transfers.truncate(checkpoint.tags);
         self.store.data.truncate(checkpoint.tags);
         self.store.extra.truncate(checkpoint.extra);
         self.store.patterns.truncate(checkpoint.patterns);
@@ -2930,6 +2952,16 @@ impl<'a> FullExecution<'a> {
             .expect("verified full IR has an in-place mark table")
             .get(instruction as usize)
             .expect("verified instruction ID is in bounds")
+    }
+
+    #[inline(always)]
+    pub(in crate::runtime::eval) fn transfers_resource(&self, instruction: u32) -> bool {
+        *self
+            .decoder
+            .store
+            .resource_transfers
+            .get(instruction as usize)
+            .expect("verified resource-transfer instruction ID is in bounds")
     }
 
     pub(in crate::runtime::eval) fn string(&self, raw: u32) -> Result<&str, IrVerifyError> {
@@ -4177,6 +4209,22 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
 }
 
 impl FullVerifier {
+    fn verify_resource_transfer_sites(store: &FullStore) -> Result<(), IrVerifyError> {
+        if store.resource_transfers.len() != store.tags.len() {
+            return Err(IrVerifyError::new(
+                "resource-transfer metadata does not match instruction count",
+            ));
+        }
+        for (&tag, &transfers_resource) in store.tags.iter().zip(&store.resource_transfers) {
+            if transfers_resource && !is_resource_transfer_instruction(tag) {
+                return Err(IrVerifyError::new(
+                    "resource-transfer metadata is attached to an invalid instruction",
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Private representation operations are reachable only from the embedded
     /// implementation module that declares them.
     ///
@@ -4238,6 +4286,7 @@ impl FullVerifier {
     fn verify(program: &FullProgram) -> Result<(), IrVerifyError> {
         let _symbols = program.symbol_owner().enter();
         let store = &program.store;
+        Self::verify_resource_transfer_sites(store)?;
         for plan in &store.prepared_module_call_plans {
             match plan.as_ref() {
                 crate::runtime::eval::ModuleCallPlan::SignatureCli(_) => {}
@@ -6305,7 +6354,7 @@ fn verify_node_metadata(
 
 
 macro_rules! impl_build_id_codec {
-    ($id:ty, $rows:ident, $row:ty) => {
+    ($id:ty, $rows:ident, $row:ty, $resource_transfer:literal) => {
         impl FullCodec for $id {
             fn encode(
                 &self,
@@ -6320,7 +6369,41 @@ macro_rules! impl_build_id_codec {
                     .$rows
                     .get(self.index())
                     .ok_or_else(|| IrBuildError::format("indexed_build_id", None, 0, 0))?;
-                row.encode(builder, output)
+                let transfers_resource = if $resource_transfer {
+                    *scratch.resource_transfers.get(self.index()).ok_or_else(|| {
+                        IrBuildError::format("indexed_resource_transfer_fact", None, 0, 0)
+                    })?
+                } else {
+                    false
+                };
+                let instruction_start = builder.store.tags.len();
+                row.encode(builder, output)?;
+                if transfers_resource {
+                    let instruction = builder
+                        .store
+                        .tags
+                        .len()
+                        .checked_sub(1)
+                        .filter(|instruction| *instruction >= instruction_start)
+                        .ok_or_else(|| {
+                            IrBuildError::format(
+                                "indexed_resource_transfer_instruction",
+                                None,
+                                0,
+                                builder.store.tags.len(),
+                            )
+                        })?;
+                    if !is_resource_transfer_instruction(builder.store.tags[instruction]) {
+                        return Err(IrBuildError::format(
+                            "indexed_resource_transfer_tag",
+                            None,
+                            0,
+                            instruction,
+                        ));
+                    }
+                    builder.store.resource_transfers[instruction] = true;
+                }
+                Ok(())
             }
 
             fn decode(
@@ -6341,11 +6424,11 @@ macro_rules! impl_build_id_codec {
     };
 }
 
-impl_build_id_codec!(BuildExprId, expressions, BuildExprRow);
-impl_build_id_codec!(BuildStmtId, statements, BuildStmtRow);
-impl_build_id_codec!(BuildPatternId, patterns, BuildPatternRow);
-impl_build_id_codec!(BuildIntId, ints, BuildIntRow);
-impl_build_id_codec!(BuildBoolId, bools, BuildBoolRow);
+impl_build_id_codec!(BuildExprId, expressions, BuildExprRow, false);
+impl_build_id_codec!(BuildStmtId, statements, BuildStmtRow, true);
+impl_build_id_codec!(BuildPatternId, patterns, BuildPatternRow, false);
+impl_build_id_codec!(BuildIntId, ints, BuildIntRow, false);
+impl_build_id_codec!(BuildBoolId, bools, BuildBoolRow, false);
 
 
 
@@ -7390,6 +7473,23 @@ defer run true
 run true
 "#;
 
+    #[test]
+    fn resource_transfer_marks_require_aligned_eligible_instructions() {
+        let mut store = FullStore::default();
+        store.tags.push(FullTag::StmtReturn);
+        store.resource_transfers.push(true);
+        assert!(FullVerifier::verify_resource_transfer_sites(&store).is_ok());
+
+        store.tags.push(FullTag::StmtContinue);
+        assert!(FullVerifier::verify_resource_transfer_sites(&store).is_err());
+
+        store.resource_transfers.push(false);
+        assert!(FullVerifier::verify_resource_transfer_sites(&store).is_ok());
+
+        store.resource_transfers[1] = true;
+        assert!(FullVerifier::verify_resource_transfer_sites(&store).is_err());
+    }
+
     fn run_with_large_stack(f: impl FnOnce() + Send + 'static) {
         std::thread::Builder::new()
             .stack_size(16 * 1024 * 1024)
@@ -7524,6 +7624,7 @@ run true
             program.store.extra.extend(payload);
             program.store.data.push(IrData::new(start, len));
             program.store.tags.push(FullTag::ExprPathFrom);
+            program.store.resource_transfers.push(false);
             appended.push(instruction);
             child = u32::try_from(instruction).expect("fixture instruction ID fits");
         }

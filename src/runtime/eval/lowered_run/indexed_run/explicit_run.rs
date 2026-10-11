@@ -144,6 +144,7 @@ struct AssignPathState {
     singleton: bool,
     check: Option<LoweredTypeCheck>,
     span: Span,
+    transfers_resource: bool,
 }
 
 enum FrameContinuation {
@@ -180,11 +181,12 @@ enum FrameContinuation {
         singleton: bool,
         check: Option<LoweredTypeCheck>,
         span: Span,
+        transfers_resource: bool,
     },
     AssignSelector(AssignPathState),
     AssignPath(AssignPathState),
-    Return,
-    BlockValue,
+    Return { transfers_resource: bool },
+    BlockValue { transfers_resource: bool },
     ErrorContextEntry {
         body: u32,
         span: Span,
@@ -318,12 +320,13 @@ enum FrameContinuation {
         span: Span,
         next: Box<FrameContinuation>,
     },
-    BreakLoop,
+    BreakLoop { transfers_resource: bool },
     /// A `yield` statement's value: the frame suspends here and hands the value
     /// to whoever pulled the producer.
-    Yield,
+    Yield { transfers_resource: bool },
     YieldDelegate {
         span: Span,
+        transfers_resource: bool,
     },
     DynamicCallee {
         args: Vec<(u32, u32)>,
@@ -863,7 +866,9 @@ impl Evaluator {
         let work = FrameWork::Expr {
             instruction,
             span,
-            next: FrameContinuation::BlockValue,
+            next: FrameContinuation::BlockValue {
+                transfers_resource: false,
+            },
         };
         Ok(
             match self.eval_indexed_work_with_frames(execution, work, false, slots, span)? {
@@ -2129,6 +2134,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn eval_statement(&mut self, index: usize, instruction: u32) -> Result<(), RuntimeError> {
         // A statement starts only once any earlier `Err` was handled.
         self.evaluator.pending_traceback = None;
+        let transfers_resource = self.calls[index].execution.transfers_resource(instruction);
         let span = self.calls[index].call_span;
         let (tag, mut payload) = indexed_value(
             self.calls[index].execution.instruction_id(instruction),
@@ -2356,6 +2362,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         singleton,
                         check,
                         span: value_span,
+                        transfers_resource,
                     },
                 );
                 Ok(())
@@ -2372,6 +2379,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.advance_assign_path(index, AssignPathState {
                     slot, path: vec![IndexedAssignStep::Field(Name::intern(field.as_ref()))],
                     selectors: Vec::new(), position: 0, op, value, singleton, check: None, span: value_span,
+                    transfers_resource,
                 });
                 Ok(())
             }
@@ -2397,6 +2405,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         singleton,
                         check,
                         span,
+                        transfers_resource,
                     },
                 );
                 Ok(())
@@ -2637,12 +2646,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::StmtBreak => {
                 indexed_finish(payload, span)?;
-                self.break_loop(index, None)
+                self.break_loop(index, None, false)
             }
             FullTag::StmtBreakValue => {
                 let value = indexed_raw(&mut payload, span)?;
                 indexed_finish(payload, span)?;
-                self.push_expr(index, value, span, FrameContinuation::BreakLoop);
+                self.push_expr(
+                    index,
+                    value,
+                    span,
+                    FrameContinuation::BreakLoop { transfers_resource },
+                );
                 Ok(())
             }
             FullTag::StmtContinue => {
@@ -2664,9 +2678,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     );
                 }
                 let continuation = if tag == FullTag::StmtYieldDelegate {
-                    FrameContinuation::YieldDelegate { span }
+                    FrameContinuation::YieldDelegate {
+                        span,
+                        transfers_resource,
+                    }
                 } else {
-                    FrameContinuation::Yield
+                    FrameContinuation::Yield { transfers_resource }
                 };
                 self.push_expr(index, value, span, continuation);
                 Ok(())
@@ -2684,13 +2701,23 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FullTag::StmtValue => {
                 let value = indexed_raw(&mut payload, span)?;
                 indexed_finish(payload, span)?;
-                self.push_expr(index, value, span, FrameContinuation::BlockValue);
+                self.push_expr(
+                    index,
+                    value,
+                    span,
+                    FrameContinuation::BlockValue { transfers_resource },
+                );
                 Ok(())
             }
             FullTag::StmtReturn => {
                 let value = indexed_raw(&mut payload, span)?;
                 indexed_finish(payload, span)?;
-                self.push_expr(index, value, span, FrameContinuation::Return);
+                self.push_expr(
+                    index,
+                    value,
+                    span,
+                    FrameContinuation::Return { transfers_resource },
+                );
                 Ok(())
             }
             _ => {
@@ -2699,8 +2726,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 })?;
                 match flow {
                     StmtFlow::None => Ok(()),
-                    StmtFlow::Value(value) => self.complete_expression_value(index, value),
-                    StmtFlow::Break(value) => self.break_loop(index, value),
+                    StmtFlow::Value(value) => {
+                        self.complete_expression_value(index, value, false)
+                    }
+                    StmtFlow::Break(value) => self.break_loop(index, value, false),
                     StmtFlow::Continue => self.continue_loop(index),
                     flow => self.complete_call(index, flow),
                 }
@@ -3352,7 +3381,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         }
         if let Some(flow) = self.evaluator.pending_value_block_flow.take() {
             return match flow {
-                StmtFlow::Break(value) => self.break_loop(index, value),
+                StmtFlow::Break(value) => self.break_loop(index, value, false),
                 StmtFlow::Continue => self.continue_loop(index),
                 flow => self.complete_call(index, flow),
             };
@@ -3551,6 +3580,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 singleton,
                 check,
                 span,
+                transfers_resource,
             } => match value {
                 FrameValue::Value(value) => {
                     self.check_context_assignment(index, slot, &value, span)?;
@@ -3560,8 +3590,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     // scope; only the right side can bring resources in, so a
                     // compound assignment transfers that rather than the whole
                     // accumulated value.
-                    let incoming =
-                        (op != AssignOp::Set && owner_scope != source_scope).then(|| value.clone());
+                    let incoming = (transfers_resource
+                        && op != AssignOp::Set
+                        && owner_scope != source_scope)
+                        .then(|| value.clone());
                     let value = if let Some(check) = check.as_ref() {
                         checked_indexed_assignment(
                             &self.calls[index].slots[slot],
@@ -3580,11 +3612,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             span,
                         )?
                     };
-                    self.evaluator
-                        .transfer_owned_host_resources_in_lowered_value(
-                            incoming.as_ref().unwrap_or(&value),
-                            owner_scope,
-                        );
+                    if transfers_resource {
+                        self.evaluator
+                            .transfer_owned_host_resources_in_lowered_value(
+                                incoming.as_ref().unwrap_or(&value),
+                                owner_scope,
+                            );
+                    }
                     self.calls[index].slots[slot] = value;
                 }
                 FrameValue::Break(value) => {
@@ -3609,7 +3643,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         self.evaluator.current_scope_id(),
                         self.calls[index].slot_scope(state.slot),
                     );
-                    let incoming = (owner_scope != source_scope).then(|| value.clone());
+                    let incoming = (state.transfers_resource && owner_scope != source_scope)
+                        .then(|| value.clone());
                     apply_indexed_path_assignment(
                         &mut self.calls[index].slots[state.slot],
                         &state.selectors,
@@ -3631,18 +3666,39 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::Return => {
-                return self.complete_call(
-                    index,
-                    match value {
-                        FrameValue::Value(value) => StmtFlow::Return(value),
-                        FrameValue::Break(value) => StmtFlow::Propagate(value),
-                    },
-                );
+            FrameContinuation::Return { transfers_resource } => {
+                let flow = match value {
+                    FrameValue::Value(value) => {
+                        // `fail` lowers to a synthetic `return Err(...)`, which
+                        // has no source return-transfer fact. Keep resource
+                        // payloads alive across that checked-error boundary.
+                        let error_payload = matches!(&value, LoweredValue::ResultErr(_));
+                        if transfers_resource || error_payload {
+                            self.check_context_scope_value_escape(index, &value)?;
+                            let call_scope = self.calls[index].scope_id;
+                            let parent_scope = self
+                                .evaluator
+                                .owned_scope_parents
+                                .get(&call_scope)
+                                .copied()
+                                .expect("checked function scope has an ownership parent");
+                            self.evaluator
+                                .transfer_owned_host_resources_in_lowered_value(
+                                    &value,
+                                    parent_scope,
+                                );
+                        }
+                        StmtFlow::Return(value)
+                    }
+                    FrameValue::Break(value) => StmtFlow::Propagate(value),
+                };
+                return self.complete_call(index, flow);
             }
-            FrameContinuation::BlockValue => {
+            FrameContinuation::BlockValue { transfers_resource } => {
                 return match value {
-                    FrameValue::Value(value) => self.complete_expression_value(index, value),
+                    FrameValue::Value(value) => {
+                        self.complete_expression_value(index, value, transfers_resource)
+                    }
                     FrameValue::Break(value) => {
                         self.complete_call(index, StmtFlow::Propagate(value))
                     }
@@ -4123,8 +4179,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::BreakLoop => match value {
-                FrameValue::Value(value) => return self.break_loop(index, Some(value)),
+            FrameContinuation::BreakLoop { transfers_resource } => match value {
+                FrameValue::Value(value) => {
+                    return self.break_loop(index, Some(value), transfers_resource);
+                }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
@@ -4649,8 +4707,25 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::YieldDelegate { span } => match value {
+            FrameContinuation::YieldDelegate {
+                span,
+                transfers_resource,
+            } => match value {
                 FrameValue::Value(value) => {
+                    if transfers_resource {
+                        let producer_scope = self.calls[index].scope_id;
+                        let consumer_scope = self
+                            .evaluator
+                            .owned_scope_parents
+                            .get(&producer_scope)
+                            .copied()
+                            .expect("checked producer scope has a consumer parent");
+                        self.evaluator
+                            .transfer_owned_host_resources_in_lowered_value(
+                                &value,
+                                consumer_scope,
+                            );
+                    }
                     self.suspended = Some(ProducerSuspension::Delegated { value, span });
                     return Ok(());
                 }
@@ -4658,23 +4733,22 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::Yield => match value {
+            FrameContinuation::Yield { transfers_resource } => match value {
                 FrameValue::Value(value) => {
-                    if self.calls[index].work.iter().any(|work| {
-                        matches!(
-                            work,
-                            FrameWork::ExpressionBoundary {
-                                policy: ExpressionBoundaryPolicy::Scope(_),
-                                ..
-                            }
-                        )
-                    }) && Evaluator::context_scope_value_escapes(&value)
-                    {
-                        return Err(RuntimeError::new(
-                            "context-scope-escape",
-                            "a live producer or host handle cannot escape through yield",
-                        )
-                        .with_span(self.calls[index].call_span));
+                    self.check_context_scope_value_escape(index, &value)?;
+                    if transfers_resource {
+                        let producer_scope = self.calls[index].scope_id;
+                        let consumer_scope = self
+                            .evaluator
+                            .owned_scope_parents
+                            .get(&producer_scope)
+                            .copied()
+                            .expect("checked producer scope has a consumer parent");
+                        self.evaluator
+                            .transfer_owned_host_resources_in_lowered_value(
+                                &value,
+                                consumer_scope,
+                            );
                     }
                     // The frame keeps everything after this statement on its
                     // work stack; the puller receives the value.
@@ -4719,8 +4793,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             .take()
             .unwrap_or(StmtFlow::Propagate(value))
         {
-            StmtFlow::Value(value) => self.complete_expression_value(index, value),
-            StmtFlow::Break(value) => self.break_loop(index, value),
+            StmtFlow::Value(value) => self.complete_expression_value(index, value, false),
+            StmtFlow::Break(value) => self.break_loop(index, value, false),
             StmtFlow::Continue => self.continue_loop(index),
             flow => self.complete_call(index, flow),
         }
@@ -4853,12 +4927,20 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         &mut self,
         index: usize,
         value: LoweredValue,
+        transfers_resource: bool,
     ) -> Result<(), RuntimeError> {
         let Some(boundary) = self.calls[index]
             .work
             .iter()
             .rposition(|work| matches!(work, FrameWork::ExpressionBoundary { .. }))
         else {
+            if transfers_resource {
+                self.evaluator
+                    .transfer_owned_host_resources_in_lowered_value(
+                        &value,
+                        self.evaluator.parent_owned_host_scope(),
+                    );
+            }
             return self.complete_call(index, StmtFlow::Value(value));
         };
         if matches!(
@@ -4875,11 +4957,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             )
             .with_span(self.calls[index].call_span));
         }
-        self.evaluator
-            .transfer_owned_host_resources_in_lowered_value(
-                &value,
-                self.evaluator.parent_owned_host_scope(),
-            );
+        if transfers_resource {
+            self.evaluator
+                .transfer_owned_host_resources_in_lowered_value(
+                    &value,
+                    self.evaluator.parent_owned_host_scope(),
+                );
+        }
         self.discard_work_from(index, boundary + 1)?;
         let Some(FrameWork::ExpressionBoundary { policy, next }) = self.calls[index].work.pop()
         else {
@@ -4894,6 +4978,31 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             _ => value,
         };
         self.push_value(index, FrameValue::Value(value), next);
+        Ok(())
+    }
+
+    fn check_context_scope_value_escape(
+        &mut self,
+        index: usize,
+        value: &LoweredValue,
+    ) -> Result<(), RuntimeError> {
+        if self.calls[index].work.iter().any(|work| {
+            matches!(
+                work,
+                FrameWork::ExpressionBoundary {
+                    policy: ExpressionBoundaryPolicy::Scope(_),
+                    ..
+                }
+            )
+        }) && Evaluator::context_scope_value_escapes(value)
+        {
+            self.evaluator.pending_traceback = None;
+            return Err(RuntimeError::new(
+                "context-scope-escape",
+                "a live producer or host handle cannot escape a restored context",
+            )
+            .with_span(self.calls[index].call_span));
+        }
         Ok(())
     }
 
@@ -4979,23 +5088,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         | StmtFlow::Propagate(value)
         | StmtFlow::Break(Some(value)) = &flow
         {
-            if self.calls[index].work.iter().any(|work| {
-                matches!(
-                    work,
-                    FrameWork::ExpressionBoundary {
-                        policy: ExpressionBoundaryPolicy::Scope(_),
-                        ..
-                    }
-                )
-            }) && Evaluator::context_scope_value_escapes(value)
-            {
-                self.evaluator.pending_traceback = None;
-                return Err(RuntimeError::new(
-                    "context-scope-escape",
-                    "a live producer or host handle cannot escape a restored context",
-                )
-                .with_span(self.calls[index].call_span));
-            }
+            self.check_context_scope_value_escape(index, value)?;
+        }
+        if let StmtFlow::Propagate(value) = &flow {
             let function_scope = self.calls[index].scope_id;
             self.evaluator
                 .transfer_owned_host_resources_in_lowered_value(value, function_scope);
@@ -5294,7 +5389,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let defers = std::mem::take(&mut self.calls[index].defers);
         let leaves_with_error = flow_leaves_with_error(&flow);
         let released = match &flow {
-            StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
+            StmtFlow::Propagate(value) => {
                 self.release_call_host_resources(index, Some(value))
             }
             _ => self.release_call_host_resources(index, None),
@@ -5369,11 +5464,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.finish_error_call(index)
     }
 
-    /// Releases what the call's own scope still owns before the call's
-    /// deferred actions run. `leaving` is the value the call hands to its
-    /// caller; the handles it holds move to the caller's scope first. A call
-    /// that shares its caller's scope, or that still has an open block, owns
-    /// nothing to release here.
+    /// Releases what the call's own scope still owns before deferred actions
+    /// run. A propagating error keeps its resource payload in the caller's
+    /// scope; successful values have already crossed their checked sink.
     fn release_call_host_resources(
         &mut self,
         index: usize,
@@ -5533,13 +5626,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let write_back =
             self.evaluator
                 .write_back_lowered_captures(&header, &call.slots, call.call_span);
-        if let Ok(value) = &value {
-            let parent_scope = self.evaluator.parent_owned_host_scope();
-            self.evaluator.transfer_owned_host_resources_in_value(
-                &value.clone().into_value(),
-                parent_scope,
-            );
-        }
         if let Err(error) = &value
             && error.abort.is_none()
             && error.propagated
@@ -5618,12 +5704,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn finish_block(&mut self, index: usize, flow: StmtFlow) -> Result<(), RuntimeError> {
         let call = &mut self.calls[index];
         self.evaluator.frame_scratch.recycle(call);
-        if call.owns_scope()
-            && let StmtFlow::Value(value)
-            | StmtFlow::Return(value)
-            | StmtFlow::Propagate(value)
-            | StmtFlow::Break(Some(value)) = &flow
-        {
+        if call.owns_scope() && let StmtFlow::Propagate(value) = &flow {
             let parent = self.evaluator.parent_owned_host_scope();
             self.evaluator
                 .transfer_owned_host_resources_in_lowered_value(value, parent);
@@ -5870,10 +5951,62 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         &mut self,
         index: usize,
         value: Option<LoweredValue>,
+        transfers_resource: bool,
     ) -> Result<(), RuntimeError> {
         match self.innermost_loop(index) {
-            Some(loop_index) => self.discard_work_from(index, loop_index),
+            Some(loop_index) => {
+                if let Some(value) = value.as_ref() {
+                    if self.crosses_context_scope(index, loop_index)
+                        && Evaluator::context_scope_value_escapes(value)
+                    {
+                        self.evaluator.pending_traceback = None;
+                        return Err(RuntimeError::new(
+                            "context-scope-escape",
+                            "a live producer or host handle cannot escape a restored context",
+                        )
+                        .with_span(self.calls[index].call_span));
+                    }
+                    if transfers_resource {
+                        let body_scope = self.calls[index].work[loop_index + 1..]
+                            .iter()
+                            .find_map(|work| match work {
+                                FrameWork::Statements {
+                                    scope_id: Some(scope),
+                                    ..
+                                } => Some(*scope),
+                                _ => None,
+                            })
+                            .expect("a break inside a loop has an active body scope");
+                        let target_scope = self
+                            .evaluator
+                            .owned_scope_parents
+                            .get(&body_scope)
+                            .copied()
+                            .expect("loop body scope has an ownership parent");
+                        self.evaluator
+                            .transfer_owned_host_resources_in_lowered_value(
+                                value,
+                                target_scope,
+                            );
+                    }
+                }
+                self.discard_work_from(index, loop_index)
+            }
             None if matches!(self.calls[index].owner, FrameOwner::Block { .. }) => {
+                if let Some(value) = value.as_ref() {
+                    self.check_context_scope_value_escape(index, value)?;
+                    if transfers_resource {
+                        let target_scope = match self.calls[index].owner {
+                            FrameOwner::Block { outer_scope, .. } => outer_scope,
+                            FrameOwner::Function(..) => unreachable!(),
+                        };
+                        self.evaluator
+                            .transfer_owned_host_resources_in_lowered_value(
+                                value,
+                                target_scope,
+                            );
+                    }
+                }
                 self.complete_call(index, StmtFlow::Break(value))
             }
             None => Err(RuntimeError::new("control-flow", "break outside loop")

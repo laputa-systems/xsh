@@ -15,6 +15,8 @@ type ResourceRootHolder = {root: FsRoot?}
 type ResourceChildHolder = {child: ProcessHandle?}
 type ResourceJobHolder = {job: NetJob?}
 
+error ResourceRootError = Owned(root: FsRoot) | Unavailable
+
 proc resource_lock_available(ctx: TestContext, lock_path: Path) [fs, process, error] -> Result[Bool] {
   let output = test.expect(ctx, "print (fs.lock(Path(args[0]), nonblocking: true) is Ok(_))", status: 0, args: [lock_path])?
   output.stdout.trim() == "true"
@@ -24,8 +26,21 @@ proc resource_return_root() [fs, error] -> Result[FsRoot] {
   fs.tempdir()?
 }
 
+proc resource_return_tail_root() [fs, error] -> Result[FsRoot] {
+  let root = fs.tempdir()?
+  root
+}
+
 proc resource_borrow_root(root: FsRoot) [fs, error] -> Result[Unit] {
   root.write(p"borrowed", "live")
+}
+
+proc resource_fail_with_root() [fs, error] -> Result[FsRoot, ResourceRootError] {
+  with root = fs.tempdir() {
+    fail .Owned(root: root)
+  } else {
+    return Err(.Unavailable())
+  }
 }
 
 test resource_lock_rejects_structural_and_json_forgery { |ctx|
@@ -227,6 +242,10 @@ test resource_root_return_block_break_and_borrow_survive {
   resource_borrow_root(returned)
   assert returned.read_text(p"borrowed")? == "live"
 
+  let bare_tail = resource_return_tail_root()?
+  defer bare_tail.close()
+  assert bare_tail.exists(p".")?
+
   let block = { fs.tempdir()? }
   defer block.close()
   assert block.exists(p".")?
@@ -246,6 +265,21 @@ test resource_root_return_block_break_and_borrow_survive {
   let assigned = holder.root.require(FsRoot)?
   defer assigned.close()
   assert assigned.exists(p".")?
+}
+
+test resource_fail_payload_survives_with_else {
+  var escaped: FsRoot? = null
+  with value = resource_fail_with_root() {
+    escaped = value
+  } else { |failure|
+    match failure {
+      ResourceRootError.Owned {root} => escaped = root
+      ResourceRootError.Unavailable => {}
+    }
+  }
+  let root = escaped.require(FsRoot)?
+  defer root.close()
+  assert root.exists(p".")?
 }
 
 test resource_worker_rejects_foreign_process_before_selecting_its_child {

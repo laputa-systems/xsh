@@ -612,6 +612,7 @@ struct BuildScratch {
     /// prohibit integer-only specialization.
     non_int_binary_expressions: FxHashSet<usize>,
     statements: Vec<BuildStmtRow>,
+    resource_transfers: Vec<bool>,
     patterns: Vec<BuildPatternRow>,
     ints: Vec<BuildIntRow>,
     bools: Vec<BuildBoolRow>,
@@ -628,7 +629,12 @@ impl BuildScratch {
     fn stmt(&mut self, row: BuildStmtRow) -> BuildStmtId {
         let id = BuildStmtId::new(self.statements.len());
         self.statements.push(row);
+        self.resource_transfers.push(false);
         id
+    }
+
+    fn mark_resource_transfer(&mut self, id: BuildStmtId) {
+        self.resource_transfers[id.index()] = true;
     }
 
     fn pattern(&mut self, row: BuildPatternRow) -> BuildPatternId {

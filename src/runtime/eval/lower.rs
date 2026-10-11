@@ -4,6 +4,7 @@ use crate::modules::{ModuleFnSig, RuntimeOp, api_spec};
 use crate::runtime::value::{DurationValue, PathValue, RecordMap, RegexValue, RuntimeError, Value};
 use crate::sema::check::{
     BindingId, CheckedApiCall, CompactBodyFacts, CompactDeclOutput, CompactTypeDefInfo, Conversion,
+    ResourceTransferSite,
 };
 use crate::sema::records::standard_record_type;
 use crate::sema::types::{CallableParamType, ModuleExportType, Type};
@@ -3578,8 +3579,36 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         if let ArenaStmtKind::Sugar { expansion, .. } = self.program.arena.stmt(id).kind {
             return self.lower_stmt(expansion, slots, current_function, item_slot);
         }
+        let statement_kind = self.program.arena.stmt(id).kind;
+        let transfer_site = if self.program.arena.stmt_is_synthetic(id) {
+            None
+        } else {
+            match statement_kind {
+                ArenaStmtKind::Return(_) => Some(ResourceTransferSite::Return(id)),
+                ArenaStmtKind::Break { .. } => Some(ResourceTransferSite::Break(id)),
+                ArenaStmtKind::Yield(_) | ArenaStmtKind::YieldDelegate(_) => {
+                    Some(ResourceTransferSite::Yield(id))
+                }
+                ArenaStmtKind::Assign { target, .. }
+                    if !matches!(
+                        self.program.arena.assign_target(target).kind,
+                        ArenaAssignTargetKind::Env(_)
+                    ) && self
+                        .bodies
+                        .resource_transfer(ResourceTransferSite::OuterAssignment(id))
+                        .is_some() =>
+                {
+                    Some(ResourceTransferSite::OuterAssignment(id))
+                }
+                _ => None,
+            }
+        };
+        let transfer_fact = match transfer_site {
+            Some(site) => Some(self.require_resource_transfer_fact(id, site)?),
+            None => None,
+        };
         self.output.statements += 1;
-        let lowered = match self.program.arena.stmt(id).kind {
+        let lowered = match statement_kind {
             ArenaStmtKind::Sugar { .. } => unreachable!("lowered through its expansion above"),
             ArenaStmtKind::Let {
                 target,
@@ -3776,7 +3805,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 };
                 if check.is_some() {
                     let span = self.program.arena.stmt(id).span;
-                    return Some(match self.program.arena.assign_target(target).kind {
+                    Some(match self.program.arena.assign_target(target).kind {
                         ArenaAssignTargetKind::Name(_) => push_build_row!(
                             self,
                             stmt,
@@ -3804,9 +3833,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 }
                             )
                         }
-                    });
-                }
-                match self.program.arena.assign_target(target).kind {
+                    })
+                } else {
+                    match self.program.arena.assign_target(target).kind {
                     ArenaAssignTargetKind::Name(_) if op == AssignOp::Set => {
                         if let Some(value) = self.lower_bool_expr_candidate(&value)
                             && !self.lowered_bool_expr_needs_type_context(&value)
@@ -3905,6 +3934,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 span: self.program.arena.stmt(id).span,
                             }
                         ))
+                    }
                     }
                 }
             }
@@ -4525,6 +4555,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             _ => None,
         };
+        if transfer_fact == Some(true) {
+            let lowered = lowered?;
+            self.scratch
+                .borrow_mut()
+                .mark_resource_transfer(lowered);
+            self.output.constructed_statements += 1;
+            return Some(lowered);
+        }
         match lowered {
             Some(lowered) => {
                 self.output.constructed_statements += 1;
@@ -4566,6 +4604,25 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             id,
         );
         None
+    }
+
+    fn require_resource_transfer_fact(
+        &mut self,
+        stmt: StmtId,
+        site: ResourceTransferSite,
+    ) -> Option<bool> {
+        let Some(fact) = self.bodies.resource_transfer(site) else {
+            let span = self.program.arena.stmt(stmt).span;
+            self.record_lower_stmt_blocker(stmt);
+            self.output.constructed_statements += 1;
+            self.output.blocker_events += 1;
+            self.last_blocker_detail = Some((
+                span,
+                format!("missing checked resource-transfer fact for {site:?}"),
+            ));
+            return None;
+        };
+        Some(fact)
     }
 
     fn lower_expr(
@@ -5806,6 +5863,23 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             // the body as an inner block, and has the local as its value. The
             // body's yields append to that local (`lower_collect_yield`).
             ArenaExprKind::Collect { block } => {
+                let mut transfers_resource = false;
+                for (&yield_stmt, &collect_expr) in &self.bodies.collect_yields {
+                    if collect_expr != id {
+                        continue;
+                    }
+                    let Some(yield_transfer) = self
+                        .bodies
+                        .resource_transfer(ResourceTransferSite::Yield(yield_stmt))
+                    else {
+                        self.last_blocker_detail = Some((
+                            self.program.arena.stmt(yield_stmt).span,
+                            "missing checked resource-transfer fact for collected yield".into(),
+                        ));
+                        return None;
+                    };
+                    transfers_resource |= yield_transfer;
+                }
                 let saved = slots.enter();
                 let slot = slots.reserve("collect list");
                 slots.collect_slots.insert(id, slot);
@@ -5818,6 +5892,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     let run = push_build_row!(self, stmt, BuildStmtRow::Expr { value: body, span });
                     let list = push_build_row!(self, expr, BuildExprRow::Param(slot));
                     let value = push_build_row!(self, stmt, BuildStmtRow::Value { value: list });
+                    if transfers_resource {
+                        self.scratch.borrow_mut().mark_resource_transfer(value);
+                    }
                     Some(push_build_row!(
                         self,
                         expr,

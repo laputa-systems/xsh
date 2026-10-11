@@ -13,6 +13,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<Vec<BuildStmtId>> {
+        let transfers_resource = self
+            .bodies
+            .resource_transfer(crate::sema::check::ResourceTransferSite::BlockValue(block))?;
         let statements = self.program.arena.block(block).statements;
         let ids = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
         let Some((&tail, prefix)) = ids.split_last() else {
@@ -40,13 +43,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             return Some(lowered);
         }
         let tail = match self.program.arena.stmt(tail).kind {
-            ArenaStmtKind::Expr(expr) => push_build_row!(
-                self,
-                stmt,
-                BuildStmtRow::Return {
-                    value: self.lower_expr(expr, slots, current_function, item_slot)?,
-                }
-            ),
+            ArenaStmtKind::Expr(expr) => {
+                push_build_row!(
+                    self,
+                    stmt,
+                    BuildStmtRow::Return {
+                        value: self.lower_expr(expr, slots, current_function, item_slot)?,
+                    }
+                )
+            }
             ArenaStmtKind::Exit(status) => {
                 let span = self.program.arena.stmt(tail).span;
                 push_build_row!(
@@ -147,6 +152,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             _ => self.lower_stmt_with_blocker_guard(tail, slots, current_function, item_slot)?,
         };
+        if transfers_resource {
+            self.scratch.borrow_mut().mark_resource_transfer(tail);
+        }
         lowered.push(tail);
         Some(lowered)
     }
@@ -1433,11 +1441,19 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
+        let span = self
+            .program
+            .arena
+            .span(self.program.arena.block(block).span);
+        let transfers_resource = self
+            .bodies
+            .resource_transfer(crate::sema::check::ResourceTransferSite::BlockValue(block))?;
         let statements = self.program.arena.block(block).statements;
         let statements = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
         let saved = slots.enter();
         let result = (|| {
             let mut body = Vec::with_capacity(statements.len());
+            let mut emitted_transfer = false;
             if let Some((&tail, prefix)) = statements.split_last() {
                 for &stmt in prefix {
                     body.push(self.lower_stmt_with_blocker_guard(
@@ -1452,8 +1468,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     && let Some(value) =
                         self.lower_tail_stmt_as_expr(tail, slots, current_function, item_slot)
                 {
-                    body.push(push_build_row!(self, stmt, BuildStmtRow::Value { value }));
+                    let stmt = push_build_row!(self, stmt, BuildStmtRow::Value { value });
+                    if transfers_resource {
+                        self.scratch.borrow_mut().mark_resource_transfer(stmt);
+                        emitted_transfer = true;
+                    }
+                    body.push(stmt);
                 } else {
+                    if transfers_resource {
+                        return None;
+                    }
                     body.push(self.lower_stmt_with_blocker_guard(
                         tail,
                         slots,
@@ -1462,10 +1486,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     )?);
                 }
             }
-            let span = self
-                .program
-                .arena
-                .span(self.program.arena.block(block).span);
+            if transfers_resource && !emitted_transfer {
+                return None;
+            }
             Some(push_build_row!(
                 self,
                 expr,
