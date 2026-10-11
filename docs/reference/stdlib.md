@@ -543,6 +543,7 @@ Clock, sleep, command measurement, and duration display.
 - `time.from_calendar(year: Int, month: Int, day: Int, hour: Int = default, minute: Int = default, second: Int = default, utc: Bool = default, normalize: Bool = default) -> Result[Int, Error]` — Converts typed calendar fields to nanoseconds since the Unix epoch.
 - `time.measure(command: Command, quiet: Bool = default) -> Result[{duration_ms: Int, status: Status, system_ns: Int, user_ns: Int, wall_ns: Int}, Error]` — Measures a command or block and returns structured timing data.
 - `time.millis(ms: Int) -> Duration` — Converts an Int count of milliseconds or seconds into Duration.
+- `time.monotonic() -> Result[Int, Error]` — Reads a monotonic clock for measuring elapsed durations.
 - `time.now() -> Int` — Reads the current wall-clock time.
 - `time.seconds(seconds: Int) -> Duration` — Converts an Int count of milliseconds or seconds into Duration.
 - `time.sleep(duration: Duration) -> Result[Unit, Error]` — Suspends the current XSH operation for a duration.

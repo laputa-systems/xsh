@@ -4,6 +4,7 @@ use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Command, Output, Stdio};
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 struct Terminal {
@@ -88,6 +89,241 @@ fn terminal_run(mut command: Command, streams: [bool; 3], size: (u16, u16), inpu
     if let Some(master) = masters[1].take() { output.stdout = terminal_bytes(master); }
     if let Some(master) = masters[2].take() { output.stderr = terminal_bytes(master); }
     output
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct TermiosSnapshot {
+    input: libc::tcflag_t,
+    output: libc::tcflag_t,
+    control: libc::tcflag_t,
+    local: libc::tcflag_t,
+    speeds: (libc::speed_t, libc::speed_t),
+    control_chars: Vec<libc::cc_t>,
+}
+
+fn termios_snapshot(fd: libc::c_int) -> TermiosSnapshot {
+    let mut attrs = unsafe { std::mem::zeroed::<libc::termios>() };
+    assert_eq!(unsafe { libc::tcgetattr(fd, &mut attrs) }, 0, "read terminal attributes");
+    TermiosSnapshot {
+        input: attrs.c_iflag,
+        output: attrs.c_oflag,
+        control: attrs.c_cflag,
+        local: attrs.c_lflag,
+        speeds: (unsafe { libc::cfgetispeed(&attrs) }, unsafe { libc::cfgetospeed(&attrs) }),
+        control_chars: attrs.c_cc.to_vec(),
+    }
+}
+
+fn write_btop_frame(root: &Path, index: usize, counters: [u64; 4], receive: u64, transmit: u64) {
+    let proc = root.join(format!("frames/{index}/proc"));
+    fs::create_dir_all(proc.join("net")).unwrap();
+    let [user, system, idle, _other] = counters;
+    let stat = format!(
+        "cpu {user} 0 {system} {idle} 0 0 0 0 0 0\ncpu0 {user} 0 {system} {idle} 0 0 0 0 0 0\nbtime 1700000000\nprocesses 1\nprocs_running 1\nprocs_blocked 0\n"
+    );
+    fs::write(proc.join("stat"), stat).unwrap();
+    fs::write(proc.join("uptime"), "25.50 100.00\n").unwrap();
+    fs::write(proc.join("loadavg"), "0.10 0.20 0.30 1/100 42\n").unwrap();
+    fs::write(
+        proc.join("meminfo"),
+        "MemTotal: 1048576 kB\nMemFree: 131072 kB\nMemAvailable: 262144 kB\nBuffers: 32768 kB\nCached: 65536 kB\nActive: 524288 kB\nInactive: 131072 kB\nDirty: 128 kB\nWriteback: 0 kB\n",
+    ).unwrap();
+    fs::write(
+        proc.join("net/dev"),
+        format!(
+            "Inter-| Receive                                                | Transmit\n face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\neth0: {receive} 100 0 0 0 0 0 0 {transmit} 100 0 0 0 0 0 0\n"
+        ),
+    ).unwrap();
+}
+
+fn write_btop_bundle(root: &Path, frames: &[([u64; 4], u64, u64, u64)]) {
+    for (index, (counters, receive, transmit, _at_ns)) in frames.iter().enumerate() {
+        write_btop_frame(root, index, *counters, *receive, *transmit);
+    }
+    let frame_metadata = frames
+        .iter()
+        .map(|(_, _, _, at_ns)| format!("{{\"at_ns\":{at_ns}}}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    fs::write(
+        root.join("manifest.json"),
+        format!(
+            "{{\"schema\":1,\"page_size_bytes\":4096,\"clock_ticks_per_second\":100,\"source_id\":\"pty-fixture\",\"frames\":[{frame_metadata}]}}\n"
+        ),
+    ).unwrap();
+}
+
+fn btop_applet(directory: &Path, bundle: &Path, frame_limit: usize) -> Command {
+    let mut command = applet("btop", directory);
+    let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    command
+        .env(
+            "XSH_MODULE_PATH",
+            format!("{}:{}", repository.display(), repository.join("core").display()),
+        )
+        .args([
+            "--replay",
+            bundle.to_str().expect("fixture path is UTF-8"),
+            "--frames",
+            &frame_limit.to_string(),
+        ]);
+    command
+}
+
+fn set_terminal_size(master_fd: libc::c_int, rows: u16, columns: u16) {
+    let size = libc::winsize {
+        ws_row: rows,
+        ws_col: columns,
+        ws_xpixel: columns * 8,
+        ws_ypixel: rows * 10,
+    };
+    assert_eq!(unsafe { libc::ioctl(master_fd, libc::TIOCSWINSZ, &size) }, 0, "resize terminal");
+}
+
+fn append_terminal_output(master: &mut File, output: &mut Vec<u8>) {
+    let mut buffer = [0; 8192];
+    loop {
+        match master.read(&mut buffer) {
+            Ok(0) => return,
+            Ok(count) => output.extend_from_slice(&buffer[..count]),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => return,
+            Err(error) if error.raw_os_error() == Some(libc::EIO) => return,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => panic!("read terminal output: {error}"),
+        }
+    }
+}
+
+fn wait_for_terminal_output(master: &mut File, output: &mut Vec<u8>, timeout: Duration, condition: impl Fn(&[u8]) -> bool) {
+    let deadline = Instant::now() + timeout;
+    while !condition(output) {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            let start = output.len().saturating_sub(3000);
+            panic!("timed out waiting for terminal output; captured tail: {}", String::from_utf8_lossy(&output[start..]));
+        }
+        let mut event = libc::pollfd { fd: master.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+        let ready = unsafe { libc::poll(&mut event, 1, remaining.as_millis().min(100) as i32) };
+        if ready < 0 {
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::Interrupted { continue; }
+            panic!("poll terminal output: {error}");
+        }
+        if ready > 0 {
+            append_terminal_output(master, output);
+        }
+    }
+}
+
+fn terminal_screen_line_counts(output: &[u8]) -> Vec<usize> {
+    let home = b"\x1b[H";
+    let mut counts = Vec::new();
+    let mut offset = 0;
+    while let Some(relative_start) = output[offset..].windows(home.len()).position(|window| window == home) {
+        let content_start = offset + relative_start + home.len();
+        let content_end = output[content_start..]
+            .iter()
+            .position(|byte| *byte == 0x1b)
+            .map_or(output.len(), |relative_end| content_start + relative_end);
+        counts.push(output[content_start..content_end].iter().filter(|byte| **byte == b'\n').count() + 1);
+        offset = content_end;
+        if offset == output.len() { break; }
+    }
+    counts
+}
+
+fn set_master_nonblocking(master: &File) {
+    let flags = unsafe { libc::fcntl(master.as_raw_fd(), libc::F_GETFL) };
+    assert!(flags >= 0, "read terminal flags");
+    assert_eq!(unsafe { libc::fcntl(master.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) }, 0);
+}
+
+#[test]
+fn btop_replay_updates_after_resize_and_quits_with_restored_terminal() {
+    let directory = tempfile::tempdir().unwrap();
+    let bundle = directory.path().join("bundle");
+    fs::create_dir(&bundle).unwrap();
+    write_btop_bundle(
+        &bundle,
+        &[
+            ([100, 50, 850, 0], 1_000_000, 500_000, 0),
+            ([130, 60, 910, 0], 1_005_120, 501_024, 500_000_000),
+            ([160, 70, 970, 0], 1_010_240, 502_048, 5_000_000_000),
+        ],
+    );
+    let terminal = Terminal::new(24, 80);
+    set_master_nonblocking(&terminal.master);
+    let original_attrs = termios_snapshot(terminal.slave.as_raw_fd());
+    let mut command = btop_applet(directory.path(), &bundle, 3);
+    command.stdin(terminal.stdio()).stdout(terminal.stdio()).stderr(Stdio::piped());
+    let child = Running::spawn(&mut command);
+    drop(command);
+    let mut output = Vec::new();
+
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(3), |bytes| {
+        bytes.windows(b"CPU warming".len()).any(|window| window == b"CPU warming")
+    });
+    let active_attrs = termios_snapshot(terminal.slave.as_raw_fd());
+    assert_eq!(active_attrs.local & libc::ICANON, 0, "btop must enter raw mode");
+    assert_eq!(active_attrs.local & libc::ISIG, 0, "raw Ctrl-C must arrive as a byte");
+    set_terminal_size(terminal.master.as_raw_fd(), 30, 100);
+
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(3), |bytes| {
+        let screens = terminal_screen_line_counts(bytes);
+        screens.len() >= 3
+            && screens.contains(&30)
+            && bytes.windows(b"Usage 40.0%".len()).any(|window| window == b"Usage 40.0%")
+    });
+    terminal.master.try_clone().unwrap().write_all(b"q").unwrap();
+    let result = child.finish();
+    append_terminal_output(&mut terminal.master.try_clone().unwrap(), &mut output);
+
+    assert!(result.status.success(), "btop exited with {}: {}", result.status, String::from_utf8_lossy(&result.stderr));
+    assert!(result.stderr.is_empty(), "unexpected btop error: {}", String::from_utf8_lossy(&result.stderr));
+    let screens = terminal_screen_line_counts(&output);
+    assert!(screens.contains(&24), "initial frame was not 24 rows: {screens:?}");
+    assert!(screens.contains(&30), "resized frame was not 30 rows: {screens:?}");
+    assert!(screens.len() >= 3, "expected resize redraw and a second observation: {screens:?}");
+    assert_eq!(termios_snapshot(terminal.slave.as_raw_fd()), original_attrs);
+    assert!(output.windows(b"\x1b[0m".len()).any(|window| window == b"\x1b[0m"));
+    assert!(output.windows(b"\x1b[?25h".len()).any(|window| window == b"\x1b[?25h"));
+}
+
+#[test]
+fn btop_replay_ctrl_c_byte_exits_and_restores_terminal() {
+    let directory = tempfile::tempdir().unwrap();
+    let bundle = directory.path().join("bundle");
+    fs::create_dir(&bundle).unwrap();
+    write_btop_bundle(
+        &bundle,
+        &[
+            ([100, 50, 850, 0], 1_000_000, 500_000, 0),
+            ([160, 70, 970, 0], 1_010_240, 502_048, 5_000_000_000),
+        ],
+    );
+    let terminal = Terminal::new(24, 80);
+    set_master_nonblocking(&terminal.master);
+    let original_attrs = termios_snapshot(terminal.slave.as_raw_fd());
+    let mut command = btop_applet(directory.path(), &bundle, 2);
+    command.stdin(terminal.stdio()).stdout(terminal.stdio()).stderr(Stdio::piped());
+    let child = Running::spawn(&mut command);
+    drop(command);
+    let mut output = Vec::new();
+
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(3), |bytes| {
+        bytes.windows(b"CPU warming".len()).any(|window| window == b"CPU warming")
+    });
+    let active_attrs = termios_snapshot(terminal.slave.as_raw_fd());
+    assert_eq!(active_attrs.local & libc::ISIG, 0, "raw Ctrl-C must not raise SIGINT");
+    terminal.master.try_clone().unwrap().write_all(b"\x03").unwrap();
+    let result = child.finish();
+    append_terminal_output(&mut terminal.master.try_clone().unwrap(), &mut output);
+
+    assert!(result.status.success(), "Ctrl-C byte should exit cleanly: {}", result.status);
+    assert!(result.stderr.is_empty(), "unexpected btop error: {}", String::from_utf8_lossy(&result.stderr));
+    assert_eq!(termios_snapshot(terminal.slave.as_raw_fd()), original_attrs);
+    assert!(output.windows(b"\x1b[0m".len()).any(|window| window == b"\x1b[0m"));
+    assert!(output.windows(b"\x1b[?25h".len()).any(|window| window == b"\x1b[?25h"));
 }
 
 fn tty_case(streams: [bool; 3], size: (u16, u16), stdout: &[u8], stderr: &[u8]) {

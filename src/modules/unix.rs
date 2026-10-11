@@ -722,7 +722,12 @@ pub(crate) fn set_tty_attrs(
     }
     let ispeed = record_uint(record, "ispeed", "unix-tty-attrs", span)? as u32;
     let ospeed = record_uint(record, "ospeed", "unix-tty-attrs", span)? as u32;
-    if attrs.set_input_speed(ispeed).is_err() || attrs.set_output_speed(ospeed).is_err() {
+    // Equal speeds use the output baud bits on Linux; setting the same input
+    // speed would add an explicit CIBAUD field and change an otherwise exact
+    // round trip of the caller's control flags.
+    if (ispeed != ospeed && attrs.set_input_speed(ispeed).is_err())
+        || attrs.set_output_speed(ospeed).is_err()
+    {
         return Ok(io_error(
             "unix-tty-attrs",
             io::Error::from(rustix::io::Errno::INVAL),

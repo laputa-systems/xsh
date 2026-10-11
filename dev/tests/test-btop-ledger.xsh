@@ -265,7 +265,13 @@ test test_btop_ledger_and_coverage_are_current {
       assert parts[0] != ""
       assert parts[1] != ""
       let source = fp"{root}/{parts[0]}".read_text()?
-      assert "test " + parts[1] + " {" in source
+      if parts[0].ends_with(".xsh") {
+        assert "test " + parts[1] + " {" in source
+      } else if parts[0].ends_with(".rs") {
+        assert "#[test]\nfn " + parts[1] + "(" in source
+      } else {
+        assert false, f"unsupported test reference file {parts[0]}"
+      }
     }
   }
 

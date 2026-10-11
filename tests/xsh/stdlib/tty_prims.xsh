@@ -289,6 +289,22 @@ test test_tty_modes_follow_stty_definitions {
   test.error_kind(unix.tty_mode({iflag: 0}, "raw"), "invalid-argument")
 }
 
+test test_tty_set_attrs_preserves_the_original_baud_flags {
+  let pty = unix.open_pty()?
+  defer unix.close_fd(pty.master)
+  defer unix.close_fd(pty.replica)
+  let original = unix.tty_attrs(pty.replica)?
+  let raw = unix.tty_mode(original, "raw")?
+
+  unix.set_tty_attrs(raw, fd: pty.replica)
+  unix.set_tty_attrs(original, fd: pty.replica)
+  let restored = unix.tty_attrs(pty.replica)?
+
+  assert restored.cflag == original.cflag
+  assert restored.ispeed == original.ispeed
+  assert restored.ospeed == original.ospeed
+}
+
 test test_the_load_average_is_three_non_negative_floats {
   let load = unix.load_average()?
   assert load.one >= 0.0 and load.five >= 0.0 and load.fifteen >= 0.0

@@ -72,13 +72,23 @@ export proc collect(root: FsRoot) [fs, error] -> NetworkSource {
 }
 
 ## Selects the first name-sorted non-loopback interface, falling back to loopback only.
-export proc select_interface(interfaces: List[NetworkInterface]) [error] -> Result[NetworkInterface, Error] {
+export pure selected_interface(interfaces: List[NetworkInterface]) -> NetworkInterface? {
   var candidates = interfaces |> where .name != "lo"
   if candidates.is_empty() {
     candidates = interfaces
   }
   if candidates.is_empty() {
-    return Err(error.failure("no network interface is observed"))
+    return null
   }
-  Ok((candidates |> sort-by .name)[0])
+
+  (candidates |> sort-by .name)[0]
+}
+
+## Requires an observed interface when a caller needs selection to succeed.
+export proc select_interface(interfaces: List[NetworkInterface]) [error] -> Result[NetworkInterface, Error] {
+  if let selected = selected_interface(interfaces) {
+    return Ok(selected)
+  }
+
+  Err(error.failure("no network interface is observed"))
 }
