@@ -322,17 +322,17 @@ test test_system_report_device_class_entry_identity_survives_duplicate_labels_an
   assert sound |> any .entry_name.value == "card0"
   assert sound |> any .entry_name.value == "card1"
   let sensitive = model.encode_report_json(value, true, false)?
-  assert json.decode(sensitive)?.devices.devices[0].entry_name.value == sound[0].entry_name.value
-  assert json.decode(sensitive)?.devices.devices[1].entry_name.value == sound[1].entry_name.value
+  assert json.get(json.decode(sensitive)?, ["devices", "devices", 0, "entry_name", "value"])? == sound[0].entry_name.value
+  assert json.get(json.decode(sensitive)?, ["devices", "devices", 1, "entry_name", "value"])? == sound[1].entry_name.value
   let redacted = model.encode_report_json(value, false, false)?
-  assert json.decode(redacted)?.devices.devices[0].entry_name.state == "observed"
+  assert json.get(json.decode(redacted)?, ["devices", "devices", 0, "entry_name", "state"])? == "observed"
   let legacy = json.remove(json.decode(sensitive)?, ["devices", "devices", 0, "entry_name"])?
   let replay = model.decode_report_json(json.encode(legacy)?)?
   assert replay.devices.devices[0].entry_name.state == .Unsupported
   let repeated = json.set(
     json.decode(sensitive)?,
     ["devices", "devices", 1, "entry_name"],
-    json.decode(sensitive)?.devices.devices[0].entry_name,
+    json.get(json.decode(sensitive)?, ["devices", "devices", 0, "entry_name"])?,
   )?
   test.error_kind(model.decode_report_json(json.encode(repeated)?), "SystemReportError.InvalidJson")
 }
@@ -2613,25 +2613,25 @@ test test_system_report_section_selection_marks_excluded_domains {
   assert "PCI: not requested" in cpu_only_text
   assert "PCI functions:" not in cpu_only_text
 
-  let usb_only = model.select_report_section(report, "usb")?
+  let usb_only = model.select_report_section(report, "usb")?.require(report_model.SystemReport)?
   assert usb_only.pci.status.state == report_model.Complete
   assert usb_only.usb.status.state == report_model.Complete
   assert usb_only.storage.status.state == report_model.SectionNotRequested
   assert usb_only.network.status.state == report_model.SectionNotRequested
 
-  let network_only = model.select_report_section(report, "network")?
+  let network_only = model.select_report_section(report, "network")?.require(report_model.SystemReport)?
   assert network_only.pci.status.state == report_model.Complete
   assert network_only.usb.status.state == report_model.Complete
   assert network_only.network.status.state == report_model.Complete
   assert network_only.storage.status.state == report_model.SectionNotRequested
 
-  let sensors_only = model.select_report_section(report, "sensors")?
+  let sensors_only = model.select_report_section(report, "sensors")?.require(report_model.SystemReport)?
   assert sensors_only.pci.status.state == report_model.Complete
   assert sensors_only.usb.status.state == report_model.Complete
   assert sensors_only.sensors.status.state == report_model.Complete
   assert sensors_only.devices.status.state == report_model.SectionNotRequested
 
-  let processes_only = model.select_report_section(report, "processes")?
+  let processes_only = model.select_report_section(report, "processes")?.require(report_model.SystemReport)?
   assert processes_only.processes.status.state == report_model.Complete
   assert processes_only.processes.processes[0].cgroup.value == "/user.slice/private"
   assert processes_only.processes.processes[0].cgroup_resource_index == null
@@ -2805,9 +2805,9 @@ test test_system_report_json_round_trip_and_redaction {
   assert "/private/host/snapshot" in sensitive_json
   assert "mount-secret" not in sensitive_json
   assert "private-mount-field" not in sensitive_json
-  assert json.decode(sensitive_json)?.storage.mounts[0].super_options[2] == "redacted"
-  assert json.decode(sensitive_json)?.storage.mounts[0].super_options[3] == "redacted"
-  assert json.decode(sensitive_json)?.storage.mounts[0].optional_fields == ["shared:42", "redacted"]
+  assert json.get(json.decode(sensitive_json)?, ["storage", "mounts", 0, "super_options", 2])? == "redacted"
+  assert json.get(json.decode(sensitive_json)?, ["storage", "mounts", 0, "super_options", 3])? == "redacted"
+  assert json.get(json.decode(sensitive_json)?, ["storage", "mounts", 0, "optional_fields"])? == ["shared:42", "redacted"]
   assert "private-sensor-label" in sensitive_json
   let sensitive = model.decode_report_json(sensitive_json)?
   assert ! sensitive.redacted
@@ -3044,7 +3044,7 @@ test test_system_report_replay_withholds_mount_credentials_in_sensitive_json {
   assert decoded.storage.mounts[0].source.state == .Redacted
   let sensitive_json = model.encode_report_json(decoded, true, false)?
   assert "private-secret" not in sensitive_json
-  assert json.decode(sensitive_json)?.storage.mounts[0].source.state == "redacted"
+  assert json.get(json.decode(sensitive_json)?, ["storage", "mounts", 0, "source", "state"])? == "redacted"
 }
 
 test test_system_report_text_output_escapes_untrusted_controls {
@@ -3130,7 +3130,7 @@ test test_system_report_command_replays_saved_json_offline { |ctx|
 
   let projected = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path \
     --section cpu --json
-  let decoded = json.decode(projected)?
+  let decoded = json.decode(projected)?.require(report_model.SystemReportJson)?
   assert decoded.schema_version == 1
   assert decoded.identity.hostname.state == "redacted"
   assert decoded.cpu.status.state == "complete"
