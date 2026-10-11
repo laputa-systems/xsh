@@ -1,6 +1,7 @@
 use xsh::frontend::syntax::arena::ArenaChild;
 
 use super::{
+    rules,
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCallArg,
     ArenaCallArgKind, ArenaCommand, ArenaCommandArg, ArenaCommandArgKind, ArenaCompQualifier,
     ArenaEnvAssignment, ArenaEnvAssignmentValue, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart,
@@ -129,21 +130,7 @@ impl LintExprVisitor<'_, '_> {
             self.linter.catch_all_arms.extend(report);
         }
         if !self.suppress_expr_autofixes {
-            self.linter.lint_proven_nonnull_fallback(expr);
-        }
-        if !self.suppress_expr_autofixes {
-            self.linter.lint_nested_record_update(expr);
-            self.linter.lint_nested_value_pipeline(expr);
-
-            self.linter.lint_block_string_concatenation(expr);
-            self.linter.lint_list_splicing(expr);
-            self.linter.lint_map_literal_chain(expr);
-            self.linter.lint_prepared_regex(expr);
-            self.linter.lint_env_string(expr);
-            self.linter.lint_comparison_chain(expr);
-            self.linter.lint_lookup_sentinel(expr);
-
-            self.linter.lint_optional_postfix(expr);
+            rules::expression(self.linter, expr);
             if let ArenaExprKind::Match { arms, .. } = self.linter.arena.expr(expr).kind {
                 self.linter.lint_adjacent_pattern_arms(
                     self.linter
