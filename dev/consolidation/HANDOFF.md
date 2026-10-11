@@ -37,6 +37,16 @@ hit unrelated unmigrated handlers. Combined optimized compilation is running
 under `joint-process-loop-build.log`; combined gates and independent retry
 review are pending. No comparative performance result is claimed.
 
+The combined build is green, but its native sweep exposes an integration defect:
+retry passes 17/24, value-blocks 19/20, and propagation/wait-until have related
+failures. The expression-value boundary selector omitted Retry while the
+completion dispatcher handles it. Preserve these failing receipts and the
+`joint-process-loop-bin` pair; an isolated repair lane starts at `2fe799a3`.
+The first twenty files, process, Unix process, within and stack bounds pass.
+The main driver accidentally names nonexistent `unix-process.xsh`; this entry
+is a missing-file failure. Supplemental `unix_process.xsh` passes separately.
+No combined runtime acceptance or performance pass is claimed.
+
 The exact isolated `982bd755` whole-tree scan is 192,988 src / 49,714 xsht.
 The runtime reader batch replay is -222 canonical production lines and 3,361
 physical Rust touches excluding its separately counted cursor prerequisite.
