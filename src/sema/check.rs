@@ -526,6 +526,7 @@ pub enum AnnotationFactKind {
 #[derive(Clone, Debug)]
 pub(super) struct Binding {
     id: Option<BindingId>,
+    recovery: bool,
     static_namespace: bool,
     callable_alias: Option<CallableAlias>,
     ty: Type,
@@ -541,6 +542,7 @@ impl Binding {
     fn new(ty: Type, mutable: bool) -> Self {
         Self {
             id: None,
+            recovery: false,
             callable_alias: None,
             static_namespace: false,
             ty,
@@ -554,18 +556,7 @@ impl Binding {
     }
 
     fn pure_local_var(ty: Type) -> Self {
-        Self {
-            id: None,
-            callable_alias: None,
-            static_namespace: false,
-            ty,
-            mutable: true,
-            pure_local_mutation: true,
-            unrefined_ty: None,
-            proof: proof::BindingProof::default(),
-            boolean_proof: None,
-            schema_expectation: None,
-        }
+        Self { pure_local_mutation: true, ..Self::new(ty, true) }
     }
 }
 
@@ -1754,11 +1745,12 @@ impl Checker {
     }
 
     fn lookup_value_binding(&self, name: Name, span: Span) -> Option<&Binding> {
-        let id = self.resolved_command_sites.get(&(span, name)).copied()
-            .or_else(|| self.resolved_bindings.at(span, name))?;
-        self.scopes.iter().rev().find_map(|scope| {
-            scope.get(&name).filter(|binding| binding.id == Some(id))
-        })
+        match self.resolved_command_sites.get(&(span, name)).copied()
+            .or_else(|| self.resolved_bindings.at(span, name))
+        {
+            Some(id) => self.scopes.iter().rev().find_map(|scope| scope.get(&name).filter(|binding| binding.id == Some(id))),
+            None => self.lookup(name).filter(|binding| binding.recovery),
+        }
     }
 
     fn define(&mut self, name: Name, mut binding: Binding, span: Span) {

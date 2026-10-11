@@ -2816,7 +2816,7 @@ impl Checker {
             );
             self.diagnostics.push(diagnostic);
             let ty = self.check_expr_or_run_arena(arena, source, value, None);
-            self.define(name, Binding::new(ty, true), span);
+            self.define(name, Binding { recovery: true, ..Binding::new(ty, true) }, span);
             return;
         }
         self.diagnostics.push(diagnostic);
