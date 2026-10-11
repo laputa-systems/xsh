@@ -681,6 +681,25 @@ fn visit_retained_runtime(
     visitor(crate::runtime::eval::RetainedValueRef::Runtime(value));
 }
 
+fn visit_retained_runtime_error(
+    error: &RuntimeError,
+    visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
+) {
+    for (_, value) in error.payload.iter() {
+        visit_retained_runtime(value, visitor);
+    }
+    if let Some(cause) = &error.cause {
+        visit_retained_runtime(cause.as_value(), visitor);
+    }
+    if let Some(cause) = error
+        .propagated_run_error
+        .as_ref()
+        .and_then(|error| error.cause.as_ref())
+    {
+        visit_retained_runtime(cause.as_value(), visitor);
+    }
+}
+
 struct RetryFrameState {
     instruction: u32,
     delay_position: ListPosition<BuildExprId>,
@@ -1144,6 +1163,7 @@ enum FrameContinuation {
         span: Span,
         next: Box<FrameContinuation>,
     },
+    CleanupAction,
     StatementScopeEnd,
     EnvValue(FrameEnvState),
     PrintArgument(FramePrintState),
@@ -1549,6 +1569,7 @@ impl FrameContinuation {
             | C::BreakLoop { .. }
             | C::Yield { .. }
             | C::YieldDelegate { .. }
+    | C::CleanupAction
             | C::StatementScopeEnd
             | C::EnvValue(_)
             | C::PrintArgument(_)
@@ -1771,9 +1792,140 @@ impl ScanLinesSource {
     }
 }
 
+/// Keeps cleanup-only evaluator state balanced while a deferred expression suspends.
+struct CleanupActionGuard {
+    shielded_deadlines: Vec<crate::runtime::eval::WithinDeadline>,
+    cleanup_error_contexts: Vec<crate::runtime::value::ErrorContext>,
+}
+
+enum CleanupGroupResume {
+    Call(StmtFlow),
+    ErrorCall,
+    Block {
+        scope_id: u64,
+        disposition: CleanupFailureResources,
+        during_discard: bool,
+        include_work_contexts: bool,
+    },
+}
+
+/// Retains one lexical cleanup sequence on its owner frame until every action ends.
+/// The primary exit and the first cleanup failure stay separate so later `errdefer`
+/// actions and secondary-error reporting use the scope's current exit state.
+struct CleanupGroup {
+    defers: Vec<RegisteredDefer>,
+    next_defer: usize,
+    leaves_with_error: bool,
+    first_error: Option<RuntimeError>,
+    first_traceback: Option<Traceback>,
+    primary_error: Option<RuntimeError>,
+    primary_traceback: Option<Traceback>,
+    released: Option<RuntimeError>,
+    cleanup_contexts: Vec<crate::runtime::value::ErrorContext>,
+    call_span: Span,
+    resume: CleanupGroupResume,
+}
+
+enum DiscardResume {
+    Continue,
+    ExpressionValue {
+        boundary: usize,
+        value: LoweredValue,
+    },
+    CapturedPropagation {
+        boundary: usize,
+        flow: StmtFlow,
+        contexts: Vec<crate::runtime::value::ErrorContext>,
+    },
+    CleanupFlow {
+        boundary: usize,
+        flow: StmtFlow,
+        contexts: Vec<crate::runtime::value::ErrorContext>,
+    },
+    CompleteCall {
+        flow: StmtFlow,
+        contexts: Vec<crate::runtime::value::ErrorContext>,
+    },
+    UnwindError { boundary: Option<usize> },
+}
+
+/// Owns an in-flight exit while lexical work is discarded and block cleanup suspends.
+struct DiscardState {
+    keep: usize,
+    next_to_discard: usize,
+    primary_failed: bool,
+    primary_is_error: bool,
+    context_scopes: usize,
+    primary_error: Option<RuntimeError>,
+    primary_traceback: Option<Traceback>,
+    first_error: Option<RuntimeError>,
+    first_traceback: Option<Traceback>,
+    previous_cleanup_contexts: Vec<crate::runtime::value::ErrorContext>,
+    resume: DiscardResume,
+}
+
+fn visit_retained_flow(
+    flow: &StmtFlow,
+    visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
+) {
+    match flow {
+        StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
+            visit_retained_lowered_value(value, visitor);
+        }
+        StmtFlow::Break(Some(value)) => visit_retained_lowered_value(value, visitor),
+        StmtFlow::None | StmtFlow::Break(None) | StmtFlow::Continue => {}
+    }
+}
+
+impl CleanupGroup {
+    fn visit_retained_values(
+        &self,
+        visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
+    ) {
+        if let Some(error) = &self.first_error {
+            visit_retained_runtime_error(error, visitor);
+        }
+        if let Some(error) = &self.primary_error {
+            visit_retained_runtime_error(error, visitor);
+        }
+        if let Some(error) = &self.released {
+            visit_retained_runtime_error(error, visitor);
+        }
+        if let CleanupGroupResume::Call(flow) = &self.resume {
+            visit_retained_flow(flow, visitor);
+        }
+    }
+}
+
+impl DiscardState {
+    fn visit_retained_values(
+        &self,
+        visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
+    ) {
+        if let Some(error) = &self.primary_error {
+            visit_retained_runtime_error(error, visitor);
+        }
+        if let Some(error) = &self.first_error {
+            visit_retained_runtime_error(error, visitor);
+        }
+        match &self.resume {
+            DiscardResume::ExpressionValue { value, .. } => {
+                visit_retained_lowered_value(value, visitor);
+            }
+            DiscardResume::CapturedPropagation { flow, .. }
+            | DiscardResume::CleanupFlow { flow, .. }
+            | DiscardResume::CompleteCall { flow, .. } => visit_retained_flow(flow, visitor),
+            DiscardResume::Continue | DiscardResume::UnwindError { .. } => {}
+        }
+    }
+}
+
 enum FrameWork {
     ClearSlots(Vec<usize>),
     GuardFailureEnd(Span),
+    CleanupGroup(Box<CleanupGroup>),
+    CleanupBoundary(Box<CleanupActionGuard>),
+    Discard(Box<DiscardState>),
     // A lexical expression retains its destination across producer suspension.
     // Its statement scope owns defers; this boundary consumes only the body value.
     ExpressionBoundary {
@@ -2469,7 +2621,11 @@ impl ProducerFrameState {
         }
         for work in &self.work {
             match work {
-                FrameWork::ClearSlots(_) | FrameWork::GuardFailureEnd(_) => {}
+                FrameWork::ClearSlots(_)
+                | FrameWork::GuardFailureEnd(_)
+                | FrameWork::CleanupBoundary(_) => {}
+                FrameWork::CleanupGroup(group) => group.visit_retained_values(visitor),
+                FrameWork::Discard(state) => state.visit_retained_values(visitor),
                 FrameWork::ExpressionBoundary { policy, next } => {
                     if let ExpressionBoundaryPolicy::Retry(state) = policy {
                         state.visit_retained_values(visitor);
@@ -2529,13 +2685,7 @@ impl ProducerFrameState {
                 FrameWork::ForStrLines { text, .. } => {
                     visit_retained_lowered_value(text, visitor);
                 }
-                FrameWork::Finish(flow) => match flow {
-                    StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
-                        visit_retained_lowered_value(value, visitor);
-                    }
-                    StmtFlow::Break(Some(value)) => visit_retained_lowered_value(value, visitor),
-                    StmtFlow::None | StmtFlow::Break(None) | StmtFlow::Continue => {}
-                }
+                FrameWork::Finish(flow) => visit_retained_flow(flow, visitor),
             }
         }
     }
@@ -3319,6 +3469,94 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         })
     }
 
+    fn cleanup_action_boundary(&self, index: usize) -> Option<usize> {
+        self.calls[index]
+            .work
+            .iter()
+            .rposition(|work| matches!(work, FrameWork::CleanupBoundary(_)))
+    }
+
+    fn cleanup_action_scope(&self, index: usize, boundary: usize) -> u64 {
+        match boundary.checked_sub(1).and_then(|group| self.calls[index].work.get(group)) {
+            Some(FrameWork::CleanupGroup(group)) => match &group.resume {
+                CleanupGroupResume::Block { scope_id, .. } => *scope_id,
+                CleanupGroupResume::Call(_) | CleanupGroupResume::ErrorCall => {
+                    self.calls[index].scope_id
+                }
+            },
+            _ => unreachable!("cleanup action boundary has its group directly below it"),
+        }
+    }
+
+    fn cleanup_flow_boundary(&self, index: usize, flow: &StmtFlow) -> Option<usize> {
+        let cleanup = self.cleanup_action_boundary(index)?;
+        match flow {
+            StmtFlow::Propagate(_) => {
+                if self
+                    .capture_boundary(index)
+                    .is_some_and(|capture| capture > cleanup)
+                {
+                    return None;
+                }
+            }
+            StmtFlow::Break(_) | StmtFlow::Continue => {
+                if self
+                    .innermost_loop(index)
+                    .is_some_and(|loop_boundary| loop_boundary > cleanup)
+                {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+        Some(cleanup)
+    }
+
+    fn schedule_cleanup_flow(
+        &mut self,
+        index: usize,
+        boundary: usize,
+        flow: StmtFlow,
+    ) -> Result<(), RuntimeError> {
+        if let StmtFlow::Propagate(value) = &flow {
+            if self.crosses_context_scope(index, boundary + 1)
+                && Evaluator::context_scope_value_escapes(value)
+            {
+                self.evaluator.pending_traceback = None;
+                return Err(RuntimeError::new(
+                    "context-scope-escape",
+                    "a live producer or host handle cannot escape a restored context",
+                )
+                .with_span(self.calls[index].call_span));
+            }
+            let survivor = self.cleanup_action_scope(index, boundary);
+            self.evaluator
+                .transfer_owned_host_resources_in_lowered_value(value, survivor);
+        }
+        let contexts = self.calls[index].work[boundary + 1..]
+            .iter()
+            .rev()
+            .filter_map(|work| match work {
+                FrameWork::ExpressionBoundary {
+                    policy: ExpressionBoundaryPolicy::Context(context),
+                    ..
+                } => Some(context.clone()),
+                _ => None,
+            })
+            .collect();
+        self.schedule_discard(
+            index,
+            boundary + 1,
+            flow_leaves_with_error(&flow),
+            DiscardResume::CleanupFlow {
+                boundary,
+                flow,
+                contexts,
+            },
+        );
+        Ok(())
+    }
+
     /// The boundary of the `within` scope `id` in this frame.
     fn within_boundary(&self, index: usize, id: u64) -> Option<usize> {
         self.calls[index].work.iter().rposition(|work| {
@@ -3367,6 +3605,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 .filter(|error| error.abort.is_none() && error.propagated)
                 .and_then(|_| self.capture_boundary(index)),
         };
+        if !self
+            .pending_error
+            .as_ref()
+            .is_some_and(|error| error.abort.as_ref().is_some_and(|signal| signal.force))
+            && let Some(cleanup) = self.cleanup_action_boundary(index)
+            && boundary.is_none_or(|boundary| cleanup > boundary)
+        {
+            boundary = Some(cleanup);
+        }
         let mut keep = boundary.map_or(0, |boundary| boundary + 1);
         if self.crosses_context_scope(index, keep)
             && self
@@ -3386,7 +3633,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             keep = 0;
         }
         let survivor = boundary.map_or(self.calls[index].scope_id, |boundary| {
-            self.boundary_survivor_scope(index, boundary)
+            if matches!(
+                self.calls[index].work.get(boundary),
+                Some(FrameWork::CleanupBoundary(_))
+            ) {
+                self.cleanup_action_scope(index, boundary)
+            } else {
+                self.boundary_survivor_scope(index, boundary)
+            }
         });
         if let Some(error) = self.pending_error.as_ref()
             && error.abort.is_none()
@@ -3395,41 +3649,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             self.evaluator
                 .transfer_owned_host_resources_in_runtime_error(error, survivor);
         }
-        if let Err(error) = self.discard_work_from(index, keep) {
-            if error.abort.as_ref().is_some_and(|signal| signal.force) {
-                return Err(error);
-            }
-            self.evaluator
-                .report_cleanup_error(&error, self.calls[index].call_span);
-        }
-        if boundary.is_some() {
-            let Some(FrameWork::ExpressionBoundary { policy, next }) = self.calls[index].work.pop()
-            else {
-                unreachable!()
-            };
-            let error = self
-                .pending_error
-                .take()
-                .expect("checked indexed frame failure");
-            let value = match policy {
-                ExpressionBoundaryPolicy::Scope(super::ContextScopeRestore::Within { id }) => {
-                    lowered_result_err_value(self.evaluator.finish_within_timeout(id))
-                }
-                ExpressionBoundaryPolicy::Retry(state) => {
-                    return self.finish_retry_attempt(
-                        index,
-                        state,
-                        capture_checked_error(error)?,
-                        next,
-                    );
-                }
-                _ => capture_checked_error(error)?,
-            };
-            self.evaluator.pending_traceback = None;
-            self.push_value(index, FrameValue::Value(value), next);
-        } else {
-            self.calls[index].work.push(FrameWork::FinishError);
-        }
+        self.schedule_discard(
+            index,
+            keep,
+            true,
+            DiscardResume::UnwindError { boundary },
+        );
         Ok(())
     }
 
@@ -3461,6 +3686,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         policy: ExpressionBoundaryPolicy::Scope(restore),
                         ..
                     } => self.evaluator.restore_indexed_context_scope(restore),
+                    FrameWork::CleanupBoundary(guard) => {
+                        self.restore_cleanup_action_guard(*guard)
+                    }
+                    FrameWork::Discard(state) => {
+                        self.evaluator.cleanup_error_contexts = state.previous_cleanup_contexts;
+                    }
                     _ => {}
                 }
             }
@@ -3780,6 +4011,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         if let Some(FrameWork::Statements { .. }) = self.calls[index].work.last() {
             return self.step_statements(index);
         }
+        if matches!(self.calls[index].work.last(), Some(FrameWork::Discard(_))) {
+            return self.step_discard(index);
+        }
+        if matches!(
+            self.calls[index].work.last(),
+            Some(FrameWork::CleanupGroup(_))
+        ) {
+            return self.step_cleanup_group(index);
+        }
         let work = self.calls[index].work.pop().expect("indexed frame work");
         match work {
             FrameWork::ClearSlots(slots) => {
@@ -3787,6 +4027,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     self.calls[index].slots[slot] = LoweredValue::Unit;
                 }
                 Ok(())
+            }
+            FrameWork::CleanupGroup(_) | FrameWork::CleanupBoundary(_) | FrameWork::Discard(_) => {
+                unreachable!("cleanup and discard work is stepped in place")
             }
             FrameWork::GuardFailureEnd(span) => {
                 Err(RuntimeError::new("guard", "guard else block must diverge").with_span(span))
@@ -6250,6 +6493,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         value: FrameValue,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
+        if matches!(&next, FrameContinuation::CleanupAction) {
+            return self.continue_cleanup_action(index, value);
+        }
         if matches!(value, FrameValue::Break(LoweredValue::ResultErr(_)))
             && matches!(
                 self.evaluator.pending_value_block_flow,
@@ -6268,6 +6514,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             return self.push_statement_block(index, else_body, span);
         }
         if let Some(flow) = self.evaluator.pending_value_block_flow.take() {
+            if let Some(boundary) = self.cleanup_flow_boundary(index, &flow) {
+                return self.schedule_cleanup_flow(index, boundary, flow);
+            }
             return match flow {
                 StmtFlow::Break(value) => self.break_loop(index, value, false),
                 StmtFlow::Continue => self.continue_loop(index),
@@ -8323,6 +8572,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
+            FrameContinuation::CleanupAction => {
+                unreachable!("cleanup actions are consumed before ordinary continuations")
+            }
         }
         Ok(())
     }
@@ -8505,23 +8757,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     self.evaluator.parent_owned_host_scope(),
                 );
         }
-        self.discard_work_from(index, boundary + 1)?;
-        let Some(FrameWork::ExpressionBoundary { policy, next }) = self.calls[index].work.pop()
-        else {
-            unreachable!()
-        };
-        let value = match policy {
-            ExpressionBoundaryPolicy::Capture => LoweredValue::ResultOk(Box::new(value)),
-            ExpressionBoundaryPolicy::Scope(restore) => {
-                self.evaluator.restore_indexed_context_scope(restore);
-                lowered_result_ok(value)
-            }
-            ExpressionBoundaryPolicy::Retry(state) => {
-                return self.finish_retry_attempt(index, state, value, next);
-            }
-            _ => value,
-        };
-        self.push_value(index, FrameValue::Value(value), next);
+        self.schedule_discard(
+            index,
+            boundary + 1,
+            false,
+            DiscardResume::ExpressionValue {
+                boundary,
+                value,
+            },
+        );
         Ok(())
     }
 
@@ -8546,7 +8790,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         Ok(())
     }
 
-    fn complete_call(&mut self, index: usize, mut flow: StmtFlow) -> Result<(), RuntimeError> {
+    fn complete_call(&mut self, index: usize, flow: StmtFlow) -> Result<(), RuntimeError> {
         // A failure that starts to propagate is a `within` checkpoint, as one
         // that starts to unwind is.
         if matches!(flow, StmtFlow::Propagate(_)) {
@@ -8555,6 +8799,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             self.evaluator
                 .check_within_deadline(self.calls[index].call_span)?;
+        }
+        if let Some(boundary) = self.cleanup_flow_boundary(index, &flow) {
+            return self.schedule_cleanup_flow(index, boundary, flow);
         }
         // A body that ran to its end, or returned with nothing left on its work
         // stack, has no boundaries, contexts, or block scopes to unwind.
@@ -8592,38 +8839,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     _ => None,
                 })
                 .collect::<Vec<_>>();
-            let cleanup = self.discard_work_from_with_primary(index, boundary + 1, true);
-            if let Err(error) = cleanup {
-                if error.abort.as_ref().is_some_and(|signal| signal.force) {
-                    return Err(error);
-                }
-                self.evaluator
-                    .report_cleanup_error(&error, self.calls[index].call_span);
-            }
-            let Some(FrameWork::ExpressionBoundary { policy, next }) =
-                self.calls[index].work.pop()
-            else {
-                unreachable!()
-            };
-            let value = contexts
-                .into_iter()
-                .fold(value.clone(), contextualize_propagation);
-            if let ExpressionBoundaryPolicy::Retry(state) = policy {
-                let error = match value {
-                    LoweredValue::ResultErr(error) => *error,
-                    other => other.into_value(),
-                };
-                let traceback = self.evaluator.pending_traceback.take();
-                return self.fail_retry_attempt(
-                    index,
-                    state,
-                    error,
-                    traceback,
-                    Box::new(next),
-                );
-            }
-            self.evaluator.pending_traceback = None;
-            self.push_value(index, FrameValue::Value(value), next);
+            self.schedule_discard(
+                index,
+                boundary + 1,
+                true,
+                DiscardResume::CapturedPropagation {
+                    boundary,
+                    flow,
+                    contexts,
+                },
+            );
             return Ok(());
         }
         let contexts: Vec<_> = self.calls[index]
@@ -8652,33 +8877,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         }
         // Lexical exits and checked failures retain resources from every
         // discarded block before cleanup runs in the registering scopes.
-        let cleanup = self.discard_work_from_with_primary(index, 0, flow_leaves_with_error(&flow));
-        if cleanup
-            .as_ref()
-            .err()
-            .is_some_and(|error| error.abort.as_ref().is_some_and(|signal| signal.force))
-        {
-            return Err(cleanup.expect_err("forced cleanup abort"));
-        }
-        if flow_leaves_with_error(&flow) {
-            if let Err(error) = cleanup {
-                self.evaluator
-                    .report_cleanup_error(&error, self.calls[index].call_span);
-            }
-        } else {
-            cleanup?;
-        }
-        if let StmtFlow::Propagate(value) = flow {
-            let value = contexts.into_iter().fold(value, contextualize_propagation);
-            update_context_traceback(self.evaluator, &value);
-            flow = StmtFlow::Propagate(value);
-        }
-        if self.calls[index].defers.is_empty() {
-            self.finish_call(index, flow)
-        } else {
-            self.calls[index].work.push(FrameWork::Finish(flow));
-            Ok(())
-        }
+        self.schedule_discard(
+            index,
+            0,
+            flow_leaves_with_error(&flow),
+            DiscardResume::CompleteCall { flow, contexts },
+        );
+        Ok(())
     }
 
     fn cleanup_comp_streams(&mut self, streams: CompStreams) -> Result<(), RuntimeError> {
@@ -9034,7 +9239,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     }
 
     fn finish_deferred_call(&mut self, index: usize, flow: StmtFlow) -> Result<(), RuntimeError> {
-        let previous_contexts = self.install_cleanup_contexts();
         let defers = std::mem::take(&mut self.calls[index].defers);
         let leaves_with_error = flow_leaves_with_error(&flow);
         let released = match &flow {
@@ -9043,37 +9247,27 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             _ => self.release_call_host_resources(index, None),
         };
-        let call = &mut self.calls[index];
-        let cleanup = self.evaluator.run_indexed_defers(
-            &call.execution,
-            &defers,
+        let cleanup_contexts = self.collect_cleanup_contexts();
+        let group = CleanupGroup {
+            next_defer: defers.len(),
+            defers,
             leaves_with_error,
-            &mut call.slots,
-            call.call_span,
-        );
-        let cleanup = self.merge_release_failure(index, cleanup, released);
-        let cleanup = if cleanup
-            .as_ref()
-            .err()
-            .is_some_and(|error| error.abort.as_ref().is_some_and(|signal| signal.force))
-        {
-            cleanup
-        } else if leaves_with_error {
-            if let Err(error) = cleanup {
-                self.evaluator
-                    .report_cleanup_error(&error, self.calls[index].call_span);
-            }
-            Ok(())
-        } else {
-            cleanup
+            first_error: None,
+            first_traceback: None,
+            primary_error: None,
+            primary_traceback: self.evaluator.pending_traceback.take(),
+            released: released.err(),
+            cleanup_contexts,
+            call_span: self.calls[index].call_span,
+            resume: CleanupGroupResume::Call(flow),
         };
-        self.evaluator.cleanup_error_contexts = previous_contexts;
-        cleanup?;
-        self.finish_call(index, flow)
+        self.calls[index]
+            .work
+            .push(FrameWork::CleanupGroup(Box::new(group)));
+        Ok(())
     }
 
     fn finish_error_deferred_call(&mut self, index: usize) -> Result<(), RuntimeError> {
-        let previous_contexts = self.install_cleanup_contexts();
         let defers = std::mem::take(&mut self.calls[index].defers);
         let leaves_with_error = !self.unwinding_successful_exit();
         if let Some(error) = self.pending_error.as_ref()
@@ -9090,27 +9284,41 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
         }
         let released = self.release_call_host_resources(index, None);
-        let call = &mut self.calls[index];
-        let cleanup = self.evaluator.run_indexed_defers(
-            &call.execution,
-            &defers,
-            leaves_with_error,
-            &mut call.slots,
-            call.call_span,
-        );
-        let cleanup = self.merge_release_failure(index, cleanup, released);
-        let cleanup = match cleanup {
-            Err(error) if error.abort.as_ref().is_some_and(|signal| signal.force) => Err(error),
-            Err(error) => {
-                self.evaluator
-                    .report_cleanup_error(&error, self.calls[index].call_span);
-                Ok(())
+        let cleanup_contexts = self.collect_cleanup_contexts();
+        let primary_error = self
+            .pending_error
+            .take()
+            .expect("error cleanup starts with a pending error");
+        let primary_traceback = self.evaluator.pending_traceback.take();
+        if defers.is_empty() {
+            if let Err(error) = released {
+                self.report_cleanup_error_with_contexts(
+                    &error,
+                    self.calls[index].call_span,
+                    &cleanup_contexts,
+                );
             }
-            Ok(()) => Ok(()),
+            self.pending_error = Some(primary_error);
+            self.evaluator.pending_traceback = primary_traceback;
+            return self.finish_error_call(index, &cleanup_contexts);
+        }
+        let group = CleanupGroup {
+            next_defer: defers.len(),
+            defers,
+            leaves_with_error,
+            first_error: None,
+            first_traceback: None,
+            primary_error: Some(primary_error),
+            primary_traceback,
+            released: released.err(),
+            cleanup_contexts,
+            call_span: self.calls[index].call_span,
+            resume: CleanupGroupResume::ErrorCall,
         };
-        self.evaluator.cleanup_error_contexts = previous_contexts;
-        cleanup?;
-        self.finish_error_call(index)
+        self.calls[index]
+            .work
+            .push(FrameWork::CleanupGroup(Box::new(group)));
+        Ok(())
     }
 
     /// Releases what the call's own scope still owns before deferred actions
@@ -9134,27 +9342,308 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.evaluator.release_owned_host_resources(scope_id)
     }
 
-    /// The failure of a scope's cleanup: a deferred action's failure comes
-    /// first, and a failed release of the scope's handles is reported beside
-    /// it instead of replacing it.
-    fn merge_release_failure(
-        &mut self,
-        index: usize,
-        cleanup: Result<(), RuntimeError>,
-        released: Result<(), RuntimeError>,
-    ) -> Result<(), RuntimeError> {
-        match (cleanup, released) {
-            (Err(error), Err(secondary)) => {
-                self.evaluator
-                    .report_cleanup_error(&secondary, self.calls[index].call_span);
-                Err(error)
+    fn collect_cleanup_contexts(&mut self) -> Vec<crate::runtime::value::ErrorContext> {
+        let expected = self.open_context_boundaries;
+        if expected == 0 {
+            return self.evaluator.cleanup_error_contexts.clone();
+        }
+        let mut active = Vec::with_capacity(expected);
+        'calls: for call in &self.calls {
+            for work in &call.work {
+                if let FrameWork::ExpressionBoundary {
+                    policy: ExpressionBoundaryPolicy::Context(context),
+                    ..
+                } = work
+                {
+                    active.push(context.clone());
+                    if active.len() == expected {
+                        break 'calls;
+                    }
+                }
             }
-            (Err(error), _) | (_, Err(error)) => Err(error),
-            _ => Ok(()),
+        }
+        self.open_context_boundaries = active.len();
+        let installed = &self.evaluator.cleanup_error_contexts;
+        if active.starts_with(installed) {
+            active
+        } else {
+            let mut contexts = installed.clone();
+            contexts.extend(active);
+            contexts
         }
     }
 
-    fn finish_error_call(&mut self, index: usize) -> Result<(), RuntimeError> {
+    fn report_cleanup_error_with_contexts(
+        &mut self,
+        error: &RuntimeError,
+        fallback: Span,
+        contexts: &[crate::runtime::value::ErrorContext],
+    ) {
+        let previous = std::mem::replace(
+            &mut self.evaluator.cleanup_error_contexts,
+            contexts.to_vec(),
+        );
+        self.evaluator.report_cleanup_error(error, fallback);
+        self.evaluator.cleanup_error_contexts = previous;
+    }
+
+    fn restore_cleanup_action_guard(&mut self, guard: CleanupActionGuard) {
+        self.evaluator.cleanup_depth = self
+            .evaluator
+            .cleanup_depth
+            .checked_sub(1)
+            .expect("deferred action cleanup depth is balanced");
+        self.evaluator
+            .unshield_within_deadlines(guard.shielded_deadlines);
+        self.evaluator.cleanup_error_contexts = guard.cleanup_error_contexts;
+    }
+
+    fn continue_cleanup_action(
+        &mut self,
+        index: usize,
+        value: FrameValue,
+    ) -> Result<(), RuntimeError> {
+        let span = match self.calls[index].work.iter().rev().nth(1) {
+            Some(FrameWork::CleanupGroup(group)) => group.call_span,
+            _ => unreachable!("a cleanup action has a cleanup group below it"),
+        };
+        let value = match value {
+            FrameValue::Value(value) => ControlFlow::Continue(value),
+            FrameValue::Break(value) => ControlFlow::Break(value),
+        };
+        let pending = self.evaluator.pending_value_block_flow.take();
+        self.evaluator
+            .normalize_indexed_deferred_result(value, pending, span)?;
+
+        let Some(FrameWork::CleanupBoundary(guard)) = self.calls[index].work.pop() else {
+            unreachable!("successful cleanup action owns its boundary");
+        };
+        self.restore_cleanup_action_guard(*guard);
+        let Some(FrameWork::CleanupGroup(group)) = self.calls[index].work.pop() else {
+            unreachable!("successful cleanup action owns its group");
+        };
+        self.evaluator.pending_traceback = None;
+        self.calls[index].work.push(FrameWork::CleanupGroup(group));
+        Ok(())
+    }
+
+    fn record_cleanup_action_failure(
+        &mut self,
+        mut group: Box<CleanupGroup>,
+        error: RuntimeError,
+        traceback: Option<Traceback>,
+    ) {
+        group.leaves_with_error = true;
+        if group.first_error.is_none() {
+            group.first_error = Some(error);
+            group.first_traceback = traceback;
+        } else {
+            self.report_cleanup_error_with_contexts(
+                &error,
+                group.call_span,
+                &group.cleanup_contexts,
+            );
+        }
+        self.evaluator.pending_traceback = None;
+        self.calls
+            .last_mut()
+            .expect("cleanup action owner remains active")
+            .work
+            .push(FrameWork::CleanupGroup(group));
+    }
+
+    fn step_cleanup_group(&mut self, index: usize) -> Result<(), RuntimeError> {
+        let Some(FrameWork::CleanupGroup(mut group)) = self.calls[index].work.pop() else {
+            unreachable!("cleanup group is stepped in place");
+        };
+        while group.next_defer > 0 {
+            group.next_defer -= 1;
+            let deferred = group.defers[group.next_defer];
+            if deferred.on_error() && !group.leaves_with_error {
+                continue;
+            }
+            let guard = CleanupActionGuard {
+                shielded_deadlines: self.evaluator.shield_within_deadlines(),
+                cleanup_error_contexts: std::mem::replace(
+                    &mut self.evaluator.cleanup_error_contexts,
+                    group.cleanup_contexts.clone(),
+                ),
+            };
+            self.evaluator.cleanup_depth += 1;
+            self.calls[index].cancelled = false;
+            self.calls[index]
+                .work
+                .push(FrameWork::CleanupGroup(group));
+            self.calls[index]
+                .work
+                .push(FrameWork::CleanupBoundary(Box::new(guard)));
+            self.push_expr(
+                index,
+                deferred.value(),
+                self.calls[index].call_span,
+                FrameContinuation::CleanupAction,
+            );
+            return Ok(());
+        }
+        self.finish_cleanup_group(index, *group)
+    }
+
+    fn finish_cleanup_group(
+        &mut self,
+        index: usize,
+        mut group: CleanupGroup,
+    ) -> Result<(), RuntimeError> {
+        if let Some(released) = group.released.take() {
+            if group.first_error.is_some() {
+                self.report_cleanup_error_with_contexts(
+                    &released,
+                    group.call_span,
+                    &group.cleanup_contexts,
+                );
+            } else {
+                group.first_error = Some(released);
+            }
+        }
+
+        match group.resume {
+            CleanupGroupResume::Call(flow) => {
+                let cleanup_error = group.first_error.take();
+                self.evaluator.pending_traceback =
+                    group.primary_traceback.take().or(group.first_traceback.take());
+                if let Some(error) = cleanup_error {
+                    if error.abort.as_ref().is_some_and(|signal| signal.force) {
+                        return Err(error);
+                    }
+                    if flow_leaves_with_error(&flow) {
+                        self.report_cleanup_error_with_contexts(
+                            &error,
+                            group.call_span,
+                            &group.cleanup_contexts,
+                        );
+                    } else {
+                        let mut error = error;
+                        if error.propagated {
+                            error.scope_cleanup = error.abort.is_none();
+                        }
+                        return Err(error);
+                    }
+                }
+                self.finish_call_with_cleanup_contexts(
+                    index,
+                    flow,
+                    &group.cleanup_contexts,
+                )
+            }
+            CleanupGroupResume::ErrorCall => {
+                if let Some(error) = group.first_error.take() {
+                    if error.abort.as_ref().is_some_and(|signal| signal.force) {
+                        return Err(error);
+                    }
+                    self.report_cleanup_error_with_contexts(
+                        &error,
+                        group.call_span,
+                        &group.cleanup_contexts,
+                    );
+                }
+                self.pending_error = Some(
+                    group
+                        .primary_error
+                        .take()
+                        .expect("error cleanup retains its primary"),
+                );
+                self.evaluator.pending_traceback =
+                    group.primary_traceback.take().or(group.first_traceback.take());
+                self.finish_error_call(index, &group.cleanup_contexts)
+            }
+            CleanupGroupResume::Block {
+                scope_id,
+                mut disposition,
+                during_discard,
+                include_work_contexts,
+            } => {
+                let mut cleanup = group.first_error.take();
+                if include_work_contexts
+                    && disposition == CleanupFailureResources::Retain
+                    && cleanup.is_some()
+                {
+                    let keep = self
+                        .capture_boundary(index)
+                        .map_or(0, |boundary| boundary + 1);
+                    if self.crosses_context_scope(index, keep) {
+                        disposition = CleanupFailureResources::RejectContextEscape;
+                    }
+                }
+                if let Some(error) = &cleanup
+                    && error.abort.is_none()
+                    && error.propagated
+                {
+                    if disposition == CleanupFailureResources::RejectContextEscape
+                        && Evaluator::context_scope_runtime_error_escapes(error)
+                    {
+                        self.evaluator.pending_traceback = None;
+                        cleanup = Some(
+                            RuntimeError::new(
+                                "context-scope-escape",
+                                "a live producer or host handle cannot escape a restored context",
+                            )
+                            .with_span(self.calls[index].call_span),
+                        );
+                    } else if disposition == CleanupFailureResources::Retain {
+                        let parent = self.evaluator.parent_owned_host_scope();
+                        self.evaluator
+                            .transfer_owned_host_resources_in_runtime_error(error, parent);
+                    } else {
+                        self.evaluator
+                            .transfer_owned_host_resources_in_runtime_error(error, scope_id);
+                    }
+                }
+                let popped = self.calls[index].block_scopes.pop();
+                debug_assert_eq!(popped, Some(scope_id));
+                let host_cleanup = self.evaluator.exit_owned_host_scope(scope_id);
+                if let Err(secondary) = host_cleanup {
+                    if secondary.abort.as_ref().is_some_and(|signal| signal.force) {
+                        return Err(secondary);
+                    }
+                    if cleanup.is_some() {
+                        self.report_cleanup_error_with_contexts(
+                            &secondary,
+                            self.calls[index].call_span,
+                            &group.cleanup_contexts,
+                        );
+                    } else {
+                        cleanup = Some(secondary);
+                    }
+                }
+                self.evaluator.pending_traceback =
+                    group.primary_traceback.take().or(group.first_traceback.take());
+                if during_discard {
+                    let Some(FrameWork::Discard(mut state)) = self.calls[index].work.pop() else {
+                        unreachable!("discarded block cleanup resumes its discard cursor");
+                    };
+                    if let Some(error) = cleanup {
+                        let traceback = self.evaluator.pending_traceback.take();
+                        self.record_discard_error(&mut state, error, traceback);
+                    }
+                    self.calls[index].work.push(FrameWork::Discard(state));
+                    Ok(())
+                } else if let Some(error) = cleanup {
+                    let mut error = error;
+                    if error.propagated {
+                        error.scope_cleanup = error.abort.is_none();
+                    }
+                    Err(error)
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    }
+
+    fn finish_error_call(
+        &mut self,
+        index: usize,
+        cleanup_contexts: &[crate::runtime::value::ErrorContext],
+    ) -> Result<(), RuntimeError> {
         debug_assert_eq!(index, self.calls.len() - 1);
         let mut call = self.calls.pop().expect("active indexed frame");
         let is_function = matches!(call.owner, FrameOwner::Function(..));
@@ -9176,9 +9665,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             self.evaluator
                 .transfer_owned_host_resources_in_runtime_error(error, parent);
         }
-        // An active error remains primary; cleanup failure is intentionally
-        // secondary, but the scope still must release its owned resources.
-        let _ = cleanup_call_scopes(self.evaluator, &mut call);
+        // An active error remains primary; capability release can still add a
+        // secondary cleanup failure while the call's scope is closed.
+        if let Err(error) = cleanup_call_scopes(self.evaluator, &mut call) {
+            self.report_cleanup_error_with_contexts(
+                &error,
+                call.call_span,
+                cleanup_contexts,
+            );
+        }
         if let FrameOwner::Function(function, kind) = call.owner {
             self.release_slots(call.slots);
             self.evaluator.call_stack.pop();
@@ -9238,6 +9733,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     }
 
     fn finish_call(&mut self, index: usize, flow: StmtFlow) -> Result<(), RuntimeError> {
+        self.finish_call_with_cleanup_contexts(index, flow, &[])
+    }
+
+    fn finish_call_with_cleanup_contexts(
+        &mut self,
+        index: usize,
+        flow: StmtFlow,
+        cleanup_contexts: &[crate::runtime::value::ErrorContext],
+    ) -> Result<(), RuntimeError> {
         debug_assert_eq!(index, self.calls.len() - 1);
         let FrameOwner::Function(function, kind) = self.calls[index].owner else {
             return self.finish_block(index, flow);
@@ -9305,11 +9809,23 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 TracePayload::None,
             );
         }
-        let value = value.and_then(|value| {
-            write_back?;
-            cleanup?;
-            Ok(value)
-        });
+        let value = match value {
+            Err(error) => {
+                if let Err(secondary) = cleanup {
+                    self.report_cleanup_error_with_contexts(
+                        &secondary,
+                        call.call_span,
+                        cleanup_contexts,
+                    );
+                }
+                Err(error)
+            }
+            Ok(value) => {
+                write_back?;
+                cleanup?;
+                Ok(value)
+            }
+        };
         match (call.return_to, value) {
             (Some(next), Ok(value)) => {
                 let parent = self.calls.len() - 1;
@@ -10768,20 +11284,38 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         scope_id: u64,
         leaves_with_error: bool,
         include_work_contexts: bool,
-        mut disposition: CleanupFailureResources,
+        disposition: CleanupFailureResources,
     ) -> Result<(), RuntimeError> {
         let defer_offset = self.calls[index]
             .block_defer_offsets
             .pop()
             .expect("live block owns a defer boundary");
+        let during_discard = matches!(
+            self.calls[index].work.last(),
+            Some(FrameWork::Discard(_))
+        );
         if self.calls[index].defers.len() == defer_offset {
             let popped = self.calls[index].block_scopes.pop();
             debug_assert_eq!(popped, Some(scope_id));
-            return self.evaluator.exit_owned_host_scope(scope_id);
+            let result = self.evaluator.exit_owned_host_scope(scope_id);
+            if during_discard {
+                let Some(FrameWork::Discard(mut state)) = self.calls[index].work.pop() else {
+                    unreachable!("discarded block scope resumes its discard cursor");
+                };
+                if let Err(error) = result {
+                    if error.abort.as_ref().is_some_and(|signal| signal.force) {
+                        self.calls[index].work.push(FrameWork::Discard(state));
+                        return Err(error);
+                    }
+                    let traceback = self.evaluator.pending_traceback.take();
+                    self.record_discard_error(&mut state, error, traceback);
+                }
+                self.calls[index].work.push(FrameWork::Discard(state));
+                return Ok(());
+            }
+            return result;
         }
         let defers = self.calls[index].defers.split_off(defer_offset);
-        let previous_contexts =
-            (include_work_contexts && !defers.is_empty()).then(|| self.install_cleanup_contexts());
         // Values leaving the block moved their handles outward before this
         // exit, so what the block still owns is dropped, and is released
         // before the block's deferred actions run.
@@ -10790,97 +11324,29 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         } else {
             Ok(())
         };
-        let call = &mut self.calls[index];
-        let cleanup = self.evaluator.run_indexed_defers(
-            &call.execution,
-            &defers,
+        let cleanup_contexts = self.collect_cleanup_contexts();
+        let group = CleanupGroup {
+            next_defer: defers.len(),
+            defers,
             leaves_with_error,
-            &mut call.slots,
-            call.call_span,
-        );
-        let mut cleanup = self.merge_release_failure(index, cleanup, released);
-        if include_work_contexts
-            && disposition == CleanupFailureResources::Retain
-            && cleanup.is_err()
-        {
-            let keep = self
-                .capture_boundary(index)
-                .map_or(0, |boundary| boundary + 1);
-            if self.crosses_context_scope(index, keep) {
-                disposition = CleanupFailureResources::RejectContextEscape;
-            }
-        }
-        if let Err(error) = &cleanup
-            && error.abort.is_none()
-            && error.propagated
-        {
-            if disposition == CleanupFailureResources::RejectContextEscape
-                && Evaluator::context_scope_runtime_error_escapes(error)
-            {
-                self.evaluator.pending_traceback = None;
-                cleanup = Err(RuntimeError::new(
-                    "context-scope-escape",
-                    "a live producer or host handle cannot escape a restored context",
-                )
-                .with_span(self.calls[index].call_span));
-            } else if disposition == CleanupFailureResources::Retain {
-                let parent = self.evaluator.parent_owned_host_scope();
-                self.evaluator
-                    .transfer_owned_host_resources_in_runtime_error(error, parent);
-            }
-        }
-        let popped = self.calls[index].block_scopes.pop();
-        debug_assert_eq!(popped, Some(scope_id));
-        let host_cleanup = self.evaluator.exit_owned_host_scope(scope_id);
-        let result = match (cleanup, host_cleanup) {
-            (Err(error), Err(secondary)) => {
-                self.evaluator
-                    .report_cleanup_error(&secondary, self.calls[index].call_span);
-                Err(error)
-            }
-            (Err(error), _) | (_, Err(error)) => Err(error),
-            _ => Ok(()),
+            first_error: None,
+            first_traceback: None,
+            primary_error: None,
+            primary_traceback: self.evaluator.pending_traceback.take(),
+            released: released.err(),
+            cleanup_contexts,
+            call_span: self.calls[index].call_span,
+            resume: CleanupGroupResume::Block {
+                scope_id,
+                disposition,
+                during_discard,
+                include_work_contexts,
+            },
         };
-        if let Some(previous) = previous_contexts {
-            self.evaluator.cleanup_error_contexts = previous;
-        }
-        result
-    }
-
-    /// Abandoned work unwinds every lexical cleanup action from innermost to outermost.
-    ///
-    /// This runs for every frame that discards work, so it must not read the
-    /// open calls when no `ctx` block is open, and stops reading them once it
-    /// has every boundary that is.
-    fn install_cleanup_contexts(&mut self) -> Vec<crate::runtime::value::ErrorContext> {
-        let previous = self.evaluator.cleanup_error_contexts.clone();
-        if self.open_context_boundaries == 0 {
-            return previous;
-        }
-        let mut found = 0;
-        'calls: for call in &self.calls {
-            for work in &call.work {
-                if let FrameWork::ExpressionBoundary {
-                    policy: ExpressionBoundaryPolicy::Context(context),
-                    ..
-                } = work
-                {
-                    self.evaluator.cleanup_error_contexts.push(context.clone());
-                    found += 1;
-                    if found == self.open_context_boundaries {
-                        break 'calls;
-                    }
-                }
-            }
-        }
-        // The bound is only ever too high: a boundary can leave with a frame
-        // that is dropped whole. A full read is the exact count.
-        self.open_context_boundaries = found;
-        previous
-    }
-
-    fn discard_work_from(&mut self, index: usize, keep: usize) -> Result<(), RuntimeError> {
-        self.discard_work_from_with_primary(index, keep, self.pending_error.is_some())
+        self.calls[index]
+            .work
+            .push(FrameWork::CleanupGroup(Box::new(group)));
+        Ok(())
     }
 
     /// Whether what is unwinding the frames is `exit 0`. The script is ending
@@ -10894,162 +11360,518 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             .is_some_and(|signal| signal.status == 0)
     }
 
-    fn discard_work_from_with_primary(
+    fn discard_work_from(&mut self, index: usize, keep: usize) -> Result<(), RuntimeError> {
+        self.schedule_discard(index, keep, false, DiscardResume::Continue);
+        Ok(())
+    }
+
+    fn schedule_discard(
         &mut self,
         index: usize,
         keep: usize,
         primary_failed: bool,
-    ) -> Result<(), RuntimeError> {
-        if self.calls[index].work.len() <= keep {
-            return Ok(());
+        resume: DiscardResume,
+    ) {
+        if self.calls[index].work.len() <= keep && matches!(resume, DiscardResume::Continue) {
+            return;
         }
-        let previous_contexts = self.install_cleanup_contexts();
-        let mut context_scopes = self.calls[index].work[keep..]
+        let primary_is_error = primary_failed && !self.unwinding_successful_exit();
+        let primary_error = if matches!(resume, DiscardResume::UnwindError { .. }) {
+            self.pending_error.take()
+        } else {
+            None
+        };
+        let primary_traceback = self.evaluator.pending_traceback.take();
+        let contexts = self.collect_cleanup_contexts();
+        let previous_cleanup_contexts = std::mem::replace(
+            &mut self.evaluator.cleanup_error_contexts,
+            contexts,
+        );
+        let context_scopes = self.calls[index].work[keep..]
             .iter()
             .filter(|work| work.is_context_scope())
             .count();
-        let mut first_error: Option<RuntimeError> = None;
-        let primary_is_error = primary_failed && !self.unwinding_successful_exit();
-        // Discarded work is popped in place, innermost first; nothing it runs
-        // reads this frame's work stack, and the stack keeps its capacity.
-        while self.calls[index].work.len() > keep {
-            let work = self.calls[index].work.pop().expect("discarded frame work");
-            if !primary_failed
-                && context_scopes > 0
-                && first_error
-                    .as_ref()
-                    .is_some_and(Evaluator::context_scope_runtime_error_escapes)
-            {
-                self.evaluator.pending_traceback = None;
-                first_error = Some(
-                    RuntimeError::new(
-                        "context-scope-escape",
-                        "a live producer or host handle cannot escape a restored context",
-                    )
-                    .with_span(self.calls[index].call_span),
-                );
+        let next_to_discard = self.calls[index].work.len();
+        self.calls[index].work.push(FrameWork::Discard(Box::new(DiscardState {
+            keep,
+            next_to_discard,
+            primary_failed,
+            primary_is_error,
+            context_scopes,
+            primary_error,
+            primary_traceback,
+            first_error: None,
+            first_traceback: None,
+            previous_cleanup_contexts,
+            resume,
+        })));
+    }
+
+    fn record_discard_error(
+        &mut self,
+        state: &mut DiscardState,
+        error: RuntimeError,
+        traceback: Option<Traceback>,
+    ) {
+        if state.first_error.is_none() {
+            state.first_error = Some(error);
+            state.first_traceback = traceback;
+        } else {
+            self.evaluator.report_cleanup_error(&error, self.calls.last().map_or_else(
+                crate::runtime::eval::zero_span,
+                |call| call.call_span,
+            ));
+        }
+        self.evaluator.pending_traceback = None;
+    }
+
+    fn step_discard(&mut self, index: usize) -> Result<(), RuntimeError> {
+        let Some(FrameWork::Discard(state)) = self.calls[index].work.pop() else {
+            unreachable!("discard cursor is stepped in place");
+        };
+        let mut state = *state;
+        state.next_to_discard = self.calls[index].work.len();
+        if state.next_to_discard <= state.keep {
+            return self.finish_discard(index, state);
+        }
+        if !state.primary_failed
+            && state.context_scopes > 0
+            && state
+                .first_error
+                .as_ref()
+                .is_some_and(Evaluator::context_scope_runtime_error_escapes)
+        {
+            self.evaluator.pending_traceback = None;
+            state.first_error = Some(
+                RuntimeError::new(
+                    "context-scope-escape",
+                    "a live producer or host handle cannot escape a restored context",
+                )
+                .with_span(self.calls[index].call_span),
+            );
+            state.first_traceback = None;
+        }
+        let work = self.calls[index]
+            .work
+            .pop()
+            .expect("discard cursor has work above its boundary");
+        state.next_to_discard = self.calls[index].work.len();
+        match work {
+            FrameWork::ClearSlots(slots) => {
+                for slot in slots {
+                    self.calls[index].slots[slot] = LoweredValue::Unit;
+                }
+                self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
             }
-            let result = match work {
-                FrameWork::ClearSlots(slots) => {
-                    for slot in slots {
-                        self.calls[index].slots[slot] = LoweredValue::Unit;
-                    }
-                    Ok(())
+            FrameWork::ExpressionBoundary {
+                policy: ExpressionBoundaryPolicy::Context(context),
+                ..
+            } => {
+                self.open_context_boundaries = self.open_context_boundaries.saturating_sub(1);
+                self.evaluator.cleanup_error_contexts.pop();
+                if let Some(error) = state.primary_error.take() {
+                    state.primary_error = Some(contextualize_runtime_error(error, context.clone()));
                 }
-                FrameWork::ExpressionBoundary {
-                    policy: ExpressionBoundaryPolicy::Context(context),
-                    ..
-                } => {
-                    self.open_context_boundaries = self.open_context_boundaries.saturating_sub(1);
-                    self.evaluator.cleanup_error_contexts.pop();
-                    if let Some(error) = self.pending_error.take() {
-                        self.pending_error =
-                            Some(contextualize_runtime_error(error, context.clone()));
-                    }
-                    if let Some(error) = first_error.take() {
-                        first_error = Some(contextualize_runtime_error(error, context));
-                    }
-                    if let Some(error) = &self.pending_error
-                        && let Some(traceback) = &mut self.evaluator.pending_traceback
-                    {
-                        traceback.error = crate::trace::TraceError::from_runtime_error(error);
-                    }
-                    Ok(())
+                if let Some(error) = state.first_error.take() {
+                    state.first_error = Some(contextualize_runtime_error(error, context.clone()));
                 }
-                FrameWork::ExpressionBoundary {
-                    policy: ExpressionBoundaryPolicy::Scope(restore),
-                    ..
-                } => {
-                    context_scopes -= 1;
-                    self.evaluator.restore_indexed_context_scope(restore);
-                    Ok(())
+                if let Some(error) = state.primary_error.as_ref()
+                    && let Some(traceback) = &mut state.primary_traceback
+                {
+                    traceback.error = crate::trace::TraceError::from_runtime_error(error);
                 }
-                FrameWork::CompCleanup(streams) => self.cleanup_comp_streams(streams),
-                FrameWork::Statements {
-                    statements,
-                    scope_id,
-                    ..
-                } => {
-                    self.evaluator.frame_scratch.recycle_statements(statements);
-                    let Some(scope_id) = scope_id else { continue };
-                    if !primary_failed
-                        && let Some(error) = &first_error
-                        && error.abort.is_none()
-                        && error.propagated
-                    {
-                        let parent = self.evaluator.parent_owned_host_scope();
-                        self.evaluator
-                            .transfer_owned_host_resources_in_runtime_error(
-                                error, parent,
-                            );
+                if let Some(error) = state.first_error.as_ref()
+                    && let Some(traceback) = &mut state.first_traceback
+                {
+                    traceback.error = crate::trace::TraceError::from_runtime_error(error);
+                }
+                self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
+            }
+            FrameWork::ExpressionBoundary {
+                policy: ExpressionBoundaryPolicy::Scope(restore),
+                ..
+            } => {
+                state.context_scopes = state.context_scopes.saturating_sub(1);
+                self.evaluator.restore_indexed_context_scope(restore);
+                self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
+            }
+            FrameWork::CompCleanup(streams) => {
+                self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
+                if let Err(error) = self.cleanup_comp_streams(streams) {
+                    if error.abort.as_ref().is_some_and(|signal| signal.force) {
+                        return Err(error);
                     }
-                    let disposition = if primary_failed || first_error.is_some() {
-                        CleanupFailureResources::Release
-                    } else if context_scopes > 0 {
-                        CleanupFailureResources::RejectContextEscape
-                    } else {
-                        CleanupFailureResources::Retain
+                    let traceback = self.evaluator.pending_traceback.take();
+                    let Some(FrameWork::Discard(mut state)) = self.calls[index].work.pop() else {
+                        unreachable!("discard cursor follows comprehension cleanup");
                     };
-                    self.exit_block_scope(
-                        index,
-                        scope_id,
-                        primary_is_error || first_error.is_some(),
-                        false,
-                        disposition,
-                    )
+                    self.record_discard_error(&mut state, error, traceback);
+                    self.calls[index].work.push(FrameWork::Discard(state));
                 }
-                FrameWork::ForStream {
-                    mut stream, span, ..
-                } => self.evaluator.stream_cancel(&mut stream, span),
-                FrameWork::ForPipeline { mut pipeline, .. } => {
-                    pipeline.finish(
-                        self.evaluator,
-                        self.pending_error.as_ref(),
-                    )
-                }
-                FrameWork::StageValue {
-                    mut pipeline, ..
-                } => pipeline.finish(
-                    self.evaluator,
-                    self.pending_error.as_ref(),
-                ),
-                _ => Ok(()),
-            };
-            if let Err(error) = result {
-                if error.abort.as_ref().is_some_and(|signal| signal.force) {
-                    while self.calls[index].work.len() > keep {
-                        match self.calls[index].work.pop().expect("discarded frame work") {
-                            FrameWork::Statements {
-                                scope_id: Some(scope_id),
-                                ..
-                            } => {
-                                if self.calls[index].block_scopes.last() == Some(&scope_id) {
-                                    self.calls[index].block_scopes.pop();
-                                    self.calls[index].block_defer_offsets.pop();
-                                    let _ = self.evaluator.exit_owned_host_scope(scope_id);
-                                }
-                            }
-                            FrameWork::ExpressionBoundary {
-                                policy: ExpressionBoundaryPolicy::Scope(restore),
-                                ..
-                            } => self.evaluator.restore_indexed_context_scope(restore),
-                            _ => {}
-                        }
-                    }
-                    self.evaluator.cleanup_error_contexts = previous_contexts;
-                    return Err(error);
-                }
-                if first_error.is_none() {
-                    first_error = Some(error);
-                } else {
+            }
+            FrameWork::Statements {
+                statements,
+                scope_id,
+                ..
+            } => {
+                self.evaluator.frame_scratch.recycle_statements(statements);
+                let Some(scope_id) = scope_id else {
+                    self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
+                    return Ok(());
+                };
+                if !state.primary_failed
+                    && let Some(error) = &state.first_error
+                    && error.abort.is_none()
+                    && error.propagated
+                {
+                    let parent = self.evaluator.parent_owned_host_scope();
                     self.evaluator
-                        .report_cleanup_error(&error, self.calls[index].call_span);
+                        .transfer_owned_host_resources_in_runtime_error(error, parent);
+                }
+                let disposition = if state.primary_failed || state.first_error.is_some() {
+                    CleanupFailureResources::Release
+                } else if state.context_scopes > 0 {
+                    CleanupFailureResources::RejectContextEscape
+                } else {
+                    CleanupFailureResources::Retain
+                };
+                self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
+                self.exit_block_scope(
+                    index,
+                    scope_id,
+                    self.calls[index]
+                        .work
+                        .iter()
+                        .rev()
+                        .find_map(|work| match work {
+                            FrameWork::Discard(state) => Some(
+                                state.primary_is_error || state.first_error.is_some(),
+                            ),
+                            _ => None,
+                        })
+                        .unwrap_or(false),
+                    false,
+                    disposition,
+                )?;
+            }
+            FrameWork::ForStream {
+                mut stream, span, ..
+            } => {
+                self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
+                if let Err(error) = self.evaluator.stream_cancel(&mut stream, span) {
+                    if error.abort.as_ref().is_some_and(|signal| signal.force) {
+                        return Err(error);
+                    }
+                    let traceback = self.evaluator.pending_traceback.take();
+                    let Some(FrameWork::Discard(mut state)) = self.calls[index].work.pop() else {
+                        unreachable!("discard cursor follows stream cancellation");
+                    };
+                    self.record_discard_error(&mut state, error, traceback);
+                    self.calls[index].work.push(FrameWork::Discard(state));
+                }
+            }
+            FrameWork::ForPipeline { mut pipeline, .. } => {
+                let pending = state.primary_error.as_ref().or(self.pending_error.as_ref());
+                let result = pipeline.finish(self.evaluator, pending);
+                self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
+                if let Err(error) = result {
+                    if error.abort.as_ref().is_some_and(|signal| signal.force) {
+                        return Err(error);
+                    }
+                    let traceback = self.evaluator.pending_traceback.take();
+                    let Some(FrameWork::Discard(mut state)) = self.calls[index].work.pop() else {
+                        unreachable!("discard cursor follows pipeline cleanup");
+                    };
+                    self.record_discard_error(&mut state, error, traceback);
+                    self.calls[index].work.push(FrameWork::Discard(state));
+                }
+            }
+            FrameWork::StageValue {
+                mut pipeline, ..
+            } => {
+                let pending = state.primary_error.as_ref().or(self.pending_error.as_ref());
+                let result = pipeline.finish(self.evaluator, pending);
+                self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
+                if let Err(error) = result {
+                    if error.abort.as_ref().is_some_and(|signal| signal.force) {
+                        return Err(error);
+                    }
+                    let traceback = self.evaluator.pending_traceback.take();
+                    let Some(FrameWork::Discard(mut state)) = self.calls[index].work.pop() else {
+                        unreachable!("discard cursor follows stage cleanup");
+                    };
+                    self.record_discard_error(&mut state, error, traceback);
+                    self.calls[index].work.push(FrameWork::Discard(state));
+                }
+            }
+            FrameWork::CleanupBoundary(guard) => {
+                self.restore_cleanup_action_guard(*guard);
+                self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
+            }
+            FrameWork::CleanupGroup(_) => {
+                self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
+                return Err(RuntimeError::new(
+                    "internal-cleanup",
+                    "discard reached an active cleanup group",
+                )
+                .with_span(self.calls[index].call_span));
+            }
+            other => {
+                drop(other);
+                self.calls[index].work.push(FrameWork::Discard(Box::new(state)));
+            }
+        }
+        Ok(())
+    }
+
+    fn finish_discard(&mut self, index: usize, mut state: DiscardState) -> Result<(), RuntimeError> {
+        let report_contexts = self.evaluator.cleanup_error_contexts.clone();
+        let report_span = self.calls[index].call_span;
+        if let Some(error) = state.first_error.take() {
+            if error.abort.as_ref().is_some_and(|signal| signal.force) {
+                self.evaluator.cleanup_error_contexts = state.previous_cleanup_contexts;
+                self.evaluator.pending_traceback = state.first_traceback.take();
+                return Err(error);
+            }
+            match &state.resume {
+                DiscardResume::CapturedPropagation { .. }
+                | DiscardResume::CleanupFlow { .. }
+                | DiscardResume::CompleteCall { .. }
+                    if state.primary_failed =>
+                {
+                    self.report_cleanup_error_with_contexts(
+                        &error,
+                        report_span,
+                        &report_contexts,
+                    );
+                }
+                DiscardResume::UnwindError { .. } => {
+                    self.report_cleanup_error_with_contexts(
+                        &error,
+                        report_span,
+                        &report_contexts,
+                    );
+                }
+                DiscardResume::CleanupFlow { .. } => {
+                    self.report_cleanup_error_with_contexts(
+                        &error,
+                        report_span,
+                        &report_contexts,
+                    );
+                }
+                DiscardResume::CompleteCall { flow, .. } if flow_leaves_with_error(flow) => {
+                    self.report_cleanup_error_with_contexts(
+                        &error,
+                        report_span,
+                        &report_contexts,
+                    );
+                }
+                _ => {
+                    let traceback = state.first_traceback.take();
+                    self.evaluator.cleanup_error_contexts = state.previous_cleanup_contexts;
+                    self.evaluator.pending_traceback = traceback;
+                    let mut error = error;
+                    if error.propagated {
+                        error.scope_cleanup = error.abort.is_none();
+                    }
+                    return Err(error);
                 }
             }
         }
-        self.evaluator.cleanup_error_contexts = previous_contexts;
-        first_error.map_or(Ok(()), Err)
+        let first_traceback = state.first_traceback.take();
+        self.evaluator.cleanup_error_contexts = state.previous_cleanup_contexts;
+        match state.resume {
+            DiscardResume::Continue => {
+                self.evaluator.pending_traceback = first_traceback;
+                Ok(())
+            }
+            DiscardResume::ExpressionValue { boundary, value } => {
+                debug_assert_eq!(self.calls[index].work.len(), boundary + 1);
+                let Some(FrameWork::ExpressionBoundary { policy, next }) =
+                    self.calls[index].work.pop()
+                else {
+                    unreachable!("expression discard retains its boundary");
+                };
+                let value = match policy {
+                    ExpressionBoundaryPolicy::Capture => {
+                        LoweredValue::ResultOk(Box::new(value))
+                    }
+                    ExpressionBoundaryPolicy::Scope(restore) => {
+                        self.evaluator.restore_indexed_context_scope(restore);
+                        lowered_result_ok(value)
+                    }
+                    ExpressionBoundaryPolicy::Retry(retry) => {
+                        return self.finish_retry_attempt(index, retry, value, next);
+                    }
+                    _ => value,
+                };
+                self.evaluator.pending_traceback = None;
+                self.push_value(index, FrameValue::Value(value), next);
+                Ok(())
+            }
+            DiscardResume::CapturedPropagation {
+                boundary,
+                flow,
+                contexts,
+            } => {
+                debug_assert_eq!(self.calls[index].work.len(), boundary + 1);
+                let Some(FrameWork::ExpressionBoundary { policy, next }) =
+                    self.calls[index].work.pop()
+                else {
+                    unreachable!("captured propagation retains its boundary");
+                };
+                let StmtFlow::Propagate(value) = flow else {
+                    unreachable!("captured propagation retains an error flow");
+                };
+                let value = contexts
+                    .into_iter()
+                    .fold(value, contextualize_propagation);
+                if let ExpressionBoundaryPolicy::Retry(retry) = policy {
+                    let error = match value {
+                        LoweredValue::ResultErr(error) => *error,
+                        other => other.into_value(),
+                    };
+                    let mut traceback = state.primary_traceback.take();
+                    if let Some(traceback) = traceback.as_mut() {
+                        traceback.error = crate::trace::TraceError::from_value(&error);
+                    }
+                    return self.fail_retry_attempt(
+                        index,
+                        retry,
+                        error,
+                        traceback,
+                        Box::new(next),
+                    );
+                }
+                self.evaluator.pending_traceback = None;
+                self.push_value(index, FrameValue::Value(value), next);
+                Ok(())
+            }
+            DiscardResume::CleanupFlow {
+                boundary,
+                flow,
+                contexts,
+            } => {
+                debug_assert_eq!(self.calls[index].work.len(), boundary + 1);
+                let Some(FrameWork::CleanupBoundary(guard)) = self.calls[index].work.pop() else {
+                    unreachable!("deferred flow retains its action boundary");
+                };
+                let Some(FrameWork::CleanupGroup(group)) = self.calls[index].work.pop() else {
+                    unreachable!("deferred flow boundary retains its cleanup group");
+                };
+                self.restore_cleanup_action_guard(*guard);
+                self.evaluator.pending_traceback = state.primary_traceback.take();
+                let flow = match flow {
+                    StmtFlow::Propagate(value) => {
+                        let value = contexts
+                            .into_iter()
+                            .fold(value, contextualize_propagation);
+                        update_context_traceback(self.evaluator, &value);
+                        StmtFlow::Propagate(value)
+                    }
+                    flow => flow,
+                };
+                self.evaluator.pending_value_block_flow.take();
+                let span = group.call_span;
+                match self.evaluator.normalize_indexed_deferred_result(
+                    ControlFlow::Continue(LoweredValue::Unit),
+                    Some(flow),
+                    span,
+                ) {
+                    Ok(()) => {
+                        self.evaluator.pending_traceback = None;
+                        self.calls[index].work.push(FrameWork::CleanupGroup(group));
+                    }
+                    Err(error) => {
+                        let traceback = self.evaluator.pending_traceback.take();
+                        self.record_cleanup_action_failure(group, error, traceback);
+                    }
+                }
+                Ok(())
+            }
+            DiscardResume::CompleteCall { mut flow, contexts } => {
+                if let StmtFlow::Propagate(value) = flow {
+                    flow = StmtFlow::Propagate(
+                        contexts.into_iter().fold(value, contextualize_propagation),
+                    );
+                }
+                self.evaluator.pending_traceback = state
+                    .primary_traceback
+                    .take()
+                    .or(first_traceback);
+                if let StmtFlow::Propagate(value) = &flow {
+                    update_context_traceback(self.evaluator, value);
+                }
+                if self.calls[index].defers.is_empty() {
+                    self.finish_call_with_cleanup_contexts(index, flow, &[])
+                } else {
+                    self.calls[index].work.push(FrameWork::Finish(flow));
+                    Ok(())
+                }
+            }
+            DiscardResume::UnwindError { boundary } => {
+                let error = state
+                    .primary_error
+                    .take()
+                    .expect("error discard retains its pending error");
+                self.pending_error = Some(error);
+                self.evaluator.pending_traceback = state
+                    .primary_traceback
+                    .take()
+                    .or(first_traceback);
+                if let Some(boundary) = boundary {
+                    if matches!(
+                        self.calls[index].work.get(boundary),
+                        Some(FrameWork::CleanupBoundary(_))
+                    ) {
+                        let Some(FrameWork::CleanupBoundary(guard)) =
+                            self.calls[index].work.pop()
+                        else {
+                            unreachable!("cleanup failure retains its action boundary");
+                        };
+                        self.restore_cleanup_action_guard(*guard);
+                        let error = self.pending_error.take().expect("callback error");
+                        let traceback = self.evaluator.pending_traceback.take();
+                        self.evaluator.pending_value_block_flow.take();
+                        let Some(FrameWork::CleanupGroup(group)) =
+                            self.calls[index].work.pop()
+                        else {
+                            unreachable!("cleanup action boundary retains its group");
+                        };
+                        self.record_cleanup_action_failure(group, error, traceback);
+                        return Ok(());
+                    }
+                    let Some(FrameWork::ExpressionBoundary { policy, next }) =
+                        self.calls[index].work.pop()
+                    else {
+                        unreachable!("error discard retains its expression boundary");
+                    };
+                    let error = self.pending_error.take().expect("checked indexed frame failure");
+                    let value = match policy {
+                        ExpressionBoundaryPolicy::Scope(
+                            super::ContextScopeRestore::Within { id },
+                        ) => lowered_result_err_value(self.evaluator.finish_within_timeout(id)),
+                        ExpressionBoundaryPolicy::Retry(retry) => {
+                            return self.finish_retry_attempt(
+                                index,
+                                retry,
+                                capture_checked_error(error)?,
+                                next,
+                            );
+                        }
+                        _ => capture_checked_error(error)?,
+                    };
+                    self.evaluator.pending_traceback = None;
+                    self.push_value(index, FrameValue::Value(value), next);
+                    Ok(())
+                } else {
+                    self.calls[index].work.push(FrameWork::FinishError);
+                    Ok(())
+                }
+            }
+        }
     }
+
 }
 
 /// Whether control that leaves a scope with `flow` leaves it with an error: a

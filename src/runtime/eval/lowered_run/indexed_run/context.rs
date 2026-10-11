@@ -1,6 +1,6 @@
 use super::{
     BTreeMap, ContextScopeRestore, ControlFlow, Duration, Evaluator, Flow, FullExecution,
-    LoweredValue, PathValue, Propagation, RegisteredDefer, RuntimeError, Span, StmtFlow, TraceArg,
+    LoweredValue, PathValue, Propagation, RuntimeError, Span, StmtFlow, TraceArg,
     TraceError, TraceKind, TracePayload, Traceback, Value, check_env_name, fs_module,
     indexed_error, lowered_duration_arg, lowered_path_like_arg, path_bytes,
     runtime_error_from_value,
@@ -225,8 +225,17 @@ impl Evaluator {
         self.cleanup_depth -= 1;
         self.unshield_within_deadlines(shielded);
         let pending = self.pending_value_block_flow.take();
-        let value = match (result?, pending) {
-            (_, Some(StmtFlow::Propagate(value) | StmtFlow::Return(value))) => value,
+        self.normalize_indexed_deferred_result(result?, pending, span)
+    }
+
+    pub(in crate::runtime::eval::lowered_run) fn normalize_indexed_deferred_result(
+        &mut self,
+        result: ControlFlow<LoweredValue, LoweredValue>,
+        pending: Option<StmtFlow>,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        let value = match (result, pending) {
+            (_, Some(StmtFlow::Propagate(value))) => value,
             (_, Some(_)) => {
                 return Err(RuntimeError::new(
                     "defer-control-flow",
@@ -254,53 +263,6 @@ impl Evaluator {
                     .with_span(span),
             ),
         }
-    }
-
-    /// Runs a scope's deferred actions, last registered first.
-    ///
-    /// `leaves_with_error` says whether the scope is leaving with an error,
-    /// which is when its `errdefer` actions run. A failing action makes that
-    /// true for the actions registered before it: from there on the scope
-    /// leaves with that failure.
-    pub(in crate::runtime::eval::lowered_run) fn run_indexed_defers(
-        &mut self,
-        execution: &FullExecution<'_>,
-        defers: &[RegisteredDefer],
-        mut leaves_with_error: bool,
-        slots: &mut [LoweredValue],
-        call_span: Span,
-    ) -> Result<(), RuntimeError> {
-        let primary_traceback = self.pending_traceback.take();
-        let mut first_error = None;
-        let mut first_traceback = None;
-        for deferred in defers.iter().rev().copied() {
-            if deferred.on_error() && !leaves_with_error {
-                continue;
-            }
-            if let Err(error) =
-                self.eval_indexed_deferred_expr(execution, deferred.value(), slots, call_span)
-            {
-                leaves_with_error = true;
-                if error.abort.as_ref().is_some_and(|signal| signal.force) {
-                    self.pending_traceback = primary_traceback;
-                    return Err(error);
-                }
-                if first_error.is_none() {
-                    first_error = Some(error);
-                    first_traceback = self.pending_traceback.take();
-                } else {
-                    self.report_cleanup_error(&error, call_span);
-                    self.pending_traceback = None;
-                }
-            }
-        }
-        self.pending_traceback = primary_traceback.or(first_traceback);
-        first_error.map_or(Ok(()), |mut error| {
-            // The caller reports this failure and drops it when the scope
-            // already leaves with an error; otherwise it is the scope's own.
-            error.scope_cleanup = error.abort.is_none() && error.propagated;
-            Err(error)
-        })
     }
 
 }

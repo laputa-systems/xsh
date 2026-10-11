@@ -35,6 +35,26 @@ print ${descend(0)}
   assert "overflowed its stack" not in output.stderr, output.stderr
 }
 
+test finite_recursion_through_deferred_blocks_uses_the_active_machine { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""proc unwind(n: Int) -> Result[Unit] {
+  defer {
+    if n > 0 { unwind(n - 1)? }
+  }
+  Ok()
+}
+
+unwind(40)?
+print "done"
+""",
+    status: 0,
+    stdout: ["done\n"],
+    env: {XSH_TEST_SMALL_EVAL_STACK: "1"},
+  )?
+  assert output.stderr == "", output.stderr
+}
+
 test recursion_through_a_deferred_call_reports_stack_overflow { |ctx|
   let output = test.expect(
     ctx,
