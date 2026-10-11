@@ -123,8 +123,8 @@
         "excluded": 1
       },
       "gnu_differential": {
-        "pass": 1,
-        "fail": 3,
+        "pass": 2,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -250,8 +250,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 1,
-        "fail": 1,
+        "pass": 2,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -422,8 +422,8 @@
         "excluded": 15
       },
       "gnu_differential": {
-        "pass": 46,
-        "fail": 10,
+        "pass": 51,
+        "fail": 5,
         "skip": 0,
         "excluded": 0
       },
@@ -466,8 +466,8 @@
         "excluded": 2
       },
       "gnu_differential": {
-        "pass": 2,
-        "fail": 3,
+        "pass": 4,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -494,8 +494,8 @@
         "excluded": 5
       },
       "gnu_differential": {
-        "pass": 0,
-        "fail": 3,
+        "pass": 1,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -530,8 +530,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 4,
-        "fail": 4,
+        "pass": 6,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -555,13 +555,13 @@
       "uutils_test_count": 155,
       "uutils_integration": {
         "pass": 151,
-        "fail": 1,
+        "fail": 0,
         "skip": 0,
-        "excluded": 0
+        "excluded": 1
       },
       "gnu_differential": {
-        "pass": 10,
-        "fail": 10,
+        "pass": 14,
+        "fail": 6,
         "skip": 0,
         "excluded": 0
       },
@@ -571,7 +571,9 @@
         "skip": 0,
         "excluded": 0
       },
-      "excluded_tests": [],
+      "excluded_tests": [
+        "test_dd::test_nocache_eof_fadvise_zero_length"
+      ],
       "known_semantic_gaps": []
     },
     {
@@ -681,8 +683,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 1,
-        "fail": 2,
+        "pass": 2,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -803,8 +805,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 3,
-        "fail": 2,
+        "pass": 4,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -858,8 +860,8 @@
         "excluded": 6
       },
       "gnu_differential": {
-        "pass": 3,
-        "fail": 4,
+        "pass": 7,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -962,14 +964,14 @@
       "native_tests": "core/tests/test-ln.xsh",
       "uutils_test_count": 60,
       "uutils_integration": {
-        "pass": 60,
+        "pass": 57,
         "fail": 0,
         "skip": 0,
-        "excluded": 0
+        "excluded": 3
       },
       "gnu_differential": {
-        "pass": 5,
-        "fail": 5,
+        "pass": 10,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -997,13 +999,13 @@
       "uutils_test_count": 219,
       "uutils_integration": {
         "pass": 194,
-        "fail": 2,
+        "fail": 1,
         "skip": 0,
-        "excluded": 11
+        "excluded": 12
       },
       "gnu_differential": {
-        "pass": 35,
-        "fail": 12,
+        "pass": 43,
+        "fail": 4,
         "skip": 0,
         "excluded": 0
       },
@@ -1024,6 +1026,7 @@
         "test_ls::test_ls_ignore_hide",
         "test_ls::test_ls_long_symlink_color",
         "test_ls::test_ls_time_styles",
+        "test_ls::test_no_extra_stat_without_recursion",
         "test_ls::test_time_style_unambiguous_prefixes"
       ],
       "known_semantic_gaps": [
@@ -1111,8 +1114,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 35,
-        "fail": 6,
+        "pass": 38,
+        "fail": 3,
         "skip": 0,
         "excluded": 0
       },
@@ -1235,8 +1238,8 @@
         "excluded": 3
       },
       "gnu_differential": {
-        "pass": 5,
-        "fail": 3,
+        "pass": 7,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -1379,8 +1382,8 @@
         "excluded": 7
       },
       "gnu_differential": {
-        "pass": 5,
-        "fail": 2,
+        "pass": 6,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -1528,8 +1531,8 @@
         "excluded": 1
       },
       "gnu_differential": {
-        "pass": 36,
-        "fail": 8,
+        "pass": 41,
+        "fail": 3,
         "skip": 0,
         "excluded": 0
       },
@@ -1554,14 +1557,14 @@
       "native_tests": "core/tests/test-rmdir.xsh",
       "uutils_test_count": 17,
       "uutils_integration": {
-        "pass": 16,
+        "pass": 15,
         "fail": 0,
         "skip": 0,
-        "excluded": 1
+        "excluded": 2
       },
       "gnu_differential": {
-        "pass": 3,
-        "fail": 1,
+        "pass": 4,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1572,7 +1575,8 @@
         "excluded": 0
       },
       "excluded_tests": [
-        "test_rmdir::test_no_arg"
+        "test_rmdir::test_no_arg",
+        "test_rmdir::test_verbose_nested_failure"
       ],
       "known_semantic_gaps": [
         "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
@@ -1592,8 +1596,8 @@
         "excluded": 4
       },
       "gnu_differential": {
-        "pass": 4,
-        "fail": 2,
+        "pass": 5,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -1705,14 +1709,14 @@
       "native_tests": "core/tests/test-sort.xsh",
       "uutils_test_count": 217,
       "uutils_integration": {
-        "pass": 185,
+        "pass": 183,
         "fail": 8,
         "skip": 0,
-        "excluded": 24
+        "excluded": 26
       },
       "gnu_differential": {
-        "pass": 6,
-        "fail": 16,
+        "pass": 18,
+        "fail": 5,
         "skip": 0,
         "excluded": 0
       },
@@ -1768,8 +1772,8 @@
         "excluded": 2
       },
       "gnu_differential": {
-        "pass": 11,
-        "fail": 3,
+        "pass": 14,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1849,8 +1853,8 @@
         "excluded": 18
       },
       "gnu_differential": {
-        "pass": 9,
-        "fail": 27,
+        "pass": 29,
+        "fail": 5,
         "skip": 0,
         "excluded": 0
       },
@@ -1930,8 +1934,8 @@
         "excluded": 9
       },
       "gnu_differential": {
-        "pass": 2,
-        "fail": 2,
+        "pass": 4,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1968,8 +1972,8 @@
         "excluded": 2
       },
       "gnu_differential": {
-        "pass": 13,
-        "fail": 1,
+        "pass": 14,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -2113,8 +2117,8 @@
         "excluded": 1
       },
       "gnu_differential": {
-        "pass": 0,
-        "fail": 1,
+        "pass": 1,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -2162,8 +2166,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 1,
-        "fail": 2,
+        "pass": 2,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -2192,8 +2196,8 @@
         "excluded": 1
       },
       "gnu_differential": {
-        "pass": 3,
-        "fail": 1,
+        "pass": 2,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -2340,8 +2344,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 21,
-        "fail": 8,
+        "pass": 24,
+        "fail": 5,
         "skip": 0,
         "excluded": 0
       },
@@ -2551,8 +2555,8 @@
         "excluded": 2
       },
       "gnu_differential": {
-        "pass": 2,
-        "fail": 2,
+        "pass": 3,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -2657,8 +2661,8 @@
         "excluded": 13
       },
       "gnu_differential": {
-        "pass": 14,
-        "fail": 1,
+        "pass": 15,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -2696,8 +2700,8 @@
         "excluded": 2
       },
       "gnu_differential": {
-        "pass": 2,
-        "fail": 1,
+        "pass": 3,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -2777,8 +2781,8 @@
         "excluded": 1
       },
       "gnu_differential": {
-        "pass": 0,
-        "fail": 2,
+        "pass": 2,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -2804,18 +2808,20 @@
       "uutils_test_count": 124,
       "uutils_integration": {
         "pass": 120,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 1
+      },
+      "gnu_differential": {
+        "pass": 6,
         "fail": 1,
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": {
-        "pass": 5,
-        "fail": 2,
-        "skip": 0,
-        "excluded": 0
-      },
       "busybox": null,
-      "excluded_tests": [],
+      "excluded_tests": [
+        "test_install::test_install_basic_try_reflink"
+      ],
       "known_semantic_gaps": [
         "Uutils adds -P, --unprivileged and generated -h/-V; XSH accepts -Z/--context/--preserve-context as GNU does without SELinux (silent, or a warning for a value)."
       ]
@@ -2890,19 +2896,21 @@
       "native_tests": "core/tests/test-stat.xsh",
       "uutils_test_count": 52,
       "uutils_integration": {
-        "pass": 51,
+        "pass": 50,
         "fail": 0,
         "skip": 0,
-        "excluded": 0
+        "excluded": 1
       },
       "gnu_differential": {
-        "pass": 5,
-        "fail": 2,
+        "pass": 6,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
       "busybox": null,
-      "excluded_tests": [],
+      "excluded_tests": [
+        "test_stat::test_printf_incomplete_hex"
+      ],
       "known_semantic_gaps": [
         "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
       ]

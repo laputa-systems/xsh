@@ -8,36 +8,20 @@
     "awk": {
       "applet": true,
       "excluded": 0,
-      "fail": 26,
+      "fail": 10,
       "failing": [
-        "awk bitwise op",
         "awk properly handles undefined function",
-        "awk 'v (a)' is not a function call, it is a concatenation",
-        "awk unused function args are evaluated",
-        "awk hex const 1",
-        "awk hex const 2",
-        "awk oct const",
-        "awk -F handles escapes",
-        "awk gsub falls back to non-extended-regex",
         "awk handles non-existing file correctly",
         "awk func arg parsing 1",
         "awk func arg parsing 2",
         "awk func arg parsing 3",
         "awk func arg parsing 4",
         "awk handles empty ()",
-        "awk length(array)",
-        "awk length()",
-        "awk print length, 1",
-        "awk print length 1",
         "awk break",
         "awk continue",
-        "awk negative field access",
-        "awk do not allow \"str\"++",
-        "awk print + redirect",
-        "awk \"cmd\" | getline",
-        "awk assign while test"
+        "awk negative field access"
       ],
-      "pass": 33,
+      "pass": 49,
       "skip": 8
     },
     "basename": {
@@ -51,14 +35,9 @@
     "bunzip2": {
       "applet": true,
       "excluded": 0,
-      "fail": 4,
-      "failing": [
-        "bunzip2: unknown suffix",
-        "bunzip2: already exists",
-        "bunzip2: bz2_issue_11.bz2 corrupted example",
-        "bunzip2: bz2_issue_12.bz2 corrupted example"
-      ],
-      "pass": 7,
+      "fail": 0,
+      "failing": [],
+      "pass": 11,
       "skip": 0
     },
     "bzcat": {
@@ -109,6 +88,17 @@
       "pass": 23,
       "skip": 0
     },
+    "cpio": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 2,
+      "failing": [
+        "cpio lists hardlinks",
+        "cpio extracts in existing directory"
+      ],
+      "pass": 0,
+      "skip": 7
+    },
     "cut": {
       "applet": true,
       "excluded": 0,
@@ -141,17 +131,9 @@
     "diff": {
       "applet": true,
       "excluded": 0,
-      "fail": 7,
-      "failing": [
-        "diff -b treats EOF as whitespace",
-        "diff -b treats all spaces as equal",
-        "diff -B ignores changes whose lines are all blank",
-        "diff -B does not ignore changes whose lines are not all blank",
-        "diff -B ignores blank single line change",
-        "diff -B does not ignore non-blank single line change",
-        "diff always takes context from old file"
-      ],
-      "pass": 5,
+      "fail": 0,
+      "failing": [],
+      "pass": 12,
       "skip": 6
     },
     "dirname": {
@@ -229,23 +211,17 @@
     "grep": {
       "applet": true,
       "excluded": 0,
-      "fail": 2,
-      "failing": [
-        "grep -L exitcode 0",
-        "grep -L exitcode 1"
-      ],
-      "pass": 42,
+      "fail": 0,
+      "failing": [],
+      "pass": 44,
       "skip": 7
     },
     "gunzip": {
       "applet": true,
       "excluded": 0,
-      "fail": 2,
-      "failing": [
-        "gunzip: unknown suffix",
-        "gunzip: already exists"
-      ],
-      "pass": 4,
+      "fail": 0,
+      "failing": [],
+      "pass": 6,
       "skip": 0
     },
     "gzip": {
@@ -373,21 +349,15 @@
     "patch": {
       "applet": true,
       "excluded": 0,
-      "fail": 11,
+      "fail": 5,
       "failing": [
-        "patch with old_file == new_file",
-        "patch with nonexistent old_file",
-        "patch -R with nonexistent old_file",
         "patch detects already applied hunk",
         "patch detects already applied hunk at the EOF",
         "patch -N ignores already applied hunk",
-        "patch FILE PATCH",
-        "patch at the beginning",
         "patch creates new file",
-        "patch understands ...dir///dir...",
-        "patch internal buffering bug?"
+        "patch understands ...dir///dir..."
       ],
-      "pass": 0,
+      "pass": 6,
       "skip": 0
     },
     "pidof": {
@@ -398,7 +368,7 @@
         "pidof (exit with success)"
       ],
       "pass": 2,
-      "skip": 1
+      "skip": 3
     },
     "printf": {
       "applet": true,
@@ -466,26 +436,9 @@
     "sed": {
       "applet": true,
       "excluded": 0,
-      "fail": 16,
-      "failing": [
-        "sed s [delimiter]",
-        "sed embedded NUL",
-        "sed embedded NUL g",
-        "sed subst+write",
-        "sed trailing NUL",
-        "sed lie-to-autoconf",
-        "sed d does not break n,m matching",
-        "sed d does not break n,regex matching",
-        "sed d does not break n,regex matching #2",
-        "sed 2d;2,1p (gnu compat)",
-        "sed a cmd understands \\n,\\t,\\r",
-        "sed i cmd understands \\n,\\t,\\r",
-        "sed with N skipping lines past ranges on next cmds",
-        "sed zero chars match/replace advances correctly 2",
-        "sed 's///w FILE'",
-        "sed understands duplicate file name"
-      ],
-      "pass": 80,
+      "fail": 0,
+      "failing": [],
+      "pass": 96,
       "skip": 0
     },
     "seq": {
@@ -563,26 +516,20 @@
     "tar": {
       "applet": true,
       "excluded": 0,
-      "fail": 15,
-      "failing": [
-        "tar-archives-multiple-files",
-        "tar-extracts-all-subdirs",
-        "tar-extracts-file",
-        "tar-extracts-from-standard-input",
-        "tar-extracts-to-standard-output",
-        "tar-handles-cz-options",
-        "tar-handles-empty-include-and-non-empty-exclude-list",
-        "tar-handles-exclude-and-extract-lists",
-        "tar-handles-multiple-X-options",
-        "tar-handles-nested-exclude",
-        "tar_with_link_with_size",
-        "tar_with_prefix_fields",
-        "tar Empty file is not a tarball",
-        "tar Two zeroed blocks is a ('truncated') empty tarball",
-        "tar Twenty zeroed blocks is an empty tarball"
-      ],
-      "pass": 4,
+      "fail": 0,
+      "failing": [],
+      "pass": 19,
       "skip": 14
+    },
+    "taskset": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 1,
+      "failing": [
+        "taskset (invalid pid)"
+      ],
+      "pass": 2,
+      "skip": 0
     },
     "tee": {
       "applet": true,
@@ -672,13 +619,9 @@
     "unlzma": {
       "applet": true,
       "excluded": 0,
-      "fail": 3,
-      "failing": [
-        "unlzma (bad archive 1)",
-        "unlzma (bad archive 2)",
-        "unlzma (bad archive 3)"
-      ],
-      "pass": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 3,
       "skip": 0
     },
     "uptime": {
@@ -697,6 +640,14 @@
       "pass": 5,
       "skip": 0
     },
+    "wget": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 4,
+      "skip": 0
+    },
     "which": {
       "applet": true,
       "excluded": 0,
@@ -710,11 +661,9 @@
     "xargs": {
       "applet": true,
       "excluded": 0,
-      "fail": 1,
-      "failing": [
-        "xargs -e without param"
-      ],
-      "pass": 7,
+      "fail": 0,
+      "failing": [],
+      "pass": 8,
       "skip": 4
     }
   }

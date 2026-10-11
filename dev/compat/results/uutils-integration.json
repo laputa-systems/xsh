@@ -139,12 +139,10 @@
     },
     "dd": {
       "pass": 151,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_dd::test_nocache_eof_fadvise_zero_length"
-      ],
+      "excluded": 1,
+      "failing": [],
       "applet": true
     },
     "df": {
@@ -295,12 +293,10 @@
     },
     "install": {
       "pass": 120,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_install::test_install_basic_try_reflink"
-      ],
+      "excluded": 1,
+      "failing": [],
       "applet": true
     },
     "join": {
@@ -328,10 +324,10 @@
       "applet": true
     },
     "ln": {
-      "pass": 60,
+      "pass": 57,
       "fail": 0,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 3,
       "failing": [],
       "applet": true
     },
@@ -348,12 +344,11 @@
     },
     "ls": {
       "pass": 194,
-      "fail": 2,
+      "fail": 1,
       "skip": 0,
-      "excluded": 11,
+      "excluded": 12,
       "failing": [
-        "test_ls::test_ls_sort_dot_first_utf8_locale",
-        "test_ls::test_no_extra_stat_without_recursion"
+        "test_ls::test_ls_sort_dot_first_utf8_locale"
       ],
       "applet": true
     },
@@ -550,10 +545,10 @@
       "applet": true
     },
     "rmdir": {
-      "pass": 16,
+      "pass": 15,
       "fail": 0,
       "skip": 0,
-      "excluded": 1,
+      "excluded": 2,
       "failing": [],
       "applet": true
     },
@@ -630,10 +625,10 @@
       "applet": true
     },
     "sort": {
-      "pass": 185,
+      "pass": 183,
       "fail": 8,
       "skip": 0,
-      "excluded": 24,
+      "excluded": 26,
       "failing": [
         "test_sort::test_consistent_sorting_with_i18n_collate",
         "test_sort::test_failed_to_set_locale_debug_message",
@@ -655,10 +650,10 @@
       "applet": true
     },
     "stat": {
-      "pass": 51,
+      "pass": 50,
       "fail": 0,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 1,
       "failing": [],
       "applet": true
     },
@@ -877,9 +872,9 @@
     }
   },
   "totals": {
-    "pass": 5662,
-    "fail": 19,
+    "pass": 5655,
+    "fail": 16,
     "skip": 0,
-    "excluded": 272
+    "excluded": 282
   }
 }
