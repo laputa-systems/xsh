@@ -1671,7 +1671,7 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     FmtValue {
-        state: Box<FmtState>,
+        state: FmtState,
         span: Span,
         spec: Option<FormatSpec>,
         next: Box<FrameContinuation>,
@@ -1682,11 +1682,11 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     ListItems {
-        state: Box<ListItemsState>,
+        state: ListItemsState,
         next: Box<FrameContinuation>,
     },
     MapLiteralItems {
-        state: Box<MapLiteralState>,
+        state: MapLiteralState,
         next: Box<FrameContinuation>,
     },
     RecordUpdateBase {
@@ -1703,7 +1703,7 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     RecordItems {
-        state: Box<RecordItemsState>,
+        state: RecordItemsState,
         next: Box<FrameContinuation>,
     },
     ListCompIter {
@@ -5937,14 +5937,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         operand,
                         item_span,
                         FrameContinuation::ListItems {
-                            state: Box::new(ListItemsState {
+                            state: ListItemsState {
                                 instruction,
                                 position,
                                 splice,
                                 item_span,
                                 values,
                                 span,
-                            }),
+                            },
                             next: Box::new(next),
                         },
                     );
@@ -5969,11 +5969,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let position = entries.position();
                 self.step_map_literal(
                     index,
-                    instruction,
-                    position,
-                    BTreeMap::new(),
-                    span,
-                    next,
+                    MapLiteralState {
+                        instruction,
+                        position,
+                        fields: BTreeMap::new(),
+                        key: None,
+                        reading_key: false,
+                        span,
+                    },
+                    Box::new(next),
                 )?;
             }
             FullTag::ExprRecordUpdate => {
@@ -6008,11 +6012,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let position = entries.position();
                 self.step_record_items(
                     index,
-                    instruction,
-                    position,
-                    Vec::with_capacity(capacity),
-                    span,
-                    next,
+                    RecordItemsState {
+                        instruction,
+                        position,
+                        fields: Vec::with_capacity(capacity),
+                        span,
+                    },
+                    Box::new(next),
                 )?;
             }
             FullTag::ExprListComp | FullTag::ExprMapComp => {
@@ -6054,13 +6060,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let position = parts.position();
                 self.step_fmt(
                     index,
-                    Box::new(FmtState {
+                    FmtState {
                         instruction,
                         position,
                         fmt,
                         span,
-                    }),
-                    next,
+                    },
+                    Box::new(next),
                 )?;
             }
             FullTag::ExprResultFallback => {
@@ -8391,7 +8397,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             } => match value {
                 FrameValue::Value(value) => {
                     state.fmt.push_value(&value, span, spec.as_ref())?;
-                    self.step_fmt(index, state, *next)?;
+                    self.step_fmt(index, state, next)?;
                 }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
@@ -8418,7 +8424,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         state.splice,
                         state.item_span,
                     )?;
-                    self.step_list_literal(index, *state, *next)?;
+                    self.step_list_literal(index, state, next)?;
                 }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
@@ -8443,20 +8449,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                                 .with_span(state.span)
                         })?;
                     if state.reading_key {
-                        let key = Some(lowered_map_literal_key(&value, entry_span)?);
+                        state.key = Some(lowered_map_literal_key(&value, entry_span)?);
+                        state.reading_key = false;
                         self.push_expr(
                             index,
                             value_instruction.raw(),
                             entry_span,
                             FrameContinuation::MapLiteralItems {
-                                state: Box::new(MapLiteralState {
-                                    instruction: state.instruction,
-                                    position: state.position,
-                                    fields: std::mem::take(&mut state.fields),
-                                    key,
-                                    reading_key: false,
-                                    span: state.span,
-                                }),
+                                state,
                                 next,
                             },
                         );
@@ -8468,13 +8468,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             value,
                             entry_span,
                         )?;
+                        state.position = position;
                         self.step_map_literal(
                             index,
-                            state.instruction,
-                            position,
-                            std::mem::take(&mut state.fields),
-                            state.span,
-                            *next,
+                            state,
+                            next,
                         )?;
                     }
                 }
@@ -8572,13 +8570,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         value,
                         state.span,
                     )?;
+                    state.position = position;
                     self.step_record_items(
                         index,
-                        state.instruction,
-                        position,
-                        std::mem::take(&mut state.fields),
-                        state.span,
-                        *next,
+                        state,
+                        next,
                     )?;
                 }
                 FrameValue::Break(value) => {
@@ -9415,7 +9411,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         &mut self,
         index: usize,
         mut state: ListItemsState,
-        next: FrameContinuation,
+        next: Box<FrameContinuation>,
     ) -> Result<(), RuntimeError> {
         let mut items = indexed_list_literal_view_at(
             &self.calls[index].execution,
@@ -9432,16 +9428,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 operand,
                 item_span,
                 FrameContinuation::ListItems {
-                    state: Box::new(state),
-                    next: Box::new(next),
+                    state,
+                    next,
                 },
             );
         } else {
-            self.push_value(
-                index,
-                FrameValue::Value(LoweredValue::List(state.values)),
-                next,
-            );
+            let ListItemsState { values, .. } = state;
+            self.push_value(index, FrameValue::Value(LoweredValue::List(values)), *next);
         }
         Ok(())
     }
@@ -9449,49 +9442,43 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn step_map_literal(
         &mut self,
         index: usize,
-        instruction: u32,
-        position: ListPosition<IndexedMapLiteralEntry>,
-        fields: BTreeMap<MapKey, LoweredValue>,
-        span: Span,
-        next: FrameContinuation,
+        mut state: MapLiteralState,
+        next: Box<FrameContinuation>,
     ) -> Result<(), RuntimeError> {
         let mut entries = indexed_map_literal_view_at(
             &self.calls[index].execution,
-            instruction,
-            span,
+            state.instruction,
+            state.span,
         )?;
         entries
-            .resume(position)
-            .map_err(|error| indexed_error(error, span))?;
+            .resume(state.position)
+            .map_err(|error| indexed_error(error, state.span))?;
         let entry_position = entries.position();
         if let Some((key, value, entry_span)) = entries
             .next()
             .transpose()
-            .map_err(|error| indexed_error(error, span))?
+            .map_err(|error| indexed_error(error, state.span))?
         {
             let reading_key = key.is_some();
             let operand = key.unwrap_or(value);
+            state.position = entry_position;
+            state.key = None;
+            state.reading_key = reading_key;
             self.push_expr(
                 index,
                 operand.raw(),
                 entry_span,
                 FrameContinuation::MapLiteralItems {
-                    state: Box::new(MapLiteralState {
-                        instruction,
-                        position: entry_position,
-                        fields,
-                        key: None,
-                        reading_key,
-                        span,
-                    }),
-                    next: Box::new(next),
+                    state,
+                    next,
                 },
             );
         } else {
+            let MapLiteralState { fields, .. } = state;
             self.push_value(
                 index,
                 FrameValue::Value(LoweredValue::Map(Arc::new(fields))),
-                next,
+                *next,
             );
         }
         Ok(())
@@ -9500,48 +9487,42 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn step_record_items(
         &mut self,
         index: usize,
-        instruction: u32,
-        position: ListPosition<LoweredRecordEntry>,
-        fields: Vec<(Name, LoweredValue)>,
-        span: Span,
-        next: FrameContinuation,
+        mut state: RecordItemsState,
+        next: Box<FrameContinuation>,
     ) -> Result<(), RuntimeError> {
         let mut entries = indexed_record_literal_view_at(
             &self.calls[index].execution,
-            instruction,
-            span,
+            state.instruction,
+            state.span,
         )?;
         entries
-            .resume(position)
-            .map_err(|error| indexed_error(error, span))?;
+            .resume(state.position)
+            .map_err(|error| indexed_error(error, state.span))?;
         let entry_position = entries.position();
         if let Some(entry) = entries
             .next()
             .transpose()
-            .map_err(|error| indexed_error(error, span))?
+            .map_err(|error| indexed_error(error, state.span))?
         {
             let operand = match &entry {
                 RecordEntryView::Field(_, value) | RecordEntryView::Spread(value) => *value,
             };
+            state.position = entry_position;
             self.push_expr(
                 index,
                 operand.raw(),
-                span,
+                state.span,
                 FrameContinuation::RecordItems {
-                    state: Box::new(RecordItemsState {
-                        instruction,
-                        position: entry_position,
-                        fields,
-                        span,
-                    }),
-                    next: Box::new(next),
+                    state,
+                    next,
                 },
             );
         } else {
+            let RecordItemsState { fields, .. } = state;
             self.push_value(
                 index,
                 FrameValue::Value(finish_record_entries(fields)),
-                next,
+                *next,
             );
         }
         Ok(())
@@ -9550,8 +9531,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn step_fmt(
         &mut self,
         index: usize,
-        mut state: Box<FmtState>,
-        next: FrameContinuation,
+        mut state: FmtState,
+        next: Box<FrameContinuation>,
     ) -> Result<(), RuntimeError> {
         let mut parts = indexed_fmt_parts_view_at(
             &self.calls[index].execution,
@@ -9575,14 +9556,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             state,
                             span,
                             spec,
-                            next: Box::new(next),
+                            next,
                         },
                     );
                     return Ok(());
                 }
             }
         }
-        self.push_value(index, FrameValue::Value(state.fmt.finish()?), next);
+        self.push_value(index, FrameValue::Value(state.fmt.finish()?), *next);
         Ok(())
     }
 
