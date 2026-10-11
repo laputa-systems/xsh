@@ -566,6 +566,17 @@ pure device_name(node: Str) -> Str {
   parts[parts.len() - 1]
 }
 
+# nvme-cli prints the host's libc wording for ioctl errors, which can differ
+# from the wording GNU utilities use; remove only Rust's appended errno tag.
+pure nvme_failure_text(failure: Error) -> Str {
+  let text = failure.message
+  let at = text.find(" (os error ") ?? -1
+
+  return text when at < 0 or gnu.errno(failure) == 0
+
+  text.byte_slice(0, at)
+}
+
 # Opens the device named by the single operand, checking it is a block or
 # character device first as nvme-cli does. A bare name such as `nvme0` is a
 # node in /dev.
@@ -645,7 +656,7 @@ proc admin(dev: Session, what: Str, opcode: Int, nsid: Int, cdw10: Int, length: 
   }
   match outcome {
     Err(failure) => {
-      fail(dev.json, f"{what}: {gnu.strerror(failure)}")
+      fail(dev.json, f"{what}: {nvme_failure_text(failure)}")
       {result: 0, data: b""}
     }
     Ok(reply) => {
@@ -685,7 +696,7 @@ proc namespace_of(dev: Session, parsed: Parsed) [process, env, io, error] -> Int
   match linux.nvme_namespace_id(dev.fd) {
     Ok(nsid) => nsid
     Err(failure) => {
-      fail(dev.json, f"get-namespace-id: {gnu.strerror(failure)}")
+      fail(dev.json, f"get-namespace-id: {nvme_failure_text(failure)}")
       0
     }
   }
