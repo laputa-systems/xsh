@@ -436,10 +436,10 @@ print ${StepError.Broken(code: 2).message}
   assert second.status.exited_with(0), second.stderr
 }
 
-# A private one-variant family that nothing matches on is `lint.prefer-fail`'s
-# to rewrite and delete, so this rule does not also offer to respell it. One
-# that is matched on stays a family, and this rule respells it.
-test test_prefer_implicit_message_leaves_a_family_that_prefer_fail_rewrites { |ctx|
+# `lint.prefer-fail` reports when changing an error family would change its
+# meaning. Safe message edits can still remove the sole payload while keeping
+# the nominal family.
+test test_prefer_implicit_message_keeps_nominal_families { |ctx|
   let root = test.temp_dir(ctx, name: "implicit-message-fail")?
   let candidate = fp"{root}/main.xsh"
   candidate.write_atomic(r"""error LoadError = Unreadable(message: Str)
@@ -469,20 +469,26 @@ match parse("") {
   Ok(size) => print $size
 }
 """)
+  let before = test.expect(ctx, candidate.read_text()?, status: 0, args: [])?
+  assert before.stdout == "empty name\nparse: empty text\n", before.stdout
+
   let both = run.capture --text "xsht" lint --only lint.prefer-fail,lint.prefer-implicit-message $candidate
   assert both.status.exited_with(1), both.stderr
   assert "`LoadError.Unreadable` only carries a message; report it with `fail`" in both.stderr, both.stderr
   assert "`Failed` takes its message positionally" in both.stderr, both.stderr
-  assert count_of(both.stderr, "warn[lint.prefer-implicit-message]") == 2, both.stderr
+  assert count_of(both.stderr, "warn[lint.prefer-implicit-message]") == 4, both.stderr
   assert count_of(both.stderr, "warn[lint.prefer-fail]") == 1, both.stderr
 
   let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-implicit-message $candidate
   assert fixing.status.exited_with(0), fixing.stderr
   let fixed = candidate.read_text()?
-  assert "error LoadError = Unreadable(message: Str)\n" in fixed, fixed
-  assert "LoadError.Unreadable(message: \"empty name\")" in fixed, fixed
+  assert "error LoadError = Unreadable\n" in fixed, fixed
+  assert "LoadError.Unreadable(\"empty name\")" in fixed, fixed
   assert "error ParseError = Failed\n" in fixed, fixed
   assert "ParseError.Failed(\"empty text\")" in fixed, fixed
+
+  let after = test.expect(ctx, fixed, status: 0, args: [])?
+  assert after.stdout == before.stdout, after.stdout
 }
 
 test test_positional_error_arguments_fix_names_the_fields_they_fill { |ctx|
