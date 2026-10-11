@@ -487,14 +487,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 .declarations
                 .record_constructor_types
                 .get(&callee)
-                .cloned()
-                .or_else(|| {
-                    self.declarations.record_constructors.constructor_type(
-                        &self.program.arena,
-                        callee,
-                        self.current_namespace,
-                    )
-                })?;
+                .cloned()?;
             let mut supplied = FxHashSet::default();
             let mut fields = Vec::new();
             for (index, arg) in args_vec.iter().enumerate() {

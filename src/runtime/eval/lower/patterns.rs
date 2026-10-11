@@ -2,8 +2,8 @@ use super::{
     Arc, ArenaExprKind, ArenaPatternKind, BuildExprId, BuildExprRow, BuildPatternId,
     BuildPatternIdSlots, BuildPatternRow, CompactLowerConstructProbe, DurationValue, ExprId,
     LoweredErrorPatternFields, LoweredValue, Name, PathValue, PatternId,
-    QualifiedName, SlotScope, Type, UnaryOp, cleanup_lowered_pattern_slots,
-    compact_pattern_test_type, compact_runtime_type_in_namespace,
+    QualifiedName, SlotScope, Type, UnaryOp, checked_type_annotation,
+    cleanup_lowered_pattern_slots,
 };
 
 fn compact_pattern_tag_name(name: Name) -> Name {
@@ -257,12 +257,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     let ty = if let Some(facet) = self.compact_qualified_pattern_facet(*name) {
                         Type::ErrorFacet(facet)
                     } else {
-                        compact_pattern_test_type(
-                            &self.program.arena,
-                            *name,
-                            *ty,
+                        checked_type_annotation(
                             self.declarations,
-                        )
+                            self.current_namespace,
+                            *ty,
+                        )?
+                        .clone()
                     };
                     if let Type::ErrorFacet(facet) = ty {
                         Some((
@@ -436,12 +436,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 binding: Some(name),
                 ty,
             } if self.pattern_declaration(id, *name).is_some() => {
-                let lowered_ty = compact_runtime_type_in_namespace(
-                    &self.program.arena,
-                    *ty,
+                let lowered_ty = checked_type_annotation(
                     self.declarations,
                     self.current_namespace,
-                );
+                    *ty,
+                )?
+                .clone();
                 let slot = slots.declare_source(self.pattern_declaration(id, *name)?, *name, None);
                 Some((
                     push_build_row!(
@@ -456,12 +456,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 ))
             }
             ArenaPatternKind::Type { binding: None, ty } => {
-                let lowered_ty = compact_runtime_type_in_namespace(
-                    &self.program.arena,
-                    *ty,
+                let lowered_ty = checked_type_annotation(
                     self.declarations,
                     self.current_namespace,
-                );
+                    *ty,
+                )?
+                .clone();
                 Some((
                     push_build_row!(
                         self,

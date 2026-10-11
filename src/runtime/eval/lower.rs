@@ -3,10 +3,9 @@
 use crate::modules::{ModuleFnSig, RuntimeOp, api_spec};
 use crate::runtime::value::{DurationValue, PathValue, RecordMap, RegexValue, RuntimeError, Value};
 use crate::sema::check::{
-    BindingId, CheckedApiCall, CompactBodyFacts, CompactDeclOutput, CompactTypeDefInfo, Conversion,
+    BindingId, CheckedApiCall, CompactBodyFacts, CompactDeclOutput, Conversion,
     ResourceTransferSite,
 };
-use crate::sema::records::standard_record_type;
 use crate::sema::types::{CallableParamType, ModuleExportType, Type};
 use crate::source::{SourceMap, Span};
 use crate::symbol::{Name, QualifiedName, Symbol};
@@ -27,7 +26,6 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::Arc;
-use xsh_registry::types::BuiltinTypeName;
 
 use super::lowered_ops::{
     lowered_binary_op, lowered_value_from_runtime_any, lowered_value_matches,
@@ -219,8 +217,7 @@ use commands::{
 };
 
 use types::{
-    checked_type_annotation, stream_item_type, compact_pattern_test_type,
-    compact_runtime_type_in_namespace, compact_type_check, lowered_type_needs_static_check,
+    checked_type_annotation, stream_item_type, compact_type_check, lowered_type_needs_static_check,
     compact_type_expr_name, guard_bound_type, record_binding_types, simple_binding_target,
     is_discard_name, lowered_checked_type, type_for_lowered_type,
 };
@@ -5079,12 +5076,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         span,
                     },
                     Conversion::IntToBounded => {
-                        let ty = compact_runtime_type_in_namespace(
-                            &self.program.arena,
-                            target,
+                        let ty = checked_type_annotation(
                             self.declarations,
                             self.current_namespace,
-                        );
+                            target,
+                        )?
+                        .clone();
                         BuildExprRow::Require {
                             value,
                             check: LoweredTypeCheck {
