@@ -111,6 +111,59 @@ test test_btop_memory_source_marks_malformed_and_truncated_values {
   assert truncated.total.bytes == null
 }
 
+test test_btop_memory_source_keeps_overlapping_categories_as_raw_counters {
+  let root = fs.tempdir()?
+  defer root.close()
+  root.mkdir(p"proc", parents: true)
+  root.write(
+    p"proc/meminfo",
+    "MemTotal: 100000 kB\nMemFree: 10000 kB\nMemAvailable: 20000 kB\nBuffers: 3000 kB\nCached: 9000 kB\nActive: 50000 kB\nInactive: 35000 kB\nDirty: 250 kB\nWriteback: 125 kB\nSwapTotal: 1000 kB\nSwapFree: 900 kB\n",
+  )
+
+  let observed = memory.collect(root)
+  assert observed.total.bytes == 102400000
+  assert observed.free.bytes == 10240000
+  assert observed.available.bytes == 20480000
+  assert observed.buffers.bytes == 3072000
+  assert observed.cached.bytes == 9216000
+  assert observed.active.bytes == 51200000
+  assert observed.inactive.bytes == 35840000
+  assert observed.dirty.bytes == 256000
+  assert observed.writeback.bytes == 128000
+  assert observed.total.bytes == 100000 * 1024
+}
+
+test test_btop_memory_source_withholds_duplicate_fields {
+  let root = fs.tempdir()?
+  defer root.close()
+  root.mkdir(p"proc", parents: true)
+  root.write(
+    p"proc/meminfo",
+    "MemTotal: 1024 kB\nMemAvailable: 512 kB\nMemTotal: 4096 kB\n",
+  )
+
+  let duplicate = memory.collect(root)
+  assert duplicate.total.state == report.Malformed
+  assert duplicate.total.bytes == null
+  assert duplicate.total.error_kind == "duplicate_field"
+  assert duplicate.available.bytes == 524288
+}
+
+test test_btop_memory_source_checks_large_kilobyte_conversions {
+  let root = fs.tempdir()?
+  defer root.close()
+  root.mkdir(p"proc", parents: true)
+  root.write(p"proc/meminfo", "MemTotal: 8796093022207 kB\nMemAvailable: 1 kB\n")
+  let largest_exact = memory.collect(root)
+  assert largest_exact.total.state == report.Observed
+  assert largest_exact.total.bytes == 9007199254739968
+
+  root.write(p"proc/meminfo", "MemTotal: 8796093022208 kB\nMemAvailable: 1 kB\n")
+  let out_of_range = memory.collect(root)
+  assert out_of_range.total.state == report.RangeFailure
+  assert out_of_range.total.bytes == null
+}
+
 test test_btop_network_source_selects_name_order_and_skips_loopback {
   let root = fs.tempdir()?
   defer root.close()
