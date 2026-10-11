@@ -111,7 +111,13 @@ pure octal(text: Str) -> Int {
 proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Result[List[Str], Error] {
   let name = root.name()
   let work = test.temp_dir(ctx, name: "patch-case")?
-  let _ = fs.copy_tree(fp"{root}/in", fp"{work}/w", parents: true)?
+  # A case with no starting files has no `in` directory: git cannot keep an
+  # empty directory, so the tree is created empty instead of copied.
+  if fp"{root}/in".exists()? {
+    let _ = fs.copy_tree(fp"{root}/in", fp"{work}/w", parents: true)?
+  } else {
+    fp"{work}/w".mkdir()?
+  }
   # Stored names are percent-encoded; restore them, deepest first.
   var encoded: List[Str] = []
   for entry in fs.walk(fp"{work}/w", hidden: true)? {
@@ -126,6 +132,16 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
     let decoded_tail = decode_name(old.byte_slice(at + 3))
     let parent = fp"{work}/w"
     fp"{old}".rename(to: Path.parse_bytes(bytes.concat([parent.bytes(), b"/", decoded_tail]))?)?
+  }
+  # Empty directories are not kept by git either. Every directory of the
+  # recorded final tree is created up front: GNU patch makes missing parents
+  # silently, so a directory that existed before and one that patch would have
+  # made leave the same final tree and the same output.
+  for row in fp"{root}/out/manifest".read_text()?.lines() {
+    if row.starts_with("d ") {
+      let relative = row.byte_slice(4)
+      if relative != "" and relative != "." and !fp"{work}/w/{relative}".exists()? { fp"{work}/w/{relative}".mkdir()? }
+    }
   }
   var mtimes: List[Str] = []
   if fp"{root}/mtimes".exists()? { mtimes = fp"{root}/mtimes".read_text()?.lines().collect() }

@@ -939,6 +939,13 @@ proc umount(argv: List[Str]) {
   # Every operand is attempted so one refused target does not hide the rest.
   var failed = false
   for name in args.operands {
+    # An unprivileged umount(2) reports EPERM before it looks the path up; a
+    # path that does not exist is named as missing, as for a privileged caller.
+    if !fp"{name}".exists()? {
+      gnu.error(f"{name}: No such file or directory")
+      failed = true
+      continue
+    }
     if let Err(failure) = linux.umount(fp"{name}", lazy: "-l" in args.flags, force: "-f" in args.flags) {
       gnu.error(f"{name}: {gnu.strerror(failure)}")
       failed = true
