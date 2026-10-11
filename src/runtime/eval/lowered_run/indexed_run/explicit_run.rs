@@ -139,6 +139,15 @@ fn indexed_str_tag_match_arm(
         .ok_or_else(|| lowered_match_no_arm(match_span))
 }
 
+fn expr_pattern_if_view<'a>(
+    execution: &FullExecution<'a>,
+    instruction: u32,
+    span: Span,
+) -> Result<super::ExprView<'a>, RuntimeError> {
+    let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
+    super::ExprView::decode(execution, tag, payload).map_err(|error| indexed_error(error, span))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -704,10 +713,13 @@ struct FrameEnvState {
 }
 
 #[derive(Clone, Copy)]
-enum PatternIfStep {
+enum ExprPatternIfStep {
     Condition,
     ExpressionValue,
 }
+
+type ExprPatternIfBranch = (BuildExprId, BuildExprId, Vec<usize>);
+type ExprPatternIfPosition = ListPosition<ExprPatternIfBranch>;
 
 enum FrameContinuation {
     WithBinding {
@@ -890,8 +902,14 @@ enum FrameContinuation {
         index: usize,
         else_body: Option<u32>,
         span: Span,
-        next: Option<Box<FrameContinuation>>,
-        step: PatternIfStep,
+    },
+    /// Reborrow branch descriptors from the original instruction as evaluation advances.
+    ExprPatternIf {
+        instruction: u32,
+        position: ExprPatternIfPosition,
+        span: Span,
+        next: Box<FrameContinuation>,
+        step: ExprPatternIfStep,
     },
     StrTagMatch {
         instruction: u32,
@@ -1112,6 +1130,7 @@ impl FrameContinuation {
             | C::BlockValue { .. }
             | C::Discard(_)
             | C::StatementIf { .. }
+            | C::PatternIf { .. }
             | C::PatternWhile { .. }
             | C::ForItems { .. }
             | C::ForPipelineInput { .. }
@@ -1126,8 +1145,7 @@ impl FrameContinuation {
             | C::StatementScopeEnd
             | C::EnvValue(_)
             | C::PrintArgument(_) => {}
-            C::PatternIf { next: Some(next), .. } => next.visit_retained_values(visitor),
-            C::PatternIf { next: None, .. } => {}
+            C::ExprPatternIf { next, .. } => next.visit_retained_values(visitor),
             C::TypedBoolNot { next, .. }
             | C::TypedIntByteAtIndex { next, .. }
             | C::TypedIntByteAtFallback { next, .. } => next.visit_retained_values(visitor),
@@ -1286,9 +1304,7 @@ fn with_initializer_handler(
             | FrameContinuation::AttachErrCause { next, .. }
             | FrameContinuation::WrapOk(next)
             | FrameContinuation::ProcCallResult(next) => next,
-            FrameContinuation::PatternIf {
-                next: Some(next), ..
-            } => next,
+            FrameContinuation::ExprPatternIf { next, .. } => next,
             _ => return None,
         };
     }
@@ -3545,7 +3561,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let span =
                     indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
-                self.start_pattern_branch(index, branches, 0, else_body, span, None)
+                self.start_pattern_branch(index, branches, 0, else_body, span)
             }
             FullTag::StmtPatternWhile => {
                 let condition = indexed_raw(&mut payload, span)?;
@@ -4107,32 +4123,22 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FullTag::ExprPatternIf => {
                 let view = super::ExprView::decode(&self.calls[index].execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?;
-                let (branches, else_value, value_span) = match view {
+                let (position, value_span) = match view {
                     super::ExprView::PatternIf {
                         branches,
-                        else_value,
                         span,
+                        ..
                     } => {
-                        let mut decoded = Vec::new();
-                        for branch in branches {
-                            let (condition, value, captures) =
-                                branch.map_err(|error| indexed_error(error, span))?;
-                            let captures = captures
-                                .collect::<Result<Vec<_>, _>>()
-                                .map_err(|error| indexed_error(error, span))?;
-                            decoded.push((condition.raw(), value.raw(), captures));
-                        }
-                        (decoded, else_value.raw(), span)
+                        (branches.position(), span)
                     }
                     _ => unreachable!("pattern-if tag has a matching borrowed expression view"),
                 };
-                self.start_pattern_branch(
+                self.start_expr_pattern_branch(
                     index,
-                    branches,
-                    0,
-                    Some(else_value),
+                    instruction,
+                    position,
                     value_span,
-                    Some(Box::new(next)),
+                    Box::new(next),
                 )?;
             }
             FullTag::ExprStrMatch | FullTag::ExprTagMatch => {
@@ -5831,6 +5837,24 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 index: branch,
                 else_body,
                 span,
+            } => match value {
+                FrameValue::Break(value) => {
+                    return self.complete_call(index, StmtFlow::Propagate(value));
+                }
+                FrameValue::Value(value) => {
+                    if lowered_condition_bool(value, span)? {
+                        let body = branches[branch].1;
+                        self.push_statement_block(index, body, span)?;
+                    } else {
+                        self.close_pattern_scope(index)?;
+                        self.start_pattern_branch(index, branches, branch + 1, else_body, span)?;
+                    }
+                }
+            },
+            FrameContinuation::ExprPatternIf {
+                instruction,
+                position,
+                span,
                 next,
                 step,
             } => match value {
@@ -5838,40 +5862,44 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
                 FrameValue::Value(value) => match step {
-                    PatternIfStep::Condition => {
+                    ExprPatternIfStep::Condition => {
                         if lowered_condition_bool(value, span)? {
-                            let body = branches[branch].1;
-                            if next.is_some() {
-                                self.push_expr(
-                                    index,
-                                    body,
+                            let body = self.expr_pattern_if_branch_value(
+                                index,
+                                instruction,
+                                position,
+                                span,
+                            )?;
+                            self.push_expr(
+                                index,
+                                body,
+                                span,
+                                FrameContinuation::ExprPatternIf {
+                                    instruction,
+                                    position,
                                     span,
-                                    FrameContinuation::PatternIf {
-                                        branches,
-                                        index: branch,
-                                        else_body,
-                                        span,
-                                        next,
-                                        step: PatternIfStep::ExpressionValue,
-                                    },
-                                );
-                            } else {
-                                self.push_statement_block(index, body, span)?;
-                            }
+                                    next,
+                                    step: ExprPatternIfStep::ExpressionValue,
+                                },
+                            );
                         } else {
                             self.close_pattern_scope(index)?;
-                            self.start_pattern_branch(
+                            let position = self.advance_expr_pattern_if(
                                 index,
-                                branches,
-                                branch + 1,
-                                else_body,
+                                instruction,
+                                position,
+                                span,
+                            )?;
+                            self.start_expr_pattern_branch(
+                                index,
+                                instruction,
+                                position,
                                 span,
                                 next,
                             )?;
                         }
                     }
-                    PatternIfStep::ExpressionValue => {
-                        let next = next.expect("expression pattern branch keeps its continuation");
+                    ExprPatternIfStep::ExpressionValue => {
                         let parent_scope = self.evaluator.parent_owned_host_scope();
                         self.evaluator
                             .transfer_owned_host_resources_in_lowered_value(&value, parent_scope);
@@ -8269,6 +8297,118 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         )
     }
 
+    fn start_expr_pattern_branch(
+        &mut self,
+        index: usize,
+        instruction: u32,
+        position: ExprPatternIfPosition,
+        span: Span,
+        next: Box<FrameContinuation>,
+    ) -> Result<(), RuntimeError> {
+        let (condition, captures, else_value) = {
+            let view = expr_pattern_if_view(&self.calls[index].execution, instruction, span)?;
+            let super::ExprView::PatternIf {
+                mut branches,
+                else_value,
+                ..
+            } = view
+            else {
+                unreachable!("pattern-if instruction has a matching borrowed expression view");
+            };
+            branches
+                .resume(position)
+                .map_err(|error| indexed_error(error, span))?;
+            let branch = branches
+                .next()
+                .transpose()
+                .map_err(|error| indexed_error(error, span))?;
+            let else_value = else_value.raw();
+            match branch {
+                Some((condition, _, captures)) => {
+                    let captures = captures
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|error| indexed_error(error, span))?;
+                    (Some(condition.raw()), captures, else_value)
+                }
+                None => (None, Vec::new(), else_value),
+            }
+        };
+        let Some(condition) = condition else {
+            self.push_expr(index, else_value, span, *next);
+            return Ok(());
+        };
+        self.open_pattern_scope(index, captures);
+        self.push_expr(
+            index,
+            condition,
+            span,
+            FrameContinuation::ExprPatternIf {
+                instruction,
+                position,
+                span,
+                next,
+                step: ExprPatternIfStep::Condition,
+            },
+        );
+        Ok(())
+    }
+
+    fn expr_pattern_if_branch_value(
+        &self,
+        index: usize,
+        instruction: u32,
+        position: ExprPatternIfPosition,
+        span: Span,
+    ) -> Result<u32, RuntimeError> {
+        let view = expr_pattern_if_view(&self.calls[index].execution, instruction, span)?;
+        let super::ExprView::PatternIf { mut branches, .. } = view else {
+            unreachable!("pattern-if instruction has a matching borrowed expression view");
+        };
+        branches
+            .resume(position)
+            .map_err(|error| indexed_error(error, span))?;
+        let (_, value, _) = branches
+            .next()
+            .transpose()
+            .map_err(|error| indexed_error(error, span))?
+            .ok_or_else(|| {
+                RuntimeError::new(
+                    "indexed-ir",
+                    "indexed IR verification failed: pattern-if cursor is exhausted",
+                )
+                .with_span(span)
+            })?;
+        Ok(value.raw())
+    }
+
+    fn advance_expr_pattern_if(
+        &self,
+        index: usize,
+        instruction: u32,
+        position: ExprPatternIfPosition,
+        span: Span,
+    ) -> Result<ExprPatternIfPosition, RuntimeError> {
+        let view = expr_pattern_if_view(&self.calls[index].execution, instruction, span)?;
+        let super::ExprView::PatternIf { mut branches, .. } = view else {
+            unreachable!("pattern-if instruction has a matching borrowed expression view");
+        };
+        branches
+            .resume(position)
+            .map_err(|error| indexed_error(error, span))?;
+        branches
+            .next()
+            .transpose()
+            .map_err(|error| indexed_error(error, span))?
+            .ok_or_else(|| {
+                RuntimeError::new(
+                    "indexed-ir",
+                    "indexed IR verification failed: pattern-if cursor is exhausted",
+                )
+                .with_span(span)
+            })?;
+        Ok(branches.position())
+    }
+
     fn start_pattern_branch(
         &mut self,
         index: usize,
@@ -8276,17 +8416,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         branch: usize,
         else_body: Option<u32>,
         span: Span,
-        next: Option<Box<FrameContinuation>>,
     ) -> Result<(), RuntimeError> {
         let Some((condition, _, captures)) = branches.get_mut(branch) else {
             return match else_body {
-                Some(body) => match next {
-                    Some(next) => {
-                        self.push_expr(index, body, span, *next);
-                        Ok(())
-                    }
-                    None => self.push_statement_block(index, body, span),
-                },
+                Some(body) => self.push_statement_block(index, body, span),
                 None => Ok(()),
             };
         };
@@ -8301,8 +8434,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 index: branch,
                 else_body,
                 span,
-                next,
-                step: PatternIfStep::Condition,
             },
         );
         Ok(())
