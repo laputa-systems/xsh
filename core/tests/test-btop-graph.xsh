@@ -99,6 +99,15 @@ test test_btop_graph_symbol_set_follows_captured_encoding_capabilities {
 }
 
 test test_btop_graph_rejects_invalid_times_values_and_geometry {
+  let zero_origin = graph.append(
+    graph.empty_history(),
+    {at_ns: 0, value: 0.0, state: graph.Observed},
+  )?
+  assert zero_origin.samples[0].at_ns == 0
+  assert graph.append(
+    graph.empty_history(),
+    {at_ns: -1, value: 0.0, state: graph.Observed},
+  ) is Err(_)
   let first = graph.append(
     graph.empty_history(),
     {at_ns: 10, value: 0.0, state: graph.Observed},

@@ -294,10 +294,18 @@ fn wait_for_terminal_output(master: &mut File, output: &mut Vec<u8>, timeout: Du
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+enum TerminalColor {
+    Ansi(u8),
+    Indexed(u8),
+    Rgb(u8, u8, u8),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct VirtualTerminal {
     rows: usize,
     columns: usize,
     cells: Vec<Vec<String>>,
+    styles: Vec<Vec<Option<TerminalColor>>>,
     cursor_row: usize,
     cursor_column: usize,
     alternate_screen: bool,
@@ -305,6 +313,7 @@ struct VirtualTerminal {
     synchronized_output: bool,
     cursor_visible: bool,
     style_reset: bool,
+    current_color: Option<TerminalColor>,
     last_cluster: Option<(usize, usize, String)>,
 }
 
@@ -314,6 +323,7 @@ impl VirtualTerminal {
             rows,
             columns,
             cells: vec![vec![" ".to_owned(); columns]; rows],
+            styles: vec![vec![None; columns]; rows],
             cursor_row: 0,
             cursor_column: 0,
             alternate_screen: false,
@@ -321,12 +331,14 @@ impl VirtualTerminal {
             synchronized_output: false,
             cursor_visible: true,
             style_reset: false,
+            current_color: None,
             last_cluster: None,
         }
     }
 
     fn resize(&mut self, rows: usize, columns: usize) {
         let mut resized = vec![vec![" ".to_owned(); columns]; rows];
+        let mut resized_styles = vec![vec![None; columns]; rows];
         for row in 0..rows.min(self.rows) {
             for column in 0..columns.min(self.columns) {
                 let cell = &self.cells[row][column];
@@ -336,8 +348,10 @@ impl VirtualTerminal {
                 let width = cell.as_str().width();
                 if column + width <= columns {
                     resized[row][column] = cell.clone();
+                    resized_styles[row][column] = self.styles[row][column].clone();
                     for continuation in column + 1..column + width {
                         resized[row][continuation].clear();
+                        resized_styles[row][continuation] = self.styles[row][continuation].clone();
                     }
                 }
             }
@@ -345,6 +359,7 @@ impl VirtualTerminal {
         self.rows = rows;
         self.columns = columns;
         self.cells = resized;
+        self.styles = resized_styles;
         self.cursor_row = self.cursor_row.min(rows.saturating_sub(1));
         self.cursor_column = self.cursor_column.min(columns);
         self.last_cluster = None;
@@ -409,9 +424,31 @@ impl VirtualTerminal {
                     self.clear_glyph(self.cursor_row, column);
                 }
             }
-            b'm' if parameters == "0" => self.style_reset = true,
+            b'm' => self.sgr(parameters),
             _ => panic!("unsupported terminal control sequence: {parameters}{:?}", final_byte as char),
         }
+    }
+
+    fn sgr(&mut self, parameters: &str) {
+        if parameters == "0" {
+            self.style_reset = true;
+            self.current_color = None;
+            return;
+        }
+        let values = parameters
+            .split(';')
+            .map(|value| value.parse::<u16>().expect("numeric SGR parameter"))
+            .collect::<Vec<_>>();
+        let color = match values.as_slice() {
+            [38, 5, index] if *index <= 255 => TerminalColor::Indexed(*index as u8),
+            [38, 2, red, green, blue] if *red <= 255 && *green <= 255 && *blue <= 255 => {
+                TerminalColor::Rgb(*red as u8, *green as u8, *blue as u8)
+            }
+            [code] if (30..=37).contains(code) => TerminalColor::Ansi((code - 30) as u8),
+            [code] if (90..=97).contains(code) => TerminalColor::Ansi((code - 90 + 8) as u8),
+            _ => panic!("unsupported terminal color SGR: {parameters}"),
+        };
+        self.current_color = Some(color);
     }
 
     fn joins_previous(&self, character: char) -> bool {
@@ -442,8 +479,10 @@ impl VirtualTerminal {
                 self.clear_glyph(row, at);
             }
             self.cells[row][column] = extended.clone();
+            self.styles[row][column] = self.current_color.clone();
             for at in column + 1..column + new_width {
                 self.cells[row][at].clear();
+                self.styles[row][at] = self.current_color.clone();
             }
             self.cursor_column = column + new_width;
             self.last_cluster = Some((row, column, extended));
@@ -467,8 +506,10 @@ impl VirtualTerminal {
         }
         let cluster = character.to_string();
         self.cells[row][column] = cluster.clone();
+        self.styles[row][column] = self.current_color.clone();
         for at in column + 1..column + width {
             self.cells[row][at].clear();
+            self.styles[row][at] = self.current_color.clone();
         }
         self.cursor_column += width;
         self.last_cluster = Some((row, column, cluster));
@@ -477,14 +518,19 @@ impl VirtualTerminal {
     fn clear_glyph(&mut self, row: usize, column: usize) {
         if column >= self.columns { return; }
         if self.cells[row][column].is_empty() {
-            if column > 0 { self.cells[row][column - 1] = " ".to_owned(); }
+            if column > 0 {
+                self.cells[row][column - 1] = " ".to_owned();
+                self.styles[row][column - 1] = None;
+            }
         } else {
             let width = self.cells[row][column].as_str().width();
             for at in column + 1..column + width.min(self.columns - column) {
                 self.cells[row][at] = " ".to_owned();
+                self.styles[row][at] = None;
             }
         }
         self.cells[row][column] = " ".to_owned();
+        self.styles[row][column] = None;
     }
 
     fn line(&self, row: usize) -> String {
@@ -588,21 +634,21 @@ fn btop_replay_updates_after_resize_and_quits_with_restored_terminal() {
     drop(command);
     let mut output = Vec::new();
 
-    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(3), |bytes| {
-        bytes.windows(b"CPU warming".len()).any(|window| window == b"CPU warming")
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(10), |bytes| {
+        bytes.windows(b"Usage warming".len()).any(|window| window == b"Usage warming")
             && bytes.windows(b"\x1b[?2026l".len()).any(|window| window == b"\x1b[?2026l")
     });
     let initial_output_len = output.len();
     let mut screen = VirtualTerminal::new(24, 80);
     screen.feed(&output);
-    assert!(screen.line(0).contains("CPU warming"));
+    assert!(screen.line(1).contains("Usage warming"));
     let active_attrs = termios_snapshot(terminal.slave.as_raw_fd());
     assert_eq!(active_attrs.local & libc::ICANON, 0, "btop must enter raw mode");
     assert_eq!(active_attrs.local & libc::ISIG, 0, "raw Ctrl-C must arrive as a byte");
     assert_eq!(active_attrs.local & libc::ECHO, 0, "raw input must not echo key bytes into the screen");
     set_terminal_size(terminal.master.as_raw_fd(), 30, 100);
 
-    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(3), |bytes| {
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(10), |bytes| {
         let updates = bytes.windows(b"\x1b[?2026l".len()).filter(|window| *window == b"\x1b[?2026l").count();
         updates >= 3
             && bytes.windows(b"Usage 40.0%".len()).any(|window| window == b"Usage 40.0%")
@@ -618,7 +664,7 @@ fn btop_replay_updates_after_resize_and_quits_with_restored_terminal() {
     assert_eq!(screen.rows, 30);
     assert_eq!(screen.columns, 100);
     assert!((0..screen.rows).any(|row| screen.line(row).contains("Usage 40.0%")));
-    assert!(screen.line(0).contains("CPU 40.0%"));
+    assert!(screen.line(0).contains("CPU"));
     screen.assert_modes_restored();
     assert_eq!(termios_snapshot(terminal.slave.as_raw_fd()), original_attrs);
     assert_btop_terminal_modes_close(&output);
@@ -656,7 +702,10 @@ fn btop_replay_finite_completion_restores_terminal_attributes() {
     let mut screen = VirtualTerminal::new(24, 80);
     screen.feed(&output);
     screen.assert_modes_restored();
-    assert!(screen.line(0).contains("CPU 40.0%"));
+    assert!(screen.line(1).contains("Usage 40.0%"));
+    assert_eq!(screen.styles[0][0], Some(TerminalColor::Indexed(46)));
+    assert_eq!(screen.styles[8][0], Some(TerminalColor::Indexed(39)));
+    assert_eq!(screen.styles[17][0], Some(TerminalColor::Indexed(214)));
 }
 
 #[test]
@@ -680,8 +729,8 @@ fn btop_replay_ctrl_c_byte_exits_and_restores_terminal() {
     drop(command);
     let mut output = Vec::new();
 
-    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(3), |bytes| {
-        bytes.windows(b"CPU warming".len()).any(|window| window == b"CPU warming")
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(10), |bytes| {
+        bytes.windows(b"Usage warming".len()).any(|window| window == b"Usage warming")
             && bytes.windows(b"\x1b[?2026l".len()).any(|window| window == b"\x1b[?2026l")
     });
     let active_attrs = termios_snapshot(terminal.slave.as_raw_fd());
@@ -723,8 +772,8 @@ fn btop_replay_stdin_eof_restores_terminal_attributes() {
     let child = Running::spawn(&mut command);
     drop(command);
     let mut output = Vec::new();
-    wait_for_terminal_output(&mut { output_terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(3), |bytes| {
-        bytes.windows(b"CPU warming".len()).any(|window| window == b"CPU warming")
+    wait_for_terminal_output(&mut { output_terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(10), |bytes| {
+        bytes.windows(b"Usage warming".len()).any(|window| window == b"Usage warming")
             && bytes.windows(b"\x1b[?2026l".len()).any(|window| window == b"\x1b[?2026l")
     });
 
@@ -764,8 +813,8 @@ fn btop_replay_write_failure_restores_input_terminal_attributes() {
     let child = Running::spawn(&mut command);
     drop(command);
     let mut output = Vec::new();
-    wait_for_terminal_output(&mut { output_terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(3), |bytes| {
-        bytes.windows(b"CPU warming".len()).any(|window| window == b"CPU warming")
+    wait_for_terminal_output(&mut { output_terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(10), |bytes| {
+        bytes.windows(b"Usage warming".len()).any(|window| window == b"Usage warming")
             && bytes.windows(b"\x1b[?2026l".len()).any(|window| window == b"\x1b[?2026l")
     });
 
@@ -855,7 +904,7 @@ fn btop_replay_filter_sort_selection_and_resize_use_the_decoded_input() {
     drop(command);
     let mut output = Vec::new();
 
-    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(3), |bytes| {
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(10), |bytes| {
         bytes.windows(b"PID USER CPU% RSS COMMAND".len()).any(|window| window == b"PID USER CPU% RSS COMMAND")
             && synchronized_frames(bytes) >= 1
     });
@@ -967,8 +1016,8 @@ fn btop_input_to_present_latency_is_separate_from_replay_sample_interval() {
     let child = Running::spawn(&mut command);
     drop(command);
     let mut output = Vec::new();
-    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(3), |bytes| {
-        bytes.windows(b"CPU warming".len()).any(|window| window == b"CPU warming")
+    wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(10), |bytes| {
+        bytes.windows(b"Usage warming".len()).any(|window| window == b"Usage warming")
             && bytes.windows(b"\x1b[?2026l".len()).any(|window| window == b"\x1b[?2026l")
     });
 

@@ -3,6 +3,8 @@
 ##! Rows are sanitized and padded at construction, while the committed surface
 ##! changes only after the complete update has reached the output sink.
 use tui
+use btop_color as color
+use btop_terminal as terminal
 
 const MAX_DIMENSION = 2000
 const MAX_CELLS = 200000
@@ -11,13 +13,13 @@ const MAX_CELLS = 200000
 export type Rect = {x: Int, y: Int, width: Int, height: Int}
 
 ## Stores fixed-width sanitized display rows.
-export type Surface = {width: Int, height: Int, lines: List[Str]}
+export type Surface = {width: Int, height: Int, lines: List[Str], roles: List[color.Role?]}
 
 ## Represents the screen state known to have been written in full.
-export type Committed = {surface: Surface?, valid: Bool}
+export type Committed = {surface: Surface?, valid: Bool, color_depth: terminal.ColorDepth}
 
 ## Carries one desired frame and its full or delta terminal bytes.
-export type Update = {surface: Surface, bytes: Str, full_redraw: Bool}
+export type Update = {surface: Surface, bytes: Str, full_redraw: Bool, color_depth: terminal.ColorDepth}
 
 pure valid_dimensions(width: Int, height: Int) -> Bool {
   if width < 0 or height < 0 or width > MAX_DIMENSION or height > MAX_DIMENSION {
@@ -33,6 +35,12 @@ pure repeated(character: Str, count: Int) -> Str {
   result
 }
 
+pure no_roles(height: Int) -> List[color.Role?] {
+  var roles: List[color.Role?] = []
+  for _ in range(height) { roles += [null] }
+  roles
+}
+
 pure fit(value: Str, width: Int) -> Str {
   tui.cell_right_pad(tui.cell_clip(tui.safe_single_line(value), width), width)
 }
@@ -45,7 +53,7 @@ export pure blank(width: Int, height: Int) -> Result[Surface, Error] {
   let line = repeated(" ", width)
   var lines: List[Str] = []
   for _ in range(height) { lines += [line] }
-  Ok({width: width, height: height, lines: lines})
+  Ok({width: width, height: height, lines: lines, roles: no_roles(height)})
 }
 
 ## Builds a fixed-size surface, clipping and padding each row by display cells.
@@ -58,7 +66,25 @@ export pure from_lines(width: Int, height: Int, source: List[Str]) -> Result[Sur
     let value = if row < source.len() { source[row] } else { "" }
     lines += [fit(value, width)]
   }
-  Ok({width: width, height: height, lines: lines})
+  Ok({width: width, height: height, lines: lines, roles: no_roles(height)})
+}
+
+## Adds one semantic palette role per output row while keeping source text inert.
+export pure from_lines_with_roles(
+  width: Int,
+  height: Int,
+  source: List[Str],
+  roles: List[color.Role?],
+) -> Result[Surface, Error] {
+  let plain = from_lines(width, height, source)?
+  if roles.len() > height {
+    return Err(error.failure("surface palette roles exceed the row bound"))
+  }
+  var row_roles: List[color.Role?] = []
+  for row in range(height) {
+    row_roles += [if row < roles.len() { roles[row] } else { null }]
+  }
+  Ok({width: plain.width, height: plain.height, lines: plain.lines, roles: row_roles})
 }
 
 ## Builds a clipped title and body inside a complete rectangular border.
@@ -110,7 +136,11 @@ export pure clip_rect(surface: Surface, rectangle: Rect) -> Result[Surface, Erro
   for y in range(area.y, area.y + area.height) {
     lines += [tui.cell_right_pad(tui.cell_slice(surface.lines[y], area.x, area.width), area.width)]
   }
-  Ok({width: area.width, height: area.height, lines: lines})
+  var roles: List[color.Role?] = []
+  for y in range(area.y, area.y + area.height) {
+    roles += [if y < surface.roles.len() { surface.roles[y] } else { null }]
+  }
+  Ok({width: area.width, height: area.height, lines: lines, roles: roles})
 }
 
 ## Draws a bounded ASCII meter; missing or non-finite values use question marks.
@@ -176,45 +206,58 @@ export pure input_field(value: Str, cursor_cell: Int, width: Int) -> Str {
 
 ## Represents a screen with no known fully committed frame.
 export pure initial() -> Committed {
-  {surface: null, valid: false}
+  {surface: null, valid: false, color_depth: .NoColor}
 }
 
-pure full_bytes(surface: Surface) -> Str {
+pure line_bytes(surface: Surface, row: Int, depth: terminal.ColorDepth) -> Str {
+  let prefix = if row < surface.roles.len() {
+    if let role = surface.roles[row] { color.foreground(role, depth) } else { "" }
+  } else { "" }
+  f"{prefix}{surface.lines[row]}\u{1b}[K\u{1b}[0m"
+}
+
+pure full_bytes(surface: Surface, depth: terminal.ColorDepth) -> Str {
   var output = "\u{1b}[2J"
   for row in range(surface.height) {
-    output += f"\u{1b}[{row + 1};1H" + surface.lines[row] + "\u{1b}[K\u{1b}[0m"
+    output += f"\u{1b}[{row + 1};1H" + line_bytes(surface, row, depth)
   }
   output
 }
 
 ## Computes changed rows without advancing the committed screen.
-export pure prepare(committed: Committed, desired: Surface) -> Update {
+export pure prepare(
+  committed: Committed,
+  desired: Surface,
+  depth: terminal.ColorDepth = .NoColor,
+) -> Update {
   if ! committed.valid or committed.surface == null {
-    return {surface: desired, bytes: full_bytes(desired), full_redraw: true}
+    return {surface: desired, bytes: full_bytes(desired, depth), full_redraw: true, color_depth: depth}
   }
   let previous = committed.surface ?? desired
-  if previous.width != desired.width or previous.height != desired.height {
-    return {surface: desired, bytes: full_bytes(desired), full_redraw: true}
+  if previous.width != desired.width or previous.height != desired.height or committed.color_depth != depth {
+    return {surface: desired, bytes: full_bytes(desired, depth), full_redraw: true, color_depth: depth}
   }
   var output = ""
   for row in range(desired.height) {
-    if previous.lines[row] != desired.lines[row] {
-      output += f"\u{1b}[{row + 1};1H" + desired.lines[row] + "\u{1b}[K\u{1b}[0m"
+    let previous_role = if row < previous.roles.len() { previous.roles[row] } else { null }
+    let desired_role = if row < desired.roles.len() { desired.roles[row] } else { null }
+    if previous.lines[row] != desired.lines[row] or previous_role != desired_role {
+      output += f"\u{1b}[{row + 1};1H" + line_bytes(desired, row, depth)
     }
   }
-  {surface: desired, bytes: output, full_redraw: false}
+  {surface: desired, bytes: output, full_redraw: false, color_depth: depth}
 }
 
 ## Commits only a complete write; partial and abandoned updates require redraw.
 export pure complete(update: Update, written_bytes: Int) -> Committed {
   let expected = bytes.from_text(update.bytes).len()
   if written_bytes != expected {
-    return {surface: null, valid: false}
+    return {surface: null, valid: false, color_depth: update.color_depth}
   }
-  {surface: update.surface, valid: true}
+  {surface: update.surface, valid: true, color_depth: update.color_depth}
 }
 
 ## Invalidates a previously committed frame after an abandoned or failed update.
 export pure invalidate(committed: Committed) -> Committed {
-  {surface: committed.surface, valid: false}
+  {surface: committed.surface, valid: false, color_depth: committed.color_depth}
 }

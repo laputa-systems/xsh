@@ -266,7 +266,7 @@ test test_btop_process_uid_cache_expires_and_invalidates_on_exec_or_credentials 
   assert stale.value.processes[0].uid == 1000
   assert stale.value.processes[0].uid_state == model.Stale
   assert stale.metadata.by_pid.len() == 1
-  let stale_screen = renderer.render_view(stale.value, ui.initial(stale.value, 1), 80, 24)
+  let stale_screen = renderer.render_view(stale.value, ui.initial(stale.value, 1), 80, 24)?
   assert (stale_screen.lines |> join("\n")).find("~1000") != null
 
   let expired_input: model.Observation = {...missing_uid, at_ns: 6000000000}

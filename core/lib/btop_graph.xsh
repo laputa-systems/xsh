@@ -81,9 +81,10 @@ export pure empty_history() -> History {
 }
 
 ## Adds one ordered observation and evicts only samples beyond the fixed horizon.
+## Replay timestamps may start at zero because they use a virtual time origin.
 export pure append(history: History, sample: Sample) -> Result[History, Error] {
-  if sample.at_ns <= 0 {
-    return Err(error.failure("graph sample time must be positive"))
+  if sample.at_ns < 0 {
+    return Err(error.failure("graph sample time cannot be negative"))
   }
   if history.samples.len() > 0 and sample.at_ns <= history.samples[history.samples.len() - 1].at_ns {
     return Err(error.failure("graph sample times must increase"))
@@ -175,9 +176,9 @@ pure check_history(history: History) -> Result[Unit, Error] {
   if history.samples.len() > HISTORY_LIMIT {
     return Err(error.failure("graph history exceeds its retained sample bound"))
   }
-  var previous_at = 0
+  var previous_at: Int? = null
   for sample in history.samples {
-    if sample.at_ns <= previous_at {
+    if sample.at_ns < 0 or (previous_at != null and sample.at_ns <= (previous_at ?? sample.at_ns)) {
       return Err(error.failure("graph history times must increase"))
     }
     if sample.state == .Observed and sample.value == null {

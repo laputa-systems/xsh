@@ -1,11 +1,14 @@
-##! Builds one complete ASCII monitor frame without terminal side effects.
+##! Builds one complete semantic monitor frame without terminal side effects.
 ##!
-##! G1 keeps a fixed four-panel layout; it buffers all rows before the caller
-##! writes them so a refresh never exposes a partially assembled screen.
+##! G4a fixes the default panel geometry and buffers every row before output.
 use btop_model as model
+use btop_color as color
 use btop_rates as rates
+use btop_graph as graph
+use btop_graphs as graph_series
 use btop_sensors as sensors
 use btop_surface as surface
+use btop_terminal as terminal
 use btop_ui as ui
 use sys_proc as processes
 use sys_cpu as syscpu
@@ -13,7 +16,13 @@ use system_report as report
 use tui
 
 ## Holds the full visible row set and whether the terminal can show the panels.
-export type Screen = {width: Int, height: Int, too_small: Bool, lines: List[Str]}
+export type Screen = {
+  width: Int,
+  height: Int,
+  too_small: Bool,
+  lines: List[Str],
+  row_roles: List[color.Role?],
+}
 
 pure repeated(character: Str, count: Int) -> Str {
   var text = ""
@@ -34,15 +43,45 @@ pure fit(value: Str, width: Int) -> Str {
   tui.cell_right_pad(tui.cell_clip(safe_line(value), width), width)
 }
 
-pure panel(width: Int, height: Int, title: Str, content: List[Str]) -> List[Str] {
+pure top_border(width: Int, title: Str) -> Str {
   let inner_width = width - 2
-  let border = f"+{repeated("-", inner_width)}+"
-  var rows = [border, f"|{fit(title, inner_width)}|"]
-  for index in range(height - 3) {
+  let label = f" {title} "
+  let spare = inner_width - label.count_chars()
+  let left = if spare < 0 { 0 } else { spare / 2 }
+  let right = if spare < 0 { 0 } else { spare - left }
+  f"╭{repeated("─", left)}{label}{repeated("─", right)}╮"
+}
+
+pure bottom_border(width: Int) -> Str {
+  f"╰{repeated("─", width - 2)}╯"
+}
+
+pure panel(width: Int, height: Int, title: Str, content: List[Str]) -> List[Str] {
+  var rows = [top_border(width, title)]
+  for index in range(height - 2) {
     let text = if index < content.len() { content[index] } else { "" }
-    rows += [f"|{fit(text, inner_width)}|"]
+    rows += [f"│{fit(text, width - 2)}│"]
   }
-  rows += [border]
+  rows += [bottom_border(width)]
+  rows
+}
+
+pure split_panel(
+  width: Int,
+  height: Int,
+  title: Str,
+  left_content: List[Str],
+  right_content: List[Str],
+) -> List[Str] {
+  let left_width = (width - 3) / 2
+  let right_width = width - 3 - left_width
+  var rows = [top_border(width, title)]
+  for index in range(height - 2) {
+    let left = if index < left_content.len() { left_content[index] } else { "" }
+    let right = if index < right_content.len() { right_content[index] } else { "" }
+    rows += [f"│{fit(left, left_width)}│{fit(right, right_width)}│"]
+  }
+  rows += [bottom_border(width)]
   rows
 }
 
@@ -207,28 +246,31 @@ pure process_text(row: model.ProcessRow, local_display: List[processes.LocalProc
   f"{row.pid} {user_label} {rate_text(row.cpu_percent)} {bytes_text(row.rss_bytes)} {command}"
 }
 
-pure memory_content(value: model.Model) -> List[Str] {
-  [
-    f"Total {field_text(value.memory.total_bytes, value.memory.total_state)}",
-    f"Available {field_text(value.memory.available_bytes, value.memory.available_state)}",
-    f"Used {counter_text(value.memory.used_bytes)}",
-    if value.memory.swap_total_state == report.Absent and value.memory.swap_free_state == report.Absent {
-      "Swap absent"
-    } else {
-      f"Swap total {field_text(value.memory.swap_total_bytes, value.memory.swap_total_state)} used {counter_text(value.memory.swap_used_bytes)}"
-    },
-  ]
+pure memory_percent_text(value: model.Model) -> Str {
+  if value.memory.total_bytes != null and (value.memory.total_bytes ?? 0) > 0 and value.memory.used_bytes.value != null {
+    let percent = (value.memory.used_bytes.value ?? 0).float() * 100.0 / (value.memory.total_bytes ?? 1).float()
+    return f"{percent.format(precision: 1)}%"
+  }
+  match value.memory.used_bytes.state {
+    rates.Warming => "warming"
+    rates.Reset => "reset"
+    rates.Gap => "gap"
+    rates.Invalid => "invalid"
+    else => "unavailable"
+  }
 }
 
-pure network_content(value: model.Model) -> List[Str] {
-  if value.network.interface_name == null {
-    return [f"Interface {state_text(value.network.source_state)}"]
-  }
-  [
-    f"Interface {value.network.interface_name ?? ""}",
-    f"RX {byte_rate_text(value.network.rx_bytes_per_second)} {bytes_text(value.network.rx_bytes)} total",
-    f"TX {byte_rate_text(value.network.tx_bytes_per_second)} {bytes_text(value.network.tx_bytes)} total",
-  ]
+pure history_rows(
+  history: graph.History,
+  capabilities: terminal.Capabilities,
+  width: Int,
+  height: Int,
+  inverted: Bool,
+  maximum: Float?,
+  minimum: Float = 0.0,
+) -> Result[List[Str], Error] {
+  let frame = graph.project(history, capabilities, width, height, inverted, maximum, minimum)?
+  Ok(frame.rows)
 }
 
 pure process_content(
@@ -284,17 +326,113 @@ pure process_content(
   lines
 }
 
-## Returns the process rows that fit below the fixed panel headings.
+## Returns the process rows that fit below the pinned default CPU panel.
 export pure process_capacity(height: Int) -> Int {
   if height < 24 { return 0 }
-  let remaining = height - 1
-  let top_height = remaining / 2
-  let bottom_height = remaining - top_height
-  if bottom_height <= 5 { 0 } else { bottom_height - 5 }
+  let cpu_height = if (height * 32 + 99) / 100 < 8 { 8 } else { (height * 32 + 99) / 100 }
+  let process_height = height - cpu_height
+  if process_height <= 4 { 0 } else { process_height - 4 }
+}
+
+pure default_capabilities(width: Int, height: Int) -> terminal.Capabilities {
+  terminal.detect({
+    term: "xterm-256color",
+    colorterm: "",
+    no_color: false,
+    lc_all: "C.UTF-8",
+    lc_ctype: "",
+    lang: "",
+    rows: height,
+    cols: width,
+  })
+}
+
+pure cpu_panel_height(height: Int) -> Int {
+  let preferred = (height * 32 + 99) / 100
+  if preferred < 8 { 8 } else { preferred }
+}
+
+pure memory_panel_width(width: Int) -> Int {
+  (width * 55 + 50) / 100
+}
+
+pure cpu_content(
+  value: model.Model,
+  histories: graph_series.Histories,
+  capabilities: terminal.Capabilities,
+  width: Int,
+  panel_height: Int,
+) -> Result[List[Str], Error] {
+  let graph_space = panel_height - 5
+  let cpu_graph_height = (graph_space * 2 + 1) / 3
+  let temperature_graph_height = graph_space - cpu_graph_height
+  let cpu_graph = history_rows(histories.cpu, capabilities, width, cpu_graph_height, false, 100.0)?
+  let temperature_graph = history_rows(
+    histories.temperature,
+    capabilities,
+    width,
+    temperature_graph_height,
+    true,
+    null,
+    -20.0,
+  )?
+  let summary = f"Usage {rate_text(value.cpu_percent)} | Uptime {uptime_text(value.uptime)} | Load {load_text(value.load)}"
+  let sensors = f"{temperature_text(value.telemetry.temperature)} | {frequency_text(value.telemetry.frequency)}"
+  let details = f"{core_temperature_text(value.telemetry.temperature)} | {battery_text(value.telemetry.battery)}"
+  Ok([summary] + cpu_graph + temperature_graph + [sensors, details])
+}
+
+pure memory_panel_content(
+  value: model.Model,
+  history: graph.History,
+  capabilities: terminal.Capabilities,
+  width: Int,
+) -> Result[List[Str], Error] {
+  let graph_width = if width > 0 { width } else { 1 }
+  let used_graph = history_rows(history, capabilities, graph_width, 2, false, 100.0)?
+  let swap = if value.memory.swap_total_state == report.Absent and value.memory.swap_free_state == report.Absent {
+    "Swap absent"
+  } else {
+    f"Swap {counter_text(value.memory.swap_used_bytes)}"
+  }
+  Ok([
+    f"Used {memory_percent_text(value)}",
+  ] + used_graph + [
+    f"Total {field_text(value.memory.total_bytes, value.memory.total_state)}",
+    f"Available {field_text(value.memory.available_bytes, value.memory.available_state)}",
+    swap,
+  ])
+}
+
+pure network_panel_content(
+  value: model.Model,
+  histories: graph_series.Histories,
+  capabilities: terminal.Capabilities,
+  width: Int,
+) -> Result[List[Str], Error] {
+  let graph_width = if width > 0 { width } else { 1 }
+  let receive = history_rows(histories.network_receive, capabilities, graph_width, 1, false, null)?
+  let transmit = history_rows(histories.network_transmit, capabilities, graph_width, 1, true, null)?
+  let interface = if value.network.interface_name == null {
+    f"Interface {state_text(value.network.source_state)}"
+  } else {
+    f"Interface {value.network.interface_name ?? ""}"
+  }
+  Ok([
+    interface,
+    f"RX {byte_rate_text(value.network.rx_bytes_per_second)}  {bytes_text(value.network.rx_bytes)} total",
+    receive[0],
+    f"TX {byte_rate_text(value.network.tx_bytes_per_second)}  {bytes_text(value.network.tx_bytes)} total",
+    transmit[0],
+  ])
+}
+
+pure disks_placeholder() -> List[Str] {
+  ["Disks unavailable", "Capacity unavailable", "I/O unavailable"]
 }
 
 ## Renders a default process view at the injected window size.
-export pure render(value: model.Model, width: Int, height: Int) -> Screen {
+export pure render(value: model.Model, width: Int, height: Int) -> Result[Screen, Error] {
   render_view(value, ui.initial(value, process_capacity(height)), width, height, [])
 }
 
@@ -305,54 +443,61 @@ export pure render_view(
   width: Int,
   height: Int,
   local_display: List[processes.LocalProcessDisplay] = [],
-) -> Screen {
+) -> Result[Screen, Error] {
+  render_view_with_graphs(value, state, width, height, local_display, graph_series.empty(), default_capabilities(width, height))
+}
+
+## Renders one fixed default panel layout from the retained series and captured capabilities.
+export pure render_view_with_graphs(
+  value: model.Model,
+  state: ui.State,
+  width: Int,
+  height: Int,
+  local_display: List[processes.LocalProcessDisplay],
+  histories: graph_series.Histories,
+  capabilities: terminal.Capabilities,
+) -> Result[Screen, Error] {
   if width < 80 or height < 24 {
-    return {
+    return Ok({
       width: width,
       height: height,
       too_small: true,
       lines: [fit("btop: terminal too small (minimum 80x24)", width)],
-    }
+      row_roles: [null],
+    })
   }
 
-  let header = fit(
-    f"btop | CPU {rate_text(value.cpu_percent)} | uptime {uptime_text(value.uptime)} | load {load_text(value.load)} | q quit",
-    width,
-  )
-  let left_width = width / 2
-  let right_width = width - left_width
-  let remaining_height = height - 1
-  let top_height = remaining_height / 2
-  let bottom_height = remaining_height - top_height
-  let cpu_panel = panel(
-    left_width,
-    top_height,
-    "CPU",
-    [
-      f"Usage {rate_text(value.cpu_percent)}",
-      f"Uptime {uptime_text(value.uptime)}",
-      f"Load {load_text(value.load)}",
-      temperature_text(value.telemetry.temperature),
-      core_temperature_text(value.telemetry.temperature),
-      frequency_text(value.telemetry.frequency),
-      battery_text(value.telemetry.battery),
-    ],
-  )
-  let memory_rows = panel(right_width, top_height, "Memory", memory_content(value))
-  let network_rows = panel(left_width, bottom_height, "Network", network_content(value))
+  let cpu_height = cpu_panel_height(height)
+  let lower_height = height - cpu_height
+  let memory_height = height * 40 / 100
+  let network_height = lower_height - memory_height
+  let memory_width = memory_panel_width(width)
+  let process_width = width - memory_width
+  let cpu_content_rows = cpu_content(value, histories, capabilities, width - 2, cpu_height)?
+  let cpu_rows = panel(width, cpu_height, "CPU", cpu_content_rows)
+  let memory_left_width = (memory_width - 3) / 2
+  let memory_left = memory_panel_content(value, histories.memory, capabilities, memory_left_width)?
+  let memory_rows = split_panel(memory_width, memory_height, "Memory / Disks", memory_left, disks_placeholder())
+  let network_content_rows = network_panel_content(value, histories, capabilities, memory_width - 2)?
+  let network_rows = panel(memory_width, network_height, "Network", network_content_rows)
   let view = ui.resize(state, value, process_capacity(height))
   let process_rows = panel(
-    right_width,
-    bottom_height,
+    process_width,
+    lower_height,
     "Processes",
-    process_content(value, view, process_capacity(height), right_width - 2, local_display),
+    process_content(value, view, process_capacity(height), process_width - 2, local_display),
   )
-  var lines = [header]
-  for index in range(top_height) {
-    lines += [f"{cpu_panel[index]}{memory_rows[index]}"]
+  var lines = cpu_rows
+  var row_roles: List[color.Role?] = []
+  for _ in range(cpu_height) { row_roles += [color.Cpu] }
+  for index in range(lower_height) {
+    let left = if index < memory_height {
+      memory_rows[index]
+    } else {
+      network_rows[index - memory_height]
+    }
+    lines += [f"{left}{process_rows[index]}"]
+    row_roles += [if index < memory_height { color.Memory } else { color.Network }]
   }
-  for index in range(bottom_height) {
-    lines += [f"{network_rows[index]}{process_rows[index]}"]
-  }
-  {width: width, height: height, too_small: false, lines: lines}
+  Ok({width: width, height: height, too_small: false, lines: lines, row_roles: row_roles})
 }

@@ -336,7 +336,7 @@ test test_btop_local_command_line_is_identity_checked_and_never_captured {
   let local_display = processes.collect_local_display(frame_root, observation.processes.processes)
   assert local_display.len() == 1
   assert local_display[0].command_line == "worker --secret-argument"
-  let screen = renderer.render_view(value, ui.initial(value, renderer.process_capacity(24)), 80, 24, local_display)
+  let screen = renderer.render_view(value, ui.initial(value, renderer.process_capacity(40)), 120, 40, local_display)?
   assert "worker --se" in screen.lines.join("\n")
   assert "BTOP_PRIVATE_ENV" not in screen.lines.join("\n")
   let observation_json = json.encode(observation)?

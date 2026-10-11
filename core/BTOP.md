@@ -3,8 +3,8 @@
 This is the fixed Linux monitor for the in-scope default behavior inventoried
 from btop v1.4.7. The collector, interval reducer, replay loader, terminal loop,
 process-list state, and renderer are XSH. It shows CPU, memory, network, and
-process panels using a bounded ASCII layout. CPU temperature, frequency, and
-battery status appear as CPU-panel readings when their kernel sources are
+process panels in a bounded terminal-cell layout. CPU temperature, frequency,
+and battery status appear as CPU-panel readings when their kernel sources are
 observed.
 
 ## Running the monitor
@@ -175,6 +175,19 @@ color; a truecolor marker selects truecolor, a `256color` marker selects 256
 colors, and other usable terminals select 16 colors. UTF-8 locale detection
 selects Unicode symbols; other locales select ASCII symbols. A canvas smaller
 than 80 by 24 displays a safe size message.
+
+The default layout places CPU across the top at 32% of terminal height. The
+lower area puts Memory / Disks in the left 55% and Processes on the right; the
+Network panel replaces the lower 60% of the left column. The memory panel
+reserves a disk section even when no device rows are available. CPU, memory,
+network, and temperature graphs retain up to 600 source samples independently
+of the visible width; resize changes only the viewport. Braille graphs are
+used with UTF-8 terminals and ASCII marks otherwise. Graph gaps preserve time
+positions and autoscaling includes every retained spike.
+
+The built-in panel palette is defined in truecolor. It maps to the nearest
+xterm 256-color cube or grayscale entry, then to the nearest standard 16-color
+entry; `NO_COLOR`, an empty `TERM`, and `TERM=dumb` omit foreground colors.
 
 ## Reader inventory
 

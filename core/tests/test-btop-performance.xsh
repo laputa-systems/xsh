@@ -189,7 +189,7 @@ test test_btop_preloaded_model_render_and_diff_profile_at_one_thousand_processes
     synthetic_processes(1000, 10000, 100100, process_seed),
   )
   let initial_model = model.step(previous, null)
-  let initial_screen = renderer.render(initial_model, 120, 40)
+  let initial_screen = renderer.render(initial_model, 120, 40)?
   let initial_surface = surface.from_lines(120, 40, initial_screen.lines)?
   let initial_update = surface.prepare(surface.initial(), initial_surface)
   var committed = surface.complete(initial_update, initial_update.bytes.byte_len())
@@ -197,7 +197,7 @@ test test_btop_preloaded_model_render_and_diff_profile_at_one_thousand_processes
   for _ in range(20) {
     let started_ns = time.monotonic()?
     let updated = model.step_cached(current, previous, model.empty_metadata_cache("profile"))
-    let screen = renderer.render(updated.value, 120, 40)
+    let screen = renderer.render(updated.value, 120, 40)?
     let desired = surface.from_lines(120, 40, screen.lines)?
     let delta = surface.prepare(committed, desired)
     let written_bytes = delta.bytes.byte_len()
@@ -266,7 +266,7 @@ test test_btop_optional_source_loss_keeps_process_view_and_labels_unavailable_fi
   defer frame.close()
   let observation = source.capture(frame, "degraded", 1000000000, 4096, 100)?
   let value = model.step(observation, null)
-  let screen = renderer.render(value, 80, 24)
+  let screen = renderer.render(value, 80, 24)?
   let visible = screen.lines.join("\n")
 
   assert value.process_state == report.Observed

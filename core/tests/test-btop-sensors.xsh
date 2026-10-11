@@ -252,14 +252,14 @@ test test_btop_capture_carries_sensor_values_into_the_visible_cpu_panel {
 
   let observation = btop_source.capture(root, "sensors", 1000000000, 4096, 100)?
   let value = model.step(observation, null)
-  let screen = renderer.render(value, 80, 24)
+  let screen = renderer.render(value, 80, 24)?
   assert value.telemetry.temperature.package_millidegrees == 42500
   assert value.telemetry.frequency.value_mhz == 3200.0
   assert value.telemetry.battery.capacity_percent == 55
-  assert "Temperature 43°C" in screen.lines[6]
-  assert "Cores C0 40°C" in screen.lines[7]
-  assert "Frequency 3.2 GHz" in screen.lines[8]
-  assert "Battery BAT0 55% charging" in screen.lines[9]
+  assert "Temperature 43°C" in screen.lines[5]
+  assert "Cores C0 40°C" in screen.lines[6]
+  assert "Frequency 3.2 GHz" in screen.lines[5]
+  assert "Battery BAT0 55% charging" in screen.lines[6]
 }
 
 test test_btop_capture_reuses_gauges_until_the_collection_schedule_is_due {

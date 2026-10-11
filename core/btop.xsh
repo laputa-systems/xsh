@@ -1,6 +1,7 @@
 #!/bin/xsh
 use core.lib.btop_loop as scheduler
 use core.lib.btop_input as input
+use core.lib.btop_graphs as graph_series
 use core.lib.btop_model as model
 use core.lib.btop_replay as replay
 use core.lib.btop_render as renderer
@@ -24,7 +25,13 @@ type Options = {
 
 const WAIT_SLICE_MS = 100
 
-type WaitResult = {quit: Bool, input: input.State, ui: ui.State, committed: surface.Committed}
+type WaitResult = {
+  quit: Bool,
+  input: input.State,
+  ui: ui.State,
+  committed: surface.Committed,
+  graphs: graph_series.Histories,
+}
 
 proc draw(
   value: model.Model,
@@ -32,11 +39,13 @@ proc draw(
   rows: Int,
   cols: Int,
   committed: surface.Committed,
+  histories: graph_series.Histories,
+  capabilities: terminal.Capabilities,
   local_display: List[sysproc.LocalProcessDisplay] = [],
 ) [io, error] -> Result[surface.Committed, Error] {
-  let screen = renderer.render_view(value, view, cols, rows, local_display)
-  let desired = surface.from_lines(cols, rows, screen.lines)?
-  let update = surface.prepare(committed, desired)
+  let screen = renderer.render_view_with_graphs(value, view, cols, rows, local_display, histories, capabilities)?
+  let desired = surface.from_lines_with_roles(cols, rows, screen.lines, screen.row_roles)?
+  let update = surface.prepare(committed, desired, capabilities.color_depth)
   terminal.present(update.bytes)
   Ok(surface.complete(update, bytes.from_text(update.bytes).len()))
 }
@@ -70,6 +79,8 @@ proc wait_until(
   initial_input: input.State,
   initial_ui: ui.State,
   initial_committed: surface.Committed,
+  histories: graph_series.Histories,
+  capabilities: terminal.Capabilities,
   local_display: List[sysproc.LocalProcessDisplay] = [],
 ) [process, time, io, error] -> Result[WaitResult, Error] {
   var current_rows = rows
@@ -86,14 +97,14 @@ proc wait_until(
     let timed_input = apply_events(value, view, timed.events, local_display)
     view = timed_input.ui
     if timed_input.quit {
-      return Ok({quit: true, input: decoder, ui: view, committed: committed})
+      return Ok({quit: true, input: decoder, ui: view, committed: committed, graphs: histories})
     }
     if view != last_drawn_ui {
-      committed = draw(value, view, current_rows, current_cols, committed, local_display)?
+      committed = draw(value, view, current_rows, current_cols, committed, histories, capabilities, local_display)?
       last_drawn_ui = view
     }
     if now >= deadline_ns {
-      return Ok({quit: false, input: decoder, ui: view, committed: committed})
+      return Ok({quit: false, input: decoder, ui: view, committed: committed, graphs: histories})
     }
     let remaining_ms = (deadline_ns - now) / 1000000
     var wait_ms = if remaining_ms <= 0 { 1 } else if remaining_ms > WAIT_SLICE_MS { WAIT_SLICE_MS } else { remaining_ms }
@@ -114,10 +125,10 @@ proc wait_until(
       let received = apply_events(value, view, decoded.events, local_display)
       view = received.ui
       if received.quit {
-        return Ok({quit: true, input: decoder, ui: view, committed: committed})
+        return Ok({quit: true, input: decoder, ui: view, committed: committed, graphs: histories})
       }
       if view != last_drawn_ui {
-        committed = draw(value, view, current_rows, current_cols, committed, local_display)?
+        committed = draw(value, view, current_rows, current_cols, committed, histories, capabilities, local_display)?
         last_drawn_ui = view
       }
     }
@@ -126,10 +137,10 @@ proc wait_until(
       current_rows = size.rows
       current_cols = size.cols
       view = ui.resize(view, value, renderer.process_capacity(current_rows))
-      committed = draw(value, view, current_rows, current_cols, committed, local_display)?
+      committed = draw(value, view, current_rows, current_cols, committed, histories, capabilities, local_display)?
     }
   }
-  Ok({quit: false, input: decoder, ui: view, committed: committed})
+  Ok({quit: false, input: decoder, ui: view, committed: committed, graphs: histories})
 }
 
 pure limited_observations(observations: List[model.Observation], count: Int?) -> List[model.Observation] {
@@ -157,7 +168,12 @@ proc parse_frame_limit(value: Str?) -> Result[Int?, Error] {
   Ok(parsed)
 }
 
-proc dump_frames(frames: List[model.Model], model_path: Str?, screen_path: Str?, rows: Int, cols: Int) [fs, error] -> Result[Unit, Error] {
+proc dump_frames(
+  frames: List[model.Model],
+  model_path: Str?,
+  screen_path: Str?,
+  display: terminal.Inputs,
+) [fs, error] -> Result[Unit, Error] {
   if let output_path = model_path {
     var lines: List[Str] = []
     for frame in frames {
@@ -166,9 +182,20 @@ proc dump_frames(frames: List[model.Model], model_path: Str?, screen_path: Str?,
     fp"{output_path}".write(bytes.from_text(lines.join("\n") + (if lines.is_empty() { "" } else { "\n" })))?
   }
   if let output_path = screen_path {
+    var histories = graph_series.empty()
+    let capabilities = terminal.detect(display)
     var lines: List[Str] = []
     for frame in frames {
-      let screen = renderer.render(frame, cols, rows)
+      histories = graph_series.observe(histories, frame)?
+      let screen = renderer.render_view_with_graphs(
+        frame,
+        ui.initial(frame, renderer.process_capacity(display.rows)),
+        display.cols,
+        display.rows,
+        [],
+        histories,
+        capabilities,
+      )?
       lines += [json.encode({at_ns: frame.at_ns, width: screen.width, height: screen.height, too_small: screen.too_small, lines: screen.lines}, pretty: false)?]
     }
     fp"{output_path}".write(bytes.from_text(lines.join("\n") + (if lines.is_empty() { "" } else { "\n" })))?
@@ -179,7 +206,7 @@ proc dump_frames(frames: List[model.Model], model_path: Str?, screen_path: Str?,
 proc headless_replay(bundle: replay.Bundle, count: Int?, dump_model_path: Str?, dump_screen_path: Str?) [fs, error] -> Result[Unit, Error] {
   let observations = limited_observations(bundle.observations, count)
   let frames = limited_models(replay.models(observations), count)
-  dump_frames(frames, dump_model_path, dump_screen_path, bundle.display.rows, bundle.display.cols)
+  dump_frames(frames, dump_model_path, dump_screen_path, bundle.display)
 }
 
 proc interactive_replay(bundle: replay.Bundle, count: Int?) [process, time, io, error] -> Result[Unit, Error] {
@@ -195,13 +222,25 @@ proc interactive_replay(bundle: replay.Bundle, count: Int?) [process, time, io, 
   let first_at = selected_observations[0].at_ns
   var rows = session.capabilities.rows
   var cols = session.capabilities.cols
+  var histories = graph_series.empty()
+  histories = graph_series.observe(histories, frames[0])?
   var decoder = input.initial()
   var view = ui.initial(frames[0], renderer.process_capacity(rows))
   var committed = surface.initial()
-  committed = draw(frames[0], view, rows, cols, committed)?
+  committed = draw(frames[0], view, rows, cols, committed, histories, session.capabilities)?
   for index in range(1, frames.len()) {
     let deadline = started_at + selected_observations[index].at_ns - first_at
-    let waited = wait_until(deadline, frames[index - 1], rows, cols, decoder, view, committed)?
+    let waited = wait_until(
+      deadline,
+      frames[index - 1],
+      rows,
+      cols,
+      decoder,
+      view,
+      committed,
+      histories,
+      session.capabilities,
+    )?
     decoder = waited.input
     view = waited.ui
     committed = waited.committed
@@ -211,9 +250,10 @@ proc interactive_replay(bundle: replay.Bundle, count: Int?) [process, time, io, 
     let size = unix.window_size(1)?
     rows = size.rows
     cols = size.cols
+    histories = graph_series.observe(histories, frames[index])?
     view = ui.refresh(view, frames[index])
     view = ui.resize(view, frames[index], renderer.process_capacity(rows))
-    committed = draw(frames[index], view, rows, cols, committed)?
+    committed = draw(frames[index], view, rows, cols, committed, histories, session.capabilities)?
   }
   return
 }
@@ -267,15 +307,27 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
   var metadata_cache = first_model.metadata
   var current = first_model.value
   var local_display = sysproc.collect_local_display(root, observation.processes.processes)
+  var histories = graph_series.observe(graph_series.empty(), current)?
   var view = ui.initial(current, renderer.process_capacity(rows))
   var committed = surface.initial()
   while true {
-    committed = draw(current, view, rows, cols, committed, local_display)?
+    committed = draw(current, view, rows, cols, committed, histories, session.capabilities, local_display)?
     sampled += 1
     if count != null and sampled >= (count ?? 0) {
       break
     }
-    let waited = wait_until(schedule.next_due_ns, current, rows, cols, decoder, view, committed, local_display)?
+    let waited = wait_until(
+      schedule.next_due_ns,
+      current,
+      rows,
+      cols,
+      decoder,
+      view,
+      committed,
+      histories,
+      session.capabilities,
+      local_display,
+    )?
     decoder = waited.input
     view = waited.ui
     committed = waited.committed
@@ -321,6 +373,7 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
       let next_model = model.step_cached(observation, previous, metadata_cache, gap: ticket.coalesced > 0)
       metadata_cache = next_model.metadata
       current = next_model.value
+      histories = graph_series.observe(histories, current)?
       view = ui.refresh(view, current, local_display)
     } else {
       return Err(error.failure("sample deadline expired without a due ticket"))
