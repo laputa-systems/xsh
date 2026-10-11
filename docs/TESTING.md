@@ -312,3 +312,11 @@ the virtual allocation to physical memory.
 Successful `date --set` tests require a disposable virtual machine: Linux time
 namespaces isolate monotonic and boot clocks, but not the realtime clock. They
 must never run in a container sharing the host clock.
+
+The two infinite `/dev/zero` split cases use a separate pinned container with
+CPU quota `--cpus=0.01` and a 1 GiB memory limit. They require that quota, wait
+for the owned applet to open the device, observe it running without output
+chunks, then kill and reap it explicitly. Their child address space is capped
+at 768 MiB. Run them with the `split::` filter; omit that filter's two cases
+from the ordinary host-boundary gate so its CPU budget does not change the
+resource fixture.
