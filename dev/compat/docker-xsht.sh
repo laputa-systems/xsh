@@ -21,8 +21,8 @@
 set -eu
 
 user="1000:1000"
-# A tmpfs /tmp keeps directory sizes and block counts the way the recorded GNU corpora saw them.
-args="--rm --init --platform linux/amd64 --tmpfs /tmp:rw,exec,nosuid,mode=1777"
+# A bounded tmpfs preserves recorded directory sizes while concurrent lanes leave host RAM available.
+args="--rm --init --platform linux/amd64 --memory 1g --memory-swap 1g --tmpfs /tmp:rw,exec,nosuid,mode=1777,size=256m"
 while [ "$#" -gt 0 ]; do
 	case "$1" in
 		--root) user="0:0"; shift ;;

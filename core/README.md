@@ -11,7 +11,8 @@ on exactly: the invoked name (`process.script_path()`, never symlink-resolved),
 `PROG: message` diagnostics with GNU name quoting and `strerror` text, usage
 errors with the `Try 'PHRASE --help'` hint and a caller-chosen exit status,
 `--help` and `--version` first lines, stdout write failures, and byte-stream
-operand and stdout helpers. The audited command families also share
+operand and stdout helpers. `tr` preserves GNU's two-line ambiguous-octal
+warning and emits it before later set-parse errors. The audited command families also share
 `lib/perm.xsh` for permission and ownership policy, `lib/file_publish.xsh` for
 move/link/install publication, `lib/fs_misc.xsh` for path and size policy,
 `lib/text_a2.xsh` for byte records and display columns, `lib/bytes_enc*.xsh` for

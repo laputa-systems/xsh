@@ -25,7 +25,7 @@ adjacent comment explaining why a native test cannot express it.
 |---|---|
 | native XSH | `tests/xsh`, `core/tests`, `dev/tests`, `showcase/tests` (the `test_roots` in `xsht-config.ini`) |
 | root integration | `tests/integration.rs` aggregates `tests/syntax.rs`, `tests/sema.rs`, `tests/runtime/`, `tests/cli.rs`, and the rest |
-| separate root targets | `tests/ambient_fs_policy.rs`, `tests/symbol_plateau.rs`, `tests/linux_priv.rs` (`linux-priv-tests` feature) |
+| separate root targets | `tests/ambient_fs_policy.rs`, `tests/symbol_plateau.rs`, `tests/core_compat_boundaries.rs` (core applet descriptors and child lifecycles), `tests/linux_priv.rs` (`linux-priv-tests` feature) |
 | tooling | `crates/xsht/tests/` (`integration`, `profile_parity` targets) |
 | interactive | `crates/xshi/tests/`, `tests/runtime/interactive.rs`, `tests/runtime/interactive/parity/` |
 | fixtures | `tests/fixtures/{syntax,sema,runtime,fmt,frontend-indexed}` |

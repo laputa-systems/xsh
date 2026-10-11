@@ -155,6 +155,11 @@ name = "symbol_plateau"
 path = "tests/symbol_plateau.rs"
 
 [[test]]
+# Owns exact descriptor and child lifecycles for core applet behavior.
+name = "core_compat_boundaries"
+path = "tests/core_compat_boundaries.rs"
+
+[[test]]
 name = "linux_priv"
 path = "tests/linux_priv.rs"
 required-features = ["linux-priv-tests"]

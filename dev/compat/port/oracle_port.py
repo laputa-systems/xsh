@@ -75,7 +75,8 @@ def docker_command(corpus: Path, binaries: Path, name: str) -> list[str]:
     return [
         "docker", "run", "--rm", "--init", "--name", name,
         "--platform", "linux/amd64", "--network", "none", "--user", "1000:1000",
-        "--tmpfs", "/tmp:rw,exec,nosuid,mode=1777",
+        "--memory", "1g", "--memory-swap", "1g",
+        "--tmpfs", "/tmp:rw,exec,nosuid,mode=1777,size=256m",
         "-v", f"{corpus}:/corpus:ro", "-v", f"{binaries}:/release:ro",
         "-w", "/corpus", "-e", "HOME=/tmp", "-e", "TMPDIR=/tmp",
         "-e", "LC_ALL=C", "-e", "TZ=UTC", "-e", "XSH_BIN=/release/xsh",
