@@ -2260,15 +2260,6 @@ pub struct Evaluator {
     indexed_program: Option<Arc<FullProgram>>,
     indexed_root_slots: Option<IndexedRootSlots>,
     scope_write_revision: u64,
-    // Resolved indices are keyed with the program they were resolved in and
-    // hold it alive, because one evaluator resolves the same qualified key
-    // against more than one program: a dynamically loaded module links its
-    // standard calls to the loading program's prepared implementations, so
-    // `<xsh-stdlib:hash> verify_file` names a function in both. Comparing the
-    // program by pointer identity, and keeping that program alive for as long
-    // as the entry exists, is what makes the cached index valid.
-    indexed_function_cache:
-        FxHashMap<(LoweredFunctionKey, LoweredFunctionKind), (Arc<FullProgram>, usize)>,
     indexed_dynamic_functions: Arc<FxHashMap<QualifiedName, DynamicFunction>>,
     lowered_slot_pool: Vec<Vec<LoweredValue>>,
     tag_variants: FxHashMap<Name, usize>,
@@ -2586,7 +2577,6 @@ impl Evaluator {
             indexed_program: None,
             indexed_root_slots: None,
             scope_write_revision: 0,
-            indexed_function_cache: FxHashMap::default(),
             indexed_dynamic_functions: Arc::new(FxHashMap::default()),
             lowered_slot_pool: Vec::new(),
             tag_variants: FxHashMap::default(),
@@ -2820,7 +2810,6 @@ impl Evaluator {
             indexed_program: shared.indexed_program.clone(),
             indexed_root_slots: None,
             scope_write_revision: 0,
-            indexed_function_cache: FxHashMap::default(),
             indexed_dynamic_functions: shared.indexed_dynamic_functions.clone(),
             lowered_slot_pool: Vec::new(),
             tag_variants: shared.tag_variants.clone(),

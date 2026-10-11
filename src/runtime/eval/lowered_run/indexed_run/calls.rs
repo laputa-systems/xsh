@@ -1,6 +1,6 @@
 use super::{
-    Arc, Evaluator, FullFunctionView, FullProgram, FunctionHeader, IrVerifyError,
-    LoweredFunctionKey, LoweredFunctionKind, LoweredValue, QualifiedName, RuntimeError, Span,
+    Arc, Evaluator, FullFunctionView, FullProgram, FunctionHeader,
+    LoweredFunctionKey, LoweredFunctionKind, LoweredValue, RuntimeError, Span,
     StreamValue, TraceKind, TracePayload, TracebackFrame, TracebackFrameKind, Value, indexed_error,
     lowered_splice_arg_items,
 };
@@ -74,121 +74,6 @@ pub(super) fn indexed_callable_identity(
 }
 
 impl Evaluator {
-    /// The index `function`/`kind` resolves to inside `program`.
-    ///
-    /// The program is part of the cache key because one evaluator resolves the
-    /// same qualified key against more than one program: a dynamically loaded
-    /// module links its standard calls to the loading program's prepared
-    /// implementations, so `<xsh-stdlib:hash> verify_file` names a function in
-    /// both. The entry keeps the program alive, so its identity cannot be
-    /// reused by a later allocation while the entry is cached.
-    pub(super) fn indexed_function_index(
-        &mut self,
-        program: &Arc<FullProgram>,
-        function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
-    ) -> Result<Option<usize>, IrVerifyError> {
-        let cache_key = (function, kind);
-        if let Some((cached_program, index)) = self.indexed_function_cache.get(&cache_key)
-            && Arc::ptr_eq(cached_program, program)
-        {
-            return Ok(Some(*index));
-        }
-        let view = program.function_view(function, kind)?;
-        if let Some(view) = view {
-            let index = view.index();
-            self.indexed_function_cache
-                .insert(cache_key, (Arc::clone(program), index));
-            return Ok(Some(index));
-        }
-        Ok(None)
-    }
-
-    pub(super) fn indexed_argument_default(
-        &self,
-        callee: &LoweredValue,
-        slot: usize,
-        span: Span,
-    ) -> Result<LoweredValue, RuntimeError> {
-        let (function, kind) = match callee {
-            LoweredValue::Pure(function) => (function, LoweredFunctionKind::Pure),
-            LoweredValue::Proc(function) => (function, LoweredFunctionKind::Proc),
-            _ => {
-                return Err(RuntimeError::new(
-                    "type-error",
-                    "argument default requires a prepared callable",
-                )
-                .with_span(span));
-            }
-        };
-        let key = function
-            .as_name()
-            .map(LoweredFunctionKey::Name)
-            .or_else(|| function.as_qualified().map(LoweredFunctionKey::Qualified))
-            .expect("callable identity is interned");
-        self.indexed_argument_default_for(key, kind, slot, span)
-    }
-
-    pub(super) fn indexed_argument_default_for(
-        &self,
-        key: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
-        slot: usize,
-        span: Span,
-    ) -> Result<LoweredValue, RuntimeError> {
-        let program = self
-            .indexed_program
-            .as_ref()
-            .expect("indexed call retains its program");
-        let view = if let Some(view) = program
-            .function_view(key, kind)
-            .map_err(|error| indexed_error(error, span))?
-        {
-            view
-        } else {
-            let LoweredFunctionKey::Qualified(qualified) = key else {
-                return Err(RuntimeError::new(
-                    "unresolved-call",
-                    "argument default callable is not prepared",
-                )
-                .with_span(span));
-            };
-            let dynamic = self
-                .indexed_dynamic_functions
-                .get(&qualified)
-                .ok_or_else(|| {
-                    RuntimeError::new(
-                        "unresolved-call",
-                        "argument default callable is not prepared",
-                    )
-                    .with_span(span)
-                })?;
-            dynamic
-                .program
-                .function_view(dynamic.function, dynamic.kind)
-                .map_err(|error| indexed_error(error, span))?
-                .ok_or_else(|| {
-                    RuntimeError::new(
-                        "unresolved-call",
-                        "argument default callable is not prepared",
-                    )
-                    .with_span(span)
-                })?
-        };
-        view.header()
-            .map_err(|error| indexed_error(error, span))?
-            .param_defaults
-            .get(slot)
-            .and_then(Clone::clone)
-            .ok_or_else(|| {
-                RuntimeError::new(
-                    "indexed-ir",
-                    "checked omitted argument has no prepared default",
-                )
-                .with_span(span)
-            })
-    }
-
     pub(in crate::runtime::eval) fn call_indexed_direct(
         &mut self,
         function: LoweredFunctionKey,
@@ -240,11 +125,14 @@ impl Evaluator {
                 if dynamic.kind != kind {
                     return None;
                 }
-                let previous = self.indexed_program.replace(Arc::clone(&dynamic.program));
-                let result =
-                    self.call_indexed_direct(dynamic.function, dynamic.kind, args, call_span);
-                self.indexed_program = previous;
-                return result;
+                return self.call_indexed_direct_in_program(
+                    Arc::clone(&dynamic.program),
+                    dynamic.function,
+                    dynamic.kind,
+                    args,
+                    omitted,
+                    call_span,
+                );
             }
             Err(error) => return Some(Err(indexed_error(error, call_span))),
         };
@@ -275,7 +163,7 @@ impl Evaluator {
         }
         let mut slots = slots;
         let result = self
-            .eval_indexed_call_frame(function, kind, view, &header, &mut slots, call_span)
+            .eval_indexed_call_frame(Arc::clone(&program), function, kind, view, &header, &mut slots, call_span)
             .and_then(|value| super::super::checked_lowered_return_value(&header, value, call_span))
             .map(LoweredValue::into_value);
         self.recycle_lowered_slots(slots);
@@ -284,6 +172,7 @@ impl Evaluator {
 
     pub(super) fn eval_indexed_call_frame(
         &mut self,
+        program: Arc<FullProgram>,
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
         view: FullFunctionView<'_>,
@@ -324,7 +213,7 @@ impl Evaluator {
             definition_span: Some(definition_span),
             call_span: Some(call_span),
         });
-        let result = self.start_indexed_producer(view, header, slots, call_span);
+        let result = self.start_indexed_producer(program, view, header, slots, call_span);
         self.call_stack.pop();
         if self.trace_enabled {
             let name = function.display_name();
@@ -337,38 +226,6 @@ impl Evaluator {
             );
         }
         result
-    }
-
-    pub(super) fn eval_indexed_named_call(
-        &mut self,
-        function: LoweredFunctionKey,
-        values: &[LoweredValue],
-        call_span: Span,
-    ) -> Result<LoweredValue, RuntimeError> {
-        let program = Arc::clone(
-            self.indexed_program
-                .as_ref()
-                .expect("indexed caller retains its indexed program"),
-        );
-        let (kind, index) = if let Some(index) = self
-            .indexed_function_index(&program, function, LoweredFunctionKind::Pure)
-            .map_err(|error| indexed_error(error, call_span))?
-        {
-            (LoweredFunctionKind::Pure, index)
-        } else if let Some(index) = self
-            .indexed_function_index(&program, function, LoweredFunctionKind::Proc)
-            .map_err(|error| indexed_error(error, call_span))?
-        {
-            (LoweredFunctionKind::Proc, index)
-        } else {
-            return Err(
-                RuntimeError::new("unresolved-lowered-call", function.display_name())
-                    .with_span(call_span),
-            );
-        };
-        let mut value = self.eval_indexed_call_at(&program, function, kind, index, values, call_span)?;
-        self.register_returned_lowered_stream(&mut value, call_span)?;
-        Ok(value)
     }
 
     /// Runs a resolved callee: an ordinary body on the heap-backed frames, and
@@ -399,50 +256,17 @@ impl Evaluator {
             .map_err(|error| indexed_error(error, call_span))?;
         let mut next_slots = self.bind_lowered_values(&header, values, call_span)?;
         let result = self
-            .eval_indexed_call_frame(function, kind, view, &header, &mut next_slots, call_span)
+            .eval_indexed_call_frame(
+                Arc::clone(program),
+                function,
+                kind,
+                view,
+                &header,
+                &mut next_slots,
+                call_span,
+            )
             .and_then(|value| super::super::checked_lowered_return_value(&header, value, call_span));
         self.recycle_lowered_slots(next_slots);
-        result
-    }
-
-    /// Call an implementation a loading program published.
-    ///
-    /// A dynamically loaded module can name a standard-library implementation
-    /// its loader already prepared. That function has no identity in the loaded
-    /// module's own store, so the call resolves through the dynamic function
-    /// table and executes inside the program that prepared it.
-    pub(super) fn eval_indexed_external_call(
-        &mut self,
-        qualified: QualifiedName,
-        values: &[LoweredValue],
-        call_span: Span,
-    ) -> Result<LoweredValue, RuntimeError> {
-        let key = LoweredFunctionKey::Qualified(qualified);
-        let program = Arc::clone(
-            self.indexed_program
-                .as_ref()
-                .expect("indexed caller retains its indexed program"),
-        );
-        for kind in [LoweredFunctionKind::Pure, LoweredFunctionKind::Proc] {
-            if self
-                .indexed_function_index(&program, key, kind)
-                .map_err(|error| indexed_error(error, call_span))?
-                .is_some()
-            {
-                return self.eval_indexed_named_call(key, values, call_span);
-            }
-        }
-        let dynamic = self
-            .indexed_dynamic_functions
-            .get(&qualified)
-            .cloned()
-            .ok_or_else(|| {
-                RuntimeError::new("unresolved-lowered-call", qualified.to_string())
-                    .with_span(call_span)
-            })?;
-        let previous = self.indexed_program.replace(Arc::clone(&dynamic.program));
-        let result = self.eval_indexed_named_call(dynamic.function, values, call_span);
-        self.indexed_program = previous;
         result
     }
 
@@ -451,6 +275,7 @@ impl Evaluator {
     /// a time.
     pub(super) fn start_indexed_producer(
         &mut self,
+        program: Arc<FullProgram>,
         view: FullFunctionView<'_>,
         header: &FunctionHeader,
         slots: &mut [LoweredValue],
@@ -463,7 +288,7 @@ impl Evaluator {
         let (function, kind) = execution
             .function_identity()
             .map_err(|error| indexed_error(error, call_span))?;
-        let state = self.start_script_producer(function, kind, view, slots.to_vec(), call_span)?;
+        let state = self.start_script_producer(program, function, kind, view, slots.to_vec(), call_span)?;
         let mut stream = StreamValue::from_script(state);
         self.register_returned_stream(&mut stream, call_span)?;
         Ok(LoweredValue::Stream(Box::new(stream)))

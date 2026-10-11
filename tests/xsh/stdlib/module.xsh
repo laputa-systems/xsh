@@ -67,6 +67,107 @@ export proc build(root: Path) [fs, error] -> Result[Path, Error] {
   assert module.load(builder_path)?.require(Builder)?.label("x") == bound.label("x")
 }
 
+test test_module_export_calls_preserve_explicit_and_default_order { |ctx|
+  let root = test.temp_dir(ctx, name: "module-call-order")?
+  let implementation = fp"{root}/ordered.xsh"
+  implementation.write("""##! Module with effectful default arguments.
+proc step(label: Str, value: Int) [io] -> Int {
+  print f"module {label}"
+  value
+}
+
+## Combines supplied values and lexical defaults.
+export proc combine(
+  left: Int = step("left default", 1),
+  right: Int = step("right default", 2),
+) [io] -> Int {
+  left * 10 + right
+}
+""")
+
+  let source = f"""type OrderedModule = module {{
+  export proc combine(left: Int = 1, right: Int = 2) [io] -> Int
+}}
+
+## Marks which program evaluates an explicit argument.
+proc step(label: Str, value: Int) [io] -> Int {{
+  print f"caller {{label}}"
+  value
+}}
+
+let loaded = module.load(p"{implementation}")?.require(OrderedModule)?
+print ${{loaded.combine()}}
+print ${{loaded.combine(right: step("right explicit", 9))}}
+print ${{loaded.combine(right: step("right explicit", 9), left: step("left explicit", 8))}}
+"""
+  let output = test.expect(ctx, source, status: 0)?
+  assert output.stdout == """module left default
+module right default
+12
+caller right explicit
+module left default
+19
+caller right explicit
+caller left explicit
+89
+"""
+}
+
+type PeerModule = module {
+  export proc bounce(depth: Int) [fs, error] -> Result[Int, Error]
+}
+
+test test_module_load_cross_program_callbacks_share_one_frame_machine { |ctx|
+  let root = test.temp_dir(ctx, name: "cross-program-callbacks")?
+  let first_path = fp"{root}/first.xsh"
+  let second_path = fp"{root}/second.xsh"
+  first_path.write(f"""##! First half of a cross-module callback cycle.
+type Peer = module {{
+  export proc bounce(depth: Int) [fs, error] -> Result[Int, Error]
+}}
+
+## Loads and calls the other program before returning to its own entry.
+export proc bounce(depth: Int) [fs, error] -> Result[Int, Error] {{
+  if depth == 0 {{ return Ok(0) }}
+  let peer = module.load(p"{second_path}")?.require(Peer)?
+  peer.bounce(depth - 1)? + 1
+}}
+""")
+  second_path.write(f"""##! Second half of a cross-module callback cycle.
+type Peer = module {{
+  export proc bounce(depth: Int) [fs, error] -> Result[Int, Error]
+}}
+
+## Loads and calls the other program before returning to its own entry.
+export proc bounce(depth: Int) [fs, error] -> Result[Int, Error] {{
+  if depth == 0 {{ return Ok(0) }}
+  let peer = module.load(p"{first_path}")?.require(Peer)?
+  peer.bounce(depth - 1)? + 1
+}}
+""")
+
+  let loaded = module.load(first_path)?.require(PeerModule)?
+  assert loaded.bounce(10000)? == 10000
+}
+
+type CachedProgramModule = module {
+  export proc depth(value: Int) -> Int
+}
+
+test test_module_loaded_cache_misses_use_the_active_program { |ctx|
+  let root = test.temp_dir(ctx, name: "cross-program-cache")?
+  let module_path = fp"{root}/cached.xsh"
+module_path.write("""##! A module whose recursive cache miss is resolved in its own program.
+## Returns the number of recursive cache misses above zero.
+export proc depth(value: Int) -> Int {
+  if value == 0 { 0 } else { utils.cache(depth, [value - 1]).require(Int)? + 1 }
+}
+""")
+
+  let loaded = module.load(module_path)?.require(CachedProgramModule)?
+  assert loaded.depth(40) == 40
+}
+
 type MissingOnly = module {
   export let name: Str
   export optional let description: Str

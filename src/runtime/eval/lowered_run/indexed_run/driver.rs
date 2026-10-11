@@ -1,12 +1,13 @@
 use super::{
     Arc, AssignOp, Binding, ControlFlow, Evaluator, Flow, FullDriverTag, LoweredModuleExportKind,
-    LoweredTopLevelSlot, LoweredType, LoweredTypeCheck, LoweredValue, QualifiedName, RecordMap,
+    LoweredTopLevelSlot, LoweredType, LoweredTypeCheck, LoweredValue, RecordMap,
     RuntimeError, Span, StmtFlow, Type, Value,
     bind_lowered_comp_target, compound_assignment_value, indexed_error,
     lowered_stmt_flow_to_flow, lowered_type_name,
     lowered_value_from_runtime, lowered_value_from_runtime_any, runtime_error_from_value,
     ValueView, value_matches_static_type,
 };
+use crate::symbol::QualifiedName;
 use crate::runtime::eval::indexed::full::schema::DriverPayloadView;
 
 impl Evaluator {

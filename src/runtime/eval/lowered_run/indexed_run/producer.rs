@@ -20,6 +20,43 @@ use super::{
 };
 use crate::runtime::value::{ScriptStreamState, ScriptStreamStep};
 
+/// Selects a producer's program for this pull and restores the consumer's
+/// selection when the frame suspends or exits with an error.
+struct IndexedProgramGuard<'a> {
+    evaluator: &'a mut Evaluator,
+    previous: Option<Arc<super::FullProgram>>,
+}
+
+impl<'a> IndexedProgramGuard<'a> {
+    fn new(evaluator: &'a mut Evaluator, program: Arc<super::FullProgram>) -> Self {
+        let previous = evaluator.indexed_program.replace(program);
+        Self {
+            evaluator,
+            previous,
+        }
+    }
+}
+
+impl std::ops::Deref for IndexedProgramGuard<'_> {
+    type Target = Evaluator;
+
+    fn deref(&self) -> &Self::Target {
+        self.evaluator
+    }
+}
+
+impl std::ops::DerefMut for IndexedProgramGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.evaluator
+    }
+}
+
+impl Drop for IndexedProgramGuard<'_> {
+    fn drop(&mut self) {
+        self.evaluator.indexed_program = self.previous.take();
+    }
+}
+
 /// A producer suspended between pulls.
 pub(super) struct ScriptProducer {
     /// The prepared program the body's code identity belongs to. Holding it
@@ -209,17 +246,13 @@ impl Evaluator {
     /// frame's work stack for the first pull to execute.
     pub(super) fn start_script_producer(
         &mut self,
+        program: Arc<super::FullProgram>,
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
         view: super::FullFunctionView<'_>,
         slots: Vec<LoweredValue>,
         call_span: Span,
     ) -> Result<ScriptStreamState, RuntimeError> {
-        let program = Arc::clone(
-            self.indexed_program
-                .as_ref()
-                .expect("indexed caller retains its indexed program"),
-        );
         let execution = view
             .execution()
             .map_err(|error| super::indexed_error(error, call_span))?;
@@ -349,29 +382,33 @@ impl Evaluator {
             let program = Arc::clone(&producer.program);
             // The body's nested calls resolve against the program the body belongs
             // to, which is not necessarily the one the consumer is running.
-            let previous_program = self.indexed_program.replace(Arc::clone(&program));
-            let call = CallFrame::from_state(
-                program.as_ref(),
-                producer.function,
-                producer.kind,
-                producer.call_span,
-                producer.definition_span,
-                producer
-                    .frame
-                    .take()
-                    .expect("a suspended producer owns its frame"),
-            )
-            .map_err(|error| super::indexed_error(error, span))?
-            .ok_or_else(|| {
-                RuntimeError::new("unresolved-lowered-call", "a suspended producer's function")
+            let step = {
+                let mut evaluator = IndexedProgramGuard::new(self, Arc::clone(&program));
+                let call = CallFrame::from_state(
+                    Arc::clone(&program),
+                    producer.function,
+                    producer.kind,
+                    producer.call_span,
+                    producer.definition_span,
+                    producer
+                        .frame
+                        .take()
+                        .expect("a suspended producer owns its frame"),
+                )
+                .map_err(|error| super::indexed_error(error, span))?
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "unresolved-lowered-call",
+                        "a suspended producer's function",
+                    )
                     .with_span(span)
-            })?;
-            // The body is on the call path only while it runs: a suspended
-            // producer must not appear in tracebacks of its consumer.
-            self.push_producer_traceback_frame(producer);
-            let mut frames = ExplicitFrames::new(self, program.as_ref());
-            let step = frames.run_producer(call);
-            self.indexed_program = previous_program;
+                })?;
+                // The body is on the call path only while it runs: a suspended
+                // producer must not appear in tracebacks of its consumer.
+                evaluator.push_producer_traceback_frame(producer);
+                let mut frames = ExplicitFrames::new(&mut evaluator, program.as_ref());
+                frames.run_producer(call)
+            };
             match step {
                 ProducerStep::Yielded { value, state } => {
                     self.call_stack.pop();
@@ -455,29 +492,30 @@ impl Evaluator {
             .open_scopes();
         self.reattach_owned_host_scopes(&scopes);
         let program = Arc::clone(&producer.program);
-        let call = CallFrame::from_state(
-            program.as_ref(),
-            producer.function,
-            producer.kind,
-            producer.call_span,
-            producer.definition_span,
-            producer
-                .frame
-                .take()
-                .expect("a started producer owns its frame"),
-        )
-        .map_err(|error| super::indexed_error(error, span))?
-        .ok_or_else(|| {
-            RuntimeError::new("unresolved-lowered-call", "a suspended producer's function")
-                .with_span(span)
-        })?;
-        let previous_program = self.indexed_program.replace(Arc::clone(&program));
-        self.push_producer_traceback_frame(producer);
-        let mut frames = ExplicitFrames::new(self, program.as_ref());
-        // The cancelled body's `finish_call` closes the scope and pops the
-        // traceback frame.
-        let outcome = frames.run_cancelled_producer(call, span);
-        self.indexed_program = previous_program;
+        let outcome = {
+            let mut evaluator = IndexedProgramGuard::new(self, Arc::clone(&program));
+            let call = CallFrame::from_state(
+                Arc::clone(&program),
+                producer.function,
+                producer.kind,
+                producer.call_span,
+                producer.definition_span,
+                producer
+                    .frame
+                    .take()
+                    .expect("a started producer owns its frame"),
+            )
+            .map_err(|error| super::indexed_error(error, span))?
+            .ok_or_else(|| {
+                RuntimeError::new("unresolved-lowered-call", "a suspended producer's function")
+                    .with_span(span)
+            })?;
+            evaluator.push_producer_traceback_frame(producer);
+            let mut frames = ExplicitFrames::new(&mut evaluator, program.as_ref());
+            // The cancelled body's `finish_call` closes the scope and pops the
+            // traceback frame.
+            frames.run_cancelled_producer(call, span)
+        };
         outcome
     }
 

@@ -5,11 +5,11 @@ use super::{
 };
 use crate::runtime::eval::indexed::full::schema::PatternView;
 
-fn indexed_pattern_view<'a>(
-    execution: &FullExecution<'a>,
+fn indexed_pattern_view<'e>(
+    execution: &'e FullExecution<'_>,
     pattern: u32,
     span: Span,
-) -> Result<PatternView<'a>, RuntimeError> {
+) -> Result<PatternView<'e>, RuntimeError> {
     let (tag, payload) = execution
         .pattern(pattern)
         .map_err(|error| indexed_error(error, span))?;

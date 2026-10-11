@@ -32,7 +32,7 @@ pub(super) fn indexed_value(
 #[inline(always)]
 pub(super) fn indexed_decode<'a, T: crate::runtime::eval::indexed::full::FullCodec>(
     payload: &mut FullPayload<'a>,
-    execution: &FullExecution<'a>,
+    execution: &FullExecution<'_>,
     span: Span,
 ) -> Result<T, RuntimeError> {
     payload
@@ -45,11 +45,11 @@ pub(super) fn indexed_raw(payload: &mut FullPayload<'_>, span: Span) -> Result<u
     payload.raw().map_err(|error| indexed_error(error, span))
 }
 
-pub(super) fn indexed_string<'payload, 'program>(
-    payload: &mut FullPayload<'payload>,
-    execution: &'program FullExecution<'program>,
+pub(super) fn indexed_string<'e>(
+    payload: &mut FullPayload<'_>,
+    execution: &'e FullExecution<'_>,
     span: Span,
-) -> Result<&'program str, RuntimeError> {
+) -> Result<&'e str, RuntimeError> {
     execution
         .string(indexed_raw(payload, span)?)
         .map_err(|error| indexed_error(error, span))
@@ -242,9 +242,9 @@ pub(super) fn record_update_at(
 }
 
 /// A module call's operation, prepared plan, optional argument operands, and span.
-pub(super) fn decode_module_call<'a>(
-    execution: &FullExecution<'a>,
-    payload: &mut FullPayload<'a>,
+pub(super) fn decode_module_call<'e>(
+    execution: &'e FullExecution<'_>,
+    payload: &mut FullPayload<'e>,
     span: Span,
 ) -> Result<IndexedModuleCall, RuntimeError> {
     let op = indexed_decode::<RuntimeOp>(payload, execution, span)?;
@@ -269,12 +269,12 @@ pub(super) fn decode_module_call<'a>(
 }
 
 /// Decode format parts through the expression row schema and keep their list borrowed.
-pub(super) fn decode_fmt<'a>(
-    execution: &FullExecution<'a>,
+pub(super) fn decode_fmt<'e>(
+    execution: &'e FullExecution<'_>,
     tag: FullTag,
-    payload: FullPayload<'a>,
+    payload: FullPayload<'e>,
     span: Span,
-) -> Result<(ListView<'a, LoweredFmtPart>, IndexedFmt), RuntimeError> {
+) -> Result<(ListView<'e, LoweredFmtPart>, IndexedFmt), RuntimeError> {
     let view = ExprView::decode(execution, tag, payload)
         .map_err(|error| indexed_error(error, span))?;
     let (parts, path_span) = match view {

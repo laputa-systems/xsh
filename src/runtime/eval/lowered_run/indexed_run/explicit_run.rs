@@ -34,6 +34,7 @@ use super::{
     lowered_value_from_runtime_any, push_lowered_display,
     resolve_assign_index,
 };
+use crate::runtime::eval::indexed::full::ProgramOwner;
 use super::{LoweredMapCursor, LoweredScalarCursor};
 use crate::map_key::MapKey;
 use crate::runtime::eval::indexed::IrBlockId;
@@ -346,12 +347,12 @@ fn statement_match_arm(
     Ok((arm, arms.position()))
 }
 
-fn statement_env_assignment<'a>(
-    execution: &FullExecution<'a>,
+fn statement_env_assignment<'e>(
+    execution: &'e FullExecution<'_>,
     statement: u32,
     position: ListPosition<LoweredRunEnv>,
     span: Span,
-) -> Result<(RunEnvView<'a>, ListPosition<LoweredRunEnv>), RuntimeError> {
+) -> Result<(RunEnvView<'e>, ListPosition<LoweredRunEnv>), RuntimeError> {
     let (tag, payload) = execution
         .instruction_id(statement)
         .map_err(|error| indexed_error(error, span))?;
@@ -420,11 +421,11 @@ fn indexed_str_tag_statement_match_arm(
         .ok_or_else(|| lowered_match_no_arm(match_span))
 }
 
-fn expr_pattern_if_view<'a>(
-    execution: &FullExecution<'a>,
+fn expr_pattern_if_view<'e>(
+    execution: &'e FullExecution<'_>,
     instruction: u32,
     span: Span,
-) -> Result<super::ExprView<'a>, RuntimeError> {
+) -> Result<super::ExprView<'e>, RuntimeError> {
     let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
     super::ExprView::decode(execution, tag, payload).map_err(|error| indexed_error(error, span))
 }
@@ -1094,12 +1095,12 @@ impl IndexedListLiteralView<'_> {
     }
 }
 
-fn indexed_list_literal_view<'a>(
-    execution: &FullExecution<'a>,
+fn indexed_list_literal_view<'e>(
+    execution: &'e FullExecution<'_>,
     tag: FullTag,
-    payload: FullPayload<'a>,
+    payload: FullPayload<'e>,
     span: Span,
-) -> Result<IndexedListLiteralView<'a>, RuntimeError> {
+) -> Result<IndexedListLiteralView<'e>, RuntimeError> {
     let view = ExprView::decode(execution, tag, payload)
         .map_err(|error| indexed_error(error, span))?;
     match view {
@@ -1109,21 +1110,21 @@ fn indexed_list_literal_view<'a>(
     }
 }
 
-fn indexed_list_literal_view_at<'a>(
-    execution: &FullExecution<'a>,
+fn indexed_list_literal_view_at<'e>(
+    execution: &'e FullExecution<'_>,
     instruction: u32,
     span: Span,
-) -> Result<IndexedListLiteralView<'a>, RuntimeError> {
+) -> Result<IndexedListLiteralView<'e>, RuntimeError> {
     let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
     indexed_list_literal_view(execution, tag, payload, span)
 }
 
-fn indexed_map_literal_view<'a>(
-    execution: &FullExecution<'a>,
+fn indexed_map_literal_view<'e>(
+    execution: &'e FullExecution<'_>,
     tag: FullTag,
-    payload: FullPayload<'a>,
+    payload: FullPayload<'e>,
     span: Span,
-) -> Result<ListView<'a, IndexedMapLiteralEntry>, RuntimeError> {
+) -> Result<ListView<'e, IndexedMapLiteralEntry>, RuntimeError> {
     match ExprView::decode(execution, tag, payload)
         .map_err(|error| indexed_error(error, span))?
     {
@@ -1132,21 +1133,21 @@ fn indexed_map_literal_view<'a>(
     }
 }
 
-fn indexed_map_literal_view_at<'a>(
-    execution: &FullExecution<'a>,
+fn indexed_map_literal_view_at<'e>(
+    execution: &'e FullExecution<'_>,
     instruction: u32,
     span: Span,
-) -> Result<ListView<'a, IndexedMapLiteralEntry>, RuntimeError> {
+) -> Result<ListView<'e, IndexedMapLiteralEntry>, RuntimeError> {
     let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
     indexed_map_literal_view(execution, tag, payload, span)
 }
 
-fn indexed_record_literal_view<'a>(
-    execution: &FullExecution<'a>,
+fn indexed_record_literal_view<'e>(
+    execution: &'e FullExecution<'_>,
     tag: FullTag,
-    payload: FullPayload<'a>,
+    payload: FullPayload<'e>,
     span: Span,
-) -> Result<ListView<'a, LoweredRecordEntry>, RuntimeError> {
+) -> Result<ListView<'e, LoweredRecordEntry>, RuntimeError> {
     match ExprView::decode(execution, tag, payload)
         .map_err(|error| indexed_error(error, span))?
     {
@@ -1155,20 +1156,20 @@ fn indexed_record_literal_view<'a>(
     }
 }
 
-fn indexed_record_literal_view_at<'a>(
-    execution: &FullExecution<'a>,
+fn indexed_record_literal_view_at<'e>(
+    execution: &'e FullExecution<'_>,
     instruction: u32,
     span: Span,
-) -> Result<ListView<'a, LoweredRecordEntry>, RuntimeError> {
+) -> Result<ListView<'e, LoweredRecordEntry>, RuntimeError> {
     let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
     indexed_record_literal_view(execution, tag, payload, span)
 }
 
-fn indexed_fmt_parts_view_at<'a>(
-    execution: &FullExecution<'a>,
+fn indexed_fmt_parts_view_at<'e>(
+    execution: &'e FullExecution<'_>,
     instruction: u32,
     span: Span,
-) -> Result<ListView<'a, LoweredFmtPart>, RuntimeError> {
+) -> Result<ListView<'e, LoweredFmtPart>, RuntimeError> {
     let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
     match ExprView::decode(execution, tag, payload)
         .map_err(|error| indexed_error(error, span))?
@@ -1178,11 +1179,11 @@ fn indexed_fmt_parts_view_at<'a>(
     }
 }
 
-fn indexed_assign_path_view_at<'a>(
-    execution: &FullExecution<'a>,
+fn indexed_assign_path_view_at<'e>(
+    execution: &'e FullExecution<'_>,
     statement: u32,
     span: Span,
-) -> Result<ListView<'a, LoweredAssignStep>, RuntimeError> {
+) -> Result<ListView<'e, LoweredAssignStep>, RuntimeError> {
     let (tag, payload) = indexed_value(execution.instruction_id(statement), span)?;
     match StmtView::decode(execution, tag, payload)
         .map_err(|error| indexed_error(error, span))?
@@ -1193,11 +1194,11 @@ fn indexed_assign_path_view_at<'a>(
     }
 }
 
-fn indexed_comp_qualifiers_view_at<'a>(
-    execution: &FullExecution<'a>,
+fn indexed_comp_qualifiers_view_at<'e>(
+    execution: &'e FullExecution<'_>,
     instruction: u32,
     span: Span,
-) -> Result<ListView<'a, LoweredCompQualifier>, RuntimeError> {
+) -> Result<ListView<'e, LoweredCompQualifier>, RuntimeError> {
     let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
     match ExprView::decode(execution, tag, payload)
         .map_err(|error| indexed_error(error, span))?
@@ -1408,13 +1409,13 @@ fn run_arg_parts(value: RunArgView<'_>) -> (u32, u32, Span) {
     (mode, instruction, span)
 }
 
-fn process_run_operands<'a>(
-    execution: &FullExecution<'a>,
+fn process_run_operands<'e>(
+    execution: &'e FullExecution<'_>,
     instruction: u32,
     tag: FullTag,
     segment: Option<ListPosition<LoweredRunPipelineSegment>>,
     span: Span,
-) -> Result<ProcessRunOperands<'a>, RuntimeError> {
+) -> Result<ProcessRunOperands<'e>, RuntimeError> {
     let (decoded_tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
     let view = super::ExprView::decode(execution, decoded_tag, payload)
         .map_err(|error| indexed_error(error, span))?;
@@ -1552,11 +1553,11 @@ enum ProcessCommandBuilderPhase {
     Run(ProcessCommandRunPhase),
 }
 
-fn process_command_builder_view<'a>(
-    execution: &FullExecution<'a>,
+fn process_command_builder_view<'e>(
+    execution: &'e FullExecution<'_>,
     instruction: u32,
     span: Span,
-) -> Result<(ListView<'a, LoweredProcessCommandBuilderEntry>, Span), RuntimeError> {
+) -> Result<(ListView<'e, LoweredProcessCommandBuilderEntry>, Span), RuntimeError> {
     let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
     match super::ExprView::decode(execution, tag, payload)
         .map_err(|error| indexed_error(error, span))?
@@ -1566,13 +1567,13 @@ fn process_command_builder_view<'a>(
     }
 }
 
-fn process_command_builder_entry<'a>(
-    execution: &FullExecution<'a>,
+fn process_command_builder_entry<'e>(
+    execution: &'e FullExecution<'_>,
     instruction: u32,
     position: ListPosition<LoweredProcessCommandBuilderEntry>,
     span: Span,
 ) -> Result<(
-    Option<ProcessCommandBuilderEntryView<'a>>,
+    Option<ProcessCommandBuilderEntryView<'e>>,
     ListPosition<LoweredProcessCommandBuilderEntry>,
     Span,
 ), RuntimeError> {
@@ -1923,6 +1924,7 @@ enum FrameContinuation {
     CallArguments {
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
+        external: bool,
         args: Vec<(u32, u32)>,
         index: usize,
         values: Vec<LoweredValue>,
@@ -2630,6 +2632,8 @@ pub(super) struct CallFrame<'p> {
     cancelled: bool,
     pub(super) scope_id: u64,
     pub(super) execution: FullExecution<'p>,
+    /// Keeps a cross-program frame's interned names current through cleanup.
+    _symbol_owner: Option<crate::symbol::SymbolOwnerGuard>,
     pub(super) slots: FrameSlots<'p>,
     pub(super) slot_scopes: Vec<u64>,
     pub(super) call_span: Span,
@@ -2667,6 +2671,13 @@ pub(super) struct ExplicitFrames<'a, 'p> {
     /// boundary enters a frame, lowered where one is seen to leave, and
     /// corrected by any collection that finds fewer.
     open_context_boundaries: usize,
+}
+
+struct ResolvedCall<'p> {
+    program: ProgramOwner<'p>,
+    function: LoweredFunctionKey,
+    kind: LoweredFunctionKind,
+    index: usize,
 }
 
 /// How many `ctx` boundaries a frame's work holds.
@@ -2851,6 +2862,7 @@ impl Evaluator {
             cancelled: false,
             scope_id,
             execution: execution.thread_local(),
+            _symbol_owner: None,
             slots: FrameSlots::Lent(slots),
             slot_scopes,
             call_span: span,
@@ -3214,7 +3226,7 @@ impl<'p> CallFrame<'p> {
 impl<'p> CallFrame<'p> {
     /// Rebuilds a frame from the state a previous pull suspended.
     pub(super) fn from_state(
-        program: &'p super::FullProgram,
+        program: Arc<super::FullProgram>,
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
         call_span: Span,
@@ -3224,13 +3236,18 @@ impl<'p> CallFrame<'p> {
         let Some(view) = program.function_view(function, kind)? else {
             return Ok(None);
         };
-        let execution = view.execution()?;
+        let symbol_owner = Some(program.symbol_owner().enter());
+        let execution = FullExecution::for_function(
+            ProgramOwner::Shared(Arc::clone(&program)),
+            view.index(),
+        )?;
         Ok(Some(CallFrame {
             owner: FrameOwner::Function(function, kind),
             producer: true,
             cancelled: false,
             scope_id: state.scope_id,
             execution,
+            _symbol_owner: symbol_owner,
             slots: FrameSlots::Owned(state.slots),
             slot_scopes: state.slot_scopes,
             call_span,
@@ -4110,7 +4127,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn discard_calls(&mut self) {
         while let Some(mut call) = self.calls.pop() {
             if let FrameOwner::Function(function, kind) = call.owner
-                && let Ok(header) = self.function_header(function, kind, call.call_span)
+                && let Ok(header) = Self::function_header(
+                    call.execution.program(),
+                    function,
+                    kind,
+                    call.call_span,
+                )
             {
                 let _ = self.evaluator.write_back_lowered_captures(
                     &header,
@@ -4170,6 +4192,147 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         }
     }
 
+    fn resolve_active_call(
+        &self,
+        index: usize,
+        function: LoweredFunctionKey,
+        kind: LoweredFunctionKind,
+        allow_dynamic: bool,
+        span: Span,
+    ) -> Result<ResolvedCall<'p>, RuntimeError> {
+        let caller = self.calls[index].execution.program_owner();
+        if let Some(function_index) = caller
+            .program()
+            .function_view(function, kind)
+            .map_err(|error| indexed_error(error, span))?
+            .map(|view| view.index())
+        {
+            return Ok(ResolvedCall {
+                program: caller,
+                function,
+                kind,
+                index: function_index,
+            });
+        }
+        if allow_dynamic && let LoweredFunctionKey::Qualified(qualified) = function {
+            if let Some(dynamic) = self.evaluator.indexed_dynamic_functions.get(&qualified) {
+                if dynamic.kind != kind {
+                    return Err(RuntimeError::new(
+                        "type-error",
+                        format!("callable {} has a different function kind", function.display_name()),
+                    )
+                    .with_span(span));
+                }
+                let view = dynamic
+                    .program
+                    .function_view(dynamic.function, dynamic.kind)
+                    .map_err(|error| indexed_error(error, span))?
+                    .ok_or_else(|| {
+                        RuntimeError::new("unresolved-lowered-call", function.display_name())
+                            .with_span(span)
+                    })?;
+                return Ok(ResolvedCall {
+                    program: ProgramOwner::Shared(Arc::clone(&dynamic.program)),
+                    function: dynamic.function,
+                    kind: dynamic.kind,
+                    index: view.index(),
+                });
+            }
+        }
+        Err(RuntimeError::new("unresolved-lowered-call", function.display_name()).with_span(span))
+    }
+
+    fn resolve_active_external(
+        &self,
+        index: usize,
+        qualified: crate::symbol::QualifiedName,
+        span: Span,
+    ) -> Result<ResolvedCall<'p>, RuntimeError> {
+        let caller = self.calls[index].execution.program_owner();
+        let function = LoweredFunctionKey::Qualified(qualified);
+        for kind in [LoweredFunctionKind::Pure, LoweredFunctionKind::Proc] {
+            if let Some(function_index) = caller
+                .program()
+                .function_view(function, kind)
+                .map_err(|error| indexed_error(error, span))?
+                .map(|view| view.index())
+            {
+                return Ok(ResolvedCall {
+                    program: caller,
+                    function,
+                    kind,
+                    index: function_index,
+                });
+            }
+        }
+        let dynamic = self
+            .evaluator
+            .indexed_dynamic_functions
+            .get(&qualified)
+            .ok_or_else(|| {
+                RuntimeError::new("unresolved-lowered-call", qualified.to_string())
+                    .with_span(span)
+            })?;
+        let view = dynamic
+            .program
+            .function_view(dynamic.function, dynamic.kind)
+            .map_err(|error| indexed_error(error, span))?
+            .ok_or_else(|| {
+                RuntimeError::new("unresolved-lowered-call", qualified.to_string())
+                    .with_span(span)
+            })?;
+        Ok(ResolvedCall {
+            program: ProgramOwner::Shared(Arc::clone(&dynamic.program)),
+            function: dynamic.function,
+            kind: dynamic.kind,
+            index: view.index(),
+        })
+    }
+
+    fn argument_default_for_active(
+        &self,
+        index: usize,
+        function: LoweredFunctionKey,
+        kind: LoweredFunctionKind,
+        slot: usize,
+        span: Span,
+    ) -> Result<LoweredValue, RuntimeError> {
+        let caller = self.calls[index].execution.program_owner();
+        let view = if let Some(view) = caller
+            .program()
+            .function_view(function, kind)
+            .map_err(|error| indexed_error(error, span))?
+        {
+            view
+        } else if let LoweredFunctionKey::Qualified(qualified) = function {
+            let dynamic = self
+                .evaluator
+                .indexed_dynamic_functions
+                .get(&qualified)
+                .ok_or_else(|| RuntimeError::new("unresolved-call", "argument default callable is not prepared").with_span(span))?;
+            if dynamic.kind != kind {
+                return Err(RuntimeError::new(
+                    "type-error",
+                    format!("callable {} has a different function kind", function.display_name()),
+                )
+                .with_span(span));
+            }
+            dynamic
+                .program
+                .function_view(dynamic.function, dynamic.kind)
+                .map_err(|error| indexed_error(error, span))?
+                .ok_or_else(|| RuntimeError::new("unresolved-call", "argument default callable is not prepared").with_span(span))?
+        } else {
+            return Err(RuntimeError::new("unresolved-call", "argument default callable is not prepared").with_span(span));
+        };
+        view.header()
+            .map_err(|error| indexed_error(error, span))?
+            .param_defaults
+            .get(slot)
+            .and_then(Clone::clone)
+            .ok_or_else(|| RuntimeError::new("indexed-ir", "checked omitted argument has no prepared default").with_span(span))
+    }
+
     /// Resolves a fully evaluated call: a stream producer runs to completion
     /// and hands its stream back, and every other callee becomes a frame.
     ///
@@ -4187,11 +4350,33 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         span: Span,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
-        let stream_call = match self
-            .program
-            .function_view(function, kind)
-            .map_err(|error| indexed_error(error, span))?
-        {
+        let resolved = self.resolve_active_call(index, function, kind, true, span)?;
+        self.push_resolved_target(index, resolved, values, span, next)
+    }
+
+    fn push_resolved_external(
+        &mut self,
+        index: usize,
+        qualified: crate::symbol::QualifiedName,
+        values: Vec<LoweredValue>,
+        span: Span,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        let resolved = self.resolve_active_external(index, qualified, span)?;
+        self.push_resolved_target(index, resolved, values, span, next)
+    }
+
+    fn push_resolved_target(
+        &mut self,
+        index: usize,
+        resolved: ResolvedCall<'p>,
+        values: Vec<LoweredValue>,
+        span: Span,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        let target = resolved.program.program();
+        let stream_call = match target.function_view(resolved.function, resolved.kind)
+            .map_err(|error| indexed_error(error, span))? {
             Some(view) => matches!(
                 view.header()
                     .map_err(|error| indexed_error(error, span))?
@@ -4201,13 +4386,28 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             None => false,
         };
         if stream_call {
-            let value = self
-                .evaluator
-                .eval_indexed_named_call(function, &values, span)?;
+            let program = resolved
+                .program
+                .dispatch_arc(self.evaluator.indexed_program.as_ref())
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "indexed-ir",
+                        "stream call lost its executable program owner",
+                    )
+                    .with_span(span)
+                })?;
+            let value = self.evaluator.eval_indexed_call_at(
+                &program,
+                resolved.function,
+                resolved.kind,
+                resolved.index,
+                &values,
+                span,
+            )?;
             self.push_value(index, FrameValue::Value(value), next);
             return Ok(());
         }
-        self.push_call(function, kind, values, span, Some(next))
+        self.push_call_in_owner(index, resolved, values, span, Some(next))
     }
 
     /// Walks a named call's arguments from `argument`, filling the arguments it
@@ -4217,6 +4417,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         index: usize,
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
+        external: bool,
         args: Vec<(u32, u32)>,
         mut argument: usize,
         mut values: Vec<LoweredValue>,
@@ -4225,7 +4426,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     ) -> Result<(), RuntimeError> {
         while let Some((arg_kind, instruction)) = args.get(argument).copied() {
             if arg_kind == 2 {
-                values.push(self.evaluator.indexed_argument_default_for(
+                values.push(self.argument_default_for_active(
+                    index,
                     function,
                     kind,
                     instruction as usize,
@@ -4240,6 +4442,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     FrameContinuation::CallArguments {
                         function,
                         kind,
+                        external,
                         args,
                         index: argument,
                         values,
@@ -4251,7 +4454,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
         }
         self.evaluator.frame_scratch.recycle_call_args(args);
-        self.push_resolved_call(index, function, kind, values, span, next)
+        if external {
+            let LoweredFunctionKey::Qualified(qualified) = function else {
+                unreachable!("external calls have qualified names")
+            };
+            self.push_resolved_external(index, qualified, values, span, next)
+        } else {
+            self.push_resolved_call(index, function, kind, values, span, next)
+        }
     }
 
     fn push_dynamic_arguments(
@@ -4266,8 +4476,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     ) -> Result<(), RuntimeError> {
         while let Some((kind, instruction)) = args.get(argument).copied() {
             if kind == 2 {
-                values.push(self.evaluator.indexed_argument_default(
-                    &callee,
+                let (function, function_kind) = indexed_callable_identity(&callee, span)?;
+                values.push(self.argument_default_for_active(
+                    index,
+                    function,
+                    function_kind,
                     instruction as usize,
                     span,
                 )?);
@@ -4291,25 +4504,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         }
         self.evaluator.frame_scratch.recycle_call_args(args);
         let (function, kind) = indexed_callable_identity(&callee, span)?;
-        if self
-            .program
-            .function_view(function, kind)
-            .map_err(|error| indexed_error(error, span))?
-            .is_some()
-        {
-            self.push_resolved_call(index, function, kind, values, span, next)
-        } else if let LoweredFunctionKey::Qualified(qualified) = function {
-            let value = self
-                .evaluator
-                .eval_indexed_external_call(qualified, &values, span)?;
-            self.push_value(index, FrameValue::Value(value), next);
-            Ok(())
-        } else {
-            Err(
-                RuntimeError::new("unresolved-lowered-call", function.display_name())
-                    .with_span(span),
-            )
-        }
+        self.push_resolved_call(index, function, kind, values, span, next)
     }
 
     fn push_call(
@@ -4334,7 +4529,47 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let slots = self
             .evaluator
             .bind_lowered_values_owned(&header, values, call_span)?;
-        self.push_call_with_header(function, kind, view, header, slots, call_span, return_to)
+        let execution = view
+            .execution()
+            .map_err(|error| indexed_error(error, call_span))?;
+        self.push_call_with_header(function, kind, view, execution, None, header, slots, call_span, return_to)
+    }
+
+    fn push_call_in_owner(
+        &mut self,
+        caller_index: usize,
+        resolved: ResolvedCall<'p>,
+        values: Vec<LoweredValue>,
+        call_span: Span,
+        return_to: Option<FrameContinuation>,
+    ) -> Result<(), RuntimeError> {
+        let is_cross_program = !std::ptr::eq(
+            self.calls[caller_index].execution.program(),
+            resolved.program.program(),
+        );
+        let symbol_owner = is_cross_program
+            .then(|| resolved.program.program().symbol_owner().enter());
+        let view = resolved
+            .program
+            .program()
+            .function_view(resolved.function, resolved.kind)
+            .map_err(|error| indexed_error(error, call_span))?
+            .ok_or_else(|| RuntimeError::new("unresolved-lowered-call", resolved.function.display_name()).with_span(call_span))?;
+        let header = view.header().map_err(|error| indexed_error(error, call_span))?;
+        let slots = self.evaluator.bind_lowered_values_owned(&header, values, call_span)?;
+        let execution = FullExecution::for_function(resolved.program.clone(), resolved.index)
+            .map_err(|error| indexed_error(error, call_span))?;
+        self.push_call_with_header(
+            resolved.function,
+            resolved.kind,
+            view,
+            execution,
+            symbol_owner,
+            header,
+            slots,
+            call_span,
+            return_to,
+        )
     }
 
     fn push_call_with_slots(
@@ -4356,14 +4591,19 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let header = view
             .header()
             .map_err(|error| indexed_error(error, call_span))?;
-        self.push_call_with_header(function, kind, view, header, slots, call_span, return_to)
+        let execution = view
+            .execution()
+            .map_err(|error| indexed_error(error, call_span))?;
+        self.push_call_with_header(function, kind, view, execution, None, header, slots, call_span, return_to)
     }
 
     fn push_call_with_header(
         &mut self,
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
-        view: FullFunctionView<'p>,
+        view: FullFunctionView<'_>,
+        execution: FullExecution<'p>,
+        symbol_owner: Option<crate::symbol::SymbolOwnerGuard>,
         header: Arc<FunctionHeader>,
         mut slots: Vec<LoweredValue>,
         call_span: Span,
@@ -4389,9 +4629,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         }
         self.evaluator
             .hydrate_lowered_captures(&header, &mut slots, call_span)?;
-        let execution = view
-            .execution()
-            .map_err(|error| indexed_error(error, call_span))?;
         let (body, _) = view
             .body(&execution)
             .map_err(|error| indexed_error(error, call_span))?;
@@ -4434,6 +4671,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             cancelled: false,
             scope_id,
             execution,
+            _symbol_owner: symbol_owner,
             slots: FrameSlots::Owned(slots),
             slot_scopes,
             call_span,
@@ -4920,19 +5158,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn eval_statement(&mut self, index: usize, instruction: u32) -> Result<(), RuntimeError> {
         // A statement starts only once any earlier `Err` was handled.
         self.evaluator.pending_traceback = None;
-        let transfers_resource = self.calls[index].execution.transfers_resource(instruction);
+        let execution = self.calls[index].execution.thread_local();
+        let transfers_resource = execution.transfers_resource(instruction);
         let span = self.calls[index].call_span;
         let (tag, mut payload) = indexed_value(
-            self.calls[index].execution.instruction_id(instruction),
+            execution.instruction_id(instruction),
             span,
         )?;
-        let strategy = tag.frame_strategy();
-        if self.evaluator.force_frames
-            && strategy == FrameStrategy::LegacyRecursive
-            && tag != FullTag::ExprPipeline
-        {
-            return Err(frame_strategy_error(tag, span));
-        }
         match tag {
             FullTag::StmtPrint => {
                 let StmtView::Print {
@@ -4941,7 +5173,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     flush,
                     propagate_result,
                     span,
-                } = StmtView::decode(&self.calls[index].execution, tag, payload)
+                } = StmtView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("statement tag and borrowed row agree")
@@ -4968,7 +5200,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::StmtCd => {
                 let StmtView::Cd { target, body, span } =
-                    StmtView::decode(&self.calls[index].execution, tag, payload)
+                    StmtView::decode(&execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("statement tag and borrowed row agree")
@@ -4988,7 +5220,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::StmtEnv => {
                 let StmtView::Env { env, body } =
-                    StmtView::decode(&self.calls[index].execution, tag, payload)
+                    StmtView::decode(&execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("statement tag and borrowed row agree")
@@ -5014,7 +5246,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let StmtView::Run {
                     value,
                     propagate_result,
-                } = StmtView::decode(&self.calls[index].execution, tag, payload)
+                } = StmtView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("run statement tag has a run view")
@@ -5035,7 +5267,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     value,
                     message,
                     span: assertion_span,
-                } = StmtView::decode(&self.calls[index].execution, tag, payload)
+                } = StmtView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("assert statement tag has an assertion view")
@@ -5055,20 +5287,20 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::StmtDefaultParameter => {
                 let slot =
-                    indexed_decode::<usize>(&mut payload, &self.calls[index].execution, span)?;
+                    indexed_decode::<usize>(&mut payload, &execution, span)?;
                 let value = indexed_raw(&mut payload, span)?;
                 let kind = indexed_decode::<LoweredType>(
                     &mut payload,
-                    &self.calls[index].execution,
+                    &execution,
                     span,
                 )?;
                 let check = indexed_decode::<Option<LoweredTypeCheck>>(
                     &mut payload,
-                    &self.calls[index].execution,
+                    &execution,
                     span,
                 )?;
                 let span =
-                    indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
+                    indexed_decode::<Span>(&mut payload, &execution, span)?;
                 indexed_finish(payload, span)?;
                 if matches!(self.calls[index].slots[slot], LoweredValue::OmittedArgument) {
                     self.push_expr(
@@ -5087,7 +5319,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::StmtLet => {
                 let StmtView::Let { slot, value } = StmtView::decode(
-                    &self.calls[index].execution,
+                    &execution,
                     tag,
                     payload,
                 )
@@ -5102,10 +5334,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let source = indexed_raw(&mut payload, span)?;
                 let target = indexed_decode::<LoweredCompTarget>(
                     &mut payload,
-                    &self.calls[index].execution,
+                    &execution,
                     span,
                 )?;
-                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                let value_span = indexed_decode(&mut payload, &execution, span)?;
                 indexed_finish(payload, span)?;
                 self.declare_target(index, &target);
                 self.push_expr(
@@ -5127,7 +5359,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     else_body,
                     captures,
                     span,
-                } = StmtView::decode(&self.calls[index].execution, tag, payload)
+                } = StmtView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("with statement tag has a with view")
@@ -5139,7 +5371,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|error| indexed_error(error, span))?;
                 let (first_binding, binding_position) = statement_with_binding(
-                    &self.calls[index].execution,
+                    &execution,
                     instruction,
                     bindings.position(),
                     span,
@@ -5184,7 +5416,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     else_body,
                     span,
                     optional,
-                } = StmtView::decode(&self.calls[index].execution, tag, payload)
+                } = StmtView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("guard statement tag has a guard view")
@@ -5209,7 +5441,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
 
             FullTag::StmtLetInt => {
                 let StmtView::LetInt { slot, value } = StmtView::decode(
-                    &self.calls[index].execution,
+                    &execution,
                     tag,
                     payload,
                 )
@@ -5222,7 +5454,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::StmtLetBool => {
                 let StmtView::LetBool { slot, value } = StmtView::decode(
-                    &self.calls[index].execution,
+                    &execution,
                     tag,
                     payload,
                 )
@@ -5240,7 +5472,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     value,
                     check,
                     span: value_span,
-                } = StmtView::decode(&self.calls[index].execution, tag, payload)
+                } = StmtView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("assignment statement tag has an assignment view")
@@ -5257,7 +5489,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     .map_err(|error| indexed_error(error, span))?;
                 let value = value.raw();
                 let (value, singleton) = indexed_assignment_operand(
-                    &self.calls[index].execution,
+                    &execution,
                     value,
                     op,
                     value_span,
@@ -5278,7 +5510,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             FullTag::StmtAssignField | FullTag::StmtAssignFieldInt => {
-                let execution = &self.calls[index].execution;
+                let execution = &execution;
                 let view = StmtView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?;
                 let (slot, field, op, value, value_span) = match view {
@@ -5318,7 +5550,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     op,
                     value,
                     span: value_span,
-                } = StmtView::decode(&self.calls[index].execution, tag, payload)
+                } = StmtView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("integer assignment tag has an integer assignment view")
@@ -5340,7 +5572,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::StmtAssignBool => {
                 let StmtView::AssignBool { slot, value } = StmtView::decode(
-                    &self.calls[index].execution,
+                    &execution,
                     tag,
                     payload,
                 )
@@ -5364,7 +5596,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             FullTag::StmtAssignPath => {
-                let view = StmtView::decode(&self.calls[index].execution, tag, payload)
+                let view = StmtView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?;
                 let (slot, mut path, op, value, check, value_span) = match view {
                     StmtView::AssignPath {
@@ -5392,7 +5624,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     .map_err(|error| indexed_error(error, value_span))?;
                 let (value, singleton) =
                     indexed_assignment_operand(
-                        &self.calls[index].execution,
+                        &execution,
                         value,
                         op,
                         value_span,
@@ -5418,7 +5650,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::StmtExpr => {
                 let StmtView::Expr { value, span: value_span } = StmtView::decode(
-                    &self.calls[index].execution,
+                    &execution,
                     tag,
                     payload,
                 )
@@ -5435,7 +5667,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             FullTag::StmtIf | FullTag::StmtIfBool => {
-                let view = StmtView::decode(&self.calls[index].execution, tag, payload)
+                let view = StmtView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?;
                 let (position, else_body) = match view {
                     StmtView::If {
@@ -5465,7 +5697,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     _ => unreachable!("if statement tags have an if view"),
                 };
                 let (branch, position) = statement_if_branch(
-                    &self.calls[index].execution,
+                    &execution,
                     instruction,
                     position,
                     span,
@@ -5497,7 +5729,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     mut branches,
                     else_body,
                     span,
-                } = StmtView::decode(&self.calls[index].execution, tag, payload)
+                } = StmtView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("pattern-if statement tag has a pattern-if view")
@@ -5519,7 +5751,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     body,
                     captures,
                     span,
-                } = StmtView::decode(&self.calls[index].execution, tag, payload)
+                } = StmtView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("pattern-while statement tag has a pattern-while view")
@@ -5538,7 +5770,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FullTag::StmtScanLines => self.step_scan_lines(index, tag, payload),
             FullTag::StmtScanBytes => self.step_scan_bytes(index, tag, payload),
             FullTag::StmtFor | FullTag::StmtForRecord => {
-                let view = StmtView::decode(&self.calls[index].execution, tag, payload)
+                let view = StmtView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?;
                 let (target, iter, body, value_span) = match view {
                     StmtView::For {
@@ -5566,7 +5798,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 // Only a single loop variable pulls a serial pipeline row by row.
                 if let LoweredCompTarget::Slot(slot) = target
                     && let Some((input, pipeline_span, stages)) =
-                        indexed_for_pipeline_input(&self.calls[index].execution, iter, value_span)?
+                        indexed_for_pipeline_input(&execution, iter, value_span)?
                 {
                     self.push_expr(
                         index,
@@ -5599,7 +5831,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     text,
                     body,
                     span: value_span,
-                } = StmtView::decode(&self.calls[index].execution, tag, payload)
+                } = StmtView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("for-lines statement tag has a for-lines view")
@@ -5618,7 +5850,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::StmtWhile | FullTag::StmtWhileBool => {
                 let (condition, body) = match StmtView::decode(
-                    &self.calls[index].execution,
+                    &execution,
                     tag,
                     payload,
                 )
@@ -5644,7 +5876,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     value,
                     mut arms,
                     span: value_span,
-                } = StmtView::decode(&self.calls[index].execution, tag, payload)
+                } = StmtView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("match statement tag has a match view")
@@ -5664,7 +5896,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             FullTag::StmtStrMatch | FullTag::StmtTagMatch => {
-                let view = StmtView::decode(&self.calls[index].execution, tag, payload)
+                let view = StmtView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?;
                 let (value, match_span) = match view {
                     StmtView::StrMatch { value, span, .. }
@@ -5694,7 +5926,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::StmtBreak => {
                 let StmtView::Break = StmtView::decode(
-                    &self.calls[index].execution,
+                    &execution,
                     tag,
                     payload,
                 )
@@ -5706,7 +5938,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::StmtBreakValue => {
                 let StmtView::BreakValue { value } = StmtView::decode(
-                    &self.calls[index].execution,
+                    &execution,
                     tag,
                     payload,
                 )
@@ -5724,7 +5956,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::StmtContinue => {
                 let StmtView::Continue = StmtView::decode(
-                    &self.calls[index].execution,
+                    &execution,
                     tag,
                     payload,
                 )
@@ -5735,7 +5967,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.continue_loop(index)
             }
             FullTag::StmtYield | FullTag::StmtYieldDelegate => {
-                let view = StmtView::decode(&self.calls[index].execution, tag, payload)
+                let view = StmtView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?;
                 let (value, yield_span, delegate) = match view {
                     StmtView::Yield { value } => (value.raw(), span, false),
@@ -5761,7 +5993,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::StmtDefer => {
                 let StmtView::Defer { value, on_error } = StmtView::decode(
-                    &self.calls[index].execution,
+                    &execution,
                     tag,
                     payload,
                 )
@@ -5776,7 +6008,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::StmtValue => {
                 let StmtView::Value { value } = StmtView::decode(
-                    &self.calls[index].execution,
+                    &execution,
                     tag,
                     payload,
                 )
@@ -5794,7 +6026,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::StmtReturn => {
                 let StmtView::Return { value } = StmtView::decode(
-                    &self.calls[index].execution,
+                    &execution,
                     tag,
                     payload,
                 )
@@ -5840,11 +6072,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 },
             );
         } else {
-            let evaluator = &mut self.evaluator;
-            let execution = &self.calls[index].execution;
+            let execution = self.calls[index].execution.thread_local();
             let value = super::indexed_frame_apply_value(
-                evaluator,
-                execution,
+                &mut self.evaluator,
+                &execution,
                 instruction,
                 Vec::new(),
                 span,
@@ -5861,10 +6092,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         span: Span,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
+        let execution = self.calls[index].execution.thread_local();
         let in_place = !self.evaluator.force_frames
-            && self.calls[index].execution.is_in_place(instruction);
+            && execution.is_in_place(instruction);
         let (tag, mut payload) = indexed_value(
-            self.calls[index].execution.instruction_id(instruction),
+            execution.instruction_id(instruction),
             span,
         )?;
         // Frame-applied operations and binary control keep their children on this machine.
@@ -5910,12 +6142,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             return Ok(());
         }
         let strategy = tag.frame_strategy();
-        if self.evaluator.force_frames
-            && strategy == FrameStrategy::LegacyRecursive
-            && tag != FullTag::ExprPipeline
-        {
-            return Err(frame_strategy_error(tag, span));
-        }
         if tag.is_eager_atom() {
             let call = &mut self.calls[index];
             let value = super::indexed_eager_atom_value(
@@ -5931,10 +6157,18 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         if strategy == FrameStrategy::FrameApply
             && (super::is_typed_int_tag(tag) || super::is_typed_bool_tag(tag))
         {
-            return self.eval_typed_scalar_expr(index, instruction, tag, payload, span, next);
+            return self.eval_typed_scalar_expr(
+                index,
+                instruction,
+                tag,
+                &execution,
+                payload,
+                span,
+                next,
+            );
         }
         if super::indexed_frame_apply_tag(tag) {
-            let mut view = super::ExprView::decode(&self.calls[index].execution, tag, payload)
+            let mut view = super::ExprView::decode(&execution, tag, payload)
                 .map_err(|error| indexed_error(error, span))?;
             let first = super::indexed_frame_apply_child(tag, &mut view, 0, None, None, span)?;
             let apply_span = first.as_ref().map_or(span, |child| child.span);
@@ -5947,7 +6181,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::ExprSpawnCommand => {
                 let super::ExprView::SpawnCommand { command, span } =
-                    super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                    super::ExprView::decode(&execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("spawn-command tag has a command view")
@@ -5964,7 +6198,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::ExprWait => {
                 let super::ExprView::Wait { target, span } =
-                    super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                    super::ExprView::decode(&execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("wait tag has a wait view")
@@ -5981,7 +6215,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::ExprProcessCommandBuilder => {
                 let (entries, builder_span) = process_command_builder_view(
-                    &self.calls[index].execution,
+                    &execution,
                     instruction,
                     span,
                 )?;
@@ -6002,7 +6236,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::ExprPipeline => {
                 let pipeline = indexed_value_pipeline_input(
-                    &self.calls[index].execution,
+                    &execution,
                     instruction,
                     span,
                 )?;
@@ -6035,7 +6269,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::ExprValueBlock => {
                 let super::ExprView::ValueBlock { body, span } =
-                    super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                    super::ExprView::decode(&execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("value-block tag has a value-block view")
@@ -6050,7 +6284,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let super::ExprView::Loop {
                     body,
                     span: loop_span,
-                } = super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                } = super::ExprView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("loop tag has a loop view")
@@ -6063,16 +6297,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::ExprRetry => {
                 let delays = payload
-                    .borrow::<Vec<BuildExprId>>(&self.calls[index].execution)
+                    .borrow::<Vec<BuildExprId>>(&execution)
                     .map_err(|error| indexed_error(error, span))?;
                 let delay_position = delays.position();
                 let delay_count = delays.len();
                 let pattern = indexed_optional_raw(&mut payload, span)?;
                 let body = indexed_raw(&mut payload, span)?;
-                let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                let span = indexed_decode(&mut payload, &execution, span)?;
                 let schedule_kind = indexed_decode(
                     &mut payload,
-                    &self.calls[index].execution,
+                    &execution,
                     span,
                 )?;
                 indexed_finish(payload, span)?;
@@ -6097,7 +6331,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::ExprCapture => {
                 let body = indexed_raw(&mut payload, span)?;
-                let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                let span = indexed_decode(&mut payload, &execution, span)?;
                 indexed_finish(payload, span)?;
                 self.calls[index].work.push(FrameWork::ExpressionBoundary {
                     policy: ExpressionBoundaryPolicy::Capture,
@@ -6106,10 +6340,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.push_statement_block(index, body, span)?;
             }
             FullTag::ExprContextScope => {
-                let kind = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                let kind = indexed_decode(&mut payload, &execution, span)?;
                 let input = indexed_raw(&mut payload, span)?;
                 let body = indexed_raw(&mut payload, span)?;
-                let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                let span = indexed_decode(&mut payload, &execution, span)?;
                 indexed_finish(payload, span)?;
                 self.push_expr(
                     index,
@@ -6128,7 +6362,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     message,
                     body,
                     span: context_span,
-                } = super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                } = super::ExprView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("error-context tag has an error-context view")
@@ -6146,7 +6380,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::ExprComparisonChain => {
                 let (first, pairs) = decode_comparison_chain(
-                    &self.calls[index].execution,
+                    &execution,
                     tag,
                     payload,
                     span,
@@ -6168,7 +6402,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     left,
                     right,
                     span: value_span,
-                } = super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                } = super::ExprView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("binary tag has a binary view")
@@ -6190,7 +6424,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     branches,
                     else_value,
                     span: value_span,
-                } = super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                } = super::ExprView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("if-expression tag has an if-expression view")
@@ -6207,7 +6441,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::ExprMatch => {
                 let (value, arms, value_span) = decode_match_expr(
-                    &self.calls[index].execution,
+                    &execution,
                     tag,
                     payload,
                     span,
@@ -6225,7 +6459,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
             }
             FullTag::ExprPatternIf => {
-                let view = super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                let view = super::ExprView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?;
                 let (position, value_span) = match view {
                     super::ExprView::PatternIf {
@@ -6246,7 +6480,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 )?;
             }
             FullTag::ExprStrMatch | FullTag::ExprTagMatch => {
-                let view = super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                let view = super::ExprView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?;
                 let value = match view {
                     super::ExprView::StrMatchExpr { value, .. }
@@ -6269,7 +6503,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             // call in the expression and consume native stack even when the outer loop itself is iterative.
             FullTag::ExprList | FullTag::ExprListBuild => {
                 let mut items = indexed_list_literal_view(
-                    &self.calls[index].execution,
+                    &execution,
                     tag,
                     payload,
                     span,
@@ -6305,7 +6539,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::ExprMapLiteral => {
                 let mut entries = indexed_map_literal_view(
-                    &self.calls[index].execution,
+                    &execution,
                     tag,
                     payload,
                     span,
@@ -6329,7 +6563,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::ExprRecordUpdate => {
                 let (base, updates, update_span) = decode_record_updates(
-                    &self.calls[index].execution,
+                    &execution,
                     tag,
                     payload,
                     span,
@@ -6348,7 +6582,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::ExprRecord => {
                 let mut entries = indexed_record_literal_view(
-                    &self.calls[index].execution,
+                    &execution,
                     tag,
                     payload,
                     span,
@@ -6370,7 +6604,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 )?;
             }
             FullTag::ExprListComp | FullTag::ExprMapComp => {
-                let view = ExprView::decode(&self.calls[index].execution, tag, payload)
+                let view = ExprView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?;
                 let (map, key, value, mut qualifiers, value_span) = match view {
                     ExprView::ListComp {
@@ -6424,7 +6658,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::ExprFmtString | FullTag::ExprPathFmtString => {
                 let (mut parts, fmt) = decode_fmt(
-                    &self.calls[index].execution,
+                    &execution,
                     tag,
                     payload,
                     span,
@@ -6446,7 +6680,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::ExprResultFallback => {
                 let super::ExprView::ResultFallback { left, right } =
-                    super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                    super::ExprView::decode(&execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("result-fallback tag has a result-fallback view")
@@ -6464,7 +6698,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::ExprOk => {
                 let super::ExprView::Ok(value) =
-                    super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                    super::ExprView::decode(&execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("ok tag has an ok view")
@@ -6478,7 +6712,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::ExprProcCallResult => {
                 let super::ExprView::ProcCallResult(value) =
-                    super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                    super::ExprView::decode(&execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("proc-call-result tag has a proc-call-result view")
@@ -6492,7 +6726,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::ExprErr => {
                 let super::ExprView::Err { value, cause } =
-                    super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                    super::ExprView::decode(&execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("err tag has an err view")
@@ -6512,7 +6746,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let super::ExprView::Try {
                     value,
                     span: propagation,
-                } = super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                } = super::ExprView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("try tag has a try view")
@@ -6537,7 +6771,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     check,
                     span: value_span,
                 } =
-                    super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                    super::ExprView::decode(&execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("checked-value tag has a checked-value view")
@@ -6559,7 +6793,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     value,
                     check,
                     span: value_span,
-                } = super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                } = super::ExprView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("require tag has a require view")
@@ -6580,7 +6814,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let receiver = indexed_raw(&mut payload, span)?;
                 let name: Arc<str> = Arc::from(indexed_string(
                     &mut payload,
-                    &self.calls[index].execution,
+                    &execution,
                     span,
                 )?);
                 let (_, mut args) = self.calls[index]
@@ -6588,7 +6822,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     .block(&mut payload, BLOCK_LIST)
                     .map_err(|error| indexed_error(error, span))?;
                 let len = indexed_raw(&mut args, span)? as usize;
-                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                let value_span = indexed_decode(&mut payload, &execution, span)?;
                 indexed_finish(payload, span)?;
                 let mut decoded_args = Vec::with_capacity(len);
                 for _ in 0..len {
@@ -6608,7 +6842,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             .evaluator
                             .indexed_root_binds(&self.calls[index].slots, *slot)
                         && indexed_slot_read(
-                            &self.calls[index].execution,
+                            &execution,
                             receiver,
                             value_span,
                         )? == Some(*slot) =>
@@ -6634,7 +6868,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let callee = indexed_raw(&mut payload, span)?;
                 let typed_pure = if tag == FullTag::ExprTypedCall {
                     let pure =
-                        indexed_decode::<bool>(&mut payload, &self.calls[index].execution, span)?;
+                        indexed_decode::<bool>(&mut payload, &execution, span)?;
                     // The signature is for the verifier; execution binds the
                     // verified arguments by position.
                     indexed_raw(&mut payload, span)?;
@@ -6643,8 +6877,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     None
                 };
                 let mut args = self.evaluator.frame_scratch.take_call_args();
-                decode_call_args_into(&self.calls[index].execution, &mut payload, span, &mut args)?;
-                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                decode_call_args_into(&execution, &mut payload, span, &mut args)?;
+                let value_span = indexed_decode(&mut payload, &execution, span)?;
                 indexed_finish(payload, span)?;
                 self.push_expr(
                     index,
@@ -6663,7 +6897,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     base,
                     name,
                     span: value_span,
-                } = super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                } = super::ExprView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("field tag has a field view")
@@ -6672,7 +6906,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let name = name.to_string();
                 if !self.evaluator.force_frames {
                     if let Some(base) = Evaluator::indexed_field_chain_ref(
-                        &self.calls[index].execution,
+                        &execution,
                         base,
                         &self.calls[index].slots,
                         value_span,
@@ -6698,7 +6932,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     base,
                     index: instruction,
                     span: value_span,
-                } = super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                } = super::ExprView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("index tag has an index view")
@@ -6719,7 +6953,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     base,
                     distance,
                     span: value_span,
-                } = super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                } = super::ExprView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("index-from-end tag has an index-from-end view")
@@ -6737,7 +6971,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::ExprModuleCall => {
                 let (op, call_plan, args, value_span) =
-                    decode_module_call(&self.calls[index].execution, &mut payload, span)?;
+                    decode_module_call(&execution, &mut payload, span)?;
                 indexed_finish(payload, span)?;
                 self.step_module_arguments(
                     index,
@@ -6750,25 +6984,22 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     next,
                 )?;
             }
-            FullTag::ExprCall | FullTag::ExprSelfCall | FullTag::ExprDirectPureCall => {
-                let function = if matches!(tag, FullTag::ExprCall | FullTag::ExprDirectPureCall) {
-                    indexed_decode(&mut payload, &self.calls[index].execution, span)?
-                } else {
-                    self.calls[index]
-                        .execution
-                        .function_identity()
-                        .map_err(|error| indexed_error(error, span))?
-                        .0
-                };
-                let kind = self.function_kind(function, span)?;
+            FullTag::ExprExternalCall => {
+                let qualified = indexed_decode::<crate::symbol::QualifiedName>(
+                    &mut payload,
+                    &execution,
+                    span,
+                )?;
+                let kind = self.external_kind(index, qualified, span)?;
                 let mut args = self.evaluator.frame_scratch.take_call_args();
-                decode_call_args_into(&self.calls[index].execution, &mut payload, span, &mut args)?;
-                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                decode_call_args_into(&execution, &mut payload, span, &mut args)?;
+                let value_span = indexed_decode(&mut payload, &execution, span)?;
                 indexed_finish(payload, span)?;
                 self.push_static_arguments(
                     index,
-                    function,
+                    LoweredFunctionKey::Qualified(qualified),
                     kind,
+                    true,
                     args,
                     0,
                     Vec::new(),
@@ -6776,15 +7007,32 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     next,
                 )?;
             }
-            _ if strategy == FrameStrategy::LegacyRecursive => {
-                let flow = self.with_lent_context(index, |evaluator, execution, slots| {
-                    evaluator.eval_indexed_expr(execution, instruction, slots, span)
-                })?;
-                let value = match flow {
-                    ControlFlow::Continue(value) => FrameValue::Value(value),
-                    ControlFlow::Break(value) => FrameValue::Break(value),
+            FullTag::ExprCall | FullTag::ExprSelfCall | FullTag::ExprDirectPureCall => {
+                let function = if matches!(tag, FullTag::ExprCall | FullTag::ExprDirectPureCall) {
+                    indexed_decode(&mut payload, &execution, span)?
+                } else {
+                    self.calls[index]
+                        .execution
+                        .function_identity()
+                        .map_err(|error| indexed_error(error, span))?
+                        .0
                 };
-                self.push_value(index, value, next);
+                let kind = self.function_kind(index, function, span)?;
+                let mut args = self.evaluator.frame_scratch.take_call_args();
+                decode_call_args_into(&execution, &mut payload, span, &mut args)?;
+                let value_span = indexed_decode(&mut payload, &execution, span)?;
+                indexed_finish(payload, span)?;
+                self.push_static_arguments(
+                    index,
+                    function,
+                    kind,
+                    false,
+                    args,
+                    0,
+                    Vec::new(),
+                    value_span,
+                    next,
+                )?;
             }
             _ => return Err(frame_strategy_error(tag, span)),
         }
@@ -6796,6 +7044,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         index: usize,
         mut state: FrameAssertionState,
     ) -> Result<(), RuntimeError> {
+        let execution = self.calls[index].execution.thread_local();
         while let Some(item) = state.work.pop() {
             match item {
                 super::AssertionWork::Left { op, right } => {
@@ -6836,7 +7085,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 super::AssertionWork::Expr(instruction) => {
                     let (tag, payload) = indexed_value(
-                        self.calls[index].execution.instruction_id(instruction),
+                        execution.instruction_id(instruction),
                         state.span,
                     )?;
                     if tag == FullTag::ExprBinary {
@@ -6846,7 +7095,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             right,
                             span: operand_span,
                         } = super::ExprView::decode(
-                            &self.calls[index].execution,
+                            &execution,
                             tag,
                             payload,
                         )
@@ -6881,7 +7130,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         }
                     } else if tag == FullTag::ExprComparisonChain {
                         let (first, pairs) = decode_comparison_chain(
-                            &self.calls[index].execution,
+                            &execution,
                             tag,
                             payload,
                             state.span,
@@ -6949,12 +7198,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.complete_call(index, StmtFlow::Propagate(value))
     }
 
-    fn eval_typed_scalar_expr(
+    fn eval_typed_scalar_expr<'e>(
         &mut self,
         index: usize,
         instruction: u32,
         tag: FullTag,
-        payload: FullPayload<'p>,
+        execution: &'e FullExecution<'_>,
+        payload: FullPayload<'e>,
         span: Span,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
@@ -6964,7 +7214,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         }
 
         let operation = {
-            let execution = &self.calls[index].execution;
             match tag {
                 FullTag::IntBinary | FullTag::IntStrByteAtSlot => match IntView::decode(
                     execution, tag, payload,
@@ -8686,6 +8935,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FrameContinuation::CallArguments {
                 function,
                 kind,
+                external,
                 args,
                 index: argument,
                 mut values,
@@ -8698,6 +8948,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         index,
                         function,
                         kind,
+                        external,
                         args,
                         argument + 1,
                         values,
@@ -9836,7 +10087,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
         self.evaluator.trace_lowered_utils_cache_call(span);
-        match self.step_utils_cache_after_trace(values, span, next) {
+        match self.step_utils_cache_after_trace(index, values, span, next) {
             Ok(Some((value, next))) => {
                 self.evaluator.trace_lowered_utils_cache_result(span);
                 self.push_value(index, FrameValue::Value(value), next);
@@ -9852,6 +10103,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
 
     fn step_utils_cache_after_trace(
         &mut self,
+        index: usize,
         values: super::super::NativeArgumentValues,
         span: Span,
         next: FrameContinuation,
@@ -9865,51 +10117,31 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             LoweredUtilsCacheLookup::Hit(value) => return Ok(Some((value, next))),
             LoweredUtilsCacheLookup::Miss(miss) => miss,
         };
-        let view = self
-            .program
-            .function_view(miss.function, miss.kind)
-            .map_err(|error| indexed_error(error, span))?;
-        let Some(view) = view else {
-            // The active execution borrows one program, so a callback owned by
-            // another prepared program must run with that program's owner.
-            let value = self
-                .evaluator
-                .call_lowered_utils_cache_miss(miss, span)?;
-            return Ok(Some((value, next)));
-        };
-        if !self.evaluator.indexed_frames_supported(view, span)? {
-            // Stream producers return suspended work rather than ordinary
-            // function frames, so the producer entrypoint retains its owner.
-            let value = self
-                .evaluator
-                .call_lowered_utils_cache_miss(miss, span)?;
-            return Ok(Some((value, next)));
-        }
-        let header = view
-            .header()
-            .map_err(|error| indexed_error(error, span))?;
-        super::super::validate_unsigned_runtime_args(&header, &miss.args, &[], span)?;
+        let resolved = self.resolve_active_call(index, miss.function, miss.kind, true, span)?;
         let display_name = miss.function.display_name();
-        let Some(slots) = self
-            .evaluator
-            .try_bind_lowered_runtime_args(&header, &miss.args, &[])
-        else {
-            return Err(RuntimeError::new(
-                "unresolved-call",
-                format!("utils.cache target {display_name} could not be lowered"),
-            )
-            .with_span(span));
-        };
-        self.push_call_with_slots(
-            miss.function,
-            miss.kind,
-            slots,
+        let call_values = miss
+            .args
+            .iter()
+            .map(|value| {
+                lowered_value_from_runtime_any(value).ok_or_else(|| {
+                    RuntimeError::new(
+                        "unresolved-call",
+                        format!("utils.cache target {display_name} could not be lowered"),
+                    )
+                    .with_span(span)
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        self.push_resolved_target(
+            index,
+            resolved,
+            call_values,
             span,
-            Some(FrameContinuation::UtilsCacheResult {
+            FrameContinuation::UtilsCacheResult {
                 key: miss.key,
                 span,
                 next: Box::new(next),
-            }),
+            },
         )?;
         Ok(None)
     }
@@ -10515,7 +10747,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let is_function = matches!(call.owner, FrameOwner::Function(..));
         let mut returns_result = false;
         if let FrameOwner::Function(function, kind) = call.owner
-            && let Ok(header) = self.function_header(function, kind, call.call_span)
+            && let Ok(header) = Self::function_header(
+                call.execution.program(),
+                function,
+                kind,
+                call.call_span,
+            )
         {
             returns_result = matches!(header.return_kind, LoweredReturnKind::Result(_));
             let _ =
@@ -10616,7 +10853,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         // The frame's own vectors are done with; the returned value has already
         // been taken out of `slots`.
         self.evaluator.frame_scratch.recycle(&mut call);
-        let header = self.function_header(function, kind, call.call_span)?;
+        let header = Self::function_header(
+            call.execution.program(),
+            function,
+            kind,
+            call.call_span,
+        )?;
         // Producer failures leave the stream boundary as runtime errors. Keep
         // the original propagation location when converting the Result value.
         let return_span = if call.producer {
@@ -10723,12 +10965,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     }
 
     fn function_header(
-        &self,
+        program: &FullProgram,
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
         span: Span,
     ) -> Result<Arc<FunctionHeader>, RuntimeError> {
-        self.program
+        program
             .function_view(function, kind)
             .map_err(|error| indexed_error(error, span))?
             .ok_or_else(|| {
@@ -11481,18 +11723,18 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
 
     fn function_kind(
         &self,
+        index: usize,
         function: LoweredFunctionKey,
         span: Span,
     ) -> Result<LoweredFunctionKind, RuntimeError> {
-        if self
-            .program
+        let program = self.calls[index].execution.program();
+        if program
             .function_view(function, LoweredFunctionKind::Pure)
             .map_err(|error| indexed_error(error, span))?
             .is_some()
         {
             Ok(LoweredFunctionKind::Pure)
-        } else if self
-            .program
+        } else if program
             .function_view(function, LoweredFunctionKind::Proc)
             .map_err(|error| indexed_error(error, span))?
             .is_some()
@@ -11504,6 +11746,33 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     .with_span(span),
             )
         }
+    }
+
+    fn external_kind(
+        &self,
+        index: usize,
+        qualified: crate::symbol::QualifiedName,
+        span: Span,
+    ) -> Result<LoweredFunctionKind, RuntimeError> {
+        let function = LoweredFunctionKey::Qualified(qualified);
+        let program = self.calls[index].execution.program();
+        for kind in [LoweredFunctionKind::Pure, LoweredFunctionKind::Proc] {
+            if program
+                .function_view(function, kind)
+                .map_err(|error| indexed_error(error, span))?
+                .is_some()
+            {
+                return Ok(kind);
+            }
+        }
+        self.evaluator
+            .indexed_dynamic_functions
+            .get(&qualified)
+            .map(|dynamic| dynamic.kind)
+            .ok_or_else(|| {
+                RuntimeError::new("unresolved-lowered-call", qualified.to_string())
+                    .with_span(span)
+            })
     }
 
     fn advance_assign_path(
@@ -12976,9 +13245,9 @@ fn update_context_traceback(evaluator: &mut Evaluator, value: &LoweredValue) {
     }
 }
 
-pub(super) fn decode_call_args_into<'a>(
-    execution: &FullExecution<'a>,
-    payload: &mut FullPayload<'a>,
+pub(super) fn decode_call_args_into<'e>(
+    execution: &'e FullExecution<'_>,
+    payload: &mut FullPayload<'e>,
     span: Span,
     values: &mut Vec<(u32, u32)>,
 ) -> Result<(), RuntimeError> {

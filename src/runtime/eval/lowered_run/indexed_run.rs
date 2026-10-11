@@ -5,7 +5,7 @@ use super::{
     LoweredModuleExportKind, LoweredProjectedReduceState, LoweredReduceProjection,
     LoweredReturnKind, LoweredScalarCursor, LoweredStrPredicate,
     LoweredTagValue, LoweredType, LoweredValue, Name, PathValue, ProcessEnd, ProcessInvocation,
-    ProcessRedirection, ProcessStatus, QualifiedName, RecordMap, RedirectionKind,
+    ProcessRedirection, ProcessStatus, RecordMap, RedirectionKind,
     RedirectionStream, ReduceByOp, RunError, RunKind, RuntimeError, RuntimeOp,
     Span, SpawnOptions, StmtFlow, StreamValue, TraceArg, TraceError, TraceKind,
     TracePayload, Traceback, TracebackFrame, TracebackFrameKind, Type, Value,
@@ -79,9 +79,7 @@ use assignments::{
     apply_indexed_assignment, checked_indexed_assignment, indexed_assignment_operand,
     resolve_assign_index, apply_indexed_path_assignment,
 };
-use calls::{
-    append_call_argument, indexed_typed_callee_kind, indexed_callable_identity,
-};
+use calls::{append_call_argument, indexed_callable_identity, indexed_typed_callee_kind};
 use operands::{
     indexed_error, indexed_value, indexed_decode, indexed_raw, indexed_string, indexed_finish,
     indexed_optional_raw, decode_record_updates, decode_comparison_chain,
@@ -207,37 +205,6 @@ struct ParMapItemOutcome {
     interrupted: bool,
 }
 
-/// What a call's arguments are evaluated for: a function the call names, or a
-/// callable value.
-enum IndexedCallee {
-    Named(LoweredFunctionKey),
-    Value(LoweredValue),
-}
-
-impl IndexedCallee {
-    /// The prepared default for an argument the call omits.
-    fn argument_default(
-        &self,
-        evaluator: &Evaluator,
-        slot: usize,
-        span: Span,
-    ) -> Result<LoweredValue, RuntimeError> {
-        match self {
-            Self::Named(function) => evaluator
-                .indexed_argument_default_for(*function, LoweredFunctionKind::Pure, slot, span)
-                .or_else(|_| {
-                    evaluator.indexed_argument_default_for(
-                        *function,
-                        LoweredFunctionKind::Proc,
-                        slot,
-                        span,
-                    )
-                }),
-            Self::Value(callee) => evaluator.indexed_argument_default(callee, slot, span),
-        }
-    }
-}
-
 fn append_indexed_record_entry(
     entry: RecordEntryView<'_>,
     fields: &mut Vec<(Name, LoweredValue)>,
@@ -263,11 +230,7 @@ fn append_indexed_record_entry(
                 lowered_record_vec_append_or_replace_unsorted(fields, *key, value.clone());
             }
         }
-        LoweredValue::Stats {
-            blanks,
-            code,
-            comments,
-        } => {
+        LoweredValue::Stats { blanks, code, comments } => {
             for (key, value) in lowered_inline_stats_to_record_vec(blanks, code, comments) {
                 lowered_record_vec_append_or_replace_unsorted(fields, key, value);
             }
@@ -340,10 +303,10 @@ enum ContextScopeRestore {
     },
 }
 
-fn indexed_eager_atom_value<'a>(
-    execution: &FullExecution<'a>,
+fn indexed_eager_atom_value<'e>(
+    execution: &'e FullExecution<'_>,
     tag: FullTag,
-    payload: FullPayload<'a>,
+    payload: FullPayload<'e>,
     slots: &mut [LoweredValue],
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
@@ -1352,6 +1315,12 @@ impl Evaluator {
                         | FullTag::ExprWait
                         | FullTag::ExprLoop
                         | FullTag::ExprRetry
+                        | FullTag::ExprCall
+                        | FullTag::ExprDirectPureCall
+                        | FullTag::ExprSelfCall
+                        | FullTag::ExprExternalCall
+                        | FullTag::ExprDynamicCall
+                        | FullTag::ExprTypedCall
                 )
             })
             .map_err(|error| indexed_error(error, call_span))?;
@@ -1955,103 +1924,6 @@ impl Evaluator {
                         }
                     },
                 };
-            }
-            // Operands evaluate here, in order; the callee runs on the frames.
-            FullTag::ExprCall
-            | FullTag::ExprSelfCall
-            | FullTag::ExprDirectPureCall
-            | FullTag::ExprExternalCall
-            | FullTag::ExprDynamicCall
-            | FullTag::ExprTypedCall => {
-                let named = match tag {
-                    FullTag::ExprCall | FullTag::ExprDirectPureCall => {
-                        Some(indexed_decode::<LoweredFunctionKey>(
-                            &mut payload,
-                            execution,
-                            call_span,
-                        )?)
-                    }
-                    FullTag::ExprExternalCall => {
-                        Some(LoweredFunctionKey::Qualified(indexed_decode::<
-                            QualifiedName,
-                        >(
-                            &mut payload,
-                            execution,
-                            call_span,
-                        )?))
-                    }
-                    FullTag::ExprSelfCall => Some(
-                        execution
-                            .function_identity()
-                            .map_err(|error| indexed_error(error, call_span))?
-                            .0,
-                    ),
-                    _ => None,
-                };
-                let dynamic = named
-                    .is_none()
-                    .then(|| indexed_raw(&mut payload, call_span))
-                    .transpose()?;
-                let typed_pure = if tag == FullTag::ExprTypedCall {
-                    let pure = indexed_decode::<bool>(&mut payload, execution, call_span)?;
-                    // The signature is for the verifier; execution binds the
-                    // verified arguments by position.
-                    indexed_raw(&mut payload, call_span)?;
-                    Some(pure)
-                } else {
-                    None
-                };
-                let mut args = self.frame_scratch.take_call_args();
-                explicit_run::decode_call_args_into(execution, &mut payload, call_span, &mut args)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let callee = match (named, dynamic) {
-                    (Some(function), _) => IndexedCallee::Named(function),
-                    (None, Some(instruction)) => {
-                        match self.eval_indexed_expr(execution, instruction, slots, span)? {
-                            ControlFlow::Continue(value) => {
-                                if let Some(pure) = typed_pure {
-                                    indexed_typed_callee_kind(&value, pure, span)?;
-                                }
-                                IndexedCallee::Value(value)
-                            }
-                            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                        }
-                    }
-                    (None, None) => unreachable!("a dynamic call decodes its callee"),
-                };
-                let mut values = Vec::with_capacity(args.len());
-                for &(kind, arg) in &args {
-                    if kind == 2 {
-                        values.push(callee.argument_default(self, arg as usize, span)?);
-                        continue;
-                    }
-                    match self.eval_indexed_expr(execution, arg, slots, span)? {
-                        ControlFlow::Continue(value) => {
-                            append_call_argument(&mut values, kind, value, span)?
-                        }
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    }
-                }
-                self.frame_scratch.recycle_call_args(args);
-                let function = match callee {
-                    IndexedCallee::Value(value) => indexed_callable_identity(&value, span)?.0,
-                    IndexedCallee::Named(function) => function,
-                };
-                return match function {
-                    LoweredFunctionKey::Qualified(qualified)
-                        if matches!(
-                            tag,
-                            FullTag::ExprExternalCall
-                                | FullTag::ExprDynamicCall
-                                | FullTag::ExprTypedCall
-                        ) =>
-                    {
-                        self.eval_indexed_external_call(qualified, &values, span)
-                    }
-                    function => self.eval_indexed_named_call(function, &values, span),
-                }
-                .map(ControlFlow::Continue);
             }
             _ => {
                 return Err(RuntimeError::new(

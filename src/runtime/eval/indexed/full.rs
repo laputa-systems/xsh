@@ -1146,7 +1146,8 @@ impl<'a> FullFunctionView<'a> {
 
     fn decode_header(&self) -> Result<FunctionHeader, IrVerifyError> {
         let function = self.program.store.functions[self.index];
-        let decoder = self.execution()?.decoder;
+        let execution = self.execution()?;
+        let decoder = execution.decoder();
         let params = function
             .params
             .bounds(self.program.store.params.len())
@@ -1245,28 +1246,13 @@ impl<'a> FullFunctionView<'a> {
     }
 
     pub(in crate::runtime::eval) fn execution(&self) -> Result<FullExecution<'a>, IrVerifyError> {
-        let function = self.program.store.functions[self.index];
-        Ok(FullExecution {
-            decoder: FullDecoder {
-                store: &self.program.store,
-                owner: IrFunctionId::new(self.index)
-                    .map_err(|_| IrVerifyError::new("function id is invalid"))?
-                    .raw(),
-                instruction_range: self.program.store.function_instruction_range(self.index)?,
-                instruction_states: None,
-                instruction_proof: None,
-                block_states: None,
-                slot_count: function.slot_count,
-                pattern_ceiling: Cell::new(usize::MAX),
-                verified: true,
-            },
-        })
+        FullExecution::for_function(ProgramOwner::Borrowed(self.program), self.index)
     }
 
-    pub(in crate::runtime::eval) fn body(
+    pub(in crate::runtime::eval) fn body<'e>(
         &self,
-        execution: &FullExecution<'a>,
-    ) -> Result<(IrBlockId, FullPayload<'a>), IrVerifyError> {
+        execution: &'e FullExecution<'_>,
+    ) -> Result<(IrBlockId, FullPayload<'e>), IrVerifyError> {
         execution.block_id(
             self.program.store.functions[self.index].body,
             BLOCK_STATEMENTS,
@@ -1290,32 +1276,27 @@ impl<'a> FullDriverStepView<'a> {
     pub(in crate::runtime::eval) fn source_span(&self) -> Result<Span, IrVerifyError> {
         let step = self.program.store.driver_steps[self.index];
         let execution = self.execution()?;
+        let decoder = execution.decoder();
         let words = [step.location];
         let mut cursor = FullCursor::new(&words);
-        let span = Span::decode(&execution.decoder, &mut cursor)?;
+        let span = Span::decode(&decoder, &mut cursor)?;
         cursor.finish()?;
         Ok(span)
     }
 
     pub(in crate::runtime::eval) fn execution(&self) -> Result<FullExecution<'a>, IrVerifyError> {
         let step = self.program.store.driver_steps[self.index];
-        Ok(FullExecution {
-            decoder: FullDecoder {
-                store: &self.program.store,
-                owner: driver_owner(self.index)
-                    .map_err(|_| IrVerifyError::new("driver owner is invalid"))?,
-                instruction_range: self.program.store.driver_instruction_range(self.index)?,
-                instruction_states: None,
-                instruction_proof: None,
-                block_states: None,
-                slot_count: step.slot_count,
-                pattern_ceiling: Cell::new(usize::MAX),
-                verified: true,
-            },
-        })
+        Ok(FullExecution::new(
+            ProgramOwner::Borrowed(self.program),
+            driver_owner(self.index)
+                .map_err(|_| IrVerifyError::new("driver owner is invalid"))?,
+            self.program.store.driver_instruction_range(self.index)?,
+            step.slot_count,
+            true,
+        ))
     }
 
-    pub(in crate::runtime::eval) fn payload(&self) -> Result<FullPayload<'a>, IrVerifyError> {
+    pub(in crate::runtime::eval) fn payload(&self) -> Result<FullPayload<'_>, IrVerifyError> {
         let step = self.program.store.driver_steps[self.index];
         Ok(FullPayload {
             store: &self.program.store,
@@ -1323,11 +1304,11 @@ impl<'a> FullDriverStepView<'a> {
         })
     }
 
-    pub(in crate::runtime::eval) fn decode_payload(
+    pub(in crate::runtime::eval) fn decode_payload<'e>(
         &self,
-        execution: &FullExecution<'a>,
-        payload: FullPayload<'a>,
-    ) -> Result<schema::DriverPayloadView<'a>, IrVerifyError> {
+        execution: &'e FullExecution<'_>,
+        payload: FullPayload<'e>,
+    ) -> Result<schema::DriverPayloadView<'e>, IrVerifyError> {
         schema::DriverPayloadView::decode(execution, self.tag(), payload)
     }
 
@@ -2820,8 +2801,8 @@ pub(in crate::runtime::eval) struct FullPayload<'a> {
 
 impl<'a> FullPayload<'a> {
     #[inline(always)]
-    fn check_store(&self, execution: &FullExecution<'a>) -> Result<(), IrVerifyError> {
-        if std::ptr::eq(self.store, execution.decoder.store) {
+    fn check_store(&self, execution: &FullExecution<'_>) -> Result<(), IrVerifyError> {
+        if std::ptr::eq(self.store, execution.store()) {
             Ok(())
         } else {
             Err(IrVerifyError::new("full IR payload belongs to another program"))
@@ -2836,19 +2817,30 @@ impl<'a> FullPayload<'a> {
     #[inline(always)]
     pub(in crate::runtime::eval) fn decode<T: FullCodec>(
         &mut self,
-        execution: &FullExecution<'a>,
+        execution: &FullExecution<'_>,
     ) -> Result<T, IrVerifyError> {
         self.check_store(execution)?;
-        T::decode(&execution.decoder, &mut self.cursor)
+        let decoder = execution.decoder();
+        T::decode(&decoder, &mut self.cursor)
     }
 
     #[inline(always)]
-    pub(in crate::runtime::eval) fn borrow<T: BorrowCodec>(
-        &mut self,
-        execution: &FullExecution<'a>,
-    ) -> Result<T::View<'a>, IrVerifyError> {
+    pub(in crate::runtime::eval) fn borrow<'e, T: BorrowCodec>(
+        &'e mut self,
+        execution: &'e FullExecution<'_>,
+    ) -> Result<T::View<'e>, IrVerifyError>
+    where
+        'a: 'e,
+    {
         self.check_store(execution)?;
-        T::borrow(DecodeContext::new(execution), &mut self.cursor)
+        let mut cursor = FullCursor {
+            words: self.cursor.words,
+            index: self.cursor.index,
+            verified: self.cursor.verified,
+        };
+        let view = T::borrow(DecodeContext::new(execution), &mut cursor)?;
+        self.cursor.index = cursor.index;
+        Ok(view)
     }
 
     #[inline(always)]
@@ -2857,33 +2849,150 @@ impl<'a> FullPayload<'a> {
     }
 }
 
-pub(in crate::runtime::eval) struct FullExecution<'a> {
-    decoder: FullDecoder<'a>,
+/// Lets schema tests decode a scratch store without exposing `FullStore` to
+/// runtime modules through the executable ownership enum.
+#[cfg(test)]
+#[derive(Clone, Copy)]
+pub(in crate::runtime::eval) struct TestStoreOwner<'p>(&'p FullStore);
+
+#[derive(Clone)]
+pub(in crate::runtime::eval) enum ProgramOwner<'p> {
+    Borrowed(&'p FullProgram),
+    Shared(Arc<FullProgram>),
+    #[cfg(test)]
+    TestStore(TestStoreOwner<'p>),
 }
 
-impl<'a> FullExecution<'a> {
-    pub(in crate::runtime::eval) fn thread_local(&self) -> Self {
-        Self {
-            decoder: FullDecoder {
-                store: self.decoder.store,
-                owner: self.decoder.owner,
-                instruction_range: self.decoder.instruction_range.clone(),
-                instruction_states: None,
-                instruction_proof: None,
-                block_states: None,
-                slot_count: self.decoder.slot_count,
-                pattern_ceiling: Cell::new(usize::MAX),
-                verified: self.decoder.verified,
-            },
+impl ProgramOwner<'_> {
+    pub(in crate::runtime::eval) fn program(&self) -> &FullProgram {
+        match self {
+            Self::Borrowed(program) => program,
+            Self::Shared(program) => program,
+            #[cfg(test)]
+            Self::TestStore(_) => unreachable!("test store has no executable program"),
         }
+    }
+
+    /// Returns the retained Arc needed by a suspended stream call. A borrowed
+    /// root is dispatchable only while its evaluator still owns that exact program.
+    pub(in crate::runtime::eval) fn dispatch_arc(
+        &self,
+        root: Option<&Arc<FullProgram>>,
+    ) -> Option<Arc<FullProgram>> {
+        match self {
+            Self::Borrowed(program) => root
+                .filter(|active| std::ptr::eq(active.as_ref(), *program))
+                .cloned(),
+            Self::Shared(program) => Some(Arc::clone(program)),
+            #[cfg(test)]
+            Self::TestStore(_) => None,
+        }
+    }
+
+    fn store(&self) -> &FullStore {
+        match self {
+            Self::Borrowed(program) => &program.store,
+            Self::Shared(program) => &program.store,
+            #[cfg(test)]
+            Self::TestStore(owner) => owner.0,
+        }
+    }
+}
+
+/// A frame keeps executable ownership and the verified range it may read.
+/// Decoders borrow the owner only while a payload or view is being read.
+#[derive(Clone)]
+pub(in crate::runtime::eval) struct FullExecution<'p> {
+    program: ProgramOwner<'p>,
+    owner: u32,
+    instruction_range: std::ops::Range<usize>,
+    slot_count: u32,
+    verified: bool,
+}
+
+impl<'p> FullExecution<'p> {
+    fn new(
+        program: ProgramOwner<'p>,
+        owner: u32,
+        instruction_range: std::ops::Range<usize>,
+        slot_count: u32,
+        verified: bool,
+    ) -> Self {
+        Self {
+            program,
+            owner,
+            instruction_range,
+            slot_count,
+            verified,
+        }
+    }
+
+    pub(in crate::runtime::eval) fn for_function(
+        program: ProgramOwner<'p>,
+        index: usize,
+    ) -> Result<Self, IrVerifyError> {
+        let full_program = program.program();
+        let function = full_program
+            .store
+            .functions
+            .get(index)
+            .ok_or_else(|| IrVerifyError::new("function id is out of bounds"))?;
+        let owner = IrFunctionId::new(index)
+            .map_err(|_| IrVerifyError::new("function id is invalid"))?
+            .raw();
+        let instruction_range = full_program.store.function_instruction_range(index)?;
+        let slot_count = function.slot_count;
+        Ok(Self::new(
+            program,
+            owner,
+            instruction_range,
+            slot_count,
+            true,
+        ))
+    }
+
+    pub(in crate::runtime::eval) fn shared_function(
+        program: Arc<FullProgram>,
+        index: usize,
+    ) -> Result<FullExecution<'static>, IrVerifyError> {
+        FullExecution::<'static>::for_function(ProgramOwner::Shared(program), index)
+    }
+
+    pub(in crate::runtime::eval) fn program(&self) -> &FullProgram {
+        self.program.program()
+    }
+
+    fn store(&self) -> &FullStore {
+        self.program.store()
+    }
+
+    pub(in crate::runtime::eval) fn program_owner(&self) -> ProgramOwner<'p> {
+        self.program.clone()
+    }
+
+    fn decoder(&self) -> FullDecoder<'_> {
+        FullDecoder {
+            store: self.store(),
+            owner: self.owner,
+            instruction_range: self.instruction_range.clone(),
+            instruction_states: None,
+            instruction_proof: None,
+            block_states: None,
+            slot_count: self.slot_count,
+            pattern_ceiling: Cell::new(usize::MAX),
+            verified: self.verified,
+        }
+    }
+
+    pub(in crate::runtime::eval) fn thread_local(&self) -> Self {
+        self.clone()
     }
 
     /// The evaluator calls this for instruction IDs from an already verified
     /// owner range, after verification has installed the derived mark table.
     pub(in crate::runtime::eval) fn is_in_place(&self, instruction: u32) -> bool {
         *self
-            .decoder
-            .store
+            .store()
             .in_place
             .get()
             .expect("verified full IR has an in-place mark table")
@@ -2894,41 +3003,38 @@ impl<'a> FullExecution<'a> {
     #[inline(always)]
     pub(in crate::runtime::eval) fn transfers_resource(&self, instruction: u32) -> bool {
         *self
-            .decoder
-            .store
+            .store()
             .resource_transfers
             .get(instruction as usize)
             .expect("verified resource-transfer instruction ID is in bounds")
     }
 
     pub(in crate::runtime::eval) fn string(&self, raw: u32) -> Result<&str, IrVerifyError> {
-        self.decoder.store.string(raw)
+        self.store().string(raw)
     }
 
     pub(in crate::runtime::eval) fn function_identity(
         &self,
     ) -> Result<(LoweredFunctionKey, LoweredFunctionKind), IrVerifyError> {
-        let id = IrFunctionId::from_raw(self.decoder.owner)
+        let id = IrFunctionId::from_raw(self.owner)
             .ok_or_else(|| IrVerifyError::new("indexed execution owner is not a function"))?;
         let function = self
-            .decoder
-            .store
+            .store()
             .functions
             .get(id.index())
             .ok_or_else(|| IrVerifyError::new("function id is out of bounds"))?;
         let metadata = self
-            .decoder
-            .store
+            .store()
             .function_metadata
             .get(id.index())
             .copied()
             .ok_or_else(|| IrVerifyError::new("function metadata is missing"))?;
-        let name = Name::intern(self.decoder.store.string(function.name)?);
+        let name = Name::intern(self.store().string(function.name)?);
         let key = if metadata.owner == IR_NONE {
             LoweredFunctionKey::Name(name)
         } else {
             LoweredFunctionKey::Qualified(QualifiedName::new(
-                Name::intern(self.decoder.store.string(metadata.owner)?),
+                Name::intern(self.store().string(metadata.owner)?),
                 name,
             ))
         };
@@ -2944,41 +3050,40 @@ impl<'a> FullExecution<'a> {
     pub(in crate::runtime::eval) fn instruction_id(
         &self,
         raw: u32,
-    ) -> Result<(FullTag, FullPayload<'a>), IrVerifyError> {
-        if self.decoder.verified {
+    ) -> Result<(FullTag, FullPayload<'_>), IrVerifyError> {
+        let decoder = self.decoder();
+        if decoder.verified {
             let index = raw as usize;
-            let tag = unsafe { *self.decoder.store.tags.get_unchecked(index) };
-            let data = unsafe { *self.decoder.store.data.get_unchecked(index) };
-            let words = unsafe { self.decoder.store.payload_unchecked(data.range()) };
+            let tag = unsafe { *decoder.store.tags.get_unchecked(index) };
+            let data = unsafe { *decoder.store.data.get_unchecked(index) };
+            let words = unsafe { decoder.store.payload_unchecked(data.range()) };
             return Ok((
                 tag,
                 FullPayload {
-                    store: self.decoder.store,
+                    store: decoder.store,
                     cursor: FullCursor::verified(words),
                 },
             ));
         }
         let index = raw as usize;
-        if !self.decoder.instruction_range.contains(&index) {
+        if !decoder.instruction_range.contains(&index) {
             return Err(IrVerifyError::new(
                 "full IR instruction belongs to another function",
             ));
         }
-        let tag = self
-            .decoder
+        let tag = decoder
             .store
             .tags
             .get(index)
             .copied()
             .ok_or_else(|| IrVerifyError::new("full IR instruction is out of bounds"))?;
-        let data = self.decoder.store.data[index];
+        let data = decoder.store.data[index];
         Ok((
             tag,
             FullPayload {
-                store: self.decoder.store,
-                cursor: self
-                    .decoder
-                    .cursor(self.decoder.store.payload(data.range())?),
+                store: decoder.store,
+                cursor: decoder
+                    .cursor(decoder.store.payload(data.range())?),
             },
         ))
     }
@@ -2986,58 +3091,58 @@ impl<'a> FullExecution<'a> {
     pub(in crate::runtime::eval) fn pattern(
         &self,
         raw: u32,
-    ) -> Result<(FullPatternTag, FullPayload<'a>), IrVerifyError> {
+    ) -> Result<(FullPatternTag, FullPayload<'_>), IrVerifyError> {
+        let decoder = self.decoder();
         let index = raw as usize;
-        if self.decoder.verified {
-            let tag = unsafe { *self.decoder.store.patterns.get_unchecked(index) };
-            let data = unsafe { *self.decoder.store.pattern_data.get_unchecked(index) };
+        if decoder.verified {
+            let tag = unsafe { *decoder.store.patterns.get_unchecked(index) };
+            let data = unsafe { *decoder.store.pattern_data.get_unchecked(index) };
             return Ok((
                 tag,
                 FullPayload {
-                    store: self.decoder.store,
-                    cursor: self
-                        .decoder
-                        .cursor(unsafe { self.decoder.store.payload_unchecked(data.range()) }),
+                    store: decoder.store,
+                    cursor: decoder.cursor(unsafe {
+                        decoder.store.payload_unchecked(data.range())
+                    }),
                 },
             ));
         }
-        let tag = self
-            .decoder
+        let tag = decoder
             .store
             .patterns
             .get(index)
             .copied()
             .ok_or_else(|| IrVerifyError::new("pattern id is out of bounds"))?;
-        let data = self.decoder.store.pattern_data[index];
+        let data = decoder.store.pattern_data[index];
         Ok((
             tag,
             FullPayload {
-                store: self.decoder.store,
-                cursor: self
-                    .decoder
-                    .cursor(self.decoder.store.payload(data.range())?),
+                store: decoder.store,
+                cursor: decoder
+                    .cursor(decoder.store.payload(data.range())?),
             },
         ))
     }
 
-    pub(in crate::runtime::eval) fn pattern_view(
-        &self,
-        pattern: PatternId<'a>,
-    ) -> Result<schema::PatternView<'a>, IrVerifyError> {
-        let raw = pattern.raw_for_store(self.decoder.store)?;
+    pub(in crate::runtime::eval) fn pattern_view<'e>(
+        &'e self,
+        pattern: PatternId<'e>,
+    ) -> Result<schema::PatternView<'e>, IrVerifyError> {
+        let raw = pattern.raw_for_store(self.store())?;
         let (tag, payload) = self.pattern(raw)?;
         schema::PatternView::decode(self, tag, payload)
     }
 
     #[inline(always)]
-    pub(in crate::runtime::eval) fn block(
-        &self,
-        input: &mut FullPayload<'a>,
+    pub(in crate::runtime::eval) fn block<'e>(
+        &'e self,
+        input: &mut FullPayload<'e>,
         expected_flags: u8,
-    ) -> Result<(IrBlockId, FullPayload<'a>), IrVerifyError> {
+    ) -> Result<(IrBlockId, FullPayload<'e>), IrVerifyError> {
         input.check_store(self)?;
-        let (id, block) = self.decoder.block(&mut input.cursor, expected_flags)?;
-        Ok((id, FullPayload { store: self.decoder.store, cursor: block }))
+        let decoder = self.decoder();
+        let (id, block) = decoder.block(&mut input.cursor, expected_flags)?;
+        Ok((id, FullPayload { store: decoder.store, cursor: block }))
     }
 
     #[inline(always)]
@@ -3045,13 +3150,14 @@ impl<'a> FullExecution<'a> {
         &self,
         raw: u32,
         expected_flags: u8,
-    ) -> Result<(IrBlockId, FullPayload<'a>), IrVerifyError> {
+    ) -> Result<(IrBlockId, FullPayload<'_>), IrVerifyError> {
+        let decoder = self.decoder();
         let id = IrBlockId::from_raw(raw)
             .ok_or_else(|| IrVerifyError::new("full IR block id is invalid"))?;
-        if self.decoder.verified {
-            let block = unsafe { *self.decoder.store.blocks.get_unchecked(id.index()) };
+        if decoder.verified {
+            let block = unsafe { *decoder.store.blocks.get_unchecked(id.index()) };
             debug_assert!(
-                block.owner == IR_NONE || block.owner == self.decoder.owner,
+                block.owner == IR_NONE || block.owner == decoder.owner,
                 "verified block owner changed"
             );
             debug_assert_eq!(
@@ -3063,21 +3169,20 @@ impl<'a> FullExecution<'a> {
             return Ok((
                 id,
                 FullPayload {
-                    store: self.decoder.store,
-                    cursor: self.decoder.cursor(unsafe {
-                        self.decoder.store.payload_unchecked(block.instructions)
+                    store: decoder.store,
+                    cursor: decoder.cursor(unsafe {
+                        decoder.store.payload_unchecked(block.instructions)
                     }),
                 },
             ));
         }
-        let block = self
-            .decoder
+        let block = decoder
             .store
             .blocks
             .get(id.index())
             .copied()
             .ok_or_else(|| IrVerifyError::new("full IR block id is out of bounds"))?;
-        if block.owner != IR_NONE && block.owner != self.decoder.owner {
+        if block.owner != IR_NONE && block.owner != decoder.owner {
             return Err(IrVerifyError::new(
                 "full IR block belongs to another executable owner",
             ));
@@ -3093,22 +3198,19 @@ impl<'a> FullExecution<'a> {
         Ok((
             id,
             FullPayload {
-                store: self.decoder.store,
-                cursor: self
-                    .decoder
-                    .cursor(self.decoder.store.payload(block.instructions)?),
+                store: decoder.store,
+                cursor: decoder.cursor(decoder.store.payload(block.instructions)?),
             },
         ))
     }
 
-    pub(in crate::runtime::eval) fn stage_view(
-        &self,
+    pub(in crate::runtime::eval) fn stage_view<'e>(
+        &'e self,
         raw: u32,
-    ) -> Result<StageView<'a>, IrVerifyError> {
+    ) -> Result<StageView<'e>, IrVerifyError> {
         StageView::decode(DecodeContext::new(self), raw)
     }
 }
-
 impl<'a> FullCursor<'a> {
     #[inline(always)]
     fn new(words: &'a [u32]) -> Self {
@@ -6403,7 +6505,13 @@ fn assert_statement_instruction_matches(
     let tag = expectations.store.tags[index];
     let data = expectations.store.data[index];
     let mut payload = FullCursor::new(expectations.store.payload(data.range()).unwrap());
-    let execution = FullExecution { decoder: stage_view_decoder(expectations.store) };
+    let execution = FullExecution::new(
+        ProgramOwner::TestStore(TestStoreOwner(expectations.store)),
+        0,
+        0..expectations.store.tags.len(),
+        1,
+        false,
+    );
     let context = DecodeContext::new(&execution);
     match row {
         BuildStmtRow::Value { value } => {
@@ -7259,19 +7367,21 @@ run true
     }
 
     fn schema_execution_with_slots(store: &FullStore, slot_count: u32) -> FullExecution<'_> {
-        FullExecution {
-            decoder: FullDecoder {
-                store,
-                owner: 0,
-                instruction_range: 0..store.tags.len(),
-                instruction_states: None,
-                instruction_proof: None,
-                block_states: None,
-                slot_count,
-                pattern_ceiling: Cell::new(usize::MAX),
-                verified: false,
-            },
-        }
+        schema_execution_with_owner(store, 0, slot_count)
+    }
+
+    fn schema_execution_with_owner(
+        store: &FullStore,
+        owner: u32,
+        slot_count: u32,
+    ) -> FullExecution<'_> {
+        FullExecution::new(
+            ProgramOwner::TestStore(TestStoreOwner(store)),
+            owner,
+            0..store.tags.len(),
+            slot_count,
+            false,
+        )
     }
 
     fn stage_view_fixture() -> (
@@ -7540,25 +7650,79 @@ run true
                 .expect("main statements borrow");
             let position = statements.position();
 
-            let foreign_store = Arc::new(program.store.clone());
-            let foreign_execution = FullExecution {
-                decoder: FullDecoder {
-                    store: &foreign_store,
-                    owner: execution.decoder.owner,
-                    instruction_range: execution.decoder.instruction_range.clone(),
-                    instruction_states: None,
-                    instruction_proof: None,
-                    block_states: None,
-                    slot_count: execution.decoder.slot_count,
-                    pattern_ceiling: Cell::new(usize::MAX),
-                    verified: false,
-                },
-            };
+            let foreign_store = program.store.clone();
+            let foreign_execution =
+                schema_execution_with_owner(&foreign_store, execution.owner, execution.slot_count);
             let mut foreign_statements = foreign_execution
                 .statement_block_view_id(body)
                 .expect("cloned store has the same block layout");
             assert!(foreign_statements.resume(position).is_err());
         });
+    }
+
+    #[test]
+    fn owned_execution_keeps_list_position_store_identity() {
+        let source = "proc main() { print \"first\" \"second\" }\n";
+        let program = Arc::new(fixture("owned-list-position.xsh", source));
+        let other_program = Arc::new(fixture("other-owned-list-position.xsh", source));
+        let key = LoweredFunctionKey::Name(program_name(&program, "main"));
+        let function_index = program
+            .function_view(key, LoweredFunctionKind::Proc)
+            .unwrap()
+            .unwrap()
+            .index();
+        let statement = function_instruction_indices(&program, "main", FullTag::StmtPrint)[0];
+
+        let execution = FullExecution::shared_function(Arc::clone(&program), function_index)
+            .expect("shared execution resolves its function recipe");
+        let (tag, payload) = execution
+            .instruction_id(statement as u32)
+            .expect("print instruction exists");
+        let schema::StmtView::Print { mut args, .. } =
+            schema::StmtView::decode(&execution, tag, payload).expect("print row decodes")
+        else {
+            panic!("print tag decodes to a print row");
+        };
+        args.next().unwrap().unwrap();
+        let position = args.position();
+
+        let same_program_execution =
+            FullExecution::shared_function(Arc::clone(&program), function_index)
+                .expect("another execution pins the same program allocation");
+        let (tag, payload) = same_program_execution
+            .instruction_id(statement as u32)
+            .expect("print instruction exists in the same program");
+        let schema::StmtView::Print { mut args, .. } =
+            schema::StmtView::decode(&same_program_execution, tag, payload)
+                .expect("same-program print row decodes")
+        else {
+            panic!("print tag decodes to a print row");
+        };
+        args.resume(position)
+            .expect("a suspended list position resumes against the same store");
+        assert!(args.next().unwrap().is_ok());
+
+        let other_index = other_program
+            .function_view(
+                LoweredFunctionKey::Name(program_name(&other_program, "main")),
+                LoweredFunctionKind::Proc,
+            )
+            .unwrap()
+            .unwrap()
+            .index();
+        let other_execution =
+            FullExecution::shared_function(Arc::clone(&other_program), other_index)
+                .expect("other program resolves its function recipe");
+        let (tag, payload) = other_execution
+            .instruction_id(statement as u32)
+            .expect("matching instruction index exists in other program");
+        let schema::StmtView::Print { mut args, .. } =
+            schema::StmtView::decode(&other_execution, tag, payload)
+                .expect("other-program print row decodes")
+        else {
+            panic!("print tag decodes to a print row");
+        };
+        assert!(args.resume(position).is_err());
     }
 
     #[test]
@@ -7577,10 +7741,11 @@ proc main() [env, error] -> Result[Unit] {
         let range = program.store.blocks[env_block.index()].instructions;
         let second_name = program.symbol_owner().with_current(|| {
             let mut execution = schema_execution(&program.store);
-            execution.decoder.owner = program.store.blocks[env_block.index()].owner;
+            execution.owner = program.store.blocks[env_block.index()].owner;
             let mut entries = FullCursor::new(program.store.payload(range).unwrap());
             assert_eq!(entries.raw().unwrap(), 2);
-            LoweredRunEnv::decode(&execution.decoder, &mut entries).unwrap();
+            let decoder = execution.decoder();
+            LoweredRunEnv::decode(&decoder, &mut entries).unwrap();
             entries.index
         });
         let invalid_name = program
@@ -7641,7 +7806,7 @@ proc main() [env, error] -> Result[Unit] {
         let template = program.store.extra[template_range].to_vec();
         let execution = schema_execution(&program.store);
         let mut template_payload = FullCursor::new(&template);
-        let _op = BinaryOp::decode(&execution.decoder, &mut template_payload)
+        let _op = BinaryOp::decode(&execution.decoder(), &mut template_payload)
             .expect("binary operation decodes");
         let context = DecodeContext::new(&execution);
         let left_offset = template_payload.index;
@@ -7651,7 +7816,7 @@ proc main() [env, error] -> Result[Unit] {
         let right_template = BuildExprId::borrow(context, &mut template_payload)
             .expect("binary right operand belongs to the fixture function")
             .raw() as usize;
-        Span::decode(&execution.decoder, &mut template_payload)
+        Span::decode(&execution.decoder(), &mut template_payload)
             .expect("binary source span decodes");
         template_payload
             .finish()
@@ -8143,14 +8308,19 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
         for tag in schema::INSTRUCTION_TAGS {
             assert_eq!(tag.effects(), previous_effects(&[*tag]), "{}", tag.name());
             if tag.kind() == schema::InstructionKind::Stmt {
-                assert_ne!(
+                assert_eq!(
                     tag.frame_strategy(),
-                    FrameStrategy::LegacyRecursive,
+                    FrameStrategy::FrameControl,
                     "statement {} must be scheduled on frames",
                     tag.name()
                 );
             }
         }
+        assert_eq!(
+            FullTag::ExprExternalCall.frame_strategy(),
+            FrameStrategy::FrameControl,
+            "external calls are scheduled by the explicit frame machine"
+        );
     }
 
     #[test]
@@ -8248,18 +8418,19 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
         BuildBoolRow::Bool(true).encode(&mut builder, &mut words).unwrap();
         let execution = schema_execution(&builder.store);
         let decode_expr = |tag, words| schema::ExprView::decode(&execution, tag,
-            FullPayload { store: execution.decoder.store, cursor: FullCursor::new(words) });
+            FullPayload { store: execution.store(), cursor: FullCursor::new(words) });
         assert!(decode_expr(FullTag::ExprInt, &[1]).is_err());
         assert!(decode_expr(FullTag::ExprInt, &[1, 0, 9]).is_err());
         assert!(decode_expr(FullTag::ExprBool, &[2]).is_err());
         assert!(decode_expr(FullTag::ExprStr, &[u32::MAX]).is_err());
         assert!(decode_expr(FullTag::IntInt, &[1, 0]).is_err());
+        let decoder = execution.decoder();
         assert!(schema::BoolView::decode(&execution, FullTag::BoolNot,
-            FullPayload { store: execution.decoder.store, cursor: FullCursor::new(&[0]) }).err().unwrap().message.contains("wrong category"));
+            FullPayload { store: execution.store(), cursor: FullCursor::new(&[0]) }).err().unwrap().message.contains("wrong category"));
         assert!(schema::BoolView::decode(&execution, FullTag::BoolNot,
-            FullPayload { store: execution.decoder.store, cursor: FullCursor::new(&[u32::MAX]) }).is_err());
+            FullPayload { store: execution.store(), cursor: FullCursor::new(&[u32::MAX]) }).is_err());
         let mut other_owner = schema_execution(&builder.store);
-        other_owner.decoder.instruction_range = 1..2;
+        other_owner.instruction_range = 1..2;
         assert!(BuildIntId::borrow(DecodeContext::new(&other_owner),
             &mut FullCursor::new(&[0])).unwrap_err().message.contains("another function"));
         let context = DecodeContext::new(&execution);
@@ -8268,7 +8439,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
         let decode::CallArgView::Default(slot) = LoweredCallArg::borrow(context,
             &mut FullCursor::new(&[2, 37])).unwrap() else { panic!("default argument") };
         assert_eq!(slot, 37);
-        assert!(matches!(LoweredCallArg::decode(&execution.decoder,
+        assert!(matches!(LoweredCallArg::decode(&decoder,
             &mut FullCursor::new(&[2, 37])).unwrap(), LoweredCallArg::Default(37)));
         assert_eq!(
             ScanCondition::borrow(context, &mut FullCursor::new(&[3]))
@@ -8278,7 +8449,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
             "scan condition tag is invalid",
         );
         assert_eq!(
-            ScanCondition::decode(&execution.decoder, &mut FullCursor::new(&[3]))
+            ScanCondition::decode(&decoder, &mut FullCursor::new(&[3]))
                 .err()
                 .unwrap()
                 .message,
@@ -8292,7 +8463,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
             "slot is out of bounds",
         );
         assert_eq!(
-            ScanCheck::decode(&execution.decoder, &mut FullCursor::new(&[0, 1]))
+            ScanCheck::decode(&decoder, &mut FullCursor::new(&[0, 1]))
                 .err()
                 .unwrap()
                 .message,
@@ -8332,7 +8503,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
         assert!(segments.next().is_none());
 
         let mut payload = FullPayload {
-            store: execution.decoder.store,
+            store: execution.store(),
             cursor: FullCursor::new(&[2, 37, 99]),
         };
         let decode::CallArgView::Default(slot) = payload.borrow::<LoweredCallArg>(&execution).unwrap()
@@ -8392,7 +8563,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
         assert!(error.message.contains("another program"));
 
         let mut foreign_block_payload = FullPayload {
-            store: execution.decoder.store,
+            store: execution.store(),
             cursor: FullCursor::new(&[0]),
         };
         let error = match other_execution.block(&mut foreign_block_payload, 0) {
@@ -8403,7 +8574,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
         assert_eq!(foreign_block_payload.raw().unwrap(), 0);
 
         let mut payload = FullPayload {
-            store: execution.decoder.store,
+            store: execution.store(),
             cursor: FullCursor::new(&[2, 37]),
         };
         assert!(payload.borrow::<LoweredCallArg>(&other_execution).is_err());
@@ -9371,7 +9542,8 @@ pure selected() -> Str {
         let execution = schema_execution_with_slots(&builder.store, 25);
         let owned_block = [block];
         let mut owned_input = FullCursor::new(&owned_block);
-        let decoded_owned = Vec::<LoweredPipelineStage>::decode(&execution.decoder, &mut owned_input)
+        let decoder = execution.decoder();
+        let decoded_owned = Vec::<LoweredPipelineStage>::decode(&decoder, &mut owned_input)
             .unwrap();
         owned_input.finish().unwrap();
         assert_eq!(decoded_owned.len(), rows.len());

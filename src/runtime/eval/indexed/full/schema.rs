@@ -276,11 +276,11 @@ macro_rules! pattern_schema {
         }
 
         impl<'a> PatternView<'a> {
-            pub(in crate::runtime::eval) fn decode(
-                execution: &FullExecution<'a>,
+            pub(in crate::runtime::eval) fn decode<'e>(
+                execution: &'e FullExecution<'_>,
                 tag: FullPatternTag,
-                payload: FullPayload<'a>,
-            ) -> Result<Self, IrVerifyError> {
+                payload: FullPayload<'e>,
+            ) -> Result<PatternView<'e>, IrVerifyError> {
                 payload.check_store(execution)?;
                 let context = DecodeContext::new(execution);
                 let mut input = payload.cursor;
@@ -426,7 +426,6 @@ macro_rules! instruction_schema {
         pub(in crate::runtime::eval) enum FrameStrategy {
             FrameApply,
             FrameControl,
-            LegacyRecursive,
         }
 
         impl FullTag {
@@ -491,11 +490,11 @@ macro_rules! instruction_schema {
             }
 
             impl<'a> $view<'a> {
-                pub(in crate::runtime::eval) fn decode(
-                    execution: &FullExecution<'a>,
+                pub(in crate::runtime::eval) fn decode<'e>(
+                    execution: &'e FullExecution<'_>,
                     tag: FullTag,
-                    mut payload: FullPayload<'a>,
-                ) -> Result<Self, IrVerifyError> {
+                    mut payload: FullPayload<'e>,
+                ) -> Result<$view<'e>, IrVerifyError> {
                     let context = DecodeContext::new(execution);
                     let value = match tag {
                         $(
@@ -506,7 +505,7 @@ macro_rules! instruction_schema {
                                 $($(
                                     let $field = <$field_ty>::borrow(context, &mut payload.cursor)?;
                                 )*)?
-                                Self::$variant
+                                $view::$variant
                                     $(($($tuple_field),*))?
                                     $({$($field),*})?
                             }
@@ -1042,7 +1041,7 @@ instruction_schema! {
             function: QualifiedName,
             args: Vec<LoweredCallArg>,
             span: Span,
-        } => ExprExternalCall = 110 [EFFECT_TRACE; Scheduled; LegacyRecursive];
+        } => ExprExternalCall = 110 [EFFECT_TRACE; Scheduled; FrameControl];
         DynamicCall {
             callee: BuildExprId,
             args: Vec<LoweredCallArg>,
@@ -1589,6 +1588,7 @@ mod tests {
             FullTag::ExprPatternIf,
             FullTag::ExprStrMatch,
             FullTag::ExprTagMatch,
+            FullTag::ExprExternalCall,
             FullTag::StmtStrMatch,
             FullTag::StmtTagMatch,
             FullTag::ExprPipeline,
@@ -1782,11 +1782,11 @@ macro_rules! driver_schema {
         }
 
         impl<'a> DriverPayloadView<'a> {
-            pub(in crate::runtime::eval) fn decode(
-                execution: &FullExecution<'a>,
+            pub(in crate::runtime::eval) fn decode<'e>(
+                execution: &'e FullExecution<'_>,
                 tag: FullDriverTag,
-                mut payload: FullPayload<'a>,
-            ) -> Result<Self, IrVerifyError> {
+                mut payload: FullPayload<'e>,
+            ) -> Result<DriverPayloadView<'e>, IrVerifyError> {
                 let context = DecodeContext::new(execution);
                 let value = match tag {
                     $(
@@ -1794,7 +1794,7 @@ macro_rules! driver_schema {
                             $(
                                 driver_borrow_field!($field, $read_ty, context, payload $(, $policy)?);
                             )*
-                            Self::$variant { $($field),* }
+                            DriverPayloadView::$variant { $($field),* }
                         }
                     )*
                 };

@@ -32,15 +32,14 @@ pub(in crate::runtime::eval) struct DecodeContext<'a> {
 }
 
 impl<'a> DecodeContext<'a> {
-    pub(super) fn new(execution: &FullExecution<'a>) -> Self {
-        let decoder = &execution.decoder;
-        Self {
-            store: decoder.store,
-            owner: decoder.owner,
-            start: decoder.instruction_range.start,
-            end: decoder.instruction_range.end,
-            slots: decoder.slot_count,
-            verified: decoder.verified,
+    pub(super) fn new<'e>(execution: &'e FullExecution<'_>) -> DecodeContext<'e> {
+        DecodeContext {
+            store: execution.store(),
+            owner: execution.owner,
+            start: execution.instruction_range.start,
+            end: execution.instruction_range.end,
+            slots: execution.slot_count,
+            verified: execution.verified,
         }
     }
 
