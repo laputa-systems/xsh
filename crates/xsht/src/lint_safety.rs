@@ -1,3 +1,5 @@
+use xsh::frontend::syntax::arena::ArenaChild;
+
 use super::{
     ArenaBuilderEntryKind, ArenaCallArg, ArenaCallArgKind, ArenaCommandArg, ArenaCommandArgKind,
     ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaPipeStageKind, ArenaRange,
@@ -101,210 +103,29 @@ pub(super) fn expr_may_assign_local(
             .any(|child| expr_may_assign_local(arena, source, child, name, text))
 }
 
-/// Enumerate the immediate child expressions of an expression for structural
-/// traversal (mirrors the old `visitor::walk_expr` descent).
+/// Expression analyses stop at run forms: their command operands have their
+/// own rules and context. The arena owns operand order for every other form.
 pub(super) fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
-    let mut out = Vec::new();
-    match arena.expr(expr).kind {
-        ArenaExprKind::ValuePipelineCall { input, call, .. } => {
-            out.push(input);
-            out.push(call);
-        }
-
-        ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
-            for part in arena.fmt_parts(parts).collect::<Vec<_>>() {
-                if let ArenaFmtPart::Expr(e, _) = part {
-                    out.push(e);
-                }
-            }
-        }
-        ArenaExprKind::List(items) | ArenaExprKind::Set(items) => {
-            out.extend(arena.list_element_exprs(items))
-        }
-        ArenaExprKind::ListComp { expr, qualifiers }
-        | ArenaExprKind::SetComp { expr, qualifiers } => {
-            out.extend(arena.comp_qualifiers(qualifiers).iter().map(|q| q.expr()));
-            out.push(expr);
-        }
-        ArenaExprKind::MapComp {
-            key,
-            value,
-            qualifiers,
-        } => {
-            out.extend(arena.comp_qualifiers(qualifiers).iter().map(|q| q.expr()));
-            out.push(key);
-            out.push(value);
-        }
-        ArenaExprKind::Record(fields) => {
-            for field in arena.record_fields(fields) {
-                match field.kind {
-                    ArenaRecordFieldKind::Computed { key, value, .. } => {
-                        out.push(key);
-                        out.push(value);
-                    }
-                    ArenaRecordFieldKind::Named { value, .. }
-                    | ArenaRecordFieldKind::Path { value, .. } => out.push(value),
-                    ArenaRecordFieldKind::Spread { expr, .. } => out.push(expr),
-                    ArenaRecordFieldKind::Shorthand { .. } => {}
-                }
-            }
-        }
-        ArenaExprKind::If {
-            branches,
-            else_value,
-        } => {
-            for branch in arena.if_expr_branches(branches) {
-                out.push(branch.condition);
-                out.push(branch.value);
-            }
-            out.push(else_value);
-        }
-        ArenaExprKind::Match { value, arms }
-        | ArenaExprKind::PatternTest { value, arms }
-        | ArenaExprKind::PatternCondition { value, arms } => {
-            out.push(value);
-            for arm in arena.match_expr_arms(arms) {
-                out.extend(arm.guard);
-                out.push(arm.value);
-            }
-        }
-        ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => out.push(expr),
-        ArenaExprKind::ComparisonChain(pairs) => out.extend(arena.comparison_chain_operands(pairs)),
-        ArenaExprKind::Binary { left, right, .. } => {
-            out.push(left);
-            out.push(right);
-        }
-        ArenaExprKind::Call { callee, args } => {
-            out.push(callee);
-            for arg in arena.call_args(args) {
-                match arg.kind {
-                    ArenaCallArgKind::Positional(e)
-                    | ArenaCallArgKind::Named { value: e, .. }
-                    | ArenaCallArgKind::Splice { value: e, .. }
-                    | ArenaCallArgKind::NamedSpread { value: e, .. } => out.push(e),
-                }
-            }
-        }
-        ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => {
-            out.push(base);
-        }
-        ArenaExprKind::Index { base, index, .. } => {
-            out.push(base);
-            out.push(index);
-        }
-        ArenaExprKind::Slice {
-            base, start, end, ..
-        } => {
-            out.push(base);
-            out.extend(start);
-            out.extend(end);
-        }
-        ArenaExprKind::Pipeline { input, stages } => {
-            out.push(input);
-            for stage in arena.pipe_stages(stages).to_vec() {
-                match stage.kind {
-                    ArenaPipeStageKind::Expr(e) => out.push(e),
-                    ArenaPipeStageKind::Stream(stage) => {
-                        for arg in arena.call_args(stage.args) {
-                            match arg.kind {
-                                ArenaCallArgKind::Positional(e)
-                                | ArenaCallArgKind::Named { value: e, .. }
-                                | ArenaCallArgKind::Splice { value: e, .. }
-                                | ArenaCallArgKind::NamedSpread { value: e, .. } => out.push(e),
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        ArenaExprKind::StructuredPipeline { input, stages } => {
-            out.push(input);
-            for stage in arena.stream_stages(stages).to_vec() {
-                for arg in arena.call_args(stage.args) {
-                    match arg.kind {
-                        ArenaCallArgKind::Positional(e)
-                        | ArenaCallArgKind::Named { value: e, .. }
-                        | ArenaCallArgKind::Splice { value: e, .. }
-                        | ArenaCallArgKind::NamedSpread { value: e, .. } => out.push(e),
-                    }
-                }
-            }
-        }
-        ArenaExprKind::Spawn(form) => {
-            if let ArenaSpawnTarget::Command(e) = form.target {
-                out.push(e);
-            }
-        }
-        ArenaExprKind::Wait(form) => out.push(form.target),
-        ArenaExprKind::BuilderCall { call, .. } => out.push(call),
-        ArenaExprKind::Require { value, .. } | ArenaExprKind::Convert { value, .. } => {
-            out.push(value)
-        }
-        ArenaExprKind::ErrorContext { message, .. }
-        | ArenaExprKind::ContextScope { input: message, .. } => out.push(message),
-        ArenaExprKind::TempDirScope { path, .. } => out.extend(path),
-        ArenaExprKind::Retry { delays, .. } => out.extend(arena.expr_ids(delays)),
-        ArenaExprKind::ResourceScope { bindings, .. } => out.extend(
-            arena
-                .with_bindings(bindings)
-                .iter()
-                .map(|binding| binding.initializer),
-        ),
-        ArenaExprKind::Null
-        | ArenaExprKind::Bool(_)
-        | ArenaExprKind::Int(_)
-        | ArenaExprKind::Float(_)
-        | ArenaExprKind::Duration(_)
-        | ArenaExprKind::Str(_)
-        | ArenaExprKind::PathStr(_)
-        | ArenaExprKind::GlobStr(_)
-        | ArenaExprKind::Bytes(_)
-        | ArenaExprKind::Regex(_)
-        | ArenaExprKind::Ident(_)
-        | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus
-        | ArenaExprKind::EnvString(_)
-        | ArenaExprKind::EnvPathList
-        | ArenaExprKind::Run(_)
-        | ArenaExprKind::Capture(_)
-        | ArenaExprKind::ValueBlock(_)
-        | ArenaExprKind::Loop { .. }
-        | ArenaExprKind::Collect { .. } => {}
+    if matches!(arena.expr(expr).kind, ArenaExprKind::Run(_))
+        || matches!(arena.expr(expr).kind, ArenaExprKind::Spawn(form)
+            if matches!(form.target, ArenaSpawnTarget::Run(_)))
+    {
+        return Vec::new();
     }
+    let mut out = Vec::new();
+    arena.for_each_expr_child(expr, |child| {
+        if let ArenaChild::Expr(child) = child { out.push(child); }
+    });
     out
 }
 
-/// Enumerate the immediate child statement-blocks of an expression.
+/// Ordinary statement blocks are visible to expression analyses; nested
+/// builder blocks retain their separate command context.
 pub(super) fn expr_child_blocks(arena: &AstArena, expr: ExprId) -> Vec<BlockId> {
     let mut out = Vec::new();
-    match arena.expr(expr).kind {
-        ArenaExprKind::Capture(block)
-        | ArenaExprKind::ValueBlock(block)
-        | ArenaExprKind::Loop { block }
-        | ArenaExprKind::Collect { block }
-        | ArenaExprKind::Retry { block, .. }
-        | ArenaExprKind::ErrorContext { block, .. }
-        | ArenaExprKind::ContextScope { block, .. }
-        | ArenaExprKind::TempDirScope { block, .. }
-        | ArenaExprKind::ResourceScope { block, .. } => out.push(block),
-        ArenaExprKind::Pipeline { stages, .. } => {
-            for stage in arena.pipe_stages(stages).to_vec() {
-                if let ArenaPipeStageKind::Stream(stage) = stage.kind
-                    && let Some(block) = stage.block
-                {
-                    out.push(block);
-                }
-            }
-        }
-        ArenaExprKind::StructuredPipeline { stages, .. } => {
-            for stage in arena.stream_stages(stages).to_vec() {
-                if let Some(block) = stage.block {
-                    out.push(block);
-                }
-            }
-        }
-        _ => {}
-    }
+    arena.for_each_expr_child(expr, |child| {
+        if let ArenaChild::Block(child) = child { out.push(child); }
+    });
     out
 }
 
@@ -1229,6 +1050,53 @@ impl<'a> Linter<'a> {
                     .flatten()
             }
             _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{expr_child_blocks, expr_child_exprs};
+    use xsh::frontend::source::SourceId;
+    use xsh::frontend::syntax::arena::{ArenaExprOrRun, ArenaStmtKind};
+    use xsh::frontend::syntax::parser::Parser;
+
+    // Immediate child identity and ordering are compiler facts that a native
+    // script cannot observe. Run arguments stay behind their command boundary;
+    // surrounding expressions and ordinary statement blocks remain visible.
+    #[test]
+    fn child_projections_preserve_operand_order_and_command_boundaries() {
+        let cases: &[(&str, &[&str], &[&str])] = &[
+            ("let value = [1, 2]\n", &["1", "2"], &[]),
+            ("let value = 1 + 2 * 3\n", &["1", "2 * 3"], &[]),
+            ("let value = 1 < 2 < 3\n", &["1", "2", "3"], &[]),
+            ("let value = outer(first: 1, ...options)\n", &["outer", "1", "options"], &[]),
+            ("let value = record[lo..hi]\n", &["record", "lo", "hi"], &[]),
+            ("let value = {left: 1, right: 2}\n", &["1", "2"], &[]),
+            ("let value = [x + 1 for x in values if x > 0]\n", &["values", "x > 0", "x + 1"], &[]),
+            ("let value = ctx \"where\" { 7 }\n", &["\"where\""], &["{ 7 }"]),
+            ("let value = try { 7 }\n", &[], &["{ 7 }"]),
+            ("let value = (run.text echo ${1 + 2})\n", &[], &[]),
+            ("let value = [1, 2] |> map { |item| item + 1 }\n", &["[1, 2]"], &["{ |item| item + 1 }"]),
+        ];
+        for &(source, expressions, blocks) in cases {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{source}\n{:?}", parsed.diagnostics);
+            let arena = &parsed.arena.arena;
+            let statement = parsed.arena.statement_ids().next().unwrap();
+            let ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(expression), .. } = arena.stmt(statement).kind else {
+                panic!("expected an expression initializer: {source}");
+            };
+            let actual_expressions = expr_child_exprs(arena, expression)
+                .into_iter()
+                .map(|child| &source[arena.expr(child).span.range()])
+                .collect::<Vec<_>>();
+            let actual_blocks = expr_child_blocks(arena, expression)
+                .into_iter()
+                .map(|child| &source[arena.span(arena.block(child).span).range()])
+                .collect::<Vec<_>>();
+            assert_eq!(actual_expressions, expressions, "{source}");
+            assert_eq!(actual_blocks, blocks, "{source}");
         }
     }
 }

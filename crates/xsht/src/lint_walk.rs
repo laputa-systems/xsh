@@ -1,3 +1,5 @@
+use xsh::frontend::syntax::arena::ArenaChild;
+
 use super::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCallArg,
     ArenaCallArgKind, ArenaCommand, ArenaCommandArg, ArenaCommandArgKind, ArenaCompQualifier,
@@ -204,13 +206,43 @@ impl LintExprVisitor<'_, '_> {
         }
     }
 
+    // These forms have no child-specific scope transitions. Callbacks,
+    // patterns, stages, and command arguments enter their explicit contexts.
+    fn walk_immediate_children(&mut self, expr: ExprId) {
+        self.linter.arena.for_each_expr_child(expr, |child| match child {
+            ArenaChild::Expr(child) => self.visit_expr(child),
+            ArenaChild::Block(block) => self.linter.lint_block(block),
+            ArenaChild::TypeExpr(ty) => self.linter.collect_type_expr_refs(ty),
+            ArenaChild::BuilderBlock(block) => self.visit_builder_block(block),
+            ArenaChild::Stmt(_)
+            | ArenaChild::Pattern(_)
+            | ArenaChild::BindingTarget(_)
+            | ArenaChild::AssignTarget(_) => unreachable!("scope-free expression has a scoped child"),
+        });
+    }
+
     fn walk_expr(&mut self, expr: ExprId) {
         let arena = self.linter.arena;
         match arena.expr(expr).kind {
-            ArenaExprKind::ValuePipelineCall { input, call, .. } => {
-                self.visit_expr(input);
-                self.visit_expr(call);
-            }
+            ArenaExprKind::ValuePipelineCall { .. }
+            | ArenaExprKind::List(_)
+            | ArenaExprKind::Set(_)
+            | ArenaExprKind::Unary { .. }
+            | ArenaExprKind::Try(_)
+            | ArenaExprKind::ComparisonChain(_)
+            | ArenaExprKind::Field { .. }
+            | ArenaExprKind::NullSafeField { .. }
+            | ArenaExprKind::Index { .. }
+            | ArenaExprKind::Slice { .. }
+            | ArenaExprKind::Wait(_)
+            | ArenaExprKind::BuilderCall { .. }
+            | ArenaExprKind::Require { .. }
+            | ArenaExprKind::Convert { .. }
+            | ArenaExprKind::ErrorContext { .. }
+            | ArenaExprKind::ContextScope { .. }
+            | ArenaExprKind::Loop { .. }
+            | ArenaExprKind::Collect { .. }
+            | ArenaExprKind::ResourceScope { .. } => self.walk_immediate_children(expr),
 
             ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
                 for part in arena.fmt_parts(parts).collect::<Vec<_>>() {
@@ -221,11 +253,6 @@ impl LintExprVisitor<'_, '_> {
                         }
                         self.visit_expr(e);
                     }
-                }
-            }
-            ArenaExprKind::List(items) | ArenaExprKind::Set(items) => {
-                for item in arena.list_element_exprs(items).collect::<Vec<_>>() {
-                    self.visit_expr(item);
                 }
             }
             ArenaExprKind::ListComp { expr, qualifiers }
@@ -291,12 +318,6 @@ impl LintExprVisitor<'_, '_> {
                 }
                 self.linter.regex_recovery_context = old;
             }
-            ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => self.visit_expr(expr),
-            ArenaExprKind::ComparisonChain(pairs) => {
-                for operand in arena.comparison_chain_operands(pairs).collect::<Vec<_>>() {
-                    self.visit_expr(operand);
-                }
-            }
             ArenaExprKind::Binary { op, left, right } => {
                 if op == BinaryOp::ResultFallback && self.linter.prefer_item_shorthand {
                     let report = item_shorthand::handler_report(arena, self.linter.source, right);
@@ -312,24 +333,6 @@ impl LintExprVisitor<'_, '_> {
                 self.visit_expr(callee);
                 for arg in arena.call_args(args).to_vec() {
                     self.visit_call_arg(&arg);
-                }
-            }
-            ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => {
-                self.visit_expr(base)
-            }
-            ArenaExprKind::Index { base, index, .. } => {
-                self.visit_expr(base);
-                self.visit_expr(index);
-            }
-            ArenaExprKind::Slice {
-                base, start, end, ..
-            } => {
-                self.visit_expr(base);
-                if let Some(start) = start {
-                    self.visit_expr(start);
-                }
-                if let Some(end) = end {
-                    self.visit_expr(end);
                 }
             }
             ArenaExprKind::Pipeline { input, stages } => {
@@ -352,30 +355,6 @@ impl LintExprVisitor<'_, '_> {
                 ArenaSpawnTarget::Run(run) => self.visit_run_form(run),
                 ArenaSpawnTarget::Command(expr) => self.visit_expr(expr),
             },
-            ArenaExprKind::Wait(form) => self.visit_expr(form.target),
-            ArenaExprKind::BuilderCall { call, block } => {
-                self.visit_expr(call);
-                self.visit_builder_block(block);
-            }
-            ArenaExprKind::Require { value, schema } => {
-                self.visit_expr(value);
-                if let Some(schema) = schema {
-                    self.linter.collect_type_expr_refs(schema);
-                }
-            }
-            ArenaExprKind::Convert { value, target } => {
-                self.visit_expr(value);
-                self.linter.collect_type_expr_refs(target);
-            }
-            ArenaExprKind::ErrorContext { message, block }
-            | ArenaExprKind::ContextScope {
-                input: message,
-                block,
-                ..
-            } => {
-                self.visit_expr(message);
-                self.linter.lint_block(block);
-            }
             ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) => {
                 let capturing = matches!(arena.expr(expr).kind, ArenaExprKind::Capture(_));
                 if capturing {
@@ -394,9 +373,6 @@ impl LintExprVisitor<'_, '_> {
                 if capturing {
                     self.linter.assertion_capture_depth -= 1;
                 }
-            }
-            ArenaExprKind::Loop { block } | ArenaExprKind::Collect { block } => {
-                self.linter.lint_block(block)
             }
             // The directory name is the block's parameter, in scope for the
             // body and not for the path.
@@ -419,14 +395,6 @@ impl LintExprVisitor<'_, '_> {
                 } else {
                     self.linter.lint_stream_block(block);
                 }
-            }
-            ArenaExprKind::ResourceScope {
-                bindings, block, ..
-            } => {
-                for binding in arena.with_bindings(bindings).to_vec() {
-                    self.visit_expr(binding.initializer);
-                }
-                self.linter.lint_block(block);
             }
             ArenaExprKind::Retry {
                 schedule: _,
