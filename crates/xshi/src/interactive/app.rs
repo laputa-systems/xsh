@@ -245,6 +245,10 @@ enum LineOutcome {
     Exit(i32),
 }
 
+fn is_exit_command(line: &str) -> bool {
+    !is_xsh_source(line) && line.split_whitespace().next() == Some("exit")
+}
+
 /// Runs one submitted line: interactive rewrites, the session-level commands
 /// that need terminal state, then the normal execution path, and records the
 /// line in history.
@@ -257,7 +261,7 @@ fn handle_submitted_line(
 ) -> LineOutcome {
     // Only another `exit` keeps the warning armed; the reference shell clears
     // it before looking at the line, so typing `exit` twice never forces.
-    let is_exit = !is_xsh_source(line) && line.split_whitespace().next() == Some("exit");
+    let is_exit = is_exit_command(line);
     ui.exit_warned &= is_exit;
 
     let xsh_source = is_xsh_source(line);
@@ -895,6 +899,13 @@ pub fn run_one_command_with_options(source: &str, options: OneCommandOptions) ->
         load_config(&mut session, &mut stderr);
     }
     denv::startup(&mut session, &mut stderr);
+    if is_exit_command(source) {
+        let mut ui = Ui::new(-1);
+        return match handle_exit_command(&mut session, &mut ui, source, &mut stderr) {
+            Some(code) => code,
+            None => session.last_status,
+        };
+    }
     let output = execute_line(&mut session, source);
     let _ = io::stdout().write_all(&output.stdout);
     let _ = io::stderr().write_all(&output.stderr);

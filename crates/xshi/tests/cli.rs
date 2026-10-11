@@ -77,6 +77,14 @@ fn missing_option_arguments_are_usage_errors() {
 }
 
 #[test]
+fn command_mode_exit_builtin_sets_process_status() {
+    let (output, _home) = xshi(&["-c", "exit 3"]);
+    assert_eq!(output.status.code(), Some(3));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn explicit_config_replaces_the_default_and_warns_when_missing() {
     let home = tempfile::tempdir().expect("temporary HOME");
     std::fs::create_dir_all(home.path().join(".config/xshi")).unwrap();
