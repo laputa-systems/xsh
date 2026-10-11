@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -22,9 +23,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[3]
 LANES_ROOT = REPO.parent / f"{REPO.name}-lanes"
 SCRATCH_ROOT = LANES_ROOT / "_scratch"
-SHARED_XSH_BIN = Path(
-    "/home/josh/d/laputa-systems/xsh/target/x86_64-unknown-linux-musl/release/xsh",
-)
+SHARED_XSH_BIN = Path(os.environ.get(
+    "XSH_SHARED_BIN", str(REPO / "target/x86_64-unknown-linux-musl/release/xsh"),
+))
 
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))

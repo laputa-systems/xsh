@@ -39,17 +39,13 @@ def _busybox_test_source(root: Path, util: str) -> Path:
     testsuite = root / "testsuite"
     test_file = testsuite / f"{util}.tests"
     test_directory = testsuite / util
-    candidates = [
-        path
-        for path, valid in ((test_file, test_file.is_file()), (test_directory, test_directory.is_dir()))
-        if valid
-    ]
-    if not candidates:
-        raise FileNotFoundError(f"BusyBox source for {util!r} is missing under {testsuite}")
-    if len(candidates) != 1:
-        joined = ", ".join(str(path) for path in candidates)
-        raise ValueError(f"BusyBox source for {util!r} is ambiguous: {joined}")
-    return candidates[0]
+    # Applet directories can hold binary fixtures beside the aggregate script.
+    # Legacy-only utilities instead store one runnable test per directory entry.
+    if test_file.is_file():
+        return test_file
+    if test_directory.is_dir():
+        return test_directory
+    raise FileNotFoundError(f"BusyBox source for {util!r} is missing under {testsuite}")
 
 
 def reference_paths(suite: str, util: str) -> dict[str, Path]:

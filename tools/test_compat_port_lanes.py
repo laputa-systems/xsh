@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from dev.compat.port import check_port, lanes
+from dev.compat.port import check_port, lanes, suite_sources
 
 
 class PortLaneGenerationTests(unittest.TestCase):
@@ -217,6 +217,19 @@ class PortLaneGenerationTests(unittest.TestCase):
         )
         self.assertNotIn("uutils test_cp::detached", lanes.tagged())
 
+
+
+
+class SuiteSourceTests(unittest.TestCase):
+    def test_busybox_aggregate_script_is_selected_beside_fixture_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "testsuite/cat").mkdir(parents=True)
+            source = root / "testsuite/cat.tests"
+            source.write_text("behavioral source\n")
+            self.assertEqual(suite_sources._busybox_test_source(root, "cat"), source)
+            source.unlink()
+            self.assertEqual(suite_sources._busybox_test_source(root, "cat"), root / "testsuite/cat")
 
 if __name__ == "__main__":
     unittest.main()

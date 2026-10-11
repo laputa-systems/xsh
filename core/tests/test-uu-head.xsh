@@ -219,6 +219,7 @@ test test_uu_head_negative_byte_syntax { |ctx|
   let r = uu.invoke(s, "head", ["--bytes=-2"], stdin: b"a\n")?
   uu.succeeds(r)
   uu.stdout_is(r, "")
+  uu.no_stderr(r)
 
 }
 
@@ -228,6 +229,7 @@ test test_uu_head_negative_bytes_greater_than_input_size_stdin { |ctx|
   let r = uu.invoke(s, "head", ["-c", "-2"], stdin: b"a")?
   uu.succeeds(r)
   uu.stdout_is(r, "")
+  uu.no_stderr(r)
 
 }
 
