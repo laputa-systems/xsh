@@ -218,6 +218,16 @@ test test_gnu_ls_non_utf8_hidden_log { |ctx|
   }
 }
 
+# C name ordering must use filesystem bytes even when lossy UTF-8 keys collide.
+test test_gnu_ls_c_byte_order_sorts_invalid_utf8_names { |ctx|
+  let s = uu.scene(ctx)?
+  uu.at_bytes(s, b"aa\xfe")?.write(b"")?
+  uu.at_bytes(s, b"aa\xff")?.write(b"")?
+  let r = uu.invoke(s, "ls", ["--quoting-style=literal", "-1"], vars: {LC_ALL: "C"})?
+  uu.succeeds(r)
+  uu.stdout_only_bytes(r, b"aa\xfe\naa\xff\n")
+}
+
 # origin: gnu ls/no-arg.log
 test test_gnu_ls_no_arg_log { |ctx|
   let s = uu.scene(ctx)?

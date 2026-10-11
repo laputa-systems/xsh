@@ -2116,8 +2116,19 @@ pure file_time(ctx: Ctx, f: File) -> Int {
   }
 }
 
+const RAW_NAME_DIGITS = "0123456789abcdef"
+
+pure raw_name_key(raw: Bytes) -> Str {
+  collect {
+    for byte in raw {
+      yield RAW_NAME_DIGITS.byte_slice(byte / 16, length: 1) + RAW_NAME_DIGITS.byte_slice(byte % 16, length: 1)
+    }
+  }.join("")
+}
+
+# Lossy names can collide when a directory contains distinct invalid UTF-8 bytes.
 pure by_name(files: List[File]) -> List[File] {
-  files |> sort-by .name
+  files |> sort-by { |f| raw_name_key(f.raw) }
 }
 
 pure reversed(files: List[File]) -> List[File] {
