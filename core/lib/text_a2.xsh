@@ -239,15 +239,21 @@ export pure numeric_options(argv: List[Str], option: Str) -> List[Str] {
   }
 }
 
-## Expand tabs with byte-preserving backspace and newline accounting.
+## Expand tabs by locale columns, with byte-preserving backspace and newline accounting.
 export proc expand(data: Bytes, spec: Tabs, initial = false, tab_byte = 9) -> Bytes {
+  var locale = ""
+  for name in ["LC_ALL", "LC_CTYPE", "LANG"] {
+    let value = env.get(name) ?? ""
+    if value != "" { locale = value; break }
+  }
+  let byte_columns = locale in ["", "C", "POSIX"]
   var column = 0
   var leading = true
   var held = 0
   var out: List[Bytes] = []
   var at = 0
   while at < data.len() {
-    let unit = character(data, at)
+    let unit = if byte_columns { {size: 1, width: 1} } else { character(data, at) }
     let value = data.byte_at(at) ?? 0
     if value == tab_byte or value == 9 {
       let stop = if value == 9 and tab_byte != 9 { column + 8 - column % 8 } else { next_stop(column, spec) }
