@@ -54,6 +54,30 @@ redundant FsRoot defers in cp/mv/curl/split, preserving explicit unlocks;
 focused core gates pass with two TLS fixture skips. The SPEC template now
 records affine local checks and stream cleanup; generated docs are still pending.
 
+R3 bridge integration is now `e513f574`, `1d452ec1`, and `eb70eb1a`, with strict
+`ResourceTransferSite::Assignment` facts: locals carry explicit false; missing
+outer facts block lowering. The complete bridge uses the expanded +340 interim
+allowance and still requires final source deletion offsets. Binding recovery
+and in-place With error handling are `ae9269bd` / `9c95f599`. The joint optimized
+pair at 9c95 passes resource ownership 21/21, With 19/19, mistakes 5/5, nine
+resource units, the missing-fact blocker unit, and three callable units. An
+initial exact unit filter ran zero cases; it is retained but excluded, and the
+corrected filter passes one actual case.
+
+The latest integration batch includes shared field lookup (`b7e5c5f4`), two
+pattern traversal helpers (`7aeeceee`, `bdd01efb`), trace/table blanket removal
+and unused helper deletion (`213f5a08`), checker declaration allowance removal
+(`c0fe54a7`), checked type-fact resolver contraction (`edac89d0`), checker-side
+main spread diagnostics (`6d42c588`), and the generated 18-pattern codec plus
+coverage-tool schema repair (`a99aba94`). Undocumented Rust trace helpers
+`TraceSink`, `MemoryTraceSink`, and `TraceNormalizer` are removed; normalization
+needed by tests is test-local. The coverage report now includes
+`pattern_variants`. R4 delegated-owner and fs.dirs registration fixes are
+`2147695c` / `a514c417`; their lane gates pass foreign workers 6/6, filesystem
+24/24, and stream producers 5/5. Current joint compile/build gates are queued.
+Reachability sweep removal and one expression-pattern success scan still need
+their typed lifecycle proof; neither is silently deleted.
+
 W9's canonical no-argument baseline lint completed on 1,160 discovered files;
 the contended 160.97-second run and same-process profile are setup attribution,
 not comparative performance acceptance. ARM compiler/environment recovery is

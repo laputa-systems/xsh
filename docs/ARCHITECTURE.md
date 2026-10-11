@@ -336,7 +336,9 @@ annotated ones, and `xsht test` in the project.
    `xsht check --annotate`.
 7. Add native tests (see `docs/TESTING.md`) plus a verifier unit test for new
    instruction shapes, and update `tools/xsh-ir-coverage.xsh` if coverage
-   accounting changes.
+   accounting changes. The tool reads instruction and pattern rows from
+   `src/runtime/eval/indexed/full/schema.rs` so its counts follow the codec
+   definitions.
 
 ## Adding a sugar form
 
