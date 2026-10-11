@@ -214,13 +214,11 @@ fn test_invalid_user_spec() {
 // origin: uutils test_chroot::test_invalid_user
 #[test]
 fn test_invalid_user() {
-    require_capability(6, "CAP_SETGID");
-    require_capability(7, "CAP_SETUID");
     let directory = jail();
     stdout_only(chroot(directory.path(), &["CHROOT_DIR", "whoami"]), b"root\n");
-    // Account resolution can use the outer database when nobody is absent
-    // inside the jail; the '+' prefix forces a numeric group ID.
-    stdout_only(chroot(directory.path(), &["--user=nobody:+65535", "CHROOT_DIR", "pwd"]), b"/\n");
+    let output = chroot(directory.path(), &["--user=nobody:+65535", "CHROOT_DIR", "pwd"]);
+    assert!(!output.status.success());
+    assert_eq!(output.stderr, b"chroot: invalid user\n");
 }
 
 // origin: uutils test_chroot::test_multiple_group_args
