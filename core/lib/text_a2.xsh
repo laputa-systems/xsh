@@ -276,16 +276,19 @@ export proc expand(data: Bytes, spec: Tabs, initial = false, tab_byte = 9) -> By
   bytes.concat([@out, data[held..]])
 }
 
-## Number of bytes in an ASCII or Unicode blank character, or zero.
-export pure blank_size(data: Bytes, at: Int) -> Int {
+## Number of bytes in a blank character, or zero; byte mode recognizes only space and tab.
+export pure blank_size(data: Bytes, at: Int, by_bytes = false) -> Int {
   let byte = data.byte_at(at) ?? 0
   if byte == 32 or byte == 9 { return 1 }
+  return 0 when by_bytes
   let unit = character(data, at)
   if unit.size > 1 and rx"[\x{1680}\x{2000}-\x{2006}\x{2008}-\x{200a}\x{205f}\x{3000}]".matches(data[at..at + unit.size].utf8() ?? "") { unit.size } else { 0 }
 }
 
 ## Compress blank runs while keeping isolated noninitial spaces unchanged.
-export proc unexpand(data: Bytes, spec: Tabs, all: Bool, column_start = 0) -> Bytes {
+## Byte mode counts undecodable bytes and controls as one column, except NUL;
+## backspace and newline retain their cursor behavior.
+export proc unexpand(data: Bytes, spec: Tabs, all: Bool, column_start = 0, by_bytes = false) -> Bytes {
   var out: List[Bytes] = []
   var held = 0
   var at = 0
@@ -293,17 +296,17 @@ export proc unexpand(data: Bytes, spec: Tabs, all: Bool, column_start = 0) -> By
   var leading = true
   while at < data.len() {
     let value = data.byte_at(at) ?? 0
-    if blank_size(data, at) > 0 and (leading or all) {
+    if blank_size(data, at, by_bytes) > 0 and (leading or all) {
       out += [data[held..at]]
       let start = at
       let origin = column
-      while at < data.len() and blank_size(data, at) > 0 {
+      while at < data.len() and blank_size(data, at, by_bytes) > 0 {
         if data.byte_at(at) == 9 {
           let next = next_stop(column, spec)
           if next < 0 { break }
           column = next
-        } else { column += character(data, at).width }
-        at += blank_size(data, at)
+        } else { column += if by_bytes { 1 } else { character(data, at).width } }
+        at += blank_size(data, at, by_bytes)
       }
       if at == start { out += [data[at..at + 1]]; at += 1; held = at; column += 1; continue }
       var pos = origin
@@ -315,7 +318,7 @@ export proc unexpand(data: Bytes, spec: Tabs, all: Bool, column_start = 0) -> By
         var cursor = start
         var aligned = false
         while cursor < at and boundary < next {
-          let unit = character(data, cursor)
+          let unit = if by_bytes { {size: 1, width: 1} } else { character(data, cursor) }
           boundary = if data.byte_at(cursor) == 9 { next_stop(boundary, spec) } else { boundary + unit.width }
           cursor += unit.size
           if boundary == next { aligned = true }
@@ -329,7 +332,7 @@ export proc unexpand(data: Bytes, spec: Tabs, all: Bool, column_start = 0) -> By
       out += if converted { blanks } else { [data[start..at]] }
       held = at
     } else {
-      let unit = character(data, at)
+      let unit = if by_bytes { {size: 1, width: if value == 0 { 0 } else { 1 }} } else { character(data, at) }
       at += unit.size
       if value == 10 { column = 0; leading = true } else if value == 8 { if column > 0 { column -= 1 } } else if value == 9 { let next = next_stop(column, spec); column = if next < 0 { column + 1 } else { next } } else { column += unit.width; if value != 32 { leading = false } }
     }

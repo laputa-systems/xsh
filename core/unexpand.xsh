@@ -31,6 +31,6 @@ proc main(...argv: List[Bytes]) {
     if arg.starts_with("-t") or arg.starts_with("--t") { explicit_tabs = true }
   }
   let input = text.read_arguments(arguments, opts.paths)
-  gnu.write_bytes(text.unexpand(input.data, stops, ! opts.first and (opts.all or explicit_tabs)))
+  gnu.write_bytes(text.unexpand(input.data, stops, ! opts.first and (opts.all or explicit_tabs), by_bytes: text.byte_columns()))
   exit text.finish(input.failed)
 }

@@ -14,19 +14,19 @@ test test_unexpand_finite_stops_and_single_spaces { |ctx|
 
 test test_unexpand_unicode_display_columns { |ctx|
   let input = test.temp_file(ctx, name: "wide", contents: b"\xe4\xb8\xad      X")?
-  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- -a $input
+  let output = run.text LC_ALL=C.UTF-8 ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- -a $input
   assert output == "中\tX"
 }
 
 test test_unexpand_ideographic_blanks_preserve_unconverted_bytes { |ctx|
   let input = test.temp_file(ctx, name: "wide", contents: b"\xe3\x80\x80\xe3\x80\x80\xe3\x80\x80\xe3\x80\x80Z\na\xe3\x80\x80b\n")?
-  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- -a $input
+  let output = run.text LC_ALL=C.UTF-8 ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- -a $input
   assert output == "\tZ\na　b\n"
 }
 
 test test_unexpand_does_not_split_wide_blank_at_a_tab_stop { |ctx|
   let input = test.temp_file(ctx, name: "wide", contents: b"   \xe3\x80\x80X\ty\n")?
-  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- -a -t4 $input
+  let output = run.text LC_ALL=C.UTF-8 ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- -a -t4 $input
   assert output == "   \u{3000}X\ty\n"
 }
 
@@ -57,4 +57,36 @@ test test_unexpand_first_only_has_no_short_alias { |ctx|
   let invalid = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- -f $input
   assert invalid.status.exited_with(1)
   assert invalid.stderr == "unexpand: invalid option -- 'f'\nTry 'unexpand --help' for more information.\n"
+}
+
+
+test test_unexpand_c_locale_preserves_unicode_blanks { |ctx|
+  let data = bytes.from_text("　　　　Z\n")
+  let input = test.temp_file(ctx, name: "unicode-blanks", contents: data)?
+  let output = run.capture --bytes LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- -a $input
+  assert output.status.exited_with(0)
+  assert output.stdout == data
+}
+
+test test_unexpand_c_locale_counts_multibyte_text_as_bytes { |ctx|
+  let data = bytes.from_text("1ΔΔΔ5   99999\n")
+  let input = test.temp_file(ctx, name: "multibyte", contents: data)?
+  let output = run.capture --bytes LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- -a $input
+  assert output.status.exited_with(0)
+  assert output.stdout == data
+}
+
+test test_unexpand_c_locale_counts_wide_text_as_bytes { |ctx|
+  let input = test.temp_file(ctx, name: "wide-text", contents: bytes.from_text("－      X\n"))?
+  let output = run.capture --bytes LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- -a $input
+  assert output.status.exited_with(0)
+  assert output.stdout == bytes.from_text("－\t X\n")
+}
+
+
+test test_unexpand_c_locale_preserves_binary_column_controls { |ctx|
+  let input = test.temp_file(ctx, name: "binary-columns", contents: b"\0\xff\x08       X\n\x1b       Y\n")?
+  let output = run.capture --bytes LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- -a $input
+  assert output.status.exited_with(0)
+  assert output.stdout == b"\0\xff\x08       X\n\x1b\tY\n"
 }
