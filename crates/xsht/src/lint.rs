@@ -188,7 +188,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Deref;
 use std::sync::Arc;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label, Severity};
-use xsh::frontend::check::{BindingId, Type};
+use xsh::frontend::check::{BindingId, CheckBundleView, CheckOptions, Type};
 use xsh::frontend::source::Span;
 use xsh::frontend::symbols::{Name, Symbol};
 use xsh::frontend::syntax::arena::{
@@ -664,7 +664,13 @@ fn type_expr_kind(arena: &AstArena, id: TypeExprId) -> ArenaTypeExprKind {
 
 impl<'a> Linter<'a> {
     pub fn lint(program: &'a ArenaProgram, source: &'a str, options: LintOptions) -> LintOutput {
-        Self::lint_internal(program, source, options, true)
+        let view = CheckBundleView::for_root(
+            program,
+            program.statements,
+            None,
+            program.source_text_source_id(),
+        );
+        Self::lint_view(&view, source, options)
     }
 
     /// Lint one source range that belongs to a checked workspace bundle.
@@ -677,24 +683,42 @@ impl<'a> Linter<'a> {
         source: &'a str,
         options: LintOptions,
     ) -> LintOutput {
-        Self::lint_internal(program, source, options, false)
+        let view = CheckBundleView::for_module(
+            program,
+            program.statements,
+            None,
+            program.source_text_source_id(),
+        );
+        Self::lint_module_view(&view, source, options)
     }
 
-    fn lint_internal(
-        program: &'a ArenaProgram,
+    pub fn lint_view(view: &CheckBundleView<'a>, source: &'a str, options: LintOptions) -> LintOutput {
+        Self::lint_view_internal(view, source, options, true, || {
+            xsh::frontend::check::Checker::check_bundle_view_with_type_program(
+                view,
+                source,
+                CheckOptions::default(),
+                Arc::new(view.program().clone()),
+            )
+        })
+    }
+
+    pub fn lint_module_view(
+        view: &CheckBundleView<'a>,
         source: &'a str,
         options: LintOptions,
-        include_reachability: bool,
     ) -> LintOutput {
-        Self::lint_internal_with_effect_check(
-            program,
-            source,
-            options,
-            include_reachability,
-            || xsh::frontend::check::Checker::check_arena(program, source),
-        )
+        Self::lint_view_internal(view, source, options, false, || {
+            xsh::frontend::check::Checker::check_bundle_view_with_type_program(
+                view,
+                source,
+                CheckOptions::default(),
+                Arc::new(view.program().clone()),
+            )
+        })
     }
 
+    #[cfg(test)]
     fn lint_internal_with_effect_check(
         program: &'a ArenaProgram,
         source: &'a str,
@@ -702,6 +726,23 @@ impl<'a> Linter<'a> {
         include_reachability: bool,
         check_effects: impl FnOnce() -> xsh::frontend::check::CheckOutput,
     ) -> LintOutput {
+        let view = CheckBundleView::for_root(
+            program,
+            program.statements,
+            None,
+            program.source_text_source_id(),
+        );
+        Self::lint_view_internal(&view, source, options, include_reachability, check_effects)
+    }
+
+    fn lint_view_internal(
+        view: &CheckBundleView<'a>,
+        source: &'a str,
+        options: LintOptions,
+        include_reachability: bool,
+        check_effects: impl FnOnce() -> xsh::frontend::check::CheckOutput,
+    ) -> LintOutput {
+        let program = view.program();
         // Constructor facts intern qualified enum names after checking. Retain
         // those names in the source program even when the caller is a worker.
         let _symbols = program.symbol_owner().enter();
@@ -763,13 +804,15 @@ impl<'a> Linter<'a> {
             }};
         }
         let mut linter = Self {
-            record_constructors: xsh::frontend::check::RecordConstructors::collect(program),
+            record_constructors: xsh::frontend::check::RecordConstructors::collect_view(view),
             arena: &program.arena,
             paren_groups: &program.paren_groups,
             expr_positions: std::cell::OnceCell::new(),
-            duration_conversion_module_unshadowed: !(0..program.arena.stmt_tags.len()).any(
-                |index| {
-                    let ArenaStmtKind::Use(id) = program.arena.stmt(StmtId::from_index(index)).kind
+            duration_conversion_module_unshadowed: !view
+                .statement_ids()
+                .chain(view.modules().flat_map(|module| program.module_statements(module)))
+                .any(|statement| {
+                    let ArenaStmtKind::Use(id) = program.arena.stmt(statement).kind
                     else {
                         return false;
                     };
@@ -778,8 +821,7 @@ impl<'a> Linter<'a> {
                         .alias
                         .or_else(|| program.arena.names(import.path).last())
                         .is_some_and(|name| name == "time")
-                },
-            ),
+                }),
             prefer_inferred_pure_returns: removes_returns
                 && (options.prefer_inferred_pure_returns
                     || named(DiagnosticCode::LintPreferInferredPureReturn)),
@@ -955,7 +997,7 @@ impl<'a> Linter<'a> {
             empty_fallbacks: lint_empty_sentinel::EmptyFallbacks::default(),
             item_shorthands: Vec::new(),
             catch_all_arms: Vec::new(),
-            fail_candidates: lint_prefer_fail::Candidates::collect(program, source),
+            fail_candidates: lint_prefer_fail::Candidates::collect(view, source),
             stream_producers: sequence::StreamProducers::default(),
             callable_parameters: lint_prefer_typed_callable::CallableParameters::default(),
             rule_selection: rules::RuleSelection::new(only, excluded_rules),
@@ -965,7 +1007,7 @@ impl<'a> Linter<'a> {
             Span::new(xsh::frontend::source::SourceId::new(0), 0, 0),
             false,
         );
-        let statements: Vec<StmtId> = program.statement_ids().collect();
+        let statements: Vec<StmtId> = view.statement_ids().collect();
         if native_test_file {
             linter.lint_legacy_test_declarations(&statements);
         }
@@ -976,28 +1018,28 @@ impl<'a> Linter<'a> {
         item_shorthands.sort_by_key(|diagnostic| diagnostic.labels[0].span.start());
         linter.diagnostics.extend(item_shorthands);
         if linter.prefer_tempdir_scope {
-            tempdir_scope::lint_tempdir_scopes(&mut linter, program);
+            tempdir_scope::lint_tempdir_scopes(&mut linter, view);
         }
         if include_reachability {
             linter
                 .diagnostics
-                .extend(cli_entry::signature_cli_migration(program, source));
+                .extend(cli_entry::signature_cli_migration(view, source));
         }
         if include_reachability {
             linter
                 .diagnostics
-                .extend(lint_try_capture::lint_try_capture_helpers(program, source));
+                .extend(lint_try_capture::lint_try_capture_helpers(view, source));
         }
         if include_reachability {
-            linter.lint_declaration_reachability(program);
+            linter.lint_declaration_reachability(view);
             linter
                 .diagnostics
-                .extend(lint_callable_alias::lint_callable_aliases(program, source));
+                .extend(lint_callable_alias::lint_callable_aliases(view, source));
         }
         linter
             .diagnostics
             .extend(redundant_use_alias::lint_redundant_use_aliases(
-                program, source,
+                view, source,
             ));
         // The proof checks the file again, so it runs only when its result
         // can be reported.
@@ -1035,7 +1077,7 @@ impl<'a> Linter<'a> {
             .or(checked_message_payloads)
         {
             let implicit_messages = lint_implicit_message::lint_implicit_messages(
-                program,
+                view,
                 source,
                 constructors,
                 &linter.diagnostics,
@@ -1320,12 +1362,12 @@ impl<'a> Linter<'a> {
         self.lint_unused_types();
     }
 
-    fn lint_declaration_reachability(&mut self, program: &'a ArenaProgram) {
+    fn lint_declaration_reachability(&mut self, view: &CheckBundleView<'_>) {
         if !self.dead_code {
             return;
         }
         self.diagnostics
-            .extend(CallableReachability::new(program).diagnostics());
+            .extend(CallableReachability::new(view).diagnostics());
     }
 
     fn lint_import_blocks(&mut self, statements: &[StmtId]) {

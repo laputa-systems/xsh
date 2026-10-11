@@ -86,7 +86,7 @@ tool configuration.
 | lex | `Lexer::lex_compact`, `TokenTable` | `src/syntax/lexer.rs`, `src/syntax/token.rs` |
 | source structure | `SyntaxTree::from_token_table` (CST), `Parser::parse_source_arena_only`, `ArenaProgram`, `AstArena` | `src/syntax/cst.rs`, `src/syntax/parser.rs`, `src/syntax/arena.rs` |
 | load | `CompactFileUnit`, `CompactModuleGraph`, `CheckedEntry` | `src/loader.rs` |
-| check | `Checker`, `CheckOptions`, `CheckOutput`, `Checker::compact_declarations`, `CompactDeclOutput` | `src/sema/check.rs`, `src/sema/check/compact.rs` |
+| check | `Checker`, `CheckOptions`, `CheckOutput`, `CheckBundleView`, `Checker::compact_declarations`, `CompactDeclOutput` | `src/sema/check.rs`, `src/sema/check/compact.rs` |
 | publish facts | `CompactBodyFacts`, `CheckedApiCall`, `CheckedArguments`, `PreparedConstants` | `src/sema/check/compact.rs`, `src/sema/constants.rs` |
 | lower | `FullBuilder::build_compact`, `BuildScratch` | `src/runtime/eval/lower.rs` |
 | verify | `FullVerifier::verify`, `FullStore`, `FullProgram` | `src/runtime/eval/indexed/full.rs` |
@@ -176,6 +176,10 @@ template instances, and literal storage. `CheckOptions::for_execution`,
 published by every profile and only errors block runtime preparation.
 Lint workers share an `Arc<CheckOutput>` when rules require checked binding
 identities, rather than starting another check for each source in the bundle.
+`CheckBundleView` pairs an immutable `ArenaProgram` with one root statement
+range and its reachable module closure. Workspace lint workers reuse that arena
+and prepare each root against its view instead of copying and reshaping the
+program for every worker.
 
 **Lowering and verification.** `FullBuilder::build_compact` reserves function
 identities, lowers each checked body into short-lived construction scratch,

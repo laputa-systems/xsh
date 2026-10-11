@@ -19,10 +19,11 @@
 //! `cause:`, as the `fail .Variant(...)` that is defined to mean it.
 
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
+use xsh::frontend::check::CheckBundleView;
 use xsh::frontend::source::{SourceId, Span};
 use xsh::frontend::symbols::Name;
 use xsh::frontend::syntax::arena::{
-    ArenaCallArgKind, ArenaExprKind, ArenaExprOrRun, ArenaProgram, ArenaStmtKind, AstArena, ExprId,
+    ArenaCallArgKind, ArenaExprKind, ArenaExprOrRun, ArenaStmtKind, AstArena, ExprId,
     StmtId, SugarForm,
 };
 use xsh::frontend::syntax::parser::Parser;
@@ -65,14 +66,15 @@ pub(super) struct Candidates {
 }
 
 impl Candidates {
-    pub(super) fn collect(program: &ArenaProgram, source: &str) -> Self {
+    pub(super) fn collect(view: &CheckBundleView<'_>, source: &str) -> Self {
         let mut candidates = Self::default();
         // Every family is declared with the word `error`.
         if !source.contains("error ") {
             return candidates;
         }
+        let program = view.program();
         let arena = &program.arena;
-        for statement in program.statement_ids() {
+        for statement in view.statement_ids() {
             let outer = arena.stmt(statement);
             let (inner, exported) = match outer.kind {
                 ArenaStmtKind::Export(inner) => (arena.stmt(inner), true),

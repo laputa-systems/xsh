@@ -1,22 +1,31 @@
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
-use xsh::frontend::check::Checker;
+use xsh::frontend::check::{CheckBundleView, CheckOptions, Checker};
 use xsh::frontend::syntax::arena::{
     ArenaCallArgKind, ArenaExprKind, ArenaExprOrRun, ArenaProgram, ArenaStmtKind, FunctionDefId,
 };
 use xsh::frontend::syntax::parser::Parser;
 
-pub(super) fn lint_callable_aliases(program: &ArenaProgram, source: &str) -> Vec<Diagnostic> {
-    lint_callable_aliases_with_check(program, source, || Checker::check_arena(program, source))
+pub(super) fn lint_callable_aliases(view: &CheckBundleView<'_>, source: &str) -> Vec<Diagnostic> {
+    let program = view.program();
+    lint_callable_aliases_with_check(view, source, || {
+        Checker::check_bundle_view_with_type_program(
+            view,
+            source,
+            CheckOptions::default(),
+            std::sync::Arc::new(program.clone()),
+        )
+    })
 }
 
 fn lint_callable_aliases_with_check(
-    program: &ArenaProgram,
+    view: &CheckBundleView<'_>,
     source: &str,
     check_original: impl FnOnce() -> xsh::frontend::check::CheckOutput,
 ) -> Vec<Diagnostic> {
+    let program = view.program();
     let before = std::cell::LazyCell::new(check_original);
     let mut diagnostics = Vec::new();
-    for statement in program.statement_ids() {
+    for statement in view.statement_ids() {
         let outer = program.arena.stmt(statement);
         let (inner, exported) = match outer.kind {
             ArenaStmtKind::Export(inner) => (program.arena.stmt(inner), true),
@@ -50,7 +59,7 @@ fn lint_callable_aliases_with_check(
         if name == wrapper.name {
             continue;
         }
-        let target = program.statement_ids().find_map(|statement| {
+        let target = view.statement_ids().find_map(|statement| {
             let kind = match program.arena.stmt(statement).kind {
                 ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
                 kind => kind,
@@ -214,7 +223,13 @@ mod tests {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let preparations = Cell::new(0);
         let diagnostics = parsed.arena.symbol_owner().with_current(|| {
-            lint_callable_aliases_with_check(&parsed.arena, source, || {
+            let view = CheckBundleView::for_root(
+                &parsed.arena,
+                parsed.arena.statements,
+                None,
+                Some(SourceId::new(0)),
+            );
+            lint_callable_aliases_with_check(&view, source, || {
                 preparations.set(preparations.get() + 1);
                 Checker::check_arena(&parsed.arena, source)
             })

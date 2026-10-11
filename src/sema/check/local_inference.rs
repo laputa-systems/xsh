@@ -1,4 +1,4 @@
-use super::{BTreeMap, BTreeSet, BundleView, Checker, Diagnostic, Label, Span, Type};
+use super::{BTreeMap, BTreeSet, CheckBundleView, Checker, Diagnostic, Label, Span, Type};
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
     ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaFunctionDef, ArenaProgram,
@@ -20,7 +20,7 @@ pub(super) struct LocalInference {
 }
 
 impl LocalInference {
-    pub(super) fn prepare(view: &BundleView<'_>) -> Self {
+    pub(super) fn prepare(view: &CheckBundleView<'_>) -> Self {
         let program = view.program;
         let mut inference = Self::default();
         for index in 0..program.arena.stmt_tags.len() {

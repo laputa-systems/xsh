@@ -9,7 +9,7 @@ pub(crate) use crate::sema::types::{CallableParamType, CallableType, ModuleExpor
 pub(crate) use crate::source::Span;
 use crate::source::{SourceId, SourceMap};
 pub(crate) use crate::symbol::{Name, QualifiedName};
-use crate::syntax::arena::{ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaStmtKind, ArenaUserModule, StmtId, TypeExprId};
+use crate::syntax::arena::{ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaRange, ArenaStmtKind, ArenaUserModule, StmtId, TypeExprId};
 pub(crate) use crate::syntax::node::{BinaryOp, CoreCommand, Effect, RunKind, UnaryOp};
 
 use callable_alias::CallableAlias;
@@ -19,40 +19,82 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 /// Borrowed reachable scopes keep preparation on the original stable arena IDs.
-pub(super) struct BundleView<'a> {
+pub struct CheckBundleView<'a> {
     pub(super) program: &'a ArenaProgram,
     pub(super) sources: Option<&'a SourceMap>,
     pub(super) modules: Vec<&'a ArenaUserModule>,
+    pub(super) root_statements: ArenaRange,
     source_ids: FxHashSet<SourceId>,
     all_sources: bool,
 }
 
-impl<'a> BundleView<'a> {
+impl<'a> CheckBundleView<'a> {
     pub(super) fn new(
         program: &'a ArenaProgram,
         sources: Option<&'a SourceMap>,
         entry_source_id: Option<SourceId>,
     ) -> Self {
+        Self::for_root(program, program.statements, sources, entry_source_id)
+    }
+
+    /// Select an entry range and its resolved dependency closure from one immutable arena.
+    pub fn for_root(
+        program: &'a ArenaProgram,
+        root_statements: ArenaRange,
+        sources: Option<&'a SourceMap>,
+        entry_source_id: Option<SourceId>,
+    ) -> Self {
         let mut reachable = FxHashSet::<Arc<str>>::default();
         let mut pending = Vec::new();
-        Self::enqueue_imports(program, program.statement_ids(), &mut reachable, &mut pending);
+        Self::enqueue_imports(
+            program,
+            program.arena.stmt_ids(root_statements),
+            &mut reachable,
+            &mut pending,
+        );
         while let Some(key) = pending.pop() {
             if let Some(module) = program
                 .modules
                 .iter()
                 .find(|module| !module.internal && module.key == key.as_ref())
             {
-                Self::enqueue_imports(program, program.module_statements(module), &mut reachable, &mut pending);
+                Self::enqueue_imports(
+                    program,
+                    program.module_statements(module),
+                    &mut reachable,
+                    &mut pending,
+                );
             }
         }
-        let modules = program
-            .modules
-            .iter()
-            .filter(|module| module.internal || reachable.contains(module.key.as_str()))
-            .collect::<Vec<_>>();
+        let mut modules = Vec::new();
+        let mut visited = FxHashSet::default();
+        for module in program.modules.iter().filter(|module| module.internal) {
+            if module.statements != root_statements {
+                modules.push(module);
+            }
+        }
+        let mut roots = Vec::new();
+        let mut root_imports = FxHashSet::default();
+        Self::enqueue_imports(
+            program,
+            program.arena.stmt_ids(root_statements),
+            &mut root_imports,
+            &mut roots,
+        );
+        roots.sort_unstable();
+        for key in roots {
+            Self::order_module(
+                program,
+                &key,
+                &reachable,
+                root_statements,
+                &mut visited,
+                &mut modules,
+            );
+        }
         let source_ids = entry_source_id.into_iter()
-            .chain(program.module_doc_for(program.statements).map(|span| span.source_id))
-            .chain(program.statement_ids().map(|id| program.arena.stmt(id).span.source_id))
+            .chain(program.module_doc_for(root_statements).map(|span| span.source_id))
+            .chain(program.arena.stmt_ids(root_statements).map(|id| program.arena.stmt(id).span.source_id))
             .chain(modules.iter().flat_map(|module| program.module_statements(module)
                 .map(|id| program.arena.stmt(id).span.source_id)))
             .chain(modules.iter().filter_map(|module| program.module_doc_for(module.statements)
@@ -62,6 +104,29 @@ impl<'a> BundleView<'a> {
             program,
             sources,
             modules,
+            root_statements,
+            source_ids,
+            all_sources: false,
+        }
+    }
+
+    /// Select one source range for linting against checked facts from its entry.
+    pub fn for_module(
+        program: &'a ArenaProgram,
+        root_statements: ArenaRange,
+        sources: Option<&'a SourceMap>,
+        entry_source_id: Option<SourceId>,
+    ) -> Self {
+        let source_ids = entry_source_id
+            .into_iter()
+            .chain(program.module_doc_for(root_statements).map(|span| span.source_id))
+            .chain(program.arena.stmt_ids(root_statements).map(|id| program.arena.stmt(id).span.source_id))
+            .collect();
+        Self {
+            program,
+            sources,
+            modules: Vec::new(),
+            root_statements,
             source_ids,
             all_sources: false,
         }
@@ -72,9 +137,48 @@ impl<'a> BundleView<'a> {
             program,
             sources: None,
             modules: program.modules.iter().collect(),
+            root_statements: program.statements,
             source_ids: FxHashSet::default(),
             all_sources: true,
         }
+    }
+
+    fn order_module(
+        program: &'a ArenaProgram,
+        key: &str,
+        reachable: &FxHashSet<Arc<str>>,
+        root_statements: ArenaRange,
+        visited: &mut FxHashSet<Arc<str>>,
+        ordered: &mut Vec<&'a ArenaUserModule>,
+    ) {
+        let Some(module) = program.modules.iter().find(|module| {
+            !module.internal && module.key == key && module.statements != root_statements
+        }) else {
+            return;
+        };
+        let module_key: Arc<str> = Arc::from(module.key.as_str());
+        if !reachable.contains(&module_key) || !visited.insert(module_key) {
+            return;
+        }
+        let mut dependencies = Vec::new();
+        Self::enqueue_imports(
+            program,
+            program.module_statements(module),
+            &mut FxHashSet::default(),
+            &mut dependencies,
+        );
+        dependencies.sort_unstable();
+        for dependency in dependencies {
+            Self::order_module(
+                program,
+                &dependency,
+                reachable,
+                root_statements,
+                visited,
+                ordered,
+            );
+        }
+        ordered.push(module);
     }
 
     fn enqueue_imports(
@@ -97,6 +201,26 @@ impl<'a> BundleView<'a> {
 
     pub(super) fn contains_source(&self, source_id: SourceId) -> bool {
         self.all_sources || self.source_ids.contains(&source_id)
+    }
+
+    /// Return the immutable arena that owns every statement and module ID in this view.
+    pub fn program(&self) -> &'a ArenaProgram {
+        self.program
+    }
+
+    /// Return the entry statement range selected by this view.
+    pub fn root_statements(&self) -> ArenaRange {
+        self.root_statements
+    }
+
+    /// Iterate the entry's top-level statements.
+    pub fn statement_ids(&self) -> impl Iterator<Item = StmtId> + '_ {
+        self.program.arena.stmt_ids(self.root_statements)
+    }
+
+    /// Iterate reachable user modules in dependency order and embedded modules.
+    pub fn modules(&self) -> impl Iterator<Item = &'a ArenaUserModule> + '_ {
+        self.modules.iter().copied()
     }
 }
 
@@ -922,6 +1046,8 @@ pub struct Checker {
     /// checked `Any` expression.
     dynamic_require_receivers: FxHashMap<Span, DynamicRequireReceiver>,
     current_namespace: Option<Name>,
+    bundle_root_statements: Option<ArenaRange>,
+    bundle_module_keys: Option<Arc<[String]>>,
     scopes: Vec<FxHashMap<Name, Binding>>,
     procs: FxHashMap<Name, FunctionSig>,
     byte_script_arguments: bool,
@@ -1048,7 +1174,7 @@ impl Checker {
         self.boundary = enclosing;
     }
 
-    fn prepare_regex_literals(view: &BundleView<'_>) -> Vec<Diagnostic> {
+    fn prepare_regex_literals(view: &CheckBundleView<'_>) -> Vec<Diagnostic> {
         let program = view.program;
         program
             .arena
@@ -1085,9 +1211,8 @@ impl Checker {
         )
     }
 
-    /// Check a mutable view of an arena-backed bundle while reusing an owned
-    /// program for type references. Tooling can change the root statement
-    /// range and module list between checks without cloning the full arena.
+    /// Check an arena-backed program while resolving type references in a
+    /// separately owned program.
     pub fn check_arena_with_options_and_type_program(
         program: &crate::syntax::arena::ArenaProgram,
         source: &str,
@@ -1153,8 +1278,21 @@ impl Checker {
         sources: Option<&SourceMap>,
         entry_source_id: Option<SourceId>,
     ) -> CheckOutput {
+        let view = CheckBundleView::new(program, sources, entry_source_id);
+        Self::check_bundle_view_with_type_program(&view, source, options, type_program)
+    }
+
+    /// Check an immutable borrowed bundle view while reusing an owned program
+    /// for type references. Prepared facts stay tied to the selected root and
+    /// reachable modules.
+    pub fn check_bundle_view_with_type_program(
+        view: &CheckBundleView<'_>,
+        source: &str,
+        options: CheckOptions,
+        type_program: Arc<crate::syntax::arena::ArenaProgram>,
+    ) -> CheckOutput {
+        let program = view.program;
         program.symbol_owner().with_current(|| {
-            let bundle = BundleView::new(program, sources, entry_source_id);
             let mut module_record_cache = ModuleRecordCache::default();
             // Resolve bodies once to collect dependencies, then check against the
             // fixed-point contracts so callers never depend on source order.
@@ -1162,7 +1300,7 @@ impl Checker {
             let (effect_graph, effect_summaries) = Self::solve_effect_probes(|summaries| {
                 loop {
                     let records = module_record_cache.get_or_prepare(
-                        &bundle,
+                        view,
                         if byte_script_arguments {
                             ArgsDomain::Bytes
                         } else {
@@ -1175,7 +1313,7 @@ impl Checker {
                     probe.collecting_effects = true;
                     probe.effect_summaries = summaries.clone();
                     probe.check_program_arena_with_type_program_and_sources(
-                        &bundle,
+                        view,
                         source,
                         type_program.clone(),
                         &records,
@@ -1183,7 +1321,7 @@ impl Checker {
                     // Resolve the entry signature before committing any body facts.
                     // Rechecking also gives imported modules the same argument type.
                     if options.interactive_commands.is_none() && !byte_script_arguments
-                        && byte_argument_main(program, &probe.parameter_types) {
+                        && byte_argument_main_in_view(view, &probe.parameter_types) {
                         byte_script_arguments = true;
                         continue;
                     }
@@ -1196,7 +1334,7 @@ impl Checker {
             checker.effect_summaries = effect_summaries;
             checker.effect_graph = effect_graph;
             let records = module_record_cache.get_or_prepare(
-                &bundle,
+                view,
                 if byte_script_arguments {
                     ArgsDomain::Bytes
                 } else {
@@ -1204,7 +1342,7 @@ impl Checker {
                 },
             );
             checker.check_program_arena_with_type_program_and_sources(
-                &bundle,
+                view,
                 source,
                 type_program,
                 &records,
@@ -1345,6 +1483,8 @@ impl Checker {
             proven_nonnull_fallback_receivers: BTreeSet::default(),
             dynamic_require_receivers: FxHashMap::default(),
             current_namespace: None,
+            bundle_root_statements: None,
+            bundle_module_keys: None,
             type_namespaces: FxHashMap::default(),
             tag_variants: FxHashMap::default(),
             error_families: FxHashMap::default(),
@@ -1494,13 +1634,22 @@ impl Checker {
 
     fn check_program_arena_with_type_program_and_sources(
         &mut self,
-        bundle: &BundleView<'_>,
+        bundle: &CheckBundleView<'_>,
         source: &str,
         type_program: Arc<crate::syntax::arena::ArenaProgram>,
         records: &ModuleRecords,
     ) {
         self.resolved_command_sites.clear();
         let program = bundle.program;
+        self.bundle_root_statements = Some(bundle.root_statements);
+        self.bundle_module_keys = Some(
+            bundle
+                .modules
+                .iter()
+                .map(|module| module.key.clone())
+                .collect::<Vec<_>>()
+                .into(),
+        );
         debug_assert_eq!(
             records.root().args_domain,
             if self.byte_script_arguments {
@@ -1513,8 +1662,10 @@ impl Checker {
         let statements = records.root().statements();
         if !self.collecting_effects {
             self.diagnostics
-                .extend(crate::syntax::grouping::grouping_diagnostics(
-                    program, source,
+                .extend(crate::syntax::grouping::grouping_diagnostics_in_range(
+                    program,
+                    bundle.root_statements,
+                    source,
                 ));
         }
         self.collect_user_modules_arena(&bundle, records, type_program.clone(), source);
@@ -1595,7 +1746,7 @@ impl Checker {
         let instances: Vec<_> = self.record_constructor_instances.iter().map(|(&span, fact)| (span, fact.clone())).collect();
         for (span, fact) in instances { self.publish_constructor_type_expressions(program, span, &fact); }
         let (entries, diagnostics) = crate::sema::cli_entry::validate_cli_entry(
-            program,
+            bundle,
             |parameter| {
                 self.checked_parameter_type(program, parameter)
                     .unwrap_or_else(|| {
@@ -1612,7 +1763,7 @@ impl Checker {
         self.checked_declarations.cli_entries = entries;
         self.diagnostics.extend(diagnostics);
         if !self.collecting_effects {
-            let resource_check = resource::check(self, program);
+            let resource_check = resource::check(self, bundle);
             self.diagnostics.extend(resource_check.diagnostics);
             self.resource_transfers = resource_check.transfers;
         }
@@ -1948,6 +2099,21 @@ pub(crate) fn byte_argument_main(
     program: &ArenaProgram,
     parameter_types: &BTreeMap<Span, Type>,
 ) -> bool {
+    byte_argument_main_with_statements(program, program.statement_ids(), parameter_types)
+}
+
+fn byte_argument_main_in_view(
+    view: &CheckBundleView<'_>,
+    parameter_types: &BTreeMap<Span, Type>,
+) -> bool {
+    byte_argument_main_with_statements(view.program, view.statement_ids(), parameter_types)
+}
+
+fn byte_argument_main_with_statements(
+    program: &ArenaProgram,
+    mut statements: impl Iterator<Item = StmtId>,
+    parameter_types: &BTreeMap<Span, Type>,
+) -> bool {
     fn entry(program: &ArenaProgram, id: crate::syntax::arena::StmtId) -> Option<crate::syntax::arena::FunctionDefId> {
         match program.arena.stmt(id).kind {
             ArenaStmtKind::Export(inner) => entry(program, inner),
@@ -1958,7 +2124,7 @@ pub(crate) fn byte_argument_main(
             _ => None,
         }
     }
-    let Some(definition) = program.statement_ids().find_map(|id| entry(program, id)) else {
+    let Some(definition) = statements.find_map(|id| entry(program, id)) else {
         return false;
     };
     let parameters = program.arena.params(program.arena.function_def(definition).params);

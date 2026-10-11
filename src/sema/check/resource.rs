@@ -1,10 +1,10 @@
 use crate::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaCallArgKind, ArenaChild,
-    ArenaExprKind, ArenaExprOrRun, ArenaProgram, ArenaStmtKind, AssignTargetId,
-    BlockId, ExprId, StmtId, SugarView,
+    ArenaExprKind, ArenaExprOrRun, ArenaProgram, ArenaRange, ArenaStmtKind, ArenaUserModule,
+    AssignTargetId, BlockId, ExprId, StmtId, SugarView,
 };
 use crate::syntax::node::AssignOp;
-use super::{BindingId, Checker, Diagnostic, DiagnosticCode, Label, Name, Span, Type};
+use super::{BindingId, CheckBundleView, Checker, Diagnostic, DiagnosticCode, Label, Name, Span, Type};
 use rustc_hash::{FxHashMap, FxHashSet};
 use crate::modules::ManagedResource;
 use xsh_registry::managed_resource::ResourceConsumption;
@@ -26,10 +26,12 @@ pub(super) struct ResourceCheck {
     pub transfers: ResourceTransferFacts,
 }
 
-pub(super) fn check(checker: &Checker, program: &ArenaProgram) -> ResourceCheck {
+pub(super) fn check(checker: &Checker, view: &CheckBundleView<'_>) -> ResourceCheck {
     Analyzer {
         checker,
-        program,
+        program: view.program,
+        root_statements: view.root_statements,
+        modules: view.modules.clone(),
         blocks: FxHashSet::default(),
         diagnostics: Vec::new(),
         transfers: FxHashMap::default(),
@@ -41,6 +43,8 @@ pub(super) fn check(checker: &Checker, program: &ArenaProgram) -> ResourceCheck 
 struct Analyzer<'a> {
     checker: &'a Checker,
     program: &'a ArenaProgram,
+    root_statements: ArenaRange,
+    modules: Vec<&'a ArenaUserModule>,
     blocks: FxHashSet<BlockId>,
     diagnostics: Vec<Diagnostic>,
     transfers: ResourceTransferFacts,
@@ -49,9 +53,9 @@ struct Analyzer<'a> {
 
 impl Analyzer<'_> {
     fn run(mut self) -> ResourceCheck {
-        let root = self.program.statement_ids().collect::<Vec<_>>();
+        let root = self.program.arena.stmt_ids(self.root_statements).collect::<Vec<_>>();
         self.analyze_scope(&root);
-        let modules = self.program.modules.iter().map(|module| {
+        let modules = self.modules.iter().map(|module| {
             self.program.module_statements(module).collect::<Vec<_>>()
         }).collect::<Vec<_>>();
         for statements in &modules {

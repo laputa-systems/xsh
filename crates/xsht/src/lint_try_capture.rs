@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
-use xsh::frontend::check::{CheckOutput, Checker, Type};
+use xsh::frontend::check::{CheckBundleView, CheckOutput, Checker, CheckOptions, Type};
 use xsh::frontend::source::Span;
 use xsh::frontend::symbols::Name;
 use xsh::frontend::syntax::arena::{
@@ -13,9 +13,17 @@ use xsh::frontend::syntax::parser::Parser;
 /// Eliminate a closed, straight-line fallible helper at its sole eager fallback
 /// use. Restricting the body to immutable locals and scalar methods excludes
 /// captures, callable defaults, resource escape, and lexical control transfers.
-pub(super) fn lint_try_capture_helpers(program: &ArenaProgram, source: &str) -> Vec<Diagnostic> {
-    let before = std::cell::LazyCell::new(|| Checker::check_arena(program, source));
-    let statements = program.statement_ids().collect::<Vec<_>>();
+pub(super) fn lint_try_capture_helpers(view: &CheckBundleView<'_>, source: &str) -> Vec<Diagnostic> {
+    let program = view.program();
+    let before = std::cell::LazyCell::new(|| {
+        Checker::check_bundle_view_with_type_program(
+            view,
+            source,
+            CheckOptions::default(),
+            std::sync::Arc::new(program.clone()),
+        )
+    });
+    let statements = view.statement_ids().collect::<Vec<_>>();
     let mut diagnostics = Vec::new();
     for pair in statements.windows(2) {
         let definition = program.arena.stmt(pair[0]);

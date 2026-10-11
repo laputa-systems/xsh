@@ -1,7 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
 use super::{
-    BTreeMap, BundleView, Checker, CheckedFunctionKind, CoreCommand, ErrorFamilyInfo,
+    BTreeMap, CheckBundleView, Checker, CheckedFunctionKind, CoreCommand, ErrorFamilyInfo,
     ErrorVariantInfo, FxHashSet, ModuleRecords, Name, QualifiedName, Span, TagVariantInfo, Type,
     TypeAnnRef, TypeDefBody, UserModuleSig, api_spec,
 };
@@ -21,7 +21,7 @@ use std::sync::Arc;
 impl Checker {
     pub(super) fn collect_user_modules_arena(
         &mut self,
-        view: &BundleView<'_>,
+        view: &CheckBundleView<'_>,
         records: &ModuleRecords,
         type_program: Arc<ArenaProgram>,
         source: &str,
@@ -343,7 +343,7 @@ impl Checker {
 
     pub(super) fn check_user_module_arena(
         &mut self,
-        view: &BundleView<'_>,
+        view: &CheckBundleView<'_>,
         record: &super::module_record::ModuleRecord,
         type_program: Arc<ArenaProgram>,
         source: &str,
@@ -1152,14 +1152,9 @@ fn type_def_body_arena(
                 .tag_variants(variants)
                 .iter()
                 .map(|variant| TagVariant {
-                    type_name: namespace.map_or_else(
-                        || crate::sema::wire_enums::declaring_enum_name(&program, id),
-                        |namespace| {
-                            crate::sema::wire_enums::nominal_enum_name(
-                                Some(namespace),
-                                program.arena.type_def(id).name,
-                            )
-                        },
+                    type_name: crate::sema::wire_enums::nominal_enum_name(
+                        namespace.or(program.root_nominal_namespace),
+                        program.arena.type_def(id).name,
                     ),
                     name: variant.name,
                     fields: program

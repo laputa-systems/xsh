@@ -18,7 +18,7 @@ use std::time::Instant;
 use xsh::diagnostic::{
     Diagnostic, DiagnosticCode, DiagnosticFamily, DiagnosticRenderer, Label, Severity,
 };
-use xsh::frontend::check::CheckOptions;
+use xsh::frontend::check::{CheckBundleView, CheckOptions};
 use xsh::frontend::load::{
     LoadedImport as WorkspaceImport, LoadedModule, ModuleLoader, module_key, parse_load_check_text,
 };
@@ -27,7 +27,7 @@ use xsh::frontend::symbols::SymbolOwner;
 use xsh::frontend::syntax::arena::{
     ArenaProgram, ArenaProgramBuilder, ArenaRange, ArenaStmtKind, StmtId,
 };
-use xsh::frontend::syntax::grouping::grouping_diagnostics;
+use xsh::frontend::syntax::grouping::grouping_diagnostics_in_range;
 use xsh::frontend::syntax::parser::Parser;
 pub fn lint_files(
     files: &[String],
@@ -314,13 +314,12 @@ struct WorkspaceModule {
 
 /// Parsed source files and their resolved imports for one lint command.
 ///
-/// The arena is shared by every entry bundle. A bundle changes only its root
-/// statement range and reachable module list, so imports are parsed and
-/// resolved once even when several roots reach the same module.
+/// The arena is shared by every entry view. Root ranges and reachable module
+/// lists are borrowed from it, so imports are parsed and resolved once even
+/// when several roots reach the same module.
 struct LintWorkspace {
     sources: SourceMap,
     program: ArenaProgram,
-    module_indices: FxHashMap<String, usize>,
     type_program: std::sync::OnceLock<Arc<ArenaProgram>>,
     modules: FxHashMap<String, WorkspaceModule>,
     roots: Vec<String>,
@@ -453,10 +452,7 @@ fn lint_workspace_with_parallelism(
                 .name("xsht-lint".to_string())
                 .stack_size(super::FRONTEND_WORKER_STACK_BYTES)
                 .spawn_scoped(scope, move || {
-                    // Each worker checks through its own copy of the program.
-                    let (mut bundle, type_program) = timings.time(Stage::Load, || {
-                        (workspace.program.clone(), workspace.type_program())
-                    });
+                    let type_program = timings.time(Stage::Load, || workspace.type_program());
                     loop {
                         if cancellation_output().is_some() {
                             break;
@@ -469,7 +465,6 @@ fn lint_workspace_with_parallelism(
                             workspace,
                             root,
                             fix,
-                            &mut bundle,
                             linted_modules,
                             &type_program,
                             timings,
@@ -499,7 +494,6 @@ fn lint_workspace_root(
     workspace: &LintWorkspace,
     root: &str,
     fix: bool,
-    bundle: &mut ArenaProgram,
     linted_modules: &Mutex<FxHashSet<String>>,
     type_program: &Arc<ArenaProgram>,
     timings: &StageTimings,
@@ -508,7 +502,7 @@ fn lint_workspace_root(
     let Some(root_module) = workspace.modules.get(root) else {
         return Vec::new();
     };
-    workspace.configure_program_for(root, &reachable, bundle);
+    let view = workspace.root_view(root);
     let mut relevant_diagnostics = Vec::new();
     for key in &reachable {
         if let Some(module) = workspace.modules.get(key) {
@@ -533,10 +527,9 @@ fn lint_workspace_root(
 
     let mut checked = timings.time(Stage::Check, || {
         SymbolOwner::new().with_current(|| {
-            xsh::frontend::check::Checker::check_arena_with_sources_options_and_type_program(
-                bundle,
-                &workspace.sources,
-                root_module.source_id,
+            xsh::frontend::check::Checker::check_bundle_view_with_type_program(
+                &view,
+                &root_module.text,
                 CheckOptions::default(),
                 type_program.clone(),
             )
@@ -612,17 +605,18 @@ fn lint_workspace_root(
         let Some(module) = workspace.modules.get(&key) else {
             continue;
         };
-        bundle.statements = module.statements;
-        if key != root {
-            bundle.modules.clear();
-        }
+        let view = if key == root {
+            workspace.root_view(&key)
+        } else {
+            workspace.module_view(&key)
+        };
         let mut options = module.config.lint_options.clone();
         options.checked_output = Some(Arc::clone(&checked));
         let lint_started = Instant::now();
         let mut linted = if key == root {
-            Linter::lint(bundle, &module.text, options)
+            Linter::lint_view(&view, &module.text, options)
         } else {
-            Linter::lint_module(bundle, &module.text, options)
+            Linter::lint_module_view(&view, &module.text, options)
         };
         if !module.diagnostics.is_empty() {
             linted.diagnostics.clear();
@@ -652,7 +646,7 @@ fn lint_workspace_root(
         let module_grouping = if key == root {
             Vec::new()
         } else {
-            grouping_diagnostics(bundle, &module.text)
+            grouping_diagnostics_in_range(&workspace.program, module.statements, &module.text)
         };
         timings.record(Stage::Lint, lint_started.elapsed());
         if !fix {
@@ -863,14 +857,12 @@ fn migrate_workspace_syntax(
             2,
         );
     }
-    let mut program = candidate.program.clone();
-    candidate.configure_program_for(root, &candidate.reachable_modules(root), &mut program);
-    let checked = xsh::frontend::check::Checker::check_arena_with_sources_options_and_type_program(
-        &program,
-        &candidate.sources,
-        candidate.modules[root].source_id,
+    let view = candidate.root_view(root);
+    let checked = xsh::frontend::check::Checker::check_bundle_view_with_type_program(
+        &view,
+        &candidate.modules[root].text,
         CheckOptions::default(),
-        Arc::new(program.clone()),
+        candidate.type_program(),
     );
     if !checked.diagnostics.is_empty() {
         return failure(
@@ -1022,16 +1014,9 @@ impl LintWorkspace {
         roots: Vec<String>,
         input_errors: Vec<String>,
     ) -> Self {
-        let module_indices = program
-            .modules
-            .iter()
-            .enumerate()
-            .map(|(index, module)| (module.key.clone(), index))
-            .collect();
         Self {
             sources,
             program,
-            module_indices,
             type_program: std::sync::OnceLock::new(),
             modules,
             roots,
@@ -1055,87 +1040,25 @@ impl LintWorkspace {
         reachable_keys(&[root.to_string()].into_iter().collect(), &self.modules)
     }
 
-    fn configure_program_for(
-        &self,
-        root: &str,
-        reachable: &FxHashSet<String>,
-        program: &mut ArenaProgram,
-    ) {
-        program.statements = self
-            .modules
-            .get(root)
-            .expect("workspace root exists")
-            .statements;
-        let mut ordered_keys = Vec::new();
-        let mut visited = FxHashSet::default();
-        order_modules_depth_first(
-            root,
-            reachable,
-            &self.modules,
-            &mut visited,
-            &mut ordered_keys,
-        );
-        program.modules = ordered_keys
-            .into_iter()
-            .filter(|key| key != root)
-            .filter_map(|key| self.module_indices.get(&key))
-            .map(|index| self.program.modules[*index].clone())
-            .collect();
-        let allowed_ranges = std::iter::once(program.statements)
-            .chain(program.modules.iter().map(|module| module.statements))
-            .collect::<Vec<_>>();
-        let allowed_statements = allowed_ranges
-            .iter()
-            .flat_map(|range| program.arena.stmt_ids(*range))
-            .collect::<FxHashSet<StmtId>>();
-        let allowed_sources = std::iter::once(root)
-            .chain(program.modules.iter().map(|module| module.key.as_str()))
-            .filter_map(|key| self.modules.get(key).map(|module| module.source_id))
-            .collect::<FxHashSet<_>>();
-        program.docs = self.program.docs.clone();
-        program
-            .docs
-            .module_ranges
-            .retain(|(range, _)| allowed_ranges.contains(range));
-        program
-            .docs
-            .exports
-            .retain(|(statement, _)| allowed_statements.contains(statement));
-        program
-            .docs
-            .orphaned
-            .retain(|span| allowed_sources.contains(&span.source_id));
-        program
-            .docs
-            .duplicate_modules
-            .retain(|span| allowed_sources.contains(&span.source_id));
+    fn root_view(&self, root: &str) -> CheckBundleView<'_> {
+        let module = &self.modules[root];
+        CheckBundleView::for_root(
+            &self.program,
+            module.statements,
+            Some(&self.sources),
+            Some(module.source_id),
+        )
     }
-}
 
-fn order_modules_depth_first(
-    key: &str,
-    reachable: &FxHashSet<String>,
-    modules: &FxHashMap<String, WorkspaceModule>,
-    visited: &mut FxHashSet<String>,
-    ordered: &mut Vec<String>,
-) {
-    if !reachable.contains(key) || !visited.insert(key.to_string()) {
-        return;
+    fn module_view(&self, key: &str) -> CheckBundleView<'_> {
+        let module = &self.modules[key];
+        CheckBundleView::for_module(
+            &self.program,
+            module.statements,
+            Some(&self.sources),
+            Some(module.source_id),
+        )
     }
-    if let Some(module) = modules.get(key) {
-        let mut dependencies = module
-            .imports
-            .iter()
-            .filter_map(|import| import.target.as_ref())
-            .filter(|target| reachable.contains(*target))
-            .cloned()
-            .collect::<Vec<_>>();
-        dependencies.sort_unstable();
-        for dependency in dependencies {
-            order_modules_depth_first(&dependency, reachable, modules, visited, ordered);
-        }
-    }
-    ordered.push(key.to_string());
 }
 
 /// Source parentheses that do not change the parse leave every checked fact
@@ -2335,13 +2258,12 @@ print ${name}
         let workspace =
             LintWorkspace::new(sources, program, modules, vec![root.clone()], Vec::new());
         let reachable = workspace.reachable_modules(&root);
-        let mut bundle = workspace.program.clone();
-        workspace.configure_program_for(&root, &reachable, &mut bundle);
-        let checked = xsh::frontend::check::Checker::check_arena_with_sources_and_options(
-            &bundle,
-            &workspace.sources,
-            workspace.modules[&root].source_id,
+        let view = workspace.root_view(&root);
+        let checked = xsh::frontend::check::Checker::check_bundle_view_with_type_program(
+            &view,
+            &workspace.modules[&root].text,
             xsh::frontend::check::CheckOptions::default(),
+            workspace.type_program(),
         );
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let checked = std::sync::Arc::new(checked);
@@ -2353,14 +2275,15 @@ print ${name}
                 .any(|span| span.source_id != module.source_id));
             let mut shared = LintOptions::default();
             shared.checked_output = Some(std::sync::Arc::clone(&checked));
-            bundle.statements = module.statements;
-            if key != root {
-                bundle.modules.clear();
-            }
-            let output = if key == root {
-                crate::xsht::lint::Linter::lint(&bundle, &module.text, shared)
+            let view = if key == root {
+                workspace.root_view(&root)
             } else {
-                crate::xsht::lint::Linter::lint_module(&bundle, &module.text, shared)
+                workspace.module_view(&key)
+            };
+            let output = if key == root {
+                crate::xsht::lint::Linter::lint_view(&view, &module.text, shared)
+            } else {
+                crate::xsht::lint::Linter::lint_module_view(&view, &module.text, shared)
             };
             assert!(output.diagnostics.iter().all(|diagnostic| diagnostic
                 .labels
@@ -2406,7 +2329,6 @@ print ${name}
             std::sync::Arc::ptr_eq(&type_program, &workspace.type_program()),
             "workers share the same immutable arena for type references"
         );
-        let mut bundle = workspace.program.clone();
         for (root_index, expected_modules) in [
             (0, vec!["shared", "branch"]),
             (1, vec!["shared"]),
@@ -2414,11 +2336,11 @@ print ${name}
         ] {
             let key = &workspace.roots[root_index];
             let reachable = workspace.reachable_modules(key);
-            workspace.configure_program_for(key, &reachable, &mut bundle);
-            assert_eq!(bundle.statements, workspace.modules[key].statements);
+            let view = workspace.root_view(key);
+            assert_eq!(view.root_statements(), workspace.modules[key].statements);
+            let viewed_modules = view.modules().collect::<Vec<_>>();
             assert_eq!(
-                bundle
-                    .modules
+                viewed_modules
                     .iter()
                     .map(|module| module.key.clone())
                     .collect::<Vec<_>>(),
@@ -2429,30 +2351,26 @@ print ${name}
                     ))
                     .collect::<Vec<_>>()
             );
-            for module in &bundle.modules {
+            for module in &viewed_modules {
                 assert_eq!(module.statements, workspace.modules[&module.key].statements);
                 assert_eq!(module.name.as_str(), module.key.as_str());
+                assert!(workspace.program.module_doc_for(module.statements).is_some());
             }
             let allowed_sources = reachable
                 .iter()
                 .map(|key| workspace.modules[key].source_id)
                 .collect::<rustc_hash::FxHashSet<_>>();
-            assert_eq!(bundle.docs.module_ranges.len(), reachable.len());
+            assert_eq!(viewed_modules.len(), expected_modules.len());
             assert!(
-                bundle
-                    .docs
-                    .module_ranges
-                    .iter()
-                    .all(|(_, span)| allowed_sources.contains(&span.source_id))
+                viewed_modules.iter().all(|module| workspace
+                    .program
+                    .module_doc_for(module.statements)
+                    .is_some_and(|span| allowed_sources.contains(&span.source_id)))
             );
             assert!(
-                bundle
-                    .docs
-                    .exports
-                    .iter()
-                    .all(|(_, span)| allowed_sources.contains(&span.source_id))
+                workspace.program.docs.exports.iter().filter(|(_, span)| allowed_sources.contains(&span.source_id)).count()
+                    >= expected_modules.len()
             );
-            assert_eq!(bundle.docs.exports.len(), expected_modules.len());
         }
     }
 

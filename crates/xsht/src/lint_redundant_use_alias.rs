@@ -1,12 +1,14 @@
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
+use xsh::frontend::check::CheckBundleView;
 use xsh::frontend::source::Span;
-use xsh::frontend::syntax::arena::{ArenaProgram, ArenaStmtKind};
+use xsh::frontend::syntax::arena::ArenaStmtKind;
 
 /// `use a.b` already binds `b`, so `use a.b as b` says the same thing twice.
 /// Dropping the alias leaves the binding, and so the program, unchanged.
-pub(super) fn lint_redundant_use_aliases(program: &ArenaProgram, source: &str) -> Vec<Diagnostic> {
+pub(super) fn lint_redundant_use_aliases(view: &CheckBundleView<'_>, source: &str) -> Vec<Diagnostic> {
+    let program = view.program();
     let mut diagnostics = Vec::new();
-    for statement in program.statement_ids() {
+    for statement in view.statement_ids() {
         let stmt = program.arena.stmt(statement);
         let ArenaStmtKind::Use(id) = stmt.kind else {
             continue;
@@ -61,16 +63,20 @@ fn alias_clause_span(source: &str, statement: Span, alias: &str) -> Option<Span>
 mod tests {
     use super::{alias_clause_span, lint_redundant_use_aliases};
     use xsh::diagnostic::{Diagnostic, DiagnosticCode};
+    use xsh::frontend::check::CheckBundleView;
     use xsh::frontend::source::{SourceId, Span};
     use xsh::frontend::syntax::parser::Parser;
 
     fn lint(source: &str) -> Vec<Diagnostic> {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        parsed
-            .arena
-            .symbol_owner()
-            .with_current(|| lint_redundant_use_aliases(&parsed.arena, source))
+        let view = CheckBundleView::for_root(
+            &parsed.arena,
+            parsed.arena.statements,
+            None,
+            Some(SourceId::new(0)),
+        );
+        parsed.arena.symbol_owner().with_current(|| lint_redundant_use_aliases(&view, source))
     }
 
     fn apply(diagnostics: &[Diagnostic], source: &str) -> String {

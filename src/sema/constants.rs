@@ -1,7 +1,7 @@
 use crate::diagnostic::DiagnosticCode;
 use crate::map_key::MapKey;
 use crate::sema::records::standard_record_type;
-use crate::sema::check::BundleView;
+use crate::sema::check::CheckBundleView;
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
 use crate::symbol::{Name, Symbol};
 use crate::syntax::arena::{
@@ -474,13 +474,18 @@ impl RecordConstructors {
     }
 
     pub fn collect(program: &ArenaProgram) -> Self {
-        Self::collect_bundle(&BundleView::whole_program(program))
+        Self::collect_bundle(&CheckBundleView::whole_program(program))
     }
 
-    pub(super) fn collect_bundle(view: &BundleView<'_>) -> Self {
+    /// Collect constructors visible in the view's root and reachable modules.
+    pub fn collect_view(view: &crate::sema::check::CheckBundleView<'_>) -> Self {
+        Self::collect_bundle(view)
+    }
+
+    pub(super) fn collect_bundle(view: &CheckBundleView<'_>) -> Self {
         let program = view.program;
         let mut index = Self::default();
-        index.declare_scope(program, None, program.statement_ids().collect());
+        index.declare_scope(program, None, view.statement_ids().collect());
         for module in view.modules.iter().copied() {
             index.declare_scope(
                 program,
@@ -488,7 +493,7 @@ impl RecordConstructors {
                 program.module_statements(module).collect(),
             );
         }
-        index.collect_scope(program, None, program.statement_ids().collect());
+        index.collect_scope(program, None, view.statement_ids().collect());
         for module in view.modules.iter().copied() {
             index.collect_scope(
                 program,
@@ -517,7 +522,10 @@ impl RecordConstructors {
                     self.namespaces.insert(id, namespace);
                     self.nominal_names.insert(
                         id,
-                        crate::sema::wire_enums::declaring_enum_name(program, id),
+                        crate::sema::wire_enums::nominal_enum_name(
+                            namespace.or(program.root_nominal_namespace),
+                            name,
+                        ),
                     );
                     if exported {
                         self.exports.insert((namespace, name));
@@ -564,19 +572,19 @@ impl RecordConstructors {
         program: &ArenaProgram,
         prepared: &PreparedConstants,
     ) {
-        self.apply_prepared_defaults_bundle(&BundleView::whole_program(program), prepared);
+        self.apply_prepared_defaults_bundle(&CheckBundleView::whole_program(program), prepared);
     }
 
     pub(super) fn apply_prepared_defaults_bundle(
         &mut self,
-        view: &BundleView<'_>,
+        view: &CheckBundleView<'_>,
         prepared: &PreparedConstants,
     ) {
         let program = view.program;
         self.collect_scope_prepared(
             program,
             None,
-            program.statement_ids().collect(),
+            view.statement_ids().collect(),
             Some(prepared),
         );
         for module in view.modules.iter().copied() {
@@ -1789,7 +1797,7 @@ mod instance_tests {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty());
         parsed.arena.symbol_owner().with_current(|| {
-            let view = BundleView::new(&parsed.arena, None, Some(SourceId::new(0)));
+            let view = CheckBundleView::new(&parsed.arena, None, Some(SourceId::new(0)));
             let index = RecordConstructors::collect_bundle(&view);
             let definition = index.definition(None, Name::intern("Box")).unwrap();
             let mut constraints = super::super::constraints::TypeConstraints::default();
@@ -1841,7 +1849,7 @@ mod instance_tests {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty());
         parsed.arena.symbol_owner().with_current(|| {
-            let view = BundleView::new(&parsed.arena, None, Some(SourceId::new(0)));
+            let view = CheckBundleView::new(&parsed.arena, None, Some(SourceId::new(0)));
             let index = RecordConstructors::collect_bundle(&view);
             let definition = |name: &str| index.definition(None, Name::intern(name)).unwrap();
             let count = index
@@ -1982,7 +1990,7 @@ mod prepared_constant_tests {
             assert!(root.diagnostics.is_empty());
             let program = builder.finish_with_statements(root.statements);
             program.symbol_owner().with_current(|| {
-                let view = BundleView::new(&program, None, Some(SourceId::new(1)));
+                let view = CheckBundleView::new(&program, None, Some(SourceId::new(1)));
                 let constructors = RecordConstructors::collect_bundle(&view);
                 let bindings = crate::sema::check::ResolvedBindings::collect(&program);
                 let prepared = PreparedConstants::collect_bundle(&view, &constructors, &bindings);
@@ -2022,7 +2030,7 @@ mod prepared_constant_tests {
         );
         assert!(parsed.diagnostics.is_empty());
         parsed.arena.symbol_owner().with_current(|| {
-            let view = BundleView::new(&parsed.arena, None, Some(SourceId::new(0)));
+            let view = CheckBundleView::new(&parsed.arena, None, Some(SourceId::new(0)));
             let constructors = RecordConstructors::collect_bundle(&view);
             let bindings = crate::sema::check::ResolvedBindings::collect(&parsed.arena);
             let prepared = PreparedConstants::collect_bundle(&view, &constructors, &bindings);
@@ -2087,7 +2095,7 @@ mod prepared_constant_tests {
         }
         let program = builder.finish_with_statements(root.statements);
         program.symbol_owner().with_current(|| {
-            let view = BundleView::new(&program, None, Some(SourceId::new(1)));
+            let view = CheckBundleView::new(&program, None, Some(SourceId::new(1)));
             assert_eq!(
                 view.modules
                     .iter()
@@ -2333,14 +2341,14 @@ impl PreparedConstants {
         bindings: &crate::sema::check::ResolvedBindings,
     ) -> Self {
         Self::collect_bundle(
-            &BundleView::whole_program(program),
+            &CheckBundleView::whole_program(program),
             constructors,
             bindings,
         )
     }
 
     pub(super) fn collect_bundle(
-        view: &BundleView<'_>,
+        view: &CheckBundleView<'_>,
         constructors: &RecordConstructors,
         bindings: &crate::sema::check::ResolvedBindings,
     ) -> Self {

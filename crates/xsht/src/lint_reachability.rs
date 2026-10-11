@@ -2,11 +2,12 @@ use super::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCallArg,
     ArenaCallArgKind, ArenaCommand, ArenaCommandArg, ArenaCommandArgKind, ArenaCompQualifier,
     ArenaEnvAssignmentValue, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaPatternKind,
-    ArenaPipeStage, ArenaPipeStageKind, ArenaProgram, ArenaRange, ArenaRecordFieldKind,
+    ArenaPipeStage, ArenaPipeStageKind, ArenaRange, ArenaRecordFieldKind,
     ArenaRedirectionTarget, ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaSugar,
     ArenaSugarOperand, ArenaWordPart, AssignTargetId, AstArena, BindingTargetId, BlockId,
-    BuilderBlockId, CommandStmtId, Diagnostic, DiagnosticCode, ExprId, FunctionDefId, FxHashMap,
-    FxHashSet, Label, Name, PatternId, RunFormId, Severity, Span, StmtId,
+    BuilderBlockId, CheckBundleView, CommandStmtId, Diagnostic, DiagnosticCode, ExprId,
+    FunctionDefId, FxHashMap, FxHashSet, Label, Name, PatternId, RunFormId, Severity, Span,
+    StmtId,
 };
 
 /// The bundle-level namespace and import table used by callable reachability.
@@ -54,22 +55,21 @@ pub(super) struct CallableReachability<'a> {
 }
 
 impl<'a> CallableReachability<'a> {
-    pub(super) fn new(program: &'a ArenaProgram) -> Self {
+    pub(super) fn new(view: &CheckBundleView<'a>) -> Self {
+        let program = view.program();
         let arena = &program.arena;
         let mut module_keys = FxHashMap::default();
-        for (offset, module) in program.modules.iter().enumerate() {
+        for (offset, module) in view.modules().enumerate() {
             module_keys.insert(module.key.clone(), offset + 1);
         }
 
-        let mut modules = Vec::with_capacity(program.modules.len() + 1);
+        let mut modules = Vec::with_capacity(view.modules().count() + 1);
         modules.push(CallableReachabilityModule {
-            statements: program.statements,
+            statements: view.root_statements(),
             imports: FxHashMap::default(),
         });
         modules.extend(
-            program
-                .modules
-                .iter()
+            view.modules()
                 .map(|module| CallableReachabilityModule {
                     statements: module.statements,
                     imports: FxHashMap::default(),

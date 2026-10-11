@@ -1,9 +1,10 @@
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Label, Severity};
 use crate::sema::constants::LiteralConstant;
+use crate::sema::check::CheckBundleView;
 use crate::sema::types::Type;
 use crate::symbol::Name;
 use crate::syntax::arena::{
-    ArenaParam, ArenaProgram, ArenaStmtKind, ExprId, FunctionDefId, StmtId, TypeExprId,
+    ArenaParam, ArenaStmtKind, ExprId, FunctionDefId, StmtId, TypeExprId,
 };
 
 /// What an option holds when the command line does not give it.
@@ -44,21 +45,20 @@ pub(crate) fn cli_word(identifier: &str) -> String {
 }
 
 pub(crate) fn validate_cli_entry(
-    program: &ArenaProgram,
+    view: &CheckBundleView<'_>,
     mut type_of: impl FnMut(&ArenaParam) -> Type,
     mut parser_type: impl FnMut(TypeExprId) -> Option<String>,
     mut default_value: impl FnMut(ExprId) -> Option<LiteralConstant>,
 ) -> (Vec<CliEntryPlan>, Vec<Diagnostic>) {
-    let roots = program.statement_ids().collect::<Vec<_>>();
+    let program = view.program();
+    let roots = view.statement_ids().collect::<Vec<_>>();
     // A workspace arena can hold other entry scripts that this program neither
     // is nor imports; only the entry source and its modules are validated.
     let sources = roots
         .iter()
         .copied()
         .chain(
-            program
-                .modules
-                .iter()
+            view.modules()
                 .flat_map(|module| program.module_statements(module)),
         )
         .map(|id| program.arena.stmt(id).span.source_id)

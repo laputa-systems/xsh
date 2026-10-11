@@ -9,8 +9,8 @@
 use crate::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use crate::source::Span;
 use crate::syntax::arena::{
-    ArenaExprKind, ArenaFmtPart, ArenaProgram, ArenaRecordFieldKind, ArenaSpawnTarget,
-    ArenaStmtKind, AstArena, ExprId,
+    ArenaExprKind, ArenaFmtPart, ArenaProgram, ArenaRange, ArenaRecordFieldKind,
+    ArenaSpawnTarget, ArenaStmtKind, AstArena, ExprId,
 };
 use crate::syntax::grammar::{
     self, CONVERSION, OperatorFamily, PATTERN_TEST, PREFIX, PREFIX_OPERAND, binary_precedence,
@@ -1450,17 +1450,26 @@ pub fn statement_may_continue(kind: &ArenaStmtKind) -> bool {
 /// `check.redundant-parens`, `check.mixed-logical`, and
 /// `check.ambiguous-grouping` for the root source.
 pub fn grouping_diagnostics(program: &ArenaProgram, source: &str) -> Vec<Diagnostic> {
+    grouping_diagnostics_in_range(program, program.statements, source)
+}
+
+/// Check parenthesized spelling only in one root range of a shared arena.
+pub fn grouping_diagnostics_in_range(
+    program: &ArenaProgram,
+    root_statements: ArenaRange,
+    source: &str,
+) -> Vec<Diagnostic> {
     let arena = &program.arena;
-    let Some(source_id) = program
-        .statement_ids()
+    let Some(source_id) = arena
+        .stmt_ids(root_statements)
         .next()
         .map(|id| arena.stmt(id).span.source_id)
     else {
         return Vec::new();
     };
     // Only a check that holds the root source text can judge its spelling.
-    if program
-        .statement_ids()
+    if arena
+        .stmt_ids(root_statements)
         .any(|id| source.get(arena.stmt(id).span.range()).is_none())
     {
         return Vec::new();

@@ -1,4 +1,4 @@
-use super::{BundleView, FxHashMap, FxHashSet, Name, Span};
+use super::{CheckBundleView, FxHashMap, FxHashSet, Name, Span};
 use crate::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaChild, ArenaCompQualifier, ArenaExprKind, ArenaPatternKind,
     ArenaProgram, ArenaRange, ArenaRecordFieldKind, ArenaStmtKind, ArenaTypeDefBody, BindingTargetId, BlockId,
@@ -60,10 +60,10 @@ impl BindingId {
 
 impl ResolvedBindings {
     pub fn collect(program: &ArenaProgram) -> Self {
-        Self::collect_bundle(&BundleView::whole_program(program))
+        Self::collect_bundle(&CheckBundleView::whole_program(program))
     }
 
-    pub(super) fn collect_bundle(view: &BundleView<'_>) -> Self {
+    pub(super) fn collect_bundle(view: &CheckBundleView<'_>) -> Self {
         let program = view.program;
         let mut resolver = ScopeChecker {
             program,
@@ -73,7 +73,7 @@ impl ResolvedBindings {
             globals: FxHashMap::default(),
             zero_variants: FxHashSet::default(),
         };
-        resolver.predeclare(program.statement_ids(), true);
+        resolver.predeclare(view.statement_ids(), true);
         for module in view.modules.iter().copied() {
             resolver.namespace = Some(module.name);
             resolver.predeclare(program.module_statements(module), true);
@@ -84,7 +84,7 @@ impl ResolvedBindings {
             resolver.file(program.module_statements(module).collect());
         }
         resolver.namespace = None;
-        resolver.file(program.statement_ids().collect());
+        resolver.file(view.statement_ids().collect());
         resolver.facts
     }
 

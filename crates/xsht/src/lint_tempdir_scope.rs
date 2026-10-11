@@ -1,5 +1,5 @@
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
-use xsh::frontend::check::{Checker, StatementPosition, Type};
+use xsh::frontend::check::{CheckBundleView, Checker, StatementPosition, Type};
 use xsh::frontend::source::Span;
 use xsh::frontend::symbols::Name;
 use xsh::frontend::syntax::arena::{
@@ -14,12 +14,12 @@ use xsh::frontend::syntax::parser::Parser;
 /// the rest of the block is exactly the body of `tempdir dir { ... }`: the
 /// body's defers and owned handles still finish before the directory is
 /// removed, and creation still fails the statement.
-pub(super) fn lint_tempdir_scopes(linter: &mut super::Linter<'_>, program: &ArenaProgram) {
+pub(super) fn lint_tempdir_scopes(linter: &mut super::Linter<'_>, view: &CheckBundleView<'_>) {
     if !linter.source.contains("fs.tempdir()") {
         return;
     }
     let arena = linter.arena;
-    let statements = program.statement_ids().collect::<Vec<_>>();
+    let statements = view.statement_ids().collect::<Vec<_>>();
     // A workspace lints each module against one arena holding every module.
     let Some(source_id) = statements
         .first()

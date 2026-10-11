@@ -17,24 +17,25 @@
 use rustc_hash::FxHashSet;
 use std::collections::BTreeMap;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
-use xsh::frontend::check::MessagePayloadConstructor;
+use xsh::frontend::check::{CheckBundleView, MessagePayloadConstructor};
 use xsh::frontend::source::Span;
-use xsh::frontend::syntax::arena::{ArenaProgram, ArenaStmtKind};
+use xsh::frontend::syntax::arena::ArenaStmtKind;
 
 /// `constructors` are the checked constructor calls of the program the linted
 /// file was checked in, and `reported` the diagnostics the other rules have
 /// produced for the file.
 pub(super) fn lint_implicit_messages(
-    program: &ArenaProgram,
+    view: &CheckBundleView<'_>,
     source: &str,
     constructors: &BTreeMap<Span, MessagePayloadConstructor>,
     reported: &[Diagnostic],
 ) -> Vec<Diagnostic> {
+    let program = view.program();
     // Every reported site spells the field name, in a declaration or a call.
     if !source.contains("message") {
         return Vec::new();
     }
-    let Some(source_id) = program
+    let Some(source_id) = view
         .statement_ids()
         .next()
         .map(|id| program.arena.stmt(id).span.source_id)
@@ -89,7 +90,7 @@ pub(super) fn lint_implicit_messages(
         diagnostics.push(diagnostic);
     }
 
-    for statement in program.statement_ids() {
+    for statement in view.statement_ids() {
         let outer = program.arena.stmt(statement);
         let (inner, exported) = match outer.kind {
             ArenaStmtKind::Export(inner) => (program.arena.stmt(inner), true),

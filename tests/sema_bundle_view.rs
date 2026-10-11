@@ -3,7 +3,8 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use xsh::frontend::check::{CheckOptions, CheckOutput, Checker, Type};
+use xsh::diagnostic::DiagnosticCode;
+use xsh::frontend::check::{CheckBundleView, CheckOptions, CheckOutput, Checker, Type};
 use xsh::frontend::source::{SourceId, SourceMap};
 use xsh::frontend::syntax::arena::{ArenaProgram, ArenaProgramBuilder};
 use xsh::frontend::syntax::node::Effect;
@@ -75,12 +76,17 @@ fn checker_preparation_is_scoped_to_each_root_in_a_shared_arena() {
         }
     }
 
-    let mut program = builder.finish_with_statements(alpha_entry.statements);
+    let program = builder.finish_with_statements(alpha_entry.statements);
     let type_program = Arc::new(program.clone());
-    let alpha_check = Checker::check_arena_with_sources_options_and_type_program(
+    let alpha_view = CheckBundleView::for_root(
         &program,
-        &sources,
-        alpha_entry_id,
+        alpha_entry.statements,
+        Some(&sources),
+        Some(alpha_entry_id),
+    );
+    let alpha_check = Checker::check_bundle_view_with_type_program(
+        &alpha_view,
+        alpha_entry_source,
         CheckOptions::default(),
         type_program.clone(),
     );
@@ -105,11 +111,18 @@ fn checker_preparation_is_scoped_to_each_root_in_a_shared_arena() {
     assert!(alpha_sources.contains(&unrelated_module_id));
     assert!(!alpha_sources.contains(&other_entry_id));
 
-    program.statements = other_entry.statements;
-    let other_check = Checker::check_arena_with_sources_options_and_type_program(
+    let other_view = CheckBundleView::for_root(
         &program,
-        &sources,
-        other_entry_id,
+        other_entry.statements,
+        Some(&sources),
+        Some(other_entry_id),
+    );
+    assert_eq!(alpha_view.modules().count(), 2);
+    assert_eq!(other_view.modules().count(), 1);
+    assert_eq!(program.statements, alpha_entry.statements);
+    let other_check = Checker::check_bundle_view_with_type_program(
+        &other_view,
+        other_entry_source,
         CheckOptions::default(),
         type_program,
     );
@@ -129,4 +142,74 @@ fn checker_preparation_is_scoped_to_each_root_in_a_shared_arena() {
     assert!(!other_sources.contains(&alpha_entry_id));
     assert!(other_sources.contains(&alpha_module_id));
     assert!(!other_sources.contains(&unrelated_module_id));
+}
+
+#[test]
+fn wire_enum_and_cli_validation_use_the_selected_root() {
+    let mut sources = SourceMap::new();
+    let alpha_source = "enum AlphaState: Str { Ready = \"ready\" }\ncli main() [] {}\n";
+    let beta_source = "enum BetaState: Str { Broken = unresolved }\ncli main() [] {}\nproc main() [] {}\n";
+    let alpha_id = sources.add_file("alpha-entry.xsh", alpha_source);
+    let beta_id = sources.add_file("beta-entry.xsh", beta_source);
+
+    let mut builder = ArenaProgramBuilder::with_token_capacity(64);
+    let alpha = Parser::parse_source_into_arena_builder(alpha_id, alpha_source, &mut builder);
+    let beta = Parser::parse_source_into_arena_builder(beta_id, beta_source, &mut builder);
+    assert!(alpha.diagnostics.is_empty(), "{:?}", alpha.diagnostics);
+    assert!(beta.diagnostics.is_empty(), "{:?}", beta.diagnostics);
+
+    let program = builder.finish_with_statements(alpha.statements);
+    let type_program = Arc::new(program.clone());
+    let alpha_view = CheckBundleView::for_root(&program, alpha.statements, None, Some(alpha_id));
+    let alpha_check = Checker::check_bundle_view_with_type_program(
+        &alpha_view,
+        alpha_source,
+        CheckOptions::default(),
+        type_program.clone(),
+    );
+    assert!(
+        alpha_check
+            .diagnostics
+            .iter()
+            .all(|diagnostic| !matches!(
+                diagnostic.code,
+                Some(DiagnosticCode::CheckEnumWireMapping | DiagnosticCode::CheckCliEntry)
+            )),
+        "{:?}",
+        alpha_check.diagnostics
+    );
+    assert!(alpha_check
+        .checked_declarations
+        .wire_enums
+        .mappings
+        .keys()
+        .any(|name| name.as_str() == "AlphaState"));
+    assert!(!alpha_check
+        .checked_declarations
+        .wire_enums
+        .mappings
+        .keys()
+        .any(|name| name.as_str() == "BetaState"));
+
+    let beta_view = CheckBundleView::for_root(&program, beta.statements, None, Some(beta_id));
+    let beta_check = Checker::check_bundle_view_with_type_program(
+        &beta_view,
+        beta_source,
+        CheckOptions::default(),
+        type_program,
+    );
+    assert!(beta_check
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckEnumWireMapping)));
+    assert!(beta_check
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckCliEntry)));
+    assert!(!beta_check
+        .checked_declarations
+        .wire_enums
+        .mappings
+        .keys()
+        .any(|name| name.as_str() == "AlphaState"));
 }

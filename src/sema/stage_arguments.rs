@@ -2,7 +2,7 @@ use crate::sema::types::{CallableParamType, Type};
 use crate::source::Span;
 use crate::symbol::Name;
 use crate::syntax::arena::{
-    ArenaCallArgInput, ArenaCallArgKind, ArenaProgram, ArenaStreamStage, ExprId,
+    ArenaCallArgInput, ArenaCallArgKind, ArenaProgram, ArenaRange, ArenaStreamStage, ExprId,
 };
 use xsh_registry::stream_parameters::{
     StageParameterDefault, StageParameterType, stage_parameters,
@@ -31,20 +31,30 @@ pub(crate) fn stage_namespace_is_imported(
     program: &ArenaProgram,
     namespace: Name,
     owner: Option<Name>,
+    root_statements: Option<ArenaRange>,
+    module_keys: Option<&[String]>,
 ) -> bool {
-    stage_namespace_owner(program, namespace, owner).is_some()
+    stage_namespace_owner(program, namespace, owner, root_statements, module_keys).is_some()
 }
 
 pub(crate) fn stage_namespace_owner(
     program: &ArenaProgram,
     namespace: Name,
     owner: Option<Name>,
+    root_statements: Option<ArenaRange>,
+    module_keys: Option<&[String]>,
 ) -> Option<Name> {
     let statements = if let Some(owner) = owner {
-        let module = program.modules.iter().find(|module| module.name == owner)?;
+        let module = program.modules.iter().find(|module| {
+            module.name == owner
+                && module_keys.is_none_or(|keys| keys.iter().any(|key| key == &module.key))
+        })?;
         program.module_statements(module).collect::<Vec<_>>()
     } else {
-        program.statement_ids().collect::<Vec<_>>()
+        match root_statements {
+            Some(range) => program.arena.stmt_ids(range).collect::<Vec<_>>(),
+            None => program.statement_ids().collect::<Vec<_>>(),
+        }
     };
     statements.into_iter().find_map(|statement| {
         let crate::syntax::arena::ArenaStmtKind::Use(id) = program.arena.stmt(statement).kind
@@ -63,7 +73,10 @@ pub(crate) fn stage_namespace_owner(
         program
             .modules
             .iter()
-            .find(|module| module.key.as_str() == key)
+            .find(|module| {
+                module.key.as_str() == key
+                    && module_keys.is_none_or(|keys| keys.iter().any(|key| key == &module.key))
+            })
             .map(|module| module.name)
     })
 }

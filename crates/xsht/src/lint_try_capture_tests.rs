@@ -1,6 +1,6 @@
 use super::lint_try_capture_helpers;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode};
-use xsh::frontend::check::Checker;
+use xsh::frontend::check::{CheckBundleView, Checker};
 use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::parser::Parser;
 
@@ -9,10 +9,16 @@ fn migration(source: &str) -> Vec<Diagnostic> {
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let view = CheckBundleView::for_root(
+        &parsed.arena,
+        parsed.arena.statements,
+        None,
+        Some(SourceId::new(0)),
+    );
     parsed
         .arena
         .symbol_owner()
-        .with_current(|| lint_try_capture_helpers(&parsed.arena, source))
+        .with_current(|| lint_try_capture_helpers(&view, source))
 }
 
 fn apply(diagnostics: &[Diagnostic], source: &str) -> String {

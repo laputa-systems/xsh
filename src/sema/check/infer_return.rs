@@ -1,5 +1,5 @@
 use super::{
-    AnnotationFact, AnnotationFactKind, BundleView, Checker, FxHashMap, FxHashSet, Name, Span,
+    AnnotationFact, AnnotationFactKind, CheckBundleView, Checker, FxHashMap, FxHashSet, Name, Span,
     Type,
 };
 use crate::diagnostic::DiagnosticCode;
@@ -31,7 +31,7 @@ pub(super) struct ReturnInferenceIndex {
 }
 
 impl ReturnInferenceIndex {
-    pub(super) fn collect(view: &BundleView<'_>) -> Self {
+    pub(super) fn collect(view: &CheckBundleView<'_>) -> Self {
         let program = view.program;
         let mut shadows: FxHashMap<Name, Vec<Span>> = FxHashMap::default();
         let mut add_shadow = |target, span| {
@@ -252,7 +252,7 @@ impl Checker {
     /// their bodies are still checked in source order with the inferred return.
     pub(super) fn infer_local_pure_returns(
         &mut self,
-        view: &BundleView<'_>,
+        view: &CheckBundleView<'_>,
         source: &str,
         statements: &[StmtId],
     ) {

@@ -1,5 +1,5 @@
 use super::{
-    BundleView, Checker, Diagnostic, EffectGraph, RecordConstructors, ResolvedBindings,
+    CheckBundleView, Checker, Diagnostic, EffectGraph, RecordConstructors, ResolvedBindings,
     infer_return::ReturnInferenceIndex, local_inference::LocalInference,
 };
 use crate::sema::constants::PreparedConstants;
@@ -34,12 +34,12 @@ pub(super) struct ModuleRecords {
 }
 
 impl ModuleRecords {
-    fn prepare(view: &BundleView<'_>, args_domain: ArgsDomain) -> Self {
+    fn prepare(view: &CheckBundleView<'_>, args_domain: ArgsDomain) -> Self {
         let facts = Arc::new(PreparedModuleFacts::prepare(view));
         let program = view.program;
         let root = Arc::new(ModuleRecord {
             args_domain,
-            statements: program.statement_ids().collect::<Vec<_>>().into(),
+            statements: view.statement_ids().collect::<Vec<_>>().into(),
         });
         let modules = view
             .modules
@@ -88,7 +88,7 @@ pub(super) struct ModuleRecordCache {
 impl ModuleRecordCache {
     pub(super) fn get_or_prepare(
         &mut self,
-        view: &BundleView<'_>,
+        view: &CheckBundleView<'_>,
         args_domain: ArgsDomain,
     ) -> Arc<ModuleRecords> {
         self.domains
@@ -112,7 +112,7 @@ pub(super) struct PreparedModuleFacts {
 }
 
 impl PreparedModuleFacts {
-    fn prepare(view: &BundleView<'_>) -> Self {
+    fn prepare(view: &CheckBundleView<'_>) -> Self {
         let program = view.program;
         let resolved_bindings = Arc::new(ResolvedBindings::collect_bundle(view));
         let return_inference_index = Arc::new(ReturnInferenceIndex::collect(view));
@@ -215,7 +215,7 @@ mod tests {
             }
         }
         let program = builder.finish_with_statements(root.statements);
-        let view = BundleView::new(&program, None, Some(SourceId::new(0)));
+        let view = CheckBundleView::new(&program, None, Some(SourceId::new(0)));
         let mut cache = ModuleRecordCache::default();
         let first_probe = cache.get_or_prepare(&view, ArgsDomain::Str);
         let next_probe = cache.get_or_prepare(&view, ArgsDomain::Str);

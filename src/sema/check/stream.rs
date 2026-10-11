@@ -578,6 +578,8 @@ impl Checker {
                         arena,
                         namespace,
                         self.current_namespace,
+                        self.bundle_root_statements,
+                        self.bundle_module_keys.as_deref(),
                     ) && matches!(self.lookup(namespace).map(|binding| &binding.ty), Some(Type::Module(exports))
                         if exports.get(&name).is_some_and(|export| matches!(export, crate::sema::types::ModuleExportType::Pure { .. } | crate::sema::types::ModuleExportType::Proc { .. })))
                     || self.lookup(namespace).is_none()

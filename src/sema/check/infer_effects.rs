@@ -1,4 +1,4 @@
-use super::{BTreeMap, BundleView, Effect, Name, Span};
+use super::{BTreeMap, CheckBundleView, Effect, Name, Span};
 use crate::diagnostic::DiagnosticCode;
 
 /// A declaring module distinguishes separately parsed arenas whose local spans
@@ -89,7 +89,7 @@ impl EffectGraph {
         self.nodes.is_empty()
     }
 
-    pub(super) fn declarations(view: &BundleView<'_>) -> Self {
+    pub(super) fn declarations(view: &CheckBundleView<'_>) -> Self {
         let program = view.program;
         let mut graph = Self::default();
         let mut namespaces = super::FxHashMap::default();
