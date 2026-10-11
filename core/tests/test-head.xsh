@@ -169,7 +169,7 @@ test test_head_reports_a_failed_standard_output_write { |ctx|
   let status = process.run(plan)?
 
   assert status.exit_code()? == 1
-  assert stderr.read_text()? == "head: error writing 'standard output': No space left on device\n", stderr.read_text()?
+  assert stderr.read_text()? == "head: write error: No space left on device\n", stderr.read_text()?
 }
 
 test test_head_leaves_unread_standard_input_for_the_next_reader { |ctx|
@@ -204,4 +204,20 @@ test test_head_reads_a_regular_file_shorter_than_its_stat_size { |ctx|
   let content = attribute.read_bytes()?
   assert head_run(ctx, root, ["-c", "-1", "/sys/kernel/profiling"])?.stdout == content[..content.len() - 1]
   assert head_run(ctx, root, ["-c", "100", "/sys/kernel/profiling"])?.stdout == content
+}
+
+test test_head_reports_an_immediate_standard_output_write_failure { |ctx|
+  if ! p"/dev/full".exists() {
+    test.skip("/dev/full is not available")
+  }
+
+  let root = test.temp_dir(ctx, name: "head-write")?
+  let stderr = fp"{root}/.err"
+  let input = bytes.concat([b"x" for _ in range(4096)])
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/head.xsh".display(), "-c4096"]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, input, p"/dev/full", stderr)
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 1
+  assert stderr.read_text()? == "head: error writing 'standard output': No space left on device\n", stderr.read_text()?
 }

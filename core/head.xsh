@@ -133,22 +133,36 @@ proc modernize(argv: List[Str]) [process, env] -> List[Str] {
 
 # A write failure on standard output is reported with head's own wording; a
 # closed reader ends the applet with the SIGPIPE status.
-proc output_failed(failure: Error) [process, env] {
+proc output_failed(failure: Error, closing = false) [process, env] {
   if gnu.errno(failure) == 32 {
     exit 141
   }
 
-  gnu.error(f"error writing {gnu.quote("standard output")}: {gnu.strerror(failure)}")
+  gnu.error(if closing { f"write error: {gnu.strerror(failure)}" } else { f"error writing {gnu.quote("standard output")}: {gnu.strerror(failure)}" })
   exit 1
 }
 
-proc write_output(data: Bytes) [process, env, error, io] {
-  if let Err(failure) = io.write_stdout_bytes(data) {
+# Keep a bounded stdio-sized buffer so errors while writing and errors while
+# closing standard output retain their distinct GNU diagnostics.
+proc write_output(pending: Bytes, data: Bytes) [process, env, error, io] -> Bytes {
+  let output = bytes.concat([pending, data])
+  if output.len() < 4096 { return output }
+
+  if let Err(failure) = io.write_stdout_bytes(output) {
     output_failed(failure)
   }
-
   if let Err(failure) = io.flush_stdout() {
     output_failed(failure)
+  }
+  b""
+}
+
+proc close_output(pending: Bytes) [process, env, error, io] {
+  if let Err(failure) = io.write_stdout_bytes(pending) {
+    output_failed(failure, closing: true)
+  }
+  if let Err(failure) = io.flush_stdout() {
+    output_failed(failure, closing: true)
   }
 }
 
@@ -205,6 +219,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let headers = opts.verbose or (operands.len() > 1 and ! opts.quiet)
   var first = true
   var failed = false
+  var pending = b""
 
   for name in operands {
     let raw_name = argument_bytes(name, prepared.raw)
@@ -250,7 +265,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
         }
 
         if headers and ! shown {
-          gnu.write_text(f"{if first { "" } else { "\n" }}==> {gnu.quote_maybe(label)} <==\n")
+          pending = write_output(pending, bytes.from_text(f"{if first { "" } else { "\n" }}==> {gnu.quote_maybe(label)} <==\n"))
           first = false
         }
 
@@ -260,7 +275,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       }
 
       if headers and ! shown {
-        gnu.write_text(f"{if first { "" } else { "\n" }}==> {gnu.quote_maybe(label)} <==\n")
+        pending = write_output(pending, bytes.from_text(f"{if first { "" } else { "\n" }}==> {gnu.quote_maybe(label)} <==\n"))
         first = false
       }
 
@@ -274,7 +289,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
         let data = bytes.concat([held, chunk])
 
         if data.len() > total {
-          write_output(data[..data.len() - total])
+          pending = write_output(pending, data[..data.len() - total])
           held = data[data.len() - total..]
         } else {
           held = data
@@ -286,24 +301,24 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
 
         if lines > total {
           let cut = ends[lines - total - 1]
-          write_output(data[..cut])
+          pending = write_output(pending, data[..cut])
           held = data[cut..]
         } else {
           held = data
         }
       } else if by_bytes {
-        write_output(chunk[..left])
+        pending = write_output(pending, chunk[..left])
         left -= chunk.len()
         break when left <= 0
       } else {
         let ends = tio.line_ends(chunk, opts.zero)
 
         if left <= ends.len() {
-          write_output(chunk[..ends[left - 1]])
+          pending = write_output(pending, chunk[..ends[left - 1]])
           break
         }
 
-        write_output(chunk)
+        pending = write_output(pending, chunk)
         left -= ends.len()
       }
     }
@@ -312,6 +327,8 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       let _ = unix.seek_fd(0, tio.stdin_offset()? - held.len())?
     }
   }
+
+  close_output(pending)
 
   if failed {
     exit 1
