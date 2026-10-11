@@ -2,7 +2,7 @@ pub(in crate::runtime::eval) mod decode;
 pub(in crate::runtime::eval) mod in_place;
 pub(in crate::runtime::eval) mod schema;
 
-use decode::{BorrowCodec, DecodeContext};
+use decode::{BorrowCodec, DecodeContext, PatternId};
 pub(in crate::runtime::eval) use schema::{
     BuildBoolRow, BuildExprRow, BuildIntRow, BuildStmtRow, FrameStrategy, FullTag,
 };
@@ -1345,6 +1345,7 @@ impl<'a> FullDriverStepView<'a> {
     pub(in crate::runtime::eval) fn payload(&self) -> Result<FullPayload<'a>, IrVerifyError> {
         let step = self.program.store.driver_steps[self.index];
         Ok(FullPayload {
+            store: &self.program.store,
             cursor: FullCursor::verified(self.program.store.payload(step.data.range())?),
         })
     }
@@ -2876,10 +2877,20 @@ pub(in crate::runtime::eval) struct FullCursor<'a> {
 
 #[derive(Clone, Copy)]
 pub(in crate::runtime::eval) struct FullPayload<'a> {
+    store: &'a FullStore,
     cursor: FullCursor<'a>,
 }
 
 impl<'a> FullPayload<'a> {
+    #[inline(always)]
+    fn check_store(&self, execution: &FullExecution<'a>) -> Result<(), IrVerifyError> {
+        if std::ptr::eq(self.store, execution.decoder.store) {
+            Ok(())
+        } else {
+            Err(IrVerifyError::new("full IR payload belongs to another program"))
+        }
+    }
+
     #[inline(always)]
     pub(in crate::runtime::eval) fn raw(&mut self) -> Result<u32, IrVerifyError> {
         self.cursor.raw()
@@ -2890,7 +2901,19 @@ impl<'a> FullPayload<'a> {
         &mut self,
         execution: &FullExecution<'a>,
     ) -> Result<T, IrVerifyError> {
+        self.check_store(execution)?;
         T::decode(&execution.decoder, &mut self.cursor)
+    }
+
+    #[inline(always)]
+    pub(in crate::runtime::eval) fn borrow<T: BorrowCodec>(
+        &mut self,
+        execution: &FullExecution<'a>,
+    ) -> Result<T::View<'a>, IrVerifyError> {
+        self.check_store(execution)?;
+        let view = T::borrow(DecodeContext::new(execution), &mut self.cursor)?;
+        self.cursor.finish()?;
+        Ok(view)
     }
 
     #[inline(always)]
@@ -2995,6 +3018,7 @@ impl<'a> FullExecution<'a> {
             return Ok((
                 tag,
                 FullPayload {
+                    store: self.decoder.store,
                     cursor: FullCursor::verified(words),
                 },
             ));
@@ -3016,6 +3040,7 @@ impl<'a> FullExecution<'a> {
         Ok((
             tag,
             FullPayload {
+                store: self.decoder.store,
                 cursor: self
                     .decoder
                     .cursor(self.decoder.store.payload(data.range())?),
@@ -3034,6 +3059,7 @@ impl<'a> FullExecution<'a> {
             return Ok((
                 tag,
                 FullPayload {
+                    store: self.decoder.store,
                     cursor: self
                         .decoder
                         .cursor(unsafe { self.decoder.store.payload_unchecked(data.range()) }),
@@ -3051,11 +3077,21 @@ impl<'a> FullExecution<'a> {
         Ok((
             tag,
             FullPayload {
+                store: self.decoder.store,
                 cursor: self
                     .decoder
                     .cursor(self.decoder.store.payload(data.range())?),
             },
         ))
+    }
+
+    pub(in crate::runtime::eval) fn pattern_view(
+        &self,
+        pattern: PatternId<'a>,
+    ) -> Result<schema::PatternView<'a>, IrVerifyError> {
+        let raw = pattern.raw_for_store(self.decoder.store)?;
+        let (tag, payload) = self.pattern(raw)?;
+        schema::PatternView::decode(self, tag, payload)
     }
 
     #[inline(always)]
@@ -3068,7 +3104,7 @@ impl<'a> FullExecution<'a> {
             u32::try_from(index)
                 .map_err(|_| IrVerifyError::new("full IR instruction id overflows"))?,
             tag,
-            FullPayload { cursor: payload },
+            FullPayload { store: self.decoder.store, cursor: payload },
         ))
     }
 
@@ -3079,7 +3115,7 @@ impl<'a> FullExecution<'a> {
         expected_flags: u8,
     ) -> Result<(IrBlockId, FullPayload<'a>), IrVerifyError> {
         let (id, block) = self.decoder.block(&mut input.cursor, expected_flags)?;
-        Ok((id, FullPayload { cursor: block }))
+        Ok((id, FullPayload { store: self.decoder.store, cursor: block }))
     }
 
     #[inline(always)]
@@ -3105,6 +3141,7 @@ impl<'a> FullExecution<'a> {
             return Ok((
                 id,
                 FullPayload {
+                    store: self.decoder.store,
                     cursor: self.decoder.cursor(unsafe {
                         self.decoder.store.payload_unchecked(block.instructions)
                     }),
@@ -3134,6 +3171,7 @@ impl<'a> FullExecution<'a> {
         Ok((
             id,
             FullPayload {
+                store: self.decoder.store,
                 cursor: self
                     .decoder
                     .cursor(self.decoder.store.payload(block.instructions)?),
@@ -3153,6 +3191,7 @@ impl<'a> FullExecution<'a> {
             return Ok((
                 tag,
                 FullPayload {
+                    store: self.decoder.store,
                     cursor: FullCursor::verified(words),
                 },
             ));
@@ -3168,6 +3207,7 @@ impl<'a> FullExecution<'a> {
         Ok((
             tag,
             FullPayload {
+                store: self.decoder.store,
                 cursor: self
                     .decoder
                     .cursor(self.decoder.store.payload(data.range())?),
@@ -3188,6 +3228,7 @@ impl<'a> FullExecution<'a> {
             return Ok((
                 tag,
                 FullPayload {
+                    store: self.decoder.store,
                     cursor: FullCursor::verified(words),
                 },
             ));
@@ -3203,6 +3244,7 @@ impl<'a> FullExecution<'a> {
         Ok((
             tag,
             FullPayload {
+                store: self.decoder.store,
                 cursor: self
                     .decoder
                     .cursor(self.decoder.store.payload(data.range())?),
@@ -3222,6 +3264,7 @@ impl<'a> FullExecution<'a> {
             return Ok((
                 tag,
                 FullPayload {
+                    store: self.decoder.store,
                     cursor: FullCursor::verified(words),
                 },
             ));
@@ -3237,6 +3280,7 @@ impl<'a> FullExecution<'a> {
         Ok((
             tag,
             FullPayload {
+                store: self.decoder.store,
                 cursor: self
                     .decoder
                     .cursor(self.decoder.store.payload(data.range())?),
@@ -7232,6 +7276,78 @@ run true
         }
     }
 
+    fn pattern_view_fixture() -> (FullBuilder, Vec<u32>) {
+        let wildcard = BuildPatternId::new(8);
+        let binding = BuildPatternId::new(9);
+        let rows = [
+            BuildPatternRow::Alias { pattern: wildcard, slot: 0 },
+            BuildPatternRow::Alternation { patterns: vec![wildcard, wildcard] },
+            BuildPatternRow::List { elements: vec![wildcard], rest: Some(binding) },
+            BuildPatternRow::TagType { type_name: Name::INT, variants: vec![Name::STR] },
+            BuildPatternRow::RecordTest { fields: vec![(Name::INT, wildcard)] },
+            BuildPatternRow::ResultTest { ok: true, inner: wildcard },
+            BuildPatternRow::TagTest { type_name: Name::INT, name: Name::STR, fields: vec![wildcard] },
+            BuildPatternRow::ErrorTest { family: Name::ERROR, variant: Name::STR,
+                fields: vec![(Name::INT, wildcard)] },
+            BuildPatternRow::Wildcard,
+            BuildPatternRow::Bind { slot: 0 },
+            BuildPatternRow::Type { ty: Type::Int, slot: Some(0) },
+            BuildPatternRow::Literal(LoweredValue::Null),
+            BuildPatternRow::ResultOk { slot: Some(0), unit_only: false },
+            BuildPatternRow::ResultErr { slot: None, unit_only: true },
+            BuildPatternRow::ErrorVariant { family: Name::ERROR, variant: Name::STR,
+                fields: Box::new(SmallVec::<[(Name, Option<usize>); 4]>::from_vec(
+                    vec![(Name::INT, Some(0))],
+                )),
+                result_wrapped: true },
+            BuildPatternRow::Facet { facet: Name::ERROR, result_wrapped: false },
+            BuildPatternRow::Tag { type_name: Name::INT, name: Name::STR,
+                slots: SmallVec::from([Some(0), None]) },
+            BuildPatternRow::Text { holes: vec![wildcard],
+                kinds: vec![crate::sema::check::TextHoleKind::Decimal],
+                segments: vec![Arc::from("id="), Arc::from("")] },
+        ];
+        let scratch = Rc::new(RefCell::new(BuildScratch::default()));
+        for row in rows {
+            scratch.borrow_mut().pattern(row);
+        }
+        let mut builder = FullBuilder::new(SourceId::new(0));
+        builder.current_owner = Some(0);
+        builder.current_slot_count = 1;
+        builder.active_scratch = Some(scratch);
+        let roots = (0..18)
+            .map(|index| {
+                let mut words = Vec::new();
+                BuildPatternId::new(index).encode(&mut builder, &mut words).unwrap();
+                words[0]
+            })
+            .collect();
+        (builder, roots)
+    }
+
+    fn pattern_view_tag(view: schema::PatternView<'_>) -> FullPatternTag {
+        match view {
+            schema::PatternView::Alias { .. } => FullPatternTag::Alias,
+            schema::PatternView::Alternation { .. } => FullPatternTag::Alternation,
+            schema::PatternView::List { .. } => FullPatternTag::List,
+            schema::PatternView::TagType { .. } => FullPatternTag::TagType,
+            schema::PatternView::RecordTest { .. } => FullPatternTag::RecordTest,
+            schema::PatternView::ResultTest { .. } => FullPatternTag::ResultTest,
+            schema::PatternView::TagTest { .. } => FullPatternTag::TagTest,
+            schema::PatternView::ErrorTest { .. } => FullPatternTag::ErrorTest,
+            schema::PatternView::Wildcard => FullPatternTag::Wildcard,
+            schema::PatternView::Bind { .. } => FullPatternTag::Bind,
+            schema::PatternView::Type { .. } => FullPatternTag::Type,
+            schema::PatternView::Literal(_) => FullPatternTag::Literal,
+            schema::PatternView::ResultOk { .. } => FullPatternTag::ResultOk,
+            schema::PatternView::ResultErr { .. } => FullPatternTag::ResultErr,
+            schema::PatternView::ErrorVariant { .. } => FullPatternTag::ErrorVariant,
+            schema::PatternView::Facet { .. } => FullPatternTag::Facet,
+            schema::PatternView::Tag { .. } => FullPatternTag::Tag,
+            schema::PatternView::Text { .. } => FullPatternTag::Text,
+        }
+    }
+
     fn function_instruction_indices(
         program: &FullProgram,
         function: &str,
@@ -7820,16 +7936,16 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
         BuildBoolRow::Bool(true).encode(&mut builder, &mut words).unwrap();
         let execution = schema_execution(&builder.store);
         let decode_expr = |tag, words| schema::ExprView::decode(&execution, tag,
-            FullPayload { cursor: FullCursor::new(words) });
+            FullPayload { store: execution.decoder.store, cursor: FullCursor::new(words) });
         assert!(decode_expr(FullTag::ExprInt, &[1]).is_err());
         assert!(decode_expr(FullTag::ExprInt, &[1, 0, 9]).is_err());
         assert!(decode_expr(FullTag::ExprBool, &[2]).is_err());
         assert!(decode_expr(FullTag::ExprStr, &[u32::MAX]).is_err());
         assert!(decode_expr(FullTag::IntInt, &[1, 0]).is_err());
         assert!(schema::BoolView::decode(&execution, FullTag::BoolNot,
-            FullPayload { cursor: FullCursor::new(&[0]) }).err().unwrap().message.contains("wrong category"));
+            FullPayload { store: execution.decoder.store, cursor: FullCursor::new(&[0]) }).err().unwrap().message.contains("wrong category"));
         assert!(schema::BoolView::decode(&execution, FullTag::BoolNot,
-            FullPayload { cursor: FullCursor::new(&[u32::MAX]) }).is_err());
+            FullPayload { store: execution.decoder.store, cursor: FullCursor::new(&[u32::MAX]) }).is_err());
         let mut other_owner = schema_execution(&builder.store);
         other_owner.decoder.instruction_range = 1..2;
         assert!(BuildIntId::borrow(DecodeContext::new(&other_owner),
@@ -7842,6 +7958,82 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
         assert_eq!(slot, 37);
         assert!(matches!(LoweredCallArg::decode(&execution.decoder,
             &mut FullCursor::new(&[2, 37])).unwrap(), LoweredCallArg::Default(37)));
+    }
+
+    #[test]
+    fn pattern_schema_views_cover_all_rows_and_keep_fields_borrowed() {
+        let (builder, roots) = pattern_view_fixture();
+        let execution = schema_execution(&builder.store);
+        assert_eq!(schema::PATTERN_TAGS.len(), 18);
+        let mut ids = FullCursor::new(&roots);
+        let context = DecodeContext::new(&execution);
+        let mut viewed_tags = Vec::with_capacity(roots.len());
+        for _ in &roots {
+            let pattern = BuildPatternId::borrow(context, &mut ids).unwrap();
+            viewed_tags.push(pattern_view_tag(execution.pattern_view(pattern).unwrap()));
+        }
+        ids.finish().unwrap();
+        assert_eq!(viewed_tags, schema::PATTERN_TAGS);
+
+        let mut text_ids = FullCursor::new(&roots[17..]);
+        let text_id = BuildPatternId::borrow(context, &mut text_ids).unwrap();
+        let schema::PatternView::Text { mut holes, mut kinds, mut segments } =
+            execution.pattern_view(text_id).unwrap() else { panic!("text pattern view") };
+        assert_eq!(holes.len(), 1);
+        let hole = holes.next().unwrap().unwrap();
+        assert!(matches!(execution.pattern_view(hole).unwrap(), schema::PatternView::Wildcard));
+        assert_eq!(kinds.next().unwrap().unwrap(), crate::sema::check::TextHoleKind::Decimal);
+        let prefix = segments.next().unwrap().unwrap();
+        assert_eq!(prefix, "id=");
+        let pool_start = builder.store.string_bytes.as_ptr() as usize;
+        let pool_end = pool_start + builder.store.string_bytes.len();
+        assert!((pool_start..pool_end).contains(&(prefix.as_ptr() as usize)));
+        assert_eq!(segments.next().unwrap().unwrap(), "");
+        assert!(segments.next().is_none());
+
+        let mut payload = FullPayload {
+            store: execution.decoder.store,
+            cursor: FullCursor::new(&[2, 37]),
+        };
+        let decode::CallArgView::Default(slot) = payload.borrow::<LoweredCallArg>(&execution).unwrap()
+            else { panic!("borrowed call argument") };
+        assert_eq!(slot, 37);
+    }
+
+    #[test]
+    fn pattern_views_reject_corruption_and_foreign_store_identities() {
+        let (builder, roots) = pattern_view_fixture();
+        let execution = schema_execution(&builder.store);
+        let context = DecodeContext::new(&execution);
+        let mut text_ids = FullCursor::new(&roots[17..]);
+        let text_id = BuildPatternId::borrow(context, &mut text_ids).unwrap();
+
+        let mut invalid = builder.store.clone();
+        let text_range = invalid.pattern_data[roots[17] as usize].range();
+        invalid.extra[text_range.start as usize + 1] =
+            crate::sema::check::TextHoleKind::ALL.len() as u32;
+        let invalid_execution = schema_execution(&invalid);
+        let error = match invalid_execution.pattern_view(
+            BuildPatternId::borrow(DecodeContext::new(&invalid_execution), &mut FullCursor::new(&roots[17..])).unwrap()
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("invalid text hole kind was accepted"),
+        };
+        assert!(error.message.contains("text pattern hole kind is out of range"));
+
+        let other_store = FullStore::default();
+        let other_execution = schema_execution(&other_store);
+        let error = match other_execution.pattern_view(text_id) {
+            Err(error) => error,
+            Ok(_) => panic!("foreign pattern identity was accepted"),
+        };
+        assert!(error.message.contains("another program"));
+
+        let mut payload = FullPayload {
+            store: execution.decoder.store,
+            cursor: FullCursor::new(&[2, 37]),
+        };
+        assert!(payload.borrow::<LoweredCallArg>(&other_execution).is_err());
     }
 
     #[test]
@@ -8655,6 +8847,33 @@ pure selected() -> Str {
             size_of::<FullTag>() + size_of::<IrData>(),
             9,
             "full indexed instructions use one-byte tags and eight-byte data"
+        );
+    }
+
+    #[test]
+    fn pattern_tags_keep_wire_ordinals() {
+        assert_eq!(
+            [
+                FullPatternTag::Alias as u8,
+                FullPatternTag::Alternation as u8,
+                FullPatternTag::List as u8,
+                FullPatternTag::TagType as u8,
+                FullPatternTag::RecordTest as u8,
+                FullPatternTag::ResultTest as u8,
+                FullPatternTag::TagTest as u8,
+                FullPatternTag::ErrorTest as u8,
+                FullPatternTag::Wildcard as u8,
+                FullPatternTag::Bind as u8,
+                FullPatternTag::Type as u8,
+                FullPatternTag::Literal as u8,
+                FullPatternTag::ResultOk as u8,
+                FullPatternTag::ResultErr as u8,
+                FullPatternTag::ErrorVariant as u8,
+                FullPatternTag::Facet as u8,
+                FullPatternTag::Tag as u8,
+                FullPatternTag::Text as u8,
+            ],
+            std::array::from_fn::<_, 18, _>(|index| index as u8),
         );
     }
 

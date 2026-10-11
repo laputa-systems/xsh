@@ -111,13 +111,20 @@ instruction_id!(BuildIntId, Int, IntInstructionId);
 instruction_id!(BuildBoolId, Bool, BoolInstructionId);
 
 /// A pattern identity is distinct from an instruction or a literal identity.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub(in crate::runtime::eval) struct PatternId<'a> {
     raw: u32,
-    program: PhantomData<&'a FullStore>,
+    store: &'a FullStore,
 }
 impl PatternId<'_> {
     pub(in crate::runtime::eval) fn raw(self) -> u32 { self.raw }
+
+    pub(super) fn raw_for_store(self, store: &FullStore) -> Result<u32, IrVerifyError> {
+        if !std::ptr::eq(self.store, store) {
+            return Err(IrVerifyError::new("pattern identity belongs to another program"));
+        }
+        Ok(self.raw)
+    }
 }
 impl BorrowCodec for BuildPatternId {
     type View<'a> = PatternId<'a>;
@@ -126,7 +133,7 @@ impl BorrowCodec for BuildPatternId {
         let raw = input.raw()?;
         context.store.patterns.get(raw as usize)
             .ok_or_else(|| IrVerifyError::new("pattern id is out of bounds"))?;
-        Ok(PatternId { raw, program: PhantomData })
+        Ok(PatternId { raw, store: context.store })
     }
 }
 
@@ -293,6 +300,82 @@ impl<T: VectorElement> BorrowCodec for Vec<T> where Vec<T>: FullCodec {
         let remaining = entries.raw()? as usize;
         if remaining == 0 { entries.finish()?; }
         Ok(ListView { context, input: entries, remaining, element: PhantomData })
+    }
+}
+
+/// Text pattern fields share one hole count and are stored inline after the
+/// hole block, so their borrowed iterators read fixed-length slices in place.
+pub(in crate::runtime::eval) struct TextHoleKinds<'a> {
+    input: FullCursor<'a>,
+    remaining: usize,
+}
+impl Iterator for TextHoleKinds<'_> {
+    type Item = Result<crate::sema::check::TextHoleKind, IrVerifyError>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 { return None; }
+        self.remaining -= 1;
+        let kind = self.input.raw().and_then(super::text_hole_kind);
+        if self.remaining == 0 {
+            if let Err(error) = self.input.finish() { return Some(Err(error)); }
+        }
+        Some(kind)
+    }
+}
+
+pub(in crate::runtime::eval) struct TextPatternSegments<'a> {
+    context: DecodeContext<'a>,
+    input: FullCursor<'a>,
+    remaining: usize,
+}
+impl<'a> Iterator for TextPatternSegments<'a> {
+    type Item = Result<&'a str, IrVerifyError>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 { return None; }
+        self.remaining -= 1;
+        let segment = self.input.raw().and_then(|id| self.context.store.string(id));
+        if self.remaining == 0 {
+            if let Err(error) = self.input.finish() { return Some(Err(error)); }
+        }
+        Some(segment)
+    }
+}
+
+pub(in crate::runtime::eval) struct TextPatternFields<'a> {
+    pub(in crate::runtime::eval) holes: ListView<'a, BuildPatternId>,
+    pub(in crate::runtime::eval) kinds: TextHoleKinds<'a>,
+    pub(in crate::runtime::eval) segments: TextPatternSegments<'a>,
+}
+impl<'a> TextPatternFields<'a> {
+    pub(super) fn borrow(
+        context: DecodeContext<'a>,
+        input: &mut FullCursor<'a>,
+    ) -> Result<Self, IrVerifyError> {
+        let holes = Vec::<BuildPatternId>::borrow(context, input)?;
+        let count = holes.len();
+
+        let kinds_start = input.index;
+        for _ in 0..count {
+            super::text_hole_kind(input.raw()?)?;
+        }
+        let kinds = TextHoleKinds {
+            input: FullCursor::new(&input.words[kinds_start..input.index]),
+            remaining: count,
+        };
+
+        let segment_count = count
+            .checked_add(1)
+            .ok_or_else(|| IrVerifyError::new("text pattern segment count overflows"))?;
+        let segments_start = input.index;
+        for _ in 0..segment_count {
+            context.store.string(input.raw()?)?;
+        }
+        let segments = TextPatternSegments {
+            context,
+            input: FullCursor::new(&input.words[segments_start..input.index]),
+            remaining: segment_count,
+        };
+
+        Ok(Self { holes, kinds, segments })
     }
 }
 

@@ -14,6 +14,7 @@ use super::{
     PreparedConstantValue, QualifiedName, RegexValue, RuntimeOp, ScanBytes, ScanCheck, Span,
     Type, text_hole_kind, verify_node_metadata,
 };
+use super::decode::{ListView, TextHoleKinds, TextPatternFields, TextPatternSegments};
 
 macro_rules! ignore_field {
     ($field:ident) => { _ };
@@ -191,6 +192,48 @@ macro_rules! pattern_verify_row {
     };
 }
 
+macro_rules! pattern_view_field_type {
+    ($view_lifetime:lifetime, Normal, $field:ident, $field_ty:ty) => {
+        <$field_ty as BorrowCodec>::View<$view_lifetime>
+    };
+    ($view_lifetime:lifetime, Text, holes, $field_ty:ty) => {
+        ListView<$view_lifetime, BuildPatternId>
+    };
+    ($view_lifetime:lifetime, Text, kinds, $field_ty:ty) => {
+        TextHoleKinds<$view_lifetime>
+    };
+    ($view_lifetime:lifetime, Text, segments, $field_ty:ty) => {
+        TextPatternSegments<$view_lifetime>
+    };
+}
+
+macro_rules! pattern_borrow_row {
+    ($variant:ident, Normal, $context:ident, $input:ident) => {
+        PatternView::$variant
+    };
+    ($variant:ident, Normal, $context:ident, $input:ident,
+        { $($field:ident: $field_ty:ty $(=> $verify_ty:ty)?),* $(,)? }) => {
+        PatternView::$variant {
+            $($field: <$field_ty as BorrowCodec>::borrow($context, &mut $input)?,)*
+        }
+    };
+    ($variant:ident, Normal, $context:ident, $input:ident,
+        ($field:ident: $field_ty:ty)) => {
+        PatternView::$variant(<$field_ty as BorrowCodec>::borrow($context, &mut $input)?)
+    };
+    ($variant:ident, Text, $context:ident, $input:ident,
+        { holes: $holes_ty:ty, kinds: $kinds_ty:ty, segments: $segments_ty:ty $(,)? }) => {
+        {
+            let fields = TextPatternFields::borrow($context, &mut $input)?;
+            PatternView::$variant {
+                holes: fields.holes,
+                kinds: fields.kinds,
+                segments: fields.segments,
+            }
+        }
+    };
+}
+
 macro_rules! pattern_schema {
     (
         $enum_keyword:ident $tag_enum:ident {
@@ -211,6 +254,35 @@ macro_rules! pattern_schema {
         pub(in crate::runtime::eval) const PATTERN_TAGS: &[FullPatternTag] = &[
             $(FullPatternTag::$variant,)*
         ];
+
+        pub(in crate::runtime::eval) enum PatternView<'a> {
+            $(
+                $variant
+                $({ $($field: pattern_view_field_type!('a, $mode, $field, $field_ty),)* })?
+                $( (pattern_view_field_type!('a, $mode, $tuple_field, $tuple_ty)) )?
+            ,)*
+        }
+
+        impl<'a> PatternView<'a> {
+            pub(in crate::runtime::eval) fn decode(
+                execution: &FullExecution<'a>,
+                tag: FullPatternTag,
+                payload: FullPayload<'a>,
+            ) -> Result<Self, IrVerifyError> {
+                payload.check_store(execution)?;
+                let context = DecodeContext::new(execution);
+                let mut input = payload.cursor;
+                let view = match tag {
+                    $(FullPatternTag::$variant => pattern_borrow_row!(
+                        $variant, $mode, context, input
+                        $(, { $($field: $field_ty $(=> $verify_ty)?),* })?
+                        $(, ($tuple_field: $tuple_ty))?
+                    ),)*
+                };
+                input.finish()?;
+                Ok(view)
+            }
+        }
 
         impl FullCodec for BuildPatternRow {
             fn encode(
