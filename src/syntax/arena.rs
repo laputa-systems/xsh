@@ -183,6 +183,282 @@ mod layout_tests {
     }
 }
 
+#[cfg(test)]
+mod child_tests {
+    use super::*;
+    use crate::syntax::parser::Parser;
+
+    fn span() -> Span { Span::new(SourceId::new(0), 0, 1) }
+
+    fn expr_children(lowerer: &mut ArenaLowerer<'_>, kind: ArenaExprKind) -> Vec<ArenaChild> {
+        let id = lowerer.push_expr_kind(kind, span());
+        let mut children = Vec::new();
+        lowerer.arena.for_each_expr_child(id, |child| children.push(child));
+        children
+    }
+
+    #[test]
+    fn logical_operands_keep_identity_and_do_not_repeat_bookkeeping_references() {
+        use ArenaChild::Expr;
+        let mut lowerer = ArenaLowerer::default();
+        let [a, b, c] = std::array::from_fn(|_| lowerer.push_expr_kind(ArenaExprKind::Null, span()));
+        let first = lowerer.push_expr_kind(ArenaExprKind::Binary { op: BinaryOp::Lt, left: a, right: b }, span());
+        let second = lowerer.push_expr_kind(ArenaExprKind::Binary { op: BinaryOp::Lt, left: b, right: c }, span());
+        let pairs = lowerer.lower_expr_id_range(&[first, second]);
+        assert_eq!(expr_children(&mut lowerer, ArenaExprKind::ComparisonChain(pairs)), [Expr(a), Expr(b), Expr(c)]);
+
+        let args = lowerer.commit_call_arg_input_range(&[ArenaCallArgInput::Positional(c)]);
+        let call = lowerer.push_expr_kind(ArenaExprKind::Call { callee: b, args }, span());
+        assert_eq!(expr_children(&mut lowerer, ArenaExprKind::ValuePipelineCall { input: a, call, hole: c }), [Expr(a), Expr(call)]);
+        let mut children = Vec::new();
+        lowerer.arena.for_each_expr_child(call, |child| children.push(child));
+        assert_eq!(children, [Expr(b), Expr(c)]);
+        assert_eq!(expr_children(&mut lowerer, ArenaExprKind::Slice { base: a, start: Some(b), end: Some(c), guarded: true }), [Expr(a), Expr(b), Expr(c)]);
+    }
+
+    #[test]
+    fn comprehensions_and_match_arms_include_bindings_patterns_and_guards_in_order() {
+        use ArenaChild::{BindingTarget, Expr, Pattern};
+        let mut lowerer = ArenaLowerer::default();
+        let [iter, condition, key, value] = std::array::from_fn(|_| lowerer.push_expr_kind(ArenaExprKind::Null, span()));
+        let target = BindingTargetId::from_index(0);
+        lowerer.arena.comp_qualifiers.extend([
+            ArenaCompQualifier::For { target, iter, span: span() },
+            ArenaCompQualifier::If { condition, span: span() },
+        ]);
+        assert_eq!(expr_children(&mut lowerer, ArenaExprKind::MapComp { key, value, qualifiers: ArenaRange::new(0, 2) }),
+            [Expr(iter), BindingTarget(target), Expr(condition), Expr(key), Expr(value)]);
+        let pattern = PatternId::from_index(0);
+        lowerer.arena.match_expr_arms.push(ArenaMatchExprArm {
+            pattern, guard: Some(condition), value, spelling: ArenaArmSpelling::Pattern, span: SpanId::from_index(0),
+        });
+        for kind in [
+            ArenaExprKind::Match { value: iter, arms: ArenaRange::new(0, 1) },
+            ArenaExprKind::PatternTest { value: iter, arms: ArenaRange::new(0, 1) },
+            ArenaExprKind::PatternCondition { value: iter, arms: ArenaRange::new(0, 1) },
+        ] {
+            assert_eq!(expr_children(&mut lowerer, kind), [Expr(iter), Pattern(pattern), Expr(condition), Expr(value)]);
+        }
+    }
+
+    #[test]
+    fn patterns_include_literal_and_type_children_as_well_as_nested_patterns() {
+        use ArenaChild::{Expr, Pattern, TypeExpr};
+        let owner = crate::symbol::SymbolOwner::new();
+        let mut arena = AstArena::default();
+        let first = PatternId::from_index(10);
+        let second = PatternId::from_index(11);
+        let rest = PatternId::from_index(12);
+        let ty = TypeExprId::from_index(20);
+        let literal = ExprId::from_index(30);
+        let name = owner.intern("capture");
+        let span = SpanId::from_index(0);
+        arena.extra.extend([first.index() as u32, second.index() as u32]);
+        let items = ArenaRange::new(0, 2);
+        arena.pattern_fields.extend([
+            ArenaRecordPatternField { name, pattern: first, span },
+            ArenaRecordPatternField { name, pattern: second, span },
+        ]);
+        let cases = [
+            (ArenaPatternKind::Group(first), vec![Pattern(first)]),
+            (ArenaPatternKind::Alias { pattern: first, name, name_span: span }, vec![Pattern(first)]),
+            (ArenaPatternKind::TestName { name, ty }, vec![TypeExpr(ty)]),
+            (ArenaPatternKind::Type { binding: Some(name), ty }, vec![TypeExpr(ty)]),
+            (ArenaPatternKind::Literal(literal), vec![Expr(literal)]),
+            (ArenaPatternKind::Record { fields: items, rest: false }, vec![Pattern(first), Pattern(second)]),
+            (ArenaPatternKind::ErrorVariant { family: name, variant: name, fields: items }, vec![Pattern(first), Pattern(second)]),
+            (ArenaPatternKind::List { elements: items, rest: Some(rest) }, vec![Pattern(first), Pattern(second), Pattern(rest)]),
+            (ArenaPatternKind::Alternation(items), vec![Pattern(first), Pattern(second)]),
+            (ArenaPatternKind::Tuple(items), vec![Pattern(first), Pattern(second)]),
+            (ArenaPatternKind::Text(items), vec![Pattern(first), Pattern(second)]),
+            (ArenaPatternKind::Constructor { name, arg: Some(first) }, vec![Pattern(first)]),
+            (ArenaPatternKind::Constructor { name, arg: None }, vec![]),
+            (ArenaPatternKind::Wildcard, vec![]),
+            (ArenaPatternKind::Binding(name), vec![]),
+            (ArenaPatternKind::Facet(name), vec![]),
+            (ArenaPatternKind::TextHole { binding: Some(name), spec: Some(name) }, vec![]),
+        ];
+        for (kind, expected) in cases {
+            let id = PatternId::from_index(arena.patterns.len());
+            arena.patterns.push(ArenaPattern { kind, span });
+            let mut children = Vec::new();
+            arena.for_each_pattern_child(id, |child| children.push(child));
+            assert_eq!(children, expected, "{:?}", arena.pattern(id).kind);
+        }
+    }
+
+    #[test]
+    fn sugar_views_reach_written_operands_or_the_expansion_once() {
+        use ArenaChild::{Block, Expr, Stmt};
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), "print \"ready\" when true\nrepeat 2 times { print \"tick\" }\n");
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let arena = &parsed.arena.arena;
+        let statements = parsed.arena.statement_ids().collect::<Vec<_>>();
+        assert_eq!(statements.len(), 2);
+        for (index, stmt) in statements.into_iter().enumerate() {
+            let ArenaStmtKind::Sugar { operands, expansion, .. } = arena.stmt(stmt).kind else { panic!("expected sugar"); };
+            let expected = match arena.sugar_operands(operands) {
+                [ArenaSugarOperand::Expr(condition), ArenaSugarOperand::Stmt(body)] if index == 0 => vec![Expr(*condition), Stmt(*body)],
+                [ArenaSugarOperand::Expr(count), ArenaSugarOperand::Block(body)] if index == 1 => vec![Expr(*count), Block(*body)],
+                operands => panic!("unexpected operands: {operands:?}"),
+            };
+            let mut source = Vec::new();
+            arena.for_each_stmt_child(stmt, SugarView::Source, |child| source.push(child));
+            assert_eq!(source, expected);
+            assert!(!source.contains(&Stmt(expansion)));
+            let mut core = Vec::new();
+            arena.for_each_stmt_child(stmt, SugarView::Core, |child| core.push(child));
+            assert_eq!(core, [Stmt(expansion)]);
+            assert!(arena.stmt_is_synthetic(expansion));
+        }
+    }
+
+    #[test]
+    fn run_options_environment_words_and_redirections_are_expression_children() {
+        use ArenaChild::Expr;
+        let owner = crate::symbol::SymbolOwner::new();
+        let mut lowerer = ArenaLowerer::default();
+        let expressions: [ExprId; 8] = std::array::from_fn(|_| lowerer.push_expr_kind(ArenaExprKind::Null, span()));
+        let span_id = lowerer.span(span());
+        lowerer.arena.word_part_tags.extend([ArenaWordPartTag::Shorthand, ArenaWordPartTag::Interpolation]);
+        lowerer.arena.word_part_data.extend([
+            ArenaWordPartData::new(expressions[4].index() as u32, 0),
+            ArenaWordPartData::new(expressions[5].index() as u32, 0),
+        ]);
+        let word = ArenaCommandArg { kind: ArenaCommandArgKind::Word(ArenaRange::new(0, 2)), span: span_id };
+        lowerer.arena.command_args.push(ArenaCommandArg { kind: ArenaCommandArgKind::SpliceExpr(expressions[6]), span: span_id });
+        lowerer.arena.env_assignments.push(ArenaEnvAssignment {
+            name: owner.intern("ENV"), value: ArenaEnvAssignmentValue::Expr(expressions[3]), span: span_id,
+        });
+        lowerer.arena.redirections.push(ArenaRedirection {
+            kind: RedirectionKind::StdoutWrite,
+            target: ArenaRedirectionTarget::Path(ArenaCommandArg { kind: ArenaCommandArgKind::Typed(expressions[7]), span: span_id }), span: span_id,
+        });
+        lowerer.arena.run_segments.push(ArenaRunSegment {
+            kind: RunKind::Plain, timeout: Some(expressions[0]), cpu_max: Some(expressions[1]), accept: Some(expressions[2]),
+            env: ArenaRange::new(0, 1), grouped: false, target: word, args: ArenaRange::new(0, 1), redirections: ArenaRange::new(0, 1), span: span_id,
+        });
+        let run = lowerer.push_run_form_parts(ArenaRange::new(0, 1), false, span());
+        let expected = expressions.map(Expr);
+        assert_eq!(expr_children(&mut lowerer, ArenaExprKind::Run(run)), expected);
+        assert_eq!(expr_children(&mut lowerer, ArenaExprKind::Spawn(ArenaSpawnForm { target: ArenaSpawnTarget::Run(run), span: span_id })), expected);
+        let stmt = lowerer.push_stmt_kind(ArenaStmtKind::Return(Some(ArenaExprOrRun::Run(run))), span());
+        let mut children = Vec::new();
+        lowerer.arena.for_each_stmt_child(stmt, SugarView::Core, |child| children.push(child));
+        assert_eq!(children, expected);
+    }
+
+    #[test]
+    fn builder_enumeration_keeps_nested_blocks_immediate() {
+        use ArenaChild::{Block, BuilderBlock, Expr, Stmt};
+        let owner = crate::symbol::SymbolOwner::new();
+        let mut arena = AstArena::default();
+        let name = owner.intern("entry");
+        let span = SpanId::from_index(0);
+        let value = ExprId::from_index(0);
+        let argument = ExprId::from_index(1);
+        let nested = BuilderBlockId::from_index(1);
+        let task = BlockId::from_index(0);
+        let stmt = StmtId::from_index(0);
+        arena.command_args.push(ArenaCommandArg { kind: ArenaCommandArgKind::Typed(argument), span });
+        arena.builder_entries.extend([
+            ArenaBuilderEntry { kind: ArenaBuilderEntryKind::Field { name, value }, span },
+            ArenaBuilderEntry { kind: ArenaBuilderEntryKind::Entry { name, args: ArenaRange::new(0, 1), block: Some(nested) }, span },
+            ArenaBuilderEntry { kind: ArenaBuilderEntryKind::Task { name, block: task }, span },
+            ArenaBuilderEntry { kind: ArenaBuilderEntryKind::Stmt(stmt), span },
+        ]);
+        arena.builder_blocks.push(ArenaBuilderBlock { entries: ArenaRange::new(0, 4), span });
+        let mut children = Vec::new();
+        arena.for_each_builder_child(BuilderBlockId::from_index(0), |child| children.push(child));
+        assert_eq!(children, [Expr(value), Expr(argument), BuilderBlock(nested), Block(task), Stmt(stmt)]);
+    }
+
+    #[test]
+    fn declaration_defaults_and_types_remain_reachable_without_entering_the_body() {
+        use ArenaChild::{Block, Expr, TypeExpr};
+        let owner = crate::symbol::SymbolOwner::new();
+        let mut lowerer = ArenaLowerer::default();
+        let name = owner.intern("value");
+        let parameter_ty = TypeExprId::from_index(0);
+        let return_ty = TypeExprId::from_index(1);
+        let default = ExprId::from_index(0);
+        let body = BlockId::from_index(0);
+        lowerer.arena.params.push(ArenaParam { name, ty: parameter_ty, ty_defaulted: false, default: Some(default), rest: false, span: SpanId::from_index(0) });
+        lowerer.arena.function_defs.push(ArenaFunctionDef {
+            test_declaration: false, name, params: ArenaRange::new(0, 1), effects: None, return_ty, return_ty_defaulted: false, body,
+        });
+        let stmt = lowerer.push_stmt_kind(ArenaStmtKind::ProcDef(FunctionDefId::from_index(0)), span());
+        let mut children = Vec::new();
+        lowerer.arena.for_each_stmt_child(stmt, SugarView::Source, |child| children.push(child));
+        assert_eq!(children, [TypeExpr(parameter_ty), Expr(default), TypeExpr(return_ty), Block(body)]);
+        lowerer.arena.schema_fields.push(ArenaSchemaField { name, ty: parameter_ty, default: Some(default), span: SpanId::from_index(0) });
+        lowerer.arena.type_defs.push(ArenaTypeDef { name, type_parameters: ArenaRange::default(), body: ArenaTypeDefBody::RecordSchema(ArenaRange::new(0, 1)), nominal: false, bounds: None });
+        let stmt = lowerer.push_stmt_kind(ArenaStmtKind::TypeDef(TypeDefId::from_index(0)), span());
+        children.clear();
+        lowerer.arena.for_each_stmt_child(stmt, SugarView::Source, |child| children.push(child));
+        assert_eq!(children, [TypeExpr(parameter_ty), Expr(default)]);
+        let fields = ArenaRange::new(lowerer.arena.extra.len(), 2);
+        lowerer.arena.extra.extend([raw_type_expr_id(parameter_ty), raw_type_expr_id(return_ty)]);
+        lowerer.arena.tag_variants.push(ArenaTagVariant {
+            name, fields, wire_value: Some(default), span: SpanId::from_index(0),
+        });
+        lowerer.arena.type_defs.push(ArenaTypeDef {
+            name, type_parameters: ArenaRange::default(), body: ArenaTypeDefBody::TagUnion(ArenaRange::new(0, 1)), nominal: false, bounds: None,
+        });
+        let stmt = lowerer.push_stmt_kind(ArenaStmtKind::TypeDef(TypeDefId::from_index(1)), span());
+        children.clear();
+        lowerer.arena.for_each_stmt_child(stmt, SugarView::Source, |child| children.push(child));
+        assert_eq!(children, [TypeExpr(parameter_ty), TypeExpr(return_ty), Expr(default)]);
+    }
+
+    #[test]
+    fn auxiliary_children_preserve_nested_target_and_type_boundaries() {
+        use ArenaChild::{AssignTarget, BindingTarget, Expr, TypeExpr};
+        let owner = crate::symbol::SymbolOwner::new();
+        let mut builder = ArenaProgramBuilder::with_token_capacity(0);
+        let name = owner.intern("Item");
+        let first = builder.push_named_type_expr(name, span());
+        let second = builder.push_named_type_expr(owner.intern("Other"), span());
+        let applied = builder.push_applied_type_expr(first, &[second], span());
+        let union = builder.push_union_type_expr(&[first, second], span());
+        let map = builder.push_typed_map_type_expr(Some(first), second, span());
+        let result = builder.push_result_type_expr(first, Some(second), span());
+        builder.lowerer.arena.params.push(ArenaParam {
+            name, ty: first, ty_defaulted: false, default: None, rest: false, span: SpanId::from_index(0),
+        });
+        let callable = builder.push_callable_type_expr(ArenaCallableTypeExpr {
+            pure: true, params: ArenaRange::new(0, 1), effects: None, return_ty: second,
+        }, span());
+        let mut arena = builder.finish().arena;
+        for (ty, expected) in [
+            (first, vec![]),
+            (applied, vec![TypeExpr(first), TypeExpr(second)]),
+            (union, vec![TypeExpr(first), TypeExpr(second)]),
+            (map, vec![TypeExpr(first), TypeExpr(second)]),
+            (result, vec![TypeExpr(first), TypeExpr(second)]),
+            (callable, vec![TypeExpr(first), TypeExpr(second)]),
+        ] {
+            let mut children = Vec::new();
+            arena.for_each_type_expr_child(ty, |child| children.push(child));
+            assert_eq!(children, expected);
+        }
+        let target = BindingTargetId::from_index(1);
+        arena.destructure_fields.push(ArenaDestructureField { name, target, span: SpanId::from_index(0) });
+        arena.binding_targets.push(ArenaBindingTarget {
+            kind: ArenaBindingTargetKind::Record { fields: ArenaRange::new(0, 1), rest: false }, span: None,
+        });
+        let mut children = Vec::new();
+        arena.for_each_binding_target_child(BindingTargetId::from_index(0), |child| children.push(child));
+        assert_eq!(children, [BindingTarget(target)]);
+        let base = AssignTargetId::from_index(1);
+        let index = ExprId::from_index(0);
+        arena.assign_targets.push(ArenaAssignTarget { kind: ArenaAssignTargetKind::Index { base, index } });
+        children.clear();
+        arena.for_each_assign_target_child(AssignTargetId::from_index(0), |child| children.push(child));
+        assert_eq!(children, [AssignTarget(base), Expr(index)]);
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ArenaRange {
     pub start: u32,
@@ -4088,6 +4364,478 @@ pub struct AstArena {
 }
 
 impl AstArena {
+    /// Immediate children, in operand order. A sugar statement has two views
+    /// of the same operands; visiting both would report or evaluate them twice.
+    pub fn for_each_stmt_child(
+        &self,
+        id: StmtId,
+        view: SugarView,
+        mut visit: impl FnMut(ArenaChild),
+    ) {
+        use ArenaChild as Child;
+        match self.stmt(id).kind {
+            ArenaStmtKind::Use(_) | ArenaStmtKind::Continue | ArenaStmtKind::TailBareIdent(_) => {}
+            ArenaStmtKind::Export(stmt) => visit(Child::Stmt(stmt)),
+            ArenaStmtKind::TypeDef(def) => match self.type_def(def).body {
+                ArenaTypeDefBody::Alias(ty) => visit(Child::TypeExpr(ty)),
+                ArenaTypeDefBody::RecordSchema(fields) => {
+                    self.for_each_schema_child(fields, &mut visit);
+                }
+                ArenaTypeDefBody::ModuleContract { entries, .. } => {
+                    for entry in self.module_contract_entries(entries) {
+                        match entry.kind {
+                            ArenaModuleContractEntryKind::Value(ty) => visit(Child::TypeExpr(ty)),
+                            ArenaModuleContractEntryKind::Proc { params, return_ty, .. }
+                            | ArenaModuleContractEntryKind::Pure { params, return_ty } => {
+                                self.for_each_param_child(params, &mut visit);
+                                visit(Child::TypeExpr(return_ty));
+                            }
+                        }
+                    }
+                }
+                ArenaTypeDefBody::TagUnion(variants) => {
+                    for variant in self.tag_variants(variants) {
+                        for ty in self.extra_range(variant.fields) {
+                            visit(Child::TypeExpr(TypeExprId::from_index(*ty as usize)));
+                        }
+                        if let Some(value) = variant.wire_value { visit(Child::Expr(value)); }
+                    }
+                }
+            },
+            ArenaStmtKind::ErrorDef(def) => {
+                for variant in self.error_variants(self.error_def(def).variants) {
+                    for field in self.error_fields(variant.fields) { visit(Child::TypeExpr(field.ty)); }
+                }
+            }
+            ArenaStmtKind::Let { target, ty, initializer }
+            | ArenaStmtKind::Const { target, ty, initializer }
+            | ArenaStmtKind::Var { target, ty, initializer } => {
+                visit(Child::BindingTarget(target));
+                if let Some(ty) = ty { visit(Child::TypeExpr(ty)); }
+                self.for_each_expr_or_run_child(initializer, &mut visit);
+            }
+            ArenaStmtKind::Assign { target, value, .. } => {
+                visit(Child::AssignTarget(target));
+                self.for_each_expr_or_run_child(value, &mut visit);
+            }
+            ArenaStmtKind::ProcDef(def) | ArenaStmtKind::CliMain(def)
+            | ArenaStmtKind::PureDef(def) | ArenaStmtKind::StreamDef(def) => {
+                let def = self.function_def(def);
+                self.for_each_param_child(def.params, &mut visit);
+                visit(Child::TypeExpr(def.return_ty));
+                visit(Child::Block(def.body));
+            }
+            ArenaStmtKind::SignalHook(hook) => visit(Child::Block(self.signal_hook(hook).body)),
+            ArenaStmtKind::Return(value) => {
+                if let Some(value) = value { self.for_each_expr_or_run_child(value, &mut visit); }
+            }
+            ArenaStmtKind::Yield(value) | ArenaStmtKind::Defer(value, _) => {
+                self.for_each_expr_or_run_child(value, &mut visit);
+            }
+            ArenaStmtKind::YieldDelegate(expr) | ArenaStmtKind::Exit(expr)
+            | ArenaStmtKind::Expr(expr) => visit(Child::Expr(expr)),
+            ArenaStmtKind::If { branches, else_block } => {
+                for branch in self.if_branches(branches) {
+                    visit(Child::Expr(branch.condition));
+                    visit(Child::Block(branch.block));
+                }
+                if let Some(block) = else_block { visit(Child::Block(block)); }
+            }
+            ArenaStmtKind::While { condition, block } => {
+                visit(Child::Expr(condition));
+                visit(Child::Block(block));
+            }
+            ArenaStmtKind::For { target, iter, block } => {
+                visit(Child::Expr(iter));
+                visit(Child::BindingTarget(target));
+                visit(Child::Block(block));
+            }
+            ArenaStmtKind::With { bindings, body, else_block } => {
+                self.for_each_with_child(bindings, &mut visit);
+                visit(Child::Block(body));
+                visit(Child::Block(else_block));
+            }
+            ArenaStmtKind::Loop { block } => visit(Child::Block(block)),
+            ArenaStmtKind::Guard { target, ty, initializer, else_block } => {
+                visit(Child::BindingTarget(target));
+                if let Some(ty) = ty { visit(Child::TypeExpr(ty)); }
+                self.for_each_expr_or_run_child(initializer, &mut visit);
+                visit(Child::Block(else_block));
+            }
+            ArenaStmtKind::Sugar { operands, expansion, .. } => match view {
+                SugarView::Core => visit(Child::Stmt(expansion)),
+                SugarView::Source => {
+                    for operand in self.sugar_operands(operands) {
+                        match *operand {
+                            ArenaSugarOperand::Expr(expr) => visit(Child::Expr(expr)),
+                            ArenaSugarOperand::Block(block) => visit(Child::Block(block)),
+                            ArenaSugarOperand::Stmt(stmt) => visit(Child::Stmt(stmt)),
+                            ArenaSugarOperand::BindingTarget(target) => visit(Child::BindingTarget(target)),
+                            ArenaSugarOperand::TypeExpr(ty) => visit(Child::TypeExpr(ty)),
+                            ArenaSugarOperand::Name(_) => {}
+                        }
+                    }
+                }
+            },
+            ArenaStmtKind::Assert { condition, message } => {
+                visit(Child::Expr(condition));
+                if let Some(message) = message { visit(Child::Expr(message)); }
+            }
+            ArenaStmtKind::Break { value } => {
+                if let Some(value) = value { visit(Child::Expr(value)); }
+            }
+            ArenaStmtKind::Match { value, arms } => {
+                visit(Child::Expr(value));
+                for arm in self.match_arms(arms) {
+                    visit(Child::Pattern(arm.pattern));
+                    if let Some(guard) = arm.guard { visit(Child::Expr(guard)); }
+                    visit(Child::Block(arm.block));
+                }
+            }
+            ArenaStmtKind::Command(command) => {
+                match &self.command_stmt(command).command {
+                    ArenaCommand::Proc { args, .. } => self.for_each_command_args_child(*args, &mut visit),
+                    ArenaCommand::Core { args, env, block, .. } => {
+                        self.for_each_command_args_child(*args, &mut visit);
+                        self.for_each_env_child(*env, &mut visit);
+                        if let Some(block) = block { visit(Child::Block(*block)); }
+                    }
+                    ArenaCommand::Run(run) => self.for_each_run_child(*run, &mut visit),
+                }
+            }
+        }
+    }
+
+    /// Logical operands are children; bookkeeping references are not. In a
+    /// comparison chain the shared middle operand is visited once, and a value
+    /// pipeline's hole is already reached through the call's arguments.
+    pub fn for_each_expr_child(&self, id: ExprId, mut visit: impl FnMut(ArenaChild)) {
+        use ArenaChild as Child;
+        match self.expr(id).kind {
+            ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_)
+            | ArenaExprKind::Float(_) | ArenaExprKind::Duration(_) | ArenaExprKind::Str(_)
+            | ArenaExprKind::PathStr(_) | ArenaExprKind::GlobStr(_) | ArenaExprKind::Bytes(_)
+            | ArenaExprKind::Regex(_) | ArenaExprKind::Ident(_) | ArenaExprKind::Item
+            | ArenaExprKind::LastStatus | ArenaExprKind::EnvString(_) | ArenaExprKind::EnvPathList => {}
+            ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
+                for part in self.fmt_parts(parts) {
+                    match part {
+                        ArenaFmtPart::Text(_) => {}
+                        ArenaFmtPart::Expr(expr, _) => visit(Child::Expr(expr)),
+                    }
+                }
+            }
+            ArenaExprKind::List(items) | ArenaExprKind::Set(items) => {
+                for expr in self.list_element_exprs(items) { visit(Child::Expr(expr)); }
+            }
+            ArenaExprKind::ListComp { expr, qualifiers } | ArenaExprKind::SetComp { expr, qualifiers } => {
+                self.for_each_qualifier_child(qualifiers, &mut visit);
+                visit(Child::Expr(expr));
+            }
+            ArenaExprKind::MapComp { key, value, qualifiers } => {
+                self.for_each_qualifier_child(qualifiers, &mut visit);
+                visit(Child::Expr(key));
+                visit(Child::Expr(value));
+            }
+            ArenaExprKind::Record(fields) => {
+                for field in self.record_fields(fields) {
+                    match field.kind {
+                        ArenaRecordFieldKind::Computed { key, value, .. } => {
+                            visit(Child::Expr(key));
+                            visit(Child::Expr(value));
+                        }
+                        ArenaRecordFieldKind::Named { value, .. } | ArenaRecordFieldKind::Path { value, .. }
+                        | ArenaRecordFieldKind::Spread { expr: value, .. } => visit(Child::Expr(value)),
+                        ArenaRecordFieldKind::Shorthand { .. } => {}
+                    }
+                }
+            }
+            ArenaExprKind::If { branches, else_value } => {
+                for branch in self.if_expr_branches(branches) {
+                    visit(Child::Expr(branch.condition));
+                    visit(Child::Expr(branch.value));
+                }
+                visit(Child::Expr(else_value));
+            }
+            ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms }
+            | ArenaExprKind::PatternCondition { value, arms } => {
+                visit(Child::Expr(value));
+                for arm in self.match_expr_arms(arms) {
+                    visit(Child::Pattern(arm.pattern));
+                    if let Some(guard) = arm.guard { visit(Child::Expr(guard)); }
+                    visit(Child::Expr(arm.value));
+                }
+            }
+            ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => visit(Child::Expr(expr)),
+            ArenaExprKind::ComparisonChain(pairs) => {
+                for expr in self.comparison_chain_operands(pairs) { visit(Child::Expr(expr)); }
+            }
+            ArenaExprKind::Binary { left, right, .. } => {
+                visit(Child::Expr(left));
+                visit(Child::Expr(right));
+            }
+            ArenaExprKind::Call { callee, args } => {
+                visit(Child::Expr(callee));
+                self.for_each_call_args_child(args, &mut visit);
+            }
+            ArenaExprKind::ValuePipelineCall { input, call, .. } => {
+                visit(Child::Expr(input));
+                visit(Child::Expr(call));
+            }
+            ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => visit(Child::Expr(base)),
+            ArenaExprKind::Index { base, index, .. } => {
+                visit(Child::Expr(base));
+                visit(Child::Expr(index));
+            }
+            ArenaExprKind::Slice { base, start, end, .. } => {
+                visit(Child::Expr(base));
+                for expr in start.into_iter().chain(end) { visit(Child::Expr(expr)); }
+            }
+            ArenaExprKind::Pipeline { input, stages } => {
+                visit(Child::Expr(input));
+                for stage in self.pipe_stages(stages) {
+                    match &stage.kind {
+                        ArenaPipeStageKind::Expr(expr) => visit(Child::Expr(*expr)),
+                        ArenaPipeStageKind::Stream(stage) => self.for_each_stream_child(stage, &mut visit),
+                    }
+                }
+            }
+            ArenaExprKind::StructuredPipeline { input, stages } => {
+                visit(Child::Expr(input));
+                for stage in self.stream_stages(stages) { self.for_each_stream_child(stage, &mut visit); }
+            }
+            ArenaExprKind::Run(run) => self.for_each_run_child(run, &mut visit),
+            ArenaExprKind::Spawn(form) => match form.target {
+                ArenaSpawnTarget::Run(run) => self.for_each_run_child(run, &mut visit),
+                ArenaSpawnTarget::Command(expr) => visit(Child::Expr(expr)),
+            },
+            ArenaExprKind::Wait(form) => visit(Child::Expr(form.target)),
+            ArenaExprKind::BuilderCall { call, block } => {
+                visit(Child::Expr(call));
+                visit(Child::BuilderBlock(block));
+            }
+            ArenaExprKind::Require { value, schema } => {
+                visit(Child::Expr(value));
+                if let Some(schema) = schema { visit(Child::TypeExpr(schema)); }
+            }
+            ArenaExprKind::Convert { value, target } => {
+                visit(Child::Expr(value));
+                visit(Child::TypeExpr(target));
+            }
+            ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block)
+            | ArenaExprKind::Collect { block } | ArenaExprKind::Loop { block } => visit(Child::Block(block)),
+            ArenaExprKind::Retry { delays, pattern, block, .. } => {
+                for delay in self.expr_ids(delays) { visit(Child::Expr(delay)); }
+                if let Some(pattern) = pattern { visit(Child::Pattern(pattern)); }
+                visit(Child::Block(block));
+            }
+            ArenaExprKind::ErrorContext { message, block } => {
+                visit(Child::Expr(message));
+                visit(Child::Block(block));
+            }
+            ArenaExprKind::ContextScope { input, block, .. } => {
+                visit(Child::Expr(input));
+                visit(Child::Block(block));
+            }
+            ArenaExprKind::TempDirScope { path, block, .. } => {
+                if let Some(path) = path { visit(Child::Expr(path)); }
+                visit(Child::Block(block));
+            }
+            ArenaExprKind::ResourceScope { bindings, block, .. } => {
+                self.for_each_with_child(bindings, &mut visit);
+                visit(Child::Block(block));
+            }
+        }
+    }
+
+    pub fn for_each_pattern_child(&self, id: PatternId, mut visit: impl FnMut(ArenaChild)) {
+        use ArenaChild as Child;
+        match self.pattern(id).kind {
+            ArenaPatternKind::Group(pattern) | ArenaPatternKind::Alias { pattern, .. } => visit(Child::Pattern(pattern)),
+            ArenaPatternKind::Wildcard | ArenaPatternKind::Binding(_) | ArenaPatternKind::Facet(_)
+            | ArenaPatternKind::TextHole { .. } => {}
+            ArenaPatternKind::TestName { ty, .. } | ArenaPatternKind::Type { ty, .. } => visit(Child::TypeExpr(ty)),
+            ArenaPatternKind::Literal(expr) => visit(Child::Expr(expr)),
+            ArenaPatternKind::Record { fields, .. } | ArenaPatternKind::ErrorVariant { fields, .. } => {
+                for field in self.pattern_fields(fields) { visit(Child::Pattern(field.pattern)); }
+            }
+            ArenaPatternKind::List { elements, rest } => {
+                for pattern in self.pattern_ids(elements).chain(rest) { visit(Child::Pattern(pattern)); }
+            }
+            ArenaPatternKind::Alternation(patterns) | ArenaPatternKind::Tuple(patterns)
+            | ArenaPatternKind::Text(patterns) => {
+                for pattern in self.pattern_ids(patterns) { visit(Child::Pattern(pattern)); }
+            }
+            ArenaPatternKind::Constructor { arg, .. } => {
+                if let Some(pattern) = arg { visit(Child::Pattern(pattern)); }
+            }
+        }
+    }
+
+    pub fn for_each_block_child(&self, id: BlockId, mut visit: impl FnMut(ArenaChild)) {
+        for stmt in self.stmt_ids(self.block(id).statements) { visit(ArenaChild::Stmt(stmt)); }
+    }
+
+    pub fn for_each_binding_target_child(&self, id: BindingTargetId, mut visit: impl FnMut(ArenaChild)) {
+        match self.binding_target(id).kind {
+            ArenaBindingTargetKind::Name(_) => {}
+            ArenaBindingTargetKind::Record { fields, .. } => {
+                for field in self.destructure_fields(fields) { visit(ArenaChild::BindingTarget(field.target)); }
+            }
+        }
+    }
+
+    pub fn for_each_assign_target_child(&self, id: AssignTargetId, mut visit: impl FnMut(ArenaChild)) {
+        match self.assign_target(id).kind {
+            ArenaAssignTargetKind::Name(_) | ArenaAssignTargetKind::Env(_) => {}
+            ArenaAssignTargetKind::Field { base, .. } => visit(ArenaChild::AssignTarget(base)),
+            ArenaAssignTargetKind::Index { base, index } => {
+                visit(ArenaChild::AssignTarget(base));
+                visit(ArenaChild::Expr(index));
+            }
+        }
+    }
+
+    pub fn for_each_type_expr_child(&self, id: TypeExprId, mut visit: impl FnMut(ArenaChild)) {
+        let data = self.type_expr_data[id.index()];
+        match self.type_expr_tags[id.index()] {
+            ArenaTypeExprTag::Named | ArenaTypeExprTag::Qualified => {}
+            ArenaTypeExprTag::Applied => {
+                visit(ArenaChild::TypeExpr(TypeExprId::from_index(data.lhs as usize)));
+                for ty in self.applied_type_arguments(id) { visit(ArenaChild::TypeExpr(ty)); }
+            }
+            ArenaTypeExprTag::Union => {
+                for ty in self.union_type_members(id) { visit(ArenaChild::TypeExpr(ty)); }
+            }
+            ArenaTypeExprTag::Callable => {
+                let callable = self.callable_type_expr(id);
+                self.for_each_param_child(callable.params, &mut visit);
+                visit(ArenaChild::TypeExpr(callable.return_ty));
+            }
+            ArenaTypeExprTag::List | ArenaTypeExprTag::NonEmpty | ArenaTypeExprTag::Set
+            | ArenaTypeExprTag::Stream | ArenaTypeExprTag::Module | ArenaTypeExprTag::Optional => {
+                visit(ArenaChild::TypeExpr(TypeExprId::from_index(data.lhs as usize)));
+            }
+            ArenaTypeExprTag::Map => {
+                if let Some(key) = optional_type_expr_id(data.rhs) { visit(ArenaChild::TypeExpr(key)); }
+                visit(ArenaChild::TypeExpr(TypeExprId::from_index(data.lhs as usize)));
+            }
+            ArenaTypeExprTag::Result => {
+                visit(ArenaChild::TypeExpr(TypeExprId::from_index(data.lhs as usize)));
+                if let Some(err) = optional_type_expr_id(data.rhs) { visit(ArenaChild::TypeExpr(err)); }
+            }
+        }
+    }
+
+    /// A nested builder block remains a child, so enumeration never descends
+    /// on the native stack or allocates a work list.
+    pub fn for_each_builder_child(&self, id: BuilderBlockId, mut visit: impl FnMut(ArenaChild)) {
+        for entry in self.builder_entries(self.builder_block(id).entries) {
+            match entry.kind {
+                ArenaBuilderEntryKind::Field { value, .. } => visit(ArenaChild::Expr(value)),
+                ArenaBuilderEntryKind::Entry { args, block, .. } => {
+                    self.for_each_command_args_child(args, &mut visit);
+                    if let Some(block) = block { visit(ArenaChild::BuilderBlock(block)); }
+                }
+                ArenaBuilderEntryKind::Task { block, .. } => visit(ArenaChild::Block(block)),
+                ArenaBuilderEntryKind::Stmt(stmt) => visit(ArenaChild::Stmt(stmt)),
+            }
+        }
+    }
+
+    fn for_each_schema_child(&self, fields: ArenaRange, visit: &mut impl FnMut(ArenaChild)) {
+        for field in self.schema_fields(fields) {
+            visit(ArenaChild::TypeExpr(field.ty));
+            if let Some(default) = field.default { visit(ArenaChild::Expr(default)); }
+        }
+    }
+
+    fn for_each_param_child(&self, params: ArenaRange, visit: &mut impl FnMut(ArenaChild)) {
+        for param in self.params(params) {
+            visit(ArenaChild::TypeExpr(param.ty));
+            if let Some(default) = param.default { visit(ArenaChild::Expr(default)); }
+        }
+    }
+
+    fn for_each_with_child(&self, bindings: ArenaRange, visit: &mut impl FnMut(ArenaChild)) {
+        for binding in self.with_bindings(bindings) { visit(ArenaChild::Expr(binding.initializer)); }
+    }
+
+    fn for_each_qualifier_child(&self, qualifiers: ArenaRange, visit: &mut impl FnMut(ArenaChild)) {
+        for qualifier in self.comp_qualifiers(qualifiers) {
+            match *qualifier {
+                ArenaCompQualifier::For { target, iter, .. } => {
+                    visit(ArenaChild::Expr(iter));
+                    visit(ArenaChild::BindingTarget(target));
+                }
+                ArenaCompQualifier::If { condition, .. } => visit(ArenaChild::Expr(condition)),
+            }
+        }
+    }
+
+    fn for_each_expr_or_run_child(&self, value: ArenaExprOrRun, visit: &mut impl FnMut(ArenaChild)) {
+        match value {
+            ArenaExprOrRun::Expr(expr) => visit(ArenaChild::Expr(expr)),
+            ArenaExprOrRun::Run(run) => self.for_each_run_child(run, visit),
+        }
+    }
+
+    fn for_each_call_args_child(&self, args: ArenaRange, visit: &mut impl FnMut(ArenaChild)) {
+        for arg in self.call_args(args) {
+            match arg.kind {
+                ArenaCallArgKind::Positional(expr) | ArenaCallArgKind::Named { value: expr, .. }
+                | ArenaCallArgKind::Splice { value: expr, .. } | ArenaCallArgKind::NamedSpread { value: expr, .. } => visit(ArenaChild::Expr(expr)),
+            }
+        }
+    }
+
+    fn for_each_stream_child(&self, stage: &ArenaStreamStage, visit: &mut impl FnMut(ArenaChild)) {
+        self.for_each_call_args_child(stage.args, visit);
+        if let Some(block) = stage.block { visit(ArenaChild::Block(block)); }
+    }
+
+    fn for_each_command_args_child(&self, args: ArenaRange, visit: &mut impl FnMut(ArenaChild)) {
+        for arg in self.command_args(args) { self.for_each_command_arg_child(arg, visit); }
+    }
+
+    fn for_each_command_arg_child(&self, arg: &ArenaCommandArg, visit: &mut impl FnMut(ArenaChild)) {
+        match arg.kind {
+            ArenaCommandArgKind::SpliceName(_) => {}
+            ArenaCommandArgKind::SpliceExpr(expr) | ArenaCommandArgKind::Typed(expr) => visit(ArenaChild::Expr(expr)),
+            ArenaCommandArgKind::Word(parts) => {
+                for part in self.word_parts(parts) {
+                    match part {
+                        ArenaWordPart::Bare(_) | ArenaWordPart::Quoted(_) => {}
+                        ArenaWordPart::Shorthand(expr) | ArenaWordPart::Interpolation(expr) => visit(ArenaChild::Expr(expr)),
+                    }
+                }
+            }
+        }
+    }
+
+    fn for_each_env_child(&self, env: ArenaRange, visit: &mut impl FnMut(ArenaChild)) {
+        for assignment in self.env_assignments(env) {
+            match &assignment.value {
+                ArenaEnvAssignmentValue::CommandArg(arg) => self.for_each_command_arg_child(arg, visit),
+                ArenaEnvAssignmentValue::Expr(expr) => visit(ArenaChild::Expr(*expr)),
+            }
+        }
+    }
+
+    fn for_each_run_child(&self, run: RunFormId, visit: &mut impl FnMut(ArenaChild)) {
+        for segment in self.run_segments(self.run_form(run).segments) {
+            for expr in segment.timeout.into_iter().chain(segment.cpu_max).chain(segment.accept) { visit(ArenaChild::Expr(expr)); }
+            self.for_each_env_child(segment.env, visit);
+            self.for_each_command_arg_child(&segment.target, visit);
+            self.for_each_command_args_child(segment.args, visit);
+            for redirection in self.redirections(segment.redirections) {
+                match &redirection.target {
+                    ArenaRedirectionTarget::Path(arg) | ArenaRedirectionTarget::Fd(arg) => self.for_each_command_arg_child(arg, visit),
+                }
+            }
+        }
+    }
+
     /// Materialize the ordinary one-item call used by a static stage descriptor.
     /// The temporary block is private to checking/lowering; source syntax stays intact.
     pub fn append_stage_callable_block(
@@ -6115,6 +6863,28 @@ pub enum ArenaSugarOperand {
     BindingTarget(BindingTargetId),
     TypeExpr(TypeExprId),
     Name(Name),
+}
+
+/// The syntax families reached through immediate child enumeration. Literal
+/// pools, names, spans, effects, and other metadata are not syntax children.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ArenaChild {
+    Stmt(StmtId),
+    Expr(ExprId),
+    Pattern(PatternId),
+    Block(BlockId),
+    BindingTarget(BindingTargetId),
+    AssignTarget(AssignTargetId),
+    TypeExpr(TypeExprId),
+    BuilderBlock(BuilderBlockId),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SugarView {
+    /// The written operands, excluding nodes introduced by expansion.
+    Source,
+    /// The core expansion only, which already references the operands.
+    Core,
 }
 
 /// A sugar statement's operands by role, for the consumers that print or
