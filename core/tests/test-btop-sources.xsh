@@ -188,6 +188,13 @@ test test_btop_network_source_selects_name_order_and_skips_loopback {
   assert selected.rx_bytes == 50 and selected.tx_bytes == 60
 }
 
+test test_btop_network_selection_uses_loopback_when_it_is_the_only_interface {
+  let selected = network.selected_interface([
+    {name: "lo", ifindex: 1, rx_bytes: 64, tx_bytes: 64},
+  ])
+  assert selected?.name == "lo"
+}
+
 test test_btop_network_source_distinguishes_empty_from_unavailable {
   let root = fs.tempdir()?
   defer root.close()

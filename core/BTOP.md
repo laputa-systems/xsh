@@ -82,8 +82,9 @@ complete source values parse.
 Memory shows total, available, and `total - available`; swap shows observed
 absence when both swap counters are absent. Network chooses the
 name-sorted non-loopback interface, or loopback only when it is the only
-interface, and displays byte totals and interval rates. The network source's
-observed empty list remains distinct from a failed read.
+interface, and displays byte totals and interval rates in bytes per second
+with binary KiB/s and MiB/s labels. The network source's observed empty list
+remains distinct from a failed read.
 
 If collection finishes after multiple deadlines, the monitor records the
 skipped intervals and starts one fresh sample instead of running a catch-up

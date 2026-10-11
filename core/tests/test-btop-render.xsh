@@ -21,6 +21,7 @@ test test_btop_g1_screen_places_all_panel_values_at_80_by_24 {
   assert "Used 768.00 MiB" in (screen.lines[5].split("") |> drop(40).join(""))
   assert "Interface eth0" in screen.lines[14]
   assert "RX 10.00 KiB/s" in screen.lines[15]
+  assert "TX 2.00 KiB/s" in screen.lines[16]
   assert "PID UID CPU% RSS COMMAND" in (screen.lines[14].split("") |> drop(40).join(""))
   assert "Sort CPU descending" in (screen.lines[15].split("") |> drop(40).join(""))
   assert "> 42 1000 12.5% 64.00 MiB" in (screen.lines[16].split("") |> drop(40).join(""))
@@ -42,6 +43,7 @@ test test_btop_g1_screen_places_all_panel_values_at_120_by_40 {
   assert "Usage 40.0%" in screen.lines[3]
   assert "Total 1.00 GiB" in (screen.lines[3].split("") |> drop(60).join(""))
   assert "RX 10.00 KiB/s" in screen.lines[23]
+  assert "TX 2.00 KiB/s" in screen.lines[24]
   assert "42 1000 12.5%" in (screen.lines[24].split("") |> drop(60).join(""))
 }
 
