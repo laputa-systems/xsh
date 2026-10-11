@@ -207,3 +207,29 @@ test test_uu_support_child_umask_rejects_non_permission_bits { |ctx|
   }
   assert ! uu.exists(s, "rejected")?
 }
+
+
+test test_uu_support_argv_shell_wrapper_preserves_launch_contract { |ctx|
+  let s = uu.scene(ctx)?
+  let output = uu.at(s, "wrapped-output")
+  let error = uu.at(s, "wrapped-error")
+  let vars = {LC_ALL: "POSIX", UU_WRAPPED: "preserved"}
+  let words = uu.argv(s, "printenv", [p"LC_ALL", p"TZ", p"UU_WRAPPED"], vars, umask: 0o077)?
+  let wrapper = [p"/bin/sh", p"-c", Path(r"""exec "$@"; """), p"uu-wrapper"].extend(words)
+  let status = process.run(process.command_argv(p"/bin/sh", wrapper, s.root, vars,
+    stdout: output, stderr: error, timeout: 2s))?
+  assert status.exited_with(0)
+  assert output.read_bytes()? == b"POSIX\nUTC\npreserved\n"
+  assert error.read_bytes()? == b""
+  let raw = Path.parse_bytes(b"raw\xff")?
+  let echo = [p"/bin/sh", p"-c", Path(r"""exec "$@"; """), p"uu-wrapper"]
+    .extend(uu.argv(s, "echo", [p"--", raw])?)
+  assert process.run(process.command_argv(p"/bin/sh", echo, s.root,
+    stdout: output, stderr: error, timeout: 2s))?.exited_with(0)
+  assert output.read_bytes()? == b"-- raw\xff\n"
+  let mkdir = [p"/bin/sh", p"-c", Path(r"""exec "$@"; """), p"uu-wrapper"]
+    .extend(uu.argv(s, "mkdir", [p"wrapped-directory"], umask: 0o077)?)
+  assert process.run(process.command_argv(p"/bin/sh", mkdir, s.root,
+    stdout: output, stderr: error, timeout: 2s))?.exited_with(0)
+  assert uu.mode(s, "wrapped-directory")? == 0o700
+}

@@ -26,23 +26,24 @@ def rewrite_helper(source: str, reference: str) -> str:
     if reference not in ("gnu", "busybox"):
         raise ValueError(f"unknown reference: {reference}")
     script = '  let script = fp"{s.ctx.core_dir}/{util}.xsh"'
-    text_argv = '  let words = [s.ctx.xsh_bin.display(), script.display(), "--"].extend(args)'
     path_argv = '  let words = [s.ctx.xsh_bin, script, p"--"].extend(args)'
+    launcher = '  Ok([s.ctx.xsh_bin, launcher, Path(launch_metadata(vars, umask)?)].extend(words))'
+    signature = ') [error] -> Result[List[Path], Error] {'
     command = 'process.command_argv(s.ctx.xsh_bin, argv,'
-    for fragment, expected in ((script, 3), (text_argv, 2), (path_argv, 1), (command, 6)):
+    text_call = '  let argv = argv(s, util, [Path(word) for word in args], vars, umask)?'
+    path_call = '  let argv = argv(s, util, args, vars, umask)?'
+    for fragment, expected in ((script, 1), (path_argv, 1), (launcher, 1), (signature, 1), (command, 6), (text_call, 2), (path_call, 1)):
         actual = source.count(fragment)
         if actual != expected:
             raise ValueError(f"uu helper launch shape changed: expected {expected} occurrences of {fragment!r}, got {actual}")
     if reference == "gnu":
         target = '  let executable = process.which(util)?'
-        text_words = '[executable.display()]'
         path_words = '[executable]'
     else:
         target = '  let executable = p"/bin/busybox"'
-        text_words = '[executable.display(), util]'
         path_words = '[executable, fp"{util}"]'
     return (source.replace(script, target)
-        .replace(text_argv, f'  let words = {text_words}.extend(args)')
+        .replace(signature, ') [process, env, error] -> Result[List[Path], Error] {')
         .replace(path_argv, f'  let words = {path_words}.extend(args)'))
 
 

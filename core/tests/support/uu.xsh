@@ -95,6 +95,22 @@ proc launch_metadata(vars: Record, umask: Int?) [error] -> Result[Str, Error] {
   json.encode({caller_keys: vars.keys(), umask: umask})
 }
 
+## Full lossless launcher argv for callers that wrap an applet in another process.
+## Run in the scene directory and pass the same vars to the outer command;
+## metadata carries override names while values travel through its environment.
+export proc argv(
+  s: Scene,
+  util: Str,
+  args: List[Path],
+  vars: Record = {},
+  umask: Int? = null,
+) [error] -> Result[List[Path], Error] {
+  let script = fp"{s.ctx.core_dir}/{util}.xsh"
+  let words = [s.ctx.xsh_bin, script, p"--"].extend(args)
+  let launcher = fp"{s.ctx.core_dir}/tests/support/uu-launch.xsh"
+  Ok([s.ctx.xsh_bin, launcher, Path(launch_metadata(vars, umask)?)].extend(words))
+}
+
 ## Creates an isolated applet command for callers that own spawning and waiting.
 ## Parallel callers must supply distinct capture paths or explicitly shared append paths.
 ## A zero timeout leaves the process unbounded; positive timeouts bound its lifetime.
@@ -114,10 +130,7 @@ export proc command(
 ) [process, env, error] -> Result[Command, Error] {
   let out = stdout ?? fp"{s.root}/.uu-stdout"
   let err = stderr ?? fp"{s.root}/.uu-stderr"
-  let script = fp"{s.ctx.core_dir}/{util}.xsh"
-  let words = [s.ctx.xsh_bin.display(), script.display(), "--"].extend(args)
-  let launcher = fp"{s.ctx.core_dir}/tests/support/uu-launch.xsh"
-  let argv = [s.ctx.xsh_bin.display(), launcher.display(), launch_metadata(vars, umask)?].extend(words)
+  let argv = argv(s, util, [Path(word) for word in args], vars, umask)?
   let plan = if timeout == 0ms {
     process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append)
   } else {
@@ -173,10 +186,7 @@ export proc invoke_paths(
   timeout: Duration = 0ms,
   umask: Int? = null,
 ) [fs, process, env, error] -> Result[Ran, Error] {
-  let script = fp"{s.ctx.core_dir}/{util}.xsh"
-  let words = [s.ctx.xsh_bin, script, p"--"].extend(args)
-  let launcher = fp"{s.ctx.core_dir}/tests/support/uu-launch.xsh"
-  let argv = [s.ctx.xsh_bin, launcher, Path(launch_metadata(vars, umask)?)].extend(words)
+  let argv = argv(s, util, args, vars, umask)?
   let out = fp"{s.root}/.uu-stdout"
   let err = fp"{s.root}/.uu-stderr"
   let plan = if timeout == 0ms {
@@ -204,10 +214,7 @@ export proc invoke_from_path(
 ) [fs, process, env, error] -> Result[Ran, Error] {
   let out = stdout ?? fp"{s.root}/.uu-stdout"
   let err = stderr ?? fp"{s.root}/.uu-stderr"
-  let script = fp"{s.ctx.core_dir}/{util}.xsh"
-  let words = [s.ctx.xsh_bin.display(), script.display(), "--"].extend(args)
-  let launcher = fp"{s.ctx.core_dir}/tests/support/uu-launch.xsh"
-  let argv = [s.ctx.xsh_bin.display(), launcher.display(), launch_metadata(vars, umask)?].extend(words)
+  let argv = argv(s, util, [Path(word) for word in args], vars, umask)?
   let plan = if timeout == 0ms {
     process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append)
   } else {

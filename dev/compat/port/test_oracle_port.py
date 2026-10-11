@@ -35,7 +35,7 @@ class OraclePortTests(unittest.TestCase):
         self.assertTrue((corpus / "core/tests/data/cycle").is_symlink())
         self.assertEqual((self.repo / "core/tests/support/uu.xsh").read_text(), self.helper)
         rewritten = (corpus / "core/tests/support/uu.xsh").read_text()
-        self.assertEqual(rewritten.count('let executable = process.which(util)?'), 3)
+        self.assertEqual(rewritten.count('let executable = process.which(util)?'), 1)
         self.assertIn('let words = [executable].extend(args)', rewritten)
         self.assertEqual(rewritten.count("process.command_argv(s.ctx.xsh_bin, argv,"), 6)
         # Everything after the launch sites, including byte assertions, is unchanged.
@@ -44,8 +44,7 @@ class OraclePortTests(unittest.TestCase):
 
     def test_busybox_keeps_applet_prefix_for_text_and_lossless_path_words(self):
         rewritten = oracle_port.rewrite_helper(self.helper, "busybox")
-        self.assertEqual(rewritten.count('let executable = p"/bin/busybox"'), 3)
-        self.assertEqual(rewritten.count('[executable.display(), util].extend(args)'), 2)
+        self.assertEqual(rewritten.count('let executable = p"/bin/busybox"'), 1)
         self.assertIn('[executable, fp"{util}"].extend(args)', rewritten)
 
     def test_native_separator_is_removed_only_from_interpreter_prefix(self):
@@ -55,13 +54,34 @@ class OraclePortTests(unittest.TestCase):
             self.assertNotIn('script, p"--"', rewritten)
             self.assertEqual(rewritten.count(".extend(args)"), self.helper.count(".extend(args)"))
             self.assertIn("timeout: timeout", rewritten)
-            self.assertEqual(rewritten.count("launch_metadata(vars, umask)?"), 3)
+            self.assertEqual(rewritten.count("launch_metadata(vars, umask)?"), 1)
             self.assertIn("umask: Int? = null", rewritten)
             self.assertIn("export proc command(", rewritten)
+            self.assertIn("export proc argv(", rewritten)
+            self.assertEqual(rewritten.count("let argv = argv(s, util,"), 3)
+            self.assertIn('Ok([s.ctx.xsh_bin, launcher, Path(launch_metadata(vars, umask)?)].extend(words))', rewritten)
+
+    def test_rewrite_changes_only_central_target_words_and_required_effects(self):
+        for reference, target, words in (
+            ("gnu", '  let executable = process.which(util)?', '[executable]'),
+            ("busybox", '  let executable = p"/bin/busybox"', '[executable, fp"{util}"]'),
+        ):
+            expected = self.helper.replace('  let script = fp"{s.ctx.core_dir}/{util}.xsh"', target)
+            expected = expected.replace('  let words = [s.ctx.xsh_bin, script, p"--"].extend(args)',
+                                        f'  let words = {words}.extend(args)')
+            expected = expected.replace(') [error] -> Result[List[Path], Error] {',
+                                        ') [process, env, error] -> Result[List[Path], Error] {')
+            self.assertEqual(oracle_port.rewrite_helper(self.helper, reference), expected)
 
     def test_changed_launch_shape_fails_before_running_oracle(self):
-        with self.assertRaisesRegex(ValueError, "helper launch shape changed"):
-            oracle_port.rewrite_helper(self.helper.replace("let script =", "let applet =", 1), "gnu")
+        for before, after in (
+            ("let script =", "let applet ="),
+            ("launch_metadata(vars, umask)?", "launch_metadata(vars, null)?"),
+            ("let argv = argv(s, util, args, vars, umask)?", "let argv = argv(s, util, args, vars, null)?"),
+            (") [error] -> Result[List[Path], Error] {", ") [env, error] -> Result[List[Path], Error] {"),
+        ):
+            with self.subTest(fragment=before), self.assertRaisesRegex(ValueError, "helper launch shape changed"):
+                oracle_port.rewrite_helper(self.helper.replace(before, after, 1), "gnu")
 
     def test_files_outside_core_tests_are_rejected(self):
         outside = self.root / "test-outside.xsh"
