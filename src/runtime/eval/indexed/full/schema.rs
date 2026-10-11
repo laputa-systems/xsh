@@ -980,11 +980,11 @@ instruction_schema! {
         Abort {
             status: BuildExprId,
             span: Span,
-        } => ExprAbort = 102 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; LegacyRecursive];
+        } => ExprAbort = 102 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands; FrameApply];
         Fail {
             message: BuildExprId,
             span: Span,
-        } => ExprFail = 103 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands; LegacyRecursive];
+        } => ExprFail = 103 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands; FrameApply];
         Ok(value: BuildExprId) => ExprOk = 104 [0; Operands; FrameControl];
         Err {
             value: BuildExprId,
@@ -993,7 +993,7 @@ instruction_schema! {
         // Boxed: `LoweredErrorExpr::Structured` inlines two `String`s plus two
         // `Vec`s (~96 bytes) that would otherwise size every `BuildExprId` variant
         // for the sake of the comparatively rare structured-error-literal case.
-        Error(value: Box<LoweredErrorExpr>) => ExprError = 106 [0; Operands; LegacyRecursive];
+        Error(value: Box<LoweredErrorExpr>) => ExprError = 106 [0; Operands; FrameApply];
         Try {
             value: BuildExprId,
             span: Span,
@@ -1391,6 +1391,7 @@ mod tests {
             ExprIndexFromEnd
             ExprRequire
             ExprCheckedValue
+            ExprAbort
             ExprFail
             ExprOk
             ExprErr
@@ -1398,7 +1399,7 @@ mod tests {
             ExprTry
         "#;
         let names: Vec<_> = operands.split_whitespace().collect();
-        assert_eq!(names.len(), 55);
+        assert_eq!(names.len(), 56);
         for tag in INSTRUCTION_TAGS {
             let expected = if names.contains(&tag.name()) { InPlaceClass::Operands } else { InPlaceClass::Scheduled };
             assert_eq!(tag.in_place_class(), expected, "{}", tag.name());
@@ -1534,6 +1535,9 @@ mod tests {
                 "ExprPathMkdir",
                 "ExprPathRemove",
                 "ExprArchiveTarCreate",
+                "ExprAbort",
+                "ExprFail",
+                "ExprError",
             ]
         );
         assert_eq!(

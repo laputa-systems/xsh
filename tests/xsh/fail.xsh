@@ -104,6 +104,24 @@ test test_error_failure_is_the_error_fail_wraps {
   }
 }
 
+test test_error_fail_propagates_and_runs_cleanup_on_forced_frames { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""proc load() -> Result[Int] {
+  defer { print "cleanup" }
+  error.fail("disk full")?
+  return Ok(1)
+}
+match load() {
+  Ok(_) => print "unexpected success"
+  Err(problem) => print $problem.message
+}
+""",
+  )?
+  assert output.status == 0, output.stderr
+  assert output.stdout == "cleanup\ndisk full\n", output.stdout
+}
+
 test test_fmt_desugar_and_highlight_know_the_fail_statement { |ctx|
   let source = "proc load(ready: Bool) -> Result[Int] {\n  fail   \"not ready\"   unless ready\n  Ok(1)\n}\n"
   let file = test.temp_file(ctx, name: "fails.xsh", contents: bytes.from_text(source))?

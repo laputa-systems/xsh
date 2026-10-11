@@ -331,6 +331,7 @@ mod tests {
                             tag: FullTag::ExprRange,
                             position: 1,
                             tag_position: None,
+                            error_field_position: None,
                             values: vec![super::super::FrameApplyValue::Value(apply_retained_root)],
                             span,
                             next: Box::new(FrameContinuation::Discard(span)),
@@ -990,6 +991,7 @@ enum FrameContinuation {
         tag: FullTag,
         position: usize,
         tag_position: Option<ListPosition<BuildExprId>>,
+        error_field_position: Option<ListPosition<(Arc<str>, BuildExprId)>>,
         values: Vec<super::FrameApplyValue>,
         span: Span,
         next: Box<FrameContinuation>,
@@ -4033,6 +4035,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     tag,
                     position: 0,
                     tag_position: first.tag_position,
+                    error_field_position: first.error_field_position,
                     values: Vec::new(),
                     span: first.span,
                     next: Box::new(next),
@@ -4130,7 +4133,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         if super::indexed_frame_apply_tag(tag) {
             let mut view = super::ExprView::decode(&self.calls[index].execution, tag, payload)
                 .map_err(|error| indexed_error(error, span))?;
-            let first = super::indexed_frame_apply_child(tag, &mut view, 0, None, span)?;
+            let first = super::indexed_frame_apply_child(tag, &mut view, 0, None, None, span)?;
             let apply_span = first.as_ref().map_or(span, |child| child.span);
             self.push_apply_operands(index, instruction, tag, first, apply_span, next)?;
             return Ok(());
@@ -5726,6 +5729,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 tag,
                 position,
                 tag_position,
+                error_field_position,
                 mut values,
                 span,
                 next,
@@ -5754,6 +5758,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             &mut view,
                             position,
                             tag_position,
+                            error_field_position,
                             span,
                         )?
                         .expect("scheduled frame apply child remains in its expression");
@@ -5763,6 +5768,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             &mut view,
                             position + 1,
                             current.next_tag_position,
+                            current.next_error_field_position,
                             span,
                         )?;
                         (operand, child)
@@ -5778,6 +5784,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                                 tag,
                                 position: position + 1,
                                 tag_position: child.tag_position,
+                                error_field_position: child.error_field_position,
                                 values,
                                 span: child.span,
                                 next,

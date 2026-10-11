@@ -45,7 +45,7 @@ use super::{
 use crate::map_key::MapKey;
 use crate::runtime::eval::BuildExprId;
 use crate::runtime::eval::indexed::IrVerifyError;
-use crate::runtime::eval::indexed::full::decode::{ListPosition, ListView};
+use crate::runtime::eval::indexed::full::decode::{ErrorExprView, ListPosition, ListView};
 use crate::runtime::eval::indexed::full::{
     BLOCK_LIST, BLOCK_STATEMENTS, FrameStrategy, FullDriverTag, FullExecution, FullFunctionView,
     FullPayload, FullProgram, FullStageTag, FullTag,
@@ -690,6 +690,9 @@ pub(super) fn indexed_frame_apply_tag(tag: FullTag) -> bool {
             | FullTag::ExprStrPredicate
             | FullTag::ExprGlob
             | FullTag::ExprLastStatus
+            | FullTag::ExprAbort
+            | FullTag::ExprFail
+            | FullTag::ExprError
             | FullTag::ExprProcessCommandArgv
             | FullTag::ExprFsFiles
             | FullTag::ExprFsWalk
@@ -726,6 +729,8 @@ pub(super) enum FrameApplyOperand {
     Duration(&'static str),
     PositiveInt(&'static str),
     AcceptedExitCodes,
+    ErrorFailMessage,
+    ExitStatus,
 }
 
 pub(super) enum FrameApplyValue {
@@ -739,6 +744,7 @@ pub(super) enum FrameApplyValue {
     Duration(DurationValue),
     Int(i64),
     AcceptedExitCodes(crate::runtime::process::AcceptedExitCodes),
+    ExitStatus(u8),
 }
 
 pub(super) struct FrameApplyChild {
@@ -746,6 +752,8 @@ pub(super) struct FrameApplyChild {
     pub(super) operand: Option<FrameApplyOperand>,
     pub(super) tag_position: Option<ListPosition<BuildExprId>>,
     pub(super) next_tag_position: Option<ListPosition<BuildExprId>>,
+    pub(super) error_field_position: Option<ListPosition<(Arc<str>, BuildExprId)>>,
+    pub(super) next_error_field_position: Option<ListPosition<(Arc<str>, BuildExprId)>>,
     pub(super) span: Span,
 }
 
@@ -765,6 +773,8 @@ fn indexed_frame_apply_child_from_fields<const N: usize>(
             operand,
             tag_position: None,
             next_tag_position: None,
+            error_field_position: None,
+            next_error_field_position: None,
             span,
         })
 }
@@ -774,6 +784,7 @@ pub(super) fn indexed_frame_apply_child(
     view: &mut ExprView<'_>,
     position: usize,
     tag_position: Option<ListPosition<BuildExprId>>,
+    error_field_position: Option<ListPosition<(Arc<str>, BuildExprId)>>,
     span: Span,
 ) -> Result<Option<FrameApplyChild>, RuntimeError> {
     let child = match view {
@@ -829,6 +840,55 @@ pub(super) fn indexed_frame_apply_child(
                 operand: None,
                 tag_position: Some(tag_position),
                 next_tag_position: Some(next_tag_position),
+                error_field_position: None,
+                next_error_field_position: None,
+                span,
+            }));
+        }
+        ExprView::Abort { status, span } => indexed_frame_apply_child_from_fields(
+            [Some((status.raw(), Some(FrameApplyOperand::ExitStatus)))],
+            position,
+            *span,
+        ),
+        ExprView::Fail { message, span } => indexed_frame_apply_child_from_fields(
+            [Some((message.raw(), Some(FrameApplyOperand::ErrorFailMessage)))],
+            position,
+            *span,
+        ),
+        ExprView::Error(ErrorExprView::Structured { fields, .. }) => {
+            if let Some(error_field_position) = error_field_position {
+                fields.resume(error_field_position).map_err(|error| {
+                    RuntimeError::new(
+                        "indexed-ir",
+                        format!(
+                            "structured error field: indexed IR verification failed: {}",
+                            error.message
+                        ),
+                    )
+                    .with_span(span)
+                })?;
+            }
+            let error_field_position = ListView::position(fields);
+            let Some((_, id)) = fields.next().transpose().map_err(|error| {
+                RuntimeError::new(
+                    "indexed-ir",
+                    format!(
+                        "structured error field: indexed IR verification failed: {}",
+                        error.message
+                    ),
+                )
+                .with_span(span)
+            })? else {
+                return Ok(None);
+            };
+            let next_error_field_position = ListView::position(fields);
+            return Ok(Some(FrameApplyChild {
+                id: id.raw(),
+                operand: None,
+                tag_position: None,
+                next_tag_position: None,
+                error_field_position: Some(error_field_position),
+                next_error_field_position: Some(next_error_field_position),
                 span,
             }));
         }
@@ -1012,6 +1072,24 @@ fn convert_frame_apply_operand(
         FrameApplyOperand::AcceptedExitCodes => Ok(FrameApplyValue::AcceptedExitCodes(
             super::lowered_accepted_exit_codes(value, span)?,
         )),
+        FrameApplyOperand::ErrorFailMessage => match lowered_str_value(&value) {
+            Some(message) => Ok(FrameApplyValue::String(message.to_string())),
+            None => Err(RuntimeError::new(
+                "type-error",
+                format!("error.fail expected Str, found {}", value.type_name()),
+            )
+            .with_span(span)),
+        },
+        FrameApplyOperand::ExitStatus => match value {
+            LoweredValue::Int(status) => {
+                Ok(FrameApplyValue::ExitStatus(exit_status(status, span)?))
+            }
+            value => Err(RuntimeError::new(
+                "type-error",
+                format!("exit status expected Int, found {}", value.type_name()),
+            )
+            .with_span(span)),
+        },
     }
 }
 
@@ -1229,6 +1307,86 @@ pub(super) fn indexed_frame_apply_value(
     if indexed_frame_apply_prepares_operands(tag) {
         return indexed_frame_apply_host_value(evaluator, tag, view, values);
     }
+    let view = match view {
+        ExprView::Abort { span, .. } => {
+            let mut values = values.into_iter();
+            let Some(FrameApplyValue::ExitStatus(status)) = values.next() else {
+                unreachable!("exit status operand was converted before apply")
+            };
+            assert!(values.next().is_none(), "exit has one operand");
+            return Err(RuntimeError::abort(status, false).with_span(span));
+        }
+        ExprView::Fail { .. } => {
+            let mut values = values.into_iter();
+            let Some(FrameApplyValue::String(message)) = values.next() else {
+                unreachable!("error.fail message was converted before apply")
+            };
+            assert!(values.next().is_none(), "error.fail has one operand");
+            return Ok(LoweredValue::ResultErr(Box::new(error_constructor(
+                "validation",
+                message,
+            ))));
+        }
+        ExprView::Error(ErrorExprView::Structured {
+            family,
+            variant,
+            mut fields,
+            facets,
+        }) => {
+            assert_eq!(fields.len(), values.len(), "structured error field count mismatch");
+            let mut record = RecordMap::new();
+            for value in values {
+                let FrameApplyValue::Value(value) = value else {
+                    unreachable!("structured error field remains a raw operand")
+                };
+                let (name, _) = fields
+                    .next()
+                    .transpose()
+                    .map_err(|error| {
+                        RuntimeError::new(
+                            "indexed-ir",
+                            format!(
+                                "structured error field: indexed IR verification failed: {}",
+                                error.message
+                            ),
+                        )
+                        .with_span(call_span)
+                    })?
+                    .expect("structured error field remains in its encoded list");
+                record.insert(Arc::from(name), value.into_value());
+            }
+            let mut facet_names = Vec::with_capacity(facets.len());
+            for facet in facets {
+                facet_names.push(
+                    facet
+                        .map_err(|error| {
+                            RuntimeError::new(
+                                "indexed-ir",
+                                format!(
+                                    "structured error facet: indexed IR verification failed: {}",
+                                    error.message
+                                ),
+                            )
+                            .with_span(call_span)
+                        })?
+                        .as_str()
+                        .to_string(),
+                );
+            }
+            let message = match record.get("message") {
+                Some(Value::Str(message)) => message.to_string(),
+                _ => format!("{family}.{variant}"),
+            };
+            return Ok(LoweredValue::Error(Box::new(structured_error_constructor(
+                family.to_string(),
+                variant.to_string(),
+                record,
+                facet_names,
+                message,
+            ))));
+        }
+        view => view,
+    };
     let values = values
         .into_iter()
         .map(|value| match value {
@@ -1442,6 +1600,9 @@ pub(super) fn indexed_frame_apply_value(
                 },
                 _ => unreachable!(),
             })
+        }
+        ExprView::Abort { .. } | ExprView::Fail { .. } | ExprView::Error(_) => {
+            unreachable!("error and abort values are applied before generic operands")
         }
         _ => unreachable!("frame apply tag has a matching typed view"),
     }
@@ -2187,46 +2348,6 @@ impl Evaluator {
                         .with_span(span)
                 })?)
             }
-            FullTag::ExprAbort => {
-                let status = indexed_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let status = match self.eval_indexed_expr(execution, status, slots, span)? {
-                    ControlFlow::Continue(LoweredValue::Int(value)) => exit_status(value, span)?,
-                    ControlFlow::Continue(value) => {
-                        return Err(RuntimeError::new(
-                            "type-error",
-                            format!("exit status expected Int, found {}", value.type_name()),
-                        )
-                        .with_span(span));
-                    }
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                // A script's own exit always unwinds; only a forced harness
-                // cancellation skips cleanup.
-                return Err(RuntimeError::abort(status, false).with_span(span));
-            }
-            FullTag::ExprFail => {
-                let message = indexed_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let message = match self.eval_indexed_expr(execution, message, slots, span)? {
-                    ControlFlow::Continue(value) => match lowered_str_value(&value) {
-                        Some(message) => message.to_string(),
-                        None => {
-                            return Err(RuntimeError::new(
-                                "type-error",
-                                format!("error.fail expected Str, found {}", value.type_name()),
-                            )
-                            .with_span(span));
-                        }
-                    },
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                return Ok(ControlFlow::Continue(LoweredValue::ResultErr(Box::new(
-                    error_constructor("validation", message),
-                ))));
-            }
             FullTag::ExprOk => {
                 let value = indexed_raw(&mut payload, call_span)?;
                 indexed_finish(payload, call_span)?;
@@ -2263,99 +2384,6 @@ impl Evaluator {
                     None => None,
                 };
                 ControlFlow::Continue(lowered_err_with_cause(value, cause, call_span)?)
-            }
-            FullTag::ExprError => {
-                let error = match indexed_raw(&mut payload, call_span)? {
-                    0 => {
-                        let kind = indexed_decode::<String>(&mut payload, execution, call_span)?;
-                        let message = indexed_decode::<String>(&mut payload, execution, call_span)?;
-                        LoweredValue::Error(Box::new(error_constructor(kind, message)))
-                    }
-                    1 => {
-                        let family = indexed_decode::<String>(&mut payload, execution, call_span)
-                            .map_err(|error| {
-                            RuntimeError::new(
-                                error.kind,
-                                format!("structured error family: {}", error.message),
-                            )
-                            .with_span(call_span)
-                        })?;
-                        let variant = indexed_decode::<String>(&mut payload, execution, call_span)
-                            .map_err(|error| {
-                                RuntimeError::new(
-                                    error.kind,
-                                    format!("structured error variant: {}", error.message),
-                                )
-                                .with_span(call_span)
-                            })?;
-                        let (_, mut fields) = execution
-                            .block(&mut payload, BLOCK_LIST)
-                            .map_err(|error| indexed_error(error, call_span))?;
-                        let field_count = indexed_raw(&mut fields, call_span)? as usize;
-                        let (_, mut facets) = execution
-                            .block(&mut payload, BLOCK_LIST)
-                            .map_err(|error| indexed_error(error, call_span))?;
-                        let facet_count = indexed_raw(&mut facets, call_span)? as usize;
-                        let mut record = RecordMap::new();
-                        for _ in 0..field_count {
-                            let name =
-                                indexed_decode::<Arc<str>>(&mut fields, execution, call_span)
-                                    .map_err(|error| {
-                                        RuntimeError::new(
-                                            error.kind,
-                                            format!("structured error field: {}", error.message),
-                                        )
-                                        .with_span(call_span)
-                                    })?;
-                            let value = indexed_raw(&mut fields, call_span)?;
-                            let value =
-                                match self.eval_indexed_expr(execution, value, slots, call_span)? {
-                                    ControlFlow::Continue(value) => value.into_value(),
-                                    ControlFlow::Break(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
-                                };
-                            record.insert(name, value);
-                        }
-                        indexed_finish(fields, call_span)?;
-                        let mut facet_names = Vec::with_capacity(facet_count);
-                        for _ in 0..facet_count {
-                            facet_names.push(
-                                indexed_decode::<Name>(&mut facets, execution, call_span)
-                                    .map_err(|error| {
-                                        RuntimeError::new(
-                                            error.kind,
-                                            format!("structured error facet: {}", error.message),
-                                        )
-                                        .with_span(call_span)
-                                    })?
-                                    .as_str()
-                                    .to_string(),
-                            );
-                        }
-                        indexed_finish(facets, call_span)?;
-                        let message = match record.get("message") {
-                            Some(Value::Str(message)) => message.to_string(),
-                            _ => format!("{family}.{variant}"),
-                        };
-                        LoweredValue::Error(Box::new(structured_error_constructor(
-                            family,
-                            variant,
-                            record,
-                            facet_names,
-                            message,
-                        )))
-                    }
-                    _ => {
-                        return Err(RuntimeError::new(
-                            "indexed-ir",
-                            "invalid indexed error expression tag",
-                        )
-                        .with_span(call_span));
-                    }
-                };
-                indexed_finish(payload, call_span)?;
-                ControlFlow::Continue(error)
             }
             FullTag::ExprTry => {
                 let value = indexed_raw(&mut payload, call_span)?;

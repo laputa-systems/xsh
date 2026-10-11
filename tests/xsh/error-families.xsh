@@ -86,6 +86,21 @@ left=3 right=2
 """
 }
 
+test test_structured_error_runs_on_forced_frames { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""error E {
+  Failed(message: Str, code: Int) : Timeout
+}
+let problem = E.Failed("no route", 17)
+assert problem == E.Failed("no route", 17)
+assert problem.message == "no route"
+assert problem is Timeout
+""",
+  )?
+  assert output.status == 0, output.stderr
+}
+
 test test_positional_error_arguments_are_checked_against_declaration_order { |ctx|
   let swapped = test.run_script(
     ctx,

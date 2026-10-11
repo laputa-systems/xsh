@@ -16,6 +16,15 @@ test test_exit_runs_deferred_cleanup_and_is_not_captured { |ctx|
   assert output.stdout == "cleanup\n", output.stdout
 }
 
+test test_exit_abort_runs_cleanup_on_forced_frames { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    "proc finish() {\n  defer { print \"cleanup\" }\n  exit 5\n}\nfinish()\n",
+  )?
+  assert output.status == 5, output.stderr
+  assert output.stdout == "cleanup\n", output.stdout
+}
+
 test test_exit_takes_a_postfix_guard { |ctx|
   let source = "proc finish(code: Int) {\n  defer { print \"cleanup\" }\n  exit 4 when code > 100\n  exit 5 unless code > 0\n  print \"kept going\"\n}\n\nfinish(1)\nfinish(0)\n"
   let output = test.expect(ctx, source, status: 5)?
