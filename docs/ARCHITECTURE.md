@@ -163,7 +163,13 @@ of re-deriving them. A program is checked once: the runner, `xsht check`, and
 `xsht test` check with `CheckOptions::embedded_bodies`, render that check's
 diagnostics, and pass its output to `Checker::compact_declarations`.
 `Checker::check_compact_declarations` runs the same check for programs prepared
-without an entry check (embedded modules, loaded modules, tests).
+without an entry check (embedded modules, loaded modules, tests). It receives
+the program's `SourceMap` and entry `SourceId`; loaded-module checks retain
+their original source identities instead of rebuilding them from root text.
+Source-aware checker constructors use the same map for diagnostics and
+command binding sites. Standalone single-source constructors remain available.
+Frontend telemetry includes retained declaration and type-expression facts,
+template instances, and literal storage.
 
 **Lowering and verification.** `FullBuilder::build_compact` reserves function
 identities, lowers each checked body into short-lived construction scratch,

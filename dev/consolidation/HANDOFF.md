@@ -70,12 +70,13 @@ remaining failures are the known command-site identity regression; R3/R4 and
 other distinct failures remain recorded. Any is not integrated or accepted.
 Raw logs and classifications remain under the Any lane's `.work/any/logs/`.
 
-The Linux errno test now returns 1 instead of 97 with frozen baseline, Any,
-and current integration binaries in the resumed environment. The unchanged
-socket wrapper and pre-reboot passing test establish an environment difference;
-do not claim an Any regression or a green Linux gate. Evidence is under
-`.work/consolidation/restart/net-errno/`. Security settings and the assertion
-have not been changed.
+The Linux errno test's arbitrary family 9999 returns 1 instead of 97 with
+frozen baseline, Any, and current integration binaries in the resumed
+environment. Both frozen and current binaries return 97 for `c.AF_UNSPEC`.
+Commit `c9a0c980` uses that standard unsupported family and retains the exact
+errno assertion; the focused test passes. This repairs an environment-sensitive
+test input without changing the socket wrapper or security settings. Evidence
+is under `.work/consolidation/restart/net-errno/`; no full Linux gate is claimed.
 
 Source-session/telemetry has a bounded interim +450 production / 2,200 touched
 allowance for mandatory source plumbing and retained fact/index accounting,
@@ -85,6 +86,27 @@ typed transfer sites; absent facts cannot silently mean scalar values. R4,
 W3 fact consumers, coverage resumption, and reveal publication versus entry
 legality have assigned preparation/implementation owners. The owner explicitly
 requested unattended continuation through completion; no further pause exists.
+
+Further integrated prerequisites: reveal publication/entry legality
+`b1b4e99f`, source-aware checking and telemetry `3e7e2164`, and derived
+in-place instruction proofs `d51149a5`. The current combined all-feature
+compile check passes. Source-session units passed 5/5 and module tests 30/30;
+W2's focused verifier and native gates pass, with allocation scaling improving
+from a baseline delta of 64 to 32. These do not close their workstreams.
+The adapter's current joint tree is `lower-bindings-final` on `d51149a5`;
+imported `cd` binding resolution still needs correction before acceptance.
+Its approved stream trace fixture migration removes redundant parentheses
+and retains the trace assertions. E12/E13 lint hooks are committed in the lane
+but await the joint adapter gate before integration.
+
+Baseline coverage continuation is authorized for the remaining 5,586 tests
+across 538 invocations, preserving 14 failures and three timeouts already
+recorded. Expected runtime is several hours; the shared suite lock and bounded
+resources remain required. All 103 flagged raw profiles were accepted by the
+pinned LLVM tool; one empty profile contributes no coverage. Final aggregation
+and API counter completion are still pending. W2 follow-up, W4 session closure,
+W5 behavior traversal, W9 module reuse, R3 runtime transfer transport, and dead
+code inventories now have independent preparation owners.
 
 Paused at the owner's request on 2026-10-11 for a computer reboot. The campaign
 is **incomplete**. Do not resume implementation, tests, or profiling until the
