@@ -164,13 +164,17 @@ mod privileged {
 
     // Mounts belong to a private child namespace. A failed assertion can never
     // leave a mount in the runner's namespace or propagate one to the host.
-    fn mount_worker(name: &str, fixture: impl FnOnce()) {
+    fn mount_worker(name: &str, ignored: bool, fixture: impl FnOnce()) {
         if std::env::var("XSH_CP_MOUNT_WORKER").as_deref() == Ok(name) {
             fixture();
             return;
         }
         let mut command = Command::new(std::env::current_exe().unwrap());
-        command.args(["--exact", name, "--nocapture"])
+        command.args(["--exact", name, "--nocapture"]);
+        if ignored {
+            command.arg("--ignored");
+        }
+        command
             .env("XSH_CP_MOUNT_WORKER", name)
             .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
         unsafe {
@@ -227,7 +231,7 @@ mod privileged {
     // origin: uutils test_cp::test_cp_one_file_system
     #[test]
     fn test_cp_one_file_system() {
-        mount_worker("cp::privileged::test_cp_one_file_system", || {
+        mount_worker("cp::privileged::test_cp_one_file_system", false, || {
             let directory = tempfile::tempdir().unwrap();
             let source = directory.path().join("dir_with_mount");
             let target = directory.path().join("copy_to_folder_new");
@@ -262,9 +266,10 @@ mod privileged {
 
     // origin: uutils test_cp::test_cp_reflink_always_override
     #[test]
+    #[ignore = "requires guest-kernel BTRFS in a disposable QEMU guest"]
     fn test_cp_reflink_always_override() {
         super::require_disposable_qemu_guest();
-        mount_worker("cp::privileged::test_cp_reflink_always_override", || {
+        mount_worker("cp::privileged::test_cp_reflink_always_override", true, || {
             let directory = tempfile::tempdir().unwrap();
             std::fs::create_dir_all(directory.path().join("disk_root/dir")).unwrap();
             std::fs::File::create(directory.path().join("disk.img")).unwrap().set_len(128 * 1024 * 1024).unwrap();

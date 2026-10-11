@@ -322,8 +322,10 @@ require the matching nonce, QEMU's DMI identity, its emulated CMOS RTC, and
 guest root; they must never run in a container sharing the host clock. Run the
 same filter with
 `XSH_CORE_COMPAT_REFERENCE_DIR=/usr/local/bin` inside the guest for GNU 9.12.
-The retained btrfs reflink case also checks for that disposable guest before
-mounting its private filesystem image.
+The retained btrfs reflink case is ignored in ordinary gates. Run it with
+`--ignored` only in the same disposable guest, with guest-kernel BTRFS and
+`btrfs-progs`; it checks the same nonce, QEMU identity, CMOS RTC, and root
+before mounting its private filesystem image.
 
 The two infinite `/dev/zero` split cases use a separate pinned container with
 CPU quota `--cpus=0.01` and a 1 GiB memory limit. They require that quota, wait
