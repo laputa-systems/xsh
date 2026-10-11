@@ -311,6 +311,13 @@ block-device copy regression cannot open a host device. The same tests accept
 1 GiB for the large virtual `dd` buffer case; its empty input must not commit
 the virtual allocation to physical memory.
 
+`core/tests/test-traceroute.xsh` also needs both privilege contexts. The normal
+UID 1000 suite checks the exact `EPERM` result for IPv4 source-route
+`IP_OPTIONS` and still runs the gateway argument validation. Run
+`xsht test core/tests/test-traceroute.xsh` as container root in a private
+`xsh-test` container with `--network none` to exercise the positive source-route
+packet lengths; setting source-routing IP options requires `CAP_NET_RAW`.
+
 Successful `date --set` tests require a disposable QEMU guest: Linux time
 namespaces isolate monotonic and boot clocks, but not the realtime clock. Run
 the ignored `date_clock::` cases only with a software-emulated machine such as
