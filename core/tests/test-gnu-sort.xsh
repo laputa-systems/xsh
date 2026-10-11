@@ -1,5 +1,4 @@
 use support.uu
-use core.lib.gnu
 
 pure reversed(items: List[Str]) -> List[Str] { [items[items.len() - index - 1] for index in range(items.len())] }
 
@@ -24,6 +23,10 @@ proc bash_path_precedes(s: uu.Scene, left: Path, right: Path, vars: Record) [fs,
 
 pure pair_bytes(left: Bytes, right: Bytes, left_first: Bool) -> Bytes {
   if left_first { bytes.concat([left, b"\n", right, b"\n"]) } else { bytes.concat([right, b"\n", left, b"\n"]) }
+}
+
+pure byte_values(raw: Bytes) -> Str {
+  "[" + [f"{raw.byte_at(index) ?? 0}" for index in range(raw.len())].join(", ") + "]"
 }
 
 pure padded(number: Int, width: Int) -> Str {
@@ -294,8 +297,8 @@ test test_gnu_sort_sort_locale_log { |ctx|
       uu.succeeds(listed)
       let locale_expected = pair_bytes(item.left, item.right, bash_path_precedes(s, left, right, vars)?)
       let c_expected = pair_bytes(item.left, item.right, bash_path_precedes(s, left, right, {LC_ALL: "C"})?)
-      if sorted.stdout != locale_expected { failures += [f"{setting}={item.locale}: sort {gnu.quote_bytes(sorted.stdout)} expected {gnu.quote_bytes(locale_expected)}"] }
-      if listed.stdout != locale_expected { failures += [f"{setting}={item.locale}: ls {gnu.quote_bytes(listed.stdout)} expected {gnu.quote_bytes(locale_expected)}"] }
+      if sorted.stdout != locale_expected { failures += [f"{setting}={item.locale}: sort {byte_values(sorted.stdout)} expected {byte_values(locale_expected)}"] }
+      if listed.stdout != locale_expected { failures += [f"{setting}={item.locale}: ls {byte_values(listed.stdout)} expected {byte_values(locale_expected)}"] }
       if sorted.stdout != listed.stdout { failures += [f"{setting}={item.locale}: sort differs from ls"] }
       if locale_expected != c_expected and sorted.stdout == c_expected {
         failures += [f"{setting}={item.locale}: pair does not differ from C ordering"]
