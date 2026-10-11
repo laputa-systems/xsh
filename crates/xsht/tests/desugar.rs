@@ -74,7 +74,7 @@ fn holds_sugar(path: &Path) -> bool {
 }
 
 fn xsht(root: &Path, args: &[&str]) -> std::process::Output {
-    Command::new(release_bin!("xsht"))
+    Command::new(test_bin!("xsht"))
         .args(args)
         .current_dir(root)
         .env_remove("XSH_MODULE_PATH")

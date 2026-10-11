@@ -6,7 +6,7 @@ macro_rules! cargo_env {
         env!("CARGO_MANIFEST_DIR")
     };
     ($name:literal) => {
-        crate::release_binary::checked(env!($name))
+        crate::test_binary::checked(env!($name))
     };
 }
 

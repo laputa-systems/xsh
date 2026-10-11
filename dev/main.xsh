@@ -9,6 +9,7 @@ use dist as distributions
 use docs as documentation
 use install as installations
 use internal as container_internal
+use gates
 use release as releases
 use system_report_check as system_reports
 use test_workflows as tests
@@ -63,6 +64,8 @@ enum InternalOperation {
     Dist,
     TestLinux,
     TestLinuxCi,
+    GateLane,
+    GateBatch,
     Coverage,
 }
 
@@ -71,6 +74,8 @@ pure internal_operation(value: Str) -> Result[InternalOperation] {
     "dist" => Dist
     "test-linux" => TestLinux
     "test-linux-ci" => TestLinuxCi
+    "gate-lane" => GateLane
+    "gate-batch" => GateBatch
     "coverage" => Coverage
     else => Err(usage(f"unsupported internal operation {value}"))
   }
@@ -84,6 +89,8 @@ usage: cargo dev COMMAND [OPTIONS]
 commands:
   build
   check [lint]
+  gate [PATH...]
+  gate --batch
   docs [check]
   lint --fix
   test [xsh|linux|macos] [--ci]
@@ -202,6 +209,9 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
       }
 
       return builds.check(ctx)
+    }
+    "gate" => {
+      return gates.execute(ctx, args)
     }
     "docs" => {
       let tools = documentation.release_tools(ctx)
@@ -325,12 +335,19 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
       }
     }
     "internal" => {
-      let operation = cli.parse(args, {operation: {form: "OPERATION", required: true}})?.operation
+      return Err(usage("internal requires an operation")) when args.is_empty()
+      let operation = internal_operation(args[0])?
+      let rest = args |> drop(1)
+      guard rest.is_empty() or operation == GateLane else {
+        return Err(usage("this internal operation accepts no extra arguments"))
+      }
 
-      match internal_operation(operation)? {
+      match operation {
         Dist => return container_internal.container_dist(ctx)
         TestLinux => return container_internal.linux_developer_test(ctx)
         TestLinuxCi => return container_internal.linux_ci_test(ctx)
+        GateLane => return container_internal.gate_lane(ctx, rest)
+        GateBatch => return container_internal.gate_batch(ctx)
         Coverage => return container_internal.container_coverage(ctx)
       }
     }

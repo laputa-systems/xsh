@@ -1,6 +1,6 @@
 #[macro_use]
-#[path = "release_binary.rs"]
-mod release_binary;
+#[path = "test_binary.rs"]
+mod test_binary;
 #[path = "cli.rs"]
 mod cli;
 #[path = "core.rs"]

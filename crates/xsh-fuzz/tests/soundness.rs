@@ -7,8 +7,8 @@
 //! frontend. `make fuzz` runs the same properties over fresh seeds.
 
 #[macro_use]
-#[path = "../../../tests/release_binary.rs"]
-mod release_binary;
+#[path = "../../../tests/test_binary.rs"]
+mod test_binary;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -25,7 +25,7 @@ const GENERATED_SEEDS: u64 = 1500;
 const MUTANT_SEEDS: u64 = 1000;
 
 fn sandbox() -> Sandbox {
-    Sandbox::new(PathBuf::from(release_bin!("xsh-fuzz")))
+    Sandbox::new(PathBuf::from(test_bin!("xsh-fuzz")))
 }
 
 fn jobs() -> usize {

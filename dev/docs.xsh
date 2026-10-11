@@ -28,6 +28,7 @@
 ##! rendered `docs/user-tour.md`.
 use cargo_steps
 use context
+use test_workflows as tests
 use stage as stages
 use tour_html
 
@@ -628,7 +629,7 @@ export proc check(root: Path, tools: DocTools) [fs, process, env, error, io] -> 
 ## Release binaries for `make docs` and `cargo dev check`, built by
 ## `build_release` or the `check-build` stage.
 export pure release_tools(ctx: context.Context) -> DocTools {
-  DocTools(xsh: fp"{ctx.target_dir}/release/xsh", xsht: fp"{ctx.target_dir}/release/xsht")
+  DocTools(xsh: fp"{ctx.target_dir}/{ctx.target.triple}/release/xsh", xsht: fp"{ctx.target_dir}/{ctx.target.triple}/release/xsht")
 }
 
 ## Builds the release `xsh` and `xsht` that render the docs.
@@ -642,6 +643,8 @@ export proc build_release(ctx: context.Context) [fs, process, env, error, io] ->
         "cargo",
         "build",
         "--release",
+        "--target",
+        ctx.target.triple,
         "-p",
         "xsh",
         "--bin",
@@ -652,7 +655,7 @@ export proc build_release(ctx: context.Context) [fs, process, env, error, io] ->
         "xsht",
       ],
       ctx.root,
-      {},
+      tests.cargo_environment(ctx)?,
     ),
   )
 }

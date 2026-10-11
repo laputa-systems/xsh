@@ -471,7 +471,7 @@ fn dynamic_catalog_size() -> usize {
 fn copied_binary_runs_migrated_apis_without_repository_files() {
     let dir = temp_dir("copied-binary");
     let binary = dir.join("xsh-copy");
-    std::fs::copy(release_bin!("xsh"), &binary).expect("copy the xsh binary");
+    std::fs::copy(test_bin!("xsh"), &binary).expect("copy the xsh binary");
     let script = write_script(
         &dir,
         "smoke.xsh",
@@ -585,7 +585,7 @@ fn os_release_entry_reads_the_fixed_paths() {
         ),
     );
 
-    let output = std::process::Command::new(release_bin!("xsh"))
+    let output = std::process::Command::new(test_bin!("xsh"))
         .arg(&script)
         .current_dir(&dir)
         .output()

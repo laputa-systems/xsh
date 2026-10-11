@@ -1,3 +1,6 @@
+use context
+use test_workflows as tests
+
 pure join_path(entries: List[Path]) -> Str {
   [entry.display() for entry in entries].join(":")
 }
@@ -79,7 +82,7 @@ proc collect_objects(dir: Path) [fs, error] -> Result[List[Str]] {
 
   return objects unless dir.exists()
 
-  for entry in fs.children(dir)?
+  for entry in fs.walk(dir)?
     |> where .kind == "file" and .executable
     |> sort-by .path {
     objects += [entry.path.display()]
@@ -117,14 +120,13 @@ proc main() [fs, process, env, error, io] {
   let report_file = fp"{out_dir}/llvm-report.txt"
   let lcov_file = fp"{out_dir}/lcov.info"
 
-  # Tests spawn release binaries only, so the integration targets and products
-  # are instrumented in the release profile; unit tests spawn nothing and stay
-  # in debug, as `cargo dev test` runs them.
-  let release_dir = fp"{target_dir}/release"
-  let debug_dir = fp"{target_dir}/debug"
-  let xsh = fp"{release_dir}/xsh"
-  let xsht = fp"{release_dir}/xsht"
-  let xshi = fp"{release_dir}/xshi"
+  let ctx = context.create()?
+  let profile = tests.execution_profile()?
+  let profile_dir = fp"{target_dir}/{ctx.target.triple}/{tests.profile_name(profile)}"
+  let debug_dir = fp"{target_dir}/{ctx.target.triple}/debug"
+  let xsh = tests.product_path(ctx, profile, "xsh")
+  let xsht = tests.product_path(ctx, profile, "xsht")
+  let xshi = tests.product_path(ctx, profile, "xshi")
   let llvm_profdata = find_llvm_tool("llvm-profdata")?
   let llvm_cov = find_llvm_tool("llvm-cov")?
   let cargo_bin = cargo_bin_dir(root)?
@@ -140,22 +142,21 @@ proc main() [fs, process, env, error, io] {
   fp"{shim_dir}/xshi".symlink(to: xshi)
   let existing_rustflags = env.get_or("RUSTFLAGS", "")?.trim()
 
-  let rustflags = if existing_rustflags == "" {
-    "-C instrument-coverage"
+  let environment = tests.cargo_environment(ctx)?
+  let target_flags = if ctx.target.arch == "aarch64" {
+    environment.get("CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS")?.require(Str)?
   } else {
-    f"{existing_rustflags} -C instrument-coverage"
+    environment.get("CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS")?.require(Str)?
   }
+  let rustflags = ([existing_rustflags, target_flags, "-C instrument-coverage"]
+    |> where . != ""
+    |> collect()).join(" ")
 
   let child_path = join_path([shim_dir, cargo_bin, /root/.cargo/bin, /bin, /usr/bin, /usr/local/bin, /sbin])
 
   env CARGO_TARGET_DIR=$target_dir CARGO_INCREMENTAL=0 LLVM_PROFILE_FILE=fp"{raw_dir}/%m-%p.profraw" PATH=$child_path \
       RUSTFLAGS=$rustflags TZ=UTC XSH_SKIP_LIVE_COREUTILS_COMPARISONS=1 {
-    run cargo test --release --test integration --test ambient_fs_policy --test symbol_plateau -- --test-threads=1
-    run cargo test --lib -- --test-threads=1
-    run cargo test --release --features linux-priv-tests --test linux_priv -- --test-threads=1
-    run cargo build --release --bin xsh
-    run cargo build --release -p xsht
-    run cargo build --release -p xshi
+    tests.run_commands(tests.rust_plan(ctx, profile, privileged: true)?)
     run XSHT=$xsht XSH_COV_DIR=$api_dir XSH_COV_JSON=fp"{api_dir}/coverage.json" \
       XSH_COV_REPORT=fp"{api_dir}/coverage.txt" $xsh tools/xsh-cov.xsh
   }
@@ -163,14 +164,14 @@ proc main() [fs, process, env, error, io] {
   let profraws = collect_profraw(raw_dir)?
   run $llvm_profdata merge -sparse -o $profdata @profraws
   var objects = []
-  for dir in [release_dir, fp"{release_dir}/deps", debug_dir, fp"{debug_dir}/deps"] {
+  for dir in [profile_dir, debug_dir] {
     objects += collect_objects(dir)?
   }
 
   objects = objects |> sort
 
   if objects.is_empty() {
-    fail f"coverage: no instrumented objects found under {release_dir} or {debug_dir}"
+    fail f"coverage: no instrumented objects found under {profile_dir} or {debug_dir}"
   }
 
   objects_file.write(

@@ -13,7 +13,7 @@ fn xsh_reports_non_utf8_script_argument_without_panicking() {
     let path = dir.join("main.xsh");
     fs::write(&path, "print \"ready\"\n").expect("write temp script");
     let raw_arg = std::ffi::OsString::from_vec(b"raw\xffarg".to_vec());
-    let output = Command::new(release_bin!("xsh"))
+    let output = Command::new(test_bin!("xsh"))
         .arg(path)
         .arg(raw_arg)
         .output()
@@ -43,7 +43,7 @@ fn xsh_byte_main_receives_exact_os_arguments() {
 "#,
     )
     .expect("write byte main");
-    let output = Command::new(release_bin!("xsh"))
+    let output = Command::new(test_bin!("xsh"))
         .arg(&script)
         .args([
             std::ffi::OsString::from_vec(b"raw\xffarg".to_vec()),
@@ -57,12 +57,12 @@ fn xsh_byte_main_receives_exact_os_arguments() {
     assert_eq!(output.status.code(), Some(0), "{:?}", output.stderr);
     assert_eq!(output.stdout, b"raw\xffarg\0\xc3\xa9\0\0--literal\0");
     assert!(output.stderr.is_empty());
-    let empty = Command::new(release_bin!("xsh"))
+    let empty = Command::new(test_bin!("xsh"))
         .arg(&script).output().expect("run byte main without arguments");
     assert_eq!(empty.status.code(), Some(0), "{:?}", empty.stderr);
     assert!(empty.stdout.is_empty());
     assert!(empty.stderr.is_empty());
-    let separator = Command::new(release_bin!("xsh"))
+    let separator = Command::new(test_bin!("xsh"))
         .arg("--").arg(&script).arg("--")
         .arg(std::ffi::OsString::from_vec(b"raw\xff".to_vec()))
         .output().expect("pass literal option separator to byte main");
@@ -80,7 +80,7 @@ fn xsh_text_main_rejects_invalid_utf8_before_top_level_effects() {
         "print \"top-level ran\"\nproc main(...argv: List[Str]) { print argv.len() }\n",
     )
     .expect("write text main");
-    let output = Command::new(release_bin!("xsh"))
+    let output = Command::new(test_bin!("xsh"))
         .arg(&script)
         .arg(std::ffi::OsString::from_vec(b"raw\xffarg".to_vec()))
         .output()
@@ -105,7 +105,7 @@ fn xsh_byte_main_context_is_shared_by_imported_argument_readers() {
         "use words\ntype ByteWords = List[Bytes]\nproc main(...argv: ByteWords) [io, error] {\n  assert args == argv\n  assert words.incoming() == argv\n  io.write_stdout_bytes(argv[0])?\n}\n",
     )
     .expect("write byte argument entry");
-    let output = Command::new(release_bin!("xsh"))
+    let output = Command::new(test_bin!("xsh"))
         .arg(&script)
         .arg(std::ffi::OsString::from_vec(b"argument\xff".to_vec()))
         .current_dir(root.path())
@@ -128,7 +128,7 @@ fn xsh_byte_main_opens_non_utf8_path_without_display_conversion() {
         "proc main(...argv: List[Bytes]) [fs, io, error] {\n  let target = Path.parse_bytes(argv[0])?\n  io.write_stdout_bytes(target.read_bytes()?)?\n}\n",
     )
     .expect("write raw path entry");
-    let output = Command::new(release_bin!("xsh"))
+    let output = Command::new(test_bin!("xsh"))
         .arg(&script)
         .arg(&target)
         .output()
@@ -148,7 +148,7 @@ fn xsh_rejects_mixed_byte_entry_signature_before_effects() {
         "print \"must not run\"\nproc main(prefix: Str, ...argv: List[Bytes]) { print argv.len() }\n",
     )
     .expect("write unsupported byte entry");
-    let output = Command::new(release_bin!("xsh"))
+    let output = Command::new(test_bin!("xsh"))
         .arg(&script)
         .arg("prefix")
         .arg("operand")
@@ -169,7 +169,7 @@ fn xsh_byte_main_explicit_dispatch_uses_the_same_contextual_arguments() {
         "proc main(...argv: List[Bytes]) [io, error] { io.write_stdout_bytes(argv[0])? }\nmain(@args)?\n",
     )
     .expect("write explicit byte entry");
-    let output = Command::new(release_bin!("xsh"))
+    let output = Command::new(test_bin!("xsh"))
         .arg(&script)
         .arg(std::ffi::OsString::from_vec(b"explicit\xff".to_vec()))
         .output()
@@ -194,7 +194,7 @@ fn xsh_text_entry_imports_keep_their_text_argument_contract() {
         "use words\nproc main(...argv: List[Str]) { assert words.incoming() == argv; print argv[0] }\n",
     )
     .expect("write text argument entry");
-    let output = Command::new(release_bin!("xsh"))
+    let output = Command::new(test_bin!("xsh"))
         .arg(&script)
         .arg("text-é")
         .current_dir(root.path())
@@ -215,7 +215,7 @@ fn xsht_trace_binds_utf8_words_as_bytes_for_a_byte_entry() {
         "proc main(...argv: List[Bytes]) { assert argv[0] == b\"value\"; assert args == argv }\n",
     )
     .expect("write traced byte entry");
-    let xsht = std::path::Path::new(release_bin!("xsh")).with_file_name("xsht");
+    let xsht = std::path::Path::new(test_bin!("xsh")).with_file_name("xsht");
     assert!(xsht.is_file(), "build the sibling release xsht binary");
     let output = Command::new(xsht)
         .arg("trace")
@@ -241,7 +241,7 @@ fn xsh_byte_entry_rejects_imported_readers_with_a_text_argument_contract() {
         "use words\nprint \"must not run\"\nproc main(...argv: List[Bytes]) { print words.incoming().len() }\n",
     )
     .expect("write byte entry with incompatible reader");
-    let output = Command::new(release_bin!("xsh"))
+    let output = Command::new(test_bin!("xsh"))
         .arg(&script)
         .arg(std::ffi::OsString::from_vec(b"word\xff".to_vec()))
         .current_dir(root.path())

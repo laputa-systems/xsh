@@ -70,13 +70,11 @@ before editing.
 ## Verification
 
 Choose the narrowest useful command first, then run the full relevant gate from
-`docs/TESTING.md`. Run native XSH test suites on release binaries: build them
-with `cargo build --release -p xsh --bins -p xsht --bin xsht`, then run
-`target/release/xsht test ...`. They run several times faster than debug (the
-stdlib suite takes 6 s instead of 34 s), and `xsht` runs the sibling `xsh` from
-its own directory. Tests never run debug binaries: run Rust integration test
-targets with `cargo test --release --test NAME` (a debug build of a test that
-spawns a binary fails with that instruction); only `--lib` unit tests and quick
+`docs/TESTING.md`. Run process and native XSH tests on the optimized verification profile:
+build with `cargo build --profile verification --target "$TARGET" -p xsh --bins
+-p xsht --bin xsht`, then run `target/$TARGET/verification/xsht test ...`.
+Use release for final verification and performance measurements. `xsht` runs the sibling optimized `xsh` from its own directory. Process tests accept only verification and release binaries: run Rust integration test
+targets with `cargo test --profile verification --target "$TARGET" --test NAME` (a test built in an unsupported profile fails with that instruction); only `--lib` unit tests and quick
 compile checks use debug builds.
 Build the exact binary or package needed for the task instead of using bare
 `cargo build --release`: the `xsh`, `xshi`, and `xsht` packages own the

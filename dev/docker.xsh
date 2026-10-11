@@ -1,5 +1,6 @@
 ##! Docker image, mount, platform, and direct internal-XSH invocation policy.
 use context
+use targets
 use stage as stages
 
 ## Computes the Docker image name from the supported environment override.
@@ -65,6 +66,18 @@ export proc ensure_image(ctx: context.Context) [process, env, error, io] -> Resu
   image
 }
 
+## Makes the pinned target flags visible before Cargo bootstraps the inner
+## development script; the script cannot supply flags until it is running.
+export pure cargo_environment_argv(ctx: context.Context) -> Result[List[Str], Error] {
+  let environment = targets.docker_test_env(ctx.target.triple)?
+  collect {
+    for name in environment.keys() |> sort {
+      yield "-e"
+      yield f"{name}={environment.get(name)?.require(Str)?}"
+    }
+  }
+}
+
 ## Constructs a direct `docker run` argv ending in a Cargo-to-XSH internal command.
 ## The inner lifecycle creates a new context, so target and profile travel in
 ## the container environment rather than relying on host process inheritance.
@@ -78,7 +91,10 @@ export pure internal_argv(
   host_gid: Int,
   stress_repeat: Str,
   extra: List[Str],
-) -> List[Str] {
+  git_common_dir: Path? = null,
+) -> Result[List[Str], Error] {
+  let cargo_environment = cargo_environment_argv(ctx)?
+  let git_mount = if git_common_dir == null { [] } else { ["-v", f"{git_common_dir}:{git_common_dir}:ro"] }
   # PID 1 must reap orphaned jobs after an interactive shell exits.
   var argv = ["docker", "run", "--rm", "--init", "--platform", selected_platform]
 
@@ -111,6 +127,8 @@ export pure internal_argv(
     f"HOST_UID={host_uid}",
     "-e",
     f"HOST_GID={host_gid}",
+    @cargo_environment,
+    @git_mount,
     image,
     "cargo",
     "run",
@@ -134,11 +152,18 @@ export proc run_internal(
   operation: Str,
   privileged: Bool,
   extra: List[Str],
-) [process, env, error, io] -> Result[Unit, Error] {
+) [fs, process, env, error, io] -> Result[Unit, Error] {
   let image = ensure_image(ctx)?
   let selected_platform = platform(ctx)?
   let identity = unix.id()?
   let stress_repeat = if operation == "test-linux" { env.get_or("XSH_OS_STRESS_REPEAT", "")? } else { "" }
+  var common_git: Path? = null
+  if operation in ["gate-lane", "gate-batch"] {
+    cd ctx.root {
+      let output = run.text git rev-parse --path-format=absolute --git-common-dir
+      common_git = fp"{output.trim()}"
+    }
+  }
   let argv = internal_argv(
     ctx,
     image,
@@ -149,7 +174,8 @@ export proc run_internal(
     identity.gid,
     stress_repeat,
     extra,
-  )
+    git_common_dir: common_git,
+  )?
   stages.execute(
     stages.command(
       f"docker-{operation}",

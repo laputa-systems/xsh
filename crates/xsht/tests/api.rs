@@ -13,7 +13,7 @@ fn workspace_root() -> std::path::PathBuf {
 }
 
 fn xsht(args: &[&str]) -> std::process::Output {
-    Command::new(release_bin!("xsht"))
+    Command::new(test_bin!("xsht"))
         .args(args)
         .current_dir(workspace_root())
         .output()

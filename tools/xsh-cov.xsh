@@ -1,3 +1,6 @@
+use context
+use test_workflows as tests
+
 error ScriptError = Failed(kind: Str, message: Str)
 
 type Suite = {name: Str, path: Path}
@@ -38,12 +41,12 @@ proc env_path(root: Path, name: Str, default: Path) [env] -> Path {
   repo_path(root, value)
 }
 
-proc xsht_path(root: Path) [env] -> Path {
+proc xsht_path(root: Path) [fs, env, error] -> Result[Path, Error] {
   let configured = (e"XSHT" ?? "").trim()
 
   return repo_path(root, configured) when configured != ""
 
-  fp"{root}/target/release/xsht"
+  tests.product_path(context.create()?, tests.execution_profile()?, "xsht")
 }
 
 proc relative_display(root: Path, target: Path) [error] -> Result[Str] {
@@ -56,24 +59,13 @@ pure suite_json_name(name: Str) -> Str {
   f"{name.replace("/", with: "__")}.json"
 }
 
-pure suite_test_args(name: Str, suite_json: Path) -> List[Str] {
-  if name == "." {
-    return ["test", "--cov", "--api", "--cov-json", suite_json.display(), "tests/xsh"]
-  }
-
+pure suite_test_args(suite_json: Path) -> List[Str] {
   ["test", "--cov", "--api", "--cov-json", suite_json.display()]
 }
 
 proc discover_suites(root: Path) [fs, error] -> Result[List[Suite]] {
   var suites: List[Suite] = [{name: ".", path: root}]
   var seen = {[root.display()]: true}
-  let core = fp"{root}/core"
-
-  if fp"{core}/tests".exists() {
-    seen[core.display()] = true
-    suites += [{name: "core", path: core}]
-  }
-
   let prototypes = fp"{root}/prototypes"
 
   if prototypes.exists() {
@@ -107,7 +99,7 @@ proc run_suites(
       print f"coverage suite {suite.name}"
 
       cd suite.path {
-        let captured = run.capture --text $xsht @(suite_test_args(suite.name, suite_json))
+        let captured = run.capture --text $xsht @(suite_test_args(suite_json))
         io.write_stdout(captured.stdout)
 
         if captured.stderr != "" {
@@ -252,7 +244,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let json_path = env_path(root, "XSH_COV_JSON", fp"{out_dir}/coverage.json")
   let text_path = env_path(root, "XSH_COV_REPORT", fp"{out_dir}/coverage.txt")
   let suites = discover_suites(root)?
-  let inputs = run_suites(root, suites, out_dir, xsht_path(root))?
+  let inputs = run_suites(root, suites, out_dir, xsht_path(root)?)?
   let report = merge_reports(root, inputs)?
   let report_text = render_text(report)?
   json_path.parent().mkdir()

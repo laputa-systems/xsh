@@ -4,6 +4,7 @@ use context
 use docs as documentation
 use stage as stages
 use targets
+use test_workflows as tests
 
 ## Prepares the native musl sysroot only on the Linux host/target combination that needs it.
 export proc prepare_native_musl(ctx: context.Context) [fs, process, error] -> Result[Unit, Error] {
@@ -125,6 +126,8 @@ export proc check_lint(ctx: context.Context) [fs, process, env, error, io] -> Re
         "cargo",
         "test",
         "--release",
+        "--target",
+        ctx.target.triple,
         "-p",
         "xsht",
         "--test",
@@ -135,10 +138,9 @@ export proc check_lint(ctx: context.Context) [fs, process, env, error, io] -> Re
         "--nocapture",
       ],
       ctx.root,
-      {},
+      tests.cargo_environment(ctx)?,
     ),
   )
-  check_compat(ctx)
   documentation.build_release(ctx)
   check_docs(ctx, documentation.release_tools(ctx))
 }
@@ -164,6 +166,8 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
         "cargo",
         "build",
         "--release",
+        "--target",
+        ctx.target.triple,
         "-p",
         "xsh",
         "-p",
@@ -178,7 +182,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
         "xsht",
       ],
       ctx.root,
-      {},
+      tests.cargo_environment(ctx)?,
     ),
   )
   stages.execute(
@@ -188,7 +192,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       "cargo",
       ["cargo", "fmt", "--all", "--", "--check"],
       ctx.root,
-      {},
+      tests.cargo_environment(ctx)?,
     ),
   )
   cargo_steps.run_build(
@@ -207,10 +211,10 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
         "warnings",
       ],
       ctx.root,
-      {},
+      tests.cargo_environment(ctx)?,
     ),
   )
-  let xsht = fp"{ctx.target_dir}/release/xsht"
+  let xsht = fp"{ctx.target_dir}/{ctx.target.triple}/release/xsht"
   stages.execute(
     stages.command(
       "check-xsh",
@@ -218,7 +222,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       xsht.display(),
       [xsht.display(), "check"],
       ctx.root,
-      {},
+      tests.cargo_environment(ctx)?,
     ),
   )
   stages.execute(
@@ -228,7 +232,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       xsht.display(),
       [xsht.display(), "fmt", "--check"],
       ctx.root,
-      {},
+      tests.cargo_environment(ctx)?,
     ),
   )
   stages.execute(
@@ -238,10 +242,9 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       xsht.display(),
       [xsht.display(), "lint"],
       ctx.root,
-      {},
+      tests.cargo_environment(ctx)?,
     ),
   )
-  check_compat(ctx)
   check_docs(ctx, documentation.release_tools(ctx))
   check_libxsh_imports(ctx)
   stages.execute(
@@ -251,7 +254,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       "git",
       ["git", "diff", "--check"],
       ctx.root,
-      {},
+      tests.cargo_environment(ctx)?,
     ),
   )
 }

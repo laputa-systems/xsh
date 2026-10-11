@@ -63,11 +63,7 @@ test test_target_flags_native_selection_and_coverage_backend_policy {
   assert target_policy.native_execution(x86_target, target_policy.Linux, target_policy.X86_64)
   assert ! target_policy.native_execution(x86_target, target_policy.Darwin, target_policy.X86_64)
   assert ! target_policy.native_execution(darwin_target, target_policy.Linux, target_policy.Aarch64)
-  let alpine_x86 = fixtures.linux_context(/repo)?
-  assert coverage_workflow.backend_name(coverage_workflow.automatic_backend_for(alpine_x86, true, true, true)) == "native"
-  assert coverage_workflow.backend_name(coverage_workflow.automatic_backend_for(alpine_x86, false, true, true)) == "docker"
-  assert coverage_workflow.backend_name(coverage_workflow.automatic_backend_for(alpine_x86, true, false, true)) == "docker"
-  assert coverage_workflow.backend_name(coverage_workflow.automatic_backend_for(alpine_x86, true, true, false)) == "docker"
+  assert coverage_workflow.backend_name(coverage_workflow.automatic_backend()) == "docker"
   assert coverage_workflow.docker_target_triple(target_policy.Aarch64, "") == "aarch64-unknown-linux-musl"
   assert coverage_workflow.docker_target_triple(target_policy.X86_64, "") == "x86_64-unknown-linux-musl"
   assert coverage_workflow.docker_target_triple(target_policy.Aarch64, "x86_64-unknown-linux-musl") == "x86_64-unknown-linux-musl"
@@ -85,7 +81,7 @@ test test_docker_argv_is_direct_and_carries_mount_environment_policy {
     20,
     "25",
     [],
-  )
+  )?
   assert argv[0] == "docker"
   assert "--init" in argv
   assert "--privileged" in argv
@@ -473,4 +469,14 @@ print \${(bench.command_prefix(ctx)?).join("|")}
   assert rustybench.success, f"""{rustybench.stdout}
 {rustybench.stderr}"""
   assert rustybench.stdout.trim() == "cargo|run|--quiet|--manifest-path|/tmp/rustybench/Cargo.toml|--", rustybench.stdout
+}
+
+
+test test_gate_docker_argv_mounts_worktree_git_before_the_image {
+  let ctx = fixtures.linux_context(/repo, "verification")?
+  let argv = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", ["src/sema/check/records.rs"], git_common_dir: p"/common/.git")?
+  assert "/common/.git:/common/.git:ro" in argv
+  assert argv[0] == "docker"
+  assert argv[-1] == "src/sema/check/records.rs"
+  assert argv[-2] == "gate-lane"
 }

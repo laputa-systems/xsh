@@ -107,7 +107,7 @@ match build.check_lint(ctx) {{
     args: [],
     env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"},
   )?
-  assert cargo_marker.read_text()? == "test|--release|-p|xsht|--test|integration|lint_performance::|--|--test-threads=1|--nocapture"
+  assert cargo_marker.read_text()? == "test|--release|--target|x86_64-unknown-linux-musl|-p|xsht|--test|integration|lint_performance::|--|--test-threads=1|--nocapture"
 }
 
 test test_check_compat_runs_every_ratchet_and_stops_at_the_first_failure { |ctx|
@@ -221,7 +221,7 @@ match internal.linux_ci_test(ctx) {{
 }}
 """,
     status: 0,
-    stdout: ["[linux-ci-build-products target=x86_64-unknown-linux-musl] cargo build", "StageError.Failed"],
+    stdout: ["[test-products target=x86_64-unknown-linux-musl] cargo build --locked --profile verification --target x86_64-unknown-linux-musl", "StageError.Failed"],
     args: [],
     env: {
       PATH: tools,

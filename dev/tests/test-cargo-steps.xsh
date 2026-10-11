@@ -126,7 +126,7 @@ use test_workflows
 let root = p"{root}"
 let ctx: context.Context = {context_source}
 docs.build_release(ctx)?
-test_workflows.rust(ctx)?
+test_workflows.run_commands(test_workflows.rust_plan(ctx, test_workflows.Verification)?)?
 """
   test.expect(
     ctx,
@@ -134,8 +134,8 @@ test_workflows.rust(ctx)?
     status: 0,
     stdout: [
       "[docs-build target=x86_64-unknown-linux-musl] cargo build --release",
-      "[test-rust-build target=x86_64-unknown-linux-musl] cargo test --release",
-      "[test-rust target=x86_64-unknown-linux-musl] cargo test --release",
+      "[test-rust-build target=x86_64-unknown-linux-musl] cargo test --locked --profile verification",
+      "[test-rust target=x86_64-unknown-linux-musl] cargo test --locked --profile verification",
     ],
     args: [],
     env: {
@@ -146,11 +146,16 @@ test_workflows.rust(ctx)?
   )?
   let preloaded = f"preload={library}"
   assert log.read_lines()? == [
-    f"build --release -p xsh --bin xsh -p xsht --bin xsht {preloaded}",
-    f"test --release --test integration --test ambient_fs_policy --test symbol_plateau --no-run {preloaded}",
-    "test --release --test integration --test ambient_fs_policy --test symbol_plateau -- -Zunstable-options --report-time preload=",
-    f"test --lib --no-run {preloaded}",
-    "test --lib -- -Zunstable-options --report-time preload=",
+    f"build --release --target x86_64-unknown-linux-musl -p xsh --bin xsh -p xsht --bin xsht {preloaded}",
+    f"build --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --bins -p xsht --bin xsht -p xshi --bin xshi {preloaded}",
+    f"test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --test integration --test ambient_fs_policy --test symbol_plateau --no-run {preloaded}",
+    "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --test integration --test ambient_fs_policy --test symbol_plateau -- --skip runtime::coverage:: --skip runtime::examples::example_corpus_is_formatted --skip runtime::examples::example_corpus_lints_without_warnings --skip syntax::formatter_is_idempotent_on_laputa_corpus preload=",
+    f"test --locked --target x86_64-unknown-linux-musl -p xsh --lib --no-run {preloaded}",
+    "test --locked --target x86_64-unknown-linux-musl -p xsh --lib preload=",
+    f"test --locked --profile verification --target x86_64-unknown-linux-musl -p xsht --test integration --no-run {preloaded}",
+    "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsht --test integration -- --skip lint_format_invariance::formatting_preserves_lints_on_laputa_corpus preload=",
+    f"test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh-fuzz --test soundness --no-run {preloaded}",
+    "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh-fuzz --test soundness preload=",
   ]
 
   log.remove(missing_ok: false)
@@ -166,8 +171,11 @@ test_workflows.rust(ctx)?
     },
   )?
   assert log.read_lines()? == [
-    "build --release -p xsh --bin xsh -p xsht --bin xsht preload=",
-    "test --release --test integration --test ambient_fs_policy --test symbol_plateau -- -Zunstable-options --report-time preload=",
-    "test --lib -- -Zunstable-options --report-time preload=",
+    "build --release --target x86_64-unknown-linux-musl -p xsh --bin xsh -p xsht --bin xsht preload=",
+    "build --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --bins -p xsht --bin xsht -p xshi --bin xshi preload=",
+    "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --test integration --test ambient_fs_policy --test symbol_plateau -- --skip runtime::coverage:: --skip runtime::examples::example_corpus_is_formatted --skip runtime::examples::example_corpus_lints_without_warnings --skip syntax::formatter_is_idempotent_on_laputa_corpus preload=",
+    "test --locked --target x86_64-unknown-linux-musl -p xsh --lib preload=",
+    "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsht --test integration -- --skip lint_format_invariance::formatting_preserves_lints_on_laputa_corpus preload=",
+    "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh-fuzz --test soundness preload=",
   ]
 }
