@@ -1,5 +1,36 @@
 # Consolidation restart handoff
 
+## Integration checkpoint — 2026-10-11, `9ff2c334`
+
+The campaign remains active and unattended, with Luna xhigh subagents.
+The latest joint optimized build passes in the pinned native image. Frozen
+binaries, source hashes and the build log are under
+`.work/consolidation/restart/joint-9ff2-*`. Combined native gates pass context
+scopes 25/25, typed callables 20/20, formatter layout 65/65 and modules 31/31.
+The existing binary-only `lint_files` warning remains; no blanket was added.
+
+Since the previous checkpoint, accepted changes repair imported error-facet
+canonicalization (`051a828d`), remove unused semantic helpers (`0d46d837`),
+share guarded storage conversions (`66ce7b80`), generate borrowed stage views
+(`8187bd11`), publish nested checked RunForm types (`35a132d5`), preserve string
+contents during broken-call formatting (`aa262c64`), and stabilize example and
+process-fixture verification (`45f5af63`). Resolver and storage-authority
+metrics now classify their actual source shapes (`e6aa1c0d`, `9ff2c334`).
+Borrowed views are preparation, not completed runtime-reader migration.
+
+Baseline canonical coverage has completed all 545 groups and 6,122 outcomes.
+Original failures and profile gaps remain explicit. Supplemental exact-ID
+replays are running; the original 107.77 GiB raw evidence remains untouched.
+Complete combined counter coverage and missing-arm tests still gate runtime
+reader acceptance. The captured-resource traversal is being rebased and
+verified against this joint root before strong producer ownership proceeds.
+
+Full module-session checking, shared lint proof/fix validation, the complete
+lint rule authority, typed callee verification, remaining exhaustive policies,
+frame/stage scheduling, dead-code closure, generated documentation, final
+platform and performance gates remain in progress. Private lane results do
+not substitute for integration acceptance or final campaign completion.
+
 ## Current integration checkpoint — 2026-10-11, `65594365`
 
 Follow-up checkpoint `ffabb4c7`: the joint `65594365` build passes in the
