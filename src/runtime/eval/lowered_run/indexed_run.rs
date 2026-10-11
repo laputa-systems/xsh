@@ -34,11 +34,11 @@ use super::{
     lowered_str_view_value, lowered_table_print_value, lowered_tag_key,
     lowered_trace_error_from_value, lowered_trim_is_empty_value, lowered_trim_str_predicate_value,
     lowered_type_name, lowered_unit_result, lowered_value_argv_len, lowered_value_from_runtime,
-    lowered_value_from_runtime_any, lowered_value_matches_static_type, new_temp_fs_root,
+    lowered_value_from_runtime_any, new_temp_fs_root,
     path_bytes, push_lowered_display, push_lowered_fmt_value, push_lowered_native_fmt_value,
     read_host_path_bytes, read_host_path_text, run_pipeline_inherit_with_policy,
     runtime_error_from_value, splice_to_argv, structured_error_constructor,
-    value_matches_static_type, value_to_argv_bytes,
+    ValueView, value_matches_static_type, value_to_argv_bytes,
 };
 use crate::map_key::MapKey;
 use crate::runtime::eval::indexed::IrVerifyError;

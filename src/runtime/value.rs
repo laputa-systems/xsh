@@ -229,6 +229,11 @@ impl FsEntryValue {
         }
     }
 
+    /// Type validation borrows native bytes without constructing a Path value.
+    pub(crate) fn path_bytes(&self) -> &[u8] {
+        self.path.as_os_str().as_bytes()
+    }
+
     /// Presence does not fetch metadata or construct the field's value.
     pub fn has_field(&self, name: &str) -> bool {
         matches!(

@@ -3,7 +3,7 @@ use super::{
     RuntimeError, SmallVec, Span, StmtFlow, Type, Value, indexed_decode, indexed_error,
     indexed_finish, indexed_raw, indexed_string, lowered_error_value_has_facet,
     lowered_error_variant_matches, lowered_record_field, lowered_value_from_runtime_any,
-    lowered_value_matches_static_type,
+    ValueView, value_matches_static_type,
 };
 
 impl Evaluator {
@@ -331,7 +331,7 @@ impl Evaluator {
             FullPatternTag::Type => {
                 let ty = indexed_decode::<Type>(&mut payload, execution, span)?;
                 let slot = indexed_decode::<Option<usize>>(&mut payload, execution, span)?;
-                if !lowered_value_matches_static_type(value, &ty) {
+                if !value_matches_static_type(ValueView::Lowered(value), &ty) {
                     false
                 } else {
                     if let Some(slot) = slot

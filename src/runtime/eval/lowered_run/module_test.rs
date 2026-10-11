@@ -4,7 +4,7 @@ use super::{
     lowered_int_arg_or, lowered_optional_argv_words, lowered_optional_env_record,
     lowered_optional_str_list, lowered_record_arg, lowered_result_err_value, lowered_result_ok,
     lowered_runtime_value, lowered_str_arg_owned, script_expectation_failure, test_error_kind,
-    test_failure, test_mock_expected_return_type, test_value_matches_type,
+    test_failure, test_mock_expected_return_type, ValueView, value_matches_static_type,
 };
 
 impl Evaluator {
@@ -49,7 +49,7 @@ impl Evaluator {
                     RuntimeError::new("test-mock", "times must be at least 1").with_span(span),
                 )
             } else if let Some(expected) = test_mock_expected_return_type(&op)
-                && !test_value_matches_type(&result, &expected)
+                && !value_matches_static_type(ValueView::Runtime(&result), &expected)
             {
                 lowered_result_err_value(
                     RuntimeError::new(

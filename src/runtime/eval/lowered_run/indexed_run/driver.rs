@@ -5,7 +5,7 @@ use super::{
     bind_lowered_comp_target, compound_assignment_value, indexed_decode, indexed_error,
     indexed_finish, indexed_raw, lowered_stmt_flow_to_flow, lowered_type_name,
     lowered_value_from_runtime, lowered_value_from_runtime_any, runtime_error_from_value,
-    value_matches_static_type,
+    ValueView, value_matches_static_type,
 };
 
 impl Evaluator {
@@ -261,7 +261,7 @@ impl Evaluator {
                         {
                             value = Value::Map(Default::default());
                         }
-                        if !value_matches_static_type(&value, &check.ty) {
+                        if !value_matches_static_type(ValueView::Runtime(&value), &check.ty) {
                             return Err(RuntimeError::new(
                                 "type-error",
                                 format!("expected {}, found {}", check.name, value.type_name()),

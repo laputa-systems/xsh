@@ -102,7 +102,6 @@ use super::modules::{
 #[cfg(feature = "native-tests")]
 use super::modules::{
     test_error_kind, test_failure, test_mock_expected_return_type, test_temp_path,
-    test_value_matches_type,
 };
 use super::net_job::NetJobTask;
 use super::{
@@ -113,10 +112,10 @@ use super::{
     check_env_name, compound_assignment_value, exit_status, lowered_inline_stats_field_value,
     lowered_inline_stats_to_record_vec, lowered_record_vec_get, lowered_record_vec_get_mut,
     lowered_record_vec_insert, lowered_record_vec_or_stats, lowered_stats_field_value,
-    lowered_str_view_value, lowered_value_matches_static_type, module_error, module_io_error,
+    lowered_str_view_value, module_error, module_io_error,
     path_absolute_value, path_value_from_pathbuf, pathbuf_from_path_value,
     runtime_error_from_value, splice_to_argv, trace_env_overlay, trace_status,
-    value_matches_static_type, value_to_argv_bytes, value_to_env_bytes,
+    ValueView, value_matches_static_type, value_to_argv_bytes, value_to_env_bytes,
 };
 #[cfg(feature = "native-tests")]
 use super::{NativeTestRunKind, NativeTestRunRequest, TestMock};
@@ -3908,7 +3907,7 @@ fn checked_unsigned_value(
     check: &super::LoweredTypeCheck,
     span: Span,
 ) -> Result<(), RuntimeError> {
-    if !lowered_value_matches_static_type(value, &check.ty) {
+    if !value_matches_static_type(ValueView::Lowered(value), &check.ty) {
         return Err(RuntimeError::new(
             "type-error",
             format!("value violates UInt constraint in {}", check.name),
@@ -3925,7 +3924,7 @@ fn checked_lowered_return_value(
 ) -> Result<LoweredValue, RuntimeError> {
     let value = lowered_return_value(header.return_kind, value, span)?;
     if let Some(check) = &header.return_check
-        && !lowered_value_matches_static_type(&value, &check.ty)
+        && !value_matches_static_type(ValueView::Lowered(&value), &check.ty)
     {
         return Err(RuntimeError::new(
             "type-error",
@@ -3960,15 +3959,15 @@ fn validate_unsigned_runtime_args(
             args.get(index..)
                 .unwrap_or(&[])
                 .iter()
-                .all(|value| value_matches_static_type(value, item))
+                .all(|value| value_matches_static_type(ValueView::Runtime(value), item))
         } else if let Some(value) = args.get(index).filter(|_| !omitted.contains(&index)) {
-            value_matches_static_type(value, &check.ty)
+            value_matches_static_type(ValueView::Runtime(value), &check.ty)
         } else {
             header
                 .param_defaults
                 .get(index)
                 .and_then(Option::as_ref)
-                .is_none_or(|value| lowered_value_matches_static_type(value, &check.ty))
+                .is_none_or(|value| value_matches_static_type(ValueView::Lowered(value), &check.ty))
         };
         if !valid {
             return Err(RuntimeError::new(
@@ -3987,7 +3986,7 @@ fn lowered_runtime_arg_matches_param(
     value: &Value,
 ) -> bool {
     lowered_param_check(lowered, index)
-        .is_none_or(|check| value_matches_static_type(value, &check.ty))
+        .is_none_or(|check| value_matches_static_type(ValueView::Runtime(value), &check.ty))
 }
 
 fn validate_parameter_default(
@@ -3997,7 +3996,7 @@ fn validate_parameter_default(
     span: Span,
 ) -> Result<(), RuntimeError> {
     if lowered_value_matches(kind, value)
-        && check.is_none_or(|check| lowered_value_matches_static_type(value, &check.ty))
+        && check.is_none_or(|check| value_matches_static_type(ValueView::Lowered(value), &check.ty))
     {
         Ok(())
     } else {
@@ -4027,7 +4026,7 @@ fn lowered_value_matches_param(
     }
     lowered_value_matches(kind, value)
         && lowered_param_check(lowered, index)
-            .is_none_or(|check| lowered_value_matches_static_type(value, &check.ty))
+            .is_none_or(|check| value_matches_static_type(ValueView::Lowered(value), &check.ty))
 }
 
 fn lowered_param_type_name(lowered: &FunctionHeader, index: usize, kind: LoweredType) -> &str {

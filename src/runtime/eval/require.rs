@@ -1,3 +1,4 @@
+use super::ValueView;
 use super::{
     Evaluator, LoweredTagValue, LoweredTypeCheck, LoweredValue, Name, RuntimeError, Span, Type,
 };
@@ -174,7 +175,7 @@ impl PreparedSchema {
             Self::Validate(ty) => {
                 if let Some(checked) = require_module_contract(evaluator, &value, ty, path, span) {
                     checked.map(|()| value)
-                } else if super::lowered_value_matches_static_type(&value, ty) {
+                } else if super::value_matches_static_type(ValueView::Lowered(&value), ty) {
                     Ok(value)
                 } else {
                     Err(failure(format!(
@@ -416,7 +417,7 @@ pub(super) fn require_value(
         schema.decode(evaluator, value, "$", span)
     } else if let Some(checked) = require_module_contract(evaluator, &value, &check.ty, "$", span) {
         checked.map(|()| value)
-    } else if super::lowered_value_matches_static_type(&value, &check.ty) {
+    } else if super::value_matches_static_type(ValueView::Lowered(&value), &check.ty) {
         Ok(value)
     } else {
         Err(RuntimeError::new(

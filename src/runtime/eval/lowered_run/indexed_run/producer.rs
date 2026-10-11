@@ -125,7 +125,7 @@ impl crate::runtime::value::ScriptStream for ScriptProducer {
 
     fn validate_item(&self, value: &super::Value, span: Span) -> Result<(), RuntimeError> {
         if let Some(check) = &self.item_check
-            && !super::super::super::value_matches_static_type(value, &check.ty)
+            && !super::super::super::value_matches_static_type(super::super::super::ValueView::Runtime(value), &check.ty)
         {
             let span = match &self.delegated {
                 Some(DelegatedSource::Stream { span, .. }) => *span,

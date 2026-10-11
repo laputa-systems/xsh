@@ -2,7 +2,7 @@ use super::{
     Arc, AssignOp, BLOCK_LIST, FullExecution, FullTag, LoweredTypeCheck, LoweredValue, MapKey,
     ResolvedAssignStep, RuntimeError, Span, indexed_error, indexed_finish, indexed_raw,
     indexed_value, lowered_assign_value, lowered_map_literal_key, lowered_record_field,
-    lowered_record_field_value, lowered_value_matches_static_type,
+    lowered_record_field_value, ValueView, value_matches_static_type,
 };
 
 // A singleton RHS carries its item directly through assignment execution,
@@ -73,7 +73,7 @@ pub(super) fn validate_indexed_assignment(
     check: &LoweredTypeCheck,
     span: Span,
 ) -> Result<(), RuntimeError> {
-    if !lowered_value_matches_static_type(value, &check.ty) {
+    if !value_matches_static_type(ValueView::Lowered(value), &check.ty) {
         return Err(RuntimeError::new(
             "type-error",
             format!("assignment violates UInt constraint in {}", check.name),
