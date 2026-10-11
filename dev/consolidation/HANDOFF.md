@@ -46,9 +46,17 @@ Do not substitute the mutable image tag or host toolchain.
 Private frame/stage joint integration now starts at `ca11c451`, including the
 complete sealed frame cohort, scalar borrowed readers and all 46 scheduled
 stages. It must retain the newly merged allocation regressions and strong
-stream ownership. Removal of obsolete compatibility corpus exclusions,
-exact upstream source accounting, W9 deletion analysis and typed-callee
-invariant review are running in separate private lanes. The prior module,
+stream ownership. Obsolete compatibility corpus exclusions are removed in `9650c103`; lane
+verification passes two corpus-walker units, one fuzz walker unit and the
+checker-publication integration case. Directory links remain excluded, file
+links remain readable and nested development sources participate normally.
+Exact upstream source accounting is running separately. W9 review found that
+Entry records are not yet cached and Bytes entries check Str-domain modules
+first; its expanded bounded grant in ITEMS requires closing both gaps and
+removing actual dead preparation state, without waiving final shrink. Typed
+callee review found lost exact checker expression facts behind the partial
+initializer proof; a narrow authoritative fact view is under review rather
+than accepting a second general type checker or rejecting legal expressions. The prior module,
 lint-table, proof transport, verifier and filesystem candidates remain on disk;
 none was reset or implicitly accepted during this merge. Full structural,
 semantic, final platform, documentation and performance closure remains open.

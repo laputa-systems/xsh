@@ -41,7 +41,7 @@ Resumed bounded slices have separate worktrees and disjoint shared-file hunks:
 | W2 typed continuations | active Int/Bool frame continuations and typed statement scheduling | +350 lexical / 2,500 interim; reader acceptance waits baseline coverage |
 | W1 borrowed pattern views | all 18 rows, aggregate payload bridges and store identity checks | +200 lexical / 1,200 interim; runtime consumers remain separate |
 | W9 borrowed workspace entries | immutable entry ranges, view-aware consumers and lint workers | +180 lexical / 2,000 interim; final W9 reduction required |
-| W9 full module records | session-owned loader/cache, dependency-first local checking and complete fact assembly | +850 lexical / 3,500 interim; final W9 reduction required |
+| W9 full module records | session-owned loader/cache, dependency-first local checking, cached Entry records and exact argument-domain selection | +1,900 lexical / 4,200 interim against the refreshed root; exclude identical prerequisites and separate W5 classifiers; final W9 reduction required |
 | W5 remaining semantic policies | explicit declaration, resource, scope and constant boundaries | +300 lexical / 1,800 interim |
 | W5 remaining lint policies | explicit core and sequence boundaries | +250 lexical / 1,400 interim, separate from rule-table scope |
 | W9 selected-entry preparation | borrowed entry ranges through compact preparation and evaluator construction | +180 lexical / 1,400 interim, separate from full module records |
@@ -55,6 +55,13 @@ Resumed bounded slices have separate worktrees and disjoint shared-file hunks:
 | W3 shared storage conversions | canonical forward/inverse mappings with strict caller-specific guards | +150 lexical / 1,200 interim; delete replaced mapping bodies |
 | Binding recovery regressions | explicit checker recovery identity and With initializer handler | +80 / 800, interim; no valid-binding name fallback |
 | Dead formatter code | formatter allowance and compiler-confirmed unused items | net <= 0 / 1,500 |
+
+The W9 expansion follows the private source audit at `63d79c2f`: its complete
+record driver exceeds the earlier draft estimate, and Entry caching and direct
+Bytes-domain checking remain missing. The audit identifies actual preparation
+and effect-projection deletions but no honest 856-line offset. The expanded
+interim slice must finish those contracts and remove the identified dead state;
+it does not accept the current candidate or waive final W9 reduction.
 
 These prerequisite allowances require their eventual deletion offsets and do
 not relax the final net reduction or structural ratchets. Shared changes are
