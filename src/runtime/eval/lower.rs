@@ -6736,13 +6736,17 @@ mod named_spread_tests {
             Vec::new(),
         );
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        let declarations = crate::sema::check::Checker::check_compact_declarations(&parsed.arena);
+        let source_id = sources.files()[0].id();
+        let declarations = crate::sema::check::Checker::check_compact_declarations(
+            &parsed.arena,
+            &sources,
+            source_id,
+        );
         assert!(
             declarations.diagnostics.is_empty(),
             "{:?}",
             declarations.diagnostics
         );
-        let source_id = sources.files()[0].id();
         let before = super::SPREAD_PROGRAM_COPIES.with(std::cell::Cell::get);
         let built = super::super::FullBuilder::build_compact(
             &parsed.arena,
@@ -6815,12 +6819,15 @@ mod drift_tests {
                         crate::loader::entry_source_from_text(&name, source.clone()),
                         Vec::new(),
                     );
-                    let declarations =
-                        crate::sema::check::Checker::check_compact_declarations(&parsed.arena);
+                    let source_id = sources.files()[0].id();
+                    let declarations = crate::sema::check::Checker::check_compact_declarations(
+                        &parsed.arena,
+                        &sources,
+                        source_id,
+                    );
                     if !parsed.diagnostics.is_empty() || !declarations.diagnostics.is_empty() {
                         continue;
                     }
-                    let source_id = sources.files()[0].id();
                     lowered += usize::from(
                         super::super::FullBuilder::build_compact(
                             &parsed.arena,

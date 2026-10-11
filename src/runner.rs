@@ -417,14 +417,11 @@ fn prepare_entry_source(
     drop(cst);
     let arena = Arc::new(arena);
 
-    let entry_text = sources
-        .get(source_id)
-        .map(|source| source.text())
-        .unwrap_or("");
     // This one check renders the diagnostics and supplies the lowering facts.
-    let check = Checker::check_arena_with_options_and_type_program(
+    let check = Checker::check_arena_with_sources_options_and_type_program(
         &arena,
-        entry_text,
+        &sources,
+        source_id,
         CheckOptions {
             embedded_bodies: true,
             ..CheckOptions::default()

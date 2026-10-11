@@ -40,7 +40,63 @@ pub enum LiteralConstant {
     Set(Arc<BTreeSet<MapKey>>),
 }
 
+fn map_key_retained_bytes(key: &MapKey) -> usize {
+    match key {
+        MapKey::Str(value) => value.len(),
+        MapKey::Bytes(value) | MapKey::Path(value) => value.len(),
+        MapKey::Int(_) | MapKey::Bool(_) | MapKey::Duration(_) => 0,
+    }
+}
+
 impl LiteralConstant {
+    fn retained_bytes(&self) -> usize {
+        use std::mem::size_of;
+
+        let mut bytes = size_of::<Self>();
+        match self {
+            Self::Str(value) | Self::Path(value) => bytes += value.len(),
+            Self::Bytes(value) => bytes += value.len(),
+            Self::Regex(regex) => bytes += regex.pattern.len() + regex.source_text.len(),
+            Self::List(values) | Self::Tag { fields: values, .. } => {
+                bytes += size_of::<Vec<Self>>()
+                    + values.capacity() * size_of::<Self>()
+                    + values
+                        .iter()
+                        .map(|value| value.retained_bytes().saturating_sub(size_of::<Self>()))
+                        .sum::<usize>();
+            }
+            Self::Map(values) => {
+                bytes += size_of::<BTreeMap<MapKey, Self>>()
+                    + values.len() * size_of::<(MapKey, Self)>()
+                    + values.keys().map(map_key_retained_bytes).sum::<usize>()
+                    + values
+                        .values()
+                        .map(|value| value.retained_bytes().saturating_sub(size_of::<Self>()))
+                        .sum::<usize>();
+            }
+            Self::Record(values) => {
+                bytes += size_of::<BTreeMap<Name, Self>>()
+                    + values.len() * size_of::<(Name, Self)>()
+                    + values
+                        .values()
+                        .map(|value| value.retained_bytes().saturating_sub(size_of::<Self>()))
+                        .sum::<usize>();
+            }
+            Self::Set(values) => {
+                bytes += size_of::<BTreeSet<MapKey>>()
+                    + values.len() * size_of::<MapKey>()
+                    + values.iter().map(map_key_retained_bytes).sum::<usize>();
+            }
+            Self::Null
+            | Self::Bool(_)
+            | Self::Int(_)
+            | Self::Float(_)
+            | Self::Duration(_)
+            | Self::EmptyMap => {}
+        }
+        bytes
+    }
+
     fn map_key(&self) -> Option<MapKey> {
         Some(match self {
             Self::Str(value) => MapKey::Str(value.clone()),
@@ -364,6 +420,58 @@ pub struct RecordConstructors {
 }
 
 impl RecordConstructors {
+    pub(crate) fn retained_type_facts(&self) -> (usize, usize) {
+        use std::mem::size_of;
+
+        let mut type_count = 0;
+        let mut bytes = size_of::<Self>();
+        let instances = self
+            .instances
+            .lock()
+            .expect("record constructor cache lock poisoned");
+        bytes += size_of::<Mutex<Vec<(TypeDefId, Vec<Type>, Type)>>>()
+            + instances.capacity() * size_of::<(TypeDefId, Vec<Type>, Type)>();
+        for (_, arguments, ty) in instances.iter() {
+            type_count += arguments.len() + 1;
+            bytes += arguments.capacity() * size_of::<Type>()
+                + arguments
+                    .iter()
+                    .map(|ty| ty.retained_bytes().saturating_sub(size_of::<Type>()))
+                    .sum::<usize>()
+                + ty.retained_bytes().saturating_sub(size_of::<Type>());
+        }
+        type_count += self.error_types.len();
+        bytes += self.definitions.capacity()
+            * size_of::<((Option<Name>, Name), TypeDefId)>()
+            + self.imports.capacity() * size_of::<((Option<Name>, Name), Name)>()
+            + self.exports.capacity() * size_of::<(Option<Name>, Name)>()
+            + self.error_types.capacity() * size_of::<((Option<Name>, Name), Type)>()
+            + self
+                .error_types
+                .values()
+                .map(|ty| ty.retained_bytes().saturating_sub(size_of::<Type>()))
+                .sum::<usize>()
+            + self.namespaces.capacity() * size_of::<(TypeDefId, Option<Name>)>()
+            + self.nominal_names.capacity() * size_of::<(TypeDefId, Name)>()
+            + self.defaults.capacity() * size_of::<(TypeDefId, BTreeMap<Name, LiteralConstant>)>()
+            + self
+                .defaults
+                .values()
+                .map(|defaults| {
+                    defaults.len() * size_of::<(Name, LiteralConstant)>()
+                        + defaults
+                            .values()
+                            .map(|value| {
+                                value
+                                    .retained_bytes()
+                                    .saturating_sub(size_of::<LiteralConstant>())
+                            })
+                            .sum::<usize>()
+                })
+                .sum::<usize>();
+        (type_count, bytes)
+    }
+
     pub fn collect(program: &ArenaProgram) -> Self {
         let mut index = Self::default();
         index.declare_scope(program, None, program.statement_ids().collect());

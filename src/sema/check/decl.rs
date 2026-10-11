@@ -13,6 +13,7 @@ use crate::syntax::arena::{
     ArenaBindingTargetKind, ArenaModuleContractEntryKind, ArenaProgram, ArenaRange, ArenaStmtKind,
     ArenaTypeDef, ArenaTypeDefBody, ArenaUserModule, ErrorDefId, FunctionDefId, StmtId, TypeDefId, TypeExprId,
 };
+use crate::source::SourceMap;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
@@ -23,8 +24,12 @@ impl Checker {
         program: &ArenaProgram,
         type_program: Arc<ArenaProgram>,
         source: &str,
+        sources: Option<&SourceMap>,
     ) {
         for module in &program.modules {
+            let source = sources.map_or(source, |sources| {
+                module_source_text(program, module, sources)
+            });
             if module.internal {
                 if self.options.embedded_bodies || program.module_statements(module).any(|id| {
                     let kind = match program.arena.stmt(id).kind {
@@ -718,6 +723,30 @@ impl Checker {
         signature
     }
 
+}
+
+fn module_source_text<'a>(
+    program: &ArenaProgram,
+    module: &crate::syntax::arena::ArenaUserModule,
+    sources: &'a SourceMap,
+) -> &'a str {
+    let source_id = program
+        .module_statements(module)
+        .next()
+        .map(|statement| program.arena.stmt(statement).span.source_id)
+        .or_else(|| program.module_doc_for(module.statements).map(|span| span.source_id))
+        .or_else(|| {
+            sources
+                .files()
+                .iter()
+                .find(|source| source.name() == module.key)
+                .map(|source| source.id())
+        })
+        .unwrap_or_else(|| panic!("source identity missing for module `{}`", module.key));
+    sources
+        .get(source_id)
+        .unwrap_or_else(|| panic!("source `{source_id:?}` missing for module `{}`", module.key))
+        .text()
 }
 
 pub(super) fn callable_type_from_function_signature(sig: &FunctionSig) -> super::CallableType {

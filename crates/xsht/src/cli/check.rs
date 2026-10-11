@@ -397,15 +397,11 @@ fn check_entry(
 
     // This one check renders the diagnostics and supplies the lowering facts.
     let arena = Arc::new(parsed.arena);
-    let entry_text = report
-        .sources
-        .get(source_id)
-        .map(|s| s.text())
-        .unwrap_or("");
     let mut checked = timings.time(Stage::Check, || {
-        Checker::check_arena_with_options_and_type_program(
+        Checker::check_arena_with_sources_options_and_type_program(
             &arena,
-            entry_text,
+            &report.sources,
+            source_id,
             CheckOptions {
                 interactive_commands: None,
                 reveal_types: true,

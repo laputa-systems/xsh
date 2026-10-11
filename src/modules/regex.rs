@@ -54,7 +54,7 @@ pub(crate) fn prepare_literal(
 mod tests {
     use crate::diagnostic::DiagnosticCode;
     use crate::sema::check::Checker;
-    use crate::source::SourceId;
+    use crate::source::{SourceId, SourceMap};
     use crate::syntax::parser::Parser;
     use std::sync::Arc;
 
@@ -62,6 +62,8 @@ mod tests {
     fn checked_regex_literals_share_preparation_across_frontend_passes_and_clones() {
         let source = r#"pure prepared() -> Regex { rx"(?i)^\s*[a-z]+$" }"#;
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file("regex.xsh", source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let cloned = parsed.arena.clone();
         let literal = &parsed.arena.arena.regex_literals[0];
@@ -73,7 +75,7 @@ mod tests {
         let first = Arc::clone(literal.prepared.get().unwrap().as_ref().unwrap());
         let checked = Checker::check_arena(&cloned, source);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-        let declarations = Checker::check_compact_declarations(&cloned);
+        let declarations = Checker::check_compact_declarations(&cloned, &sources, source_id);
         assert!(
             declarations.diagnostics.is_empty(),
             "{:?}",

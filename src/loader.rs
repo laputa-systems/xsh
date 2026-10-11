@@ -561,14 +561,20 @@ pub fn parse_load_check_entry_source_with_token_table(
     let _ = token_table;
     let entry_source_id = entry_source.source_id;
     let (sources, parsed) = parse_load_entry_source_arena_only(file, entry_source, module_roots);
-    let entry_text = sources
+    sources
         .get(entry_source_id)
-        .map(|source| source.text().to_string())
-        .unwrap_or_default();
+        .expect("entry source id must exist in the source map");
     let checked = parsed
         .diagnostics
         .is_empty()
-        .then(|| Checker::check_arena_with_options(&parsed.arena, &entry_text, options));
+        .then(|| {
+            Checker::check_arena_with_sources_and_options(
+                &parsed.arena,
+                &sources,
+                entry_source_id,
+                options,
+            )
+        });
     CheckedEntry {
         sources,
         entry_source_id,
@@ -1302,7 +1308,7 @@ proc main() [io] {
         )
         .expect("write helper module");
 
-        let (_sources, unit) = parse_load_entry_source_compact_file_unit(
+        let (sources, unit) = parse_load_entry_source_compact_file_unit(
             entry_path.to_str().expect("utf-8 temp path"),
             entry_source_from_text(
                 entry_path.to_str().expect("utf-8 temp path"),
@@ -1318,7 +1324,11 @@ proc main() [io] {
             unit.parse_diagnostics()
         );
 
-        let declarations = Checker::check_compact_declarations(unit.program());
+        let declarations = Checker::check_compact_declarations(
+            unit.program(),
+            &sources,
+            unit.source_id(),
+        );
         assert!(
             declarations.diagnostics.is_empty(),
             "{:?}",

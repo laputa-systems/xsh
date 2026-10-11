@@ -3960,7 +3960,7 @@ pure pipeline(values: List[Int]) -> List[Int] {
         let source_id = sources.add_file("call-routes.xsh", source);
         let parsed = Parser::parse_source_arena_only(source_id, source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        Checker::check_compact_declarations(&parsed.arena);
+        Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
         let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
         let plan = evaluator
             .prepare_compact_indexed_only(&parsed.arena, source_id)

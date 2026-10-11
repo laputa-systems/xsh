@@ -619,9 +619,10 @@ fn lint_workspace_root(
 
     let mut checked = timings.time(Stage::Check, || {
         SymbolOwner::new().with_current(|| {
-            xsh::frontend::check::Checker::check_arena_with_options_and_type_program(
+            xsh::frontend::check::Checker::check_arena_with_sources_options_and_type_program(
                 bundle,
-                &root_module.text,
+                &workspace.sources,
+                root_module.source_id,
                 CheckOptions::default(),
                 type_program.clone(),
             )
@@ -949,9 +950,10 @@ fn migrate_workspace_syntax(
     }
     let mut program = candidate.program.clone();
     candidate.configure_program_for(root, &candidate.reachable_modules(root), &mut program);
-    let checked = xsh::frontend::check::Checker::check_arena_with_options_and_type_program(
+    let checked = xsh::frontend::check::Checker::check_arena_with_sources_options_and_type_program(
         &program,
-        &candidate.modules[root].text,
+        &candidate.sources,
+        candidate.modules[root].source_id,
         CheckOptions::default(),
         Arc::new(program.clone()),
     );
@@ -2484,8 +2486,12 @@ print ${name}
         let reachable = workspace.reachable_modules(&root);
         let mut bundle = workspace.program.clone();
         workspace.configure_program_for(&root, &reachable, &mut bundle);
-        let checked =
-            xsh::frontend::check::Checker::check_arena(&bundle, &workspace.modules[&root].text);
+        let checked = xsh::frontend::check::Checker::check_arena_with_sources_and_options(
+            &bundle,
+            &workspace.sources,
+            workspace.modules[&root].source_id,
+            CheckOptions::default(),
+        );
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         for key in reachable {
             let module = &workspace.modules[&key];

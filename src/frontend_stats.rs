@@ -9,9 +9,11 @@ use crate::loader::parse_load_check_text;
 use crate::mem_track::{self, AllocTraffic};
 use crate::runtime::eval::{Evaluator, probe_compact_lower_constructed_bodies};
 use crate::sema::check::{
-    CheckOptions, CheckOutput, Checker, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo,
+    CheckOptions, CheckOutput, CheckedDeclarations, CheckedErrorDeclaration,
+    CheckedFunctionDeclaration, CheckedTypeDeclaration, Checker, CompactDeclOutput,
+    CompactFunctionSig, CompactTypeDefInfo, InstantiatedTypeExpressions, ResolvedTypeExpressions,
 };
-use crate::sema::types::{ModuleExportType, Type};
+use crate::sema::types::{ModuleExportType, ModuleType, Type};
 use crate::source::{SourceId, Span};
 use crate::syntax::arena::ArenaTableStats;
 use crate::syntax::cst::SyntaxTree;
@@ -117,6 +119,10 @@ fn measure_check_output(checked: Option<&CheckOutput>) -> (usize, usize) {
         return (0, 0);
     };
     let (type_count, expr_type_bytes) = measure_expr_types(&checked.expr_types);
+    let (declaration_type_count, declaration_bytes) =
+        measure_checked_declarations(&checked.checked_declarations);
+    let (resolved_type_count, resolved_type_bytes) =
+        measure_resolved_type_expressions(&checked.resolved_type_expressions);
     let annotation_bytes = checked.annotation_facts.capacity()
         * size_of::<crate::sema::check::AnnotationFact>()
         + checked
@@ -137,13 +143,188 @@ fn measure_check_output(checked: Option<&CheckOutput>) -> (usize, usize) {
             })
             .sum::<usize>();
     (
-        type_count,
+        type_count + declaration_type_count + resolved_type_count,
         size_of::<CheckOutput>()
             + expr_type_bytes
+            + declaration_bytes.saturating_sub(size_of::<CheckedDeclarations>())
+            + resolved_type_bytes.saturating_sub(size_of::<ResolvedTypeExpressions>())
             + annotation_bytes
             + callable_bytes
             + measure_effect_facts(&checked.function_effect_facts),
     )
+}
+
+fn measure_resolved_type_expressions<Site>(
+    facts: &ResolvedTypeExpressions<Site>,
+) -> (usize, usize) {
+    let mut type_count = 0;
+    let mut bytes = size_of::<ResolvedTypeExpressions<Site>>()
+        + facts.annotations.capacity()
+            * size_of::<((Option<crate::symbol::Name>, crate::syntax::arena::TypeExprId), Type)>()
+        + facts.templates.capacity()
+            * size_of::<((crate::syntax::arena::TypeDefId, crate::syntax::arena::TypeExprId), Type)>()
+        + facts.instantiations.capacity()
+            * size_of::<(Site, InstantiatedTypeExpressions)>();
+    for ty in facts.annotations.values().chain(facts.templates.values()) {
+        type_count += 1;
+        bytes += type_owned_bytes(ty);
+    }
+    for expression_types in facts.instantiations.values() {
+        let arguments = &expression_types.instance.arguments;
+        type_count += arguments.len() + expression_types.expressions.len();
+        bytes += arguments.capacity() * size_of::<Type>()
+            + arguments.iter().map(type_owned_bytes).sum::<usize>()
+            + expression_types.expressions.capacity()
+                * size_of::<(crate::syntax::arena::TypeExprId, Type)>()
+            + expression_types
+                .expressions
+                .values()
+                .map(type_owned_bytes)
+                .sum::<usize>();
+    }
+    (type_count, bytes)
+}
+
+fn measure_checked_declarations(declarations: &CheckedDeclarations) -> (usize, usize) {
+    let (constructor_type_count, constructor_bytes) =
+        declarations.record_constructors.retained_type_facts();
+    let mut type_count = constructor_type_count;
+    let mut bytes = size_of::<CheckedDeclarations>()
+        + constructor_bytes.saturating_sub(size_of::<crate::sema::constants::RecordConstructors>())
+        + declarations.types.len()
+            * size_of::<(crate::syntax::arena::TypeDefId, CheckedTypeDeclaration)>()
+        + declarations.errors.len()
+            * size_of::<(crate::syntax::arena::ErrorDefId, CheckedErrorDeclaration)>()
+        + declarations.functions.len()
+            * size_of::<(crate::syntax::arena::FunctionDefId, CheckedFunctionDeclaration)>()
+        + declarations.builtin_error_families.capacity()
+            * size_of::<(crate::symbol::Name, crate::sema::check::ErrorFamilyInfo)>()
+        + declarations.cli_entries.capacity() * size_of::<crate::sema::cli_entry::CliEntryPlan>()
+        + declarations.wire_enums.mappings.capacity()
+            * size_of::<(
+                crate::symbol::Name,
+                std::sync::Arc<crate::sema::wire_enums::WireEnumMapping>,
+            )>();
+
+    for declaration in declarations.types.values() {
+        bytes += declaration.schema_fields.len()
+            * size_of::<(
+                crate::symbol::Name,
+                crate::syntax::arena::TypeExprId,
+            )>()
+            + declaration.variants.capacity()
+                * size_of::<(crate::symbol::Name, crate::sema::check::TagVariantInfo)>();
+        for (_, variant) in &declaration.variants {
+            type_count += variant.field_types.len();
+            bytes += variant.field_types.capacity() * size_of::<Type>()
+                + variant
+                    .field_types
+                    .iter()
+                    .map(type_owned_bytes)
+                    .sum::<usize>();
+        }
+        if let Some(info) = &declaration.info {
+            let (count, retained) = measure_compact_type_info(info, true);
+            type_count += count;
+            bytes += retained;
+        }
+    }
+    for declaration in declarations.errors.values() {
+        let (count, retained) = measure_error_family(&declaration.family);
+        type_count += count;
+        bytes += retained;
+    }
+    for declaration in declarations.functions.values() {
+        bytes += declaration.parameter_spans.capacity() * size_of::<crate::source::Span>();
+        if let Some(signature) = &declaration.signature {
+            let (count, retained) = measure_function_sig(signature);
+            type_count += count;
+            bytes += retained.saturating_sub(size_of::<CompactFunctionSig>());
+        }
+    }
+    for family in declarations.builtin_error_families.values() {
+        let (count, retained) = measure_error_family(family);
+        type_count += count;
+        bytes += retained;
+    }
+    for mapping in declarations.wire_enums.mappings.values() {
+        bytes += size_of::<crate::sema::wire_enums::WireEnumMapping>()
+            + mapping.variants.len()
+                * size_of::<(crate::symbol::Name, std::sync::Arc<str>)>()
+            + mapping.variants.values().map(|variant| variant.len()).sum::<usize>();
+    }
+    for entry in &declarations.cli_entries {
+        bytes += entry.path.capacity() * size_of::<String>()
+            + entry.path.iter().map(String::capacity).sum::<usize>();
+    }
+    (type_count, bytes)
+}
+
+fn measure_error_family(family: &crate::sema::check::ErrorFamilyInfo) -> (usize, usize) {
+    let mut type_count = 0;
+    let mut bytes = family.variants.len()
+        * size_of::<(
+            crate::symbol::Name,
+            crate::sema::check::ErrorVariantInfo,
+        )>();
+    for variant in family.variants.values() {
+        type_count += variant.fields.len();
+        bytes += variant.fields.len()
+            * size_of::<(crate::symbol::Name, Type)>()
+            + variant
+                .fields
+                .values()
+                .map(type_owned_bytes)
+                .sum::<usize>()
+            + variant.facets.capacity() * size_of::<crate::symbol::Name>();
+    }
+    (type_count, bytes)
+}
+
+fn measure_compact_type_info(
+    info: &CompactTypeDefInfo,
+    count_function_signature_types: bool,
+) -> (usize, usize) {
+    match info {
+        CompactTypeDefInfo::Alias(_)
+        | CompactTypeDefInfo::Bounded(..)
+        | CompactTypeDefInfo::TagUnion => (0, 0),
+        CompactTypeDefInfo::Record(fields) => (
+            fields.len(),
+            fields.len() * size_of::<(crate::symbol::Name, Type)>()
+                + fields.values().map(type_owned_bytes).sum::<usize>(),
+        ),
+        CompactTypeDefInfo::Module(module) => {
+            let type_count = if count_function_signature_types {
+                module
+                    .exports
+                    .values()
+                    .map(|export| match export {
+                        ModuleExportType::Value { .. } => 1,
+                        ModuleExportType::Proc { sig, .. }
+                        | ModuleExportType::Pure { sig, .. } => sig.params.len() + 1,
+                    })
+                    .sum()
+            } else {
+                module.exports.len()
+            };
+            (
+                type_count,
+                size_of::<ModuleType>()
+                    + module.exports.len()
+                        * size_of::<(crate::symbol::Name, ModuleExportType)>()
+                    + module
+                        .exports
+                        .values()
+                        .map(|export| {
+                            export
+                                .retained_bytes()
+                                .saturating_sub(size_of::<ModuleExportType>())
+                        })
+                        .sum::<usize>(),
+            )
+        }
+    }
 }
 
 fn measure_effect_facts(
@@ -199,36 +380,26 @@ fn measure_function_sig(sig: &CompactFunctionSig) -> (usize, usize) {
 }
 
 fn measure_compact_declarations(declarations: &CompactDeclOutput) -> (usize, usize) {
-    let mut type_count = 0;
+    let (constructor_type_count, constructor_bytes) =
+        declarations.record_constructors.retained_type_facts();
+    let mut type_count = constructor_type_count;
     let mut bytes =
-        size_of::<CompactDeclOutput>() + measure_effect_facts(&declarations.function_effect_facts);
+        size_of::<CompactDeclOutput>()
+            + constructor_bytes
+                .saturating_sub(size_of::<crate::sema::constants::RecordConstructors>())
+            + measure_effect_facts(&declarations.function_effect_facts);
+    let (resolved_type_count, resolved_type_bytes) =
+        measure_resolved_type_expressions(&declarations.bodies.resolved_type_expressions);
+    type_count += resolved_type_count;
+    bytes += resolved_type_bytes.saturating_sub(size_of::<ResolvedTypeExpressions<
+        crate::syntax::arena::ExprId,
+    >>());
 
     bytes += declarations.types.capacity() * size_of::<(crate::symbol::Name, CompactTypeDefInfo)>();
-    for ty in declarations.types.values() {
-        match ty {
-            CompactTypeDefInfo::Alias(_)
-            | CompactTypeDefInfo::Bounded(..)
-            | CompactTypeDefInfo::TagUnion => {}
-            CompactTypeDefInfo::Record(fields) => {
-                type_count += fields.len();
-                bytes += size_of::<BTreeMap<crate::symbol::Name, Type>>()
-                    + fields.len() * size_of::<(crate::symbol::Name, Type)>()
-                    + fields.values().map(type_owned_bytes).sum::<usize>();
-            }
-            CompactTypeDefInfo::Module(exports) => {
-                type_count += exports.len();
-                bytes += size_of::<BTreeMap<crate::symbol::Name, ModuleExportType>>()
-                    + exports.len() * size_of::<(crate::symbol::Name, ModuleExportType)>()
-                    + exports
-                        .values()
-                        .map(|export| {
-                            export
-                                .retained_bytes()
-                                .saturating_sub(size_of::<ModuleExportType>())
-                        })
-                        .sum::<usize>();
-            }
-        }
+    for info in declarations.types.values() {
+        let (count, retained) = measure_compact_type_info(info, false);
+        type_count += count;
+        bytes += retained;
     }
 
     bytes += declarations.record_schema_fields.capacity()
@@ -258,16 +429,9 @@ fn measure_compact_declarations(declarations: &CompactDeclOutput) -> (usize, usi
             bytes +=
                 $families.capacity() * size_of::<($key, crate::sema::check::ErrorFamilyInfo)>();
             for family in $families.values() {
-                bytes += size_of::<
-                    BTreeMap<crate::symbol::Name, crate::sema::check::ErrorVariantInfo>,
-                >() + family.variants.len()
-                    * size_of::<(crate::symbol::Name, crate::sema::check::ErrorVariantInfo)>();
-                for variant in family.variants.values() {
-                    type_count += variant.fields.len();
-                    bytes += variant.fields.len() * size_of::<(crate::symbol::Name, Type)>()
-                        + variant.fields.values().map(type_owned_bytes).sum::<usize>()
-                        + variant.facets.capacity() * size_of::<crate::symbol::Name>();
-                }
+                let (count, retained) = measure_error_family(family);
+                type_count += count;
+                bytes += retained;
             }
         }};
     }
@@ -365,7 +529,11 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
     // The measured pipeline is the runner's: one check feeds lowering.
     let declarations = match checked.checked.take() {
         Some(output) => Checker::compact_declarations(&checked.parsed.arena, output),
-        None => Checker::check_compact_declarations(&checked.parsed.arena),
+        None => Checker::check_compact_declarations(
+            &checked.parsed.arena,
+            &checked.sources,
+            checked.entry_source_id,
+        ),
     };
     let (declaration_type_count, declaration_retained_bytes) =
         measure_compact_declarations(&declarations);

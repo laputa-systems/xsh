@@ -611,21 +611,17 @@ fn discover_native_tests(
             .files()
             .first()
             .map(xsh::frontend::source::SourceFile::id)
-            .unwrap_or_else(|| xsh::frontend::source::SourceId::new(0));
-        let entry_text = sources
-            .get(source_id)
-            .map(|source| source.text().to_string())
-            .unwrap_or_default();
+            .expect("entry source must be present in a parsed test file");
         let arena = Arc::new(parsed.arena);
         // This one check gates the file and supplies its lowering facts.
-        let checked = Checker::check_arena_with_options_and_type_program(
+        let checked = Checker::check_arena_with_sources_and_options(
             &arena,
-            &entry_text,
+            &sources,
+            source_id,
             CheckOptions {
                 embedded_bodies: true,
                 ..CheckOptions::default()
             },
-            Arc::clone(&arena),
         );
         if !checked.diagnostics.is_empty() {
             let id = file_name.clone();

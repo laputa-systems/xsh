@@ -3796,22 +3796,24 @@ impl Evaluator {
                 module.label,
                 parsed.diagnostics
             );
-            let declarations = Checker::check_compact_declarations(&parsed.arena);
+            let source_id = parsed
+                .arena
+                .arena
+                .span_source_id
+                .expect("embedded module has a source identity");
+            let source = sources
+                .get(source_id)
+                .expect("embedded module source exists")
+                .text()
+                .to_string();
+            let declarations =
+                Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
             assert!(
                 declarations.diagnostics.is_empty(),
                 "{}: {:?}",
                 module.label,
                 declarations.diagnostics
             );
-            let source_id = parsed
-                .arena
-                .arena
-                .span_source_id
-                .unwrap_or_else(|| SourceId::new(0));
-            let source = sources
-                .get(source_id)
-                .map(|source| source.text().to_string())
-                .unwrap_or_default();
             let sources = Arc::new(sources);
             let program = FullBuilder::build_compact(
                 &parsed.arena,
@@ -3864,7 +3866,7 @@ impl Evaluator {
             program,
             source_id,
             allow_checker_only,
-            Checker::check_compact_declarations(program),
+            Checker::check_compact_declarations(program, &self.sources, source_id),
         )
     }
 

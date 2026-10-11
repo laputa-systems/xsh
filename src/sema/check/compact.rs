@@ -297,16 +297,24 @@ impl Checker {
     /// modules, directly prepared programs, and tests. A caller that already
     /// checked the program with `CheckOptions::embedded_bodies` passes that
     /// output to `compact_declarations` instead, so each body is checked once.
-    pub fn check_compact_declarations(program: &ArenaProgram) -> CompactDeclOutput {
+    pub fn check_compact_declarations(
+        program: &ArenaProgram,
+        sources: &crate::source::SourceMap,
+        entry_source_id: crate::source::SourceId,
+    ) -> CompactDeclOutput {
         // An entry check owns the `reveal_type` gate; a program prepared
-        // without one must not be rejected for it here. Without the entry text
-        // the check cannot judge source spelling and reports nothing for it.
+        // without one must not be rejected for it here.
         let options = super::CheckOptions {
             reveal_types: true,
             embedded_bodies: true,
             ..super::CheckOptions::default()
         };
-        let checked = Checker::check_arena_with_options(program, "", options);
+        let checked = Checker::check_arena_with_sources_and_options(
+            program,
+            sources,
+            entry_source_id,
+            options,
+        );
         Self::compact_declarations(program, checked)
     }
 

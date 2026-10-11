@@ -7,6 +7,7 @@ use crate::runtime::signal::{normalize_hook_signal, signal_rejection_message};
 pub(crate) use crate::sema::records::standard_record_type;
 pub(crate) use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
 pub(crate) use crate::source::Span;
+use crate::source::{SourceId, SourceMap};
 pub(crate) use crate::symbol::{Name, QualifiedName};
 use crate::syntax::arena::{ArenaProgram, ArenaStmtKind, TypeExprId};
 pub(crate) use crate::syntax::node::{BinaryOp, CoreCommand, Effect, RunKind, UnaryOp};
@@ -974,6 +975,62 @@ impl Checker {
         options: CheckOptions,
         type_program: Arc<crate::syntax::arena::ArenaProgram>,
     ) -> CheckOutput {
+        Self::check_arena_with_options_and_type_program_and_sources(
+            program,
+            source,
+            options,
+            type_program,
+            None,
+        )
+    }
+
+    /// Check a loaded program using the text belonging to each source span.
+    /// The entry text also controls the builtin `args` type, while imported
+    /// modules are checked against their own source files.
+    pub fn check_arena_with_sources_and_options(
+        program: &crate::syntax::arena::ArenaProgram,
+        sources: &SourceMap,
+        entry_source_id: SourceId,
+        options: CheckOptions,
+    ) -> CheckOutput {
+        Self::check_arena_with_sources_options_and_type_program(
+            program,
+            sources,
+            entry_source_id,
+            options,
+            Arc::new(program.clone()),
+        )
+    }
+
+    /// Check a source-loaded view while resolving type references in an owned
+    /// program, using the text and identity for each referenced source span.
+    pub fn check_arena_with_sources_options_and_type_program(
+        program: &crate::syntax::arena::ArenaProgram,
+        sources: &SourceMap,
+        entry_source_id: SourceId,
+        options: CheckOptions,
+        type_program: Arc<crate::syntax::arena::ArenaProgram>,
+    ) -> CheckOutput {
+        let source = sources
+            .get(entry_source_id)
+            .expect("entry source id must exist in the source map")
+            .text();
+        Self::check_arena_with_options_and_type_program_and_sources(
+            program,
+            source,
+            options,
+            type_program,
+            Some(sources),
+        )
+    }
+
+    fn check_arena_with_options_and_type_program_and_sources(
+        program: &crate::syntax::arena::ArenaProgram,
+        source: &str,
+        options: CheckOptions,
+        type_program: Arc<crate::syntax::arena::ArenaProgram>,
+        sources: Option<&SourceMap>,
+    ) -> CheckOutput {
         program.symbol_owner().with_current(|| {
             // Resolve bodies once to collect dependencies, then check against the
             // fixed-point contracts so callers never depend on source order.
@@ -985,7 +1042,12 @@ impl Checker {
                     probe.define_standard_values();
                     probe.collecting_effects = true;
                     probe.effect_summaries = summaries.clone();
-                    probe.check_program_arena_with_type_program(program, source, type_program.clone());
+                    probe.check_program_arena_with_type_program_and_sources(
+                        program,
+                        source,
+                        type_program.clone(),
+                        sources,
+                    );
                     // Resolve the entry signature before committing any body facts.
                     // Rechecking also gives imported modules the same argument type.
                     if options.interactive_commands.is_none() && !byte_script_arguments
@@ -1001,7 +1063,12 @@ impl Checker {
             checker.define_standard_values();
             checker.effect_summaries = effect_summaries;
             checker.effect_graph = effect_graph;
-            checker.check_program_arena_with_type_program(program, source, type_program);
+            checker.check_program_arena_with_type_program_and_sources(
+                program,
+                source,
+                type_program,
+                sources,
+            );
             let callable_effects = checker.callable_effects();
             let checked_declarations = checker.take_checked_declarations();
             CheckOutput {
@@ -1103,159 +1170,6 @@ impl Checker {
                 embedded_bodies: false,
             },
         )
-    }
-
-    /// Check a multi-module program assembled from separately parsed arenas.
-    ///
-    /// `main` is the entry arena+source; each `(key, name, arena, source)` in
-    /// `modules` is linked with the entry source in one arena, with matching
-    /// imports resolved by module key or name. Declaring scopes and private
-    /// schema dependencies remain available during concrete instantiation.
-    pub fn check_arena_with_modules(
-        main: (&crate::syntax::arena::ArenaProgram, &str),
-        modules: &[(&str, &str, &crate::syntax::arena::ArenaProgram, &str)],
-    ) -> CheckOutput {
-        main.0.symbol_owner().with_current(|| {
-            let mut checker = Self::new(CheckOptions::default());
-            // One arena preserves declaration identities and private type dependencies across modules.
-            let mut builder =
-                crate::syntax::arena::ArenaProgramBuilder::with_token_capacity_and_symbols(
-                    main.1.len(),
-                    main.0.symbol_owner().clone(),
-                );
-            let entry_source = main
-                .0
-                .statement_ids()
-                .next()
-                .map(|id| main.0.arena.stmt(id).span.source_id)
-                .unwrap_or(crate::source::SourceId::new(0));
-            let entry = crate::syntax::parser::Parser::parse_source_into_arena_builder(
-                entry_source,
-                main.1,
-                &mut builder,
-            );
-            checker.diagnostics.extend(entry.diagnostics);
-            for (index, (key, name, arena, source)) in modules.iter().enumerate() {
-                let source_id = arena
-                    .statement_ids()
-                    .next()
-                    .map(|id| arena.arena.stmt(id).span.source_id)
-                    .unwrap_or(crate::source::SourceId::new(index + 1));
-                let fragment = crate::syntax::parser::Parser::parse_source_into_arena_builder(
-                    source_id,
-                    source,
-                    &mut builder,
-                );
-                checker.diagnostics.extend(fragment.diagnostics);
-                builder.push_arena_module(
-                    (*key).to_string(),
-                    Name::intern(name),
-                    fragment.statements,
-                );
-            }
-            let mut main_program = builder.finish_with_statements(entry.statements);
-            for index in 0..main_program.arena.use_stmts.len() {
-                let import = &main_program.arena.use_stmts[index];
-                let path = main_program
-                    .arena
-                    .names(import.path)
-                    .map(|name| name.to_string())
-                    .collect::<Vec<_>>()
-                    .join(".");
-                // The legacy single-module fixture form accepts the caller's import spelling.
-                let resolved = modules
-                    .iter()
-                    .find(|(key, name, ..)| *key == path || *name == path)
-                    .or_else(|| {
-                        if modules.len() == 1 {
-                            modules.first()
-                        } else {
-                            None
-                        }
-                    });
-                if let Some((key, ..)) = resolved {
-                    main_program.arena.use_stmts[index].resolved = Some(std::sync::Arc::from(*key));
-                }
-            }
-
-            let mut byte_script_arguments = false;
-            let (effect_graph, effect_summaries) = Self::solve_effect_probes(|summaries| {
-                loop {
-                    let mut probe = Self::new(CheckOptions::default());
-                    probe.byte_script_arguments = byte_script_arguments;
-                    probe.define_standard_values();
-                    probe.collecting_effects = true;
-                    probe.effect_summaries = summaries.clone();
-                    probe.check_program_arena(&main_program, main.1);
-                    if !byte_script_arguments && byte_argument_main(&main_program, &probe.parameter_types) {
-                        byte_script_arguments = true;
-                        continue;
-                    }
-                    break probe;
-                }
-            });
-            checker.byte_script_arguments = byte_script_arguments;
-            checker.define_standard_values();
-            checker.effect_summaries = effect_summaries;
-            checker.effect_graph = effect_graph;
-            checker.check_program_arena(&main_program, main.1);
-            let callable_effects = checker.callable_effects();
-            let checked_declarations = checker.take_checked_declarations();
-            CheckOutput {
-                checked_declarations,
-                resolved_type_expressions: checker.resolved_type_expressions,
-                static_callable_aliases: checker.static_callable_aliases,
-                typed_callable_calls: checker.typed_callable_calls,
-                local_binding_types: checker.local_inference.checked_bindings,
-                resolved_bindings: checker.resolved_bindings,
-                prepared_constants: checker.prepared_constants,
-                proven_nonnull_fallback_receivers: checker.proven_nonnull_fallback_receivers,
-                diagnostics: checker.diagnostics,
-                annotation_facts: checker.annotation_facts,
-                function_return_types: checker.function_return_types,
-                record_constructor_instances: checker.record_constructor_instances,
-                parameter_types: checker.parameter_types,
-                requirement_targets: checker.requirement_targets,
-                requirement_expected_targets: checker.requirement_expected_targets,
-                reveal_types: checker.reveal_types,
-                expr_types: checker.expr_types,
-                stream_stage_types: checker.stream_stage_types,
-                projections: checker.projections,
-                statement_positions: checker.statement_positions,
-                function_effect_facts: checker.effect_graph.facts(&checker.effect_summaries),
-                callable_effects,
-                assertion_effect_spans: checker.assertion_effect_spans,
-                statement_expression_spans: checker.statement_expression_spans,
-                propagating_statements: checker.propagating_statements,
-                discardable_bindings: checker.discardable_bindings,
-                propagating_conditions: checker.propagating_conditions,
-                redundant_condition_propagations: checker.redundant_condition_propagations,
-                unvalidated_command_vectors: checker.unvalidated_command_vectors,
-                membership_migration_spans: checker.membership_migration_spans,
-                standard_call_spans: checker.standard_call_spans,
-                statically_resolved_call_spans: checker.statically_resolved_call_spans,
-                api_calls: checker.api_calls,
-                module_commands: checker.module_commands,
-                argument_bindings: checker.argument_bindings,
-                definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
-                handler_input_types: checker.handler_input_types,
-                inferred_variants: checker.inferred_variants,
-                path_literals: checker.path_literals,
-                redundant_variant_qualifiers: checker.redundant_variant_qualifiers,
-                record_constructor_fields: checker.record_constructor_fields,
-                message_payload_constructors: checker.message_payload_constructors,
-                record_require_migrations: checker.record_require_migrations,
-                error_constructors: checker.error_constructors,
-                optional_binding_spans: checker.optional_binding_spans,
-                collect_yields: checker.collect_yields,
-                from_end_indexes: checker.from_end_indexes,
-                conversions: checker.conversions,
-                resource_scopes: checker.resource_scopes,
-                text_patterns: checker.text_patterns,
-                inferred_variant_patterns: checker.inferred_variant_patterns,
-                embedded_bodies_checked: false,
-            }
-        })
     }
 
     pub(crate) fn new(options: CheckOptions) -> Self {
@@ -1439,19 +1353,12 @@ impl Checker {
         self.define_builtin_value("args", Binding::new(Type::List(Box::new(item)), false));
     }
 
-    pub(crate) fn check_program_arena(
-        &mut self,
-        program: &crate::syntax::arena::ArenaProgram,
-        source: &str,
-    ) {
-        self.check_program_arena_with_type_program(program, source, Arc::new(program.clone()));
-    }
-
-    pub(crate) fn check_program_arena_with_type_program(
+    pub(crate) fn check_program_arena_with_type_program_and_sources(
         &mut self,
         program: &crate::syntax::arena::ArenaProgram,
         source: &str,
         type_program: Arc<crate::syntax::arena::ArenaProgram>,
+        sources: Option<&SourceMap>,
     ) {
         self.resolved_bindings = Arc::new(ResolvedBindings::collect(program));
         self.prepare_effect_declarations(program, None);
@@ -1484,7 +1391,7 @@ impl Checker {
             });
         self.wire_enums = wire_enums;
         self.diagnostics.extend(wire_diagnostics);
-        self.collect_user_modules_arena(program, type_program.clone(), source);
+        self.collect_user_modules_arena(program, type_program.clone(), source, sources);
         self.collect_type_imports_arena(program, program.statement_ids());
         self.collect_definitions_arena(program, type_program, source, program.statement_ids());
         let statements = program.statement_ids().collect::<Vec<_>>();

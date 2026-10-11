@@ -7235,12 +7235,16 @@ run true
             .map(crate::source::SourceFile::id)
             .expect("entry source is present");
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        let checked = Checker::check_arena_with_options(&parsed.arena, source,
+        let checked = Checker::check_arena_with_sources_and_options(
+            &parsed.arena,
+            &sources,
+            source_id,
             crate::sema::check::CheckOptions {
                 reveal_types: true,
                 embedded_bodies: true,
                 ..crate::sema::check::CheckOptions::default()
-            });
+            },
+        );
         let declarations = Checker::compact_declarations(&parsed.arena, checked);
         assert!(
             declarations.diagnostics.is_empty(),
@@ -7817,10 +7821,9 @@ run true
     #[test]
     fn empty_map_fold_inference_publishes_concrete_accumulator_types() {
         let source = "let counts = [\"one\", \"two\", \"one\"] |> fold(map.empty()) { |acc, item| acc.set(item, (acc.get(item) ?? 0) + 1) }\nprint ${counts.get(\"one\") ?? 0}\n";
-        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(
-            crate::source::SourceId::new(0),
-            source,
-        );
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file("empty-map-fold.xsh", source);
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(source_id, source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, source);
         assert!(
@@ -7828,7 +7831,7 @@ run true
             "full: {:?}",
             checked.diagnostics
         );
-        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
         assert!(
             declarations.diagnostics.is_empty(),
             "decl: {:?}",
@@ -7848,12 +7851,11 @@ run true
     fn local_collection_inference_publishes_concrete_indexed_call_and_slot_types() {
         let source =
             include_str!("../../../../tests/fixtures/frontend-indexed/local-inference.xsh");
-        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(
-            crate::source::SourceId::new(0),
-            source,
-        );
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file("local-inference.xsh", source);
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(source_id, source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
         parsed.arena.symbol_owner().with_current(|| {
             let function = parsed
                 .arena
@@ -8405,7 +8407,7 @@ pure selected() -> Str {
                 let mut sources = SourceMap::new();
                 let source_id = sources.add_file("indexed-execution.xsh", INDEXED_EXECUTION);
                 let parsed = Parser::parse_source_arena_only(source_id, INDEXED_EXECUTION);
-                let declarations = Checker::check_compact_declarations(&parsed.arena);
+                let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
                 FullBuilder::build_compact(
                     &parsed.arena,
                     &declarations,
@@ -8461,7 +8463,7 @@ pure selected() -> Str {
                     sources.add_file("top-level-driver-boundary.xsh", TOP_LEVEL_DRIVER_BOUNDARY);
                 let parsed = Parser::parse_source_arena_only(source_id, TOP_LEVEL_DRIVER_BOUNDARY);
                 assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-                let declarations = Checker::check_compact_declarations(&parsed.arena);
+                let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
                 assert!(
                     declarations.diagnostics.is_empty(),
                     "{:?}",
@@ -8530,7 +8532,7 @@ pure selected() -> Str {
         let source_id =
             sources.add_file("top-level-driver-boundary.xsh", TOP_LEVEL_DRIVER_BOUNDARY);
         let parsed = Parser::parse_source_arena_only(source_id, TOP_LEVEL_DRIVER_BOUNDARY);
-        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
         let program = FullBuilder::build_compact(
             &parsed.arena,
             &declarations,
@@ -8574,7 +8576,7 @@ pure selected() -> Str {
         let mut sources = SourceMap::new();
         let source_id = sources.add_file("top-level-propagate.xsh", source);
         let parsed = Parser::parse_source_arena_only(source_id, source);
-        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
         let program = FullBuilder::build_compact(
             &parsed.arena,
             &declarations,
@@ -9048,9 +9050,11 @@ pure selected() -> Str {
     fn pattern_aliases_compact_facts_preserve_captured_subject_and_element_types() {
         let source =
             include_str!("../../../../tests/fixtures/frontend-indexed/pattern-aliases.xsh");
-        let parsed = Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file("pattern-aliases.xsh", source);
+        let parsed = Parser::parse_source_arena_only(source_id, source);
         assert!(parsed.diagnostics.is_empty());
-        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
         parsed.arena.symbol_owner().with_current(|| {
             for (id, ty) in &declarations.bodies.expr_types {
                 match parsed.arena.arena.expr(*id).kind {
@@ -9706,7 +9710,7 @@ pure selected() -> Str {
                 .first()
                 .map(crate::source::SourceFile::id)
                 .expect("entry source is present");
-            let mut declarations = Checker::check_compact_declarations(&parsed.arena);
+            let mut declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
             assert_eq!(declarations.bodies.conversions.len(), 3);
             declarations.bodies.conversions.clear();
             assert!(
@@ -10657,7 +10661,7 @@ pure label(word: Word) -> Str {
                     .first()
                     .map(crate::source::SourceFile::id)
                     .expect("entry source is present");
-                let mut declarations = Checker::check_compact_declarations(&parsed.arena);
+                let mut declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
                 assert!(declarations.diagnostics.is_empty());
                 let receivers = declarations
                     .bodies
@@ -10743,7 +10747,7 @@ pure names(words: List[Word]) -> Str {
                     .first()
                     .map(crate::source::SourceFile::id)
                     .expect("entry source is present");
-                let mut declarations = Checker::check_compact_declarations(&parsed.arena);
+                let mut declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
                 assert!(declarations.diagnostics.is_empty());
                 let receivers = declarations
                     .bodies
@@ -11597,7 +11601,7 @@ pure checked(number: Int) -> Result[Port] {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let source_id = parsed.arena.arena.span_source_id.unwrap();
         let source = sources.get(source_id).unwrap().text().to_string();
-        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
         assert!(
             declarations.diagnostics.is_empty(),
             "{:?}",

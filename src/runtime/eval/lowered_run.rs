@@ -1701,7 +1701,7 @@ fn prepare_dynamic_module(
         let module_text = module_sources
             .get(module_source_id)
             .map(|source| source.text().to_string())
-            .unwrap_or_default();
+            .expect("loaded module source exists");
 
         let doc_diagnostics =
             crate::sema::check::Checker::check_public_module_docs(&parsed.arena, &module_text);
@@ -1716,7 +1716,11 @@ fn prepare_dynamic_module(
             .with_span(span));
         }
 
-        let declarations = crate::sema::check::Checker::check_compact_declarations(&parsed.arena);
+        let declarations = crate::sema::check::Checker::check_compact_declarations(
+            &parsed.arena,
+            &module_sources,
+            module_source_id,
+        );
         if !declarations.diagnostics.is_empty() {
             return Err(module_load_failure(
                 "failed to check",
