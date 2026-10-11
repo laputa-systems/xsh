@@ -11,6 +11,64 @@ use super::{
 };
 
 impl<'p> CompactLowerConstructProbe<'p, '_> {
+    // The checker publishes a stage's one-item call at its descriptor span.
+    // Preserve that selected overload and the ordinary runtime default boundary.
+    pub(super) fn lower_stage_callable_call(
+        &mut self, callee: ExprId, item: BuildExprId, slots: &mut SlotScope,
+        current_function: Option<Name>,
+    ) -> Option<BuildExprId> {
+        let span = self.program.arena.expr(callee).span;
+        let args = vec![LoweredCallArg::Single(item)];
+        let row = if let Some(alias) = self.declarations.static_callable_aliases.get(&span) {
+            let callee = match self.program.arena.expr(callee).kind {
+                ArenaExprKind::Field { base, .. } if alias.method_call => base,
+                _ => callee,
+            };
+            let callee = self.lower_expr(callee, slots, current_function, None)?;
+            BuildExprRow::DynamicCall { callee, args, span }
+        } else if let Some(plan) = self.module_call_plan(callee) {
+            if let Some(script) = plan.sig.script_impl() {
+                let namespace = self.internal_namespace(script.module)?;
+                let function = QualifiedName::new(namespace, Name::intern(script.function));
+                if !self.compact_qualified_function_available(function)
+                    && self.stdlib_linkage != StdlibLowerLinkage::External { return None; }
+                if self.stdlib_linkage == StdlibLowerLinkage::External {
+                    BuildExprRow::ExternalCall { function, args, span }
+                } else {
+                    BuildExprRow::Call { function: LoweredFunctionKey::Qualified(function), args, span }
+                }
+            } else {
+                let [slot] = plan.argument_slots.as_slice() else { return None };
+                let mut values = vec![None; plan.params.len()];
+                values[*slot] = Some(item);
+                while values.last().is_some_and(Option::is_none) { values.pop(); }
+                BuildExprRow::ModuleCall { cli_plan: None, op: plan.sig.op, args: values, span }
+            }
+        } else {
+            let function = match self.program.arena.expr(callee).kind {
+                ArenaExprKind::Ident(name) => self.compact_unqualified_function_key(name)?,
+                ArenaExprKind::Field { base, name } => {
+                    let ArenaExprKind::Ident(namespace) = self.program.arena.expr(base).kind else { return None };
+                    let key = self.compact_qualified_function_key(namespace, name);
+                    if !self.compact_qualified_function_available(key) { return None; }
+                    LoweredFunctionKey::Qualified(key)
+                }
+                _ => return None,
+            };
+            if let Some(op) = self.compact_bridge_op(function) {
+                BuildExprRow::ModuleCall { cli_plan: None, op, args: vec![Some(item)], span }
+            } else if matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if current_function == Some(name)) {
+                BuildExprRow::SelfCall { args, span }
+            } else if matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Ident(_))
+                && self.compact_direct_pure_call_candidate(function) {
+                BuildExprRow::DirectPureCall { function, args, span }
+            } else {
+                BuildExprRow::Call { function, args, span }
+            }
+        };
+        Some(push_build_row!(self, expr, row))
+    }
+
     /// `env.PATH` methods act on the runtime environment overlay, so a view
     /// held in a binding is evaluated only for its effects.
     fn lower_env_path_method_call(
@@ -2277,38 +2335,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                if self_call {
-                    Some(push_build_row!(
-                        self,
-                        expr,
-                        BuildExprRow::SelfCall {
-                            args: lowered_args,
-                            span,
-                        }
-                    ))
-                } else if self.compact_direct_pure_call_candidate(
-                    function_key.expect("checked unqualified function key"),
-                ) {
-                    Some(push_build_row!(
-                        self,
-                        expr,
-                        BuildExprRow::DirectPureCall {
-                            function: function_key.expect("checked unqualified function key"),
-                            args: lowered_args,
-                            span,
-                        }
-                    ))
+                let row = if self_call {
+                    BuildExprRow::SelfCall { args: lowered_args, span }
                 } else {
-                    Some(push_build_row!(
-                        self,
-                        expr,
-                        BuildExprRow::Call {
-                            function: function_key.expect("checked unqualified function key"),
-                            args: lowered_args,
-                            span,
-                        }
-                    ))
-                }
+                    let function = function_key.expect("checked unqualified function key");
+                    if self.compact_direct_pure_call_candidate(function) {
+                        BuildExprRow::DirectPureCall { function, args: lowered_args, span }
+                    } else {
+                        BuildExprRow::Call { function, args: lowered_args, span }
+                    }
+                };
+                Some(push_build_row!(self, expr, row))
             }
             _ => None,
         }

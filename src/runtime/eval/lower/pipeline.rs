@@ -1,7 +1,7 @@
 use super::{
-    ArenaCallArgKind, ArenaExprKind, ArenaStreamStage, BuildExprId, BuildExprRow, BuildStmtId,
-    CompactLowerConstructProbe, LoweredPipelineStage, LoweredRecordEntry, Name, Rc, ReduceByOp,
-    SlotScope, StreamStageKind, Type, api_spec, cleanup_pipeline_stage_item_slot,
+    ArenaCallArgKind, ArenaExprKind, ArenaStreamStage, BuildExprId, BuildExprRow, BuildStmtId, BuildStmtRow,
+    CompactLowerConstructProbe, LoweredPipelineStage, LoweredRecordEntry, Name, ReduceByOp,
+    SlotScope, StreamStageKind, Type, cleanup_pipeline_stage_item_slot,
     compact_call_arg_expr,
 };
 
@@ -116,7 +116,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_ty: Option<&Type>,
     ) -> Option<LoweredPipelineStage> {
-        // The normalized stage keeps the span but carries the callable as its block.
         if stage.block.is_none()
             && let Some(entry) = self
                 .bodies
@@ -126,85 +125,39 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         {
             let callee =
                 compact_call_arg_expr(self.program.arena.call_args(stage.args).get(entry)?)?;
-            // Checked aliases carry the same argument and effect contract as
-            // named declarations while retaining their captured callable handle.
-            let stable = self
-                .declarations
-                .static_callable_aliases
-                .contains_key(&self.program.arena.expr(callee).span)
-                || match self.program.arena.expr(callee).kind {
-                    ArenaExprKind::Ident(name) => {
-                        slots.resolve(name).is_none()
-                            && self.compact_unqualified_function_key(name).is_some()
-                    }
-                    ArenaExprKind::Field { base, name } => {
-                        matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(namespace)
-                    if (crate::sema::stage_arguments::stage_namespace_owner(self.program, namespace, self.current_namespace).is_some()
-                        || slots.resolve(namespace).is_none()) && (self.compact_qualified_function_available(self.compact_qualified_function_key(namespace, name))
-                        || api_spec().module_overloads(&namespace.as_str(), &name.as_str()).is_some()))
-                    }
-                    _ => false,
-                };
-            if !stable {
-                return None;
-            }
-            let mut temporary = self.program.clone();
-            let mut bodies = self.bodies.clone();
-            let mut normalized = stage.clone();
-            normalized.args = temporary.arena.append_call_arguments(
-                &crate::sema::stage_arguments::stage_configuration_arguments(
-                    self.program,
-                    stage,
-                    entry,
+            let slot = slots.reserve("pipeline.item");
+            let item = push_build_row!(self, expr, BuildExprRow::Param(slot));
+            let value = self.lower_stage_callable_call(callee, item, slots, current_function)?;
+            return Some(match stage.kind {
+                StreamStageKind::Map => LoweredPipelineStage::Map { slot, value },
+                StreamStageKind::Where => LoweredPipelineStage::Where { slot, predicate: value },
+                StreamStageKind::FlatMap => LoweredPipelineStage::FlatMap { slot, value },
+                StreamStageKind::UniqueBy => LoweredPipelineStage::UniqueBy { slot, key: value },
+                StreamStageKind::GroupBy => LoweredPipelineStage::GroupBy { slot, key: value },
+                StreamStageKind::Any => LoweredPipelineStage::Any { slot, predicate: value },
+                StreamStageKind::All => LoweredPipelineStage::All { slot, predicate: value },
+                StreamStageKind::SortBy => return self.lower_configured_pipeline_stage(
+                    stage, slots, current_function, item_ty, Some((slot, value)),
                 ),
-            );
-            let span = self.program.arena.expr(callee).span;
-            let (block, item, call, stmt) =
-                temporary.arena.append_stage_callable_block(callee, span);
-            normalized.block = Some(block);
-            bodies
-                .expr_types
-                .insert(item, item_ty.cloned().unwrap_or(Type::Any));
-            // The checker types the synthetic one-item call at the callee's span.
-            bodies
-                .expr_types
-                .insert(call, self.bodies.expr_types.get(&callee)?.clone());
-            if let Some(plan) = self.bodies.api_calls.get(&callee) {
-                bodies.api_calls.insert(call, plan.clone());
-            }
-            let unit = matches!(stage.kind, StreamStageKind::Each | StreamStageKind::Tee);
-            bodies.statement_positions.insert(
-                stmt,
-                if unit {
-                    crate::sema::check::StatementPosition::Statement
-                } else {
-                    crate::sema::check::StatementPosition::Value
-                },
-            );
-            let mut child = CompactLowerConstructProbe {
-                program: &temporary,
-                bodies: &bodies,
-                declarations: self.declarations,
-                source: self.source,
-                sources: self.sources,
-                current_namespace: self.current_namespace,
-                functions: self.functions,
-                top_level_known: self.top_level_known.clone(),
-                output: std::mem::take(&mut self.output),
-                last_blocker_detail: self.last_blocker_detail.take(),
-                stdlib_linkage: self.stdlib_linkage,
-                function_defs: Rc::clone(&self.function_defs),
-                scratch: Rc::clone(&self.scratch),
-                // The child's program is this stage's own copy.
-                spread_programs: Rc::default(),
-            };
-            let result = child.lower_pipeline_stage(&normalized, slots, current_function, item_ty);
-            self.output = child.output;
-            self.last_blocker_detail = child.last_blocker_detail;
-            return result;
+                StreamStageKind::Each | StreamStageKind::Tee => {
+                    let span = self.program.arena.expr(callee).span;
+                    let body = vec![push_build_row!(self, stmt, BuildStmtRow::Expr { value, span })];
+                    if stage.kind == StreamStageKind::Each { LoweredPipelineStage::Each { slot, body } }
+                    else { LoweredPipelineStage::Tee { slot, body } }
+                }
+                StreamStageKind::TextStreamLines | StreamStageKind::BytesChunks
+                | StreamStageKind::JsonLines | StreamStageKind::JsonStream
+                | StreamStageKind::Enumerate | StreamStageKind::Zip | StreamStageKind::Sort
+                | StreamStageKind::Sum | StreamStageKind::Collect | StreamStageKind::First
+                | StreamStageKind::Last | StreamStageKind::Min | StreamStageKind::Max
+                | StreamStageKind::Count | StreamStageKind::Take | StreamStageKind::Drop
+                | StreamStageKind::Repeat | StreamStageKind::Range | StreamStageKind::Batch
+                | StreamStageKind::ParMap | StreamStageKind::TablePrint | StreamStageKind::ReduceBy
+                | StreamStageKind::Shuffle | StreamStageKind::Fold | StreamStageKind::Reduce => return None,
+            });
         }
         if !xsh_registry::stream_parameters::stage_parameters(stage.kind.as_str()).is_empty() {
-            return self.lower_configured_pipeline_stage(stage, slots, current_function, item_ty);
+            return self.lower_configured_pipeline_stage(stage, slots, current_function, item_ty, None);
         }
         match stage.kind {
             StreamStageKind::TextStreamLines => {
@@ -435,14 +388,19 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_ty: Option<&Type>,
+        callable: Option<(usize, BuildExprId)>,
     ) -> Option<LoweredPipelineStage> {
         use crate::sema::arguments::{ArgumentValueSource, expand_named_arguments};
         let params = crate::sema::stage_arguments::stage_argument_params(stage.kind.as_str());
         let span = self.program.arena.span(stage.span);
         let argument_slots = &self.bodies.argument_bindings.get(&span)?.argument_slots;
+        let callable_entry = self.bodies.argument_bindings.get(&span)?.callable_entry;
+        let arguments = self.program.arena.call_args(stage.args).iter().enumerate()
+            .filter(|(entry, _)| Some(*entry) != callable_entry)
+            .map(|(_, argument)| argument.clone()).collect::<Vec<_>>();
         let expanded = expand_named_arguments(
             self.program,
-            self.program.arena.call_args(stage.args),
+            &arguments,
             |expr| {
                 self.bodies
                     .expr_types
@@ -503,8 +461,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 descending: values[0].map(|value| wrap(self, value)),
             }),
             StreamStageKind::SortBy => {
-                let (slot, key) =
-                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)?;
+                let (slot, key) = callable.or_else(||
+                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty))?;
                 Some(LoweredPipelineStage::SortBy {
                     slot,
                     key,
