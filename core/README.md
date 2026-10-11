@@ -27,6 +27,12 @@ EOF rechecks the final pair of records from that input.
 `expand` counts input bytes as columns in the C and POSIX locales and uses
 Unicode display columns in UTF-8 locales. It preserves input bytes; backspace
 moves one column left and newline resets the tab position.
+`nl` appends the default second section-delimiter character after a single
+byte in C/POSIX or a single UTF-8 character in a UTF-8 locale; malformed bytes
+remain separate characters. Section matching preserves the delimiter bytes.
+`tail --follow=name` can reopen a disappeared, previously opened name while
+another operand remains live. Without `--retry`, it exits when no named
+operand remains open.
 
 
 An applet never spells a `/proc` or `/sys` path itself
@@ -73,6 +79,10 @@ affinity: ...`) through `lib/gnu.xsh`, parse options in `getopt_long` order
 with the glibc wording, and exit 1 on failure and 126 or 127 when the command
 cannot be executed. The listing `prlimit` prints before running a command is
 written in full, where util-linux loses its unflushed rows at `exec`.
+
+`nvme` preserves the host libc wording for ioctl errors, including JSON error
+output, because nvme-cli's diagnostics differ from GNU coreutils. It removes
+the Rust errno suffix without changing that wording.
 
 Prefer typed standard-module APIs over shelling out or parsing command text.
 Use `cli.parse` for ordinary option records, including short aliases and
