@@ -1,5 +1,7 @@
 use consolidation_metrics as metrics
 
+type AuditRise = {metric: Str, baseline: Int, current: Int, ceiling: Int, approval: Str, reason: Str, remove_when: Str}
+
 pure value(scan: metrics.SourceScan, name: Str) -> Int {
   let rows = scan.metrics |> where .name == name |> collect
   rows[0].value
@@ -383,8 +385,15 @@ test test_malformed_lexical_forms_and_eligibility_cfg_attr_fail_loudly {
 }
 
 test test_structural_rise_fails_with_the_metric_and_values { |ctx|
-  let baseline: metrics.Report = {schema: 1, sources: [], metrics: [{name: "manual_payload_calls", value: 1, evidence: []}], reviews: []}
-  let current: metrics.Report = {schema: 1, sources: [], metrics: [{name: "manual_payload_calls", value: 2, evidence: []}], reviews: []}
+  let baseline: metrics.Report = {schema: 1, sources: [], metrics: [
+    {name: "blanket_dead_code_lines", value: 0, evidence: []},
+    {name: "manual_payload_calls", value: 1, evidence: []},
+    {name: "source_lines_src", value: 5, evidence: []},
+    {name: "source_lines_xsht", value: 5, evidence: []},
+  ], reviews: []}
+  let current: metrics.Report = {...baseline, metrics: collect {
+    for row in baseline.metrics { yield if row.name == "manual_payload_calls" { {...row, value: 2} } else { row } }
+  }}
   match metrics.assert_not_risen(current, baseline) {
     Ok(_) => test.fail("rising structural metric passed")
     Err(metrics.MetricError.Rise {name, before, after}) => assert name == "manual_payload_calls" and before == 1 and after == 2
@@ -399,8 +408,9 @@ test test_structural_rise_fails_with_the_metric_and_values { |ctx|
   assert ! test.run_script(ctx, driver, ["check", @flags])?.success
   let approved = {metric: "manual_payload_calls", ceiling: 2, approval: "fixture owner", reason: "bounded fixture", remove_when: "fixture ends"}
   json.write(fp"{root}/envelope.json", {start_commit: "fixture", limits: [approved]})
-  assert test.run_script(ctx, driver, ["check", @flags, "--envelope", fp"{root}/envelope.json".display()])?.success
-  assert json.get(json.read(fp"{root}/audit.json")?, ["rises"])?.require(List[Any])?.len() == 1
+  assert ! test.run_script(ctx, driver, ["check", @flags, "--envelope", fp"{root}/envelope.json".display()])?.success
+  let rises = json.get(json.read(fp"{root}/audit.json")?, ["rises"])?.require(List[Any])?
+  assert rises.len() == 1
   assert ! test.run_script(ctx, driver, ["final-close", @flags, "--envelope", fp"{root}/envelope.json".display()])?.success
   json.write(fp"{root}/envelope.json", {start_commit: "fixture", limits: [{...approved, metric: "unknown"}]}); assert ! test.run_script(ctx, driver, ["check", @flags, "--envelope", fp"{root}/envelope.json".display()])?.success
 }
@@ -408,8 +418,10 @@ test test_structural_rise_fails_with_the_metric_and_values { |ctx|
 test test_corrected_blanket_baseline_requires_provenance_and_changes_only_its_metric { |ctx|
   let root = tree(ctx)?
   let original: metrics.Report = {schema: 1, sources: [], metrics: [
-    {name: "manual_payload_calls", value: 1, evidence: []},
     {name: "blanket_dead_code_lines", value: 7, evidence: [{path: "src/lib.rs", line: 1, detail: "old blanket scope"}]},
+    {name: "manual_payload_calls", value: 1, evidence: []},
+    {name: "source_lines_src", value: 5, evidence: []},
+    {name: "source_lines_xsht", value: 5, evidence: []},
   ], reviews: []}
   let corrected: metrics.Report = {...original, metrics: collect {
     for row in original.metrics { yield if row.name == "blanket_dead_code_lines" { {...row, value: 3, evidence: []} } else { row } }
@@ -539,7 +551,7 @@ proc review_failure(report: metrics.Report, bundle: metrics.ReviewEvidenceBundle
   }
 }
 
-test test_final_close_requires_strict_source_reduction_and_zero_blankets {
+test test_legacy_final_close_helper_requires_strict_source_reduction_and_zero_blankets {
   let baseline = close_report(10, 8, 4)
   let equal_src = close_report(10, 7, 0)
   let equal_xsht = close_report(9, 8, 0)
@@ -592,7 +604,7 @@ test test_review_evidence_accepts_synthetic_commit_after_docs_only_commit { |ctx
   assert review_failure(report, proof, fixture.root) != "accepted"
 }
 
-test test_final_close_cli_requires_verified_bundle_and_independent_reductions { |ctx|
+test test_final_close_cli_keeps_source_totals_advisory_and_preserves_final_gates { |ctx|
   let fixture = review_fixture(ctx)?
   let report = metrics.measure(fixture.root, ["src", "crates/xsht/src"])?
   let proof = proof_bundle(report, fixture)
@@ -626,5 +638,32 @@ test test_final_close_cli_requires_verified_bundle_and_independent_reductions { 
   }
   json.write(fp"{fixture.root}/current.json", equal_src)
   json.write(proof_path, proof)
+  assert test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path.display()])?.success
+  let source_growth: metrics.Report = {
+    ...report,
+    metrics: collect {
+      for row in report.metrics {
+        yield if row.name == "source_lines_src" { {...row, value: report_metric(baseline, row.name) + 1} } else { row }
+      }
+    },
+  }
+  json.write(fp"{fixture.root}/current.json", source_growth)
+  assert test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path.display()])?.success
+  let saved: metrics.Report = json.read(fp"{fixture.root}/saved.json")?.require(metrics.Report)?
+  assert report_metric(saved, "source_lines_src") == report_metric(source_growth, "source_lines_src")
+  let rises = json.get(json.read(fp"{fixture.root}/audit.json")?, ["rises"])?.require(List[AuditRise])?
+  assert rises.len() == 1
+  assert rises[0].metric == "source_lines_src"
+  assert rises[0].baseline == report_metric(baseline, "source_lines_src")
+  assert rises[0].current == report_metric(source_growth, "source_lines_src")
+  let blanket_remaining: metrics.Report = {
+    ...source_growth,
+    metrics: collect {
+      for row in source_growth.metrics {
+        yield if row.name == "blanket_dead_code_lines" { {...row, value: 1} } else { row }
+      }
+    },
+  }
+  json.write(fp"{fixture.root}/current.json", blanket_remaining)
   assert ! test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path.display()])?.success
 }

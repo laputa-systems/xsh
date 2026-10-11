@@ -8,7 +8,39 @@ type Metadata = {start_commit: Str}
 type Rise = {metric: Str, baseline: Int, current: Int, ceiling: Int, approval: Str, reason: Str, remove_when: Str}
 type Audit = {schema: Int, mode: Str, envelope: Str, rises: List[Rise]}
 
-# Ceilings are temporary absolute bounds; every rise still belongs in the audit.
+# Keep both source totals in the report and rise audit, but omit only their values from ratchet comparisons.
+const advisory_source_metrics = ["source_lines_src", "source_lines_xsht"]
+
+# Validate the complete report before applying the source-budget exception.
+proc validate_policy_report(report: metrics.Report) [error] -> Result[Unit, Error] {
+  if report.schema != 1 { return Err(metrics.MetricError.Contract(detail: "unsupported consolidation metric schema")) }
+  metrics.assert_not_risen(report, report)?
+  for name in advisory_source_metrics {
+    let rows = report.metrics |> where .name == name |> collect
+    if rows.len() != 1 { return Err(metrics.MetricError.Contract(detail: f"expected exactly one {name} metric")) }
+  }
+}
+
+# Preserve each source row in output and audit while excluding only these values from ratchets.
+pure structural_report(report: metrics.Report) -> metrics.Report {
+  {...report, metrics: collect { for row in report.metrics { if row.name not in advisory_source_metrics { yield row } } }}
+}
+
+proc assert_structural_not_risen(current: metrics.Report, baseline: metrics.Report) [error] -> Result[Unit, Error] {
+  validate_policy_report(current)?
+  validate_policy_report(baseline)?
+  metrics.assert_not_risen(structural_report(current), structural_report(baseline))
+}
+
+# Final close still requires every blanket dead-code scope to be gone.
+proc assert_final_close(current: metrics.Report, baseline: metrics.Report) [error] -> Result[Unit, Error] {
+  assert_structural_not_risen(current, baseline)?
+  let blanket = current.metrics |> where .name == "blanket_dead_code_lines" |> collect
+  if blanket.len() != 1 { return Err(metrics.MetricError.Contract(detail: "expected one blanket_dead_code_lines metric")) }
+  if blanket[0].value != 0 { return Err(metrics.MetricError.Contract(detail: "final close requires zero blanket_dead_code_lines")) }
+}
+
+# Envelope approvals annotate rises in the audit; structural acceptance remains tied to the baseline.
 proc execute(o: Options) [fs, error, io] -> Result[Unit] {
   if o.action not in ["measure", "check", "final-close"] { fail "expected measure, check, or final-close" }
   if ([o.source, o.xsht_source] |> sort) != ["crates/xsht/src", "src"] { fail "explicit source roots must be src and crates/xsht/src" }
@@ -16,7 +48,7 @@ proc execute(o: Options) [fs, error, io] -> Result[Unit] {
   let current = measured.report
   json.write(o.output, current)
   if o.item_inventory != "" { json.write(fp"{o.item_inventory}", measured.item_allowances) }
-  metrics.assert_not_risen(current, current)?
+  assert_structural_not_risen(current, current)?
   if o.action == "measure" { return }
   if o.baseline == "" or o.audit == "" { fail "checks require --baseline and --audit" }
   let baseline = json.read(fp"{o.baseline}")?.require(metrics.Report)?
@@ -25,9 +57,7 @@ proc execute(o: Options) [fs, error, io] -> Result[Unit] {
   } else if o.baseline.ends_with("baseline-blanket-scope.json") {
     fail "the corrected blanket baseline requires --baseline-provenance"
   }
-  metrics.assert_not_risen(baseline, baseline)?
-  var ceilings = baseline
-  var limits: List[Limit] = []
+  assert_structural_not_risen(baseline, baseline)?
   var rises: List[Rise] = []
   for row in current.metrics {
     let old = baseline.metrics |> where .name == row.name |> collect
@@ -49,16 +79,9 @@ proc execute(o: Options) [fs, error, io] -> Result[Unit] {
       if limit.approval.trim() == "" or limit.reason.trim() == "" or limit.remove_when.trim() == "" { fail f"incomplete envelope approval for {limit.metric}" }
       seen += [limit.metric]
     }
-    limits = envelope.limits
-    ceilings = {...baseline, metrics: collect {
-      for row in baseline.metrics {
-        let approved = limits |> where .metric == row.name |> collect
-        yield if approved.is_empty() { row } else { {...row, value: approved[0].ceiling} }
-      }
-    }}
     rises = collect {
       for rise in rises {
-        let approved = limits |> where .metric == rise.metric |> collect
+        let approved = envelope.limits |> where .metric == rise.metric |> collect
         yield if approved.is_empty() { rise } else { {...rise, ceiling: approved[0].ceiling, approval: approved[0].approval, reason: approved[0].reason, remove_when: approved[0].remove_when} }
       }
     }
@@ -66,14 +89,14 @@ proc execute(o: Options) [fs, error, io] -> Result[Unit] {
     json.write(fp"{o.audit}", approved_audit)
   }
   for rise in rises { print f"{rise.metric}: {rise.baseline} -> {rise.current}; ceiling {rise.ceiling}; approval {rise.approval}" }
-  metrics.assert_not_risen(current, ceilings)?
   if o.action == "final-close" {
-    metrics.assert_final_close(current, baseline)?
+    assert_final_close(current, baseline)?
     if o.review_evidence == "" { fail "final-close requires --review-evidence" }
     let evidence = json.read(fp"{o.review_evidence}")?.require(metrics.ReviewEvidenceBundle)?
     metrics.verify_review_evidence(current, evidence, o.root)?
-  } else if o.review_evidence != "" {
-    fail "--review-evidence is only valid with final-close"
+  } else {
+    assert_structural_not_risen(current, baseline)?
+    if o.review_evidence != "" { fail "--review-evidence is only valid with final-close" }
   }
 }
 

@@ -1,0 +1,161 @@
+{
+  "corrected_baseline_path": "dev/consolidation/baseline-blanket-scope.json",
+  "corrected_baseline_sha256": "34dd9d979c2cfb348a29e46c640d999f957a17b2d97cdae10bba8d654ffc463b",
+  "corrected_blanket_lines": 47061,
+  "current_diagnostic": {
+    "path": ".work/blanket-metric-correction/current-report.json",
+    "sha256": "7ed0dc11f5c9a294d9649fb821aff55c752b8fdc1e75e0601a3097cd90d5c0c8"
+  },
+  "historical_diagnostic": {
+    "path": "dev/consolidation/blanket-metric-start-diagnostic.json",
+    "sha256": "322ea03664f2478abb57362fbd0bda714715ff3020dd6316f827f2b441e891d3"
+  },
+  "item_allowances": [
+    {
+      "entries": 45,
+      "path": "dev/consolidation/item-allowances-start.json",
+      "sha256": "269f793535e0bee19aabeb96b721314d4f2852db12b73e254ba9a283e7c75c26"
+    },
+    {
+      "entries": 48,
+      "path": "dev/consolidation/item-allowances-current.json",
+      "sha256": "98062bb47505dbfbbf35451e69d527b40e5605cb40b08c4d45f5e9c5c4418b4e"
+    }
+  ],
+  "metric_comparisons": [
+    {
+      "candidate": 10770,
+      "name": "blanket_dead_code_lines",
+      "original_baseline": 47705,
+      "original_changed": true,
+      "same_scanner_start": 47061
+    },
+    {
+      "candidate": 158,
+      "name": "instruction_variants",
+      "original_baseline": 158,
+      "original_changed": false,
+      "same_scanner_start": 158
+    },
+    {
+      "candidate": 0,
+      "name": "lowering_type_resolver_definitions",
+      "original_baseline": 3,
+      "original_changed": true,
+      "same_scanner_start": 2
+    },
+    {
+      "candidate": 916,
+      "name": "manual_payload_calls",
+      "original_baseline": 923,
+      "original_changed": false,
+      "same_scanner_start": 923
+    },
+    {
+      "candidate": 5,
+      "name": "nested_machine_factory_calls",
+      "original_baseline": 5,
+      "original_changed": false,
+      "same_scanner_start": 5
+    },
+    {
+      "candidate": 42,
+      "name": "optional_raw_calls",
+      "original_baseline": 43,
+      "original_changed": false,
+      "same_scanner_start": 43
+    },
+    {
+      "candidate": 18,
+      "name": "pattern_variants",
+      "original_baseline": 18,
+      "original_changed": false,
+      "same_scanner_start": 18
+    },
+    {
+      "candidate": 192513,
+      "name": "source_lines_src",
+      "original_baseline": 189274,
+      "original_changed": false,
+      "same_scanner_start": 189274
+    },
+    {
+      "candidate": 49524,
+      "name": "source_lines_xsht",
+      "original_baseline": 49968,
+      "original_changed": false,
+      "same_scanner_start": 49968
+    },
+    {
+      "candidate": 46,
+      "name": "stage_variants",
+      "original_baseline": 46,
+      "original_changed": false,
+      "same_scanner_start": 46
+    },
+    {
+      "candidate": 1,
+      "name": "static_type_predicate_definitions",
+      "original_baseline": 3,
+      "original_changed": false,
+      "same_scanner_start": 3
+    },
+    {
+      "candidate": 2,
+      "name": "type_storage_mapping_definitions",
+      "original_baseline": 4,
+      "original_changed": false,
+      "same_scanner_start": 4
+    },
+    {
+      "candidate": 16,
+      "name": "wide_arena_wildcards",
+      "original_baseline": 57,
+      "original_changed": false,
+      "same_scanner_start": 57
+    }
+  ],
+  "metric_definition": "blanket_dead_code_lines counts retained production lines owned by file/module inner allowances, outer module/impl/trait/extern-block scopes, and generated definitions under those real Rust scopes; macro-definition and macro-invocation attributes are inventoried as items because they do not suppress dead_code in expanded items.",
+  "original_baseline": {
+    "path": "dev/consolidation/baseline.json",
+    "sha256": "be63588c6888fb7907d5f1054ee4b1559559eb70d784fd7ae15797826d06dbd6",
+    "source_manifest_sha256": "035fa1d95aae1668635441709ff81cbe38fb91cc9f7f8d59156f534d9f8ca0a2",
+    "start_commit": "5e66b6b896a47d0c692739135d51200b007a2a67"
+  },
+  "original_baseline_path": "dev/consolidation/baseline.json",
+  "original_baseline_sha256": "be63588c6888fb7907d5f1054ee4b1559559eb70d784fd7ae15797826d06dbd6",
+  "ratchet_fixtures": {
+    "path": "dev/tests/test-consolidation-ratchets.xsh",
+    "sha256": "13234a59fbb7a147ee2b33e5ffe3cb55b2b654b3b781c2b60f026002f81e8503"
+  },
+  "ratchet_tests_sha256": "13234a59fbb7a147ee2b33e5ffe3cb55b2b654b3b781c2b60f026002f81e8503",
+  "reason": "The CLI treats source line totals as advisory while preserving the complete report and raw rise audit; structural rises remain hard failures.",
+  "scanner": {
+    "path": "dev/consolidation_metrics.xsh",
+    "sha256": "da2c3e70cf6cc08e79ff7eba3ce5ebaf05848203cd7f21797150141155f35e79"
+  },
+  "scanner_sha256": "da2c3e70cf6cc08e79ff7eba3ce5ebaf05848203cd7f21797150141155f35e79",
+  "schema": 1,
+  "source_manifest_sha256": "035fa1d95aae1668635441709ff81cbe38fb91cc9f7f8d59156f534d9f8ca0a2",
+  "source_manifests": [
+    {
+      "commit": "5e66b6b896a47d0c692739135d51200b007a2a67",
+      "sha256": "035fa1d95aae1668635441709ff81cbe38fb91cc9f7f8d59156f534d9f8ca0a2",
+      "src_tree": "c371cbb5b2417456a2694847f35c38ea687afb59",
+      "xsht_tree": "409d687910c724f859bda66e1bc9441d7992753f"
+    },
+    {
+      "commit": "9ff2c3348c0f3a213016903fdf4eb0e610075e9c",
+      "sha256": "a023faf70f1b71dfcf1fd06293a82a04489daf7b27a3b56ecc964eab2de2b877",
+      "src_tree": "66543d70e12bc4fadfb0f1132a5902ec7423372d",
+      "xsht_tree": "99fa65f01a38fb03200fb0c5f46938563f7fa496"
+    }
+  ],
+  "stage_layout_compatibility": {
+    "generated_context": "The candidate generated table retains all three original contexts plus four borrowed-view contexts; partial or overlapping authority layouts fail loudly.",
+    "legacy": "The frozen source has FullStageTag and impl_stage_codec! instead of the generated pipeline_stage_schema! table. Its tag and codec rows are validated against each other; stage_variants remain owned by the semantic LoweredPipelineStage enum to avoid double counting."
+  },
+  "start_commit": "5e66b6b896a47d0c692739135d51200b007a2a67",
+  "supersedes": "dev/consolidation/blanket-metric-provenance.json",
+  "supersedes_sha256": "0e78586a803abaa519b4677e2662ef09016fdec9eef85549dec39602a258633a"
+}
