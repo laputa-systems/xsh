@@ -33,7 +33,7 @@ pub mod load {
     pub use crate::loader::{
         CheckedEntry, CompactFileDeclarationSummary, CompactFileExport, CompactFileImport,
         CompactFileUnit, CompactModuleGraph, CompactModuleImportEdge, EntrySource, StdlibLinkage,
-        UserModuleResolution, add_source_bytes,
+        LoadedImport, LoadedModule, ModuleLoader, UserModuleResolution, add_source_bytes,
         entry_source_from_bytes, entry_source_from_text, module_key, parse_load_check_bytes,
         parse_load_check_entry_source, parse_load_check_entry_source_with_token_table,
         parse_load_check_file, parse_load_check_text, parse_load_entry_source_arena_only,

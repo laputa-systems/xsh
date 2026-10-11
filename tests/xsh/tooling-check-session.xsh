@@ -93,3 +93,18 @@ test test_existing_unreadable_candidate_cannot_fall_through_to_a_later_file { |c
   fp"{root}/modules/unreadable.xsh".write("##! Module behind an unreadable candidate.\n")
   expect_code(root, "parse.module-read")
 }
+
+test test_invalid_utf8_stops_parsing_and_import_loading_in_every_tool { |ctx|
+  let root = fixture(ctx, "invalid-utf8-graph")?
+  fp"{root}/entry.xsh".write("use broken\nprint \"must not execute\"\n")
+  fp"{root}/broken.xsh".write(b"\xff\nuse unreadable\n")
+  fp"{root}/unreadable.xsh".mkdir()
+  for tool in ["xsh", "check", "lint"] {
+    let result = run_tool(root, tool)?
+    assert result.status.exited_with(2), f"{tool}: {result.stderr}"
+    assert "err[source.invalid-utf8]" in result.stderr, f"{tool}: {result.stderr}"
+    assert "lex.unexpected-character" not in result.stderr, f"{tool}: {result.stderr}"
+    assert "parse.module-read" not in result.stderr, f"{tool}: {result.stderr}"
+    assert result.stdout == "", f"{tool}: {result.stdout}"
+  }
+}

@@ -20,12 +20,12 @@ use xsh::diagnostic::{
 };
 use xsh::frontend::check::CheckOptions;
 use xsh::frontend::load::{
-    UserModuleResolution, add_source_bytes, module_key, parse_load_check_text, resolve_user_module,
+    LoadedImport as WorkspaceImport, LoadedModule, ModuleLoader, module_key, parse_load_check_text,
 };
 use xsh::frontend::source::{SourceId, SourceMap, Span};
-use xsh::frontend::symbols::{Name, SymbolOwner};
+use xsh::frontend::symbols::SymbolOwner;
 use xsh::frontend::syntax::arena::{
-    ArenaProgram, ArenaProgramBuilder, ArenaRange, ArenaStmtKind, StmtId, UseStmtId,
+    ArenaProgram, ArenaProgramBuilder, ArenaRange, ArenaStmtKind, StmtId,
 };
 use xsh::frontend::syntax::grouping::grouping_diagnostics;
 use xsh::frontend::syntax::parser::Parser;
@@ -301,14 +301,6 @@ struct ResolvedLintConfig {
     module_roots: Vec<PathBuf>,
 }
 
-#[derive(Clone)]
-struct WorkspaceImport {
-    use_id: UseStmtId,
-    path: Vec<Name>,
-    span: Span,
-    target: Option<String>,
-}
-
 struct WorkspaceModule {
     key: String,
     path: PathBuf,
@@ -336,156 +328,34 @@ struct LintWorkspace {
     input_errors: Vec<String>,
 }
 
-/// Builds the workspace graph while appending every source to one arena.
-/// Dependencies are loaded recursively using the language loader's search
-/// order, including configured module roots and `XSH_MODULE_PATH`.
-struct WorkspaceLoader {
-    sources: SourceMap,
-    builder: ArenaProgramBuilder<'static>,
-    modules: FxHashMap<String, WorkspaceModule>,
-    stack: Vec<String>,
-    source_overrides: FxHashMap<String, Vec<u8>>,
-}
-
-impl WorkspaceLoader {
-    fn new() -> Self {
-        Self {
-            sources: SourceMap::new(),
-            builder: ArenaProgramBuilder::with_token_capacity(4096),
-            modules: FxHashMap::default(),
-            stack: Vec::new(),
-            source_overrides: FxHashMap::default(),
-        }
-    }
-
-    fn load(
-        &mut self,
-        path: PathBuf,
-        bytes: Vec<u8>,
-        module_roots: Vec<PathBuf>,
-    ) -> Result<String, String> {
-        let key = module_key(&path);
-        let bytes = self.source_overrides.get(&key).cloned().unwrap_or(bytes);
-        if self.modules.contains_key(&key) {
-            return Ok(key);
-        }
-
-        let display_path = path.to_string_lossy().into_owned();
-        let (source_id, mut diagnostics) =
-            add_source_bytes(&mut self.sources, &display_path, bytes);
-        let text = self.sources.get(source_id).expect("source was just inserted").text().to_string();
-
-        let fragment = Parser::parse_source_into_arena_builder(source_id, &text, &mut self.builder);
-        diagnostics.extend(fragment.diagnostics);
-        let imports = self
-            .builder
-            .statement_ids(fragment.statements)
-            .into_iter()
-            .filter_map(|statement| {
-                let (use_id, path, span) = self.builder.use_stmt_for_statement(statement)?;
-                Some(WorkspaceImport {
-                    use_id,
-                    path,
-                    span,
-                    target: None,
-                })
-            })
-            .collect::<Vec<_>>();
-
-        let name = self.builder.name(&key);
-        self.builder
-            .push_arena_module(key.clone(), name, fragment.statements);
-        self.modules.insert(
-            key.clone(),
-            WorkspaceModule {
-                key: key.clone(),
-                path: path.clone(),
-                source_id,
-                text,
-                statements: fragment.statements,
-                imports,
-                diagnostics,
-                module_roots: module_roots.clone(),
-                config: ResolvedLintConfig {
-                    lint_options: LintOptions::default(),
-                    line_width: 0,
-                    module_roots,
-                },
-            },
-        );
-        self.stack.push(key.clone());
-
-        let import_count = self
-            .modules
-            .get(&key)
-            .map_or(0, |module| module.imports.len());
-        for import_index in 0..import_count {
-            let (use_id, path, span, roots, importer) = {
-                let module = self.modules.get(&key).expect("module was inserted");
-                let import = &module.imports[import_index];
-                (
-                    import.use_id,
-                    import.path.clone(),
-                    import.span,
-                    module.module_roots.clone(),
-                    module.path.clone(),
-                )
+/// Attach tool configuration after the language loader has parsed the graph.
+/// Imports and source identities belong to the loader, not a lint worker.
+fn workspace_modules(loaded: FxHashMap<String, LoadedModule>) -> FxHashMap<String, WorkspaceModule> {
+    loaded
+        .into_iter()
+        .map(|(key, module)| {
+            let mut diagnostics = module.diagnostics;
+            diagnostics.extend(
+                module.imports.iter().filter_map(|import| import.diagnostic.clone()),
+            );
+            let config = ResolvedLintConfig {
+                lint_options: LintOptions::default(),
+                line_width: 0,
+                module_roots: module.module_roots.clone(),
             };
-            match resolve_user_module(&importer, &path, &roots) {
-                Ok(UserModuleResolution::Standard) => {}
-                Ok(UserModuleResolution::Missing(paths)) => {
-                    self.builder.set_use_searched_candidates(use_id, paths);
-                }
-                Ok(UserModuleResolution::Found { path: module_path, bytes: module_bytes }) => {
-                    let target_key = module_key(&module_path);
-                    let cycle = self.stack.contains(&target_key);
-                    match self.load(module_path, module_bytes, roots) {
-                        Ok(target) => {
-                            self.builder
-                                .set_use_resolved(use_id, std::sync::Arc::from(target.as_str()));
-                            if let Some(module) = self.modules.get_mut(&key) {
-                                module.imports[import_index].target = Some(target);
-                                if cycle {
-                                    module.diagnostics.push(
-                                        Diagnostic::error("cyclic module import")
-                                            .with_code(DiagnosticCode::ParseModuleCycle)
-                                            .with_label(Label::primary(
-                                                span,
-                                                "module import cycle starts here",
-                                            )),
-                                    );
-                                }
-                            }
-                        }
-                        Err(message) => {
-                            if let Some(module) = self.modules.get_mut(&key) {
-                                module.diagnostics.push(
-                                    Diagnostic::error("failed to load module")
-                                        .with_code(DiagnosticCode::ParseModuleLoad)
-                                        .with_label(Label::primary(span, message)),
-                                );
-                            }
-                        }
-                    }
-                }
-                Err(message) => {
-                    if let Some(module) = self.modules.get_mut(&key) {
-                        module.diagnostics.push(
-                            Diagnostic::error("failed to read module")
-                                .with_code(DiagnosticCode::ParseModuleRead)
-                                .with_label(Label::primary(span, message)),
-                        );
-                    }
-                }
-            }
-        }
-        self.stack.pop();
-        Ok(key)
-    }
-
-    fn finish(self) -> (SourceMap, ArenaProgram, FxHashMap<String, WorkspaceModule>) {
-        (self.sources, self.builder.finish(), self.modules)
-    }
+            (key, WorkspaceModule {
+                key: module.key,
+                path: module.path,
+                source_id: module.source_id,
+                text: module.text,
+                statements: module.statements,
+                imports: module.imports,
+                diagnostics,
+                module_roots: module.module_roots,
+                config,
+            })
+        })
+        .collect()
 }
 
 fn lint_workspace(
@@ -510,7 +380,9 @@ fn lint_workspace_with_parallelism(
     timings: &StageTimings,
 ) -> Vec<LintResult> {
     let load_started = Instant::now();
-    let mut loader = WorkspaceLoader::new();
+    let mut sources = SourceMap::new();
+    let mut builder = ArenaProgramBuilder::with_token_capacity(4096);
+    let mut loader = ModuleLoader::new(&mut sources, &mut builder);
     let mut input_errors = Vec::new();
     let mut candidate_keys = Vec::new();
     for file in &discovery.files {
@@ -534,15 +406,13 @@ fn lint_workspace_with_parallelism(
                 continue;
             }
         };
-        match loader.load(path, bytes, config.module_roots.clone()) {
-            Ok(key) => candidate_keys.push(key),
-            Err(message) => input_errors.push(format!("xsht: {message}\n")),
-        }
+        candidate_keys.push(loader.load(path, bytes, config.module_roots.clone()));
     }
     candidate_keys.sort_unstable();
     candidate_keys.dedup();
 
-    let (sources, mut program, mut modules) = loader.finish();
+    let mut modules = workspace_modules(loader.finish());
+    let mut program = builder.finish();
     for module in modules.values_mut() {
         if let Ok(config) =
             lint_config_for_file(&module.path.to_string_lossy(), runless, config_cache)
@@ -998,7 +868,9 @@ fn migrate_workspace_syntax(
         }]
     };
     let mut rewritten = FxHashMap::default();
-    let mut loader = WorkspaceLoader::new();
+    let mut sources = SourceMap::new();
+    let mut builder = ArenaProgramBuilder::with_token_capacity(4096);
+    let mut loader = ModuleLoader::new(&mut sources, &mut builder);
     for key in reachable {
         let module = &workspace.modules[key];
         let mut migration_diagnostics = module.diagnostics.clone();
@@ -1046,19 +918,16 @@ fn migrate_workspace_syntax(
         if text != module.text {
             rewritten.insert(key.clone(), text.clone());
         }
-        loader
-            .source_overrides
-            .insert(key.clone(), text.into_bytes());
+        loader.set_source_override(key.clone(), text.into_bytes());
     }
     let root_module = &workspace.modules[root];
-    if let Err(message) = loader.load(
+    loader.load(
         root_module.path.clone(),
         root_module.text.as_bytes().to_vec(),
         root_module.module_roots.clone(),
-    ) {
-        return failure(Vec::new(), message, 2);
-    }
-    let (sources, program, modules) = loader.finish();
+    );
+    let modules = workspace_modules(loader.finish());
+    let program = builder.finish();
     let candidate = LintWorkspace::new(
         sources,
         program,
@@ -2114,7 +1983,7 @@ fn diagnostic_key(diagnostic: &Diagnostic, sources: &SourceMap) -> String {
 #[cfg(test)]
 mod tests {
     use crate::xsht::cli::lint::{
-        ConfigCache, LintResultKind, LintWorkspace, ResolvedLintConfig, WorkspaceLoader,
+        ConfigCache, LintResultKind, LintWorkspace, ResolvedLintConfig, workspace_modules,
         apply_cst_fixes, collect_fix_spans, discover_lint_files, lint_config_for_file,
         lint_one_file_with_fixes, lint_workspace, unapplied_fixes_reason,
     };
@@ -2125,7 +1994,9 @@ mod tests {
     use std::path::PathBuf;
     use tempfile::TempDir;
     use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Severity};
-    use xsh::frontend::source::{SourceId, Span};
+    use xsh::frontend::load::ModuleLoader;
+    use xsh::frontend::source::{SourceId, SourceMap, Span};
+    use xsh::frontend::syntax::arena::ArenaProgramBuilder;
     use xsh::frontend::symbols::SymbolOwner;
 
     fn config() -> ResolvedLintConfig {
@@ -2602,11 +2473,12 @@ print ${name}
             "use helper\nlet value: Int = helper.echo(1)\nprint $value\n",
         )
         .unwrap();
-        let mut loader = WorkspaceLoader::new();
-        let root = loader
-            .load(entry.clone(), fs::read(&entry).unwrap(), Vec::new())
-            .unwrap();
-        let (sources, program, modules) = loader.finish();
+        let mut sources = SourceMap::new();
+        let mut builder = ArenaProgramBuilder::with_token_capacity(4096);
+        let mut loader = ModuleLoader::new(&mut sources, &mut builder);
+        let root = loader.load(entry.clone(), fs::read(&entry).unwrap(), Vec::new());
+        let modules = workspace_modules(loader.finish());
+        let program = builder.finish();
         let workspace =
             LintWorkspace::new(sources, program, modules, vec![root.clone()], Vec::new());
         let reachable = workspace.reachable_modules(&root);
@@ -2662,17 +2534,18 @@ print ${name}
         for (name, text) in sources {
             fs::write(root.path().join(name), text).expect("write workspace source");
         }
-        let mut loader = WorkspaceLoader::new();
+        let mut sources = SourceMap::new();
+        let mut builder = ArenaProgramBuilder::with_token_capacity(4096);
+        let mut loader = ModuleLoader::new(&mut sources, &mut builder);
         let mut roots = Vec::new();
         for name in ["left.xsh", "right.xsh"] {
             let file = root.path().join(name);
             roots.push(
-                loader
-                    .load(file.clone(), fs::read(file).unwrap(), Vec::new())
-                    .unwrap(),
+                loader.load(file.clone(), fs::read(file).unwrap(), Vec::new()),
             );
         }
-        let (sources, program, modules) = loader.finish();
+        let modules = workspace_modules(loader.finish());
+        let program = builder.finish();
         let workspace = LintWorkspace::new(sources, program, modules, roots, Vec::new());
         let type_program = workspace.type_program();
         assert!(type_program.modules.is_empty());
