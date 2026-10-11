@@ -33,7 +33,10 @@ Resumed bounded slices have separate worktrees and disjoint shared-file hunks:
 | W9 namespace isolation | restore qualified callable maps at module boundaries | +40 / 650 |
 | W9 borrowed bundle view | resolved reachable modules, source identities, shared declaration consumers | +200 / 2,000, interim; final W9 net reduction required |
 | W9 immutable preparation records | effect probes share resolved seeds within one bundle/domain | +200 lexical / 2,500, interim; cross-root reuse remains separate |
-| W7 deep commitment repair | shared scope/block ownership predicates and retained generated counterexamples | +160 lexical / 2,200, expanded interim allowance |
+| W7 deep commitment repair | shared scope/block ownership predicates and retained generated counterexamples | +240 lexical / 2,400, expanded interim allowance; existing language stays unchanged |
+| W1 stage authority | semantic enum, codec rows, tags and coverage-tool stage listing | net <= 0 / 1,500 |
+| R4 captured stream resources | creation registration and borrowed producer-frame capture transfer | +240 lexical / 1,800, interim; sweep removal follows lifecycle proof |
+| W6 complete rule table | shared checked facts, scope facts and all declaration/dispatch hooks | net <= 0 / 3,500 |
 | W2 frame strategy and first apply cohort | schema strategy, leaf/Field/Index frames, strict hidden forcing policy | +200 / 1,800, interim; legacy routes must ultimately disappear |
 | Binding recovery regressions | explicit checker recovery identity and With initializer handler | +80 / 800, interim; no valid-binding name fallback |
 | Dead formatter code | formatter allowance and compiler-confirmed unused items | net <= 0 / 1,500 |

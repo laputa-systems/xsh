@@ -2,6 +2,28 @@
 
 ## Current integration batch — 2026-10-11
 
+Latest root batch ends at `d15511a3`: ListRest codec validation ordering is
+repaired (`8d7ca885`), ten unused checker impl allowances and their dead arity
+helper are removed (`ce633f7b`), nullable storage mapping is shared
+(`5accb8c4`), lint facts share one immutable checked output (`bc1708cb`), and
+redundant-close uses are collected during the existing walk (`10ac1f4a`).
+The reachable module stream fixture is corrected separately (`41c4a0f4`),
+and immutable preparation is reused across effect probes (`d15511a3`).
+The ListRest lane passed 15 pattern-conditionals, 24 pattern tests, and the
+retained verifier corruption unit. Lint lane gates passed 244 lint units,
+38 CLI lint units and five redundant-close units. Module preparation passed
+its reuse/domain unit, shared-arena integration case, module/stream native
+gates and all 46 sema integration tests. These are lane results; the joint
+optimized build and focused combined gates remain in progress.
+
+The public lint Rust options now accept shared `checked_output` rather than
+21 separately copied fact maps; synthetic maps remain test-only. Cross-root
+module reuse, the complete lint declaration/dispatch table, all frame and
+runtime-reader migrations remain unfinished. A returned producer stream still
+closes a captured FsRoot too early; the retained failing native test owns the
+capture-transfer fix before reachability sweep removal. Grammar repair must
+preserve existing parser ownership behavior rather than change the language.
+
 The campaign remains active under the owner's unattended-completion instruction,
 using Luna xhigh subagents. The older reboot pause below is historical.
 Current implementation includes the complete BindingId adapter (`498e02e0`,
