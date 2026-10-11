@@ -112,6 +112,47 @@ test test_parenthesized_expression_spans_lines { |ctx|
   test.expect(ctx, "let x = (1 +\n2) * 2\nprint \$x\n", status: 0, stdout: ["6"])?
 }
 
+test test_expression_suffixes_after_stages_allow_spaces { |ctx|
+  for source in ["xs |> first .name\n", "let selected = xs |> first [0]\n", "let item = xs[(f()) ?]\n", "let part = xs[y is a .. ]\n"] {
+    expect_parses(ctx, source)
+  }
+}
+
+test test_calls_in_value_context_can_use_spaces { |ctx|
+  for source in ["f(1, 2)\n", "let value = f (1, 2)\n", "print (f(1, 2))\n", "f().field (1, 2)\n", "f.field(1, 2)\n", "f.field (1)\n", "let value = f ?.name\n", "f.field when ready\n", "f -1\n", "f - 1\n"] {
+    expect_parses(ctx, source)
+  }
+  test.expect(ctx, "pure sum(left: Int, right: Int) -> Int { left + right }\nlet total = sum (1, 2)\nprint \$total\n", status: 0, stdout: ["3"])?
+}
+
+test test_command_names_and_core_dot_arguments_preserve_spacing { |ctx|
+  expect_parses(ctx, "f .name\nf . name\nf.field .name\nprint. name\n")
+  let stderr = check_output(ctx, "proc show(value: Str) { print \$value }\nshow .name\n")?
+  assert "unresolved proc command `show.name`" in stderr, stderr
+  let print_stderr = check_output(ctx, "print .name .field\n")?
+  assert "[check.bare-print-ident]" in print_stderr, print_stderr
+  assert "[check.unresolved-proc-command]" not in print_stderr, print_stderr
+}
+
+test test_env_without_a_block_uses_proc_command_rules { |ctx|
+  expect_parses(ctx, "env foo\nenv . name\nenv FOO=value { f() }\n")
+}
+
+test test_stage_arguments_can_precede_grouped_inline_expressions { |ctx|
+  expect_parses(ctx, "let ordered = xs |> sort-by(desc: reverse) (if .runtime_seconds <= 0 { 0 } else { .runtime_seconds })\n")
+}
+
+test test_bare_minus_command_arguments_preserve_source_adjacency { |ctx|
+  expect_parses(ctx, "f -\nf -#comment\nf -1\nf - 1\n")
+  test.expect(ctx, "print -\nprint -#comment\n", status: 0, stdout: ["-", "-"])?
+}
+
+test test_block_parameters_duration_patterns_and_last_status_parse { |ctx|
+  for source in ["let block = { ; | c ,\n value | c }\n", "let matches = value is 10ms\n", "\$? * \$? > 0\n"] {
+    expect_parses(ctx, source)
+  }
+}
+
 test test_list_literal_spans_lines { |ctx|
   test.expect(ctx, "let xs = [\n1,\n2,\n3\n]\nprint \${xs.len()}\n", status: 0, stdout: ["3"])?
 }

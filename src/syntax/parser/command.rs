@@ -84,13 +84,7 @@ impl<'a> Parser<'a> {
                 })
             }
             (TokenTag::Ident | TokenTag::ProcIdent, _) => {
-                let name = self
-                    .current_name()
-                    .expect("command name token has name payload");
-                if let Some(command) = CoreCommand::from_name(&name.as_str())
-                    && !self.current_name_has_contiguous_dot()
-                    && (command != CoreCommand::Env || self.command_line_has_block())
-                {
+                if let Some(command) = crate::syntax::grammar::core_command_at(|offset| self.grammar_token(offset)) {
                     self.parse_core_command_arena_only(command, arena)
                 } else {
                     let name = self.parse_command_name()?;
@@ -107,15 +101,17 @@ impl<'a> Parser<'a> {
 
     pub(super) fn parse_command_name(&mut self) -> Option<Name> {
         let first = self.expect_proc_ident("expected command name")?;
-        if self.consume(TokenKindMatch::Dot).is_none() {
+        if !self.matches_terms([crate::syntax::grammar::COMMAND_MEMBER[0]], self.current_start()) {
             return Some(first);
         }
+        self.bump();
         let field = self.expect_proc_ident("expected command name after `.`")?;
         let mut name = String::with_capacity(first.as_str().len() + field.as_str().len() + 1);
         name.push_str(&first.as_str());
         name.push('.');
         name.push_str(&field.as_str());
-        while self.consume(TokenKindMatch::Dot).is_some() {
+        while self.matches_terms([crate::syntax::grammar::COMMAND_MEMBER[0]], self.current_start()) {
+            self.bump();
             let field = self.expect_proc_ident("expected command name after `.`")?;
             name.push('.');
             name.push_str(&field.as_str());
@@ -123,28 +119,10 @@ impl<'a> Parser<'a> {
         Some(Name::intern(name))
     }
 
-    pub(super) fn current_name_has_contiguous_dot(&self) -> bool {
-        self.peek_tag(1) == Some(TokenTag::Dot) && self.peek_start(1) == Some(self.current_end())
-    }
-
     /// Whether a `{` opens a block later on this command's line. The `}` that
     /// closes a `${...}` word part does not end the line.
     pub(super) fn command_line_has_block(&self) -> bool {
-        let mut index = self.index + 1;
-        let mut interpolations = 0usize;
-        while let Some(tag) = self.token_table.tag_at(index) {
-            match tag {
-                TokenTag::DollarLBrace => interpolations += 1,
-                TokenTag::RBrace if interpolations > 0 => interpolations -= 1,
-                TokenTag::LBrace if interpolations == 0 => return true,
-                TokenTag::Newline | TokenTag::Semicolon | TokenTag::RBrace | TokenTag::Eof => {
-                    return false;
-                }
-                _ => {}
-            }
-            index += 1;
-        }
-        false
+        crate::syntax::grammar::command_line_has_block(|offset| self.grammar_token(offset))
     }
 
     pub(super) fn parse_core_command_arena_only(

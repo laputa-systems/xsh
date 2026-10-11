@@ -61,7 +61,7 @@ fn rule_references(item: &Item, out: &mut Vec<&'static str>) {
             rule_references(inner, out)
         }
         Item::List { item, .. } => rule_references(item, out),
-        Item::Term(_) | Item::Not(_) | Item::Peek(_) => {}
+        Item::Term(_) | Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) => {}
     }
 }
 
@@ -77,7 +77,7 @@ fn words(item: &Item, out: &mut Vec<&'static str>) {
             words(inner, out)
         }
         Item::List { item, .. } => words(item, out),
-        Item::Rule(_) => {}
+        Item::Rule(_) | Item::NameStatement(_) => {}
     }
     out.extend(terms.into_iter().filter_map(|term| match term.class {
         Class::Word(word) => Some(word),
@@ -177,18 +177,27 @@ const TARGETED_SEEDS: u64 = 6;
 
 #[test]
 fn grammar_generated_sentences_parse_without_diagnostics() {
+    generated_sentences_parse(&SENTENCE_DEPTHS, SENTENCE_SEEDS, 4, TARGETED_SEEDS);
+}
+
+#[test]
+fn grammar_deeper_generated_sentences_parse_without_diagnostics() {
+    generated_sentences_parse(&[12, 16], 10_000, 12, 16);
+}
+
+fn generated_sentences_parse(depths: &[u32], seeds: u64, targeted_depth: u32, targeted_seeds: u64) {
     let started = Instant::now();
     let grammar = grammar();
     let recognizer = Recognizer::new(grammar);
-    let mut jobs: Vec<(u32, u64, Option<&'static str>)> = SENTENCE_DEPTHS
+    let mut jobs: Vec<(u32, u64, Option<&'static str>)> = depths
         .iter()
-        .flat_map(|depth| (0..SENTENCE_SEEDS).map(move |seed| (*depth, seed, None)))
+        .flat_map(|depth| (0..seeds).map(move |seed| (*depth, seed, None)))
         .collect();
     jobs.extend(
         grammar
             .rules
             .iter()
-            .flat_map(|rule| (0..TARGETED_SEEDS).map(move |seed| (4, seed, Some(rule.name)))),
+            .flat_map(|rule| (0..targeted_seeds).map(move |seed| (targeted_depth, seed, Some(rule.name)))),
     );
     let sentences = AtomicUsize::new(0);
     let covered = Mutex::new(std::collections::BTreeSet::new());
@@ -362,6 +371,112 @@ fn grammar_rejects_sources_the_parser_rejects() {
             "the grammar accepts {source:?}"
         );
     }
+}
+
+fn assert_parser_and_grammar_agree(source: &str, accepted: bool) {
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert_eq!(parsed.diagnostics.is_empty(), accepted, "{source:?}: {:?}", parsed.diagnostics);
+    let tokens = lex_grammar_tokens(source).expect("regression source lexes");
+    let recognized = Recognizer::new(grammar()).recognize(&tokens);
+    assert_eq!(recognized.is_ok(), accepted, "{source:?}: {recognized:?}");
+}
+
+#[test]
+fn list_rest_bindings_use_binding_names() {
+    for source in ["while let [.. tail] = xs { }\n", "while let [.. _] = xs { }\n", "while let [..] = xs { }\n"] {
+        assert_parser_and_grammar_agree(source, true);
+    }
+    assert_parser_and_grammar_agree("while let [.. a-b] = xs { }\n", false);
+}
+
+#[test]
+fn expression_suffixes_after_stages_allow_spaces() {
+    for source in ["xs |> first .name\n", "let selected = xs |> first .name\n", "let selected = xs |> first ?.name\n", "let selected = xs |> first [0]\n"] {
+        assert_parser_and_grammar_agree(source, true);
+    }
+}
+
+#[test]
+fn command_argument_spacing_is_preserved() {
+    for source in ["f(1, 2)\n", "let value = f (1, 2)\n", "print (f(1, 2))\n", "f().field (1, 2)\n", "f.field(1, 2)\n", "f.field (1)\n", "let value = f ?.name\n", "f.field when ready\n", "f -1\n", "f - 1\n"] {
+        assert_parser_and_grammar_agree(source, true);
+    }
+    for source in ["f (1, 2)\n", "f.field (1, 2)\n", "f ?.name\n", "print = 1 2\n", "eprint = 1 2\n"] {
+        assert_parser_and_grammar_agree(source, false);
+    }
+}
+
+#[test]
+fn command_dot_words_are_recognized() {
+    for source in ["f .name\n", "f . name\n", "f.field .name\n", "print .name .field\n", "print. name\n", "ctx \"message\" { f() }\n", "collect { yield 1 }\n"] {
+        assert_parser_and_grammar_agree(source, true);
+    }
+    for source in ["f.field as\n", "f .\n", "cd .name\n"] {
+        assert_parser_and_grammar_agree(source, false);
+    }
+}
+
+#[test]
+fn env_without_a_block_uses_proc_command_rules() {
+    for source in ["env foo\n", "env . name\n", "env FOO=value { f() }\n"] {
+        assert_parser_and_grammar_agree(source, true);
+    }
+    for source in ["env . name {}\n", "env foo ({})\n"] {
+        assert_parser_and_grammar_agree(source, false);
+    }
+}
+
+#[test]
+fn bare_exit_and_fail_do_not_end_before_arm_commas() {
+    for source in ["match x { _ => fail , }\n", "match x { _ => exit, }\n"] {
+        assert_parser_and_grammar_agree(source, false);
+    }
+    for source in ["fail\n", "exit\n", "match x { _ => fail, }\n", "match x { _ => fail \"message\", }\n", "match x { _ => exit 1, }\n"] {
+        assert_parser_and_grammar_agree(source, true);
+    }
+}
+
+#[test]
+fn stage_arguments_can_precede_grouped_inline_expressions() {
+    assert_parser_and_grammar_agree("let ordered = xs |> sort-by(desc: reverse) (if .runtime_seconds <= 0 { 0 } else { .runtime_seconds })\n", true);
+}
+
+#[test]
+fn bare_minus_command_arguments_preserve_source_adjacency() {
+    for source in ["f -\n", "f -#comment\n", "f -1\n", "f - 1\n"] {
+        assert_parser_and_grammar_agree(source, true);
+    }
+    assert_parser_and_grammar_agree("f - \n", false);
+}
+
+#[test]
+fn grouped_propagation_in_indices_is_recognized() {
+    for source in ["let item = xs[(f()) ?]\n", "let item = xs[.. (f()) ?]\n", "let item = xs[(f())? ..]\n"] {
+        assert_parser_and_grammar_agree(source, true);
+    }
+}
+
+#[test]
+fn slice_ranges_do_not_extend_pattern_names() {
+    for source in ["let part = xs[y is a .. ]\n", "let part = xs[y is a .. end]\n", "let part = xs[y is Family.Variant .. ]\n"] {
+        assert_parser_and_grammar_agree(source, true);
+    }
+    assert_parser_and_grammar_agree("let part = xs[0 . . end]\n", false);
+}
+
+#[test]
+fn multiline_block_parameters_are_recognized() {
+    assert_parser_and_grammar_agree("let block = { ; | c ,\n value | c }\n", true);
+}
+
+#[test]
+fn duration_pattern_tests_are_recognized() {
+    assert_parser_and_grammar_agree("let matches = value is 10ms\n", true);
+}
+
+#[test]
+fn last_status_statement_comparisons_are_recognized() {
+    assert_parser_and_grammar_agree("$? * $? > 0\n", true);
 }
 
 /// The continuation tokens the parser joins lines on are the grammar's.

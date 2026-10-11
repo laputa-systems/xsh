@@ -365,18 +365,7 @@ impl<'a> Parser<'a> {
         while self.peek_tag(offset) == Some(TokenTag::Comment) {
             offset += 1;
         }
-        matches!(
-            self.peek_tag(offset),
-            Some(
-                TokenTag::Newline
-                    | TokenTag::Semicolon
-                    | TokenTag::Comma
-                    | TokenTag::RParen
-                    | TokenTag::RBracket
-                    | TokenTag::RBrace
-                    | TokenTag::Eof
-            )
-        )
+        self.peek_tag(offset).is_some_and(|tag| grammar::TRAILING_TRY_END.contains(&tag))
     }
 
     /// Peek past newlines and return true if the next non-newline token is `|`.
@@ -589,29 +578,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(in crate::syntax::parser) fn lookahead_is_ctx_block(&self) -> bool {
-        if !self.at_ident("ctx") || self.peek_start(1) == Some(self.current_end()) {
-            return false;
-        }
-        let mut depth = 0usize;
-        for offset in 1.. {
-            match self.peek_tag(offset) {
-                Some(TokenTag::LParen | TokenTag::LBracket) => depth += 1,
-                Some(TokenTag::RParen | TokenTag::RBracket) if depth > 0 => depth -= 1,
-                Some(TokenTag::LBrace) if depth == 0 => return true,
-                Some(
-                    TokenTag::Newline | TokenTag::Semicolon | TokenTag::Equals | TokenTag::RBrace,
-                )
-                | None
-                    if depth == 0 =>
-                {
-                    return false;
-                }
-                Some(TokenTag::Dot) if offset == 1 => return false,
-                None => return false,
-                _ => {}
-            }
-        }
-        unreachable!()
+        grammar::name_starts_context(|offset| self.grammar_token(offset))
     }
 
     pub(in crate::syntax::parser) fn lookahead_is_assignment(&self) -> bool {
@@ -668,64 +635,11 @@ impl<'a> Parser<'a> {
     }
 
     pub(in crate::syntax::parser) fn lookahead_is_expr_call_or_postfix(&self) -> bool {
-        let current_end = self.current_end();
-        self.peek_tag(1).is_some_and(|tag| {
-            self.peek_start(1) == Some(current_end)
-                && matches!(
-                    tag,
-                    TokenTag::LParen | TokenTag::Dot | TokenTag::LBracket | TokenTag::Question
-                )
-        })
+        grammar::name_has_postfix(|offset| self.grammar_token(offset))
     }
 
     pub(in crate::syntax::parser) fn lookahead_is_dotted_command(&self) -> bool {
-        let mut index = self.index;
-        let mut end = self.current_end();
-        let mut saw_dot = false;
-        while self
-            .token_table
-            .tag_at(index + 1)
-            .is_some_and(|tag| self.start_at(index + 1) == Some(end) && tag == TokenTag::Dot)
-            && matches!(
-                self.token_table.tag_at(index + 2),
-                Some(TokenTag::Ident | TokenTag::ProcIdent)
-            )
-        {
-            saw_dot = true;
-            index += 2;
-            end = self.end_at(index).unwrap_or(end);
-        }
-        if !saw_dot {
-            return false;
-        }
-        self.token_table.tag_at(index + 1).is_some_and(|tag| {
-            self.start_at(index + 1).is_some_and(|start| start > end)
-                && !matches!(
-                    tag,
-                    TokenTag::Newline
-                        | TokenTag::Semicolon
-                        | TokenTag::RBrace
-                        | TokenTag::Eof
-                        | TokenTag::PipeGt
-                )
-                && grammar::binary_operator_at(
-                    tag,
-                    self.token_table.keyword_at(index + 1),
-                    self.token_table.keyword_at(index + 2),
-                )
-                .is_none()
-                && !(tag == TokenTag::Ident
-                    && self
-                        .token_table
-                        .name_at(index + 1)
-                        .is_some_and(|name| name == "is" || name == "as"))
-                // A postfix guard follows an expression statement, as an
-                // operator would.
-                && !matches!(
-                    self.token_table.keyword_at(index + 1),
-                    Some(Keyword::When | Keyword::Unless)
-                )
-        })
+        grammar::name_is_dotted_command(|offset| self.grammar_token(offset))
     }
 
     pub(in crate::syntax::parser) fn lookahead_is_env_expr_assignment_block(&self) -> bool {
@@ -748,33 +662,10 @@ impl<'a> Parser<'a> {
     /// a command. A `not` counts even without `in`, and `-` counts only when
     /// it is spaced like an operator rather than written as a flag.
     pub(in crate::syntax::parser) fn lookahead_is_expr_binary(&self) -> bool {
-        self.peek_tag(1).is_some_and(|tag| {
-            tag != TokenTag::Minus
-                && (self.peek_keyword(1) == Some(Keyword::Not)
-                    || grammar::binary_operator_at(tag, self.peek_keyword(1), self.peek_keyword(2))
-                        .is_some())
-        }) || (self.peek_tag(1) == Some(TokenTag::Minus)
-            && (self.peek_start(1) == Some(self.current_end())
-                || self.peek_start(2) != self.peek_end(1)))
-            // A `$is` or `$as` word carries the same name and is an argument.
-            || (self.peek_tag(1) == Some(TokenTag::Ident)
-                && self
-                    .peek_name(1)
-                    .is_some_and(|name| name == "is" || name == "as"))
-            || self.lookahead_past_newlines_is_pipe_gt()
+        grammar::name_has_binary(|offset| self.grammar_token(offset))
     }
 
-    pub(in crate::syntax::parser) fn lookahead_past_newlines_is_pipe_gt(&self) -> bool {
-        let mut i = self.index + 1;
-        while let Some(tag) = self.token_table.tag_at(i) {
-            match tag {
-                TokenTag::Newline => i += 1,
-                TokenTag::PipeGt => return true,
-                _ => return false,
-            }
-        }
-        false
-    }
+
 
     pub(in crate::syntax::parser) fn span_text(&self, span: Span) -> &str {
         &self.source[span.start()..span.end()]
@@ -951,7 +842,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(in crate::syntax::parser) fn expect_ident(&mut self, message: &str) -> Option<Name> {
-        if self.current_tag() != TokenTag::Ident {
+        if self.current_tag() != grammar::BINDING_NAME {
             self.diagnostic_here(message, DiagnosticCode::ParseExpectedIdent);
             return None;
         }
@@ -1019,7 +910,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(in crate::syntax::parser) fn expect_proc_ident(&mut self, message: &str) -> Option<Name> {
-        if !matches!(self.current_tag(), TokenTag::Ident | TokenTag::ProcIdent) {
+        if !self.matches_terms([grammar::COMMAND_MEMBER[1]], self.current_start()) {
             self.diagnostic_here(message, DiagnosticCode::ParseExpectedIdent);
             return None;
         }
@@ -1098,13 +989,41 @@ impl<'a> Parser<'a> {
 
     /// Consume `..` (two adjacent Dot tokens). Used for slice syntax inside brackets.
     pub(in crate::syntax::parser) fn consume_dot_dot(&mut self) -> bool {
-        if self.at(TokenKindMatch::Dot) && self.peek_tag(1) == Some(TokenTag::Dot) {
+        if self.matches_terms(grammar::RANGE_MARKER, self.current_start()) {
             self.bump();
             self.bump();
             true
         } else {
             false
         }
+    }
+
+    pub(in crate::syntax::parser) fn matches_terms(
+        &self, terms: impl IntoIterator<Item = grammar::Term>, previous_end: usize,
+    ) -> bool {
+        self.matches_terms_at(0, terms, previous_end)
+    }
+
+    pub(in crate::syntax::parser) fn matches_terms_at(
+        &self, distance: usize, terms: impl IntoIterator<Item = grammar::Term>, previous_end: usize,
+    ) -> bool {
+        let mut end = previous_end;
+        terms.into_iter().enumerate().all(|(offset, term)| {
+            let Some(mut token) = self.grammar_token(distance + offset) else { return false };
+            token.glued = self.peek_start(distance + offset) == Some(end);
+            end = self.peek_end(distance + offset).expect("token end");
+            term.matches(&token)
+        })
+    }
+
+    fn grammar_token(&self, offset: usize) -> Option<grammar::GrammarToken<'a>> {
+        let tag = self.peek_tag(offset)?;
+        let span = self.span_at(self.index + offset)?;
+        Some(grammar::GrammarToken {
+            tag, keyword: self.peek_keyword(offset), text: &self.source[span.start()..span.end()],
+            glued: self.index + offset > 0 && self.start_at(self.index + offset) == self.end_at(self.index + offset - 1),
+            next_glued: self.end_at(self.index + offset) == self.start_at(self.index + offset + 1),
+        })
     }
 
     pub(in crate::syntax::parser) fn at(&self, kind: TokenKindMatch) -> bool {

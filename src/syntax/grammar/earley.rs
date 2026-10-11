@@ -15,6 +15,7 @@ enum Symbol {
     Terminal(u32),
     Rule(u32),
     Look(u32),
+    NameStatement(super::NameStatementForm),
     End,
 }
 
@@ -98,6 +99,7 @@ impl<'g> Compiler<'g> {
                 let id = self.terminal(*term);
                 out.push(Symbol::Terminal(id));
             }
+            Item::NameStatement(form) => out.push(Symbol::NameStatement(*form)),
             Item::Rule(name) => out.push(Symbol::Rule(self.rule_id(name))),
             Item::Seq(items) => {
                 for item in items {
@@ -262,7 +264,7 @@ impl Recognizer {
                     let all = rhs.iter().all(|symbol| match symbol {
                         Symbol::Terminal(_) | Symbol::End => false,
                         Symbol::Rule(id) => empty[*id as usize],
-                        Symbol::Look(_) => !strict,
+                        Symbol::Look(_) | Symbol::NameStatement(_) => !strict,
                     });
                     if all {
                         empty[*lhs as usize] = true;
@@ -298,7 +300,7 @@ impl Recognizer {
                                 break;
                             }
                         }
-                        Symbol::Look(_) | Symbol::End => {}
+                        Symbol::Look(_) | Symbol::NameStatement(_) | Symbol::End => {}
                     }
                 }
                 let to = *lhs as usize * words;
@@ -334,7 +336,7 @@ impl Recognizer {
                             break;
                         }
                     }
-                    Symbol::Look(_) | Symbol::End => {}
+                    Symbol::Look(_) | Symbol::NameStatement(_) | Symbol::End => {}
                 }
             }
             production_may_be_empty[index] = empty;
@@ -509,6 +511,12 @@ impl Recognizer {
                     }
                     Symbol::Look(look) => {
                         if look_passes(look, position) {
+                            add((dot + 1, origin), &mut current);
+                        }
+                    }
+                    Symbol::NameStatement(form) => {
+                        if super::name_statement_matches(form, |offset| tokens.get(position + offset).copied())
+                        {
                             add((dot + 1, origin), &mut current);
                         }
                     }

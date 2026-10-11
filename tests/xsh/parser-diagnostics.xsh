@@ -94,6 +94,15 @@ test test_proc_requires_a_signature { |ctx|
 test test_keywords_and_hyphenated_names_are_not_binding_names { |ctx|
   expect_rejected(ctx, "let if = 1\n", "parse.expected-ident")
   expect_rejected(ctx, "let build-all = 1\n", "parse.expected-ident")
+  expect_rejected(ctx, "while let [.. a-b] = xs { }\n", "parse.expected-ident")
+}
+
+test test_spaced_calls_at_statement_heads_are_command_arguments { |ctx|
+  for source in ["f (1, 2)\n", "f.field (1, 2)\n"] {
+    expect_rejected(ctx, source, "parse.expected-token")
+  }
+  expect_rejected(ctx, "f ?.name\n", "parse.expected-terminator")
+  expect_rejected(ctx, "f.field as\n", "parse.expected-ident")
 }
 
 test test_colon_inclusive_and_stride_slices_are_rejected { |ctx|
@@ -101,6 +110,7 @@ test test_colon_inclusive_and_stride_slices_are_rejected { |ctx|
     let stderr = rejection(ctx, source)?
     assert "err[parse." in stderr, f"{source}: {stderr}"
   }
+  expect_rejected(ctx, "let part = xs[0 . . end]\n", "parse.expected-token")
 }
 
 test test_ordering_and_pattern_tests_need_grouping { |ctx|
@@ -190,4 +200,23 @@ test test_stream_stage_flag_migration_fix_rewrites_every_stage { |ctx|
   assert fixed.starts_with("# café\n"), fixed
   let checked = run.capture --text "xsht" check $file
   assert checked.status.exited_with(0), checked.stderr
+}
+
+test test_spaced_minus_without_operand_is_rejected { |ctx|
+  expect_rejected(ctx, "f - \n", "parse.expected-expression")
+}
+
+test test_bare_exit_and_fail_need_values_before_arm_commas { |ctx|
+  for source in ["match x { _ => fail , }\n", "match x { _ => exit, }\n"] {
+    expect_rejected(ctx, source, "parse.expected-expression")
+  }
+  for source in ["env . name {}\n", "env foo ({})\n"] {
+    expect_rejected(ctx, source, "parse.env-assignment")
+  }
+}
+
+test test_print_names_do_not_rescue_malformed_assignments { |ctx|
+  for source in ["print = 1 2\n", "eprint = 1 2\n"] {
+    expect_rejected(ctx, source, "parse.expected-terminator")
+  }
 }

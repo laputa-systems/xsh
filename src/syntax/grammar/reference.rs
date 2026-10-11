@@ -101,6 +101,11 @@ pub fn render_item(item: &Item, nested: bool) -> String {
             let text = terminal_text(&term.class);
             if term.glued { format!("~{text}") } else { text }
         }
+        Item::NameStatement(form) => match form {
+            super::NameStatementForm::Expression => "&name_expression".to_string(),
+            super::NameStatementForm::Command => "!name_expression".to_string(),
+            super::NameStatementForm::ProcCommand => "&proc_command".to_string(),
+        },
         Item::Rule(name) => (*name).to_string(),
         Item::Seq(items) if items.is_empty() => "()".to_string(),
         Item::Seq(items) if items.len() == 1 => render_item(&items[0], nested),

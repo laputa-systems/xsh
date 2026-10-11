@@ -26,12 +26,13 @@ struct Emitted {
 }
 
 impl Emitted {
-    fn token(&self) -> GrammarToken<'_> {
+    fn token(&self, next: Option<&Emitted>) -> GrammarToken<'_> {
         GrammarToken {
             tag: self.tag,
             keyword: self.keyword,
             text: &self.text,
             glued: self.glued,
+            next_glued: next.is_none_or(|token| token.glued || token.tag == TokenTag::Newline),
         }
     }
 }
@@ -240,11 +241,17 @@ impl<'g> Generator<'g> {
                 while index < items.len() {
                     // A guarded item is the one after its lookahead.
                     let guarded = usize::from(
-                        matches!(items[index], Item::Not(_) | Item::Peek(_))
+                        matches!(items[index], Item::Not(_) | Item::Peek(_) | Item::NameStatement(_))
                             && index + 1 < items.len(),
                     );
                     self.steering = steering && closest == Some(index + guarded);
                     match (&items[index], items.get(index + 1)) {
+                        (Item::NameStatement(form), Some(next)) => {
+                            self.guarded(next, depth, out, |emitted| {
+                                super::name_statement_matches(*form, |offset| emitted.get(offset).map(|token| token.token(emitted.get(offset + 1))))
+                            });
+                            index += 2;
+                        }
                         (Item::Not(sequences), Some(next)) => {
                             self.guarded(next, depth, out, |emitted| {
                                 !begins_with_any(emitted, sequences)
@@ -357,7 +364,7 @@ impl<'g> Generator<'g> {
             }
             // A lookahead at the end of a sequence constrains what follows
             // the enclosing rule; the recognizer filter enforces it.
-            Item::Not(_) | Item::Peek(_) => {}
+            Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) => {}
         }
     }
 
@@ -527,7 +534,7 @@ fn begins_with_any(emitted: &[Emitted], sequences: &[Vec<Term>]) -> bool {
             && sequence
                 .iter()
                 .zip(emitted)
-                .all(|(term, emitted)| term.matches(&emitted.token()))
+                .all(|(term, emitted)| term.matches(&emitted.token(None)))
     })
 }
 
@@ -544,14 +551,14 @@ fn item_distance(item: &Item, distance: &FxHashMap<&'static str, u32>) -> Option
             item_distance(inner, distance)
         }
         Item::List { item, .. } => item_distance(item, distance),
-        Item::Term(_) | Item::Not(_) | Item::Peek(_) => None,
+        Item::Term(_) | Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) => None,
     }
 }
 
 /// The least number of rule expansions that derive `item`, if any.
 fn item_height(item: &Item, heights: &FxHashMap<&'static str, u32>) -> Option<u32> {
     match item {
-        Item::Term(_) | Item::Opt(_) | Item::Star(_) | Item::Not(_) | Item::Peek(_) => Some(0),
+        Item::Term(_) | Item::Opt(_) | Item::Star(_) | Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) => Some(0),
         Item::Rule(name) => heights.get(name).copied(),
         Item::Seq(items) => items.iter().try_fold(0, |height, item| {
             item_height(item, heights).map(|item| height.max(item))

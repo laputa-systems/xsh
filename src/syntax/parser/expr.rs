@@ -859,9 +859,7 @@ impl<'a> Parser<'a> {
             // by an accident of spacing. Write `(text as Int).float()`.
             let after_conversion = conversion == Some(left.id) && pending_pipeline.is_none();
             if !after_conversion
-                && self.at(TokenKindMatch::Question)
-                && self.peek_tag(1) == Some(TokenTag::Dot)
-                && self.peek_start(1) == Some(self.current_end())
+                && self.matches_terms(grammar::PostfixForm::SafeMember.lead(command_arg_root), left.span.end())
             {
                 let try_end = self.current_end();
                 self.bump();
@@ -899,10 +897,8 @@ impl<'a> Parser<'a> {
                     };
                 }
             } else if self.at(TokenKindMatch::Question)
-                && !(self.current_start() == left.span.end()
-                    && self.peek_tag(1) == Some(TokenTag::LBracket)
-                    && self.peek_start(1) == Some(self.current_end()))
-                && (self.current_start() == left.span.end()
+                && !self.matches_terms(grammar::PostfixForm::SafeIndex.lead(command_arg_root), left.span.end())
+                && (self.matches_terms(grammar::PostfixForm::Propagation.lead(command_arg_root), left.span.end())
                     || (self.trailing_statement_try && self.question_is_trailing_statement_try()))
             {
                 self.bump();
@@ -934,7 +930,7 @@ impl<'a> Parser<'a> {
                     bare_ident: None,
                 };
             } else if !after_conversion
-                && self.at(TokenKindMatch::Dot)
+                && self.matches_terms(grammar::PostfixForm::Member.lead(command_arg_root), left.span.end())
                 && self.peek_tag(1) != Some(TokenTag::Dot)
             {
                 self.bump();
@@ -977,11 +973,8 @@ impl<'a> Parser<'a> {
                     };
                 }
             } else if !after_conversion
-                && (self.at(TokenKindMatch::LBracket)
-                    || (self.at(TokenKindMatch::Question)
-                        && self.current_start() == left.span.end()
-                        && self.peek_tag(1) == Some(TokenTag::LBracket)
-                        && self.peek_start(1) == Some(self.current_end())))
+                && (self.matches_terms(grammar::PostfixForm::Index.lead(command_arg_root), left.span.end())
+                    || self.matches_terms(grammar::PostfixForm::SafeIndex.lead(command_arg_root), left.span.end()))
             {
                 let guarded = self.consume(TokenKindMatch::Question).is_some();
                 self.expect(TokenKindMatch::LBracket, "expected `[` after `?`");
@@ -1027,7 +1020,10 @@ impl<'a> Parser<'a> {
                     span,
                     bare_ident: None,
                 };
-            } else if !after_conversion && self.consume(TokenKindMatch::LParen).is_some() {
+            } else if !after_conversion
+                && self.matches_terms(grammar::PostfixForm::Call.lead(command_arg_root), left.span.end())
+            {
+                self.bump();
                 let args = self.parse_call_args_arena_only(arena);
                 self.expect(TokenKindMatch::RParen, "expected `)` after call arguments");
                 let span = self.span(left.span.start(), self.previous_end());
@@ -1391,9 +1387,7 @@ impl<'a> Parser<'a> {
     /// `(collect)`. A `|> collect()` stage and a `.collect()` call are not
     /// read here.
     pub(super) fn lookahead_is_collect(&self) -> bool {
-        self.current_tag() == TokenTag::Ident
-            && self.current_name().is_some_and(|name| name == "collect")
-            && self.peek_tag(1) == Some(TokenTag::LBrace)
+        grammar::name_starts_collect(|offset| self.grammar_token(offset))
     }
 
     pub(super) fn parse_within_scope_arena_only(
