@@ -267,6 +267,17 @@ test resource_root_return_block_break_and_borrow_survive {
   assert assigned.exists(p".")?
 }
 
+test resource_outer_assignment_moves_root_out_of_nested_scope {
+  var escaped: FsRoot? = null
+  {
+    let root = fs.tempdir()?
+    { escaped = root }
+  }
+  let root = escaped.require(FsRoot)?
+  defer root.close()
+  assert root.exists(p".")?
+}
+
 test resource_fail_payload_survives_with_else {
   var escaped: FsRoot? = null
   with value = resource_fail_with_root() {

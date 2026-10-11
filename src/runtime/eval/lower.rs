@@ -3590,15 +3590,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     Some(ResourceTransferSite::Yield(id))
                 }
                 ArenaStmtKind::Assign { target, .. }
-                    if !matches!(
-                        self.program.arena.assign_target(target).kind,
-                        ArenaAssignTargetKind::Env(_)
-                    ) && self
-                        .bodies
-                        .resource_transfer(ResourceTransferSite::OuterAssignment(id))
-                        .is_some() =>
+                    if self.assign_target_root_name(target).is_some() =>
                 {
-                    Some(ResourceTransferSite::OuterAssignment(id))
+                    Some(ResourceTransferSite::Assignment(id))
                 }
                 _ => None,
             }

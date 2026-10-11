@@ -14,7 +14,8 @@ pub enum ResourceTransferSite {
     Return(StmtId),
     BlockValue(BlockId),
     Break(StmtId),
-    OuterAssignment(StmtId),
+    /// A resolved assignment target; same-scope assignments carry `false`.
+    Assignment(StmtId),
     Yield(StmtId),
 }
 
@@ -255,10 +256,15 @@ impl Analyzer<'_> {
                         self.program.arena.stmt(stmt).span,
                         name,
                     )
-                    && !declared_bindings.contains(&binding)
-                    && let Some(holds) = self.expr_or_run_may_hold(value)
                 {
-                    self.transfers.insert(ResourceTransferSite::OuterAssignment(stmt), holds);
+                    let holds = if declared_bindings.contains(&binding) {
+                        Some(false)
+                    } else {
+                        self.expr_or_run_may_hold(value)
+                    };
+                    if let Some(holds) = holds {
+                        self.transfers.insert(ResourceTransferSite::Assignment(stmt), holds);
+                    }
                 }
             }
             _ => {}
@@ -588,9 +594,13 @@ mod tests {
         );
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
-        let local = ResourceTransferSite::OuterAssignment(assignment_stmt(&program, "local"));
-        let outer = ResourceTransferSite::OuterAssignment(assignment_stmt(&program, "outer"));
-        assert_eq!(checked.resource_transfer(local), None);
+        let local = ResourceTransferSite::Assignment(assignment_stmt(&program, "local"));
+        let outer = ResourceTransferSite::Assignment(assignment_stmt(&program, "outer"));
+        assert_eq!(checked.resource_transfer(local), Some(false));
         assert_eq!(checked.resource_transfer(outer), Some(true));
+
+        let compact = Checker::compact_declarations(&program, checked);
+        assert_eq!(compact.bodies.resource_transfer(local), Some(false));
+        assert_eq!(compact.bodies.resource_transfer(outer), Some(true));
     }
 }

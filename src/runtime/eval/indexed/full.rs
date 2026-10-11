@@ -7490,6 +7490,37 @@ run true
         assert!(FullVerifier::verify_resource_transfer_sites(&store).is_err());
     }
 
+    #[test]
+    fn compact_lowering_blocks_an_outer_assignment_without_its_checked_fact() {
+        let source = "proc transfer() [fs, error] -> Result[Unit] { var escaped: FsRoot? = null; { escaped = fs.tempdir()? }; return Ok() }\n";
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file("resource-transfer.xsh", source);
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let mut declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+
+        let assignment = (0..parsed.arena.arena.stmt_tags.len())
+            .map(crate::syntax::arena::StmtId::from_index)
+            .find(|&stmt| {
+                matches!(
+                    parsed.arena.arena.stmt(stmt).kind,
+                    crate::syntax::arena::ArenaStmtKind::Assign { .. }
+                )
+            })
+            .expect("the fixture has one assignment");
+        let site = crate::sema::check::ResourceTransferSite::Assignment(assignment);
+        assert_eq!(declarations.bodies.resource_transfer(site), Some(true));
+        declarations.bodies.resource_transfers.remove(&site);
+
+        let constructed = super::super::super::lower::probe_compact_lower_constructed_bodies(
+            &parsed.arena,
+            &declarations,
+            source,
+        );
+        assert!(constructed.blocker_events > 0, "{constructed:?}");
+    }
+
     fn run_with_large_stack(f: impl FnOnce() + Send + 'static) {
         std::thread::Builder::new()
             .stack_size(16 * 1024 * 1024)
