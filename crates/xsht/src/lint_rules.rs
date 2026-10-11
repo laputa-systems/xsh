@@ -2,7 +2,7 @@ use super::{
     ArenaCallArgKind, ArenaExprKind, ArenaExprOrRun, ArenaRecordFieldKind, ArenaStmtKind,
     AstArena, BinaryOp, Diagnostic, DiagnosticCode, ExprId, FixHint, Label, Linter, Name,
     Severity, Span, StmtId, Type, is_module_call, list_splice_element_type_is_precise,
-    pipeline_argument_expr, same_ordering_operand, span_may_contain_comment,
+    lint_code_selected, pipeline_argument_expr, same_ordering_operand, span_may_contain_comment,
     widen_over_grouping,
 };
 
@@ -18,6 +18,22 @@ struct ExpressionRule {
 
 fn always_enabled(_: &Linter<'_>) -> bool { true }
 fn env_string_enabled(linter: &Linter<'_>) -> bool { linter.prefer_env_string }
+
+pub(super) struct RuleSelection {
+    only: Option<Vec<DiagnosticCode>>,
+    excluded: Vec<DiagnosticCode>,
+}
+
+impl RuleSelection {
+    pub(super) fn new(only: Option<Vec<DiagnosticCode>>, excluded: Vec<DiagnosticCode>) -> Self {
+        Self { only, excluded }
+    }
+
+    pub(super) fn accepts(&self, code: Option<DiagnosticCode>) -> bool {
+        lint_code_selected(self.only.as_deref(), code)
+            && !code.is_some_and(|code| self.excluded.contains(&code))
+    }
+}
 
 // The order is the expression's established reporting order. Rules that
 // resolve overlapping rewrites can read findings from preceding hooks.
@@ -37,7 +53,9 @@ const EXPRESSION_RULES: &[ExpressionRule] = &[
 
 pub(super) fn expression(linter: &mut Linter<'_>, expr: ExprId) {
     for rule in EXPRESSION_RULES {
-        if !(rule.enabled)(linter) { continue; }
+        if !(rule.enabled)(linter) || !linter.rule_selection.accepts(Some(rule.code)) {
+            continue;
+        }
         let first = linter.diagnostics.len();
         (rule.apply)(linter, expr);
         debug_assert!(linter.diagnostics[first..].iter().all(|finding| finding.code == Some(rule.code)),
@@ -47,7 +65,7 @@ pub(super) fn expression(linter: &mut Linter<'_>, expr: ExprId) {
 
 #[cfg(test)]
 mod tests {
-    use super::EXPRESSION_RULES;
+    use super::{EXPRESSION_RULES, RuleSelection};
     use xsh::diagnostic::DiagnosticFamily;
 
     #[test]
@@ -57,6 +75,32 @@ mod tests {
             assert!(EXPRESSION_RULES[..index].iter().all(|previous| previous.code != rule.code),
                 "duplicate expression rule: {}", rule.code.name());
         }
+    }
+
+    #[test]
+    fn selection_preserves_only_and_exclusion_semantics() {
+        let codes: Vec<_> = EXPRESSION_RULES.iter().map(|rule| rule.code).collect();
+        let default = RuleSelection::new(None, Vec::new());
+        assert!(default.accepts(None));
+        for code in &codes {
+            assert!(default.accepts(Some(*code)));
+        }
+
+        let only = RuleSelection::new(Some(codes[..2].to_vec()), Vec::new());
+        assert!(only.accepts(Some(codes[0])));
+        assert!(only.accepts(Some(codes[1])));
+        assert!(!only.accepts(Some(codes[2])));
+        assert!(!only.accepts(None));
+
+        let excluded = RuleSelection::new(None, vec![codes[0]]);
+        assert!(!excluded.accepts(Some(codes[0])));
+        assert!(excluded.accepts(Some(codes[1])));
+        assert!(excluded.accepts(None));
+
+        let only_and_excluded = RuleSelection::new(Some(codes.clone()), vec![codes[1]]);
+        assert!(only_and_excluded.accepts(Some(codes[0])));
+        assert!(!only_and_excluded.accepts(Some(codes[1])));
+        assert!(!only_and_excluded.accepts(None));
     }
 }
 

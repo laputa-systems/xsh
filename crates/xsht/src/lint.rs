@@ -453,6 +453,7 @@ pub struct Linter<'a> {
     match_arm_head_starts: FxHashSet<usize>,
     inferred_variant_patterns_reported: FxHashSet<Span>,
     dead_code: bool,
+    rule_selection: rules::RuleSelection,
     tag_variants: FxHashSet<String>,
     type_declarations: FxHashMap<String, Span>,
     user_type_names: FxHashSet<String>,
@@ -691,6 +692,7 @@ impl<'a> Linter<'a> {
             fail_candidates: lint_prefer_fail::Candidates::collect(program, source),
             stream_producers: sequence::StreamProducers::default(),
             callable_parameters: lint_prefer_typed_callable::CallableParameters::default(),
+            rule_selection: rules::RuleSelection::new(only, excluded_rules),
         };
         linter.define(
             "args",
@@ -733,10 +735,10 @@ impl<'a> Linter<'a> {
             ));
         // The proof checks the file again, so it runs only when its result
         // can be reported.
-        if lint_code_selected(
-            only.as_deref(),
-            Some(DiagnosticCode::LintPreferInferredProcReturn),
-        ) {
+        if linter
+            .rule_selection
+            .accepts(Some(DiagnosticCode::LintPreferInferredProcReturn))
+        {
             linter.lint_inferred_proc_returns();
         }
         let mut catch_all_arms = std::mem::take(&mut linter.catch_all_arms);
@@ -772,12 +774,10 @@ impl<'a> Linter<'a> {
             );
             linter.diagnostics.extend(reports);
         }
-        linter.diagnostics.retain(|diagnostic| {
-            lint_code_selected(only.as_deref(), diagnostic.code)
-                && !diagnostic
-                    .code
-                    .is_some_and(|code| excluded_rules.contains(&code))
-        });
+        let selection = &linter.rule_selection;
+        linter
+            .diagnostics
+            .retain(|diagnostic| selection.accepts(diagnostic.code));
         minimize_fix_grouping(program, source, &mut linter.diagnostics);
         LintOutput {
             diagnostics: linter.diagnostics,
