@@ -36,7 +36,7 @@ test test_od_skip_count_and_duplicate_suppression { |ctx|
 
 test test_od_legacy_offsets_and_labels { |ctx|
   assert invoke(ctx, ["-An", "-c", "+2"], b"abcd")?.stdout == b"   c   d\n"
-  assert invoke(ctx, ["-An", "--traditional", "-c", "-", "2", "0x10"], b"abcd")?.stdout == b"(0000020)   c   d\n(0000022)\n"
+  assert invoke(ctx, ["-An", "--traditional", "-c", "-", "2", "0x10"], b"abcd")?.stdout == b"(0000002)   c   d\n(0000004)\n"
   assert invoke(ctx, ["-An", "-tx1", "-j0x2"], b"abcd")?.stdout == b" 63 64\n"
 }
 
@@ -98,7 +98,7 @@ test test_od_formats_float32_subnormals_and_special_values { |ctx|
   assert special.status == 0, special.stderr
   assert "inf" in special.stdout as Str
   assert "-inf" in special.stdout as Str
-  assert "NaN" in special.stdout as Str
+  assert "nan" in special.stdout as Str
   assert "-0" in special.stdout as Str
   assert ! ("Infinity" in special.stdout as Str)
 }
@@ -118,7 +118,7 @@ test test_od_float_width_aligns_smaller_hex_formats { |ctx|
 test test_od_rejects_empty_address_radix_with_its_domain_error { |ctx|
   let bad = invoke(ctx, ["-A", ""], b"")?
   assert bad.status == 1
-  assert bad.stderr == "od: Radix cannot be empty, and must be one of [o, d, x, n]\n"
+  assert bad.stderr == "od: invalid output address radix '\0'; it must be one character from [doxn]\n"
 }
 
 test test_od_invalid_read_and_skip_counts_name_the_option { |ctx|
@@ -139,7 +139,7 @@ test test_od_rejects_overflowing_legacy_offset { |ctx|
   let value = "7777777777777777777777"
   let bad = invoke(ctx, ["-", value], b"")?
   assert bad.status == 1
-  assert bad.stderr == f"od: {value}: Result not representable\n"
+  assert bad.stderr == f"od: {value}: Numerical result out of range\n"
 }
 
 test test_od_byte_counts_reject_values_too_large_to_represent { |ctx|
@@ -206,4 +206,31 @@ test test_od_formats_binary64_normal_and_subnormal_values { |ctx|
   let result = invoke(ctx, ["--endian=little", "-F"], data)?
   assert result.status == 0, result.stderr
   assert result.stdout == b"0000000        12345678912345678                        0\n0000020 -2.2250738585072014e-308                   5e-324\n0000040                       -2\n0000050\n"
+}
+
+test test_od_float_formats_preserve_nan_sign_and_narrow_exponent_width { |ctx|
+  let half = invoke(ctx, ["-An", "--endian=big", "-tfH"], b"\x7e\0\xfe\0\x84\0")?
+  assert half.status == 0, half.stderr
+  assert half.stdout == b"             nan            -nan  -6.1035156e-05\n"
+  let bfloat = invoke(ctx, ["-An", "--endian=big", "-tfB"], b"\x7f\xc0\xff\xc0\xb8\x80")?
+  assert bfloat.status == 0, bfloat.stderr
+  assert bfloat.stdout == b"             nan            -nan  -6.1035156e-05\n"
+  let single = invoke(ctx, ["-An", "--endian=big", "-tfF"], b"\x7f\xc0\0\0\xff\xc0\0\0")?
+  assert single.stdout == b"             nan            -nan\n"
+  let double = invoke(ctx, ["-An", "--endian=big", "-tfD"], b"\x7f\xf8\0\0\0\0\0\0\xff\xf8\0\0\0\0\0\0")?
+  assert double.stdout == b"                      nan                     -nan\n"
+}
+
+test test_od_width_rejects_size_suffixes { |ctx|
+  for width in ["1Y", "1K", "2b"] {
+    let result = invoke(ctx, [f"--width={width}"], b"")?
+    assert result.status == 1
+    assert result.stderr == f"od: invalid suffix in --width argument '{width}'\n"
+  }
+}
+
+test test_od_traditional_secondary_formats_use_address_padding { |ctx|
+  let result = invoke(ctx, ["--traditional", "-a", "-c", "-", "2", "0"], b"abcd")?
+  assert result.status == 0, result.stderr
+  assert result.stdout == b"0000002 (0000000)   c   d\n          c   d\n0000004 (0000002)\n"
 }
