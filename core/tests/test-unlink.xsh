@@ -42,7 +42,7 @@ test test_unlink_extra_operand_is_not_removed { |ctx|
   assert a.exists()? and b.exists()?
 }
 
-test test_unlink_extra_operand_shows_usage { |ctx|
+test test_unlink_extra_operand_reports_gnu_usage_error { |ctx|
   let root = test.temp_dir(ctx)?
   let first = fp"{root}/first"
   let extra = fp"{root}/extra"
@@ -51,7 +51,7 @@ test test_unlink_extra_operand_shows_usage { |ctx|
 
   let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/unlink.xsh" -- $first $extra
   assert result.status.exited_with(1)
-  assert "Usage: unlink FILE" in result.stderr
+  assert result.stderr == f"unlink: extra operand '{extra.display()}'\nTry 'unlink --help' for more information.\n", result.stderr
   assert first.exists()? and extra.exists()?
 }
 
@@ -67,4 +67,11 @@ test test_unlink_removes_non_utf8_operand { |ctx|
 
   assert process.run(command)?.exited_with(0)
   assert ! target.exists()?
+}
+
+test test_unlink_missing_operand_reports_gnu_usage_error { |ctx|
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/unlink.xsh" --
+  assert result.status.exited_with(1)
+  assert result.stdout == ""
+  assert result.stderr == "unlink: missing operand\nTry 'unlink --help' for more information.\n", result.stderr
 }

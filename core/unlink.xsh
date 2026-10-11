@@ -13,10 +13,10 @@ proc main(...argv: List[Bytes]) [fs, error, process, env, io] {
   })?
   if opts.help { gnu.help("Usage: unlink FILE\nCall the unlink system call."); return }
   if opts.version { gnu.version("unlink"); return }
-  if opts.operands.is_empty() { gnu.usage_error("missing operand\nUsage: unlink FILE") }
+  if opts.operands.is_empty() { gnu.missing_operand() }
   if opts.operands.len() > 1 {
     let extra = gnu.argument_bytes(opts.operands[1], prepared.raw)
-    gnu.usage_error(f"extra operand {gnu.quote_bytes(extra)}\nUsage: unlink FILE")
+    gnu.usage_error(f"extra operand {gnu.quote_bytes(extra)}")
   }
   let operand = gnu.argument_bytes(opts.operands[0], prepared.raw)
   let target = Path.parse_bytes(operand)?
