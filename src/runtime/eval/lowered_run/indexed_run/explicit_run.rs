@@ -41,7 +41,8 @@ use crate::runtime::eval::indexed::full::decode::{
     RunArgKindView, RunArgView, RunEnvView, ScanConditionView,
 };
 use crate::runtime::eval::{
-    BuildExprId, LoweredCompTarget, LoweredFmtPart, LoweredProcessCommandBuilderEntry,
+    BuildBoolId, BuildExprId, BuildPatternId, BuildStmtId, LoweredCompTarget,
+    LoweredFmtPart, LoweredProcessCommandBuilderEntry,
     LoweredRecordEntry, LoweredRunArg, LoweredRunEnv, LoweredRunPipelineSegment,
     LoweredRunRedirection,
     visit_retained_lowered_value, visit_retained_lowered_values,
@@ -98,6 +99,146 @@ fn statement_print_argument(
             RuntimeError::new("indexed-ir", "print argument cursor ended early").with_span(span)
         })?;
     Ok((argument.raw(), args.position()))
+}
+
+type StatementWithBindingPosition = ListPosition<(usize, BuildExprId)>;
+type StatementIfExprPosition = ListPosition<(BuildExprId, Vec<BuildStmtId>)>;
+type StatementIfBoolPosition = ListPosition<(BuildBoolId, Vec<BuildStmtId>)>;
+type StatementPatternIfPosition =
+    ListPosition<(BuildExprId, Vec<BuildStmtId>, Vec<usize>)>;
+type StatementMatchPosition =
+    ListPosition<(BuildPatternId, Option<BuildExprId>, Vec<BuildStmtId>)>;
+
+#[derive(Clone, Copy)]
+enum StatementIfPosition {
+    Expr(StatementIfExprPosition),
+    Bool(StatementIfBoolPosition),
+}
+
+fn statement_with_binding(
+    execution: &FullExecution<'_>,
+    statement: u32,
+    position: StatementWithBindingPosition,
+    span: Span,
+) -> Result<(Option<(usize, u32)>, StatementWithBindingPosition), RuntimeError> {
+    let (tag, payload) = execution
+        .instruction_id(statement)
+        .map_err(|error| indexed_error(error, span))?;
+    let StmtView::With { mut bindings, .. } = StmtView::decode(execution, tag, payload)
+        .map_err(|error| indexed_error(error, span))?
+    else {
+        unreachable!("statement ID and borrowed with row agree")
+    };
+    bindings
+        .resume(position)
+        .map_err(|error| indexed_error(error, span))?;
+    let binding = bindings
+        .next()
+        .transpose()
+        .map_err(|error| indexed_error(error, span))?
+        .map(|(slot, value)| (slot, value.raw()));
+    Ok((binding, bindings.position()))
+}
+
+fn statement_if_branch(
+    execution: &FullExecution<'_>,
+    statement: u32,
+    position: StatementIfPosition,
+    span: Span,
+) -> Result<(Option<(u32, u32)>, StatementIfPosition), RuntimeError> {
+    let (tag, payload) = execution
+        .instruction_id(statement)
+        .map_err(|error| indexed_error(error, span))?;
+    let view = StmtView::decode(execution, tag, payload)
+        .map_err(|error| indexed_error(error, span))?;
+    match (view, position) {
+        (StmtView::If { mut branches, .. }, StatementIfPosition::Expr(position)) => {
+            branches
+                .resume(position)
+                .map_err(|error| indexed_error(error, span))?;
+            let branch = branches
+                .next()
+                .transpose()
+                .map_err(|error| indexed_error(error, span))?
+                .map(|(condition, body)| (condition.raw(), body.block_id()));
+            Ok((branch, StatementIfPosition::Expr(branches.position())))
+        }
+        (StmtView::IfBool { mut branches, .. }, StatementIfPosition::Bool(position)) => {
+            branches
+                .resume(position)
+                .map_err(|error| indexed_error(error, span))?;
+            let branch = branches
+                .next()
+                .transpose()
+                .map_err(|error| indexed_error(error, span))?
+                .map(|(condition, body)| (condition.raw(), body.block_id()));
+            Ok((branch, StatementIfPosition::Bool(branches.position())))
+        }
+        _ => unreachable!("if continuation keeps the row's branch-list type"),
+    }
+}
+
+fn statement_pattern_if_branch(
+    execution: &FullExecution<'_>,
+    statement: u32,
+    position: StatementPatternIfPosition,
+    span: Span,
+) -> Result<
+    (
+        Option<(u32, u32, Vec<usize>)>,
+        StatementPatternIfPosition,
+    ),
+    RuntimeError,
+> {
+    let (tag, payload) = execution
+        .instruction_id(statement)
+        .map_err(|error| indexed_error(error, span))?;
+    let StmtView::PatternIf { mut branches, .. } = StmtView::decode(execution, tag, payload)
+        .map_err(|error| indexed_error(error, span))?
+    else {
+        unreachable!("statement ID and borrowed pattern-if row agree")
+    };
+    branches
+        .resume(position)
+        .map_err(|error| indexed_error(error, span))?;
+    let branch = branches
+        .next()
+        .transpose()
+        .map_err(|error| indexed_error(error, span))?
+        .map(|(condition, body, captures)| {
+            captures
+                .collect::<Result<Vec<_>, _>>()
+                .map(|captures| (condition.raw(), body.block_id(), captures))
+        })
+        .transpose()
+        .map_err(|error| indexed_error(error, span))?;
+    Ok((branch, branches.position()))
+}
+
+fn statement_match_arm(
+    execution: &FullExecution<'_>,
+    statement: u32,
+    position: StatementMatchPosition,
+    span: Span,
+) -> Result<(Option<(u32, Option<u32>, u32)>, StatementMatchPosition), RuntimeError> {
+    let (tag, payload) = execution
+        .instruction_id(statement)
+        .map_err(|error| indexed_error(error, span))?;
+    let StmtView::Match { mut arms, .. } = StmtView::decode(execution, tag, payload)
+        .map_err(|error| indexed_error(error, span))?
+    else {
+        unreachable!("statement ID and borrowed match row agree")
+    };
+    arms.resume(position)
+        .map_err(|error| indexed_error(error, span))?;
+    let arm = arms
+        .next()
+        .transpose()
+        .map_err(|error| indexed_error(error, span))?
+        .map(|(pattern, guard, body)| {
+            (pattern.raw(), guard.map(|guard| guard.raw()), body.block_id())
+        });
+    Ok((arm, arms.position()))
 }
 
 fn statement_env_assignment<'a>(
@@ -1310,8 +1451,9 @@ fn run_arg_from_view(value: RunArgView<'_>) -> RunArg {
 
 enum FrameContinuation {
     WithBinding {
-        bindings: Vec<(usize, u32)>,
-        position: usize,
+        instruction: u32,
+        position: StatementWithBindingPosition,
+        slot: usize,
         body: u32,
         else_param_slot: Option<usize>,
         else_body: u32,
@@ -1510,8 +1652,9 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     StatementIf {
-        branches: Vec<(u32, u32)>,
-        index: usize,
+        instruction: u32,
+        position: StatementIfPosition,
+        body: u32,
         else_body: Option<u32>,
         span: Span,
     },
@@ -1520,8 +1663,9 @@ enum FrameContinuation {
         span: Span,
     },
     PatternIf {
-        branches: Vec<(u32, u32, Vec<usize>)>,
-        index: usize,
+        instruction: u32,
+        position: StatementPatternIfPosition,
+        body: u32,
         else_body: Option<u32>,
         span: Span,
     },
@@ -1570,12 +1714,14 @@ enum FrameContinuation {
         span: Span,
     },
     MatchValue {
-        arms: Vec<(u32, Option<u32>, u32)>,
+        instruction: u32,
+        position: StatementMatchPosition,
         span: Span,
     },
     MatchGuard {
-        arms: Vec<(u32, Option<u32>, u32)>,
-        index: usize,
+        instruction: u32,
+        position: StatementMatchPosition,
+        body: u32,
         value: LoweredValue,
         span: Span,
     },
@@ -4865,35 +5011,32 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             FullTag::StmtWith => {
-                let (_, mut binding_words) = self.calls[index]
-                    .execution
-                    .block(&mut payload, BLOCK_LIST)
+                let StmtView::With {
+                    mut bindings,
+                    body,
+                    else_param_slot,
+                    else_body,
+                    captures,
+                    span,
+                } = StmtView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("with statement tag has a with view")
+                };
+                bindings
+                    .preflight()
                     .map_err(|error| indexed_error(error, span))?;
-                let count = indexed_raw(&mut binding_words, span)? as usize;
-                let mut bindings = Vec::with_capacity(count);
-                for _ in 0..count {
-                    bindings.push((
-                        indexed_decode::<usize>(
-                            &mut binding_words,
-                            &self.calls[index].execution,
-                            span,
-                        )?,
-                        indexed_raw(&mut binding_words, span)?,
-                    ));
-                }
-                indexed_finish(binding_words, span)?;
-                let body = indexed_raw(&mut payload, span)?;
-                let else_param_slot = indexed_decode::<Option<usize>>(
-                    &mut payload,
+                let captures = captures
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| indexed_error(error, span))?;
+                let (first_binding, binding_position) = statement_with_binding(
                     &self.calls[index].execution,
+                    instruction,
+                    bindings.position(),
                     span,
                 )?;
-                let else_body = indexed_raw(&mut payload, span)?;
-                let captures =
-                    indexed_decode::<Vec<usize>>(&mut payload, &self.calls[index].execution, span)?;
-                let span =
-                    indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
+                let body = body.block_id();
+                let else_body = else_body.block_id();
                 let scope_id = self.evaluator.enter_owned_host_scope();
                 let defer_offset = self.calls[index].defers.len();
                 self.calls[index].block_scopes.push(scope_id);
@@ -4904,14 +5047,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     scope_id: Some(scope_id),
                 });
                 self.calls[index].work.push(FrameWork::ClearSlots(captures));
-                if let Some((_, value)) = bindings.first().copied() {
+                if let Some((slot, value)) = first_binding {
                     self.push_expr(
                         index,
                         value,
                         span,
                         FrameContinuation::WithBinding {
-                            bindings,
-                            position: 0,
+                            instruction,
+                            position: binding_position,
+                            slot,
                             body,
                             else_param_slot,
                             else_body,
@@ -4924,31 +5068,29 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
             }
             FullTag::StmtGuard => {
-                let target = indexed_decode::<LoweredCompTarget>(
-                    &mut payload,
-                    &self.calls[index].execution,
+                let StmtView::Guard {
+                    target,
+                    value,
+                    else_param_slot,
+                    else_body,
                     span,
-                )?;
-                let value = indexed_raw(&mut payload, span)?;
-                let else_param_slot = indexed_decode::<Option<usize>>(
-                    &mut payload,
-                    &self.calls[index].execution,
-                    span,
-                )?;
-                let else_body = indexed_raw(&mut payload, span)?;
-                let span =
-                    indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
-                let optional =
-                    indexed_decode::<bool>(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
+                    optional,
+                } = StmtView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("guard statement tag has a guard view")
+                };
+                let target = target
+                    .materialize()
+                    .map_err(|error| indexed_error(error, span))?;
                 self.push_expr(
                     index,
-                    value,
+                    value.raw(),
                     span,
                     FrameContinuation::GuardInput {
                         target,
                         else_param_slot,
-                        else_body,
+                        else_body: else_body.block_id(),
                         span,
                         optional,
                     },
@@ -5152,36 +5294,55 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             FullTag::StmtIf | FullTag::StmtIfBool => {
-                let (_, mut branches) = self.calls[index]
-                    .execution
-                    .block(&mut payload, BLOCK_LIST)
+                let view = StmtView::decode(&self.calls[index].execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?;
-                let len = indexed_raw(&mut branches, span)? as usize;
-                let mut values = self.evaluator.frame_scratch.take_if_branches();
-                values.reserve(len);
-                for _ in 0..len {
-                    values.push((
-                        indexed_raw(&mut branches, span)?,
-                        indexed_raw(&mut branches, span)?,
-                    ));
-                }
-                indexed_finish(branches, span)?;
-                let else_body = indexed_optional_raw(&mut payload, span)?;
-                indexed_finish(payload, span)?;
-                if let Some((condition, _)) = values.first().copied() {
+                let (position, else_body) = match view {
+                    StmtView::If {
+                        mut branches,
+                        else_body,
+                    } => {
+                        branches
+                            .preflight()
+                            .map_err(|error| indexed_error(error, span))?;
+                        (
+                            StatementIfPosition::Expr(branches.position()),
+                            else_body.map(|body| body.block_id()),
+                        )
+                    }
+                    StmtView::IfBool {
+                        mut branches,
+                        else_body,
+                    } => {
+                        branches
+                            .preflight()
+                            .map_err(|error| indexed_error(error, span))?;
+                        (
+                            StatementIfPosition::Bool(branches.position()),
+                            else_body.map(|body| body.block_id()),
+                        )
+                    }
+                    _ => unreachable!("if statement tags have an if view"),
+                };
+                let (branch, position) = statement_if_branch(
+                    &self.calls[index].execution,
+                    instruction,
+                    position,
+                    span,
+                )?;
+                if let Some((condition, body)) = branch {
                     self.push_expr(
                         index,
                         condition,
                         span,
                         FrameContinuation::StatementIf {
-                            branches: values,
-                            index: 0,
+                            instruction,
+                            position,
+                            body,
                             else_body,
                             span,
                         },
                     );
                 } else {
-                    self.evaluator.frame_scratch.recycle_if_branches(values);
                     if let Some(body) = else_body {
                         self.push_statement_block(index, body, span)?;
                     }
@@ -5191,40 +5352,43 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             // Pattern conditionals run on the frame, like `if`, so a `yield`
             // in a branch suspends the producer that lexically contains it.
             FullTag::StmtPatternIf => {
-                let (_, mut words) = self.calls[index]
-                    .execution
-                    .block(&mut payload, BLOCK_LIST)
+                let StmtView::PatternIf {
+                    mut branches,
+                    else_body,
+                    span,
+                } = StmtView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("pattern-if statement tag has a pattern-if view")
+                };
+                branches
+                    .preflight()
                     .map_err(|error| indexed_error(error, span))?;
-                let count = indexed_raw(&mut words, span)? as usize;
-                let mut branches = Vec::with_capacity(count);
-                for _ in 0..count {
-                    let condition = indexed_raw(&mut words, span)?;
-                    let body = indexed_raw(&mut words, span)?;
-                    let captures = indexed_decode::<Vec<usize>>(
-                        &mut words,
-                        &self.calls[index].execution,
-                        span,
-                    )?;
-                    branches.push((condition, body, captures));
-                }
-                indexed_finish(words, span)?;
-                let else_body = indexed_optional_raw(&mut payload, span)?;
-                let span =
-                    indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
-                self.start_pattern_branch(index, branches, 0, else_body, span)
+                self.start_pattern_branch(
+                    index,
+                    instruction,
+                    branches.position(),
+                    else_body.map(|body| body.block_id()),
+                    span,
+                )
             }
             FullTag::StmtPatternWhile => {
-                let condition = indexed_raw(&mut payload, span)?;
-                let body = indexed_raw(&mut payload, span)?;
-                let captures =
-                    indexed_decode::<Vec<usize>>(&mut payload, &self.calls[index].execution, span)?;
-                let span =
-                    indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
-                self.calls[index].work.push(FrameWork::PatternWhile {
+                let StmtView::PatternWhile {
                     condition,
                     body,
+                    captures,
+                    span,
+                } = StmtView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("pattern-while statement tag has a pattern-while view")
+                };
+                let captures = captures
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| indexed_error(error, span))?;
+                self.calls[index].work.push(FrameWork::PatternWhile {
+                    condition: condition.raw(),
+                    body: body.block_id(),
                     captures,
                     span,
                 });
@@ -5233,23 +5397,30 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FullTag::StmtScanLines => self.step_scan_lines(index, tag, payload),
             FullTag::StmtScanBytes => self.step_scan_bytes(index, tag, payload),
             FullTag::StmtFor | FullTag::StmtForRecord => {
-                let target = if tag == FullTag::StmtForRecord {
-                    indexed_decode::<LoweredCompTarget>(
-                        &mut payload,
-                        &self.calls[index].execution,
+                let view = StmtView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?;
+                let (target, iter, body, value_span) = match view {
+                    StmtView::For {
+                        slot,
+                        iter,
+                        body,
                         span,
-                    )?
-                } else {
-                    LoweredCompTarget::Slot(indexed_decode(
-                        &mut payload,
-                        &self.calls[index].execution,
+                    } => (LoweredCompTarget::Slot(slot), iter.raw(), body.block_id(), span),
+                    StmtView::ForRecord {
+                        target,
+                        iter,
+                        body,
                         span,
-                    )?)
+                    } => (
+                        target
+                            .materialize()
+                            .map_err(|error| indexed_error(error, span))?,
+                        iter.raw(),
+                        body.block_id(),
+                        span,
+                    ),
+                    _ => unreachable!("for statement tags have a for view"),
                 };
-                let iter = indexed_raw(&mut payload, span)?;
-                let body = indexed_raw(&mut payload, span)?;
-                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
                 self.declare_target(index, &target);
                 // Only a single loop variable pulls a serial pipeline row by row.
                 if let LoweredCompTarget::Slot(slot) = target
@@ -5282,27 +5453,44 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             FullTag::StmtForStrLines => {
-                let slot: usize = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                let text = indexed_raw(&mut payload, span)?;
-                let body = indexed_raw(&mut payload, span)?;
-                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
+                let StmtView::ForStrLines {
+                    slot,
+                    text,
+                    body,
+                    span: value_span,
+                } = StmtView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("for-lines statement tag has a for-lines view")
+                };
                 self.push_expr(
                     index,
-                    text,
+                    text.raw(),
                     value_span,
                     FrameContinuation::ForStrLines {
                         slot,
-                        body,
+                        body: body.block_id(),
                         span: value_span,
                     },
                 );
                 Ok(())
             }
             FullTag::StmtWhile | FullTag::StmtWhileBool => {
-                let condition = indexed_raw(&mut payload, span)?;
-                let body = indexed_raw(&mut payload, span)?;
-                indexed_finish(payload, span)?;
+                let (condition, body) = match StmtView::decode(
+                    &self.calls[index].execution,
+                    tag,
+                    payload,
+                )
+                .map_err(|error| indexed_error(error, span))?
+                {
+                    StmtView::While { condition, body } => {
+                        (condition.raw(), body.block_id())
+                    }
+                    StmtView::WhileBool { condition, body } => {
+                        (condition.raw(), body.block_id())
+                    }
+                    _ => unreachable!("while statement tags have a while view"),
+                };
                 self.calls[index].work.push(FrameWork::While {
                     condition,
                     body,
@@ -5311,29 +5499,24 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             FullTag::StmtMatch => {
-                let value = indexed_raw(&mut payload, span)?;
-                let (_, mut arms) = self.calls[index]
-                    .execution
-                    .block(&mut payload, BLOCK_LIST)
-                    .map_err(|error| indexed_error(error, span))?;
-                let arm_count = indexed_raw(&mut arms, span)? as usize;
-                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
-                let mut decoded_arms = Vec::with_capacity(arm_count);
-                for _ in 0..arm_count {
-                    decoded_arms.push((
-                        indexed_raw(&mut arms, value_span)?,
-                        indexed_optional_raw(&mut arms, value_span)?,
-                        indexed_raw(&mut arms, value_span)?,
-                    ));
-                }
-                indexed_finish(arms, value_span)?;
+                let StmtView::Match {
+                    value,
+                    mut arms,
+                    span: value_span,
+                } = StmtView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("match statement tag has a match view")
+                };
+                arms.preflight()
+                    .map_err(|error| indexed_error(error, value_span))?;
                 self.push_expr(
                     index,
-                    value,
+                    value.raw(),
                     value_span,
                     FrameContinuation::MatchValue {
-                        arms: decoded_arms,
+                        instruction,
+                        position: arms.position(),
                         span: value_span,
                     },
                 );
@@ -6802,8 +6985,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.push_value(index, value, *next);
             }
             FrameContinuation::WithBinding {
-                bindings,
+                instruction,
                 position,
+                slot,
                 body,
                 else_param_slot,
                 else_body,
@@ -6826,17 +7010,23 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     LoweredValue::ResultOk(value) => *value,
                     value => value,
                 };
-                let slot = bindings[position].0;
                 self.calls[index].slots[slot] = value;
                 self.declare_slot(index, slot);
-                if let Some((_, value)) = bindings.get(position + 1).copied() {
+                let (binding, position) = statement_with_binding(
+                    &self.calls[index].execution,
+                    instruction,
+                    position,
+                    span,
+                )?;
+                if let Some((slot, value)) = binding {
                     self.push_expr(
                         index,
                         value,
                         span,
                         FrameContinuation::WithBinding {
-                            bindings,
-                            position: position + 1,
+                            instruction,
+                            position,
+                            slot,
                             body,
                             else_param_slot,
                             else_body,
@@ -7749,35 +7939,37 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
             },
             FrameContinuation::StatementIf {
-                branches,
-                index: branch,
+                instruction,
+                position,
+                body,
                 else_body,
                 span,
             } => match value {
                 FrameValue::Value(value) => {
                     if lowered_condition_bool(value, span)? {
-                        let body = branches[branch].1;
-                        self.evaluator.frame_scratch.recycle_if_branches(branches);
                         self.push_statement_block(index, body, span)?;
                     } else {
-                        let next_index = branch + 1;
-                        if let Some((condition, _)) = branches.get(next_index).copied() {
+                        let (branch, position) = statement_if_branch(
+                            &self.calls[index].execution,
+                            instruction,
+                            position,
+                            span,
+                        )?;
+                        if let Some((condition, body)) = branch {
                             self.push_expr(
                                 index,
                                 condition,
                                 span,
                                 FrameContinuation::StatementIf {
-                                    branches,
-                                    index: next_index,
+                                    instruction,
+                                    position,
+                                    body,
                                     else_body,
                                     span,
                                 },
                             );
                         } else if let Some(body) = else_body {
-                            self.evaluator.frame_scratch.recycle_if_branches(branches);
                             self.push_statement_block(index, body, span)?;
-                        } else {
-                            self.evaluator.frame_scratch.recycle_if_branches(branches);
                         }
                     }
                 }
@@ -7786,8 +7978,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
             },
             FrameContinuation::PatternIf {
-                branches,
-                index: branch,
+                instruction,
+                position,
+                body,
                 else_body,
                 span,
             } => match value {
@@ -7796,11 +7989,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 FrameValue::Value(value) => {
                     if lowered_condition_bool(value, span)? {
-                        let body = branches[branch].1;
                         self.push_statement_block(index, body, span)?;
                     } else {
                         self.close_pattern_scope(index)?;
-                        self.start_pattern_branch(index, branches, branch + 1, else_body, span)?;
+                        self.start_pattern_branch(
+                            index,
+                            instruction,
+                            position,
+                            else_body,
+                            span,
+                        )?;
                     }
                 }
             },
@@ -8026,8 +8224,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::MatchValue { arms, span } => match value {
-                FrameValue::Value(value) => self.select_match_arm(index, arms, 0, value, span)?,
+            FrameContinuation::MatchValue {
+                instruction,
+                position,
+                span,
+            } => match value {
+                FrameValue::Value(value) => {
+                    self.select_match_arm(index, instruction, position, value, span)?
+                }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
@@ -8053,16 +8257,23 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
             },
             FrameContinuation::MatchGuard {
-                arms,
-                index: arm_index,
+                instruction,
+                position,
+                body,
                 value: match_value,
                 span,
             } => match value {
                 FrameValue::Value(value) => {
                     if lowered_condition_bool(value, span)? {
-                        self.push_statement_block(index, arms[arm_index].2, span)?;
+                        self.push_statement_block(index, body, span)?;
                     } else {
-                        self.select_match_arm(index, arms, arm_index + 1, match_value, span)?;
+                        self.select_match_arm(
+                            index,
+                            instruction,
+                            position,
+                            match_value,
+                            span,
+                        )?;
                     }
                 }
                 FrameValue::Break(value) => {
@@ -10242,13 +10453,22 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn select_match_arm(
         &mut self,
         index: usize,
-        arms: Vec<(u32, Option<u32>, u32)>,
-        start: usize,
+        instruction: u32,
+        mut position: StatementMatchPosition,
         value: LoweredValue,
         span: Span,
     ) -> Result<(), RuntimeError> {
-        for arm_index in start..arms.len() {
-            let (pattern, guard, body) = arms[arm_index];
+        loop {
+            let (arm, next_position) = statement_match_arm(
+                &self.calls[index].execution,
+                instruction,
+                position,
+                span,
+            )?;
+            let Some((pattern, guard, body)) = arm else {
+                break;
+            };
+            position = next_position;
             let matches = {
                 let call = &mut self.calls[index];
                 Evaluator::indexed_pattern_matches(
@@ -10268,8 +10488,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     guard,
                     span,
                     FrameContinuation::MatchGuard {
-                        arms,
-                        index: arm_index,
+                        instruction,
+                        position,
+                        body,
                         value,
                         span,
                     },
@@ -11652,26 +11873,32 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn start_pattern_branch(
         &mut self,
         index: usize,
-        mut branches: Vec<(u32, u32, Vec<usize>)>,
-        branch: usize,
+        instruction: u32,
+        position: StatementPatternIfPosition,
         else_body: Option<u32>,
         span: Span,
     ) -> Result<(), RuntimeError> {
-        let Some((condition, _, captures)) = branches.get_mut(branch) else {
+        let (branch, position) = statement_pattern_if_branch(
+            &self.calls[index].execution,
+            instruction,
+            position,
+            span,
+        )?;
+        let Some((condition, body, captures)) = branch else {
             return match else_body {
                 Some(body) => self.push_statement_block(index, body, span),
                 None => Ok(()),
             };
         };
-        let (condition, captures) = (*condition, std::mem::take(captures));
         self.open_pattern_scope(index, captures);
         self.push_expr(
             index,
             condition,
             span,
             FrameContinuation::PatternIf {
-                branches,
-                index: branch,
+                instruction,
+                position,
+                body,
                 else_body,
                 span,
             },
