@@ -102,7 +102,7 @@ test test_kill_signal_zero_only_probes { |ctx|
 
   let missing = kill_run(ctx, ["-0", "999999999"])?
   assert missing.status == 1
-  assert missing.stderr == "kill: sending signal to 999999999 failed: No such process\n", missing.stderr
+  assert missing.stderr == "kill: '999999999': No such process\n", missing.stderr
 
   child.cancel(signal: "KILL")
 }
@@ -132,7 +132,7 @@ test test_kill_reports_each_bad_operand_and_continues { |ctx|
   let child = spawn run sleep 30 ?
   let result = kill_run(ctx, ["abc", "999999999", f"{child.pid}", "1x", "99999999999"])?
   assert result.status == 1
-  assert result.stderr == "kill: 'abc': invalid process id\nkill: sending signal to 999999999 failed: No such process\nkill: '1x': invalid process id\nkill: '99999999999': invalid process id\n", result.stderr
+  assert result.stderr == "kill: 'abc': invalid process id\nkill: '999999999': No such process\nkill: '1x': invalid process id\nkill: '99999999999': invalid process id\n", result.stderr
 
   let status = wait child?
   assert status.signal_number()? == 15, "operands after a failure are still signaled"
@@ -170,14 +170,14 @@ test test_kill_rejects_invalid_signals_before_sending { |ctx|
   ] {
     let result = kill_run(ctx, args.extend([f"{child.pid}"]))?
     assert result.status == 1, args.join(" ")
-    assert result.stderr.ends_with(": invalid signal\n"), result.stderr
+    assert result.stderr.ends_with(": invalid signal\nTry 'kill --help' for more information.\n"), result.stderr
   }
 
   # An out-of-range obsolete number is a bad signal, never a negative pid.
-  for bad in ["-65", "-129", "-NOPESIG", "-SIGNOPE"] {
+  for bad in ["-65", "-384", "-NOPESIG", "-SIGNOPE"] {
     let result = kill_run(ctx, [bad, f"{child.pid}"])?
     assert result.status == 1, bad
-    assert result.stderr == f"kill: '{bad.byte_slice(1)}': invalid signal\n", result.stderr
+    assert result.stderr == f"kill: '{bad.byte_slice(1)}': invalid signal\nTry 'kill --help' for more information.\n", result.stderr
   }
 
   let still = kill_run(ctx, ["-0", f"{child.pid}"])?
@@ -188,7 +188,7 @@ test test_kill_rejects_invalid_signals_before_sending { |ctx|
 test test_kill_lowercase_obsolete_names_are_options { |ctx|
   let result = kill_run(ctx, ["-kill", "123"])?
   assert result.status == 1
-  assert result.stderr == "kill: unexpected argument '-kill' found\nTry 'kill --help' for more information.\n", result.stderr
+  assert result.stderr == "kill: invalid option -- 'k'\nTry 'kill --help' for more information.\n", result.stderr
 }
 
 test test_kill_signal_conflicts_with_listing { |ctx|
@@ -336,7 +336,7 @@ test test_kill_probe_and_continue_spellings_reach_the_target { |ctx|
   let lowercase = kill_run(ctx, ["-cont", f"{child.pid}"])?
   assert lowercase.status == 1
   assert lowercase.stdout == ""
-  assert lowercase.stderr.starts_with("kill: unexpected argument '-cont' found\n"), lowercase.stderr
+  assert lowercase.stderr == "kill: invalid option -- 'c'\nTry 'kill --help' for more information.\n", lowercase.stderr
 
   child.cancel(signal: "KILL")
 }
@@ -350,4 +350,16 @@ test test_kill_table_takes_every_number_and_list_rejects_negative_numbers { |ctx
     assert result.status == 1, args.join(" ")
     assert result.stderr.starts_with("kill: '-1': invalid signal\n"), result.stderr
   }
+}
+
+test test_kill_encoded_statuses_select_the_delivery_signal { |ctx|
+  for spelling in [["-129"], ["-s", "129"], ["-n257"], ["--signal=257"]] {
+    let status = kill_sleeper(ctx, spelling.extend(["PID"]))?
+    assert status.signal_number()? == process.signal("HUP")?.number, spelling.join(" ")
+  }
+
+  let listed = kill_run(ctx, ["-l", "000000000000000000009", "2147483648"])?
+  assert listed.status == 1
+  assert listed.stdout == "KILL\n"
+  assert listed.stderr == "kill: '2147483648': invalid signal\n", listed.stderr
 }

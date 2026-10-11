@@ -60,3 +60,27 @@ test test_tty_help_and_version { |ctx|
   assert "Print the file name of the terminal connected to standard input." in help.stdout
   assert applet_run(ctx, ["--version"])?.stdout.starts_with("tty ")
 }
+
+# Delay exec until the parent has closed the FIFO's only reader.
+test test_tty_closed_output_obeys_the_inherited_sigpipe_action { |ctx|
+  for action in ["default", "ignore"] {
+    let root = test.temp_dir(ctx, name: f"tty-pipe-{action}")?
+    let pipe = fp"{root}/stdout-pipe"
+    fs.mkfifo(pipe, 0o644)?
+    let reader = unix.open_fd(pipe, nonblock: true)?
+    let err = fp"{root}/stderr"
+    let script = if action == "ignore" { "trap '' PIPE; sleep 0.2; exec \"$@\"" } else { "sleep 0.2; exec \"$@\"" }
+    let argv = [p"sh", p"-c", Path(script), p"tty-pipe", ctx.xsh_bin, fp"{ctx.core_dir}/tty.xsh"]
+    let child = spawn process.command_argv(p"sh", argv, root, {LC_ALL: "C"}, b"", pipe, err, timeout: 5s)?
+    unix.close_fd(reader)?
+    let status = wait child?
+    if action == "default" {
+      assert status.signaled()
+      assert status.signal_number()? == process.signal("PIPE")?.number
+      assert err.read_bytes()? == b""
+    } else {
+      assert status.exit_code()? == 3
+      assert err.read_text()? == "tty: write error: Broken pipe\n", err.read_text()?
+    }
+  }
+}

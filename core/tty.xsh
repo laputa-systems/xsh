@@ -13,12 +13,10 @@ Print the file name of the terminal connected to standard input.
 type TtyOptions = {silent: Bool, help: Bool, version: Bool}
 
 # Exit statuses: 0 on a terminal, 1 not a terminal, 2 usage, 3 ttyname error.
-# A failed stdout write also ends with status 3, so a closed pipe is not
-# mistaken for a terminal answer.
+# A failed stdout write ends with status 3 when SIGPIPE is ignored; otherwise
+# the signal terminates tty before the write returns.
 proc write_failed(failure: Error) [process, env] -> Unit {
-  if gnu.errno(failure) != 32 {
-    gnu.error(f"write error: {gnu.strerror(failure)}")
-  }
+  gnu.error(f"write error: {gnu.strerror(failure)}")
 
   exit 3
 }
@@ -33,6 +31,12 @@ proc write_result(text: Str) [process, env, io] -> Unit {
 }
 
 proc main(...argv: List[Str]) [process, env, error, io] {
+  # The runtime ignores SIGPIPE for its own writes. Restore the caller's default
+  # action so a closed reader terminates tty by signal; preserve an explicit ignore.
+  if process.signal_action("PIPE")? == "default" {
+    process.set_signal_action("PIPE", "default")?
+  }
+
   let opts: TtyOptions = cli.applet(
     argv,
     {

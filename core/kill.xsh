@@ -37,18 +37,36 @@ type Sig = {name: Str, number: Int}
 const SIGNAL_WORD = rx"^[A-Za-z][A-Za-z0-9+-]*$"
 const DIGITS = rx"^[0-9]+$"
 const PID_WORD = rx"^[ \t\n\u{b}\u{c}\r]*[+-]?[0-9]+$"
-# `-0` stays an option error: it would name the caller's own group.
+# Negative nonzero ids are operands after the initial signal option is consumed.
 const NEGATIVE_PID_WORD = rx"^-[1-9][0-9]*$"
 
-# A signal named by number or by name (any case, optional SIG prefix, RTMIN+N
-# and RTMAX-N); anything else, including padded or signed numbers, is not one.
+# GNU accepts a signal number, a wait status whose low byte names a signal,
+# or 128 plus the signal number, bounded by the signed integer signal operand.
+pure signal_number(text: Str, bound: Int) -> Int? {
+  let value = text.parse_int() ?? -1
+  return null when value < 0 or value > 2147483647
+  let low = value % 256
+  return low when low <= bound
+  return value - 128 when value >= 128 and value - 128 <= bound
+  null
+}
+
+# A signal named by number, encoded status, or name (any case, optional SIG
+# prefix, RTMIN+N and RTMAX-N); padded or signed numbers are invalid.
 proc find_signal(text: Str) [process] -> Sig? {
   return null when ! (DIGITS.matches(text) or SIGNAL_WORD.matches(text))
 
   let table = process.signals()
   let bound = table[-1].number
 
-  if let Ok(found) = process.signal(text) {
+  var name = text
+  if DIGITS.matches(text) {
+    let number = signal_number(text, bound)
+    return null when number == null
+    name = f"{number}"
+  }
+
+  if let Ok(found) = process.signal(name) {
     if found.number > bound { null } else { found }
   } else {
     null
@@ -103,23 +121,11 @@ proc print_names() [process, env, error, io] {
 # prints its name (the number itself when the signal has none); a name prints
 # its number.
 proc list_operand(operand: Str, bound: Int) [process] -> Str? {
-  if DIGITS.matches(operand) and operand.byte_len() < 12 {
-    let value = operand.parse_int() ?? -1
-    let low = value % 256
-    var found = -1
-
-    if low <= bound {
-      found = low
-    } else if value >= 128 and value - 128 <= bound {
-      found = value - 128
-    }
-
-    return null when found < 0
-
+  if DIGITS.matches(operand) {
+    let found = signal_number(operand, bound)
+    return null when found == null
     let named = find_signal(f"{found}")
-
     return null when named == null
-
     return named.name
   }
 
@@ -288,11 +294,8 @@ proc main(...argv: List[Str]) [process, env, error, io] {
         obsolete = found
         args = args[1..]
       } else if DIGITS.matches(word) or (word.byte_len() > 1 and SIGNAL_WORD.matches(word) and lead.upper() == lead) {
-        gnu.error(f"{gnu.quote_value(word)}: invalid signal")
-        exit 1
+        gnu.usage_error(f"{gnu.quote_value(word)}: invalid signal")
       }
-    } else if find_signal(word) != null {
-      gnu.usage_error(f"unexpected argument {gnu.quote_value(args[0])} found")
     }
   }
 
@@ -347,8 +350,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     let found = find_signal(text)
 
     if found == null {
-      gnu.error(f"{gnu.quote_value(text)}: invalid signal")
-      exit 1
+      gnu.usage_error(f"{gnu.quote_value(text)}: invalid signal")
     }
 
     chosen = found ?? chosen
@@ -370,16 +372,16 @@ proc main(...argv: List[Str]) [process, env, error, io] {
       match signal_every_process(chosen.name) {
         Ok(true) => {}
         Ok(false) => {
-          gnu.error("sending signal to -1 failed: No such process")
+          gnu.error(f"{gnu.quote_value(operand)}: No such process")
           failed = true
         }
         Err(failure) => {
-          gnu.error(f"sending signal to -1 failed: {delivery_text(failure)}")
+          gnu.error(f"{gnu.quote_value(operand)}: {delivery_text(failure)}")
           failed = true
         }
       }
     } else if let Err(failure) = deliver(pid, chosen.name) {
-      gnu.error(f"sending signal to {pid} failed: {delivery_text(failure)}")
+      gnu.error(f"{gnu.quote_value(operand)}: {delivery_text(failure)}")
       failed = true
     }
   }
