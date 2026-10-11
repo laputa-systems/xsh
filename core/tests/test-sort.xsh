@@ -1642,3 +1642,78 @@ test test_sort_general_numeric_c_locale_preserves_non_ascii_whitespace { |ctx|
   assert stdout.read_bytes()? == b" 1\n1\n"
   assert stderr.read_bytes()?.is_empty()
 }
+
+test test_sort_locale_numeric_decimal_point_and_category_precedence { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-locale-decimal")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  for mode in ["-gs", "-ns", "-hs"] {
+    let comma = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display(), mode], root,
+      {LC_ALL: "", LC_NUMERIC: "fr_FR.UTF-8", LANG: "C"}, b"1,9\n1,10\n", stdout, stderr))?
+    assert comma.exit_code()? == 0, stderr.read_text()?
+    assert stdout.read_bytes()? == b"1,10\n1,9\n"
+    let period = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display(), mode], root,
+      {LC_ALL: "fr_FR.UTF-8", LC_NUMERIC: "C"}, b"1.9\n1.10\n", stdout, stderr))?
+    assert period.exit_code()? == 0, stderr.read_text()?
+    assert stdout.read_bytes()? == b"1.9\n1.10\n"
+  }
+}
+
+test test_sort_locale_month_abbreviations { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-locale-months")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  for case in [
+    {locale: "fr_FR.UTF-8", input: "juin\nav   ril\nmars\n", expected: "av   ril\nmars\njuin\n"},
+    {locale: "hu_HU.UTF-8", input: "jún\njan\nfebr\n", expected: "jan\nfebr\njún\n"},
+    {locale: "ja_JP.UTF-8", input: "12月\n2月\n1月\n", expected: "1月\n2月\n12月\n"},
+  ] {
+    let result = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display(), "-M"], root,
+      {LC_ALL: "", LC_TIME: case.locale, LC_NUMERIC: "C", LANG: "C"}, bytes.from_text(case.input), stdout, stderr))?
+    assert result.exit_code()? == 0, stderr.read_text()?
+    assert stdout.read_text()? == case.expected
+  }
+}
+
+test test_sort_human_numeric_plus_is_not_a_number { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-human-plus")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", fp"{ctx.core_dir}/sort.xsh".display(), "-hs"], root,
+    {LC_ALL: "C"}, b"1\n+1234\n", stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == b"+1234\n1\n"
+}
+
+test test_sort_numeric_locale_grouping_uses_only_single_byte_separator { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-locale-grouping")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  for case in [
+    {locale: "en_US.UTF-8", input: "12\n1,234\n", expected: "12\n1,234\n"},
+    {locale: "fr_FR.UTF-8", input: "12\n1 234\n", expected: "1 234\n12\n"},
+  ] {
+    let result = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", fp"{ctx.core_dir}/sort.xsh".display(), "-ns"], root,
+      {LC_ALL: case.locale}, bytes.from_text(case.input), stdout, stderr))?
+    assert result.exit_code()? == 0, stderr.read_text()?
+    assert stdout.read_text()? == case.expected
+  }
+}
+
+test test_sort_key_fields_exclude_leading_blank_pseudo_field { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-leading-blank-fields")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", fp"{ctx.core_dir}/sort.xsh".display(), "-s", "-k2g", "--debug"], root,
+    {LC_ALL: "C"}, b"  a 2\n  z 1\n", stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == b"  z 1\n    _\n  a 2\n    _\n"
+}
