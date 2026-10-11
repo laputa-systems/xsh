@@ -4632,7 +4632,7 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
         ),
         "FsCopyFileResult" => (
             "Reports how fs.copy_file moved bytes into the destination.",
-            "method names the strongest mechanism used (clone, copy_file_range, read_write); hole_bytes counts source bytes left as holes in the destination. destination_replaced is true only when force successfully unlinked and reopened an existing destination; it is false for initial creation and ordinary overwrite, regardless of inode reuse.",
+            "method names the strongest mechanism used (clone, copy_file_range, read_write); hole_bytes counts source bytes left as holes in the destination. destination_replaced is true only when force successfully unlinked and reopened an existing destination; it is false for initial creation and ordinary overwrite, regardless of inode reuse. reflink_error retains the failed automatic clone attempt; offload_error retains the first failed copy_file_range attempt. Both are nullable Error values with the actual host errno and are null when the mechanism was skipped or had no failed attempt.",
             &["filesystem", "copy", "record"],
         ),
         "FsDataRange" => (

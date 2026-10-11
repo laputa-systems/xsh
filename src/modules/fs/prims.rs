@@ -10,6 +10,8 @@ use rustix::fs::{self as rfs, AtFlags, CWD, Mode, StatVfsMountFlags, Timespec, T
 use rustix::fs::{UTIME_NOW, UTIME_OMIT};
 use std::fs::File;
 use std::io::{Read, Write};
+#[cfg(target_os = "linux")]
+use std::io::{Seek, SeekFrom};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{FileExt, FileTypeExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
@@ -549,6 +551,12 @@ pub(crate) struct CopyFile {
     pub(crate) force: bool,
 }
 
+#[derive(Default)]
+struct CopyAttemptErrors {
+    reflink: Option<std::io::Error>,
+    offload: Option<std::io::Error>,
+}
+
 /// How bytes reached the destination, strongest first.
 const METHOD_CLONE: &str = "clone";
 const METHOD_KERNEL: &str = "copy_file_range";
@@ -679,9 +687,10 @@ fn copy_file_unnamed(
     if !(destination_kind.is_file() || destination_kind.is_fifo() || destination_kind.is_char_device() || destination_kind.is_block_device()) {
         return Err(fail("destination is not a regular file, FIFO, or device"));
     }
+    let mut attempts = CopyAttemptErrors::default();
     let outcome = if destination_kind.is_file() {
         output.set_len(0).map_err(host)?;
-        transfer(&input, &output, &metadata, len, &options, span)
+        transfer(&input, &output, &metadata, len, &options, &mut attempts, span)
     } else if options.reflink == Policy::Always {
         // The kernel names why a non-regular destination cannot be a clone
         // (EINVAL on a device, EXDEV across mounts); the call reports that
@@ -701,6 +710,14 @@ fn copy_file_unnamed(
         (key("hole_bytes"), Value::Int(hole_bytes as i64)),
         (key("method"), Value::Str(method.into())),
         (key("destination_replaced"), Value::Bool(destination_replaced)),
+        (
+            key("reflink_error"),
+            attempts.reflink.map_or(Value::Null, |error| Value::Error(Box::new(host(error)))),
+        ),
+        (
+            key("offload_error"),
+            attempts.offload.map_or(Value::Null, |error| Value::Error(Box::new(host(error)))),
+        ),
     ])))
 }
 
@@ -731,6 +748,7 @@ fn transfer(
     metadata: &std::fs::Metadata,
     len: u64,
     options: &CopyFile,
+    attempts: &mut CopyAttemptErrors,
     span: Span,
 ) -> Result<(&'static str, u64, u64), RuntimeError> {
     let host = |error: std::io::Error| RuntimeError::host("fs-copy", &error).with_span(span);
@@ -738,12 +756,36 @@ fn transfer(
         return clone_always(input, output, len, span);
     }
     #[cfg(target_os = "linux")]
-    if options.reflink == Policy::Auto && rfs::ioctl_ficlone(output, input).is_ok() {
-        return Ok((METHOD_CLONE, len, 0));
+    if options.reflink == Policy::Auto {
+        match rfs::ioctl_ficlone(output, input) {
+            Ok(()) => return Ok((METHOD_CLONE, len, 0)),
+            Err(error) => attempts.reflink = Some(error.into()),
+        }
     }
-    if stream_source(input, metadata).map_err(host)? || options.sparse == Policy::Always {
-        let (bytes, written) = copy_stream(input, output, options.sparse == Policy::Always).map_err(host)?;
-        return Ok((METHOD_USER, bytes, bytes - written));
+    let virtual_source = metadata.is_file() && virtual_source(input).map_err(host)?;
+    if !metadata.is_file() || len == 0 || virtual_source || options.sparse == Policy::Always {
+        #[cfg(not(target_os = "linux"))]
+        let (prefix, method) = (0, METHOD_USER);
+        #[cfg(target_os = "linux")]
+        let (mut prefix, mut method) = (0, METHOD_USER);
+        #[cfg(target_os = "linux")]
+        if virtual_source && options.sparse != Policy::Always {
+            // Virtual lengths cannot bound the request. Explicit offsets keep
+            // a refused offload from consuming stream bytes before fallback.
+            let (mut from, mut to) = (0, 0);
+            match rfs::copy_file_range(input, Some(&mut from), output, Some(&mut to), 1 << 30) {
+                Ok(count) if count > 0 => {
+                    prefix = count as u64;
+                    method = METHOD_KERNEL;
+                    let mut remaining_input = input;
+                    remaining_input.seek(SeekFrom::Start(prefix)).map_err(host)?;
+                }
+                Ok(_) => {}
+                Err(error) => attempts.offload = Some(error.into()),
+            }
+        }
+        let (bytes, written) = copy_stream(input, output, options.sparse == Policy::Always, prefix).map_err(host)?;
+        return Ok((method, bytes, bytes - written));
     }
     let mut method = METHOD_USER;
     let mut copied = 0;
@@ -758,7 +800,7 @@ fn transfer(
             vec![(0, len)]
         };
         for (offset, length) in extents {
-            let (used, count) = copy_range(input, output, offset, length).map_err(host)?;
+            let (used, count) = copy_range(input, output, offset, length, &mut attempts.offload).map_err(host)?;
             if used == METHOD_KERNEL {
                 method = METHOD_KERNEL;
             }
@@ -781,6 +823,7 @@ fn copy_range(
     output: &File,
     offset: u64,
     length: u64,
+    offload_error: &mut Option<std::io::Error>,
 ) -> std::io::Result<(&'static str, u64)> {
     let mut done = 0;
     let mut method = METHOD_USER;
@@ -795,10 +838,17 @@ fn copy_range(
                     done += count as u64;
                     method = METHOD_KERNEL;
                 }
-                Err(_) => break,
+                Err(error) => {
+                    // Preserve the first refusal even if another extent later
+                    // succeeds, so the report describes actual fallback work.
+                    offload_error.get_or_insert_with(|| error.into());
+                    break;
+                }
             }
         }
     }
+    #[cfg(not(target_os = "linux"))]
+    let _ = offload_error;
     let mut buffer = vec![0; 1 << 16];
     while done < length {
         let want = ((length - done) as usize).min(buffer.len());
@@ -814,10 +864,7 @@ fn copy_range(
 
 /// Virtual filesystem lengths describe an interface, rather than the readable
 /// byte count. Never use those lengths or hole maps to bound a transfer.
-fn stream_source(input: &File, metadata: &std::fs::Metadata) -> std::io::Result<bool> {
-    if !metadata.is_file() || metadata.len() == 0 {
-        return Ok(true);
-    }
+fn virtual_source(input: &File) -> std::io::Result<bool> {
     #[cfg(target_os = "linux")]
     {
         let kind = rfs::fstatfs(input)?.f_type;
@@ -825,16 +872,18 @@ fn stream_source(input: &File, metadata: &std::fs::Metadata) -> std::io::Result<
             return Ok(true);
         }
     }
+    #[cfg(not(target_os = "linux"))]
+    let _ = input;
     Ok(false)
 }
 
 /// A fixed buffer bounds memory for devices and FIFOs. Zero blocks become
 /// holes only when explicitly requested; the final length includes trailing
 /// zeros even when no write materializes them.
-fn copy_stream(mut input: &File, output: &File, sparse: bool) -> std::io::Result<(u64, u64)> {
+fn copy_stream(mut input: &File, output: &File, sparse: bool, prefix: u64) -> std::io::Result<(u64, u64)> {
     const BLOCK: usize = 4096;
     let mut buffer = vec![0; 1 << 16];
-    let (mut offset, mut written) = (0u64, 0u64);
+    let (mut offset, mut written) = (prefix, prefix);
     loop {
         let read = match input.read(&mut buffer) {
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,

@@ -426,8 +426,12 @@ pub(crate) fn shutdown_process_groups_native(
     })
 }
 
-pub(crate) fn exec(invocation: &ProcessInvocation, span: Span) -> Result<Value, RuntimeError> {
-    let mut command = match command_from_invocation(invocation, span) {
+pub(crate) fn exec(
+    invocation: &ProcessInvocation,
+    cwd: Option<&Path>,
+    span: Span,
+) -> Result<Value, RuntimeError> {
+    let mut command = match command_from_invocation_cwd(invocation, cwd, span) {
         Ok(command) => command,
         Err(error) => return Ok(Value::err(Value::Error(Box::new(error)))),
     };
@@ -441,6 +445,7 @@ pub(crate) fn exec(invocation: &ProcessInvocation, span: Span) -> Result<Value, 
 
 pub(crate) fn exec_env(
     invocation: &ProcessInvocation,
+    cwd: Option<&Path>,
     argv0: Option<&str>,
     block_signals: &[i32],
     span: Span,
@@ -453,7 +458,7 @@ pub(crate) fn exec_env(
             "unix-exec-env", "invalid environment key, value, or argv0",
         ).with_span(span)))));
     }
-    let mut command = match command_from_invocation(invocation, span) {
+    let mut command = match command_from_invocation_cwd(invocation, cwd, span) {
         Ok(command) => command,
         Err(error) => return Ok(Value::err(Value::Error(Box::new(error)))),
     };
@@ -1041,6 +1046,16 @@ fn command_from_invocation(
     invocation: &ProcessInvocation,
     span: Span,
 ) -> Result<Command, RuntimeError> {
+    command_from_invocation_cwd(invocation, Some(&invocation.cwd), span)
+}
+
+// An inherited directory is already held by the kernel. Re-entering its
+// pathname can fail after its permissions change or the directory is removed.
+fn command_from_invocation_cwd(
+    invocation: &ProcessInvocation,
+    cwd: Option<&Path>,
+    span: Span,
+) -> Result<Command, RuntimeError> {
     let executable = resolve_executable(invocation)
         .map_err(|error| RuntimeError::new(error.kind, error.message).with_span(span))?;
     let mut command = Command::new(executable);
@@ -1050,8 +1065,10 @@ fn command_from_invocation(
                 .argv
                 .iter()
                 .map(|arg| OsString::from_vec(arg.clone())),
-        )
-        .current_dir(&invocation.cwd);
+        );
+    if let Some(cwd) = cwd {
+        command.current_dir(cwd);
+    }
     command.env_clear();
     for (name, value) in &invocation.env {
         command.env(os_string_from_bytes(name), os_string_from_bytes(value));
@@ -1556,6 +1573,12 @@ pub(crate) fn cpu_features() -> Value {
         }
         if std::arch::is_x86_feature_detected!("avx2") {
             features.push(Value::Str("avx2".into()));
+        }
+        if std::arch::is_x86_feature_detected!("avx") {
+            features.push(Value::Str("avx".into()));
+        }
+        if std::arch::is_x86_feature_detected!("vpclmulqdq") {
+            features.push(Value::Str("vpclmulqdq".into()));
         }
         if std::arch::is_x86_feature_detected!("pclmulqdq") {
             features.push(Value::Str("pclmul".into()));

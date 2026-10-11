@@ -283,6 +283,8 @@ pub fn fs_copy_file_result_type() -> Type {
         ("hole_bytes", Type::Int),
         ("method", Type::Str),
         ("destination_replaced", Type::Bool),
+        ("reflink_error", Type::Optional(Box::new(Type::Error))),
+        ("offload_error", Type::Optional(Box::new(Type::Error))),
     ]))
 }
 

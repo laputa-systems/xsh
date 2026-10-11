@@ -4304,13 +4304,18 @@ Contracts worth knowing without consulting the reference:
 - `Path.read_bytes()` reads through EOF even when the reported file size is
   zero, as for procfs and FIFOs. Size is an allocation hint, not proof of EOF.
   `fs.copy_file` also streams virtual files, FIFOs, and devices with bounded
-  buffers. A FIFO or device destination receives all bytes under every sparse
+  buffers. Virtual regular sources attempt kernel copying before streaming,
+  except with `sparse: "always"`; their reported size never bounds the copy.
+  A FIFO or device destination receives all bytes under every sparse
   policy, keeps its file type, and reports zero hole bytes; `reflink: "always"`
   still asks the kernel to clone, so it fails there with the kernel's errno
   (`EINVAL` for a device destination, `EXDEV` across mounts) and never copies
   by another method. Equal source/destination identities are refused before any
   truncation. `force: true` retries only a failed destination open, after the
-  source is pinned, and never overrides `overwrite: false`.
+  source is pinned, and never overrides `overwrite: false`. The result retains
+  a failed automatic clone attempt as `reflink_error` and the first failed
+  kernel copy attempt as `offload_error`, with their actual host errno. Both
+  are nullable `Error` values; mechanisms with no failed attempt report null.
 - `fs.xattr_list/get/set/remove` use raw `Bytes` values on Linux and macOS;
   attribute names must be UTF-8. Following the final symlink is explicit and
   defaults to true. Set modes distinguish upsert, create-only, and
@@ -4466,7 +4471,11 @@ Contracts worth knowing without consulting the reference:
 - `unix.redirect_fd` and `unix.dup_fd` replace explicit descriptors. Buffered
   output is flushed before its descriptor is replaced. `unix.exec` honors
   ordered file and byte-input redirections; replacement preserves descriptor
-  and signal state. Credential transitions validate all supplied IDs before
+  and signal state. With no command-plan `cwd` or active `cd` scope,
+  `unix.exec` and `unix.exec_env` inherit the kernel's held working directory
+  without re-entering its pathname; this also works after its permissions
+  change or it is removed. Explicit `cwd` and scoped `cd` still select the
+  replacement's directory. Credential transitions validate all supplied IDs before
   applying supplementary groups, GID, then UID; a host failure can leave
   earlier changes applied. Separate UID/GID/group setters change only the
   named credential. `user.groups` uses NSS with an optional selected primary

@@ -1,6 +1,11 @@
 test test_unix_cpu_features_are_named {
-  let known = ["avx512", "avx2", "pclmul", "sse2", "asimd", "vmull"]
-  for feature in unix.cpu_features() { assert feature in known }
+  let known = ["avx512", "avx2", "avx", "vpclmulqdq", "pclmul", "sse2", "asimd", "vmull"]
+  let features = unix.cpu_features()
+  for feature in features { assert feature in known }
+  if "avx512" in features or "avx2" in features { assert "avx" in features }
+  if "asimd" in features {
+    assert ! ("avx" in features) and ! ("vpclmulqdq" in features)
+  }
 }
 
 test test_unix_exec_preserves_command_redirections_and_cwd { |ctx|
@@ -292,6 +297,71 @@ let environment: Map[Str, Str] = {}
 unix.exec_env(command, environment, argv0: "-sh")?
 """, status: 0)?
   assert result.stdout == "-sh"
+}
+
+test test_unix_exec_inherits_unsearchable_working_directory { |ctx|
+  guard unix.id()?.euid != 0 else {
+    test.skip("root can re-enter an unsearchable directory")
+    return
+  }
+  let root = test.temp_dir(ctx, name: "exec-inherited-cwd")?
+  defer root.chmod(0o700)
+  let script = test.temp_file(ctx, name: "exec-inherited-cwd.xsh", contents: bytes.from_text(r"""
+let root = Path(args[0])
+root.chmod(0o000)
+let command = if args[1] == "explicit" {
+  process.command_argv(p"/bin/true", ["true"], cwd: root)
+} else {
+  process.command_argv(p"/bin/true", ["true"])
+}
+let environment: Map[Str, Str] = {}
+let result = if args[2] == "exec_env" {
+  unix.exec_env(command, environment)
+} else {
+  unix.exec(command)
+}
+if args[1] == "explicit" {
+  assert result is Err(is PermissionDenied)
+} else {
+  result?
+}
+"""))?
+  for operation in ["exec", "exec_env"] {
+    for mode in ["inherited", "explicit"] {
+      root.chmod(0o700)
+      let errors = test.temp_path(ctx, name: f"{operation}-{mode}.stderr")
+      let status = process.run(process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, script, "--", root, mode, operation], cwd: root, stderr: errors, timeout: 5s))?
+      assert status.ok, errors.read_text()?
+    }
+  }
+}
+
+test test_unix_exec_preserves_scoped_and_relative_explicit_cwd { |ctx|
+  let root = test.temp_dir(ctx, name: "exec-scoped-cwd")?
+  let inner = fp"{root}/inner"
+  inner.mkdir()
+  for operation in ["exec", "exec_env"] {
+    for mode in ["scoped", "explicit"] {
+      let result = test.expect(ctx, r"""
+let root = Path(args[0])
+cd root {
+  let command = if args[1] == "explicit" {
+    process.command_argv(p"/bin/pwd", ["pwd", "-P"], cwd: p"inner")
+  } else {
+    process.command_argv(p"/bin/pwd", ["pwd", "-P"])
+  }
+  let environment: Map[Str, Str] = {}
+  if args[2] == "exec_env" {
+    unix.exec_env(command, environment)?
+  } else {
+    unix.exec(command)?
+  }
+}
+""", status: 0, args: [root, mode, operation])?
+      let expected = if mode == "explicit" { inner } else { root }
+      assert result.stdout == f"{expected}\n"
+    }
+  }
 }
 
 test test_unix_exec_env_rejects_invalid_strings_before_redirection { |ctx|

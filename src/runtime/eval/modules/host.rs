@@ -185,7 +185,7 @@ pub fn spawn_with_tty(command: &CommandSpec, tty: &str) -> HostResult<SpawnedChi
 
 pub fn exec(command: &CommandSpec) -> HostResult<()> {
     let invocation = command_invocation(command)?;
-    let value = unwrap_result_value(unix::exec(&invocation, host_span())?)?;
+    let value = unwrap_result_value(unix::exec(&invocation, command.cwd.as_deref(), host_span())?)?;
     unit_value(value)
 }
 

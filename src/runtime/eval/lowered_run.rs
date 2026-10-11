@@ -9505,7 +9505,9 @@ impl Evaluator {
                     return Ok(Value::ok(Value::Unit));
                 }
                 self.flush_shared_stdio();
-                unix_module::exec_env(&invocation, argv0.as_deref(), &block_signals, span)
+                let cwd = (plan.cwd.is_some() || super::PROCESS_CWD.get() != Some(&self.cwd))
+                    .then_some(invocation.cwd.as_path());
+                unix_module::exec_env(&invocation, cwd, argv0.as_deref(), &block_signals, span)
             }
             RuntimeOp::UnixExec => {
                 let plan = lowered_command_arg(
@@ -9516,7 +9518,9 @@ impl Evaluator {
                 let invocation = self.invocation_from_command_plan(&plan, span)?;
                 // Buffered output would otherwise die with the replaced image.
                 self.flush_shared_stdio();
-                unix_module::exec(&invocation, span)
+                let cwd = (plan.cwd.is_some() || super::PROCESS_CWD.get() != Some(&self.cwd))
+                    .then_some(invocation.cwd.as_path());
+                unix_module::exec(&invocation, cwd, span)
             }
             RuntimeOp::UnixSetHostname => {
                 let hostname =
