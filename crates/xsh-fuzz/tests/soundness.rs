@@ -13,11 +13,13 @@ mod test_binary;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::grammar::earley::Recognizer;
 use xsh::frontend::syntax::grammar::{grammar, lex_grammar_tokens};
+use xsh::frontend::syntax::parser::Parser;
 use xsh_fuzz::driver::{minimize, run_seed};
 use xsh_fuzz::generator::GenConfig;
-use xsh_fuzz::harness::Sandbox;
+use xsh_fuzz::harness::{Sandbox, check_text};
 use xsh_fuzz::mutate::{check_mutant, corpus_files, mutate};
 use xsh_fuzz::rng::Rng;
 
@@ -266,6 +268,50 @@ fn small_corpus() -> Vec<(PathBuf, String)> {
             (text.len() < 12_000).then_some((path, text))
         })
         .collect()
+}
+
+// Native tests cannot inspect the independent parser and grammar facts that
+// determine whether the fuzzer must recognize a checker-rejected mutant.
+#[test]
+fn cleanly_parsed_mutants_are_recognized_despite_check_or_import_errors() {
+    for source in [
+        "let value: Int = \"wrong type\"\n",
+        "let value = unknown_name\n",
+        "use missing_fuzz_grammar_module as absent\n",
+        "let xs = [1]\nlet item = xs |> first .name\n",
+        "use missing_fuzz_grammar_module as absent\nlet item = xs |> first .name\n",
+        "let item = xs[(f()) ?]\n",
+        "use missing_fuzz_grammar_module as absent\nlet item = xs[(f()) ?]\n",
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(
+            parsed.diagnostics.is_empty(),
+            "{source:?}: {:?}",
+            parsed.diagnostics
+        );
+        let report = check_text(xsh_fuzz::mutate::MUTANT_FILE, source);
+        assert!(!report.accepted(), "{source:?}");
+        assert_eq!(
+            check_mutant(xsh_fuzz::mutate::MUTANT_FILE, source),
+            Ok(false),
+            "{source:?}"
+        );
+    }
+}
+
+#[test]
+fn mutants_preserve_acceptance_and_ordinary_parse_diagnostics() {
+    assert_eq!(
+        check_mutant(xsh_fuzz::mutate::MUTANT_FILE, "let value = 1\n"),
+        Ok(true)
+    );
+    let source = "let value = [\n";
+    assert!(
+        !Parser::parse_source_arena_only(SourceId::new(0), source)
+            .diagnostics
+            .is_empty()
+    );
+    assert_eq!(check_mutant(xsh_fuzz::mutate::MUTANT_FILE, source), Ok(false));
 }
 
 #[test]
