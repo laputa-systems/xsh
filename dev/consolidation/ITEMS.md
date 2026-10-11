@@ -16,6 +16,30 @@ the stated gates; scouting is not verification.
 
 ## Setup and ready items
 
+Resumed bounded slices have separate worktrees and disjoint shared-file hunks:
+
+| Slice | Exclusive scope | Interim production / touched budget |
+|---|---|---|
+| W1 stage tags | `full.rs` stage codec declaration and ordinal proofs | net <= 0 / 900 |
+| W2 local callable proof | dense slot types, FunctionBuild/FullFunction metadata, local callee verifier | +72 / 800, remaining W2 allowance |
+| W3 annotation storage | checked root facts and namespace callers | integrated `b4d5ad37`, -103 production |
+| W3 full annotation types | explicit root annotation metadata only; template/pattern contexts excluded | net <= 0 / 600 |
+| W4 option parity | named profiles, unconditional migration warnings, publication equality proof | +100 / 1,000 |
+| W5 grouping | immediate-child policy wrapper and exhaustive grouping classifiers | net <= 0 / 650 |
+| W6 expression hooks | next six rule bodies and exact table/dispatcher registration | net <= 0 / 2,200 |
+| R3 checked transfer facts | affine locals, shared type predicate, strict transfer-site facts | +600 / 1,800 |
+| R3 runtime bridge | statement/instruction sidecar and typed transfer continuations | +120 / 1,500 |
+| R4 stream ownership | stream tokens, scope registry, boundary stamping and worker teardown | +250 / 1,800 |
+| W9 namespace isolation | restore qualified callable maps at module boundaries | +40 / 650 |
+| Dead formatter code | formatter allowance and compiler-confirmed unused items | net <= 0 / 1,500 |
+
+These prerequisite allowances require their eventual deletion offsets and do
+not relax the final net reduction or structural ratchets. Shared changes are
+merged by the integrator only. W4 owns option/API hunks; W9 owns module driver
+hunks; R3 owns transfer emissions; W2 owns dense-slot callable metadata; the
+BindingId adapter owns identity resolution. Source-aware arena text lookup is
+an exact additional adapter carve-out for imported command words.
+
 | Item | Ownership / deliverable | Prerequisite | State |
 |---|---|---|---|
 | S0 | Integrator: approvals, baseline commit, ownership and handoff | owner approval | active |
