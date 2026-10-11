@@ -6,7 +6,7 @@
     "commit": "6e39144aaf5a6bc01b9f795010b0914431067183"
   },
   "gate": "G4a",
-  "last_green_commit": "10b36f1b",
+  "last_green_commit": "93cd0f3d",
   "audit": {
     "new_core_script": "New core/*.xsh applets are installed by the release script at dev/release.xsh:146-160; dev/tests/test-repository-contracts.xsh owns the required core script inventory and contract checks. No separate command registration is needed.",
     "launcher_argument_separator": "Use xsh SCRIPT -- ARGS for an applet and xsh -- SCRIPT ARGS for an explicit script; src/entrypoints/xsh.rs:90-120.",
@@ -1291,50 +1291,68 @@
     {
       "id": "g4.panel.defaults",
       "gate": "G4a",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-render.xsh::test_btop_g4a_default_panels_use_upstream_relative_geometry_and_memory_disks_section"
+      ],
+      "evidence": "Host release 111-test btop suite passed; the renderer asserts CPU, memory/disks, network, and process regions at the pinned relative geometry with a permanent unavailable disk section."
     },
     {
       "id": "g4.panel.cpu_defaults",
       "gate": "G4a",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-render.xsh::test_btop_g4a_cpu_memory_and_network_graphs_render_retained_history",
+        "core/tests/test-btop-graphs.xsh::test_btop_graphs_append_cpu_memory_network_and_temperature_at_sample_times"
+      ],
+      "evidence": "CPU and package-temperature series follow source sample times and render from retained history in the fixed CPU panel."
     },
     {
       "id": "g4.panel.memory_defaults",
       "gate": "G4a",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-render.xsh::test_btop_g4a_cpu_memory_and_network_graphs_render_retained_history",
+        "core/tests/test-btop-graphs.xsh::test_btop_graphs_append_cpu_memory_network_and_temperature_at_sample_times"
+      ],
+      "evidence": "Memory percent history projects into the memory panel and keeps missing/gap/zero states explicit."
     },
     {
       "id": "g4.panel.network_defaults",
       "gate": "G4a",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-render.xsh::test_btop_g4a_cpu_memory_and_network_graphs_render_retained_history",
+        "core/tests/test-btop-graphs.xsh::test_btop_graphs_append_cpu_memory_network_and_temperature_at_sample_times"
+      ],
+      "evidence": "Receive and transmit histories render in the network panel from the retained source samples."
     },
     {
       "id": "g4.color.mapping",
       "gate": "G4a",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-color.xsh::test_btop_palette_maps_fixed_truecolor_roles_to_supported_depths",
+        "core/tests/test-btop-color.xsh::test_btop_surface_commits_palette_roles_and_resets_each_colored_row",
+        "tests/core_compat_extra/pty.rs::btop_replay_finite_completion_restores_terminal_attributes"
+      ],
+      "evidence": "Truecolor palette roles map to 256-color, 16-color, or no-color SGR; the independent PTY model checks emitted row colors and reset behavior."
     },
     {
       "id": "g4.color.no_color",
       "gate": "G4a",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-color.xsh::test_btop_palette_maps_fixed_truecolor_roles_to_supported_depths",
+        "core/tests/test-btop-terminal.xsh::test_btop_terminal_capabilities_follow_environment_and_geometry"
+      ],
+      "evidence": "NO_COLOR selects no-color capability and produces no foreground SGR sequence."
     },
     {
       "id": "g4.proc.defaults",
@@ -1506,6 +1524,18 @@
       "name": "btop storage observations and rates",
       "commit": "b0096fa6",
       "summary": "Block counters refresh on each one-second sample while mount capacity retains its thirty-second observation time. Disk history requires diskseq and the device number, uses 512-byte accounting sectors, treats in_flight as a gauge, and does not sum stacked layers."
+    },
+    {
+      "kind": "behavior",
+      "name": "btop G4a default panels and retained graphs",
+      "commit": "93cd0f3d",
+      "summary": "The G1 temporary arrangement is replaced by the pinned CPU, memory/disks, network, and process geometry. CPU, memory, network, and temperature graphs retain source-time histories independently of viewport width; missing intervals remain gaps."
+    },
+    {
+      "kind": "behavior",
+      "name": "btop capability-mapped palette",
+      "commit": "93cd0f3d",
+      "summary": "Panel rows use a fixed truecolor palette mapped to the detected truecolor, 256-color, or 16-color depth; NO_COLOR and unusable TERM values omit foreground colors."
     }
   ],
   "limitations": [
@@ -1982,7 +2012,10 @@
         "passed": 10,
         "failed": 0,
         "command": "core_compat_extra btop_ --test-threads=1",
-        "input_to_present_latency_ms": {"p95": 1.277, "p99": 1.376},
+        "input_to_present_latency_ms": {
+          "p95": 1.277,
+          "p99": 1.376
+        },
         "log": ".work/btop-campaign/g3-gate-pty-final.log"
       },
       "duplicate_parser_audit": "Clean: mountinfo parsing is owned by sys_mount.collect; system-report cgroup paths consume the shared mount table projection. Meminfo, block, and process stat parsing also use their shared sys_* readers/policies.",
@@ -2006,6 +2039,44 @@
       },
       "braille_patterns": 256,
       "retained_sample_limit": 600
+    },
+    "g4a_panels_color": {
+      "host_only": true,
+      "xsh_check": {
+        "files": 11,
+        "log": ".work/btop-campaign/g4a-check-style-final.log"
+      },
+      "native_btop_tests": {
+        "passed": 111,
+        "failed": 0,
+        "log": ".work/btop-campaign/g4a-panel-color-btop.log"
+      },
+      "color_tests": {
+        "passed": 2,
+        "failed": 0,
+        "log": ".work/btop-campaign/g4a-color-style-final.log"
+      },
+      "renderer_tests": {
+        "passed": 5,
+        "failed": 0,
+        "log": ".work/btop-campaign/g4a-render-style-final.log"
+      },
+      "graph_series_tests": {
+        "passed": 2,
+        "failed": 0,
+        "log": ".work/btop-campaign/g4a-graph-series-style-final.log"
+      },
+      "pty_tests": {
+        "passed": 10,
+        "failed": 0,
+        "log": ".work/btop-campaign/g4a-color-pty.log"
+      },
+      "input_to_present_latency_ms": {
+        "samples": 100,
+        "p95": 4.195,
+        "p99": 4.401,
+        "runner": "Alpine x86_64 musl release, 80x24 replay, 60s interval"
+      }
     }
   },
   "defaults": [
@@ -2347,6 +2418,6 @@
     }
   ],
   "next": [
-    "G4a panels: replace the temporary four-panel layout with the pinned CPU, memory, and network graphs, including CPU temperatures and the fixed default geometry."
+    "G4a defaults: centralize every pinned in-scope default in named constants and assert exact agreement with the ledger extraction."
   ]
 }
