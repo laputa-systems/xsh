@@ -27,6 +27,23 @@ unix.exec(command)?
   assert result.stdout == "bytes-input"
 }
 
+test test_unix_exec_flushes_stdout_and_stderr_before_replacement { |ctx|
+  let marker = test.temp_path(ctx, name: "exec-must-not-return")
+  let result = test.expect(ctx, r"""let marker = Path(args[0])
+defer marker.write("deferred")
+print "before-out-1"
+eprint "before-err-1"
+print "before-out-2"
+eprint "before-err-2"
+let command = process.command_argv(p"/bin/sh", ["sh", "-c", "printf child-out; printf child-err >&2; exit 23"])
+unix.exec(command)?
+marker.write("returned")
+""", status: 23, args: [marker])?
+  assert result.stdout == "before-out-1\nbefore-out-2\nchild-out"
+  assert result.stderr == "before-err-1\nbefore-err-2\nchild-err"
+  assert ! marker.exists()?
+}
+
 test test_unix_descriptor_arguments_validate_before_opening { |ctx|
   let root = test.temp_dir(ctx, name: "unix-fd-validation")?
   let unopened = fp"{root}/must-not-exist"
@@ -292,6 +309,24 @@ let environment: Map[Str, Str] = {}
 unix.exec_env(command, environment, argv0: "-sh")?
 """, status: 0)?
   assert result.stdout == "-sh"
+}
+
+test test_unix_exec_env_flushes_stdout_and_stderr_before_replacement { |ctx|
+  let marker = test.temp_path(ctx, name: "exec-env-must-not-return")
+  let result = test.expect(ctx, r"""let marker = Path(args[0])
+defer marker.write("deferred")
+print "before-out-1"
+eprint "before-err-1"
+print "before-out-2"
+eprint "before-err-2"
+let command = process.command_argv(p"/bin/sh", ["sh", "-c", "printf child-out; printf child-err >&2; exit 23"])
+let environment: Map[Str, Str] = {}
+unix.exec_env(command, environment)?
+marker.write("returned")
+""", status: 23, args: [marker])?
+  assert result.stdout == "before-out-1\nbefore-out-2\nchild-out"
+  assert result.stderr == "before-err-1\nbefore-err-2\nchild-err"
+  assert ! marker.exists()?
 }
 
 test test_unix_exec_env_rejects_invalid_strings_before_redirection { |ctx|
