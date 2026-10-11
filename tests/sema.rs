@@ -82,13 +82,14 @@ fn checker_publication_options_preserve_repository_diagnostics() {
 
 #[test]
 fn embedded_standard_library_diagnostics_are_not_reported_as_user_findings() {
-    let source = "let value = json.decode(\"{}\")?\n";
+    let source = "let value = json.encode_lines([1])?\n";
     let (sources, parsed) = xsh::frontend::load::parse_load_entry_source_arena_only(
         "entry.xsh",
         xsh::frontend::load::entry_source_from_text("entry.xsh", source.to_owned()),
         Vec::new(),
     );
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert!(parsed.arena.modules.iter().any(|m| m.internal && m.key == "<xsh-stdlib:json>"));
     let source_id = parsed
         .arena
         .source_text_source_id()
@@ -103,6 +104,7 @@ fn embedded_standard_library_diagnostics_are_not_reported_as_user_findings() {
         CheckOptions::for_check_cli(),
     ];
 
+    let mut diagnostics = None;
     for options in options {
         let checked = Checker::check_arena_with_sources_and_options(
             &parsed.arena,
@@ -110,6 +112,7 @@ fn embedded_standard_library_diagnostics_are_not_reported_as_user_findings() {
             source_id,
             options,
         );
+        assert_eq!(diagnostics.get_or_insert(checked.diagnostics.clone()), &checked.diagnostics);
         for diagnostic in checked.diagnostics {
             let spans = diagnostic
                 .span
