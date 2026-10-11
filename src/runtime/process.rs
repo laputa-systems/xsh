@@ -2227,9 +2227,14 @@ fn command_with_managed_stdio(
         command.env(os_string_from_bytes(name), os_string_from_bytes(value));
     }
     configure_managed_child(&mut command, options);
-    let inherited = (if options.stdin == ManagedStdio::Inherit { 1 } else { 0 })
+    let mut inherited = (if options.stdin == ManagedStdio::Inherit { 1 } else { 0 })
         | (if options.stdout == ManagedStdio::Inherit { 2 } else { 0 })
         | (if options.stderr == ManagedStdio::Inherit { 4 } else { 0 });
+    if !options.apply_redirections && invocation.redirections.iter()
+        .any(|item| matches!(item, ProcessRedirection::Input { .. }))
+    {
+        inherited &= !1;
+    }
     inherit_standard_streams(&mut command, inherited,
         if options.apply_redirections { &invocation.redirections } else { &[] });
     if options.apply_redirections {
