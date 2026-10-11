@@ -118,10 +118,16 @@ proc docs_gate(ctx: context.Context, profile: tests.TestProfile) [fs, process, e
 ## sources are under active change. Explicit compatibility tools remain available.
 export pure batch_checks(ctx: context.Context, profile: tests.TestProfile) -> List[contract.CommandSpec] {
   let xsht = tests.product_path(ctx, profile, "xsht").display()
+  let xsh = tests.product_path(ctx, profile, "xsh").display()
   [
     stages.command("batch-check", ctx.target.triple, xsht, [xsht, "check"], ctx.root, {}),
     stages.command("batch-lint", ctx.target.triple, xsht, [xsht, "lint"], ctx.root, {}),
     stages.command("batch-diff", ctx.target.triple, "git", ["git", "diff", "--check"], ctx.root, {}),
+    stages.command("batch-ratchets", ctx.target.triple, xsh,
+      [xsh, "dev/consolidation/metrics.xsh", "check", "--root", ctx.root.display(),
+        "--source-root", "src", "--xsht-source-root", "crates/xsht/src",
+        "--baseline", "dev/consolidation/baseline.json", "--envelope", "dev/consolidation/envelope.json",
+        "--output", ".work/consolidation/current.json", "--audit", ".work/consolidation/rises.json"], ctx.root, {}),
   ]
 }
 

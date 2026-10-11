@@ -104,7 +104,11 @@ test test_catalog_and_sibling_filters_preserve_the_selected_verification_scope {
 test test_batch_automatic_checks_leave_paused_compatibility_inputs_alone {
   let ctx = fixtures.linux_context(/repo)?
   let checks = gates.batch_checks(ctx, tests.Verification)
-  assert [spec.stage for spec in checks] == ["batch-check", "batch-lint", "batch-diff"]
+  assert [spec.stage for spec in checks] == ["batch-check", "batch-lint", "batch-diff", "batch-ratchets"]
+  let ratchets = checks[3]
+  assert ratchets.argv[1] == "dev/consolidation/metrics.xsh"
+  assert ["--root", ctx.root.display(), "--source-root", "src", "--xsht-source-root", "crates/xsht/src"] == ratchets.argv[3..9]
+  assert ["--baseline", "dev/consolidation/baseline.json", "--envelope", "dev/consolidation/envelope.json", "--output", ".work/consolidation/current.json", "--audit", ".work/consolidation/rises.json"] == ratchets.argv[9..]
   for spec in checks {
     assert spec.executable != "python3"
     assert [arg for arg in spec.argv |> where .starts_with("dev/compat/")].is_empty()
