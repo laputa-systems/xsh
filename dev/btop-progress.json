@@ -6,13 +6,13 @@
     "commit": "6e39144aaf5a6bc01b9f795010b0914431067183"
   },
   "gate": "G3",
-  "last_green_commit": "5e776181",
+  "last_green_commit": "90a1007d",
   "audit": {
     "new_core_script": "New core/*.xsh applets are installed by the release script at dev/release.xsh:146-160; dev/tests/test-repository-contracts.xsh owns the required core script inventory and contract checks. No separate command registration is needed.",
     "launcher_argument_separator": "Use xsh SCRIPT -- ARGS for an applet and xsh -- SCRIPT ARGS for an explicit script; src/entrypoints/xsh.rs:90-120.",
     "stdlib_multi_file_modules": "No: the embedded standard library catalog maps each identity to one source file, src/stdlib.rs:40-92 and src/loader.rs:751-818. Dotted user modules resolve through module roots, src/loader.rs:982-1020.",
     "pty_test_wiring": "tests/core_compat_extra.rs:13-34 includes tests/core_compat_extra/pty.rs; Cargo.toml:157-165 declares core_compat_extra. The new applet invocation should use xsh core/btop.xsh -- ARGS.",
-    "monotonic_clock": "No public monotonic clock exists. time.now is wall-clock only, crates/xsh-registry/src/signature/docs.rs:1528-1531; G1 needs the smallest registry-backed monotonic API."
+    "monotonic_clock": "At G0 there was no public monotonic clock; time.now was wall-clock only. G1 added time.monotonic() as a process-local monotonic nanosecond source, with registry and runtime tests."
   },
   "assertions": [
     {
@@ -961,26 +961,37 @@
     {
       "id": "g3.proc.sort_modes",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-ui.xsh::test_btop_ui_supports_every_pinned_process_sort_and_direction",
+        "core/tests/test-btop-ui.xsh::test_btop_ui_cpu_lazy_promotes_recent_spikes_ahead_of_lifetime_average",
+        "core/tests/test-btop-sources.xsh::test_btop_process_average_cpu_uses_process_lifetime_ticks",
+        "tests/core_compat_extra/pty.rs::btop_replay_filter_sort_selection_and_resize_use_the_decoded_input"
+      ],
+      "evidence": "Host release: all eight pinned sort keys and their directions pass, including CPU-lazy recent-spike promotion and lifetime-average CPU derivation; the PTY test verifies default selection and interactive sort cycling. The btop native suite passed 67/67 in .work/btop-campaign/g3-process-s35-suite.log and all 10 btop PTY tests passed in .work/btop-campaign/g3-pty-s35.log."
     },
     {
       "id": "g3.proc.filter",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-ui.xsh::test_btop_ui_filter_searches_local_command_line_and_resolved_user",
+        "core/tests/test-btop-ui.xsh::test_btop_ui_filter_edit_accept_cancel_clear_and_paste_are_explicit",
+        "tests/core_compat_extra/pty.rs::btop_replay_filter_sort_selection_and_resize_use_the_decoded_input"
+      ],
+      "evidence": "Host release: filter matches PID, UID, process name, resolved account name, and the identity-matched local command line; edit, accept, cancel, clear, paste-inert, and interactive PID-filter behavior pass in .work/btop-campaign/g3-process-s35-suite.log and .work/btop-campaign/g3-pty-s35.log."
     },
     {
       "id": "g3.proc.command_line_privacy",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_local_command_line_is_identity_checked_and_never_captured"
+      ],
+      "evidence": "Host release: a 4096-byte bounded /proc/PID/cmdline read is shown only in the local screen, withheld after process identity changes, never reads environ, and does not enter observation or model JSON. The complete btop native suite passed in .work/btop-campaign/g3-process-s35-suite.log."
     },
     {
       "id": "g3.sensor.cpu_temp",
@@ -1359,6 +1370,18 @@
       "name": "btop model dump: process ancestry metadata",
       "commit": "5e776181",
       "summary": "Model and JSONL output now include each process row's parent_pid and thread_count for process-tree derivation and sorting."
+    },
+    {
+      "kind": "data_format",
+      "name": "btop model dump: lifetime-average process CPU",
+      "commit": "90a1007d",
+      "summary": "Process rows now include cpu_average_percent, derived from process ticks and elapsed lifetime, for the pinned CPU-lazy ordering."
+    },
+    {
+      "kind": "behavior",
+      "name": "btop process view sort and local text",
+      "commit": "90a1007d",
+      "summary": "The view now starts in CPU-lazy order and cycles all eight pinned sort modes. Live rows resolve the USER label and show an identity-checked bounded command line without reading environ or adding that text to captured observations or dumps."
     }
   ],
   "limitations": [
@@ -1961,6 +1984,6 @@
     }
   ],
   "next": [
-    "G3 S3.5: implement pinned process sort modes and filtering, then read bounded command lines for local display without storing them in model or dump output."
+    "G3 S3.6: implement observed-only CPU temperatures, core channels, frequency and battery states with fixture evidence."
   ]
 }
