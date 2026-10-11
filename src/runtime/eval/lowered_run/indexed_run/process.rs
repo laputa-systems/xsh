@@ -8,7 +8,8 @@ use super::{
 };
 use std::time::Duration;
 
-/// A spliced run target supplies the executable and any leading argv words.
+/// A spliced target supplies the executable and its leading argv words. An empty
+/// vector fails before anything starts because it names no program.
 pub(super) fn run_target_and_leading_argv(
     mode: u32,
     span: Span,

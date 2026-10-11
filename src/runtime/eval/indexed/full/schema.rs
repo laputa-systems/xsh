@@ -767,7 +767,7 @@ instruction_schema! {
             input: BuildExprId,
             stages: Vec<LoweredPipelineStage>,
             span: Span,
-        } => ExprPipeline = 55 [0; Scheduled; LegacyRecursive];
+        } => ExprPipeline = 55 [0; Scheduled; FrameControl];
         Field {
             base: BuildExprId,
             // Scratch rows preserve generated static text without allocation while
@@ -1560,6 +1560,7 @@ mod tests {
             FullTag::ExprTagMatch,
             FullTag::StmtStrMatch,
             FullTag::StmtTagMatch,
+            FullTag::ExprPipeline,
             FullTag::ExprRunCapture,
             FullTag::ExprRunPipeline,
             FullTag::ExprSpawnRun,
