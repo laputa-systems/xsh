@@ -1222,7 +1222,7 @@ enum FrameContinuation {
         instruction: u32,
         entry: ListPosition<LoweredProcessCommandBuilderEntry>,
         phase: ProcessCommandBuilderPhase,
-        state: ProcessCommandBuilderState,
+        state: Box<ProcessCommandBuilderState>,
         next: Box<FrameContinuation>,
     },
     ProcessRun {
@@ -1375,7 +1375,7 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     BreakLoop { transfers_resource: bool },
-    RetryDelay(RetryFrameState, Box<FrameContinuation>),
+    RetryDelay(Box<RetryFrameState>, Box<FrameContinuation>),
     /// A `yield` statement's value: the frame suspends here and hands the value
     /// to whoever pulled the producer.
     Yield { transfers_resource: bool },
@@ -1746,7 +1746,7 @@ enum ExpressionBoundaryPolicy {
     Value,
     Context(crate::runtime::value::ErrorContext),
     Capture,
-    Retry(RetryFrameState),
+    Retry(Box<RetryFrameState>),
     Scope(super::ContextScopeRestore),
 }
 
@@ -5141,7 +5141,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     Some("process.command"),
                     TracePayload::None,
                 );
-                let state = ProcessCommandBuilderState::new(span, builder_span);
+                let state = Box::new(ProcessCommandBuilderState::new(span, builder_span));
                 self.step_process_command_builder(
                     index,
                     instruction,
@@ -5220,7 +5220,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 indexed_finish(payload, span)?;
                 self.eval_retry_delay(
                     index,
-                    RetryFrameState {
+                    Box::new(RetryFrameState {
                         instruction,
                         delay_position,
                         pattern,
@@ -5233,7 +5233,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         max_attempts: 0,
                         last_error: None,
                         last_traceback: None,
-                    },
+                    }),
                     Box::new(next),
                 )?;
             }
@@ -9465,7 +9465,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn eval_retry_delay(
         &mut self,
         index: usize,
-        mut state: RetryFrameState,
+        mut state: Box<RetryFrameState>,
         next: Box<FrameContinuation>,
     ) -> Result<(), RuntimeError> {
         let (_, mut payload) = self.calls[index]
@@ -9524,7 +9524,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn start_retry_attempt(
         &mut self,
         index: usize,
-        state: RetryFrameState,
+        state: Box<RetryFrameState>,
         next: Box<FrameContinuation>,
     ) -> Result<(), RuntimeError> {
         let body = state.body;
@@ -9539,7 +9539,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn finish_retry_attempt(
         &mut self,
         index: usize,
-        state: RetryFrameState,
+        state: Box<RetryFrameState>,
         value: LoweredValue,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
@@ -9572,7 +9572,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn fail_retry_attempt(
         &mut self,
         index: usize,
-        mut state: RetryFrameState,
+        mut state: Box<RetryFrameState>,
         error: Value,
         traceback: Option<Traceback>,
         next: Box<FrameContinuation>,
@@ -9641,7 +9641,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn finish_retry_error(
         &mut self,
         index: usize,
-        mut state: RetryFrameState,
+        mut state: Box<RetryFrameState>,
         next: Box<FrameContinuation>,
     ) {
         let error = state
@@ -10052,7 +10052,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         index: usize,
         instruction: u32,
         entries: ListPosition<LoweredProcessCommandBuilderEntry>,
-        mut state: ProcessCommandBuilderState,
+        mut state: Box<ProcessCommandBuilderState>,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
         let (entry, _, _) = process_command_builder_entry(
@@ -10114,7 +10114,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         instruction: u32,
         entry: ListPosition<LoweredProcessCommandBuilderEntry>,
         mut phase: ProcessCommandRunPhase,
-        mut state: ProcessCommandBuilderState,
+        mut state: Box<ProcessCommandBuilderState>,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
         loop {
@@ -10216,7 +10216,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn finish_process_command_builder(
         &mut self,
         index: usize,
-        state: ProcessCommandBuilderState,
+        state: Box<ProcessCommandBuilderState>,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
         let mut plan = state.plan.ok_or_else(|| {
@@ -10284,7 +10284,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         instruction: u32,
         entry: ListPosition<LoweredProcessCommandBuilderEntry>,
         phase: ProcessCommandBuilderPhase,
-        mut state: ProcessCommandBuilderState,
+        mut state: Box<ProcessCommandBuilderState>,
         value: LoweredValue,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
@@ -10354,7 +10354,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         instruction: u32,
         entry: ListPosition<LoweredProcessCommandBuilderEntry>,
         phase: ProcessCommandRunPhase,
-        mut state: ProcessCommandBuilderState,
+        mut state: Box<ProcessCommandBuilderState>,
         value: LoweredValue,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
