@@ -4,6 +4,8 @@ use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
+// The creation mask belongs to the child process. Native command plans cannot
+// set it, so an owned launcher supplies that inherited descriptor constraint.
 fn run_descriptor_script(directory: &Path, source: &str, mask: libc::mode_t) -> Output {
     let script = directory.join("descriptor.xsh");
     std::fs::write(&script, source).expect("write descriptor script");
