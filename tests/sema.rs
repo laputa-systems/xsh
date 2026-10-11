@@ -1593,19 +1593,22 @@ let lines = "a\nb\n" |> text.lines
 
 #[test]
 fn canonical_stream_stage_facts_distinguish_equal_spans_in_modules() {
+    use std::sync::Arc;
     use xsh::frontend::check::Type;
     use xsh::frontend::symbols::Name;
     use xsh::frontend::syntax::arena::{
         ArenaExprKind, ArenaExprOrRun, ArenaProgramBuilder, ArenaStmtKind,
     };
     let mut sources = SourceMap::new();
-    let entry_source_id = sources.add_file("entry.xsh", "");
+    let entry_source = "use left\nuse right\n";
+    let entry_source_id = sources.add_file("entry.xsh", entry_source);
     let left_source = "let value = [1] |> sum\n";
     let left_source_id = sources.add_file("left.xsh", left_source);
     let right_source = "let value = [1] |> min\n";
     let right_source_id = sources.add_file("right.xsh", right_source);
     let mut builder = ArenaProgramBuilder::with_token_capacity(64);
-    let entry = Parser::parse_source_into_arena_builder(entry_source_id, "", &mut builder);
+    let entry =
+        Parser::parse_source_into_arena_builder(entry_source_id, entry_source, &mut builder);
     for (name, source, source_id) in [
         ("left", left_source, left_source_id),
         ("right", right_source, right_source_id),
@@ -1619,6 +1622,16 @@ fn canonical_stream_stage_facts_distinguish_equal_spans_in_modules() {
         );
         let name = builder.symbol_owner().with_current(|| Name::intern(name));
         builder.push_arena_module(name.to_string(), name, fragment.statements);
+    }
+    for (statement, key) in builder
+        .statement_ids(entry.statements)
+        .into_iter()
+        .zip(["left", "right"])
+    {
+        let (use_id, _, _) = builder
+            .use_stmt_for_statement(statement)
+            .expect("entry import");
+        builder.set_use_resolved(use_id, Arc::from(key));
     }
     let program = builder.finish_with_statements(entry.statements);
     let declarations =
