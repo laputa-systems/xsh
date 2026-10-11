@@ -21,7 +21,7 @@ Resumed bounded slices have separate worktrees and disjoint shared-file hunks:
 | Slice | Exclusive scope | Interim production / touched budget |
 |---|---|---|
 | W1 stage tags | `full.rs` stage codec declaration and ordinal proofs | net <= 0 / 900 |
-| W2 local callable proof | dense slot types, FunctionBuild/FullFunction metadata, local callee verifier | +72 / 800, remaining W2 allowance |
+| W2 local callable proof | dense slot types, FunctionBuild/FullFunction metadata, local callee verifier | +180 / 1,200, integrated `d325c86c` |
 | W3 annotation storage | checked root facts and namespace callers | integrated `b4d5ad37`, -103 production |
 | W3 full annotation types | explicit root annotation metadata only; template/pattern contexts excluded | net <= 0 / 600 |
 | W4 option parity | named profiles, unconditional migration warnings, publication equality proof | +100 / 1,000 |
@@ -31,6 +31,8 @@ Resumed bounded slices have separate worktrees and disjoint shared-file hunks:
 | R3 runtime bridge | statement/instruction sidecar and typed transfer continuations | +120 / 1,500 |
 | R4 stream ownership | stream tokens, scope registry, boundary stamping and worker teardown | +250 / 1,800 |
 | W9 namespace isolation | restore qualified callable maps at module boundaries | +40 / 650 |
+| W9 borrowed bundle view | resolved reachable modules, source identities, shared declaration consumers | +200 / 2,000, interim; final W9 net reduction required |
+| Binding recovery regressions | explicit checker recovery identity and With initializer handler | +80 / 800, interim; no valid-binding name fallback |
 | Dead formatter code | formatter allowance and compiler-confirmed unused items | net <= 0 / 1,500 |
 
 These prerequisite allowances require their eventual deletion offsets and do

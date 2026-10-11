@@ -1,5 +1,43 @@
 # Consolidation restart handoff
 
+## Current integration batch — 2026-10-11
+
+The campaign remains active under the owner's unattended-completion instruction,
+using Luna xhigh subagents. The older reboot pause below is historical.
+Current implementation includes the complete BindingId adapter (`498e02e0`,
+`57aa1abb`), R3 checked resource facts (`1f6c6db1`), full explicit annotation
+facts (`01f786b9`), named checker profiles and unconditional warning publication
+(`c8fc9e26`, `530d957c`), module namespace isolation (`5a4d87ff`), eight further
+lint hooks (`7d384613`, `d873b984`), and the error-family fixture correction
+(`5d2661a0`). `CheckOptions::migration_diagnostics` is removed; named execution,
+check CLI, and interactive factories choose entry policy without hiding warnings.
+Execution gates on errors, while checker-only entry constructs remain rejected.
+
+The latest accepted slices are resource runtime fixture coverage (`b5f9a685`),
+opaque FsLock/API and missing-module fixtures (`62d67705`), grouping traversal
+and retained slice-range regression (`4b2363ba`), stream ownership/worker cleanup
+(`f10506cb`), and exact local/capture callable verification (`d325c86c`). Each
+has its lane's focused green gates; the joint all-feature XSH/XSHT check passes.
+Combined optimized native gates are pending. Neither stream cleanup nor grouping
+closes the larger resource or traversal workstream. The R3 runtime bridge awaits
+budget and strict missing-fact review; the Any checker remains unintegrated.
+
+Baseline canonical coverage is running under the shared suite lock with the
+sealed instrumented pair explicitly on PATH and XSH_BIN, unprivileged UID 1000,
+and tmpfs test storage. Original 107.77 GiB raw evidence remains untouched.
+New group profiles are hashed and validated before bounded LLVM aggregation;
+only validated new raw inputs are deleted, retaining aggregate evidence rather
+than claiming lossless individual raw archival. Earlier wrong-environment and
+wrong-top-level-binary phases are preserved as superseded supplemental evidence.
+Coverage and final runtime-reader acceptance remain incomplete.
+
+W9's canonical no-argument baseline lint completed on 1,160 discovered files;
+the contended 160.97-second run and same-process profile are setup attribution,
+not comparative performance acceptance. ARM compiler/environment recovery is
+verified, but final ARM product and release gates have not run. Generated docs,
+structural closure, fixed-seed reliability, semantic review rows, and comparative
+timings remain required before goal completion.
+
 ## Resume update — 2026-10-11
 
 The owner resumed the campaign from this checkpoint and changed all subagents

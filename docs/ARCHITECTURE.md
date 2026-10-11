@@ -325,9 +325,11 @@ annotated ones, and `xsht test` in the project.
    `src/syntax/grouping.rs` (`child_context`, `needs_parens`, shared by the
    printer and `check.redundant-parens`), and extend
    `crates/xsht/src/format_equivalence.rs` if the canonical walk needs it.
-6. There is no generic AST visitor. Update every arena/CST consumer that owns
-   behavior for the surface, typically `crates/xsht/src/lint.rs`,
-   `crates/xsht/src/grep.rs`, and `xsht check --annotate`.
+6. Extend the exhaustive immediate-child enumerators in `src/syntax/arena.rs`.
+   Recursive consumers use those edges with their own traversal policy; update
+   each consumer that owns behavior for the surface, typically
+   `crates/xsht/src/lint.rs`, `crates/xsht/src/grep.rs`, and
+   `xsht check --annotate`.
 7. Add native tests (see `docs/TESTING.md`) plus a verifier unit test for new
    instruction shapes, and update `tools/xsh-ir-coverage.xsh` if coverage
    accounting changes.
