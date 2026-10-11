@@ -49,7 +49,7 @@ use crate::runtime::eval::indexed::full::decode::{
     ErrorExprView, FmtPartView, ListPosition, ListView, RecordEntryView,
 };
 use crate::runtime::eval::indexed::full::{
-    BLOCK_LIST, BLOCK_STATEMENTS, FrameStrategy, FullDriverTag, FullExecution, FullFunctionView,
+    BLOCK_LIST, FrameStrategy, FullDriverTag, FullExecution, FullFunctionView,
     FullPayload, FullProgram, FullStageTag, FullTag,
 };
 use crate::runtime::eval::indexed::full::schema::ExprView;
@@ -1892,32 +1892,55 @@ impl Evaluator {
                 return self.eval_indexed_module_call_values(op, values, span, call_plan.as_deref());
             }
             FullTag::ExprOk => {
-                let value = indexed_raw(&mut payload, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
+                let ExprView::Ok(value) = ExprView::decode(execution, tag, payload)
+                    .map_err(|error| indexed_error(error, call_span))?
+                else {
+                    unreachable!("ok tag has an ok view")
+                };
+                let value = match self.eval_indexed_expr(
+                    execution,
+                    value.raw(),
+                    slots,
+                    call_span,
+                )? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
                 ControlFlow::Continue(LoweredValue::ResultOk(Box::new(value)))
             }
             FullTag::ExprProcCallResult => {
-                let value = indexed_raw(&mut payload, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
+                let ExprView::ProcCallResult(value) = ExprView::decode(execution, tag, payload)
+                    .map_err(|error| indexed_error(error, call_span))?
+                else {
+                    unreachable!("proc-call-result tag has a proc-call-result view")
+                };
+                let value = match self.eval_indexed_expr(
+                    execution,
+                    value.raw(),
+                    slots,
+                    call_span,
+                )? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
                 ControlFlow::Continue(proc_call_result(value))
             }
             FullTag::ExprErr => {
-                let value = indexed_raw(&mut payload, call_span)?;
-                let cause = indexed_optional_raw(&mut payload, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
+                let ExprView::Err { value, cause } = ExprView::decode(execution, tag, payload)
+                    .map_err(|error| indexed_error(error, call_span))?
+                else {
+                    unreachable!("err tag has an err view")
+                };
+                let value = match self.eval_indexed_expr(
+                    execution,
+                    value.raw(),
+                    slots,
+                    call_span,
+                )? {
                     ControlFlow::Continue(value) => value.into_value(),
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                let cause = match cause {
+                let cause = match cause.map(|cause| cause.raw()) {
                     Some(cause) => {
                         match self.eval_indexed_expr(execution, cause, slots, call_span)? {
                             ControlFlow::Continue(value) => Some(value),
@@ -1929,14 +1952,16 @@ impl Evaluator {
                 ControlFlow::Continue(lowered_err_with_cause(value, cause, call_span)?)
             }
             FullTag::ExprTry => {
-                let value = indexed_raw(&mut payload, call_span)?;
+                let ExprView::Try { value, span } = ExprView::decode(execution, tag, payload)
+                    .map_err(|error| indexed_error(error, call_span))?
+                else {
+                    unreachable!("try tag has a try view")
+                };
                 // The propagation's own place: a traceback that starts here
                 // names it, not the call that is running.
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
                 // The `?` reuses only a traceback that its operand records.
                 self.pending_traceback = None;
-                return match self.eval_indexed_expr(execution, value, slots, call_span)? {
+                return match self.eval_indexed_expr(execution, value.raw(), slots, call_span)? {
                     ControlFlow::Break(value) => Ok(ControlFlow::Break(value)),
                     ControlFlow::Continue(value) => match self
                         .indexed_question_value(value, span)?

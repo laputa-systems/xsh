@@ -5760,13 +5760,18 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             FullTag::StmtDefer => {
-                let value = indexed_raw(&mut payload, span)?;
-                let on_error =
-                    indexed_decode::<bool>(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
+                let StmtView::Defer { value, on_error } = StmtView::decode(
+                    &self.calls[index].execution,
+                    tag,
+                    payload,
+                )
+                .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("defer tag has a defer view")
+                };
                 self.calls[index]
                     .defers
-                    .push(RegisteredDefer::new(value, on_error));
+                    .push(RegisteredDefer::new(value.raw(), on_error));
                 Ok(())
             }
             FullTag::StmtValue => {
@@ -6042,12 +6047,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.push_statement_block(index, body.block_id(), span)?;
             }
             FullTag::ExprLoop => {
-                let body = indexed_raw(&mut payload, span)?;
-                let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
-                self.calls[index].work.push(FrameWork::Loop {
+                let super::ExprView::Loop {
                     body,
-                    span,
+                    span: loop_span,
+                } = super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("loop tag has a loop view")
+                };
+                self.calls[index].work.push(FrameWork::Loop {
+                    body: body.block_id(),
+                    span: loop_span,
                     completion: Some(Box::new(next)),
                 });
             }
@@ -6114,17 +6124,22 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
             }
             FullTag::ExprErrorContext => {
-                let message = indexed_raw(&mut payload, span)?;
-                let body = indexed_raw(&mut payload, span)?;
-                let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
+                let super::ExprView::ErrorContext {
+                    message,
+                    body,
+                    span: context_span,
+                } = super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("error-context tag has an error-context view")
+                };
                 self.push_expr(
                     index,
-                    message,
-                    span,
+                    message.raw(),
+                    context_span,
                     FrameContinuation::ErrorContextEntry {
-                        body,
-                        span,
+                        body: body.block_id(),
+                        span: context_span,
                         next: Box::new(next),
                     },
                 );
@@ -6448,52 +6463,67 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
             }
             FullTag::ExprOk => {
-                let value = indexed_raw(&mut payload, span)?;
-                indexed_finish(payload, span)?;
+                let super::ExprView::Ok(value) =
+                    super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                        .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("ok tag has an ok view")
+                };
                 self.push_expr(
                     index,
-                    value,
+                    value.raw(),
                     span,
                     FrameContinuation::WrapOk(Box::new(next)),
                 );
             }
             FullTag::ExprProcCallResult => {
-                let value = indexed_raw(&mut payload, span)?;
-                indexed_finish(payload, span)?;
+                let super::ExprView::ProcCallResult(value) =
+                    super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                        .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("proc-call-result tag has a proc-call-result view")
+                };
                 self.push_expr(
                     index,
-                    value,
+                    value.raw(),
                     span,
                     FrameContinuation::ProcCallResult(Box::new(next)),
                 );
             }
             FullTag::ExprErr => {
-                let value = indexed_raw(&mut payload, span)?;
-                let cause = indexed_optional_raw(&mut payload, span)?;
-                indexed_finish(payload, span)?;
+                let super::ExprView::Err { value, cause } =
+                    super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                        .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("err tag has an err view")
+                };
                 self.push_expr(
                     index,
-                    value,
+                    value.raw(),
                     span,
                     FrameContinuation::WrapErr {
-                        cause,
+                        cause: cause.map(|cause| cause.raw()),
                         span,
                         next: Box::new(next),
                     },
                 );
             }
             FullTag::ExprTry => {
-                let value = indexed_raw(&mut payload, span)?;
+                let super::ExprView::Try {
+                    value,
+                    span: propagation,
+                } = super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("try tag has a try view")
+                };
                 // The propagation's own place: a traceback that starts here
                 // names it, not the call that is running.
-                let propagation =
-                    indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
                 // The `?` reuses only a traceback that its operand records.
                 self.evaluator.pending_traceback = None;
                 self.push_expr(
                     index,
-                    value,
+                    value.raw(),
                     span,
                     FrameContinuation::Try {
                         span: propagation,
@@ -6805,39 +6835,45 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 }
                 super::AssertionWork::Expr(instruction) => {
-                    let (tag, mut payload) = indexed_value(
+                    let (tag, payload) = indexed_value(
                         self.calls[index].execution.instruction_id(instruction),
                         state.span,
                     )?;
                     if tag == FullTag::ExprBinary {
-                        let op = indexed_decode::<BinaryOp>(
-                            &mut payload,
+                        let super::ExprView::Binary {
+                            op,
+                            left,
+                            right,
+                            span: operand_span,
+                        } = super::ExprView::decode(
                             &self.calls[index].execution,
-                            state.span,
-                        )?;
-                        let left = indexed_raw(&mut payload, state.span)?;
-                        let right = indexed_raw(&mut payload, state.span)?;
-                        let operand_span = indexed_decode::<Span>(
-                            &mut payload,
-                            &self.calls[index].execution,
-                            state.span,
-                        )?;
-                        indexed_finish(payload, state.span)?;
+                            tag,
+                            payload,
+                        )
+                        .map_err(|error| indexed_error(error, state.span))?
+                        else {
+                            unreachable!("binary tag has a binary view")
+                        };
                         if matches!(op, BinaryOp::And | BinaryOp::Or) {
-                            state.work.push(super::AssertionWork::Left { op, right });
-                            state.work.push(super::AssertionWork::Expr(left));
+                            state.work.push(super::AssertionWork::Left {
+                                op,
+                                right: right.raw(),
+                            });
+                            state
+                                .work
+                                .push(super::AssertionWork::Expr(left.raw()));
                             continue;
                         }
                         if super::values::assertion_comparison_op(op) {
                             self.push_expr(
                                 index,
-                                left,
+                                left.raw(),
                                 operand_span,
                                 FrameContinuation::AssertionComparisonLeft {
                                     state,
                                     instruction,
                                     op,
-                                    right,
+                                    right: right.raw(),
                                     span: operand_span,
                                 },
                             );
