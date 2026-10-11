@@ -296,6 +296,18 @@ test test_process_timeout_errors {
   }
 }
 
+# Parameters keep post-release checks on the runtime path outside local tracking.
+proc assert_waited_handle_metadata(handle: ProcessHandle) [process, error] {
+  assert handle.pid > 0
+  assert handle.command == "true"
+  assert handle.argv[0] == "true"
+  assert handle.detached == false
+}
+
+proc assert_released_handle_wait_fails(handle: ProcessHandle, reason: Str) [process, error] {
+  assert wait handle is Err(_), reason
+}
+
 test test_process_wait_and_handle_contracts {
   let ok = spawn run true ?
   let ok_status = wait ok?
@@ -307,11 +319,9 @@ test test_process_wait_and_handle_contracts {
   assert bad_status.exit_code()? == 1
 
   let handle = spawn run true ?
+  let metadata_handle = handle
   let status = wait handle?
-  assert handle.pid > 0
-  assert handle.command == "true"
-  assert handle.argv[0] == "true"
-  assert handle.detached == false
+  assert_waited_handle_metadata(metadata_handle)
   assert status.ok
 
   let first = spawn run false ?
@@ -669,8 +679,9 @@ test test_spawn_same_group_stays_in_the_callers_group_and_cancels_only_the_child
   let shared_plan = process.command_argv("sleep", ["sleep", "10"], same_group: true)
   let shared = spawn shared_plan?
   assert process.group_id(shared.pid)? == own
+  let shared_pid = shared.pid
   shared.cancel(signal: "TERM", kill_after: 0ms)?
-  test.error_kind(process.kill(shared.pid, signal: "0"), "process-missing")
+  test.error_kind(process.kill(shared_pid, signal: "0"), "process-missing")
 }
 
 test test_spawn_same_group_conflicts_with_a_new_group_or_session { |ctx|
@@ -719,18 +730,20 @@ in_block(Path("ROOT/block"))?
 # left to stop, whoever consumed it. Waiting on it afterwards still fails.
 test test_cancel_of_a_cancelled_handle_is_a_successful_no_op {
   let child = spawn run sh -c "sleep 10" ?
+  let released_child = child
   child.cancel(kill_after: 0ms)
   assert child.cancel() == Ok()
   assert child.cancel(signal: "KILL", kill_after: 0ms) == Ok()
-  assert wait child is Err(_), "a cancelled handle has no status left to wait for"
+  assert_released_handle_wait_fails(released_child, "a cancelled handle has no status left to wait for")
 }
 
 test test_cancel_of_a_waited_handle_is_a_successful_no_op {
   let child = spawn run sh -c "exit 3" ?
+  let released_child = child
   let status = wait child?
   assert status.exit_code()? == 3
   assert child.cancel() == Ok()
-  assert wait child is Err(_), "a second wait still fails"
+  assert_released_handle_wait_fails(released_child, "a second wait still fails")
 }
 
 test test_cancel_of_a_handle_with_an_unknown_signal_still_fails {

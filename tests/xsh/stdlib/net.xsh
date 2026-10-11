@@ -106,6 +106,11 @@ proc net_start_scoped_helper() [net] -> Result[NetJob] {
   })
 }
 
+# The parameter keeps the post-wait operation on the runtime error path.
+proc assert_completed_net_job_rejects_cancel(job: NetJob) [net] {
+  test.error_kind(job.cancel(), "net-job-not-live")
+}
+
 test test_net_start_mock_job_is_single_consumption { |ctx|
   let response = {
     status: 200,
@@ -120,8 +125,9 @@ test test_net_start_mock_job_is_single_consumption { |ctx|
   test.mock(ctx, "net.start", {url: "https://example.test/"}, Ok(response))
 
   let job = net.start({method: "GET", url: "https://example.test/"})?
+  let completed_job = job
   assert job.wait()?.body == b"ok"
-  test.error_kind(job.cancel(), "net-job-not-live")
+  assert_completed_net_job_rejects_cancel(completed_job)
 }
 
 test test_net_job_progresses_while_synchronous_request_waits {

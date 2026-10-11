@@ -153,6 +153,11 @@ test test_fs_write_atomic_keeps_plain_write_modes { |ctx|
   assert atomic.metadata()?.mode % 512 == 0o751
 }
 
+# The parameter keeps the post-close operation on the runtime error path.
+proc assert_closed_temp_root_rejects_host_path(root: FsRoot) [fs] {
+  test.error_kind(root.host_path(), "fs-root")
+}
+
 test test_fs_tree_metadata_install_and_locking { |ctx|
   let root = test.temp_dir(ctx, name: "fs")?
   let src = fp"{root}/src"
@@ -279,8 +284,9 @@ print \$entry.size
   let temp_path = temp_dir.host_path()?
   fp"{temp_path}/host-path.txt".write("host")
   assert temp_dir.read_text(p"host-path.txt")? == "host"
+  let closed_temp_dir = temp_dir
   temp_dir.close()
-  test.error_kind(temp_dir.host_path(), "fs-root")
+  assert_closed_temp_root_rejects_host_path(closed_temp_dir)
   let home = fs.user_root("home")?
   assert home.exists(p".")?
   home.close()
