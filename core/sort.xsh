@@ -180,30 +180,6 @@ on SIGINT [] {
   exit 130
 }
 
-pure numeric_key(line: Str, opts: SortOptions) -> Str {
-  numeric_order_key(line, opts)
-}
-
-pure numeric_sort_key(line: Str, stable: Bool, opts: SortOptions) -> NumericSortKey {
-  {number: numeric_key(line, opts), raw: if stable { "" } else { line }}
-}
-
-## GNU sort compares the suffix order before the decimal value, so 1000M sorts before 1G.
-pure human_numeric_sort_key(line: Str, stable: Bool, opts: SortOptions) -> HumanNumericSortKey {
-  let value = trim_leading_blanks(line)
-  let prefix = decimal_prefix(value, opts)
-  let number = numeric_order_key(prefix, opts)
-  let unit_byte = if prefix == "" { 0 } else { value.byte_at(prefix.byte_len()) ?? 0 }
-  let unit = if number == "1" {
-    0
-  } else if prefix.starts_with("-") {
-    0 - human_unit_order(unit_byte)
-  } else {
-    human_unit_order(unit_byte)
-  }
-  {key: f"{padded_decimal(unit + 10, 2)}{number}", raw: if stable { "" } else { line }}
-}
-
 pure padded_decimal(value: Int, width: Int) -> Str {
   let digits = f"{value}"
   var padding = ""
@@ -245,6 +221,8 @@ pure numeric_prefix_raw(line: Bytes, opts: SortOptions) -> Bytes {
   if digits == 0 { b"" } else { value[0..at] }
 }
 
+## Normalize only the numeric prefix; suffixes and source offsets retain their bytes.
+## GNU ignores a group separator when the locale encodes it with multiple bytes.
 pure normalized_numeric_prefix_raw(prefix: Bytes, opts: SortOptions) -> Bytes {
   let point = bytes.from_text(opts.decimal_point)
   var at = 0
@@ -291,26 +269,6 @@ pure decimal_prefix(line: Str, opts: SortOptions) -> Str {
   value.byte_slice(0, length: at)
 }
 
-## Normalize only the numeric prefix; suffixes and source offsets retain their bytes.
-## GNU ignores a group separator when the locale encodes it with multiple bytes.
-pure normalized_decimal_prefix(prefix: Str, opts: SortOptions) -> Str {
-  let input = bytes.from_text(prefix)
-  var at = 0
-  var normalized = ""
-  while at < input.len() {
-    if numeric_decimal_at(input, at, opts) {
-      normalized += "."
-      at += opts.decimal_point.byte_len()
-    } else if opts.thousands_separator.len() == 1 and input.byte_at(at) == opts.thousands_separator.byte_at(0) {
-      at += 1
-    } else {
-      normalized += prefix.byte_slice(at, length: 1)
-      at += 1
-    }
-  }
-  normalized
-}
-
 pure numeric_prefix(line: Str, opts: SortOptions) -> Str {
   decimal_prefix(line, opts)
 }
@@ -327,6 +285,7 @@ pure human_numeric_prefix(line: Str, opts: SortOptions) -> Str {
   }
 }
 
+## GNU sort compares the suffix order before the decimal value, so 1000M sorts before 1G.
 pure human_numeric_order_key_raw(line: Bytes, opts: SortOptions) -> Str {
   var start = 0
   while start < line.len() and (line.byte_at(start) ?? 0) in [32, 9] { start += 1 }
@@ -374,25 +333,6 @@ pure month_prefix(line: Str, opts: SortOptions) -> Str {
   trim_leading_blanks(line).byte_slice(0, length: opts.months[month - 1].byte_len())
 }
 
-pure month_sort_key(line: Str, stable: Bool, opts: SortOptions) -> TextSortKey {
-  {key: padded_decimal(month_order(line, opts), 2), raw: if stable { "" } else { line }}
-}
-
-pure month_field_sort_key(line: Str, delimiter: Str, field: Int, opts: SortOptions, stable: Bool) -> TextSortKey {
-  let parts = if delimiter == "" { line.trim().words() } else { line.split(delimiter) }
-  let text = parts.get(field) ?? ""
-  let selected = text.split("") |> drop(key_character_offset(primary_key_spec(opts))).join("")
-  month_sort_key(selected, stable, opts)
-}
-
-pure human_numeric_field_sort_key(line: Str, delimiter: Str, field: Int, opts: SortOptions, stable: Bool) -> HumanNumericSortKey {
-  let parts = if delimiter == "" { line.trim().words() } else { line.split(delimiter) }
-  let text = parts.get(field) ?? ""
-  let selected = text.split("") |> drop(key_character_offset(primary_key_spec(opts))).join("")
-  let key = human_numeric_sort_key(selected, true, opts)
-  {key: key.key, raw: if stable { "" } else { line }}
-}
-
 pure invert_decimal_digits(digits: Str) -> Str {
   var inverted = ""
   for at in range(digits.byte_len()) {
@@ -426,12 +366,6 @@ pure invert_numeric_exponent_key(key: Str) -> Str {
 }
 
 ## Encode decimal magnitude and sign as text so numeric sorting never rounds or narrows the input.
-pure numeric_order_key(line: Str, opts: SortOptions) -> Str {
-  let raw_prefix = numeric_prefix(line, opts)
-  if raw_prefix == "" { return "1" }
-  let prefix = bytes.from_text(normalized_decimal_prefix(raw_prefix, opts))
-  numeric_order_key_normalized(prefix)
-}
 
 pure numeric_order_key_raw(line: Bytes, opts: SortOptions) -> Str {
   let raw_prefix = numeric_prefix_raw(line, opts)
@@ -545,16 +479,9 @@ proc prepare_general_numeric_keys(lines: List[SortRecord], opts: SortOptions) [e
 
 ## Comparisons consume prepared keys; a missing key is an input-preparation error.
 ## Failed conversions sort before NaNs, then native long-double values.
-pure general_numeric_sort_key(line: Str, stable: Bool, opts: SortOptions) -> GeneralNumericSortKey {
-  {key: opts.general_numeric_keys[sort_direction_bytes(bytes.from_text(line), false)].key, raw: if stable { "" } else { line }}
-}
 
 pure general_numeric_prefix(line: Str, opts: SortOptions) -> Str {
   opts.general_numeric_keys[sort_direction_bytes(bytes.from_text(line), false)].prefix
-}
-
-pure numeric_field_sort_key(line: Str, delimiter: Str, field: Int, opts: SortOptions) -> NumericSortKey {
-  {number: numeric_field_key(line, delimiter, field, opts), raw: if opts.stable or opts.unique { "" } else { line }}
 }
 
 ## Key positions have suffix modifiers, so read the leading decimal field number directly.
@@ -997,74 +924,6 @@ pure debug_column_count(input: Bytes, opts: SortOptions) -> Int {
   columns
 }
 
-pure key_order_value(line: Str, delimiter: Str, spec: Str, opts: SortOptions) -> Str {
-  let key_opts = key_effective_options(spec, opts)
-  let reverse = opts.reverse != key_reversed(spec)
-  if ! is_month_sort(key_opts) and ! is_human_numeric_sort(key_opts) and ! is_general_numeric_sort(key_opts) and
-    ! is_version_sort(key_opts) and ! is_numeric_sort(key_opts) {
-    return character_order_sort_key(
-      key_range_bytes(line, delimiter, spec, key_opts),
-      key_opts.dictionary,
-      key_opts.ignore_nonprinting,
-      key_opts.fold_case,
-      reverse,
-    )
-  }
-  let value = key_field_value(line, delimiter, spec, key_opts)
-  let key = if is_month_sort(key_opts) {
-    padded_decimal(month_order(value, opts), 2)
-  } else if is_human_numeric_sort(key_opts) {
-    human_numeric_sort_key(value, true, key_opts).key
-  } else if is_general_numeric_sort(key_opts) {
-    general_numeric_sort_key(value, true, key_opts).key
-  } else if is_version_sort(key_opts) {
-    version_key(value)
-  } else if is_numeric_sort(key_opts) {
-    numeric_key(value, opts)
-  } else if key_opts.blank {
-    character_order_key(trim_leading_blanks(value), key_opts.dictionary, key_opts.ignore_nonprinting, key_opts.fold_case)
-  } else {
-    character_order_key(value, key_opts.dictionary, key_opts.ignore_nonprinting, key_opts.fold_case)
-  }
-  sort_direction_key(key, reverse)
-}
-
-## GNU compares keys in order, then uses the raw line unless stable or unique was requested.
-pure multiple_key_sort(lines: List[Str], opts: SortOptions) -> List[Str] {
-  var sorted = lines
-  if ! opts.stable and ! opts.unique {
-    sorted = if opts.reverse {
-      lines |> sort-by { |line| sort_direction_key(line, true) }
-    } else {
-      lines |> sort
-    }
-  }
-  for position in range(opts.key.len()) {
-    let spec = opts.key[opts.key.len() - position - 1]
-    sorted = sorted |> sort-by { |line| key_order_value(line, sort_delimiter(opts), spec, opts) }
-  }
-  sorted
-}
-
-pure same_multiple_keys(left: Str, right: Str, opts: SortOptions) -> Bool {
-  for spec in opts.key {
-    if key_order_value(left, sort_delimiter(opts), spec, opts) != key_order_value(right, sort_delimiter(opts), spec, opts) {
-      return false
-    }
-  }
-  true
-}
-
-pure unique_key_lines(lines: List[Str], opts: SortOptions) -> List[Str] {
-  var unique: List[Str] = []
-  for line in lines {
-    if unique.is_empty() or ! same_multiple_keys(unique[unique.len() - 1], line, opts) {
-      unique += [line]
-    }
-  }
-  unique
-}
-
 pure is_ascii_digit(byte: Int) -> Bool {
   byte >= 48 and byte <= 57
 }
@@ -1078,18 +937,9 @@ pure version_hex_byte(byte: Int) -> Str {
   digits.byte_slice(byte / 16, length: 1) + digits.byte_slice(byte % 16, length: 1)
 }
 
-# The lines in reverse input order.
-pure reversed_lines(lines: List[Str]) -> List[Str] {
-  collect { for index in range(lines.len()) { yield lines[lines.len() - 1 - index] } }
-}
-
 # Sort key whose plain order is GNU's filenvercmp order (used by sort -V). Operands are split like
 # filevercmp's file suffixes: the prefix before a trailing `.alpha...` run is compared first, and the
 # whole name breaks ties. A leading dot ranks "." before ".." before other dot names, then ordinary names.
-pure version_key(line: Str) -> Str {
-  version_key_bytes(bytes.from_text(line))
-}
-
 pure version_key_bytes(input: Bytes) -> Str {
   if input.is_empty() { return "A" }
   if input == b"." { return "B" }
@@ -1121,10 +971,6 @@ pure version_prefix_length(input: Bytes) -> Int {
 # filenvercmp skips a zero run that meets the end of the other name, so a zero run at the end is
 # dropped and an interior one is ranked by the byte after it. A digit run compares by its
 # significant digits, length first, so leading zeros and the run's own length keep numeric order.
-pure version_revision_key(text: Str) -> Str {
-  version_revision_key_bytes(bytes.from_text(text))
-}
-
 pure version_revision_key_bytes(input: Bytes) -> Str {
   var key = ""
   var at = 0
@@ -1156,15 +1002,6 @@ pure version_revision_key_bytes(input: Bytes) -> Str {
     }
   }
   key + "2"
-}
-
-pure version_sort_key(line: Str, stable: Bool) -> TextSortKey {
-  {key: version_key(line), raw: if stable { "" } else { line }}
-}
-
-pure version_field_sort_key(line: Str, delimiter: Str, field: Int, opts: SortOptions) -> TextSortKey {
-  let parts = if delimiter == "" { line.trim().words() } else { line.split(delimiter) }
-  {key: version_key(parts.get(field) ?? ""), raw: if opts.stable { "" } else { line }}
 }
 
 pure selected_sort_mode(opts: SortOptions) -> Str {
@@ -1228,140 +1065,11 @@ pure character_order_key(text: Str, dictionary: Bool, ignore_nonprinting: Bool, 
   if fold_case { key.upper() } else { key }
 }
 
-pure field_key(line: Str, delimiter: Str, field: Int, opts: SortOptions) -> Str {
-  let parts = if delimiter == "" { line.trim().words() } else { line.split(delimiter) }
-  character_order_key(parts.get(field) ?? "", opts.dictionary, opts.ignore_nonprinting, opts.fold_case)
-}
-
-pure field_sort_key(line: Str, delimiter: Str, field: Int, opts: SortOptions) -> TextSortKey {
-  {key: field_key(line, delimiter, field, opts), raw: if opts.stable { "" } else { line }}
-}
-
-pure numeric_field_key(line: Str, delimiter: Str, field: Int, opts: SortOptions) -> Str {
-  let parts = if delimiter == "" { line.trim().words() } else { line.split(delimiter) }
-  let text = parts.get(field) ?? ""
-  let key = text.split("") |> drop(key_character_offset(primary_key_spec(opts))).join("")
-  numeric_key(key, opts)
-}
-
 pure trim_leading_blanks(line: Str) -> Str {
   let characters = line.split("")
   var at = 0
   while at < characters.len() and characters[at] in [" ", "\t"] { at += 1 }
   characters |> drop(at) |> join("")
-}
-
-pure blank_text_key(line: Str, opts: SortOptions) -> Str {
-  let key = trim_leading_blanks(line)
-  character_order_key(key, opts.dictionary, opts.ignore_nonprinting, opts.fold_case)
-}
-
-pure blank_sort_key(line: Str, opts: SortOptions) -> TextSortKey {
-  {key: blank_text_key(line, opts), raw: if opts.stable { "" } else { line }}
-}
-
-## GNU sort uses the full line as a last-resort key after the blank-skipping key.
-pure blank_sorted(lines: List[Str], reverse: Bool, opts: SortOptions) -> List[Str] {
-  if opts.stable {
-    if reverse {
-      lines |> sort-by(desc: true) blank_text_key(., opts)
-    } else {
-      lines |> sort-by blank_text_key(., opts)
-    }
-  } else {
-  let fallback = if reverse { lines |> sort-by(desc: true) . } else { lines |> sort }
-  if reverse {
-    fallback |> sort-by(desc: true) blank_text_key(., opts)
-  } else {
-    fallback |> sort-by blank_text_key(., opts)
-  }
-  }
-}
-
-pure pair_is_ordered(left: Str, right: Str, opts: SortOptions, has_key: Bool, key_field: Int) -> Bool {
-  if has_key {
-    return multiple_key_sort([left, right], opts)[0] == left
-  }
-
-  let pair = [left, right]
-  let ordered = if is_month_sort(opts) and has_key {
-    if opts.reverse { pair |> sort-by(desc: true) month_field_sort_key(., sort_delimiter(opts), key_field, opts, opts.stable or opts.unique) } else { pair |> sort-by month_field_sort_key(., sort_delimiter(opts), key_field, opts, opts.stable or opts.unique) }
-  } else if is_month_sort(opts) {
-    if opts.reverse { pair |> sort-by(desc: true) month_sort_key(., opts.stable or opts.unique, opts) } else { pair |> sort-by month_sort_key(., opts.stable or opts.unique, opts) }
-  } else if is_human_numeric_sort(opts) and has_key {
-    if opts.reverse { pair |> sort-by(desc: true) human_numeric_field_sort_key(., sort_delimiter(opts), key_field, opts, opts.stable or opts.unique) } else { pair |> sort-by human_numeric_field_sort_key(., sort_delimiter(opts), key_field, opts, opts.stable or opts.unique) }
-  } else if is_human_numeric_sort(opts) {
-    if opts.reverse { pair |> sort-by(desc: true) human_numeric_sort_key(., opts.stable or opts.unique, opts) } else { pair |> sort-by human_numeric_sort_key(., opts.stable or opts.unique, opts) }
-  } else if is_general_numeric_sort(opts) {
-    if opts.reverse { pair |> sort-by(desc: true) general_numeric_sort_key(., opts.stable or opts.unique, opts) } else { pair |> sort-by general_numeric_sort_key(., opts.stable or opts.unique, opts) }
-  } else if is_version_sort(opts) and has_key {
-    if opts.reverse { pair |> sort-by(desc: true) version_field_sort_key(., sort_delimiter(opts), key_field, opts) } else { pair |> sort-by version_field_sort_key(., sort_delimiter(opts), key_field, opts) }
-  } else if is_version_sort(opts) {
-    if opts.reverse { pair |> sort-by(desc: true) version_sort_key(., opts.stable) } else { pair |> sort-by version_sort_key(., opts.stable) }
-  } else if is_numeric_sort(opts) and has_key and key_reversed(primary_key_spec(opts)) {
-    if key_reversed(primary_key_spec(opts)) != opts.reverse { pair |> sort-by(desc: true) field_sort_key(., sort_delimiter(opts), key_field, opts) } else { pair |> sort-by field_sort_key(., sort_delimiter(opts), key_field, opts) }
-  } else if is_numeric_sort(opts) and has_key {
-    if opts.reverse { pair |> sort-by(desc: true) numeric_field_sort_key(., sort_delimiter(opts), key_field, opts) } else { pair |> sort-by numeric_field_sort_key(., sort_delimiter(opts), key_field, opts) }
-  } else if has_key {
-    if opts.reverse { pair |> sort-by(desc: true) field_sort_key(., sort_delimiter(opts), key_field, opts) } else { pair |> sort-by field_sort_key(., sort_delimiter(opts), key_field, opts) }
-  } else if is_numeric_sort(opts) {
-    if opts.reverse { pair |> sort-by(desc: true) numeric_sort_key(., opts.stable or opts.unique, opts) } else { pair |> sort-by numeric_sort_key(., opts.stable or opts.unique, opts) }
-  } else if opts.blank {
-    blank_sorted(pair, opts.reverse, opts)
-  } else if opts.fold_case or opts.dictionary or opts.ignore_nonprinting {
-    if opts.reverse {
-      pair |> sort-by(desc: true) { |line| {key: character_order_key(line, opts.dictionary, opts.ignore_nonprinting, opts.fold_case), raw: if opts.stable { "" } else { line }} }
-    } else {
-      pair |> sort-by { |line| {key: character_order_key(line, opts.dictionary, opts.ignore_nonprinting, opts.fold_case), raw: if opts.stable { "" } else { line }} }
-    }
-  } else if opts.reverse {
-    pair |> sort-by(desc: true) .
-  } else {
-    pair |> sort
-  }
-  ordered[0] == left
-}
-
-pure same_sort_key(left: Str, right: Str, opts: SortOptions, has_key: Bool, key_field: Int) -> Bool {
-  if has_key {
-    same_multiple_keys(left, right, opts)
-  } else if is_month_sort(opts) and has_key {
-    month_field_sort_key(left, sort_delimiter(opts), key_field, opts, true).key == month_field_sort_key(right, sort_delimiter(opts), key_field, opts, true).key
-  } else if is_month_sort(opts) {
-    month_order(left, opts) == month_order(right, opts)
-  } else if is_human_numeric_sort(opts) and has_key {
-    let left_key = human_numeric_field_sort_key(left, sort_delimiter(opts), key_field, opts, true)
-    let right_key = human_numeric_field_sort_key(right, sort_delimiter(opts), key_field, opts, true)
-    left_key.key == right_key.key
-  } else if is_human_numeric_sort(opts) {
-    let left_key = human_numeric_sort_key(left, true, opts)
-    let right_key = human_numeric_sort_key(right, true, opts)
-    left_key.key == right_key.key
-  } else if is_general_numeric_sort(opts) {
-    let left_key = general_numeric_sort_key(left, true, opts)
-    let right_key = general_numeric_sort_key(right, true, opts)
-    left_key.key == right_key.key
-  } else if is_version_sort(opts) and has_key {
-    version_key((if sort_delimiter(opts) == "" { left.trim().words() } else { left.split(sort_delimiter(opts)) }).get(key_field) ?? "") == version_key((if sort_delimiter(opts) == "" { right.trim().words() } else { right.split(sort_delimiter(opts)) }).get(key_field) ?? "")
-  } else if is_version_sort(opts) {
-    version_key(left) == version_key(right)
-  } else if is_numeric_sort(opts) and has_key {
-    if key_reversed(primary_key_spec(opts)) {
-      field_key(left, sort_delimiter(opts), key_field, opts) == field_key(right, sort_delimiter(opts), key_field, opts)
-    } else {
-      numeric_field_key(left, sort_delimiter(opts), key_field, opts) == numeric_field_key(right, sort_delimiter(opts), key_field, opts)
-    }
-  } else if has_key {
-    field_key(left, sort_delimiter(opts), key_field, opts) == field_key(right, sort_delimiter(opts), key_field, opts)
-  } else if is_numeric_sort(opts) {
-    numeric_key(left, opts) == numeric_key(right, opts)
-  } else if opts.blank {
-    blank_text_key(left, opts) == blank_text_key(right, opts)
-  } else if opts.fold_case or opts.dictionary or opts.ignore_nonprinting {
-    character_order_key(left, opts.dictionary, opts.ignore_nonprinting, opts.fold_case) == character_order_key(right, opts.dictionary, opts.ignore_nonprinting, opts.fold_case)
-  } else {
-    left == right
-  }
 }
 
 pure sort_record_key_bytes(record: SortRecord, spec: Str, opts: SortOptions) -> Bytes {
@@ -1427,6 +1135,7 @@ pure sort_record_primary_keys(record: SortRecord, opts: SortOptions, has_key: Bo
   [sort_direction_bytes(record.bytes, opts.reverse)]
 }
 
+## GNU compares keys in order, then uses the raw line unless stable or unique was requested.
 pure sort_record_order(record: SortRecord, opts: SortOptions, has_key: Bool) -> Str {
   var order = ""
   for key in sort_record_primary_keys(record, opts, has_key) { order += key + "\0" }
@@ -1756,13 +1465,6 @@ pure has_random_key(opts: SortOptions) -> Bool {
 
 ## Random order compares an MD5 digest of the salt and the key, so equal keys get
 ## equal digests and stay adjacent for -u. Only the first key is hashed.
-pure random_sort_lines(lines: List[Str], opts: SortOptions, has_key: Bool, key_field: Int, salt: Bytes) -> List[Str] {
-  lines |> sort-by(desc: opts.reverse) { |line| {
-    digest: bytes.concat([salt, bytes.from_text(character_order_key(if has_key { key_field_value(line, sort_delimiter(opts), primary_key_spec(opts), opts) } else { line }, opts.dictionary, opts.ignore_nonprinting, opts.fold_case))]).md5().hex(),
-    raw: if opts.stable { "" } else { line },
-  }}
-}
-
 pure random_sort_records(records: List[SortRecord], opts: SortOptions, has_key: Bool, salt: Bytes) -> List[SortRecord] {
   records |> sort-by(desc: opts.reverse) { |record| {
     digest: {
@@ -1801,84 +1503,6 @@ proc random_salt(source: Str?) [fs, process, env, error] -> Bytes {
       gnu.error(f"{gnu.quote(name)}: {gnu.strerror(failure)}")
       exit 2
     }
-  }
-}
-
-pure sort_input_lines(input_lines: List[Str], opts: SortOptions, has_key: Bool, key_field: Int) -> List[Str] {
-  let human_numeric = is_human_numeric_sort(opts)
-  let general_numeric = is_general_numeric_sort(opts)
-  ## Removing identical records before sorting preserves all results and avoids costly duplicate work.
-  let unique_input = if opts.unique { input_lines |> unique-by . } else { input_lines }
-  if opts.merge {
-    unique_input
-  } else if has_key {
-    multiple_key_sort(unique_input, opts)
-  } else if is_month_sort(opts) {
-    if opts.reverse {
-      unique_input |> sort-by(desc: true) month_sort_key(., opts.stable or opts.unique, opts)
-    } else {
-      unique_input |> sort-by month_sort_key(., opts.stable or opts.unique, opts)
-    }
-  } else if human_numeric {
-    if opts.reverse {
-      unique_input |> sort-by(desc: true) human_numeric_sort_key(., opts.stable or opts.unique, opts)
-    } else {
-      unique_input |> sort-by human_numeric_sort_key(., opts.stable or opts.unique, opts)
-    }
-  } else if general_numeric {
-    if opts.reverse {
-      unique_input |> sort-by(desc: true) general_numeric_sort_key(., opts.stable or opts.unique, opts)
-    } else {
-      unique_input |> sort-by general_numeric_sort_key(., opts.stable or opts.unique, opts)
-    }
-  } else if is_version_sort(opts) {
-    # A descending sort reverses the order of equal keys, which --stable and --unique must keep in input order.
-    let ordered = if opts.reverse and (opts.stable or opts.unique) { reversed_lines(unique_input) } else { unique_input }
-    if opts.reverse {
-      ordered |> sort-by(desc: true) version_sort_key(., opts.stable or opts.unique)
-    } else {
-      ordered |> sort-by version_sort_key(., opts.stable or opts.unique)
-    }
-  } else if is_numeric_sort(opts) {
-    ## Keep the first spelling for each number before a reverse sort can reorder equal keys.
-    let numeric_lines = if opts.unique { unique_input |> unique-by numeric_sort_key(., true, opts) } else { unique_input }
-    if opts.reverse {
-      numeric_lines |> sort-by(desc: true) numeric_sort_key(., opts.stable or opts.unique, opts)
-    } else {
-      numeric_lines |> sort-by numeric_sort_key(., opts.stable or opts.unique, opts)
-    }
-  } else if opts.blank {
-    blank_sorted(unique_input, opts.reverse, opts)
-  } else if opts.fold_case or opts.dictionary or opts.ignore_nonprinting {
-    if opts.reverse {
-      unique_input |> sort-by(desc: true) { |line| {key: character_order_key(line, opts.dictionary, opts.ignore_nonprinting, opts.fold_case), raw: if opts.stable { "" } else { line }} }
-    } else {
-      unique_input |> sort-by { |line| {key: character_order_key(line, opts.dictionary, opts.ignore_nonprinting, opts.fold_case), raw: if opts.stable { "" } else { line }} }
-    }
-  } else if opts.reverse {
-    unique_input |> sort-by(desc: true) .
-  } else {
-    unique_input |> sort
-  }
-}
-
-pure unique_sorted_lines(sorted: List[Str], opts: SortOptions, has_key: Bool) -> List[Str] {
-  if opts.unique and has_key {
-    unique_key_lines(sorted, opts)
-  } else if opts.unique and is_month_sort(opts) {
-    sorted |> unique-by month_sort_key(., true, opts)
-  } else if opts.unique and is_human_numeric_sort(opts) {
-    sorted |> unique-by human_numeric_sort_key(., true, opts)
-  } else if opts.unique and is_general_numeric_sort(opts) {
-    sorted |> unique-by general_numeric_sort_key(., true, opts)
-  } else if opts.unique and is_version_sort(opts) {
-    sorted |> unique-by version_key(.)
-  } else if opts.unique and is_numeric_sort(opts) {
-    sorted |> unique-by numeric_sort_key(., true, opts)
-  } else if opts.unique {
-    sorted |> unique-by .
-  } else {
-    sorted
   }
 }
 
@@ -2330,29 +1954,9 @@ proc parse_buffer_size(value: Str) [fs, env, process, error] -> Int {
 }
 
 ## Flush an intermediate merge chunk so failed output stops further input reads.
-proc write_sort_stdout(text: Str) [io, env, process] -> Unit {
-  finish_sort_stdout(text, intermediate: true)
-}
-
 ## The runtime buffers stdout, so an intermediate chunk's flush still belongs
 ## to the write phase; only the final flush uses the fflush diagnostic. A closed
 ## reader ends the process with the SIGPIPE status and no diagnostic.
-proc finish_sort_stdout(text: Str, intermediate: Bool = false) [io, env, process] -> Unit {
-  if let Err(failure) = io.write_stdout(text) {
-    if gnu.errno(failure) == 32 { exit 141 }
-    gnu.error(f"write failed: 'standard output': {gnu.strerror(failure)}")
-    gnu.error("write error")
-    exit 2
-  }
-  if let Err(failure) = io.flush_stdout() {
-    if gnu.errno(failure) == 32 { exit 141 }
-    let action = if intermediate { "write failed" } else { "fflush failed" }
-    gnu.error(f"{action}: 'standard output': {gnu.strerror(failure)}")
-    gnu.error("write error")
-    exit 2
-  }
-}
-
 proc finish_sort_stdout_bytes(data: Bytes, intermediate: Bool = false) [io, env, process] -> Unit {
   if let Err(failure) = io.write_stdout_bytes(data) {
     if gnu.errno(failure) == 32 { exit 141 }
