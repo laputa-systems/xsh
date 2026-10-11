@@ -2490,7 +2490,7 @@ print ${name}
             &bundle,
             &workspace.sources,
             workspace.modules[&root].source_id,
-            CheckOptions::default(),
+            xsh::frontend::check::CheckOptions::default(),
         );
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         for key in reachable {
