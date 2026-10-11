@@ -69,7 +69,7 @@ pure caret_error(piece: Piece, offset: Int, message: Str, reported_line_shift: I
 
 # Escape processing shared by string literals, option values and operand
 # assignments. Unknown escapes keep the character and report a note.
-pure escaped(source: Bytes, start: Int, quote: Int) -> Result[Escaped] {
+pure escaped(source: Bytes, start: Int, quote: Int, hex_escapes: Bool) -> Result[Escaped] {
   var at = start
   var out: List[Int] = []
   var notes: List[Str] = []
@@ -91,6 +91,8 @@ pure escaped(source: Bytes, start: Int, quote: Int) -> Result[Escaped] {
         count += 1
       }
       out += [number % 256]
+    } else if next == 120 and ! hex_escapes {
+      out += [120]
     } else if next == 120 {
       var number = 0
       var count = 0
@@ -158,7 +160,14 @@ pure regex_body(source: Bytes, start: Int) -> Result[Body] {
   Ok({content: "", at: -1})
 }
 
-pure lex(piece: Piece) -> Result[Lexed] {
+# Names that mean nothing special under --traditional and --posix; they are
+# renamed behind a control character so that a program's variables and
+# functions of those names are ordinary ones.
+const GNU_VARIABLES = ["IGNORECASE", "FIELDWIDTHS", "FPAT", "RT", "ERRNO", "PROCINFO"]
+const GNU_FUNCTIONS = ["gensub", "asort", "asorti", "patsplit", "strtonum", "systime", "strftime", "mktime", "and", "or", "xor", "lshift", "rshift", "compl", "typeof", "isarray"]
+
+# mode: 0 for GNU awk's own dialect, 1 for --traditional, 2 for --posix.
+pure lex(piece: Piece, mode: Int) -> Result[Lexed] {
   let source = bytes.from_text(piece.text)
   var tokens: List[Token] = []
   var starts: List[Int] = []
@@ -177,7 +186,7 @@ pure lex(piece: Piece) -> Result[Lexed] {
     while counted < at { if source.byte_at(counted) == 10 { line += 1 }; counted += 1 }
     let start = at
     if byte == 34 {
-      let found = escaped(source, at + 1, byte)
+      let found = escaped(source, at + 1, byte, mode != 2)
       match found {
         Ok(text) => {
           for note in text.notes { notes += [f"{piece.label}:{line}: warning: {note}"] }
@@ -215,7 +224,7 @@ pure lex(piece: Piece) -> Result[Lexed] {
       operand = false
       continue
     }
-    if byte == 48 and (source.byte_at(at + 1) == 120 or source.byte_at(at + 1) == 88) and hex_digit(source.byte_at(at + 2) ?? 0) {
+    if mode == 0 and byte == 48 and (source.byte_at(at + 1) == 120 or source.byte_at(at + 1) == 88) and hex_digit(source.byte_at(at + 2) ?? 0) {
       let digits = at + 2
       at = digits
       while hex_digit(source.byte_at(at) ?? 0) { at += 1 }
@@ -244,7 +253,7 @@ pure lex(piece: Piece) -> Result[Lexed] {
       }
       let text = source[start..at].utf8()?
       var value = 0.0
-      if octal_literal(text) {
+      if mode == 0 and octal_literal(text) {
         for position in range(start, at) { value = value * 8.0 + digit_value(source.byte_at(position) ?? 48).float() }
       } else { value = (if text.ends_with(".") { text + "0" } else { text }).parse_float()? }
       tokens += [TokNumber(value)]
@@ -257,7 +266,9 @@ pure lex(piece: Piece) -> Result[Lexed] {
       at += 1
       while letter(source.byte_at(at) ?? 0) or digit(source.byte_at(at) ?? 0) { at += 1 }
       let word = source[start..at].utf8()?
-      tokens += [if source.byte_at(at) == 40 { TokCall(word) } else { TokWord(word) }]
+      var named = word
+      if mode != 0 and (word in GNU_VARIABLES or word in GNU_FUNCTIONS or (mode == 2 and word == "func")) { named = "\u{1}" + word }
+      tokens += [if source.byte_at(at) == 40 { TokCall(named) } else { TokWord(named) }]
       starts += [start]
       lines += [line]
       operand = word in ["print", "printf", "return", "exit", "in", "delete", "else", "do", "if", "while", "for"]
@@ -265,7 +276,7 @@ pure lex(piece: Piece) -> Result[Lexed] {
     }
     let pair = source.slice(at, length: if at + 1 < source.len() { 2 } else { 1 }).utf8() ?? "\u{1}"
     var op = pair
-    if pair in ["++", "--", "==", "!=", "<=", ">=", "&&", "||", "!~", "+=", "-=", "*=", "/=", "%=", "^=", ">>", "**", "|&"] {
+    if pair in ["++", "--", "==", "!=", "<=", ">=", "&&", "||", "!~", "+=", "-=", "*=", "/=", "%=", "^=", ">>", "|&"] or (pair == "**" and mode != 2) {
       at += 2
       if pair == "**" {
         if source.byte_at(at) == 61 { op = "^="; at += 1 } else { op = "^" }
@@ -891,8 +902,8 @@ pure statement_inner(parser: Parser) -> Result[Parsed[Int]] {
 
 # Parses one program piece into the shared program: functions, BEGIN and END
 # actions, and pattern-action rules.
-pure parse_piece(program: Program, piece: Piece, sandbox: Bool) -> Result[Parsed[Int]] {
-  let lexed = lex(piece)?
+pure parse_piece(program: Program, piece: Piece, sandbox: Bool, mode: Int) -> Result[Parsed[Int]] {
+  let lexed = lex(piece, mode)?
   var p = Parser(tokens: lexed.tokens, starts: lexed.starts, lines: lexed.lines, at: 0, program: program, printing: false, depth: 0, piece: piece, loops: 0, context: "", errors: [], sandbox: sandbox)
   for note in lexed.notes { p.program.notes += [note] }
   if TokWord("ENVIRON") in lexed.tokens { p.program.environ = true }
@@ -992,9 +1003,9 @@ pure parse_piece(program: Program, piece: Piece, sandbox: Bool) -> Result[Parsed
   Ok({parser: p, value: 0})
 }
 
-pure parse(pieces: List[Piece], sandbox: Bool) -> Result[Program] {
+pure parse(pieces: List[Piece], sandbox: Bool, mode: Int) -> Result[Program] {
   var program = Program(expressions: [], statements: [], site: [], begin: [], end: [], rules: [], functions: {}, notes: [], uses: [], environ: false, grouped: [])
-  for piece in pieces { program = parse_piece(program, piece, sandbox)?.parser.program }
+  for piece in pieces { program = parse_piece(program, piece, sandbox, mode)?.parser.program }
   var errors: List[Str] = []
   for seen in program.uses {
     if seen.name not in program.functions { continue }
@@ -2895,6 +2906,21 @@ pure field_separator(globals: Map[Scalar]) -> Result[Str] {
   }
   Ok(separator)
 }
+# The variable a -v or operand assignment sets: GNU-only names are ordinary
+# variables outside GNU awk's own dialect.
+pure assigned_name(name: Str, mode: Int) -> Str {
+  if mode != 0 and name in GNU_VARIABLES { "\u{1}" + name } else { name }
+}
+# Outside GNU awk's own dialect, setting these draws a one-time warning.
+pure extension_variable(name: Str) -> Bool { name == "\u{1}IGNORECASE" or name == "BINMODE" }
+# A name as the program wrote it.
+pure shown_name(name: Str) -> Str { if name.starts_with("\u{1}") { name.byte_slice(1) } else { name } }
+# The record separator; only its first character counts outside GNU awk's own dialect.
+pure record_separator(globals: Map[Scalar], mode: Int) -> Result[Str] {
+  let text = plain_text(globals.get("RS") ?? Empty)?
+  if mode != 0 and text.count_chars() > 1 { return Ok(text.split("")[0]) }
+  Ok(text)
+}
 pure fold_case(globals: Map[Scalar]) -> Bool {
   if "IGNORECASE" not in globals { return false }
   truth(globals.get("IGNORECASE") ?? Empty) ?? false
@@ -3587,7 +3613,7 @@ proc emit_stdout(text: Str, lossy: Bool) -> Result[Unit] {
 }
 
 # Runs a linked program over ARGV-selected input and returns the exit status.
-proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignments: List[Str], interactive: Bool) -> Result[Int] {
+proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignments: List[Str], interactive: Bool, mode: Int) -> Result[Int] {
   let ops = linked.ops
   let labels = linked.labels
   let entries = linked.entries
@@ -3610,14 +3636,20 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
     arrays = arrays.set("ENVIRON", grown_table(environment, first_name))
   }
   var assigned_mapped = false
+  var warned_extension = false
   var field_mode = 0
   for item in assignments {
     let equals = item.find("=") ?? 0
-    let decoded = escaped(bytes.from_text(item.byte_slice(equals + 1)), 0, -1)?
+    let variable = assigned_name(item.byte_slice(0, length: equals), mode)
+    let decoded = escaped(bytes.from_text(item.byte_slice(equals + 1)), 0, -1, mode != 2)?
     if holds_mapped_bytes(decoded.content) { assigned_mapped = true }
-    field_mode = field_mode_after(item.byte_slice(0, length: equals), input(decoded.content)?, field_mode)?
+    field_mode = field_mode_after(variable, input(decoded.content)?, field_mode)?
     for note in decoded.notes { warn_plain(note)? }
-    globals[item.byte_slice(0, length: equals)] = input(decoded.content)?
+    if mode != 0 and ! warned_extension and extension_variable(variable) {
+      warned_extension = true
+      warn_plain(f"`{shown_name(variable)}' is a gawk extension")?
+    }
+    globals[variable] = input(decoded.content)?
   }
   var fields: List[Scalar] = []
   var record = ""
@@ -3874,10 +3906,18 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
         OpStoreGlobal(name) => {
           if name in arrays { Err(fatal_error(f"attempt to use array `{name}' in a scalar context"))? }
           field_mode = field_mode_after(name, stack[sp - 1], field_mode)?
+          if mode != 0 and ! warned_extension and extension_variable(name) {
+            warned_extension = true
+            write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: `{shown_name(name)}' is a gawk extension\n"))?
+          }
           globals[name] = stack[sp - 1]
           sp -= 1
         }
         OpIncGlobal(name, delta) => {
+          if mode != 0 and ! warned_extension and extension_variable(name) {
+            warned_extension = true
+            write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: `{shown_name(name)}' is a gawk extension\n"))?
+          }
           if name in arrays { Err(fatal_error(f"attempt to use array `{name}' in a scalar context"))? }
           let current = globals.get(name) ?? Empty
           match current {
@@ -3946,7 +3986,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
         }
         OpForInEnd => { iterators = iterators[..iterators.len() - 1] }
         OpCall(name, kinds) => {
-          if name not in entries { Err(fatal_error(f"function `{name}' not defined"))? }
+          if name not in entries { Err(fatal_error(f"function `{shown_name(name)}' not defined"))? }
           let function = functions.get(name) ?? Function(parameters: [], body: 0, site: "")
           calls += 1
           # Arguments computed as values sit on the stack in order; names are
@@ -4031,7 +4071,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
         OpReadMain(offset) => {
           phase = 1
           let operands = arrays.get("ARGV") ?? empty_table()
-          let got = advance_main(main, stdin_reader, operands, integer(number(globals.get("ARGC") ?? Empty)?)?, plain_text(globals.get("RS") ?? Empty)?, fold_case(globals))?
+          let got = advance_main(main, stdin_reader, operands, integer(number(globals.get("ARGC") ?? Empty)?)?, record_separator(globals, mode)?, fold_case(globals))?
           main = got.state
           stdin_reader = got.stdin
           if got.state.reader.lossy or got.stdin.lossy { lossy = true }
@@ -4042,11 +4082,16 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           }
           for item in got.bindings {
             let equals = item.find("=") ?? 0
-            let decoded = escaped(bytes.from_text(item.byte_slice(equals + 1)), 0, -1)?
+            let decoded = escaped(bytes.from_text(item.byte_slice(equals + 1)), 0, -1, mode != 2)?
             if holds_mapped_bytes(decoded.content) { lossy = true }
             for note in decoded.notes { warn_plain(note)? }
-            field_mode = field_mode_after(item.byte_slice(0, length: equals), input(decoded.content)?, field_mode)?
-            globals[item.byte_slice(0, length: equals)] = input(decoded.content)?
+            let variable = assigned_name(item.byte_slice(0, length: equals), mode)
+            field_mode = field_mode_after(variable, input(decoded.content)?, field_mode)?
+            if mode != 0 and ! warned_extension and extension_variable(variable) {
+              warned_extension = true
+              warn_plain(f"`{shown_name(variable)}' is a gawk extension")?
+            }
+            globals[variable] = input(decoded.content)?
           }
           if got.record == null { pc += offset } else {
             globals["NR"] = Numeric(number(globals.get("NR") ?? Empty)? + 1.0)
@@ -4161,7 +4206,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           sp -= target.used
           phase = if phase == 0 { 0 } else { phase }
           let operands = arrays.get("ARGV") ?? empty_table()
-          let got = advance_main(main, stdin_reader, operands, integer(number(globals.get("ARGC") ?? Empty)?)?, plain_text(globals.get("RS") ?? Empty)?, fold_case(globals))?
+          let got = advance_main(main, stdin_reader, operands, integer(number(globals.get("ARGC") ?? Empty)?)?, record_separator(globals, mode)?, fold_case(globals))?
           main = got.state
           stdin_reader = got.stdin
           if got.state.reader.lossy or got.stdin.lossy { lossy = true }
@@ -4172,11 +4217,16 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           }
           for item in got.bindings {
             let equals = item.find("=") ?? 0
-            let decoded = escaped(bytes.from_text(item.byte_slice(equals + 1)), 0, -1)?
+            let decoded = escaped(bytes.from_text(item.byte_slice(equals + 1)), 0, -1, mode != 2)?
             if holds_mapped_bytes(decoded.content) { lossy = true }
             for note in decoded.notes { warn_plain(note)? }
-            field_mode = field_mode_after(item.byte_slice(0, length: equals), input(decoded.content)?, field_mode)?
-            globals[item.byte_slice(0, length: equals)] = input(decoded.content)?
+            let variable = assigned_name(item.byte_slice(0, length: equals), mode)
+            field_mode = field_mode_after(variable, input(decoded.content)?, field_mode)?
+            if mode != 0 and ! warned_extension and extension_variable(variable) {
+              warned_extension = true
+              warn_plain(f"`{shown_name(variable)}' is a gawk extension")?
+            }
+            globals[variable] = input(decoded.content)?
           }
           if got.record == null { result = Numeric(0.0) } else {
             globals["NR"] = Numeric(number(globals.get("NR") ?? Empty)? + 1.0)
@@ -4215,7 +4265,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             if usable { reader = readers.get(key) ?? no_reader() }
           }
           if usable {
-            match read_record(reader, plain_text(globals.get("RS") ?? Empty)?, fold_case(globals)) {
+            match read_record(reader, record_separator(globals, mode)?, fold_case(globals)) {
               Ok(got) => {
                 if got.reader.lossy { lossy = true }
                 if uses_stdin { stdin_reader = got.reader } else { readers[f"<{name}"] = got.reader }
@@ -4247,7 +4297,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             temporary = started.temporary
           }
           result = Numeric(-1.0)
-          match read_record(readers.get(key) ?? no_reader(), plain_text(globals.get("RS") ?? Empty)?, fold_case(globals)) {
+          match read_record(readers.get(key) ?? no_reader(), record_separator(globals, mode)?, fold_case(globals)) {
             Ok(got) => {
               if got.reader.lossy { lossy = true }
               readers[key] = got.reader
@@ -4447,7 +4497,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             }
             result = String(gensub(globals, scalar_text(values[0], conversion)?, scalar_text(values[1], conversion)?, values[2], target)?)
           } else {
-            Err(fatal_error(f"function `{name}' not defined"))?
+            Err(fatal_error(f"function `{shown_name(name)}' not defined"))?
           }
           produced = true
         }
@@ -4459,7 +4509,10 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             var size = -1
             match spots[0] {
               SpotGlobal(variable) => {
-                if variable in arrays { size = arrays[variable].cells.len() } else {
+                if variable in arrays {
+                  if mode == 2 { Err(fatal_error("length: received array argument"))? }
+                  size = arrays[variable].cells.len()
+                } else {
                   # Measuring an untyped global makes it a scalar for good, as in GNU awk.
                   if ! (variable in globals) { globals[variable] = Empty }
                   result = Numeric((scalar_text(globals.get(variable) ?? Empty, conversion)?).count_chars().float())
@@ -4467,7 +4520,10 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
               }
               SpotLocal(slot, variable) => {
                 if aliases[slot] != "" and slots[slot] == Empty {
-                  if aliases[slot] in arrays { size = arrays[aliases[slot]].cells.len() } else {
+                  if aliases[slot] in arrays {
+                    if mode == 2 { Err(fatal_error("length: received array argument"))? }
+                    size = arrays[aliases[slot]].cells.len()
+                  } else {
                     # Measuring an untyped parameter fixes the variable it was bound to as a scalar.
                     if ! (aliases[slot] in globals) { globals[aliases[slot]] = Empty }
                     size = 0
@@ -4659,7 +4715,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             }
             result = Numeric(matched.float())
           } else {
-            Err(fatal_error(f"function `{name}' not defined"))?
+            Err(fatal_error(f"function `{shown_name(name)}' not defined"))?
           }
           produced = true
         }
@@ -4673,6 +4729,10 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
         if pending == 1 {
           if pending_name in arrays { Err(fatal_error(f"attempt to use array `{pending_name}' in a scalar context"))? }
           field_mode = field_mode_after(pending_name, pending_value, field_mode)?
+          if mode != 0 and ! warned_extension and extension_variable(pending_name) {
+            warned_extension = true
+            write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: `{shown_name(pending_name)}' is a gawk extension\n"))?
+          }
           globals[pending_name] = pending_value
         } else if pending == 3 {
           if aliases[pending_slot] != "" and aliases[pending_slot] in arrays {
@@ -4741,8 +4801,8 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
 ## Parse and execute a program; the pieces are the command-line text or -f files
 ## in order, and variable items (name=value, escapes undecoded) are applied
 ## before BEGIN. Returns the exit status.
-export proc execute(pieces: List[Piece], arguments: List[Str], variables: List[Str] = [], sandbox: Bool = false) -> Result[Int, Error] {
-  let program = parse(pieces, sandbox)?
+export proc execute(pieces: List[Piece], arguments: List[Str], variables: List[Str] = [], sandbox: Bool = false, mode: Int = 0) -> Result[Int, Error] {
+  let program = parse(pieces, sandbox, mode)?
   for item in variables {
     let equals = item.find("=") ?? 0
     let name = item.byte_slice(0, length: equals)
@@ -4753,5 +4813,5 @@ export proc execute(pieces: List[Piece], arguments: List[Str], variables: List[S
   }
   for note in program.notes { write_all(2, bytes.from_text(f"awk: {note}\n"))? }
   let linked = link(program)?
-  run_machine(program, linked, arguments, variables, unix.isatty(1))
+  run_machine(program, linked, arguments, variables, unix.isatty(1), mode)
 }

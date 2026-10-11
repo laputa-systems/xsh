@@ -267,6 +267,11 @@ proc main(...args: List[Str]) [fs, process, env, error, io, time] {
       }
     }
   }
+  # --posix and --traditional narrow the language; --posix wins when both are given.
+  var mode = 0
+  for entry in seen {
+    if entry.name == "posix" { mode = 2 } else if entry.name == "traditional" and mode == 0 { mode = 1 }
+  }
   for entry in seen {
     let option = entry.name
     let given = entry.value ?? ""
@@ -305,7 +310,8 @@ proc main(...args: List[Str]) [fs, process, env, error, io, time] {
       if ! interpreter.binding_name(name) { eprint f"awk: fatal: `{name}' is not a legal variable name"; exit 2 }
       settings.assignments += [given]
     } else if option == "field-separator" {
-      settings.assignments += [f"FS={given}"]
+      # Traditional awk reads -F t as a tab.
+      settings.assignments += [if mode == 1 and given == "t" { "FS=\t" } else { f"FS={given}" }]
     } else if option == "sandbox" { settings.sandbox = true } else if option == "bignum" {
       eprint "awk: warning: -M ignored: MPFR/GMP support not compiled in"
     } else if option in ["traditional", "posix", "re-interval", "no-optimize", "optimize", "lint", "lint-old", "use-lc-numeric"] {
@@ -331,7 +337,7 @@ proc main(...args: List[Str]) [fs, process, env, error, io, time] {
     index += 1
   }
   let operands = args[index..]
-  match interpreter.execute(settings.pieces, operands, settings.assignments, settings.sandbox) {
+  match interpreter.execute(settings.pieces, operands, settings.assignments, settings.sandbox, mode) {
     Ok(status) => { exit status }
     Err(interpreter.AwkError.Syntax {message}) => {
       let _ = io.write_stderr(f"awk: {message}\n")

@@ -382,3 +382,4 @@ test test_awk_matrix_regexp_syntax_first_half { |ctx| check_matrix(ctx, ["regexp
 test test_awk_matrix_regexp_syntax_second_half { |ctx| check_matrix(ctx, ["regexp_syntax_2", "regexp_syntax_3", "regexp_syntax_4", "regexp_syntax_5", "regexp_syntax_6", "regexp_syntax_7", "regexp_syntax_8", "regexp_syntax_9"]) }
 test test_awk_matrix_gnu_variables_and_field_modes { |ctx| check_matrix(ctx, ["gnu_"]) }
 test test_awk_matrix_program_files_and_includes { |ctx| check_matrix(ctx, ["include_", "option_"]) }
+test test_awk_matrix_dialect_options { |ctx| check_matrix(ctx, ["mode_"]) }
