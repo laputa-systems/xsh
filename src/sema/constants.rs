@@ -1,6 +1,7 @@
 use crate::diagnostic::DiagnosticCode;
 use crate::map_key::MapKey;
 use crate::sema::records::standard_record_type;
+use crate::sema::check::BundleView;
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
 use crate::symbol::{Name, Symbol};
 use crate::syntax::arena::{
@@ -473,9 +474,14 @@ impl RecordConstructors {
     }
 
     pub fn collect(program: &ArenaProgram) -> Self {
+        Self::collect_bundle(&BundleView::whole_program(program))
+    }
+
+    pub(super) fn collect_bundle(view: &BundleView<'_>) -> Self {
+        let program = view.program;
         let mut index = Self::default();
         index.declare_scope(program, None, program.statement_ids().collect());
-        for module in &program.modules {
+        for module in view.modules.iter().copied() {
             index.declare_scope(
                 program,
                 Some(module.name),
@@ -483,7 +489,7 @@ impl RecordConstructors {
             );
         }
         index.collect_scope(program, None, program.statement_ids().collect());
-        for module in &program.modules {
+        for module in view.modules.iter().copied() {
             index.collect_scope(
                 program,
                 Some(module.name),
@@ -558,13 +564,22 @@ impl RecordConstructors {
         program: &ArenaProgram,
         prepared: &PreparedConstants,
     ) {
+        self.apply_prepared_defaults_bundle(&BundleView::whole_program(program), prepared);
+    }
+
+    pub(super) fn apply_prepared_defaults_bundle(
+        &mut self,
+        view: &BundleView<'_>,
+        prepared: &PreparedConstants,
+    ) {
+        let program = view.program;
         self.collect_scope_prepared(
             program,
             None,
             program.statement_ids().collect(),
             Some(prepared),
         );
-        for module in &program.modules {
+        for module in view.modules.iter().copied() {
             self.collect_scope_prepared(
                 program,
                 Some(module.name),
@@ -1774,7 +1789,8 @@ mod instance_tests {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty());
         parsed.arena.symbol_owner().with_current(|| {
-            let index = RecordConstructors::collect(&parsed.arena);
+            let view = BundleView::new(&parsed.arena, None, Some(SourceId::new(0)));
+            let index = RecordConstructors::collect_bundle(&view);
             let definition = index.definition(None, Name::intern("Box")).unwrap();
             let mut constraints = super::super::constraints::TypeConstraints::default();
             let span = crate::source::Span::new(SourceId::new(0), 0, source.len());
@@ -1825,7 +1841,8 @@ mod instance_tests {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty());
         parsed.arena.symbol_owner().with_current(|| {
-            let index = RecordConstructors::collect(&parsed.arena);
+            let view = BundleView::new(&parsed.arena, None, Some(SourceId::new(0)));
+            let index = RecordConstructors::collect_bundle(&view);
             let definition = |name: &str| index.definition(None, Name::intern(name)).unwrap();
             let count = index
                 .resolve_definition_checked(&parsed.arena.arena, definition("Count"))
@@ -1965,9 +1982,10 @@ mod prepared_constant_tests {
             assert!(root.diagnostics.is_empty());
             let program = builder.finish_with_statements(root.statements);
             program.symbol_owner().with_current(|| {
-                let constructors = RecordConstructors::collect(&program);
+                let view = BundleView::new(&program, None, Some(SourceId::new(1)));
+                let constructors = RecordConstructors::collect_bundle(&view);
                 let bindings = crate::sema::check::ResolvedBindings::collect(&program);
-                let prepared = PreparedConstants::collect(&program, &constructors, &bindings);
+                let prepared = PreparedConstants::collect_bundle(&view, &constructors, &bindings);
                 assert!(
                     prepared.diagnostics.is_empty(),
                     "{:?}",
@@ -2004,14 +2022,84 @@ mod prepared_constant_tests {
         );
         assert!(parsed.diagnostics.is_empty());
         parsed.arena.symbol_owner().with_current(|| {
-            let constructors = RecordConstructors::collect(&parsed.arena);
+            let view = BundleView::new(&parsed.arena, None, Some(SourceId::new(0)));
+            let constructors = RecordConstructors::collect_bundle(&view);
             let bindings = crate::sema::check::ResolvedBindings::collect(&parsed.arena);
-            let prepared = PreparedConstants::collect(&parsed.arena, &constructors, &bindings);
+            let prepared = PreparedConstants::collect_bundle(&view, &constructors, &bindings);
             assert_eq!(prepared.diagnostics.len(), 1);
             assert_eq!(
                 prepared.diagnostics[0].code,
                 Some(DiagnosticCode::CheckConst)
             );
+        });
+    }
+
+    #[test]
+    fn prepared_constants_follow_resolved_imports_in_shared_arena() {
+        use crate::syntax::arena::ArenaProgramBuilder;
+        use crate::syntax::parser::Parser;
+
+        let mut builder = ArenaProgramBuilder::with_token_capacity(256);
+        for (source_id, key, name, source) in [
+            (0, "unrelated", "unrelated", "const bad = 1 / 0\n"),
+            (3, "leaf", "leaf", "const bad = 1 / 0\n"),
+        ] {
+            let parsed = Parser::parse_source_into_arena_builder(
+                SourceId::new(source_id),
+                source,
+                &mut builder,
+            );
+            assert!(parsed.diagnostics.is_empty());
+            let module_name = builder.symbol_owner().intern(name);
+            builder.push_arena_module(
+                key.to_string(),
+                module_name,
+                parsed.statements,
+            );
+        }
+        let middle = Parser::parse_source_into_arena_builder(
+            SourceId::new(2),
+            "use leaf\n",
+            &mut builder,
+        );
+        assert!(middle.diagnostics.is_empty());
+        for statement in builder.statement_ids(middle.statements) {
+            if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
+                builder.set_use_resolved(use_id, Arc::from("leaf"));
+            }
+        }
+        let middle_name = builder.symbol_owner().intern("middle");
+        builder.push_arena_module(
+            "middle".to_string(),
+            middle_name,
+            middle.statements,
+        );
+        let root = Parser::parse_source_into_arena_builder(
+            SourceId::new(1),
+            "use middle\n",
+            &mut builder,
+        );
+        assert!(root.diagnostics.is_empty());
+        for statement in builder.statement_ids(root.statements) {
+            if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
+                builder.set_use_resolved(use_id, Arc::from("middle"));
+            }
+        }
+        let program = builder.finish_with_statements(root.statements);
+        program.symbol_owner().with_current(|| {
+            let view = BundleView::new(&program, None, Some(SourceId::new(1)));
+            assert_eq!(
+                view.modules
+                    .iter()
+                    .map(|module| module.key.as_str())
+                    .collect::<Vec<_>>(),
+                ["leaf", "middle"]
+            );
+            let constructors = RecordConstructors::collect_bundle(&view);
+            let bindings = crate::sema::check::ResolvedBindings::collect(&program);
+            let prepared = PreparedConstants::collect_bundle(&view, &constructors, &bindings);
+            assert_eq!(prepared.diagnostics.len(), 1);
+            assert_eq!(prepared.diagnostics[0].labels[0].span.source_id, SourceId::new(3));
         });
     }
 }
@@ -2244,10 +2332,23 @@ impl PreparedConstants {
         constructors: &RecordConstructors,
         bindings: &crate::sema::check::ResolvedBindings,
     ) -> Self {
+        Self::collect_bundle(
+            &BundleView::whole_program(program),
+            constructors,
+            bindings,
+        )
+    }
+
+    pub(super) fn collect_bundle(
+        view: &BundleView<'_>,
+        constructors: &RecordConstructors,
+        bindings: &crate::sema::check::ResolvedBindings,
+    ) -> Self {
+        let program = view.program;
         let arena = &program.arena;
         let mut statements = bindings.declarations.values().filter_map(|declaration| {
             if let crate::sema::check::BindingKind::Constant(statement) = declaration.kind {
-                Some(statement)
+                view.contains_source(arena.stmt(statement).span.source_id).then_some(statement)
             } else { None }
         }).collect::<Vec<_>>();
         statements.sort_unstable();
@@ -2270,7 +2371,8 @@ impl PreparedConstants {
             }
         }
         let mut references = bindings.expression_namespaces.keys().copied().filter(|&id| {
-            matches!(arena.expr(id).kind, ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. })
+            view.contains_source(arena.expr(id).span.source_id)
+                && matches!(arena.expr(id).kind, ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. })
         }).collect::<Vec<_>>();
         references.sort_unstable();
         for id in references {
@@ -2281,7 +2383,8 @@ impl PreparedConstants {
             }
         }
         for (&statement, &binding) in &bindings.tails {
-            if let Some(declaration) = bindings.constant(binding)
+            if view.contains_source(arena.stmt(statement).span.source_id)
+                && let Some(declaration) = bindings.constant(binding)
                 && let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(expr), .. } = arena.stmt(declaration).kind
                 && preparation.prepared.values.contains_key(&expr)
             {
@@ -2290,6 +2393,7 @@ impl PreparedConstants {
         }
         for (&id, declaration) in &bindings.declarations {
             if let Some(statement) = bindings.constant(id)
+                && view.contains_source(arena.stmt(statement).span.source_id)
                 && let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(expr), .. } = arena.stmt(statement).kind
             {
                 preparation.prepared.binding_values.insert(id, expr);
@@ -2298,7 +2402,7 @@ impl PreparedConstants {
                 }
             }
         }
-        preparation.prepared.cli_wire_enums = crate::sema::wire_enums::PreparedWireEnums::prepare(program,
+        preparation.prepared.cli_wire_enums = crate::sema::wire_enums::PreparedWireEnums::prepare_bundle(view,
             |expr| preparation.prepared.analyze_expression(arena, expr)).0;
         preparation.prepared.types.retain(|_, ty| !ty.contains_inference());
         preparation.prepared

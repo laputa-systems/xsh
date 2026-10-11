@@ -1,4 +1,4 @@
-use super::{BTreeMap, BTreeSet, Checker, Diagnostic, Label, Span, Type};
+use super::{BTreeMap, BTreeSet, BundleView, Checker, Diagnostic, Label, Span, Type};
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
     ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaFunctionDef, ArenaProgram,
@@ -218,9 +218,13 @@ impl Checker {
         self.local_inference.nonmaterial_expressions.contains(&span)
     }
 
-    pub(super) fn prepare_local_inference(&mut self, program: &ArenaProgram) {
+    pub(super) fn prepare_local_inference(&mut self, view: &BundleView<'_>) {
+        let program = view.program;
         for index in 0..program.arena.stmt_tags.len() {
             let statement = program.arena.stmt(StmtId::from_index(index));
+            if !view.contains_source(statement.span.source_id) {
+                continue;
+            }
             let (target, annotation, initializer, mutable) = match statement.kind {
                 ArenaStmtKind::Let {
                     target,

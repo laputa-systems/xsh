@@ -1,7 +1,8 @@
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Label};
+use crate::sema::check::BundleView;
 use crate::sema::constants::LiteralConstant;
 use crate::symbol::Name;
-use crate::syntax::arena::{ArenaProgram, ArenaStmtKind, ArenaTypeDefBody, ExprId};
+use crate::syntax::arena::{ArenaProgram, ArenaStmtKind, ArenaTypeDefBody, ArenaUserModule, ExprId};
 use rustc_hash::FxHashMap;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -49,13 +50,25 @@ impl PreparedWireEnums {
         program: &ArenaProgram,
         analyze: impl Fn(ExprId) -> Option<LiteralConstant>,
     ) -> (Self, Vec<Diagnostic>) {
+        Self::prepare_scopes(program, program.modules.iter(), analyze)
+    }
+
+    pub(super) fn prepare_bundle(
+        view: &BundleView<'_>,
+        analyze: impl Fn(ExprId) -> Option<LiteralConstant>,
+    ) -> (Self, Vec<Diagnostic>) {
+        Self::prepare_scopes(view.program, view.modules.iter().copied(), analyze)
+    }
+
+    fn prepare_scopes<'a>(
+        program: &ArenaProgram,
+        modules: impl Iterator<Item = &'a ArenaUserModule>,
+        analyze: impl Fn(ExprId) -> Option<LiteralConstant>,
+    ) -> (Self, Vec<Diagnostic>) {
         let mut prepared = Self::default();
         let mut diagnostics = Vec::new();
-        let scopes = std::iter::once((
-            program.root_nominal_namespace,
-            program.statement_ids().collect::<Vec<_>>(),
-        ))
-        .chain(program.modules.iter().map(|module| {
+        let scopes = std::iter::once((program.root_nominal_namespace, program.statement_ids().collect::<Vec<_>>()))
+        .chain(modules.map(|module| {
             (
                 Some(module.name),
                 program.module_statements(module).collect(),

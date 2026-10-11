@@ -1,4 +1,7 @@
-use super::{AnnotationFact, AnnotationFactKind, Checker, FxHashMap, FxHashSet, Name, Span, Type};
+use super::{
+    AnnotationFact, AnnotationFactKind, BundleView, Checker, FxHashMap, FxHashSet, Name, Span,
+    Type,
+};
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
     ArenaBindingTargetKind, ArenaCompQualifier, ArenaExprKind, ArenaPatternKind, ArenaProgram,
@@ -27,7 +30,8 @@ pub(super) struct ReturnInferenceIndex {
 }
 
 impl ReturnInferenceIndex {
-    fn collect(program: &ArenaProgram) -> Self {
+    pub(super) fn collect(view: &BundleView<'_>) -> Self {
+        let program = view.program;
         let mut shadows: FxHashMap<Name, Vec<Span>> = FxHashMap::default();
         let mut add_shadow = |target, span| {
             for name in binding_names(program, target) {
@@ -36,6 +40,9 @@ impl ReturnInferenceIndex {
         };
         for block in &program.arena.blocks {
             let block_span = program.arena.span(block.span);
+            if !view.contains_source(block_span.source_id) {
+                continue;
+            }
             for id in program.arena.stmt_ids(block.statements) {
                 let stmt = program.arena.stmt(program.arena.core_stmt_id(id));
                 match stmt.kind {
@@ -58,12 +65,19 @@ impl ReturnInferenceIndex {
         drop(add_shadow);
         for block in &program.arena.blocks {
             let span = program.arena.span(block.span);
+            if !view.contains_source(span.source_id) {
+                continue;
+            }
             for param in program.arena.block_params(block.params) {
                 shadows.entry(param.name).or_default().push(span);
             }
         }
         for raw in 0..program.arena.stmt_tags.len() {
-            match program.arena.stmt(StmtId::from_index(raw)).kind {
+            let statement = program.arena.stmt(StmtId::from_index(raw));
+            if !view.contains_source(statement.span.source_id) {
+                continue;
+            }
+            match statement.kind {
                 ArenaStmtKind::Match { arms, .. } => {
                     for arm in program.arena.match_arms(arms) {
                         let span = program.arena.span(arm.span);
@@ -97,6 +111,9 @@ impl ReturnInferenceIndex {
         }
         for raw in 0..program.arena.expr_tags.len() {
             let expr = program.arena.expr(ExprId::from_index(raw));
+            if !view.contains_source(expr.span.source_id) {
+                continue;
+            }
             match expr.kind {
                 ArenaExprKind::Match { arms, .. } => {
                     for arm in program.arena.match_expr_arms(arms) {
@@ -157,8 +174,9 @@ impl ReturnInferenceIndex {
         }
         let mut callees = FxHashSet::default();
         for raw in 0..program.arena.expr_tags.len() {
-            if let ArenaExprKind::Call { callee, .. } =
-                program.arena.expr(ExprId::from_index(raw)).kind
+            let expr = program.arena.expr(ExprId::from_index(raw));
+            if view.contains_source(expr.span.source_id)
+                && let ArenaExprKind::Call { callee, .. } = expr.kind
             {
                 callees.insert(callee);
             }
@@ -172,6 +190,9 @@ impl ReturnInferenceIndex {
             .filter_map(|field| match field.kind {
                 ArenaRecordFieldKind::Path { path, span, .. } => {
                     let span = program.arena.span(span);
+                    if !view.contains_source(span.source_id) {
+                        return None;
+                    }
                     program
                         .arena
                         .names(path)
@@ -180,6 +201,9 @@ impl ReturnInferenceIndex {
                 }
                 ArenaRecordFieldKind::Named { name, span, .. } => {
                     let span = program.arena.span(span);
+                    if !view.contains_source(span.source_id) {
+                        return None;
+                    }
                     Some((span.source_id, span.start(), name))
                 }
                 _ => None,
@@ -189,7 +213,8 @@ impl ReturnInferenceIndex {
         for raw in 0..program.arena.expr_tags.len() {
             let id = ExprId::from_index(raw);
             let expr = program.arena.expr(id);
-            if let ArenaExprKind::Ident(name) = expr.kind
+            if view.contains_source(expr.span.source_id)
+                && let ArenaExprKind::Ident(name) = expr.kind
                 && !record_keys.contains(&(expr.span.source_id, expr.span.start(), name))
             {
                 references.push((expr.span, name, callees.contains(&id)));
@@ -204,7 +229,9 @@ impl ReturnInferenceIndex {
         }
         for raw in 0..program.arena.stmt_tags.len() {
             let stmt = program.arena.stmt(StmtId::from_index(raw));
-            if let ArenaStmtKind::TailBareIdent(name) = stmt.kind {
+            if view.contains_source(stmt.span.source_id)
+                && let ArenaStmtKind::TailBareIdent(name) = stmt.kind
+            {
                 references.push((stmt.span, name, false));
             }
         }
@@ -224,10 +251,11 @@ impl Checker {
     /// their bodies are still checked in source order with the inferred return.
     pub(super) fn infer_local_pure_returns(
         &mut self,
-        program: &ArenaProgram,
+        view: &BundleView<'_>,
         source: &str,
         statements: &[StmtId],
     ) {
+        let program = view.program;
         let mut declarations = Vec::new();
         for &statement in statements {
             let (statement, exported) = match program.arena.stmt(statement).kind {
@@ -295,7 +323,7 @@ impl Checker {
         let index = match &self.return_inference_index {
             Some(index) => index.clone(),
             None => {
-                let index = std::sync::Arc::new(ReturnInferenceIndex::collect(program));
+                let index = std::sync::Arc::new(ReturnInferenceIndex::collect(view));
                 self.return_inference_index = Some(index.clone());
                 index
             }

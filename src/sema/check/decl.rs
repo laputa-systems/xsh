@@ -1,7 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
 use super::{
-    BTreeMap, Checker, CheckedFunctionKind, CoreCommand, ErrorFamilyInfo, ErrorVariantInfo, FxHashSet, Name,
+    BTreeMap, BundleView, Checker, CheckedFunctionKind, CoreCommand, ErrorFamilyInfo, ErrorVariantInfo, FxHashSet, Name,
     QualifiedName, Span, TagVariantInfo, Type, TypeAnnRef, TypeDefBody, UserModuleSig, api_spec,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Label};
@@ -21,12 +21,13 @@ use std::sync::Arc;
 impl Checker {
     pub(super) fn collect_user_modules_arena(
         &mut self,
-        program: &ArenaProgram,
+        view: &BundleView<'_>,
         type_program: Arc<ArenaProgram>,
         source: &str,
-        sources: Option<&SourceMap>,
     ) {
-        for module in &program.modules {
+        let program = view.program;
+        let sources = view.sources;
+        for module in view.modules.iter().copied() {
             let source = sources.map_or(source, |sources| {
                 module_source_text(program, module, sources)
             });
@@ -38,7 +39,12 @@ impl Checker {
                     };
                     matches!(kind, ArenaStmtKind::PureDef(id) if program.arena.function_def(id).return_ty_defaulted)
                 }) {
-                    self.check_user_module_arena(program, type_program.clone(), source, module);
+                    self.check_user_module_arena(
+                        view,
+                        type_program.clone(),
+                        source,
+                        module,
+                    );
                 }
                 // Embedded implementations are not user modules: they have no
                 // `use` path, no module contract, and no public documentation
@@ -46,7 +52,12 @@ impl Checker {
                 // them and validated against the registry by `script_impls`.
                 continue;
             }
-            let sig = self.check_user_module_arena(program, type_program.clone(), source, module);
+            let sig = self.check_user_module_arena(
+                view,
+                type_program.clone(),
+                source,
+                module,
+            );
             Arc::make_mut(&mut self.user_modules).insert(module.key.clone(), sig);
         }
     }
@@ -325,12 +336,13 @@ impl Checker {
 
     pub(super) fn check_user_module_arena(
         &mut self,
-        program: &ArenaProgram,
+        view: &BundleView<'_>,
         type_program: Arc<ArenaProgram>,
         source: &str,
         module: &ArenaUserModule,
     ) -> UserModuleSig {
-        self.prepare_local_inference(program);
+        let program = view.program;
+        self.prepare_local_inference(view);
         let saved_procs = self.procs.clone();
         let saved_pures = self.pures.clone();
         let saved_streams = self.streams.clone();
@@ -474,7 +486,7 @@ impl Checker {
             }
         }
         self.infer_default_parameter_types(program, source, &stmt_ids);
-        self.infer_local_pure_returns(program, source, &stmt_ids);
+        self.infer_local_pure_returns(view, source, &stmt_ids);
         self.infer_default_parameter_types(program, source, &stmt_ids);
         let mut exports = UserModuleSig::default();
         for stmt_id in &stmt_ids {

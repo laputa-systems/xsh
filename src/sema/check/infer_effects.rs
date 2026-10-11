@@ -1,4 +1,4 @@
-use super::{BTreeMap, Effect, Name, Span};
+use super::{BTreeMap, BundleView, Effect, Name, Span};
 use crate::diagnostic::DiagnosticCode;
 
 /// A declaring module distinguishes separately parsed arenas whose local spans
@@ -301,17 +301,21 @@ impl Checker {
 
     pub(super) fn prepare_effect_declarations(
         &mut self,
-        program: &ArenaProgram,
+        view: &BundleView<'_>,
         namespace: Option<Name>,
     ) {
+        let program = view.program;
         let mut namespaces = super::FxHashMap::default();
-        for module in &program.modules {
+        for module in view.modules.iter().copied() {
             for statement in program.arena.stmt_ids(module.statements) {
                 namespaces.insert(program.arena.stmt(statement).span.source_id, module.name);
             }
         }
         for raw in 0..program.arena.stmt_tags.len() {
             let statement = program.arena.stmt(StmtId::from_index(raw));
+            if !view.contains_source(statement.span.source_id) {
+                continue;
+            }
             let definition = match statement.kind {
                 ArenaStmtKind::ProcDef(definition)
                 | ArenaStmtKind::StreamDef(definition)
