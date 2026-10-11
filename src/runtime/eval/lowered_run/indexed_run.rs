@@ -782,7 +782,8 @@ pub(super) fn indexed_frame_apply_child(
     span: Span,
 ) -> Result<Option<FrameApplyChild>, RuntimeError> {
     let child = match view {
-        ExprView::FunctionRef { .. } | ExprView::EmptyMap => None,
+        ExprView::FunctionRef { .. } | ExprView::EmptyMap
+        | ExprView::Glob { .. } | ExprView::LastStatus { .. } => None,
         ExprView::PathFrom { value, span } => {
             indexed_frame_apply_child_from_fields([(Some((value.raw(), None)))], position, *span)
         }
