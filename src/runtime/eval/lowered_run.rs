@@ -6227,7 +6227,7 @@ impl Evaluator {
             }
             RuntimeOp::HashDigestStdin if (1..=2).contains(&values.len()) => {
                 if let Err(error) = crate::startup_stdio::check(0) {
-                    return Ok(lowered_result_err_value(RuntimeError::host("hash-digest-stdin", &error).with_span(span)));
+                    return Ok(ControlFlow::Continue(lowered_result_err_value(RuntimeError::host("hash-digest-stdin", &error).with_span(span))));
                 }
                 let algorithm = lowered_str_arg_owned(values.get(0).cloned(), "", "hash.digest_stdin", span)?;
                 let length = lowered_int_arg_or(values.get(1).cloned(), 0, "hash.digest_stdin", span)?;
@@ -6240,7 +6240,7 @@ impl Evaluator {
             }
             RuntimeOp::HashChecksumStdin if values.len() == 1 => {
                 if let Err(error) = crate::startup_stdio::check(0) {
-                    return Ok(lowered_result_err_value(RuntimeError::host("hash-checksum-stdin", &error).with_span(span)));
+                    return Ok(ControlFlow::Continue(lowered_result_err_value(RuntimeError::host("hash-checksum-stdin", &error).with_span(span))));
                 }
                 let algorithm = lowered_str_arg_owned(values.get(0).cloned(), "", "hash.checksum_stdin", span)?;
                 lowered_runtime_result(hash_module::checksum_reader(&algorithm, &mut std::io::stdin().lock(), span), span)?
