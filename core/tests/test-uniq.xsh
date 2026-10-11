@@ -94,7 +94,7 @@ test test_uniq_obsolete_numeric_options { |ctx|
 
   let invalid = uniq_run(ctx, root, ["-5q"], b"a\n")?
   assert invalid.status == 1
-  assert invalid.stderr == "uniq: error: unexpected argument '-q' found\nTry 'uniq --help' for more information.\n", invalid.stderr
+  assert invalid.stderr == "uniq: invalid option -- 'q'\nTry 'uniq --help' for more information.\n", invalid.stderr
 }
 
 test test_uniq_zero_terminated { |ctx|

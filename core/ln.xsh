@@ -120,8 +120,8 @@ proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
   }
   if opts.verbose {
     let arrow = if opts.symbolic { "->" } else { "=>" }
-    let tail = if saved != null { f" (backup: {gnu.quote_bytes(saved.bytes())})" } else { "" }
-    print f"{gnu.quote_bytes(target.bytes())} {arrow} {gnu.quote_bytes(linked_source.bytes())}{tail}"
+    let prefix = if saved != null { f"{gnu.quote_bytes(saved.bytes())} ~ " } else { "" }
+    print f"{prefix}{gnu.quote_bytes(target.bytes())} {arrow} {gnu.quote_bytes(linked_source.bytes())}"
   }
   true
 }

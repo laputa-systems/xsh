@@ -48,6 +48,7 @@ pub mod process;
 pub(crate) mod project;
 pub(crate) mod runner;
 pub(crate) mod runtime;
+mod startup_stdio;
 /// Tooling-only runtime allocation accounting used by `xsht runtime-stats`.
 pub mod runtime_stats;
 pub(crate) mod sema;

@@ -426,8 +426,12 @@ pub(crate) fn shutdown_process_groups_native(
     })
 }
 
-pub(crate) fn exec(invocation: &ProcessInvocation, span: Span) -> Result<Value, RuntimeError> {
-    let mut command = match command_from_invocation(invocation, span) {
+pub(crate) fn exec(
+    invocation: &ProcessInvocation,
+    cwd: Option<&Path>,
+    span: Span,
+) -> Result<Value, RuntimeError> {
+    let mut command = match command_from_invocation_cwd(invocation, cwd, span) {
         Ok(command) => command,
         Err(error) => return Ok(Value::err(Value::Error(Box::new(error)))),
     };
@@ -441,6 +445,7 @@ pub(crate) fn exec(invocation: &ProcessInvocation, span: Span) -> Result<Value, 
 
 pub(crate) fn exec_env(
     invocation: &ProcessInvocation,
+    cwd: Option<&Path>,
     argv0: Option<&str>,
     block_signals: &[i32],
     span: Span,
@@ -453,7 +458,7 @@ pub(crate) fn exec_env(
             "unix-exec-env", "invalid environment key, value, or argv0",
         ).with_span(span)))));
     }
-    let mut command = match command_from_invocation(invocation, span) {
+    let mut command = match command_from_invocation_cwd(invocation, cwd, span) {
         Ok(command) => command,
         Err(error) => return Ok(Value::err(Value::Error(Box::new(error)))),
     };
@@ -535,6 +540,7 @@ fn exec_redirections(
             input = Some(file);
         }
     }
+    crate::runtime::process::inherit_standard_streams(command, 7, &redirections);
     apply_redirections(command, &redirections).map_err(map_error)?;
     drop(input);
     Ok(())
@@ -1041,6 +1047,16 @@ fn command_from_invocation(
     invocation: &ProcessInvocation,
     span: Span,
 ) -> Result<Command, RuntimeError> {
+    command_from_invocation_cwd(invocation, Some(&invocation.cwd), span)
+}
+
+// An inherited directory is already held by the kernel. Re-entering its
+// pathname can fail after its permissions change or the directory is removed.
+fn command_from_invocation_cwd(
+    invocation: &ProcessInvocation,
+    cwd: Option<&Path>,
+    span: Span,
+) -> Result<Command, RuntimeError> {
     let executable = resolve_executable(invocation)
         .map_err(|error| RuntimeError::new(error.kind, error.message).with_span(span))?;
     let mut command = Command::new(executable);
@@ -1050,8 +1066,10 @@ fn command_from_invocation(
                 .argv
                 .iter()
                 .map(|arg| OsString::from_vec(arg.clone())),
-        )
-        .current_dir(&invocation.cwd);
+        );
+    if let Some(cwd) = cwd {
+        command.current_dir(cwd);
+    }
     command.env_clear();
     for (name, value) in &invocation.env {
         command.env(os_string_from_bytes(name), os_string_from_bytes(value));
@@ -1537,8 +1555,8 @@ fn fadvise_native(
     Err(RuntimeError::host("unix-fadvise", &io::Error::from_raw_os_error(libc::ENOSYS)).with_span(span))
 }
 
-pub(crate) fn seek_fd(fd: i64, offset: i64, span: Span) -> Result<Value, RuntimeError> {
-    match seek_fd_native(fd, offset, span) {
+pub(crate) fn seek_fd(fd: i64, offset: i64, whence: &str, span: Span) -> Result<Value, RuntimeError> {
+    match seek_fd_native(fd, offset, whence, span) {
         Ok(position) => Ok(Value::ok(Value::Int(position))),
         Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
     }
@@ -1556,6 +1574,12 @@ pub(crate) fn cpu_features() -> Value {
         }
         if std::arch::is_x86_feature_detected!("avx2") {
             features.push(Value::Str("avx2".into()));
+        }
+        if std::arch::is_x86_feature_detected!("avx") {
+            features.push(Value::Str("avx".into()));
+        }
+        if std::arch::is_x86_feature_detected!("vpclmulqdq") {
+            features.push(Value::Str("vpclmulqdq".into()));
         }
         if std::arch::is_x86_feature_detected!("pclmulqdq") {
             features.push(Value::Str("pclmul".into()));
@@ -1642,18 +1666,26 @@ fn write_fd_native(fd: i64, data: &[u8], span: Span) -> Result<usize, RuntimeErr
     }
 }
 
-fn seek_fd_native(fd: i64, offset: i64, span: Span) -> Result<i64, RuntimeError> {
+fn seek_fd_native(fd: i64, offset: i64, whence: &str, span: Span) -> Result<i64, RuntimeError> {
     let kind = "unix-seek-fd";
     let fd = raw_fd_arg(fd, kind, span)?;
-    if offset < 0 {
-        return Err(RuntimeError::new(kind, "offset must be non-negative").with_span(span));
-    }
+    let from = match whence {
+        "start" if offset < 0 => {
+            return Err(RuntimeError::new(kind, "offset must be non-negative").with_span(span));
+        }
+        "start" => rfs::SeekFrom::Start(offset as u64),
+        "current" => rfs::SeekFrom::Current(offset),
+        "end" => rfs::SeekFrom::End(offset),
+        _ => return Err(RuntimeError::new(kind, "whence must be start, current, or end").with_span(span)),
+    };
     // SAFETY: the number is only addressed by value; the kernel rejects a
     // descriptor that is not open.
     let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
     loop {
-        match rfs::seek(borrowed, rfs::SeekFrom::Start(offset as u64)) {
-            Ok(position) => return Ok(position as i64),
+        match rfs::seek(borrowed, from) {
+            Ok(position) => return i64::try_from(position).map_err(|_| {
+                RuntimeError::host(kind, &io::Error::from_raw_os_error(libc::EOVERFLOW)).with_span(span)
+            }),
             Err(rio::Errno::INTR) => continue,
             Err(error) => {
                 return Err(RuntimeError::host(kind, &io::Error::from(error)).with_span(span));
@@ -1785,6 +1817,8 @@ fn poll_fd_native(
 
 fn raw_fd_arg(fd: i64, kind: &str, span: Span) -> Result<libc::c_int, RuntimeError> {
     if (0..=libc::c_int::MAX as i64).contains(&fd) {
+        crate::startup_stdio::check(fd as libc::c_int)
+            .map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
         Ok(fd as libc::c_int)
     } else {
         Err(RuntimeError::new(kind, "fd must be non-negative").with_span(span))

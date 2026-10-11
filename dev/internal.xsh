@@ -50,6 +50,42 @@ export proc linux_ci_test(ctx: context.Context) [fs, process, env, error, io] ->
   linux_developer_test(ctx)
 }
 
+## Runs the resource-sensitive infinite-device tests under their bounded container.
+export proc linux_split_resource_test(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
+  stages.ensure_dir(ctx.target_dir)
+  defer repair_target(ctx)
+  stages.execute(stages.command("linux-split-git-safe-directory", ctx.target.triple, "git",
+    ["git", "config", "--global", "--add", "safe.directory", ctx.root.display()], ctx.root, {}))
+  let profile = test_workflows.execution_profile()?
+  test_workflows.run_commands([
+    stages.command(
+      "linux-split-resource-test",
+      ctx.target.triple,
+      "cargo",
+      [
+        "cargo",
+        "test",
+        "--locked",
+        "--profile",
+        test_workflows.profile_name(profile),
+        "--target",
+        ctx.target.triple,
+        "-p",
+        "xsh",
+        "--features",
+        "linux-priv-tests",
+        "--test",
+        "core_compat_extra",
+        "split::",
+        "--",
+        "--test-threads=1",
+      ],
+      ctx.root,
+      test_workflows.cargo_environment(ctx)?,
+    ),
+  ])
+}
+
 proc gate_git_directory(ctx: context.Context) [process, error, io] -> Result[Unit, Error] {
   stages.execute(stages.command("gate-git-safe-directory", ctx.target.triple, "git",
     ["git", "config", "--global", "--add", "safe.directory", ctx.root.display()], ctx.root, {}))

@@ -341,6 +341,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::IoStdinText
             | RuntimeOp::IoStdinLine
             | RuntimeOp::IoWriteStderr
+            | RuntimeOp::IoWriteStderrBytes
             | RuntimeOp::IoWriteStdout
             | RuntimeOp::IoWriteStdoutBytes
             | RuntimeOp::IniDecode
@@ -407,6 +408,11 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::UnixSeekFd
             | RuntimeOp::UnixFadvise
             | RuntimeOp::UnixCpuFeatures
+            | RuntimeOp::LocaleNumericInfo
+            | RuntimeOp::LocaleTimeInfo
+            | RuntimeOp::NumericParseLongDouble
+            | RuntimeOp::NumericFormatLongDouble
+            | RuntimeOp::NumericLongDoublePrecision
             | RuntimeOp::CompressionTransform
             | RuntimeOp::CompressionGzipName
             | RuntimeOp::LinuxModulePlan

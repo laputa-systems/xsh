@@ -75,7 +75,7 @@ test test_docker_argv_is_direct_and_carries_mount_environment_policy {
     ctx,
     "xsh-test",
     "linux/arm64",
-    "dist",
+    "test-linux",
     true,
     501,
     20,
@@ -85,6 +85,7 @@ test test_docker_argv_is_direct_and_carries_mount_environment_policy {
   assert argv[0] == "docker"
   assert "--init" in argv
   assert "--privileged" in argv
+  assert "/tmp:rw,nodev,exec,mode=1777" in argv
   assert "/repo:/work" in argv
   assert "/repo/target:/work/target" in argv
   assert "TARGET=aarch64-unknown-linux-musl" in argv
@@ -93,6 +94,41 @@ test test_docker_argv_is_direct_and_carries_mount_environment_policy {
   assert "dev/main.xsh" in argv
   assert "sh" not in argv
   assert "-c" not in argv
+  assert "--cpus=0.01" not in argv
+  assert "--memory=1g" not in argv
+  assert "--memory-swap=1g" not in argv
+}
+
+test test_docker_argv_applies_split_resource_limits_before_the_image {
+  let ctx = fixtures.linux_aarch64_context(/repo, "dev")?
+  for operation in ["test-linux-split", "test-linux-ci-split"] {
+    let argv = docker_workflows.internal_argv(
+      ctx,
+      "xsh-test",
+      "linux/arm64",
+      operation,
+      true,
+      501,
+      20,
+      "",
+      [],
+    )
+    var docker_options_before_image: List[Str] = []
+    var image_seen = false
+    for argument in argv {
+      if argument == "xsh-test" {
+        image_seen = true
+        break
+      }
+      docker_options_before_image += [argument]
+    }
+    assert image_seen
+    assert "--cpus=0.01" in docker_options_before_image
+    assert "--memory=1g" in docker_options_before_image
+    assert "--memory-swap=1g" in docker_options_before_image
+    assert "/tmp:rw,nodev,exec,mode=1777" in docker_options_before_image
+    assert argv[-1] == operation
+  }
 }
 
 test test_release_names_and_core_paths_are_deterministic {
@@ -141,6 +177,25 @@ test test_core_archive_stages_command_and_library_paths { |ctx|
 """ in fp"{root}/dist/core-fixture.sha256".read_text()?
 }
 
+test test_core_archive_commands_preserve_arguments_and_resolve_adjacent_libraries { |ctx|
+  let root = test.temp_dir(ctx, name: "core-archive-execution")?
+  let repository = fs.cwd()?
+  fp"{root}/core/lib".mkdir()
+  for source in ["echo.xsh", "expr.xsh", "lib/gnu.xsh"] {
+    fp"{root}/core/{source}".write(fp"{repository}/core/{source}".read_bytes()?)
+  }
+  let release_ctx = fixtures.linux_context(root, "dev")?
+  releases.package_core(release_ctx, "execution")
+  let extracted = fp"{root}/extracted"
+  archive.tar_extract(fp"{root}/dist/core-execution.tar.xz", extracted)
+  let echo_argv = [ctx.xsh_bin.display(), fp"{extracted}/core/echo".display(), "--", "--", "-n"]
+  let echo_output = run.bytes @echo_argv ?
+  assert echo_output == b"-- -n\n"
+  let expr_argv = [ctx.xsh_bin.display(), fp"{extracted}/core/expr".display(), "--", "1", "+", "1"]
+  let expr_output = run.bytes @expr_argv ?
+  assert expr_output == b"2\n"
+}
+
 type ManifestApplet = {name: Str, source: Str}
 
 type ManifestAlias = {name: Str, target: Str}
@@ -156,12 +211,11 @@ test test_applet_manifest_lists_applets_aliases_and_libraries { |ctx|
   let root = test.temp_dir(ctx, name: "applet-manifest")?
   fp"{root}/core/lib".mkdir()
   fp"{root}/core/tests".mkdir()
-  fp"{root}/dev/compat".mkdir()
   fp"{root}/core/ls.xsh".write("print \"ls\"\n")
   fp"{root}/core/basename.xsh".write("print \"basename\"\n")
   fp"{root}/core/lib/gnu.xsh".write("##! gnu\n")
   fp"{root}/core/tests/test-ls.xsh".write("print \"test\"\n")
-  fp"{root}/dev/compat/aliases.json".write(
+  fp"{root}/core/aliases.json".write(
     """{"comment": "x", "aliases": [{"name": "vdir", "target": "ls"}, {"name": "dir", "target": "ls"}]}\n""",
   )
   let release_ctx = fixtures.linux_context(root, "dev")?
@@ -190,19 +244,18 @@ test test_applet_manifest_without_alias_table_has_no_aliases { |ctx|
 test test_applet_manifest_rejects_dangling_and_colliding_aliases { |ctx|
   let root = test.temp_dir(ctx, name: "applet-manifest-bad-aliases")?
   fp"{root}/core".mkdir()
-  fp"{root}/dev/compat".mkdir()
   fp"{root}/core/ls.xsh".write("print \"ls\"\n")
   fp"{root}/core/cat.xsh".write("print \"cat\"\n")
   let release_ctx = fixtures.linux_context(root, "dev")?
 
-  fp"{root}/dev/compat/aliases.json".write("""{"aliases": [{"name": "dir", "target": "missing"}]}""")
+  fp"{root}/core/aliases.json".write("""{"aliases": [{"name": "dir", "target": "missing"}]}""")
   match releases.applet_manifest(release_ctx) {
     Ok(_) => test.fail("dangling alias was accepted")
     Err(stages.StageError.Failed {detail, ..}) => assert detail == "alias dir targets missing applet missing"
     Err(error) => test.fail(error.message)
   }
 
-  fp"{root}/dev/compat/aliases.json".write("""{"aliases": [{"name": "cat", "target": "ls"}]}""")
+  fp"{root}/core/aliases.json".write("""{"aliases": [{"name": "cat", "target": "ls"}]}""")
   match releases.applet_manifest(release_ctx) {
     Ok(_) => test.fail("colliding alias was accepted")
     Err(stages.StageError.Failed {detail, ..}) => assert detail == "alias cat collides with applet core/cat.xsh"

@@ -76,7 +76,8 @@ export pure rust_plan(
     product_build(ctx, profile)?,
     stages.command("test-rust", ctx.target.triple, "cargo",
       ["cargo", "test", @profile_args, "-p", "xsh", "--test", "integration", "--test", "ambient_fs_policy",
-        "--test", "symbol_plateau", "--", "--skip", "runtime::coverage::", "--skip", "runtime::examples::example_corpus_is_formatted",
+        "--test", "symbol_plateau", "--test", "core_compat_boundaries", "--test", "core_compat_extra", "--",
+        "--skip", "split::", "--skip", "runtime::coverage::", "--skip", "runtime::examples::example_corpus_is_formatted",
         "--skip", "runtime::examples::example_corpus_lints_without_warnings", @sibling_syntax_exclusions],
       ctx.root, environment),
     stages.command("test-debug-assertions", ctx.target.triple, "cargo",
@@ -88,8 +89,8 @@ export pure rust_plan(
   ]
   if privileged {
     plan += [stages.command("test-linux-priv", ctx.target.triple, "cargo",
-      ["cargo", "test", @profile_args, "-p", "xsh", "--features", "linux-priv-tests", "--test", "linux_priv",
-        "--", "--nocapture"], ctx.root, environment)]
+      ["cargo", "test", @profile_args, "-p", "xsh", "--features", "linux-priv-tests", "--test", "core_compat_extra",
+        "--test", "linux_priv", "--", "--nocapture", "--skip", "split::"], ctx.root, environment)]
   }
   plan
 }
@@ -147,6 +148,7 @@ export proc linux_test(ctx: context.Context, ci: Bool) [fs, process, env, error,
   let profile = execution_profile()?
   let selected = {...ctx, profile: profile_name(profile)}
   docker.run_internal(selected, if ci { "test-linux-ci" } else { "test-linux" }, true, [])
+  docker.run_internal(selected, if ci { "test-linux-ci-split" } else { "test-linux-split" }, true, [])
 }
 
 ## Runs the same filtered process and native gates on the selected Darwin target.

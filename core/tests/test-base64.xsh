@@ -28,21 +28,22 @@ test test_base64_wrap_and_invalid_prefix { |ctx|
   let bad = invoke(ctx, ["-d"], b"Zm9v!")?
   assert bad.status == 1
   assert bad.stdout == b"foo"
-  assert bad.stderr == "base64: error: invalid input\n"
+  assert bad.stderr == "base64: invalid input\n"
 }
 
-test test_base64_bad_padded_input_writes_nothing { |ctx|
+test test_base64_bad_padded_input_preserves_decoded_prefix { |ctx|
   let bad = invoke(ctx, ["-d"], b"aGVsbG8sIHdvcmxkIQ==\0")?
   assert bad.status == 1
-  assert bad.stdout == b""
-  assert bad.stderr == "base64: error: invalid input\n"
+  assert bad.stdout == b"hello, world!"
+  assert bad.stderr == "base64: invalid input\n"
 }
 
-test test_base64_wrap_without_value_uses_cli_error { |ctx|
+test test_base64_wrap_without_value_uses_gnu_error { |ctx|
   for option in ["-w", "--wrap"] {
     let bad = invoke(ctx, [option])?
     assert bad.status == 1
-    assert bad.stderr == "base64: error: a value is required for '--wrap <COLS>' but none was supplied\nFor more information, try '--help'.\n"
+    let diagnostic = if option == "-w" { "option requires an argument -- 'w'" } else { "option '--wrap' requires an argument" }
+    assert bad.stderr == f"base64: {diagnostic}\nTry 'base64 --help' for more information.\n"
   }
 }
 

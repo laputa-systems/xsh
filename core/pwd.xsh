@@ -3,6 +3,17 @@ use lib.gnu
 
 type Options = {logical: Bool, physical: Bool, help: Bool, version: Bool, operands: List[Str]}
 
+# A deleted cwd has no matching entry in its parent; other lookup failures
+# retain their OS reason.
+proc cwd_error(failure: Error) [process, env] {
+  if gnu.errno(failure) == 2 {
+    gnu.error("couldn't find directory entry in '..' with matching i-node")
+  } else {
+    gnu.error(f"failed to get current directory: {gnu.strerror(failure)}")
+  }
+  exit 1
+}
+
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: Options = cli.applet(argv, {
     gnu: {status: 1},
@@ -24,12 +35,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   }
   let physical = fs.cwd()
-  if let Err(failure) = physical { gnu.error(f"failed to get current directory: {gnu.strerror(failure)}"); exit 1 }
+  if let Err(failure) = physical { cwd_error(failure) }
   let physical_path = physical?
   var value = physical_path.display()
   if value == "." {
     let resolved = physical_path.resolve()
-    if let Err(failure) = resolved { gnu.error(f"failed to get current directory: {gnu.strerror(failure)}"); exit 1 }
+    if let Err(failure) = resolved { cwd_error(failure) }
     value = resolved?.display()
   }
   if logical {

@@ -28,22 +28,23 @@ test test_mknod_type_mnemonics_and_operand_diagnostics { |ctx|
 }
 
 
-test test_mknod_invalid_device_numbers_report_invalid_value { |ctx|
+test test_mknod_invalid_device_numbers_identify_major_and_minor { |ctx|
   let root = test.temp_dir(ctx, name: "mknod-invalid-device-number")?
   for args in [["node", "c", "c", "1"], ["node", "c", "1", "c"], ["node", "c", "4294967296", "1"]] {
     let result = run_applet(ctx, root, args)?
     let invalid = if args[2] == "1" { args[3] } else { args[2] }
     assert result.status == 1
-    assert f"invalid value '{invalid}'" in result.stderr, result.stderr
+    let component = if args[2] == "1" { "minor" } else { "major" }
+    assert result.stderr == f"mknod: invalid {component} device number '{invalid}'\n", result.stderr
     assert ! fp"{root}/node".exists()?
   }
 }
 
-test test_mknod_unknown_long_option_reports_unexpected_argument { |ctx|
+test test_mknod_unknown_long_option_reports_gnu_usage { |ctx|
   let root = test.temp_dir(ctx, name: "mknod-unknown-option")?
   let result = run_applet(ctx, root, ["--foo"])?
   assert result.status == 1
-  assert "unexpected argument '--foo' found" in result.stderr, result.stderr
+  assert result.stderr == "mknod: unrecognized option '--foo'\nTry 'mknod --help' for more information.\n", result.stderr
   assert result.stdout == ""
 }
 
@@ -107,4 +108,11 @@ test test_mknod_context_text_after_mode_is_the_mode_value { |ctx|
   assert "warning" not in result.stderr, result.stderr
   assert "invalid mode" in result.stderr, result.stderr
   assert ! fp"{root}/node".exists()?
+}
+
+test test_mknod_missing_minor_omits_the_device_number_hint { |ctx|
+  let root = test.temp_dir(ctx, name: "mknod-missing-minor")?
+  let result = run_applet(ctx, root, ["node", "c", "1"])?
+  assert result.status == 1
+  assert result.stderr == "mknod: missing operand after '1'\nTry 'mknod --help' for more information.\n", result.stderr
 }

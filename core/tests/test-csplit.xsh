@@ -170,7 +170,7 @@ test test_csplit_stdout_write_error { |ctx|
   let status = process.run(plan)?
 
   assert status.exit_code()? == 1
-  assert err.read_text()? == "csplit: No space left on device\n", err.read_text()?
+  assert err.read_text()? == "csplit: write error: No space left on device\n", err.read_text()?
 }
 
 test test_csplit_matches_gnu_current_line_rules { |ctx|
@@ -260,5 +260,43 @@ test test_csplit_directory_in_the_way_is_not_removed { |ctx|
   assert failed.status == 1
   assert failed.stderr == "csplit: xx01: Is a directory\n", failed.stderr
   assert fp"{root}/xx01".is_dir()?, "a path that could not be opened is left alone"
+  assert ! fp"{root}/xx00".exists()?
+}
+
+test test_csplit_non_ascii_pattern_numbers_are_rejected { |ctx|
+  let root = test.temp_dir(ctx, name: "csplit-pattern-numbers")?
+  let repeated = csplit_run(ctx, root, ["-", "2", "{𝟚}"], b"a\nb\n")?
+  assert repeated.status == 1
+  assert repeated.stdout == b""
+  assert repeated.stderr == "csplit: '{\\360\\235\\237\\232'}: integer required between '{' and '}'\n", repeated.stderr
+  let offset = csplit_run(ctx, root, ["-", "/b/𝟚"], b"a\nb\n")?
+  assert offset.status == 1
+  assert offset.stdout == b""
+  assert offset.stderr == "csplit: '/b/\\360\\235\\237\\232': integer expected after delimiter\n", offset.stderr
+  assert ! fp"{root}/xx00".exists()?
+}
+
+test test_csplit_directory_read_error_retains_open_piece { |ctx|
+  let root = test.temp_dir(ctx, name: "csplit-directory-input")?
+  let removed = csplit_run(ctx, root, [".", "/^a/"])?
+  assert removed.status == 1
+  assert removed.stdout == b"0\n"
+  assert removed.stderr == "csplit: read error: Is a directory\n", removed.stderr
+  assert ! fp"{root}/xx00".exists()?
+
+  let kept = csplit_run(ctx, root, ["-k", "-f", "dog", "-b", "%03d", ".", "/^a/"])?
+  assert kept.status == 1
+  assert kept.stdout == b"0\n"
+  assert kept.stderr == "csplit: read error: Is a directory\n", kept.stderr
+  assert piece(root, "dog000")? == b""
+  clean(root)
+
+  let elided = csplit_run(ctx, root, ["-k", "-z", ".", "/^a/"])?
+  assert elided.status == 1
+  assert elided.stdout == b""
+  assert ! fp"{root}/xx00".exists()?
+  let skipped = csplit_run(ctx, root, ["-k", ".", "%a%"])?
+  assert skipped.status == 1
+  assert skipped.stdout == b""
   assert ! fp"{root}/xx00".exists()?
 }

@@ -749,14 +749,14 @@ const IMAGE_PROBE = r"""docker image inspect "${XSH_ORACLE_IMAGE:-xsh-oracle}" >
 
 const TOOL_PROBE = "command -v gzip bzip2 xz zstd >/dev/null && echo ready"
 
-const ORACLE_SKIP = "requires docker with the xsh-oracle image (dev/compat/oracle.sh)"
+const ORACLE_SKIP = "requires docker with the xsh-oracle image (dev/reference/oracle.sh)"
 
 # The reference tools run only inside the oracle container, never as a runtime
 # dependency. Returns the oracle script, or null when this host has no docker
 # or the image is not built: building it needs the network, so the test skips
 # instead of triggering that build.
 proc oracle_script(ctx: TestContext) [fs, process, error] -> Result[Path?] {
-  let script = fp"{ctx.core_dir.parent()}/dev/compat/oracle.sh"
+  let script = fp"{ctx.core_dir.parent()}/dev/reference/oracle.sh"
   guard script.exists() else { return Ok(null) }
   let image = try run.text sh -c $IMAGE_PROBE
   guard image is Ok(_) else { return Ok(null) }

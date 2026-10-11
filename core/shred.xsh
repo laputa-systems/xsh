@@ -5,7 +5,6 @@ use lib.fs_misc
 error ShredError = Invalid : InvalidArgument
 
 type Options = {force: Bool, iterations: Str, size: Str?, exact: Bool, zero: Bool, unlink: Bool, remove: Str?, source: Str?, verbose: Bool, help: Bool, version: Bool, paths: List[Str]}
-type SizeSource = {index: Int, start: Int}
 
 # Writes bounded chunks in place so hard links refer to the overwritten inode.
 proc overwrite(target: Path, length: Int, pattern: Bytes, source: Path, source_offset: Int) [fs, error] -> Result[Int] {
@@ -71,55 +70,6 @@ proc name_error(name: Bytes, failure: Error) [process, env] -> Unit {
   gnu.error(f"{quote_maybe_bytes(name)}: {gnu.strerror(failure)}")
 }
 
-pure size_source(argv: List[Bytes]) -> SizeSource {
-  for index in range(argv.len()) {
-    let arg = argv[index].utf8() ?? ""
-    if arg in ["-s", "--size"] { return {index: index + 1, start: 0} }
-    if arg.starts_with("--size=") { return {index: index, start: 7} }
-    if arg.starts_with("-s") and arg.byte_len() > 2 { return {index: index, start: 2} }
-  }
-  {index: 0, start: 0}
-}
-
-pure numeric_prefix_length(value: Str) -> Int {
-  var index = 0
-  while index < value.byte_len() {
-    let char = value.byte_slice(index, length: 1)
-    break when char not in "0123456789"
-    index += 1
-  }
-  index
-}
-
-proc size_error(argv: List[Bytes], value: Str, message: Str) [env, process, error] {
-  gnu.error(message)
-  let requested = env.get_or("UUTILS_DIAG", "") ?? ""
-  return when requested == "never"
-  if requested != "always" and ! unix.isatty(2) { return }
-  let source = size_source(argv)
-  let program = gnu.prog()
-  var command = program
-  for arg in argv { command += " " + (arg.utf8() ?? gnu.quote_bytes(arg)) }
-  var column = program.byte_len() + 1
-  for index in range(source.index) { column += argv[index].len() + 1 }
-  let number_length = numeric_prefix_length(value)
-  let span_start = source.start + (if number_length > 0 { number_length } else { 0 })
-  let span_length = value.byte_len() - (if number_length > 0 { number_length } else { 0 })
-  column += span_start
-  let spacing = [" " for _ in range(column)].join("")
-  let marker = if number_length > 0 { "─┬" } else { ["─" for _ in range(span_length)].join("") }
-  eprint f"   ╭─[ {program}:1:{column + 1} ]"
-  eprint "   │"
-  eprint f" 1 │ {command}"
-  eprint f"   │ {spacing}{marker}"
-  if number_length > 0 {
-    eprint f"   │ {spacing} ╰── not a known unit"
-    eprint "   │"
-    eprint "   │ Help: a size is a number and an optional unit: K, M, G and so on for 1024, KB, MB, GB for 1000"
-  }
-  eprint "───╯"
-}
-
 proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let prepared = gnu.prepare_arguments(argv)
   let opts: Options = cli.applet(prepared.text, {
@@ -146,7 +96,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   var size: Int? = null
   if opts.size != null {
     size = fs_misc.size_value(opts.size ?? "")
-    if size == null { size_error(argv, opts.size ?? "", f"invalid file size: {gnu.quote_value(opts.size ?? "")}"); exit 1 }
+    if size == null { gnu.error(f"invalid file size: {gnu.quote_value(opts.size ?? "")}"); exit 1 }
   }
   var remove = opts.remove ?? (if opts.unlink { "wipesync" } else { "" })
   if remove != "" {
@@ -184,7 +134,18 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     var complete = true
     var schedule = pass_patterns(passes)
     if opts.zero { schedule += [b"\x00\x00\x00"] }
+    # Clear the original short extent before overwriting its padded block;
+    # otherwise tail packing can leave the old bytes outside the new extent.
+    let preliminary = if info.size > 0 and info.size < info.blksize and ((size != null and info.size < length) or (size == null and ! opts.exact)) { info.size } else { 0 }
+    if preliminary > 0 {
+      for pattern in schedule {
+        let result = overwrite(target, preliminary, pattern, source, if opts.source == null { 0 } else { source_offset })
+        if let Err(failure) = result { gnu.error(f"{gnu.quote_bytes(name)}: error writing: {gnu.strerror(failure)}"); failed = true; complete = false; break }
+        if opts.source != null and pattern.is_empty() { source_offset = result? }
+      }
+    }
     for pass in range(schedule.len()) {
+      break when ! complete
       break when length == 0
       let pattern = schedule[pass]
       let label = if pattern.is_empty() { "random" } else { pattern_label(pattern) }
@@ -213,9 +174,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
           let renamed = fs.rename_noreplace(last, next)
           if let Err(failure) = renamed {
             if failure.errno != 17 {
-              gnu.error(f"{quote_maybe_bytes(name)}: Couldn't rename to {gnu.quote_bytes(next.bytes())}: {gnu.strerror(failure)}")
-              failed = true
-              complete = false
+              # Renaming is best effort; unlink reports the final removal error.
               break
             }
             var overflow = true
@@ -240,7 +199,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       }
     }
     if complete {
-      if let Err(failure) = last.remove() { gnu.error(f"cannot remove {gnu.quote_bytes(name)}: {gnu.strerror(failure)}"); failed = true } else {
+      if let Err(failure) = last.remove() { gnu.error(f"{quote_maybe_bytes(name)}: failed to remove: {gnu.strerror(failure)}"); failed = true } else {
         if opts.verbose { gnu.error(f"{quote_maybe_bytes(name)}: removed") }
         if remove == "wipesync" {
           if let Err(failure) = fs.fsync(last.parent()) { name_error(name, failure); failed = true }

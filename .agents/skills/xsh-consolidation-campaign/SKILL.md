@@ -15,11 +15,12 @@ recording concrete contract or oracle conflicts for the integrator.
 
 One integrator owns the `consolidation` branch, shared paths, review, and
 merges. Every editing lane has its own worktree and exclusive file set.
-Compatibility work has a separate branch and does not silently change the
-baseline. Integrate between campaigns only at recorded batch boundaries.
-Keep worktrees and build artifacts on disk outside `/tmp`. While compatibility
-is WIP, exclude `dev/compat` from check/lint and automatic compatibility
-ratchets. Keep sibling Laputa verification focused and lightweight.
+Compatibility updates do not silently change the original baseline. Integrate
+between campaigns only at recorded batch boundaries. The owner completed
+compatibility and approved integrating master on 2026-10-11; its retained
+checks and native tests now participate in normal repository verification.
+Keep worktrees and build artifacts on disk outside `/tmp`. Keep sibling Laputa
+verification focused and lightweight.
 
 Explicitly delegate every ready independent item, using as many available
 slots as ownership and dependencies permit. All subagents use

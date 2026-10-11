@@ -1,3 +1,5 @@
+use support.uu as uu
+
 test test_cp_file_and_recursive_dir { |ctx|
   let root = test.temp_dir(ctx, name: "cp")?
   let src = fp"{root}/src.txt"
@@ -290,7 +292,7 @@ test test_cp_recursive_interactive_decline_continues { |ctx|
   assert fp"{dest}/source/other".read_text()? == "copied"
 }
 
-test test_cp_recursive_verbose_reports_directory_separator_and_replacements { |ctx|
+test test_cp_recursive_verbose_reports_operand_paths_and_replacements { |ctx|
   let root = test.temp_dir(ctx, name: "cp-verbose-recursive")?
   let source = fp"{root}/source"
   source.mkdir()
@@ -298,7 +300,7 @@ test test_cp_recursive_verbose_reports_directory_separator_and_replacements { |c
   let dest = fp"{root}/dest"
   let copied = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -R -v $source $dest
   assert copied.status.ok
-  assert copied.stdout == f"'{source}' -> '{dest}/'\n'{source}/file' -> '{dest}/file'\n"
+  assert copied.stdout == f"'{source}' -> '{dest}'\n'{source}/file' -> '{dest}/file'\n"
 
   let target = fp"{root}/target"
   target.mkdir()
@@ -325,7 +327,7 @@ test test_cp_force_interactive_replaces_unwritable_destination { |ctx|
   let accepted = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -f -i -v $source $dest < $yes
   assert accepted.status.ok
   assert accepted.stderr == f"cp: replace '{dest}', overriding mode 0000 (---------)? "
-  assert accepted.stdout == f"removed '{dest}'\n'{source}' -> '{dest}'\n"
+  assert accepted.stdout == f"'{source}' -> '{dest}'\nremoved '{dest}'\n"
   assert dest.read_text()? == "new"
 
   let declined_dest = fp"{root}/declined"
@@ -773,9 +775,10 @@ test test_cp_verbose_stdout_failure_is_reported { |ctx|
   let result = run.capture --text sh -c $fixture sh ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -v $source fp"{root}/dest"
   assert result.status.exited_with(1), result.stderr
   assert result.stderr.find("write error") != null
+  assert fp"{root}/dest".read_text()? == "contents"
 }
 
-test test_cp_invalid_destination_parent_reports_creation_error { |ctx|
+test test_cp_invalid_destination_parent_reports_stat_error { |ctx|
   let root = test.temp_dir(ctx, name: "cp-not-dir")?
   let source = fp"{root}/source"
   let parent = fp"{root}/parent"
@@ -784,7 +787,7 @@ test test_cp_invalid_destination_parent_reports_creation_error { |ctx|
   let dest = fp"{parent}/child"
   let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- $source $dest
   assert result.status.exited_with(1)
-  assert result.stderr == f"cp: cannot create regular file '{dest}': Not a directory\n"
+  assert result.stderr == f"cp: cannot stat '{dest}': Not a directory\n"
   assert parent.read_text()? == "parent contents"
 }
 
@@ -882,7 +885,8 @@ test test_cp_debug_reports_copy_policy_statuses { |ctx|
   source.write("")
   let automatic = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- --debug --reflink=auto $source fp"{root}/automatic"
   assert automatic.status.ok
-  assert automatic.stdout.find("copy offload: unknown, reflink: unsupported, sparse detection: no") != null
+  assert automatic.stdout.starts_with(f"'{source}' -> '{root}/automatic'\n")
+  assert automatic.stdout.find("copy offload: unknown, reflink: Operation not supported, sparse detection: no") != null
 
   let sparse = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- --debug --sparse=always --reflink=never $source fp"{root}/sparse"
   assert sparse.status.ok
@@ -896,7 +900,7 @@ test test_cp_debug_reports_copy_policy_statuses { |ctx|
   small_source.write("data")
   let small = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- --debug $small_source fp"{root}/small-copy"
   assert small.status.ok
-  assert small.stdout.find("copy offload: yes, reflink: unsupported, sparse detection: no") != null
+  assert small.stdout.find("copy offload: yes, reflink: Operation not supported, sparse detection: no") != null
 
   let holes_source = fp"{root}/holes"
   holes_source.write("")
@@ -980,4 +984,53 @@ test test_cp_keep_directory_symlink_accepts_unique_abbreviation { |ctx|
   let source = fp"{root}/origin/src"
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -r --copy-contents --keep $source fp"{root}/dest"
   assert fp"{root}/elsewhere/top".read_text()? == "top\n"
+}
+
+test test_cp_gnu_option_conflicts_and_destination_lookup_errors { |ctx|
+  let s = uu.scene(ctx)?
+  uu.write(s, "source", "contents")?
+  uu.write(s, "target", "old")?
+  for flags in [["--link", "--symbolic-link"], ["--symbolic-link", "--link"]] {
+    let result = uu.invoke(s, "cp", flags + ["source", "target"])?
+    uu.fails(result)
+    uu.stderr_is(result, "cp: cannot make both hard and symbolic links\nTry 'cp --help' for more information.\n")
+  }
+  let backup = uu.invoke(s, "cp", ["--backup", "-n", "source", "target"])?
+  uu.fails(backup)
+  uu.stderr_is(backup, "cp: --backup is mutually exclusive with -n or --update=none-fail\nTry 'cp --help' for more information.\n")
+  for flags in [[], ["--attributes-only"]] {
+    let result = uu.invoke(s, "cp", flags + ["source", "/dev/null/n.txt"])?
+    uu.fails(result)
+    uu.stderr_is(result, "cp: cannot stat '/dev/null/n.txt': Not a directory\n")
+  }
+  let symbolic = uu.invoke(s, "cp", ["-s", "source", "target"])?
+  uu.fails(symbolic)
+  uu.stderr_is(symbolic, "cp: cannot create symbolic link 'target' to 'source': File exists\n")
+  let missing_directory = uu.invoke(s, "cp", ["source", "no-such/"])?
+  uu.fails(missing_directory)
+  uu.stderr_is(missing_directory, "cp: cannot create regular file 'no-such/': Not a directory\n")
+  let target_directory = uu.invoke(s, "cp", ["-t", "target", "source"])?
+  uu.fails(target_directory)
+  uu.stderr_is(target_directory, "cp: target directory 'target': Not a directory\n")
+  let multiple = uu.invoke(s, "cp", ["source", "source", "target"])?
+  uu.fails(multiple)
+  uu.stderr_is(multiple, "cp: target 'target': Not a directory\n")
+  let same = uu.invoke(s, "cp", ["-r", ".", "."])?
+  uu.fails(same)
+  uu.stderr_is(same, "cp: '.' and './.' are the same file\n")
+  let stripped = uu.invoke(s, "cp", ["--strip-trailing-slashes", "source/", "target"])?
+  uu.fails(stripped)
+  uu.stderr_is(stripped, "cp: cannot stat 'source/': Not a directory\n")
+}
+
+test test_cp_preserves_symlink_timestamp_before_followed_lookup { |ctx|
+  let s = uu.scene(ctx)?
+  let source = uu.at(s, "source")
+  source.symlink(to: p"missing")
+  fs.set_times(source, atime_ns: 1400000000123456789, mtime_ns: 1500000000987654321, follow_symlinks: false)
+  let result = uu.invoke(s, "cp", ["-P", "-p", "source", "target"])?
+  uu.succeeds(result)
+  let meta = fs.stat(uu.at(s, "target"))?
+  assert meta.atime_ns == 1400000000123456789
+  assert meta.mtime_ns == 1500000000987654321
 }

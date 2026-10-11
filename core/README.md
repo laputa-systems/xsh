@@ -11,15 +11,32 @@ on exactly: the invoked name (`process.script_path()`, never symlink-resolved),
 `PROG: message` diagnostics with GNU name quoting and `strerror` text, usage
 errors with the `Try 'PHRASE --help'` hint and a caller-chosen exit status,
 `--help` and `--version` first lines, stdout write failures, and byte-stream
-operand and stdout helpers. The audited command families also share
+operand and stdout helpers. `tr` preserves GNU's two-line ambiguous-octal
+warning and emits it before later set-parse errors. The audited command families also share
 `lib/perm.xsh` for permission and ownership policy, `lib/file_publish.xsh` for
 move/link/install publication, `lib/fs_misc.xsh` for path and size policy,
 `lib/text_a2.xsh` for byte records and display columns, `lib/bytes_enc*.xsh` for
 binary encodings and conversion, `lib/checksums.xsh` for checksum formats and
 verification, and `lib/proc_launch.xsh` for executable lookup and exit status.
+`base32`, `base64`, and `basenc` preserve a decoded prefix before reporting
+invalid input, use GNU option-argument diagnostics, and report stdout failures
+with the `write error:` prefix.
+`comm` checks ordering as each input advances, checks file 1 first after a
+shared row, and activates default checks only after an unpairable row; reaching
+EOF rechecks the final pair of records from that input.
+`expand` counts input bytes as columns in the C and POSIX locales and uses
+Unicode display columns in UTF-8 locales. It preserves input bytes; backspace
+moves one column left and newline resets the tab position.
+`nl` appends the default second section-delimiter character after a single
+byte in C/POSIX or a single UTF-8 character in a UTF-8 locale; malformed bytes
+remain separate characters. Section matching preserves the delimiter bytes.
+`tail --follow=name` can reopen a disappeared, previously opened name while
+another operand remains live. Without `--retry`, it exits when no named
+operand remains open.
+
 
 An applet never spells a `/proc` or `/sys` path itself
-(`dev/compat/check_kernel_reads.py` fails the build when one does); it asks the
+(`dev/checks/check_kernel_reads.py` fails the build when one does); it asks the
 owner of that kernel interface. Beyond the native modules, those owners are
 `lib/selinux.xsh` (whether the kernel lists or mounts selinuxfs, shared by
 `mkdir`, `mknod`, `mv`, `install` and `ss`), `lib/proc_target.xsh` (the
@@ -62,6 +79,10 @@ affinity: ...`) through `lib/gnu.xsh`, parse options in `getopt_long` order
 with the glibc wording, and exit 1 on failure and 126 or 127 when the command
 cannot be executed. The listing `prlimit` prints before running a command is
 written in full, where util-linux loses its unflushed rows at `exec`.
+
+`nvme` preserves the host libc wording for ioctl errors, including JSON error
+output, because nvme-cli's diagnostics differ from GNU coreutils. It removes
+the Rust errno suffix without changing that wording.
 
 Prefer typed standard-module APIs over shelling out or parsing command text.
 Use `cli.parse` for ordinary option records, including short aliases and

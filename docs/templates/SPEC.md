@@ -623,6 +623,35 @@ again to be a `Port`, and `+=` on a variable of a bounded type is
 {{.spec.bounded_int_unvalidated.source}}
 ```
 
+`system.locale_numeric_info(name)` returns decimal and thousands separators as `Bytes`;
+`system.locale_time_info(name)` returns twelve abbreviated month names as `List[Bytes]`
+in January-to-December order. Neither changes process or thread locale. Names
+must be explicit and contain no NUL (`locale-name`); unavailable metadata
+returns `locale-unavailable`. Returned bytes retain the locale's encoding.
+These APIs provide numeric and month metadata, not collation or character classes.
+
+On musl, metadata comes from an immutable byte projection of GNU libc 2.43
+locale facts, rather than musl's C-only numeric and time data. Supported names
+are `C`, `POSIX`, `C.utf8`; UTF-8 variants of `am_ET`, `de_DE`, `en_US`, `es_ES`,
+`fa_IR`, `fr_FR`, `hu_HU`, `it_IT`, `ja_JP`, `pt_BR`, `sv_SE`, `th_TH`, `zh_CN`;
+ISO-8859-1 variants of `en_US`, `fr_FR`, `sv_SE` (including those bare names);
+and `zh_CN.gb18030`. Exact encoding suffix aliases are `.utf8`, `.UTF-8`,
+`.utf-8`, `.UTF8`; `.iso88591`, `.ISO-8859-1`, `.iso-8859-1`, `.ISO8859-1`,
+`.iso8859-1`, `.ISO88591`; and `.gb18030`, `.GB18030`. Other names fail rather
+than falling back to C. On other targets, each query opens an isolated native
+locale and copies its installed metadata before freeing the handle.
+
+`system.parse_long_double` and `system.format_long_double` keep numeric text
+at the native C `long double` boundary without a binary64 intermediate. Their
+locale is always C. Precision and range follow the target C ABI;
+`system.long_double_precision()` reports the significand bit count. Parsing
+reports the consumed byte prefix and range errors, including underflow.
+Embedded NUL ends the prefix. The opaque ordering key compares lexically as
+failed conversions, NaNs, negative infinity, negative finite numbers, zero,
+positive finite numbers, positive infinity; signed zeros and NaNs each compare
+equal within their class. Formatting accepts one floating conversion and an
+optional nonnegative precision, retaining negative zero and native rounding.
+
 `Float` and `Int` never mix: convert with `.float()`, or back with
 `.floor()`, `.ceil()`, or `.round()`, which return `Result[Int]` and reject
 NaN, infinities, and out-of-range values. Float equality compares exact
@@ -2416,6 +2445,10 @@ statement is a `repeat` statement when it begins with the word `repeat` and,
 on the same line, its count is followed by the word `times` directly before
 `{`; neither word is reserved.
 
+Eager `range` and stream `repeat` materialization failures raise catchable
+`HostIo` errors carrying `errno: ENOMEM`, including capacity overflow.
+`bytes.zero` returns the same host failure in its `Err` result.
+
 `wait until condition within limit` tests a condition again and again until
 it holds, and fails when the limit passes first. It is sugar, defined by its
 expansion:
@@ -3267,10 +3300,12 @@ keep program order even when stdout is a pipe or file.
 Script stdout and stderr are byte streams. Text APIs write UTF-8.
 `io.write_stdout(text)` writes without a newline, and
 `io.write_stdout_bytes(data)` writes bytes exactly, with no UTF-8 requirement.
-`io.write_stderr(text)` buffers UTF-8 stderr without a newline; use
-`io.flush_stderr()` before reading a response to make an interactive prompt
-visible. The flush reports host write errors with errno and leaves captured
-stderr in its output sink.
+`io.write_stderr(text)` buffers UTF-8 stderr without a newline, and
+`io.write_stderr_bytes(data)` buffers arbitrary bytes exactly without a newline.
+Both preserve output order in the same stderr sink. Use `io.flush_stderr()`
+before reading a response to make an interactive prompt visible. The flush
+reports host write errors with errno and leaves captured stderr in its output
+sink.
 
 `io.stdin_read(max_bytes)` reads at most a positive `max_bytes` into `Bytes`.
 It can return fewer bytes than requested and returns empty bytes at EOF.
@@ -3919,7 +3954,12 @@ OS signal handlers only record that a signal arrived. XSH code runs only at
 checkpoints: between statements, at loop iterations, around deferred actions,
 while waiting on processes, pipelines, and network jobs, during `time.sleep`,
 and while scheduling or collecting parallel stream work. CPU-bound expression
-evaluation and blocking host calls observe a signal at the next checkpoint.
+evaluation and blocking host calls observe a signal at the next checkpoint. A
+top-level runner clears prior signal state before installing its handlers; a
+signal recorded afterward remains pending while the source is loaded and
+checked, and is handled at the first execution checkpoint. An embedding host
+that starts another independent run in the same process clears old state before
+preparing that run; nested work shares the active run's signal state.
 At startup, the script runner leaves inherited `SIGINT` and `SIGTERM` actions
 set to `SIG_IGN` unchanged, so an ignored signal remains ignored across an
 `exec` into XSH.
@@ -4374,13 +4414,18 @@ Contracts worth knowing without consulting the reference:
 - `Path.read_bytes()` reads through EOF even when the reported file size is
   zero, as for procfs and FIFOs. Size is an allocation hint, not proof of EOF.
   `fs.copy_file` also streams virtual files, FIFOs, and devices with bounded
-  buffers. A FIFO or device destination receives all bytes under every sparse
+  buffers. Virtual regular sources attempt kernel copying before streaming,
+  except with `sparse: "always"`; their reported size never bounds the copy.
+  A FIFO or device destination receives all bytes under every sparse
   policy, keeps its file type, and reports zero hole bytes; `reflink: "always"`
   still asks the kernel to clone, so it fails there with the kernel's errno
   (`EINVAL` for a device destination, `EXDEV` across mounts) and never copies
   by another method. Equal source/destination identities are refused before any
   truncation. `force: true` retries only a failed destination open, after the
-  source is pinned, and never overrides `overwrite: false`.
+  source is pinned, and never overrides `overwrite: false`. The result retains
+  a failed automatic clone attempt as `reflink_error` and the first failed
+  kernel copy attempt as `offload_error`, with their actual host errno. Both
+  are nullable `Error` values; mechanisms with no failed attempt report null.
 - `fs.xattr_list/get/set/remove` use raw `Bytes` values on Linux and macOS;
   attribute names must be UTF-8. Following the final symlink is explicit and
   defaults to true. Set modes distinguish upsert, create-only, and
@@ -4409,7 +4454,11 @@ Contracts worth knowing without consulting the reference:
   take a `RelPath` (4.13), the type of a path already known to be relative
   and free of an escaping `..`; a function that passes a path on to a root
   should declare it `RelPath`. The handle still resolves every path it is
-  given, because only resolution sees a symlink.
+  given, because only resolution sees a symlink. `FsRoot.children` sorts
+  child paths by raw bytes by default; `ordered: false` preserves filesystem
+  enumeration order, including partial results. `max_entries` defaults to
+  65536 and accepts 0 through 65536; truncated results retain a prefix in
+  the selected order and report `enumeration_succeeded: false`.
 - Six methods take an argument whose label makes the call read as a
   sentence, so that two operands of one type cannot be swapped unnoticed:
 
@@ -4534,9 +4583,18 @@ Contracts worth knowing without consulting the reference:
   `process.wait_any` that returns `null`, consuming nothing, once `limit`
   passes with no child finished.
 - `unix.redirect_fd` and `unix.dup_fd` replace explicit descriptors. Buffered
-  output is flushed before its descriptor is replaced. `unix.exec` honors
+  output is flushed before its descriptor is replaced. `unix.redirect_fd`
+  with `exact_create_mode: true` applies the requested mode independently of
+  umask only to exclusively created files; existing permissions are preserved,
+  and a concurrent removal during reopen fails with a host error.
+  `unix.duplicate_fd` saves a descriptor in a new caller-owned descriptor that
+  shares its offset and closes automatically on exec. `unix.exec` honors
   ordered file and byte-input redirections; replacement preserves descriptor
-  and signal state. Credential transitions validate all supplied IDs before
+  and signal state. With no command-plan `cwd` or active `cd` scope,
+  `unix.exec` and `unix.exec_env` inherit the kernel's held working directory
+  without re-entering its pathname; this also works after its permissions
+  change or it is removed. Explicit `cwd` and scoped `cd` still select the
+  replacement's directory. Credential transitions validate all supplied IDs before
   applying supplementary groups, GID, then UID; a host failure can leave
   earlier changes applied. Separate UID/GID/group setters change only the
   named credential. `user.groups` uses NSS with an optional selected primary
@@ -4553,7 +4611,10 @@ Contracts worth knowing without consulting the reference:
   the words of a `UnixTtyAttrs` by name; `unix.tty_mode(attrs, mode)` applies
   `stty`'s `raw`, `cooked`, `cbreak`, or `sane` to a copy that reaches the
   terminal only through `set_tty_attrs`. `unix.open_fd` and `close_fd`
-  give a bare descriptor for a device path, and `unix.open_pty` a
+  give a bare descriptor for a device path. `unix.seek_fd` defaults to an
+  absolute position; `whence: "current"` and `whence: "end"` accept signed
+  offsets relative to the descriptor's position or file length, with invalid
+  resulting positions rejected by the kernel. `unix.open_pty` gives a
   pseudo-terminal pair; descriptors are the script's to close. `unix.read_utmp`
   decodes a utmp or wtmp file (Linux only; a trailing partial record is
   ignored) and `unix.load_average` reads the system load.
@@ -4580,6 +4641,11 @@ Contracts worth knowing without consulting the reference:
   also names every socket, option, netlink, and ioctl number. Interface
   configuration needs the kernel's usual capability; nothing in the runtime
   grants it.
+- Standard descriptors absent when the process starts remain logically closed:
+  stdin reads and descriptor operations fail with `EBADF`, and buffered output
+  reports `EBADF` when flushed. Empty output does not require an open stream.
+  Child commands inherit that absence unless an explicit redirection replaces
+  the stream. `unix.redirect_fd` and `unix.dup_fd` can reopen a standard stream.
 - `io.flush_stdout()` writes the buffered standard output to the host and
   fails with the write's errno (`EPIPE`, `ENOSPC`); without it, output leaves
   the process at exit and its write errors are not visible. Captured output is

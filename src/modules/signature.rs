@@ -709,21 +709,38 @@ mod tests {
         );
     }
 
-    // Required labels rely on standard argument-slot binding. Methods also
-    // need one overload so their binding route enforces the selected labels.
+    // Every required label must reach the checker path that enforces it. Probe
+    // module calls and methods, then retain the concrete capability call check.
     #[test]
     fn a_required_label_is_declared_only_where_the_checker_enforces_it() {
         use super::{ApiArgCheck, LabelRule, MethodReceiver, ModuleFnSig};
         use crate::diagnostic::DiagnosticCode;
         use crate::sema::check::Checker;
         use crate::source::SourceId;
+        use crate::syntax::node::Effect;
         use crate::syntax::parser::Parser;
+
+        let check_source = |source: &str| {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(
+                parsed.diagnostics.is_empty(),
+                "{source}\n{:?}",
+                parsed.diagnostics
+            );
+            Checker::check_arena(&parsed.arena, source).diagnostics
+        };
 
         let requires = |sig: &ModuleFnSig| {
             sig.params
                 .iter()
                 .any(|param| param.label == LabelRule::Required)
         };
+        let effects = Effect::ALL
+            .iter()
+            .map(Effect::as_str)
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut required_module_params = 0;
         for (module, sig) in api_spec().module_entries() {
             for function in &sig.functions {
                 for overload in &function.overloads {
@@ -732,9 +749,83 @@ mod tests {
                         "{module}.{} requires a label without standard argument binding",
                         function.name
                     );
+                    let required = overload
+                        .params
+                        .iter()
+                        .filter(|param| param.label == LabelRule::Required)
+                        .collect::<Vec<_>>();
+                    if required.is_empty() {
+                        continue;
+                    }
+                    required_module_params += required.len();
+
+                    let params = overload
+                        .params
+                        .iter()
+                        .enumerate()
+                        .map(|(index, param)| format!("a{index}: {}", param.ty))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let named_args = overload
+                        .params
+                        .iter()
+                        .enumerate()
+                        .map(|(index, param)| match param.label {
+                            LabelRule::Free => format!("a{index}"),
+                            LabelRule::Required => format!("{}: a{index}", param.name),
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let positional_args = (0..overload.params.len())
+                        .map(|index| format!("a{index}"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let probe = |args: &str| {
+                        format!(
+                            "proc probe({params}) [{effects}] {{\n  let _ = {module}.{}({args})\n}}\n",
+                            function.name
+                        )
+                    };
+
+                    let accepted = check_source(&probe(&named_args));
+                    assert!(
+                        accepted.is_empty(),
+                        "{module}.{} named labels: {accepted:?}",
+                        function.name
+                    );
+                    let rejected = check_source(&probe(&positional_args));
+                    let label_errors = rejected
+                        .iter()
+                        .filter(|diagnostic| {
+                            diagnostic.code == Some(DiagnosticCode::CheckNamedArg)
+                        })
+                        .collect::<Vec<_>>();
+                    assert_eq!(
+                        label_errors.len(),
+                        required.len(),
+                        "{module}.{} positional labels: {rejected:?}",
+                        function.name
+                    );
+                    for param in required {
+                        assert!(
+                            label_errors.iter().any(|diagnostic| {
+                                diagnostic
+                                    .message
+                                    .contains(&format!("takes the label `{}`", param.name))
+                            }),
+                            "{module}.{} positional call did not require `{}`: {rejected:?}",
+                            function.name,
+                            param.name
+                        );
+                    }
                 }
             }
         }
+        assert!(
+            required_module_params > 0,
+            "no module function required labels were probed"
+        );
+
         let mut required = 0;
         for (receiver, methods) in api_spec().method_entries() {
             for method in methods {
@@ -757,22 +848,20 @@ mod tests {
         }
         assert_eq!(required, 6);
 
-        let check = |arguments: &str| {
+        let check_capability_arguments = |arguments: &str| {
             let source = format!(
                 "proc probe() [process] {{ let _ = linux.set_capabilities({arguments}) }}"
             );
-            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
-            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-            Checker::check_arena(&parsed.arena, &source).diagnostics
+            check_source(&source)
         };
-        let positional = check("[], [], []");
+        let positional = check_capability_arguments("[], [], []");
         assert!(
             positional.iter().any(|diagnostic| {
                 diagnostic.code == Some(DiagnosticCode::CheckNamedArg)
             }),
             "required labels accepted positional arguments: {positional:?}"
         );
-        let labeled = check("effective: [], permitted: [], inheritable: []");
+        let labeled = check_capability_arguments("effective: [], permitted: [], inheritable: []");
         assert!(labeled.is_empty(), "labeled arguments rejected: {labeled:?}");
     }
 }

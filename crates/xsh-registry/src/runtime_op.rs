@@ -1,5 +1,10 @@
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum RuntimeOp {
+    LocaleNumericInfo,
+    LocaleTimeInfo,
+    NumericParseLongDouble,
+    NumericFormatLongDouble,
+    NumericLongDoublePrecision,
     AppletHashPassword,
     AppletVerifyPassword,
     AppletCurrentEuid,
@@ -360,6 +365,7 @@ pub enum RuntimeOp {
     IoWriteStdoutBytes,
     IoFlushStdout,
     IoWriteStderr,
+    IoWriteStderrBytes,
     IoFlushStderr,
     JsonDecode,
     JsonEncode,
@@ -454,6 +460,7 @@ pub enum RuntimeOp {
     UnixExecEnv,
     UnixRedirectFd,
     UnixDupFd,
+    UnixDuplicateFd,
     UnixSetUid,
     UnixSetGid,
     UnixSetGroups,

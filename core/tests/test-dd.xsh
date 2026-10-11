@@ -106,7 +106,28 @@ test test_dd_seek_bytes_on_stdout { |ctx|
   assert result.stdout == b"\0\0\0abc"
   let empty = invoke(ctx, ["status=none", "seek=8", "oflag=seek_bytes", "count=0"])?
   assert empty.status == 0, empty.stderr
-  assert empty.stdout == b"\0\0\0\0\0\0\0\0"
+  assert empty.stdout == b""
+}
+
+test test_dd_seek_bytes_on_stdout_uses_the_inherited_position { |ctx|
+  let root = test.temp_dir(ctx, name: "dd-seek-stdout-position")?
+  let out = fp"{root}/out"
+  let err = fp"{root}/err"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/dd.xsh".display(), "status=none", "seek=3", "oflag=seek_bytes"]
+  let plan = process.command_argv(p"/bin/sh", ["sh", "-c", "printf x; exec \"$@\"", "dd-seek-stdout-position"].extend(argv), root, {LC_ALL: "C"}, b"abc", out, err, timeout: 3s)
+  assert process.run(plan)?.exited_with(0), err.read_text()?
+  assert out.read_bytes()? == b"x\0\0\0abc"
+  assert err.read_text()? == ""
+}
+
+test test_dd_zero_count_seek_preserves_existing_stdout_bytes { |ctx|
+  let root = test.temp_dir(ctx, name: "dd-seek-stdout")?
+  let out = fp"{root}/out"
+  let err = fp"{root}/err"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/dd.xsh".display(), "status=none", "bs=2", "oseek=8", "oflag=seek_bytes", "count=0"]
+  let plan = process.command_argv(p"/bin/sh", ["sh", "-c", "printf abcdef; exec \"$@\"", "dd-seek-stdout"].extend(argv), root, {LC_ALL: "C"}, b"", out, err, timeout: 3s)
+  assert process.run(plan)?.exited_with(0), err.read_text()?
+  assert out.read_bytes()? == b"abcdef"
 }
 
 test test_dd_seek_bytes_on_regular_output { |ctx|
@@ -510,4 +531,30 @@ test test_dd_zero_count_allocates_no_block_buffer { |ctx|
     assert result.stdout == b""
     assert result.stderr == "", arg
   }
+}
+
+test test_dd_zero_transfer_reports_kilobytes_per_second { |ctx|
+  let result = invoke(ctx, ["count=0"])?
+  assert result.status == 0, result.stderr
+  assert result.stderr.ends_with(" s, 0.0 kB/s\n"), result.stderr
+}
+
+test test_dd_warns_once_for_repeated_zero_multipliers { |ctx|
+  let result = invoke(ctx, ["count=0x0x1", "status=none"])?
+  assert result.status == 0, result.stderr
+  assert result.stderr == "dd: warning: '0x' is a zero multiplier; use '00x' if that is intended\n", result.stderr
+}
+
+test test_dd_nocache_pipe_reports_illegal_seek { |ctx|
+  let result = invoke(ctx, ["iflag=nocache", "count=0", "status=none"])?
+  assert result.status == 1, result.stderr
+  assert result.stderr == "dd: failed to discard cache for: 'standard input': Illegal seek\n", result.stderr
+}
+
+test test_dd_help_labels_block_size_and_conversions { |ctx|
+  let result = invoke(ctx, ["--help"])?
+  assert result.status == 0, result.stderr
+  let text = result.stdout.utf8()?
+  assert "\n  bs=BYTES" in text, text
+  assert "\nEach CONV symbol may be:\n" in text, text
 }

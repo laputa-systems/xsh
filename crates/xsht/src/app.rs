@@ -27,6 +27,7 @@ pub fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    clear_cancellation_request();
     let _signal_guard = match install_cancellation_signal_handlers() {
         Ok(guard) => guard,
         Err(error) => {
@@ -40,8 +41,6 @@ pub fn main() -> ExitCode {
         eprintln!("xsht: failed to install signal handlers: {error}");
         return ExitCode::from(2);
     }
-    clear_cancellation_request();
-
     match parse_tool(args) {
         Ok(Command::Help(text) | Command::Text(text)) => {
             print!("{text}");

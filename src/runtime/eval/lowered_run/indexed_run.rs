@@ -93,6 +93,31 @@ use serial_pipeline::IndexedPipelineItems;
 
 use xsh_registry::stream_parameters::DEFAULT_PAR_MAP_WORKERS;
 
+/// Eager sequence materialization reports host capacity failures through XSH errors.
+fn indexed_allocation_error(kind: &str, span: Span) -> RuntimeError {
+    let mut error = RuntimeError::host(
+        kind,
+        &std::io::Error::from_raw_os_error(libc::ENOMEM),
+    ).with_span(span);
+    // Materialization failure belongs to the checked expression, so local
+    // Result boundaries must capture it just like explicit propagation.
+    error.propagated = true;
+    error
+}
+
+fn indexed_range_values(start: i64, end: i64, span: Span) -> Result<Vec<LoweredValue>, RuntimeError> {
+    let count = usize::try_from(start.abs_diff(end))
+        .map_err(|_| indexed_allocation_error("range", span))?;
+    let mut values = Vec::new();
+    values.try_reserve_exact(count).map_err(|_| indexed_allocation_error("range", span))?;
+    if start <= end {
+        values.extend((start..end).map(LoweredValue::Int));
+    } else {
+        values.extend((end + 1..=start).rev().map(LoweredValue::Int));
+    }
+    Ok(values)
+}
+
 /// The `RunArg::mode` of an explicit `@` splice.
 const RUN_ARG_SPLICE: u32 = 2;
 
@@ -1216,11 +1241,7 @@ impl Evaluator {
                     }
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                let values = if start <= end {
-                    (start..end).map(LoweredValue::Int).collect()
-                } else {
-                    (end + 1..=start).rev().map(LoweredValue::Int).collect()
-                };
+                let values = indexed_range_values(start, end, span)?;
                 ControlFlow::Continue(LoweredValue::List(values))
             }
             FullTag::ExprTag => {

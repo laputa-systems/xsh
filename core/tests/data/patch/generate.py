@@ -3,7 +3,7 @@
 
     python3 -I core/tests/data/patch/generate.py [CASE...]
 
-Every case below runs once in the reference container (dev/compat/oracle.sh)
+Every case below runs once in the reference container (dev/reference/oracle.sh)
 inside a copy of its `in/` tree. Standard output, standard error, the exit
 status, and the final tree are stored under `<case>/out/`, so the native test
 runs the XSH applet only and never needs the container. The image has no
@@ -27,7 +27,7 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
-ORACLE = os.path.join(REPO, "dev", "compat", "oracle.sh")
+ORACLE = os.path.join(REPO, "dev", "reference", "oracle.sh")
 
 CASES = []
 

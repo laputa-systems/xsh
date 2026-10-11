@@ -101,7 +101,7 @@ test test_catalog_and_sibling_filters_preserve_the_selected_verification_scope {
   }
 }
 
-test test_batch_automatic_checks_leave_paused_compatibility_inputs_alone {
+test test_batch_automatic_checks_use_retained_repository_gates {
   let ctx = fixtures.linux_context(/repo)?
   let checks = gates.batch_checks(ctx, tests.Verification)
   assert [spec.stage for spec in checks] == ["batch-check", "batch-lint", "batch-diff", "batch-ratchets"]
@@ -113,7 +113,7 @@ test test_batch_automatic_checks_leave_paused_compatibility_inputs_alone {
     assert spec.executable != "python3"
     assert [arg for arg in spec.argv |> where .starts_with("dev/compat/")].is_empty()
   }
-  let paused = gates.select(["dev/compat/policy.xsh"])?
-  assert paused.areas.is_empty()
-  assert paused.native_files.is_empty()
+  let retained = gates.select(["dev/checks/check_inventory.py"])?
+  assert retained.areas == [gates.Automation]
+  assert retained.native_files.is_empty()
 }

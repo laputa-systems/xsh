@@ -198,11 +198,15 @@ test test_expr_syntax_and_operand_errors { |ctx|
     {args: ["length"], message: "syntax error: missing argument after 'length'"},
     {args: ["(", "2"], message: "syntax error: expecting ')' after '2'"},
     {args: ["(", "2", "a"], message: "syntax error: expecting ')' instead of 'a'"},
-    {args: ["(", "1", "/", "0"], message: "syntax error: expecting ')' after '0'"},
+    {args: ["(", "1", "/", "0"], message: "division by zero"},
     {args: ["1", "(", ")"], message: "syntax error: unexpected argument '('"},
     {args: ["3", "+", "-"], message: "non-integer argument"},
     {args: ["a", "=", "2", "+", "a"], message: "non-integer argument"},
     {args: ["9", "/", "0"], message: "division by zero"},
+    {args: ["1", "/", "0", "+"], message: "division by zero"},
+    {args: ["1", "/", "0", "x"], message: "division by zero"},
+    {args: ["1", "|", "(", "1", "/", "0"], message: "syntax error: expecting ')' after '0'"},
+    {args: ["0", "&", "(", "1", "/", "0"], message: "syntax error: expecting ')' after '0'"},
     {args: ["substr", "abc", "x", "1"], message: "non-integer argument"},
   ] {
     let result = expr_run(ctx, case.args)?

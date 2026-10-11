@@ -109,6 +109,8 @@ fn module_docs(module: &str) -> ApiDocs {
             "Descriptors define the stable script-facing command-line contract.",
         ),
         "compression" => ("Bounded compression of files or standard streams.", "Null paths select standard input and output; named destinations are created exclusively unless overwrite is true."),
+        "locale" => ("Locale numeric and month metadata.", "Reads an explicit locale without changing process or thread locale. Bytes retain their encoding. musl uses a committed GNU libc metadata projection with exact supported names and aliases; other targets query installed native locales. Unavailable names return errors. This does not provide collation or character classes."),
+        "numeric" => ("Native C long double text conversion.", "Uses an isolated C locale and the target C long double precision and range; values never pass through XSH Float."),
         "cpu" => ("CPU capability queries.", ""),
         "diff" => ("Unified diff generation.", ""),
         "dns" => (
@@ -253,6 +255,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
     let docs: Option<(&'static str, &'static str, &'static [&'static str])> = match (
         module, function,
     ) {
+        ("system", "locale_numeric_info") => Some(("Reads locale decimal and thousands separators.", "Returns decimal_point and thousands_separator as Bytes for the explicit locale's numeric category. Empty or NUL-containing names return locale-name; unavailable or unsupported metadata returns locale-unavailable. musl reads an immutable GNU libc byte projection; other targets query an isolated installed native locale.", &["locale", "numeric"])),
+        ("system", "locale_time_info") => Some(("Reads locale abbreviated month names.", "Returns twelve Bytes entries in calendar order, January through December, for the explicit locale's time category. Empty or NUL-containing names return locale-name; unavailable or unsupported metadata returns locale-unavailable. musl reads an immutable GNU libc byte projection; other targets query an isolated installed native locale.", &["locale", "time"])),
+        ("system", "parse_long_double") => Some(("Parses a native C long double prefix and returns its ordering key.", "Consumed is a byte offset, including leading whitespace, or zero when no number is recognized. NUL ends parsing. range_error reports native ERANGE. C locale is isolated from process locale. Keys compare lexically: failed conversion, NaN, negative infinity, negative finite values, zero, positive finite values, positive infinity. All NaNs and signed zeros compare equal. Keys are opaque and target-specific.", &["numeric", "parsing", "ordering"])),
+        ("system", "format_long_double") => Some(("Parses and formats numeric text with native C long double precision.", "Accepts fFeEgGaA with optional nonnegative C-int precision; null uses the native default. alternate selects the # form. Reports consumed bytes and ERANGE from parsing. Uses C locale; retains signed zero, infinities, NaNs and target-native rounding. Invalid conversions, invalid precision, formatting and allocation failures return errors.", &["numeric", "formatting"])),
+        ("system", "long_double_precision") => Some(("Returns the target C long double significand bit count.", "Matches the native parsing and formatting boundary: 64 on x86 extended precision, 113 on IEEE binary128 targets, and 53 on targets where C long double is binary64.", &["numeric", "precision"])),
         ("json", "read") => Some((
             "Reads one JSON document from a path.",
             "Successful parsing returns Any; require a schema before trusting fields.",
@@ -440,7 +447,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("bytes", "zero") => Some((
             "Allocates a zero-filled byte buffer.",
-            "The requested length controls allocation size; the result remains binary Bytes.",
+            "The requested length controls allocation size; allocation and capacity failures return HostIo with ENOMEM.",
             &["bytes", "allocation"],
         )),
         ("bytes", "from_ints") => Some((
@@ -671,7 +678,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("fs", "root_children") => Some((
             "Enumerates child paths below a rooted filesystem capability.",
-            "Names stay lossless as Path values and are sorted by raw bytes; the result carries partial entries, stable error state, errno, and truncation status.",
+            "Names stay lossless as Path values and are sorted by raw bytes by default; ordered: false preserves filesystem enumeration order, including partial entries. max_entries defaults to 65536 and accepts 0 through 65536. The result carries partial entries, stable error state, errno, and truncation status. Truncation retains the first max_entries paths in the selected order.",
             &[
                 "filesystem",
                 "rooted",
@@ -839,7 +846,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("fs", "copy_file") => Some((
             "Copies file, FIFO, or device bytes with sparse and reflink control.",
-            "Virtual files, FIFOs, and devices stream until EOF using bounded memory. FIFO and device destinations receive every byte without truncation or sparse seeks, report hole_bytes zero for every sparse policy, and attempt reflink always as a clone request that fails with the kernel's errno (EINVAL for a device, EXDEV across mounts) instead of copying. bytes reports the logical length copied, including holes. sparse and reflink accept auto, always, or never; overwrite false creates the destination exclusively; creation mode is the only metadata copied. Source identity is checked before destination truncation. force defaults to false; when true and overwrite is true, only a destination-open failure may unlink and reopen an existing destination after the source is pinned. Source failures and transfer failures never trigger replacement. destination_replaced reports an actual successful force unlink and reopen, without inferring it from inode numbers.",
+            "Virtual files, FIFOs, and devices stream until EOF using bounded memory. Virtual regular sources attempt kernel copying before streaming unless sparse always is requested; their reported lengths never bound the copied bytes. FIFO and device destinations receive every byte without truncation or sparse seeks, report hole_bytes zero for every sparse policy, and attempt reflink always as a clone request that fails with the kernel's errno (EINVAL for a device, EXDEV across mounts) instead of copying. bytes reports the logical length copied, including holes. sparse and reflink accept auto, always, or never; overwrite false creates the destination exclusively; creation mode is the only metadata copied. Source identity is checked before destination truncation. force defaults to false; when true and overwrite is true, only a destination-open failure may unlink and reopen an existing destination after the source is pinned. Source failures and transfer failures never trigger replacement. destination_replaced reports an actual successful force unlink and reopen, without inferring it from inode numbers. reflink_error and offload_error retain actual failed automatic clone and first kernel-copy attempts, including their host errno; mechanisms with no failed attempt report null.",
             &["filesystem", "copy", "sparse"],
         )),
         ("fs", "fsync" | "sync") => Some((
@@ -911,6 +918,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Buffers UTF-8 text on standard error without a newline.",
             "Use flush_stderr before reading an interactive response to make a prompt visible. Captured output remains in the evaluator's output sink.",
             &["io", "stderr", "utf8"],
+        )),
+        ("io", "write_stderr_bytes") => Some((
+            "Buffers raw Bytes on standard error without a newline.",
+            "Preserves arbitrary byte values, including invalid UTF-8. Use flush_stderr to report host write failures; captured output remains in the evaluator's output sink.",
+            &["io", "stderr", "bytes"],
         )),
         ("io", "flush_stderr") => Some((
             "Writes buffered standard error to the host and reports write failures.",
@@ -1404,10 +1416,10 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("regex", "captures_bytes") => Some(("Matches POSIX byte captures at an input offset.", "Returns an empty list for no match; a match has ten nullable ranges, index zero for the full match and one through nine for captures. Offsets are absolute byte positions. Basic syntax is default; extended and ignore_case select POSIX flags. Patterns are validated even for empty input; NUL input and GNU word boundary escapes are rejected. A nonzero offset does not create a new beginning-of-line anchor.", &["regex", "bytes"])),
 
-        ("unix", "cpu_features") => Some(("Lists supported host CPU features used by hardware-accelerated utilities.", "Feature names are avx512, avx2, pclmul and sse2 on x86; asimd and vmull on little-endian AArch64. Unsupported features are omitted. Android and other targets return an empty list.", &["unix", "cpu"])),
+        ("unix", "cpu_features") => Some(("Lists supported host CPU features used by hardware-accelerated utilities.", "Feature names are avx512 (AVX512F and AVX512BW together), avx2, avx, vpclmulqdq, pclmul and sse2 on x86; asimd and vmull on little-endian AArch64. Unsupported features are omitted. Android and other targets return an empty list.", &["unix", "cpu"])),
         ("unix", "read_fd") => Some(("Reads one bounded chunk from a descriptor.", "max_bytes must be positive. A single descriptor read returns short reads as they occur and empty bytes at EOF, without read-ahead; EINTR retries and host errors retain errno.", &["unix", "io"])),
         ("unix", "write_fd") => Some(("Writes one chunk to a descriptor.", "Returns the number of bytes written, which may be less than data.len(); callers must handle short writes. EINTR retries and host errors retain errno.", &["unix", "io"])),
-        ("unix", "seek_fd") => Some(("Moves a descriptor to an absolute byte offset.", "offset must be nonnegative and representable by the host. Only seekable descriptors succeed; EINTR retries and host errors retain errno.", &["unix", "io", "file"])),
+        ("unix", "seek_fd") => Some(("Moves a descriptor relative to its start, current position, or end.", "whence defaults to start; current and end permit negative offsets. The resulting position must be nonnegative and representable by Int. Only seekable descriptors succeed; EINTR retries and host errors retain errno.", &["unix", "io", "file"])),
         ("unix", "poll_fd") => Some((
             "Waits for descriptor readiness and reports terminal conditions.",
             "Requested events are readable and writable; returned events may also include error, hangup, and invalid. An empty request observes terminal conditions. Timeout defaults to zero, -1 waits indefinitely, and nonnegative millisecond deadlines survive interruptions.",
@@ -1612,12 +1624,17 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("unix", "redirect_fd") => Some((
             "Replaces a current process descriptor with an opened path.",
-            "fd must be in 0..2147483647. Read mode never creates a file; write creates and truncates, or appends when append is true. append requires write. mode defaults to 438 (0666), must be in 0..4095, and is filtered by the process umask only on creation. The descriptor survives exec; write-only stdin refuses reads. This mutates process state beyond the current scope.",
+            "fd must be in 0..2147483647. Read mode never creates a file; write creates and truncates, or appends when append is true. append requires write. mode defaults to 438 (0666), must be in 0..4095, and is filtered by the process umask only on creation. exact_create_mode requires write and sets a newly created file to mode independently of umask; existing file permissions stay unchanged, and a concurrent removal while reopening fails with a host error. The descriptor survives exec; write-only stdin refuses reads. This mutates process state beyond the current scope.",
             &["unix", "descriptor", "process"],
         )),
         ("unix", "dup_fd") => Some((
             "Duplicates a current process descriptor onto another descriptor.",
             "source and target must be in 0..2147483647. Replaces target, shares the open file offset and clears close-on-exec even when source equals target. Invalid or closed descriptors remain host errors.",
+            &["unix", "descriptor", "process"],
+        )),
+        ("unix", "duplicate_fd") => Some((
+            "Saves a current process descriptor as a new close-on-exec descriptor.",
+            "source and min_fd must be in 0..2147483647. Returns the lowest available descriptor at or above min_fd (default 3), sharing the open file offset. The caller owns the returned descriptor and closes it with unix.close_fd; it is automatically closed by exec. Invalid or closed sources remain host errors.",
             &["unix", "descriptor", "process"],
         )),
         ("unix", "set_uid" | "set_gid") => Some((

@@ -4,7 +4,7 @@ use super::{
     IndexedPipelineItems, LoweredProjectedReduceState, LoweredReduceProjection, LoweredValue,
     MapKey, Name, ParMapItemOutcome, ReduceByOp, RuntimeError, Span, StmtFlow, TraceError,
     TraceKind, TracePayload, Traceback, btree_map, bytes_module, compare_lowered_sort_keys,
-    indexed_decode, indexed_error, indexed_finish, indexed_optional_raw, indexed_raw,
+    indexed_allocation_error, indexed_range_values, indexed_decode, indexed_error, indexed_finish, indexed_optional_raw, indexed_raw,
     indexed_string, indexed_value, lowered_bytes_value, lowered_count_key, lowered_error_message,
     lowered_inline_stats_field_value, lowered_nonnegative_count, lowered_pipeline_input,
     lowered_pipeline_item_count, lowered_pipeline_record_list, lowered_record_vec_get,
@@ -2986,7 +2986,11 @@ impl Evaluator {
                             } else {
                                 let items =
                                     self.lowered_pipeline_input_items(current, span)?;
-                                let mut repeated = Vec::with_capacity(items.len() * count);
+                                let capacity = items.len().checked_mul(count)
+                                    .ok_or_else(|| indexed_allocation_error("repeat", span))?;
+                                let mut repeated = Vec::new();
+                                repeated.try_reserve_exact(capacity)
+                                    .map_err(|_| indexed_allocation_error("repeat", span))?;
                                 for _ in 0..count {
                                     repeated.extend(items.iter().cloned());
                                 }
@@ -3033,11 +3037,7 @@ impl Evaluator {
                                     return Ok(ControlFlow::Break(value));
                                 }
                             };
-                            LoweredValue::List(if start <= end {
-                                (start..end).map(LoweredValue::Int).collect()
-                            } else {
-                                (end + 1..=start).rev().map(LoweredValue::Int).collect()
-                            })
+                            LoweredValue::List(indexed_range_values(start, end, span)?)
                         }
                     };
                     Ok(ControlFlow::Continue(value))

@@ -72,6 +72,67 @@ while true {{
     let _ = std::fs::remove_dir_all(root);
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn sigterm_during_script_source_read_is_not_lost_before_execution() {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let source = temp_path("signal-during-source-read");
+    let source_c = std::ffi::CString::new(source.as_os_str().as_bytes())
+        .expect("FIFO path has no NUL bytes");
+    assert_eq!(unsafe { libc::mkfifo(source_c.as_ptr(), 0o600) }, 0);
+
+    let mut child = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
+        .arg(&source)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn xsh on FIFO source");
+
+    // Opening the FIFO proves xsh has installed its handlers and entered the
+    // source read. Keep the writer open after the complete source bytes so
+    // preparation cannot finish until after SIGTERM is delivered.
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let mut writer = loop {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).custom_flags(libc::O_NONBLOCK);
+        match options.open(&source) {
+            Ok(writer) => break writer,
+            Err(error) if error.raw_os_error() == Some(libc::ENXIO) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = std::fs::remove_file(&source);
+                    panic!("xsh did not open the FIFO source");
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = std::fs::remove_file(&source);
+                panic!("open FIFO source writer: {error}");
+            }
+        }
+    };
+    writer.write_all(b"print \"ran\"\n").expect("write script source");
+    let result = unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
+    assert_eq!(result, 0, "send SIGTERM during source read");
+    drop(writer);
+
+    let status = wait_child_status(&mut child, Duration::from_secs(5));
+    let mut stdout = Vec::new();
+    child.stdout.take().expect("child stdout").read_to_end(&mut stdout).unwrap();
+    let mut stderr = Vec::new();
+    child.stderr.take().expect("child stderr").read_to_end(&mut stderr).unwrap();
+    let _ = std::fs::remove_file(&source);
+
+    assert_eq!(status.code(), Some(3), "{stderr:?}");
+    assert!(stdout.is_empty(), "script body ran after SIGTERM: {stdout:?}");
+    assert!(stderr.is_empty(), "unexpected idle cancellation diagnostic: {stderr:?}");
+}
+
 #[cfg(all(feature = "net", any(target_os = "linux", target_os = "macos")))]
 #[test]
 fn sigterm_cancels_live_net_jobs_without_a_signal_hook() {

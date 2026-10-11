@@ -89,6 +89,19 @@ proc parse_patterns(operands: List[Str]) [process, env] -> List[Pattern] {
           repeat = -1
           index += 1
         } else {
+          if next.starts_with("{") {
+            if ! next.ends_with("}") {
+              gnu.error(gnu.quote_value(next) + ": '}' is required in repeat count")
+              exit 1
+            }
+
+            if ! rx"^\{[0-9]+\}$".matches(next) {
+              let count = next.byte_slice(0, length: next.byte_len() - 1)
+              gnu.error(gnu.quote_value(count) + "}: integer required between '{' and '}'")
+              exit 1
+            }
+          }
+
           let counted = rx"^\{([0-9]+)\}$".captures(next)
 
           if ! counted.is_empty() {
@@ -98,11 +111,16 @@ proc parse_patterns(operands: List[Str]) [process, env] -> List[Pattern] {
         }
       }
 
-      let slashed = rx"^/(.*)/([+-]?[0-9]+)?$".captures(text)
-      let percent = rx"^%(.*)%([+-]?[0-9]+)?$".captures(text)
+      let slashed = rx"^/(.*)/(.*)$".captures(text)
+      let percent = rx"^%(.*)%(.*)$".captures(text)
 
       if ! slashed.is_empty() or ! percent.is_empty() {
         let parts = if ! slashed.is_empty() { slashed } else { percent }
+
+        if parts[2] != "" and ! rx"^[+-]?[0-9]+$".matches(parts[2]) {
+          gnu.error(f"{gnu.quote_value(text)}: integer expected after delimiter")
+          exit 1
+        }
 
         if let Err(failure) = regex.compile(parts[1]) {
           gnu.error(f"{gnu.quote(text)}: invalid regular expression: {failure.message}")
@@ -320,21 +338,21 @@ pure opened_for_write(failure: Error) -> Bool {
   ! (gnu.errno(failure) in [1, 13, 21, 30])
 }
 
-# csplit reports count-output failures as the bare operating-system message.
+# Count-output failures identify the standard-output write separately from file writes.
 proc write_count(count: Int) [process, env, io] {
   let text = f"{count}\n"
 
   if let Err(failure) = io.write_stdout(text) {
     if gnu.errno(failure) == 32 { exit 141 }
 
-    gnu.error(gnu.strerror(failure))
+    gnu.error(f"write error: {gnu.strerror(failure)}")
     exit 1
   }
 
   if let Err(failure) = io.flush_stdout() {
     if gnu.errno(failure) == 32 { exit 141 }
 
-    gnu.error(gnu.strerror(failure))
+    gnu.error(f"write error: {gnu.strerror(failure)}")
     exit 1
   }
 }
@@ -392,8 +410,25 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
 
   guard let data = text.read_operand_bytes(input_name) else { |failure|
     if gnu.errno(failure) == 21 {
-      if ! opts.quiet {
-        gnu.write_text("0\n")
+      let patterns = parse_patterns(opts.operands[1..])
+
+      # A copying pattern opens its first output before discovering the read
+      # error. Skipping patterns never open a piece; empty-file elision removes it.
+      if patterns[0].kind != "skip" {
+        let name = opts.prefix + suffix(spec, 0)
+
+        if let Err(open_failure) = fp"{name}".write(b"") {
+          gnu.name_error(name, open_failure)
+          exit 1
+        }
+
+        if ! opts.keep or opts.elide {
+          fp"{name}".remove()
+        }
+
+        if ! opts.quiet and ! opts.elide {
+          write_count(0)
+        }
       }
 
       gnu.error("read error: Is a directory")

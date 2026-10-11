@@ -102,8 +102,8 @@ const BASE = 1000000000
 
 const MAX_I128_DIGITS = 39
 
-# The characters Rust's `char::is_whitespace` accepts, for a regex class.
-const BLANKS = "\\s\\x{85}\\x{a0}\\x{1680}\\x{2000}-\\x{200a}\\x{2028}\\x{2029}\\x{202f}\\x{205f}\\x{3000}"
+# Fields are separated by single-byte locale blanks, not Unicode whitespace.
+const BLANKS = "\\x09-\\x0d\\x20"
 
 pure trim_limbs(parts: List[Int]) -> List[Int] {
   var end = parts.len()
@@ -435,43 +435,9 @@ pure float_display(x: Float) -> Str {
   f"{x}"
 }
 
-# GNU's `%g`-style scientific form (six digits, trimmed zeros, signed exponent).
-pure scientific(x: Float) -> Str {
-  return "0e+0" when x == 0.0
-
-  var exponent = 0
-  var mantissa = x.abs()
-
-  while mantissa >= 10.0 {
-    mantissa = mantissa / 10.0
-    exponent += 1
-  }
-
-  while mantissa < 1.0 {
-    mantissa = mantissa * 10.0
-    exponent -= 1
-  }
-
-  var digits = mantissa.format(5)
-
-  if digits.starts_with("10") {
-    digits = "1.00000"
-    exponent += 1
-  }
-
-  var end = digits.byte_len()
-
-  while end > 0 and digits.byte_slice(end - 1, length: 1) == "0" {
-    end -= 1
-  }
-
-  if end > 0 and digits.byte_slice(end - 1, length: 1) == "." {
-    end -= 1
-  }
-
-  let sign = if x < 0.0 { "-" } else { "" }
-
-  f"{sign}{digits.byte_slice(0, length: end)}e{if exponent < 0 { "-" } else { "+" }}{if exponent < 0 { -exponent } else { exponent }}"
+# GNU diagnostics use six significant digits with `%g` exponent selection.
+pure scientific(x: Float) -> Result[Str] {
+  x.format_number("g", 6)
 }
 
 # Locale separators: the decimal point and the digit grouping string.
@@ -841,7 +807,7 @@ proc to_unit_text(
   separator: Str,
   specified: Bool,
   decimal: Str,
-) [env] -> Rendered {
+) [env, error] -> Rendered {
   # A whole number that divides evenly prints exactly, whatever its size.
   if to == "none" and num.exact {
     let unit = big_from(f"{to_unit}")
@@ -859,7 +825,7 @@ proc to_unit_text(
       if big_cmp(big_mul(magnitude, power), big_from("10000000000000000000")) >= 0 {
         return {
           text: "",
-          err: f"value/precision too large to be printed: '{scientific(float_text(whole_text(scaled)))}/{precision}' (consider using --to)",
+          err: f"value/precision too large to be printed: '{scientific(float_text(whole_text(scaled)))?}/{precision}' (consider using --to)",
         }
       }
 
@@ -875,18 +841,20 @@ proc to_unit_text(
   return {text: "", err: scaled.err} when scaled.err != ""
 
   let {value: i2, suffix: tail, ..} = scaled
-  let wide = precision <= 65535
+  if to == "none" and (precision >= 19 or i2.abs() * 10.0.pow(precision.float()) >= 10000000000000000000.0) {
+    return {text: "", err: f"value/precision too large to be printed: '{scientific(i2)?}/{precision}' (consider using --to)"}
+  }
 
   var text = ""
 
-  if tail == "" and to == "none" and wide {
+  if tail == "" and to == "none" {
     text = round_with_precision(i2, method, precision).format(precision)
-  } else if tail == "" and specified and wide {
-    text = round_with_precision(i2, method, 0).format(precision)
+  } else if tail == "" and specified {
+    text = round_with_precision(i2, method, 0).format_number("f", precision)?
   } else if tail == "" {
     text = i2.format(0)
-  } else if precision > 0 and wide {
-    text = f"{i2.format(precision)}{separator}{tail}"
+  } else if precision > 0 {
+    text = f"{i2.format_number("f", precision)?}{separator}{tail}"
   } else if specified {
     text = f"{i2.format(0)}{separator}{tail}"
   } else if i2.abs() < 10.0 {
@@ -1005,11 +973,8 @@ pure parse_format(text: Str) -> FormatParse {
   var width: Int? = null
 
   if padding != "" {
-    guard let value = padding.parse_int() else {
-      return {format: format, err: f"invalid format {quoted} (width overflow)"}
-    }
-
-    width = value
+    # strtoimax saturates overflowing widths; formatting is deferred until input.
+    width = padding.parse_int() ?? (if padding.starts_with("-") { -9223372036854775807 - 1 } else { 9223372036854775807 })
   }
 
   var precision: Int? = null
@@ -1017,7 +982,7 @@ pure parse_format(text: Str) -> FormatParse {
   if at < total and text[at..at + 1] == "." {
     at += 1
 
-    return {format: format, err: f"invalid precision in format {quoted}"} when at < total and text[at..at + 1] in [
+    return {format: format, err: if at + 1 < total and text[at + 1..at + 2] == "f" { directive } else { f"invalid precision in format {quoted}" }} when at < total and text[at..at + 1] in [
       " ",
       "+",
       "-",
@@ -1097,7 +1062,14 @@ type Settings = {
   separators: Separators,
 }
 
-pure pad_string(text: Str, width: Int, fill: Str, right: Bool) -> Str {
+# GNU leaves a field unpadded when its bytes are invalid in the locale.
+proc pad_string(text: Str, width: Int, fill: Str, right: Bool) [env] -> Str {
+  var locale = ""
+  for name in ["LC_ALL", "LC_CTYPE", "LANG"] {
+    let value = env.get_or(name, "") ?? ""
+    if value != "" { locale = value; break }
+  }
+  return text when locale in ["C", "POSIX"] and text.byte_len() != text.count_chars()
   let size = text.count_chars()
 
   return text when size >= width
@@ -1128,7 +1100,7 @@ pure last_is_alphabetic(s: Str) -> Bool {
   rx"[A-Za-z\x{c0}-\x{10ffff}]$".matches(s)
 }
 
-proc format_string(source: Str, settings: Settings, implicit: Int?) [env] -> Rendered {
+proc format_string(source: Str, settings: Settings, implicit: Int?) [env, error] -> Rendered {
   let stripped = if settings.suffix != null and source.ends_with(settings.suffix) {
     source.byte_slice(0, length: source.byte_len() - settings.suffix.byte_len())
   } else {
@@ -1250,7 +1222,7 @@ pure mergeable_suffix(rest: Str, settings: Settings) -> Split? {
   split
 }
 
-proc format_whitespace(line: Str, settings: Settings) [env] -> Rendered {
+proc format_whitespace(line: Str, settings: Settings) [env, error] -> Rendered {
   var haystack = line
   var out = ""
   var n = 0
@@ -1309,7 +1281,7 @@ proc format_whitespace(line: Str, settings: Settings) [env] -> Rendered {
   {text: out, err: ""}
 }
 
-proc format_delimited(line: Str, delimiter: Str, settings: Settings) [env] -> Rendered {
+proc format_delimited(line: Str, delimiter: Str, settings: Settings) [env, error] -> Rendered {
   var out = ""
   var n = 0
 
@@ -1368,7 +1340,7 @@ pure invalid_utf8(value: Bytes) -> Bool {
   }
 }
 
-proc format_delimited_bytes(line: Bytes, delimiter: Bytes, settings: Settings) [env] -> ByteRendered {
+proc format_delimited_bytes(line: Bytes, delimiter: Bytes, settings: Settings) [env, error] -> ByteRendered {
   var out: List[Bytes] = []
   let pieces = split_bytes(line, delimiter)
 
@@ -1421,7 +1393,7 @@ pure escape_line(raw: Bytes) -> Str {
 
 # One input line (without its terminator): the output text so far and the
 # error that stopped it, if any.
-proc convert_line(raw: Bytes, settings: Settings) [env] -> Rendered {
+proc convert_line(raw: Bytes, settings: Settings) [env, error] -> Rendered {
   var cut = raw.len()
 
   for index in range(raw.len()) {
@@ -1631,7 +1603,9 @@ proc settings_from(opts: NumfmtOptions, byte_delimiter: Bool) [process, env, io]
       let range = parse_range(item)
 
       if range.err != "" {
-        option_error(f"range {gnu.quote(item)} was invalid: {range.err}")
+        gnu.error(if range.err == "fields and positions are numbered from 1" { "fields are numbered from 1" } else { range.err })
+        gnu.try_help()
+        exit 1
       }
 
       lows += [range.low]
@@ -1752,6 +1726,7 @@ proc main(...argv: List[Bytes]) [process, env, error, io] {
 
   let delimiter_bytes = gnu.argument_bytes(opts.delimiter ?? "", prepared.raw)
   let byte_delimiter = opts.delimiter != null and invalid_utf8(delimiter_bytes)
+  if byte_delimiter and delimiter_bytes.len() > 1 { option_error("the delimiter must be a single character") }
   let settings = settings_from(opts, byte_delimiter)
 
   if settings.debug {

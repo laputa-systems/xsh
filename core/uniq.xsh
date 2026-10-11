@@ -123,8 +123,8 @@ proc modernize(argv: List[Str]) [env] -> List[Str] {
   out
 }
 
-# Report an unknown flag left after uniq's obsolete `-NUM` spelling with its
-# option parser's normal unexpected-argument wording.
+# Report an unknown flag after the obsolete `-NUM` spelling with GNU's
+# invalid-option wording.
 pure invalid_obsolete_short(argv: List[Str]) -> Str? {
   var options = true
   var value = false
@@ -295,7 +295,7 @@ proc count_record(state: CountState, line: Bytes, key: Key, select: Selection, m
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if let option = invalid_obsolete_short(argv) {
-    gnu.error(f"error: unexpected argument '{option}' found")
+    gnu.error(f"invalid option -- '{option.byte_slice(1)}'")
     gnu.try_help()
     exit 1
   }

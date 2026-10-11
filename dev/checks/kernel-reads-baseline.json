@@ -1,0 +1,4 @@
+{
+  "comment": "Legacy applets with direct kernel path literals, by applet and literal count. The check rejects new readers, increased counts and stale baseline entries.",
+  "applets": {}
+}

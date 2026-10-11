@@ -17,7 +17,6 @@ export type Selection = {areas: List[Area], native_files: List[Str]}
 
 ## Determines the verification owner from repository-relative source paths.
 export pure areas_for(changed_path: Str) -> Result[List[Area], Error] {
-  return [] when changed_path.starts_with("dev/compat/")
   return [Syntax] when changed_path.starts_with("tests/fixtures/syntax/") or changed_path.starts_with("tests/fixtures/fmt/")
   return [Checker] when changed_path.starts_with("tests/fixtures/sema/")
   return [Runtime] when changed_path.starts_with("tests/fixtures/runtime/") or changed_path.starts_with("tests/fixtures/interactive-parity/")

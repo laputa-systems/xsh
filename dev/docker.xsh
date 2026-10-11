@@ -97,6 +97,15 @@ export pure internal_argv(
   let git_mount = if git_common_dir == null { [] } else { ["-v", f"{git_common_dir}:{git_common_dir}:ro"] }
   # PID 1 must reap orphaned jobs after an interactive shell exits.
   var argv = ["docker", "run", "--rm", "--init", "--platform", selected_platform]
+  if operation == "test-linux-split" or operation == "test-linux-ci-split" {
+    argv += ["--cpus=0.01", "--memory=1g", "--memory-swap=1g"]
+  }
+
+  # Temporary test fixtures need executable scripts and metadata-only device
+  # nodes, so /tmp must allow execution while denying device access.
+  if operation == "test-linux" or operation == "test-linux-ci" or operation == "test-linux-split" or operation == "test-linux-ci-split" {
+    argv += ["--tmpfs", "/tmp:rw,nodev,exec,mode=1777"]
+  }
 
   if privileged {
     argv += ["--privileged"]

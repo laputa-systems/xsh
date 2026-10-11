@@ -1,6 +1,11 @@
 test test_unix_cpu_features_are_named {
-  let known = ["avx512", "avx2", "pclmul", "sse2", "asimd", "vmull"]
-  for feature in unix.cpu_features() { assert feature in known }
+  let known = ["avx512", "avx2", "avx", "vpclmulqdq", "pclmul", "sse2", "asimd", "vmull"]
+  let features = unix.cpu_features()
+  for feature in features { assert feature in known }
+  if "avx512" in features or "avx2" in features { assert "avx" in features }
+  if "asimd" in features {
+    assert ! ("avx" in features) and ! ("vpclmulqdq" in features)
+  }
 }
 
 test test_unix_exec_preserves_command_redirections_and_cwd { |ctx|
@@ -52,10 +57,42 @@ test test_unix_descriptor_arguments_validate_before_opening { |ctx|
   test.error_kind(unix.redirect_fd(1, unopened, append: true), "unix-redirect-fd")
   test.error_kind(unix.redirect_fd(1, unopened, write: true, mode: -1), "unix-redirect-fd")
   test.error_kind(unix.redirect_fd(1, unopened, write: true, mode: 4096), "unix-redirect-fd")
+  test.error_kind(unix.redirect_fd(1, unopened, exact_create_mode: true), "unix-redirect-fd")
   assert ! unopened.exists()?
   test.error_kind(unix.dup_fd(-1, 1), "unix-dup-fd")
   test.error_kind(unix.dup_fd(1, 2147483648), "unix-dup-fd")
   assert unix.dup_fd(2147483647, 2147483647) is Err(is HostIo)
+}
+
+test test_unix_duplicate_fd_shares_offset_and_owns_its_descriptor { |ctx|
+  let file = test.temp_file(ctx, contents: b"abcdef")?
+  let source = unix.open_fd(file)?
+  defer unix.close_fd(source)
+  let saved = unix.duplicate_fd(source, min_fd: 100)?
+  assert saved >= 100 and saved != source
+  assert unix.read_fd(source, 2)? == b"ab"
+  assert unix.read_fd(saved, 2)? == b"cd"
+  unix.close_fd(saved)?
+  assert unix.read_fd(source, 2)? == b"ef"
+  assert unix.read_fd(saved, 1) is Err(is HostIo)
+  test.error_kind(unix.duplicate_fd(-1), "unix-duplicate-fd")
+  test.error_kind(unix.duplicate_fd(2147483648), "unix-duplicate-fd")
+  test.error_kind(unix.duplicate_fd(source, min_fd: -1), "unix-duplicate-fd")
+  test.error_kind(unix.duplicate_fd(source, min_fd: 2147483648), "unix-duplicate-fd")
+  assert unix.duplicate_fd(2147483647) is Err(is HostIo)
+}
+
+test test_unix_redirect_exact_create_mode_preserves_existing_permissions { |ctx|
+  let root = test.temp_dir(ctx)?
+  let log = fp"{root}/log"
+  log.write("prefix")
+  log.chmod(0o640)
+  let result = test.expect(ctx, r"""unix.redirect_fd(1, Path(args[0]), write: true, append: true, mode: 0o600, exact_create_mode: true)?
+print "suffix"
+""", status: 0, args: [log])?
+  assert result.stdout == ""
+  assert log.read_text()? == "prefixsuffix\n"
+  assert log.metadata()?.mode % 512 == 0o640
 }
 
 test test_unix_redirect_append_private_mode_and_dup_survive_exec { |ctx|
@@ -127,15 +164,15 @@ assert gid_changed.gid == 12346 and gid_changed.egid == 12346
 assert gid_changed.uid == original.uid and gid_changed.euid == original.euid
 unix.set_uid(0)?
 let before = unix.id()?
-assert (before.groups |> any { |group| group.gid == 123 })
-assert (before.groups |> any { |group| group.gid == 456 })
+assert before.groups |> any { |entry| entry.gid == 123 }
+assert before.groups |> any { |entry| entry.gid == 456 }
 unix.set_credentials(uid: 12345, gid: 12346, groups: [12347])?
 let after = unix.id()?
 assert after.uid == 12345 and after.euid == 12345
 assert after.gid == 12346 and after.egid == 12346
-assert (after.groups |> any { |group| group.gid == 12347 })
-assert ! (after.groups |> any { |group| group.gid == 123 })
-assert ! (after.groups |> any { |group| group.gid == 456 })
+assert after.groups |> any { |entry| entry.gid == 12347 }
+assert after.groups |> all { |entry| entry.gid != 123 }
+assert after.groups |> all { |entry| entry.gid != 456 }
 print "credentials-changed"
 """))?
   let output = test.temp_path(ctx, name: "credentials.stdout")
@@ -257,6 +294,20 @@ test test_unix_seek_fd_uses_absolute_positions { |ctx|
   assert unix.seek_fd(reader, 0) is Err(is HostIo)
 }
 
+test test_unix_seek_fd_relative_and_end_positions { |ctx|
+  let file = test.temp_file(ctx, contents: b"abcdef")?
+  let fd = unix.open_fd(file)?
+  defer unix.close_fd(fd)
+  assert unix.seek_fd(fd, 3)? == 3
+  assert unix.seek_fd(fd, -2, whence: "current")? == 1
+  assert unix.read_fd(fd, 1)? == b"b"
+  assert unix.seek_fd(fd, -1, whence: "end")? == 5
+  assert unix.read_fd(fd, 1)? == b"f"
+  assert unix.seek_fd(fd, 0, whence: "current")? == 6
+  assert unix.seek_fd(fd, -7, whence: "end") is Err(is HostIo)
+  test.error_kind(unix.seek_fd(fd, 0, whence: "invalid"), "unix-seek-fd")
+}
+
 test test_unix_read_fd_preserves_byte_cursor_and_eof { |ctx|
   let file = test.temp_file(ctx, contents: b"\0\xffabc")?
   let result = test.run_script(ctx, r"""
@@ -327,6 +378,71 @@ marker.write("returned")
   assert result.stdout == "before-out-1\nbefore-out-2\nchild-out"
   assert result.stderr == "before-err-1\nbefore-err-2\nchild-err"
   assert ! marker.exists()?
+}
+
+test test_unix_exec_inherits_unsearchable_working_directory { |ctx|
+  guard unix.id()?.euid != 0 else {
+    test.skip("root can re-enter an unsearchable directory")
+    return
+  }
+  let root = test.temp_dir(ctx, name: "exec-inherited-cwd")?
+  defer root.chmod(0o700)
+  let script = test.temp_file(ctx, name: "exec-inherited-cwd.xsh", contents: bytes.from_text(r"""
+let root = Path(args[0])
+root.chmod(0o000)
+let command = if args[1] == "explicit" {
+  process.command_argv(p"/bin/true", ["true"], cwd: root)
+} else {
+  process.command_argv(p"/bin/true", ["true"])
+}
+let environment: Map[Str, Str] = {}
+let result = if args[2] == "exec_env" {
+  unix.exec_env(command, environment)
+} else {
+  unix.exec(command)
+}
+if args[1] == "explicit" {
+  assert result is Err(is PermissionDenied)
+} else {
+  result?
+}
+"""))?
+  for operation in ["exec", "exec_env"] {
+    for mode in ["inherited", "explicit"] {
+      root.chmod(0o700)
+      let errors = test.temp_path(ctx, name: f"{operation}-{mode}.stderr")
+      let status = process.run(process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, script, "--", root, mode, operation], cwd: root, stderr: errors, timeout: 5s))?
+      assert status.ok, errors.read_text()?
+    }
+  }
+}
+
+test test_unix_exec_preserves_scoped_and_relative_explicit_cwd { |ctx|
+  let root = test.temp_dir(ctx, name: "exec-scoped-cwd")?
+  let inner = fp"{root}/inner"
+  inner.mkdir()
+  for operation in ["exec", "exec_env"] {
+    for mode in ["scoped", "explicit"] {
+      let result = test.expect(ctx, r"""
+let root = Path(args[0])
+cd root {
+  let command = if args[1] == "explicit" {
+    process.command_argv(p"/bin/pwd", ["pwd", "-P"], cwd: p"inner")
+  } else {
+    process.command_argv(p"/bin/pwd", ["pwd", "-P"])
+  }
+  let environment: Map[Str, Str] = {}
+  if args[2] == "exec_env" {
+    unix.exec_env(command, environment)?
+  } else {
+    unix.exec(command)?
+  }
+}
+""", status: 0, args: [root, mode, operation])?
+      let expected = if mode == "explicit" { inner } else { root }
+      assert result.stdout == f"{expected}\n"
+    }
+  }
 }
 
 test test_unix_exec_env_rejects_invalid_strings_before_redirection { |ctx|

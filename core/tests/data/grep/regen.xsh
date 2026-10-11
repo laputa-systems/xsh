@@ -3,7 +3,7 @@
 #
 #   xsh core/tests/data/grep/regen.xsh
 #
-# Needs docker and dev/compat/oracle.sh. Every case in cases.jsonl runs inside
+# Needs docker and dev/reference/oracle.sh. Every case in cases.jsonl runs inside
 # the container from a copy of the fx/ fixture tree; its exit status, stdout
 # and stderr are written to expected.txt in the line format that
 # core/tests/test-grep.xsh compares against. Review the diff before
@@ -57,7 +57,7 @@ proc main() [fs, process, io, error] {
   fp"{work}/driver.sh".write(driver)
   fp"{work}/driver.sh".chmod(0o755)
 
-  let oracle = fp"{root}/dev/compat/oracle.sh"
+  let oracle = fp"{root}/dev/reference/oracle.sh"
   let plan = process.command_argv(oracle, ["oracle.sh", "--mount", work.display(), "--rw", "--", "/fixture/driver.sh"])
   let finished = process.run(plan)?
   assert finished.exit_code()? == 0, "the oracle driver failed"

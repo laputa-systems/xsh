@@ -48,14 +48,15 @@ test test_ptx_errors { |ctx|
 
   let missing = ptx_run(ctx, root, ["zxc"])?
   assert missing.status == 1
-  assert missing.stderr == "ptx: 'zxc': No such file or directory\n", missing.stderr
+  assert missing.stderr == "ptx: zxc: No such file or directory\n", missing.stderr
 
   let width = ptx_run(ctx, root, ["-w", "0"])?
   assert width.status == 1
   assert width.stderr == "ptx: invalid line width: '0'\n", width.stderr
 
   let empty = ptx_run(ctx, root, ["-G", "-S", "^"])?
-  assert empty.stderr == "ptx: A regular expression cannot match a length zero string\n", empty.stderr
+  assert empty.status == 0
+  assert empty.stderr == "", empty.stderr
 
   let operands = ptx_run(ctx, root, ["-G", "-", "-", "-"])?
   assert operands.status == 1
@@ -71,4 +72,27 @@ test test_ptx_contexts_are_sentences_unless_traditional { |ctx|
 
   assert ptx_run(ctx, root, ["-w", "30"], text)?.stdout == bytes.from_text(sentences), "a sentence ends at a period before two spaces and may span lines"
   assert ptx_run(ctx, root, ["-G", "-w", "30"], b"a b\nc d\n")?.stdout.utf8()?.count_lines() == 4, "-G reads one context per line"
+}
+
+test test_ptx_gnu_regex_and_reference_boundaries { |ctx|
+  let root = test.temp_dir(ctx, name: "ptx")?
+  fp"{root}/breaks".write("b\n")
+
+  let broken = ptx_run(ctx, root, ["-G", "-b", "breaks", "-W", ""], b"abc\n")?
+  assert broken.stdout == b".xx \"\" \"\" \"abc\" \"\"\n.xx \"\" \"ab\" \"c\" \"\"\n"
+  assert ptx_run(ctx, root, ["-W", "[ab]{0,}"], b"aa bb cc\n")?.stdout == b""
+  assert ptx_run(ctx, root, ["-w", "1", "-A"], b"content")?.stdout == b":1:     content\n"
+  let invalid = ptx_run(ctx, root, ["-S", "^["])?
+  assert invalid.status == 1
+  assert invalid.stderr == "ptx: Invalid regular expression (for regexp '^[')\n"
+  assert ptx_run(ctx, root, ["-w", "10"], bytes.from_text("föö bar"))?.stdout == bytes.from_text("     /   bar\n        fö/\n")
+}
+
+test test_ptx_byte_layout_preserves_split_utf8 { |ctx|
+  let root = test.temp_dir(ctx, name: "ptx")?
+  let expected = b"    /\xa9 b\xc3\xa9   KEY cc\n             a\xc3\xa9 b\xc3\xa9/\n       a\xc3\xa9   b\xc3\xa9 KEY/\n     \xa9 KEY   cc     /b\xc3\n"
+  assert ptx_run(ctx, root, ["-w", "20"], bytes.from_text("aé bé KEY cc\n"))?.stdout == expected
+  let zero = ptx_run(ctx, root, ["-G", "-S", "^"], b"a\n")?
+  assert zero.status == 1
+  assert zero.stderr == "ptx: error: regular expression has a match of length zero: '^'\n"
 }

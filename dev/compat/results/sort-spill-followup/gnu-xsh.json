@@ -1,6 +1,0 @@
-{
-  "sort": {
-    "sort-buffer-size.log": "FAIL",
-    "sort-merge-fdlimit.log": "PASS"
-  }
-}

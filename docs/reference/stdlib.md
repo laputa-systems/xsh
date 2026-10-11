@@ -122,7 +122,7 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 - `fs.chgrp(path: Path, group: {gid: Int, members: List[Str], name: Str}, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Changes filesystem ownership metadata.
 - `fs.children(path: Path, stat: Bool = default, ordered: Bool = default) -> Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error]` — Lists immediate filesystem children as structured entries.
 - `fs.chown(path: Path, owner: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Changes filesystem ownership metadata.
-- `fs.copy_file(source: Path, dest: Path, sparse: Str = default, reflink: Str = default, overwrite: Bool = default, mode: Int? = default, force: Bool = default) -> Result[{bytes: Int, destination_replaced: Bool, hole_bytes: Int, method: Str}, Error]` — Copies file, FIFO, or device bytes with sparse and reflink control.
+- `fs.copy_file(source: Path, dest: Path, sparse: Str = default, reflink: Str = default, overwrite: Bool = default, mode: Int? = default, force: Bool = default) -> Result[{bytes: Int, destination_replaced: Bool, hole_bytes: Int, method: Str, offload_error: Error?, reflink_error: Error?}, Error]` — Copies file, FIFO, or device bytes with sparse and reflink control.
 - `fs.copy_tree(source: Path, dest: Path, parents: Bool = default, overwrite: Bool = default, follow_symlinks: Bool = default) -> Result[{dirs: Int, files: Int, symlinks: Int}, Error]` — Copies a directory tree and returns copy statistics.
 - `fs.cwd() -> Result[Path, Error]` — Returns the evaluator's current working directory.
 - `fs.data_ranges(path: Path) -> Result[List[{length: Int, offset: Int}], Error]` — Lists the runs of allocated data in a possibly sparse file.
@@ -224,6 +224,7 @@ Script stdin and stdout helpers.
 - `io.stdin_read(max_bytes: Int) -> Result[Bytes, Error]` — Reads up to max_bytes bytes from standard input without reading ahead.
 - `io.stdin_text() -> Result[Str, Error]` — Reads all standard input as UTF-8 text.
 - `io.write_stderr(text: Str) -> Result[Unit, Error]` — Buffers UTF-8 text on standard error without a newline.
+- `io.write_stderr_bytes(data: Bytes) -> Result[Unit, Error]` — Buffers raw Bytes on standard error without a newline.
 - `io.write_stdout(text: Str) -> Result[Unit, Error]` — Writes UTF-8 text to standard output.
 - `io.write_stdout_bytes(data: Bytes) -> Result[Unit, Error]` — Writes raw Bytes to standard output.
 
@@ -493,9 +494,14 @@ POSIX-like shell word rendering helpers.
 Host system identity records.
 
 - `system.execution_units() -> Result[{clock_ticks_per_second: Int, page_size_bytes: Int}, Error]` — Returns the host page size and process clock-tick rate.
+- `system.format_long_double(text: Str, conversion: Str, precision: Int? = default, alternate: Bool = default) -> Result[{consumed: Int, range_error: Bool, text: Str}, Error]` — Parses and formats numeric text with native C long double precision.
 - `system.hostname() -> Result[Str, Error]` — Reads the host name.
+- `system.locale_numeric_info(name: Str) -> Result[{decimal_point: Bytes, thousands_separator: Bytes}, Error]` — Reads locale decimal and thousands separators.
+- `system.locale_time_info(name: Str) -> Result[{abbreviated_months: List[Bytes]}, Error]` — Reads locale abbreviated month names.
+- `system.long_double_precision() -> Int` — Returns the target C long double significand bit count.
 - `system.memory() -> Result[{available: Int, free: Int, swap_free: Int, swap_total: Int, total: Int}, Error]` — Reads host memory statistics.
 - `system.os_release() -> Result[{id: Str, name: Str, pretty_name: Str, version: Str, version_id: Str}, Error]` — Reads the host operating-system release record.
+- `system.parse_long_double(text: Str) -> Result[{consumed: Int, order_key: Str, range_error: Bool}, Error]` — Parses a native C long double prefix and returns its ordering key.
 - `system.uname() -> Result[{machine: Str, nodename: Str, release: Str, sysname: Str, version: Str}, Error]` — Reads the host kernel identity record.
 
 ### `template`
@@ -574,6 +580,7 @@ Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.
 - `unix.controlling_tty() -> Result[Str, Error]` — Identifies a terminal: whether a descriptor is one, its device name, or the controlling one.
 - `unix.cpu_features() -> List[Str]` — Lists supported host CPU features used by hardware-accelerated utilities.
 - `unix.dup_fd(source: Int, target: Int) -> Result[Unit, Error]` — Duplicates a current process descriptor onto another descriptor.
+- `unix.duplicate_fd(source: Int, min_fd: Int = default) -> Result[Int, Error]` — Saves a current process descriptor as a new close-on-exec descriptor.
 - `unix.exec(command: Command) -> Result[Unit, Error]` — Replaces the current Unix process with a typed command.
 - `unix.exec_env(command: Command, environment: Map[Str], argv0: Str? = default, block_signals: List[Str] = default) -> Result[Unit, Error] (+1 overloads)` — Replaces the current process with an explicit environment and optional argv0.
 - `unix.fadvise(fd: Int, offset: Int, length: Int, advice: Str) -> Result[Unit, Error]` — Tells the kernel how a byte range of an open descriptor will be used.
@@ -592,8 +599,8 @@ Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.
 - `unix.read_fd(fd: Int, max_bytes: Int) -> Result[Bytes, Error]` — Reads one bounded chunk from a descriptor.
 - `unix.read_utmp(path: Path = default) -> Result[List[{addr: Str, exit_status: Int, host: Str, id: Str, kind: Str, line: Str, pid: Int, session: Int, termination: Int, time_sec: Int, time_usec: Int, type: Int, user: Str}], Error]` — Reads the login session records of a utmp or wtmp file.
 - `unix.reap_child_events() -> Result[Stream[{pid: Int, status: Status}], Error]` — Reaps available Unix child events.
-- `unix.redirect_fd(fd: Int, path: Path, write: Bool = default, append: Bool = default, mode: Int = default) -> Result[Unit, Error]` — Replaces a current process descriptor with an opened path.
-- `unix.seek_fd(fd: Int, offset: Int) -> Result[Int, Error]` — Moves a descriptor to an absolute byte offset.
+- `unix.redirect_fd(fd: Int, path: Path, write: Bool = default, append: Bool = default, mode: Int = default, exact_create_mode: Bool = default) -> Result[Unit, Error]` — Replaces a current process descriptor with an opened path.
+- `unix.seek_fd(fd: Int, offset: Int, whence: Str = default) -> Result[Int, Error]` — Moves a descriptor relative to its start, current position, or end.
 - `unix.set_credentials(uid: Int, gid: Int, groups: List[Int]) -> Result[Unit, Error]` — Changes current process credentials using explicit numeric UID, GID and supplementary groups.
 - `unix.set_foreground_group(pgid: Int, fd: Int = default) -> Result[Unit, Error]` — Reads or changes the foreground process group of a terminal, or its session.
 - `unix.set_gid(gid: Int) -> Result[Unit, Error]` — Changes an explicit current process user or primary group ID.
@@ -694,7 +701,7 @@ Process-scoped utility helpers.
 
 ### FsRoot
 
-- `FsRoot.children(path: Path, max_entries: Int = default) -> Result[{children: List[Path], enumeration_succeeded: Bool, errno: Int?, error_kind: Str?, state: Str}, Error]` — Enumerates child paths below a rooted filesystem capability.
+- `FsRoot.children(path: Path, max_entries: Int = default, ordered: Bool = default) -> Result[{children: List[Path], enumeration_succeeded: Bool, errno: Int?, error_kind: Str?, state: Str}, Error]` — Enumerates child paths below a rooted filesystem capability.
 - `FsRoot.chmod(path: Path, mode: Int) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
 - `FsRoot.close() -> Result[Unit, Error]` — Closes an owned rooted filesystem capability.
 - `FsRoot.exists(path: Path) -> Result[Bool, Error]` — Inspects a path below a rooted filesystem capability.
@@ -898,7 +905,7 @@ Process-scoped utility helpers.
 - `EnvEntry {name: Str, value: Str}` — Describes one environment variable entry.
 - `EnvPathEntry {empty: Bool, index: Int, path: Path, raw: Str}` — Describes one component of an environment path list.
 - `EnvRawEntry {name: Bytes, value: Bytes}` — Describes one environment variable entry as host bytes.
-- `FsCopyFileResult {bytes: Int, destination_replaced: Bool, hole_bytes: Int, method: Str}` — Reports how fs.copy_file moved bytes into the destination.
+- `FsCopyFileResult {bytes: Int, destination_replaced: Bool, hole_bytes: Int, method: Str, offload_error: Error?, reflink_error: Error?}` — Reports how fs.copy_file moved bytes into the destination.
 - `FsCopyTreeResult {dirs: Int, files: Int, symlinks: Int}` — Reports files and directories copied by a tree operation.
 - `FsDataRange {length: Int, offset: Int}` — Describes one run of allocated data in a file.
 - `FsEntry {accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}` — Describes one filesystem directory entry and its metadata.

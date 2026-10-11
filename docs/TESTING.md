@@ -33,7 +33,7 @@ adjacent comment explaining why a native test cannot express it.
 |---|---|
 | native XSH | `tests/xsh`, `core/tests`, `dev/tests`, `showcase/tests` (the `test_roots` in `xsht-config.ini`) |
 | root integration | `tests/integration.rs` aggregates `tests/syntax.rs`, `tests/sema.rs`, `tests/runtime/`, `tests/cli.rs`, and the rest |
-| separate root targets | `tests/ambient_fs_policy.rs`, `tests/symbol_plateau.rs`, `tests/linux_priv.rs` (`linux-priv-tests` feature) |
+| separate root targets | `tests/ambient_fs_policy.rs`, `tests/symbol_plateau.rs`, `tests/core_compat_boundaries.rs`, `tests/core_compat_extra.rs` (core applet descriptors, PTYs and child lifecycles), `tests/linux_priv.rs` (`linux-priv-tests` feature) |
 | tooling | `crates/xsht/tests/` (`integration`, `profile_parity` targets) |
 | interactive | `crates/xshi/tests/`, `tests/runtime/interactive.rs`, `tests/runtime/interactive/parity/` |
 | fixtures | `tests/fixtures/{syntax,sema,runtime,fmt,frontend-indexed}` |
@@ -132,11 +132,22 @@ API gate: `cargo test --profile verification --target "$TARGET" --test integrati
 
 Repository gates (owner-run unless the task asks for them):
 
-Compatibility sources under `dev/compat/**/*.xsh` are excluded from automatic
-check and lint while that work is in progress. Consolidation lane and batch
-gates omit the compatibility ratchets; the tools and their explicit tests stay
-available for resuming that work. The integrator owns the corresponding
-`xsht-config.ini` exclusion.
+The command repository gate is
+`target/$TARGET/release/xsht test -j 1 dev/tests/test-repository-contracts.xsh`.
+It checks exact explained upstream exclusions, frozen native origin coverage,
+no new or grown discard bucket in `core/*.xsh`, no direct `/proc` or `/sys`
+path literals in top-level applets, and the retained command inventory's live
+implementation and native test fields against its pinned upstream denominator.
+The metadata assertions live under `dev/checks/` and `core/tests/origins/`;
+they require Python 3 but no upstream checkout or suite runner results.
+
+The native core-command origins are retained in `core/tests/origins/freeze.json`.
+`python3 core/tests/origins/check_origins.py --strict` verifies each frozen ID
+has one native test or an explained boundary exception, without upstream
+checkouts or reference tools. Optional fixture regeneration and compression
+reference comparisons use `dev/reference/oracle.sh`; ordinary native tests read
+the committed fixture bytes. Release packaging reads `core/aliases.json`, which
+also supplies alias names to native command tests.
 
 Automatic root syntax gates skip only
 `syntax::formatter_is_idempotent_on_laputa_corpus`; automatic xsht integration
@@ -144,24 +155,12 @@ gates skip only
 `lint_format_invariance::formatting_preserves_lints_on_laputa_corpus` for the
 sibling policy. Both rewrite or repeatedly analyze the complete sibling
 repository. Their declarations remain available for explicit invocation;
-migrated sibling files receive focused check/lint from the integrator. Repository
-corpus checks and the existing repository lint budget remain active.
-
-The compatibility ratchets are `python3 dev/compat/check_ignored_options.py`
-(no new or grown discard bucket in `core/*.xsh`),
-`python3 dev/compat/check_kernel_reads.py` (no `/proc` or `/sys` literal in a
-top-level applet: kernel state is read through one typed domain API per ABI),
-`python3 dev/compat/check_exclusions.py` (Gate 3 exclusions are exact test IDs with
-a category and a reason), and
-`python3 dev/compat/parity.py --check` (the committed parity manifest matches
-the repository and the denominator pinned in `dev/compat/upstream.lock.json`;
-offline unless `UUTILS_ROOT` is set). Harness usage is in
-`dev/compat/README.md`.
+repository corpus checks and the existing repository lint budget remain active.
 
 | Command | Runs |
 |---|---|
-| `cargo dev check` | release product build, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, release `xsht check`, `xsht fmt --check`, and `xsht lint`, `check-docs` (with release binaries), `git diff --check` |
-| `make check` (`cargo dev check lint`) | release `xsht lint` on the repository with no diagnostics within a 15 s budget (`crates/xsht/tests/lint_performance.rs`), then `check-docs` with release binaries |
+| `cargo dev check` | release product build, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, release `xsht check`, `xsht fmt --check`, and `xsht lint`, the command repository contracts, `check-docs` (with release binaries), `git diff --check` |
+| `make check` (`cargo dev check lint`) | release `xsht lint` on the repository with no diagnostics within a 15 s budget (`crates/xsht/tests/lint_performance.rs`), the command repository contracts, then `check-docs` with release binaries |
 | `make test` (`cargo dev test`) | filtered root process targets, debug `--lib`, `xsht` integration, fixed-seed soundness, then one full native suite |
 | `cargo dev test xsh` | build verification products for the selected target, then one full native suite |
 | `make fuzz` | `xsh-fuzz all` for 120 s on release (`FUZZ_DURATION` overrides); not part of `make check` |
@@ -257,14 +256,55 @@ uses `aarch64-unknown-linux-musl`, with the flags in
 `dev/targets.xsh::docker_test_env`. Run `cargo dev test linux` (privileged,
 `make test-linux`) or `cargo dev test linux --ci`. CI (`.github/workflows/`)
 runs the same image. A build outside that image is not evidence about Linux.
-The driver passes `--init` so orphaned stopped jobs are reaped. For a native
-gate inside the image, run the container-built
-`target/aarch64-unknown-linux-musl/release/xsht` for final verification.
-The image includes Python 3 for native tests that run `dev/compat/stage.py`,
-util-linux `setpriv` for tests that drop to an unprivileged user, and a `compat`
-account with UID/GID 1000 for those runs. Bash, make, Perl, autotools, the
-uutils GNU preparation tools, and ACL/capability/crypto headers support the
-GNU compatibility suite and runner.
+The driver passes `--init` so orphaned stopped jobs are reaped. For native
+tests inside the image, use
+`target/$TARGET/verification/xsht`; use the release profile for final
+verification. The image includes Python 3 for repository metadata checks,
+util-linux `setpriv` for tests that drop to an unprivileged user, and ACL,
+capability, and crypto headers for platform boundary tests.
+
+The ordinary core applet host-boundary targets run with
+`cargo test --profile verification --target "$TARGET" --test core_compat_boundaries --test core_compat_extra -- --skip split::`.
+The `linux-priv-tests` feature enables credential, device, and private mount
+namespace cases in the pinned Linux image; these require root and fail when a
+required capability is absent. Their scratch tmpfs must use `nodev` so a
+block-device copy regression cannot open a host device. The same tests accept
+`XSH_CORE_COMPAT_REFERENCE_DIR=/usr/local/bin` to exercise the installed GNU
+9.12 tools with identical descriptor and fixture setup. Bound the container to
+1 GiB for the large virtual `dd` buffer case; its empty input must not commit
+the virtual allocation to physical memory.
+
+`core/tests/test-traceroute.xsh` also needs both privilege contexts. The normal
+UID 1000 suite checks the exact `EPERM` result for IPv4 source-route
+`IP_OPTIONS` and still runs gateway argument validation. Run
+`xsht test core/tests/test-traceroute.xsh` as container root in a private
+`xsh-test` container with `--network none` to exercise the positive source-route
+packet lengths; setting source-routing IP options requires `CAP_NET_RAW`.
+
+Successful `date --set` tests require a disposable QEMU guest: Linux time
+namespaces isolate monotonic and boot clocks, but not the realtime clock. Run
+the ignored `date_clock::` cases only with a software-emulated machine such as
+`-machine q35,accel=tcg -rtc base=2020-01-01T00:00:00,clock=vm`, with no
+network or host device passthrough. Supply a fresh 256-bit lowercase
+`xsh_disposable_nonce` boot argument and have the guest init process expose the
+same value as `XSH_DISPOSABLE_QEMU_NONCE`. Before starting `date`, the tests
+require the matching nonce, QEMU's DMI identity, its emulated CMOS RTC, and
+guest root; they must never run in a container sharing the host clock. Run the
+same filter with
+`XSH_CORE_COMPAT_REFERENCE_DIR=/usr/local/bin` inside the guest for GNU 9.12.
+The retained btrfs reflink case is ignored in ordinary gates. Run it with
+`--ignored` only in the same disposable guest, with guest-kernel BTRFS and
+`btrfs-progs`; it checks the same nonce, QEMU identity, CMOS RTC, and root
+before mounting its private filesystem image.
+
+The two infinite `/dev/zero` split cases use a separate pinned container with
+CPU quota `--cpus=0.01` and a 1 GiB memory limit. They require that quota, wait
+for the owned applet to open the device, observe it running without output
+chunks, then kill and reap it explicitly. Their child address space is capped
+at 768 MiB. Run them with the `split::` filter; ordinary host-boundary tests
+skip these two cases. `cargo dev test linux` and `cargo dev test linux --ci`
+run the ordinary suite first, then run `core_compat_extra` with `split::` in
+the separately constrained container.
 
 ## Interactive parity
 

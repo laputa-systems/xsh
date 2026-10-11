@@ -11,7 +11,7 @@ use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd};
 use std::os::unix::fs::OpenOptionsExt;
 
 pub(crate) fn handles(op: RuntimeOp) -> bool {
-    matches!(op, RuntimeOp::UnixRedirectFd | RuntimeOp::UnixDupFd
+    matches!(op, RuntimeOp::UnixRedirectFd | RuntimeOp::UnixDupFd | RuntimeOp::UnixDuplicateFd
         | RuntimeOp::UnixSetGroups | RuntimeOp::UnixSetCredentials
         | RuntimeOp::UnixSetUid | RuntimeOp::UnixSetGid
         | RuntimeOp::UnixSetResuid | RuntimeOp::UnixSetResgid)
@@ -21,6 +21,7 @@ pub(crate) fn call(op: RuntimeOp, args: &Args<'_>) -> Result<Value, RuntimeError
     match op {
         RuntimeOp::UnixRedirectFd => redirect_fd(args),
         RuntimeOp::UnixDupFd => dup_fd(args),
+        RuntimeOp::UnixDuplicateFd => duplicate_fd(args),
         RuntimeOp::UnixSetUid => set_identity(args, true),
         RuntimeOp::UnixSetGid => set_identity(args, false),
         RuntimeOp::UnixSetResuid => set_resid(args, true),
@@ -45,6 +46,7 @@ fn descriptor(fd: i64, kind: &str, span: Span) -> Result<libc::c_int, RuntimeErr
 fn duplicate(source: libc::c_int, target: libc::c_int, kind: &str, span: Span) -> Result<(), RuntimeError> {
     // SAFETY: both numbers are descriptors this process addresses by value;
     // the kernel rejects one that is not open.
+    crate::startup_stdio::check(source).map_err(|error| host_error(kind, error, span))?;
     let source_fd = unsafe { BorrowedFd::borrow_raw(source) };
     if source != target {
         // dup2 takes the replaced descriptor as an owner so that it can be
@@ -55,12 +57,15 @@ fn duplicate(source: libc::c_int, target: libc::c_int, kind: &str, span: Span) -
         let duplicated = rio::dup2(source_fd, &mut replaced);
         let _ = replaced.into_raw_fd();
         duplicated.map_err(|error| host_error(kind, io::Error::from(error), span))?;
+        crate::startup_stdio::replaced(target);
         return Ok(());
     }
     // dup2 onto itself leaves the close-on-exec flag alone, so it is cleared.
     let cleared = rio::fcntl_getfd(source_fd)
         .and_then(|flags| rio::fcntl_setfd(source_fd, flags - rio::FdFlags::CLOEXEC));
-    cleared.map_err(|error| host_error(kind, io::Error::from(error), span))
+    cleared.map_err(|error| host_error(kind, io::Error::from(error), span))?;
+    crate::startup_stdio::replaced(target);
+    Ok(())
 }
 
 fn redirect_fd(args: &Args<'_>) -> Result<Value, RuntimeError> {
@@ -71,6 +76,10 @@ fn redirect_fd(args: &Args<'_>) -> Result<Value, RuntimeError> {
     let write = args.bool_or(2, false)?;
     let append = args.bool_or(3, false)?;
     let mode = args.int_or(4, 438)?;
+    let exact_create_mode = args.bool_or(5, false)?;
+    if exact_create_mode && !write {
+        return Err(invalid(kind, "exact_create_mode requires write: true", span));
+    }
     if append && !write {
         return Err(invalid(kind, "append requires write: true", span));
     }
@@ -84,7 +93,25 @@ fn redirect_fd(args: &Args<'_>) -> Result<Value, RuntimeError> {
     } else {
         options.read(true);
     }
-    let file = options.open(&path)
+    let opened = if exact_create_mode {
+        // Exclusive creation identifies the only file whose permissions we
+        // own. The initial umask-filtered mode never grants extra access.
+        options.create(false).create_new(true);
+        match options.open(&path) {
+            Ok(file) => rustix::fs::fchmod(&file, rustix::fs::Mode::from_raw_mode(mode as _))
+                .map(|()| file).map_err(io::Error::from),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                // Never create during reopen or chmod an existing file. A
+                // concurrent removal stays a host error for the caller.
+                options.create_new(false);
+                options.open(&path)
+            }
+            Err(error) => Err(error),
+        }
+    } else {
+        options.open(&path)
+    };
+    let file = opened
         .map_err(|error| name_error(&path.display().to_string(), host_error(kind, error, span)))?;
     duplicate(file.as_raw_fd(), target, kind, span)?;
     if file.as_raw_fd() == target {
@@ -100,6 +127,20 @@ fn dup_fd(args: &Args<'_>) -> Result<Value, RuntimeError> {
     let target = descriptor(args.int(1)?, kind, span)?;
     duplicate(source, target, kind, span)?;
     Ok(Value::ok(Value::Unit))
+}
+
+fn duplicate_fd(args: &Args<'_>) -> Result<Value, RuntimeError> {
+    let kind = "unix-duplicate-fd";
+    let span = args.span();
+    let source = descriptor(args.int(0)?, kind, span)?;
+    let min_fd = descriptor(args.int_or(1, 3)?, kind, span)?;
+    // SAFETY: the kernel validates the borrowed descriptor; ownership of the
+    // new close-on-exec descriptor passes to the script.
+    crate::startup_stdio::check(source).map_err(|error| host_error(kind, error, span))?;
+    let source = unsafe { BorrowedFd::borrow_raw(source) };
+    let saved = rio::fcntl_dupfd_cloexec(source, min_fd)
+        .map_err(|error| host_error(kind, io::Error::from(error), span))?;
+    Ok(Value::ok(Value::Int(i64::from(saved.into_raw_fd()))))
 }
 
 // The all-ones UID/GID is the keep-current sentinel in credential syscalls;

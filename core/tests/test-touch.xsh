@@ -155,7 +155,7 @@ test test_touch_missing_file_trailing_slash { |ctx|
   let target = f"{root}/missing/"
   let failed = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/touch.xsh" -- $target
   assert failed.status.exited_with(1)
-  assert failed.stderr == f"touch: cannot touch '{target}': No such file or directory\n"
+  assert failed.stderr == f"touch: setting times of '{target}': No such file or directory\n"
   assert ! fp"{target}".exists()?
 }
 

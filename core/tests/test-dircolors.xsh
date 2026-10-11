@@ -90,3 +90,33 @@ test test_dircolors_missing_second_token_names_the_line { |ctx|
   assert bad.status.exited_with(1)
   assert bad.stderr == f"dircolors: {target}:2: invalid line;  missing second token\n", bad.stderr
 }
+
+test test_dircolors_default_database_gnu_extensions { |ctx|
+  let db = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/dircolors.xsh" -- -p
+  assert "TERM vt220\n" in db
+  assert ".apk 01;31\n" in db
+  assert ".crate 01;31\n" in db
+  assert ".jxl 01;35\n" in db
+  assert ".crdownload 00;90\n" in db
+}
+
+test test_dircolors_display_requires_matching_terminal { |ctx|
+  let root = test.temp_dir(ctx, name: "dircolors-display")?
+  let output = fp"{root}/stdout"
+  let script = fp"{ctx.core_dir}/dircolors.xsh"
+  let words: List[Union[Str, Path]] = [ctx.xsh_bin, script, "--", "--print-ls-colors"]
+  let plan = process.command_argv(ctx.xsh_bin, words, env: {TERM: "", COLORTERM: ""}, stdout: output)
+  assert process.run(plan)?.exited_with(0)
+  assert output.read_bytes()? == b""
+  let matching = process.command_argv(ctx.xsh_bin, words, env: {TERM: "screen", COLORTERM: ""}, stdout: output)
+  assert process.run(matching)?.exited_with(0)
+  assert "\x1b[01;34mdi\t01;34\x1b[0m\n" in output.read_text()?
+}
+
+test test_dircolors_directory_operand_reports_read_error { |ctx|
+  let script = fp"{ctx.core_dir}/dircolors.xsh"
+  let bad = run.capture --text ${ctx.xsh_bin} $script -- -c /
+  assert bad.status.exited_with(1)
+  assert bad.stdout == ""
+  assert bad.stderr == "dircolors: /: read error: Is a directory\n", bad.stderr
+}

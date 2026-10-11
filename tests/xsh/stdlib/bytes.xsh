@@ -146,3 +146,14 @@ test test_byte_at_rejects_an_opaque_receiver { |ctx|
   assert checked.status == 2, checked.stderr
   assert "check.dynamic-boundary" in checked.stderr, checked.stderr
 }
+
+test test_bytes_zero_allocation_failure_retains_errno {
+  let failed = bytes.zero(9223372036854775807)
+  assert failed is Err(is HostIo)
+  match failed {
+    Err(error) => assert error.errno == 12
+    Ok(_) => test.fail("unaddressable byte buffer succeeded")
+  }
+  assert bytes.zero(0)? == b""
+  assert bytes.zero(2)? == b"\0\0"
+}

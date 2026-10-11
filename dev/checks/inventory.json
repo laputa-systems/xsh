@@ -1,0 +1,2594 @@
+{
+  "generated_by": "dev/checks/check_inventory.py",
+  "upstream": {
+    "repository": "https://github.com/uutils/coreutils",
+    "commit": "e7c9f3194280835c4487c2945c68d5f01ccacc8d",
+    "entry_feature_set": "feat_os_unix"
+  },
+  "totals": {
+    "upstream_utilities": 108,
+    "in_scope": 106,
+    "capability_gated": 2,
+    "present": 106,
+    "present_in_scope": 106,
+    "missing_in_scope": []
+  },
+  "utilities": [
+    {
+      "utility": "arch",
+      "capability": null,
+      "xsh_implementation": "core/arch.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-arch.xsh",
+      "uutils_test_count": 4,
+      "excluded_tests": [
+        "test_arch::test_arch_help"
+      ]
+    },
+    {
+      "utility": "base32",
+      "capability": null,
+      "xsh_implementation": "core/base32.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-base32.xsh",
+      "uutils_test_count": 16,
+      "excluded_tests": [
+        "test_base32::test_version"
+      ]
+    },
+    {
+      "utility": "base64",
+      "capability": null,
+      "xsh_implementation": "core/base64.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-base64.xsh",
+      "uutils_test_count": 25,
+      "excluded_tests": [
+        "test_base64::test_version"
+      ]
+    },
+    {
+      "utility": "basename",
+      "capability": null,
+      "xsh_implementation": "core/basename.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-basename.xsh",
+      "uutils_test_count": 29,
+      "excluded_tests": [
+        "test_basename::test_help",
+        "test_basename::test_version"
+      ]
+    },
+    {
+      "utility": "basenc",
+      "capability": null,
+      "xsh_implementation": "core/basenc.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-basenc.xsh",
+      "uutils_test_count": 38,
+      "excluded_tests": [
+        "test_basenc::test_version"
+      ]
+    },
+    {
+      "utility": "cat",
+      "capability": null,
+      "xsh_implementation": "core/cat.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-cat.xsh",
+      "uutils_test_count": 54,
+      "excluded_tests": []
+    },
+    {
+      "utility": "cksum",
+      "capability": null,
+      "xsh_implementation": "core/cksum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-cksum.xsh",
+      "uutils_test_count": 132,
+      "excluded_tests": []
+    },
+    {
+      "utility": "b2sum",
+      "capability": null,
+      "xsh_implementation": "core/b2sum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-b2sum.xsh",
+      "uutils_test_count": 15,
+      "excluded_tests": []
+    },
+    {
+      "utility": "md5sum",
+      "capability": null,
+      "xsh_implementation": "core/md5sum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-md5sum.xsh",
+      "uutils_test_count": 40,
+      "excluded_tests": []
+    },
+    {
+      "utility": "nice",
+      "capability": null,
+      "xsh_implementation": "core/nice.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-nice.xsh",
+      "uutils_test_count": 13,
+      "excluded_tests": []
+    },
+    {
+      "utility": "sha1sum",
+      "capability": null,
+      "xsh_implementation": "core/sha1sum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sha1sum.xsh",
+      "uutils_test_count": 10,
+      "excluded_tests": []
+    },
+    {
+      "utility": "sha224sum",
+      "capability": null,
+      "xsh_implementation": "core/sha224sum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sha224sum.xsh",
+      "uutils_test_count": 8,
+      "excluded_tests": []
+    },
+    {
+      "utility": "sha256sum",
+      "capability": null,
+      "xsh_implementation": "core/sha256sum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sha256sum.xsh",
+      "uutils_test_count": 13,
+      "excluded_tests": []
+    },
+    {
+      "utility": "sha384sum",
+      "capability": null,
+      "xsh_implementation": "core/sha384sum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sha384sum.xsh",
+      "uutils_test_count": 8,
+      "excluded_tests": []
+    },
+    {
+      "utility": "sha512sum",
+      "capability": null,
+      "xsh_implementation": "core/sha512sum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sha512sum.xsh",
+      "uutils_test_count": 8,
+      "excluded_tests": []
+    },
+    {
+      "utility": "comm",
+      "capability": null,
+      "xsh_implementation": "core/comm.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-comm.xsh",
+      "uutils_test_count": 48,
+      "excluded_tests": [
+        "test_comm::test_comm_arg_error"
+      ]
+    },
+    {
+      "utility": "cp",
+      "capability": null,
+      "xsh_implementation": "core/cp.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-cp.xsh",
+      "uutils_test_count": 398,
+      "excluded_tests": [
+        "test_cp::test_copy_dir_preserve_permissions",
+        "test_cp::test_copy_dir_preserve_permissions_inaccessible_file",
+        "test_cp::test_copy_dir_preserve_readonly_source_with_files",
+        "test_cp::test_copy_dir_preserve_subdir_permissions",
+        "test_cp::test_cp_circular_symbolic_links_in_directory",
+        "test_cp::test_cp_dir_vs_file",
+        "test_cp::test_cp_no_file",
+        "test_cp::test_cp_parents_with_permissions_copy_dir",
+        "test_cp::test_cp_parents_with_permissions_copy_file",
+        "test_cp::test_cp_preserve_all",
+        "test_cp::test_cp_preserve_no_args",
+        "test_cp::test_cp_preserve_no_args_before_opts",
+        "test_cp::test_cp_reflink_bad",
+        "test_cp::test_cp_reflink_insufficient_permission",
+        "test_cp::test_progressbar_inexistent_source"
+      ]
+    },
+    {
+      "utility": "csplit",
+      "capability": null,
+      "xsh_implementation": "core/csplit.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-csplit.xsh",
+      "uutils_test_count": 105,
+      "excluded_tests": [
+        "test_csplit::repeat_everything",
+        "test_csplit::test_line_num_range_with_up_to_match3"
+      ]
+    },
+    {
+      "utility": "cut",
+      "capability": null,
+      "xsh_implementation": "core/cut.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-cut.xsh",
+      "uutils_test_count": 83,
+      "excluded_tests": [
+        "test_cut::diagnostics::test_snippet_finds_fields_merged_value",
+        "test_cut::diagnostics::test_snippet_ignores_a_file_named_like_the_list",
+        "test_cut::diagnostics::test_snippet_points_at_the_bound_that_is_not_a_number",
+        "test_cut::diagnostics::test_snippet_points_at_the_inverted_range",
+        "test_cut::diagnostics::test_snippet_points_at_the_zero_bound"
+      ]
+    },
+    {
+      "utility": "date",
+      "capability": null,
+      "xsh_implementation": "core/date.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-date.xsh",
+      "uutils_test_count": 173,
+      "excluded_tests": []
+    },
+    {
+      "utility": "dd",
+      "capability": null,
+      "xsh_implementation": "core/dd.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-dd.xsh",
+      "uutils_test_count": 155,
+      "excluded_tests": [
+        "test_dd::test_nocache_eof_fadvise_zero_length"
+      ]
+    },
+    {
+      "utility": "dir",
+      "capability": null,
+      "xsh_implementation": "core/ls.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-dir.xsh",
+      "uutils_test_count": 12,
+      "excluded_tests": [
+        "test_dir::diagnostics::test_snippet_points_at_the_unknown_unit_of_block_size",
+        "test_dir::test_version"
+      ]
+    },
+    {
+      "utility": "dircolors",
+      "capability": null,
+      "xsh_implementation": "core/dircolors.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-dircolors.xsh",
+      "uutils_test_count": 20,
+      "excluded_tests": []
+    },
+    {
+      "utility": "dirname",
+      "capability": null,
+      "xsh_implementation": "core/dirname.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-dirname.xsh",
+      "uutils_test_count": 23,
+      "excluded_tests": []
+    },
+    {
+      "utility": "echo",
+      "capability": null,
+      "xsh_implementation": "core/echo.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-echo.xsh",
+      "uutils_test_count": 65,
+      "excluded_tests": [
+        "test_echo::full_version_argument"
+      ]
+    },
+    {
+      "utility": "expand",
+      "capability": null,
+      "xsh_implementation": "core/expand.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-expand.xsh",
+      "uutils_test_count": 46,
+      "excluded_tests": []
+    },
+    {
+      "utility": "expr",
+      "capability": null,
+      "xsh_implementation": "core/expr.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-expr.xsh",
+      "uutils_test_count": 172,
+      "excluded_tests": [
+        "test_expr::diagnostics::test_snippet_points_at_the_dangling_operator",
+        "test_expr::diagnostics::test_snippet_points_at_the_non_integer_operand",
+        "test_expr::diagnostics::test_snippet_points_at_the_operand_that_failed_not_its_twin",
+        "test_expr::diagnostics::test_snippet_points_at_the_unexpected_argument",
+        "test_expr::diagnostics::test_unclosed_parenthesis_points_at_the_last_operand",
+        "test_expr::test_exit_with_3_write_error"
+      ]
+    },
+    {
+      "utility": "factor",
+      "capability": null,
+      "xsh_implementation": "core/factor.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-factor.xsh",
+      "uutils_test_count": 25,
+      "excluded_tests": [
+        "test_factor::test_invalid_negative_arg_shows_tip"
+      ]
+    },
+    {
+      "utility": "false",
+      "capability": null,
+      "xsh_implementation": "core/false.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-false.xsh",
+      "uutils_test_count": 7,
+      "excluded_tests": [
+        "test_false::test_full"
+      ]
+    },
+    {
+      "utility": "fmt",
+      "capability": null,
+      "xsh_implementation": "core/fmt.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-fmt.xsh",
+      "uutils_test_count": 39,
+      "excluded_tests": []
+    },
+    {
+      "utility": "fold",
+      "capability": null,
+      "xsh_implementation": "core/fold.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-fold.xsh",
+      "uutils_test_count": 101,
+      "excluded_tests": []
+    },
+    {
+      "utility": "head",
+      "capability": null,
+      "xsh_implementation": "core/head.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-head.xsh",
+      "uutils_test_count": 73,
+      "excluded_tests": [
+        "test_head::diagnostics::test_snippet_points_at_the_unknown_unit",
+        "test_head::diagnostics::test_snippet_preserves_obsolete_option_spelling",
+        "test_head::diagnostics::test_snippet_underlines_a_size_with_no_number",
+        "test_head::test_all_but_last_bytes_huge_count_does_not_panic",
+        "test_head::test_all_but_last_lines_huge_count_does_not_panic",
+        "test_head::test_head_invalid_num"
+      ]
+    },
+    {
+      "utility": "hostid",
+      "capability": null,
+      "xsh_implementation": "core/hostid.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-hostid.xsh",
+      "uutils_test_count": 3,
+      "excluded_tests": []
+    },
+    {
+      "utility": "join",
+      "capability": null,
+      "xsh_implementation": "core/join.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-join.xsh",
+      "uutils_test_count": 46,
+      "excluded_tests": [
+        "test_join::diagnostics::test_snippet_points_at_the_failing_field_of_a_list",
+        "test_join::diagnostics::test_snippet_points_inside_a_glued_short_option"
+      ]
+    },
+    {
+      "utility": "link",
+      "capability": null,
+      "xsh_implementation": "core/link.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-link.xsh",
+      "uutils_test_count": 8,
+      "excluded_tests": []
+    },
+    {
+      "utility": "ln",
+      "capability": null,
+      "xsh_implementation": "core/ln.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-ln.xsh",
+      "uutils_test_count": 60,
+      "excluded_tests": [
+        "test_ln::test_hard_logical_dir_fail",
+        "test_ln::test_ln_seen_file",
+        "test_ln::test_symlink_missing_destination"
+      ]
+    },
+    {
+      "utility": "ls",
+      "capability": null,
+      "xsh_implementation": "core/ls.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-ls.xsh",
+      "uutils_test_count": 219,
+      "excluded_tests": [
+        "test_ls::diagnostics::test_snippet_points_at_the_unknown_unit_of_block_size",
+        "test_ls::diagnostics::test_snippet_underlines_a_zero_block_size",
+        "test_ls::test_localized_possible_values",
+        "test_ls::test_ls_color_clear_to_eol",
+        "test_ls::test_ls_color_empty_style",
+        "test_ls::test_ls_color_norm",
+        "test_ls::test_ls_hyperlink_symlink_target_handling",
+        "test_ls::test_ls_ignore_hide",
+        "test_ls::test_ls_long_symlink_color",
+        "test_ls::test_ls_time_styles",
+        "test_ls::test_no_extra_stat_without_recursion",
+        "test_ls::test_time_style_unambiguous_prefixes"
+      ]
+    },
+    {
+      "utility": "mkdir",
+      "capability": null,
+      "xsh_implementation": "core/mkdir.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-mkdir.xsh",
+      "uutils_test_count": 50,
+      "excluded_tests": [
+        "test_mkdir::diagnostics::test_snippet_points_at_the_bad_operator",
+        "test_mkdir::diagnostics::test_snippet_points_into_the_second_clause",
+        "test_mkdir::test_no_arg",
+        "test_mkdir::test_version_no_path"
+      ]
+    },
+    {
+      "utility": "mktemp",
+      "capability": null,
+      "xsh_implementation": "core/mktemp.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-mktemp.xsh",
+      "uutils_test_count": 47,
+      "excluded_tests": [
+        "test_mktemp::test_non_utf8_template"
+      ]
+    },
+    {
+      "utility": "mv",
+      "capability": null,
+      "xsh_implementation": "core/mv.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-mv.xsh",
+      "uutils_test_count": 141,
+      "excluded_tests": []
+    },
+    {
+      "utility": "nl",
+      "capability": null,
+      "xsh_implementation": "core/nl.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-nl.xsh",
+      "uutils_test_count": 67,
+      "excluded_tests": [
+        "test_nl::test_invalid_join_blank_lines",
+        "test_nl::test_invalid_line_increment",
+        "test_nl::test_invalid_number_format",
+        "test_nl::test_invalid_number_width",
+        "test_nl::test_invalid_starting_line_number",
+        "test_nl::test_number_width_too_large",
+        "test_nl::test_number_width_zero"
+      ]
+    },
+    {
+      "utility": "numfmt",
+      "capability": null,
+      "xsh_implementation": "core/numfmt.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-numfmt.xsh",
+      "uutils_test_count": 194,
+      "excluded_tests": [
+        "test_numfmt::diagnostics::test_snippet_blames_the_suffix_not_the_zero_in_a_unit_size",
+        "test_numfmt::diagnostics::test_snippet_ignores_an_option_value_with_the_number_text",
+        "test_numfmt::diagnostics::test_snippet_ignores_another_option_with_the_same_value",
+        "test_numfmt::diagnostics::test_snippet_leaves_the_suffix_out_of_the_bad_conversion",
+        "test_numfmt::diagnostics::test_snippet_marks_a_format_without_a_directive",
+        "test_numfmt::diagnostics::test_snippet_marks_a_whitespace_only_number",
+        "test_numfmt::diagnostics::test_snippet_marks_an_input_that_is_not_a_number",
+        "test_numfmt::diagnostics::test_snippet_names_no_conversion_when_the_format_has_none",
+        "test_numfmt::diagnostics::test_snippet_points_at_the_bad_directive",
+        "test_numfmt::diagnostics::test_snippet_points_at_the_i_a_unit_does_not_take",
+        "test_numfmt::diagnostics::test_snippet_points_at_the_stray_percent",
+        "test_numfmt::diagnostics::test_snippet_points_at_the_suffix_of_a_bad_number",
+        "test_numfmt::diagnostics::test_snippet_says_a_unit_size_cannot_be_zero",
+        "test_numfmt::diagnostics::test_snippet_says_auto_belongs_to_from",
+        "test_numfmt::diagnostics::test_snippet_says_nothing_about_suffixes_without_a_number",
+        "test_numfmt::diagnostics::test_snippet_says_why_a_zero_padding_is_refused",
+        "test_numfmt::diagnostics::test_snippet_underlines_a_header_count",
+        "test_numfmt::diagnostics::test_snippet_underlines_an_unknown_unit",
+        "test_numfmt::diagnostics::test_snippet_underlines_an_unknown_unit_size",
+        "test_numfmt::diagnostics::test_snippet_underlines_the_oversized_precision",
+        "test_numfmt::field_diagnostics::test_snippet_points_at_the_inverted_field_range",
+        "test_numfmt::field_diagnostics::test_snippet_points_at_the_zero_field",
+        "test_numfmt::test_delimiter_from_si",
+        "test_numfmt::test_delimiter_preserves_leading_whitespace_in_unselected_fields",
+        "test_numfmt::test_delimiter_skips_leading_whitespace",
+        "test_numfmt::test_delimiter_to_si",
+        "test_numfmt::test_delimiter_with_padding",
+        "test_numfmt::test_delimiter_with_padding_and_fields",
+        "test_numfmt::test_numfmt_negative_treated_as_option",
+        "test_numfmt::test_transform_with_suffix_and_delimiter"
+      ]
+    },
+    {
+      "utility": "od",
+      "capability": null,
+      "xsh_implementation": "core/od.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-od.xsh",
+      "uutils_test_count": 80,
+      "excluded_tests": [
+        "test_od::diagnostics::test_snippet_points_at_the_unknown_unit_of_read_bytes",
+        "test_od::diagnostics::test_snippet_points_inside_a_width_value",
+        "test_od::diagnostics::test_snippet_underlines_a_hexadecimal_offset_that_does_not_parse"
+      ]
+    },
+    {
+      "utility": "paste",
+      "capability": null,
+      "xsh_implementation": "core/paste.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-paste.xsh",
+      "uutils_test_count": 27,
+      "excluded_tests": []
+    },
+    {
+      "utility": "pathchk",
+      "capability": null,
+      "xsh_implementation": "core/pathchk.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-pathchk.xsh",
+      "uutils_test_count": 9,
+      "excluded_tests": []
+    },
+    {
+      "utility": "pr",
+      "capability": null,
+      "xsh_implementation": "core/pr.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-pr.xsh",
+      "uutils_test_count": 84,
+      "excluded_tests": [
+        "test_pr::test_invalid_expand_tab_arguments",
+        "test_pr::test_negative_expand_tabs",
+        "test_pr::test_number_width_too_large",
+        "test_pr::test_with_valid_page_ranges",
+        "test_pr::test_zero_column_width",
+        "test_pr::test_zero_columns",
+        "test_pr::test_zero_columns_shortcut",
+        "test_pr::test_zero_expand_tab_width",
+        "test_pr::test_zero_length",
+        "test_pr::test_zero_page_width",
+        "test_pr::test_zero_pages"
+      ]
+    },
+    {
+      "utility": "printenv",
+      "capability": null,
+      "xsh_implementation": "core/printenv.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-printenv.xsh",
+      "uutils_test_count": 9,
+      "excluded_tests": [
+        "test_printenv::test_invalid_option_exit_code"
+      ]
+    },
+    {
+      "utility": "printf",
+      "capability": null,
+      "xsh_implementation": "core/printf.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-printf.xsh",
+      "uutils_test_count": 153,
+      "excluded_tests": [
+        "test_printf::diagnostics::test_snippet_keeps_an_operand_that_draws_like_the_report",
+        "test_printf::diagnostics::test_snippet_points_at_a_format_that_looks_like_an_option",
+        "test_printf::diagnostics::test_snippet_points_at_the_bad_code_point",
+        "test_printf::diagnostics::test_snippet_points_at_the_bad_spec",
+        "test_printf::diagnostics::test_snippet_points_at_the_incomplete_hex_escape",
+        "test_printf::diagnostics::test_snippet_points_inside_a_quoted_format",
+        "test_printf::test_large_width_format"
+      ]
+    },
+    {
+      "utility": "ptx",
+      "capability": null,
+      "xsh_implementation": "core/ptx.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-ptx.xsh",
+      "uutils_test_count": 50,
+      "excluded_tests": [
+        "test_ptx::test_failed_write_is_reported",
+        "test_ptx::test_unicode_padding_alignment"
+      ]
+    },
+    {
+      "utility": "pwd",
+      "capability": null,
+      "xsh_implementation": "core/pwd.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-pwd.xsh",
+      "uutils_test_count": 14,
+      "excluded_tests": []
+    },
+    {
+      "utility": "readlink",
+      "capability": null,
+      "xsh_implementation": "core/readlink.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-readlink.xsh",
+      "uutils_test_count": 27,
+      "excluded_tests": []
+    },
+    {
+      "utility": "realpath",
+      "capability": null,
+      "xsh_implementation": "core/realpath.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-realpath.xsh",
+      "uutils_test_count": 33,
+      "excluded_tests": []
+    },
+    {
+      "utility": "rm",
+      "capability": null,
+      "xsh_implementation": "core/rm.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-rm.xsh",
+      "uutils_test_count": 80,
+      "excluded_tests": [
+        "test_rm::test_preserve_root_rejects_unknown_value"
+      ]
+    },
+    {
+      "utility": "rmdir",
+      "capability": null,
+      "xsh_implementation": "core/rmdir.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-rmdir.xsh",
+      "uutils_test_count": 17,
+      "excluded_tests": [
+        "test_rmdir::test_no_arg",
+        "test_rmdir::test_verbose_nested_failure"
+      ]
+    },
+    {
+      "utility": "seq",
+      "capability": null,
+      "xsh_implementation": "core/seq.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-seq.xsh",
+      "uutils_test_count": 79,
+      "excluded_tests": [
+        "test_seq::diagnostics::test_plain_message_when_stderr_is_a_pipe",
+        "test_seq::diagnostics::test_snippet_points_at_the_failing_conversion",
+        "test_seq::diagnostics::test_snippet_points_inside_a_glued_short_option",
+        "test_seq::diagnostics::test_snippet_underlines_a_format_with_no_directive"
+      ]
+    },
+    {
+      "utility": "shred",
+      "capability": null,
+      "xsh_implementation": "core/shred.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-shred.xsh",
+      "uutils_test_count": 31,
+      "excluded_tests": []
+    },
+    {
+      "utility": "shuf",
+      "capability": null,
+      "xsh_implementation": "core/shuf.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-shuf.xsh",
+      "uutils_test_count": 78,
+      "excluded_tests": [
+        "test_shuf::test_range_permute_no_overflow_0_max",
+        "test_shuf::test_seed_args_no_repeat",
+        "test_shuf::test_seed_args_repeat",
+        "test_shuf::test_seed_long_range_no_repeat",
+        "test_shuf::test_seed_range_no_repeat",
+        "test_shuf::test_seed_range_repeat",
+        "test_shuf::write_errors_are_reported"
+      ]
+    },
+    {
+      "utility": "sleep",
+      "capability": null,
+      "xsh_implementation": "core/sleep.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sleep.xsh",
+      "uutils_test_count": 25,
+      "excluded_tests": [
+        "test_sleep::test_invalid_duration::case_7_single_quote",
+        "test_sleep::test_sleep_no_argument",
+        "test_sleep::test_sleep_when_input_has_only_whitespace_then_error::case_2_only_tab",
+        "test_sleep::test_sleep_when_input_has_only_whitespace_then_error::case_3_only_newline",
+        "test_sleep::test_sleep_when_input_has_trailing_whitespace_then_error::case_2_mixed_newlines_spaces_tabs"
+      ]
+    },
+    {
+      "utility": "sort",
+      "capability": null,
+      "xsh_implementation": "core/sort.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sort.xsh",
+      "uutils_test_count": 217,
+      "excluded_tests": [
+        "test_sort::diagnostics::test_snippet_ignores_a_file_that_ends_like_the_key",
+        "test_sort::diagnostics::test_snippet_ignores_the_program_name_as_a_key",
+        "test_sort::diagnostics::test_snippet_points_at_a_missing_number",
+        "test_sort::diagnostics::test_snippet_points_at_a_zero_character_offset",
+        "test_sort::diagnostics::test_snippet_points_at_the_stray_character",
+        "test_sort::diagnostics::test_snippet_points_at_the_unknown_unit_of_a_buffer_size",
+        "test_sort::diagnostics::test_snippet_points_inside_a_detached_key",
+        "test_sort::diagnostics::test_snippet_reports_contradicting_ordering_options",
+        "test_sort::test_argument_suggestion",
+        "test_sort::test_argument_suggestion_colors_enabled",
+        "test_sort::test_check_zero_terminated_failure",
+        "test_sort::test_clap_localization_help_message",
+        "test_sort::test_clap_localization_invalid_value",
+        "test_sort::test_clap_localization_missing_required_argument",
+        "test_sort::test_clap_localization_unknown_argument",
+        "test_sort::test_color_environment_variables",
+        "test_sort::test_conflict_check_out",
+        "test_sort::test_error_colors_disabled",
+        "test_sort::test_error_colors_enabled",
+        "test_sort::test_french_translations",
+        "test_sort::test_help_colors_enabled",
+        "test_sort::test_read_error_message",
+        "test_sort::test_separator_attached_equals_double",
+        "test_sort::test_separator_attached_equals_multi_char",
+        "test_sort::test_tmp_files_are_private",
+        "test_sort::test_tmp_files_deleted_on_sigint"
+      ]
+    },
+    {
+      "utility": "split",
+      "capability": null,
+      "xsh_implementation": "core/split.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-split.xsh",
+      "uutils_test_count": 135,
+      "excluded_tests": [
+        "test_split::diagnostics::test_snippet_points_at_the_unknown_unit",
+        "test_split::diagnostics::test_snippet_points_inside_a_line_bytes_value"
+      ]
+    },
+    {
+      "utility": "sum",
+      "capability": null,
+      "xsh_implementation": "core/sum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sum.xsh",
+      "uutils_test_count": 13,
+      "excluded_tests": []
+    },
+    {
+      "utility": "tac",
+      "capability": null,
+      "xsh_implementation": "core/tac.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-tac.xsh",
+      "uutils_test_count": 33,
+      "excluded_tests": [
+        "test_tac::test_failed_write_is_reported",
+        "test_tac::test_non_utf8_regex_separator"
+      ]
+    },
+    {
+      "utility": "tail",
+      "capability": null,
+      "xsh_implementation": "core/tail.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-tail.xsh",
+      "uutils_test_count": 170,
+      "excluded_tests": [
+        "test_tail::diagnostics::test_snippet_points_at_the_unknown_unit",
+        "test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_03_space_in_primes",
+        "test_tail::test_capital_f_recovers_after_dir_swap",
+        "test_tail::test_debug_flag_with_inotify",
+        "test_tail::test_debug_flag_with_polling",
+        "test_tail::test_failed_write_is_reported",
+        "test_tail::test_failed_write_is_reported_on_seekable_input",
+        "test_tail::test_follow_inotify_only_regular",
+        "test_tail::test_follow_invalid_pid",
+        "test_tail::test_follow_name_move1",
+        "test_tail::test_follow_name_move2",
+        "test_tail::test_follow_name_move_retry1",
+        "test_tail::test_follow_name_remove",
+        "test_tail::test_follow_name_rename_chain",
+        "test_tail::test_follow_name_replaced_by_symlink_is_untailable",
+        "test_tail::test_obsolete_encoding_unix",
+        "test_tail::test_retry_descriptor_gives_up_on_untailable",
+        "test_tail::test_retry_follow_name_waits_for_creation"
+      ]
+    },
+    {
+      "utility": "tee",
+      "capability": null,
+      "xsh_implementation": "core/tee.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-tee.xsh",
+      "uutils_test_count": 35,
+      "excluded_tests": [
+        "test_tee::test_short_help_is_long_help"
+      ]
+    },
+    {
+      "utility": "test",
+      "capability": null,
+      "xsh_implementation": "core/test.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-test.xsh",
+      "uutils_test_count": 126,
+      "excluded_tests": [
+        "test_test::diagnostics::test_bracket_form_reports_under_its_own_name",
+        "test_test::diagnostics::test_dash_t_advises_about_descriptors_not_comparisons",
+        "test_test::diagnostics::test_extra_argument_points_past_the_expression",
+        "test_test::diagnostics::test_extra_operand_suggests_quoting_the_variable",
+        "test_test::diagnostics::test_integer_comparison_keeps_its_own_advice",
+        "test_test::diagnostics::test_missing_operand_suggests_quoting_the_variable",
+        "test_test::diagnostics::test_snippet_points_at_the_offending_argument",
+        "test_test::test_bracket_syntax_version",
+        "test_test::test_invalid_utf8_integer_compare"
+      ]
+    },
+    {
+      "utility": "touch",
+      "capability": null,
+      "xsh_implementation": "core/touch.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-touch.xsh",
+      "uutils_test_count": 66,
+      "excluded_tests": [
+        "test_touch::test_touch_invalid_timestamp_leading_multibyte_char",
+        "test_touch::test_touch_set_date_wrong_format"
+      ]
+    },
+    {
+      "utility": "tr",
+      "capability": null,
+      "xsh_implementation": "core/tr.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-tr.xsh",
+      "uutils_test_count": 174,
+      "excluded_tests": [
+        "test_tr::diagnostics::test_snippet_ignores_the_program_name_as_a_set",
+        "test_tr::diagnostics::test_snippet_points_at_the_backwards_range",
+        "test_tr::diagnostics::test_snippet_points_at_the_misspelled_class",
+        "test_tr::diagnostics::test_snippet_points_at_the_repeat_count",
+        "test_tr::diagnostics::test_snippet_points_into_the_second_set",
+        "test_tr::diagnostics::test_snippet_underlines_the_whole_set_when_the_set_is_at_fault",
+        "test_tr::test_octal_escape_ambiguous_followed_by_non_utf8",
+        "test_tr::test_repeat_lengths_beyond_usize"
+      ]
+    },
+    {
+      "utility": "true",
+      "capability": null,
+      "xsh_implementation": "core/true.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-true.xsh",
+      "uutils_test_count": 7,
+      "excluded_tests": [
+        "test_true::test_full"
+      ]
+    },
+    {
+      "utility": "truncate",
+      "capability": null,
+      "xsh_implementation": "core/truncate.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-truncate.xsh",
+      "uutils_test_count": 49,
+      "excluded_tests": []
+    },
+    {
+      "utility": "tsort",
+      "capability": null,
+      "xsh_implementation": "core/tsort.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-tsort.xsh",
+      "uutils_test_count": 25,
+      "excluded_tests": []
+    },
+    {
+      "utility": "tty",
+      "capability": null,
+      "xsh_implementation": "core/tty.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-tty.xsh",
+      "uutils_test_count": 11,
+      "excluded_tests": [
+        "test_tty::test_write_error"
+      ]
+    },
+    {
+      "utility": "uname",
+      "capability": null,
+      "xsh_implementation": "core/uname.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-uname.xsh",
+      "uutils_test_count": 14,
+      "excluded_tests": [
+        "test_uname::test_uname_operating_system"
+      ]
+    },
+    {
+      "utility": "unexpand",
+      "capability": null,
+      "xsh_implementation": "core/unexpand.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-unexpand.xsh",
+      "uutils_test_count": 44,
+      "excluded_tests": []
+    },
+    {
+      "utility": "uniq",
+      "capability": null,
+      "xsh_implementation": "core/uniq.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-uniq.xsh",
+      "uutils_test_count": 38,
+      "excluded_tests": [
+        "test_uniq::uniq_basic_dedup_cases"
+      ]
+    },
+    {
+      "utility": "unlink",
+      "capability": null,
+      "xsh_implementation": "core/unlink.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-unlink.xsh",
+      "uutils_test_count": 7,
+      "excluded_tests": []
+    },
+    {
+      "utility": "vdir",
+      "capability": null,
+      "xsh_implementation": "core/ls.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-vdir.xsh",
+      "uutils_test_count": 12,
+      "excluded_tests": [
+        "test_vdir::diagnostics::test_snippet_points_at_the_unknown_unit_of_block_size",
+        "test_vdir::test_version"
+      ]
+    },
+    {
+      "utility": "wc",
+      "capability": null,
+      "xsh_implementation": "core/wc.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-wc.xsh",
+      "uutils_test_count": 60,
+      "excluded_tests": []
+    },
+    {
+      "utility": "yes",
+      "capability": null,
+      "xsh_implementation": "core/yes.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-yes.xsh",
+      "uutils_test_count": 10,
+      "excluded_tests": []
+    },
+    {
+      "utility": "df",
+      "capability": null,
+      "xsh_implementation": "core/df.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-df.xsh",
+      "uutils_test_count": 66,
+      "excluded_tests": []
+    },
+    {
+      "utility": "du",
+      "capability": null,
+      "xsh_implementation": "core/du.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-du.xsh",
+      "uutils_test_count": 121,
+      "excluded_tests": []
+    },
+    {
+      "utility": "env",
+      "capability": null,
+      "xsh_implementation": "core/env.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-env.xsh",
+      "uutils_test_count": 102,
+      "excluded_tests": [
+        "test_env::diagnostics::test_plain_message_when_stderr_is_a_pipe",
+        "test_env::diagnostics::test_snippet_follows_the_string_when_it_is_glued_to_the_option",
+        "test_env::diagnostics::test_snippet_points_at_the_invalid_escape",
+        "test_env::diagnostics::test_snippet_points_at_the_unterminated_quote",
+        "test_env::diagnostics::test_snippet_points_at_the_whole_variable_reference",
+        "test_env::diagnostics::test_snippet_points_into_the_right_argument",
+        "test_env::test_debug1_part_of_string_arg",
+        "test_env::test_debug2_part_of_string_arg",
+        "test_env::test_debug_1",
+        "test_env::test_debug_2",
+        "test_env::test_empty_name",
+        "test_env::test_empty_name_and_empty_value",
+        "test_env::test_empty_name_does_not_affect_other_assignments",
+        "test_env::test_env_french",
+        "test_env::test_env_parsing_errors",
+        "test_env::test_env_version",
+        "test_env::test_split_string_into_args_debug_output_whitespace_handling",
+        "test_env::test_split_string_into_args_s_escaped_c_not_allowed"
+      ]
+    },
+    {
+      "utility": "hostname",
+      "capability": null,
+      "xsh_implementation": "core/hostname.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-hostname.xsh",
+      "uutils_test_count": 5,
+      "excluded_tests": []
+    },
+    {
+      "utility": "kill",
+      "capability": null,
+      "xsh_implementation": "core/kill.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-kill.xsh",
+      "uutils_test_count": 58,
+      "excluded_tests": []
+    },
+    {
+      "utility": "nohup",
+      "capability": null,
+      "xsh_implementation": "core/nohup.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-nohup.xsh",
+      "uutils_test_count": 13,
+      "excluded_tests": [
+        "test_nohup::test_nohup_help_and_version"
+      ]
+    },
+    {
+      "utility": "nproc",
+      "capability": null,
+      "xsh_implementation": "core/nproc.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-nproc.xsh",
+      "uutils_test_count": 7,
+      "excluded_tests": []
+    },
+    {
+      "utility": "more",
+      "capability": null,
+      "xsh_implementation": "core/more.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-more.xsh",
+      "uutils_test_count": 11,
+      "excluded_tests": [
+        "test_more::test_invalid_file_perms"
+      ]
+    },
+    {
+      "utility": "sync",
+      "capability": null,
+      "xsh_implementation": "core/sync.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sync.xsh",
+      "uutils_test_count": 17,
+      "excluded_tests": []
+    },
+    {
+      "utility": "timeout",
+      "capability": null,
+      "xsh_implementation": "core/timeout.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-timeout.xsh",
+      "uutils_test_count": 33,
+      "excluded_tests": [
+        "test_timeout::test_invalid_multi_byte_characters",
+        "test_timeout::test_invalid_time_interval::case_2_single_quote"
+      ]
+    },
+    {
+      "utility": "uptime",
+      "capability": null,
+      "xsh_implementation": "core/uptime.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-uptime.xsh",
+      "uutils_test_count": 16,
+      "excluded_tests": [
+        "test_uptime::test_uptime_with_extra_argument"
+      ]
+    },
+    {
+      "utility": "whoami",
+      "capability": null,
+      "xsh_implementation": "core/whoami.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-whoami.xsh",
+      "uutils_test_count": 5,
+      "excluded_tests": []
+    },
+    {
+      "utility": "chgrp",
+      "capability": null,
+      "xsh_implementation": "core/chgrp.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-chgrp.xsh",
+      "uutils_test_count": 32,
+      "excluded_tests": [
+        "test_chgrp::test_help",
+        "test_chgrp::test_help_ref",
+        "test_chgrp::test_missing_files",
+        "test_chgrp::test_permission_denied",
+        "test_chgrp::test_ref_help",
+        "test_chgrp::test_subdir_permission_denied"
+      ]
+    },
+    {
+      "utility": "chmod",
+      "capability": null,
+      "xsh_implementation": "core/chmod.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-chmod.xsh",
+      "uutils_test_count": 63,
+      "excluded_tests": [
+        "test_chmod::diagnostics::test_plain_message_when_stderr_is_a_pipe",
+        "test_chmod::diagnostics::test_quiet_stays_quiet",
+        "test_chmod::diagnostics::test_snippet_marks_a_clause_with_no_operator",
+        "test_chmod::diagnostics::test_snippet_points_at_the_bad_operator",
+        "test_chmod::diagnostics::test_snippet_points_at_the_mode_not_a_file_with_the_same_name",
+        "test_chmod::diagnostics::test_snippet_points_into_a_negative_mode",
+        "test_chmod::diagnostics::test_snippet_points_into_the_right_negative_mode",
+        "test_chmod::diagnostics::test_snippet_points_into_the_second_clause",
+        "test_chmod::test_chmod_colored_output",
+        "test_chmod::test_chmod_permissions_too_large",
+        "test_chmod::test_chmod_recursive",
+        "test_chmod::test_chmod_recursive_correct_exit_code",
+        "test_chmod::test_no_operands"
+      ]
+    },
+    {
+      "utility": "chown",
+      "capability": null,
+      "xsh_implementation": "core/chown.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-chown.xsh",
+      "uutils_test_count": 34,
+      "excluded_tests": [
+        "test_chown::test_chown_fail_id",
+        "test_chown::test_chown_only_colon"
+      ]
+    },
+    {
+      "utility": "chroot",
+      "capability": null,
+      "xsh_implementation": "core/chroot.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-chroot.xsh",
+      "uutils_test_count": 21,
+      "excluded_tests": [
+        "test_chroot::test_enter_chroot_fails",
+        "test_chroot::test_missing_operand"
+      ]
+    },
+    {
+      "utility": "groups",
+      "capability": null,
+      "xsh_implementation": "core/groups.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-groups.xsh",
+      "uutils_test_count": 4,
+      "excluded_tests": []
+    },
+    {
+      "utility": "id",
+      "capability": null,
+      "xsh_implementation": "core/id.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-id.xsh",
+      "uutils_test_count": 22,
+      "excluded_tests": [
+        "test_id::test_id_pretty_print_password_record"
+      ]
+    },
+    {
+      "utility": "install",
+      "capability": null,
+      "xsh_implementation": "core/install.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-install.xsh",
+      "uutils_test_count": 124,
+      "excluded_tests": [
+        "test_install::test_install_basic_try_reflink"
+      ]
+    },
+    {
+      "utility": "logname",
+      "capability": null,
+      "xsh_implementation": "core/logname.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-logname.xsh",
+      "uutils_test_count": 4,
+      "excluded_tests": [
+        "test_logname::test_help"
+      ]
+    },
+    {
+      "utility": "mkfifo",
+      "capability": null,
+      "xsh_implementation": "core/mkfifo.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-mkfifo.xsh",
+      "uutils_test_count": 16,
+      "excluded_tests": []
+    },
+    {
+      "utility": "mknod",
+      "capability": null,
+      "xsh_implementation": "core/mknod.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-mknod.xsh",
+      "uutils_test_count": 17,
+      "excluded_tests": []
+    },
+    {
+      "utility": "stat",
+      "capability": null,
+      "xsh_implementation": "core/stat.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-stat.xsh",
+      "uutils_test_count": 52,
+      "excluded_tests": [
+        "test_stat::test_printf_incomplete_hex"
+      ]
+    },
+    {
+      "utility": "stty",
+      "capability": null,
+      "xsh_implementation": "core/stty.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-stty.xsh",
+      "uutils_test_count": 86,
+      "excluded_tests": [
+        "test_stty::save_and_all",
+        "test_stty::test_stdin_not_tty_fails"
+      ]
+    },
+    {
+      "utility": "stdbuf",
+      "capability": null,
+      "xsh_implementation": "core/stdbuf.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-stdbuf.xsh",
+      "uutils_test_count": 21,
+      "excluded_tests": [
+        "test_stdbuf::diagnostics::test_snippet_points_at_the_unknown_unit",
+        "test_stdbuf::diagnostics::test_snippet_points_inside_a_long_option_value",
+        "test_stdbuf::test_stdbuf_no_buffer_option_fails",
+        "test_stdbuf::test_stdbuf_no_command_fails_with_125"
+      ]
+    },
+    {
+      "utility": "pinky",
+      "capability": null,
+      "xsh_implementation": "core/pinky.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-pinky.xsh",
+      "uutils_test_count": 8,
+      "excluded_tests": []
+    },
+    {
+      "utility": "users",
+      "capability": null,
+      "xsh_implementation": "core/users.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-users.xsh",
+      "uutils_test_count": 5,
+      "excluded_tests": []
+    },
+    {
+      "utility": "who",
+      "capability": null,
+      "xsh_implementation": "core/who.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-who.xsh",
+      "uutils_test_count": 27,
+      "excluded_tests": [
+        "test_who::test_piped_to_dev_full",
+        "test_who::test_short_list_piped_to_dev_full",
+        "test_who::test_too_many_args"
+      ]
+    },
+    {
+      "utility": "chcon",
+      "capability": "selinux",
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 24,
+      "excluded_tests": []
+    },
+    {
+      "utility": "runcon",
+      "capability": "selinux",
+      "xsh_implementation": null,
+      "present": false,
+      "native_tests": null,
+      "uutils_test_count": 8,
+      "excluded_tests": []
+    }
+  ],
+  "linux_surface": {
+    "totals": {
+      "commands": 125,
+      "present": 125,
+      "optional": 6,
+      "missing": []
+    },
+    "commands": [
+      {
+        "command": "lscpu",
+        "phase": "3A",
+        "domain": "linux.device",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/lscpu.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-lscpu.xsh"
+      },
+      {
+        "command": "rfkill",
+        "phase": "3A",
+        "domain": "linux.device",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/rfkill.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-rfkill.xsh"
+      },
+      {
+        "command": "lspci",
+        "phase": "3A",
+        "domain": "linux.pci",
+        "reference": "pciutils",
+        "optional": false,
+        "xsh_implementation": "core/lspci.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-lspci.xsh"
+      },
+      {
+        "command": "lsusb",
+        "phase": "3A",
+        "domain": "linux.usb",
+        "reference": "usbutils",
+        "optional": false,
+        "xsh_implementation": "core/lsusb.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-lsusb.xsh"
+      },
+      {
+        "command": "sensors",
+        "phase": "3A",
+        "domain": "linux.sensor",
+        "reference": "lm-sensors",
+        "optional": false,
+        "xsh_implementation": "core/sensors.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-sensors.xsh"
+      },
+      {
+        "command": "swapon",
+        "phase": "3B",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/swapon.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-storage.xsh"
+      },
+      {
+        "command": "swapoff",
+        "phase": "3B",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/swapoff.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-storage.xsh"
+      },
+      {
+        "command": "mkswap",
+        "phase": "3B",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/mkswap.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-storage.xsh"
+      },
+      {
+        "command": "dmesg",
+        "phase": "3B",
+        "domain": "linux.device",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/dmesg.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-dmesg.xsh"
+      },
+      {
+        "command": "sysctl",
+        "phase": "3B",
+        "domain": "linux.sysctl",
+        "reference": "procps-ng",
+        "optional": false,
+        "xsh_implementation": "core/sysctl.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-sysctl.xsh"
+      },
+      {
+        "command": "hwclock",
+        "phase": "3B",
+        "domain": "linux.clock",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/hwclock.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-hwclock.xsh"
+      },
+      {
+        "command": "flock",
+        "phase": "3B",
+        "domain": "linux.process",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/flock.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-flock.xsh"
+      },
+      {
+        "command": "setsid",
+        "phase": "3B",
+        "domain": "linux.process",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/setsid.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-setsid.xsh"
+      },
+      {
+        "command": "pivot_root",
+        "phase": "3B",
+        "domain": "linux.mount",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/pivot_root.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-pivot_root.xsh"
+      },
+      {
+        "command": "switch_root",
+        "phase": "3B",
+        "domain": "linux.mount",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/switch_root.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-switch_root.xsh"
+      },
+      {
+        "command": "reboot",
+        "phase": "3B",
+        "domain": "linux.power",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/reboot.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-reboot.xsh"
+      },
+      {
+        "command": "poweroff",
+        "phase": "3B",
+        "domain": "linux.power",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/poweroff.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-poweroff.xsh"
+      },
+      {
+        "command": "halt",
+        "phase": "3B",
+        "domain": "linux.power",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/halt.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-halt.xsh"
+      },
+      {
+        "command": "lsmod",
+        "phase": "3C",
+        "domain": "linux.module",
+        "reference": "kmod",
+        "optional": false,
+        "xsh_implementation": "core/lsmod.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-lsmod.xsh"
+      },
+      {
+        "command": "modinfo",
+        "phase": "3C",
+        "domain": "linux.module",
+        "reference": "kmod",
+        "optional": false,
+        "xsh_implementation": "core/modinfo.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-modinfo.xsh"
+      },
+      {
+        "command": "modprobe",
+        "phase": "3C",
+        "domain": "linux.module",
+        "reference": "kmod",
+        "optional": false,
+        "xsh_implementation": "core/modprobe.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-modprobe.xsh"
+      },
+      {
+        "command": "insmod",
+        "phase": "3C",
+        "domain": "linux.module",
+        "reference": "kmod",
+        "optional": false,
+        "xsh_implementation": "core/insmod.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-insmod.xsh"
+      },
+      {
+        "command": "rmmod",
+        "phase": "3C",
+        "domain": "linux.module",
+        "reference": "kmod",
+        "optional": false,
+        "xsh_implementation": "core/rmmod.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-rmmod.xsh"
+      },
+      {
+        "command": "depmod",
+        "phase": "3C",
+        "domain": "linux.module",
+        "reference": "kmod",
+        "optional": false,
+        "xsh_implementation": "core/depmod.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-depmod.xsh"
+      },
+      {
+        "command": "ps",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "procps-ng",
+        "optional": false,
+        "xsh_implementation": "core/ps.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-procps.xsh"
+      },
+      {
+        "command": "pgrep",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "procps-ng",
+        "optional": false,
+        "xsh_implementation": "core/pgrep.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-procps.xsh"
+      },
+      {
+        "command": "pkill",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "procps-ng",
+        "optional": false,
+        "xsh_implementation": "core/pkill.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-procps.xsh"
+      },
+      {
+        "command": "pidof",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "procps-ng",
+        "optional": false,
+        "xsh_implementation": "core/pidof.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-bb-pidof.xsh"
+      },
+      {
+        "command": "free",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "procps-ng",
+        "optional": false,
+        "xsh_implementation": "core/free.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-procps.xsh"
+      },
+      {
+        "command": "top",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "procps-ng",
+        "optional": false,
+        "xsh_implementation": "core/top.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-cp.xsh"
+      },
+      {
+        "command": "watch",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "procps-ng",
+        "optional": false,
+        "xsh_implementation": "core/watch.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-procps.xsh"
+      },
+      {
+        "command": "vmstat",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "procps-ng",
+        "optional": false,
+        "xsh_implementation": "core/vmstat.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-procps.xsh"
+      },
+      {
+        "command": "killall",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "psmisc",
+        "optional": false,
+        "xsh_implementation": "core/killall.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-procps.xsh"
+      },
+      {
+        "command": "pstree",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "psmisc",
+        "optional": false,
+        "xsh_implementation": "core/pstree.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-pstree.xsh"
+      },
+      {
+        "command": "fuser",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "psmisc",
+        "optional": false,
+        "xsh_implementation": "core/fuser.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-procps.xsh"
+      },
+      {
+        "command": "lsof",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "lsof",
+        "optional": false,
+        "xsh_implementation": "core/lsof.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-procps.xsh"
+      },
+      {
+        "command": "iostat",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "sysstat",
+        "optional": true,
+        "xsh_implementation": "core/iostat.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-procps.xsh"
+      },
+      {
+        "command": "pidstat",
+        "phase": "3D",
+        "domain": "linux.process",
+        "reference": "sysstat",
+        "optional": true,
+        "xsh_implementation": "core/pidstat.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-procps.xsh"
+      },
+      {
+        "command": "ip",
+        "phase": "3E",
+        "domain": "linux.net",
+        "reference": "iproute2",
+        "optional": false,
+        "xsh_implementation": "core/ip.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-ip.xsh"
+      },
+      {
+        "command": "ss",
+        "phase": "3E",
+        "domain": "linux.net",
+        "reference": "iproute2",
+        "optional": false,
+        "xsh_implementation": "core/ss.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-ss.xsh"
+      },
+      {
+        "command": "ping",
+        "phase": "3E",
+        "domain": "linux.net",
+        "reference": "iputils",
+        "optional": false,
+        "xsh_implementation": "core/ping.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-ping.xsh"
+      },
+      {
+        "command": "ping6",
+        "phase": "3E",
+        "domain": "linux.net",
+        "reference": "iputils",
+        "optional": false,
+        "xsh_implementation": "core/ping6.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-ping6.xsh"
+      },
+      {
+        "command": "ifconfig",
+        "phase": "3E",
+        "domain": "linux.net",
+        "reference": "net-tools",
+        "optional": true,
+        "xsh_implementation": "core/ifconfig.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-ifconfig.xsh"
+      },
+      {
+        "command": "route",
+        "phase": "3E",
+        "domain": "linux.net",
+        "reference": "net-tools",
+        "optional": true,
+        "xsh_implementation": "core/route.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-route.xsh"
+      },
+      {
+        "command": "arp",
+        "phase": "3E",
+        "domain": "linux.net",
+        "reference": "net-tools",
+        "optional": true,
+        "xsh_implementation": "core/arp.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-arp.xsh"
+      },
+      {
+        "command": "udevadm",
+        "phase": "3F",
+        "domain": "linux.device",
+        "reference": "eudev",
+        "optional": false,
+        "xsh_implementation": "core/udevadm.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-udevadm.xsh"
+      },
+      {
+        "command": "login",
+        "phase": "3G",
+        "domain": "linux.accounts",
+        "reference": "shadow",
+        "optional": false,
+        "xsh_implementation": "core/login.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-login.xsh"
+      },
+      {
+        "command": "getent",
+        "phase": "3G",
+        "domain": "linux.accounts",
+        "reference": "glibc",
+        "optional": false,
+        "xsh_implementation": "core/getent.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-getent.xsh"
+      },
+      {
+        "command": "grep",
+        "phase": "4",
+        "domain": "xsh.search",
+        "reference": "gnu-grep",
+        "optional": false,
+        "xsh_implementation": "core/grep.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-grep.xsh"
+      },
+      {
+        "command": "egrep",
+        "phase": "4",
+        "domain": "xsh.search",
+        "reference": "gnu-grep",
+        "optional": false,
+        "xsh_implementation": "core/egrep.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-egrep.xsh"
+      },
+      {
+        "command": "fgrep",
+        "phase": "4",
+        "domain": "xsh.search",
+        "reference": "gnu-grep",
+        "optional": false,
+        "xsh_implementation": "core/fgrep.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-fgrep.xsh"
+      },
+      {
+        "command": "find",
+        "phase": "4",
+        "domain": "xsh.search",
+        "reference": "findutils",
+        "optional": false,
+        "xsh_implementation": "core/find.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-find.xsh"
+      },
+      {
+        "command": "xargs",
+        "phase": "4",
+        "domain": "xsh.search",
+        "reference": "findutils",
+        "optional": false,
+        "xsh_implementation": "core/xargs.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-xargs.xsh"
+      },
+      {
+        "command": "sed",
+        "phase": "4",
+        "domain": "xsh.text",
+        "reference": "gnu-sed",
+        "optional": false,
+        "xsh_implementation": "core/sed.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-sed.xsh"
+      },
+      {
+        "command": "awk",
+        "phase": "4",
+        "domain": "xsh.text",
+        "reference": "gawk",
+        "optional": false,
+        "xsh_implementation": "core/awk.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-awk.xsh"
+      },
+      {
+        "command": "cmp",
+        "phase": "4",
+        "domain": "xsh.text",
+        "reference": "diffutils",
+        "optional": false,
+        "xsh_implementation": "core/cmp.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-cmp.xsh"
+      },
+      {
+        "command": "diff",
+        "phase": "4",
+        "domain": "xsh.text",
+        "reference": "diffutils",
+        "optional": false,
+        "xsh_implementation": "core/diff.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-diff.xsh"
+      },
+      {
+        "command": "patch",
+        "phase": "4",
+        "domain": "xsh.text",
+        "reference": "patch",
+        "optional": false,
+        "xsh_implementation": "core/patch.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-patch.xsh"
+      },
+      {
+        "command": "gzip",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "gzip",
+        "optional": false,
+        "xsh_implementation": "core/gzip.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-compress.xsh"
+      },
+      {
+        "command": "gunzip",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "gzip",
+        "optional": false,
+        "xsh_implementation": "core/gunzip.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-gunzip.xsh"
+      },
+      {
+        "command": "zcat",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "gzip",
+        "optional": false,
+        "xsh_implementation": "core/zcat.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-compress.xsh"
+      },
+      {
+        "command": "bzip2",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "bzip2",
+        "optional": false,
+        "xsh_implementation": "core/bzip2.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-compress.xsh"
+      },
+      {
+        "command": "bunzip2",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "bzip2",
+        "optional": false,
+        "xsh_implementation": "core/bunzip2.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-bunzip2.xsh"
+      },
+      {
+        "command": "bzcat",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "bzip2",
+        "optional": false,
+        "xsh_implementation": "core/bzcat.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-bb-bzcat.xsh"
+      },
+      {
+        "command": "xz",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "xz",
+        "optional": false,
+        "xsh_implementation": "core/xz.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-compress.xsh"
+      },
+      {
+        "command": "unxz",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "xz",
+        "optional": false,
+        "xsh_implementation": "core/unxz.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-compress.xsh"
+      },
+      {
+        "command": "xzcat",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "xz",
+        "optional": false,
+        "xsh_implementation": "core/xzcat.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-compress.xsh"
+      },
+      {
+        "command": "lzma",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "xz",
+        "optional": false,
+        "xsh_implementation": "core/lzma.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-compress.xsh"
+      },
+      {
+        "command": "unlzma",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "xz",
+        "optional": false,
+        "xsh_implementation": "core/unlzma.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-unlzma.xsh"
+      },
+      {
+        "command": "lzcat",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "xz",
+        "optional": false,
+        "xsh_implementation": "core/lzcat.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-compress.xsh"
+      },
+      {
+        "command": "zstd",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "zstd",
+        "optional": false,
+        "xsh_implementation": "core/zstd.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-compress.xsh"
+      },
+      {
+        "command": "unzstd",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "zstd",
+        "optional": false,
+        "xsh_implementation": "core/unzstd.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-compress.xsh"
+      },
+      {
+        "command": "zstdcat",
+        "phase": "5",
+        "domain": "compression",
+        "reference": "zstd",
+        "optional": false,
+        "xsh_implementation": "core/zstdcat.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-compress.xsh"
+      },
+      {
+        "command": "file",
+        "phase": "6",
+        "domain": "xsh.misc",
+        "reference": "file",
+        "optional": false,
+        "xsh_implementation": "core/file.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-file.xsh"
+      },
+      {
+        "command": "ldd",
+        "phase": "6",
+        "domain": "xsh.misc",
+        "reference": "glibc",
+        "optional": false,
+        "xsh_implementation": "core/ldd.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-ldd.xsh"
+      },
+      {
+        "command": "clear",
+        "phase": "6",
+        "domain": "xsh.misc",
+        "reference": "ncurses",
+        "optional": false,
+        "xsh_implementation": "core/clear.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-clear.xsh"
+      },
+      {
+        "command": "reset",
+        "phase": "6",
+        "domain": "xsh.misc",
+        "reference": "ncurses",
+        "optional": false,
+        "xsh_implementation": "core/reset.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-reset.xsh"
+      },
+      {
+        "command": "lsblk",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/lsblk.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-storage.xsh"
+      },
+      {
+        "command": "blkid",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/blkid.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-storage.xsh"
+      },
+      {
+        "command": "findmnt",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/findmnt.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-storage.xsh"
+      },
+      {
+        "command": "mount",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/mount.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-storage.xsh"
+      },
+      {
+        "command": "umount",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/umount.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-storage.xsh"
+      },
+      {
+        "command": "losetup",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/losetup.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-storage.xsh"
+      },
+      {
+        "command": "blockdev",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/blockdev.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-storage.xsh"
+      },
+      {
+        "command": "wipefs",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/wipefs.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-storage.xsh"
+      },
+      {
+        "command": "partx",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/partx.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-storage.xsh"
+      },
+      {
+        "command": "partprobe",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/partprobe.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-storage.xsh"
+      },
+      {
+        "command": "fstrim",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/fstrim.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-storage.xsh"
+      },
+      {
+        "command": "fsfreeze",
+        "phase": "7A",
+        "domain": "linux.block",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/fsfreeze.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-storage.xsh"
+      },
+      {
+        "command": "sfdisk",
+        "phase": "7A",
+        "domain": "linux.partition",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/sfdisk.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-storage.xsh"
+      },
+      {
+        "command": "fdisk",
+        "phase": "7A",
+        "domain": "linux.partition",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/fdisk.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-storage.xsh"
+      },
+      {
+        "command": "mkfs.fat",
+        "phase": "7B",
+        "domain": "linux.fs",
+        "reference": "dosfstools",
+        "optional": false,
+        "xsh_implementation": "core/mkfs.fat.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-mkfs.fat.xsh"
+      },
+      {
+        "command": "mkfs.vfat",
+        "phase": "7B",
+        "domain": "linux.fs",
+        "reference": "dosfstools",
+        "optional": false,
+        "xsh_implementation": "core/mkfs.fat.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-mkfs.fat.xsh"
+      },
+      {
+        "command": "fsck.fat",
+        "phase": "7B",
+        "domain": "linux.fs",
+        "reference": "dosfstools",
+        "optional": false,
+        "xsh_implementation": "core/fsck.fat.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-fsck.fat.xsh"
+      },
+      {
+        "command": "fsck.vfat",
+        "phase": "7B",
+        "domain": "linux.fs",
+        "reference": "dosfstools",
+        "optional": false,
+        "xsh_implementation": "core/fsck.fat.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-fsck.fat.xsh"
+      },
+      {
+        "command": "fatlabel",
+        "phase": "7B",
+        "domain": "linux.fs",
+        "reference": "dosfstools",
+        "optional": false,
+        "xsh_implementation": "core/fatlabel.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-fatlabel.xsh"
+      },
+      {
+        "command": "lsattr",
+        "phase": "7C",
+        "domain": "linux.fs",
+        "reference": "e2fsprogs",
+        "optional": false,
+        "xsh_implementation": "core/lsattr.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-lsattr.xsh"
+      },
+      {
+        "command": "chattr",
+        "phase": "7C",
+        "domain": "linux.fs",
+        "reference": "e2fsprogs",
+        "optional": false,
+        "xsh_implementation": "core/chattr.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-chattr.xsh"
+      },
+      {
+        "command": "getfattr",
+        "phase": "7C",
+        "domain": "linux.xattr",
+        "reference": "attr",
+        "optional": false,
+        "xsh_implementation": "core/getfattr.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-getfattr.xsh"
+      },
+      {
+        "command": "setfattr",
+        "phase": "7C",
+        "domain": "linux.xattr",
+        "reference": "attr",
+        "optional": false,
+        "xsh_implementation": "core/setfattr.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-setfattr.xsh"
+      },
+      {
+        "command": "getfacl",
+        "phase": "7C",
+        "domain": "linux.acl",
+        "reference": "acl",
+        "optional": false,
+        "xsh_implementation": "core/getfacl.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-getfacl.xsh"
+      },
+      {
+        "command": "setfacl",
+        "phase": "7C",
+        "domain": "linux.acl",
+        "reference": "acl",
+        "optional": false,
+        "xsh_implementation": "core/setfacl.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-setfacl.xsh"
+      },
+      {
+        "command": "getcap",
+        "phase": "7C",
+        "domain": "linux.capability",
+        "reference": "libcap",
+        "optional": false,
+        "xsh_implementation": "core/getcap.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-getcap.xsh"
+      },
+      {
+        "command": "setcap",
+        "phase": "7C",
+        "domain": "linux.capability",
+        "reference": "libcap",
+        "optional": false,
+        "xsh_implementation": "core/setcap.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-setcap.xsh"
+      },
+      {
+        "command": "smartctl",
+        "phase": "8",
+        "domain": "linux.storage_health",
+        "reference": "smartmontools",
+        "optional": false,
+        "xsh_implementation": "core/smartctl.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-smartctl.xsh"
+      },
+      {
+        "command": "nvme",
+        "phase": "8",
+        "domain": "linux.nvme",
+        "reference": "nvme-cli",
+        "optional": false,
+        "xsh_implementation": "core/nvme.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-nvme.xsh"
+      },
+      {
+        "command": "nsenter",
+        "phase": "9",
+        "domain": "linux.namespace",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/nsenter.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-nsenter.xsh"
+      },
+      {
+        "command": "unshare",
+        "phase": "9",
+        "domain": "linux.namespace",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/unshare.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-unshare.xsh"
+      },
+      {
+        "command": "lsns",
+        "phase": "9",
+        "domain": "linux.namespace",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/lsns.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-lsns.xsh"
+      },
+      {
+        "command": "taskset",
+        "phase": "9",
+        "domain": "linux.process",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/taskset.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-taskset.xsh"
+      },
+      {
+        "command": "chrt",
+        "phase": "9",
+        "domain": "linux.process",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/chrt.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-chrt.xsh"
+      },
+      {
+        "command": "ionice",
+        "phase": "9",
+        "domain": "linux.process",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/ionice.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-ionice.xsh"
+      },
+      {
+        "command": "prlimit",
+        "phase": "9",
+        "domain": "linux.process",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/prlimit.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-prlimit.xsh"
+      },
+      {
+        "command": "setpriv",
+        "phase": "9",
+        "domain": "linux.capability",
+        "reference": "util-linux",
+        "optional": false,
+        "xsh_implementation": "core/setpriv.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-setpriv.xsh"
+      },
+      {
+        "command": "ethtool",
+        "phase": "10",
+        "domain": "linux.net",
+        "reference": "ethtool",
+        "optional": false,
+        "xsh_implementation": "core/ethtool.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-ethtool.xsh"
+      },
+      {
+        "command": "iw",
+        "phase": "10",
+        "domain": "linux.wifi",
+        "reference": "iw",
+        "optional": false,
+        "xsh_implementation": "core/iw.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-iw.xsh"
+      },
+      {
+        "command": "traceroute",
+        "phase": "10",
+        "domain": "linux.net",
+        "reference": "traceroute",
+        "optional": false,
+        "xsh_implementation": "core/traceroute.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-traceroute.xsh"
+      },
+      {
+        "command": "tracepath",
+        "phase": "10",
+        "domain": "linux.net",
+        "reference": "iputils",
+        "optional": false,
+        "xsh_implementation": "core/tracepath.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-tracepath.xsh"
+      },
+      {
+        "command": "dig",
+        "phase": "10",
+        "domain": "linux.net",
+        "reference": "bind",
+        "optional": false,
+        "xsh_implementation": "core/dig.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-dig.xsh"
+      },
+      {
+        "command": "nslookup",
+        "phase": "10",
+        "domain": "linux.net",
+        "reference": "bind",
+        "optional": false,
+        "xsh_implementation": "core/nslookup.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-nslookup.xsh"
+      },
+      {
+        "command": "nc",
+        "phase": "10",
+        "domain": "linux.net",
+        "reference": "netcat-openbsd",
+        "optional": false,
+        "xsh_implementation": "core/nc.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-nc.xsh"
+      },
+      {
+        "command": "curl",
+        "phase": "10",
+        "domain": "xsh.net",
+        "reference": "curl",
+        "optional": false,
+        "xsh_implementation": "core/curl.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-curl.xsh"
+      },
+      {
+        "command": "wget",
+        "phase": "10",
+        "domain": "xsh.net",
+        "reference": "curl",
+        "optional": true,
+        "xsh_implementation": "core/wget.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-wget.xsh"
+      },
+      {
+        "command": "cpio",
+        "phase": "11",
+        "domain": "archive",
+        "reference": "cpio",
+        "optional": false,
+        "xsh_implementation": "core/cpio.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-cpio.xsh"
+      },
+      {
+        "command": "efibootmgr",
+        "phase": "11",
+        "domain": "linux.efi",
+        "reference": "efibootmgr",
+        "optional": false,
+        "xsh_implementation": "core/efibootmgr.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-efibootmgr.xsh"
+      }
+    ]
+  }
+}

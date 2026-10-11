@@ -99,8 +99,22 @@ print "accepted"
   assert output.stderr == "Continue? done"
 }
 
+test test_io_write_stderr_bytes_without_newline_and_flush { |ctx|
+  let output = test.run_script(ctx, """
+io.write_stderr("prefix:")?
+io.write_stderr_bytes(b"bytes")?
+io.flush_stderr()?
+io.write_stderr_bytes(b"")?
+io.write_stderr("suffix")?
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == ""
+  assert output.stderr == "prefix:bytessuffix"
+}
+
 test test_io_flush_stderr_preserves_captured_output {
   io.write_stderr("captured")?
+  io.write_stderr_bytes(b"bytes")?
   io.flush_stderr()?
 }
 
@@ -109,6 +123,7 @@ test test_io_flush_stderr_reports_unwritable_descriptor { |ctx|
   let script = fp"{root}/unwritable-stderr.xsh"
   script.write("""
 io.write_stderr("prompt")?
+io.write_stderr_bytes(b"bytes")?
 match io.flush_stderr() {
   Err(failure) => { assert failure.errno == 9 }
   Ok(_) => { assert false, "unwritable stderr accepted" }

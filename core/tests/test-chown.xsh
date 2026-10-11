@@ -187,3 +187,45 @@ test test_chown_dereference_of_dangling_link_names_the_link { |ctx|
   assert accessed.status == 1
   assert accessed.stderr.starts_with(f"chown: cannot access '{missing}': "), accessed.stderr
 }
+
+
+test test_chown_verbose_failure_preserves_operand_names_and_streams { |ctx|
+  if user.current()?.uid == 0 { test.skip("root can change ownership"); return }
+  let target = test.temp_file(ctx, name: "owner-denied", contents: b"x")?
+  let before = fs.stat(target)?
+  let old_user = user.by_uid(before.uid)?.name
+  let old_group = group.by_gid(before.gid)?.name
+  for item in [
+    {spec: "root", noun: "ownership", old: old_user, new: "root", error_noun: "ownership"},
+    {spec: "0", noun: "ownership", old: old_user, new: "0", error_noun: "ownership"},
+    {spec: ":root", noun: "ownership", old: f"{old_user}:{old_group}", new: ":root", error_noun: "group"},
+    {spec: ":0", noun: "group", old: old_group, new: "0", error_noun: "group"},
+    {spec: "0:root", noun: "ownership", old: f"{old_user}:{old_group}", new: ":root", error_noun: "ownership"},
+  ] {
+    let result = perm_run(ctx, ["-v", item.spec, target])?
+    assert result.status == 1
+    assert result.stdout == f"failed to change {item.noun} of '{target}' from {item.old} to {item.new}\n", result.stdout
+    assert result.stderr == f"chown: changing {item.error_noun} of '{target}': Operation not permitted\n", result.stderr
+    assert fs.stat(target)?.uid == before.uid
+    assert fs.stat(target)?.gid == before.gid
+  }
+}
+
+test test_chown_invalid_multiple_dots_has_no_warning { |ctx|
+  let target = test.temp_file(ctx, name: "invalid-owner", contents: b"x")?
+  let result = perm_run(ctx, ["-v", "root.root.root", target])?
+  assert result.status == 1
+  assert result.stdout == ""
+  assert result.stderr == "chown: invalid user: 'root.root.root'\n", result.stderr
+}
+
+test test_chown_group_only_from_mismatch_reports_group { |ctx|
+  let target = test.temp_file(ctx, name: "retained-group", contents: b"x")?
+  let before = fs.stat(target)?
+  let name = group.by_gid(before.gid)?.name
+  let result = perm_run(ctx, ["-v", "--from=99999", ":43", target])?
+  assert result.status == 0
+  assert result.stdout == f"group of '{target}' retained as {name}\n", result.stdout
+  assert result.stderr == ""
+  assert fs.stat(target)?.gid == before.gid
+}

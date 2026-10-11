@@ -28,11 +28,14 @@ pure has_bit(mode: Int, bit: Int) -> Bool {
 }
 
 pure mode_octal(mode: Int) -> Str {
-  let bits = mode % 512
-  let user_bits = bits / 64
+  let bits = mode % 4096
+  let user_bits = bits / 64 % 8
   let group_bits = bits / 8 % 8
   let other_bits = bits % 8
-  f"{user_bits}{group_bits}{other_bits}"
+  let special = bits / 512
+  var rendered = f"{special}{user_bits}{group_bits}{other_bits}"
+  while rendered.byte_len() > 1 and rendered.starts_with("0") { rendered = rendered.byte_slice(1) }
+  rendered
 }
 
 pure mode_triplet(mode: Int, read_bit: Int, write_bit: Int, exec_bit: Int) -> Str {
@@ -43,16 +46,29 @@ pure mode_triplet(mode: Int, read_bit: Int, write_bit: Int, exec_bit: Int) -> St
 }
 
 pure mode_string(kind: Str, mode: Int) -> Str {
-  let file_type = if kind == "dir" { "d" } else if kind == "symlink" { "l" } else { "-" }
-
-  f"{file_type}{mode_triplet(mode, 0o400, 0o200, 0o100)}{mode_triplet(mode, 0o40, 0o20, 0o10)}{mode_triplet(mode, 0o4, 0o2, 0o1)}"
+  let file_type = match kind { "dir" => "d", "symlink" => "l", "char" => "c", "block" => "b", "fifo" => "p", "socket" => "s", else => "-" }
+  var owner = mode_triplet(mode, 0o400, 0o200, 0o100)
+  var group_bits = mode_triplet(mode, 0o40, 0o20, 0o10)
+  var other = mode_triplet(mode, 0o4, 0o2, 0o1)
+  if has_bit(mode, 0o4000) { owner = owner.byte_slice(0, length: 2) + (if has_bit(mode, 0o100) { "s" } else { "S" }) }
+  if has_bit(mode, 0o2000) { group_bits = group_bits.byte_slice(0, length: 2) + (if has_bit(mode, 0o10) { "s" } else { "S" }) }
+  if has_bit(mode, 0o1000) { other = other.byte_slice(0, length: 2) + (if has_bit(mode, 0o1) { "t" } else { "T" }) }
+  f"{file_type}{owner}{group_bits}{other}"
 }
 
 pure hex(value: Int) -> Str {
   let digits = "0123456789abcdef"
-  var rest = value
+  var rest = if value < 0 { -(value + 1) } else { value }
   var out = ""
 
+  if value < 0 {
+    for _ in range(16) {
+      let index = 15 - rest % 16
+      out = f"{digits[index..index + 1]}{out}"
+      rest /= 16
+    }
+    return out
+  }
   loop {
     let index = rest % 16
     out = f"{digits[index..index + 1]}{out}"
@@ -61,6 +77,16 @@ pure hex(value: Int) -> Str {
   }
 
   out
+}
+
+# Linux stores the first fsid word in the low half of statvfs's scalar;
+# GNU prints that word first, followed by the second word as eight hex digits.
+pure filesystem_id(value: Int) -> Str {
+  var full = hex(value)
+  while full.byte_len() < 16 { full = f"0{full}" }
+  var rendered = full.byte_slice(8, length: 8) + full.byte_slice(0, length: 8)
+  while rendered.byte_len() > 1 and rendered.starts_with("0") { rendered = rendered.byte_slice(1) }
+  rendered
 }
 
 type FormatResult = {output: Bytes, invalid: Str?, warnings: List[Str]}
@@ -162,6 +188,8 @@ pure pad_stat(text: Str, width: Int, left: Bool, zero: Bool, numeric: Bool) -> S
   while padded.byte_len() < width {
     if left {
       padded = f"{padded}{fill}"
+    } else if fill == "0" and padded.starts_with("0x") {
+      padded = f"0x{fill}{padded.byte_slice(2)}"
     } else if fill == "0" and padded.starts_with("-") {
       padded = f"-{fill}{padded.byte_slice(1)}"
     } else {
@@ -282,8 +310,8 @@ proc stat_mount_point(target: Path) [fs, error] -> Str {
   mount.mounted_on.display()
 }
 
-proc stat_terse(meta: FsStat, name: Bytes) [env] -> Bytes {
-  bytes.concat([stat_quote_bytes(name), bytes.from_text(f" {meta.size} {meta.blocks_512} {hex(meta.mode)} {meta.uid} {meta.gid} {meta.dev} {meta.nlink} {meta.ino} {meta.rdev} 0 {meta.atime_ns / 1000000000} {meta.mtime_ns / 1000000000} {meta.ctime_ns / 1000000000} {meta.blksize}")])
+proc stat_terse(meta: FsStat, name: Bytes) [fs, env] -> Bytes {
+  bytes.concat([stat_quote_bytes(name), bytes.from_text(f" {meta.size} {meta.blocks_512} {hex(meta.mode)} {meta.uid} {meta.gid} {hex(meta.dev)} {meta.ino} {meta.nlink} {hex(fs.dev_major(meta.rdev))} {hex(fs.dev_minor(meta.rdev))} {meta.atime_ns / 1000000000} {meta.mtime_ns / 1000000000} {meta.ctime_ns / 1000000000} {(meta.birth_ns ?? 0) / 1000000000} {meta.blksize}")])
 }
 
 proc render_fs_format(fmt: Str, target: Path, name: Bytes, printf = false) [fs, env, error] -> FormatResult {
@@ -325,7 +353,7 @@ proc render_fs_format(fmt: Str, target: Path, name: Bytes, printf = false) [fs, 
       "c" => f"{stats.files}"
       "d" => f"{stats.files_free}"
       "f" => f"{stats.blocks_free}"
-      "i" => hex(stats.fsid)
+      "i" => filesystem_id(stats.fsid)
       "l" => f"{stats.name_max}"
       "n" | "Qn" => ""
       "s" => f"{stats.block_size}"
@@ -429,10 +457,12 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
     }
     var left = false
     var zero = false
-    while at < length and stat_format_byte(data, at) in ["-", "0"] {
+    var alternate = false
+    while at < length and stat_format_byte(data, at) in ["-", "0", "#", " ", "+", "I"] {
       let flag = stat_format_byte(data, at)
       left = left or flag == "-"
       zero = zero or flag == "0"
+      alternate = alternate or flag == "#"
       at += 1
     }
     var width = 0
@@ -463,10 +493,14 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
     at += 1
     let specifier = if modifier == "I" { code } else { f"{modifier}{code}" }
     if specifier not in ["Hd", "Ld", "Hr", "Lr", "s", "b", "B", "f", "a", "A", "u", "g", "U", "G", "h", "i", "d", "D", "o", "r", "R", "t", "T", "X", "Y", "Z", "w", "W", "x", "y", "z", "m", "F", "n", "N", "Qn"] {
-      return {output: output, invalid: data[origin..at].utf8() ?? "", warnings: warnings}
+      if code == "%" { return {output: output, invalid: data[origin..at].utf8() ?? "", warnings: warnings} }
+      # Complete unknown conversions render a bare question mark; only an
+      # unfinished conversion or a decorated percent is a format error.
+      output = bytes.concat([output, b"?"])
+      continue
     }
     let numeric = code in ["s", "b", "B", "f", "a", "u", "g", "h", "i", "d", "D", "o", "r", "R", "t", "T", "X", "Y", "Z", "w", "W"]
-    let value = match specifier {
+    var value = match specifier {
       "Hd" => f"{fs.dev_major(meta.dev)}"
       "Ld" => f"{fs.dev_minor(meta.dev)}"
       "Hr" => f"{fs.dev_major(meta.rdev)}"
@@ -499,13 +533,22 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
       "y" => time.format(meta.mtime_ns, "%Y-%m-%d %H:%M:%S.%N %z")?
       "z" => time.format(meta.ctime_ns, "%Y-%m-%d %H:%M:%S.%N %z")?
       "m" => stat_mount_point(target)
-      "F" => file_type_name(meta.kind)
+      "F" => stat_file_type(meta)
       "n" => ""
       "N" => {
         ""
       }
       "Qn" => ""
       else => ""
+    }
+    if numeric and code not in ["X", "Y", "Z", "w"] {
+      if let digits = precision { while value.byte_len() < digits { value = f"0{value}" } }
+      if alternate and code == "a" and ! value.starts_with("0") { value = f"0{value}" }
+      if alternate and code in ["f", "D", "R", "t", "T"] and value != "0" { value = f"0x{value}" }
+      zero = zero and precision == null and ! left
+    } else { zero = zero and ! left }
+    if ! numeric and specifier not in ["n", "N", "Qn"] {
+      if let digits = precision { if value.byte_len() > digits { value = value.byte_slice(0, length: digits) } }
     }
     if code in ["X", "Y", "Z"] {
       output = bytes.concat([output, bytes.from_text(value)])
@@ -578,7 +621,8 @@ proc main(...argv: List[Bytes]) [fs, env, io, time, error] {
   if help { gnu.help("Usage: stat [OPTION]... FILE...\nDisplay file or filesystem status.\n  -L, --dereference  follow links\n  -f, --file-system  display filesystem status\n      --cached=MODE  specify how to use cached attributes\n  -c, --format=FORMAT  use the specified format\n      --printf=FORMAT  use the specified format without a trailing newline\n  -t, --terse  print information in terse form\n"); return }
   if version { gnu.version("stat"); return }
   if paths.is_empty() {
-    gnu.error("the following required arguments were not provided: <file>")
+    gnu.error("missing operand")
+    gnu.try_help()
     exit 1
   }
 
@@ -586,7 +630,7 @@ proc main(...argv: List[Bytes]) [fs, env, io, time, error] {
   if quotes_name(fmt) {
     if let Ok(style) = env.get("QUOTING_STYLE") {
       if ! valid_stat_quote_style(style) {
-        gnu.error(f"ignoring invalid value of environment variable QUOTING_STYLE: '{style}'")
+        gnu.error(f"ignoring invalid value of environment variable QUOTING_STYLE: {gnu.quote_value(style)}")
       }
     }
   }
@@ -607,7 +651,7 @@ proc main(...argv: List[Bytes]) [fs, env, io, time, error] {
       let mount = fs.mount_for(target.resolve()?)?
       if terse {
         let selected = if format != "" or printf != null { render_fs_format(fmt, target, item_bytes, printf != null) } else {
-          {output: bytes.concat([stat_quote_bytes(item_bytes), bytes.from_text(f" {stats.blocks} {stats.files} {hex(stats.fsid)} {stats.name_max} {stats.block_size} {stats.fragment_size} {hex(stats.type_magic ?? 0)} {mount.fstype}")]), invalid: null, warnings: []}
+          {output: bytes.concat([stat_quote_bytes(item_bytes), bytes.from_text(f" {filesystem_id(stats.fsid)} {stats.name_max} {hex(stats.type_magic ?? 0)} {stats.block_size} {stats.fragment_size} {stats.blocks} {stats.blocks_free} {stats.blocks_available} {stats.files} {stats.files_free}")]), invalid: null, warnings: []}
         }
         gnu.write_bytes(selected.output)
         if printf == null and selected.invalid == null { gnu.write_bytes(b"\n") }
@@ -619,7 +663,7 @@ proc main(...argv: List[Bytes]) [fs, env, io, time, error] {
         if let invalid = rendered.invalid { report_format_error(prepared.text, fmt, printf != null, invalid); exit 1 }
       } else {
         gnu.write_bytes(bytes.concat([b"  File: ", stat_quote_bytes(item_bytes), b"\n"]))
-        print f"    ID: {hex(stats.fsid)} Namelen: {stats.name_max} Type: {mount.fstype}"
+        print f"    ID: {filesystem_id(stats.fsid)} Namelen: {stats.name_max} Type: {mount.fstype}"
         print f"Block size: {stats.block_size}"
         print f"Blocks: Total: {stats.blocks} Free: {stats.blocks_free} Available: {stats.blocks_available}"
         print f"Inodes: Total: {stats.files} Free: {stats.files_free}"

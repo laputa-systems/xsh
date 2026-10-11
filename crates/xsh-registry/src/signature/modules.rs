@@ -592,6 +592,15 @@ fn io_module() -> ModuleSig {
             ),
         ),
         (
+            "write_stderr_bytes",
+            sig(
+                vec![param("data", Type::Bytes)],
+                result(Type::Unit),
+                false,
+                RuntimeOp::IoWriteStderrBytes,
+            ),
+        ),
+        (
             "flush_stderr",
             sig(Vec::new(), result(Type::Unit), false, RuntimeOp::IoFlushStderr),
         ),
@@ -2976,7 +2985,7 @@ fn unix_module() -> ModuleSig {
         ("cpu_features", sig(Vec::new(), Type::List(Box::new(Type::Str)), false, RuntimeOp::UnixCpuFeatures)),
         ("read_fd", sig(vec![param("fd", Type::Int), param("max_bytes", Type::Int)], result(Type::Bytes), false, RuntimeOp::UnixReadFd)),
         ("write_fd", sig(vec![param("fd", Type::Int), param("data", Type::Bytes)], result(Type::Int), false, RuntimeOp::UnixWriteFd)),
-        ("seek_fd", sig(vec![param("fd", Type::Int), param("offset", Type::Int)], result(Type::Int), false, RuntimeOp::UnixSeekFd)),
+        ("seek_fd", sig(vec![param("fd", Type::Int), param("offset", Type::Int), default_param("whence", Type::Str)], result(Type::Int), false, RuntimeOp::UnixSeekFd)),
         ("fadvise", sig(vec![param("fd", Type::Int), param("offset", Type::Int), param("length", Type::Int), param("advice", Type::Str)], result(Type::Unit), false, RuntimeOp::UnixFadvise)),
 
         (
@@ -3112,7 +3121,7 @@ fn unix_module() -> ModuleSig {
             sig(
                 vec![param("fd", Type::Int), param("path", Type::Path),
                     default_param("write", Type::Bool), default_param("append", Type::Bool),
-                    default_param("mode", Type::Int)],
+                    default_param("mode", Type::Int), default_param("exact_create_mode", Type::Bool)],
                 result(Type::Unit), false, RuntimeOp::UnixRedirectFd,
             ),
         ),
@@ -3120,6 +3129,11 @@ fn unix_module() -> ModuleSig {
             "dup_fd",
             sig(vec![param("source", Type::Int), param("target", Type::Int)],
                 result(Type::Unit), false, RuntimeOp::UnixDupFd),
+        ),
+        (
+            "duplicate_fd",
+            sig(vec![param("source", Type::Int), default_param("min_fd", Type::Int)],
+                result(Type::Int), false, RuntimeOp::UnixDuplicateFd),
         ),
         ("poll_fd", sig(vec![param("fd", Type::Int), param("events", Type::List(Box::new(Type::Str))), default_param("timeout_ms", Type::Int)], result(Type::List(Box::new(Type::Str))), false, RuntimeOp::UnixPollFd)),
         (
@@ -4011,7 +4025,24 @@ fn process_module() -> ModuleSig {
 }
 
 fn system_module() -> ModuleSig {
+    let parsed = Type::Record(btree_map(vec![
+        ("consumed", Type::Int), ("range_error", Type::Bool), ("order_key", Type::Str),
+    ]));
+    let formatted = Type::Record(btree_map(vec![
+        ("consumed", Type::Int), ("range_error", Type::Bool), ("text", Type::Str),
+    ]));
+    let numeric = Type::Record(btree_map(vec![
+        ("decimal_point", Type::Bytes), ("thousands_separator", Type::Bytes),
+    ]));
+    let time = Type::Record(btree_map(vec![
+        ("abbreviated_months", Type::List(Box::new(Type::Bytes))),
+    ]));
     module_sig(vec![
+        ("parse_long_double", sig(vec![param("text", Type::Str)], result(parsed), true, RuntimeOp::NumericParseLongDouble)),
+        ("format_long_double", sig(vec![param("text", Type::Str), param("conversion", Type::Str), default_param("precision", Type::Optional(Box::new(Type::Int))), default_param("alternate", Type::Bool)], result(formatted), true, RuntimeOp::NumericFormatLongDouble)),
+        ("long_double_precision", sig(vec![], Type::Int, true, RuntimeOp::NumericLongDoublePrecision)),
+        ("locale_numeric_info", sig(vec![param("name", Type::Str)], result(numeric), false, RuntimeOp::LocaleNumericInfo)),
+        ("locale_time_info", sig(vec![param("name", Type::Str)], result(time), false, RuntimeOp::LocaleTimeInfo)),
         (
             "hostname",
             sig(
@@ -4632,7 +4663,7 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
         ),
         "FsCopyFileResult" => (
             "Reports how fs.copy_file moved bytes into the destination.",
-            "method names the strongest mechanism used (clone, copy_file_range, read_write); hole_bytes counts source bytes left as holes in the destination. destination_replaced is true only when force successfully unlinked and reopened an existing destination; it is false for initial creation and ordinary overwrite, regardless of inode reuse.",
+            "method names the strongest mechanism used (clone, copy_file_range, read_write); hole_bytes counts source bytes left as holes in the destination. destination_replaced is true only when force successfully unlinked and reopened an existing destination; it is false for initial creation and ordinary overwrite, regardless of inode reuse. reflink_error retains the failed automatic clone attempt; offload_error retains the first failed copy_file_range attempt. Both are nullable Error values with the actual host errno and are null when the mechanism was skipped or had no failed attempt.",
             &["filesystem", "copy", "record"],
         ),
         "FsDataRange" => (

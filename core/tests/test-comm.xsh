@@ -54,7 +54,7 @@ test test_comm_order_checks { |ctx|
   let checked = comm_run(ctx, root, ["--check-order", "bad1", "bad2"])?
   assert checked.status == 1
   assert checked.stdout == b"\t\te\n"
-  assert checked.stderr == "comm: file 2 is not in sorted order\n", checked.stderr
+  assert checked.stderr == "comm: file 1 is not in sorted order\n", checked.stderr
 
   let unchecked = comm_run(ctx, root, ["--nocheck-order", "bad1", "bad2"])?
   assert unchecked.status == 0
@@ -76,19 +76,20 @@ test test_comm_order_checks { |ctx|
   assert same.stderr == ""
 }
 
-test test_comm_checks_file_two_first_and_default_order { |ctx|
+test test_comm_checks_advanced_records_before_the_next_merge { |ctx|
   let root = test.temp_dir(ctx, name: "comm-order")?
   fp"{root}/one".write("e\nd\nb\na\n")
   fp"{root}/two".write("e\nc\nb\na\n")
 
   let checked = comm_run(ctx, root, ["--check-order", "one", "two"])?
-  assert checked.stderr == "comm: file 2 is not in sorted order\n", checked.stderr
+  assert checked.stderr == "comm: file 1 is not in sorted order\n", checked.stderr
 
   fp"{root}/one".write("m\nh\nn\no\nc\np\n")
   fp"{root}/two".write("m\nh\nn\no\np\n")
   let default = comm_run(ctx, root, ["one", "two"])?
-  assert default.status == 1
-  assert default.stderr.starts_with("comm: file 1 is not in sorted order\n"), default.stderr
+  assert default.status == 0
+  assert default.stdout == b"\t\tm\n\t\th\n\t\tn\n\t\to\nc\n\t\tp\n"
+  assert default.stderr == "", default.stderr
 }
 
 test test_comm_operand_and_file_errors { |ctx|
@@ -123,4 +124,19 @@ test test_comm_reads_standard_input_and_help { |ctx|
   let help = comm_run(ctx, root, ["--help"])?
   assert help.status == 0
   assert help.stdout.utf8()?.starts_with("Usage: comm [OPTION]... FILE1 FILE2")
+}
+
+test test_comm_rechecks_final_pair_after_an_unpairable_record { |ctx|
+  let root = test.temp_dir(ctx, name: "comm-final-order")?
+  fp"{root}/one".write("b\na\n")
+  fp"{root}/two".write("b\nz\n")
+  let result = comm_run(ctx, root, ["one", "two"])?
+  assert result.status == 1
+  assert result.stdout == b"\t\tb\na\n\tz\n"
+  assert result.stderr == "comm: file 1 is not in sorted order\ncomm: input is not in sorted order\n", result.stderr
+
+  let checked = comm_run(ctx, root, ["--check-order", "one", "two"])?
+  assert checked.status == 1
+  assert checked.stdout == b"\t\tb\n"
+  assert checked.stderr == "comm: file 1 is not in sorted order\n", checked.stderr
 }

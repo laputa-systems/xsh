@@ -61,28 +61,46 @@ test test_chgrp_validates_from_before_group_operand { |ctx|
   assert result.stderr == "chgrp: invalid user: 'xsh-missing-user'\n"
 }
 
-test test_chgrp_from_filters_by_group_id { |ctx|
-  let current = user.current()?
-  let groups = user.groups(current.name, primary_gid: current.gid)?
-  if groups.len() < 2 { test.skip("needs two groups the user belongs to") }
-  let target = test.temp_file(ctx, name: "from-group-id", contents: b"x")?
-  assert perm_run(ctx, [f"{groups[0]}", target.display()])?.status == 0
-  assert perm_run(ctx, ["--from", f"{groups[0]}", f"{groups[1]}", target.display()])?.status == 0
-  assert fs.stat(target)?.gid == groups[1]
-  assert perm_run(ctx, ["--from", f"{groups[0]}", f"{groups[0]}", target.display()])?.status == 0
-  assert fs.stat(target)?.gid == groups[1], "a --from group the file is not in changes nothing"
+test test_chgrp_from_filters_owner_and_colon_filters_group { |ctx|
+  let target = test.temp_file(ctx, name: "from-owner", contents: b"x")?
+  let before = fs.stat(target)?
+  let owner = user.by_uid(before.uid)?.name
+  assert perm_run(ctx, [f"--from={before.uid}", f"{before.gid}", target])?.status == 0
+  assert perm_run(ctx, [f"--from={owner}", f"{before.gid}", target])?.status == 0
+  let mismatch = perm_run(ctx, ["--from=99999", "12345", target])?
+  assert mismatch.status == 0, mismatch.stderr
+  assert fs.stat(target)?.gid == before.gid
+  assert perm_run(ctx, [f"--from=:{before.gid}", f"{before.gid}", target])?.status == 0
+  let invalid = perm_run(ctx, [f":{before.gid}", target])?
+  assert invalid.status == 1
+  assert invalid.stdout == ""
+  assert invalid.stderr == f"chgrp: invalid group: ':{before.gid}'\n"
+  assert fs.stat(target)?.gid == before.gid
 }
 
-test test_chgrp_verbose_permission_error_is_reported_on_stderr { |ctx|
+test test_chgrp_from_owner_matches_after_group_changes { |ctx|
+  let current = unix.id()?
+  let other_groups = [id for id in current.supplementary if id != current.egid]
+  if current.euid != 0 and other_groups.is_empty() { test.skip("needs a supplementary group") }
+  let target = test.temp_file(ctx, name: "owner-group-filter", contents: b"x")?
+  let other = if current.euid == 0 { 12345 } else { other_groups[0] }
+  assert perm_run(ctx, [f"{other}", target])?.status == 0
+  assert fs.stat(target)?.gid == other
+  let result = perm_run(ctx, [f"--from={current.euid}", f"{current.egid}", target])?
+  assert result.status == 0, result.stderr
+  assert fs.stat(target)?.gid == current.egid
+}
+
+test test_chgrp_verbose_permission_error_uses_separate_streams { |ctx|
   if user.current()?.uid == 0 { test.skip("root can change the target group"); return }
-
   let target = test.temp_file(ctx, name: "reference-denied", contents: b"x")?
+  let before = fs.stat(target)?
+  let old_group = group.by_gid(before.gid)?.name
   let result = perm_run(ctx, ["-v", "--reference=/etc/passwd", target])?
-
   assert result.status == 1
-  assert result.stdout == ""
-  assert result.stderr.starts_with(f"chgrp: changing group of '{target}': Operation not permitted\n"), result.stderr
-  assert result.stderr.find(f"failed to change group of '{target}' from ") != null, result.stderr
+  assert result.stdout == f"failed to change group of '{target}' from {old_group} to root\n", result.stdout
+  assert result.stderr == f"chgrp: changing group of '{target}': Operation not permitted\n", result.stderr
+  assert fs.stat(target)?.gid == before.gid
 }
 
 test test_chgrp_accepts_non_utf8_operand_bytes { |ctx|

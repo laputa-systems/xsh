@@ -64,6 +64,8 @@ enum InternalOperation {
     Dist,
     TestLinux,
     TestLinuxCi,
+    TestLinuxSplit,
+    TestLinuxCiSplit,
     GateLane,
     GateBatch,
     Coverage,
@@ -74,6 +76,8 @@ pure internal_operation(value: Str) -> Result[InternalOperation] {
     "dist" => Dist
     "test-linux" => TestLinux
     "test-linux-ci" => TestLinuxCi
+    "test-linux-split" => TestLinuxSplit
+    "test-linux-ci-split" => TestLinuxCiSplit
     "gate-lane" => GateLane
     "gate-batch" => GateBatch
     "coverage" => Coverage
@@ -346,6 +350,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
         Dist => return container_internal.container_dist(ctx)
         TestLinux => return container_internal.linux_developer_test(ctx)
         TestLinuxCi => return container_internal.linux_ci_test(ctx)
+        TestLinuxSplit | TestLinuxCiSplit => return container_internal.linux_split_resource_test(ctx)
         GateLane => return container_internal.gate_lane(ctx, rest)
         GateBatch => return container_internal.gate_batch(ctx)
         Coverage => return container_internal.container_coverage(ctx)
