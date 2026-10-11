@@ -6,7 +6,7 @@
     "commit": "6e39144aaf5a6bc01b9f795010b0914431067183"
   },
   "gate": "G3",
-  "last_green_commit": "3bf96ebc",
+  "last_green_commit": "0d9aea4c",
   "audit": {
     "new_core_script": "New core/*.xsh applets are installed by the release script at dev/release.xsh:146-160; dev/tests/test-repository-contracts.xsh owns the required core script inventory and contract checks. No separate command registration is needed.",
     "launcher_argument_separator": "Use xsh SCRIPT -- ARGS for an applet and xsh -- SCRIPT ARGS for an explicit script; src/entrypoints/xsh.rs:90-120.",
@@ -668,66 +668,85 @@
     {
       "id": "g3.cpu.per_core",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-model.xsh::test_btop_model_matches_the_independent_b3_monitor_oracle"
+      ],
+      "evidence": "Host release: the B3 frame oracle checks 40.0% aggregate and per-core utilization; all 54 btop native tests passed in .work/btop-campaign/g3-cpu-slice-regression.log."
     },
     {
       "id": "g3.cpu.sparse_ids",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-model.xsh::test_btop_model_tracks_sparse_cpu_ids_and_hotplug_without_inheriting_history"
+      ],
+      "evidence": "Host release: sparse logical IDs 0, 4, and 9 retain their own per-core history; all 54 btop native tests passed in .work/btop-campaign/g3-cpu-slice-regression.log."
     },
     {
       "id": "g3.cpu.hotplug",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-model.xsh::test_btop_model_tracks_sparse_cpu_ids_and_hotplug_without_inheriting_history"
+      ],
+      "evidence": "Host release: added and returned CPUs start warming without reusing old counters; all 54 btop native tests passed in .work/btop-campaign/g3-cpu-slice-regression.log."
     },
     {
       "id": "g3.cpu.guest",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_cpu_usage_excludes_guest_time_and_corrects_iowait_regression"
+      ],
+      "evidence": "Host release: an explicit counter vector proves guest and guest-nice deltas are removed from user and nice time; all 54 btop native tests passed in .work/btop-campaign/g3-cpu-slice-regression.log."
     },
     {
       "id": "g3.cpu.iowait",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_cpu_usage_excludes_guest_time_and_corrects_iowait_regression"
+      ],
+      "evidence": "Host release: a falling iowait counter contributes zero delta and does not invalidate the interval; all 54 btop native tests passed in .work/btop-campaign/g3-cpu-slice-regression.log."
     },
     {
       "id": "g3.cpu.reset",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-model.xsh::test_btop_model_tracks_sparse_cpu_ids_and_hotplug_without_inheriting_history",
+        "core/tests/test-btop-sources.xsh::test_btop_rates_distinguish_warming_idle_reset_and_invalid_interval"
+      ],
+      "evidence": "Host release: aggregate and per-core counter decreases expose reset state with no percentage; all 54 btop native tests passed in .work/btop-campaign/g3-cpu-slice-regression.log."
     },
     {
       "id": "g3.cpu.load",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_cpu_source_reads_complete_aggregate_uptime_load_and_sparse_cores",
+        "core/tests/test-btop-sources.xsh::test_btop_cpu_source_marks_malformed_uptime_and_load_without_values"
+      ],
+      "evidence": "Host release: all three load averages are retained only from complete numeric input; malformed input produces no values. All 54 btop native tests passed in .work/btop-campaign/g3-cpu-slice-regression.log."
     },
     {
       "id": "g3.cpu.uptime",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_cpu_source_reads_complete_aggregate_uptime_load_and_sparse_cores",
+        "core/tests/test-btop-sources.xsh::test_btop_cpu_source_marks_malformed_uptime_and_load_without_values"
+      ],
+      "evidence": "Host release: uptime is retained from a complete decimal input and withheld for malformed text; all 54 btop native tests passed in .work/btop-campaign/g3-cpu-slice-regression.log."
     },
     {
       "id": "g3.cpu.core_map",
@@ -1299,6 +1318,12 @@
       "name": "unix.tty_mode(raw)",
       "commit": "cbe15963",
       "summary": "Raw mode now disables echo, signal generation, extended processing, and input flow control consistently with the documented stty raw contract."
+    },
+    {
+      "kind": "data_format",
+      "name": "btop model dump: per-core CPU rows",
+      "commit": "0d9aea4c",
+      "summary": "Model and JSONL output now include cpu_cores with sparse logical CPU IDs and interval utilization states."
     }
   ],
   "limitations": [
@@ -1901,6 +1926,6 @@
     }
   ],
   "next": [
-    "G3 S3.2: extend per-core CPU derivation and fixtures for sparse IDs, hotplug, guest accounting, iowait correction, resets, load, uptime, core mapping, and frequency."
+    "G3 S3.3: add memory category derivation and fixtures for absent MemAvailable, no swap, duplicate fields, malformed values, and large counters."
   ]
 }
