@@ -31,28 +31,7 @@ pub(crate) fn parse_json(text: &str, span: Span) -> Result<Value, RuntimeError> 
 }
 
 pub(crate) fn encode_json(value: &Value, pretty: bool, span: Span) -> Result<String, RuntimeError> {
-    let value = xsh_to_json(value, span)?;
-    Ok(if pretty {
-        pretty_raw_json(&value)
-    } else {
-        compact_raw_json(&value)
-    })
-}
-
-pub(crate) fn encode_json_lines(values: &Value, span: Span) -> Result<String, RuntimeError> {
-    let Value::List(items) = values else {
-        return Err(RuntimeError::new(
-            "type-error",
-            format!("expected List, found {}", values.type_name()),
-        )
-        .with_span(span));
-    };
-    let mut output = String::new();
-    for item in items {
-        output.push_str(&encode_json(item, false, span)?);
-        output.push('\n');
-    }
-    Ok(output)
+    crate::runtime::eval::encode_runtime_json(value, pretty, span)
 }
 
 fn require_json_object_keys(
@@ -399,81 +378,6 @@ fn json_to_xsh(value: JsonValue, span: Span, kind: &'static str) -> Result<Value
             Ok(Value::Record(RecordMap::from_name_values(values)))
         }
     }
-}
-
-fn xsh_to_json(value: &Value, span: Span) -> Result<JsonValue, RuntimeError> {
-    match value {
-        Value::Null => Ok(JsonValue::Null),
-        Value::Bool(value) => Ok(raw_json_bool(*value)),
-        Value::Int(value) => Ok(raw_json_i64(*value)),
-        Value::Float(value) if value.0.is_finite() => Ok(raw_json_f64(value.0)),
-        Value::Float(_) => Err(RuntimeError::new(
-            "json-compatible",
-            "non-finite Float values are not JSON-compatible",
-        )
-        .with_span(span)),
-        Value::Str(value) => Ok(raw_json_string(value.as_ref())),
-        Value::Tag {
-            type_name,
-            name,
-            fields,
-            wire: Some(mapping),
-        } if fields.is_empty() && *type_name == mapping.type_name => {
-            let value = mapping
-                .variants
-                .get(&Name::intern(name.as_ref()))
-                .ok_or_else(|| {
-                    RuntimeError::new(
-                        "json-compatible",
-                        "wire enum variant is absent from its declared mapping",
-                    )
-                    .with_span(span)
-                })?;
-            Ok(raw_json_string(value.as_ref()))
-        }
-        Value::List(items) => {
-            let mut values = Vec::with_capacity(items.len());
-            for item in items {
-                values.push(xsh_to_json(item, span)?);
-            }
-            Ok(raw_json_array(values))
-        }
-        Value::Set(elements) => {
-            let mut values = Vec::with_capacity(elements.len());
-            for element in elements {
-                values.push(xsh_to_json(&element.clone().into_value(), span)?);
-            }
-            Ok(raw_json_array(values))
-        }
-        Value::Map(fields) => {
-            let mut values = Object::new();
-            for (key, item) in fields {
-                let key = key.as_str().ok_or_else(|| {
-                    RuntimeError::new("json-compatible", "JSON objects require Str map keys")
-                        .with_span(span)
-                })?;
-                values.insert(key.to_string(), xsh_to_json(item, span)?);
-            }
-            Ok(JsonValue::Object(values))
-        }
-        Value::Record(fields) => {
-            let mut values = Object::new();
-            for (key, item) in fields.iter() {
-                values.insert(key.to_string(), xsh_to_json(item, span)?);
-            }
-            Ok(JsonValue::Object(values))
-        }
-        value => Err(
-            RuntimeError::new("json-compatible", json_compatible_message(value)).with_span(span),
-        ),
-    }
-}
-
-fn json_compatible_message(value: &Value) -> String {
-    format!(
-        "{} is not JSON-compatible; convert Path, Bytes, Status, Result, and errors explicitly",
-        value.type_name()
-    )
 }
 
 pub fn parse_raw_json(text: &str) -> Result<JsonValue, String> {

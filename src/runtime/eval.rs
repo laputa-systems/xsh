@@ -64,7 +64,39 @@ mod require;
 mod set;
 mod validated;
 mod type_view;
+mod json;
 use type_view::{ValueView, value_matches_static_type};
+
+pub(crate) fn encode_runtime_json(
+    value: &Value,
+    pretty: bool,
+    span: Span,
+) -> Result<String, RuntimeError> {
+    json::encode_runtime(value, pretty, span)
+}
+
+fn encode_lowered_json(
+    value: &LoweredValue,
+    pretty: bool,
+    span: Span,
+) -> Result<String, RuntimeError> {
+    json::encode_lowered(value, pretty, span)
+}
+
+fn encode_lowered_json_for_write(
+    value: &LoweredValue,
+    pretty: bool,
+    span: Span,
+) -> Result<String, RuntimeError> {
+    json::encode_lowered_for_write(value, pretty, span)
+}
+
+fn encode_lowered_json_lines_for_write(
+    values: &LoweredValue,
+    span: Span,
+) -> Result<String, RuntimeError> {
+    json::encode_lowered_lines_for_write(values, span)
+}
 
 pub(crate) fn runtime_value_type_name(value: &Value) -> &'static str {
     ValueView::Runtime(value).type_name()
@@ -1665,19 +1697,6 @@ struct LoweredTagValue {
     name: Arc<str>,
     fields: Vec<LoweredValue>,
     wire: Option<Arc<crate::sema::wire_enums::WireEnumMapping>>,
-}
-
-impl LoweredTagValue {
-    fn wire_string(&self) -> Option<&str> {
-        let mapping = self.wire.as_ref()?;
-        if !self.fields.is_empty() || self.type_name != mapping.type_name {
-            return None;
-        }
-        mapping
-            .variants
-            .get(&Name::intern(self.name.as_ref()))
-            .map(AsRef::as_ref)
-    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
