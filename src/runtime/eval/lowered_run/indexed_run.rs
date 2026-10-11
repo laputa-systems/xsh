@@ -54,7 +54,7 @@ use crate::runtime::eval::indexed::full::schema::ExprView;
 use crate::runtime::eval::lower::{lowered_error_value_has_facet, lowered_record_field};
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
 use crate::runtime::eval::{
-    LoweredModuleExport, LoweredTopLevelSlot, LoweredTypeCheck, ModuleCallPlan, Propagation,
+    LoweredTopLevelSlot, LoweredTypeCheck, ModuleCallPlan, Propagation,
     process_handle,
 };
 use smallvec::SmallVec;

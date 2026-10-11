@@ -10,7 +10,8 @@ use super::{
     Arc, AssignOp, BinaryOp, BuildBoolId, BuildExprId, BuildIntId, BuildPatternId, BuildStmtId,
     Cell, DurationValue, FloatValue, FormatSpec, FullCodec, FullCursor, FullDecoder,
     FullExecution, FullStore, FunctionName, HashAlgorithm, IrFunctionId,
-    IrVerifyError, LoweredFunctionKey, LoweredStrPredicate, LoweredType, LoweredValue, Name,
+    IrVerifyError, LoweredFunctionKey, LoweredModuleExport, LoweredModuleExportKind,
+    LoweredStrPredicate, LoweredTopLevelSlot, LoweredType, LoweredValue, Name,
     NameText, PathValue, PreparedConstantValue, QualifiedName, RedirectionKind, RegexValue,
     ReduceByOp, RunKind, RuntimeOp, Span, Type, TypeId,
 };
@@ -225,6 +226,11 @@ impl TypeRef<'_> {
     pub(in crate::runtime::eval) fn materialize(self) -> Result<Type, IrVerifyError> {
         self.store.semantic.to_type(self.id)
     }
+
+    /// Driver execution needs a lowered runtime kind after validation has borrowed its type ID.
+    pub(in crate::runtime::eval) fn materialize_lowered(self) -> Result<LoweredType, IrVerifyError> {
+        super::lowered_type_from_type(&self.materialize()?)
+    }
 }
 macro_rules! type_field {
     ($($ty:ty),* $(,)?) => {$(
@@ -241,6 +247,72 @@ macro_rules! type_field {
     )*};
 }
 type_field!(Type, LoweredType);
+
+pub(in crate::runtime::eval) struct LoweredModuleExportView {
+    name: Name,
+    kind: LoweredModuleExportKind,
+    function_namespace: Option<Name>,
+}
+
+impl LoweredModuleExportView {
+    pub(in crate::runtime::eval) fn materialize(self) -> LoweredModuleExport {
+        LoweredModuleExport {
+            name: self.name,
+            kind: self.kind,
+            function_namespace: self.function_namespace,
+        }
+    }
+}
+
+impl BorrowCodec for LoweredModuleExport {
+    type View<'a> = LoweredModuleExportView;
+
+    fn borrow<'a>(context: DecodeContext<'a>, input: &mut FullCursor<'a>)
+    -> Result<Self::View<'a>, IrVerifyError> {
+        let name = Name::borrow(context, input)?;
+        let kind = match input.raw()? {
+            0 => LoweredModuleExportKind::Value,
+            1 => LoweredModuleExportKind::Pure,
+            2 => LoweredModuleExportKind::Proc,
+            _ => return Err(IrVerifyError::new("module export kind is invalid")),
+        };
+        let function_namespace = Option::<Name>::borrow(context, input)?;
+        Ok(LoweredModuleExportView { name, kind, function_namespace })
+    }
+}
+
+pub(in crate::runtime::eval) struct LoweredTopLevelSlotView<'a> {
+    name: Name,
+    slot: usize,
+    kind: TypeRef<'a>,
+    mutable: bool,
+}
+
+impl LoweredTopLevelSlotView<'_> {
+    pub(in crate::runtime::eval) fn materialize(self) -> Result<LoweredTopLevelSlot, IrVerifyError> {
+        Ok(LoweredTopLevelSlot {
+            name: self.name,
+            slot: self.slot,
+            kind: self.kind.materialize_lowered()?,
+            callable_type: None,
+            mutable: self.mutable,
+        })
+    }
+}
+
+impl BorrowCodec for LoweredTopLevelSlot {
+    type View<'a> = LoweredTopLevelSlotView<'a>;
+
+    fn borrow<'a>(context: DecodeContext<'a>, input: &mut FullCursor<'a>)
+    -> Result<Self::View<'a>, IrVerifyError> {
+        Ok(LoweredTopLevelSlotView {
+            name: Name::borrow(context, input)?,
+            slot: usize::borrow(context, input)?,
+            kind: LoweredType::borrow(context, input)?,
+            mutable: bool::borrow(context, input)?,
+        })
+    }
+}
 
 #[derive(Clone, Copy)]
 pub(in crate::runtime::eval) struct ValueRef<'a> {
@@ -317,6 +389,18 @@ impl<T> ListPosition<T> {
 
 impl<T> ListView<'_, T> {
     pub(in crate::runtime::eval) fn len(&self) -> usize { self.remaining }
+
+    pub(in crate::runtime::eval) fn preflight(&mut self) -> Result<(), IrVerifyError>
+    where
+        T: BorrowCodec,
+    {
+        // Validate every element before effects while leaving the borrowed view reusable.
+        let position = ListView::position(self);
+        for entry in self.by_ref() {
+            entry?;
+        }
+        self.resume(position)
+    }
 
     pub(in crate::runtime::eval) fn position(&self) -> ListPosition<T> {
         ListPosition {
@@ -763,6 +847,25 @@ enum_schema!(LoweredCompTarget => CompTargetView ["comprehension target tag is i
     Slot(slot: usize) = 0;
     Record { fields: super::super::super::LoweredCompFields } = 1;
 });
+impl CompTargetView<'_> {
+    pub(in crate::runtime::eval) fn materialize(
+        self,
+    ) -> Result<LoweredCompTarget, IrVerifyError> {
+        Ok(match self {
+            Self::Discard => LoweredCompTarget::Discard,
+            Self::Slot(slot) => LoweredCompTarget::Slot(slot),
+            Self::Record { mut fields } => {
+                let mut materialized: super::super::super::LoweredCompFields =
+                    smallvec::SmallVec::new();
+                for entry in fields.by_ref() {
+                    let (name, target, span) = entry?;
+                    materialized.push((name, Box::new(target.materialize()?), span));
+                }
+                LoweredCompTarget::Record { fields: materialized }
+            }
+        })
+    }
+}
 enum_schema!(LoweredCompQualifier => CompQualifierView ["comprehension qualifier tag is invalid"] {
     For { target: Box<LoweredCompTarget>, iter: BuildExprId, span: Span } = 0;
     If { condition: BuildExprId, span: Span } = 1;

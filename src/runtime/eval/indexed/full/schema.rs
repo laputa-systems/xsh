@@ -3,13 +3,15 @@ use super::{
     BuildPatternIdSlots, BuildPatternRow, BuildStmtId, DecodeContext, DurationValue,
     EFFECT_CANCELLATION, EFFECT_CWD, EFFECT_DEFER,
     EFFECT_DYNAMIC_CALL, EFFECT_ENV, EFFECT_HOST, EFFECT_PROCESS, EFFECT_PROPAGATE, EFFECT_TRACE,
-    FloatValue, FullBuilder, FullCodec, FullCursor, FullDecoder, FullExecution, FullPayload,
+    FloatValue, FullBuilder, FullCodec, FullCursor, FullDecoder, FullDriverTag, FullExecution,
+    FullPayload,
     FunctionName, FxHashMap, IrBuildError, IrVerifyError, LoweredAssignPath, LoweredCallArg,
     LoweredCompQualifiers, LoweredCompTarget, LoweredErrorExpr, LoweredFmtPart,
     LoweredFunctionKey, LoweredPipelineStage, LoweredProcessCommandArgv,
     LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredRecordUpdates,
     LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment, LoweredSpawnRun,
-    LoweredStrPredicate, LoweredType, LoweredTypeCheck, LoweredValue, Name, NameText, PathValue,
+    LoweredModuleExport, LoweredStrPredicate, LoweredTopLevelSlot, LoweredType, LoweredTypeCheck,
+    LoweredValue, Name, NameText, PathValue,
     PreparedConstantValue, QualifiedName, RegexValue, RuntimeOp, ScanBytes, ScanCheck, Span,
     Type, text_hole_kind, verify_node_metadata,
 };
@@ -1606,5 +1608,197 @@ mod tests {
             [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17],
         );
         assert_eq!(FullPatternTag::Text as u8, 17);
+    }
+}
+
+macro_rules! driver_encode_field {
+    ($field:ident, $builder:ident, $output:ident, $span:ident) => {
+        $field.encode($builder, $output)?;
+    };
+    ($field:ident, $builder:ident, $output:ident, $span:ident, eager) => {
+        $field.encode($builder, $output)?;
+    };
+    ($field:ident, $builder:ident, $output:ident, $span:ident, child) => {
+        $output.push((*$field).ok_or_else(|| {
+            IrBuildError::format("driver_use_program", Some($span), 0, 0)
+        })?);
+    };
+    ($field:ident, $builder:ident, $output:ident, $span:ident, slot_count) => {
+        $output.push(u32::try_from(*$field).map_err(|_| {
+            IrBuildError::format("signal_hook_slot_overflow", Some($span), 0, 0)
+        })?);
+    };
+}
+
+macro_rules! driver_borrow_field {
+    ($field:ident, $ty:ty, $context:ident, $payload:ident) => {
+        let $field = <$ty>::borrow($context, &mut $payload.cursor)?;
+    };
+    ($field:ident, $ty:ty, $context:ident, $payload:ident, eager) => {
+        let mut $field = <$ty>::borrow($context, &mut $payload.cursor)?;
+        $field.preflight()?;
+    };
+    ($field:ident, $ty:ty, $context:ident, $payload:ident, slot_count) => {
+        let $field = $payload.raw()? as usize;
+    };
+    ($field:ident, $ty:ty, $context:ident, $payload:ident, $policy:ident) => {
+        let $field = <$ty>::borrow($context, &mut $payload.cursor)?;
+    };
+}
+
+macro_rules! driver_verify_field {
+    ($ty:ty, $decoder:ident, $payload:ident, $expected:ident, $child:ident) => {
+        <$ty>::verify($decoder, $payload)?;
+    };
+    ($ty:ty, $decoder:ident, $payload:ident, $expected:ident, $child:ident, eager) => {
+        <$ty>::verify($decoder, $payload)?;
+    };
+    ($ty:ty, $decoder:ident, $payload:ident, $expected:ident, $child:ident, child) => {
+        $child = Some(u32::decode($decoder, $payload)?);
+    };
+    ($ty:ty, $decoder:ident, $payload:ident, $expected:ident, $child:ident, slot_count) => {
+        let slot_count = u32::decode($decoder, $payload)?;
+        if slot_count != $expected {
+            return Err(IrVerifyError::new(
+                "signal hook slot count does not match its driver step",
+            ));
+        }
+    };
+}
+
+macro_rules! driver_schema {
+    ($(
+        $variant:ident {
+            $($field:ident: $write_ty:ty => $read_ty:ty $([$policy:ident])?),* $(,)?
+        }
+    )*) => {
+        pub(in crate::runtime::eval) enum DriverPayloadRowRef<'a> {
+            $($variant { $($field: &'a $write_ty),* },)*
+        }
+
+        pub(in crate::runtime::eval) enum DriverPayloadView<'a> {
+            $($variant {
+                $($field: <$read_ty as BorrowCodec>::View<'a>),*
+            },)*
+        }
+
+        impl DriverPayloadRowRef<'_> {
+            pub(in crate::runtime::eval) fn encode(
+                self,
+                builder: &mut FullBuilder,
+                output: &mut Vec<u32>,
+                error_span: Span,
+            ) -> Result<FullDriverTag, IrBuildError> {
+                Ok(match self {
+                    $(
+                        Self::$variant { $($field),* } => {
+                            $(driver_encode_field!($field, builder, output, error_span $(, $policy)?);)*
+                            FullDriverTag::$variant
+                        }
+                    )*
+                })
+            }
+        }
+
+        impl<'a> DriverPayloadView<'a> {
+            pub(in crate::runtime::eval) fn decode(
+                execution: &FullExecution<'a>,
+                tag: FullDriverTag,
+                mut payload: FullPayload<'a>,
+            ) -> Result<Self, IrVerifyError> {
+                let context = DecodeContext::new(execution);
+                let value = match tag {
+                    $(
+                        FullDriverTag::$variant => {
+                            $(
+                                driver_borrow_field!($field, $read_ty, context, payload $(, $policy)?);
+                            )*
+                            Self::$variant { $($field),* }
+                        }
+                    )*
+                };
+                payload.finish()?;
+                Ok(value)
+            }
+
+            pub(in crate::runtime::eval) fn verify_fields(
+                decoder: &FullDecoder<'_>,
+                tag: FullDriverTag,
+                payload: &mut FullCursor<'_>,
+                expected_slot_count: u32,
+            ) -> Result<Option<u32>, IrVerifyError> {
+                match tag {
+                    $(
+                        FullDriverTag::$variant => {
+                            #[allow(unused_mut, unused_assignments)]
+                            let mut child_program = None;
+                            $(driver_verify_field!(
+                                $read_ty, decoder, payload, expected_slot_count, child_program
+                                $(, $policy)?
+                            );)*
+                            Ok(child_program)
+                        }
+                    )*
+                }
+            }
+        }
+    };
+}
+
+// These rows define payload order for encoding, borrowed execution, and verification.
+driver_schema! {
+    Skip {}
+    Use {
+        key: Arc<str> => Arc<str>,
+        alias: Option<Name> => Option<Name>,
+        path: Vec<Name> => Vec<Name> [eager],
+        namespace: Name => Name,
+        exports: Vec<LoweredModuleExport> => Vec<LoweredModuleExport> [eager],
+        child_program: Option<u32> => u32 [child],
+        span: Span => Span,
+    }
+    Let {
+        target: Name => Name,
+        ty: Option<LoweredType> => Option<LoweredType>,
+        validation: Option<LoweredTypeCheck> => Option<LoweredTypeCheck>,
+        mutable: bool => bool,
+        value: BuildExprId => BuildExprId,
+        value_span: Span => Span,
+    }
+    LetRecord {
+        source: BuildExprId => BuildExprId,
+        fields: Vec<(Name, usize)> => Vec<(Name, usize)> [eager],
+        target: LoweredCompTarget => LoweredCompTarget,
+        mutable: bool => bool,
+        span: Span => Span,
+    }
+    Assign {
+        target: Name => Name,
+        op: AssignOp => AssignOp,
+        value: BuildExprId => BuildExprId,
+        span: Span => Span,
+    }
+    Discard {
+        value: BuildExprId => BuildExprId,
+        span: Span => Span,
+    }
+    Stmt {
+        statement: BuildStmtId => BuildStmtId,
+    }
+    Expr {
+        value: BuildExprId => BuildExprId,
+    }
+    Defer {
+        value: BuildExprId => BuildExprId,
+        on_error: bool => bool,
+        span: Span => Span,
+    }
+    SignalHook {
+        signal: Name => Name,
+        pre_cancel: Option<String> => Option<String>,
+        body: Vec<BuildStmtId> => Vec<BuildStmtId>,
+        slots: Vec<LoweredTopLevelSlot> => Vec<LoweredTopLevelSlot> [eager],
+        slot_count: usize => usize [slot_count],
+        span: Span => Span,
     }
 }

@@ -1,12 +1,13 @@
 use super::{
-    Arc, AssignOp, Binding, ControlFlow, Evaluator, Flow, FullDriverTag, LoweredCompTarget,
-    LoweredModuleExport, LoweredModuleExportKind, LoweredTopLevelSlot, LoweredType, LoweredValue,
-    Name, QualifiedName, RecordMap, RuntimeError, Span, StmtFlow, Type, Value,
-    bind_lowered_comp_target, compound_assignment_value, indexed_decode, indexed_error,
-    indexed_finish, indexed_raw, lowered_stmt_flow_to_flow, lowered_type_name,
+    Arc, AssignOp, Binding, ControlFlow, Evaluator, Flow, FullDriverTag, LoweredModuleExportKind,
+    LoweredTopLevelSlot, LoweredType, LoweredTypeCheck, LoweredValue, QualifiedName, RecordMap,
+    RuntimeError, Span, StmtFlow, Type, Value,
+    bind_lowered_comp_target, compound_assignment_value, indexed_error,
+    lowered_stmt_flow_to_flow, lowered_type_name,
     lowered_value_from_runtime, lowered_value_from_runtime_any, runtime_error_from_value,
     ValueView, value_matches_static_type,
 };
+use crate::runtime::eval::indexed::full::schema::DriverPayloadView;
 
 impl Evaluator {
     // Expression transport retains the statement target separately from its payload.
@@ -61,7 +62,7 @@ impl Evaluator {
         let execution = view
             .execution()
             .map_err(|error| indexed_error(error, call_span))?;
-        let mut payload = view
+        let payload = view
             .payload()
             .map_err(|error| indexed_error(error, call_span))?;
         let top_level_slots = view
@@ -91,26 +92,15 @@ impl Evaluator {
                     .collect(),
             });
         let result = (|| {
-            let flow = match view.tag() {
-                FullDriverTag::Skip => {
-                    indexed_finish(payload, call_span)?;
-                    Flow::Continue(Value::Unit)
-                }
-                FullDriverTag::Use => {
-                    let key = indexed_decode::<Arc<str>>(&mut payload, &execution, call_span)?;
-                    let alias =
-                        indexed_decode::<Option<Name>>(&mut payload, &execution, call_span)?;
-                    let path = indexed_decode::<Vec<Name>>(&mut payload, &execution, call_span)?;
-                    let namespace = indexed_decode::<Name>(&mut payload, &execution, call_span)?;
-                    let exports = indexed_decode::<Vec<LoweredModuleExport>>(
-                        &mut payload,
-                        &execution,
-                        call_span,
-                    )?;
-                    let child = indexed_raw(&mut payload, call_span)?;
-                    let span = indexed_decode::<Span>(&mut payload, &execution, call_span)?;
-                    indexed_finish(payload, call_span)?;
-                    if path.is_empty() {
+            let row = view
+                .decode_payload(&execution, payload)
+                .map_err(|error| indexed_error(error, call_span))?;
+            let flow = match row {
+                DriverPayloadView::Skip {} => Flow::Continue(Value::Unit),
+                DriverPayloadView::Use {
+                    key, alias, path, namespace, exports, child_program, span,
+                } => {
+                    if path.len() == 0 {
                         return Err(RuntimeError::new("unknown-module", "empty module path")
                             .with_span(span));
                     }
@@ -121,7 +111,7 @@ impl Evaluator {
                             .expect("indexed driver retains its program"),
                     );
                     let child_steps = program
-                        .driver_program_step_views(child)
+                        .driver_program_step_views(child_program)
                         .map_err(|error| indexed_error(error, span))?;
                     for child_view in child_steps {
                         if child_view.tag() == FullDriverTag::Defer {
@@ -178,6 +168,9 @@ impl Evaluator {
                     }
                     let mut record_fields = Vec::with_capacity(exports.len());
                     for export in exports {
+                        let export = export
+                            .map_err(|error| indexed_error(error, call_span))?
+                            .materialize();
                         let value = match export.kind {
                             LoweredModuleExportKind::Value => self
                                 .lookup(export.name)
@@ -225,21 +218,25 @@ impl Evaluator {
                     );
                     Flow::Continue(Value::Unit)
                 }
-                FullDriverTag::Let => {
-                    let target = indexed_decode::<Name>(&mut payload, &execution, call_span)?;
-                    let ty =
-                        indexed_decode::<Option<LoweredType>>(&mut payload, &execution, call_span)?;
-                    let validation = indexed_decode::<Option<super::super::super::LoweredTypeCheck>>(
-                        &mut payload,
-                        &execution,
-                        call_span,
-                    )?;
-                    let mutable = indexed_decode::<bool>(&mut payload, &execution, call_span)?;
-                    let value = indexed_raw(&mut payload, call_span)?;
-                    let value_span = indexed_decode::<Span>(&mut payload, &execution, call_span)?;
-                    indexed_finish(payload, call_span)?;
+                DriverPayloadView::Let {
+                    target, ty, validation, mutable, value, value_span,
+                } => {
+                    let ty = ty
+                        .map(|ty| ty.materialize_lowered())
+                        .transpose()
+                        .map_err(|error| indexed_error(error, call_span))?;
+                    let validation = validation
+                        .map(|check| {
+                            Ok(LoweredTypeCheck {
+                                ty: check.ty.materialize()?,
+                                name: Arc::from(check.name),
+                                schema: check.schema.map(Arc::clone),
+                            })
+                        })
+                        .transpose()
+                        .map_err(|error| indexed_error(error, call_span))?;
                     let mut value =
-                        match self.eval_indexed_expr(&execution, value, &mut slots, call_span)? {
+                        match self.eval_indexed_expr(&execution, value.raw(), &mut slots, call_span)? {
                             ControlFlow::Continue(value) => value.into_value(),
                             ControlFlow::Break(value) => {
                                 return Ok(Some(
@@ -280,14 +277,9 @@ impl Evaluator {
                     self.define(target, Binding { value, mutable });
                     Flow::Continue(Value::Unit)
                 }
-                FullDriverTag::Assign => {
-                    let target = indexed_decode::<Name>(&mut payload, &execution, call_span)?;
-                    let op = indexed_decode::<AssignOp>(&mut payload, &execution, call_span)?;
-                    let value = indexed_raw(&mut payload, call_span)?;
-                    let span = indexed_decode::<Span>(&mut payload, &execution, call_span)?;
-                    indexed_finish(payload, call_span)?;
+                DriverPayloadView::Assign { target, op, value, span } => {
                     let value =
-                        match self.eval_indexed_expr(&execution, value, &mut slots, call_span)? {
+                        match self.eval_indexed_expr(&execution, value.raw(), &mut slots, call_span)? {
                             ControlFlow::Continue(value) => value.into_value(),
                             ControlFlow::Break(value) => {
                                 return Ok(Some(
@@ -309,17 +301,14 @@ impl Evaluator {
                     self.assign(&target.as_str(), value, span)?;
                     Flow::Continue(Value::Unit)
                 }
-                FullDriverTag::LetRecord => {
-                    let source = indexed_raw(&mut payload, call_span)?;
-                    let fields =
-                        indexed_decode::<Vec<(Name, usize)>>(&mut payload, &execution, call_span)?;
-                    let target =
-                        indexed_decode::<LoweredCompTarget>(&mut payload, &execution, call_span)?;
-                    let mutable = indexed_decode::<bool>(&mut payload, &execution, call_span)?;
-                    let span = indexed_decode::<Span>(&mut payload, &execution, call_span)?;
-                    indexed_finish(payload, call_span)?;
+                DriverPayloadView::LetRecord {
+                    source, mut fields, target, mutable, span,
+                } => {
+                    let target = target
+                        .materialize()
+                        .map_err(|error| indexed_error(error, call_span))?;
                     let source =
-                        match self.eval_indexed_expr(&execution, source, &mut slots, call_span)? {
+                        match self.eval_indexed_expr(&execution, source.raw(), &mut slots, call_span)? {
                             ControlFlow::Continue(value) => value,
                             ControlFlow::Break(value) => {
                                 return Ok(Some(
@@ -328,7 +317,8 @@ impl Evaluator {
                             }
                         };
                     bind_lowered_comp_target(&target, source, &mut slots, span)?;
-                    for (name, slot) in fields {
+                    for field in fields.by_ref() {
+                        let (name, slot) = field.map_err(|error| indexed_error(error, call_span))?;
                         self.define(
                             name,
                             Binding {
@@ -339,22 +329,17 @@ impl Evaluator {
                     }
                     Flow::Continue(Value::Unit)
                 }
-                FullDriverTag::Discard => {
-                    let value = indexed_raw(&mut payload, call_span)?;
-                    let span = indexed_decode::<Span>(&mut payload, &execution, call_span)?;
-                    indexed_finish(payload, call_span)?;
-                    match self.eval_indexed_expr(&execution, value, &mut slots, span)? {
+                DriverPayloadView::Discard { value, span } => {
+                    match self.eval_indexed_expr(&execution, value.raw(), &mut slots, span)? {
                         ControlFlow::Continue(_) => Flow::Continue(Value::Unit),
                         ControlFlow::Break(value) => {
                             return Ok(Some(self.indexed_driver_expression_escape(value, span)));
                         }
                     }
                 }
-                FullDriverTag::Stmt => {
-                    let statement = indexed_raw(&mut payload, call_span)?;
-                    indexed_finish(payload, call_span)?;
+                DriverPayloadView::Stmt { statement } => {
                     let flow = self.eval_indexed_top_level_statement(
-                        &execution, statement, &mut slots, call_span,
+                        &execution, statement.raw(), &mut slots, call_span,
                     )?;
                     match flow {
                         StmtFlow::Propagate(value) => {
@@ -363,11 +348,9 @@ impl Evaluator {
                         flow => lowered_stmt_flow_to_flow(flow),
                     }
                 }
-                FullDriverTag::Expr => {
-                    let value = indexed_raw(&mut payload, call_span)?;
-                    indexed_finish(payload, call_span)?;
+                DriverPayloadView::Expr { value } => {
                     let value =
-                        match self.eval_indexed_expr(&execution, value, &mut slots, call_span)? {
+                        match self.eval_indexed_expr(&execution, value.raw(), &mut slots, call_span)? {
                             ControlFlow::Continue(value) => value.into_value(),
                             ControlFlow::Break(value) => {
                                 return Ok(Some(
@@ -381,29 +364,24 @@ impl Evaluator {
                         Flow::Continue(value)
                     }
                 }
-                FullDriverTag::Defer => {
-                    let value = indexed_raw(&mut payload, call_span)?;
+                DriverPayloadView::Defer { value, on_error: _, span } => {
                     // Whether the action runs at all is the driver's decision,
                     // made before it reaches this step.
-                    indexed_decode::<bool>(&mut payload, &execution, call_span)?;
-                    let span = indexed_decode::<Span>(&mut payload, &execution, call_span)?;
-                    indexed_finish(payload, call_span)?;
-                    self.eval_indexed_deferred_expr(&execution, value, &mut slots, span)?;
+                    self.eval_indexed_deferred_expr(&execution, value.raw(), &mut slots, span)?;
                     Flow::Continue(Value::Unit)
                 }
-                FullDriverTag::SignalHook => {
-                    let signal = indexed_decode::<Name>(&mut payload, &execution, call_span)?;
-                    let pre_cancel =
-                        indexed_decode::<Option<String>>(&mut payload, &execution, call_span)?;
-                    let body = indexed_raw(&mut payload, call_span)?;
-                    let hook_slots = indexed_decode::<Vec<LoweredTopLevelSlot>>(
-                        &mut payload,
-                        &execution,
-                        call_span,
-                    )?;
-                    let slot_count = indexed_raw(&mut payload, call_span)? as usize;
-                    let span = indexed_decode::<Span>(&mut payload, &execution, call_span)?;
-                    indexed_finish(payload, call_span)?;
+                DriverPayloadView::SignalHook {
+                    signal, pre_cancel, body, slots: mut hook_slots, slot_count, span,
+                } => {
+                    let mut materialized_slots: Vec<LoweredTopLevelSlot> =
+                        Vec::with_capacity(hook_slots.len());
+                    for slot in hook_slots.by_ref() {
+                        materialized_slots.push(
+                            slot.map_err(|error| indexed_error(error, call_span))?
+                                .materialize()
+                                .map_err(|error| indexed_error(error, call_span))?,
+                        );
+                    }
                     let program = Arc::clone(
                         self.indexed_program
                             .as_ref()
@@ -411,11 +389,11 @@ impl Evaluator {
                     );
                     self.register_indexed_signal_hook(
                         &signal.as_str(),
-                        pre_cancel.as_deref(),
+                        pre_cancel,
                         program,
                         view.index(),
-                        body,
-                        hook_slots,
+                        body.block_id(),
+                        materialized_slots,
                         slot_count,
                         span,
                     )?;

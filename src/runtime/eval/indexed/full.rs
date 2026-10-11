@@ -989,69 +989,19 @@ impl FullProgram {
             lowered_type_from_type(&self.store.semantic.to_type(slot.type_id)?)?;
         }
         let mut payload = FullCursor::new(self.store.payload(step.data.range())?);
-        match step.tag {
-            FullDriverTag::Skip => {}
-            FullDriverTag::Use => {
-                Arc::<str>::verify(&decoder, &mut payload)?;
-                Option::<Name>::verify(&decoder, &mut payload)?;
-                Vec::<Name>::verify(&decoder, &mut payload)?;
-                Name::verify(&decoder, &mut payload)?;
-                Vec::<LoweredModuleExport>::verify(&decoder, &mut payload)?;
-                let child = payload.raw()?;
-                Span::verify(&decoder, &mut payload)?;
-                self.verify_driver_program(
-                    child,
-                    program_states,
-                    step_states,
-                    owned_blocks,
-                    in_place_marks,
-                )?;
-            }
-            FullDriverTag::Let => {
-                Name::verify(&decoder, &mut payload)?;
-                Option::<LoweredType>::verify(&decoder, &mut payload)?;
-                Option::<LoweredTypeCheck>::verify(&decoder, &mut payload)?;
-                bool::verify(&decoder, &mut payload)?;
-                BuildExprRow::verify(&decoder, &mut payload)?;
-                Span::verify(&decoder, &mut payload)?;
-            }
-            FullDriverTag::LetRecord => {
-                BuildExprRow::verify(&decoder, &mut payload)?;
-                Vec::<(Name, usize)>::verify(&decoder, &mut payload)?;
-                LoweredCompTarget::verify(&decoder, &mut payload)?;
-                bool::verify(&decoder, &mut payload)?;
-                Span::verify(&decoder, &mut payload)?;
-            }
-            FullDriverTag::Assign => {
-                Name::verify(&decoder, &mut payload)?;
-                AssignOp::verify(&decoder, &mut payload)?;
-                BuildExprRow::verify(&decoder, &mut payload)?;
-                Span::verify(&decoder, &mut payload)?;
-            }
-            FullDriverTag::Discard => {
-                BuildExprRow::verify(&decoder, &mut payload)?;
-                Span::verify(&decoder, &mut payload)?;
-            }
-            FullDriverTag::Stmt => BuildStmtRow::verify(&decoder, &mut payload)?,
-            FullDriverTag::Expr => BuildExprRow::verify(&decoder, &mut payload)?,
-            FullDriverTag::Defer => {
-                BuildExprRow::verify(&decoder, &mut payload)?;
-                bool::verify(&decoder, &mut payload)?;
-                Span::verify(&decoder, &mut payload)?;
-            }
-            FullDriverTag::SignalHook => {
-                Name::verify(&decoder, &mut payload)?;
-                Option::<String>::verify(&decoder, &mut payload)?;
-                Vec::<BuildStmtId>::verify(&decoder, &mut payload)?;
-                Vec::<LoweredTopLevelSlot>::verify(&decoder, &mut payload)?;
-                let slot_count = payload.raw()?;
-                if slot_count != step.slot_count {
-                    return Err(IrVerifyError::new(
-                        "signal hook slot count does not match its driver step",
-                    ));
-                }
-                Span::verify(&decoder, &mut payload)?;
-            }
+        if let Some(child) = schema::DriverPayloadView::verify_fields(
+            &decoder,
+            step.tag,
+            &mut payload,
+            step.slot_count,
+        )? {
+            self.verify_driver_program(
+                child,
+                program_states,
+                step_states,
+                owned_blocks,
+                in_place_marks,
+            )?;
         }
         payload.finish()?;
         decoder.finish_function()?;
@@ -1275,6 +1225,14 @@ impl<'a> FullDriverStepView<'a> {
             store: &self.program.store,
             cursor: FullCursor::verified(self.program.store.payload(step.data.range())?),
         })
+    }
+
+    pub(in crate::runtime::eval) fn decode_payload(
+        &self,
+        execution: &FullExecution<'a>,
+        payload: FullPayload<'a>,
+    ) -> Result<schema::DriverPayloadView<'a>, IrVerifyError> {
+        schema::DriverPayloadView::decode(execution, self.tag(), payload)
     }
 
     pub(in crate::runtime::eval) fn slot_count(&self) -> usize {
@@ -2108,112 +2066,52 @@ impl FullBuilder {
         self.current_slot_count = u32::try_from(slot_count)
             .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?;
         let mut payload = self.take_payload();
-        let tag = match statement.as_ref().map(|statement| &statement.kind) {
-            None => FullDriverTag::Skip,
+        let row = match statement.as_ref().map(|statement| &statement.kind) {
+            None => schema::DriverPayloadRowRef::Skip {},
             Some(BuildTopKind::Use {
+                key, alias, path, namespace, exports, span: use_span, ..
+            }) => schema::DriverPayloadRowRef::Use {
                 key,
                 alias,
                 path,
                 namespace,
                 exports,
-                span,
-                ..
-            }) => {
-                key.encode(self, &mut payload)?;
-                alias.encode(self, &mut payload)?;
-                path.encode(self, &mut payload)?;
-                namespace.encode(self, &mut payload)?;
-                exports.encode(self, &mut payload)?;
-                payload.push(child_program.ok_or_else(|| {
-                    IrBuildError::format("driver_use_program", Some(*span), 0, 0)
-                })?);
-                span.encode(self, &mut payload)?;
-                FullDriverTag::Use
+                child_program: &child_program,
+                span: use_span,
+            },
+            Some(BuildTopKind::Let { target, ty, validation, mutable, value, value_span }) => {
+                schema::DriverPayloadRowRef::Let {
+                    target, ty, validation, mutable, value, value_span,
+                }
             }
-            Some(BuildTopKind::Let {
-                target,
-                ty,
-                validation,
-                mutable,
-                value,
-                value_span,
-            }) => {
-                target.encode(self, &mut payload)?;
-                ty.encode(self, &mut payload)?;
-                validation.encode(self, &mut payload)?;
-                mutable.encode(self, &mut payload)?;
-                value.encode(self, &mut payload)?;
-                value_span.encode(self, &mut payload)?;
-                FullDriverTag::Let
+            Some(BuildTopKind::LetRecord { source, fields, target, mutable, span }) => {
+                schema::DriverPayloadRowRef::LetRecord { source, fields, target, mutable, span }
             }
-            Some(BuildTopKind::LetRecord {
-                source,
-                fields,
-                target,
-                mutable,
-                span,
-            }) => {
-                source.encode(self, &mut payload)?;
-                fields.encode(self, &mut payload)?;
-                target.encode(self, &mut payload)?;
-                mutable.encode(self, &mut payload)?;
-                span.encode(self, &mut payload)?;
-                FullDriverTag::LetRecord
-            }
-            Some(BuildTopKind::Assign {
-                target,
-                op,
-                value,
-                span,
-            }) => {
-                target.encode(self, &mut payload)?;
-                op.encode(self, &mut payload)?;
-                value.encode(self, &mut payload)?;
-                span.encode(self, &mut payload)?;
-                FullDriverTag::Assign
+            Some(BuildTopKind::Assign { target, op, value, span }) => {
+                schema::DriverPayloadRowRef::Assign { target, op, value, span }
             }
             Some(BuildTopKind::Discard { value, span }) => {
-                value.encode(self, &mut payload)?;
-                span.encode(self, &mut payload)?;
-                FullDriverTag::Discard
+                schema::DriverPayloadRowRef::Discard { value, span }
             }
             Some(BuildTopKind::Stmt(statement)) => {
-                statement.encode(self, &mut payload)?;
-                FullDriverTag::Stmt
+                schema::DriverPayloadRowRef::Stmt { statement }
             }
-            Some(BuildTopKind::Expr(value)) => {
-                value.encode(self, &mut payload)?;
-                FullDriverTag::Expr
-            }
-            Some(BuildTopKind::Defer {
-                value,
-                on_error,
-                span,
-            }) => {
-                value.encode(self, &mut payload)?;
-                on_error.encode(self, &mut payload)?;
-                span.encode(self, &mut payload)?;
-                FullDriverTag::Defer
+            Some(BuildTopKind::Expr(value)) => schema::DriverPayloadRowRef::Expr { value },
+            Some(BuildTopKind::Defer { value, on_error, span }) => {
+                schema::DriverPayloadRowRef::Defer { value, on_error, span }
             }
             Some(BuildTopKind::SignalHook {
-                signal,
-                pre_cancel,
-                body,
-                slots,
-                slot_count,
-                span,
-            }) => {
-                signal.encode(self, &mut payload)?;
-                pre_cancel.encode(self, &mut payload)?;
-                body.encode(self, &mut payload)?;
-                slots.encode(self, &mut payload)?;
-                payload.push(u32::try_from(*slot_count).map_err(|_| {
-                    IrBuildError::format("signal_hook_slot_overflow", Some(*span), 0, 0)
-                })?);
-                span.encode(self, &mut payload)?;
-                FullDriverTag::SignalHook
-            }
+                signal, pre_cancel, body, slots, slot_count, span,
+            }) => schema::DriverPayloadRowRef::SignalHook {
+                signal, pre_cancel, body, slots, slot_count, span,
+            },
         };
+        let error_span = match statement.as_ref().map(|statement| &statement.kind) {
+            Some(BuildTopKind::Use { span, .. })
+            | Some(BuildTopKind::SignalHook { span, .. }) => *span,
+            _ => span,
+        };
+        let tag = row.encode(self, &mut payload, error_span)?;
         self.current_owner = None;
         self.current_slot_count = 0;
         let data = self.push_extra(&payload);
@@ -9579,6 +9477,34 @@ pure selected() -> Str {
         bad_owner.store.blocks[block_index].owner =
             driver_owner((step + 1) % bad_owner.store.driver_steps.len()).unwrap();
         assert!(FullVerifier::verify(&bad_owner).is_err());
+    }
+
+    #[test]
+    fn driver_verifier_rejects_invalid_signal_hook_option_tag() {
+        let mut sources = SourceMap::new();
+        let source_id =
+            sources.add_file("top-level-driver-boundary.xsh", TOP_LEVEL_DRIVER_BOUNDARY);
+        let parsed = Parser::parse_source_arena_only(source_id, TOP_LEVEL_DRIVER_BOUNDARY);
+        let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        let program = FullBuilder::build_compact(
+            &parsed.arena,
+            &declarations,
+            TOP_LEVEL_DRIVER_BOUNDARY,
+            Arc::new(sources),
+            source_id,
+        )
+        .unwrap();
+        let mut malformed = program;
+        let step = malformed
+            .store
+            .driver_steps
+            .iter()
+            .find(|step| step.tag == FullDriverTag::SignalHook)
+            .expect("boundary fixture includes a signal hook");
+        malformed.store.extra[step.data.range().start as usize + 1] = u32::MAX;
+
+        let error = FullVerifier::verify(&malformed).unwrap_err();
+        assert!(error.message.contains("optional payload tag is invalid"));
     }
 
     #[test]
