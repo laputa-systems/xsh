@@ -291,8 +291,64 @@ pub(in crate::runtime::eval) struct ListView<'a, T> {
     remaining: usize,
     element: PhantomData<T>,
 }
+
+/// A typed list cursor can resume only against the store and block it came from.
+pub(in crate::runtime::eval) struct ListPosition<T> {
+    store: usize,
+    block: super::IrBlockId,
+    offset: usize,
+    remaining: usize,
+    element: PhantomData<fn() -> T>,
+}
+
+impl<T> Copy for ListPosition<T> {}
+
+impl<T> Clone for ListPosition<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> ListPosition<T> {
+    pub(in crate::runtime::eval) fn is_exhausted(&self) -> bool {
+        self.remaining == 0
+    }
+}
+
 impl<T> ListView<'_, T> {
     pub(in crate::runtime::eval) fn len(&self) -> usize { self.remaining }
+
+    pub(in crate::runtime::eval) fn position(&self) -> ListPosition<T> {
+        ListPosition {
+            store: self.context.store as *const super::FullStore as usize,
+            block: self.block,
+            offset: self.input.index,
+            remaining: self.remaining,
+            element: PhantomData,
+        }
+    }
+
+    pub(in crate::runtime::eval) fn resume(
+        &mut self,
+        position: ListPosition<T>,
+    ) -> Result<(), IrVerifyError> {
+        let Some(&length) = self.input.words.first() else {
+            return Err(IrVerifyError::new("list cursor is invalid"));
+        };
+        if self.context.store as *const super::FullStore as usize != position.store
+            || self.block != position.block
+            || position.offset == 0
+            || position.offset > self.input.words.len()
+            || position.remaining > length as usize
+            || (position.remaining == 0 && position.offset != self.input.words.len())
+            || (position.remaining > 0 && position.offset == self.input.words.len())
+        {
+            return Err(IrVerifyError::new("list cursor is invalid"));
+        }
+        self.input.index = position.offset;
+        self.remaining = position.remaining;
+        Ok(())
+    }
 }
 impl ListView<'_, BuildStmtId> {
     pub(in crate::runtime::eval) fn block_id(&self) -> u32 { self.block.raw() }

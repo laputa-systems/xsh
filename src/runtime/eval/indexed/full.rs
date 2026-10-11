@@ -7684,6 +7684,48 @@ run true
             .collect()
     }
 
+    #[test]
+    fn list_position_cannot_resume_a_different_statement_list() {
+        let program = fixture(
+            "statement-list-position.xsh",
+            "proc main() [io, error] -> Result[Unit] {\n  print \"first\" \"second\"\n  print \"third\"\n  return Ok()\n}\n",
+        );
+        let statements = function_instruction_indices(&program, "main", FullTag::StmtPrint);
+        assert_eq!(statements.len(), 2);
+
+        program.symbol_owner().with_current(|| {
+            let execution = program
+                .function_view(
+                    LoweredFunctionKey::Name(program_name(&program, "main")),
+                    LoweredFunctionKind::Proc,
+                )
+                .expect("main resolves")
+                .expect("main exists")
+                .execution()
+                .expect("main execution decodes");
+            let first = execution
+                .instruction_id(statements[0] as u32)
+                .expect("first print instruction exists");
+            let schema::StmtView::Print { args, .. } =
+                schema::StmtView::decode(&execution, first.0, first.1).expect("first print decodes")
+            else {
+                panic!("print tag decodes to a print row");
+            };
+            let position = args.position();
+
+            let second = execution
+                .instruction_id(statements[1] as u32)
+                .expect("second print instruction exists");
+            let schema::StmtView::Print { mut args, .. } =
+                schema::StmtView::decode(&execution, second.0, second.1)
+                    .expect("second print decodes")
+            else {
+                panic!("print tag decodes to a print row");
+            };
+            assert!(args.resume(position).is_err());
+        });
+    }
+
     fn append_path_from_chain(program: &mut FullProgram, wrappers: usize) -> Vec<usize> {
         program.store.in_place.take();
         let function_index = program
