@@ -71,6 +71,17 @@ codec, numerical and byte operations. A native performance exception requires
 an XSH implementation and measurements that identify the smallest operation
 needing acceleration.
 
+`core/more.xsh` concatenates bytes without file banners when stdout is redirected
+or no controlling terminal is available. Terminal descriptors inherited from a
+parent do not alone enable paging. Missing files and directory read errors
+produce status 1 while later operands are still read; no operands reads stdin,
+including terminal stdin until EOF. Short files exit at EOF; `-e` also exits
+after a completely filled final screen. The BusyBox 1.36.1 baseline accepts
+`-d`, `-e`, `-f`, `-l`, `-s`, and `-u` without implementing their display effects. XSH retains meaningful display effects for those flags and its
+long aliases, `-c`/`-p`, and `-n`/`-F`/`-P` as extensions. These extensions are
+covered by `core/tests/test-more.xsh`; the shared process and terminal contract
+is covered by `tests/core_compat_extra/more.rs`.
+
 `core/lib/date_dircolors.xsh::DATABASE` preserves the GNU coreutils 9.12
 built-in database, including its terminal filters and suffix order. Both shell
 assignments and `--print-ls-colors` apply the same `TERM` and `COLORTERM`

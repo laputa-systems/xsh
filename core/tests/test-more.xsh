@@ -1,9 +1,8 @@
 type Ran = {status: Int, stdout: Str, stderr: Str, raw: Bytes}
 
 # Runs core/more.xsh with a pipe on standard input and a file as standard
-# output, so it prints without paging; the paging path needs a terminal on
-# both and is covered by the uutils pty tests (a script cannot read a pty's
-# master side).
+# output, so it prints without paging. Rust tests own terminal attachment,
+# controlling-terminal isolation, and exact process lifetimes.
 proc more_run(
   ctx: TestContext,
   args: List[Str],
@@ -33,12 +32,12 @@ test test_more_prints_a_piped_file_in_full_when_there_is_no_terminal { |ctx|
   assert result.stderr == ""
 }
 
-test test_more_prints_files_and_names_each_of_several { |ctx|
+test test_more_concatenates_files_without_headers { |ctx|
   let single = more_run(ctx, ["a.txt"], files: [["a.txt", "alpha\n"]])?
   assert single.stdout == "alpha\n"
 
   let several = more_run(ctx, ["a.txt", "b.txt"], files: [["a.txt", "alpha\n"], ["b.txt", "beta\n"]])?
-  assert several.stdout == "::::::::::::::\na.txt\n::::::::::::::\nalpha\n::::::::::::::\nb.txt\n::::::::::::::\nbeta\n", several.stdout
+  assert several.stdout == "alpha\nbeta\n", several.stdout
 }
 
 test test_more_squeeze_collapses_blank_lines { |ctx|
@@ -79,9 +78,9 @@ test test_more_reports_directories_and_missing_files_and_goes_on { |ctx|
   fp"{root}/folder".mkdir()
   fp"{root}/real.txt".write("real\n")
   let result = more_run(ctx, [fp"{root}/folder".display(), fp"{root}/absent".display(), fp"{root}/real.txt".display()])?
-  assert result.status == 0
-  assert f"more: '{root}/folder' is a directory.\n" in result.stderr, result.stderr
-  assert f"more: cannot open '{root}/absent': No such file or directory\n" in result.stderr, result.stderr
+  assert result.status == 1
+  assert "more: read error: Is a directory\n" in result.stderr, result.stderr
+  assert f"more: can't open '{root}/absent': No such file or directory\n" in result.stderr, result.stderr
   assert "real\n" in result.stdout, result.stdout
 }
 
@@ -134,7 +133,7 @@ test test_more_help_and_version_go_to_stdout { |ctx|
   let help = more_run(ctx, ["--help"])?
   assert help.status == 0
   assert help.stderr == ""
-  assert help.stdout.starts_with("Usage: more [OPTIONS] FILE...\n")
+  assert help.stdout.starts_with("Usage: more [OPTIONS] [FILE]...\n")
   let version = more_run(ctx, ["--version"])?
   assert version.status == 0
   assert version.stdout.starts_with("more (XSH core)")
@@ -151,4 +150,12 @@ test test_more_non_utf8_operand_is_opened_by_its_bytes { |ctx|
   assert status.exit_code()? == 0
   assert err.read_text()? == ""
   assert out.read_bytes()? == b"raw name\n"
+}
+
+test test_more_preserves_unterminated_and_binary_input { |ctx|
+  let input = b"first\n\0\xff\xfe last"
+  let result = more_run(ctx, [], input)?
+  assert result.status == 0
+  assert result.raw == input
+  assert result.stderr == ""
 }
