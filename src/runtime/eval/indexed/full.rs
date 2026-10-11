@@ -121,57 +121,6 @@ pub(in crate::runtime::eval) enum FullPatternTag {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
-pub(in crate::runtime::eval) enum FullStageTag {
-    TextLines,
-    JsonLines,
-    Where,
-    WhereBlock,
-    Map,
-    MapBlock,
-    FlatMap,
-    FlatMapBlock,
-    BytesChunks,
-    BatchCount,
-    BatchMaxArgv,
-    BatchMaxBytes,
-    BatchLimits,
-    Shuffle,
-    Fold,
-    ReduceBy,
-    ReduceByConfigured,
-    ParMap,
-    ParMapBlock,
-    ParMapFlatMapReduceBy,
-    Tee,
-    Each,
-    TablePrint,
-    TablePrintConfigured,
-    Enumerate,
-    Zip,
-    Sort,
-    SortBy,
-    GroupBy,
-    CountBy,
-    Any,
-    AnyBlock,
-    All,
-    AllBlock,
-    UniqueBy,
-    Count,
-    Sum,
-    Collect,
-    First,
-    Last,
-    Min,
-    Max,
-    Take,
-    Drop,
-    Repeat,
-    Range,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u8)]
 pub(in crate::runtime::eval) enum FullValueTag {
     Null,
     Unit,
@@ -6932,6 +6881,14 @@ macro_rules! impl_stage_codec {
             } => $construct:expr
         ),* $(,)?
     ) => {
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        #[repr(u8)]
+        pub(in crate::runtime::eval) enum FullStageTag {
+            $(
+                $tag,
+            )*
+        }
+
         impl FullCodec for LoweredPipelineStage {
             fn encode(
                 &self,
@@ -8785,6 +8742,61 @@ pure selected() -> Str {
             size_of::<FullTag>() + size_of::<IrData>(),
             9,
             "full indexed instructions use one-byte tags and eight-byte data"
+        );
+    }
+
+    #[test]
+    fn stage_tags_keep_wire_ordinals() {
+        assert_eq!(
+            [
+                FullStageTag::TextLines as u8,
+                FullStageTag::JsonLines as u8,
+                FullStageTag::Where as u8,
+                FullStageTag::WhereBlock as u8,
+                FullStageTag::Map as u8,
+                FullStageTag::MapBlock as u8,
+                FullStageTag::FlatMap as u8,
+                FullStageTag::FlatMapBlock as u8,
+                FullStageTag::BytesChunks as u8,
+                FullStageTag::BatchCount as u8,
+                FullStageTag::BatchMaxArgv as u8,
+                FullStageTag::BatchMaxBytes as u8,
+                FullStageTag::BatchLimits as u8,
+                FullStageTag::Shuffle as u8,
+                FullStageTag::Fold as u8,
+                FullStageTag::ReduceBy as u8,
+                FullStageTag::ReduceByConfigured as u8,
+                FullStageTag::ParMap as u8,
+                FullStageTag::ParMapBlock as u8,
+                FullStageTag::ParMapFlatMapReduceBy as u8,
+                FullStageTag::Tee as u8,
+                FullStageTag::Each as u8,
+                FullStageTag::TablePrint as u8,
+                FullStageTag::TablePrintConfigured as u8,
+                FullStageTag::Enumerate as u8,
+                FullStageTag::Zip as u8,
+                FullStageTag::Sort as u8,
+                FullStageTag::SortBy as u8,
+                FullStageTag::GroupBy as u8,
+                FullStageTag::CountBy as u8,
+                FullStageTag::Any as u8,
+                FullStageTag::AnyBlock as u8,
+                FullStageTag::All as u8,
+                FullStageTag::AllBlock as u8,
+                FullStageTag::UniqueBy as u8,
+                FullStageTag::Count as u8,
+                FullStageTag::Sum as u8,
+                FullStageTag::Collect as u8,
+                FullStageTag::First as u8,
+                FullStageTag::Last as u8,
+                FullStageTag::Min as u8,
+                FullStageTag::Max as u8,
+                FullStageTag::Take as u8,
+                FullStageTag::Drop as u8,
+                FullStageTag::Repeat as u8,
+                FullStageTag::Range as u8,
+            ],
+            std::array::from_fn::<_, 46, _>(|index| index as u8),
         );
     }
 
