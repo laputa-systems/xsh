@@ -5,10 +5,9 @@ Approved campaign: `CAMPAIGN.md`. Start commit:
 `consolidation`; compatibility has a separate worktree and does not move this
 baseline. All six design drafts were approved on 2026-10-11.
 
-**Paused for reboot on 2026-10-11.** [`HANDOFF.md`](HANDOFF.md) records the
+**Resumed after reboot on 2026-10-11, with Luna xhigh subagents.** [`HANDOFF.md`](HANDOFF.md) records the
 latest checkpoint and supersedes the older progress states below. Unfinished
-lane diffs and interrupted gates are preserved; resume only at the owner's
-request.
+lane diffs and interrupted gates are preserved; the owner has resumed work.
 
 Every editing item has one exclusive source/test owner in its own worktree.
 The integrator owns shared registrations, facades, registry, documentation,

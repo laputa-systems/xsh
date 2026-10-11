@@ -1,5 +1,21 @@
 # Consolidation restart handoff
 
+## Resume update — 2026-10-11
+
+The owner resumed the campaign from this checkpoint and changed all subagents
+to **gpt-6-luna at xhigh effort**. This supersedes the older Sol-only policy
+below and in the campaign skill. The preserved checkpoint remains historical
+evidence; interrupted gates still require rerunning. Integration resumed at
+`e8533c12`. Docker was stopped after reboot; the integrator restarted the
+daemon, but the pinned image is not currently listed. Builds remain held
+while the preserved test environment is recovered.
+
+Active independent lanes: W1 schema classes, module hooks, checked declaration
+facts, source-aware check session and telemetry, BindingId adapter, grammar,
+fuzz grammar, lint rule inventory, and opaque Any discovery. Each uses its
+existing worktree and preserves unfinished diffs. Source-aware session plumbing
+now has an assigned owner; shared-file edits are scoped to disjoint hunks.
+
 Paused at the owner's request on 2026-10-11 for a computer reboot. The campaign
 is **incomplete**. Do not resume implementation, tests, or profiling until the
 owner resumes it. This checkpoint supersedes older progress rows; approved

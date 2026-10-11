@@ -1,6 +1,6 @@
 # XSH Consolidation Campaign
 
-Status: paused for an owner-requested reboot on 2026-10-11. Setup and implementation
+Status: resumed after the owner-requested reboot on 2026-10-11. Setup and implementation
 are incomplete; the restart checkpoint is [`HANDOFF.md`](HANDOFF.md).
 The owner approved the entire campaign
 and all six designs on 2026-10-11, including the Codex model policy and
@@ -67,17 +67,17 @@ relying on Claude agent definitions.
 
 | Role | Codex model | Reasoning effort |
 |---|---|---|
-| Routine: scoped migrations, pure file moves, tests from an explicit list, inventories | `gpt-6.1-sol` | `medium` |
-| Implementation: checker, lowering, verifier, runtime, ownership, or other complex changes | `gpt-6.1-sol` | `high` |
-| Review: contract, invariant, and integration review of complex changes | `gpt-6.1-sol` | `high` |
+| Routine: scoped migrations, pure file moves, tests from an explicit list, inventories | `gpt-6-luna` | `xhigh` |
+| Implementation: checker, lowering, verifier, runtime, ownership, or other complex changes | `gpt-6-luna` | `xhigh` |
+| Review: contract, invariant, and integration review of complex changes | `gpt-6-luna` | `xhigh` |
 
-Every Codex lane uses `gpt-6.1-sol`; no Luna lane is permitted. Pass `model`
+On resume the owner changed every Codex lane to `gpt-6-luna` at `xhigh` effort.
+This overrides the previous Sol-only policy, including the campaign skill.
+Pass `model`
 and `reasoning_effort` explicitly on every spawn. With the session's
 `spawn_agent` tool, use `fork_turns: "none"` for these explicit settings and
-provide a self-contained brief. A routine lane that meets a design decision
-or a checker, lowering, or runtime change stops and reports; the integrator
-re-issues the item at `high` effort. This overrides the compatibility
-campaign's Codex model policy.
+provide a self-contained brief. Lanes report unapproved contract decisions to
+the integrator. This overrides the compatibility campaign's Codex model policy.
 
 Claude Code sessions retain `xsh-lane` on Sonnet 5.5 at high effort and
 `xsh-routine` on Haiku 5.5 at high effort, with `model` and `effort` explicit.
@@ -703,6 +703,16 @@ time and native-suite time, with thin LTO excluded.
 | Freeze on expressive surface | Rules |
 
 ## Handoff log
+
+### 2026-10-11 — resumed with Luna xhigh
+
+The owner resumed from `HANDOFF.md` and selected `gpt-6-luna` at `xhigh` for
+all subagents. Integration remains at the preserved checkpoint `e8533c12`;
+dirty lane trees and incomplete evidence are retained. Independent schema,
+module, declaration, source-session, BindingId, grammar, fuzz, lint, and Any
+work has resumed. The source-aware helper/session adapter now has an owner.
+The Docker daemon was restarted; its missing pinned image is being recovered
+before any build or test runs. No interrupted gate has been counted as passing.
 
 ### 2026-10-11 — paused for reboot
 
