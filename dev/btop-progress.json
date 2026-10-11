@@ -6,7 +6,7 @@
     "commit": "6e39144aaf5a6bc01b9f795010b0914431067183"
   },
   "gate": "G1",
-  "last_green_commit": "41835c6eb7969086445ac3954511910719a85f9e",
+  "last_green_commit": "ee7a73fa",
   "audit": {
     "new_core_script": "New core/*.xsh applets are installed by the release script at dev/release.xsh:146-160; dev/tests/test-repository-contracts.xsh owns the required core script inventory and contract checks. No separate command registration is needed.",
     "launcher_argument_separator": "Use xsh SCRIPT -- ARGS for an applet and xsh -- SCRIPT ARGS for an explicit script; src/entrypoints/xsh.rs:90-120.",
@@ -67,6 +67,17 @@
       "status": "blocked_external",
       "tests": [],
       "evidence": "The pinned arm64 Docker image built, but Docker could not start its cargo process on this x86_64 host: Exec format error. No suite tests ran; duration to suite start was not measured."
+    },
+    {
+      "id": "g1.monotonic_api",
+      "gate": "G1",
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "tests/xsh/stdlib/time.xsh::test_time_monotonic_is_an_opaque_duration_clock",
+        "tests/xsh/api-tool.xsh::test_api_time_monotonic_documents_its_duration_contract"
+      ],
+      "evidence": "The public time.monotonic() API returns nondecreasing nanoseconds from a process-local Instant origin; the behavior test verifies advancement across a 2 ms wait, and the API test pins the duration-only contract."
     },
     {
       "id": "g1.cpu.aggregate",
@@ -1118,7 +1129,14 @@
       "unblock_command": "Run the same pinned lane on an ARM64 host or on a host with the repository-required ARM64 binfmt support, then compare final failures with the baseline."
     }
   ],
-  "contract_changes": [],
+  "contract_changes": [
+    {
+      "kind": "api",
+      "name": "time.monotonic",
+      "commit": "ee7a73fa",
+      "summary": "Added a Result[Int, Error] monotonic nanosecond clock with process-local origin for elapsed-duration measurement; it is distinct from wall-clock time.now."
+    }
+  ],
   "limitations": [
     "G0 host evidence is host-only because the pinned ARM64 Docker lane failed before the test suite started; its failing test set is empty because no tests ran.",
     "The G0 lane attempt did not record wall-clock duration to suite start; no duration is inferred from the log."
@@ -1207,6 +1225,43 @@
     "reference_build": {
       "status": "not_attempted",
       "optional": true
+    },
+    "g1_clock": {
+      "build": {
+        "status": "passed",
+        "command": "LD_PRELOAD=/usr/lib/libjemalloc.so.2 TMPDIR=.work/tmp CARGO_TARGET_DIR=.work/btop-campaign/target cargo build --release -p xsh --bins -p xsht --bin xsht",
+        "log": ".work/btop-campaign/g1-clock-build.log"
+      },
+      "tests": [
+        {
+          "id": "tests/xsh/stdlib/time.xsh",
+          "passed": 7,
+          "failed": 0
+        },
+        {
+          "id": "tests/xsh/api-tool.xsh",
+          "passed": 66,
+          "failed": 0
+        },
+        {
+          "command": "cargo test -p xsh-registry",
+          "passed": 17,
+          "failed": 0,
+          "log": ".work/btop-campaign/g1-registry-test.log"
+        },
+        {
+          "command": "cargo test -p xsh --lib modules::signature",
+          "passed": 3,
+          "failed": 0,
+          "log": ".work/btop-campaign/g1-signature-test.log"
+        },
+        {
+          "command": "xsht check docs/snippets/api",
+          "files": 80,
+          "status": "passed"
+        }
+      ],
+      "host_only": true
     }
   },
   "defaults": [
@@ -1548,6 +1603,6 @@
     }
   ],
   "next": [
-    "G1: implement the small live and replay monitor on the serial critical path."
+    "G1: add rooted sys_cpu, sys_mem, sys_net, and sys_proc readers with raw-fixture tests."
   ]
 }
