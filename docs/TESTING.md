@@ -14,9 +14,14 @@ observer is included in final review source identities. The original
 `dev/consolidation_metrics.xsh` scanner, baselines, and their historical
 provenance stay byte-preserved; `metric-observer-successor.json` binds both
 scanner hashes and records the exact same-baseline metric and source inventory
-proof. Source totals and touched-line budgets are advisory, following the
-owner's performance priority; reports retain both source totals and every
-rise. Structural metrics remain bounded by the baseline. Envelope approvals
+proof. The frozen `test-consolidation-ratchets.xsh` remains part of the source
+advisory evidence; current observer tests live in
+`dev/tests/test-consolidation-ratchets-current.xsh` and are bound by their
+canonical path and hash. The observer provenance checks the historical,
+source-advisory, and current test hashes independently. Source totals and
+touched-line budgets are advisory, following the owner's performance priority;
+reports retain both source totals and every rise. Structural metrics remain
+bounded by the baseline. Envelope approvals
 annotate the audit without permitting structural rises. Missing or unknown
 limits fail. Final closure rejects the envelope, requires zero blanket
 dead-code scopes, and consumes independently reviewed semantic evidence.

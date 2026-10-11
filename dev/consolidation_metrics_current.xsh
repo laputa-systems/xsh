@@ -41,7 +41,7 @@ export type Report = {schema: Int, sources: List[SourceCount], metrics: List[Met
 type MetricValue = {name: Str, value: Int}
 type ObserverBaselineProof = {report_path: Str, report_sha256: Str, legacy_report_sha256: Str, successor_report_sha256: Str, metric_values: List[MetricValue], source_count: Int, item_inventory_path: Str, item_inventory_sha256: Str, item_inventory_entries: Int}
 ## Successor evidence keeps the original observer and report artifacts independently pinned.
-export type ObserverSuccessorProvenance = {schema: Int, original_scanner_path: Str, original_scanner_sha256: Str, successor_scanner_path: Str, successor_scanner_sha256: Str, original_baseline_path: Str, original_baseline_sha256: Str, corrected_baseline_path: Str, corrected_baseline_sha256: Str, metadata_sha256: Str, historical_provenance_sha256: Str, baseline_provenance_sha256: Str, historical_ratchet_tests_sha256: Str, current_ratchet_tests_sha256: Str, start_commit: Str, source_manifest_sha256: Str, same_baseline: ObserverBaselineProof}
+export type ObserverSuccessorProvenance = {schema: Int, original_scanner_path: Str, original_scanner_sha256: Str, successor_scanner_path: Str, successor_scanner_sha256: Str, original_baseline_path: Str, original_baseline_sha256: Str, corrected_baseline_path: Str, corrected_baseline_sha256: Str, metadata_sha256: Str, historical_provenance_sha256: Str, baseline_provenance_sha256: Str, historical_ratchet_tests_sha256: Str, baseline_ratchet_tests_sha256: Str, current_ratchet_tests_path: Str, current_ratchet_tests_sha256: Str, start_commit: Str, source_manifest_sha256: Str, same_baseline: ObserverBaselineProof}
 ## Per-source inventory of narrow dead-code allowances, including inherited module coverage.
 export type AllowanceInventory = {schema: Int, entries: List[ItemAllowance]}
 ## A source measurement and its separate item-allowance inventory.
@@ -1478,7 +1478,10 @@ export proc verify_observer_successor(root: Path, baseline_path: Str, provenance
   let historical_path = fp"{root}/dev/consolidation/blanket-metric-provenance.json"
   let historical_hash = hash.sha256(historical_path)?.hex().lower()
   let baseline_provenance_hash = hash.sha256(fp"{provenance_path}")?.hex().lower()
-  let current_tests_hash = hash.sha256(fp"{root}/dev/tests/test-consolidation-ratchets.xsh")?.hex().lower()
+  if provenance.current_ratchet_tests_path != "dev/tests/test-consolidation-ratchets-current.xsh" {
+    return Err(MetricError.Contract(detail: "current observer provenance names a noncanonical current ratchet fixture"))
+  }
+  let current_tests_hash = hash.sha256(fp"{root}/{provenance.current_ratchet_tests_path}")?.hex().lower()
   if original_scanner_hash != provenance.original_scanner_sha256.lower() or successor_scanner_hash != provenance.successor_scanner_sha256.lower() {
     return Err(MetricError.Contract(detail: "current observer provenance scanner hash mismatch"))
   }
@@ -1493,6 +1496,9 @@ export proc verify_observer_successor(root: Path, baseline_path: Str, provenance
   let metadata = json.read(metadata_path)?.require(BlanketBaselineMetadata)?
   if historical.scanner_sha256.lower() != provenance.original_scanner_sha256.lower() or passed.scanner_sha256.lower() != provenance.original_scanner_sha256.lower() or historical.ratchet_tests_sha256.lower() != provenance.historical_ratchet_tests_sha256.lower() {
     return Err(MetricError.Contract(detail: "current observer provenance does not preserve the historical scanner attestation"))
+  }
+  if passed.ratchet_tests_sha256.lower() != provenance.baseline_ratchet_tests_sha256.lower() {
+    return Err(MetricError.Contract(detail: "current observer provenance does not preserve the source advisory ratchet attestation"))
   }
   if current_tests_hash != provenance.current_ratchet_tests_sha256.lower() {
     return Err(MetricError.Contract(detail: "current observer provenance ratchet fixture hash mismatch"))
