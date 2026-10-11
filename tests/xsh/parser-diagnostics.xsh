@@ -220,3 +220,23 @@ test test_print_names_do_not_rescue_malformed_assignments { |ctx|
     expect_rejected(ctx, source, "parse.expected-terminator")
   }
 }
+
+test test_value_match_arms_require_separators { |ctx|
+  expect_rejected(ctx, "let value = match x { E => \"\" 0 => 4 }\n", "parse.expected-terminator")
+}
+
+test test_fail_binary_heads_and_typed_run_suffixes_are_not_rescued { |ctx|
+  for source in ["fail - 1 because 2\n", "let value = spawn run fp\"{a}/x\"? % - collect {}\n"] {
+    expect_rejected(ctx, source, "parse.expected-terminator")
+  }
+  expect_rejected(ctx, "continue unless spawn run e\"HOME\"? as pure () -> Int\n", "parse.expected-expression")
+}
+
+test test_grouped_run_tails_end_at_the_closer { |ctx|
+  expect_rejected(ctx, "run (\n cmd ) out )\n", "parse.expected-terminator")
+  expect_rejected(ctx, "run --timeout=fp\"x\"[] cmd\n", "parse.expected-expression")
+}
+
+test test_context_scope_requires_an_expression_operator_or_terminator { |ctx|
+  expect_rejected(ctx, "env (x) { } next\n", "parse.expected-terminator")
+}

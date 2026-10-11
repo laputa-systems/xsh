@@ -57,6 +57,8 @@ pub struct Parser<'a> {
     pipe_is_boundary: bool,
     trailing_statement_try: bool,
     command_arg_expr: bool,
+    /// A spaced postfix after a run option value starts its command target.
+    run_option_value_expr: bool,
     condition_expr: bool,
     /// While the destination of `atomically replace DEST as NAME {` is
     /// parsed, the token index of the `as` that ends it. A pattern test
@@ -188,6 +190,7 @@ impl<'a> Parser<'a> {
             pipe_is_boundary: false,
             trailing_statement_try: true,
             command_arg_expr: false,
+            run_option_value_expr: false,
             condition_expr: false,
             head_as_index: None,
             block_depth: 0,
@@ -558,23 +561,8 @@ impl<'a> Parser<'a> {
     }
 
     pub(in crate::syntax::parser) fn is_word_part_start(&self) -> bool {
-        if self.parenthesized_expr_depth > 0 && self.current_tag() == TokenTag::RParen {
-            return false;
-        }
-        !matches!(
-            self.current_tag(),
-            TokenTag::Eof
-                | TokenTag::Newline
-                | TokenTag::Comment
-                | TokenTag::Semicolon
-                | TokenTag::RBrace
-                | TokenTag::At
-                | TokenTag::Question
-                | TokenTag::Pipe
-                | TokenTag::PipeGt
-                | TokenTag::Amp
-                | TokenTag::LParen
-        )
+        grammar::is_word_part(self.current_tag(), self.parenthesized_expr_depth > 0)
+            || matches!(self.current_tag(), TokenTag::String | TokenTag::DollarIdent | TokenTag::DollarLBrace)
     }
 
     pub(in crate::syntax::parser) fn lookahead_is_ctx_block(&self) -> bool {

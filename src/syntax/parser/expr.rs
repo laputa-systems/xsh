@@ -288,6 +288,9 @@ impl<'a> Parser<'a> {
             value?
         };
         let value_end = self.previous_end();
+        if !self.at(TokenKindMatch::Comma) && !self.at_terminator() {
+            self.diagnostic_here("expected `,` or newline after match arm", DiagnosticCode::ParseExpectedTerminator);
+        }
         if self.consume(TokenKindMatch::Comma).is_some() {
             self.skip_newlines();
         }
@@ -422,7 +425,7 @@ impl<'a> Parser<'a> {
                     && (self.lookahead_is_expr_call_or_postfix()
                         || self.lookahead_is_expr_binary());
                 self.index = brace;
-                if !(expression || comprehension || conversion) {
+                if !(expression || comprehension || conversion || self.line_continuation_at(self.index + first + 1).is_some()) {
                     return false;
                 }
             }
@@ -478,22 +481,24 @@ impl<'a> Parser<'a> {
                 {
                     return offset > first;
                 }
-                // An entry may end its line before the `,` or `for`.
+                // An entry continues after an operator or onto a continuation
+                // line. A plain next statement still makes this a block.
                 Some(TokenTag::Newline | TokenTag::Comment) if depth == 0 => {
-                    return match self.peek_tag_skip_newlines(offset) {
-                        Some(TokenTag::Comma) => true,
-                        Some(TokenTag::Keyword) => {
-                            let mut next = offset;
-                            while matches!(
-                                self.peek_tag(next),
-                                Some(TokenTag::Newline | TokenTag::Comment)
-                            ) {
-                                next += 1;
+                    let mut previous = offset - 1;
+                    while previous > first && matches!(self.peek_tag(previous), Some(TokenTag::Newline | TokenTag::Comment)) { previous -= 1; }
+                    let pending = grammar::binary_operator_at(self.peek_tag(previous).expect("entry token"), self.peek_keyword(previous), self.peek_keyword(previous + 1)).is_some()
+                        || self.peek_name(previous).is_some_and(|name| name == "is" || name == "as");
+                    if !pending && self.line_continuation_at(self.index + offset).is_none() {
+                        return match self.peek_tag_skip_newlines(offset) {
+                            Some(TokenTag::Comma) => true,
+                            Some(TokenTag::Keyword) => {
+                                let mut next = offset;
+                                while matches!(self.peek_tag(next), Some(TokenTag::Newline | TokenTag::Comment)) { next += 1; }
+                                self.peek_keyword(next) == Some(Keyword::For)
                             }
-                            self.peek_keyword(next) == Some(Keyword::For)
-                        }
-                        _ => false,
-                    };
+                            _ => false,
+                        };
+                    }
                 }
                 Some(TokenTag::Semicolon | TokenTag::Equals) if depth == 0 => return false,
                 Some(TokenTag::Eof) | None => return false,
@@ -839,6 +844,9 @@ impl<'a> Parser<'a> {
             extended = true;
             self.skip_postfix_newlines();
             self.skip_pipeline_newlines();
+            if self.at_run_option_grouped_boundary(left.span.end()) {
+                break;
+            }
             // A typed command argument ends at whitespace or a line break.
             if command_arg_root
                 && (self.current_start() > left.span.end()
@@ -1035,6 +1043,7 @@ impl<'a> Parser<'a> {
                 };
             } else if arena_expr_accepts_builder_block(arena, left.id)
                 && self.at(TokenKindMatch::LBrace)
+                && !self.builder_block_is_condition_body()
             {
                 let block = self.parse_builder_block_arena_only(arena)?;
                 let span = self.span(left.span.start(), self.previous_end());
@@ -1248,38 +1257,8 @@ impl<'a> Parser<'a> {
         self.peek_tag(offset) == Some(TokenTag::Pipe)
     }
 
-    pub(super) fn lookahead_is_context_scope(&self) -> bool {
-        if !self
-            .current_name()
-            .is_some_and(|name| name == "cd" || name == "env")
-            || self.peek_tag(1) != Some(TokenTag::LParen)
-        {
-            return false;
-        }
-        let mut depth = 0;
-        let mut offset = 1;
-        while let Some(tag) = self.peek_tag(offset) {
-            match tag {
-                TokenTag::LParen => depth += 1,
-                TokenTag::RParen => {
-                    depth -= 1;
-                    if depth == 0 {
-                        offset += 1;
-                        while matches!(
-                            self.peek_tag(offset),
-                            Some(TokenTag::Newline | TokenTag::Comment)
-                        ) {
-                            offset += 1;
-                        }
-                        return self.peek_tag(offset) == Some(TokenTag::LBrace);
-                    }
-                }
-                TokenTag::Eof => return false,
-                _ => {}
-            }
-            offset += 1;
-        }
-        false
+    pub(super) fn context_scope_suffix_lookahead(&self) -> Option<bool> {
+        grammar::context_scope_suffix_lookahead(|offset| self.grammar_token(offset))
     }
 
     /// `tempdir NAME {` or `tempdir NAME at` on one line. Neither word is
@@ -1536,7 +1515,9 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<ArenaOnlyExpr> {
         let span = self.current_span();
-        if self.current_tag() == TokenTag::Ident && self.lookahead_is_context_scope() {
+        if self.current_tag() == TokenTag::Ident
+            && self.context_scope_suffix_lookahead().is_some()
+        {
             return self.parse_context_scope_arena_only(arena, true);
         }
         if self.lookahead_is_tempdir_scope() {
@@ -2499,7 +2480,10 @@ impl<'a> Parser<'a> {
         let migration_start = self.current_start();
         let mut named_arguments = Vec::new();
         let mut migration_end = migration_start;
-        while self.at(TokenKindMatch::Minus) && self.peek_tag(1) == Some(TokenTag::Minus) {
+        while self.at(TokenKindMatch::Minus)
+            && self.peek_tag(1) == Some(TokenTag::Minus)
+            && self.peek_start(1) == Some(self.current_end())
+        {
             let start = self.current_start();
             self.bump();
             self.bump();
@@ -2894,6 +2878,9 @@ impl<'a> Parser<'a> {
         let mut left = self.parse_prefix_arena_only(arena)?;
         loop {
             self.skip_postfix_newlines();
+            if self.at_run_option_grouped_boundary(left.span.end()) {
+                break;
+            }
             if self.at(TokenKindMatch::Dot) && self.peek_tag(1) != Some(TokenTag::Dot) {
                 self.bump();
                 let name = self.expect_member_name("expected field name after `.`")?;
@@ -2953,11 +2940,40 @@ impl<'a> Parser<'a> {
                     span,
                     bare_ident: None,
                 };
+            } else if arena_expr_accepts_builder_block(arena, left.id)
+                && self.at(TokenKindMatch::LBrace)
+                && !self.builder_block_is_condition_body()
+            {
+                let block = self.parse_builder_block_arena_only(arena)?;
+                let span = self.span(left.span.start(), self.previous_end());
+                left = ArenaOnlyExpr {
+                    id: arena.push_builder_call_expr_id(left.id, block, span),
+                    span,
+                    bare_ident: None,
+                };
             } else {
                 break;
             }
         }
         Some(left)
+    }
+
+    fn at_run_option_grouped_boundary(&self, previous_end: usize) -> bool {
+        self.run_option_value_expr
+            && self.current_start() > previous_end
+            && self.at(TokenKindMatch::LParen)
+            && matches!(self.peek_tag(1), Some(TokenTag::Newline | TokenTag::Comment))
+    }
+
+    /// A final builder-looking block can belong to the enclosing condition head; operators and the `wait until` delimiter keep it on the expression.
+    fn builder_block_is_condition_body(&self) -> bool {
+        if !self.condition_expr || !self.at(TokenKindMatch::LBrace) {
+            return false;
+        }
+        grammar::builder_block_is_condition_body(
+            |offset| self.grammar_token(offset),
+            self.comma_is_terminator,
+        )
     }
 }
 

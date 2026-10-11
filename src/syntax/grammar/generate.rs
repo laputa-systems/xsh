@@ -46,6 +46,7 @@ pub struct Generator<'g> {
     merged: bool,
     /// Inside an item written on one line: optional line breaks are left out.
     single_line: u32,
+    grouped: bool,
     /// The rules the last candidate expanded.
     expanded: FxHashSet<&'static str>,
     /// For a targeted candidate, each rule's least number of expansions to
@@ -54,6 +55,8 @@ pub struct Generator<'g> {
     /// Whether the item being expanded is on the shortest way to the target;
     /// the other items of a sequence are generated freely.
     steering: bool,
+    /// Keep unrelated branches shallow while generating a targeted sentence.
+    targeted_generation: bool,
 }
 
 impl<'g> Generator<'g> {
@@ -84,9 +87,11 @@ impl<'g> Generator<'g> {
             state: 0,
             merged: false,
             single_line: 0,
+            grouped: false,
             expanded: FxHashSet::default(),
             toward: None,
             steering: false,
+            targeted_generation: false,
         }
     }
 
@@ -151,8 +156,10 @@ impl<'g> Generator<'g> {
         }
         self.toward = Some(distance);
         self.steering = true;
+        self.targeted_generation = true;
         let sentence = self.sentence(start, seed, depth);
         self.steering = false;
+        self.targeted_generation = false;
         let reached = self.toward.is_none();
         self.toward = None;
         sentence.filter(|_| reached)
@@ -165,7 +172,9 @@ impl<'g> Generator<'g> {
         self.state = seed.wrapping_mul(0x2545_F491_4F6C_DD1D) ^ 0x5851_F42D_4C95_7F2D;
         self.merged = false;
         self.single_line = 0;
+        self.grouped = false;
         self.expanded.clear();
+        self.targeted_generation = self.toward.is_some();
         let mut out = Vec::new();
         let (name, body) = self
             .rules
@@ -173,12 +182,13 @@ impl<'g> Generator<'g> {
             .map(|(name, body)| (*name, *body))
             .unwrap_or_else(|| panic!("no rule `{start}`"));
         self.expanded.insert(name);
-        if self
+        let starts_at_target = self
             .toward
             .as_ref()
-            .is_some_and(|distance| distance.get(name) == Some(&0))
-        {
+            .is_some_and(|distance| distance.get(name) == Some(&0));
+        if starts_at_target {
             self.toward = None;
+            self.targeted_generation = false;
         }
         self.expand(body, depth, &mut out);
         (!self.merged).then(|| render(&out))
@@ -213,15 +223,20 @@ impl<'g> Generator<'g> {
             Item::Term(term) => self.emit(*term, out),
             Item::Rule(name) => {
                 self.expanded.insert(name);
-                if self
+                let reached_target = self
                     .toward
                     .as_ref()
-                    .is_some_and(|distance| distance.get(name) == Some(&0))
-                {
+                    .is_some_and(|distance| distance.get(name) == Some(&0));
+                if reached_target {
                     self.toward = None;
                 }
                 let body = self.rule(name);
+                let targeted_generation = self.targeted_generation;
+                if reached_target {
+                    self.targeted_generation = false;
+                }
                 self.expand(body, depth.saturating_sub(1), out);
+                self.targeted_generation = targeted_generation;
             }
             Item::Seq(items) => {
                 let steering = self.steering;
@@ -235,37 +250,62 @@ impl<'g> Generator<'g> {
                             .map(|item| item_distance(item, distance))
                             .collect();
                         let least = steps.iter().flatten().min()?;
-                        steps.iter().position(|step| step == &Some(*least))
+                        Some(
+                            steps
+                                .iter()
+                                .enumerate()
+                                .filter_map(|(index, step)| (step == &Some(*least)).then_some(index))
+                                .collect::<Vec<_>>(),
+                        )
+                    })
+                    .map(|closest| {
+                        let index = self.below(closest.len());
+                        closest[index]
                     });
                 let mut index = 0;
                 while index < items.len() {
                     // A guarded item is the one after its lookahead.
                     let guarded = usize::from(
-                        matches!(items[index], Item::Not(_) | Item::Peek(_) | Item::NameStatement(_))
+                        matches!(items[index], Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) | Item::WordStart)
                             && index + 1 < items.len(),
                     );
                     self.steering = steering && closest == Some(index + guarded);
+                    let item_depth = if self.targeted_generation && !self.steering {
+                        0
+                    } else {
+                        depth
+                    };
                     match (&items[index], items.get(index + 1)) {
                         (Item::NameStatement(form), Some(next)) => {
-                            self.guarded(next, depth, out, |emitted| {
+                            self.guarded(next, item_depth, out, |emitted| {
                                 super::name_statement_matches(*form, |offset| emitted.get(offset).map(|token| token.token(emitted.get(offset + 1))))
                             });
                             index += 2;
                         }
+                        (Item::WordStart, Some(next)) => {
+                            self.guarded(next, item_depth, out, |emitted| !super::argument_starts_chain(|offset| emitted.get(offset).map(|token| token.token(emitted.get(offset + 1))), true));
+                            index += 2;
+                        }
+                        (Item::NotContextScope, Some(next)) => {
+                            self.guarded(next, item_depth, out, |emitted| {
+                                super::context_scope_suffix_lookahead(|offset| emitted.get(offset).map(|token| token.token(emitted.get(offset + 1)))).is_none()
+                            });
+                            index += 2;
+                        }
                         (Item::Not(sequences), Some(next)) => {
-                            self.guarded(next, depth, out, |emitted| {
+                            self.guarded(next, item_depth, out, |emitted| {
                                 !begins_with_any(emitted, sequences)
                             });
                             index += 2;
                         }
                         (Item::Peek(sequences), Some(next)) => {
-                            self.guarded(next, depth, out, |emitted| {
+                            self.guarded(next, item_depth, out, |emitted| {
                                 begins_with_any(emitted, sequences)
                             });
                             index += 2;
                         }
                         (item, _) => {
-                            self.expand(item, depth, out);
+                            self.expand(item, item_depth, out);
                             index += 1;
                         }
                     }
@@ -322,7 +362,7 @@ impl<'g> Generator<'g> {
                     })
                 );
                 if depth > 0 && !(line_break && self.single_line > 0) {
-                    while count < 3 && self.chance(45) {
+                    while count < 3 && self.chance(20) {
                         count += 1;
                     }
                 }
@@ -337,7 +377,7 @@ impl<'g> Generator<'g> {
             } => {
                 let mut count = usize::from(*min_one || self.leads_toward(inner));
                 if depth > 0 {
-                    while count < 3 && self.chance(50) {
+                    while count < 3 && self.chance(20) {
                         count += 1;
                     }
                 }
@@ -357,6 +397,12 @@ impl<'g> Generator<'g> {
                     self.emit(newline(), out);
                 }
             }
+            Item::Group(inner) => {
+                let grouped = self.grouped;
+                self.grouped = true;
+                self.expand(inner, depth, out);
+                self.grouped = grouped;
+            }
             Item::Line(inner) => {
                 self.single_line += 1;
                 self.expand(inner, depth, out);
@@ -364,7 +410,7 @@ impl<'g> Generator<'g> {
             }
             // A lookahead at the end of a sequence constrains what follows
             // the enclosing rule; the recognizer filter enforces it.
-            Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) => {}
+            Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) | Item::WordStart | Item::NotContextScope | Item::ConditionBody { .. } => {}
         }
     }
 
@@ -377,17 +423,26 @@ impl<'g> Generator<'g> {
         out: &mut Vec<Emitted>,
         accept: impl Fn(&[Emitted]) -> bool,
     ) {
+        // Discarded attempts contribute neither spelling failures nor rule
+        // coverage, and cannot satisfy a targeted derivation.
+        let merged = self.merged;
+        let expanded = self.expanded.clone();
+        let toward = self.toward.clone();
         let mut attempt = Vec::new();
         for _ in 0..64 {
+            self.merged = false;
+            self.expanded.clone_from(&expanded);
+            self.toward.clone_from(&toward);
             attempt.clear();
             let mut scratch: Vec<Emitted> = out.last().cloned().into_iter().collect();
             let before = scratch.len();
             self.expand(item, depth, &mut scratch);
             attempt.extend(scratch.drain(before..));
-            if accept(&attempt) {
+            if !self.merged && accept(&attempt) {
                 break;
             }
         }
+        self.merged |= merged;
         out.extend(attempt);
     }
 
@@ -484,8 +539,9 @@ impl<'g> Generator<'g> {
                     (TokenTag::Ident, None, pick(self, &NAMES))
                 }
             }
-            Class::WordPart => {
-                let options: [(TokenTag, &str); 9] = [
+            Class::GroupedEnd(_) => (TokenTag::RParen, None, ")".to_string()),
+            Class::WordPart(grouped) => {
+                let options: [(TokenTag, &str); 13] = [
                     (TokenTag::Ident, "w"),
                     (TokenTag::Int, "1"),
                     (TokenTag::Minus, "-"),
@@ -495,8 +551,13 @@ impl<'g> Generator<'g> {
                     (TokenTag::Dot, "."),
                     (TokenTag::Plus, "+"),
                     (TokenTag::ProcIdent, "x-y"),
+                    (TokenTag::LBracket, "["),
+                    (TokenTag::RBracket, "]"),
+                    (TokenTag::LBrace, "{"),
+                    (TokenTag::RParen, ")"),
                 ];
-                let (tag, text) = options[self.below(options.len())];
+                let length = options.len() - usize::from(grouped || self.grouped);
+                let (tag, text) = options[self.below(length)];
                 (tag, None, text.to_string())
             }
             Class::PathPart => {
@@ -547,18 +608,18 @@ fn item_distance(item: &Item, distance: &FxHashMap<&'static str, u32>) -> Option
             .iter()
             .filter_map(|item| item_distance(item, distance))
             .min(),
-        Item::Opt(inner) | Item::Star(inner) | Item::Plus(inner) | Item::Line(inner) => {
+        Item::Opt(inner) | Item::Star(inner) | Item::Plus(inner) | Item::Line(inner) | Item::Group(inner) => {
             item_distance(inner, distance)
         }
         Item::List { item, .. } => item_distance(item, distance),
-        Item::Term(_) | Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) => None,
+        Item::Term(_) | Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) | Item::WordStart | Item::NotContextScope | Item::ConditionBody { .. } => None,
     }
 }
 
 /// The least number of rule expansions that derive `item`, if any.
 fn item_height(item: &Item, heights: &FxHashMap<&'static str, u32>) -> Option<u32> {
     match item {
-        Item::Term(_) | Item::Opt(_) | Item::Star(_) | Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) => Some(0),
+        Item::Term(_) | Item::Opt(_) | Item::Star(_) | Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) | Item::WordStart | Item::NotContextScope | Item::ConditionBody { .. } => Some(0),
         Item::Rule(name) => heights.get(name).copied(),
         Item::Seq(items) => items.iter().try_fold(0, |height, item| {
             item_height(item, heights).map(|item| height.max(item))
@@ -567,7 +628,7 @@ fn item_height(item: &Item, heights: &FxHashMap<&'static str, u32>) -> Option<u3
             .iter()
             .filter_map(|item| item_height(item, heights))
             .min(),
-        Item::Plus(inner) | Item::Line(inner) => item_height(inner, heights),
+        Item::Plus(inner) | Item::Line(inner) | Item::Group(inner) => item_height(inner, heights),
         Item::List { item, min_one, .. } => {
             if *min_one {
                 item_height(item, heights)

@@ -92,17 +92,24 @@ impl<'a> Parser<'a> {
                 if self
                     .current_name()
                     .is_some_and(|name| name == "env" || name == "cd")
-                    && self.lookahead_is_context_scope()
                 {
-                    let scope = self.parse_context_scope_arena_only(arena, false)?;
-                    let value = if self.consume(TokenKindMatch::Question).is_some() {
-                        arena.push_try_expr(scope.id, self.span(start, self.previous_end()))
-                    } else {
-                        scope.id
-                    };
-                    let end = self.expect_terminator();
-                    arena.push_expr_statement(value, self.span(start, end));
-                    return Some(());
+                    match self.context_scope_suffix_lookahead() {
+                        Some(true) => {
+                            return self.parse_expr_statement_arena_only(start, arena);
+                        }
+                        Some(false) => {
+                            let scope = self.parse_context_scope_arena_only(arena, false)?;
+                            let value = if self.consume(TokenKindMatch::Question).is_some() {
+                                arena.push_try_expr(scope.id, self.span(start, self.previous_end()))
+                            } else {
+                                scope.id
+                            };
+                            let end = self.expect_terminator();
+                            arena.push_expr_statement(value, self.span(start, end));
+                            return Some(());
+                        }
+                        None => {}
+                    }
                 }
                 if self.lookahead_is_tempdir_scope() {
                     let scope = self.parse_tempdir_scope_arena_only(arena, false)?;

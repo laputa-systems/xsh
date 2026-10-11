@@ -57,11 +57,11 @@ fn rule_references(item: &Item, out: &mut Vec<&'static str>) {
         Item::Seq(items) | Item::Alt(items) => {
             items.iter().for_each(|item| rule_references(item, out))
         }
-        Item::Opt(inner) | Item::Star(inner) | Item::Plus(inner) | Item::Line(inner) => {
+        Item::Opt(inner) | Item::Star(inner) | Item::Plus(inner) | Item::Line(inner) | Item::Group(inner) => {
             rule_references(inner, out)
         }
         Item::List { item, .. } => rule_references(item, out),
-        Item::Term(_) | Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) => {}
+        Item::Term(_) | Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) | Item::WordStart | Item::NotContextScope | Item::ConditionBody { .. } => {}
     }
 }
 
@@ -73,11 +73,11 @@ fn words(item: &Item, out: &mut Vec<&'static str>) {
             terms.extend(sequences.iter().flatten().copied())
         }
         Item::Seq(items) | Item::Alt(items) => items.iter().for_each(|item| words(item, out)),
-        Item::Opt(inner) | Item::Star(inner) | Item::Plus(inner) | Item::Line(inner) => {
+        Item::Opt(inner) | Item::Star(inner) | Item::Plus(inner) | Item::Line(inner) | Item::Group(inner) => {
             words(inner, out)
         }
         Item::List { item, .. } => words(item, out),
-        Item::Rule(_) | Item::NameStatement(_) => {}
+        Item::Rule(_) | Item::NameStatement(_) | Item::WordStart | Item::NotContextScope | Item::ConditionBody { .. } => {}
     }
     out.extend(terms.into_iter().filter_map(|term| match term.class {
         Class::Word(word) => Some(word),
@@ -204,7 +204,21 @@ fn generated_sentences_parse(depths: &[u32], seeds: u64, targeted_depth: u32, ta
     let failures = for_each_parallel(&jobs, |&(depth, seed, target)| {
         let mut generator = Generator::new(grammar);
         let source = match target {
-            Some(target) => generator.targeted_sentence(Grammar::START, target, seed, depth)?,
+            Some(target) => {
+                // These expression rules have a shorter route through run
+                // option values, whose surrounding command context rejects
+                // the generated forms.
+                let start = match target {
+                    "collect_expression"
+                    | "builder_call"
+                    | "builder_block"
+                    | "builder_compound_entry"
+                    | "builder_entry"
+                    | "run_end" => "expression_statement",
+                    _ => Grammar::START,
+                };
+                generator.targeted_sentence(start, target, seed, depth)?
+            }
             None => generator.sentence(Grammar::START, seed, depth)?,
         };
         // A candidate that misses a lookahead or lexes differently is not a
@@ -219,9 +233,10 @@ fn generated_sentences_parse(depths: &[u32], seeds: u64, targeted_depth: u32, ta
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
         let diagnostic = parsed.diagnostics.first()?;
         Some(format!(
-            "depth {depth} seed {seed} target {target:?}: [{}] {}\n{source}",
+            "depth {depth} seed {seed} target {target:?}: [{}] {} at {:?}\n{source}",
             diagnostic.code.map(DiagnosticCode::name).unwrap_or(""),
-            diagnostic.message
+            diagnostic.message,
+            diagnostic.span
         ))
     });
     let sentences = sentences.into_inner();
@@ -397,6 +412,37 @@ fn expression_suffixes_after_stages_allow_spaces() {
 }
 
 #[test]
+fn final_builder_blocks_can_belong_to_condition_heads() {
+    for source in [
+        "if ready and process.command { }\n",
+        "tempdir name at ready and process.command { }\n",
+        "with x = ready and process.command { }\n",
+        "if process.command { } == true { 1 } else { 0 }\n",
+        "with x = process.command { }, y = other { }\n",
+        "wait until process.command { } within 5s\n",
+    ] {
+        assert_parser_and_grammar_agree(source, true);
+    }
+    assert_parser_and_grammar_agree(
+        "export enum c: Str { b = with x = true and process.command { return }, }\n",
+        false,
+    );
+}
+
+#[test]
+fn context_scopes_cannot_supply_an_enclosing_scope_body() {
+    assert_parser_and_grammar_agree("let value = with x = true and cd (x) { }\n", false);
+}
+
+#[test]
+fn tempdir_cannot_steal_a_stream_stage_block() {
+    assert_parser_and_grammar_agree(
+        "let value = tempdir items at Thing |> each |> all { ; return }\n",
+        false,
+    );
+}
+
+#[test]
 fn command_argument_spacing_is_preserved() {
     for source in ["f(1, 2)\n", "let value = f (1, 2)\n", "print (f(1, 2))\n", "f().field (1, 2)\n", "f.field(1, 2)\n", "f.field (1)\n", "let value = f ?.name\n", "f.field when ready\n", "f -1\n", "f - 1\n"] {
         assert_parser_and_grammar_agree(source, true);
@@ -421,9 +467,18 @@ fn env_without_a_block_uses_proc_command_rules() {
     for source in ["env foo\n", "env . name\n", "env FOO=value { f() }\n"] {
         assert_parser_and_grammar_agree(source, true);
     }
+    assert_parser_and_grammar_agree("env value = ${ items |> each { |item| item } } { }\n", true);
     for source in ["env . name {}\n", "env foo ({})\n"] {
         assert_parser_and_grammar_agree(source, false);
     }
+}
+
+#[test]
+fn cd_scope_arguments_keep_command_word_interpolation() {
+    assert_parser_and_grammar_agree("cd +${ x +\n1 } { }\n", true);
+    assert_parser_and_grammar_agree("cd (x) { } < []\n", true);
+    assert_parser_and_grammar_agree("env (x) { } < []\n", true);
+    assert_parser_and_grammar_agree("env (x) { } next\n", false);
 }
 
 #[test]
@@ -447,6 +502,21 @@ fn bare_minus_command_arguments_preserve_source_adjacency() {
         assert_parser_and_grammar_agree(source, true);
     }
     assert_parser_and_grammar_agree("f - \n", false);
+    for source in [
+        "let result = values |> drop - - $?\n",
+        "run.bytes --accept= 5s --timeout= y --cpumax= a target ? |> drop - - $?\n",
+    ] {
+        assert_parser_and_grammar_agree(source, true);
+    }
+}
+
+#[test]
+fn run_option_values_leave_following_words_as_command_arguments() {
+    assert_parser_and_grammar_agree("run --accept= spawn - ! value? (\n@y ) ;\n", true);
+    assert_parser_and_grammar_agree(
+        "guard let items = run --accept= spawn process.command { } --timeout= 1h --cpumax= a (\ne\"HOME\" ) ? else { }\nexport stream b ( ) -> b { }\n",
+        true,
+    );
 }
 
 #[test]
@@ -477,6 +547,416 @@ fn duration_pattern_tests_are_recognized() {
 #[test]
 fn last_status_statement_comparisons_are_recognized() {
     assert_parser_and_grammar_agree("$? * $? > 0\n", true);
+}
+
+#[test]
+fn deeper_generated_counterexamples_have_sound_recognition() {
+    let recognizer = Recognizer::new(grammar());
+    let mut disagreements = Vec::new();
+    for (seed, accepted, source) in [
+        ("depth 12 seed 5571 target random", false, r####"fail - $? & - $? as Thing as value > ! Thing | ! $? as Thing as Thing as x * - $? as x and items * c - Thing * $? - Thing & $? * $? * $? | value not in Thing - $? == $? in $? not in $? | b + $? because - Thing / - $? * Thing? as x as Thing & ! y as c is value ? == - $? - - $? as value as c and - $? | $?? < ! $? > $? as b >= ! $? | - a as a as c | value as value as Thing as Thing and - b as items and $? + b not in c when a not in
+
+c == $? +
+
+
+$? in a not in c is
+Module [ a . c [ y ] ? ] ? ==
+
+a in $? |> c and
+$? is
+
+Map [ y ] == $? not in $? |> $? < b and $? not in a is _ is items is _ is c is
+y [ ] ? and x <=
+a ??
+$? in $? != $? != a |> bytes.chunks *
+
+$? &
+a not in Thing == $? in value not in
+Thing in $?
+"####),
+        ("depth 12 seed 8371 target random", false, r####"fail - x & ! $? or $? < value? ?? $? | $? | $? in $? & $? * $? % items | x % x - $? / $? * $? != $? & x + $? not in Thing - a is a . a [ Set [ Stream [ y ] [ ] ? ] [ value [ ] , Module [ a ] [ ] ? , pure ( ) -> c ] ] ? is c ? |> max as items % items | $? & b and b & a & b <= y | $? + $? % items <= $? - $? + Thing * c & $? | value & $? <= $? - $? or b / $? % value * $? > a < Thing and a | b / Thing - y + y and $? + items - $? in y - value and $? % $? % $? + $? + a / $? | value <= $? - b because $?? * - $? < x & $?? as y as value >= ! x & $? | $? * - $? as y < $? unless a is
+
+
+value is proc ( Thing : y , ) -> proc ( ) -> c as Thing |> count ( x > x or $? < c ? ) . require (
+
+) +
+value * x >= y - c * $? - $? -
+
+$? or x in a is _ is Result [ x ] !=
+
+items in $? == value and items - $? -
+
+
+$? |
+
+
+$? and items + $? is Thing . c [ ] and
+
+$? <=
+
+$? - $? ??
+
+$? not in y and $? != x +
+$? | $? - $? and
+
+
+y + b <=
+
+
+c or a + $? + $? +
+
+
+x <=
+
+
+x - y +
+
+$? |> bytes.chunks? %
+
+Thing - x & items &
+
+
+x - c > c & $? +
+
+Thing |> $? in $?
+"####),
+        ("depth 12 seed 9 target set_comprehension", true, r####"guard let items : y [ List [ proc (
+) [ ] -> proc ( ) -> proc ( ) -> Thing ] [ proc ( ) [ time ] -> proc (
+items : items , ... b : c , ) -> List [ value ] ? , Stream [ proc ( ... b : c , ... x : value ) -> y [ ] ] [ ] ] , pure ( ) -> items , NonEmpty [ pure ( a = c , x : proc (
+) -> value , value : pure ( ) -> b ) -> List [ proc ( ) -> value ] ? ] [ ] ? , proc ( a = $? and
+
+
+Thing or Thing > c ??
+
+
+$? and Thing |> $? >= value ) -> proc ( b = a |> flat-map ) [ error ] -> proc ( ) [
+io ] -> pure ( ) -> b ] ? = run --accept= {
+
+x or
+Thing <= y
+
+for x in $? >= b |> flat-map } --timeout= c --cpumax= $? y = e"HOME" (
+( $? < Thing |> each ( ) |> Thing >= $? ??
+$? |> $? > a and $? >= $? ?? items >= $? and
+Thing or value and $? >= $? and b ) 2>> b"x" ) | run.stream --bytes (
+( x - $? and
+
+
+$? - y | b >= value +
+value ?? b == c in value not in $? ?? c not in value and
+
+c is items . x ? or $? |
+
+
+c >
+
+
+$? >=
+
+
+items -
+
+value <
+$? +
+$? |
+
+c and value !=
+value not in
+$? ) ) ? else {
+; | x |
+}
+
+"####),
+        ("depth 12 seed 9 target set_lead", true, r####"guard let items : y [ List [ proc (
+) [ ] -> proc ( ) -> proc ( ) -> Thing ] [ proc ( ) [ time ] -> proc (
+items : items , ... b : c , ) -> List [ value ] ? , Stream [ proc ( ... b : c , ... x : value ) -> y [ ] ] [ ] ] , pure ( ) -> items , NonEmpty [ pure ( a = c , x : proc (
+) -> value , value : pure ( ) -> b ) -> List [ proc ( ) -> value ] ? ] [ ] ? , proc ( a = $? and
+
+
+Thing or Thing > c ??
+
+
+$? and Thing |> $? >= value ) -> proc ( b = a |> flat-map ) [ error ] -> proc ( ) [
+io ] -> pure ( ) -> b ] ? = run --accept= {
+
+x or
+Thing <= y
+
+for x in $? >= b |> flat-map } --timeout= c --cpumax= $? y = e"HOME" (
+( $? < Thing |> each ( ) |> Thing >= $? ??
+$? |> $? > a and $? >= $? ?? items >= $? and
+Thing or value and $? >= $? and b ) 2>> b"x" ) | run.stream --bytes (
+( x - $? and
+
+
+$? - y | b >= value +
+value ?? b == c in value not in $? ?? c not in value and
+
+c is items . x ? or $? |
+
+
+c >
+
+
+$? >=
+
+
+items -
+
+value <
+$? +
+$? |
+
+c and value !=
+value not in
+$? ) ) ? else {
+; | x |
+}
+"####),
+        ("depth 16 seed 3908 target random", false, r####"exit spawn run.stream --text c = fp"{a}/x" e"HOME" > & b"x" | run fp"{a}/x"? % - collect { } in - wait value. y?[ y ] & - $? as x . x ? as pure ( ) -> pure ( ) -> b |> sort-by
+"####),
+        ("depth 16 seed 7212 target random", false, r####"a-b p"p"
+continue unless ! [ b
+for b in $? ] | spawn run g"*.x" > & b"x" < b"x" g"*.x" | run.capture --text --cpumax= Thing Thing = e"HOME" (
+@g"*.x" ) | run.capture --text (
+@g"*.x" ) | run.capture --text --timeout= x --cpumax= 42 --accept= 10ms f"x" e"HOME"? as pure ( ) -> proc ( ) -> x as proc ( ... y : x , a : b
+) -> Thing as proc ( ) -> pure ( ) -> value - ! tempdir c at $? > $? {
+} . value (
+) ( ) + { } as Union [ Set [ a ] ] ? as proc (
+) [ process
+] -> pure ( ) -> items as proc ( ) [ net , fs , process ] -> proc ( ) -> y &
+! - ! value? <= ! items as b . c [ proc ( ) -> y , Module [ value ] ? , Thing [ ] , c [ ] ] ? >
+process.command { value ; } as pure ( ... x : x ) -> Set [ Thing ] [ ] as pure ( ... value : items , ... items : a , ... c : items ) -> proc ( ) -> Thing and
+$?? as pure ( ... value : a , b : c , items : x , ) -> proc ( ) -> a as Set [ Module [ a ] [ ] ] [ b , value ] &
+
+
+! ! ! - $?
+"####),
+        ("depth 16 seed 7311 target random", false, r####"cli main ( ... items : Thing . Thing , value = ! ! a as proc ( ) -> b as proc (
+) [ ] -> items is Thing is y . Thing [ ] as y ) [ process ] -> value ? { fail - $? >= - b and ! items > ! a % ! $? <= - $? / $? as value as a as b | - $? & c - ! $? as Thing / ! c & ! $? + - $? as x as a / y? % y? as x as items & ! $? because ! $? as x | ! $? & Thing as y >= $?? + $? as a & ! c as c > $? as x unless Thing * $? >= value >= $? or value & $? & b +
+
+$? - value is Map [ proc ( ) [ ] -> Thing , Result [ value ] ] [ ] and
+y is x . b ? is Union [ x . x , b ] and
+x % items - value <= x >= y } ; cli main ( ) { }
+"####),
+        ("depth 16 seed 8347 target random", true, r####"var { .. , x , .. } : proc ( b : proc ( ) -> Result [ NonEmpty [ pure ( ) -> items ] ? , Set [ items [ c ] ] ] [ ] ? = y | $? / a >= c &
+value & items >=
+
+$? %
+
+
+value |
+
+$? % Thing |> max %
+$? != Thing not in $? is
+
+( . a ) as items as Thing is Result [ items ] [ ] and a + $? + b + $? is
+
+_ is proc ( ) -> y and $? >= $? ) -> Stream [ pure ( ) -> Stream [ proc ( ) -> pure ( ) -> c ] [ ] ? ] ? = run.stream --bytes --accept= Thing[ y |> $? ? ] items = $a @value | run --cpumax= 2m --timeout= {
+
+
+value <= x and
+x ?
+
+, a >= $? and $? > $? and c |> $? |> flat-map (
+) |> x < $? ? }( b : a ? , ) --accept= 0o7 a = ( c |
+
+$? < c *
+
+$? or
+Thing % items / y and
+$? -
+y and $? >=
+$? / $? % $? % b and
+
+$? <=
+y /
+$? <= $? +
+$? &
+$? % a | $? or
+a + x in y |
+$? != $? -
+
+a in
+$? -
+
+c not in c |
+$? | Thing |
+$? not in Thing ??
+c in
+
+b |
+
+
+$? - $? ==
+Thing | $? ) (
+( $? in items & $? %
+
+
+value & x - b not in
+
+b |
+
+
+a | $? -
+a & $? or $? | a * c % Thing & value in b in
+
+
+c == $? % items not in $? not in
+items |
+a | $? +
+
+
+b / b and
+
+b %
+$? & b - $? %
+$? % a %
+
+
+$? >= value >
+
+
+$? and
+
+b - b |
+$? % $? <=
+$? +
+items ?? c <=
+$? %
+x % x > $? / a |> $? not in b != x in $? !=
+$? in b != a not in Thing ?? Thing >
+value and
+items < $? >=
+$? >=
+$? and $? <= $? ??
+value is c . a as c ?? c >
+b ) ) ?
+"####),
+        ("depth 16 seed 9215 target random", true, r####"on 1 [ process ,
+error ] { | value , x , items
+| enum y { y ( ) } ; tempdir value { } ; } run.bytes --timeout= { a <=
+
+
+x |
+
+c >=
+
+Thing and
+
+
+c == $? not in items in
+Thing and $? <= a and $? |> first >=
+
+$? >=
+
+$? and
+$? for b in $? in $? is
+
+
+x [ ] ? == $? not in items is b"x" as items as b as x or $? in $? ?? Thing is b [ ] and $? <= $? and $? is
+
+Set [ items ] [ ] ? and
+b not in c or
+a not in y is
+Module [ value ] [ ] ? and $? and
+
+
+$? <
+
+$? }?. require ( a . items [ x [ x [ a ] ? , b [ b ] ] ] ? )? --accept= x (
+( - - y as proc ( ) -> items %
+
+
+. value?[ .. ] (
+) ( ) as pure ( ) -> y is Thing . b . y { c , .. , ..
+} as c is
+value ? |> sort [ $? >= $? |> group-by { } ?. require ( ) or
+x or c ?? a >= $? ] ?. require ( ) or Thing *
+$? &
+y in items %
+$? /
+Thing / $? - $? / $? * $? not in
+
+
+a is items . value ? != $? &
+$? *
+value * y |
+c not in
+
+items / $? % $? is 1.5 ) ) ? |> tee ( )
+"####),
+        ("normal depth 7 seed 1419", false, r####"cli main ( ) [ ] { ; exit $? >= $? when Thing } run.status --cpumax= 2m --timeout= 0o7 --accept= a (
+""?.match?.y?[ .. ]
+) | run y = ( $? >= $? ) c = ( $? >= $? ) b = p"p"? (
+f"x"?[ .. ] ) < b"x" ( b ) )
+"####),
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        let tokens = lex_grammar_tokens(source).expect("counterexample lexes");
+        let recognizes = recognizer.recognize(&tokens).is_ok();
+        let parses = parsed.diagnostics.is_empty();
+        eprintln!("{seed}: parses={parses}, recognizes={recognizes}, expected={accepted}");
+        if parses != accepted || recognizes != accepted {
+            disagreements.push(seed);
+        }
+    }
+    assert!(disagreements.is_empty(), "counterexamples: {disagreements:?}");
+}
+
+#[test]
+fn discarded_lookahead_attempts_do_not_change_generated_derivations() {
+    use xsh::frontend::syntax::grammar::{Rule, Section, Term};
+    use xsh::frontend::syntax::token::TokenTag;
+    let terminal = |tag, glued| Item::Term(Term { class: Class::Tag(tag), glued });
+    let grammar = Grammar { rules: vec![
+        Rule { section: Section::Programs, name: "program", body: Item::Seq(vec![
+            Item::Not(vec![vec![Term { class: Class::Tag(TokenTag::Ident), glued: false }]]),
+            Item::Alt(vec![Item::Rule("discarded"), Item::Rule("retained")]),
+            terminal(TokenTag::Newline, false),
+        ]) },
+        Rule { section: Section::Expressions, name: "discarded", body: Item::Seq(vec![terminal(TokenTag::Ident, false), terminal(TokenTag::Ident, true)]) },
+        Rule { section: Section::Expressions, name: "retained", body: terminal(TokenTag::Int, false) },
+    ] };
+    let recognizer = Recognizer::new(&grammar);
+    for seed in 0..32 {
+        let mut generator = Generator::new(&grammar);
+        let source = generator.sentence(Grammar::START, seed, 4).expect("a retained derivation is spellable");
+        recognizer.recognize(&lex_grammar_tokens(&source).expect("retained derivation lexes")).expect("retained derivation is recognized");
+        assert!(generator.expanded_rules().contains("retained"));
+        assert!(!generator.expanded_rules().contains("discarded"));
+        assert!(generator.targeted_sentence(Grammar::START, "discarded", seed, 4).is_none());
+    }
+}
+
+#[test]
+fn multiline_sets_and_command_word_boundaries_are_recognized() {
+    for source in ["let values = {x or\ny for a in xs}\n", "let values = {x +\ny, 1}\n", "let values = {x\n+ y, 1}\n", "run --timeout={x or\ny for a in xs} f\n", "run --timeout={x +\ny, 1}(b: 1) f\n", "run --timeout= spawn (x) cmd\n", "env {}\n", "asrunsert seen == []\n", "f []\n", "f )\n", "pure f() { e { }\n", "let value = (spawn run fp\"{a}/x\")? % - collect {}\n", "f(spawn run a?)\n", "(f(spawn run a))\n", "let value = { f\ng }\n"] {
+        assert_parser_and_grammar_agree(source, true);
+    }
+    for source in ["fail - 1 because 2\n", "let value = spawn run fp\"{a}/x\"? % - collect {}\n", "continue unless spawn run e\"HOME\"? as pure () -> Int\n", "f(spawn run a)\n", "f a-b(1)\n", "run (\n cmd ) out )\n", "run --timeout=fp\"x\"[] cmd\n", "run --timeout= spawn (x)\n", "guard let items = run -- ? else { }\n", "{ } ; cd { { }\n", "let value = match x { E => \"\" 0 => 4 }\n"] {
+        assert_parser_and_grammar_agree(source, false);
+    }
+}
+
+#[test]
+fn reduced_mutant_counterexamples_have_sound_recognition() {
+    for (seed, accepted, source) in [
+        (198, true, r####"env {}
+"####),
+        (535, true, r####"asrunsert seen == []
+"####),
+        (420, false, r####"pure f()->R[]{match 3{0=>{match 0{0=>{(match 3{E=>""0=>4})}}}}}
+"####),
+        (500, true, r####"proc u()->t[]{{for i in{[""]:"",[""]:""}{}match 1{V=>{for i in[""or 3in 0]{R=if m{}else{for i in[]{}E{
+v=if([[]]){}else{if 0{}else{}}}}}}}}
+"####),
+        (678, true, r####"proc f()->t[]{{match(""){(2)=>{if.{e]}}}}}
+"####),
+    ] {
+        eprintln!("mutant seed {seed}");
+        assert_parser_and_grammar_agree(source, accepted);
+    }
 }
 
 /// The continuation tokens the parser joins lines on are the grammar's.

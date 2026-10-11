@@ -15,7 +15,10 @@ enum Symbol {
     Terminal(u32),
     Rule(u32),
     Look(u32),
+    NotContextScope,
+    ConditionBody { comma_terminator: bool },
     NameStatement(super::NameStatementForm),
+    WordStart,
     End,
 }
 
@@ -64,12 +67,18 @@ struct Compiler<'g> {
     lookaheads: Vec<Lookahead>,
     names: Vec<String>,
     rule_ids: FxHashMap<&'g str, u32>,
+    /// Rule bodies differ only where grouping owns a closing parenthesis.
+    grouped_ids: FxHashMap<&'g str, u32>,
+    grouped_requests: Vec<&'g str>,
     productions: Vec<(u32, Vec<Symbol>)>,
     single_line: Vec<u32>,
 }
 
 impl<'g> Compiler<'g> {
-    fn terminal(&mut self, term: Term) -> u32 {
+    fn terminal(&mut self, mut term: Term, grouped: bool) -> u32 {
+        if grouped {
+            term.class = match term.class { super::Class::WordPart(_) => super::Class::WordPart(true), super::Class::GroupedEnd(_) => super::Class::GroupedEnd(true), class => class };
+        }
         if let Some(id) = self.terminal_ids.get(&term) {
             return *id;
         }
@@ -84,7 +93,14 @@ impl<'g> Compiler<'g> {
         (self.names.len() - 1) as u32
     }
 
-    fn rule_id(&self, name: &str) -> u32 {
+    fn rule_id(&mut self, name: &'g str, grouped: bool) -> u32 {
+        if grouped {
+            if let Some(id) = self.grouped_ids.get(name) { return *id }
+            let id = self.fresh(format!("{name}#group"));
+            self.grouped_ids.insert(name, id);
+            self.grouped_requests.push(name);
+            return id;
+        }
         *self
             .rule_ids
             .get(name)
@@ -93,24 +109,29 @@ impl<'g> Compiler<'g> {
 
     /// Appends the symbols of `item` to `out`, introducing helper rules for
     /// alternation and repetition.
-    fn flatten(&mut self, owner: &str, item: &Item, out: &mut Vec<Symbol>) {
+    fn flatten(&mut self, owner: &str, item: &Item, out: &mut Vec<Symbol>, grouped: bool) {
         match item {
             Item::Term(term) => {
-                let id = self.terminal(*term);
+                let id = self.terminal(*term, grouped);
                 out.push(Symbol::Terminal(id));
             }
+            Item::NotContextScope => out.push(Symbol::NotContextScope),
+            Item::ConditionBody { comma_terminator } => {
+                out.push(Symbol::ConditionBody { comma_terminator: *comma_terminator })
+            }
+            Item::WordStart => out.push(Symbol::WordStart),
             Item::NameStatement(form) => out.push(Symbol::NameStatement(*form)),
-            Item::Rule(name) => out.push(Symbol::Rule(self.rule_id(name))),
+            Item::Rule(name) => out.push(Symbol::Rule(self.rule_id(name, grouped))),
             Item::Seq(items) => {
                 for item in items {
-                    self.flatten(owner, item, out);
+                    self.flatten(owner, item, out, grouped);
                 }
             }
             Item::Alt(items) => {
                 let id = self.fresh(format!("{owner}#alt"));
                 for item in items {
                     let mut rhs = Vec::new();
-                    self.flatten(owner, item, &mut rhs);
+                    self.flatten(owner, item, &mut rhs, grouped);
                     self.productions.push((id, rhs));
                 }
                 out.push(Symbol::Rule(id));
@@ -119,14 +140,14 @@ impl<'g> Compiler<'g> {
                 let id = self.fresh(format!("{owner}#opt"));
                 self.productions.push((id, Vec::new()));
                 let mut rhs = Vec::new();
-                self.flatten(owner, inner, &mut rhs);
+                self.flatten(owner, inner, &mut rhs, grouped);
                 self.productions.push((id, rhs));
                 out.push(Symbol::Rule(id));
             }
             Item::Star(inner) | Item::Plus(inner) => {
                 let id = self.fresh(format!("{owner}#rep"));
                 let mut once = Vec::new();
-                self.flatten(owner, inner, &mut once);
+                self.flatten(owner, inner, &mut once, grouped);
                 let mut again = vec![Symbol::Rule(id)];
                 again.extend(once.iter().copied());
                 if matches!(item, Item::Star(_)) {
@@ -143,12 +164,13 @@ impl<'g> Compiler<'g> {
                 min_one,
             } => {
                 let expanded = list_items(inner, *lines, *min_one);
-                self.flatten(owner, &expanded, out);
+                self.flatten(owner, &expanded, out, grouped);
             }
+            Item::Group(inner) => self.flatten(owner, inner, out, true),
             Item::Line(inner) => {
                 let id = self.fresh(format!("{owner}#line"));
                 let mut rhs = Vec::new();
-                self.flatten(owner, inner, &mut rhs);
+                self.flatten(owner, inner, &mut rhs, grouped);
                 self.productions.push((id, rhs));
                 self.single_line.push(id);
                 out.push(Symbol::Rule(id));
@@ -156,7 +178,7 @@ impl<'g> Compiler<'g> {
             Item::Not(sequences) | Item::Peek(sequences) => {
                 let sequences = sequences
                     .iter()
-                    .map(|sequence| sequence.iter().map(|term| self.terminal(*term)).collect())
+                    .map(|sequence| sequence.iter().map(|term| self.terminal(*term, grouped)).collect())
                     .collect();
                 self.lookaheads.push(Lookahead {
                     negative: matches!(item, Item::Not(_)),
@@ -214,6 +236,8 @@ impl Recognizer {
             lookaheads: Vec::new(),
             names: Vec::new(),
             rule_ids: FxHashMap::default(),
+            grouped_ids: FxHashMap::default(),
+            grouped_requests: Vec::new(),
             productions: Vec::new(),
             single_line: Vec::new(),
         };
@@ -226,12 +250,22 @@ impl Recognizer {
             );
         }
         for rule in &compiler.grammar.rules {
-            let id = compiler.rule_id(rule.name);
+            let id = compiler.rule_id(rule.name, false);
             let mut rhs = Vec::new();
-            compiler.flatten(rule.name, &rule.body, &mut rhs);
+            compiler.flatten(rule.name, &rule.body, &mut rhs, false);
             compiler.productions.push((id, rhs));
         }
-        let program = compiler.rule_id(Grammar::START);
+        let mut request = 0;
+        while request < compiler.grouped_requests.len() {
+            let name = compiler.grouped_requests[request];
+            let body = &grammar.rules.iter().find(|rule| rule.name == name).expect("grouped rule exists").body;
+            let id = compiler.rule_id(name, true);
+            let mut rhs = Vec::new();
+            compiler.flatten(name, body, &mut rhs, true);
+            compiler.productions.push((id, rhs));
+            request += 1;
+        }
+        let program = compiler.rule_id(Grammar::START, false);
         let start = compiler.fresh("start".to_string());
         compiler
             .productions
@@ -264,7 +298,7 @@ impl Recognizer {
                     let all = rhs.iter().all(|symbol| match symbol {
                         Symbol::Terminal(_) | Symbol::End => false,
                         Symbol::Rule(id) => empty[*id as usize],
-                        Symbol::Look(_) | Symbol::NameStatement(_) => !strict,
+                        Symbol::Look(_) | Symbol::NotContextScope | Symbol::ConditionBody { .. } | Symbol::NameStatement(_) | Symbol::WordStart => !strict,
                     });
                     if all {
                         empty[*lhs as usize] = true;
@@ -300,7 +334,7 @@ impl Recognizer {
                                 break;
                             }
                         }
-                        Symbol::Look(_) | Symbol::NameStatement(_) | Symbol::End => {}
+                        Symbol::Look(_) | Symbol::NotContextScope | Symbol::ConditionBody { .. } | Symbol::NameStatement(_) | Symbol::WordStart | Symbol::End => {}
                     }
                 }
                 let to = *lhs as usize * words;
@@ -336,7 +370,7 @@ impl Recognizer {
                             break;
                         }
                     }
-                    Symbol::Look(_) | Symbol::NameStatement(_) | Symbol::End => {}
+                    Symbol::Look(_) | Symbol::NotContextScope | Symbol::ConditionBody { .. } | Symbol::NameStatement(_) | Symbol::WordStart | Symbol::End => {}
                 }
             }
             production_may_be_empty[index] = empty;
@@ -513,6 +547,19 @@ impl Recognizer {
                         if look_passes(look, position) {
                             add((dot + 1, origin), &mut current);
                         }
+                    }
+                    Symbol::NotContextScope => {
+                        if super::context_scope_suffix_lookahead(|offset| tokens.get(position + offset).copied()).is_none() {
+                            add((dot + 1, origin), &mut current);
+                        }
+                    }
+                    Symbol::ConditionBody { comma_terminator } => {
+                        if !super::condition_body_follows_builder_callback(tokens, position, comma_terminator) {
+                            add((dot + 1, origin), &mut current);
+                        }
+                    }
+                    Symbol::WordStart => {
+                        if !super::argument_starts_chain(|offset| tokens.get(position + offset).copied(), true) { add((dot + 1, origin), &mut current); }
                     }
                     Symbol::NameStatement(form) => {
                         if super::name_statement_matches(form, |offset| tokens.get(position + offset).copied())

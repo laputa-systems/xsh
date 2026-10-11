@@ -379,7 +379,10 @@ impl<'a> Parser<'a> {
         loop {
             self.accept_line_continuations();
             let save = self.index;
-            if !(self.at(TokenKindMatch::Minus) && self.peek_tag(1) == Some(TokenTag::Minus)) {
+            if !(self.at(TokenKindMatch::Minus)
+                && self.peek_tag(1) == Some(TokenTag::Minus)
+                && self.peek_start(1) == Some(self.current_end()))
+            {
                 break;
             }
             self.bump();
@@ -438,10 +441,10 @@ impl<'a> Parser<'a> {
                 Some(arena.push_ident_expr(value, span))
             }
             _ => {
-                let previous = self.command_arg_expr;
-                self.command_arg_expr = true;
-                let expression = self.parse_expr_id_arena_only(arena);
-                self.command_arg_expr = previous;
+                let previous = self.run_option_value_expr;
+                self.run_option_value_expr = true;
+                let expression = self.with_command_arg_expr(|parser| parser.parse_expr_id_arena_only(arena));
+                self.run_option_value_expr = previous;
                 expression
             }
         }
@@ -694,40 +697,7 @@ impl<'a> Parser<'a> {
     /// `()` (call) or `[]` (index). These are unambiguous in command-arg
     /// position — unlike bare field access (`a.b`) which could be a filename.
     fn at_call_or_index_chain(&self) -> bool {
-        if !matches!(self.current_tag(), TokenTag::Ident | TokenTag::String) {
-            return false;
-        }
-        let mut pos = self.index + 1;
-        loop {
-            let tag = match self.token_table.tag_at(pos) {
-                Some(tag) => tag,
-                None => return false,
-            };
-            match tag {
-                TokenTag::Question
-                    if self.start_at(pos) == self.end_at(pos - 1)
-                        && self.start_at(pos + 1) == self.end_at(pos)
-                        && matches!(
-                            self.token_table.tag_at(pos + 1),
-                            Some(TokenTag::Dot | TokenTag::LBracket)
-                        ) =>
-                {
-                    pos += 1;
-                }
-                TokenTag::Dot => {
-                    if self.start_at(pos + 1) != self.end_at(pos)
-                        || self.peek_label_name(pos + 1 - self.index).is_none()
-                    {
-                        return false;
-                    }
-                    pos += 2;
-                }
-                TokenTag::LParen | TokenTag::LBracket => {
-                    return self.start_at(pos) == self.end_at(pos - 1);
-                }
-                _ => return false,
-            }
-        }
+        grammar::argument_starts_chain(|offset| self.grammar_token(offset), false)
     }
 
     pub(super) fn parse_command_arg_arena_only(

@@ -906,7 +906,9 @@ pub enum Class {
     /// A member name after `.`: a label or a hyphenated identifier.
     Member,
     /// A token that can be part of a bare command word.
-    WordPart,
+    WordPart(bool),
+    /// A closing parenthesis usable as a run boundary inside an expression group.
+    GroupedEnd(bool),
     /// A token made only of bare-path characters.
     PathPart,
 }
@@ -928,7 +930,8 @@ impl Class {
                 token.tag,
                 TokenTag::Ident | TokenTag::ProcIdent | TokenTag::Keyword
             ),
-            Self::WordPart => is_word_part(token.tag),
+            Self::WordPart(grouped) => is_word_part(token.tag, grouped),
+            Self::GroupedEnd(grouped) => grouped && token.tag == TokenTag::RParen,
             Self::PathPart => {
                 !token.text.is_empty()
                     && token
@@ -942,18 +945,15 @@ impl Class {
 
 /// Whether a token can be part of a bare command word. Quoted strings,
 /// `$name`, and `${` are word parts with their own productions. A `[` or `(`
-/// touching a name makes it an index or call argument, so brackets are never
-/// part of a bare word.
-pub const fn is_word_part(tag: TokenTag) -> bool {
+/// touching a name makes it an index or call argument. Other brackets and
+/// opening braces are literal word text; an expression group owns its `)`.
+pub const fn is_word_part(tag: TokenTag, grouped: bool) -> bool {
     !matches!(
         tag,
-        TokenTag::LBracket
-            | TokenTag::RBracket
-            | TokenTag::Eof
+        TokenTag::Eof
             | TokenTag::Newline
             | TokenTag::Comment
             | TokenTag::Semicolon
-            | TokenTag::LBrace
             | TokenTag::RBrace
             | TokenTag::At
             | TokenTag::Question
@@ -961,11 +961,10 @@ pub const fn is_word_part(tag: TokenTag) -> bool {
             | TokenTag::PipeGt
             | TokenTag::Amp
             | TokenTag::LParen
-            | TokenTag::RParen
             | TokenTag::String
             | TokenTag::DollarIdent
             | TokenTag::DollarLBrace
-    )
+    ) && !(grouped && matches!(tag, TokenTag::RParen))
 }
 
 /// A grammar terminal.
@@ -1090,6 +1089,175 @@ pub fn name_starts_context<'s>(mut peek: impl FnMut(usize) -> Option<GrammarToke
     unreachable!()
 }
 
+/// Returns whether a complete `cd (...) { ... }` or `env (...) { ... }` form
+/// has an expression suffix; `None` means the input does not start that form.
+pub fn context_scope_suffix_lookahead<'s>(
+    mut peek: impl FnMut(usize) -> Option<GrammarToken<'s>>,
+) -> Option<bool> {
+    if !peek(0).is_some_and(|token| {
+        token.tag == TokenTag::Ident && matches!(token.text, "cd" | "env")
+    }) || !peek(1).is_some_and(|token| token.tag == TokenTag::LParen)
+    {
+        return None;
+    }
+    let mut offset = 1;
+    let mut parens = 0usize;
+    loop {
+        let Some(tag) = peek(offset).map(|token| token.tag) else {
+            return None;
+        };
+        match tag {
+            TokenTag::LParen => parens += 1,
+            TokenTag::RParen => {
+                parens -= 1;
+                if parens == 0 {
+                    offset += 1;
+                    break;
+                }
+            }
+            TokenTag::Eof => return None,
+            _ => {}
+        }
+        offset += 1;
+    }
+    while matches!(peek(offset).map(|token| token.tag), Some(TokenTag::Newline | TokenTag::Comment)) {
+        offset += 1;
+    }
+    if !peek(offset).is_some_and(|token| token.tag == TokenTag::LBrace) {
+        return None;
+    }
+    let mut braces = 0usize;
+    loop {
+        let Some(tag) = peek(offset).map(|token| token.tag) else {
+            return None;
+        };
+        match tag {
+            TokenTag::LBrace | TokenTag::DollarLBrace => braces += 1,
+            TokenTag::RBrace => {
+                braces -= 1;
+                if braces == 0 {
+                    offset += 1;
+                    break;
+                }
+            }
+            TokenTag::Eof => return None,
+            _ => {}
+        }
+        offset += 1;
+    }
+    if peek(offset).is_some_and(|token| token.tag == TokenTag::Question) {
+        offset += 1;
+    }
+    while matches!(peek(offset).map(|token| token.tag), Some(TokenTag::Newline | TokenTag::Comment)) {
+        offset += 1;
+    }
+    let Some(suffix) = peek(offset) else {
+        return Some(false);
+    };
+    Some(matches!(
+        suffix.tag,
+        TokenTag::PipeGt | TokenTag::Dot | TokenTag::LBracket | TokenTag::LParen
+    ) || binary_operator_at(
+        suffix.tag,
+        suffix.keyword,
+        peek(offset + 1).and_then(|token| token.keyword),
+    )
+    .is_some())
+}
+
+/// Whether a builder API's following block is still the condition body rather
+/// than a callback block. The parser and grammar use the same suffix boundary.
+pub fn builder_block_is_condition_body<'s>(
+    mut peek: impl FnMut(usize) -> Option<GrammarToken<'s>>,
+    comma_terminator: bool,
+) -> bool {
+    if !peek(0).is_some_and(|token| token.tag == TokenTag::LBrace) {
+        return false;
+    }
+    let (mut depth, mut offset) = (0, 0);
+    while let Some(tag) = peek(offset).map(|token| token.tag) {
+        match tag {
+            TokenTag::LBrace | TokenTag::DollarLBrace => depth += 1,
+            TokenTag::RBrace => {
+                depth -= 1;
+                if depth == 0 {
+                    offset += 1;
+                    break;
+                }
+            }
+            TokenTag::Eof => return false,
+            _ => {}
+        }
+        offset += 1;
+    }
+    while matches!(peek(offset).map(|token| token.tag), Some(TokenTag::Newline | TokenTag::Comment)) {
+        offset += 1;
+    }
+    let Some(suffix) = peek(offset) else { return true };
+    !(matches!(suffix.tag, TokenTag::LBrace | TokenTag::Dot | TokenTag::LBracket | TokenTag::LParen | TokenTag::PipeGt | TokenTag::Question)
+        || comma_terminator && suffix.tag == TokenTag::Comma
+        || matches!(suffix.tag, TokenTag::Ident | TokenTag::ProcIdent) && matches!(suffix.text, "within" | "as" | "is")
+        || binary_operator_at(
+            suffix.tag,
+            suffix.keyword,
+            peek(offset + 1).and_then(|next| next.keyword),
+        ).is_some())
+}
+
+/// Whether the brace at `position` follows a builder callback that the parser
+/// would attach to the expression before it.
+pub fn condition_body_follows_builder_callback(
+    tokens: &[GrammarToken<'_>],
+    position: usize,
+    comma_terminator: bool,
+) -> bool {
+    if !tokens.get(position).is_some_and(|token| token.tag == TokenTag::LBrace) {
+        return false;
+    }
+    let mut callee_end = position.checked_sub(1);
+    if callee_end.is_some_and(|index| tokens[index].tag == TokenTag::RParen) {
+        let mut depth = 1usize;
+        let Some(mut index) = callee_end.unwrap().checked_sub(1) else { return false };
+        loop {
+            match tokens.get(index).map(|token| token.tag) {
+                Some(TokenTag::RParen) => depth += 1,
+                Some(TokenTag::LParen) => {
+                    depth -= 1;
+                    if depth == 0 {
+                        if !tokens[index].glued {
+                            return false;
+                        }
+                        callee_end = index.checked_sub(1);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            let Some(previous) = index.checked_sub(1) else { return false };
+            index = previous;
+        }
+    }
+    let Some(function_index) = callee_end else { return false };
+    let Some(dot_index) = function_index.checked_sub(1) else { return false };
+    let Some(module_index) = dot_index.checked_sub(1) else { return false };
+    let (Some(module), Some(dot), Some(function)) = (
+        tokens.get(module_index), tokens.get(dot_index), tokens.get(function_index),
+    ) else { return false };
+    if module.tag != TokenTag::Ident
+        || dot.tag != TokenTag::Dot
+        || !dot.glued
+        || function.tag != TokenTag::Ident
+        || !function.glued
+        || !builder_api_accepts_block(module.text, function.text)
+    {
+        return false;
+    }
+    !builder_block_is_condition_body(
+        |offset| tokens.get(position + offset).copied(),
+        comma_terminator,
+    )
+}
+
 pub fn name_starts_collect<'s>(mut peek: impl FnMut(usize) -> Option<GrammarToken<'s>>) -> bool {
     peek(0).is_some_and(|token| token.tag == TokenTag::Ident && token.text == "collect")
         && peek(1).is_some_and(|token| token.tag == TokenTag::LBrace)
@@ -1097,22 +1265,31 @@ pub fn name_starts_collect<'s>(mut peek: impl FnMut(usize) -> Option<GrammarToke
 
 pub fn name_statement_is_expression<'s>(mut peek: impl FnMut(usize) -> Option<GrammarToken<'s>>) -> bool {
     let Some(first) = peek(0) else { return true };
+    if context_scope_suffix_lookahead(&mut peek) == Some(true) {
+        return true;
+    }
+    if first.tag == TokenTag::Ident && first.text == "cd" {
+        return false;
+    }
     !matches!(first.tag, TokenTag::Ident | TokenTag::ProcIdent)
         || name_starts_collect(&mut peek)
         || name_starts_context(&mut peek)
         || !name_is_dotted_command(&mut peek) && (name_has_postfix(&mut peek) || name_has_binary(&mut peek))
 }
 
-/// A block on a command's line selects its scoped form. Interpolation
-/// braces belong to an argument and do not open that scope.
+/// A block on a command's line selects its scoped form. Braces and line breaks
+/// inside `${...}` belong to the argument, including nested expression blocks.
 pub fn command_line_has_block<'s>(mut peek: impl FnMut(usize) -> Option<GrammarToken<'s>>) -> bool {
-    let mut interpolations = 0usize;
+    let mut interpolation_depth = 0usize;
     for offset in 1.. {
         match peek(offset).map(|token| token.tag) {
-            Some(TokenTag::DollarLBrace) => interpolations += 1,
-            Some(TokenTag::RBrace) if interpolations > 0 => interpolations -= 1,
-            Some(TokenTag::LBrace) if interpolations == 0 => return true,
-            None | Some(TokenTag::Newline | TokenTag::Semicolon | TokenTag::RBrace | TokenTag::Eof) => return false,
+            Some(TokenTag::DollarLBrace) => interpolation_depth += 1,
+            Some(TokenTag::LBrace) if interpolation_depth > 0 => interpolation_depth += 1,
+            Some(TokenTag::LBrace) => return true,
+            Some(TokenTag::RBrace) if interpolation_depth > 0 => interpolation_depth -= 1,
+            None | Some(TokenTag::Eof) => return false,
+            Some(TokenTag::Newline | TokenTag::Semicolon | TokenTag::RBrace)
+                if interpolation_depth == 0 => return false,
             _ => {}
         }
     }
@@ -1138,12 +1315,36 @@ pub fn name_statement_matches<'s>(form: NameStatementForm, mut peek: impl FnMut(
     }
 }
 
+/// Calls and indices shadow bare words only when their receiver chain is
+/// attached. Parser lookahead can scan a spaced dot while deciding whether
+/// the receiver itself is a typed argument; that dot starts the next argument.
+pub fn argument_starts_chain<'s>(mut peek: impl FnMut(usize) -> Option<GrammarToken<'s>>, attached: bool) -> bool {
+    if !peek(0).is_some_and(|token| matches!(token.tag, TokenTag::Ident | TokenTag::String)) { return false }
+    let mut offset = 1;
+    loop {
+        let Some(token) = peek(offset) else { return false };
+        match token.tag {
+            TokenTag::Question if token.glued && peek(offset + 1).is_some_and(|next| next.glued && matches!(next.tag, TokenTag::Dot | TokenTag::LBracket)) => offset += 1,
+            TokenTag::Dot if (!attached || token.glued) && peek(offset + 1).is_some_and(|next| next.glued && Class::Label.matches(&next)) => offset += 2,
+            TokenTag::LParen | TokenTag::LBracket => return token.glued,
+            _ => return false,
+        }
+    }
+}
+
 /// A production body in extended BNF.
 #[derive(Clone, Debug)]
 pub enum Item {
     Term(Term),
     /// Zero-width: the statement head selects the requested name form.
     NameStatement(NameStatementForm),
+    /// Zero-width: an attached call or index does not own this command word.
+    WordStart,
+    /// Zero-width: this is not the start of a complete `cd (...) { ... }` or
+    /// `env (...) { ... }` scope.
+    NotContextScope,
+    /// Zero-width: a condition body does not steal a preceding builder callback.
+    ConditionBody { comma_terminator: bool },
     Rule(&'static str),
     Seq(Vec<Item>),
     Alt(Vec<Item>),
@@ -1165,6 +1366,8 @@ pub enum Item {
     Peek(Vec<Vec<Term>>),
     /// The item is written on one line: it contains no `NEWLINE`.
     Line(Box<Item>),
+    /// Parentheses parsed as an expression own their closing delimiter.
+    Group(Box<Item>),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
