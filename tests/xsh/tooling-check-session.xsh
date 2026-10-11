@@ -82,6 +82,14 @@ print "entry-ran"
   assert executed.status.exited_with(0), executed.stderr
   assert executed.stdout == "entry-ran\n", executed.stdout
   assert executed.stderr == "", executed.stderr
+
+  fp"{root}/lowering-error.xsh".write("proc legacy_process_error() { let _error = ProcessError(\"legacy\") }\n")
+  let failed_execution = cd (root) {
+    run.capture --text "xsh" "lowering-error.xsh"
+  }?
+  assert failed_execution.status.exited_with(2), failed_execution.stderr
+  assert "err[compact.indexed-build]" in failed_execution.stderr, failed_execution.stderr
+  assert "warn[check.migration-error]" not in failed_execution.stderr, failed_execution.stderr
 }
 
 test test_missing_import_is_a_checker_error_in_every_tool { |ctx|
