@@ -974,10 +974,10 @@ test test_sort_stable_preserves_equal_primary_keys { |ctx|
   let script = fp"{ctx.core_dir}/sort.xsh"
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
-  let numeric = process.run(process.command_argv(ctx.xsh_bin,
+  let numeric_result = process.run(process.command_argv(ctx.xsh_bin,
     [ctx.xsh_bin.display(), "--", script.display(), "-ns"], root,
     {LC_ALL: "C"}, b"1\n01\n", stdout, stderr))?
-  assert numeric.exit_code()? == 0
+  assert numeric_result.exit_code()? == 0
   assert stdout.read_bytes()? == b"1\n01\n"
   assert stderr.read_bytes()?.is_empty()
 
@@ -1581,4 +1581,64 @@ test test_sort_merge_reports_large_stdout_write_failure { |ctx|
   assert result.exit_code()? == 2, stderr.read_text()?
   assert stderr.read_text()? == "sort: write failed: 'standard output': No space left on device\nsort: write error\n"
   assert stdout.read_bytes()?.is_empty()
+}
+
+test test_sort_general_numeric_rounds_to_native_precision { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-general-native-precision")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = b"3.000000000000000000000000000000000000000000000000000000000000000004\n3\n"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", fp"{ctx.core_dir}/sort.xsh".display(), "-gs"], root,
+    {LC_ALL: "C"}, input, stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == input
+  assert stderr.read_bytes()?.is_empty()
+}
+
+test test_sort_general_numeric_overflow_equals_infinity { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-general-native-range")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", fp"{ctx.core_dir}/sort.xsh".display(), "-gu"], root,
+    {LC_ALL: "C"}, b"1e6000\ninf\n", stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == b"1e6000\n"
+  assert stderr.read_bytes()?.is_empty()
+}
+
+test test_sort_general_numeric_prepares_spilled_and_merge_keys { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-general-native-runs")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let first = fp"{root}/first"
+  let second = fp"{root}/second"
+  let finite = "a 1.000000000000000000000000000000000000000000000000000000000000000004"
+  first.write(f"{finite}\nc inf\n")
+  second.write("b 1\nd 1e6000\n")
+  let merged = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-m", "-s", "-k2g", first.display(), second.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert merged.exit_code()? == 0, stderr.read_text()?
+  assert stdout.read_text()? == f"{finite}\nb 1\nc inf\nd 1e6000\n"
+  let input = bytes.from_text(text.padding(1000, f"{finite}\nb 1\nc inf\nd 1e6000\n"))
+  let spilled = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-k2g", "-u", "-S1K", "-T", root.display()], root,
+    {LC_ALL: "C"}, input, stdout, stderr))?
+  assert spilled.exit_code()? == 0, stderr.read_text()?
+  assert stdout.read_text()? == f"{finite}\nc inf\n"
+}
+
+test test_sort_general_numeric_c_locale_preserves_non_ascii_whitespace { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-general-c-whitespace")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", fp"{ctx.core_dir}/sort.xsh".display(), "-gs"], root,
+    {LC_ALL: "C"}, b"1\n 1\n", stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == b" 1\n1\n"
+  assert stderr.read_bytes()?.is_empty()
 }

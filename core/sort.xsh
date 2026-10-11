@@ -142,11 +142,13 @@ type SortOptions = {
   random: Bool,
   random_source: Str?,
   paths: List[Str],
+  general_numeric_keys: Map[GeneralNumericEntry],
 }
 
 type NumericSortKey = {number: Str, raw: Str}
 type HumanNumericSortKey = {key: Str, raw: Str}
 type GeneralNumericSortKey = {key: Str, raw: Str}
+type GeneralNumericEntry = {key: Str, prefix: Str}
 type TextSortKey = {key: Str, raw: Str}
 ## `compressed` names the program that wrote a temporary run; null marks plain input or a plain run.
 type SortInput = {name: Bytes, path: Path, stdin: Bool, compressed: Str?}
@@ -357,197 +359,53 @@ pure numeric_order_key(line: Str) -> Str {
   }
 }
 
-pure hex_digit_value(byte: Int) -> Int {
-  if is_ascii_digit(byte) { return byte - 48 }
-  if byte >= 65 and byte <= 70 { return byte - 55 }
-  if byte >= 97 and byte <= 102 { return byte - 87 }
-  -1
+pure has_general_numeric_keys(opts: SortOptions) -> Bool {
+  if opts.key.is_empty() { return is_general_numeric_sort(opts) }
+  for spec in opts.key {
+    if is_general_numeric_sort(key_effective_options(spec, opts)) { return true }
+  }
+  false
 }
 
-pure general_hex_value(value: Str, sign_length: Int) -> Float {
-  let input = bytes.from_text(value)
-  var at = sign_length + 2
-  var number = 0.0
-  var fractional = false
-  var fraction_place = 1.0 / 16.0
-  var digits = 0
-  while at < input.len() {
-    let byte = input.byte_at(at) ?? 0
-    if byte == 46 and ! fractional {
-      fractional = true
-    } else {
-      let digit = hex_digit_value(byte)
-      if digit < 0 { break }
-      digits += 1
-      if fractional {
-        number += digit.float() * fraction_place
-        fraction_place /= 16.0
-      } else {
-        number = number * 16.0 + digit.float()
+## Parse once during input preparation, preserving the target's native long-double
+## rounding and range. Keeping only requested strings bounds merge caches to the
+## current records; a failed host conversion propagates before comparisons start.
+proc prepare_general_numeric_keys(lines: List[Str], opts: SortOptions) [error] -> SortOptions {
+  var specs: List[Str] = []
+  for spec in opts.key {
+    if is_general_numeric_sort(key_effective_options(spec, opts)) { specs += [spec] }
+  }
+  if (opts.key.is_empty() and ! is_general_numeric_sort(opts)) or
+    (! opts.key.is_empty() and specs.is_empty()) { return opts }
+  var keys: Map[GeneralNumericEntry] = {}
+  for line in lines {
+    let selected = if opts.key.is_empty() { [line] } else {
+      [key_field_value(line, sort_delimiter(opts), spec, key_effective_options(spec, opts)) for spec in specs]
+    }
+    for value in selected {
+      if value not in keys {
+        if value in opts.general_numeric_keys {
+          keys[value] = opts.general_numeric_keys[value]
+        } else {
+          let parsed = numeric.parse_long_double(value)?
+          let start = value.byte_len() - trim_leading_blanks(value).byte_len()
+          let prefix = if parsed.consumed == 0 { "" } else { value.byte_slice(start, length: parsed.consumed - start) }
+          keys[value] = {key: parsed.order_key, prefix: prefix}
+        }
       }
     }
-    at += 1
   }
-  if digits == 0 { return 0.0 }
-
-  if at < input.len() and (input.byte_at(at) ?? 0) in [80, 112] {
-    at += 1
-    let exponent_start = at
-    if at < input.len() and (input.byte_at(at) ?? 0) in [43, 45] { at += 1 }
-    let exponent_digits = at
-    while at < input.len() and is_ascii_digit(input.byte_at(at) ?? 0) { at += 1 }
-    if at > exponent_digits {
-      let exponent = value.byte_slice(exponent_start, length: at - exponent_start).parse_int() ?? 0
-      number *= 2.0.pow(exponent.float())
-    }
-  }
-
-  if sign_length == 1 and value.starts_with("-") { 0.0 - number } else { number }
+  {...opts, general_numeric_keys: keys}
 }
 
-pure general_numeric_prefix(line: Str) -> Str {
-  let value = line.trim()
-  let lower = value.lower()
-  var sign_length = 0
-  if value.starts_with("-") or value.starts_with("+") { sign_length = 1 }
-
-  let unsigned = lower.byte_slice(sign_length)
-  if unsigned.starts_with("nan") { return value.byte_slice(0, length: sign_length + 3) }
-  if unsigned.starts_with("infinity") { return value.byte_slice(0, length: sign_length + 8) }
-  if unsigned.starts_with("inf") { return value.byte_slice(0, length: sign_length + 3) }
-
-  let input = bytes.from_text(value)
-  if unsigned.starts_with("0x") {
-    var at = sign_length + 2
-    var digits = 0
-    var fractional = false
-    while at < input.len() {
-      let byte = input.byte_at(at) ?? 0
-      if byte == 46 and ! fractional {
-        fractional = true
-      } else {
-        if hex_digit_value(byte) < 0 { break }
-        digits += 1
-      }
-      at += 1
-    }
-    let mantissa_end = at
-    if at < input.len() and (input.byte_at(at) ?? 0) in [80, 112] {
-      at += 1
-      if at < input.len() and (input.byte_at(at) ?? 0) in [43, 45] { at += 1 }
-      let exponent_start = at
-      while at < input.len() and is_ascii_digit(input.byte_at(at) ?? 0) { at += 1 }
-      if at == exponent_start { at = mantissa_end }
-    }
-    if digits == 0 { at = sign_length + 1 }
-    return value.byte_slice(0, length: at)
-  }
-
-  var at = sign_length
-  var digits = 0
-  while at < input.len() and is_ascii_digit(input.byte_at(at) ?? 0) {
-    at += 1
-    digits += 1
-  }
-  if at < input.len() and input.byte_at(at) == 46 {
-    at += 1
-    while at < input.len() and is_ascii_digit(input.byte_at(at) ?? 0) {
-      at += 1
-      digits += 1
-    }
-  }
-  if digits == 0 { return "" }
-
-  let mantissa_end = at
-  if at < input.len() and (input.byte_at(at) ?? 0) in [69, 101] {
-    at += 1
-    if at < input.len() and (input.byte_at(at) ?? 0) in [43, 45] { at += 1 }
-    let exponent_start = at
-    while at < input.len() and is_ascii_digit(input.byte_at(at) ?? 0) { at += 1 }
-    if at == exponent_start { at = mantissa_end }
-  }
-
-  value.byte_slice(0, length: at)
+## Comparisons consume prepared keys; a missing key is an input-preparation error.
+## Failed conversions sort before NaNs, then native long-double values.
+pure general_numeric_sort_key(line: Str, stable: Bool, opts: SortOptions) -> GeneralNumericSortKey {
+  {key: opts.general_numeric_keys[line].key, raw: if stable { "" } else { line }}
 }
 
-pure general_numeric_value(line: Str) -> Float {
-  let prefix = general_numeric_prefix(line)
-  if prefix == "" { return 0.0 }
-  var sign_length = 0
-  if prefix.starts_with("-") or prefix.starts_with("+") { sign_length = 1 }
-  if prefix.lower().byte_slice(sign_length).starts_with("0x") {
-    general_hex_value(prefix, sign_length)
-  } else {
-    prefix.parse_float() ?? 0.0
-  }
-}
-
-## Decimal input is keyed from its own digits rather than a Float, so values that differ
-## past 17 significant digits keep GNU's order. Each key ends with a terminator that sorts
-## before every digit (positive) or after every complemented digit (negative), so a shorter
-## significand orders correctly against its extensions in both signs.
-## GNU places failed numeric conversions before NaN and all valid numbers.
-pure general_numeric_sort_key(line: Str, stable: Bool) -> GeneralNumericSortKey {
-  let prefix = general_numeric_prefix(line)
-  if prefix == "" {
-    return {key: "0", raw: if stable { "" } else { line }}
-  }
-  let number = general_numeric_value(line)
-  # Specials come from the text, not the Float: a finite decimal beyond the Float range is still a number.
-  let unsigned_prefix = if prefix.starts_with("-") or prefix.starts_with("+") { prefix.byte_slice(1) } else { prefix }
-  if unsigned_prefix.lower().starts_with("nan") { return {key: "1", raw: if stable { "" } else { line }} }
-  if unsigned_prefix.lower().starts_with("inf") {
-    let infinity_key = if prefix.starts_with("-") { "2" } else { "6" }
-    return {key: infinity_key, raw: if stable { "" } else { line }}
-  }
-  let display = if unsigned_prefix.lower().starts_with("0x") {
-    if let Ok(exact) = number.format_number("g", 17) { exact } else { number.format() }
-  } else if prefix.starts_with("-") {
-    f"-{unsigned_prefix}"
-  } else {
-    unsigned_prefix
-  }
-
-  let negative = display.starts_with("-")
-  let unsigned = if negative { display.byte_slice(1) } else { display }
-  var exponent_at = 0
-  while exponent_at < unsigned.byte_len() and unsigned.byte_slice(exponent_at, length: 1) not in ["e", "E"] {
-    exponent_at += 1
-  }
-  let mantissa = unsigned.byte_slice(0, length: exponent_at)
-  let exponent = if exponent_at < unsigned.byte_len() { unsigned.byte_slice(exponent_at + 1).parse_int() ?? 0 } else { 0 }
-  var digits = ""
-  var decimal_position = 0
-  var after_decimal = false
-  for at in range(mantissa.byte_len()) {
-    let byte = mantissa.byte_at(at) ?? 0
-    if byte == 46 {
-      after_decimal = true
-    } else {
-      digits += mantissa.byte_slice(at, length: 1)
-      if ! after_decimal { decimal_position += 1 }
-    }
-  }
-
-  var first_significant = 0
-  while first_significant < digits.byte_len() and digits.byte_slice(first_significant, length: 1) == "0" {
-    first_significant += 1
-  }
-  if first_significant == digits.byte_len() {
-    return {key: "4", raw: if stable { "" } else { line }}
-  }
-  var normalized = digits.byte_slice(first_significant)
-  while normalized.ends_with("0") and normalized.byte_len() > 1 {
-    normalized = normalized.byte_slice(0, length: normalized.byte_len() - 1)
-  }
-
-  let decimal_exponent = decimal_position - first_significant - 1 + exponent
-  let biased_exponent = decimal_exponent + 10000
-  if negative {
-    {key: f"3{padded_decimal(99999 - biased_exponent, 5)}{invert_decimal_digits(normalized)}:", raw: if stable { "" } else { line }}
-  } else {
-    {key: f"5{padded_decimal(biased_exponent, 5)}{normalized}!", raw: if stable { "" } else { line }}
-  }
+pure general_numeric_prefix(line: Str, opts: SortOptions) -> Str {
+  opts.general_numeric_keys[line].prefix
 }
 
 pure numeric_field_sort_key(line: Str, delimiter: Str, field: Int, opts: SortOptions) -> NumericSortKey {
@@ -864,7 +722,7 @@ pure key_order_value(line: Str, delimiter: Str, spec: Str, opts: SortOptions) ->
   } else if is_human_numeric_sort(key_opts) {
     human_numeric_sort_key(value, true).key
   } else if is_general_numeric_sort(key_opts) {
-    general_numeric_sort_key(value, true).key
+    general_numeric_sort_key(value, true, key_opts).key
   } else if is_version_sort(key_opts) {
     version_key(value)
   } else if is_numeric_sort(key_opts) {
@@ -1133,7 +991,7 @@ pure pair_is_ordered(left: Str, right: Str, opts: SortOptions, has_key: Bool, ke
   } else if is_human_numeric_sort(opts) {
     if opts.reverse { pair |> sort-by(desc: true) human_numeric_sort_key(., opts.stable or opts.unique) } else { pair |> sort-by human_numeric_sort_key(., opts.stable or opts.unique) }
   } else if is_general_numeric_sort(opts) {
-    if opts.reverse { pair |> sort-by(desc: true) general_numeric_sort_key(., opts.stable or opts.unique) } else { pair |> sort-by general_numeric_sort_key(., opts.stable or opts.unique) }
+    if opts.reverse { pair |> sort-by(desc: true) general_numeric_sort_key(., opts.stable or opts.unique, opts) } else { pair |> sort-by general_numeric_sort_key(., opts.stable or opts.unique, opts) }
   } else if is_version_sort(opts) and has_key {
     if opts.reverse { pair |> sort-by(desc: true) version_field_sort_key(., sort_delimiter(opts), key_field, opts) } else { pair |> sort-by version_field_sort_key(., sort_delimiter(opts), key_field, opts) }
   } else if is_version_sort(opts) {
@@ -1178,8 +1036,8 @@ pure same_sort_key(left: Str, right: Str, opts: SortOptions, has_key: Bool, key_
     let right_key = human_numeric_sort_key(right, true)
     left_key.key == right_key.key
   } else if is_general_numeric_sort(opts) {
-    let left_key = general_numeric_sort_key(left, true)
-    let right_key = general_numeric_sort_key(right, true)
+    let left_key = general_numeric_sort_key(left, true, opts)
+    let right_key = general_numeric_sort_key(right, true, opts)
     left_key.key == right_key.key
   } else if is_version_sort(opts) and has_key {
     version_key((if sort_delimiter(opts) == "" { left.trim().words() } else { left.split(sort_delimiter(opts)) }).get(key_field) ?? "") == version_key((if sort_delimiter(opts) == "" { right.trim().words() } else { right.split(sort_delimiter(opts)) }).get(key_field) ?? "")
@@ -1250,7 +1108,7 @@ pure debug_primary_text(line: Str, opts: SortOptions, has_key: Bool, key_field: 
   } else if is_human_numeric_sort(opts) {
     human_numeric_prefix(line)
   } else if is_general_numeric_sort(opts) {
-    general_numeric_prefix(line)
+    general_numeric_prefix(line, opts)
   } else if opts.blank {
     trim_leading_blanks(line)
   } else {
@@ -1268,7 +1126,7 @@ pure debug_key_text(line: Str, opts: SortOptions, spec: Str) -> Str {
   } else if is_numeric_sort(key_opts) {
     numeric_prefix(selected)
   } else if is_general_numeric_sort(key_opts) {
-    general_numeric_prefix(selected)
+    general_numeric_prefix(selected, key_opts)
   } else {
     selected
   }
@@ -1389,9 +1247,9 @@ pure sort_input_lines(input_lines: List[Str], opts: SortOptions, has_key: Bool, 
     }
   } else if general_numeric {
     if opts.reverse {
-      unique_input |> sort-by(desc: true) general_numeric_sort_key(., opts.stable or opts.unique)
+      unique_input |> sort-by(desc: true) general_numeric_sort_key(., opts.stable or opts.unique, opts)
     } else {
-      unique_input |> sort-by general_numeric_sort_key(., opts.stable or opts.unique)
+      unique_input |> sort-by general_numeric_sort_key(., opts.stable or opts.unique, opts)
     }
   } else if is_version_sort(opts) {
     # A descending sort reverses the order of equal keys, which --stable and --unique must keep in input order.
@@ -1432,7 +1290,7 @@ pure unique_sorted_lines(sorted: List[Str], opts: SortOptions, has_key: Bool) ->
   } else if opts.unique and is_human_numeric_sort(opts) {
     sorted |> unique-by human_numeric_sort_key(., true)
   } else if opts.unique and is_general_numeric_sort(opts) {
-    sorted |> unique-by general_numeric_sort_key(., true)
+    sorted |> unique-by general_numeric_sort_key(., true, opts)
   } else if opts.unique and is_version_sort(opts) {
     sorted |> unique-by version_key(.)
   } else if opts.unique and is_numeric_sort(opts) {
@@ -1718,7 +1576,14 @@ proc stream_sort_merge(inputs: List[SortInput], opts: SortOptions, has_key: Bool
   let line_ending = if opts.zero_terminated { "\0" } else { "\n" }
   var output = ""
   var previous: Str? = null
+  var prepared = opts
   loop {
+    if has_general_numeric_keys(opts) {
+      var active: List[Str] = []
+      for reader in readers { if let line = reader.current { active += [line] } }
+      if let line = previous { active += [line] }
+      prepared = prepare_general_numeric_keys(active, prepared)
+    }
     var selected: Int? = null
     for index in range(readers.len()) {
       if let candidate = readers[index].current {
@@ -1730,8 +1595,8 @@ proc stream_sort_merge(inputs: List[SortInput], opts: SortOptions, has_key: Bool
           let candidate_precedes = if plain_text_order {
             if opts.reverse { candidate > current } else { candidate < current }
           } else {
-            pair_is_ordered(candidate, current, opts, has_key, key_field) and
-              ! pair_is_ordered(current, candidate, opts, has_key, key_field)
+            pair_is_ordered(candidate, current, prepared, has_key, key_field) and
+              ! pair_is_ordered(current, candidate, prepared, has_key, key_field)
           }
           if candidate_precedes { selected = index }
         } else {
@@ -1743,7 +1608,7 @@ proc stream_sort_merge(inputs: List[SortInput], opts: SortOptions, has_key: Bool
     if let index = selected {
       let line = readers[index].current ?? ""
       let duplicate = if opts.unique {
-        if let prior = previous { same_sort_key(prior, line, opts, has_key, key_field) } else { false }
+        if let prior = previous { same_sort_key(prior, line, prepared, has_key, key_field) } else { false }
       } else { false }
       if ! duplicate {
         output += f"{line}{line_ending}"
@@ -2031,7 +1896,8 @@ proc plain_sort_inputs(root: FsRoot, inputs: List[SortInput], prefix: Str) [fs, 
 }
 
 proc write_sort_run(root: FsRoot, name: Str, records: List[Str], opts: SortOptions, has_key: Bool, key_field: Int, compress: Str?) [fs, process, env, error] -> SortInput {
-  let sorted = sort_input_lines(records, opts, has_key, key_field)
+  let prepared = prepare_general_numeric_keys(records, opts)
+  let sorted = sort_input_lines(records, prepared, has_key, key_field)
   let ending = if opts.zero_terminated { "\0" } else { "\n" }
   let contents = if sorted.is_empty() { "" } else { f"{sorted.join(ending)}{ending}" }
   write_temp_run(root, name, bytes.from_text(contents), compress)
@@ -2086,7 +1952,14 @@ proc merge_sort_stream(inputs: List[SortInput], opts: SortOptions, has_key: Bool
   let line_ending = if opts.zero_terminated { "\0" } else { "\n" }
   var output = ""
   var previous: Str? = null
+  var prepared = opts
   loop {
+    if has_general_numeric_keys(opts) {
+      var active: List[Str] = []
+      for reader in readers { if let line = reader.current { active += [line] } }
+      if let line = previous { active += [line] }
+      prepared = prepare_general_numeric_keys(active, prepared)
+    }
     var selected: Int? = null
     for index in range(readers.len()) {
       if let candidate = readers[index].current {
@@ -2098,8 +1971,8 @@ proc merge_sort_stream(inputs: List[SortInput], opts: SortOptions, has_key: Bool
           let candidate_precedes = if plain_text_order {
             if opts.reverse { candidate > current } else { candidate < current }
           } else {
-            pair_is_ordered(candidate, current, opts, has_key, key_field) and
-              ! pair_is_ordered(current, candidate, opts, has_key, key_field)
+            pair_is_ordered(candidate, current, prepared, has_key, key_field) and
+              ! pair_is_ordered(current, candidate, prepared, has_key, key_field)
           }
           if candidate_precedes { selected = index }
         } else {
@@ -2111,7 +1984,7 @@ proc merge_sort_stream(inputs: List[SortInput], opts: SortOptions, has_key: Bool
     if let index = selected {
       let line = readers[index].current ?? ""
       let duplicate = if deduplicate {
-        if let prior = previous { same_sort_key(prior, line, opts, has_key, key_field) } else { false }
+        if let prior = previous { same_sort_key(prior, line, prepared, has_key, key_field) } else { false }
       } else { false }
       if ! duplicate {
         output += f"{line}{line_ending}"
@@ -2229,7 +2102,8 @@ proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int,
   }
 
   if runs.is_empty() {
-    let lines = unique_sorted_lines(sort_input_lines(chunk, opts, has_key, key_field), opts, has_key)
+    let prepared = prepare_general_numeric_keys(chunk, opts)
+    let lines = unique_sorted_lines(sort_input_lines(chunk, prepared, has_key, key_field), prepared, has_key)
     let line_ending = if opts.zero_terminated { "\0" } else { "\n" }
     let output_text = if lines.is_empty() { "" } else { f"{lines.join(line_ending)}{line_ending}" }
     if has_output {
@@ -2271,7 +2145,7 @@ proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int,
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
-  let opts: SortOptions = cli.applet(
+  let parsed_args = cli.applet(
     normalize_output_args(legacy_key_args(argv, traditional_key_syntax())),
     {
       gnu: {status: 2},
@@ -2405,6 +2279,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       },
     },
   )?
+
+  var opts: SortOptions = {...parsed_args, general_numeric_keys: {}}
 
   if opts.help {
     gnu.help(USAGE)
@@ -2648,6 +2524,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     return
   }
   let source_records = read_sort_records(inputs, opts.zero_terminated)
+  if has_general_numeric_keys(opts) {
+    var numeric_source_lines: List[Str] = []
+    for records in source_records { numeric_source_lines += records }
+    opts = prepare_general_numeric_keys(numeric_source_lines, opts)
+  }
   var input_lines: List[Str] = []
   if opts.merge {
     input_lines = merge_sort_records(source_records, opts, has_key, key_field)
