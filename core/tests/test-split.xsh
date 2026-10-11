@@ -236,32 +236,34 @@ test test_split_missing_separator_and_invalid_obsolete_cluster { |ctx|
   let root = test.temp_dir(ctx, name: "split-options")?
 
   let missing = split_run(ctx, root, ["-t"], b"a\n")?
-  assert missing.stderr.find("a value is required for '--separator <SEP>'") != null, missing.stderr
+  assert missing.stderr == "split: option requires an argument -- 't'\nTry 'split --help' for more information.\n", missing.stderr
   assert missing.status == 1, missing.stderr
 
   let literal = split_run(ctx, root, ["--", "--", "-t"])?
   assert literal.stderr.find("cannot open '-t'") != null, literal.stderr
 
   let invalid = split_run(ctx, root, ["-2fb", "input"], b"a\n")?
-  assert invalid.stderr.find("unexpected argument '-f' found") != null, invalid.stderr
+  assert invalid.stderr == "split: invalid option -- 'f'\nTry 'split --help' for more information.\n", invalid.stderr
   assert invalid.status == 1, invalid.stderr
 }
 
-test test_split_numbered_virtual_input_is_rejected_before_read { |ctx|
+test test_split_numbered_device_reads_until_eof { |ctx|
   let root = test.temp_dir(ctx, name: "split-device")?
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/split.xsh"
   for number in ["3", "l/3"] {
-    # Bound both allocation and time if size validation regresses. The cap
-    # leaves room for the debug interpreter's preparation stack.
-    let status = process.run(process.command_argv(p"/bin/sh",
-      ["sh", "-c", "ulimit -v 524288; exec \"$@\"", "split-device-probe",
-        ctx.xsh_bin.display(), "--", script.display(), "-n", number, "/dev/zero"],
-      root, {LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s))?
-    assert status.exited_with(1), "numbered virtual input must fail before its endless byte stream is read"
-    assert stderr.read_text()? == "split: /dev/zero: cannot determine file size\n"
+    let plan = process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display(), "-n", number, "/dev/zero"],
+      root, {LC_ALL: "C"}, b"", stdout, stderr)
+    let handle = spawn plan?
+    defer handle.cancel(signal: "KILL", kill_after: 0ms)?
+    let completed = process.wait_timeout([handle], 150ms)?
+    assert completed == null, "an endless input has not reached EOF"
+    assert stderr.read_bytes()? == b""
+    assert stdout.read_bytes()? == b""
     assert ! fp"{root}/xaa".exists()?
+    handle.cancel(signal: "KILL", kill_after: 0ms)?
   }
 }
 
@@ -347,4 +349,44 @@ test test_split_stdin_redirected_from_the_output_is_refused { |ctx|
   assert status.exited_with(1), stderr.read_text()?
   assert stderr.read_text()? == "split: 'xaa' would overwrite input; aborting\n"
   assert piece(root, "xaa")? == b"1\n2\n3\n4\n5\n", "the input is left intact"
+}
+
+test test_split_bare_size_units_and_gnu_validation { |ctx|
+  let root = test.temp_dir(ctx, name: "split-validation")?
+  let input = bytes.concat([b"a" for _ in range(1025)])
+  assert split_run(ctx, root, ["-C", "K", "-", "k-"], input)?.status == 0
+  assert piece(root, "k-aa")?.len() == 1024
+  assert piece(root, "k-ab")? == b"a"
+  assert split_run(ctx, root, ["-b", "K", "-", "b-"], input)?.status == 0
+  assert piece(root, "b-aa")?.len() == 1024
+
+  for args in [["-l", "0"], ["-C", "0"], ["-C", "-200"]] {
+    let result = split_run(ctx, root, args)?
+    assert result.status == 1
+    assert result.stderr == f"split: invalid number of lines: '{args[1]}'\n", result.stderr
+  }
+  assert split_run(ctx, root, ["-b", "0"])?.stderr == "split: invalid number of bytes: '0'\n"
+  assert split_run(ctx, root, ["-0"])?.stderr == "split: invalid number of lines: '0'\nTry 'split --help' for more information.\n"
+  assert split_run(ctx, root, ["---io-blksize=5000000000"])?.stderr == "split: invalid IO block size: '5000000000': Value too large for defined data type\n"
+  assert split_run(ctx, root, ["-a", "-200"])?.stderr == "split: invalid suffix length: '-200': Value too large for defined data type\n"
+  assert split_run(ctx, root, ["-a", "66542562175252"])?.status == 0
+
+  for number in ["9223372036854775807/18446744073709551616", "r/9223372036854775807/18446744073709551616"] {
+    let result = split_run(ctx, root, ["-n", number], b"a\n")?
+    assert result.status == 0, result.stderr
+    assert result.stdout == b""
+  }
+  let filter = split_run(ctx, root, ["--filter=cat", "-n", "1/2"], b"a")?
+  assert filter.stderr == "split: --filter does not process a chunk extracted to standard output\nTry 'split --help' for more information.\n", filter.stderr
+  let data = bytes.concat([b"a" for _ in range(700)])
+  assert split_run(ctx, root, ["-n", "3", "---io-blksize=600", "-", "s-"], data)?.status == 0
+  assert piece(root, "s-aa")?.len() == 234
+  assert piece(root, "s-ac")?.len() == 233
+
+  let separator = split_run(ctx, root, ["-t'\n'", "-tb"], b"a\n")?
+  assert separator.stderr == "split: multi-character separator '\\'\\n\\''\n", separator.stderr
+
+  fp"{root}/d-aa".mkdir()?
+  let directory = split_run(ctx, root, ["-", "d-"], b"a")?
+  assert directory.stderr == "split: d-aa: Is a directory\n", directory.stderr
 }

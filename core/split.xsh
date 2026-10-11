@@ -213,8 +213,7 @@ pure prepare_arguments(argv: List[Bytes]) -> gnu.PreparedArguments {
   {text: text, raw: raw}
 }
 
-# uutils reports an invalid short option left behind by the obsolete -NUM
-# spelling with its argv-parser wording rather than GNU's single-letter hint.
+# Invalid options in obsolete digit clusters still use GNU's short-option diagnostic.
 pure invalid_obsolete_short(argv: List[Str]) -> Str? {
   var options = true
   var value = false
@@ -896,6 +895,20 @@ proc filter_round_robin_stdin(command: Str, naming: Naming, count: Int, sep: Int
   }
 }
 
+# Read blocks until EOF even when metadata reports no size, as for devices
+# and pipes. The block-size option controls read granularity, not an input cap.
+proc read_input(name: Bytes, block_size: Int) [fs, process, error, io] -> Result[Bytes] {
+  let fd = if name == b"-" { 0 } else { unix.open_fd(Path.parse_bytes(name)?)? }
+  defer { if fd != 0 { unix.close_fd(fd)? } }
+  var parts: List[Bytes] = []
+  while true {
+    let part = unix.read_fd(fd, block_size)?
+    break when part.is_empty()
+    parts += [part]
+  }
+  Ok(bytes.concat(parts))
+}
+
 proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let prepared = prepare_arguments(argv)
   let rewritten = modernize(prepared.text)
@@ -906,16 +919,12 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
 
   if rewritten.obsolete != "" {
     if let option = invalid_obsolete_short(prepared.text) {
-      gnu.error(f"error: unexpected argument '{option}' found")
-      gnu.error("For more information, try '--help'.")
-      exit 1
+      gnu.usage_error(f"invalid option -- '{option.byte_slice(1)}'")
     }
   }
 
   if missing_separator_value(prepared.text) {
-    gnu.error("error: a value is required for '--separator <SEP>' but none was supplied")
-    gnu.error("For more information, try '--help'.")
-    exit 1
+    gnu.usage_error(if prepared.text[-1] == "-t" { "option requires an argument -- 't'" } else { "option '--separator' requires an argument" })
   }
 
   let opts: SplitOptions = cli.applet(
@@ -1041,7 +1050,8 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     let parsed = if rx"^[0-9]".matches(text) { tio.parse_count(text) } else { null }
 
     if parsed == null or parsed > 2147483647 or parsed == 0 {
-      gnu.error(f"invalid IO block size: {gnu.quote(text)}")
+      let overflow = if parsed != null and parsed > 2147483647 { ": Value too large for defined data type" } else { "" }
+      gnu.error(f"invalid IO block size: {gnu.quote(text)}{overflow}")
       exit 1
     }
 
@@ -1072,7 +1082,11 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     let parsed: Int? = if rx"^[0-9]{19,}$".matches(line_text) { tio.MAX_COUNT } else { parse_u64(line_text) }
 
     if parsed == null or parsed == 0 {
-      gnu.error(f"invalid number of lines: {if parsed == null { gnu.quote(line_text) } else { "0" }}")
+      let message = f"invalid number of lines: {gnu.quote(line_text)}"
+      if rewritten.obsolete != "" {
+        gnu.usage_error(message)
+      }
+      gnu.error(message)
       exit 1
     }
 
@@ -1081,10 +1095,11 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
 
   for text in [opts.bytes, opts.line_bytes] {
     if text != "" {
-      let parsed = if rx"^[0-9]".matches(text) { tio.parse_count(text) } else { null }
+      let parsed = tio.parse_count(text)
 
       if parsed == null or parsed == 0 {
-        gnu.error(f"invalid number of bytes: {if parsed == null { gnu.quote(text) } else { "0" }}")
+        let kind = if text == opts.line_bytes { "lines" } else { "bytes" }
+        gnu.error(f"invalid number of {kind}: {gnu.quote(text)}")
         exit 1
       }
 
@@ -1119,7 +1134,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       exit 1
     }
 
-    let total = parse_u64(n_text)
+    let total: Int? = if rx"^[0-9]{19,}$".matches(n_text) { tio.MAX_COUNT } else { parse_u64(n_text) }
 
     if total == null or total == 0 {
       gnu.error(f"invalid number of chunks: {gnu.quote(n_text)}")
@@ -1129,7 +1144,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     var which = 0
 
     if k_text != "" {
-      let picked = parse_u64(k_text)
+      let picked: Int? = if rx"^[0-9]{19,}$".matches(k_text) { tio.MAX_COUNT } else { parse_u64(k_text) }
 
       if picked == null or picked == 0 or picked > total {
         gnu.error(f"invalid chunk number: {gnu.quote(k_text)}")
@@ -1143,8 +1158,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   }
 
   if opts.filter != null and chunks.k > 0 {
-    gnu.error("--filter does not process a chunk extracted to stdout")
-    exit 1
+    gnu.usage_error("--filter does not process a chunk extracted to standard output")
   }
 
   var sep = 10
@@ -1152,6 +1166,10 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
 
   for text in opts.separator {
     let value = gnu.argument_bytes(text, prepared.raw)
+    if value != b"\\0" and value.len() != 1 {
+      gnu.error(f"multi-character separator {gnu.quote_value_bytes(value)}")
+      exit 1
+    }
     if ! (value in distinct) {
       distinct += [value]
     }
@@ -1167,11 +1185,8 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
 
     if value == b"\\0" {
       sep = 0
-    } else if value.len() == 1 {
-      sep = value.byte_at(0) ?? 10
     } else {
-      gnu.error(f"multi-character separator {gnu.quote_bytes(value)}")
-      exit 1
+      sep = value.byte_at(0) ?? 10
     }
   }
 
@@ -1206,8 +1221,9 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   if opts.suffix_length != "" {
     let parsed = parse_u64(opts.suffix_length)
 
-    if parsed == null or parsed > 4096 {
-      gnu.error(f"invalid suffix length: {gnu.quote(opts.suffix_length)}")
+    if parsed == null {
+      let overflow = if rx"^-[0-9]+$".matches(opts.suffix_length) { ": Value too large for defined data type" } else { "" }
+      gnu.error(f"invalid suffix length: {gnu.quote(opts.suffix_length)}{overflow}")
       exit 1
     }
 
@@ -1243,7 +1259,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let prefix = if opts.files.len() > 1 { gnu.argument_bytes(opts.files[1], prepared.raw) } else { b"x" }
   let naming: Naming = Naming(prefix:, radix:, width:, start:, widen:, extra: additional)
 
-  if ! widen and fixed_name(start, radix, width) == "" {
+  if ! widen and start > 0 and digits_needed(start + 1, radix) > width {
     gnu.error("numerical suffix start value is too large for the suffix length")
     exit 1
   }
@@ -1272,13 +1288,6 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     if let Ok(found) = fs.stat(input_path, follow_symlinks: true) {
       input_ino = found.ino
       input_dev = found.dev
-
-      # Size-dependent chunks must reject virtual devices before reading:
-      # a zero metadata size does not imply a finite or empty byte stream.
-      if chunks.n > 0 and found.kind != "file" and input_name != b"/dev/null" {
-        gnu.error(f"{gnu.quote_bytes(input_name, always: false)}: cannot determine file size")
-        exit 1
-      }
     }
   } else {
     # Standard input redirected from a regular file is an input too, so a piece
@@ -1293,18 +1302,13 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     }
   }
 
-  guard let data = text.read_operand_bytes(input_name) else { |failure|
+  guard let data = read_input(input_name, blksize) else { |failure|
     if gnu.errno(failure) == 21 {
       gnu.error(f"error reading {gnu.quote_bytes(input_name)}: {gnu.strerror(failure)}")
     } else {
       gnu.error(f"cannot open {gnu.quote_bytes(input_name)} for reading: {gnu.strerror(failure)}")
     }
 
-    exit 1
-  }
-
-  if input_name == b"-" and chunks.n > 0 and data.len() > blksize {
-    gnu.error("-: cannot determine input size")
     exit 1
   }
 
@@ -1391,7 +1395,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       if gnu.errno(failure) == 28 {
         text.name_error_bytes(name.bytes(), failure)
       } else {
-        gnu.error(f"{gnu.quote_bytes(name.bytes())}: {gnu.strerror(failure)}")
+        gnu.error(f"{gnu.quote_bytes(name.bytes(), always: false)}: {gnu.strerror(failure)}")
       }
 
       exit 1
