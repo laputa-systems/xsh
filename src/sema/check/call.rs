@@ -559,10 +559,10 @@ impl Checker {
                             DiagnosticCode::CheckBuilderCall,
                         );
                     }
-                    if let Some(required) = api_spec()
-                        .module_required_effect(&module.as_str(), &canonical_name.as_str())
+                    for required in api_spec()
+                        .module_required_effects(&module.as_str(), &canonical_name.as_str())
                     {
-                        self.require_effect(required, span, &format!("`{module}.{name}`"));
+                        self.require_effect(required.clone(), span, &format!("`{module}.{name}`"));
                     }
                     return self.check_module_call_arena(
                         arena,

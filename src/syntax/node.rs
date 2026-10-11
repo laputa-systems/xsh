@@ -43,55 +43,63 @@ impl Effect {
         }
     }
 
-    /// Map a standard-library module call to the effect it requires, or `None`
-    /// if the specific function is pure. Used by both the linter (inference) and
-    /// the checker (enforcement) so the two stay in sync.
-    pub fn from_module_call(module: &str, function: &str) -> Option<Self> {
+    /// Host effects of a standard-library call. Raw descriptors and address
+    /// families do not prove a socket local, so generic socket operations
+    /// require both process and network permission.
+    pub fn from_module_call(module: &str, function: &str) -> &'static [Self] {
         match module {
             "fs" | "archive" | "compression" | "fat" | "diff" | "elf" | "patch" | "user" | "group" | "module" => {
-                Some(Self::Fs)
+                &[Self::Fs]
             }
-            "io" => Some(Self::Io),
+            "io" => &[Self::Io],
             "tui" => match function {
-                "read_secret" => Some(Self::Io),
-                _ => None,
+                "read_secret" => &[Self::Io],
+                _ => &[],
             },
-            "net" | "dns" => Some(Self::Net),
-            "env" => Some(Self::Env),
-            "error" => Some(Self::Error),
+            "net" | "dns" => &[Self::Net],
+            "env" => &[Self::Env],
+            "error" => &[Self::Error],
             "time" => match function {
                 // Pure Duration constructors: no clock access, usable anywhere.
-                "millis" | "seconds" => None,
-                _ => Some(Self::Time),
+                "millis" | "seconds" => &[],
+                _ => &[Self::Time],
             },
-            "system" => Some(Self::Env),
-            "applet" => Some(Self::Process),
+            "system" => &[Self::Env],
+            "applet" => &[Self::Process],
             "process" | "unix" | "linux" => match function {
-                "command_argv" | "argv_words" => None,
-                "sample" if module == "linux" => Some(Self::Fs),
-                _ => Some(Self::Process),
+                "command_argv" | "argv_words" => &[],
+                "sample" if module == "linux" => &[Self::Fs],
+                "socket" | "connect" | "bind" | "listen" | "accept" | "sendto"
+                | "recvfrom" | "dhcp_socket" | "dhcp_send" | "dhcp_recv"
+                | "dhcp_send_release" | "link_up" | "link_down" | "set_ipv4_address"
+                | "flush_ipv4_addresses" | "add_default_ipv4_route" | "del_default_ipv4_route"
+                    if module == "linux" => &[Self::Process, Self::Net],
+                "read_fd" | "write_fd" | "notify_ready" if module == "unix" => {
+                    &[Self::Process, Self::Net]
+                }
+                _ => &[Self::Process],
             },
             "json" => match function {
-                "read" | "write" => Some(Self::Fs),
-                _ => None,
+                "read" | "write" => &[Self::Fs],
+                _ => &[],
             },
             "ini" => match function {
-                "read" | "write" => Some(Self::Fs),
-                _ => None,
+                "read" | "write" => &[Self::Fs],
+                _ => &[],
             },
             "mime" => match function {
-                "lookup_ext" | "lookup_path" => Some(Self::Fs),
-                _ => None,
+                "lookup_ext" | "lookup_path" => &[Self::Fs],
+                _ => &[],
             },
             "path" => match function {
-                "resolve" => Some(Self::Fs),
-                _ => None,
+                "resolve" => &[Self::Fs],
+                _ => &[],
             },
             "hash" => match function {
-                "verify_file" => Some(Self::Fs),
-                _ => None,
+                "verify_file" => &[Self::Fs],
+                _ => &[],
             },
-            _ => None,
+            _ => &[],
         }
     }
 }

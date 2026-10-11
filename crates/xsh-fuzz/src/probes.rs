@@ -175,14 +175,14 @@ fn effect_free_method(receiver: MethodReceiver, name: &str, overload: usize) -> 
     xsh::api::api_spec()
         .method_overloads(receiver, name)
         .and_then(|overloads| overloads.get(overload))
-        .is_some_and(|method| method.sig.pure && method.sig.effect.is_none() && !method.sig.command)
+        .is_some_and(|method| method.sig.pure && method.sig.effects.is_empty() && !method.sig.command)
 }
 
 fn effect_free_function(module: &str, name: &str, overload: usize) -> bool {
     xsh::api::api_spec()
         .module_overloads(module, name)
         .and_then(|overloads| overloads.get(overload))
-        .is_some_and(|function| function.pure && function.effect.is_none() && !function.command)
+        .is_some_and(|function| function.pure && function.effects.is_empty() && !function.command)
 }
 
 /// The full probe corpus, in registry order.

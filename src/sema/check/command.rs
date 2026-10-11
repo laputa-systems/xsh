@@ -473,8 +473,8 @@ impl Checker {
         args: ArenaRange,
         span: Span,
     ) -> Type {
-        if let Some(required) = api_spec().module_required_effect(module, name) {
-            self.require_effect(required, span, &format!("`{module}.{name}`"));
+        for required in api_spec().module_required_effects(module, name) {
+            self.require_effect(required.clone(), span, &format!("`{module}.{name}`"));
         }
         let Some(module_sig) = api_spec().module(module) else {
             self.error(span, "unknown module", DiagnosticCode::CheckUnknownModule);

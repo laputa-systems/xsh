@@ -734,7 +734,7 @@ fn module_effects(signature: &xsh::api::ModuleSig) -> Vec<String> {
 fn module_function_effects(overloads: &[ModuleFnSig]) -> Vec<String> {
     let mut effects = BTreeSet::new();
     for overload in overloads {
-        if let Some(effect) = &overload.effect {
+        for effect in overload.effects {
             effects.insert(effect.as_str().to_string());
         }
     }
@@ -747,7 +747,7 @@ fn module_function_effects(overloads: &[ModuleFnSig]) -> Vec<String> {
 fn method_effects(overloads: &[xsh::api::MethodSig]) -> Vec<String> {
     let mut effects = BTreeSet::new();
     for overload in overloads {
-        if let Some(effect) = &overload.sig.effect {
+        for effect in overload.sig.effects {
             effects.insert(effect.as_str().to_string());
         }
     }

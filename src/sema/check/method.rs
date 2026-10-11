@@ -552,8 +552,8 @@ impl Checker {
                 DiagnosticCode::CheckPureEffect,
             );
         }
-        if let Some(required) = method.sig.effect.clone() {
-            self.require_effect(required, span, &format!("method `{name}`"));
+        for required in method.sig.effects {
+            self.require_effect(required.clone(), span, &format!("method `{name}`"));
         }
         let schemas = crate::sema::builtin_templates::parameter_schema_contexts(
             &method.sig,
