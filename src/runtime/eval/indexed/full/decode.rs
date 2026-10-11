@@ -1,7 +1,7 @@
 use super::{
     LoweredRunArg, LoweredRunArgKind, LoweredRunEnv, LoweredRunRedirection,
     LoweredRunPipelineSegment, LoweredProcessCommandArgv, LoweredRunCapture, LoweredSpawnRun,
-    LoweredTypeCheck, ScanBytes, LoweredCallArg, LoweredFmtPart,
+    LoweredTypeCheck, ScanBytes, ScanCheck, ScanCondition, LoweredCallArg, LoweredFmtPart,
     LoweredRecordEntry, LoweredAssignStep, LoweredCompTarget, LoweredCompQualifier,
     LoweredProcessCommandBuilderEntry, LoweredErrorExpr,
 };
@@ -723,6 +723,42 @@ struct_schema!(ScanBytes => ScanBytesView {
     line_slot: usize, block_depth_slot: usize, code_seen_slot: usize, comment_seen_slot: usize,
     in_string_slot: usize, string_delim_slot: usize, escaped_slot: usize, nested: bool, span: Span,
 });
+pub(in crate::runtime::eval) struct ScanCheckView<'a> {
+    pub(in crate::runtime::eval) condition: ScanConditionView<'a>,
+    pub(in crate::runtime::eval) counter_slot: usize,
+}
+
+pub(in crate::runtime::eval) enum ScanConditionView<'a> {
+    TrimEmpty,
+    TrimStartsWith(&'a [u8]),
+    StartsWith(&'a [u8]),
+}
+
+impl BorrowCodec for ScanCheck {
+    type View<'a> = ScanCheckView<'a>;
+
+    fn borrow<'a>(context: DecodeContext<'a>, input: &mut FullCursor<'a>)
+    -> Result<Self::View<'a>, IrVerifyError> {
+        Ok(ScanCheckView {
+            condition: ScanCondition::borrow(context, input)?,
+            counter_slot: usize::borrow(context, input)?,
+        })
+    }
+}
+
+impl BorrowCodec for ScanCondition {
+    type View<'a> = ScanConditionView<'a>;
+
+    fn borrow<'a>(context: DecodeContext<'a>, input: &mut FullCursor<'a>)
+    -> Result<Self::View<'a>, IrVerifyError> {
+        Ok(match input.raw()? {
+            0 => ScanConditionView::TrimEmpty,
+            1 => ScanConditionView::TrimStartsWith(Vec::<u8>::borrow(context, input)?),
+            2 => ScanConditionView::StartsWith(Vec::<u8>::borrow(context, input)?),
+            _ => return Err(IrVerifyError::new("scan condition tag is invalid")),
+        })
+    }
+}
 enum_schema!(LoweredRunArgKind => RunArgKindView ["run argument tag is invalid"] {
     Single(value: BuildExprId) = 0;
     SingleOrSplice(value: BuildExprId) = 1;

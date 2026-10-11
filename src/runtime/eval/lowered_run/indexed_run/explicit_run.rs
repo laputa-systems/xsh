@@ -10,12 +10,14 @@ use super::{
     FormatSpec, FrameStrategy, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag,
     FunctionHeader,
     IndexedAssignStep, IndexedCompQualifier, IndexedFmt, IndexedFmtPart, IndexedOperands,
-    IndexedRecordEntry, LoweredFunctionKey, LoweredFunctionKind, LoweredReturnKind, LoweredType,
+    IndexedRecordEntry, LoweredFunctionKey, LoweredFunctionKind, LoweredReturnKind,
+    LoweredStrPredicate, LoweredType,
     LoweredTypeCheck, LoweredValue, Name, RegisteredDefer, ResolvedAssignStep, RuntimeError, Span,
     RunArg, StmtFlow, StreamValue, TraceArg, TraceKind, TracePayload, TracebackFrame, TracebackFrameKind,
     append_call_argument, append_lowered_list_element, append_lowered_map_literal,
     apply_indexed_assignment, apply_indexed_path_assignment, assign_lowered_bytes_view,
-    assign_lowered_str_view, bind_lowered_comp_target, capture_checked_error, check_env_name,
+    assign_lowered_str_view,
+    bind_lowered_comp_target, capture_checked_error, check_env_name,
     checked_indexed_assignment, comparison_link_holds, decode_assign_path, decode_comp_qualifiers,
     decode_comparison_chain, decode_match_expr, decode_module_call, decode_record_updates,
     finish_record_entries, fmt_operands, indexed_assignment_operand, indexed_callable_identity,
@@ -24,7 +26,9 @@ use super::{
     lowered_comp_iterable, lowered_condition_bool, lowered_err_with_cause, lowered_fallback_value,
     lowered_map_literal_key, lowered_match_no_arm, lowered_path_like_arg,
     lowered_result_err_value, lowered_result_ok, lowered_str_key, lowered_str_parts,
-    lowered_tag_key, lowered_value_from_runtime_any, push_lowered_display,
+    lowered_str_predicate_text,
+    lowered_tag_key, lowered_trim_is_empty_value, lowered_trim_str_predicate_value,
+    lowered_value_from_runtime_any, push_lowered_display,
     resolve_assign_index,
 };
 use super::{LoweredMapCursor, LoweredScalarCursor};
@@ -33,6 +37,7 @@ use crate::runtime::eval::indexed::full::schema::{BoolView, IntView};
 use crate::runtime::eval::indexed::full::schema::StmtView;
 use crate::runtime::eval::indexed::full::decode::{
     ListPosition, ListView, ProcessCommandBuilderEntryView, RunArgKindView, RunArgView, RunEnvView,
+    ScanConditionView,
 };
 use crate::runtime::eval::{
     BuildExprId, LoweredCompTarget, LoweredProcessCommandBuilderEntry, LoweredRunArg, LoweredRunEnv,
@@ -1531,6 +1536,20 @@ enum CleanupFailureResources {
     Release,
     Retain,
     RejectContextEscape,
+}
+
+enum ScanLinesSource {
+    Text(Arc<str>),
+    Bytes(Arc<[u8]>),
+}
+
+impl ScanLinesSource {
+    fn bytes(&self) -> &[u8] {
+        match self {
+            Self::Text(text) => text.as_bytes(),
+            Self::Bytes(bytes) => bytes,
+        }
+    }
 }
 
 enum FrameWork {
@@ -3345,6 +3364,198 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.eval_statement(index, statement)
     }
 
+    fn step_scan_lines(
+        &mut self,
+        index: usize,
+        tag: FullTag,
+        payload: FullPayload<'_>,
+    ) -> Result<(), RuntimeError> {
+        let call_span = self.calls[index].call_span;
+        let call = &mut self.calls[index];
+        let StmtView::ScanLines {
+            text_slot,
+            line_slot,
+            mut checks,
+            span,
+        } = StmtView::decode(&call.execution, tag, payload)
+            .map_err(|error| indexed_error(error, call_span))?
+        else {
+            unreachable!("statement tag and borrowed row agree")
+        };
+        let check_start = checks.position();
+        while let Some(check) = checks.next() {
+            check.map_err(|error| indexed_error(error, span))?;
+        }
+        checks
+            .resume(check_start)
+            .map_err(|error| indexed_error(error, span))?;
+
+        let (source, start, end) = if let Some((text, start, end)) =
+            lowered_str_parts(&call.slots[text_slot])
+        {
+            (ScanLinesSource::Text(text), start, end)
+        } else if let Some((bytes, start, end)) = lowered_bytes_parts(&call.slots[text_slot]) {
+            (ScanLinesSource::Bytes(bytes), start, end)
+        } else {
+            return Err(RuntimeError::new("type-error", "ScanLines expected Str or Bytes")
+                .with_span(span));
+        };
+        let bytes = source.bytes();
+        let mut cursor = start;
+        let mut line_count = 0u32;
+        while cursor < end {
+            let newline = memchr::memchr(b'\n', &bytes[cursor..end]).map(|offset| cursor + offset);
+            let line_end = newline.unwrap_or(end);
+            let view_end = if line_end > cursor && bytes[line_end - 1] == b'\r' {
+                line_end - 1
+            } else {
+                line_end
+            };
+            line_count = line_count.wrapping_add(1);
+            if line_count & 63 == 0 {
+                self.evaluator.service_pending_signal(span)?;
+                if self.evaluator.shutting_down() {
+                    return Ok(());
+                }
+            }
+            match &source {
+                ScanLinesSource::Text(text) => {
+                    assign_lowered_str_view(&mut call.slots[line_slot], text, cursor, view_end);
+                }
+                ScanLinesSource::Bytes(bytes) => {
+                    assign_lowered_bytes_view(&mut call.slots[line_slot], bytes, cursor, view_end);
+                }
+            }
+            checks
+                .resume(check_start)
+                .map_err(|error| indexed_error(error, span))?;
+            while let Some(check) = checks.next() {
+                let check = check.map_err(|error| indexed_error(error, span))?;
+                let matches = match check.condition {
+                    ScanConditionView::TrimEmpty => {
+                        lowered_trim_is_empty_value(&call.slots[line_slot], span)?
+                    }
+                    ScanConditionView::TrimStartsWith(needle) => lowered_trim_str_predicate_value(
+                        &call.slots[line_slot],
+                        LoweredStrPredicate::StartsWith,
+                        needle,
+                        span,
+                    )?,
+                    ScanConditionView::StartsWith(needle) => lowered_str_predicate_text(
+                        &call.slots[line_slot],
+                        LoweredStrPredicate::StartsWith,
+                        needle,
+                        span,
+                    )?,
+                };
+                if matches {
+                    if let LoweredValue::Int(ref mut value) = call.slots[check.counter_slot] {
+                        *value += 1;
+                    }
+                    break;
+                }
+            }
+            let Some(newline) = newline else {
+                break;
+            };
+            cursor = newline + 1;
+        }
+        call.slots[line_slot] = LoweredValue::Unit;
+        Ok(())
+    }
+
+    fn step_scan_bytes(
+        &mut self,
+        index: usize,
+        tag: FullTag,
+        payload: FullPayload<'_>,
+    ) -> Result<(), RuntimeError> {
+        let call_span = self.calls[index].call_span;
+        let call = &mut self.calls[index];
+        let StmtView::ScanBytes { config } = StmtView::decode(&call.execution, tag, payload)
+            .map_err(|error| indexed_error(error, call_span))?
+        else {
+            unreachable!("statement tag and borrowed row agree")
+        };
+        let Some((line, start, end)) = lowered_bytes_parts(&call.slots[config.line_slot]) else {
+            return Err(RuntimeError::new("type-error", "ScanBytes expected Bytes")
+                .with_span(config.span));
+        };
+        let bytes = &line[start..end];
+        let mut block_depth = match call.slots[config.block_depth_slot] {
+            LoweredValue::Int(value) => value,
+            _ => {
+                return Err(RuntimeError::new(
+                    "type-error",
+                    "ScanBytes block depth expected Int",
+                )
+                .with_span(config.span));
+            }
+        };
+        let mut index = 0usize;
+        let mut code_seen = false;
+        let mut comment_seen = false;
+        let mut in_string = false;
+        let mut string_delim = -1i64;
+        let mut escaped = false;
+        while index < bytes.len() {
+            if index & 4095 == 0 {
+                self.evaluator.service_pending_signal(config.span)?;
+                if self.evaluator.shutting_down() {
+                    return Ok(());
+                }
+            }
+            let byte = i64::from(bytes[index]);
+            let next_byte = bytes.get(index + 1).copied().map(i64::from).unwrap_or(-1);
+            if block_depth > 0 {
+                comment_seen = true;
+                if config.nested && byte == 47 && next_byte == 42 {
+                    block_depth += 1;
+                    index += 2;
+                } else if byte == 42 && next_byte == 47 {
+                    block_depth -= 1;
+                    index += 2;
+                } else {
+                    index += 1;
+                }
+            } else if in_string {
+                code_seen = true;
+                if escaped {
+                    escaped = false;
+                } else if byte == 92 {
+                    escaped = true;
+                } else if byte == string_delim {
+                    in_string = false;
+                }
+                index += 1;
+            } else if byte == 34 || byte == 39 || byte == 96 {
+                code_seen = true;
+                in_string = true;
+                string_delim = byte;
+                index += 1;
+            } else if byte == 47 && next_byte == 47 {
+                comment_seen = true;
+                index = bytes.len();
+            } else if byte == 47 && next_byte == 42 {
+                comment_seen = true;
+                block_depth = 1;
+                index += 2;
+            } else {
+                if byte != 32 && byte != 9 {
+                    code_seen = true;
+                }
+                index += 1;
+            }
+        }
+        call.slots[config.block_depth_slot] = LoweredValue::Int(block_depth);
+        call.slots[config.code_seen_slot] = LoweredValue::Bool(code_seen);
+        call.slots[config.comment_seen_slot] = LoweredValue::Bool(comment_seen);
+        call.slots[config.in_string_slot] = LoweredValue::Bool(in_string);
+        call.slots[config.string_delim_slot] = LoweredValue::Int(string_delim);
+        call.slots[config.escaped_slot] = LoweredValue::Bool(escaped);
+        Ok(())
+    }
+
     fn eval_statement(&mut self, index: usize, instruction: u32) -> Result<(), RuntimeError> {
         // A statement starts only once any earlier `Err` was handled.
         self.evaluator.pending_traceback = None;
@@ -3833,6 +4044,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 });
                 Ok(())
             }
+            FullTag::StmtScanLines => self.step_scan_lines(index, tag, payload),
+            FullTag::StmtScanBytes => self.step_scan_bytes(index, tag, payload),
             FullTag::StmtFor | FullTag::StmtForRecord => {
                 let target = if tag == FullTag::StmtForRecord {
                     indexed_decode::<LoweredCompTarget>(

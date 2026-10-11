@@ -7,7 +7,7 @@ use super::{
     LoweredTagValue, LoweredType, LoweredValue, Name, PathValue, ProcessEnd, ProcessInvocation,
     ProcessRedirection, ProcessStatus, QualifiedName, RecordMap, RedirectionKind,
     RedirectionStream, ReduceByOp, RegexValue, RunError, RunKind, RuntimeError, RuntimeOp,
-    ScanCondition, Span, SpawnOptions, StmtFlow, StreamValue, TraceArg, TraceError, TraceKind,
+    Span, SpawnOptions, StmtFlow, StreamValue, TraceArg, TraceError, TraceKind,
     TracePayload, Traceback, TracebackFrame, TracebackFrameKind, Type, Value,
     append_lowered_list_element, append_lowered_map_literal, assign_lowered_bytes_view,
     assign_lowered_str_view, bind_lowered_comp_target, btree_map, bytes_contains, bytes_module,
@@ -54,7 +54,7 @@ use crate::runtime::eval::indexed::full::schema::ExprView;
 use crate::runtime::eval::lower::{lowered_error_value_has_facet, lowered_record_field};
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
 use crate::runtime::eval::{
-    LoweredModuleExport, LoweredTopLevelSlot, LoweredTypeCheck, ModuleCallPlan, Propagation, ScanBytes, ScanCheck,
+    LoweredModuleExport, LoweredTopLevelSlot, LoweredTypeCheck, ModuleCallPlan, Propagation,
     process_handle,
 };
 use smallvec::SmallVec;
@@ -2548,165 +2548,6 @@ impl Evaluator {
     ) -> Result<StmtFlow, RuntimeError> {
         let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
         match tag {
-            FullTag::StmtScanLines => {
-                let text_slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
-                let line_slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
-                let checks = indexed_decode::<Vec<ScanCheck>>(&mut payload, execution, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let (text, start, end, bytes_mode) = if let Some((text, start, end)) =
-                    lowered_str_parts(&slots[text_slot])
-                {
-                    (Arc::<[u8]>::from(text.as_bytes()), start, end, false)
-                } else if let Some((bytes, start, end)) = lowered_bytes_parts(&slots[text_slot]) {
-                    (bytes, start, end, true)
-                } else {
-                    return Err(
-                        RuntimeError::new("type-error", "ScanLines expected Str or Bytes")
-                            .with_span(span),
-                    );
-                };
-                let mut cursor = start;
-                let mut line_count = 0u32;
-                while cursor < end {
-                    let newline =
-                        memchr::memchr(b'\n', &text[cursor..end]).map(|offset| cursor + offset);
-                    let line_end = newline.unwrap_or(end);
-                    let view_end = if line_end > cursor && text[line_end - 1] == b'\r' {
-                        line_end - 1
-                    } else {
-                        line_end
-                    };
-                    line_count = line_count.wrapping_add(1);
-                    if line_count & 63 == 0 {
-                        self.service_pending_signal(span)?;
-                        if self.shutting_down() {
-                            return Ok(StmtFlow::None);
-                        }
-                    }
-                    if bytes_mode {
-                        assign_lowered_bytes_view(&mut slots[line_slot], &text, cursor, view_end);
-                    } else {
-                        let line = std::str::from_utf8(&text[cursor..view_end])
-                            .expect("source string slice remains UTF-8");
-                        slots[line_slot] = LoweredValue::Str(Arc::from(line));
-                    }
-                    for check in &checks {
-                        let matches = match &check.condition {
-                            ScanCondition::TrimEmpty => {
-                                lowered_trim_is_empty_value(&slots[line_slot], span)?
-                            }
-                            ScanCondition::TrimStartsWith(needle) => {
-                                lowered_trim_str_predicate_value(
-                                    &slots[line_slot],
-                                    LoweredStrPredicate::StartsWith,
-                                    needle.as_slice(),
-                                    span,
-                                )?
-                            }
-                            ScanCondition::StartsWith(needle) => lowered_str_predicate_text(
-                                &slots[line_slot],
-                                LoweredStrPredicate::StartsWith,
-                                needle.as_slice(),
-                                span,
-                            )?,
-                        };
-                        if matches {
-                            if let LoweredValue::Int(ref mut value) = slots[check.counter_slot] {
-                                *value += 1;
-                            }
-                            break;
-                        }
-                    }
-                    let Some(newline) = newline else {
-                        break;
-                    };
-                    cursor = newline + 1;
-                }
-                slots[line_slot] = LoweredValue::Unit;
-                Ok(StmtFlow::None)
-            }
-            FullTag::StmtScanBytes => {
-                let config = indexed_decode::<ScanBytes>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let Some((line, start, end)) = lowered_bytes_parts(&slots[config.line_slot]) else {
-                    return Err(RuntimeError::new("type-error", "ScanBytes expected Bytes")
-                        .with_span(config.span));
-                };
-                let bytes = &line[start..end];
-                let mut block_depth = match slots[config.block_depth_slot] {
-                    LoweredValue::Int(value) => value,
-                    _ => {
-                        return Err(RuntimeError::new(
-                            "type-error",
-                            "ScanBytes block depth expected Int",
-                        )
-                        .with_span(config.span));
-                    }
-                };
-                let mut index = 0usize;
-                let mut code_seen = false;
-                let mut comment_seen = false;
-                let mut in_string = false;
-                let mut string_delim = -1i64;
-                let mut escaped = false;
-                while index < bytes.len() {
-                    if index & 4095 == 0 {
-                        self.service_pending_signal(config.span)?;
-                        if self.shutting_down() {
-                            return Ok(StmtFlow::None);
-                        }
-                    }
-                    let byte = i64::from(bytes[index]);
-                    let next_byte = bytes.get(index + 1).copied().map(i64::from).unwrap_or(-1);
-                    if block_depth > 0 {
-                        comment_seen = true;
-                        if config.nested && byte == 47 && next_byte == 42 {
-                            block_depth += 1;
-                            index += 2;
-                        } else if byte == 42 && next_byte == 47 {
-                            block_depth -= 1;
-                            index += 2;
-                        } else {
-                            index += 1;
-                        }
-                    } else if in_string {
-                        code_seen = true;
-                        if escaped {
-                            escaped = false;
-                        } else if byte == 92 {
-                            escaped = true;
-                        } else if byte == string_delim {
-                            in_string = false;
-                        }
-                        index += 1;
-                    } else if byte == 34 || byte == 39 || byte == 96 {
-                        code_seen = true;
-                        in_string = true;
-                        string_delim = byte;
-                        index += 1;
-                    } else if byte == 47 && next_byte == 47 {
-                        comment_seen = true;
-                        index = bytes.len();
-                    } else if byte == 47 && next_byte == 42 {
-                        comment_seen = true;
-                        block_depth = 1;
-                        index += 2;
-                    } else {
-                        if byte != 32 && byte != 9 {
-                            code_seen = true;
-                        }
-                        index += 1;
-                    }
-                }
-                slots[config.block_depth_slot] = LoweredValue::Int(block_depth);
-                slots[config.code_seen_slot] = LoweredValue::Bool(code_seen);
-                slots[config.comment_seen_slot] = LoweredValue::Bool(comment_seen);
-                slots[config.in_string_slot] = LoweredValue::Bool(in_string);
-                slots[config.string_delim_slot] = LoweredValue::Int(string_delim);
-                slots[config.escaped_slot] = LoweredValue::Bool(escaped);
-                Ok(StmtFlow::None)
-            }
             FullTag::StmtRun => {
                 let value = indexed_raw(&mut payload, call_span)?;
                 let propagate_result = indexed_decode::<bool>(&mut payload, execution, call_span)?;

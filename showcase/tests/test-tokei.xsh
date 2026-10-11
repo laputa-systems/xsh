@@ -120,3 +120,14 @@ name = "x"
   assert "\"stats\":{\"blanks\":1,\"blobs\":{\"TOML\":{\"blanks\":0,\"blobs\":{},\"code\":1,\"comments\":1}},\"code\":0,\"comments\":3}" in output
   assert "\"stats\":{\"blanks\":0,\"blobs\":{},\"code\":1,\"comments\":1}" in output
 }
+
+test test_tokei_slash_scanner_preserves_crlf_and_final_line { |ctx|
+  let root = test.temp_dir(ctx, name: "tokei-slash-scanner")?
+  fp"{root}/scan.rs".write("fn main() {}\r\n// comment\r\n\r\n/* block\r\ncomment\r\n*/\r\nlet x = 1;")
+
+  let output = run.text "xsh" "showcase/tokei.xsh" -- --json $root
+  let data = json.decode(output)?
+  assert json.get(data, ["Rust", "code"])?.require(Int)? == 2
+  assert json.get(data, ["Rust", "comments"])?.require(Int)? == 4
+  assert json.get(data, ["Rust", "blanks"])?.require(Int)? == 1
+}

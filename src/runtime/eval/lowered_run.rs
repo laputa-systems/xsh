@@ -107,7 +107,7 @@ use super::{
     Binding, DynamicFunction, Evaluator, Flow, FsRootHandle, FunctionHeader, LoweredCompTarget,
     LoweredFunctionKey, LoweredFunctionKind, LoweredModuleExportKind, LoweredReturnKind,
     LoweredStrPredicate, LoweredTagValue, LoweredType, LoweredValue, Name, ReduceByOp,
-    ScanCondition, StmtFlow, assign_lowered_bytes_view, assign_lowered_str_view, bytes_contains,
+    StmtFlow, assign_lowered_bytes_view, assign_lowered_str_view, bytes_contains,
     check_env_name, compound_assignment_value, exit_status, lowered_inline_stats_field_value,
     lowered_inline_stats_to_record_vec, lowered_record_vec_get, lowered_record_vec_get_mut,
     lowered_record_vec_insert, lowered_record_vec_or_stats, lowered_stats_field_value,

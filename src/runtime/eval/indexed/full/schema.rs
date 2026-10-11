@@ -1206,10 +1206,10 @@ instruction_schema! {
             line_slot: usize,
             checks: Vec<ScanCheck>,
             span: Span,
-        } => StmtScanLines = 142 [EFFECT_CANCELLATION; Scheduled; LegacyRecursive];
+        } => StmtScanLines = 142 [EFFECT_CANCELLATION; Scheduled; FrameControl];
         ScanBytes {
             config: ScanBytes,
-        } => StmtScanBytes = 143 [EFFECT_CANCELLATION; Scheduled; LegacyRecursive];
+        } => StmtScanBytes = 143 [EFFECT_CANCELLATION; Scheduled; FrameControl];
         Print {
             args: Vec<BuildExprId>,
             stderr: bool,
