@@ -25,7 +25,7 @@ Resumed bounded slices have separate worktrees and disjoint shared-file hunks:
 | W3 annotation storage | checked root facts and namespace callers | integrated `b4d5ad37`, -103 production |
 | W3 full annotation types | explicit root annotation metadata only; template/pattern contexts excluded | net <= 0 / 600 |
 | W4 option parity | named profiles, unconditional migration warnings, publication equality proof | +100 / 1,000 |
-| W5 grouping | immediate-child policy wrapper and exhaustive grouping classifiers | net <= 0 / 650 |
+| W5 grouping | immediate-child policy wrapper and exhaustive grouping classifiers | +80 / 650, explicit semantic cases offset later |
 | W6 expression hooks | next six rule bodies and exact table/dispatcher registration | net <= 0 / 2,200 |
 | R3 checked transfer facts | affine locals, shared type predicate, strict transfer-site facts | +600 / 1,800 |
 | R3 runtime bridge | statement/instruction sidecar and typed transfer continuations | +120 / 1,500 |
