@@ -5,6 +5,7 @@ mod release_binary;
 
 use std::io::Read;
 use std::os::fd::AsRawFd;
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
@@ -33,7 +34,11 @@ const TIMEOUT: Duration = Duration::from_secs(10);
 // the core modules, even when the child's working directory is a temp fixture.
 fn applet(name: &str, directory: &Path) -> Command {
     let mut command = if let Some(reference) = std::env::var_os("XSH_CORE_COMPAT_REFERENCE_DIR") {
-        Command::new(Path::new(&reference).join(name))
+        {
+            let mut command = Command::new(Path::new(&reference).join(name));
+            command.arg0(name);
+            command
+        }
     } else {
         let mut command = Command::new(release_bin!("xsh"));
         command.arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("core").join(format!("{name}.xsh")));
