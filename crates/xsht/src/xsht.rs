@@ -43,6 +43,7 @@ pub(crate) mod test {
         pub(crate) coverage: bool,
         pub(crate) api: bool,
         pub(crate) coverage_json_out: Option<String>,
+        pub(crate) force_frames: bool,
     }
 
     pub(crate) fn test_scripts(_: TestOptions) -> CliOutput {

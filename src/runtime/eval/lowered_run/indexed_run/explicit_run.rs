@@ -3,7 +3,8 @@ use super::serial_pipeline::{
 };
 use super::{
     Arc, AssignOp, BLOCK_LIST, BLOCK_STATEMENTS, BTreeMap, BinaryOp, ControlFlow, Evaluator,
-    FormatSpec, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag, FunctionHeader,
+    FormatSpec, FrameStrategy, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag,
+    FunctionHeader,
     IndexedAssignStep, IndexedCompQualifier, IndexedFmt, IndexedFmtPart, IndexedOperands,
     IndexedRecordEntry, LoweredFunctionKey, LoweredFunctionKind, LoweredReturnKind, LoweredType,
     LoweredTypeCheck, LoweredValue, Name, RegisteredDefer, ResolvedAssignStep, RuntimeError, Span,
@@ -28,12 +29,53 @@ use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
 use crate::runtime::eval::lowered_run::validate_parameter_default;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+/// Forced-frame evaluation reports a tag whose only remaining route is recursive.
+fn frame_strategy_error(tag: FullTag, span: Span) -> RuntimeError {
+    RuntimeError::new(
+        "frame-scheduler",
+        format!(
+            "frame-scheduler: instruction tag `{}` has no explicit frame handler",
+            tag.name()
+        ),
+    )
+    .with_span(span)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Evaluator, LoweredFunctionKey, LoweredFunctionKind, Name, Ordering, Span};
     use crate::runtime::value::Value;
     use crate::source::SourceMap;
     use crate::syntax::parser::Parser;
+
+    #[test]
+    fn forced_frames_reject_a_recursive_only_expression() {
+        crate::runtime::eval::run_eval(|| {
+            let source = "proc recursive_only() -> Int { return loop { break 0 } }\n";
+            let mut sources = SourceMap::new();
+            let source_id = sources.add_file("frame-scheduler.xsh", source);
+            let parsed = Parser::parse_source_arena_only(source_id, source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let function = parsed
+                .arena
+                .symbol_owner()
+                .with_current(|| Name::intern("recursive_only"));
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+            assert!(evaluator.prepare_compact_indexed_only(&parsed.arena, source_id).is_some());
+            evaluator.force_frames = true;
+            let error = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(function),
+                    LoweredFunctionKind::Proc,
+                    &[],
+                    Span::new(source_id, 0, 0),
+                )
+                .expect("prepared recursive procedure")
+                .expect_err("forced frames reject a recursive-only instruction");
+            assert_eq!(error.kind, "frame-scheduler");
+            assert!(error.message.contains("ExprLoop"), "{}", error.message);
+        });
+    }
 
     // Native scripts terminate on a runtime fault. Reusing that same evaluator
     // after the fault is a host lifecycle that only the library caller can test.
@@ -2140,7 +2182,45 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             self.calls[index].execution.instruction_id(instruction),
             span,
         )?;
+        let strategy = tag.frame_strategy();
+        if self.evaluator.force_frames && strategy == FrameStrategy::LegacyRecursive {
+            return Err(frame_strategy_error(tag, span));
+        }
         match tag {
+            FullTag::StmtAssert => {
+                let condition = indexed_raw(&mut payload, span)?;
+                let message = match indexed_raw(&mut payload, span)? {
+                    0 => None,
+                    1 => Some(indexed_raw(&mut payload, span)?),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "indexed-ir",
+                            "invalid assertion message option",
+                        )
+                        .with_span(span));
+                    }
+                };
+                let assertion_span =
+                    indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                let flow = {
+                    let call = &mut self.calls[index];
+                    self.evaluator.eval_indexed_assertion_statement(
+                        &call.execution,
+                        condition,
+                        message,
+                        &mut call.slots,
+                        assertion_span,
+                    )?
+                };
+                match flow {
+                    StmtFlow::None => Ok(()),
+                    StmtFlow::Propagate(value) => {
+                        self.complete_call(index, StmtFlow::Propagate(value))
+                    }
+                    _ => unreachable!("assertion evaluation returns only none or propagation"),
+                }
+            }
             FullTag::StmtDefaultParameter => {
                 let slot =
                     indexed_decode::<usize>(&mut payload, &self.calls[index].execution, span)?;
@@ -2720,7 +2800,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
                 Ok(())
             }
-            _ => {
+            _ if strategy == FrameStrategy::LegacyRecursive => {
                 let flow = self.with_lent_context(index, |evaluator, execution, slots| {
                     evaluator.eval_indexed_stmt(execution, instruction, slots, span)
                 })?;
@@ -2734,6 +2814,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     flow => self.complete_call(index, flow),
                 }
             }
+            _ => Err(frame_strategy_error(tag, span)),
         }
     }
 
@@ -2744,7 +2825,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         span: Span,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
-        if self.calls[index].execution.is_in_place(instruction) {
+        if !self.evaluator.force_frames
+            && self.calls[index].execution.is_in_place(instruction)
+        {
             let flow = {
                 let call = &mut self.calls[index];
                 self.evaluator.eval_indexed_expr(
@@ -2774,6 +2857,22 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             self.calls[index].execution.instruction_id(instruction),
             span,
         )?;
+        let strategy = tag.frame_strategy();
+        if self.evaluator.force_frames && strategy == FrameStrategy::LegacyRecursive {
+            return Err(frame_strategy_error(tag, span));
+        }
+        if strategy == FrameStrategy::FrameApply && super::is_eager_atom(tag) {
+            let call = &mut self.calls[index];
+            let value = super::indexed_eager_atom_value(
+                &call.execution,
+                tag,
+                payload,
+                &mut call.slots,
+                span,
+            )?;
+            self.push_value(index, FrameValue::Value(value), next);
+            return Ok(());
+        }
         match tag {
             FullTag::ExprValueBlock => {
                 let body = indexed_raw(&mut payload, span)?;
@@ -3255,15 +3354,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     indexed_string(&mut payload, &self.calls[index].execution, span)?.to_string();
                 let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
-                if let Some(base) = Evaluator::indexed_field_chain_ref(
-                    &self.calls[index].execution,
-                    base,
-                    &self.calls[index].slots,
-                    value_span,
-                )? && let Some(value) = super::lowered_record_field_value(base, &name)
-                {
-                    self.push_value(index, FrameValue::Value(value), next);
-                    return Ok(());
+                if !self.evaluator.force_frames {
+                    if let Some(base) = Evaluator::indexed_field_chain_ref(
+                        &self.calls[index].execution,
+                        base,
+                        &self.calls[index].slots,
+                        value_span,
+                    )? && let Some(value) = super::lowered_record_field_value(base, &name)
+                    {
+                        self.push_value(index, FrameValue::Value(value), next);
+                        return Ok(());
+                    }
                 }
                 self.push_expr(
                     index,
@@ -3350,7 +3451,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     next,
                 )?;
             }
-            _ => {
+            _ if strategy == FrameStrategy::LegacyRecursive => {
                 let flow = self.with_lent_context(index, |evaluator, execution, slots| {
                     evaluator.eval_indexed_expr(execution, instruction, slots, span)
                 })?;
@@ -3360,6 +3461,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 };
                 self.push_value(index, value, next);
             }
+            _ => return Err(frame_strategy_error(tag, span)),
         }
         Ok(())
     }

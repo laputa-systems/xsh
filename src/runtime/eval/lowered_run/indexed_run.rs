@@ -43,8 +43,8 @@ use super::{
 use crate::map_key::MapKey;
 use crate::runtime::eval::indexed::IrVerifyError;
 use crate::runtime::eval::indexed::full::{
-    BLOCK_LIST, BLOCK_STATEMENTS, FullDriverTag, FullExecution, FullFunctionView, FullPatternTag,
-    FullPayload, FullProgram, FullStageTag, FullTag,
+    BLOCK_LIST, BLOCK_STATEMENTS, FrameStrategy, FullDriverTag, FullExecution, FullFunctionView,
+    FullPatternTag, FullPayload, FullProgram, FullStageTag, FullTag,
 };
 use crate::runtime::eval::indexed::full::schema::ExprView;
 use crate::runtime::eval::lower::{
@@ -86,7 +86,7 @@ use operands::{
 
 use process::run_target_and_leading_argv;
 use values::{
-    bounded_assertion_text, capture_checked_error, lowered_condition_bool, lowered_fallback_value,
+    capture_checked_error, lowered_condition_bool, lowered_fallback_value,
     lowered_err_with_cause, comparison_link_holds, finish_record_entries, lowered_comp_iterable,
     proc_call_result,
 };
@@ -585,6 +585,104 @@ impl IndexedCompQualifier {
     }
 }
 
+fn is_eager_atom(tag: FullTag) -> bool {
+    matches!(
+        tag,
+        FullTag::ExprNull
+            | FullTag::ExprUnit
+            | FullTag::ExprInt
+            | FullTag::ExprFloat
+            | FullTag::ExprDuration
+            | FullTag::ExprBool
+            | FullTag::ExprStr
+            | FullTag::ExprBytes
+            | FullTag::ExprPreparedRegex
+            | FullTag::ExprPreparedConstant
+            | FullTag::ExprPath
+            | FullTag::ExprParam
+    )
+}
+
+fn indexed_eager_atom_value<'a>(
+    execution: &FullExecution<'a>,
+    tag: FullTag,
+    mut payload: FullPayload<'a>,
+    slots: &mut [LoweredValue],
+    span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    let value = match tag {
+        FullTag::ExprNull => {
+            indexed_finish(payload, span)?;
+            LoweredValue::Null
+        }
+        FullTag::ExprUnit => {
+            indexed_finish(payload, span)?;
+            LoweredValue::Unit
+        }
+        FullTag::ExprInt => {
+            let value = indexed_decode::<i64>(&mut payload, execution, span)?;
+            indexed_finish(payload, span)?;
+            LoweredValue::Int(value)
+        }
+        FullTag::ExprFloat => {
+            let value = indexed_decode::<crate::runtime::value::FloatValue>(
+                &mut payload,
+                execution,
+                span,
+            )?;
+            indexed_finish(payload, span)?;
+            LoweredValue::Float(value)
+        }
+        FullTag::ExprDuration => {
+            let value = indexed_decode::<DurationValue>(&mut payload, execution, span)?;
+            indexed_finish(payload, span)?;
+            LoweredValue::Duration(value)
+        }
+        FullTag::ExprBool => {
+            let value = indexed_decode::<bool>(&mut payload, execution, span)?;
+            indexed_finish(payload, span)?;
+            LoweredValue::Bool(value)
+        }
+        FullTag::ExprStr => {
+            let value = indexed_decode::<Arc<str>>(&mut payload, execution, span)?;
+            indexed_finish(payload, span)?;
+            LoweredValue::Str(value)
+        }
+        FullTag::ExprBytes => {
+            let value = indexed_decode::<Arc<[u8]>>(&mut payload, execution, span)?;
+            indexed_finish(payload, span)?;
+            LoweredValue::Bytes(value)
+        }
+        FullTag::ExprPreparedRegex => {
+            let value = indexed_decode::<RegexValue>(&mut payload, execution, span)?;
+            indexed_finish(payload, span)?;
+            LoweredValue::Regex(Box::new(value))
+        }
+        FullTag::ExprPreparedConstant => {
+            let value = indexed_decode::<crate::runtime::eval::PreparedConstantValue>(
+                &mut payload,
+                execution,
+                span,
+            )?;
+            indexed_finish(payload, span)?;
+            value.0
+        }
+        FullTag::ExprPath => {
+            let value = indexed_decode::<PathValue>(&mut payload, execution, span)?;
+            indexed_finish(payload, span)?;
+            LoweredValue::Path(value)
+        }
+        FullTag::ExprParam => {
+            let slot = indexed_decode::<usize>(&mut payload, execution, span)?;
+            indexed_finish(payload, span)?;
+            lowered_freeze_large_slot_list(&mut slots[slot]);
+            slots[slot].clone()
+        }
+        _ => unreachable!("only eager atom tags reach this value helper"),
+    };
+    Ok(value)
+}
+
 impl Evaluator {
 
     pub(super) fn eval_indexed_expr(
@@ -595,7 +693,11 @@ impl Evaluator {
         call_span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
         self.sync_indexed_root_slots(slots, call_span)?;
-        let result = self.eval_indexed_expr_inner(execution, instruction, slots, call_span);
+        let result = if self.force_frames {
+            self.eval_indexed_expr_with_frames(execution, instruction, slots, call_span)
+        } else {
+            self.eval_indexed_expr_inner(execution, instruction, slots, call_span)
+        };
         let publication = self.sync_indexed_root_slots(slots, call_span);
         let mut flow = match (result, publication) {
             (Err(error), _) => Err(error),
@@ -734,69 +836,17 @@ impl Evaluator {
                 _ => unreachable!("selection tag has a matching typed view"),
             };
         }
+        if tag.frame_strategy() == FrameStrategy::FrameApply && is_eager_atom(tag) {
+            return Ok(ControlFlow::Continue(indexed_eager_atom_value(
+                execution,
+                tag,
+                payload,
+                slots,
+                call_span,
+            )?));
+        }
         let mut payload = payload;
         let result = match tag {
-            FullTag::ExprNull => {
-                indexed_finish(payload, call_span)?;
-                ControlFlow::Continue(LoweredValue::Null)
-            }
-            FullTag::ExprUnit => {
-                indexed_finish(payload, call_span)?;
-                ControlFlow::Continue(LoweredValue::Unit)
-            }
-            FullTag::ExprInt => {
-                let value = indexed_decode::<i64>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                ControlFlow::Continue(LoweredValue::Int(value))
-            }
-            FullTag::ExprFloat => {
-                let value = indexed_decode::<crate::runtime::value::FloatValue>(
-                    &mut payload,
-                    execution,
-                    call_span,
-                )?;
-                indexed_finish(payload, call_span)?;
-                ControlFlow::Continue(LoweredValue::Float(value))
-            }
-            FullTag::ExprDuration => {
-                let value = indexed_decode::<DurationValue>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                ControlFlow::Continue(LoweredValue::Duration(value))
-            }
-            FullTag::ExprBool => {
-                let value = indexed_decode::<bool>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                ControlFlow::Continue(LoweredValue::Bool(value))
-            }
-            FullTag::ExprStr => {
-                let value = indexed_decode::<Arc<str>>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                ControlFlow::Continue(LoweredValue::Str(value))
-            }
-            FullTag::ExprPreparedConstant => {
-                let value = indexed_decode::<crate::runtime::eval::PreparedConstantValue>(
-                    &mut payload,
-                    execution,
-                    call_span,
-                )?;
-                indexed_finish(payload, call_span)?;
-                ControlFlow::Continue(value.0)
-            }
-            FullTag::ExprPreparedRegex => {
-                let value = indexed_decode::<RegexValue>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                ControlFlow::Continue(LoweredValue::Regex(Box::new(value)))
-            }
-            FullTag::ExprBytes => {
-                let value = indexed_decode::<Arc<[u8]>>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                ControlFlow::Continue(LoweredValue::Bytes(value))
-            }
-            FullTag::ExprPath => {
-                let value = indexed_decode::<PathValue>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                ControlFlow::Continue(LoweredValue::Path(value))
-            }
             FullTag::ExprFunctionRef => {
                 let function = indexed_decode::<FunctionName>(&mut payload, execution, call_span)?;
                 let pure = indexed_decode::<bool>(&mut payload, execution, call_span)?;
@@ -818,12 +868,6 @@ impl Evaluator {
                 ControlFlow::Continue(LoweredValue::Path(lowered_path_from_value(
                     value, "Path", span,
                 )?))
-            }
-            FullTag::ExprParam => {
-                let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                lowered_freeze_large_slot_list(&mut slots[slot]);
-                ControlFlow::Continue(slots[slot].clone())
             }
             FullTag::ExprComparisonChain => {
                 let (first, pairs) = decode_comparison_chain(execution, &mut payload, call_span)?;
@@ -3073,34 +3117,7 @@ impl Evaluator {
                 };
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                let failure = match self.eval_indexed_assertion(execution, value, slots, span)? {
-                    ControlFlow::Continue(None) => return Ok(StmtFlow::None),
-                    ControlFlow::Continue(Some(failure)) => failure,
-                    ControlFlow::Break(value) => return Ok(StmtFlow::Propagate(value)),
-                };
-                let mut context = None;
-                if let Some(message) = message {
-                    let value = match self.eval_indexed_expr(execution, message, slots, span)? {
-                        ControlFlow::Continue(value) => value,
-                        ControlFlow::Break(value) => return Ok(StmtFlow::Propagate(value)),
-                    };
-                    context = Some(match value {
-                        LoweredValue::Str(text) => bounded_assertion_text(&text, 1024),
-                        LoweredValue::StrView(text) => bounded_assertion_text(text.as_str(), 1024),
-                        _ => {
-                            return Err(RuntimeError::new(
-                                "type-error",
-                                "assert message requires Str",
-                            )
-                            .with_span(span));
-                        }
-                    });
-                }
-                Ok(StmtFlow::Propagate(self.indexed_assertion_failed(
-                    failure,
-                    context.as_deref(),
-                    span,
-                )?))
+                self.eval_indexed_assertion_statement(execution, value, message, slots, span)
             }
             FullTag::StmtStrMatch | FullTag::StmtTagMatch => {
                 let value = indexed_raw(&mut payload, call_span)?;

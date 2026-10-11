@@ -19,6 +19,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticRenderer, Label};
 use xsh::execution::evaluator::{
     Evaluator, NativeTestRunKind, NativeTestRunRequest, PreparedTestProgram, TestCancellation,
+    NATIVE_TEST_FORCE_FRAMES_ENV,
 };
 use xsh::execution::script::XSH_COVERAGE_TRACE_DIR;
 use xsh::execution::value::{PathValue, RecordMap, ResultValue, RuntimeError, Value};
@@ -42,6 +43,7 @@ pub(crate) struct TestOptions {
     pub(crate) coverage: bool,
     pub(crate) api: bool,
     pub(crate) coverage_json_out: Option<String>,
+    pub(crate) force_frames: bool,
 }
 
 impl TestOptions {
@@ -887,6 +889,7 @@ fn run_native_test(
         &case.name,
         ctx,
         options.collect_coverage(),
+        options.force_frames,
         env_overlay,
         cancellation,
     );
@@ -939,6 +942,13 @@ fn native_test_host(
     request: NativeTestRunRequest,
     module_path: Option<&OsString>,
 ) -> Result<Value, RuntimeError> {
+    if request.env.contains_key(NATIVE_TEST_FORCE_FRAMES_ENV) {
+        return Err(RuntimeError::new(
+            native_test_error_kind(request.kind),
+            "the frame-scheduler test marker is reserved for the test harness",
+        )
+        .with_span(request.span));
+    }
     let script_path = PathBuf::from(OsString::from_vec(request.script_path.bytes.clone()));
     if let Some(parent) = script_path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
@@ -1019,6 +1029,11 @@ fn native_test_host(
     for (name, value) in &request.env {
         let value: &std::ffi::OsStr = std::os::unix::ffi::OsStrExt::from_bytes(value);
         command.env(name, value);
+    }
+    if request.force_frames {
+        command.env(NATIVE_TEST_FORCE_FRAMES_ENV, "1");
+    } else {
+        command.env_remove(NATIVE_TEST_FORCE_FRAMES_ENV);
     }
     command.stdout(Stdio::piped());
     command.stderr(Stdio::piped());

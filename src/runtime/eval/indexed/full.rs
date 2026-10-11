@@ -4,7 +4,7 @@ pub(in crate::runtime::eval) mod schema;
 
 use decode::{BorrowCodec, DecodeContext};
 pub(in crate::runtime::eval) use schema::{
-    BuildBoolRow, BuildExprRow, BuildIntRow, BuildStmtRow, FullTag,
+    BuildBoolRow, BuildExprRow, BuildIntRow, BuildStmtRow, FrameStrategy, FullTag,
 };
 
 use super::semantic::{SemanticPoolBuilder, SemanticPools};

@@ -311,7 +311,19 @@ fn parse_test_timeout(value: &str) -> Result<Option<std::time::Duration>, String
 }
 
 fn parse_test(args: &[String]) -> Result<Command, String> {
-    parse_command("test", args, |parsed| {
+    let mut force_frames = false;
+    let mut visible_args = Vec::with_capacity(args.len());
+    for arg in args {
+        if arg == "--force-frames" {
+            if force_frames {
+                return Err("`--force-frames` may only be used once".to_string());
+            }
+            force_frames = true;
+        } else {
+            visible_args.push(arg.clone());
+        }
+    }
+    parse_command("test", &visible_args, |parsed| {
         let jobs = parsed
             .value("--jobs")
             .map(|value| match value.parse::<usize>() {
@@ -346,6 +358,7 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
                 coverage,
                 api,
                 coverage_json_out: parsed.value("--cov-json").map(str::to_string),
+                force_frames,
             },
         })
     })
@@ -677,5 +690,23 @@ mod tests {
             };
             assert_eq!(Some(text), generated_command_help(command.name));
         }
+    }
+
+    #[test]
+    fn force_frames_test_switch_stays_hidden_from_the_command_surface() {
+        let args = ["--force-frames", "--exact", "selected-test"]
+            .map(str::to_string);
+        let Command::Test { options } = parse_test(&args).expect("parse hidden test switch") else {
+            panic!("test parser returned the wrong command");
+        };
+        assert!(options.force_frames);
+        assert!(options.exact);
+        assert_eq!(options.filter.as_deref(), Some("selected-test"));
+        assert!(
+            !generated_command_help("test")
+                .expect("test command help")
+                .contains("--force-frames")
+        );
+        assert!(parse_test(&["--force-frames", "--force-frames"].map(str::to_string)).is_err());
     }
 }

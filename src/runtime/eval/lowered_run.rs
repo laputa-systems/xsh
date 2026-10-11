@@ -214,6 +214,7 @@ impl Evaluator {
             tool_args: tool_args.to_vec(),
             script_args: script_args.to_vec(),
             env: env.clone(),
+            force_frames: self.force_frames,
             stdin: stdin.to_vec(),
             linux_fake: self.linux_fake.as_deref().cloned(),
             unix_fake: self.unix_fake.as_deref().cloned(),

@@ -131,3 +131,39 @@ print \${helper.value()}
   assert result.stdout == """7
 """
 }
+
+test frame_routed_run_script_child_selects_eager_values { |ctx|
+  let result = test.run_script(
+    ctx,
+    """let seed = [
+  {value: [3, 5]},
+]
+let rows = [@seed]
+let selected_index: Int = if rows[-1].value[-1] == 5 { 0 } else { 99 }
+let selected: Int = [7][selected_index]
+""",
+  )?
+  assert result.status == 0, result.stderr
+}
+
+test frame_routed_run_xsh_child_selects_eager_values { |ctx|
+  let result = test.run_xsh(
+    ctx,
+    """let seed = [
+  {value: [3, 5]},
+]
+let rows = [@seed]
+let selected_index: Int = if rows[-1].value[-1] == 5 { 0 } else { 99 }
+let selected: Int = [7][selected_index]
+""",
+  )?
+  assert result.status == 0, result.stderr
+}
+
+test frame_routed_child_keeps_assertion_failure_details { |ctx|
+  test.expect(ctx, "assert false, \"frame assertion\"\n", status: 3, stderr: ["frame assertion"])?
+}
+
+test ordinary_child_keeps_recursive_fallback_for_unsupported_expressions { |ctx|
+  test.expect(ctx, "let value = loop { break 0 }\n", status: 0)?
+}

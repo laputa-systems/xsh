@@ -324,6 +324,45 @@ impl Evaluator {
         self.lowered_question_propagation_value(lowered_result_err_value(error), span)
     }
 
+    pub(super) fn eval_indexed_assertion_statement(
+        &mut self,
+        execution: &FullExecution<'_>,
+        condition: u32,
+        message: Option<u32>,
+        slots: &mut [LoweredValue],
+        span: Span,
+    ) -> Result<StmtFlow, RuntimeError> {
+        let failure = match self.eval_indexed_assertion(execution, condition, slots, span)? {
+            ControlFlow::Continue(None) => return Ok(StmtFlow::None),
+            ControlFlow::Continue(Some(failure)) => failure,
+            ControlFlow::Break(value) => return Ok(StmtFlow::Propagate(value)),
+        };
+        let context = if let Some(message) = message {
+            let value = match self.eval_indexed_expr(execution, message, slots, span)? {
+                ControlFlow::Continue(value) => value,
+                ControlFlow::Break(value) => return Ok(StmtFlow::Propagate(value)),
+            };
+            Some(match value {
+                LoweredValue::Str(text) => bounded_assertion_text(&text, 1024),
+                LoweredValue::StrView(text) => bounded_assertion_text(text.as_str(), 1024),
+                _ => {
+                    return Err(RuntimeError::new(
+                        "type-error",
+                        "assert message requires Str",
+                    )
+                    .with_span(span));
+                }
+            })
+        } else {
+            None
+        };
+        Ok(StmtFlow::Propagate(self.indexed_assertion_failed(
+            failure,
+            context.as_deref(),
+            span,
+        )?))
+    }
+
     pub(super) fn eval_indexed_assertion(
         &mut self,
         execution: &FullExecution<'_>,

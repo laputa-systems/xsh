@@ -174,6 +174,8 @@ pub struct NativeTestRunRequest {
     pub script_args: Vec<std::ffi::OsString>,
     /// Overrides by name; a value is the bytes the script receives.
     pub env: BTreeMap<String, Vec<u8>>,
+    /// Keeps test-spawned script processes on the explicit frame scheduler.
+    pub force_frames: bool,
     pub stdin: Vec<u8>,
     /// The fakes the requesting test installed; the host runs the script
     /// under the same fakes.
@@ -183,6 +185,21 @@ pub struct NativeTestRunRequest {
     /// when that test times out.
     pub cancellation: Option<TestCancellation>,
     pub span: Span,
+}
+
+const FORCE_FRAMES_ENV: &str = "XSH_INTERNAL_TEST_FORCE_FRAMES";
+
+#[cfg(feature = "native-tests")]
+pub const NATIVE_TEST_FORCE_FRAMES_ENV: &str = FORCE_FRAMES_ENV;
+
+fn force_frames_from_marker(value: Option<&std::ffi::OsStr>) -> bool {
+    match value {
+        None => false,
+        Some(value) if value == "1" => true,
+        Some(value) => panic!(
+            "reserved `{FORCE_FRAMES_ENV}` marker must be `1`, got {value:?}"
+        ),
+    }
 }
 
 #[cfg(feature = "native-tests")]
@@ -2383,6 +2400,8 @@ pub struct Evaluator {
     frame_machine_depth: Arc<std::sync::atomic::AtomicUsize>,
     /// The frame engine's reusable scratch vectors.
     frame_scratch: crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch,
+    /// Test-only policy that requires executed instructions to have frame handlers.
+    force_frames: bool,
     /// Set while a context-scoped frame lends its slots to the recursive
     /// evaluator, so nested bodies keep the outer-assignment escape rule.
     lent_context_slots:
@@ -2449,6 +2468,7 @@ struct LoweredSharedState {
     module_roots: Arc<[PathBuf]>,
     cwd: PathBuf,
     env: RuntimeEnv,
+    force_frames: bool,
     #[cfg(feature = "native-tests")]
     native_test_host: Option<NativeTestHost>,
     #[cfg(feature = "native-tests")]
@@ -2464,6 +2484,7 @@ impl PreparedTestProgram {
         test_name: &str,
         ctx: Value,
         trace_enabled: bool,
+        force_frames: bool,
         env_overlay: Vec<(Vec<u8>, Vec<u8>)>,
         cancellation: TestCancellation,
     ) -> TestEvalOutput {
@@ -2479,6 +2500,7 @@ impl PreparedTestProgram {
                     &self.setup_shared
                 };
                 let mut evaluator = Evaluator::new_lowered_worker(shared);
+                evaluator.force_frames |= force_frames;
                 evaluator.capture_process_output = true;
                 evaluator.test_cancellation = Some(cancellation);
                 for (name, value) in env_overlay {
@@ -2681,6 +2703,9 @@ impl Evaluator {
             frame_scratch:
                 crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch::default(
                 ),
+            force_frames: force_frames_from_marker(
+                std::env::var_os(FORCE_FRAMES_ENV).as_deref(),
+            ),
             lent_context_slots: None,
             script_producers: Vec::new(),
             live_process_streams: 0,
@@ -2832,6 +2857,7 @@ impl Evaluator {
             module_roots: Arc::clone(&self.module_roots),
             cwd: self.cwd.clone(),
             env: self.env.clone(),
+            force_frames: self.force_frames,
             #[cfg(feature = "native-tests")]
             native_test_host: self.native_test_host.clone(),
             #[cfg(feature = "native-tests")]
@@ -2923,6 +2949,7 @@ impl Evaluator {
             frame_scratch:
                 crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch::default(
                 ),
+            force_frames: shared.force_frames,
             lent_context_slots: None,
             script_producers: Vec::new(),
             live_process_streams: 0,
@@ -7351,5 +7378,21 @@ fn within_limit_text(limit: Duration) -> String {
         format!("{}s", millis / 1000)
     } else {
         format!("{millis}ms")
+    }
+}
+
+#[cfg(test)]
+mod frame_scheduler_marker_tests {
+    use super::force_frames_from_marker;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn internal_frame_marker_accepts_only_the_reserved_enabled_value() {
+        assert!(!force_frames_from_marker(None));
+        assert!(force_frames_from_marker(Some(OsStr::new("1"))));
+        assert!(std::panic::catch_unwind(|| {
+            force_frames_from_marker(Some(OsStr::new("enabled")))
+        })
+        .is_err());
     }
 }
