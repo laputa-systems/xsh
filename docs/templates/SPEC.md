@@ -631,9 +631,9 @@ are `C`, `POSIX`, `C.utf8`; UTF-8 variants of `am_ET`, `de_DE`, `en_US`, `es_ES`
 ISO-8859-1 variants of `en_US`, `fr_FR`, `sv_SE` (including those bare names);
 and `zh_CN.gb18030`. Exact encoding suffix aliases are `.utf8`, `.UTF-8`,
 `.utf-8`, `.UTF8`; `.iso88591`, `.ISO-8859-1`, `.iso-8859-1`, `.ISO8859-1`,
-`.ISO88591`; and `.gb18030`, `.GB18030`. Other names fail rather than falling
-back to C. On other targets, each query opens an isolated native locale and
-copies its installed metadata before freeing the handle.
+`.iso8859-1`, `.ISO88591`; and `.gb18030`, `.GB18030`. Other names fail rather
+than falling back to C. On other targets, each query opens an isolated native
+locale and copies its installed metadata before freeing the handle.
 
 `system.parse_long_double` and `system.format_long_double` keep numeric text
 at the native C `long double` boundary without a binary64 intermediate. Their
