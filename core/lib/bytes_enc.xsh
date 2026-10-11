@@ -58,11 +58,13 @@ pure encode(data: Bytes, kind: Str) -> Result[Str] {
   }
   if kind == "base58" {
     var digits: List[Int] = []
-    var zeros = 0
-    var leading = true
-    for byte in [data.byte_at(i) ?? 0 for i in range(data.len())] {
-      if leading and byte == 0 { zeros += 1 } else { leading = false }
-      var carry = byte
+    # Leading zero bytes each become '1' and do not affect the radix digits.
+    # Scan them without allocating a value for every input byte.
+    let zeros = bytes.repeat_prefix_count(data, b"\0")?
+    var position = zeros
+    while position < data.len() {
+      var carry = data.byte_at(position) ?? 0
+      position += 1
       for i in range(digits.len()) {
         carry += digits[i] * 256
         digits[i] = carry % 58
@@ -70,7 +72,15 @@ pure encode(data: Bytes, kind: Str) -> Result[Str] {
       }
       while carry > 0 { digits += [carry % 58]; carry /= 58 }
     }
-    var out = ["1" for _ in range(zeros)].join("")
+    # Doubling builds the zero prefix without a list of individual characters.
+    var out = ""
+    var remaining = zeros
+    var ones = "1"
+    while remaining > 0 {
+      if remaining % 2 == 1 { out += ones }
+      remaining /= 2
+      if remaining > 0 { ones += ones }
+    }
     for i in range(digits.len()) { out += B58.byte_slice(digits[digits.len() - i - 1], length: 1) }
     return Ok(out)
   }

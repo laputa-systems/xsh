@@ -88,3 +88,35 @@ test test_basenc_nonzero_padding_bits_are_invalid { |ctx|
   assert base32.stderr == "basenc: invalid input\n", base32.stderr
   assert invoke(ctx, ["--base32", "-d"], b"MZXW4===")?.stdout == b"fon"
 }
+
+test test_basenc_base58_large_zero_input_preserves_default_wrapping { |ctx|
+  let root = test.temp_dir(ctx, name: "basenc-large-zeros")?
+  let input = fp"{root}/zeros"
+  input.write(b"")
+  let size = 20 * 1024 * 1024
+  input.truncate(size)
+  let output = fp"{root}/encoded"
+  let result = invoke(ctx, ["--base58", input.display()], sink: output)?
+  assert result.status == 0, result.stderr
+  assert result.stderr == ""
+  let encoded = output.read_bytes()?
+  assert encoded.len() == size + (size + 75) / 76
+  let line = bytes.from_text(["1" for _ in range(76)].join("") + "\n")
+  let lines = size / 76
+  assert bytes.repeat_prefix_count(encoded, line)? == lines
+  let tail = bytes.from_text(["1" for _ in range(size % 76)].join("") + "\n")
+  assert encoded[lines * 77..] == tail
+}
+
+test test_basenc_base58_leading_zeros_keep_nonzero_suffix { |ctx|
+  for example in [
+    {input: b"", encoded: b""},
+    {input: b"\0", encoded: b"1"},
+    {input: b"\0\0\x01\0", encoded: b"115R"},
+    {input: b"\x01\0", encoded: b"5R"},
+  ] {
+    let result = invoke(ctx, ["--base58", "-w0"], example.input)?
+    assert result.status == 0, result.stderr
+    assert result.stdout == example.encoded
+  }
+}
