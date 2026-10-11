@@ -5,8 +5,8 @@
     "tag": "v1.4.7",
     "commit": "6e39144aaf5a6bc01b9f795010b0914431067183"
   },
-  "gate": "G2",
-  "last_green_commit": "1cf0dafe",
+  "gate": "G3",
+  "last_green_commit": "cbe15963",
   "audit": {
     "new_core_script": "New core/*.xsh applets are installed by the release script at dev/release.xsh:146-160; dev/tests/test-repository-contracts.xsh owns the required core script inventory and contract checks. No separate command registration is needed.",
     "launcher_argument_separator": "Use xsh SCRIPT -- ARGS for an applet and xsh -- SCRIPT ARGS for an explicit script; src/entrypoints/xsh.rs:90-120.",
@@ -1256,6 +1256,24 @@
       "name": "time.monotonic",
       "commit": "ee7a73fa",
       "summary": "Added a Result[Int, Error] monotonic nanosecond clock with process-local origin for elapsed-duration measurement; it is distinct from wall-clock time.now."
+    },
+    {
+      "kind": "api",
+      "name": "tui.cell_width/cell_clip/cell_slice/cell_left_pad/cell_right_pad/safe_single_line",
+      "commit": "cbe15963",
+      "summary": "Added Unicode 16 cell-aware width, clipping, slicing, padding, and hostile single-line text sanitization helpers."
+    },
+    {
+      "kind": "data_format",
+      "name": "btop replay manifest schema 2",
+      "commit": "cbe15963",
+      "summary": "Replay bundles now require recorded terminal capability inputs and dimensions; schema 1 is rejected so replay never guesses host display state."
+    },
+    {
+      "kind": "api",
+      "name": "unix.tty_mode(raw)",
+      "commit": "cbe15963",
+      "summary": "Raw mode now disables echo, signal generation, extended processing, and input flow control consistently with the documented stty raw contract."
     }
   ],
   "limitations": [
@@ -1828,6 +1846,6 @@
     }
   ],
   "next": [
-    "G2 evidence is complete on host release; create the G2 gate-exit commit, then begin G3 S3.1 scheduling and cache invariants."
+    "G3 S3.1: implement and fixture-test scheduling classes, cache TTL and invalidation, and eviction of exited process identities and stale device epochs."
   ]
 }
