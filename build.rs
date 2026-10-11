@@ -107,7 +107,9 @@ fn build_long_double(root: &Path) {
     println!("cargo:rerun-if-changed=src/modules/numeric/long_double.c");
     println!("cargo:rustc-link-search=native={}", out.display());
     println!("cargo:rustc-link-lib=static=xsh_numeric");
-    println!("cargo:rustc-link-lib=m");
+    if !target.contains("musl") {
+        println!("cargo:rustc-link-lib=m");
+    }
 }
 
 
