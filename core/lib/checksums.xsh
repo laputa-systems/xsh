@@ -254,7 +254,8 @@ pure byte_lines(data: Bytes) -> List[Bytes] {
 }
 
 # The first valid checksum record selects GNU's alternate format for the list;
-# in that mode a leading star is part of a filename, not a binary marker.
+# in that mode indentation before the digest is allowed and a leading star
+# is part of a filename, not a binary marker.
 pure bsd_alternate_format(line: Bytes) -> Bool {
   if line.len() == 0 or line.byte_at(0) == 92 or last_byte_separator(line) != null { return false }
   let separator = byte_index(line, 32, 0) ?? -1
@@ -286,6 +287,11 @@ pure malformed_label(line: Bytes, previous: Str) -> Str {
 # in a filename are data, and tagged lines may carry their own algorithm.
 pure parse_line(original: Str, algorithm: Str, length: Int, infer: Bool, alternate_format: Bool) -> Check? {
   var line = original
+  if alternate_format {
+    var start = 0
+    while start < line.byte_len() and line.byte_slice(start, length: 1) in [" ", "\t"] { start += 1 }
+    line = line.byte_slice(start)
+  }
   if line.ends_with("\r") { line = line.byte_slice(0, length: line.byte_len() - 1) }
   let escape = line.starts_with("\\")
   if escape { line = line.byte_slice(1) }
@@ -405,6 +411,11 @@ pure parse_line(original: Str, algorithm: Str, length: Int, infer: Bool, alterna
 
 pure parse_byte_line(original: Bytes, algorithm: Str, length: Int, infer: Bool, alternate_format: Bool) -> Check? {
   var line = original
+  if alternate_format {
+    var start = 0
+    while start < line.len() and (line.byte_at(start) ?? -1) in [9, 32] { start += 1 }
+    line = line[start..]
+  }
   if line.len() > 0 and line.byte_at(line.len() - 1) == 13 { line = line[..line.len() - 1] }
   let escape = line.byte_at(0) == 92
   let content = if escape { line[1..] } else { line }

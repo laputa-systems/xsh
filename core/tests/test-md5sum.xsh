@@ -196,3 +196,36 @@ test test_md5sum_missing_check_path_keeps_original_name { |ctx|
   assert checked.stdout == b"missing: FAILED open or read\n"
   assert checked.stderr.find("missing: No such file or directory") != null
 }
+
+# A one-space record selects alternate format, whose later records allow
+# indentation while preserving a leading star as part of the filename.
+test test_md5sum_alternate_format_accepts_indented_records { |ctx|
+  let root = test.temp_dir(ctx, name: "indented-alternate-check")?
+  let file = fp"{root}/a"
+  let starred = fp"{root}/*c"
+  file.write("")
+  starred.write("")
+  let input = bytes.from_text(f"d41d8cd98f00b204e9800998ecf8427e {file}\n\n            d41d8cd98f00b204e9800998ecf8427e {starred}\n")
+  let checked = invoke(ctx, ["--check", "--warn", "--strict"], input)?
+  assert checked.status == 0
+  assert checked.stdout == bytes.from_text(f"{file}: OK\n'{starred}': OK\n")
+  assert checked.stderr == ""
+
+  let raw_file = Path.parse_bytes(bytes.concat([root.bytes(), b"/*raw\xff"]))?
+  raw_file.write("")
+  let raw_input = bytes.concat([
+    bytes.from_text(f"d41d8cd98f00b204e9800998ecf8427e {file}\n"),
+    b"\t  d41d8cd98f00b204e9800998ecf8427e ", raw_file.bytes(), b"\n",
+  ])
+  let raw_checked = invoke(ctx, ["--check", "--strict", "--quiet"], raw_input)?
+  assert raw_checked.status == 0
+  assert raw_checked.stdout == b""
+  assert raw_checked.stderr == ""
+
+  let conventional = bytes.from_text(f"d41d8cd98f00b204e9800998ecf8427e  {file}\n            d41d8cd98f00b204e9800998ecf8427e {starred}\n")
+  let rejected = invoke(ctx, ["--check", "--warn", "--strict"], conventional)?
+  assert rejected.status == 1
+  assert rejected.stdout == bytes.from_text(f"{file}: OK\n")
+  assert rejected.stderr.find("2: improperly formatted MD5 checksum line") != null
+  assert rejected.stderr.find("WARNING: 1 line is improperly formatted") != null
+}
