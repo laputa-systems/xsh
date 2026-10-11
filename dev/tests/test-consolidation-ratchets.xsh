@@ -223,7 +223,7 @@ proc review_fixture(ctx: TestContext) [fs, process, error] -> Result[ReviewFixtu
   fp"{root}/.work/proofs".mkdir()
   let _ = git_output(root, ["init", "--quiet"])
   let _ = git_output(root, ["add", "."])
-  let _ = git_output(root, ["-c", "user.name=Fixture Reviewer", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "-m", "source fixture"])
+  let _ = git_output(root, ["-c", "user.name=Fixture Agent Reviewer", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "-m", "source fixture"])
   let commit = git_output(root, ["rev-parse", "HEAD"])
   let sources = collect {
     for source_path in review_source_paths {
@@ -277,8 +277,8 @@ pure proof_bundle(report: metrics.Report, fixture: ReviewFixture) -> metrics.Rev
       for review in report.reviews {
         yield {
           name: review.name,
-          status: "human_verified",
-          reviewer: "fixture reviewer",
+          status: "review_verified",
+          reviewer: "fixture agent reviewer",
           evidence: [fixture.artifact],
         }
       }
@@ -317,6 +317,8 @@ test test_review_evidence_requires_all_unique_verified_rows_and_hashed_workspace
   assert review_failure(report, duplicate, fixture.root) != "accepted"
   let unresolved = {...valid, rows: collect { for row in valid.rows { yield if row.name == "timings" { {...row, status: "open"} } else { row } } }}
   assert review_failure(report, unresolved, fixture.root) != "accepted"
+  let human_only_status = {...valid, rows: collect { for row in valid.rows { yield if row.name == "timings" { {...row, status: "human_verified"} } else { row } } }}
+  assert review_failure(report, human_only_status, fixture.root) != "accepted"
   let failed_result = {...valid, rows: collect { for row in valid.rows { yield if row.name == "timings" { {...row, evidence: [{...row.evidence[0], result: "failed"}]} } else { row } } }}
   assert review_failure(report, failed_result, fixture.root) != "accepted"
   let bad_hash = {...valid, rows: collect { for row in valid.rows { yield if row.name == "timings" { {...row, evidence: [{...row.evidence[0], sha256: "0000000000000000000000000000000000000000000000000000000000000000"}]} } else { row } } }}
@@ -337,11 +339,11 @@ test test_review_evidence_accepts_synthetic_commit_after_docs_only_commit { |ctx
   let proof = proof_bundle(report, fixture)
   fp"{fixture.root}/README.md".write("docs-only update\n")
   let _ = git_output(fixture.root, ["add", "README.md"])
-  let _ = git_output(fixture.root, ["-c", "user.name=Fixture Reviewer", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "-m", "documentation only"])
+  let _ = git_output(fixture.root, ["-c", "user.name=Fixture Agent Reviewer", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "-m", "documentation only"])
   assert review_failure(report, proof, fixture.root) == "accepted"
   fp"{fixture.root}/src/lib.rs".write("fn changed_fixture() {}\n")
   let _ = git_output(fixture.root, ["add", "src/lib.rs"])
-  let _ = git_output(fixture.root, ["-c", "user.name=Fixture Reviewer", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "-m", "changed source"])
+  let _ = git_output(fixture.root, ["-c", "user.name=Fixture Agent Reviewer", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "-m", "changed source"])
   assert review_failure(report, proof, fixture.root) != "accepted"
 }
 

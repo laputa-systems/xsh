@@ -21,9 +21,9 @@ export type Evidence = {path: Str, line: Int, detail: Str}
 export type Metric = {name: Str, value: Int, evidence: List[Evidence]}
 ## A row requiring measured or reviewed evidence beyond lexical source inventories.
 export type Review = {name: Str, requirement: Str}
-## A hashed artifact and the method and result that support a human review claim.
+## A hashed artifact and the method and result that support a review claim.
 export type ReviewArtifact = {path: Str, sha256: Str, command: Str, method: Str, result: Str}
-## A canonical review row remains present until a reviewer attests its evidence.
+## A canonical review row remains present until a reviewer records supporting evidence.
 export type ReviewProof = {name: Str, status: Str, reviewer: Str, evidence: List[ReviewArtifact]}
 ## A tracked product, test, or verifier path captured at the commit used for review.
 export type ReviewSource = {path: Str, oid: Str}
@@ -933,8 +933,8 @@ export proc verify_review_evidence(current: Report, bundle: ReviewEvidenceBundle
     }
   }
   for row in bundle.rows {
-    if row.status != "human_verified" or row.reviewer.trim() == "" or row.evidence.is_empty() {
-      return Err(MetricError.Contract(detail: f"review row is not human-verified with evidence: {row.name}"))
+    if row.status != "review_verified" or row.reviewer.trim() == "" or row.evidence.is_empty() {
+      return Err(MetricError.Contract(detail: f"review row is not verified with evidence: {row.name}"))
     }
     for artifact in row.evidence { verify_artifact(base, artifact)? }
   }
