@@ -66,47 +66,16 @@ export proc check_libxsh_imports(ctx: context.Context) [process, error] -> Resul
   )
 }
 
-## Runs the compatibility campaign ratchets: no new or grown discard bucket in
-## `core/*.xsh`, no applet reading /proc or /sys outside the typed domain APIs,
-## only per-test explained exclusions, and a parity manifest that matches the repository and the pinned denominator. The manifest check runs offline unless `UUTILS_ROOT` is
-## set, so `make check` needs no uutils checkout.
-export proc check_compat(ctx: context.Context) [process, error, io] -> Result[Unit, Error] {
+## Checks command inventory, native test origins and applet invariants through
+## the release native test runner. Metadata checks need no upstream checkout.
+export proc check_core_contracts(ctx: context.Context) [process, error, io] -> Result[Unit, Error] {
+  let xsht = fp"{ctx.target_dir}/release/xsht"
   stages.execute(
     stages.command(
-      "check-compat-ignored-options",
+      "check-core-contracts",
       ctx.target.triple,
-      "python3",
-      ["python3", "dev/compat/check_ignored_options.py"],
-      ctx.root,
-      {},
-    ),
-  )
-  stages.execute(
-    stages.command(
-      "check-compat-kernel-reads",
-      ctx.target.triple,
-      "python3",
-      ["python3", "dev/compat/check_kernel_reads.py"],
-      ctx.root,
-      {},
-    ),
-  )
-  stages.execute(
-    stages.command(
-      "check-compat-exclusions",
-      ctx.target.triple,
-      "python3",
-      ["python3", "dev/compat/check_exclusions.py"],
-      ctx.root,
-      {},
-    ),
-  )
-  stages.execute(
-    stages.command(
-      "check-compat-parity",
-      ctx.target.triple,
-      "python3",
-      ["python3", "dev/compat/parity.py", "--check"],
+      xsht.display(),
+      [xsht.display(), "test", "-j", "1", "dev/tests/test-repository-contracts.xsh"],
       ctx.root,
       {},
     ),
@@ -138,7 +107,7 @@ export proc check_lint(ctx: context.Context) [fs, process, env, error, io] -> Re
       {},
     ),
   )
-  check_compat(ctx)
+  check_core_contracts(ctx)
   documentation.build_release(ctx)
   check_docs(ctx, documentation.release_tools(ctx))
 }
@@ -241,7 +210,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       {},
     ),
   )
-  check_compat(ctx)
+  check_core_contracts(ctx)
   check_docs(ctx, documentation.release_tools(ctx))
   check_libxsh_imports(ctx)
   stages.execute(

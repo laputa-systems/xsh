@@ -110,21 +110,17 @@ match build.check_lint(ctx) {{
   assert cargo_marker.read_text()? == "test|--release|-p|xsht|--test|integration|lint_performance::|--|--test-threads=1|--nocapture"
 }
 
-test test_check_compat_runs_every_ratchet_and_stops_at_the_first_failure { |ctx|
-  let root = test.temp_dir(ctx, name: "check-compat")?
-  let tools = fp"{root}/tools"
-  tools.mkdir()
+test test_check_core_contracts_propagates_native_runner_failure { |ctx|
+  let root = test.temp_dir(ctx, name: "check-core-contracts")?
+  let release = fp"{root}/target/release"
+  release.mkdir()
   let repository = fs.cwd()?
-  let xsh = ctx.xsh_bin
-  let log = fp"{root}/python-argv"
+  let log = fp"{root}/xsht-argv"
   write_fake_tool(
-    fp"{tools}/python3",
-    xsh,
-    f"""let previous = if p"{log}".exists()? {{ p"{log}".read_text()? }} else {{ "" }}
-p"{log}".write(previous + args.join("|") + "\\n")?
-if "parity.py" in args.join("|") {{
-  exit 7
-}}""",
+    fp"{release}/xsht",
+    ctx.xsh_bin,
+    f"""p"{log}".write(args.join("|"))?
+exit 7""",
   )
   test.expect(
     ctx,
@@ -134,7 +130,7 @@ use context
 use targets as target_policy
 
 let ctx: context.Context = {context_source(root)}
-match build.check_compat(ctx) {{
+match build.check_core_contracts(ctx) {{
   Ok(_) => exit 1
   Err(error) => print ${{error.message}}
 }}
@@ -142,9 +138,9 @@ match build.check_compat(ctx) {{
     status: 0,
     stdout: ["StageError.Failed"],
     args: [],
-    env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"},
+    env: {XSH_MODULE_PATH: fp"{repository}/dev"},
   )?
-  assert log.read_text()? == "dev/compat/check_ignored_options.py\ndev/compat/check_kernel_reads.py\ndev/compat/check_exclusions.py\ndev/compat/parity.py|--check\n"
+  assert log.read_text()? == "test|-j|1|dev/tests/test-repository-contracts.xsh"
 }
 
 test test_lint_fix_rebuilds_the_debug_xsh_binary { |ctx|

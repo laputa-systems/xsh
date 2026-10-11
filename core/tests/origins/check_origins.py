@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ratchet for the native port: every frozen upstream test has a native test.
+"""Native test origin coverage: every frozen upstream test has a native test.
 
     check_origins.py [--suite uutils|gnu|busybox] [--util NAME] [--strict]
 

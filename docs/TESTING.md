@@ -105,16 +105,14 @@ API gate: `cargo test --release --test integration libxsh_api`,
 
 Repository gates (owner-run unless the task asks for them):
 
-The compatibility ratchets are `python3 dev/compat/check_ignored_options.py`
-(no new or grown discard bucket in `core/*.xsh`),
-`python3 dev/compat/check_kernel_reads.py` (no `/proc` or `/sys` literal in a
-top-level applet: kernel state is read through one typed domain API per ABI),
-`python3 dev/compat/check_exclusions.py` (Gate 3 exclusions are exact test IDs with
-a category and a reason), and
-`python3 dev/compat/parity.py --check` (the committed parity manifest matches
-the repository and the denominator pinned in `dev/compat/upstream.lock.json`;
-offline unless `UUTILS_ROOT` is set). Harness usage is in
-`dev/compat/README.md`.
+The command repository gate is
+`target/release/xsht test -j 1 dev/tests/test-repository-contracts.xsh`.
+It checks exact explained upstream exclusions, frozen native origin coverage,
+no new or grown discard bucket in `core/*.xsh`, no direct `/proc` or `/sys`
+path literals in top-level applets, and the retained command inventory's live
+implementation and native test fields against its pinned upstream denominator.
+The metadata assertions live under `dev/checks/` and `core/tests/origins/`;
+they require Python 3 but no upstream checkout or suite runner results.
 
 | Command | Runs |
 |---|---|

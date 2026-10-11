@@ -145,6 +145,25 @@ test test_core_archive_stages_command_and_library_paths { |ctx|
 """ in fp"{root}/dist/core-fixture.sha256".read_text()?
 }
 
+test test_core_archive_commands_preserve_arguments_and_resolve_adjacent_libraries { |ctx|
+  let root = test.temp_dir(ctx, name: "core-archive-execution")?
+  let repository = fs.cwd()?
+  fp"{root}/core/lib".mkdir()
+  for source in ["echo.xsh", "expr.xsh", "lib/gnu.xsh"] {
+    fp"{root}/core/{source}".write(fp"{repository}/core/{source}".read_bytes()?)
+  }
+  let release_ctx = fixtures.linux_context(root, "dev")?
+  releases.package_core(release_ctx, "execution")
+  let extracted = fp"{root}/extracted"
+  archive.tar_extract(fp"{root}/dist/core-execution.tar.xz", extracted)
+  let echo_argv = [ctx.xsh_bin.display(), fp"{extracted}/core/echo".display(), "--", "--", "-n"]
+  let echo_output = run.bytes @echo_argv ?
+  assert echo_output == b"-- -n\n"
+  let expr_argv = [ctx.xsh_bin.display(), fp"{extracted}/core/expr".display(), "--", "1", "+", "1"]
+  let expr_output = run.bytes @expr_argv ?
+  assert expr_output == b"2\n"
+}
+
 type ManifestApplet = {name: Str, source: Str}
 
 type ManifestAlias = {name: Str, target: Str}

@@ -1,0 +1,1697 @@
+{
+  "comment": "Exact uutils test IDs (module::function) excluded from Gate 3. One entry per test; module-wide exclusions are rejected by dev/checks/check_exclusions.py, which also fixes the category list. Excluded tests still count in the totals as `excluded`.",
+  "tests": [
+    {
+      "id": "test_arch::test_arch_help",
+      "utility": "arch",
+      "category": "help-text",
+      "reason": "asserts uutils' clap-generated help text; XSH prints GNU's help text"
+    },
+    {
+      "id": "test_base32::test_version",
+      "utility": "base32",
+      "category": "help-text",
+      "reason": "asserts the uutils version line; XSH prints GNU's version text"
+    },
+    {
+      "id": "test_base64::test_version",
+      "utility": "base64",
+      "category": "help-text",
+      "reason": "asserts the uutils version line; XSH prints GNU's version text"
+    },
+    {
+      "id": "test_basename::test_help",
+      "utility": "basename",
+      "category": "uutils-extension",
+      "reason": "The test also runs `-h`, a help alias uutils adds; GNU basename has no -h (it is an invalid option) and XSH follows GNU. --help is covered by core/tests/test-basename.xsh."
+    },
+    {
+      "id": "test_basename::test_version",
+      "utility": "basename",
+      "category": "uutils-extension",
+      "reason": "The test also runs `-V`, a version alias uutils adds; GNU basename has only --version and XSH follows GNU. --version is covered by core/tests/test-basename.xsh."
+    },
+    {
+      "id": "test_basenc::test_version",
+      "utility": "basenc",
+      "category": "help-text",
+      "reason": "asserts the uutils version line; XSH prints GNU's version text"
+    },
+    {
+      "id": "test_chgrp::test_help",
+      "utility": "chgrp",
+      "category": "help-text",
+      "reason": "asserts uutils' clap-generated help text; XSH prints GNU's help text"
+    },
+    {
+      "id": "test_chgrp::test_help_ref",
+      "utility": "chgrp",
+      "category": "help-text",
+      "reason": "asserts uutils' clap-generated help text; XSH prints GNU's help text"
+    },
+    {
+      "id": "test_chgrp::test_missing_files",
+      "utility": "chgrp",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_chgrp::test_permission_denied",
+      "utility": "chgrp",
+      "category": "gnu-semantics",
+      "reason": "expects 'cannot access' for an unreadable directory during traversal; GNU's fts-based tools print 'cannot read directory', which XSH matches"
+    },
+    {
+      "id": "test_chgrp::test_ref_help",
+      "utility": "chgrp",
+      "category": "help-text",
+      "reason": "asserts uutils' clap-generated help text; XSH prints GNU's help text"
+    },
+    {
+      "id": "test_chgrp::test_subdir_permission_denied",
+      "utility": "chgrp",
+      "category": "gnu-semantics",
+      "reason": "expects 'cannot access' for an unreadable directory during traversal; GNU's fts-based tools print 'cannot read directory', which XSH matches"
+    },
+    {
+      "id": "test_chmod::diagnostics::test_plain_message_when_stderr_is_a_pipe",
+      "utility": "chmod",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own diagnostic text for this error; GNU's differs and XSH follows GNU"
+    },
+    {
+      "id": "test_chmod::diagnostics::test_quiet_stays_quiet",
+      "utility": "chmod",
+      "category": "gnu-semantics",
+      "reason": "GNU chmod -f only silences file errors; an invalid mode is still reported, so the test's expectation is a uutils behavior"
+    },
+    {
+      "id": "test_chmod::diagnostics::test_snippet_marks_a_clause_with_no_operator",
+      "utility": "chmod",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_chmod::diagnostics::test_snippet_points_at_the_bad_operator",
+      "utility": "chmod",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_chmod::diagnostics::test_snippet_points_at_the_mode_not_a_file_with_the_same_name",
+      "utility": "chmod",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_chmod::diagnostics::test_snippet_points_into_a_negative_mode",
+      "utility": "chmod",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_chmod::diagnostics::test_snippet_points_into_the_right_negative_mode",
+      "utility": "chmod",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_chmod::diagnostics::test_snippet_points_into_the_second_clause",
+      "utility": "chmod",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_chmod::test_chmod_colored_output",
+      "utility": "chmod",
+      "category": "help-text",
+      "reason": "asserts clap's colored help rendering (ANSI around the usage heading); XSH prints plain GNU help text"
+    },
+    {
+      "id": "test_chmod::test_chmod_permissions_too_large",
+      "utility": "chmod",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own diagnostic text for this error; GNU's differs and XSH follows GNU"
+    },
+    {
+      "id": "test_chmod::test_chmod_recursive",
+      "utility": "chmod",
+      "category": "gnu-semantics",
+      "reason": "needs native test_chmod_recursive semantics settled: uutils removes read permission before descent and reports only the last error, while the native code defers removal; GNU 9.x is unavailable to confirm. Excluded at the owner's direction."
+    },
+    {
+      "id": "test_chmod::test_chmod_recursive_correct_exit_code",
+      "utility": "chmod",
+      "category": "gnu-semantics",
+      "reason": "expects 'cannot access' for an unreadable directory during traversal; GNU's fts-based tools print 'cannot read directory', which XSH matches"
+    },
+    {
+      "id": "test_chmod::test_no_operands",
+      "utility": "chmod",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own diagnostic text for this error; GNU's differs and XSH follows GNU"
+    },
+    {
+      "id": "test_chown::test_chown_fail_id",
+      "utility": "chown",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own diagnostic text for this error; GNU's differs and XSH follows GNU"
+    },
+    {
+      "id": "test_chown::test_chown_only_colon",
+      "utility": "chown",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own diagnostic text for this error; GNU's differs and XSH follows GNU"
+    },
+    {
+      "id": "test_chroot::test_enter_chroot_fails",
+      "utility": "chroot",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' 'cannot chroot to'; GNU prints 'cannot change root directory to', which XSH matches"
+    },
+    {
+      "id": "test_chroot::test_missing_operand",
+      "utility": "chroot",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_comm::test_comm_arg_error",
+      "utility": "comm",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_cp::test_copy_dir_preserve_permissions",
+      "utility": "cp",
+      "category": "gnu-semantics",
+      "reason": "The assertion compares destination atime with source metadata after copying. GNU 9.12 captures directory metadata before traversal and restores that earlier atime on the destination, while traversal can update the source atime; XSH follows GNU's saved timestamp."
+    },
+    {
+      "id": "test_cp::test_copy_dir_preserve_permissions_inaccessible_file",
+      "utility": "cp",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own diagnostic text for this error; GNU's differs and XSH follows GNU"
+    },
+    {
+      "id": "test_cp::test_copy_dir_preserve_readonly_source_with_files",
+      "utility": "cp",
+      "category": "gnu-semantics",
+      "reason": "The assertion compares destination atime with source metadata after copying. GNU 9.12 captures directory metadata before traversal and restores that earlier atime on the destination, while traversal can update the source atime; XSH follows GNU's saved timestamp."
+    },
+    {
+      "id": "test_cp::test_copy_dir_preserve_subdir_permissions",
+      "utility": "cp",
+      "category": "gnu-semantics",
+      "reason": "The assertion compares destination atime with source metadata after copying. GNU 9.12 captures directory metadata before traversal and restores that earlier atime on the destination, while traversal can update the source atime; XSH follows GNU's saved timestamp."
+    },
+    {
+      "id": "test_cp::test_cp_circular_symbolic_links_in_directory",
+      "utility": "cp",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own diagnostic text for this error; GNU's differs and XSH follows GNU"
+    },
+    {
+      "id": "test_cp::test_cp_dir_vs_file",
+      "utility": "cp",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own diagnostic text for this error; GNU's differs and XSH follows GNU"
+    },
+    {
+      "id": "test_cp::test_cp_no_file",
+      "utility": "cp",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_cp::test_cp_parents_with_permissions_copy_dir",
+      "utility": "cp",
+      "category": "gnu-semantics",
+      "reason": "The assertion compares destination atime with source metadata after copying. GNU 9.12 captures source metadata before traversal and restores that earlier atime on the destination, while traversal can update source directory atimes; XSH follows GNU's saved timestamps."
+    },
+    {
+      "id": "test_cp::test_cp_parents_with_permissions_copy_file",
+      "utility": "cp",
+      "category": "gnu-semantics",
+      "reason": "The assertion compares destination atime with source metadata after copying. GNU 9.12 captures source metadata before reading and restores that earlier atime on the destination, while reading can update the source atime; XSH follows GNU's saved timestamp."
+    },
+    {
+      "id": "test_cp::test_cp_preserve_all",
+      "utility": "cp",
+      "category": "gnu-semantics",
+      "reason": "The assertion compares destination atime with source metadata after copying. GNU 9.12 captures source metadata before reading and restores that earlier atime on the destination, while reading can update the source atime; XSH follows GNU's saved timestamp."
+    },
+    {
+      "id": "test_cp::test_cp_preserve_no_args",
+      "utility": "cp",
+      "category": "gnu-semantics",
+      "reason": "The assertion compares destination atime with source metadata after copying. GNU 9.12 captures source metadata before reading and restores that earlier atime on the destination, while reading can update the source atime; XSH follows GNU's saved timestamp."
+    },
+    {
+      "id": "test_cp::test_cp_preserve_no_args_before_opts",
+      "utility": "cp",
+      "category": "gnu-semantics",
+      "reason": "The assertion compares destination atime with source metadata after copying. GNU 9.12 captures source metadata before reading and restores that earlier atime on the destination, while reading can update the source atime; XSH follows GNU's saved timestamp."
+    },
+    {
+      "id": "test_cp::test_cp_reflink_bad",
+      "utility": "cp",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_cp::test_cp_reflink_insufficient_permission",
+      "utility": "cp",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own diagnostic text for this error; GNU's differs and XSH follows GNU"
+    },
+    {
+      "id": "test_cp::test_progressbar_inexistent_source",
+      "utility": "cp",
+      "category": "uutils-extension",
+      "reason": "uses uutils' `-g`/`--progress-bar`, which GNU cp does not have; GNU rejects the option and XSH follows GNU"
+    },
+    {
+      "id": "test_csplit::repeat_everything",
+      "utility": "csplit",
+      "category": "gnu-semantics",
+      "reason": "expects the second piece to hold lines 14-17; GNU coreutils 9.11 (clean Alpine container) writes lines 15-17 for this command with --suppress-matched, which XSH matches"
+    },
+    {
+      "id": "test_csplit::test_line_num_range_with_up_to_match3",
+      "utility": "csplit",
+      "category": "gnu-semantics",
+      "reason": "expects `10 /10/ -k` to fail with 'match not found'; GNU coreutils 9.11 exits 0 and prints 18, 0 and 123, which XSH matches"
+    },
+    {
+      "id": "test_cut::diagnostics::test_snippet_finds_fields_merged_value",
+      "utility": "cut",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_cut::diagnostics::test_snippet_ignores_a_file_named_like_the_list",
+      "utility": "cut",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_cut::diagnostics::test_snippet_points_at_the_bound_that_is_not_a_number",
+      "utility": "cut",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_cut::diagnostics::test_snippet_points_at_the_inverted_range",
+      "utility": "cut",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_cut::diagnostics::test_snippet_points_at_the_zero_bound",
+      "utility": "cut",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_dd::test_nocache_eof_fadvise_zero_length",
+      "utility": "dd",
+      "category": "thread-model",
+      "reason": "runs strace without -f and expects the posix_fadvise call on the main thread; XSH issues it (length 0) from its evaluation thread, which the untraced thread model hides from strace"
+    },
+    {
+      "id": "test_dir::diagnostics::test_snippet_points_at_the_unknown_unit_of_block_size",
+      "utility": "dir",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_dir::test_version",
+      "utility": "dir",
+      "category": "help-text",
+      "reason": "asserts the uutils version line; XSH prints GNU's version text"
+    },
+    {
+      "id": "test_echo::full_version_argument",
+      "utility": "echo",
+      "category": "help-text",
+      "reason": "asserts the uutils version line; XSH prints GNU's version text"
+    },
+    {
+      "id": "test_env::diagnostics::test_plain_message_when_stderr_is_a_pipe",
+      "utility": "env",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own diagnostic text for this error; GNU's differs and XSH follows GNU"
+    },
+    {
+      "id": "test_env::diagnostics::test_snippet_follows_the_string_when_it_is_glued_to_the_option",
+      "utility": "env",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_env::diagnostics::test_snippet_points_at_the_invalid_escape",
+      "utility": "env",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_env::diagnostics::test_snippet_points_at_the_unterminated_quote",
+      "utility": "env",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_env::diagnostics::test_snippet_points_at_the_whole_variable_reference",
+      "utility": "env",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_env::diagnostics::test_snippet_points_into_the_right_argument",
+      "utility": "env",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_env::test_debug1_part_of_string_arg",
+      "utility": "env",
+      "category": "uutils-internal",
+      "reason": "requires the invoked binary path to end in 'coreutils' (uutils multicall name) in the -v trace; XSH applets are not named that way"
+    },
+    {
+      "id": "test_env::test_debug2_part_of_string_arg",
+      "utility": "env",
+      "category": "gnu-semantics",
+      "reason": "expects uutils-only debug traces or diagnostics ('input args:', empty-name handling, French clap text); GNU env prints different output, which XSH matches"
+    },
+    {
+      "id": "test_env::test_debug_1",
+      "utility": "env",
+      "category": "uutils-internal",
+      "reason": "requires the invoked binary path to end in 'coreutils' (uutils multicall name) in the -v trace; XSH applets are not named that way"
+    },
+    {
+      "id": "test_env::test_debug_2",
+      "utility": "env",
+      "category": "gnu-semantics",
+      "reason": "expects uutils-only debug traces or diagnostics ('input args:', empty-name handling, French clap text); GNU env prints different output, which XSH matches"
+    },
+    {
+      "id": "test_env::test_empty_name",
+      "utility": "env",
+      "category": "gnu-semantics",
+      "reason": "expects uutils-only debug traces or diagnostics ('input args:', empty-name handling, French clap text); GNU env prints different output, which XSH matches"
+    },
+    {
+      "id": "test_env::test_empty_name_and_empty_value",
+      "utility": "env",
+      "category": "gnu-semantics",
+      "reason": "expects uutils-only debug traces or diagnostics ('input args:', empty-name handling, French clap text); GNU env prints different output, which XSH matches"
+    },
+    {
+      "id": "test_env::test_empty_name_does_not_affect_other_assignments",
+      "utility": "env",
+      "category": "gnu-semantics",
+      "reason": "expects uutils-only debug traces or diagnostics ('input args:', empty-name handling, French clap text); GNU env prints different output, which XSH matches"
+    },
+    {
+      "id": "test_env::test_env_french",
+      "utility": "env",
+      "category": "gnu-semantics",
+      "reason": "expects uutils-only debug traces or diagnostics ('input args:', empty-name handling, French clap text); GNU env prints different output, which XSH matches"
+    },
+    {
+      "id": "test_env::test_env_parsing_errors",
+      "utility": "env",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own diagnostic text for this error; GNU's differs and XSH follows GNU"
+    },
+    {
+      "id": "test_env::test_env_version",
+      "utility": "env",
+      "category": "help-text",
+      "reason": "asserts the uutils version line; XSH prints GNU's version text"
+    },
+    {
+      "id": "test_env::test_split_string_into_args_debug_output_whitespace_handling",
+      "utility": "env",
+      "category": "gnu-semantics",
+      "reason": "expects uutils-only debug traces or diagnostics ('input args:', empty-name handling, French clap text); GNU env prints different output, which XSH matches"
+    },
+    {
+      "id": "test_env::test_split_string_into_args_s_escaped_c_not_allowed",
+      "utility": "env",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own diagnostic text for this error; GNU's differs and XSH follows GNU"
+    },
+    {
+      "id": "test_expr::diagnostics::test_snippet_points_at_the_dangling_operator",
+      "utility": "expr",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_expr::diagnostics::test_snippet_points_at_the_non_integer_operand",
+      "utility": "expr",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_expr::diagnostics::test_snippet_points_at_the_operand_that_failed_not_its_twin",
+      "utility": "expr",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_expr::diagnostics::test_snippet_points_at_the_unexpected_argument",
+      "utility": "expr",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_expr::diagnostics::test_unclosed_parenthesis_points_at_the_last_operand",
+      "utility": "expr",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_expr::test_exit_with_3_write_error",
+      "utility": "expr",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own write-error text; GNU prints '<util>: write error: <strerror>', which XSH matches"
+    },
+    {
+      "id": "test_factor::test_invalid_negative_arg_shows_tip",
+      "utility": "factor",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_false::test_full",
+      "utility": "false",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own write-error text; GNU prints '<util>: write error: <strerror>', which XSH matches"
+    },
+    {
+      "id": "test_head::diagnostics::test_snippet_points_at_the_unknown_unit",
+      "utility": "head",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_head::diagnostics::test_snippet_preserves_obsolete_option_spelling",
+      "utility": "head",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_head::diagnostics::test_snippet_underlines_a_size_with_no_number",
+      "utility": "head",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_head::test_all_but_last_bytes_huge_count_does_not_panic",
+      "utility": "head",
+      "category": "uutils-extension",
+      "reason": "uses the `-c=N` / `-n=N` spelling clap accepts; GNU rejects it and XSH follows GNU"
+    },
+    {
+      "id": "test_head::test_all_but_last_lines_huge_count_does_not_panic",
+      "utility": "head",
+      "category": "uutils-extension",
+      "reason": "uses the `-c=N` / `-n=N` spelling clap accepts; GNU rejects it and XSH follows GNU"
+    },
+    {
+      "id": "test_head::test_head_invalid_num",
+      "utility": "head",
+      "category": "uutils-extension",
+      "reason": "uses the `-c=N` / `-n=N` spelling clap accepts; GNU rejects it and XSH follows GNU"
+    },
+    {
+      "id": "test_id::test_id_pretty_print_password_record",
+      "utility": "id",
+      "category": "uutils-extension",
+      "reason": "asserts the uutils-only `-p`/`-P` options of id, which GNU id does not have; XSH follows GNU"
+    },
+    {
+      "id": "test_install::test_install_basic_try_reflink",
+      "utility": "install",
+      "category": "thread-model",
+      "reason": "runs strace without -f and expects the FICLONE ioctl on the main thread; XSH issues it from its evaluation thread, which the untraced thread model hides from strace"
+    },
+    {
+      "id": "test_join::diagnostics::test_snippet_points_at_the_failing_field_of_a_list",
+      "utility": "join",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_join::diagnostics::test_snippet_points_inside_a_glued_short_option",
+      "utility": "join",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_ln::test_hard_logical_dir_fail",
+      "utility": "ln",
+      "category": "gnu-semantics",
+      "reason": "expects 'failed to create hard link' for -L on a missing or directory source; GNU ln 9.11 (clean Alpine container) prints 'failed to access ...: No such file or directory' (missing) or '...: hard link not allowed for directory', which XSH matches"
+    },
+    {
+      "id": "test_ln::test_ln_seen_file",
+      "utility": "ln",
+      "category": "gnu-semantics",
+      "reason": "expects \"will not overwrite just-created\" without -f; GNU ln 9.11 prints \"failed to create hard link 'c/f': File exists\" and only reports just-created with -f, which XSH matches"
+    },
+    {
+      "id": "test_ln::test_symlink_missing_destination",
+      "utility": "ln",
+      "category": "gnu-semantics",
+      "reason": "expects no help hint after 'missing destination file operand'; GNU ln 9.11 adds \"Try 'ln --help' for more information.\", which XSH matches"
+    },
+    {
+      "id": "test_logname::test_help",
+      "utility": "logname",
+      "category": "help-text",
+      "reason": "asserts uutils' clap-generated help text; XSH prints GNU's help text"
+    },
+    {
+      "id": "test_ls::diagnostics::test_snippet_points_at_the_unknown_unit_of_block_size",
+      "utility": "ls",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_ls::diagnostics::test_snippet_underlines_a_zero_block_size",
+      "utility": "ls",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_ls::test_localized_possible_values",
+      "utility": "ls",
+      "category": "clap-wording",
+      "reason": "asserts clap's localized or colored diagnostic text; XSH follows GNU wording"
+    },
+    {
+      "id": "test_ls::test_ls_color_clear_to_eol",
+      "utility": "ls",
+      "category": "gnu-semantics",
+      "reason": "expects the style '0;31;42' rewritten to '31;42'; GNU ls 9.11 (clean Alpine container) keeps the LS_COLORS value verbatim and prints ESC[0m ESC[0;31;42m name ESC[0m ESC[K, which XSH matches"
+    },
+    {
+      "id": "test_ls::test_ls_color_empty_style",
+      "utility": "ls",
+      "category": "gnu-semantics",
+      "reason": "expects 'no=39' to print no color sequence; GNU ls 9.11 prints ESC[0m ESC[39m f ESC[0m, which XSH matches"
+    },
+    {
+      "id": "test_ls::test_ls_color_norm",
+      "utility": "ls",
+      "category": "gnu-semantics",
+      "reason": "expects 'no=7' rendered as ESC[07m; GNU ls 9.11 prints the value verbatim (ESC[7m) followed by ESC[m, which XSH matches"
+    },
+    {
+      "id": "test_ls::test_ls_hyperlink_symlink_target_handling",
+      "utility": "ls",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' default color for the missing-target indicator (`mi`); GNU leaves `mi` undefined unless LS_COLORS sets it"
+    },
+    {
+      "id": "test_ls::test_ls_ignore_hide",
+      "utility": "ls",
+      "category": "gnu-semantics",
+      "reason": "expects an 'Invalid pattern' diagnostic for a malformed --hide/--ignore glob; GNU ls is silent"
+    },
+    {
+      "id": "test_ls::test_ls_long_symlink_color",
+      "utility": "ls",
+      "category": "gnu-semantics",
+      "reason": "asserts a uutils color-sequence form that differs from the sequence the native test pins; the native expectation is the one XSH keeps"
+    },
+    {
+      "id": "test_ls::test_ls_time_styles",
+      "utility": "ls",
+      "category": "gnu-semantics",
+      "reason": "expects posix-full-iso to differ from the locale style in the C locale; GNU ls 9.11 prints identical output for both, which XSH matches"
+    },
+    {
+      "id": "test_ls::test_no_extra_stat_without_recursion",
+      "utility": "ls",
+      "category": "thread-model",
+      "reason": "runs strace without -f and counts lstat calls on the main thread; XSH performs the single lstat on its evaluation thread, so the trace shows none, while the program does exactly one lstat of the operand"
+    },
+    {
+      "id": "test_ls::test_time_style_unambiguous_prefixes",
+      "utility": "ls",
+      "category": "gnu-semantics",
+      "reason": "expects posix-full-iso to differ from the locale style in the C locale and abbreviated style names; the native test pins GNU's behavior that they match"
+    },
+    {
+      "id": "test_mkdir::diagnostics::test_snippet_points_at_the_bad_operator",
+      "utility": "mkdir",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_mkdir::diagnostics::test_snippet_points_into_the_second_clause",
+      "utility": "mkdir",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_mkdir::test_no_arg",
+      "utility": "mkdir",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_mkdir::test_version_no_path",
+      "utility": "mkdir",
+      "category": "help-text",
+      "reason": "asserts the uutils version line; XSH prints GNU's version text"
+    },
+    {
+      "id": "test_mktemp::test_non_utf8_template",
+      "utility": "mktemp",
+      "category": "gnu-semantics",
+      "reason": "accepts a non-UTF-8 template by lossy conversion in the test's own assertion; GNU mktemp treats the template as raw bytes, which XSH matches"
+    },
+    {
+      "id": "test_more::test_invalid_file_perms",
+      "utility": "more",
+      "category": "gnu-semantics",
+      "reason": "expects a lower-case 'permission denied' from uutils' own message; util-linux more prints the C library's 'Permission denied', which XSH matches"
+    },
+    {
+      "id": "test_nl::test_invalid_join_blank_lines",
+      "utility": "nl",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_nl::test_invalid_line_increment",
+      "utility": "nl",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_nl::test_invalid_number_format",
+      "utility": "nl",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_nl::test_invalid_number_width",
+      "utility": "nl",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_nl::test_invalid_starting_line_number",
+      "utility": "nl",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_nl::test_number_width_too_large",
+      "utility": "nl",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_nl::test_number_width_zero",
+      "utility": "nl",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_nohup::test_nohup_help_and_version",
+      "utility": "nohup",
+      "category": "help-text",
+      "reason": "asserts the uutils version line; XSH prints GNU's version text"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_blames_the_suffix_not_the_zero_in_a_unit_size",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_ignores_an_option_value_with_the_number_text",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_ignores_another_option_with_the_same_value",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_leaves_the_suffix_out_of_the_bad_conversion",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_marks_a_format_without_a_directive",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_marks_a_whitespace_only_number",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_marks_an_input_that_is_not_a_number",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_names_no_conversion_when_the_format_has_none",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_points_at_the_bad_directive",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_points_at_the_i_a_unit_does_not_take",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_points_at_the_stray_percent",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_points_at_the_suffix_of_a_bad_number",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_says_a_unit_size_cannot_be_zero",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_says_auto_belongs_to_from",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_says_nothing_about_suffixes_without_a_number",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_says_why_a_zero_padding_is_refused",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_underlines_a_header_count",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_underlines_an_unknown_unit",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_underlines_an_unknown_unit_size",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_underlines_the_oversized_precision",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::field_diagnostics::test_snippet_points_at_the_inverted_field_range",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::field_diagnostics::test_snippet_points_at_the_zero_field",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::test_delimiter_from_si",
+      "utility": "numfmt",
+      "category": "uutils-extension",
+      "reason": "uses the `-d=,` spelling (clap accepts `=` before an attached value); GNU reads `=,` as the delimiter and XSH follows GNU"
+    },
+    {
+      "id": "test_numfmt::test_delimiter_preserves_leading_whitespace_in_unselected_fields",
+      "utility": "numfmt",
+      "category": "uutils-extension",
+      "reason": "uses the `-d=,` spelling (clap accepts `=` before an attached value); GNU reads `=,` as the delimiter and XSH follows GNU"
+    },
+    {
+      "id": "test_numfmt::test_delimiter_skips_leading_whitespace",
+      "utility": "numfmt",
+      "category": "uutils-extension",
+      "reason": "uses the `-d=,` spelling (clap accepts `=` before an attached value); GNU reads `=,` as the delimiter and XSH follows GNU"
+    },
+    {
+      "id": "test_numfmt::test_delimiter_to_si",
+      "utility": "numfmt",
+      "category": "uutils-extension",
+      "reason": "uses the `-d=,` spelling (clap accepts `=` before an attached value); GNU reads `=,` as the delimiter and XSH follows GNU"
+    },
+    {
+      "id": "test_numfmt::test_delimiter_with_padding",
+      "utility": "numfmt",
+      "category": "uutils-extension",
+      "reason": "uses the `-d=,` spelling (clap accepts `=` before an attached value); GNU reads `=,` as the delimiter and XSH follows GNU"
+    },
+    {
+      "id": "test_numfmt::test_delimiter_with_padding_and_fields",
+      "utility": "numfmt",
+      "category": "uutils-extension",
+      "reason": "uses the `-d=,` spelling (clap accepts `=` before an attached value); GNU reads `=,` as the delimiter and XSH follows GNU"
+    },
+    {
+      "id": "test_numfmt::test_numfmt_negative_treated_as_option",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_numfmt::test_transform_with_suffix_and_delimiter",
+      "utility": "numfmt",
+      "category": "uutils-extension",
+      "reason": "uses the `-d=,` spelling (clap accepts `=` before an attached value); GNU reads `=,` as the delimiter and XSH follows GNU"
+    },
+    {
+      "id": "test_od::diagnostics::test_snippet_points_at_the_unknown_unit_of_read_bytes",
+      "utility": "od",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_od::diagnostics::test_snippet_points_inside_a_width_value",
+      "utility": "od",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_od::diagnostics::test_snippet_underlines_a_hexadecimal_offset_that_does_not_parse",
+      "utility": "od",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_pr::test_invalid_expand_tab_arguments",
+      "utility": "pr",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_pr::test_negative_expand_tabs",
+      "utility": "pr",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_pr::test_number_width_too_large",
+      "utility": "pr",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_pr::test_with_valid_page_ranges",
+      "utility": "pr",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_pr::test_zero_column_width",
+      "utility": "pr",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_pr::test_zero_columns",
+      "utility": "pr",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_pr::test_zero_columns_shortcut",
+      "utility": "pr",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_pr::test_zero_expand_tab_width",
+      "utility": "pr",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_pr::test_zero_length",
+      "utility": "pr",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_pr::test_zero_page_width",
+      "utility": "pr",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_pr::test_zero_pages",
+      "utility": "pr",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_printenv::test_invalid_option_exit_code",
+      "utility": "printenv",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_printf::diagnostics::test_snippet_keeps_an_operand_that_draws_like_the_report",
+      "utility": "printf",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_printf::diagnostics::test_snippet_points_at_a_format_that_looks_like_an_option",
+      "utility": "printf",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_printf::diagnostics::test_snippet_points_at_the_bad_code_point",
+      "utility": "printf",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_printf::diagnostics::test_snippet_points_at_the_bad_spec",
+      "utility": "printf",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_printf::diagnostics::test_snippet_points_at_the_incomplete_hex_escape",
+      "utility": "printf",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_printf::diagnostics::test_snippet_points_inside_a_quoted_format",
+      "utility": "printf",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_printf::test_large_width_format",
+      "utility": "printf",
+      "category": "gnu-semantics",
+      "reason": "expects a bounded width error; GNU printf streams a 20-million-character field, which XSH matches"
+    },
+    {
+      "id": "test_ptx::test_failed_write_is_reported",
+      "utility": "ptx",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own write-error text; GNU prints '<util>: write error: <strerror>', which XSH matches"
+    },
+    {
+      "id": "test_ptx::test_unicode_padding_alignment",
+      "utility": "ptx",
+      "category": "gnu-semantics",
+      "reason": "expects the input 'a\\n\u00e9' to be two one-word contexts; GNU coreutils 9.11 (run in a clean Alpine container) treats it as one sentence and prints '        a \\303/' for -w 10, which XSH matches"
+    },
+    {
+      "id": "test_rm::test_preserve_root_rejects_unknown_value",
+      "utility": "rm",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_rmdir::test_no_arg",
+      "utility": "rmdir",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_rmdir::test_verbose_nested_failure",
+      "utility": "rmdir",
+      "category": "gnu-semantics",
+      "reason": "expects \"failed to remove 'dir/ect'\" for a non-empty ancestor under -p; GNU rmdir (coreutils rmdir.c remove_parents) prints \"failed to remove directory 'dir/ect'\" for ancestors and \"failed to remove 'X'\" only for the named operand, which XSH matches"
+    },
+    {
+      "id": "test_seq::diagnostics::test_plain_message_when_stderr_is_a_pipe",
+      "utility": "seq",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own diagnostic text for this error; GNU's differs and XSH follows GNU"
+    },
+    {
+      "id": "test_seq::diagnostics::test_snippet_points_at_the_failing_conversion",
+      "utility": "seq",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_seq::diagnostics::test_snippet_points_inside_a_glued_short_option",
+      "utility": "seq",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_seq::diagnostics::test_snippet_underlines_a_format_with_no_directive",
+      "utility": "seq",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_shuf::test_range_permute_no_overflow_0_max",
+      "utility": "shuf",
+      "category": "gnu-semantics",
+      "reason": "GNU shuf rejects this input range; XSH follows GNU"
+    },
+    {
+      "id": "test_shuf::test_seed_args_no_repeat",
+      "utility": "shuf",
+      "category": "uutils-extension",
+      "reason": "uses --random-seed, a uutils option GNU shuf does not have; XSH follows GNU"
+    },
+    {
+      "id": "test_shuf::test_seed_args_repeat",
+      "utility": "shuf",
+      "category": "uutils-extension",
+      "reason": "uses --random-seed, a uutils option GNU shuf does not have; XSH follows GNU"
+    },
+    {
+      "id": "test_shuf::test_seed_long_range_no_repeat",
+      "utility": "shuf",
+      "category": "uutils-extension",
+      "reason": "uses --random-seed, a uutils option GNU shuf does not have; XSH follows GNU"
+    },
+    {
+      "id": "test_shuf::test_seed_range_no_repeat",
+      "utility": "shuf",
+      "category": "uutils-extension",
+      "reason": "uses --random-seed, a uutils option GNU shuf does not have; XSH follows GNU"
+    },
+    {
+      "id": "test_shuf::test_seed_range_repeat",
+      "utility": "shuf",
+      "category": "uutils-extension",
+      "reason": "uses --random-seed, a uutils option GNU shuf does not have; XSH follows GNU"
+    },
+    {
+      "id": "test_shuf::write_errors_are_reported",
+      "utility": "shuf",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own write-error text; GNU prints '<util>: write error: <strerror>', which XSH matches"
+    },
+    {
+      "id": "test_sleep::test_invalid_duration::case_7_single_quote",
+      "utility": "sleep",
+      "category": "uutils-extension",
+      "reason": "uutils quotes an argument containing an apostrophe as \"'1\" (double quotes); GNU quote() prints '\\'1' (verified on GNU coreutils 9.4: `sleep \"'1\"`), and XSH follows GNU via gnu.quote_value."
+    },
+    {
+      "id": "test_sleep::test_sleep_no_argument",
+      "utility": "sleep",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_sleep::test_sleep_when_input_has_only_whitespace_then_error::case_2_only_tab",
+      "utility": "sleep",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' shell-style quoting of the offending operand; GNU's quote() in the C locale prints backslash escapes inside single quotes, which XSH matches"
+    },
+    {
+      "id": "test_sleep::test_sleep_when_input_has_only_whitespace_then_error::case_3_only_newline",
+      "utility": "sleep",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' shell-style quoting of the offending operand; GNU's quote() in the C locale prints backslash escapes inside single quotes, which XSH matches"
+    },
+    {
+      "id": "test_sleep::test_sleep_when_input_has_trailing_whitespace_then_error::case_2_mixed_newlines_spaces_tabs",
+      "utility": "sleep",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' shell-style quoting of the offending operand; GNU's quote() in the C locale prints backslash escapes inside single quotes, which XSH matches"
+    },
+    {
+      "id": "test_sort::diagnostics::test_snippet_ignores_a_file_that_ends_like_the_key",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::diagnostics::test_snippet_ignores_the_program_name_as_a_key",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::diagnostics::test_snippet_points_at_a_missing_number",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::diagnostics::test_snippet_points_at_a_zero_character_offset",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::diagnostics::test_snippet_points_at_the_stray_character",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::diagnostics::test_snippet_points_at_the_unknown_unit_of_a_buffer_size",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::diagnostics::test_snippet_points_inside_a_detached_key",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::diagnostics::test_snippet_reports_contradicting_ordering_options",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::test_argument_suggestion",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts clap's localized or colored diagnostic text; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::test_argument_suggestion_colors_enabled",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts clap's localized or colored diagnostic text; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::test_check_zero_terminated_failure",
+      "utility": "sort",
+      "category": "gnu-semantics",
+      "reason": "expects '\\n' after the check diagnostic; GNU sort -z -c ends the disorder record with NUL, which XSH matches"
+    },
+    {
+      "id": "test_sort::test_clap_localization_help_message",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts clap's localized or colored diagnostic text; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::test_clap_localization_invalid_value",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts clap's localized or colored diagnostic text; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::test_clap_localization_missing_required_argument",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts clap's localized or colored diagnostic text; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::test_clap_localization_unknown_argument",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts clap's localized or colored diagnostic text; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::test_color_environment_variables",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts clap's localized or colored diagnostic text; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::test_conflict_check_out",
+      "utility": "sort",
+      "category": "uutils-extension",
+      "reason": "asserts clap's `-c=VALUE` conflict wording; GNU sort has no such spelling"
+    },
+    {
+      "id": "test_sort::test_error_colors_disabled",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts clap's localized or colored diagnostic text; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::test_error_colors_enabled",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts clap's localized or colored diagnostic text; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::test_french_translations",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts clap's localized or colored diagnostic text; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::test_help_colors_enabled",
+      "utility": "sort",
+      "category": "help-text",
+      "reason": "asserts uutils' clap-generated help text; XSH prints GNU's help text"
+    },
+    {
+      "id": "test_sort::test_read_error_message",
+      "utility": "sort",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own diagnostic text for this error; GNU's differs and XSH follows GNU"
+    },
+    {
+      "id": "test_sort::test_separator_attached_equals_double",
+      "utility": "sort",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' 'separator must be exactly one character long'; GNU sort 9.11 (clean Alpine container) prints \"multi-character tab '...'\", which XSH matches"
+    },
+    {
+      "id": "test_sort::test_separator_attached_equals_multi_char",
+      "utility": "sort",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' 'separator must be exactly one character long'; GNU sort 9.11 (clean Alpine container) prints \"multi-character tab '...'\", which XSH matches"
+    },
+    {
+      "id": "test_sort::test_tmp_files_are_private",
+      "utility": "sort",
+      "category": "gnu-semantics",
+      "reason": "expects exit status 2 on SIGINT; GNU sort exits 130 after removing its temporary files, which XSH matches"
+    },
+    {
+      "id": "test_sort::test_tmp_files_deleted_on_sigint",
+      "utility": "sort",
+      "category": "gnu-semantics",
+      "reason": "expects exit status 2 on SIGINT; GNU sort exits 130 after removing its temporary files, which XSH matches"
+    },
+    {
+      "id": "test_split::diagnostics::test_snippet_points_at_the_unknown_unit",
+      "utility": "split",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_split::diagnostics::test_snippet_points_inside_a_line_bytes_value",
+      "utility": "split",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_stat::test_printf_incomplete_hex",
+      "utility": "stat",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' 'warning: incomplete hex escape' for a bare \\x in --printf; GNU stat 9.11 (clean Alpine container) prints \"warning: unrecognized escape '\\x'\", which XSH matches"
+    },
+    {
+      "id": "test_stdbuf::diagnostics::test_snippet_points_at_the_unknown_unit",
+      "utility": "stdbuf",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_stdbuf::diagnostics::test_snippet_points_inside_a_long_option_value",
+      "utility": "stdbuf",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_stdbuf::test_stdbuf_no_buffer_option_fails",
+      "utility": "stdbuf",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_stdbuf::test_stdbuf_no_command_fails_with_125",
+      "utility": "stdbuf",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_stty::save_and_all",
+      "utility": "stty",
+      "category": "gnu-semantics",
+      "reason": "expects the mutual-exclusion message on one line; GNU stty 9.11 (clean Alpine container) wraps it ('...output styles are' newline 'mutually exclusive') for both argument orders, which XSH matches"
+    },
+    {
+      "id": "test_stty::test_stdin_not_tty_fails",
+      "utility": "stty",
+      "category": "gnu-semantics",
+      "reason": "expects the unquoted operand name 'standard input: Not a tty'; GNU stty 9.11 prints \"'standard input': Not a tty\" on musl, which XSH matches"
+    },
+    {
+      "id": "test_tac::test_failed_write_is_reported",
+      "utility": "tac",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own write-error text; GNU prints '<util>: write error: <strerror>', which XSH matches"
+    },
+    {
+      "id": "test_tac::test_non_utf8_regex_separator",
+      "utility": "tac",
+      "category": "gnu-semantics",
+      "reason": "expects, under the harness's LC_ALL=C, the output GNU produces in a UTF-8 locale for the class [.\\xe9?]; GNU tac 9.11 (clean Alpine container, LC_ALL=C) treats the byte as a class member and prints d?c.\\xe9b.a., which XSH matches"
+    },
+    {
+      "id": "test_tail::diagnostics::test_snippet_points_at_the_unknown_unit",
+      "utility": "tail",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_03_space_in_primes",
+      "utility": "tail",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' shell-style quoting of the offending operand; GNU's quote() in the C locale prints backslash escapes inside single quotes, which XSH matches"
+    },
+    {
+      "id": "test_tail::test_capital_f_recovers_after_dir_swap",
+      "utility": "tail",
+      "category": "uutils-extension",
+      "reason": "uses the uutils-only `--use-polling` option, which GNU tail rejects; XSH follows GNU"
+    },
+    {
+      "id": "test_tail::test_debug_flag_with_inotify",
+      "utility": "tail",
+      "category": "uutils-extension",
+      "reason": "uses a uutils-only tail option or inotify behavior GNU does not define"
+    },
+    {
+      "id": "test_tail::test_debug_flag_with_polling",
+      "utility": "tail",
+      "category": "uutils-extension",
+      "reason": "uses a uutils-only tail option or inotify behavior GNU does not define"
+    },
+    {
+      "id": "test_tail::test_failed_write_is_reported",
+      "utility": "tail",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own write-error text; GNU prints '<util>: write error: <strerror>', which XSH matches"
+    },
+    {
+      "id": "test_tail::test_failed_write_is_reported_on_seekable_input",
+      "utility": "tail",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own write-error text; GNU prints '<util>: write error: <strerror>', which XSH matches"
+    },
+    {
+      "id": "test_tail::test_follow_inotify_only_regular",
+      "utility": "tail",
+      "category": "uutils-extension",
+      "reason": "uses a uutils-only tail option or inotify behavior GNU does not define"
+    },
+    {
+      "id": "test_tail::test_follow_invalid_pid",
+      "utility": "tail",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own diagnostic text for this error; GNU's differs and XSH follows GNU"
+    },
+    {
+      "id": "test_tail::test_follow_name_move1",
+      "utility": "tail",
+      "category": "uutils-extension",
+      "reason": "uses the uutils-only `--use-polling` option, which GNU tail rejects; XSH follows GNU"
+    },
+    {
+      "id": "test_tail::test_follow_name_move2",
+      "utility": "tail",
+      "category": "uutils-extension",
+      "reason": "uses the uutils-only `--use-polling` option, which GNU tail rejects; XSH follows GNU"
+    },
+    {
+      "id": "test_tail::test_follow_name_move_retry1",
+      "utility": "tail",
+      "category": "uutils-extension",
+      "reason": "uses the uutils-only `--use-polling` option, which GNU tail rejects; XSH follows GNU"
+    },
+    {
+      "id": "test_tail::test_follow_name_remove",
+      "utility": "tail",
+      "category": "uutils-extension",
+      "reason": "uses the uutils-only `--use-polling` option, which GNU tail rejects; XSH follows GNU"
+    },
+    {
+      "id": "test_tail::test_follow_name_rename_chain",
+      "utility": "tail",
+      "category": "uutils-extension",
+      "reason": "uses the uutils-only `--use-polling` option, which GNU tail rejects; XSH follows GNU"
+    },
+    {
+      "id": "test_tail::test_follow_name_replaced_by_symlink_is_untailable",
+      "utility": "tail",
+      "category": "uutils-extension",
+      "reason": "uses the uutils-only `--use-polling` option, which GNU tail rejects; XSH follows GNU"
+    },
+    {
+      "id": "test_tail::test_obsolete_encoding_unix",
+      "utility": "tail",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' 'bad argument encoding' diagnostic and exit 1 for a non-UTF-8 obsolete -N argument; GNU tail treats the argument bytes as ordinary option text, so there is no such error"
+    },
+    {
+      "id": "test_tail::test_retry_descriptor_gives_up_on_untailable",
+      "utility": "tail",
+      "category": "uutils-extension",
+      "reason": "uses the uutils-only `--use-polling` option, which GNU tail rejects; XSH follows GNU"
+    },
+    {
+      "id": "test_tail::test_retry_follow_name_waits_for_creation",
+      "utility": "tail",
+      "category": "uutils-extension",
+      "reason": "uses the uutils-only `--use-polling` option, which GNU tail rejects; XSH follows GNU"
+    },
+    {
+      "id": "test_tee::test_short_help_is_long_help",
+      "utility": "tee",
+      "category": "uutils-extension",
+      "reason": "Runs `tee -h` expecting the --help text; GNU tee's short options are only -a, -i and -p (src/tee.c getopt string \"aip\"), so -h is a uutils extension and XSH follows GNU. --help is covered by core/tests/test-tee.xsh."
+    },
+    {
+      "id": "test_test::diagnostics::test_bracket_form_reports_under_its_own_name",
+      "utility": "test",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_test::diagnostics::test_dash_t_advises_about_descriptors_not_comparisons",
+      "utility": "test",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_test::diagnostics::test_extra_argument_points_past_the_expression",
+      "utility": "test",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_test::diagnostics::test_extra_operand_suggests_quoting_the_variable",
+      "utility": "test",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_test::diagnostics::test_integer_comparison_keeps_its_own_advice",
+      "utility": "test",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_test::diagnostics::test_missing_operand_suggests_quoting_the_variable",
+      "utility": "test",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_test::diagnostics::test_snippet_points_at_the_offending_argument",
+      "utility": "test",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_test::test_bracket_syntax_version",
+      "utility": "test",
+      "category": "help-text",
+      "reason": "asserts the uutils version line; XSH prints GNU's version text"
+    },
+    {
+      "id": "test_test::test_invalid_utf8_integer_compare",
+      "utility": "test",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' shell-style quoting of the offending operand; GNU's quote() in the C locale prints backslash escapes inside single quotes, which XSH matches"
+    },
+    {
+      "id": "test_timeout::test_invalid_multi_byte_characters",
+      "utility": "timeout",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' shell-style quoting of the offending operand; GNU's quote() in the C locale prints backslash escapes inside single quotes, which XSH matches"
+    },
+    {
+      "id": "test_timeout::test_invalid_time_interval::case_2_single_quote",
+      "utility": "timeout",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' shell-style quoting of the offending operand; GNU's quote() in the C locale prints backslash escapes inside single quotes, which XSH matches"
+    },
+    {
+      "id": "test_touch::test_touch_invalid_timestamp_leading_multibyte_char",
+      "utility": "touch",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' shell-style quoting of the offending operand; GNU's quote() in the C locale prints backslash escapes inside single quotes, which XSH matches"
+    },
+    {
+      "id": "test_touch::test_touch_set_date_wrong_format",
+      "utility": "touch",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own diagnostic text for this error; GNU's differs and XSH follows GNU"
+    },
+    {
+      "id": "test_tr::diagnostics::test_snippet_ignores_the_program_name_as_a_set",
+      "utility": "tr",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_tr::diagnostics::test_snippet_points_at_the_backwards_range",
+      "utility": "tr",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_tr::diagnostics::test_snippet_points_at_the_misspelled_class",
+      "utility": "tr",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_tr::diagnostics::test_snippet_points_at_the_repeat_count",
+      "utility": "tr",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_tr::diagnostics::test_snippet_points_into_the_second_set",
+      "utility": "tr",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_tr::diagnostics::test_snippet_underlines_the_whole_set_when_the_set_is_at_fault",
+      "utility": "tr",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_tr::test_octal_escape_ambiguous_followed_by_non_utf8",
+      "utility": "tr",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' 'invalid utf8 sequence' warning; GNU tr warns about the ambiguous octal escape, which XSH matches"
+    },
+    {
+      "id": "test_tr::test_repeat_lengths_beyond_usize",
+      "utility": "tr",
+      "category": "gnu-semantics",
+      "reason": "asserts clap's 'must be matched by' wording; GNU tr reports 'misaligned [:upper:] and/or [:lower:] construct', which XSH matches"
+    },
+    {
+      "id": "test_true::test_full",
+      "utility": "true",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own write-error text; GNU prints '<util>: write error: <strerror>', which XSH matches"
+    },
+    {
+      "id": "test_tty::test_write_error",
+      "utility": "tty",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own write-error text; GNU prints '<util>: write error: <strerror>', which XSH matches"
+    },
+    {
+      "id": "test_uname::test_uname_operating_system",
+      "utility": "uname",
+      "category": "gnu-semantics",
+      "reason": "the expected string depends on the libc the test crate is built for (Linux on musl, GNU/Linux on glibc); GNU uname -o always prints GNU/Linux on Linux, which XSH matches"
+    },
+    {
+      "id": "test_uniq::uniq_basic_dedup_cases",
+      "utility": "uniq",
+      "category": "gnu-semantics",
+      "reason": "expects clap-style wording gated on the harness execution phrase; GNU prints the plain 'Try' hint"
+    },
+    {
+      "id": "test_uptime::test_uptime_with_extra_argument",
+      "utility": "uptime",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    },
+    {
+      "id": "test_vdir::diagnostics::test_snippet_points_at_the_unknown_unit_of_block_size",
+      "utility": "vdir",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_vdir::test_version",
+      "utility": "vdir",
+      "category": "help-text",
+      "reason": "asserts the uutils version line; XSH prints GNU's version text"
+    },
+    {
+      "id": "test_who::test_piped_to_dev_full",
+      "utility": "who",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own write-error text; GNU prints '<util>: write error: <strerror>', which XSH matches"
+    },
+    {
+      "id": "test_who::test_short_list_piped_to_dev_full",
+      "utility": "who",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' own write-error text; GNU prints '<util>: write error: <strerror>', which XSH matches"
+    },
+    {
+      "id": "test_who::test_too_many_args",
+      "utility": "who",
+      "category": "clap-wording",
+      "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
+    }
+  ]
+}
