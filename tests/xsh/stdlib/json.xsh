@@ -8,6 +8,80 @@ type JsonRequireConfig = {jobs: UInt}
 
 type JsonRequireEnvelope = {cpus: List[JsonNestedRow], config: JsonRequireConfig}
 
+test test_json_record_keys_are_sorted_in_every_encoder { |ctx|
+  let root = test.temp_dir(ctx, name: "json-record-order")?
+  let value = {z: 1, a: 2}
+  let compact = "{\"a\":2,\"z\":1}"
+  assert json.encode(value)? == compact
+  let reduced = [{bucket: "x", z: 1, a: 2}]
+    |> reduce-by(sum: true) { |item| {key: item.bucket, value: {z: item.z, a: item.a}} }
+  let reduced_value = reduced.get("x")?
+  assert json.encode(reduced_value)? == compact
+  let pretty = """{
+  "a": 2,
+  "z": 1
+}"""
+  assert json.encode(reduced_value, pretty: true)? == pretty
+  assert json.encode(value, pretty: true)? == """{
+  "a": 2,
+  "z": 1
+}"""
+
+  let compact_path = fp"{root}/compact.json"
+  json.write(compact_path, value)?
+  assert compact_path.read_text()? == compact
+  let reduced_path = fp"{root}/reduced.json"
+  json.write(reduced_path, reduced_value)?
+  assert reduced_path.read_text()? == compact
+
+  let pretty_path = fp"{root}/pretty.json"
+  json.write(pretty_path, value, pretty: true)?
+  assert pretty_path.read_text()? == pretty
+  let reduced_pretty_path = fp"{root}/reduced-pretty.json"
+  json.write(reduced_pretty_path, reduced_value, pretty: true)?
+  assert reduced_pretty_path.read_text()? == pretty
+
+  let lines_path = fp"{root}/lines.jsonl"
+  json.write_lines(lines_path, [reduced_value])?
+  assert lines_path.read_text()? == f"{compact}\n"
+}
+
+test test_json_borrowed_encoding_keeps_scalars_sets_and_failures { |ctx|
+  let root = test.temp_dir(ctx, name: "json-borrowed-values")?
+  let control = "\0\t\n\r\"\\☃"
+  let escaped = "\"\\u0000\\t\\n\\r\\\"\\\\☃\""
+  assert json.encode(control)? == escaped
+  assert json.encode(control, pretty: true)? == escaped
+  assert json.encode(1.25)? == "1.25"
+  assert json.encode(1.25, pretty: true)? == "1.25"
+
+  let members: Set[Str] = set.from(["z", "a"])
+  assert json.encode(members)? == "[\"a\",\"z\"]"
+  let set_path = fp"{root}/set.json"
+  json.write(set_path, members)?
+  assert set_path.read_text()? == "[\"a\",\"z\"]"
+
+  let non_finite = 0.0 / 0.0
+  test.error_kind(json.encode(non_finite), "json-compatible")
+  let path_value: Any = p"src"
+  test.error_kind(json.encode(path_value), "json-compatible")
+
+  let destination = fp"{root}/unchanged.json"
+  destination.write("preserved")
+  test.error_kind(json.write(destination, non_finite), "json-compatible")
+  test.error_kind(json.write(destination, path_value), "json-compatible")
+  test.error_kind(json.write_lines(destination, [1, path_value]), "json-compatible")
+  assert destination.read_text()? == "preserved"
+
+  fp"{root}/entry".write("file")
+  let entry = fs.children(root)? |> first()?
+  let opaque_entry: Any = entry
+  test.error_kind(json.encode(opaque_entry), "json-compatible")
+  test.error_kind(json.encode(opaque_entry, pretty: true), "json-compatible")
+  test.error_kind(json.write(destination, opaque_entry), "json-compatible")
+  assert destination.read_text()? == "preserved"
+}
+
 test test_json_require_preserves_extra_and_nested_fields_roundtrip {
   let raw = json.decode(
     "{\"aardvark\":17,\"config\":{\"jobs\":3,\"extra\":\"kept\"},\"cpus\":[{\"cpu\":2,\"online\":true,\"extra\":false}],\"tail\":{\"kept\":true}}",
@@ -53,7 +127,7 @@ test test_json_read_write_lines_and_paths { |ctx|
   assert "{\"a\":1}" in json.encode_lines([{a: 1}, {a: 2}])?
   let json_path = fp"{root}/data.json"
   json.write(json_path, updated, pretty: false)
-  assert json.read(json_path)?["name"] == "pkg"
+  assert json.get(json.read(json_path)?, ["name"])? == "pkg"
   let lines_path = fp"{root}/lines.jsonl"
   json.write_lines(lines_path, [{a: 1}, {a: 2}])
   assert lines_path.read_text()?.count_lines() == 2
@@ -63,13 +137,13 @@ test test_json_read_write_lines_and_paths { |ctx|
 
 test test_json_decode_type_patterns_and_public_boundaries {
   let decoded = json.decode("{\"quote\":\"\\\"\",\"line\":\"a\\nb\",\"snow\":\"\\u2603\",\"music\":\"\\uD834\\uDD1E\"}")?
-  assert decoded.quote == "\""
+  assert json.get(decoded, ["quote"])? == "\""
 
-  assert decoded.line == """a
+  assert json.get(decoded, ["line"])? == """a
 b"""
 
-  assert decoded.snow == "☃"
-  assert decoded.music == "𝄞"
+  assert json.get(decoded, ["snow"])? == "☃"
+  assert json.get(decoded, ["music"])? == "𝄞"
   assert json.decode("1.25")?.require(Float)?.format(precision: 2) == "1.25"
   test.error_kind(json.decode("9223372036854775808"), "json")
   assert json_label(json.decode("1")?)? == "int 1.0"
@@ -86,8 +160,8 @@ b"""
 """ |> json.lines
 
   let encoded = json.encode({z: 1, a: 2, nested: {b: 1, a: 2}})?
-  assert rows[0].b == 2
-  assert rows[1].a == 1
+  assert json.get(rows[0], ["b"])? == 2
+  assert json.get(rows[1], ["a"])? == 1
   assert encoded == "{\"a\":2,\"nested\":{\"a\":2,\"b\":1},\"z\":1}"
   test.error_kind(json.decode("not json"), "json")
   let data = {path: p"src"}
@@ -144,8 +218,8 @@ pure rejection_message(outcome: Result[Any]) -> Result[Str] {
   match outcome {
     Ok(value) => {
       match value {
-        Ok(inner) => Ok(inner.message.require()?)
-        Err(failure) => Ok(failure.message.require()?)
+        Ok(inner) => Ok(json.get(inner, ["message"])?.require(Str)?)
+        Err(failure) => Ok(json.get(failure, ["message"])?.require(Str)?)
         else => Ok("no rejection")
       }
     }

@@ -72,6 +72,7 @@ pub(super) enum TypeTag {
     // id and `rhs` the offset in `type_extra` of the bounds: the low and
     // then the high 32 bits of the lower bound, then of the upper bound.
     Bounded,
+    FsLock,
 }
 
 impl TypeTag {
@@ -102,6 +103,7 @@ impl TypeTag {
                 | Self::ProcessHandle
                 | Self::NetJob
                 | Self::FsRoot
+                | Self::FsLock
                 | Self::Unit
         )
     }
@@ -148,20 +150,19 @@ impl SemanticPools {
         self.shape_fields.shrink_to_fit();
     }
 
+    #[cfg(test)]
     pub(super) fn type_count(&self) -> usize {
         self.type_tags.len()
     }
 
+    #[cfg(test)]
     pub(super) fn signature_count(&self) -> usize {
         self.signature_data.len()
     }
 
+    #[cfg(test)]
     pub(super) fn shape_count(&self) -> usize {
         self.shapes.len()
-    }
-
-    pub(super) fn extra_words(&self) -> usize {
-        self.type_extra.len() + self.signature_extra.len()
     }
 
     pub(super) fn type_tag(&self, id: TypeId) -> Result<TypeTag, IrVerifyError> {
@@ -362,6 +363,7 @@ impl SemanticPools {
         true
     }
 
+    #[cfg(test)]
     pub(super) fn display_type(&self, id: TypeId) -> Result<String, IrVerifyError> {
         self.display_type_inner(id, 0)
     }
@@ -483,6 +485,7 @@ impl SemanticPools {
             TypeTag::ProcessHandle => Type::ProcessHandle,
             TypeTag::NetJob => Type::NetJob,
             TypeTag::FsRoot => Type::FsRoot,
+            TypeTag::FsLock => Type::FsLock,
             TypeTag::Unit => Type::Unit,
             TypeTag::Tag => Type::Tag(Name::from_symbol(Symbol::from_raw(data.lhs))),
             TypeTag::Optional => Type::Optional(Box::new(child(data.lhs)?)),
@@ -569,6 +572,7 @@ impl SemanticPools {
         })
     }
 
+    #[cfg(test)]
     fn display_type_inner(&self, id: TypeId, depth: usize) -> Result<String, IrVerifyError> {
         if depth > self.type_tags.len() {
             return Err(IrVerifyError::new("type graph contains a cycle"));
@@ -602,6 +606,7 @@ impl SemanticPools {
             TypeTag::ProcessHandle => Some("ProcessHandle"),
             TypeTag::NetJob => Some("NetJob"),
             TypeTag::FsRoot => Some("FsRoot"),
+            TypeTag::FsLock => Some("FsLock"),
             TypeTag::Unit => Some("Unit"),
             _ => None,
         };
@@ -1044,41 +1049,6 @@ pub(super) struct SemanticPoolBuilder {
 }
 
 impl SemanticPoolBuilder {
-    pub(super) fn retained_bytes(&self) -> usize {
-        let type_key_bytes = self
-            .types
-            .keys()
-            .map(|key| match key {
-                TypeKey::Aggregate(_, _, words) | TypeKey::Union(words) => {
-                    words.len() * size_of::<u32>()
-                }
-                _ => 0,
-            })
-            .sum::<usize>();
-        let signature_key_bytes = self
-            .signatures
-            .keys()
-            .map(|key| {
-                key.effects
-                    .as_ref()
-                    .map_or(0, |effects| effects.len() * size_of::<EffectCode>())
-                    + key.params.len() * size_of::<SignatureParamKey>()
-            })
-            .sum::<usize>();
-        let shape_key_bytes = self
-            .shapes
-            .keys()
-            .map(|fields| fields.len() * size_of::<Name>())
-            .sum::<usize>();
-        size_of::<Self>()
-            + self.types.capacity() * size_of::<(TypeKey, TypeId)>()
-            + type_key_bytes
-            + self.signatures.capacity() * size_of::<(SignatureKey, SignatureId)>()
-            + signature_key_bytes
-            + self.shapes.capacity() * size_of::<(Box<[Name]>, ShapeId)>()
-            + shape_key_bytes
-    }
-
     pub(super) fn checkpoint(&self, pools: &SemanticPools) -> SemanticCheckpoint {
         SemanticCheckpoint {
             types: pools.type_tags.len(),
@@ -1209,6 +1179,7 @@ impl SemanticPoolBuilder {
             Type::ProcessHandle => scalar(TypeTag::ProcessHandle),
             Type::NetJob => scalar(TypeTag::NetJob),
             Type::FsRoot => scalar(TypeTag::FsRoot),
+            Type::FsLock => scalar(TypeTag::FsLock),
             Type::Unit => scalar(TypeTag::Unit),
             Type::Tag(name) => named(TypeTag::Tag, *name),
             Type::Optional(inner) => self.unary(pools, TypeTag::Optional, inner)?,

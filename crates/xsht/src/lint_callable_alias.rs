@@ -1,22 +1,32 @@
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
+use xsh::frontend::check::{CheckBundleView, CheckOptions};
+#[cfg(test)]
 use xsh::frontend::check::Checker;
 use xsh::frontend::syntax::arena::{
     ArenaCallArgKind, ArenaExprKind, ArenaExprOrRun, ArenaProgram, ArenaStmtKind, FunctionDefId,
 };
+#[cfg(test)]
 use xsh::frontend::syntax::parser::Parser;
 
-pub(super) fn lint_callable_aliases(program: &ArenaProgram, source: &str) -> Vec<Diagnostic> {
-    lint_callable_aliases_with_check(program, source, || Checker::check_arena(program, source))
+pub(super) fn lint_callable_aliases(
+    view: &CheckBundleView<'_>,
+    source: &str,
+    check_original: Option<std::sync::Arc<xsh::frontend::check::CheckOutput>>,
+) -> Vec<Diagnostic> {
+    lint_callable_aliases_with_check(view, source, check_original)
 }
 
 fn lint_callable_aliases_with_check(
-    program: &ArenaProgram,
+    view: &CheckBundleView<'_>,
     source: &str,
-    check_original: impl FnOnce() -> xsh::frontend::check::CheckOutput,
+    check_original: Option<std::sync::Arc<xsh::frontend::check::CheckOutput>>,
 ) -> Vec<Diagnostic> {
-    let before = std::cell::LazyCell::new(check_original);
+    let program = view.program();
+    let Some(before) = check_original else {
+        return Vec::new();
+    };
     let mut diagnostics = Vec::new();
-    for statement in program.statement_ids() {
+    for statement in view.statement_ids() {
         let outer = program.arena.stmt(statement);
         let (inner, exported) = match outer.kind {
             ArenaStmtKind::Export(inner) => (program.arena.stmt(inner), true),
@@ -50,7 +60,7 @@ fn lint_callable_aliases_with_check(
         if name == wrapper.name {
             continue;
         }
-        let target = program.statement_ids().find_map(|statement| {
+        let target = view.statement_ids().find_map(|statement| {
             let kind = match program.arena.stmt(statement).kind {
                 ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
                 kind => kind,
@@ -83,8 +93,8 @@ fn lint_callable_aliases_with_check(
             };
             matches!(program.arena.expr(expression).kind, ArenaExprKind::Ident(name) if name == parameter.name)
         }) { continue; }
-        // Preparing the complete program is needed only after a local wrapper
-        // has forwarded every parameter unchanged to a callable of the same kind.
+        // Prepared constants are relevant only after an exact local forwarding
+        // wrapper has been found.
         if !before.diagnostics.is_empty() {
             return Vec::new();
         }
@@ -115,9 +125,15 @@ fn lint_callable_aliases_with_check(
             );
             let mut rewritten = source.to_owned();
             rewritten.replace_range(outer.span.range(), &replacement);
-            let parsed = Parser::parse_source_arena_only(outer.span.source_id, &rewritten);
-            if parsed.diagnostics.is_empty() {
-                let checked = Checker::check_arena(&parsed.arena, &rewritten);
+            let snapshot = super::probes::LintProbeTransport::standalone(
+                outer.span.source_id,
+                &rewritten,
+                CheckOptions::default(),
+            );
+            if snapshot.parse_diagnostics.is_empty() {
+                let Some(checked) = snapshot.checked.as_ref() else {
+                    continue;
+                };
                 let offset =
                     replacement.len() as isize - (outer.span.end() - outer.span.start()) as isize;
                 let equivalent = before
@@ -140,8 +156,8 @@ fn lint_callable_aliases_with_check(
                             .symbol_owner()
                             .with_current(|| super::checked_return_type_shape(ty));
                         checked.expr_types.get(&new_span).is_some_and(|new_type| {
-                            parsed
-                                .arena
+                            snapshot
+                                .program
                                 .symbol_owner()
                                 .with_current(|| super::checked_return_type_shape(new_type))
                                 == shape
@@ -206,41 +222,48 @@ fn same_signature(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::Cell;
     use xsh::frontend::source::SourceId;
 
-    fn lint_with_preparation_count(source: &str) -> (Vec<Diagnostic>, usize) {
+    fn lint(source: &str, include_checked_output: bool) -> Vec<Diagnostic> {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        let preparations = Cell::new(0);
-        let diagnostics = parsed.arena.symbol_owner().with_current(|| {
-            lint_callable_aliases_with_check(&parsed.arena, source, || {
-                preparations.set(preparations.get() + 1);
-                Checker::check_arena(&parsed.arena, source)
-            })
-        });
-        (diagnostics, preparations.get())
+        parsed.arena.symbol_owner().with_current(|| {
+            let view = CheckBundleView::for_root(
+                &parsed.arena,
+                parsed.arena.statements,
+                None,
+                Some(SourceId::new(0)),
+            );
+            let checked = include_checked_output
+                .then(|| std::sync::Arc::new(Checker::check_arena(&parsed.arena, source)));
+            lint_callable_aliases_with_check(&view, source, checked)
+        })
     }
 
     #[test]
-    fn callable_aliases_skip_original_preparation_without_exact_local_forwarding() {
+    fn callable_aliases_need_explicit_original_checked_facts() {
+        let source = "pure render(value: Str) -> Str { value }\npure format(value: Str) -> Str { render(value) }\n";
+        assert!(lint(source, false).is_empty());
+        let diagnostics = lint(source, true);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    }
+
+    #[test]
+    fn callable_aliases_skip_non_forwarding_candidates_without_baseline_facts() {
         for source in [
             "let prepared = rx\"ready\"\n",
             "pure render(value: Str) -> Str { value }\nproc format(value: Str) [] -> Str { render(value) }\n",
             "pure render(left: Str, right: Str) -> Str { left + right }\npure format(left: Str, right: Str) -> Str { render(right, left) }\n",
             "pure render(value: Str) -> Str { value }\npure format(value: Str) -> Str { render(value.trim()) }\n",
         ] {
-            let (diagnostics, preparations) = lint_with_preparation_count(source);
-            assert!(diagnostics.is_empty(), "{source}: {diagnostics:?}");
-            assert_eq!(preparations, 0, "{source}");
+            assert!(lint(source, false).is_empty(), "{source}");
         }
     }
 
     #[test]
-    fn callable_aliases_cache_original_preparation_across_forwarding_candidates() {
+    fn callable_aliases_use_shared_original_facts_across_forwarding_candidates() {
         let source = "pure render(value: Str) -> Str { value }\npure first(value: Str) -> Str { render(value) }\npure second(value: Str) -> Str { render(value) }\n";
-        let (diagnostics, preparations) = lint_with_preparation_count(source);
-        assert_eq!(preparations, 1);
+        let diagnostics = lint(source, true);
         assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
         assert!(
             diagnostics

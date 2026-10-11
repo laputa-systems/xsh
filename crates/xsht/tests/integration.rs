@@ -1,6 +1,6 @@
 #[macro_use]
-#[path = "../../../tests/release_binary.rs"]
-mod release_binary;
+#[path = "../../../tests/test_binary.rs"]
+mod test_binary;
 
 /// The stderr of `xsht check` or `xsht lint` without the stage timing line that
 /// closes every run that processed a file. A run with no diagnostics leaves

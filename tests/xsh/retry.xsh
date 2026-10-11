@@ -50,7 +50,11 @@ let _ = retry [0ms, 0ms] {
 }?
 """,
     status: 3,
-    stderr: ["attempt 3", "err: RetryError.Transient: attempt 3"],
+    stderr: [
+      "attempt 3",
+      "err: RetryError.Transient: attempt 3",
+      ":12:3-12:11\n",
+    ],
   )?
 }
 
@@ -92,6 +96,39 @@ print f"{value} {attempts} {cleaned}"
 """
 
   assert output.stderr == ""
+}
+
+test test_retry_loop_transfers_keep_the_enclosing_target { |ctx|
+  let output = test.expect(
+    ctx,
+    """var iterations = 0
+for number in [1, 2, 3] {
+  iterations += 1
+  let ignored = retry [] {
+    if number == 1 { continue }
+    if number == 2 { break }
+    "unused"
+  }
+}
+assert iterations == 2
+""",
+    status: 0,
+  )?
+  assert output.success, output.stderr
+}
+
+test test_retry_return_keeps_the_enclosing_procedure_target { |ctx|
+  let output = test.expect(
+    ctx,
+    """proc answer() -> Int {
+  let ignored = retry [] { return 7 }
+  1
+}
+assert answer() == 7
+""",
+    status: 0,
+  )?
+  assert output.success, output.stderr
 }
 
 test test_yield_inside_retry_attempt_is_a_checker_error { |ctx|

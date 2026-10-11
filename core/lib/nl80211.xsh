@@ -681,7 +681,7 @@ export proc subscribe(client: Client, id: Int) [process, error] -> Result[Unit, 
 
 ## Receives the next datagram on `client`'s socket and decodes its first
 ## message, or null for a message with no generic-netlink header.
-export proc receive_event(client: Client) [process, error] -> Result[Message?, Error] {
+export proc receive_event(client: Client) [process, net, error] -> Result[Message?, Error] {
   match linux.recvfrom(client.fd, 65536) {
     Ok(received) => {
       let data = received.data

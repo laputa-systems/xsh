@@ -25,7 +25,7 @@ proc new_link(fd: Int, info: Bytes, name: Str) [process, error] -> Result[Unit] 
   let _ = linux.netlink_request(fd, c.RTM_NEWLINK, flags, payload)?
 }
 
-proc make_devices() [process, error] -> Result[Unit] {
+proc make_devices() [process, net, error] -> Result[Unit] {
   let c = linux.net_constants()
   let nl = linux.netlink_open(c.NETLINK_ROUTE)?
   new_link(nl, attribute(1, cstring("dummy"))?, "d0")?

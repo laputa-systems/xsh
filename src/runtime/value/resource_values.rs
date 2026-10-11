@@ -45,6 +45,7 @@ impl<'a> Iterator for ResourceReachableValues<'a> {
             match value {
                 Value::List(items) | Value::Tag { fields: items, .. } => self.pending.extend(items),
                 Value::Map(fields) => self.pending.extend(fields.values()),
+                Value::Stream(stream) => self.pending.extend(stream.items.iter().map(|item| &item.value)),
                 Value::Record(fields) | Value::Module(fields) => {
                     self.pending.extend(fields.iter().map(|(_, value)| value))
                 }
@@ -76,7 +77,7 @@ mod tests {
         let _symbols = symbols.enter();
         let mut payload = RuntimeError::new("inner", "payload");
         payload.payload =
-            RecordMap::from([("job".into(), Value::NetJob(Box::new(NetJobValue { id: 7 })))]);
+            RecordMap::from([("job".into(), Value::NetJob(Box::new(NetJobValue { id: 7, owner: std::sync::Arc::new(()) })))]);
         let process = Value::RunError(Box::new(RunError::from_status(ProcessStatus::exited(9))))
             .with_error_cause(Value::Error(Box::new(payload)))
             .unwrap();

@@ -7,6 +7,27 @@ use crate::runtime::value::{
 use crate::source::Span;
 
 impl Evaluator {
+    /// A delegated producer exposes only its script state to the pull loop, so
+    /// match that state to a stream registration before crossing the boundary.
+    fn validate_delegated_script_owner(
+        &self,
+        child: &ScriptStreamState,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        if self
+            .owned_streams
+            .values()
+            .any(|owned| owned.script.as_ref().is_some_and(|state| state.same_as(child)))
+        {
+            return Ok(());
+        }
+        Err(RuntimeError::new(
+            "stream-owner",
+            "delegated stream belongs to another evaluator",
+        )
+        .with_span(span))
+    }
+
     /// The next item of a stream.
     ///
     /// A script producer is a suspended body, so pulling one resumes it against
@@ -16,10 +37,17 @@ impl Evaluator {
         stream: &mut StreamValue,
         span: Span,
     ) -> Result<Option<Value>, RuntimeError> {
-        if let Some(script) = stream.script() {
-            return self.pull_script_state(script.clone(), span);
+        self.validate_stream_owner(stream, span)?;
+        let result = if let Some(script) = stream.script() {
+            self.pull_script_state(script.clone(), span)
+        } else {
+            stream.next_live(span)
+        };
+        match (result, self.flush_pending_stream_captures()) {
+            (Err(error), _) => Err(error),
+            (Ok(value), Ok(())) => Ok(value),
+            (Ok(_), Err(error)) => Err(error),
         }
-        stream.next_live(span)
     }
 
     /// Stops a script stream early, without draining it.
@@ -33,10 +61,18 @@ impl Evaluator {
         stream: &mut StreamValue,
         span: Span,
     ) -> Result<(), RuntimeError> {
-        if let Some(script) = stream.script() {
-            self.cancel_script_state(script.clone(), span)?;
+        self.validate_stream_owner(stream, span)?;
+        let result = if let Some(script) = stream.script() {
+            self.cancel_script_state(script.clone(), span)
+        } else if let Some(source) = stream.source.as_ref() {
+            source.cancel(span)
+        } else {
+            Ok(())
+        };
+        match (result, self.flush_pending_stream_captures()) {
+            (Err(error), _) => Err(error),
+            (Ok(()), result) => result,
         }
-        Ok(())
     }
 
     /// Descend through delegation iteratively, retaining ancestor scope context
@@ -46,6 +82,7 @@ impl Evaluator {
         root: ScriptStreamState,
         span: Span,
     ) -> Result<Option<Value>, RuntimeError> {
+        let consumer_scope = self.current_scope_id();
         let mut parents: Vec<(
             ScriptStreamState,
             Span,
@@ -60,6 +97,11 @@ impl Evaluator {
             let step = current
                 .lock(current_span)
                 .and_then(|mut producer| producer.poll(self, current_span));
+            let step = match (step, self.flush_pending_stream_captures()) {
+                (Err(error), _) => Err(error),
+                (Ok(_), Err(error)) => Err(error),
+                (Ok(step), Ok(())) => Ok(step),
+            };
             match step {
                 Ok(ScriptStreamStep::Delegate {
                     child,
@@ -67,6 +109,19 @@ impl Evaluator {
                     scopes,
                     context,
                 }) => {
+                    if let Err(error) = self.validate_delegated_script_owner(&child, child_span) {
+                        for (_, _, count, context) in parents.iter().rev() {
+                            self.detach_owned_host_scopes(*count);
+                            if let Some(context) = context {
+                                self.swap_producer_context(context.clone());
+                            }
+                        }
+                        let _ = current
+                            .lock(child_span)
+                            .map(|mut producer| producer.delegated_finished());
+                        let _ = self.cancel_script_state(root, span);
+                        return Err(error);
+                    }
                     if !seen.insert(child.identity()) {
                         for (_, _, count, context) in parents.iter().rev() {
                             self.detach_owned_host_scopes(*count);
@@ -102,6 +157,9 @@ impl Evaluator {
                             }
                             Ok(())
                         });
+                    if !escaped && validated.is_ok() {
+                        self.transfer_owned_host_resources_in_value(&value, consumer_scope);
+                    }
                     for (_, _, count, context) in parents.iter().rev() {
                         self.detach_owned_host_scopes(*count);
                         if let Some(context) = context {
@@ -148,6 +206,11 @@ impl Evaluator {
                     current_span = parent_span;
                 }
                 Err(error) => {
+                    let escaped = parents.iter().any(|(_, _, _, context)| context.is_some())
+                        && Self::context_scope_runtime_error_escapes(&error);
+                    if !escaped {
+                        self.transfer_owned_host_resources_in_runtime_error(&error, consumer_scope);
+                    }
                     for (_, _, count, context) in parents.iter().rev() {
                         self.detach_owned_host_scopes(*count);
                         if let Some(context) = context {
@@ -157,6 +220,10 @@ impl Evaluator {
                     // A delegated failure stops every suspended ancestor. The
                     // child's original error remains the primary failure.
                     let _ = self.cancel_script_state(root, span);
+                    if escaped {
+                        self.pending_traceback = None;
+                        return Err(RuntimeError::new("context-scope-escape", "a delegated resource-bearing error cannot escape a context").with_span(current_span));
+                    }
                     return Err(error);
                 }
             }
@@ -178,11 +245,13 @@ impl Evaluator {
             if !seen.insert(current.identity()) {
                 break;
             }
-            let delegation = current
-                .lock(span)
-                .map(|mut producer| producer.take_delegated());
+            let delegation = current.lock(span).map(|mut producer| {
+                let finished = producer.finished();
+                let (child, scopes, context) = producer.take_delegated();
+                (finished, child, scopes, context)
+            });
             match delegation {
-                Ok((child, scopes, context)) => {
+                Ok((finished, child, scopes, context)) => {
                     let count = if child.is_some() {
                         self.reattach_owned_host_scopes(&scopes);
                         scopes.len()
@@ -194,7 +263,7 @@ impl Evaluator {
                     } else {
                         None
                     };
-                    pending.push((current, count, consumer));
+                    pending.push((current, count, consumer, !finished));
                     let Some(child) = child else {
                         break;
                     };
@@ -206,10 +275,13 @@ impl Evaluator {
                 }
             }
         }
-        for (state, count, context) in pending.into_iter().rev() {
+        for (state, count, context, should_cancel) in pending.into_iter().rev() {
             self.detach_owned_host_scopes(count);
             if let Some(context) = context {
                 self.swap_producer_context(context);
+            }
+            if !should_cancel {
+                continue;
             }
             if let Err(error) = state
                 .lock(span)
@@ -229,6 +301,7 @@ impl Evaluator {
         mut stream: StreamValue,
         span: Span,
     ) -> Result<Vec<Value>, RuntimeError> {
+        self.validate_stream_owner(&stream, span)?;
         // Materialized prefix items come first, then the stream is drained to
         // exhaustion: a live source through `next_live`, a suspended producer by
         // resuming it against this evaluator.

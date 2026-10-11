@@ -545,6 +545,27 @@ test test_fmt_keeps_an_indented_multiline_format_string_argument { |ctx|
   assert actual == source, actual
 }
 
+test test_fmt_keeps_bare_block_match_arms_unwrapped { |ctx|
+  let source = "let choice = match true { _ => { let detail = 7; detail } }\n"
+  let expected = "let choice = match true {\n  _ => {\n    let detail = 7\n    detail\n  },\n}\n"
+  let actual = formatted(ctx, source)?
+  assert actual == expected, actual
+}
+
+test test_fmt_indents_a_triple_string_in_a_nested_multiline_call { |ctx|
+  let source = "pure receive(text: Str) -> Str { text }\npure outer(label: Str, value: Str) -> Str { value }\nlet value = outer(\n  \"long enough label to break\",\n  receive(\n    \"\"\"hello\nworld\n\"\"\"\n  ),\n)\n"
+  let expected = "pure receive(text: Str) -> Str { text }\n\npure outer(label: Str, value: Str) -> Str { value }\n\nlet value = outer(\n  \"long enough label to break\",\n  receive(\n    \"\"\"hello\nworld\n\"\"\",\n  ),\n)\n"
+  let actual = formatted_at(ctx, source, 60)?
+  assert actual == expected, actual
+}
+
+test test_fmt_indents_a_list_with_a_raw_multiline_string_argument { |ctx|
+  let source = "pure consume(items: List[Str]) -> Int { items.len() }\nlet count = consume([\n  r\"\"\"(\nraw payload\n\"\"\",\n  \"a deliberately long second list value that exceeds sixty columns by a clear margin\",\n])\n"
+  let expected = "pure consume(items: List[Str]) -> Int { items.len() }\n\nlet count = consume(\n  [\n    r\"\"\"(\nraw payload\n\"\"\",\n    \"a deliberately long second list value that exceeds sixty columns by a clear margin\",\n  ],\n)\n"
+  let actual = formatted_at(ctx, source, 60)?
+  assert actual == expected, actual
+}
+
 test test_fmt_keeps_a_sole_multiline_literal_argument_compact { |ctx|
   let source = "let tool = p\"tool.txt\"\ntool.write(\"\"\"demo\n\"\"\")?\n"
   let actual = formatted(ctx, source)?

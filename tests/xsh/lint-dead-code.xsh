@@ -89,7 +89,7 @@ test test_lint_keeps_following_code_reachable_after_conditional_exit_and_zero_it
 test test_lint_keeps_code_after_loop_break_reachable_but_reports_dead_loop_body { |ctx|
   let reported = dead_code(
     ctx,
-    "proc main(stop: Bool) {\n  loop {\n    if stop {\n      break\n    } else {\n      continue\n    }\n    print \"dead in loop body\"\n  }\n  print \"reachable after break\"\n}\n",
+    "proc work(stop: Bool) {\n  loop {\n    if stop {\n      break\n    } else {\n      continue\n    }\n    print \"dead in loop body\"\n  }\n  print \"reachable after break\"\n}\n",
   )?
   assert headers(reported.stderr) == [unreachable], reported.stderr
   assert "dead.xsh:8:5\n      print \"dead in loop body\"\n" in reported.stderr, reported.stderr
@@ -98,7 +98,7 @@ test test_lint_keeps_code_after_loop_break_reachable_but_reports_dead_loop_body 
 test test_lint_reports_dead_code_after_match_without_a_normal_no_arm_path { |ctx|
   let reported = dead_code(
     ctx,
-    "proc main(choice: Int) {\n  match choice {\n    1 => return\n  }\n  print \"unreachable\"\n}\n",
+    "proc work(choice: Int) {\n  match choice {\n    1 => return\n  }\n  print \"unreachable\"\n}\n",
   )?
   assert headers(reported.stderr) == [unreachable], reported.stderr
   assert "dead.xsh:5:3\n" in reported.stderr, reported.stderr
@@ -156,6 +156,42 @@ test test_lint_follows_declared_callable_resolution_past_local_bindings { |ctx|
   )?
   assert reported.status.exited_with(0), reported.stderr
   assert headers(reported.stderr) == [], reported.stderr
+}
+
+test test_lint_callable_edges_include_reachable_defaults_and_ignore_shadowed_cli_values { |ctx|
+  let root = test.temp_dir(ctx, name: "callable-default-cli-shadow")?
+  let file = fp"{root}/main.xsh"
+  file.write(
+    "pure default_target() -> Int {\n  return 1\n}\n\npure selected(value: Int = default_target()) -> Int {\n  return value\n}\n\npure shadowed() -> Int {\n  return 9\n}\n\nlet shadowed = 2\ncli main() [] {\n  print selected()\n  print $shadowed\n}\n",
+  )
+  let reported = lint(file, ["--only", "lint.unused-callable"])?
+  assert headers(reported.stderr) == ["warn[lint.unused-callable]: unused callable `shadowed`"], reported.stderr
+}
+
+test test_lint_signal_hooks_use_final_top_level_bindings_and_order_findings_by_source { |ctx|
+  let reported = unused_callables(
+    ctx,
+    "pure z_unused() -> Int {\n  return 1\n}\n\npure shadowed() -> Int {\n  return 2\n}\n\non USR1 [] {\n  let callback = shadowed\n}\n\nlet shadowed = 3\npure a_unused() -> Int {\n  return 4\n}\n",
+  )?
+  assert headers(reported.stderr) == [
+    "warn[lint.unused-callable]: unused callable `z_unused`",
+    "warn[lint.unused-callable]: unused callable `shadowed`",
+    "warn[lint.unused-callable]: unused callable `a_unused`",
+  ], reported.stderr
+}
+
+test test_lint_callable_reachability_uses_import_aliases_and_reports_shared_modules_once { |ctx|
+  let root = test.temp_dir(ctx, name: "callable-shared-import")?
+  fp"{root}/helper.xsh".write(
+    "##! Shared helper.\n## Exposes the shared API.\nexport pure public_api() -> Int {\n  return private_helper()\n}\n\npure private_helper() -> Int {\n  return 1\n}\n\npure unused_helper() -> Int {\n  return 2\n}\n",
+  )
+  let first = fp"{root}/first.xsh"
+  let second = fp"{root}/second.xsh"
+  first.write("use helper as alias\n\nproc main() {\n  let callback = alias.public_api\n  print callback()\n}\n")
+  second.write("use helper as alias\n\nproc main() {\n  print alias.public_api()\n}\n")
+  let reported = run.capture --text "xsht" lint --only lint.unused-callable $first $second
+  assert reported.status.exited_with(1), reported.stderr
+  assert headers(reported.stderr) == ["warn[lint.unused-callable]: unused callable `unused_helper`"], reported.stderr
 }
 
 test test_lint_keeps_native_tests_exports_and_recursive_callables_live { |ctx|

@@ -12,16 +12,14 @@
 //! empty collection), and an annotation wider or narrower than the body.
 
 use super::{
-    ArenaTypeExprKind, CheckedReturnRemovalFacts, Linter, checked_return_type_shape,
+    ArenaTypeExprKind, CheckedReturnRemovalFacts, Linter,
     scan_before_arrow, standalone_annotation_imports_available, type_expr_kind,
 };
 use std::path::PathBuf;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label, Severity};
-use xsh::frontend::check::{CheckOptions, CheckOutput, Checker};
+use xsh::frontend::check::CheckOutput;
 use xsh::frontend::source::{SourceId, Span};
-use xsh::frontend::symbols::SymbolOwner;
 use xsh::frontend::syntax::arena::FunctionDefId;
-use xsh::frontend::syntax::node::Effect;
 
 /// Where the linted text lives, so a proof check resolves its imports as the
 /// real check did. Without one, only a file with no user imports is provable.
@@ -44,8 +42,7 @@ impl Linter<'_> {
     /// Called from the traversal for each proc definition of the linted file.
     pub(super) fn note_proc_return_candidate(&mut self, id: FunctionDefId, exported: bool) {
         let def = self.arena.function_def(id);
-        if !self.prefer_inferred_proc_returns
-            || exported
+        if exported
             || def.return_ty_defaulted
             || def.test_declaration
             || def.name == "main"
@@ -82,8 +79,8 @@ impl Linter<'_> {
             return;
         };
         let source_id = first.ty.source_id;
-        let context = self.return_proof.as_ref();
-        let Some(before) = proof_facts(self.source, source_id, &[], context) else {
+        let Some(before) = self.inferred_proc_return_proof_facts(self.source, source_id, &[])
+        else {
             return;
         };
         let proves = |removed: &[&ProcReturnCandidate]| {
@@ -98,7 +95,8 @@ impl Linter<'_> {
                     candidate.deletion.end() - candidate.deletion.start(),
                 ));
             }
-            proof_facts(&rewritten, source_id, &ranges, context).as_ref() == Some(&before)
+            self.inferred_proc_return_proof_facts(&rewritten, source_id, &ranges).as_ref()
+                == Some(&before)
         };
         // An annotation only adds information to the inference of other
         // definitions, so when the file is unchanged with every candidate
@@ -159,48 +157,68 @@ pub(super) fn broad_result_unit(
         })
 }
 
+impl Linter<'_> {
+    fn inferred_proc_return_proof_facts(
+        &self,
+        source: &str,
+        source_id: SourceId,
+        removed: &[(usize, usize)],
+    ) -> Option<ProofFacts> {
+        #[cfg(test)]
+        tests::record_proof();
+        if self.source_id != Some(source_id) {
+            return None;
+        }
+        if source == self.source && removed.is_empty() {
+            let checked = self.checked_output.as_deref()?;
+            return proof_facts_from_output(
+                checked,
+                source_id,
+                &self.effect_body_spans,
+                removed,
+            );
+        }
+        let snapshot = if let Some(context) = self.return_proof.as_ref() {
+            super::probes::LintProbeTransport::loaded(
+                context,
+                source,
+                xsh::frontend::check::CheckOptions::default(),
+            )?
+        } else {
+            super::probes::LintProbeTransport::standalone(
+                source_id,
+                source,
+                xsh::frontend::check::CheckOptions::default(),
+            )
+        };
+        if !snapshot.parse_diagnostics.is_empty()
+            || (self.return_proof.is_none()
+                && !standalone_annotation_imports_available(&snapshot.program))
+        {
+            return None;
+        }
+        let checked = snapshot.checked.as_ref()?;
+        let (entry_source, effect_body_spans) = super::probes::checked_source_effect_bodies(
+            &snapshot.program,
+            snapshot.program.arena.stmt_ids(snapshot.program.statements),
+            source,
+        )?;
+        snapshot.program.symbol_owner().with_current(|| {
+            proof_facts_from_output(checked, entry_source, &effect_body_spans, removed)
+        })
+    }
+}
+
 /// The checked facts of `source`, or `None` when it does not check clean.
 /// `removed` lists the `(start, length)` ranges, in the original text and in
 /// order, that `source` lacks; facts are reported at original offsets so two
 /// versions compare directly.
-fn proof_facts(
-    source: &str,
-    source_id: SourceId,
+fn proof_facts_from_output(
+    checked: &CheckOutput,
+    entry_source: SourceId,
+    expected_effect_bodies: &[Span],
     removed: &[(usize, usize)],
-    context: Option<&ReturnProofContext>,
 ) -> Option<ProofFacts> {
-    #[cfg(test)]
-    tests::record_proof();
-    let (checked, entry_source, symbols): (CheckOutput, SourceId, SymbolOwner) = match context {
-        Some(context) => {
-            let entry = xsh::frontend::load::parse_load_check_text(
-                &context.file,
-                source.to_string(),
-                context.module_roots.clone(),
-                CheckOptions::default(),
-            );
-            if !entry.parsed.diagnostics.is_empty() {
-                return None;
-            }
-            let symbols = entry.parsed.arena.symbol_owner().clone();
-            (entry.checked?, entry.entry_source_id, symbols)
-        }
-        None => {
-            let parsed =
-                xsh::frontend::syntax::parser::Parser::parse_source_arena_only(source_id, source);
-            if !parsed.diagnostics.is_empty()
-                || !standalone_annotation_imports_available(&parsed.arena)
-            {
-                return None;
-            }
-            let symbols = parsed.arena.symbol_owner().clone();
-            (
-                Checker::check_arena(&parsed.arena, source),
-                source_id,
-                symbols,
-            )
-        }
-    };
     // A warning the file already has does not disqualify it; the warnings
     // themselves must then be the same before and after.
     if checked
@@ -212,11 +230,7 @@ fn proof_facts(
     }
     let original = |offset: usize| {
         removed.iter().fold(offset, |offset, &(start, length)| {
-            if offset >= start {
-                offset + length
-            } else {
-                offset
-            }
+            if offset >= start { offset + length } else { offset }
         })
     };
     // Imported modules are not edited; only the linted file's facts can move.
@@ -239,64 +253,13 @@ fn proof_facts(
         })
         .collect::<Vec<_>>();
     warnings.sort();
-    let checked_facts = symbols.with_current(|| {
-        Some(CheckedReturnRemovalFacts {
-            expressions: checked
-                .expr_types
-                .iter()
-                .filter(|(span, _)| here(span))
-                .map(|(span, ty)| {
-                    (
-                        original(span.start()),
-                        original(span.end()),
-                        checked_return_type_shape(ty),
-                    )
-                })
-                .collect(),
-            statements: checked
-                .statement_positions
-                .iter()
-                .filter(|(span, _)| here(span))
-                .map(|(span, position)| (original(span.start()), original(span.end()), *position))
-                .collect(),
-            returns: checked
-                .function_return_types
-                .iter()
-                .filter(|(span, _)| here(span))
-                .map(|(span, ty)| {
-                    (
-                        original(span.start()),
-                        original(span.end()),
-                        checked_return_type_shape(ty),
-                    )
-                })
-                .collect(),
-            parameters: checked
-                .parameter_types
-                .iter()
-                .filter(|(span, _)| here(span))
-                .map(|(span, ty)| {
-                    (
-                        original(span.start()),
-                        original(span.end()),
-                        checked_return_type_shape(ty),
-                    )
-                })
-                .collect(),
-            effects: checked
-                .callable_effects
-                .into_iter()
-                .map(|(name, effects)| {
-                    let effects = effects.map(|mut effects| {
-                        effects.sort_by_key(Effect::as_str);
-                        effects.dedup();
-                        effects
-                    });
-                    (name, effects)
-                })
-                .collect(),
-        })
-    })?;
+    let checked_facts = super::probes::checked_return_removal_facts_from_output(
+        checked,
+        entry_source,
+        expected_effect_bodies,
+        removed,
+        false,
+    )?;
     Some(ProofFacts {
         checked: checked_facts,
         warnings,
@@ -328,6 +291,7 @@ mod tests {
             &parsed.arena,
             source,
             LintOptions {
+                checked_output: Some(std::sync::Arc::new(checked)),
                 prefer_inferred_proc_returns: true,
                 only: Some(vec![DiagnosticCode::LintPreferInferredProcReturn]),
                 ..LintOptions::default()
@@ -363,6 +327,34 @@ mod tests {
             "type Disk = {mount: Str, used: Int}\n\nproc disk(mount: Str) {\n  Disk(mount:, used: mount.byte_len())\n}\n\nproc used(mount: Str) [error] {\n  disk(mount)?.used\n}\n\nprint ${used(\"/\")?}\n"
         );
         assert!(lint(&fixed).is_empty());
+    }
+
+    #[test]
+    fn incomplete_effect_facts_do_not_authorize_return_removal() {
+        let source = "proc one() -> Result[Int] {\n  1\n}\n\nprint ${one()?}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let mut checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert!(!checked.function_effect_facts.is_empty());
+        checked.function_effect_facts.clear();
+        let output = Linter::lint(
+            &parsed.arena,
+            source,
+            LintOptions {
+                checked_output: Some(std::sync::Arc::new(checked)),
+                prefer_inferred_proc_returns: true,
+                only: Some(vec![DiagnosticCode::LintPreferInferredProcReturn]),
+                ..LintOptions::default()
+            },
+        );
+        assert!(
+            !output.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == Some(DiagnosticCode::LintPreferInferredProcReturn)
+            }),
+            "incomplete checked facts cannot authorize a fix: {:?}",
+            output.diagnostics
+        );
     }
 
     #[test]
@@ -416,7 +408,11 @@ mod tests {
     fn the_lint_is_off_unless_the_project_or_the_command_asks_for_it() {
         let source = "proc one() -> Result[Int] {\n  1\n}\n\nprint ${one()?}\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let reported = |options: LintOptions| {
+            let mut options = options;
+            options.checked_output = Some(std::sync::Arc::new(checked.clone()));
             Linter::lint(&parsed.arena, source, options)
                 .diagnostics
                 .iter()

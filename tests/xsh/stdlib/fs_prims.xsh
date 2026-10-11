@@ -631,7 +631,6 @@ test test_copy_file_reads_zero_size_virtual_files_until_eof { |ctx|
 
   let root = test.temp_dir(ctx, name: "fs-copy-proc")?
   let proc_root = fs.open_root(/proc)?
-  defer proc_root.close()
   let expected = proc_root.read_bytes(p"version")?
   assert fs.stat(source)?.size == 0
   assert expected.len() > 0

@@ -7,13 +7,13 @@ use crate::sema::check::{
 use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::{Name, QualifiedName};
 use crate::syntax::arena::{
-    ArenaBindingTargetKind, ArenaProgram, ArenaProgramBuilder, ArenaRange, ArenaStmtKind, StmtId,
+    ArenaBindingTargetKind, ArenaProgram, ArenaProgramBuilder, ArenaRange, ArenaStmtKind, StmtId, UseStmtId,
 };
 use crate::syntax::cst::{LazyCst, SyntaxTree};
 
 use crate::syntax::parser::{ArenaParseOutput, Parser};
 use crate::syntax::token::TokenTable;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -325,37 +325,32 @@ pub fn entry_source_from_text(file: &str, text: String) -> EntrySource {
 
 pub fn entry_source_from_bytes(file: &str, bytes: Vec<u8>) -> EntrySource {
     let mut sources = SourceMap::new();
-    let (source_id, invalid_offset) = match sources.add_file_from_utf8(file, bytes.clone()) {
-        Ok(source_id) => {
-            return EntrySource {
-                sources,
-                source_id,
-                diagnostics: Vec::new(),
-            };
-        }
+    let (source_id, diagnostics) = add_source_bytes(&mut sources, file, bytes);
+    EntrySource { sources, source_id, diagnostics }
+}
+
+/// Add source bytes without crossing an invalid UTF-8 boundary silently.
+/// Lossy text is retained only so the diagnostic can point at the bad bytes.
+pub fn add_source_bytes(
+    sources: &mut SourceMap,
+    file: &str,
+    bytes: Vec<u8>,
+) -> (SourceId, Vec<Diagnostic>) {
+    match sources.add_file_from_utf8(file, bytes.clone()) {
+        Ok(source_id) => (source_id, Vec::new()),
         Err(error) => {
             let text = String::from_utf8_lossy(&bytes).into_owned();
-            (sources.add_file(file, text), error.offset)
+            let offset = error.offset.min(text.len());
+            let source_id = sources.add_file(file, text);
+            (source_id, vec![
+                Diagnostic::error("source file is not valid UTF-8")
+                    .with_code(DiagnosticCode::SourceInvalidUtf8)
+                    .with_label(Label::primary(
+                        Span::new(source_id, offset, offset),
+                        "invalid UTF-8 starts here",
+                    )),
+            ])
         }
-    };
-    let offset = {
-        let text = sources
-            .get(source_id)
-            .expect("source was just inserted")
-            .text();
-        invalid_offset.min(text.len())
-    };
-    EntrySource {
-        sources,
-        source_id,
-        diagnostics: vec![
-            Diagnostic::error("source file is not valid UTF-8")
-                .with_code(DiagnosticCode::SourceInvalidUtf8)
-                .with_label(Label::primary(
-                    Span::new(source_id, offset, offset),
-                    "invalid UTF-8 starts here",
-                )),
-        ],
     }
 }
 
@@ -486,7 +481,30 @@ fn collect_exported_top_level_binding_name(
         ArenaStmtKind::ErrorDef(def) => {
             names.insert(program.arena.error_def(def).name);
         }
-        _ => {}
+        ArenaStmtKind::Use(_)
+        | ArenaStmtKind::Export(_)
+        | ArenaStmtKind::Assign { .. }
+        | ArenaStmtKind::CliMain(_)
+        | ArenaStmtKind::SignalHook(_)
+        | ArenaStmtKind::Return(_)
+        | ArenaStmtKind::Yield(_)
+        | ArenaStmtKind::YieldDelegate(_)
+        | ArenaStmtKind::Defer(..)
+        | ArenaStmtKind::If { .. }
+        | ArenaStmtKind::While { .. }
+        | ArenaStmtKind::For { .. }
+        | ArenaStmtKind::With { .. }
+        | ArenaStmtKind::Loop { .. }
+        | ArenaStmtKind::Guard { .. }
+        | ArenaStmtKind::Sugar { .. }
+        | ArenaStmtKind::Assert { .. }
+        | ArenaStmtKind::Break { .. }
+        | ArenaStmtKind::Continue
+        | ArenaStmtKind::Exit(_)
+        | ArenaStmtKind::Match { .. }
+        | ArenaStmtKind::Command(_)
+        | ArenaStmtKind::TailBareIdent(_)
+        | ArenaStmtKind::Expr(_) => {}
     }
 }
 
@@ -566,14 +584,20 @@ pub fn parse_load_check_entry_source_with_token_table(
     let _ = token_table;
     let entry_source_id = entry_source.source_id;
     let (sources, parsed) = parse_load_entry_source_arena_only(file, entry_source, module_roots);
-    let entry_text = sources
+    sources
         .get(entry_source_id)
-        .map(|source| source.text().to_string())
-        .unwrap_or_default();
+        .expect("entry source id must exist in the source map");
     let checked = parsed
         .diagnostics
         .is_empty()
-        .then(|| Checker::check_arena_with_options(&parsed.arena, &entry_text, options));
+        .then(|| {
+            Checker::check_arena_with_sources_and_options(
+                &parsed.arena,
+                &sources,
+                entry_source_id,
+                options,
+            )
+        });
     CheckedEntry {
         sources,
         entry_source_id,
@@ -651,19 +675,23 @@ pub fn parse_load_entry_source_arena_only_with_linkage(
     let cst = root.cst;
     let mut diagnostics = root.diagnostics;
     let root_statements = root.statements;
+    let mut loaded = FxHashSet::default();
     if diagnostics.is_empty() {
-        let mut loader =
-            ArenaModuleLoader::new(&mut sources, &mut builder).with_module_roots(module_roots);
-        loader.load_uses(Path::new(file), root_statements);
+        let mut loader = ModuleLoader::new(&mut sources, &mut builder);
+        let imports = loader.load_imports(Path::new(file), root_statements, &module_roots);
+        runtime_import_diagnostics(&imports, &loader.finish(), &mut loaded, &mut diagnostics);
         if linkage == StdlibLinkage::Prepare {
-            loader.load_stdlib_modules(source_id);
+            let mut embedded = EmbeddedModuleLoader::new(&mut sources, &mut builder);
+            embedded.load_stdlib_modules(source_id);
+            diagnostics.extend(embedded.diagnostics);
         }
-        diagnostics.extend(loader.diagnostics);
     }
+    let mut arena = builder.finish_with_statements(root_statements);
+    arena.modules.retain(|module| module.internal || loaded.contains(&module.key));
     (
         sources,
         ArenaParseOutput {
-            arena: builder.finish_with_statements(root_statements),
+            arena,
             cst,
             diagnostics,
         },
@@ -688,63 +716,228 @@ pub fn parse_load_entry_source_shared_arena_only(
     let cst = root.cst;
     let mut diagnostics = root.diagnostics;
     let root_statements = root.statements;
+    let mut loaded = FxHashSet::default();
     if diagnostics.is_empty() {
-        let mut loader =
-            ArenaModuleLoader::new(sources, &mut builder).with_module_roots(module_roots);
-        loader.load_uses(Path::new(file), root_statements);
+        let mut loader = ModuleLoader::new(sources, &mut builder);
+        let imports = loader.load_imports(Path::new(file), root_statements, &module_roots);
+        runtime_import_diagnostics(&imports, &loader.finish(), &mut loaded, &mut diagnostics);
         // Tooling that checks or lints a workspace must see the same standard
         // implementations the runner would prepare, or a script-backed call
         // would look unlowerable to the checker while running fine.
-        loader.load_stdlib_modules(source_id);
-        diagnostics.extend(loader.diagnostics);
+        let mut embedded = EmbeddedModuleLoader::new(sources, &mut builder);
+        embedded.load_stdlib_modules(source_id);
+        diagnostics.extend(embedded.diagnostics);
     }
+    let mut arena = builder.finish_with_statements(root_statements);
+    arena.modules.retain(|module| module.internal || loaded.contains(&module.key));
     ArenaParseOutput {
-        arena: builder.finish_with_statements(root_statements),
+        arena,
         cst,
         diagnostics,
     }
 }
 
-struct ArenaModuleLoader<'a, 'b> {
+/// A parsed file and its imports in one shared source map and arena.
+/// Parser recovery is retained for syntax migration; execution checks only
+/// files reachable through imports whose source parsed successfully.
+pub struct LoadedModule {
+    pub key: String,
+    pub path: PathBuf,
+    pub source_id: SourceId,
+    pub text: String,
+    pub statements: ArenaRange,
+    pub imports: Vec<LoadedImport>,
+    pub diagnostics: Vec<Diagnostic>,
+    pub module_roots: Vec<PathBuf>,
+}
+
+#[derive(Clone)]
+pub struct LoadedImport {
+    pub use_id: UseStmtId,
+    pub path: Vec<Name>,
+    pub span: Span,
+    pub target: Option<String>,
+    pub diagnostic: Option<Diagnostic>,
+}
+
+/// Loads each user file once, including files shared by several entry roots.
+/// The caller keeps the source map and arena so entry parsing and embedded
+/// implementations use the same source and syntax identities.
+pub struct ModuleLoader<'a, 'b> {
     sources: &'a mut SourceMap,
     arena: &'a mut ArenaProgramBuilder<'b>,
-    loaded: FxHashSet<String>,
+    modules: FxHashMap<String, LoadedModule>,
     stack: Vec<String>,
+    source_overrides: FxHashMap<String, Vec<u8>>,
+}
+
+impl<'a, 'b> ModuleLoader<'a, 'b> {
+    pub fn new(sources: &'a mut SourceMap, arena: &'a mut ArenaProgramBuilder<'b>) -> Self {
+        Self {
+            sources,
+            arena,
+            modules: FxHashMap::default(),
+            stack: Vec::new(),
+            source_overrides: FxHashMap::default(),
+        }
+    }
+
+    /// Reparse edited bytes in a fresh loader during a syntax-fix round.
+    pub fn set_source_override(&mut self, key: String, bytes: Vec<u8>) {
+        self.source_overrides.insert(key, bytes);
+    }
+
+    pub fn load(&mut self, path: PathBuf, bytes: Vec<u8>, module_roots: Vec<PathBuf>) -> String {
+        let key = module_key(&path);
+        if self.modules.contains_key(&key) {
+            return key;
+        }
+        let bytes = self.source_overrides.get(&key).cloned().unwrap_or(bytes);
+        let (source_id, mut diagnostics) =
+            add_source_bytes(self.sources, &path.to_string_lossy(), bytes);
+        let text = self
+            .sources
+            .get(source_id)
+            .expect("source was just inserted")
+            .text()
+            .to_string();
+        let statements = if diagnostics.is_empty() {
+            let fragment = Parser::parse_source_into_arena_builder(source_id, &text, self.arena);
+            diagnostics.extend(fragment.diagnostics);
+            fragment.statements
+        } else {
+            ArenaRange::default()
+        };
+        self.modules.insert(
+            key.clone(),
+            LoadedModule {
+                key: key.clone(),
+                path: path.clone(),
+                source_id,
+                text,
+                statements,
+                imports: Vec::new(),
+                diagnostics,
+                module_roots: module_roots.clone(),
+            },
+        );
+        self.stack.push(key.clone());
+        let imports = self.load_imports(&path, statements, &module_roots);
+        self.stack.pop();
+        self.modules.get_mut(&key).expect("module was inserted").imports = imports;
+        let name = self.arena.name(&key);
+        self.arena.push_arena_module(key.clone(), name, statements);
+        key
+    }
+
+    fn load_imports(
+        &mut self,
+        importer: &Path,
+        statements: ArenaRange,
+        module_roots: &[PathBuf],
+    ) -> Vec<LoadedImport> {
+        let mut imports = Vec::new();
+        for stmt in self.arena.statement_ids(statements) {
+            let Some((use_id, path, span)) = self.arena.use_stmt_for_statement(stmt) else {
+                continue;
+            };
+            let mut import = LoadedImport {
+                use_id,
+                path,
+                span,
+                target: None,
+                diagnostic: None,
+            };
+            match resolve_user_module(importer, &import.path, module_roots) {
+                Ok(UserModuleResolution::Standard) => {}
+                Ok(UserModuleResolution::Missing(paths)) => {
+                    self.arena.set_use_searched_candidates(use_id, paths);
+                }
+                Ok(UserModuleResolution::Found { path, bytes }) => {
+                    let target = module_key(&path);
+                    if self.stack.contains(&target) {
+                        import.diagnostic = Some(
+                            Diagnostic::error("cyclic module import")
+                                .with_code(DiagnosticCode::ParseModuleCycle)
+                                .with_label(Label::primary(span, "module import cycle starts here")),
+                        );
+                    } else {
+                        self.load(path, bytes, module_roots.to_vec());
+                    }
+                    self.arena.set_use_resolved(use_id, Arc::from(target.as_str()));
+                    import.target = Some(target);
+                }
+                Err(message) => {
+                    import.diagnostic = Some(
+                        Diagnostic::error("failed to read module")
+                            .with_code(DiagnosticCode::ParseModuleRead)
+                            .with_label(Label::primary(span, message)),
+                    );
+                }
+            }
+            imports.push(import);
+        }
+        imports
+    }
+
+    pub fn finish(self) -> FxHashMap<String, LoadedModule> {
+        self.modules
+    }
+}
+
+/// Runtime loading stops reporting below a source that failed to parse.
+/// Recovery files remain available to tooling without changing that boundary.
+fn runtime_import_diagnostics(
+    imports: &[LoadedImport],
+    modules: &FxHashMap<String, LoadedModule>,
+    loaded: &mut FxHashSet<String>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for import in imports {
+        if let Some(diagnostic) = &import.diagnostic {
+            diagnostics.push(diagnostic.clone());
+            continue;
+        }
+        let Some(target) = &import.target else {
+            continue;
+        };
+        let module = modules.get(target).expect("resolved import was loaded");
+        if !module.diagnostics.is_empty() {
+            if !module
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::SourceInvalidUtf8))
+            {
+                diagnostics.push(
+                    Diagnostic::error("failed to load module")
+                        .with_code(DiagnosticCode::ParseModuleLoad)
+                        .with_label(Label::primary(
+                            import.span,
+                            format!("`{}` has parse errors", module.path.display()),
+                        )),
+                );
+            }
+            diagnostics.extend(module.diagnostics.iter().cloned());
+        } else if loaded.insert(module.key.clone()) {
+            runtime_import_diagnostics(&module.imports, modules, loaded, diagnostics);
+        }
+    }
+}
+
+struct EmbeddedModuleLoader<'a, 'b> {
+    sources: &'a mut SourceMap,
+    arena: &'a mut ArenaProgramBuilder<'b>,
     diagnostics: Vec<Diagnostic>,
-    module_roots: Vec<PathBuf>,
     loaded_stdlib: FxHashSet<&'static str>,
 }
 
-impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
+impl<'a, 'b> EmbeddedModuleLoader<'a, 'b> {
     fn new(sources: &'a mut SourceMap, arena: &'a mut ArenaProgramBuilder<'b>) -> Self {
         Self {
             sources,
             arena,
-            loaded: FxHashSet::default(),
-            stack: Vec::new(),
             diagnostics: Vec::new(),
-            module_roots: Vec::new(),
             loaded_stdlib: FxHashSet::default(),
-        }
-    }
-
-    fn with_module_roots(mut self, roots: Vec<PathBuf>) -> Self {
-        self.module_roots = roots;
-        self
-    }
-
-    fn load_uses(&mut self, importer: &Path, statements: ArenaRange) {
-        let statements = self.arena.statement_ids(statements);
-        for stmt in statements {
-            let Some((use_id, path, span)) = self.arena.use_stmt_for_statement(stmt) else {
-                continue;
-            };
-            if path.len() == 1 && api_spec().is_standard_module(&path[0].as_str()) {
-                continue;
-            }
-            if let Some(key) = self.load_module(importer, &path, span) {
-                self.arena.set_use_resolved(use_id, Arc::from(key.as_str()));
-            }
         }
     }
 
@@ -817,92 +1010,6 @@ impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
         );
     }
 
-    fn load_module(&mut self, importer: &Path, path: &[Name], span: Span) -> Option<String> {
-        let (module_path, bytes) =
-            match read_module_from_candidates(importer, path, &self.module_roots) {
-                Ok(found) => found,
-                Err(message) => {
-                    self.diagnostics.push(
-                        Diagnostic::error("failed to read module")
-                            .with_code(DiagnosticCode::ParseModuleRead)
-                            .with_label(Label::primary(span, message)),
-                    );
-                    return None;
-                }
-            };
-        self.load_file_bytes(&module_path, bytes, span)
-    }
-
-    fn load_file_bytes(
-        &mut self,
-        module_path: &Path,
-        bytes: Vec<u8>,
-        span: Span,
-    ) -> Option<String> {
-        let key = module_key(module_path);
-        if self.stack.contains(&key) {
-            self.diagnostics.push(
-                Diagnostic::error("cyclic module import")
-                    .with_code(DiagnosticCode::ParseModuleCycle)
-                    .with_label(Label::primary(span, "module import cycle starts here")),
-            );
-            return None;
-        }
-        if self.loaded.contains(&key) {
-            return Some(key);
-        }
-        let source_name = module_path.to_string_lossy().into_owned();
-        let source_id = match self
-            .sources
-            .add_file_from_utf8(source_name.clone(), bytes.clone())
-        {
-            Ok(source_id) => source_id,
-            Err(error) => {
-                let text = String::from_utf8_lossy(&bytes).into_owned();
-                let source_id = self.sources.add_file(source_name, text);
-                let offset = error.offset.min(
-                    self.sources
-                        .get(source_id)
-                        .map_or(0, crate::source::SourceFile::len),
-                );
-                self.diagnostics.push(
-                    Diagnostic::error("source file is not valid UTF-8")
-                        .with_code(DiagnosticCode::SourceInvalidUtf8)
-                        .with_label(Label::primary(
-                            Span::new(source_id, offset, offset),
-                            "invalid UTF-8 starts here",
-                        )),
-                );
-                return None;
-            }
-        };
-        let text = self
-            .sources
-            .get(source_id)
-            .expect("source was just inserted")
-            .text();
-        let parsed = Parser::parse_source_into_arena_builder(source_id, text, self.arena);
-        if !parsed.diagnostics.is_empty() {
-            self.diagnostics.push(
-                Diagnostic::error("failed to load module")
-                    .with_code(DiagnosticCode::ParseModuleLoad)
-                    .with_label(Label::primary(
-                        span,
-                        format!("`{}` has parse errors", module_path.display()),
-                    )),
-            );
-            self.diagnostics.extend(parsed.diagnostics);
-            return None;
-        }
-        self.stack.push(key.clone());
-        self.load_uses(module_path, parsed.statements);
-        self.stack.pop();
-        self.loaded.insert(key.clone());
-        let name = self.arena.name(&key);
-        self.arena
-            .push_arena_module(key.clone(), name, parsed.statements);
-        Some(key)
-    }
 }
 
 /// Prepare one embedded implementation module for catalog validation.
@@ -919,7 +1026,7 @@ pub fn prepare_stdlib_catalog_module(identity: &str) -> Option<(SourceMap, Arena
     let mut builder = ArenaProgramBuilder::with_token_capacity(0);
     let mut diagnostics = Vec::new();
     {
-        let mut loader = ArenaModuleLoader::new(&mut sources, &mut builder);
+        let mut loader = EmbeddedModuleLoader::new(&mut sources, &mut builder);
         loader.load_stdlib_module(module.identity, Span::new(entry_source_id, 0, 0));
         loader.load_stdlib_modules(entry_source_id);
         diagnostics.extend(loader.diagnostics);
@@ -942,41 +1049,33 @@ pub fn module_key(path: &Path) -> String {
         .into_owned()
 }
 
-#[allow(clippy::single_call_fn)]
-fn read_module_from_candidates(
-    importer: &Path,
-    path: &[Name],
-    extra_roots: &[PathBuf],
-) -> Result<(PathBuf, Vec<u8>), String> {
-    let candidates = resolve_module_path_candidates(importer, path, extra_roots);
-    let mut failures = Vec::new();
-    for candidate in candidates {
-        match fs::read(&candidate) {
-            Ok(bytes) => return Ok((candidate, bytes)),
-            Err(error) => failures.push(format!("`{}`: {error}", candidate.display())),
-        }
-    }
-    Err(format!(
-        "failed to read module; tried {}. Set XSH_MODULE_PATH, or `module_path` in the project's xsht-config.ini, to add module search roots",
-        failures.join(", ")
-    ))
+/// The filesystem outcome of resolving one import. Absence remains checker
+/// input; a candidate that cannot be read is a loading error.
+pub enum UserModuleResolution {
+    Standard,
+    Found { path: PathBuf, bytes: Vec<u8> },
+    Missing(Arc<[PathBuf]>),
 }
 
-/// Resolve a user import using the same search order as the runtime loader.
-///
-/// Tooling that builds a workspace graph must be able to discover imports
-/// without constructing a fresh arena-backed loader for every entry file.
-/// Standard-library modules are intentionally reported as absent because they
-/// do not correspond to user source files.
+/// Resolve a user import using the language's search order. A standard module
+/// has no source file, and missing candidates retain their actual search paths.
 pub fn resolve_user_module(
     importer: &Path,
     path: &[Name],
     extra_roots: &[PathBuf],
-) -> Result<Option<(PathBuf, Vec<u8>)>, String> {
+) -> Result<UserModuleResolution, String> {
     if path.len() == 1 && api_spec().is_standard_module(&path[0].as_str()) {
-        return Ok(None);
+        return Ok(UserModuleResolution::Standard);
     }
-    read_module_from_candidates(importer, path, extra_roots).map(Some)
+    let candidates = resolve_module_path_candidates(importer, path, extra_roots);
+    for candidate in &candidates {
+        match fs::read(candidate) {
+            Ok(bytes) => return Ok(UserModuleResolution::Found { path: candidate.clone(), bytes }),
+            Err(error) if matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => {}
+            Err(error) => return Err(format!("`{}`: {error}", candidate.display())),
+        }
+    }
+    Ok(UserModuleResolution::Missing(candidates.into()))
 }
 
 /// Where a `use` may load from, in search order: beside the importing file,
@@ -1023,6 +1122,73 @@ fn module_path_from_base(base: &Path, path: &[Name]) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Search provenance is exposed through the Rust frontend, so the host
+    // test compares loaded imports and imports parsed without resolution.
+    #[test]
+    fn only_loaded_missing_imports_record_filesystem_candidates() {
+        let root = tempfile::TempDir::new().expect("create module fixture");
+        let entry = root.path().join("entry.xsh");
+        let module_root = root.path().join("modules");
+        let source = "use unavailable_module\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        let parsed_use = parsed.arena.arena.use_stmt(
+            match parsed.arena.arena.stmt(parsed.arena.statement_ids().next().unwrap()).kind {
+                ArenaStmtKind::Use(id) => id,
+                _ => panic!("expected import"),
+            },
+        );
+        assert!(parsed_use.searched_candidates.is_none());
+
+        let (_, loaded) = parse_load_entry_source_arena_only(
+            entry.to_str().expect("fixture path"),
+            entry_source_from_text(entry.to_str().unwrap(), source.to_string()),
+            vec![module_root.clone()],
+        );
+        assert!(loaded.diagnostics.is_empty(), "{:?}", loaded.diagnostics);
+        let loaded_use = loaded.arena.arena.use_stmt(
+            match loaded.arena.arena.stmt(loaded.arena.statement_ids().next().unwrap()).kind {
+                ArenaStmtKind::Use(id) => id,
+                _ => panic!("expected import"),
+            },
+        );
+        assert!(loaded_use.resolved.is_none());
+        let searched = loaded_use.searched_candidates.as_deref().expect("actual search paths");
+        assert_eq!(searched.first(), Some(&root.path().join("unavailable_module.xsh")));
+        assert!(searched.contains(&module_root.join("unavailable_module.xsh")));
+    }
+
+    #[test]
+    fn workspace_loader_parses_shared_import_once_for_two_roots() {
+        let root = tempfile::TempDir::new().expect("create shared-module fixture");
+        let shared = root.path().join("shared.xsh");
+        std::fs::write(&shared, "export const value = 1\n").unwrap();
+        let mut sources = SourceMap::new();
+        let mut arena = ArenaProgramBuilder::with_token_capacity(128);
+        let mut loader = ModuleLoader::new(&mut sources, &mut arena);
+        let roots = ["left.xsh", "right.xsh"].map(|name| {
+            loader.load(root.path().join(name), b"use shared\n".to_vec(), Vec::new())
+        });
+        let modules = loader.finish();
+        assert_eq!(modules.len(), 3);
+        assert_eq!(sources.files().len(), 3);
+        let shared_key = module_key(&shared);
+        for key in roots {
+            let module = &modules[&key];
+            assert!(module.diagnostics.is_empty());
+            assert_eq!(module.imports[0].target.as_deref(), Some(shared_key.as_str()));
+        }
+        let program = arena.finish();
+        let shared_module = &modules[&shared_key];
+        assert_eq!(
+            program.modules.iter().filter(|module| module.key == shared_key).count(),
+            1,
+        );
+        assert_eq!(
+            sources.get(shared_module.source_id).unwrap().name(),
+            shared.to_string_lossy(),
+        );
+    }
 
     #[test]
     fn compact_file_unit_wraps_parsed_arena_without_checker_runtime_state() {
@@ -1165,7 +1331,7 @@ proc main() [io] {
         )
         .expect("write helper module");
 
-        let (_sources, unit) = parse_load_entry_source_compact_file_unit(
+        let (sources, unit) = parse_load_entry_source_compact_file_unit(
             entry_path.to_str().expect("utf-8 temp path"),
             entry_source_from_text(
                 entry_path.to_str().expect("utf-8 temp path"),
@@ -1181,7 +1347,11 @@ proc main() [io] {
             unit.parse_diagnostics()
         );
 
-        let declarations = Checker::check_compact_declarations(unit.program());
+        let declarations = Checker::check_compact_declarations(
+            unit.program(),
+            &sources,
+            unit.source_id(),
+        );
         assert!(
             declarations.diagnostics.is_empty(),
             "{:?}",

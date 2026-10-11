@@ -54,13 +54,14 @@ enum DelegatedSource {
 }
 
 impl DelegatedSource {
-    fn new(value: LoweredValue, span: Span) -> Result<Self, RuntimeError> {
+    fn new(evaluator: &Evaluator, value: LoweredValue, span: Span) -> Result<Self, RuntimeError> {
         match value {
             LoweredValue::List(items) => Ok(Self::List(DelegatedList::Owned(items.into_iter()))),
             LoweredValue::SharedList(items) => {
                 Ok(Self::List(DelegatedList::Shared { items, next: 0 }))
             }
             LoweredValue::Stream(mut value) => {
+                evaluator.validate_stream_owner(&value, span)?;
                 let prefix = std::mem::take(&mut value.items)
                     .into_iter()
                     .map(|item| item.value)
@@ -125,7 +126,7 @@ impl crate::runtime::value::ScriptStream for ScriptProducer {
 
     fn validate_item(&self, value: &super::Value, span: Span) -> Result<(), RuntimeError> {
         if let Some(check) = &self.item_check
-            && !super::super::super::value_matches_static_type(value, &check.ty)
+            && !super::super::super::value_matches_static_type(super::super::super::ValueView::Runtime(value), &check.ty)
         {
             let span = match &self.delegated {
                 Some(DelegatedSource::Stream { span, .. }) => *span,
@@ -138,6 +139,35 @@ impl crate::runtime::value::ScriptStream for ScriptProducer {
             .with_span(span));
         }
         Ok(())
+    }
+
+    fn visit_retained_values(
+        &self,
+        visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
+    ) {
+        if let Some(frame) = &self.frame {
+            frame.visit_retained_values(visitor);
+        }
+        if let Some(source) = &self.delegated {
+            match source {
+                DelegatedSource::List(DelegatedList::Owned(items)) => {
+                    crate::runtime::eval::visit_retained_lowered_values(
+                        items.as_slice(), visitor,
+                    );
+                }
+                DelegatedSource::List(DelegatedList::Shared { items, next }) => {
+                    crate::runtime::eval::visit_retained_lowered_values(
+                        &items[*next..], visitor,
+                    );
+                }
+                DelegatedSource::Stream { value, prefix, .. } => {
+                    visitor(crate::runtime::eval::RetainedValueRef::Stream(value));
+                    for value in prefix {
+                        visitor(crate::runtime::eval::RetainedValueRef::Runtime(value));
+                    }
+                }
+            }
+        }
     }
 
     fn delegated_finished(&mut self) {
@@ -235,57 +265,7 @@ impl Evaluator {
             delegated: None,
             context: None,
         });
-        // The evaluator keeps a handle so a producer the program can no longer
-        // reach can still be stopped, which is what runs its defers.
-        self.script_producers.push(state.clone());
         Ok(state)
-    }
-
-    /// Stops unreachable producers at a point with no statement span at hand.
-    pub(in crate::runtime::eval) fn sweep_script_producers_at_rest(&mut self) {
-        let span = Span::new(crate::source::SourceId::new(0), 0, 0);
-        let _ = self.sweep_script_producers(span);
-    }
-
-    /// Stops the producers the program can no longer reach.
-    ///
-    /// A producer is reachable while a slot, argument, container, or the pull in
-    /// progress holds a handle to it; once only this registry holds one, nothing
-    /// can ever resume the body, so its `defer` bodies and host scopes are
-    /// released here. Finished producers are simply forgotten.
-    pub(in crate::runtime::eval) fn sweep_script_producers(
-        &mut self,
-        span: Span,
-    ) -> Result<(), RuntimeError> {
-        if self.script_producers.is_empty() {
-            return Ok(());
-        }
-        let pending = std::mem::take(&mut self.script_producers);
-        let mut kept = Vec::with_capacity(pending.len());
-        let mut first_error = None;
-        for state in pending {
-            match state.try_finished() {
-                // A pull owns the state: it is running, not abandoned.
-                None => {
-                    kept.push(state);
-                    continue;
-                }
-                Some(true) => continue,
-                Some(false) => {}
-            }
-            if !state.only_registry_holds() {
-                kept.push(state);
-                continue;
-            }
-            if let Err(error) = self.cancel_script_state(state.clone(), span) {
-                first_error.get_or_insert(error);
-            }
-        }
-        self.script_producers = kept;
-        match first_error {
-            Some(error) => Err(error),
-            None => Ok(()),
-        }
     }
 
     /// Resume the frame or hand a retained child to the pull driver.
@@ -319,13 +299,17 @@ impl Evaluator {
         producer: &mut ScriptProducer,
         span: Span,
     ) -> Result<ScriptStreamStep, RuntimeError> {
+        let consumer_scope = self.current_scope_id();
         loop {
+            let producer_scope = producer.frame.as_ref().filter(|_| producer.started).map(ProducerFrameState::owned_scope_id);
+            if let Some(scope) = producer_scope { self.owned_scope_parents.insert(scope, consumer_scope); }
             if let Some(step) = self.poll_delegated(producer)? {
                 return Ok(step);
             }
             if producer.finished {
                 return Ok(ScriptStreamStep::Finished);
             }
+            let _machine = self.enter_frame_machine(span)?;
             let mut just_started = false;
             if !producer.started {
                 producer.started = true;
@@ -402,7 +386,7 @@ impl Evaluator {
                     self.call_stack.pop();
                     self.detach_owned_host_scopes(state.open_scopes().len());
                     producer.frame = Some(state);
-                    match DelegatedSource::new(value, span) {
+                    match DelegatedSource::new(self, value, span) {
                         Ok(source) => producer.delegated = Some(source),
                         Err(error) => {
                             let _ = self.cancel_script_producer(producer, span);
@@ -417,7 +401,7 @@ impl Evaluator {
                         // A body that returns a stream hands the rest of its output
                         // to that stream.
                         Ok(value @ LoweredValue::Stream(_)) => {
-                            producer.delegated = Some(DelegatedSource::new(value, span)?);
+                            producer.delegated = Some(DelegatedSource::new(self, value, span)?);
                         }
                         Ok(_) => return Ok(ScriptStreamStep::Finished),
                         Err(error) => return Err(error),
@@ -451,10 +435,17 @@ impl Evaluator {
         if producer.finished {
             return Ok(());
         }
+        let _machine = if producer.started {
+            Some(self.enter_frame_machine(span)?)
+        } else {
+            None
+        };
         producer.finished = true;
         if !producer.started {
             // The body never started, so it registered no defers and the call
-            // opened no scope.
+            // opened no scope. Drop the bound slots too: they can retain this
+            // stream, which would otherwise keep its own producer frame alive.
+            producer.frame.take();
             return Ok(());
         }
         let scopes = producer
@@ -646,6 +637,11 @@ impl crate::runtime::value::ScriptStream for ProcessProducer {
     fn validate_item(&self, _value: &super::Value, _span: Span) -> Result<(), RuntimeError> {
         Ok(())
     }
+    fn visit_retained_values(
+        &self,
+        _visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
+    ) {
+    }
     fn finished(&self) -> bool {
         self.finished
     }
@@ -767,7 +763,6 @@ impl Evaluator {
             trace,
             span,
         });
-        self.script_producers.push(state.clone());
         Ok(LoweredValue::ResultOk(Box::new(LoweredValue::Stream(
             Box::new(StreamValue::from_script(state)),
         ))))

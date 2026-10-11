@@ -360,6 +360,20 @@ impl Name {
         })
     }
 
+    /// Read a spelling without copying it into the thread's symbol cache.
+    /// The callback holds an interner read guard for dynamic names, so it
+    /// must not resolve or intern another name, or recursively traverse values.
+    pub(crate) fn with_str<R>(self, read: impl FnOnce(&str) -> R) -> R {
+        if let Some(text) = self.preloaded_text() {
+            return read(text);
+        }
+        let interner = interner().read().expect("symbol interner poisoned");
+        let text = dynamic_index(self.0)
+            .and_then(|index| interner.dynamic.get(index)?.as_ref())
+            .map_or(INVALID_SYMBOL, |entry| entry.text.as_ref());
+        read(text)
+    }
+
     /// Preloaded spellings are fixed for the process, so reading one never
     /// takes the interner lock that concurrent frontends share.
     fn preloaded_text(self) -> Option<&'static str> {

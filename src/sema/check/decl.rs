@@ -1,30 +1,41 @@
 #![allow(clippy::single_call_fn)]
 
 use super::{
-    BTreeMap, Checker, CoreCommand, ErrorFamilyInfo, ErrorVariantInfo, FxHashSet, Name,
-    QualifiedName, Span, TagVariantInfo, Type, TypeAnnRef, TypeDefBody, UserModuleSig, api_spec,
+    BTreeMap, CheckBundleView, Checker, CheckedFunctionKind, CoreCommand, ErrorFamilyInfo,
+    ErrorVariantInfo, FxHashSet, ModuleRecords, Name, QualifiedName, Span, TagVariantInfo, Type,
+    TypeAnnRef, TypeDefBody, UserModuleSig, api_spec,
 };
-use crate::diagnostic::DiagnosticCode;
+use crate::diagnostic::{Diagnostic, DiagnosticCode, Label};
 use crate::sema::check::{
     Binding, ContractParam, FunctionParamSig, FunctionSig, ModuleContractEntry,
     ModuleContractEntryKind, SchemaField, TagVariant, standard_record_type,
 };
 use crate::syntax::arena::{
     ArenaBindingTargetKind, ArenaModuleContractEntryKind, ArenaProgram, ArenaRange, ArenaStmtKind,
-    ArenaTypeDef, ArenaTypeDefBody, ArenaUserModule, ErrorDefId, FunctionDefId, StmtId, TypeExprId,
+    ArenaTypeDef, ArenaTypeDefBody, ArenaUserModule, ErrorDefId, FunctionDefId, StmtId, TypeDefId, TypeExprId,
 };
+use crate::source::SourceMap;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
-#[allow(dead_code)]
 impl Checker {
     pub(super) fn collect_user_modules_arena(
         &mut self,
-        program: &ArenaProgram,
+        view: &CheckBundleView<'_>,
+        records: &ModuleRecords,
         type_program: Arc<ArenaProgram>,
         source: &str,
     ) {
-        for module in &program.modules {
+        let program = view.program;
+        let sources = view.sources;
+        for module in view.modules.iter().copied() {
+            let source = sources.map_or(source, |sources| {
+                module_source_text(program, module, sources)
+            });
+            let record = records
+                .module(&module.key)
+                .expect("reachable module has a prepared record");
+            debug_assert_eq!(record.args_domain, records.root().args_domain);
             if module.internal {
                 if self.options.embedded_bodies || program.module_statements(module).any(|id| {
                     let kind = match program.arena.stmt(id).kind {
@@ -33,7 +44,13 @@ impl Checker {
                     };
                     matches!(kind, ArenaStmtKind::PureDef(id) if program.arena.function_def(id).return_ty_defaulted)
                 }) {
-                    self.check_user_module_arena(program, type_program.clone(), source, module);
+                    self.check_user_module_arena(
+                        view,
+                        record,
+                        type_program.clone(),
+                        source,
+                        module,
+                    );
                 }
                 // Embedded implementations are not user modules: they have no
                 // `use` path, no module contract, and no public documentation
@@ -41,7 +58,13 @@ impl Checker {
                 // them and validated against the registry by `script_impls`.
                 continue;
             }
-            let sig = self.check_user_module_arena(program, type_program.clone(), source, module);
+            let sig = self.check_user_module_arena(
+                view,
+                record,
+                type_program.clone(),
+                source,
+                module,
+            );
             Arc::make_mut(&mut self.user_modules).insert(module.key.clone(), sig);
         }
     }
@@ -262,14 +285,14 @@ impl Checker {
             match kind {
                 ArenaStmtKind::ProcDef(def_id) => {
                     let def = program.arena.function_def(def_id);
-                    let sig = self.function_sig_arena(program, source, def_id);
+                    let sig = self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Proc);
                     if !def.test_declaration {
                         self.procs.insert(def.name, sig);
                     }
                 }
                 ArenaStmtKind::PureDef(def_id) => {
                     let def = program.arena.function_def(def_id);
-                    let mut sig = self.function_sig_arena(program, source, def_id);
+                    let mut sig = self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Pure);
                     if def.return_ty_defaulted {
                         sig.return_ty = Type::Unknown;
                     }
@@ -277,7 +300,7 @@ impl Checker {
                 }
                 ArenaStmtKind::StreamDef(def_id) => {
                     let def = program.arena.function_def(def_id);
-                    let sig = self.function_sig_arena(program, source, def_id);
+                    let sig = self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Stream);
                     self.streams.insert(def.name, sig);
                 }
                 ArenaStmtKind::ErrorDef(_) => {}
@@ -320,22 +343,25 @@ impl Checker {
 
     pub(super) fn check_user_module_arena(
         &mut self,
-        program: &ArenaProgram,
+        view: &CheckBundleView<'_>,
+        record: &super::module_record::ModuleRecord,
         type_program: Arc<ArenaProgram>,
         source: &str,
         module: &ArenaUserModule,
     ) -> UserModuleSig {
-        self.prepare_local_inference(program);
+        let program = view.program;
         let saved_procs = self.procs.clone();
         let saved_pures = self.pures.clone();
         let saved_streams = self.streams.clone();
+        let saved_qualified_procs = self.qualified_procs.clone();
+        let saved_qualified_pures = self.qualified_pures.clone();
+        let saved_qualified_streams = self.qualified_streams.clone();
         let saved_type_defs = self.type_defs.clone();
         let saved_tag_variants = self.tag_variants.clone();
         let saved_type_namespaces = self.type_namespaces.clone();
         let saved_error_families = self.error_families.clone();
         let saved_error_facets = self.error_facets.clone();
-        let saved_return = self.current_return.clone();
-        let saved_pure = self.in_pure;
+        let enclosing_boundary = self.enter_callable_boundary();
         let saved_exported = self.current_exported;
         let saved_module_depth = self.module_depth;
         let saved_namespace = self.current_namespace;
@@ -345,19 +371,19 @@ impl Checker {
         self.module_depth += 1;
         self.define_standard_values();
 
-        let stmt_ids: Vec<StmtId> = program.module_statements(module).collect();
-        self.check_test_declaration_names_arena(program, &stmt_ids, true);
+        let stmt_ids = record.statements();
+        self.check_test_declaration_names_arena(program, stmt_ids, true);
         if !module.internal {
-            self.check_public_docs(program, module.statements, &stmt_ids);
-            self.check_public_result_types(program, &stmt_ids);
+            self.check_public_docs(program, module.statements, stmt_ids);
+            self.check_public_result_types(program, stmt_ids);
         }
-        for statement in &stmt_ids {
+        for &statement in stmt_ids {
             if matches!(
-                program.arena.stmt(*statement).kind,
+                program.arena.stmt(statement).kind,
                 ArenaStmtKind::CliMain(_)
             ) {
                 self.error(
-                    program.arena.stmt(*statement).span,
+                    program.arena.stmt(statement).span,
                     "`cli main` is only permitted in the entry module",
                     DiagnosticCode::CheckCliEntry,
                 );
@@ -365,8 +391,8 @@ impl Checker {
         }
         self.collect_type_imports_arena(program, stmt_ids.iter().copied());
         let mut names = FxHashSet::default();
-        for stmt_id in &stmt_ids {
-            let (kind, span) = exported_stmt_kind_arena(program, *stmt_id);
+        for &stmt_id in stmt_ids {
+            let (kind, span) = exported_stmt_kind_arena(program, stmt_id);
             match kind {
                 ArenaStmtKind::TypeDef(def_id) => {
                     let def = program.arena.type_def(def_id);
@@ -413,7 +439,7 @@ impl Checker {
                             DiagnosticCode::CheckDuplicateName,
                         );
                     }
-                    let sig = self.function_sig_arena(program, source, def_id);
+                    let sig = self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Proc);
                     if !def.test_declaration {
                         self.procs.insert(def.name, sig);
                     }
@@ -428,7 +454,7 @@ impl Checker {
                             DiagnosticCode::CheckDuplicateName,
                         );
                     }
-                    let mut sig = self.function_sig_arena(program, source, def_id);
+                    let mut sig = self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Pure);
                     if def.return_ty_defaulted {
                         sig.return_ty = Type::Unknown;
                     }
@@ -444,7 +470,7 @@ impl Checker {
                             DiagnosticCode::CheckDuplicateName,
                         );
                     }
-                    let sig = self.function_sig_arena(program, source, def_id);
+                    let sig = self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Stream);
                     self.streams.insert(def.name, sig);
                 }
                 _ => {}
@@ -453,31 +479,31 @@ impl Checker {
 
         // Inferred bodies need constructor signatures before any statement
         // bodies are checked, just as root declarations do.
-        for &stmt_id in &stmt_ids {
+        for &stmt_id in stmt_ids {
             if let ArenaStmtKind::TypeDef(def_id) = exported_stmt_kind_arena(program, stmt_id).0 {
                 let def = program.arena.type_def(def_id);
                 if matches!(def.body, ArenaTypeDefBody::TagUnion(_)) {
                     self.check_type_def_arena(
                         program,
                         source,
-                        def,
+                        def_id,
                         program.arena.stmt(stmt_id).span,
                     );
                 }
             }
         }
-        self.infer_default_parameter_types(program, source, &stmt_ids);
-        self.infer_local_pure_returns(program, source, &stmt_ids);
-        self.infer_default_parameter_types(program, source, &stmt_ids);
+        self.infer_default_parameter_types(program, source, stmt_ids);
+        self.infer_local_pure_returns(view, source, stmt_ids);
+        self.infer_default_parameter_types(program, source, stmt_ids);
         let mut exports = UserModuleSig::default();
-        for stmt_id in &stmt_ids {
-            let stmt = program.arena.stmt(*stmt_id);
+        for &stmt_id in stmt_ids {
+            let stmt = program.arena.stmt(stmt_id);
             if let ArenaStmtKind::SignalHook(hook_id) = stmt.kind {
                 let hook = program.arena.signal_hook(hook_id).clone();
                 self.check_signal_hook_arena(program, source, &hook, stmt.span);
                 continue;
             }
-            if !module_top_level_allowed_arena(program, *stmt_id) {
+            if !module_top_level_allowed_arena(program, stmt_id) {
                 self.error(
                     stmt.span,
                     "imported modules cannot run top-level mutation or commands",
@@ -539,25 +565,25 @@ impl Checker {
                             self.check_function_arena(program, source, &def, false);
                             exports
                                 .procs
-                                .insert(def.name, self.function_sig_arena(program, source, def_id));
+                                .insert(def.name, self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Proc));
                         }
                         ArenaStmtKind::PureDef(def_id) => {
                             let def = program.arena.function_def(def_id).clone();
                             self.check_function_arena(program, source, &def, true);
                             exports
                                 .pures
-                                .insert(def.name, self.function_sig_arena(program, source, def_id));
+                                .insert(def.name, self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Pure));
                         }
                         ArenaStmtKind::StreamDef(def_id) => {
                             let def = program.arena.function_def(def_id).clone();
                             self.check_stream_function_arena(program, source, &def);
                             exports
                                 .streams
-                                .insert(def.name, self.function_sig_arena(program, source, def_id));
+                                .insert(def.name, self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Stream));
                         }
                         ArenaStmtKind::TypeDef(def_id) => {
                             let def = program.arena.type_def(def_id);
-                            self.check_type_def_arena(program, source, def, inner.span);
+                            self.check_type_def_arena(program, source, def_id, inner.span);
                             exports.types.insert(
                                 def.name,
                                 type_def_body_arena(
@@ -603,6 +629,7 @@ impl Checker {
                         use_stmt.path,
                         use_stmt.alias,
                         use_stmt.resolved.as_deref(),
+                        use_stmt.searched_candidates.as_deref(),
                         stmt.span,
                     );
                 }
@@ -625,8 +652,7 @@ impl Checker {
                     stmt.span,
                 ),
                 ArenaStmtKind::TypeDef(def_id) => {
-                    let def = program.arena.type_def(*def_id);
-                    self.check_type_def_arena(program, source, def, stmt.span);
+                    self.check_type_def_arena(program, source, *def_id, stmt.span);
                 }
                 ArenaStmtKind::ErrorDef(def_id) => {
                     self.check_error_def_arena(program, source, *def_id);
@@ -650,13 +676,15 @@ impl Checker {
         self.procs = saved_procs;
         self.pures = saved_pures;
         self.streams = saved_streams;
+        self.qualified_procs = saved_qualified_procs;
+        self.qualified_pures = saved_qualified_pures;
+        self.qualified_streams = saved_qualified_streams;
         self.type_defs = saved_type_defs;
         self.tag_variants = saved_tag_variants;
         self.type_namespaces = saved_type_namespaces;
         self.error_families = saved_error_families;
         self.error_facets = saved_error_facets;
-        self.current_return = saved_return;
-        self.in_pure = saved_pure;
+        self.boundary = enclosing_boundary;
         self.current_exported = saved_exported;
         self.module_depth = saved_module_depth;
         self.current_namespace = saved_namespace;
@@ -669,10 +697,11 @@ impl Checker {
         program: &ArenaProgram,
         _source: &str,
         def_id: FunctionDefId,
+        kind: CheckedFunctionKind,
     ) -> FunctionSig {
         let def = program.arena.function_def(def_id);
         let effect_declaration = self.effect_declaration_id(program, def.body);
-        FunctionSig {
+        let signature = FunctionSig {
             effect_declaration: Some(effect_declaration),
             inferred_effects: self.effect_graph.is_inferred(effect_declaration),
             explicit_return: !def.return_ty_defaulted,
@@ -714,8 +743,35 @@ impl Checker {
                 })
                 .flatten(),
             effects: self.effective_function_effects(program, def),
-        }
+        };
+        self.publish_function_declaration(program, def_id, kind, Some(&signature));
+        signature
     }
+
+}
+
+fn module_source_text<'a>(
+    program: &ArenaProgram,
+    module: &crate::syntax::arena::ArenaUserModule,
+    sources: &'a SourceMap,
+) -> &'a str {
+    let source_id = program
+        .module_statements(module)
+        .next()
+        .map(|statement| program.arena.stmt(statement).span.source_id)
+        .or_else(|| program.module_doc_for(module.statements).map(|span| span.source_id))
+        .or_else(|| {
+            sources
+                .files()
+                .iter()
+                .find(|source| source.name() == module.key)
+                .map(|source| source.id())
+        })
+        .unwrap_or_else(|| panic!("source identity missing for module `{}`", module.key));
+    sources
+        .get(source_id)
+        .unwrap_or_else(|| panic!("source `{source_id:?}` missing for module `{}`", module.key))
+        .text()
 }
 
 pub(super) fn callable_type_from_function_signature(sig: &FunctionSig) -> super::CallableType {
@@ -825,7 +881,6 @@ fn module_type_from_user_signature(module: &UserModuleSig) -> Type {
     )))
 }
 
-#[allow(dead_code)]
 impl Checker {
     pub(super) fn import_user_module(
         &mut self,
@@ -1097,14 +1152,9 @@ fn type_def_body_arena(
                 .tag_variants(variants)
                 .iter()
                 .map(|variant| TagVariant {
-                    type_name: namespace.map_or_else(
-                        || crate::sema::wire_enums::declaring_enum_name(&program, id),
-                        |namespace| {
-                            crate::sema::wire_enums::nominal_enum_name(
-                                Some(namespace),
-                                program.arena.type_def(id).name,
-                            )
-                        },
+                    type_name: crate::sema::wire_enums::nominal_enum_name(
+                        namespace.or(program.root_nominal_namespace),
+                        program.arena.type_def(id).name,
                     ),
                     name: variant.name,
                     fields: program
@@ -1136,7 +1186,6 @@ fn params_arena(program: Arc<ArenaProgram>, range: ArenaRange) -> Vec<ContractPa
         .collect()
 }
 
-#[allow(dead_code)]
 impl Checker {
     pub(super) fn check_use_arena(
         &mut self,
@@ -1144,6 +1193,7 @@ impl Checker {
         path: ArenaRange,
         alias: Option<Name>,
         resolved: Option<&str>,
+        searched_candidates: Option<&[std::path::PathBuf]>,
         span: Span,
     ) {
         let path_names: Vec<Name> = arena.arena.names(path).collect();
@@ -1164,11 +1214,22 @@ impl Checker {
             return;
         }
         if path_names.len() != 1 || api_spec().module(&path_names[0].as_str()).is_none() {
-            self.error(
-                span,
-                "only standard modules can be imported",
-                DiagnosticCode::CheckUnknownModule,
-            );
+            let mut diagnostic = Diagnostic::error("only standard modules can be imported")
+                .with_code(DiagnosticCode::CheckUnknownModule)
+                .with_label(Label::primary(span, "unknown module"));
+            if let Some(paths) = searched_candidates {
+                diagnostic.labels.push(Label::secondary(
+                    span,
+                    format!(
+                        "module search tried {}",
+                        paths.iter()
+                            .map(|path| format!("`{}`", path.display()))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                ));
+            }
+            self.diagnostics.push(diagnostic);
             return;
         }
         if let Some(alias) = alias {
@@ -1181,12 +1242,17 @@ impl Checker {
     }
 
     pub(super) fn check_type_def_arena(
-        &mut self,
-        arena: &ArenaProgram,
-        source: &str,
-        def: &ArenaTypeDef,
-        span: Span,
+        &mut self, arena: &ArenaProgram, source: &str, id: TypeDefId, span: Span,
     ) {
+        let def = arena.arena.type_def(id);
+        let checked = self.check_type_declaration_contents(arena, source, id, def, span);
+        self.publish_type_declaration(arena, id, checked);
+    }
+
+    fn check_type_declaration_contents(
+        &mut self, arena: &ArenaProgram, source: &str, id: TypeDefId,
+        def: &ArenaTypeDef, span: Span,
+    ) -> bool {
         // A nominal identity names one record type. Resolution rejects the
         // same declaration where the type is used; a declaration nothing
         // uses is reported here.
@@ -1202,7 +1268,7 @@ impl Checker {
                 ),
                 DiagnosticCode::CheckSchema,
             );
-            return;
+            return false;
         }
         // A range bounds one integer type, so its declaration has no
         // parameter to apply.
@@ -1215,7 +1281,7 @@ impl Checker {
                 ),
                 DiagnosticCode::CheckSchema,
             );
-            return;
+            return false;
         }
         if !def.type_parameters.is_empty() {
             let mut names = FxHashSet::default();
@@ -1251,11 +1317,18 @@ impl Checker {
                 }
             }
             let namespace = self.current_namespace;
-            match self
+            let checked = match self
                 .record_constructors
                 .template_field_types(&arena.arena, def, namespace)
             {
                 Ok(fields) => {
+                    if !self.collecting_effects && let ArenaTypeDefBody::RecordSchema(schema_fields) = def.body {
+                        for field in arena.arena.schema_fields(schema_fields) {
+                            if let Some(ty) = fields.get(&field.name) {
+                                self.resolved_type_expressions.templates.insert((id, field.ty), ty.clone());
+                            }
+                        }
+                    }
                     if let ArenaTypeDefBody::RecordSchema(schema_fields) = def.body {
                         let mut field_names = FxHashSet::default();
                         for field in arena.arena.schema_fields(schema_fields) {
@@ -1298,10 +1371,11 @@ impl Checker {
                             );
                         }
                     }
+                    true
                 }
-                Err(error) => self.error(span, &error.message, error.code),
-            }
-            return;
+                Err(error) => { self.error(span, &error.message, error.code); false }
+            };
+            return checked;
         }
         match &def.body {
             ArenaTypeDefBody::Alias(ty) => {
@@ -1411,6 +1485,7 @@ impl Checker {
                 }
             }
         }
+        true
     }
 
     pub(super) fn check_error_def_arena(
@@ -1469,6 +1544,7 @@ impl Checker {
         }
         self.error_families
             .insert(def.name, ErrorFamilyInfo { variants });
+        self.publish_error_declaration(arena, id);
     }
 }
 

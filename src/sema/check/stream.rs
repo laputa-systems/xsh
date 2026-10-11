@@ -14,7 +14,6 @@ fn btree_map<K: Into<Name>, V>(entries: Vec<(K, V)>) -> BTreeMap<Name, V> {
         .collect()
 }
 
-#[allow(dead_code)]
 impl Checker {
     pub(super) fn check_structured_pipeline_arena(
         &mut self,
@@ -39,7 +38,11 @@ impl Checker {
             output
         } else {
             match stream_type_from_input(input_ty) {
-                Some(ty) => {
+                Err(Type::Any) => {
+                    self.reject_dynamic_use("a pipeline source", None, arena.arena.expr(input).span);
+                    Type::Stream(Box::new(Type::Unknown))
+                }
+                Ok(ty) => {
                     let output = self.check_stream_stage_arena(arena, source, first, ty.clone());
                     self.stream_stage_types.insert(
                         (self.current_namespace, arena.arena.span(first.span)),
@@ -50,7 +53,7 @@ impl Checker {
                     );
                     output
                 }
-                None => {
+                Err(_) => {
                     self.error(
                         arena.arena.expr(input).span,
                         "structured pipelines require Stream or List input",
@@ -300,7 +303,11 @@ impl Checker {
                     .map(|argument| argument.ty.clone())
                     .unwrap_or(Type::Unknown);
                 let other_item = match stream_type_from_input(other_ty) {
-                    Some(Type::Stream(item)) => *item,
+                    Ok(Type::Stream(item)) => *item,
+                    Err(Type::Any) => {
+                        self.reject_dynamic_use("a zip source", None, arguments.first().and_then(Option::as_ref).map(|argument| argument.span).unwrap_or(stage_span));
+                        Type::Unknown
+                    }
                     _ => {
                         let span = arguments
                             .first()
@@ -403,9 +410,7 @@ impl Checker {
             }
             StreamStageKind::FlatMap => {
                 self.check_stage_no_args_arena(arena, stage);
-                let actual = result_ok_or_self(
-                    &self.check_required_stream_block_arena(arena, source, stage, &item_ty),
-                );
+                let actual = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
                 match actual.into_unvalidated() {
                     Type::List(item) | Type::Stream(item) => Type::Stream(item),
                     Type::Unknown => Type::Stream(Box::new(Type::Unknown)),
@@ -571,6 +576,8 @@ impl Checker {
                         arena,
                         namespace,
                         self.current_namespace,
+                        self.bundle_root_statements,
+                        self.bundle_module_keys.as_deref(),
                     ) && matches!(self.lookup(namespace).map(|binding| &binding.ty), Some(Type::Module(exports))
                         if exports.get(&name).is_some_and(|export| matches!(export, crate::sema::types::ModuleExportType::Pure { .. } | crate::sema::types::ModuleExportType::Proc { .. })))
                     || self.lookup(namespace).is_none()
@@ -642,9 +649,7 @@ impl Checker {
             );
         }
         self.push_deferred_capture_scope();
-        // A stage block is a callable: a `yield` in it is not one of an
-        // enclosing `collect` block.
-        let outer_collect = self.enter_callable_collect_scope();
+        let enclosing_boundary = self.enter_callback_boundary();
         let mut names = FxHashSet::default();
         for (index, param) in params.iter().take(max_params).enumerate() {
             if !names.insert(param.name) {
@@ -669,7 +674,7 @@ impl Checker {
                 arena.arena.span(block.span),
             );
         }
-        self.item_frames.push(if max_params > 1 {
+        self.boundary.item_frames.push(if max_params > 1 {
             super::ItemFrame::Named {
                 param: super::NamedItem::Accumulated,
                 stage: true,
@@ -699,8 +704,8 @@ impl Checker {
                 self.check_stmt_arena(arena, source, *stmt_id);
             }
         }
-        self.item_frames.pop();
-        self.leave_callable_collect_scope(outer_collect);
+        self.boundary.item_frames.pop();
+        self.leave_callback_boundary(enclosing_boundary);
         self.pop_scope();
         tail_ty
     }
@@ -975,21 +980,15 @@ impl Checker {
     }
 }
 
-fn stream_type_from_input(ty: Type) -> Option<Type> {
+// Keep a rejected source's type so opacity has its own diagnostic instead
+// of being confused with a concrete value that is not iterable.
+fn stream_type_from_input(ty: Type) -> Result<Type, Type> {
     match ty.into_unvalidated() {
-        ty @ Type::Stream(_) => Some(ty),
-        Type::List(item) | Type::Set(item) => Some(Type::Stream(item)),
+        ty @ Type::Stream(_) => Ok(ty),
+        Type::List(item) | Type::Set(item) => Ok(Type::Stream(item)),
         Type::Result(ok, _) => stream_type_from_input(*ok),
-        Type::Any => Some(Type::Stream(Box::new(Type::Any))),
-        Type::Unknown => Some(Type::Stream(Box::new(Type::Unknown))),
-        _ => None,
-    }
-}
-
-fn result_ok_or_self(ty: &Type) -> Type {
-    match ty {
-        Type::Result(ok, _) => (**ok).clone(),
-        _ => ty.clone(),
+        Type::Unknown => Ok(Type::Stream(Box::new(Type::Unknown))),
+        other => Err(other),
     }
 }
 

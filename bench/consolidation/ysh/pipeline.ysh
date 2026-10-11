@@ -1,0 +1,18 @@
+shopt --set errexit pipefail
+
+if (len(ARGV) !== 1) {
+  error 'expected one absolute fixture root' (code=2)
+}
+var root = ARGV[0]
+if (not root.startsWith('/')) {
+  error 'fixture root must be absolute' (code=2)
+}
+
+# Capture the digit spelling rather than parsing it, preserving leading zeroes.
+var define = / %start '#define' [' ' \t]+ <capture 'CAP_' [A-Z 0-9 _]+> [' ' \t]+ <capture [0-9]+> [' ' \t]* %end /
+for line in (io.stdin) {
+  var match = line.search(define)
+  if (match !== null) {
+    write -- $['{"' ++ match.group(1).lower() ++ '",' ++ match.group(2) ++ '},']
+  }
+} < "$root/capability.h"

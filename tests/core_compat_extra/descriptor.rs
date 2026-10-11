@@ -9,7 +9,7 @@ use std::process::{Command, Output, Stdio};
 fn run_descriptor_script(directory: &Path, source: &str, mask: libc::mode_t) -> Output {
     let script = directory.join("descriptor.xsh");
     std::fs::write(&script, source).expect("write descriptor script");
-    let mut command = Command::new(release_bin!("xsh"));
+    let mut command = Command::new(test_bin!("xsh"));
     command.arg(&script).current_dir(directory);
     command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     unsafe {

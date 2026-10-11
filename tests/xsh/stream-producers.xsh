@@ -46,6 +46,69 @@ test test_stream_producers_are_lazy_and_stop_where_the_consumer_stops { |ctx|
   assert fp"{dir}/closed-failing".exists()?
 }
 
+test test_process_stream_is_stopped_before_its_scope_defers { |ctx|
+  let pidfile = test.temp_path(ctx, name: "owned-process-stream-pid")
+  {
+    let owned = run.stream --text --accept=[0] sh -c "echo $$ > $1; exec sleep 30" sh $pidfile ?
+    for _ in range(100) {
+      if pidfile.exists()? { break }
+      time.sleep(10ms)
+    }
+    assert pidfile.exists()?, "the process stream must start its child before the owning scope exits"
+    let pid = pidfile.read_text()?.trim().parse_int()?
+    defer {
+      let kept = owned
+      assert process.kill(pid, signal: "0") is Err(_), "the stream process must be reaped before the owning scope's defer"
+    }
+  }
+}
+
+test test_discarded_process_streams_remain_owned_until_scope_exit { |ctx|
+  let first_pidfile = test.temp_path(ctx, name: "discarded-process-stream-first-pid")
+  let second_pidfile = test.temp_path(ctx, name: "discarded-process-stream-second-pid")
+  var pids: List[Int] = []
+  var quiet_before_defers = false
+  defer {
+    for pid in pids {
+      if process.kill(pid, signal: "0") is Ok(_) {
+        let _ = process.kill(pid, signal: "KILL")
+      }
+    }
+  }
+  {
+    var current: Stream[Str]? = null
+    current = run.stream --text --accept=[0] sh -c "echo $$ > $1; exec sleep 30" sh $first_pidfile ?
+    for _ in range(100) {
+      if first_pidfile.exists()? { break }
+      time.sleep(10ms)
+    }
+    assert first_pidfile.exists()?, "the first stream process must start"
+    let first_pid = first_pidfile.read_text()?.trim().parse_int()?
+    pids += [first_pid]
+    current = null
+    let first_survived_discard = process.kill(first_pid, signal: "0") is Ok(_)
+
+    current = run.stream --text --accept=[0] sh -c "echo $$ > $1; exec sleep 30" sh $second_pidfile ?
+    for _ in range(100) {
+      if second_pidfile.exists()? { break }
+      time.sleep(10ms)
+    }
+    assert second_pidfile.exists()?, "the replacement stream process must start"
+    let second_pid = second_pidfile.read_text()?.trim().parse_int()?
+    pids += [second_pid]
+    current = null
+    let both_survived_reassignment = process.kill(first_pid, signal: "0") is Ok(_) and process.kill(second_pid, signal: "0") is Ok(_)
+    defer {
+      quiet_before_defers = pids.len() == 2 and
+        process.kill(first_pid, signal: "0") is Err(_) and
+        process.kill(second_pid, signal: "0") is Err(_)
+    }
+    assert first_survived_discard, "discarding a stream does not release its scope-owned activity"
+    assert both_survived_reassignment, "reassigning a stream does not release either scope-owned activity"
+  }
+  assert quiet_before_defers, "scope-owned streams stop before the scope's defer"
+}
+
 # The frame engine resolves a call with no arguments without walking an
 # argument list, so it has to make the same producer decision the argument
 # path makes. When it did not, the body ran with nowhere for `yield` to report

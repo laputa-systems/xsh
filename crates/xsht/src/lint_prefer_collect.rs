@@ -362,9 +362,29 @@ impl Scan<'_> {
             | ArenaStmtKind::Return(_)
             | ArenaStmtKind::Assert { .. }
             | ArenaStmtKind::Command(_) => !mentions(self.text(span), self.name),
-            // A declaration, a `defer`, or anything else: only inside a
-            // nested block, and only if it does not name the list.
-            _ => !top && !mentions(self.text(span), self.name),
+            // A declaration, a `defer`, or another unselected statement: only
+            // inside a nested block, and only if it does not name the list.
+            ArenaStmtKind::Use(_)
+            | ArenaStmtKind::Export(_)
+            | ArenaStmtKind::TypeDef(_)
+            | ArenaStmtKind::ErrorDef(_)
+            | ArenaStmtKind::Const { .. }
+            | ArenaStmtKind::Let { .. }
+            | ArenaStmtKind::Var { .. }
+            | ArenaStmtKind::ProcDef(_)
+            | ArenaStmtKind::CliMain(_)
+            | ArenaStmtKind::PureDef(_)
+            | ArenaStmtKind::StreamDef(_)
+            | ArenaStmtKind::SignalHook(_)
+            | ArenaStmtKind::Yield(_)
+            | ArenaStmtKind::YieldDelegate(_)
+            | ArenaStmtKind::Defer(..)
+            | ArenaStmtKind::With { .. }
+            | ArenaStmtKind::Guard { .. }
+            | ArenaStmtKind::Exit(_)
+            | ArenaStmtKind::TailBareIdent(_) => {
+                !top && !mentions(self.text(span), self.name)
+            }
         }
     }
 

@@ -1,0 +1,12 @@
+{
+  "start_commit": "5e66b6b896a47d0c692739135d51200b007a2a67",
+  "source_roots": ["src", "crates/xsht/src"],
+  "source_manifest_sha256": "035fa1d95aae1668635441709ff81cbe38fb91cc9f7f8d59156f534d9f8ca0a2",
+  "baseline_report_sha256": "be63588c6888fb7907d5f1054ee4b1559559eb70d784fd7ae15797826d06dbd6",
+  "measured_scanner_sha256": "80eb8357ba04aefc7678d047a2bf6f0762e0b492b501ff336432bb1f221c7874",
+  "measured_fixtures_sha256": "361714cdb85df9922429b98cd896cbcd4148af688081400b7b0cbc5d9efc9574",
+  "measurement_ms": 130508,
+  "manual_payload_call_lines": 922,
+  "manual_payload_calls": 923,
+  "scanner_interface_change": "The integration scanner requires explicit source roots; the measured lexical and counting implementation is unchanged."
+}

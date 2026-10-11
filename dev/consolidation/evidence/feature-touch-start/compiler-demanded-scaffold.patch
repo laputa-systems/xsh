@@ -1,0 +1,190 @@
+diff --git a/crates/xsht/src/format.rs b/crates/xsht/src/format.rs
+index 203d4808..41292446 100644
+--- a/crates/xsht/src/format.rs
++++ b/crates/xsht/src/format.rs
+@@ -2834,6 +2834,7 @@ impl<'a> Writer<'a> {
+         let arena = self.arena;
+         let child = |child: ExprId| grouping::child_context(arena, expr_id, context, child);
+         match &kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unimplemented!(),
+             ArenaExprKind::Null => output.push_str("null"),
+             ArenaExprKind::Bool(value) => output.push_str(if *value { "true" } else { "false" }),
+             ArenaExprKind::Int(value) => self.arena.int_literal(*value).write(output),
+diff --git a/crates/xsht/src/format_equivalence.rs b/crates/xsht/src/format_equivalence.rs
+index d7a019af..1ccf58e4 100644
+--- a/crates/xsht/src/format_equivalence.rs
++++ b/crates/xsht/src/format_equivalence.rs
+@@ -804,6 +804,7 @@ impl CanonicalWriter<'_> {
+         self.mark(expr.span.start());
+         self.put("E(");
+         match &expr.kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unimplemented!(),
+             ArenaExprKind::Null => self.put("null;"),
+             ArenaExprKind::Bool(value) => self.debug(value),
+             ArenaExprKind::Int(value) => self.debug(self.arena.int_literal(*value)),
+diff --git a/crates/xsht/src/lint.rs b/crates/xsht/src/lint.rs
+index b082b6a1..6fa40864 100644
+--- a/crates/xsht/src/lint.rs
++++ b/crates/xsht/src/lint.rs
+@@ -11814,6 +11814,7 @@ fn lazy_visit_builder_block(
+ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
+     let mut out = Vec::new();
+     match arena.expr(expr).kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unimplemented!(),
+         ArenaExprKind::ValuePipelineCall { input, call, .. } => {
+             out.push(input);
+             out.push(call);
+@@ -12347,6 +12348,7 @@ fn ok_call_arg(arena: &AstArena, expr: ExprId) -> Option<ExprId> {
+ fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
+     let refs = |id: ExprId| expr_references_name(arena, id, name);
+     match arena.expr(expr).kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unimplemented!(),
+         ArenaExprKind::ValuePipelineCall { input, call, .. } => refs(input) || refs(call),
+ 
+         ArenaExprKind::Ident(candidate) => candidate == name,
+@@ -12913,6 +12915,7 @@ impl LintExprVisitor<'_, '_> {
+     fn walk_expr(&mut self, expr: ExprId) {
+         let arena = self.linter.arena;
+         match arena.expr(expr).kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unimplemented!(),
+             ArenaExprKind::ValuePipelineCall { input, call, .. } => {
+                 self.visit_expr(input);
+                 self.visit_expr(call);
+@@ -13828,6 +13831,7 @@ fn is_safe_top_level_const(
+ 
+ fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
+     match arena.expr(expr).kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unimplemented!(),
+         ArenaExprKind::ValuePipelineCall { .. } => false,
+ 
+         ArenaExprKind::Null
+@@ -13905,6 +13909,7 @@ fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
+ 
+ fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
+     match arena.expr(expr).kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unimplemented!(),
+         ArenaExprKind::ValuePipelineCall { input, call, .. } => expr_may_have_effects(arena, input) || expr_may_have_effects(arena, call),
+ 
+         ArenaExprKind::Null
+@@ -14614,6 +14619,7 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
+ 
+     fn scan_expr(&mut self, expr: ExprId) {
+         match self.arena().expr(expr).kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unimplemented!(),
+             ArenaExprKind::ValuePipelineCall { input, call, .. } => {
+                 self.scan_expr(input);
+                 self.scan_expr(call);
+@@ -15380,6 +15386,7 @@ fn expr_or_run_flow(arena: &AstArena, value: &ArenaExprOrRun) -> FlowSummary {
+ fn expr_flow(arena: &AstArena, expr: ExprId) -> FlowSummary {
+     let arena_expr = arena.expr(expr);
+     match arena_expr.kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unimplemented!(),
+         ArenaExprKind::ValuePipelineCall { input, call, .. } => {
+             expr_flow(arena, input).then(expr_flow(arena, call))
+         }
+diff --git a/src/runtime/eval.rs b/src/runtime/eval.rs
+index 4cf9b720..235749ec 100644
+--- a/src/runtime/eval.rs
++++ b/src/runtime/eval.rs
+@@ -1934,6 +1934,9 @@ enum BuildExprRow {
+         args: Vec<LoweredCallArg>,
+         span: Span,
+     },
++    FeatureTouchProbe {
++        child: BuildExprId,
++    },
+ }
+ 
+ #[derive(Clone, Debug)]
+diff --git a/src/runtime/eval/indexed/full.rs b/src/runtime/eval/indexed/full.rs
+index 3ef26784..aa180f2c 100644
+--- a/src/runtime/eval/indexed/full.rs
++++ b/src/runtime/eval/indexed/full.rs
+@@ -249,6 +249,7 @@ pub(in crate::runtime::eval) enum FullTag {
+     StmtContinue,
+     StmtDefer,
+     StmtDefaultParameter,
++    ExprFeatureTouchProbe,
+ }
+ 
+ #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+@@ -8096,6 +8097,9 @@ impl_stage_codec! {
+ 
+ impl_node_codec! {
+     BuildExprRow {
++        BuildExprRow::FeatureTouchProbe { child } => ExprFeatureTouchProbe {
++            child: BuildExprId,
++        } => BuildExprRow::FeatureTouchProbe { child },
+         BuildExprRow::Null => ExprNull {} => BuildExprRow::Null,
+         BuildExprRow::Unit => ExprUnit {} => BuildExprRow::Unit,
+         BuildExprRow::Int(value) => ExprInt { value: i64 } => BuildExprRow::Int(value),
+diff --git a/src/runtime/eval/lower.rs b/src/runtime/eval/lower.rs
+index 4b1e0b9f..2278aeef 100644
+--- a/src/runtime/eval/lower.rs
++++ b/src/runtime/eval/lower.rs
+@@ -2435,6 +2435,7 @@ fn compact_stmt_blocker_label(program: &ArenaProgram, stmt: StmtId) -> String {
+ 
+ fn compact_expr_kind_index(kind: ArenaExprKind) -> usize {
+     match kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unimplemented!(),
+         ArenaExprKind::Null => 0,
+         ArenaExprKind::Bool(_) => 1,
+         ArenaExprKind::Int(_) => 2,
+@@ -2501,6 +2502,7 @@ fn collect_local(collect: ExprId) -> Name {
+ 
+ fn compact_expr_kind_label(kind: ArenaExprKind) -> &'static str {
+     match kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unimplemented!(),
+         ArenaExprKind::Null => "null",
+         ArenaExprKind::Bool(_) => "bool",
+         ArenaExprKind::Int(_) => "int",
+diff --git a/src/sema/check/expr.rs b/src/sema/check/expr.rs
+index 905c9853..548d9a24 100644
+--- a/src/sema/check/expr.rs
++++ b/src/sema/check/expr.rs
+@@ -490,6 +490,7 @@ impl Checker {
+             return ty;
+         }
+         let ty = match &expr.kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unimplemented!(),
+             ArenaExprKind::Null => Type::Null,
+             ArenaExprKind::Bool(_) => Type::Bool,
+             ArenaExprKind::Int(value) => {
+diff --git a/src/syntax/arena.rs b/src/syntax/arena.rs
+index 2bef170c..625ebad3 100644
+--- a/src/syntax/arena.rs
++++ b/src/syntax/arena.rs
+@@ -4716,6 +4716,7 @@ impl AstArena {
+         let tag = self.expr_tags[id.index()];
+         let data = self.expr_data[id.index()];
+         match tag {
++            ArenaExprTag::FeatureTouchProbe => unimplemented!(),
+             ArenaExprTag::Null => ArenaExprKind::Null,
+             ArenaExprTag::BoolFalse => ArenaExprKind::Bool(false),
+             ArenaExprTag::BoolTrue => ArenaExprKind::Bool(true),
+@@ -6621,6 +6622,7 @@ pub enum ArenaExprTag {
+     Collect,
+     ResourceScope,
+     ResourceStatementScope,
++    FeatureTouchProbe,
+ }
+ 
+ #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+@@ -6867,6 +6869,9 @@ pub enum ArenaExprKind {
+         block: BlockId,
+         value_body: bool,
+     },
++    FeatureTouchProbe {
++        child: ExprId,
++    },
+ }
+ 
+ #[derive(Clone, Debug, Eq, PartialEq)]
+@@ -7890,6 +7895,7 @@ impl ArenaLowerer<'_> {
+ 
+     fn encode_expr_kind(&mut self, kind: ArenaExprKind) -> (ArenaExprTag, ArenaExprData) {
+         match kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unimplemented!(),
+             ArenaExprKind::Null => (ArenaExprTag::Null, ArenaExprData::ZERO),
+             ArenaExprKind::Bool(false) => (ArenaExprTag::BoolFalse, ArenaExprData::ZERO),
+             ArenaExprKind::Bool(true) => (ArenaExprTag::BoolTrue, ArenaExprData::ZERO),

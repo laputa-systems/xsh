@@ -1,0 +1,28 @@
+{
+  "queries": [
+    "FullTag/ArenaExprTag discriminant casts",
+    "numeric FullTag range comparisons",
+    "literal 158/159 instruction inventory lengths",
+    "compact expression literal array lengths"
+  ],
+  "matches": [
+    "src/runtime/eval/lower.rs:3146:const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 52];"
+  ],
+  "coverage_inventory": {
+    "path": "tools/xsh-ir-coverage.xsh",
+    "line": 1612,
+    "evidence": "let indexed_variants = enum_variants(indexed_source, \"FullTag\")",
+    "conclusion": "Instruction name inventory is discovered from the enum; expression/statement categorization follows name prefixes. No separate name/ordinal inventory edit is required for ExprFeatureTouchProbe."
+  },
+  "shared_verifier_schema": {
+    "path": "src/runtime/eval/indexed/full.rs",
+    "symbol": "impl_node_codec!(BuildExprRow)",
+    "conclusion": "The compiler-demanded row registration generates BuildExprId child verification; child bounds, ownership, cycles and payload length are verified by existing shared codecs. The tag category fallback receives the new generated arm through this same registration."
+  },
+  "effects": {
+    "path": "src/runtime/eval/indexed/full.rs",
+    "symbol": "instruction_effects",
+    "conclusion": "Identity has zero intrinsic effect. Child tags are independent store rows, so the existing global tag fold still includes every child effect."
+  },
+  "source_state": "Raw tag query was run after compiler-demanded placeholders were satisfied; query line numbers reflect that scratch source state."
+}

@@ -26,9 +26,13 @@ impl Checker {
                     | ArenaStmtKind::PureDef(id)
                     | ArenaStmtKind::StreamDef(id) => {
                         let def = program.arena.function_def(id);
-                        probe.in_pure = matches!(kind, ArenaStmtKind::PureDef(_));
-                        probe.current_return = Some(probe.type_from_arena(program, def.return_ty));
-                        probe.current_effects = def
+                        probe.boundary.in_pure = matches!(kind, ArenaStmtKind::PureDef(_));
+                        probe.boundary.current_return = Some(if matches!(kind, ArenaStmtKind::StreamDef(_)) {
+                            super::ReturnContext::Producer
+                        } else {
+                            super::ReturnContext::Function(probe.type_from_arena(program, def.return_ty))
+                        });
+                        probe.boundary.current_effects = def
                             .effects
                             .map(|effects| program.arena.effects(effects).collect());
                         for param in program.arena.params(def.params) {
@@ -59,8 +63,8 @@ impl Checker {
                     | ArenaStmtKind::Var { .. }
                     | ArenaStmtKind::Const { .. }
                     | ArenaStmtKind::Use(_) => {
-                        probe.current_return = None;
-                        probe.in_pure = false;
+                        probe.boundary.current_return = None;
+                        probe.boundary.in_pure = false;
                         probe.check_stmt_arena(program, source, id);
                     }
                     _ => {}

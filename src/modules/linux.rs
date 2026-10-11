@@ -143,16 +143,12 @@ fn str_value(value: impl Into<Arc<str>>) -> Value {
 }
 
 #[cfg(any(target_os = "linux", test))]
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod api;
 #[cfg(any(target_os = "linux", test))]
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod block;
 #[cfg(any(target_os = "linux", test))]
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod kernel;
 #[cfg(any(target_os = "linux", test))]
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod process;
 #[cfg(target_os = "linux")]
 mod real;

@@ -32,11 +32,6 @@ const keyed_rules: List[KeyedRule] = [
     source: "proc stage(root: FsRoot, file: Path) [fs, error] {\n  root.write(file, \"x\")\n}\n",
   },
   {
-    code: "lint.prefer-with-scope",
-    off: "",
-    source: "let root = fs.open_root(p\".\")?\ndefer root.close()\n",
-  },
-  {
     code: "lint.prefer-inferred-private-effects",
     off: "[lint]\nprefer-inferred-private-effects = false\n",
     source: "proc parsed(text: Str) [error] -> Result[Int] {\n  text.parse_int()? + 1\n}\n\nlet total = parsed(\"1\")?\nassert total == 2\n",

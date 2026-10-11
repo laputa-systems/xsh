@@ -1,7 +1,7 @@
 use super::{Binding, Checker, FxHashSet, Name, Span, Type, result_types};
 use super::{Diagnostic, Label};
 use crate::diagnostic::DiagnosticCode;
-use crate::syntax::arena::{ArenaPatternKind, ArenaProgram, PatternId};
+use crate::syntax::arena::{ArenaChild, ArenaPatternKind, ArenaProgram, PatternId};
 
 fn type_pattern_input_is_dynamic(ty: &Type) -> bool {
     matches!(
@@ -14,7 +14,6 @@ fn type_pattern_input_is_dynamic(ty: &Type) -> bool {
 /// `check_pattern` (unlike `check_match`, the statement-level match in
 /// stmt.rs) never calls `check_block` — only `check_expr`/type annotations on
 /// leaf sub-expressions, so no `Block` support is needed to port it.
-#[allow(dead_code)]
 impl Checker {
     pub(super) fn check_nonbinding_pattern_arena(
         &mut self,
@@ -42,7 +41,7 @@ impl Checker {
                 if self
                     .tag_variants
                     .get(name)
-                    .is_some_and(|info| info.field_count == 0) => {}
+                    .is_some_and(|info| info.field_count == 0) => return,
             ArenaPatternKind::Binding(_)
             | ArenaPatternKind::Type {
                 binding: Some(_), ..
@@ -52,14 +51,19 @@ impl Checker {
                     "pattern tests cannot bind names; use `_` or a non-binding pattern",
                     DiagnosticCode::CheckPatternTestBinding,
                 );
+                return;
             }
-            ArenaPatternKind::Alias { .. } => self.error(
-                span,
-                "pattern tests cannot contain aliases",
-                DiagnosticCode::CheckPatternTestBinding,
-            ),
+            ArenaPatternKind::Alias { .. } => {
+                self.error(
+                    span,
+                    "pattern tests cannot contain aliases",
+                    DiagnosticCode::CheckPatternTestBinding,
+                );
+                return;
+            }
             ArenaPatternKind::Group(child) => {
-                self.reject_pattern_test_bindings(arena, *child, true)
+                self.reject_pattern_test_bindings(arena, *child, true);
+                return;
             }
             ArenaPatternKind::Alternation(children) => {
                 if !grouped {
@@ -72,41 +76,36 @@ impl Checker {
                 for child in arena.arena.pattern_ids(*children) {
                     self.reject_pattern_test_bindings(arena, child, false);
                 }
+                return;
             }
-            ArenaPatternKind::Constructor { arg: Some(arg), .. } => {
-                self.reject_pattern_test_bindings(arena, *arg, false)
-            }
-            ArenaPatternKind::Record { fields, .. }
-            | ArenaPatternKind::ErrorVariant { fields, .. } => {
-                for field in arena.arena.pattern_fields(*fields) {
-                    self.reject_pattern_test_bindings(arena, field.pattern, false);
-                }
-            }
-            ArenaPatternKind::List { elements, rest } => {
-                for child in arena
-                    .arena
-                    .pattern_ids(*elements)
-                    .chain(rest.iter().copied())
-                {
-                    self.reject_pattern_test_bindings(arena, child, false);
-                }
-            }
-            ArenaPatternKind::Tuple(patterns) | ArenaPatternKind::Text(patterns) => {
-                for pattern in arena.arena.pattern_ids(*patterns) {
-                    self.reject_pattern_test_bindings(arena, pattern, false);
-                }
-            }
-            ArenaPatternKind::TextHole {
-                binding: Some(_), ..
-            } => {
+            ArenaPatternKind::TextHole { binding: Some(_), .. } => {
                 self.error(
                     span,
                     "pattern tests cannot bind names; write the hole as `{_}`",
                     DiagnosticCode::CheckPatternTestBinding,
                 );
+                return;
             }
-            _ => {}
+            ArenaPatternKind::Constructor { arg: Some(_), .. }
+            | ArenaPatternKind::Record { .. }
+            | ArenaPatternKind::ErrorVariant { .. }
+            | ArenaPatternKind::List { .. }
+            | ArenaPatternKind::Tuple(_)
+            | ArenaPatternKind::Text(_) => {}
+            ArenaPatternKind::Wildcard | ArenaPatternKind::Facet(_)
+            | ArenaPatternKind::TestName { .. }
+            | ArenaPatternKind::Type { binding: None, .. }
+            | ArenaPatternKind::Literal(_)
+            | ArenaPatternKind::Constructor { arg: None, .. }
+            | ArenaPatternKind::TextHole { binding: None, .. } => return,
         }
+
+        // Ignore expression and type payloads; this policy follows pattern nodes only.
+        arena.arena.for_each_pattern_child(pattern, |child| {
+            if let ArenaChild::Pattern(child) = child {
+                self.reject_pattern_test_bindings(arena, child, false);
+            }
+        });
     }
 
     pub(super) fn pattern_test_narrowed_type(

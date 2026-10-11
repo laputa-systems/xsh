@@ -360,7 +360,7 @@ diagnostic_codes! {
         CheckMapcompIterator = "check.mapcomp-iterator", error, "Reject a map comprehension that iterates over a value that is not a List, Stream, Map, Str, or Bytes";
         CheckMatchValueExhaustive = "check.match-value-exhaustive", error, "Reject a value-producing `match` that does not cover every case";
         CheckMembershipType = "check.membership-type", error, "Reject an `in` test whose container or element type does not support membership";
-        CheckMigrationError = "check.migration-error", warning, "Warn that `ProcessError(...)` is not a source constructor when migration diagnostics are on";
+        CheckMigrationError = "check.migration-error", warning, "Warn that `ProcessError(...)` is produced by process APIs, not a source constructor";
         CheckMissingModuleDoc = "check.missing-module-doc", error, "Reject an exported module that has no preceding `##!` module doc comment";
         CheckMissingPublicDoc = "check.missing-public-doc", error, "Reject an exported declaration that has no preceding `##` doc comment";
         CheckMissingReturn = "check.missing-return", error, "Reject a function that can fall through without returning its declared type";
@@ -488,6 +488,7 @@ diagnostic_codes! {
         CheckCollectItem = "check.collect-item", error, "Reject a `collect` block that never yields where no expected type gives its item type";
         CheckWithoutEffect = "check.without-effect", error, "Reject `without error`: a local bound subtracts host effects, and `try` bounds errors";
         CheckWithResource = "check.with-resource", error, "Reject a `with` without `else` that binds a value which is not a built-in resource (`FsRoot`, `FsLock`)";
+        CheckUseAfterRelease = "check.use-after-release", error, "Reject use of an exact local resource after an unconditional release in its block";
         CheckUnionType = "check.union-type", error, "Reject a `Union[...]` whose members are fewer than two, repeat or contain one another, or are `Any`, `Null`, optional, a stream, a callable type, or another union";
         CheckUnionNarrow = "check.union-narrow", error, "Reject an operation on a `Union[...]` value that has not been narrowed to one member by `is` or a type pattern";
         CheckCallableType = "check.callable-type", error, "Reject a callable type whose parameters have a default, a rest marker, a repeated name, or no type, and a callable type used as a runtime type test";
@@ -612,12 +613,12 @@ diagnostic_codes! {
         LintPreferTempdir = "lint.prefer-tempdir", warning, "Use `tempdir NAME at PATH` for a directory that is cleared, created, and removed on exit";
         LintPreferTryCapture = "lint.prefer-try-capture", warning, "Replace a single-use closed helper with a local `try` block capture";
         LintPreferValuePipeline = "lint.prefer-value-pipeline", warning, "Use a value pipeline for nested calls or a single-use temporary";
-        LintPreferWithScope = "lint.prefer-with-scope", note, "Note `let NAME = OPEN?` directly followed by the deferred release of `NAME`, which one `with` scope would bind and release";
         LintPreferWithin = "lint.prefer-within", note, "Note a block whose `run` forms all carry the same `--timeout`, which one `within` scope would state once";
         LintPreferWriteLines = "lint.prefer-write-lines", warning, "Write a `List[Str]` with `Path.write_lines` instead of joining it and appending a newline";
         LintPreferYieldDelegation = "lint.prefer-yield-delegation", warning, "Replace a transparent forwarding loop with `yield @iterable`";
         LintPublicResultError = "lint.public-result-error", warning, "Spell the error type of each Result in an exported signature or module contract";
         LintRedundantBareReturn = "lint.redundant-bare-return", warning, "Remove a bare `return` at the end of a `Result[Unit]` function";
+        LintRedundantClose = "lint.redundant-close", warning, "Remove a deferred close that scope cleanup performs after deferred actions";
         LintRedundantCommandFmt = "lint.redundant-command-fmt", warning, "Use command value syntax directly for a single-value command f-string";
         LintRedundantCommandInterpolation = "lint.redundant-command-interpolation", warning, "Use expression syntax directly for a single interpolation in command args";
         LintRedundantDefault = "lint.redundant-default", warning, "Remove a named Bool argument that equals the call default, such as `parents: true`";

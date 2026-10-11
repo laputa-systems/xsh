@@ -267,8 +267,8 @@ pub(crate) fn try_run_compact_indexed_script(
 }
 
 /// A program that parsed cleanly but did not lower to the compact runtime.
-/// Run the checker to surface diagnostics (the common case: the program is
-/// invalid). If the checker is clean, this is a real lowering gap — report it.
+/// Run the checker to surface errors (the common case: the program is invalid).
+/// Warning-only programs reach the compact diagnostic path below.
 fn render_checked_diagnostics(
     script: &str,
     entry_source: EntrySource,
@@ -290,7 +290,11 @@ fn render_checked_diagnostics(
             stderr: text_bytes(checked_program.render_parse_diagnostics()),
         };
     }
-    if !checked_program.check_diagnostics().is_empty() {
+    if checked_program
+        .check_diagnostics()
+        .iter()
+        .any(|diagnostic| diagnostic.severity == Severity::Error)
+    {
         return ScriptOutput {
             status: 2,
             stdout: Vec::new(),
@@ -417,18 +421,12 @@ fn prepare_entry_source(
     drop(cst);
     let arena = Arc::new(arena);
 
-    let entry_text = sources
-        .get(source_id)
-        .map(|source| source.text())
-        .unwrap_or("");
     // This one check renders the diagnostics and supplies the lowering facts.
-    let check = Checker::check_arena_with_options_and_type_program(
+    let check = Checker::check_arena_with_sources_options_and_type_program(
         &arena,
-        entry_text,
-        CheckOptions {
-            embedded_bodies: true,
-            ..CheckOptions::default()
-        },
+        &sources,
+        source_id,
+        CheckOptions::for_execution(),
         Arc::clone(&arena),
     );
     if check

@@ -98,6 +98,65 @@ print accepted
   assert output.stdout == "accepted\n", output.stdout
 }
 
+test test_process_command_construction_preserves_operand_order { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""proc mark(label: Str, value: Str) [io] -> Str {
+  print $label
+  return value
+}
+proc mark_path(label: Str, value: Path) [io] -> Path {
+  print $label
+  return value
+}
+let argv = process.command_argv(
+  mark("argv-target", "true"),
+  [mark("argv-zero", "true"), mark("argv-one", "argument")],
+  cwd: mark_path("argv-cwd", Path(".")),
+  env: {XSH_COMMAND_VALUE: mark("argv-env", "ready")},
+)
+let builder = process.command {
+  cwd = mark_path("builder-cwd", Path("."))
+  env = {XSH_BUILDER_VALUE: mark("builder-env", "ready")}
+  run (mark("builder-target", "true")) (mark("builder-arg", "argument"))
+}
+print "constructed"
+""",
+  )?
+  assert output.status == 0, output.stderr
+  assert output.stdout == """argv-target
+argv-zero
+argv-one
+argv-cwd
+argv-env
+builder-cwd
+builder-env
+builder-target
+builder-arg
+constructed
+""", output.stdout
+}
+
+test test_process_command_construction_supports_forced_frames { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""let argv = process.command_argv(
+  "true",
+  ["true"],
+  cwd: Path("."),
+  env: {XSH_COMMAND_VALUE: "ready"},
+)
+let builder = process.command {
+  cwd = Path(".")
+  env = {XSH_BUILDER_VALUE: "ready"}
+  run true
+}
+""",
+  )?
+  assert output.status == 0, output.stderr
+  assert output.stdout == "", output.stdout
+}
+
 # The message of a rejected argument string, or the empty string when the
 # string parsed. `test.error_kind` compares kinds only, so message parity is
 # asserted through this.
@@ -296,6 +355,18 @@ test test_process_timeout_errors {
   }
 }
 
+# Parameters keep post-release checks on the runtime path outside local tracking.
+proc assert_waited_handle_metadata(handle: ProcessHandle) [process, error] {
+  assert handle.pid > 0
+  assert handle.command == "true"
+  assert handle.argv[0] == "true"
+  assert handle.detached == false
+}
+
+proc assert_released_handle_wait_fails(handle: ProcessHandle, reason: Str) [process, error] {
+  assert wait handle is Err(_), reason
+}
+
 test test_process_wait_and_handle_contracts {
   let ok = spawn run true ?
   let ok_status = wait ok?
@@ -307,11 +378,9 @@ test test_process_wait_and_handle_contracts {
   assert bad_status.exit_code()? == 1
 
   let handle = spawn run true ?
+  let metadata_handle = handle
   let status = wait handle?
-  assert handle.pid > 0
-  assert handle.command == "true"
-  assert handle.argv[0] == "true"
-  assert handle.detached == false
+  assert_waited_handle_metadata(metadata_handle)
   assert status.ok
 
   let first = spawn run false ?
@@ -385,7 +454,8 @@ test test_process_spawn_timeout_and_return_transfer {
   let first = process_handle_from_proc()?
   let first_status = wait first?
   let bundle = process_handle_from_record()?
-  let bundle_status = wait bundle.nested?
+  let nested: ProcessHandle = bundle.nested.require()?
+  let bundle_status = wait nested?
   let ok = process_handle_from_ok()?
   let ok_status = wait ok?
   let list = process_handle_from_list()?
@@ -668,8 +738,9 @@ test test_spawn_same_group_stays_in_the_callers_group_and_cancels_only_the_child
   let shared_plan = process.command_argv("sleep", ["sleep", "10"], same_group: true)
   let shared = spawn shared_plan?
   assert process.group_id(shared.pid)? == own
+  let shared_pid = shared.pid
   shared.cancel(signal: "TERM", kill_after: 0ms)?
-  test.error_kind(process.kill(shared.pid, signal: "0"), "process-missing")
+  test.error_kind(process.kill(shared_pid, signal: "0"), "process-missing")
 }
 
 test test_spawn_same_group_conflicts_with_a_new_group_or_session { |ctx|
@@ -718,18 +789,20 @@ in_block(Path("ROOT/block"))?
 # left to stop, whoever consumed it. Waiting on it afterwards still fails.
 test test_cancel_of_a_cancelled_handle_is_a_successful_no_op {
   let child = spawn run sh -c "sleep 10" ?
+  let released_child = child
   child.cancel(kill_after: 0ms)
   assert child.cancel() == Ok()
   assert child.cancel(signal: "KILL", kill_after: 0ms) == Ok()
-  assert wait child is Err(_), "a cancelled handle has no status left to wait for"
+  assert_released_handle_wait_fails(released_child, "a cancelled handle has no status left to wait for")
 }
 
 test test_cancel_of_a_waited_handle_is_a_successful_no_op {
   let child = spawn run sh -c "exit 3" ?
+  let released_child = child
   let status = wait child?
   assert status.exit_code()? == 3
   assert child.cancel() == Ok()
-  assert wait child is Err(_), "a second wait still fails"
+  assert_released_handle_wait_fails(released_child, "a second wait still fails")
 }
 
 test test_cancel_of_a_handle_with_an_unknown_signal_still_fails {

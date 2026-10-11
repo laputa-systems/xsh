@@ -1,4 +1,4 @@
-#![allow(clippy::single_call_fn, dead_code)]
+#![allow(clippy::single_call_fn)]
 
 use super::table::{
     TableAlign, TextTableColumn, render_text_table, table_width, terminal_table_width_for_stderr,
@@ -7,7 +7,6 @@ use miniserde::json::Value as JsonValue;
 use rustc_hash::FxHashMap;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
-use std::io;
 use xsh::frontend::source::{SourceMap, Span};
 use xsh::host::json::{
     raw_json_array, raw_json_bool, raw_json_f64, raw_json_i64, raw_json_object, raw_json_string,
@@ -16,7 +15,7 @@ use xsh::host::json::{
 pub use xsh::trace::model::TracebackRenderer;
 use xsh::trace::model::{
     TraceArg, TraceEnv, TraceError, TraceErrorDetail, TraceEvent, TraceKind, TracePayload,
-    TraceStatus, TraceTiming,
+    TraceStatus,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -3016,79 +3015,6 @@ fn flamegraph_context_label(event: &TraceEvent) -> Option<String> {
     }
 }
 
-fn normalize_payload(mut payload: TracePayload) -> TracePayload {
-    match &mut payload {
-        TracePayload::RunEnd { pid, .. }
-        | TracePayload::SpawnReady { pid, .. }
-        | TracePayload::WaitEnd { pid, .. }
-        | TracePayload::SpawnCancel { pid, .. }
-        | TracePayload::PipelineSegmentEnd { pid, .. } => {
-            *pid = None;
-        }
-        _ => {}
-    }
-    payload
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct TraceNormalizer;
-
-impl TraceNormalizer {
-    pub fn new() -> Self {
-        Self
-    }
-
-    pub fn normalize_events(&self, events: &[TraceEvent]) -> Vec<TraceEvent> {
-        let mut id_map = FxHashMap::default();
-        for (index, event) in events.iter().enumerate() {
-            id_map.insert(event.event_id, index as u64 + 1);
-        }
-
-        events
-            .iter()
-            .enumerate()
-            .map(|(index, event)| {
-                let mut normalized = event.clone();
-                normalized.event_id = index as u64 + 1;
-                normalized.parent_event_id = normalized
-                    .parent_event_id
-                    .and_then(|parent| id_map.get(&parent).copied());
-                normalized.timing = TraceTiming::default();
-                normalized.payload = normalize_payload(normalized.payload);
-                normalized
-            })
-            .collect()
-    }
-}
-pub trait TraceSink {
-    fn write_event_line(&mut self, line: &str) -> io::Result<()>;
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct MemoryTraceSink {
-    lines: Vec<String>,
-}
-
-impl MemoryTraceSink {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn lines(&self) -> &[String] {
-        &self.lines
-    }
-
-    pub fn into_string(self) -> String {
-        self.lines.join("")
-    }
-}
-
-impl TraceSink for MemoryTraceSink {
-    fn write_event_line(&mut self, line: &str) -> io::Result<()> {
-        self.lines.push(line.to_string());
-        Ok(())
-    }
-}
 fn render_env_text(env: &[TraceEnv], output: &mut String) {
     output.push('{');
     for (index, item) in env.iter().enumerate() {
@@ -3189,14 +3115,45 @@ mod tests {
     use super::super::table::table_text_width;
     use super::{
         CoverageTraceRenderer, SyscallSummary, SyscallSummaryRenderer, SyscallTraceRecord,
-        TraceArg, TraceError, TraceEvent, TraceJsonlRenderer, TraceKind, TraceNormalizer,
-        TracePayload, TraceStatus, TraceSummaryRenderer, TraceTextRenderer, TraceTiming,
+        FxHashMap, TraceArg, TraceError, TraceEvent, TraceJsonlRenderer, TraceKind, TracePayload,
+        TraceStatus, TraceSummaryRenderer, TraceTextRenderer,
     };
     use xsh::frontend::source::{SourceMap, Span};
     use xsh::trace::model::{
         TraceStatusKind, Traceback, TracebackFrame, TracebackFrameKind, TracebackName,
-        TracebackRenderer,
+        TraceTiming, TracebackRenderer,
     };
+
+    // Renderer assertions should not depend on event IDs, timings, or child process IDs.
+    fn normalize_trace_for_assertions(events: &[TraceEvent]) -> Vec<TraceEvent> {
+        let id_map: FxHashMap<_, _> = events
+            .iter()
+            .enumerate()
+            .map(|(index, event)| (event.event_id, index as u64 + 1))
+            .collect();
+
+        events
+            .iter()
+            .enumerate()
+            .map(|(index, event)| {
+                let mut normalized = event.clone();
+                normalized.event_id = index as u64 + 1;
+                normalized.parent_event_id = normalized
+                    .parent_event_id
+                    .and_then(|parent| id_map.get(&parent).copied());
+                normalized.timing = TraceTiming::default();
+                match &mut normalized.payload {
+                    TracePayload::RunEnd { pid, .. }
+                    | TracePayload::SpawnReady { pid, .. }
+                    | TracePayload::WaitEnd { pid, .. }
+                    | TracePayload::SpawnCancel { pid, .. }
+                    | TracePayload::PipelineSegmentEnd { pid, .. } => *pid = None,
+                    _ => {}
+                }
+                normalized
+            })
+            .collect()
+    }
 
     fn json_field<'a>(value: &'a miniserde::json::Value, key: &str) -> &'a miniserde::json::Value {
         match value {
@@ -3239,7 +3196,7 @@ mod tests {
     #[test]
     fn renders_nested_trace_as_stable_text() {
         let (sources, events) = synthetic_trace();
-        let events = TraceNormalizer::new().normalize_events(&events);
+        let events = normalize_trace_for_assertions(&events);
 
         let rendered = TraceTextRenderer::new().render_events(&events, &sources);
 
@@ -3343,7 +3300,7 @@ mod tests {
     fn normalizes_unstable_trace_values() {
         let (sources, events) = synthetic_trace();
 
-        let normalized = TraceNormalizer::new().normalize_events(&events);
+        let normalized = normalize_trace_for_assertions(&events);
         let rendered = TraceTextRenderer::new().render_events(&normalized, &sources);
 
         assert!(!rendered.contains("start_us="));

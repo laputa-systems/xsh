@@ -57,7 +57,50 @@ pub fn call_receiver_text(arena: &AstArena, source: &str, operand: ExprId) -> Op
         ArenaExprKind::PathFmtString(_) => text.starts_with("fp\"").then(|| text.to_owned()),
         // A format string would need its prefix changed, not parentheses.
         ArenaExprKind::FmtString(_) => None,
-        _ => Some(format!("({text})")),
+        ArenaExprKind::Null
+        | ArenaExprKind::Bool(_)
+        | ArenaExprKind::Int(_)
+        | ArenaExprKind::Float(_)
+        | ArenaExprKind::Duration(_)
+        | ArenaExprKind::GlobStr(_)
+        | ArenaExprKind::Bytes(_)
+        | ArenaExprKind::Regex(_)
+        | ArenaExprKind::Item
+        | ArenaExprKind::LastStatus
+        | ArenaExprKind::List(_)
+        | ArenaExprKind::ListComp { .. }
+        | ArenaExprKind::MapComp { .. }
+        | ArenaExprKind::Set(_)
+        | ArenaExprKind::SetComp { .. }
+        | ArenaExprKind::Record(_)
+        | ArenaExprKind::If { .. }
+        | ArenaExprKind::Match { .. }
+        | ArenaExprKind::PatternTest { .. }
+        | ArenaExprKind::PatternCondition { .. }
+        | ArenaExprKind::Unary { .. }
+        | ArenaExprKind::ComparisonChain(_)
+        | ArenaExprKind::Binary { .. }
+        | ArenaExprKind::ValuePipelineCall { .. }
+        | ArenaExprKind::Slice { .. }
+        | ArenaExprKind::EnvString(_)
+        | ArenaExprKind::EnvPathList
+        | ArenaExprKind::Pipeline { .. }
+        | ArenaExprKind::StructuredPipeline { .. }
+        | ArenaExprKind::Run(_)
+        | ArenaExprKind::Spawn(_)
+        | ArenaExprKind::Wait(_)
+        | ArenaExprKind::BuilderCall { .. }
+        | ArenaExprKind::Capture(_)
+        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::Convert { .. }
+        | ArenaExprKind::Collect { .. }
+        | ArenaExprKind::Loop { .. }
+        | ArenaExprKind::Retry { .. }
+        | ArenaExprKind::ValueBlock(_)
+        | ArenaExprKind::ErrorContext { .. }
+        | ArenaExprKind::ContextScope { .. }
+        | ArenaExprKind::TempDirScope { .. }
+        | ArenaExprKind::ResourceScope { .. } => Some(format!("({text})")),
     }
 }
 
@@ -164,10 +207,10 @@ impl Checker {
         expected: &Type,
     ) -> Type {
         let previous = self
-            .expected_schema
+            .boundary.expected_schema
             .replace(crate::sema::constants::SchemaExpectation::default());
         let actual = self.check_call_arg_arena(arena, source, arg, Some(expected));
-        self.expected_schema = previous;
+        self.boundary.expected_schema = previous;
         actual
     }
 

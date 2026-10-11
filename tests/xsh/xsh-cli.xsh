@@ -21,14 +21,17 @@ test test_xsh_drops_a_separator_before_script_arguments { |ctx|
   assert output.stdout == "-f\nneedle\n"
 }
 
-test test_xsh_runs_dynamic_record_methods_by_default { |ctx|
+test test_xsh_validates_erased_record_data_before_method_calls { |ctx|
   let output = test.expect(
     ctx,
     """proc main(...argv: List[Str]) -> Result[Unit] {
   let exports: Record = {sources: {name: "demo"}}
-  let sources = exports.get("sources")?
+  let sources = match exports.get("sources") {
+    Ok(value) => value.require(Record)?
+    Err(error) => Err(error)?
+  }
 
-  if sources.len() != 0 {
+  if sources.keys().len() != 0 {
     print "non-empty"
   }
 

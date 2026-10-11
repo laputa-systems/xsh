@@ -103,15 +103,15 @@ beta
 {"name":"beta","size":1}
 """
   |> json.lines
-  |> sort-by .size.require(Int)?
+  |> sort-by json.get(., ["size"])?.require(Int)?
 
-  assert json_lines[0].name == "beta"
+  assert json.get(json_lines[0], ["name"])? == "beta"
 
   let json_stream = """{"ok":true}
 {"ok":false}
 """ |> json.stream
 
-  assert json_stream[1].ok == false
+  assert json.get(json_stream[1], ["ok"])? == false
 
   assert ([3, 1, 2, 2]
     |> where . > 1
@@ -2022,7 +2022,7 @@ test test_stream_adapters_bridge_text_bytes_and_json_lines {
 {"name":"b","size":2}
 """
   |> json.lines
-  |> sort-by .size.require(Int)?
+  |> sort-by json.get(., ["size"])?.require(Int)?
 
   let streamed = """{"name":"c","size":3}
 """ |> json.stream
@@ -2032,9 +2032,9 @@ test test_stream_adapters_bridge_text_bytes_and_json_lines {
   assert paths[1].name == "b.log"
   assert chunks[0] == b"ab"
   assert chunks[2] == b"e"
-  assert rows[1].name == "b"
-  assert rows[0].size == 1
-  assert streamed[0].name == "c"
+  assert json.get(rows[1], ["name"])? == "b"
+  assert json.get(rows[0], ["size"])? == 1
+  assert json.get(streamed[0], ["name"])? == "c"
   assert words[1] == "two"
 }
 
@@ -2630,7 +2630,7 @@ test test_stream_stages_are_trace_observable { |ctx|
     ctx,
     """
 let rows = [{name: "b", size: 2}, {name: "a", size: 1}]
-(rows) |> sort-by { |row| row.size } |> table.print(columns: ["name", "size"])
+rows |> sort-by { |row| row.size } |> table.print(columns: ["name", "size"])
 """,
     ["--trace", "--raw"],
   )?
@@ -2741,6 +2741,23 @@ proc main() [error] {
   assert "kind=stream.stage.exit name=\"take\"" in live_error.stderr
   assert "kind=stream.stage.exit name=\"map\"" in live_error.stderr
   assert "invalid" in live_error.stderr
+
+  let flat_map_error = test.run_xsht_trace(
+    ctx,
+    r"""
+let values = ["only"]
+stream numbers() [] -> Stream[Int] { yield 1 }
+proc main() [error] {
+  let expanded = numbers() |> flat-map { |index| [values[index]] } |> collect()
+}
+""",
+    ["--trace", "--raw"],
+  )?
+  assert flat_map_error.status == 3
+  assert "stream stage `map` item 0 failed" in flat_map_error.stderr
+  assert "kind=stream.item.error" in flat_map_error.stderr
+  assert "name=\"map\"" in flat_map_error.stderr
+  assert "item_index=0" in flat_map_error.stderr
 
   let par_error = test.run_xsht_trace(
     ctx,

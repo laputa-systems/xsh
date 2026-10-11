@@ -1,7 +1,7 @@
 #![cfg(unix)]
 
 #[macro_use]
-mod release_binary;
+mod test_binary;
 
 use std::io::Read;
 use std::os::fd::AsRawFd;
@@ -46,7 +46,7 @@ fn applet(name: &str, directory: &Path) -> Command {
             command
         }
     } else {
-        let mut command = Command::new(release_bin!("xsh"));
+        let mut command = Command::new(test_bin!("xsh"));
         command.arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("core").join(format!("{name}.xsh")));
         command.arg("--");
         command

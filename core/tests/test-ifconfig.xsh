@@ -125,7 +125,7 @@ proc session(ctx: TestContext, setup: List[Str], commands: List[List[Str]]) [fs,
   let root = test.temp_dir(ctx, name: "ifconfig-ns")?
   let source = f"""use lib.nettools_fixture as fixture
 
-proc main(...argv: List[Str]) [fs, process, io, error] {{
+proc main(...argv: List[Str]) [fs, process, net, io, error] {{
 {setup.join("\n")}
   fixture.run_commands(argv)
 }}

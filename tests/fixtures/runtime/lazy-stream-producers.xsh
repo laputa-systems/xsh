@@ -100,8 +100,7 @@ proc main() [io, fs, env, error] {
   print f"first={first ?? -1} rows={count_present(root, "row-stop-")} closed={exists(fp"{root}/closed-stop")}"
   # A producer whose body never started has nothing to clean up: dropping it
   # without a pull must not run the defers its body would have registered.
-  let dropped = open_rows(root, "dropped")?
-  let _ = dropped
+  let _ = open_rows(root, "dropped")?
   let other = open_rows(root, "other")?
   print f"never started closed={exists(fp"{root}/closed-dropped")} other={other.collect().len()}"
 

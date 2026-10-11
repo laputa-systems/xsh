@@ -412,7 +412,7 @@ test test_efibootmgr_clears_and_restores_the_immutable_flag_around_writes { |ctx
   for line in entries {
     if "set_file_attrs" in line {
       let record = json.decode(line)?
-      flags += [record.flags.require(Str)?]
+      flags += [json.get(record, ["flags"])?.require(Str)?]
     }
   }
   assert flags == ["0", "16"], log.read_text()?

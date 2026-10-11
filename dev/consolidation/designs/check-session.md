@@ -1,6 +1,6 @@
 # Design: one check session
 
-Status: proposed 2026-10-10, awaiting owner approval. Part of workstream 4 of
+Status: approved by the owner 2026-10-11 (drafted 2026-10-10). Part of workstream 4 of
 `../CAMPAIGN.md`.
 
 ## Rule
@@ -67,7 +67,7 @@ Three disagreements follow, all listed in `TODO.md`:
   unresolved import and the check continues with the checker's recovery
   type, as the in-process check does today.
 - `parse.module-read` remains for a candidate that exists and cannot be
-  read, or is not UTF-8.
+  read. Invalid UTF-8 retains its existing `source.invalid-utf8` code.
 - Existing tests that assert `parse.module-read` for a missing module are
   rewritten to assert `check.unknown-module`. This is the one sanctioned
   change to existing tests in this design; the integrator lists each in the

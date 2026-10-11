@@ -716,7 +716,7 @@ proc close_filter_pipes(pipes: List[FilterPipe?]) [process, error] {
 }
 
 # Pipe writes report EAGAIN as 11 on Linux and 35 on Darwin and BSD.
-proc write_filter_pipe(pipe: FilterPipe, data: Bytes) [process, error] -> Result[FilterPipe] {
+proc write_filter_pipe(pipe: FilterPipe, data: Bytes) [process, net, error] -> Result[FilterPipe] {
   return Ok(pipe) when ! pipe.open or data.is_empty()
 
   var offset = 0
@@ -840,7 +840,6 @@ proc feed_filter_record(
 
 proc filter_round_robin_stdin(command: Str, naming: Naming, count: Int, sep: Int, elide: Bool, verbose: Bool) [fs, process, env, error, io] {
   let scratch = fs.tempdir()?
-  defer scratch.close()
   let root = scratch.host_path()?
   var pipes: List[FilterPipe?] = [null for _ in range(count)]
   defer { close_filter_pipes(pipes)? }

@@ -62,8 +62,6 @@ line always computes. Three things found while porting the rest:
 
 Language and checker:
 
-- A `yield` in a stage block inside a stream producer passes the checker. A
-  `stream` definition is rejected at a test file's top level.
 - A later binding of a `with` that reads an earlier binding sharing a
   top-level `const`'s name reads the constant.
 - An `Any` receiver takes no named arguments, so a required label cannot be
@@ -75,11 +73,6 @@ Language and checker:
   callees.
 - A module command other than `json.write` checks and then fails at run time
   (`fs.fsync $p`: `unsupported-proc-command`).
-- Diagnostics print an imported enum's type as a file path
-  (`/…/kinds.xsh.Kind`). A diagnostic prints its source line whole, however
-  long.
-- Output that `print` has buffered is lost when `unix.exec` replaces the
-  process.
 
 Limits that are a crash or a wait instead of a diagnostic:
 

@@ -1,3 +1,42 @@
+test test_stage_functions_keep_alias_captures_configuration_order_and_nested_item_context { |ctx|
+  let output = test.run_script(ctx, r"""
+let prefix = "captured:"
+type Row = {value: Str, rank: Int}
+pure render(item: Row, suffix: Str = "!") -> Str { prefix + item.value + suffix }
+pure rank(item: Row) -> Int { item.rank }
+let format = render
+let again = format
+proc direction() [] -> Bool { print "configuration"; return true }
+let rows = [{value: "first", rank: 1}, {value: "second", rank: 2}]
+let rendered = rows |> sort-by(block: rank, desc: direction()) |> map(block: again)
+print rendered[0] rendered[1]
+let nested = [rows, rows] |> map { |items| items |> map(format) }
+print nested[0][0] nested[1][1]
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == "configuration\ncaptured:second! captured:first!\ncaptured:first! captured:second!\n"
+}
+
+test test_stage_functions_keep_imported_alias_capture_and_defaults { |ctx|
+  let root = test.temp_dir(ctx, name: "stage-import-alias")?
+  fp"{root}/helpers.xsh".write(r"""##! Stage callbacks with private capture.
+let prefix = "module:"
+## Render a stream item with an optional suffix.
+export pure render(item: Str, suffix: Str = "!") -> Str { prefix + item + suffix }
+## Preserve the declared callback signature.
+export let format = render
+""")
+  let output = test.run_script(ctx, r"""
+use helpers
+let format = helpers.format
+print ${(["direct"] |> map(helpers.render))[0]}
+print ${(["exported"] |> map(helpers.format))[0]}
+print ${(["local"] |> map(format))[0]}
+""", env: {XSH_MODULE_PATH: root})?
+  assert output.success, output.stderr
+  assert output.stdout == "module:direct!\nmodule:exported!\nmodule:local!\n"
+}
+
 test test_stage_functions_use_one_item_calls_and_per_call_defaults { |ctx|
   let output = test.run_script(
     ctx,

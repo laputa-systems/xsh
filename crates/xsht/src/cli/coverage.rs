@@ -53,10 +53,14 @@ struct SourceFileCoverage {
 }
 
 impl CoverageCollector {
+    // These constructors are for callers that do not need API or exclusion configuration.
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self::with_api(false)
     }
 
+    // This constructor lets callers opt into API coverage without exclusions.
+    #[allow(dead_code)]
     pub fn with_api(include_api: bool) -> Self {
         Self::with_api_and_excludes(include_api, &[])
     }

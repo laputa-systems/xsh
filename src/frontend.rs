@@ -11,12 +11,17 @@ pub mod check {
         bind_static_arguments, expand_named_arguments,
     };
     pub use crate::sema::check::{
-        AnnotationFact, AnnotationFactKind, CheckOptions, CheckOutput, CheckedProjection,
-        CheckedStreamStage, Checker, CompactBodyFacts, CompactDeclOutput, CompactFunctionSig,
-        CompactTypeDefInfo, Conversion, EffectDeclarationId, ErrorFamilyInfo, ErrorVariantInfo,
-        FunctionEffectFact, MessagePayloadConstructor, ProjectionOperation, RecordRequireMigration,
-        RequirementTarget, StatementPosition, StaticCallableAlias, TagVariantInfo,
-        call_receiver_text,
+        AnnotationFact, AnnotationFactKind, BindingDeclaration, BindingId, BindingKind,
+        CheckBundleView,
+        CheckOptions, CheckOutput, CheckedCommandArgument, CheckedModuleCommand,
+        CheckedDeclarations, CheckedErrorDeclaration, CheckedFunctionDeclaration,
+        CheckedFunctionKind, CheckedProjection, CheckedStreamStage, CheckedTypeDeclaration,
+        Checker, CompactBodyFacts, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo,
+        Conversion, EffectDeclarationId, ErrorFamilyInfo, ErrorVariantInfo, FunctionEffectFact,
+        InstantiatedTypeExpressions, MessagePayloadConstructor, ProjectionOperation,
+        RecordRequireMigration, RequirementTarget, ResolvedBindings, ResolvedTypeExpressions,
+        ResourceTransferFacts, ResourceTransferSite, StatementPosition, StaticCallableAlias,
+        TagVariantInfo, call_receiver_text,
     };
     pub use crate::sema::constants::{
         CheckedRecordConstructor, LiteralConstant, PreparedConstants, RecordConstructors,
@@ -32,6 +37,7 @@ pub mod load {
     pub use crate::loader::{
         CheckedEntry, CompactFileDeclarationSummary, CompactFileExport, CompactFileImport,
         CompactFileUnit, CompactModuleGraph, CompactModuleImportEdge, EntrySource, StdlibLinkage,
+        LoadedImport, LoadedModule, ModuleLoader, UserModuleResolution, add_source_bytes,
         entry_source_from_bytes, entry_source_from_text, module_key, parse_load_check_bytes,
         parse_load_check_entry_source, parse_load_check_entry_source_with_token_table,
         parse_load_check_file, parse_load_check_text, parse_load_entry_source_arena_only,

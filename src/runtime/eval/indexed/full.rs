@@ -1,3 +1,13 @@
+pub(in crate::runtime::eval) mod decode;
+pub(in crate::runtime::eval) mod in_place;
+pub(in crate::runtime::eval) mod schema;
+
+use decode::{BorrowCodec, DecodeContext, PatternId, StageRef};
+pub(in crate::runtime::eval) use schema::{BuildPatternRow, FullDriverTag};
+pub(in crate::runtime::eval) use schema::{
+    BuildBoolRow, BuildExprRow, BuildIntRow, BuildStmtRow, FrameStrategy, FullTag,
+};
+
 use super::semantic::{SemanticPoolBuilder, SemanticPools};
 use super::{
     IR_NONE, IrBlockId, IrBuildError, IrData, IrFunctionId, IrLocation, IrLocationId, IrRange,
@@ -6,13 +16,13 @@ use super::{
 use crate::modules::RuntimeOp;
 use crate::modules::hash::HashAlgorithm;
 use crate::runtime::eval::{
-    BuildBoolId, BuildBoolRow, BuildExprId, BuildExprRow, BuildIntId, BuildIntRow, BuildPatternId,
-    BuildPatternIdSlots, BuildPatternRow, BuildScratch, BuildStmtId, BuildStmtRow, BuildTopKind,
+    BuildBoolId, BuildExprId, BuildIntId, BuildPatternId,
+    BuildPatternIdSlots, BuildScratch, BuildStmtId, BuildTopKind,
     BuildTopStmtId, BuildTopStmtRow, FunctionBuild, FunctionHeader, LoweredAssignPath,
     LoweredAssignStep, LoweredCallArg, LoweredCompQualifier, LoweredCompQualifiers,
-    LoweredCompTarget, LoweredErrorExpr, LoweredErrorPatternFields, LoweredFmtPart,
+    LoweredCompTarget, LoweredErrorExpr, LoweredFmtPart,
     LoweredFunctionKey, LoweredFunctionKind, LoweredFunctionUnit, LoweredModuleExport,
-    LoweredModuleExportKind, LoweredPipelineStage, LoweredProcessCommandArgv,
+    LoweredModuleExportKind, LoweredProcessCommandArgv,
     LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredRecordUpdates, LoweredReturnKind,
     LoweredRunArg, LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment,
     LoweredRunRedirection, LoweredSpawnRun, LoweredStatsValue, LoweredStrPredicate,
@@ -36,6 +46,20 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::mem::size_of;
 use std::rc::Rc;
 use std::sync::Arc;
+
+fn is_resource_transfer_instruction(tag: FullTag) -> bool {
+    matches!(
+        tag,
+        FullTag::StmtReturn
+            | FullTag::StmtValue
+            | FullTag::StmtBreakValue
+            | FullTag::StmtAssign
+            | FullTag::StmtAssignField
+            | FullTag::StmtAssignPath
+            | FullTag::StmtYield
+            | FullTag::StmtYieldDelegate
+    )
+}
 
 const DRIVER_OWNER_BIT: u32 = 1 << 31;
 const DRIVER_SLOT_READ: u8 = 1;
@@ -85,284 +109,143 @@ fn driver_owner_index(owner: u32) -> Option<usize> {
     usize::try_from((owner & !DRIVER_OWNER_BIT).checked_sub(1)?).ok()
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u8)]
-pub(in crate::runtime::eval) enum FullTag {
-    // The exhaustive FullCodec implementations below are the payload schemas:
-    // each arm writes and reads fields in one order and preserves the runtime
-    // operation, error, location, and trace contract owned by Lowered*.
-    IntInt,
-    IntSlot,
-    IntBinary,
-    IntStrByteLenSlot,
-    IntStrCountLinesSlot,
-    IntStrByteAtSlot,
-    BoolBool,
-    BoolSlot,
-    BoolNot,
-    BoolAnd,
-    BoolOr,
-    BoolIntCompare,
-    BoolStrPredicateSlot,
-    BoolContainsSlot,
-    BoolStrContainsSlot,
-    BoolTrimEmptySlot,
-    BoolTrimStrPredicateSlot,
-    BoolLiteralCompareSlot,
-    ExprNull,
-    ExprUnit,
-    ExprInt,
-    ExprFloat,
-    ExprDuration,
-    ExprBool,
-    ExprStr,
-    ExprBytes,
-    ExprPreparedRegex,
-    ExprPreparedConstant,
-    ExprPath,
-    ExprFunctionRef,
-    ExprPathFrom,
-    ExprParam,
-    ExprComparisonChain,
-    ExprBinary,
-    ExprIf,
-    ExprPatternIf,
-    ExprMatch,
-    ExprStrMatch,
-    ExprTagMatch,
-    ExprResultFallback,
-    ExprFmtString,
-    ExprPathFmtString,
-    ExprGlob,
-    ExprLastStatus,
-    ExprRecord,
-    ExprMapLiteral,
-    ExprRecordUpdate,
-    ExprList,
-    ExprListBuild,
-    ExprEmptyMap,
-    ExprBytesConcat,
-    ExprRange,
-    ExprTag,
-    ExprListComp,
-    ExprMapComp,
-    ExprPipeline,
-    ExprField,
-    ExprIndex,
-    ExprIndexFromEnd,
-    ExprSlice,
-    ExprMethod,
-    ExprStrByteLen,
-    ExprStrByteAt,
-    ExprStrPredicate,
-    ExprRegexCompile,
-    ExprRequire,
-    ExprCheckedValue,
-    ExprRunCapture,
-    ExprRunPipeline,
-    ExprSpawnRun,
-    ExprSpawnCommand,
-    ExprWait,
-    ExprCapture,
-    ExprValueBlock,
-    ExprErrorContext,
-    ExprContextScope,
-    ExprLoop,
-    ExprRetry,
-    ExprFsFiles,
-    ExprFsWalk,
-    ExprFsList,
-    ExprFsTempDir,
-    ExprFsMkdir,
-    ExprFsRemove,
-    ExprPathReadText,
-    ExprPathReadBytes,
-    ExprPathExists,
-    ExprPathExecutable,
-    ExprPathDu,
-    ExprPathMetadata,
-    ExprPathReadlink,
-    ExprPathResolve,
-    ExprPathWrite,
-    ExprPathMkdir,
-    ExprPathRemove,
-    ExprJsonEncode,
-    ExprArchiveTarCreate,
-    ExprArchiveTarList,
-    ExprArchiveTarExtract,
-    ExprModuleCall,
-    ExprProcessCommandArgv,
-    ExprProcessCommandBuilder,
-    ExprAbort,
-    ExprFail,
-    ExprOk,
-    ExprErr,
-    ExprError,
-    ExprTry,
-    ExprCall,
-    ExprDirectPureCall,
-    ExprExternalCall,
-    ExprDynamicCall,
-    ExprSelfCall,
-    ExprTypedCall,
-    ExprProcCallResult,
-    StmtLet,
-    StmtGuard,
-    StmtWith,
-    StmtLetInt,
-    StmtLetBool,
-    StmtAssign,
-    StmtAssignField,
-    StmtAssignFieldInt,
-    StmtAssignPath,
-    StmtAssignInt,
-    StmtAssignBool,
-    StmtValue,
-    StmtAssert,
-    StmtExpr,
-    StmtIf,
-    StmtIfBool,
-    StmtWhile,
-    StmtWhileBool,
-    StmtPatternIf,
-    StmtPatternWhile,
-    StmtMatch,
-    StmtStrMatch,
-    StmtTagMatch,
-    StmtFor,
-    StmtLetRecord,
-    StmtForRecord,
-    StmtForStrLines,
-    StmtScanLines,
-    StmtScanBytes,
-    StmtPrint,
-    StmtCd,
-    StmtEnv,
-    StmtProc,
-    StmtRun,
-    StmtLoop,
-    StmtReturn,
-    StmtYield,
-    StmtYieldDelegate,
-    StmtBreak,
-    StmtBreakValue,
-    StmtContinue,
-    StmtDefer,
-    StmtDefaultParameter,
+pub(in crate::runtime::eval) use schema::FullPatternTag;
+
+macro_rules! value_codec_verify_field {
+    ($decoder:ident, $payload:ident; $field_ty:ty) => {
+        <$field_ty as FullCodec>::verify($decoder, &mut $payload)?;
+    };
+    ($decoder:ident, $payload:ident; $field_ty:ty => $verify_ty:ty) => {
+        <$verify_ty as FullCodec>::verify($decoder, &mut $payload)?;
+    };
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u8)]
-pub(in crate::runtime::eval) enum FullPatternTag {
-    Alias,
-    Alternation,
-    List,
-    TagType,
-    RecordTest,
-    ResultTest,
-    TagTest,
-    ErrorTest,
-    Wildcard,
-    Bind,
-    Type,
-    Literal,
-    ResultOk,
-    ResultErr,
-    ErrorVariant,
-    Facet,
-    Tag,
-    Text,
-}
+/// Keeps persisted value tags and their wire field order in one declaration.
+macro_rules! lowered_value_schema {
+    (
+        context { $builder:ident, $decoder:ident, $payload:ident }
+        rows {
+            $(
+                $tag:ident = $ordinal:literal {
+                    fields { $($field:ident: $field_ty:ty $(=> $verify_ty:ty)?),* $(,)? }
+                    encode { $pattern:pat => { $($prepare:tt)* } }
+                    decode $construct:expr
+                }
+            )*
+        }
+        aliases {
+            $(
+                $alias:pat => $alias_tag:ident {
+                    fields { $($alias_field:expr),* $(,)? }
+                }
+            )*
+        }
+        custom {
+            $(
+                $custom_tag:ident = $custom_ordinal:literal {
+                    encode { $($custom_pattern:pat => $encode:block),+ $(,)? }
+                    decode $decode:block
+                    verify $verify:block
+                }
+            )*
+        }
+        reject { $($rejected:pat => $reject:block),* $(,)? }
+    ) => {
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        #[repr(u8)]
+        pub(in crate::runtime::eval) enum FullValueTag {
+            $($tag = $ordinal,)*
+            $($custom_tag = $custom_ordinal,)*
+        }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u8)]
-pub(in crate::runtime::eval) enum FullStageTag {
-    TextLines,
-    JsonLines,
-    Where,
-    WhereBlock,
-    Map,
-    MapBlock,
-    FlatMap,
-    FlatMapBlock,
-    BytesChunks,
-    BatchCount,
-    BatchMaxArgv,
-    BatchMaxBytes,
-    BatchLimits,
-    Shuffle,
-    Fold,
-    ReduceBy,
-    ReduceByConfigured,
-    ParMap,
-    ParMapBlock,
-    ParMapFlatMapReduceBy,
-    Tee,
-    Each,
-    TablePrint,
-    TablePrintConfigured,
-    Enumerate,
-    Zip,
-    Sort,
-    SortBy,
-    GroupBy,
-    CountBy,
-    Any,
-    AnyBlock,
-    All,
-    AllBlock,
-    UniqueBy,
-    Count,
-    Sum,
-    Collect,
-    First,
-    Last,
-    Min,
-    Max,
-    Take,
-    Drop,
-    Repeat,
-    Range,
-}
+        impl FullCodec for LoweredValue {
+            fn encode(
+                &self,
+                $builder: &mut FullBuilder,
+                output: &mut Vec<u32>,
+            ) -> Result<(), IrBuildError> {
+                let mut $payload = $builder.take_payload();
+                let tag = match self {
+                    $(
+                        $pattern => {
+                            $($prepare)*
+                            $($field.encode($builder, &mut $payload)?;)*
+                            FullValueTag::$tag
+                        },
+                    )*
+                    $(
+                        $alias => {
+                            $($alias_field.encode($builder, &mut $payload)?;)*
+                            FullValueTag::$alias_tag
+                        },
+                    )*
+                    $(
+                        $(
+                            $custom_pattern => {
+                                $encode
+                                FullValueTag::$custom_tag
+                            },
+                        )+
+                    )*
+                    $($rejected => $reject,)*
+                };
+                let value = $builder.push_value(tag, &$payload);
+                $builder.recycle_payload($payload);
+                output.push(value?);
+                Ok(())
+            }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u8)]
-pub(in crate::runtime::eval) enum FullValueTag {
-    Null,
-    Unit,
-    Int,
-    Float,
-    Duration,
-    Bool,
-    Str,
-    Bytes,
-    Regex,
-    Path,
-    Record,
-    RecordVec,
-    Stats,
-    StatsBlob,
-    Module,
-    List,
-    Map,
-    Tag,
-    ResultOk,
-    Set,
-}
+            fn decode(
+                $decoder: &FullDecoder<'_>,
+                input: &mut FullCursor<'_>,
+            ) -> Result<Self, IrVerifyError> {
+                let index = input.raw()? as usize;
+                let tag = $decoder
+                    .store
+                    .values
+                    .get(index)
+                    .copied()
+                    .ok_or_else(|| IrVerifyError::new("literal value id is out of bounds"))?;
+                let data = $decoder.store.value_data[index];
+                let mut $payload = FullCursor::new($decoder.store.payload(data.range())?);
+                let value = match tag {
+                    $(
+                        FullValueTag::$tag => {
+                            $(let $field = <$field_ty as FullCodec>::decode($decoder, &mut $payload)?;)*
+                            $construct
+                        },
+                    )*
+                    $(FullValueTag::$custom_tag => $decode,)*
+                };
+                $payload.finish()?;
+                Ok(value)
+            }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u8)]
-pub(in crate::runtime::eval) enum FullDriverTag {
-    Skip,
-    Use,
-    Let,
-    LetRecord,
-    Assign,
-    Discard,
-    Stmt,
-    Expr,
-    Defer,
-    SignalHook,
+            fn verify(
+                $decoder: &FullDecoder<'_>,
+                input: &mut FullCursor<'_>,
+            ) -> Result<(), IrVerifyError> {
+                let index = input.raw()? as usize;
+                let tag = $decoder
+                    .store
+                    .values
+                    .get(index)
+                    .copied()
+                    .ok_or_else(|| IrVerifyError::new("literal value id is out of bounds"))?;
+                let data = $decoder.store.value_data[index];
+                let mut $payload = FullCursor::new($decoder.store.payload(data.range())?);
+                match tag {
+                    $(
+                        FullValueTag::$tag => {
+                            $(value_codec_verify_field!($decoder, $payload; $field_ty $(=> $verify_ty)?);)*
+                        },
+                    )*
+                    $(FullValueTag::$custom_tag => $verify,)*
+                }
+                $payload.finish()
+            }
+        }
+    };
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -422,6 +305,8 @@ struct FullFunction {
     captures: IrRange,
     body: u32,
     slot_count: u32,
+    /// Dense callable type ids; `IR_NONE` means the slot has no single checked signature.
+    callable_slot_types: IrRange,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -480,6 +365,9 @@ struct FullFunctionMetadata {
 struct FullStore {
     source_id: SourceId,
     tags: Vec<FullTag>,
+    /// Private true marks come only from checked facts emitted by the builder.
+    /// They stay beside the instruction stream and never enter encoded payloads.
+    resource_transfers: Vec<bool>,
     data: Vec<IrData>,
     extra: Vec<u32>,
     patterns: Vec<FullPatternTag>,
@@ -496,6 +384,7 @@ struct FullStore {
     driver_programs: Vec<FullDriverProgram>,
     driver_root: u32,
     functions: Vec<FullFunction>,
+    callable_slot_types: Vec<u32>,
     function_instruction_starts: Vec<u32>,
     function_metadata: Vec<FullFunctionMetadata>,
     params: Vec<FullParam>,
@@ -510,7 +399,7 @@ struct FullStore {
     prepared_constants: Vec<PreparedConstantValue>,
     wire_enums: Vec<Arc<crate::sema::wire_enums::WireEnumMapping>>,
     prepared_schemas: Vec<Arc<super::super::require::PreparedSchema>>,
-    prepared_cli_plans: Vec<Arc<crate::modules::cli::CliDescriptorPlan>>,
+    prepared_module_call_plans: Vec<Arc<crate::runtime::eval::ModuleCallPlan>>,
     locations: Vec<IrLocation>,
     location_sources: Vec<SourceId>,
     runtime_ops: Vec<RuntimeOp>,
@@ -519,6 +408,8 @@ struct FullStore {
     run_kinds: Vec<RunKind>,
     redirection_kinds: Vec<RedirectionKind>,
     semantic: SemanticPools,
+    /// Derived from verified operand graphs so runtime dispatch needs only a table lookup.
+    in_place: std::sync::OnceLock<Vec<bool>>,
 }
 
 impl Default for FullStore {
@@ -526,6 +417,7 @@ impl Default for FullStore {
         Self {
             source_id: SourceId::new(0),
             tags: Vec::new(),
+            resource_transfers: Vec::new(),
             data: Vec::new(),
             extra: Vec::new(),
             patterns: Vec::new(),
@@ -542,6 +434,7 @@ impl Default for FullStore {
             driver_programs: Vec::new(),
             driver_root: IR_NONE,
             functions: Vec::new(),
+            callable_slot_types: Vec::new(),
             function_instruction_starts: Vec::new(),
             function_metadata: Vec::new(),
             params: Vec::new(),
@@ -556,7 +449,7 @@ impl Default for FullStore {
             prepared_constants: Vec::new(),
             wire_enums: Vec::new(),
             prepared_schemas: Vec::new(),
-            prepared_cli_plans: Vec::new(),
+            prepared_module_call_plans: Vec::new(),
             locations: Vec::new(),
             location_sources: Vec::new(),
             runtime_ops: Vec::new(),
@@ -565,6 +458,7 @@ impl Default for FullStore {
             run_kinds: Vec::new(),
             redirection_kinds: Vec::new(),
             semantic: SemanticPools::default(),
+            in_place: std::sync::OnceLock::new(),
         }
     }
 }
@@ -661,6 +555,7 @@ impl FullStore {
     fn retained_bytes(&self) -> usize {
         size_of::<Self>()
             + self.tags.capacity() * size_of::<FullTag>()
+            + self.resource_transfers.capacity() * size_of::<bool>()
             + self.data.capacity() * size_of::<IrData>()
             + self.extra.capacity() * size_of::<u32>()
             + self.patterns.capacity() * size_of::<FullPatternTag>()
@@ -676,6 +571,7 @@ impl FullStore {
             + self.driver_regions.capacity() * size_of::<FullDriverRegion>()
             + self.driver_programs.capacity() * size_of::<FullDriverProgram>()
             + self.functions.capacity() * size_of::<FullFunction>()
+            + self.callable_slot_types.capacity() * size_of::<u32>()
             + self.function_instruction_starts.capacity() * size_of::<u32>()
             + self.function_metadata.capacity() * size_of::<FullFunctionMetadata>()
             + self.params.capacity() * size_of::<FullParam>()
@@ -691,8 +587,8 @@ impl FullStore {
                 * size_of::<Arc<super::super::require::PreparedSchema>>()
             + self.wire_enums.capacity()
                 * size_of::<Arc<crate::sema::wire_enums::WireEnumMapping>>()
-            + self.prepared_cli_plans.capacity()
-                * size_of::<Arc<crate::modules::cli::CliDescriptorPlan>>()
+            + self.prepared_module_call_plans.capacity()
+                * size_of::<Arc<crate::runtime::eval::ModuleCallPlan>>()
             + self.prepared_regexes.capacity() * size_of::<RegexValue>()
             + self
                 .prepared_regexes
@@ -706,6 +602,10 @@ impl FullStore {
             + self.binary_ops.capacity() * size_of::<BinaryOp>()
             + self.run_kinds.capacity() * size_of::<RunKind>()
             + self.redirection_kinds.capacity() * size_of::<RedirectionKind>()
+            + self
+                .in_place
+                .get()
+                .map_or(0, |marks| marks.capacity() * size_of::<bool>())
             + self
                 .semantic
                 .retained_bytes()
@@ -723,6 +623,7 @@ impl FullStore {
 
     fn shrink_to_fit(&mut self) {
         self.tags.shrink_to_fit();
+        self.resource_transfers.shrink_to_fit();
         self.data.shrink_to_fit();
         self.extra.shrink_to_fit();
         self.patterns.shrink_to_fit();
@@ -752,7 +653,7 @@ impl FullStore {
         self.prepared_constants.shrink_to_fit();
         self.wire_enums.shrink_to_fit();
         self.prepared_schemas.shrink_to_fit();
-        self.prepared_cli_plans.shrink_to_fit();
+        self.prepared_module_call_plans.shrink_to_fit();
         self.locations.shrink_to_fit();
         self.location_sources.shrink_to_fit();
         self.runtime_ops.shrink_to_fit();
@@ -944,47 +845,6 @@ impl FullProgram {
         Ok((key, kind))
     }
 
-    fn pipeline_stage_tags(
-        &self,
-        instruction_range: std::ops::Range<usize>,
-    ) -> Result<Vec<FullStageTag>, IrVerifyError> {
-        let mut tags = Vec::new();
-        for instruction in instruction_range {
-            if self.store.tags[instruction] != FullTag::ExprPipeline {
-                continue;
-            }
-            let data = self.store.data[instruction];
-            let mut payload = FullCursor::new(self.store.payload(data.range())?);
-            payload.raw()?;
-            let block = IrBlockId::from_raw(payload.raw()?)
-                .ok_or_else(|| IrVerifyError::new("pipeline stage block id is invalid"))?;
-            let block = self
-                .store
-                .blocks
-                .get(block.index())
-                .copied()
-                .ok_or_else(|| IrVerifyError::new("pipeline stage block id is out of bounds"))?;
-            if block.flags & BLOCK_SEQUENCE_KIND_MASK != BLOCK_LIST {
-                return Err(IrVerifyError::new("pipeline stage block kind is invalid"));
-            }
-            let mut stages = FullCursor::new(self.store.payload(block.instructions)?);
-            let len = stages.raw()? as usize;
-            tags.reserve(len);
-            for _ in 0..len {
-                let index = stages.raw()? as usize;
-                tags.push(
-                    self.store
-                        .stages
-                        .get(index)
-                        .copied()
-                        .ok_or_else(|| IrVerifyError::new("pipeline stage id is out of bounds"))?,
-                );
-            }
-            stages.finish()?;
-        }
-        Ok(tags)
-    }
-
     pub(in crate::runtime::eval) fn driver_step_count(&self) -> Result<usize, IrVerifyError> {
         Ok(self.driver_root_steps()?.len())
     }
@@ -1103,7 +963,11 @@ impl FullProgram {
             .ok_or_else(|| IrVerifyError::new("driver root step range is invalid"))
     }
 
-    fn verify_driver(&self, owned_blocks: &FxHashMap<u32, usize>) -> Result<(), IrVerifyError> {
+    fn verify_driver(
+        &self,
+        owned_blocks: &FxHashMap<u32, usize>,
+        in_place_marks: &mut [bool],
+    ) -> Result<(), IrVerifyError> {
         if self.store.driver_root == IR_NONE {
             return Ok(());
         }
@@ -1114,6 +978,7 @@ impl FullProgram {
             &mut program_states,
             &mut step_states,
             owned_blocks,
+            in_place_marks,
         )?;
         if program_states.iter().any(|state| *state != 2)
             || step_states.iter().any(|state| *state != 2)
@@ -1131,6 +996,7 @@ impl FullProgram {
         program_states: &mut [u8],
         step_states: &mut [u8],
         owned_blocks: &FxHashMap<u32, usize>,
+        in_place_marks: &mut [bool],
     ) -> Result<(), IrVerifyError> {
         let index = raw
             .checked_sub(1)
@@ -1162,7 +1028,13 @@ impl FullProgram {
                 }
                 _ => unreachable!("driver step state is bounded"),
             }
-            self.verify_driver_step(step_index, program_states, step_states, owned_blocks)?;
+            self.verify_driver_step(
+                step_index,
+                program_states,
+                step_states,
+                owned_blocks,
+                in_place_marks,
+            )?;
             step_states[step_index] = 2;
         }
         program_states[index] = 2;
@@ -1175,6 +1047,7 @@ impl FullProgram {
         program_states: &mut [u8],
         step_states: &mut [u8],
         owned_blocks: &FxHashMap<u32, usize>,
+        in_place_marks: &mut [bool],
     ) -> Result<(), IrVerifyError> {
         let step = self.store.driver_steps[step_index];
         let instruction_range = self.store.driver_instruction_range(step_index)?;
@@ -1184,6 +1057,9 @@ impl FullProgram {
             store: &self.store,
             owner,
             instruction_states: Some(RefCell::new(vec![0; instruction_range.len()])),
+            instruction_proof: Some(RefCell::new(in_place::InstructionProof::new(
+                instruction_range.clone(),
+            ))),
             instruction_range,
             block_states: Some(OwnedBlockStates::new(owner, owned_blocks)),
             slot_count: step.slot_count,
@@ -1209,66 +1085,23 @@ impl FullProgram {
             lowered_type_from_type(&self.store.semantic.to_type(slot.type_id)?)?;
         }
         let mut payload = FullCursor::new(self.store.payload(step.data.range())?);
-        match step.tag {
-            FullDriverTag::Skip => {}
-            FullDriverTag::Use => {
-                Arc::<str>::verify(&decoder, &mut payload)?;
-                Option::<Name>::verify(&decoder, &mut payload)?;
-                Vec::<Name>::verify(&decoder, &mut payload)?;
-                Name::verify(&decoder, &mut payload)?;
-                Vec::<LoweredModuleExport>::verify(&decoder, &mut payload)?;
-                let child = payload.raw()?;
-                Span::verify(&decoder, &mut payload)?;
-                self.verify_driver_program(child, program_states, step_states, owned_blocks)?;
-            }
-            FullDriverTag::Let => {
-                Name::verify(&decoder, &mut payload)?;
-                Option::<LoweredType>::verify(&decoder, &mut payload)?;
-                Option::<LoweredTypeCheck>::verify(&decoder, &mut payload)?;
-                bool::verify(&decoder, &mut payload)?;
-                BuildExprRow::verify(&decoder, &mut payload)?;
-                Span::verify(&decoder, &mut payload)?;
-            }
-            FullDriverTag::LetRecord => {
-                BuildExprRow::verify(&decoder, &mut payload)?;
-                Vec::<(Name, usize)>::verify(&decoder, &mut payload)?;
-                LoweredCompTarget::verify(&decoder, &mut payload)?;
-                bool::verify(&decoder, &mut payload)?;
-                Span::verify(&decoder, &mut payload)?;
-            }
-            FullDriverTag::Assign => {
-                Name::verify(&decoder, &mut payload)?;
-                AssignOp::verify(&decoder, &mut payload)?;
-                BuildExprRow::verify(&decoder, &mut payload)?;
-                Span::verify(&decoder, &mut payload)?;
-            }
-            FullDriverTag::Discard => {
-                BuildExprRow::verify(&decoder, &mut payload)?;
-                Span::verify(&decoder, &mut payload)?;
-            }
-            FullDriverTag::Stmt => BuildStmtRow::verify(&decoder, &mut payload)?,
-            FullDriverTag::Expr => BuildExprRow::verify(&decoder, &mut payload)?,
-            FullDriverTag::Defer => {
-                BuildExprRow::verify(&decoder, &mut payload)?;
-                bool::verify(&decoder, &mut payload)?;
-                Span::verify(&decoder, &mut payload)?;
-            }
-            FullDriverTag::SignalHook => {
-                Name::verify(&decoder, &mut payload)?;
-                Option::<String>::verify(&decoder, &mut payload)?;
-                Vec::<BuildStmtId>::verify(&decoder, &mut payload)?;
-                Vec::<LoweredTopLevelSlot>::verify(&decoder, &mut payload)?;
-                let slot_count = payload.raw()?;
-                if slot_count != step.slot_count {
-                    return Err(IrVerifyError::new(
-                        "signal hook slot count does not match its driver step",
-                    ));
-                }
-                Span::verify(&decoder, &mut payload)?;
-            }
+        if let Some(child) = schema::DriverPayloadView::verify_fields(
+            &decoder,
+            step.tag,
+            &mut payload,
+            step.slot_count,
+        )? {
+            self.verify_driver_program(
+                child,
+                program_states,
+                step_states,
+                owned_blocks,
+                in_place_marks,
+            )?;
         }
         payload.finish()?;
-        decoder.finish_function()
+        decoder.finish_function()?;
+        decoder.copy_in_place_marks_into(in_place_marks)
     }
 }
 
@@ -1283,20 +1116,6 @@ impl<'a> FullFunctionView<'a> {
             .get(self.index)
             .copied()
             .ok_or_else(|| IrVerifyError::new("function definition span is missing"))
-    }
-
-    pub(in crate::runtime::eval) fn instruction_tags(
-        &self,
-    ) -> Result<&'a [FullTag], IrVerifyError> {
-        let range = self.program.store.function_instruction_range(self.index)?;
-        Ok(&self.program.store.tags[range])
-    }
-
-    pub(in crate::runtime::eval) fn pipeline_stage_tags(
-        &self,
-    ) -> Result<Vec<FullStageTag>, IrVerifyError> {
-        self.program
-            .pipeline_stage_tags(self.program.store.function_instruction_range(self.index)?)
     }
 
     /// The function's header, decoded once and retained with this program.
@@ -1389,7 +1208,7 @@ impl<'a> FullFunctionView<'a> {
                 kind: lowered_type_from_type(
                     &self.program.store.semantic.to_type(capture.type_id)?,
                 )?,
-                mutable: capture.slot_and_flags & (1 << 31) != 0,
+                callable_type: None, mutable: capture.slot_and_flags & (1 << 31) != 0,
             });
         }
         let return_type = self.program.store.semantic.to_type(
@@ -1435,6 +1254,7 @@ impl<'a> FullFunctionView<'a> {
                     .raw(),
                 instruction_range: self.program.store.function_instruction_range(self.index)?,
                 instruction_states: None,
+                instruction_proof: None,
                 block_states: None,
                 slot_count: function.slot_count,
                 pattern_ceiling: Cell::new(usize::MAX),
@@ -1455,10 +1275,6 @@ impl<'a> FullFunctionView<'a> {
 
     pub(in crate::runtime::eval) fn slot_count(&self) -> usize {
         self.program.store.functions[self.index].slot_count as usize
-    }
-
-    pub(in crate::runtime::eval) fn has_defers(&self) -> bool {
-        self.program.store.function_metadata[self.index].flags & 2 != 0
     }
 }
 
@@ -1490,6 +1306,7 @@ impl<'a> FullDriverStepView<'a> {
                     .map_err(|_| IrVerifyError::new("driver owner is invalid"))?,
                 instruction_range: self.program.store.driver_instruction_range(self.index)?,
                 instruction_states: None,
+                instruction_proof: None,
                 block_states: None,
                 slot_count: step.slot_count,
                 pattern_ceiling: Cell::new(usize::MAX),
@@ -1498,25 +1315,20 @@ impl<'a> FullDriverStepView<'a> {
         })
     }
 
-    pub(in crate::runtime::eval) fn instruction_tags(
-        &self,
-    ) -> Result<&'a [FullTag], IrVerifyError> {
-        let range = self.program.store.driver_instruction_range(self.index)?;
-        Ok(&self.program.store.tags[range])
-    }
-
-    pub(in crate::runtime::eval) fn pipeline_stage_tags(
-        &self,
-    ) -> Result<Vec<FullStageTag>, IrVerifyError> {
-        self.program
-            .pipeline_stage_tags(self.program.store.driver_instruction_range(self.index)?)
-    }
-
     pub(in crate::runtime::eval) fn payload(&self) -> Result<FullPayload<'a>, IrVerifyError> {
         let step = self.program.store.driver_steps[self.index];
         Ok(FullPayload {
+            store: &self.program.store,
             cursor: FullCursor::verified(self.program.store.payload(step.data.range())?),
         })
+    }
+
+    pub(in crate::runtime::eval) fn decode_payload(
+        &self,
+        execution: &FullExecution<'a>,
+        payload: FullPayload<'a>,
+    ) -> Result<schema::DriverPayloadView<'a>, IrVerifyError> {
+        schema::DriverPayloadView::decode(execution, self.tag(), payload)
     }
 
     pub(in crate::runtime::eval) fn slot_count(&self) -> usize {
@@ -1535,7 +1347,7 @@ impl<'a> FullDriverStepView<'a> {
                 name: Name::intern(self.program.store.string(slot.name)?),
                 slot: slot.slot as usize,
                 kind: lowered_type_from_type(&self.program.store.semantic.to_type(slot.type_id)?)?,
-                mutable: slot.flags & DRIVER_SLOT_MUTABLE != 0,
+                callable_type: None, mutable: slot.flags & DRIVER_SLOT_MUTABLE != 0,
             });
         }
         Ok(slots)
@@ -1567,7 +1379,7 @@ struct FullCheckpoint {
     prepared_constants: usize,
     wire_enums: usize,
     prepared_schemas: usize,
-    prepared_cli_plans: usize,
+    prepared_module_call_plans: usize,
     locations: usize,
     runtime_ops: usize,
     assign_ops: usize,
@@ -1955,7 +1767,12 @@ impl FullBuilder {
                 let slot = u32::try_from(capture.slot)
                     .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?;
                 let name = self.intern_string(&capture.name.as_str())?.raw();
-                let type_id = self.intern_lowered_type(capture.kind)?;
+                let type_id = match &capture.callable_type {
+                    Some(ty) => self
+                        .semantic
+                        .intern_type(&mut self.store.semantic, &executable_type(ty))?,
+                    None => self.intern_lowered_type(capture.kind)?,
+                };
                 self.store.captures.push(FullCapture {
                     name,
                     type_id,
@@ -1974,6 +1791,35 @@ impl FullBuilder {
                 return_type,
                 None,
             )?;
+            if body.callable_slot_types.len() != body.slot_count {
+                return Err(IrBuildError::format(
+                    "callable_slot_type_count",
+                    Some(unit.source_span()),
+                    0,
+                    self.store.tags.len(),
+                ));
+            }
+            let callable_slot_types_start = self.store.callable_slot_types.len();
+            for ty in &body.callable_slot_types {
+                let raw = match ty {
+                    None => IR_NONE,
+                    Some(ty @ Type::Callable(_)) => self
+                        .semantic
+                        .intern_type(&mut self.store.semantic, &executable_type(ty))?
+                        .raw(),
+                    Some(_) => {
+                        return Err(IrBuildError::format(
+                            "non_callable_slot_type",
+                            Some(unit.source_span()),
+                            0,
+                            self.store.tags.len(),
+                        ));
+                    }
+                };
+                self.store.callable_slot_types.push(raw);
+            }
+            let callable_slot_types =
+                table_range(callable_slot_types_start, self.store.callable_slot_types.len())?;
             let params = table_range(params_start, self.store.params.len())?;
             let captures = table_range(captures_start, self.store.captures.len())?;
             self.function_ids.insert(unit.key(), function_id);
@@ -1985,6 +1831,7 @@ impl FullBuilder {
                 body: IR_NONE,
                 slot_count: u32::try_from(body.slot_count)
                     .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?,
+                callable_slot_types,
             });
             self.store.function_instruction_starts.push(IR_NONE);
             self.store.function_metadata.push(FullFunctionMetadata {
@@ -1992,7 +1839,7 @@ impl FullBuilder {
                 flags: match unit.kind() {
                     LoweredFunctionKind::Pure => 0,
                     LoweredFunctionKind::Proc => 1,
-                } | u8::from(body.has_defers) << 1,
+                },
                 reserved: [0; 3],
             });
             self.function_definition_spans.push(unit.definition_span());
@@ -2315,112 +2162,52 @@ impl FullBuilder {
         self.current_slot_count = u32::try_from(slot_count)
             .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?;
         let mut payload = self.take_payload();
-        let tag = match statement.as_ref().map(|statement| &statement.kind) {
-            None => FullDriverTag::Skip,
+        let row = match statement.as_ref().map(|statement| &statement.kind) {
+            None => schema::DriverPayloadRowRef::Skip {},
             Some(BuildTopKind::Use {
+                key, alias, path, namespace, exports, span: use_span, ..
+            }) => schema::DriverPayloadRowRef::Use {
                 key,
                 alias,
                 path,
                 namespace,
                 exports,
-                span,
-                ..
-            }) => {
-                key.encode(self, &mut payload)?;
-                alias.encode(self, &mut payload)?;
-                path.encode(self, &mut payload)?;
-                namespace.encode(self, &mut payload)?;
-                exports.encode(self, &mut payload)?;
-                payload.push(child_program.ok_or_else(|| {
-                    IrBuildError::format("driver_use_program", Some(*span), 0, 0)
-                })?);
-                span.encode(self, &mut payload)?;
-                FullDriverTag::Use
+                child_program: &child_program,
+                span: use_span,
+            },
+            Some(BuildTopKind::Let { target, ty, validation, mutable, value, value_span }) => {
+                schema::DriverPayloadRowRef::Let {
+                    target, ty, validation, mutable, value, value_span,
+                }
             }
-            Some(BuildTopKind::Let {
-                target,
-                ty,
-                validation,
-                mutable,
-                value,
-                value_span,
-            }) => {
-                target.encode(self, &mut payload)?;
-                ty.encode(self, &mut payload)?;
-                validation.encode(self, &mut payload)?;
-                mutable.encode(self, &mut payload)?;
-                value.encode(self, &mut payload)?;
-                value_span.encode(self, &mut payload)?;
-                FullDriverTag::Let
+            Some(BuildTopKind::LetRecord { source, fields, target, mutable, span }) => {
+                schema::DriverPayloadRowRef::LetRecord { source, fields, target, mutable, span }
             }
-            Some(BuildTopKind::LetRecord {
-                source,
-                fields,
-                target,
-                mutable,
-                span,
-            }) => {
-                source.encode(self, &mut payload)?;
-                fields.encode(self, &mut payload)?;
-                target.encode(self, &mut payload)?;
-                mutable.encode(self, &mut payload)?;
-                span.encode(self, &mut payload)?;
-                FullDriverTag::LetRecord
-            }
-            Some(BuildTopKind::Assign {
-                target,
-                op,
-                value,
-                span,
-            }) => {
-                target.encode(self, &mut payload)?;
-                op.encode(self, &mut payload)?;
-                value.encode(self, &mut payload)?;
-                span.encode(self, &mut payload)?;
-                FullDriverTag::Assign
+            Some(BuildTopKind::Assign { target, op, value, span }) => {
+                schema::DriverPayloadRowRef::Assign { target, op, value, span }
             }
             Some(BuildTopKind::Discard { value, span }) => {
-                value.encode(self, &mut payload)?;
-                span.encode(self, &mut payload)?;
-                FullDriverTag::Discard
+                schema::DriverPayloadRowRef::Discard { value, span }
             }
             Some(BuildTopKind::Stmt(statement)) => {
-                statement.encode(self, &mut payload)?;
-                FullDriverTag::Stmt
+                schema::DriverPayloadRowRef::Stmt { statement }
             }
-            Some(BuildTopKind::Expr(value)) => {
-                value.encode(self, &mut payload)?;
-                FullDriverTag::Expr
-            }
-            Some(BuildTopKind::Defer {
-                value,
-                on_error,
-                span,
-            }) => {
-                value.encode(self, &mut payload)?;
-                on_error.encode(self, &mut payload)?;
-                span.encode(self, &mut payload)?;
-                FullDriverTag::Defer
+            Some(BuildTopKind::Expr(value)) => schema::DriverPayloadRowRef::Expr { value },
+            Some(BuildTopKind::Defer { value, on_error, span }) => {
+                schema::DriverPayloadRowRef::Defer { value, on_error, span }
             }
             Some(BuildTopKind::SignalHook {
-                signal,
-                pre_cancel,
-                body,
-                slots,
-                slot_count,
-                span,
-            }) => {
-                signal.encode(self, &mut payload)?;
-                pre_cancel.encode(self, &mut payload)?;
-                body.encode(self, &mut payload)?;
-                slots.encode(self, &mut payload)?;
-                payload.push(u32::try_from(*slot_count).map_err(|_| {
-                    IrBuildError::format("signal_hook_slot_overflow", Some(*span), 0, 0)
-                })?);
-                span.encode(self, &mut payload)?;
-                FullDriverTag::SignalHook
-            }
+                signal, pre_cancel, body, slots, slot_count, span,
+            }) => schema::DriverPayloadRowRef::SignalHook {
+                signal, pre_cancel, body, slots, slot_count, span,
+            },
         };
+        let error_span = match statement.as_ref().map(|statement| &statement.kind) {
+            Some(BuildTopKind::Use { span, .. })
+            | Some(BuildTopKind::SignalHook { span, .. }) => *span,
+            _ => span,
+        };
+        let tag = row.encode(self, &mut payload, error_span)?;
         self.current_owner = None;
         self.current_slot_count = 0;
         let data = self.push_extra(&payload);
@@ -2504,6 +2291,7 @@ impl FullBuilder {
             .map_err(|_| IrBuildError::format("instruction_overflow", None, 0, 0))?;
         let range = self.push_extra(payload)?;
         self.store.tags.push(tag);
+        self.store.resource_transfers.push(false);
         self.store.data.push(IrData::new(range.start, range.len));
         debug_assert_eq!(
             function,
@@ -2647,7 +2435,7 @@ impl FullBuilder {
     }
 
     fn intern_lowered_type(&mut self, ty: LoweredType) -> Result<TypeId, IrBuildError> {
-        let ty = lowered_type_to_type(ty)?;
+        let ty = lowered_type_to_type(ty);
         self.semantic.intern_type(&mut self.store.semantic, &ty)
     }
 
@@ -2655,7 +2443,7 @@ impl FullBuilder {
         match kind {
             LoweredReturnKind::Plain(ty) => self.intern_lowered_type(ty),
             LoweredReturnKind::Result(ty) => {
-                let ok = lowered_type_to_type(ty)?;
+                let ok = lowered_type_to_type(ty);
                 self.semantic.intern_type(
                     &mut self.store.semantic,
                     &Type::Result(Box::new(ok), Box::new(Type::Error)),
@@ -2720,7 +2508,7 @@ impl FullBuilder {
             prepared_constants: self.store.prepared_constants.len(),
             wire_enums: self.store.wire_enums.len(),
             prepared_schemas: self.store.prepared_schemas.len(),
-            prepared_cli_plans: self.store.prepared_cli_plans.len(),
+            prepared_module_call_plans: self.store.prepared_module_call_plans.len(),
             locations: self.store.locations.len(),
             runtime_ops: self.store.runtime_ops.len(),
             assign_ops: self.store.assign_ops.len(),
@@ -2733,6 +2521,7 @@ impl FullBuilder {
 
     fn rewind(&mut self, checkpoint: FullCheckpoint) {
         self.store.tags.truncate(checkpoint.tags);
+        self.store.resource_transfers.truncate(checkpoint.tags);
         self.store.data.truncate(checkpoint.tags);
         self.store.extra.truncate(checkpoint.extra);
         self.store.patterns.truncate(checkpoint.patterns);
@@ -2770,8 +2559,8 @@ impl FullBuilder {
             .prepared_schemas
             .truncate(checkpoint.prepared_schemas);
         self.store
-            .prepared_cli_plans
-            .truncate(checkpoint.prepared_cli_plans);
+            .prepared_module_call_plans
+            .truncate(checkpoint.prepared_module_call_plans);
         self.store.locations.truncate(checkpoint.locations);
         self.store.location_sources.truncate(checkpoint.locations);
         self.store.runtime_ops.truncate(checkpoint.runtime_ops);
@@ -2821,78 +2610,11 @@ fn driver_tag_writes_binding(tag: FullDriverTag) -> bool {
 }
 
 fn instruction_effects(tags: &[FullTag]) -> u32 {
-    tags.iter().fold(0, |effects, tag| {
-        effects
-            | match tag {
-                FullTag::ExprContextScope => EFFECT_CWD | EFFECT_ENV | EFFECT_HOST | EFFECT_TRACE,
-                FullTag::StmtCd => EFFECT_CWD | EFFECT_HOST | EFFECT_TRACE,
-                FullTag::StmtEnv => EFFECT_ENV | EFFECT_HOST | EFFECT_TRACE,
-                FullTag::ExprRunCapture
-                | FullTag::ExprRunPipeline
-                | FullTag::ExprSpawnRun
-                | FullTag::ExprSpawnCommand
-                | FullTag::ExprWait
-                | FullTag::ExprProcessCommandArgv
-                | FullTag::ExprProcessCommandBuilder
-                | FullTag::StmtRun => {
-                    EFFECT_PROCESS
-                        | EFFECT_CANCELLATION
-                        | EFFECT_PROPAGATE
-                        | EFFECT_HOST
-                        | EFFECT_TRACE
-                }
-                FullTag::ExprAbort | FullTag::ExprFail => EFFECT_PROPAGATE | EFFECT_TRACE,
-                FullTag::ExprDynamicCall | FullTag::ExprTypedCall => {
-                    EFFECT_DYNAMIC_CALL | EFFECT_TRACE
-                }
-                FullTag::ExprCall
-                | FullTag::ExprSelfCall
-                | FullTag::ExprDirectPureCall
-                | FullTag::ExprExternalCall => EFFECT_TRACE,
-                FullTag::ExprModuleCall | FullTag::StmtProc => EFFECT_HOST | EFFECT_TRACE,
-                FullTag::StmtPrint => EFFECT_HOST | EFFECT_TRACE,
-                FullTag::ExprFsFiles
-                | FullTag::ExprFsWalk
-                | FullTag::ExprFsList
-                | FullTag::ExprFsTempDir
-                | FullTag::ExprFsMkdir
-                | FullTag::ExprFsRemove
-                | FullTag::ExprPathReadText
-                | FullTag::ExprPathReadBytes
-                | FullTag::ExprPathExists
-                | FullTag::ExprPathExecutable
-                | FullTag::ExprPathDu
-                | FullTag::ExprPathMetadata
-                | FullTag::ExprPathReadlink
-                | FullTag::ExprPathResolve
-                | FullTag::ExprPathWrite
-                | FullTag::ExprPathMkdir
-                | FullTag::ExprPathRemove
-                | FullTag::ExprArchiveTarCreate
-                | FullTag::ExprArchiveTarList
-                | FullTag::ExprArchiveTarExtract
-                | FullTag::ExprTry
-                | FullTag::StmtGuard
-                | FullTag::StmtWith => EFFECT_PROPAGATE | EFFECT_TRACE,
-                FullTag::StmtDefer => EFFECT_DEFER | EFFECT_PROPAGATE | EFFECT_TRACE,
-                FullTag::ExprLoop
-                | FullTag::StmtLoop
-                | FullTag::StmtWhile
-                | FullTag::StmtWhileBool
-                | FullTag::StmtPatternIf
-                | FullTag::StmtPatternWhile
-                | FullTag::StmtFor
-                | FullTag::StmtForRecord
-                | FullTag::StmtForStrLines
-                | FullTag::StmtScanLines
-                | FullTag::StmtScanBytes => EFFECT_CANCELLATION,
-                _ => 0,
-            }
-    })
+    tags.iter().fold(0, |effects, tag| effects | tag.effects())
 }
 
-fn lowered_type_to_type(ty: LoweredType) -> Result<Type, IrBuildError> {
-    Ok(match ty {
+pub(in crate::runtime::eval) fn lowered_type_to_type(ty: LoweredType) -> Type {
+    match ty {
         LoweredType::Any => Type::Any,
         LoweredType::Unit => Type::Unit,
         LoweredType::Int => Type::Int,
@@ -2909,6 +2631,7 @@ fn lowered_type_to_type(ty: LoweredType) -> Result<Type, IrBuildError> {
         LoweredType::ProcessHandle => Type::ProcessHandle,
         LoweredType::NetJob => Type::NetJob,
         LoweredType::FsRoot => Type::FsRoot,
+        LoweredType::FsLock => Type::FsLock,
         LoweredType::Stream => Type::Stream(Box::new(Type::Any)),
         LoweredType::Pure => Type::Pure,
         LoweredType::Proc => Type::Proc,
@@ -2920,7 +2643,7 @@ fn lowered_type_to_type(ty: LoweredType) -> Result<Type, IrBuildError> {
         LoweredType::Result => Type::Result(Box::new(Type::Any), Box::new(Type::Error)),
         LoweredType::Tag => Type::Tag(Name::intern("<tag>")),
         LoweredType::Set => Type::Set(Box::new(Type::Any)),
-    })
+    }
 }
 
 fn executable_type(ty: &Type) -> Type {
@@ -3000,8 +2723,8 @@ fn executable_callable_type(signature: &CallableType) -> CallableType {
     }
 }
 
-fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
-    Ok(match ty {
+pub(in crate::runtime::eval) fn lowered_type_for_type(ty: &Type) -> Option<LoweredType> {
+    Some(match ty {
         Type::Any | Type::Unknown => LoweredType::Any,
         Type::Unit => LoweredType::Unit,
         Type::Int | Type::UInt => LoweredType::Int,
@@ -3018,13 +2741,14 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
         Type::ProcessHandle => LoweredType::ProcessHandle,
         Type::NetJob => LoweredType::NetJob,
         Type::FsRoot => LoweredType::FsRoot,
+        Type::FsLock => LoweredType::FsLock,
         Type::Stream(_) => LoweredType::Stream,
         Type::Set(_) => LoweredType::Set,
         Type::Pure => LoweredType::Pure,
         Type::Proc => LoweredType::Proc,
         Type::Callable(callable) if callable.pure => LoweredType::Pure,
         Type::Callable(_) => LoweredType::Proc,
-        Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ErrorFacet(_) => {
+        Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => {
             LoweredType::Error
         }
         Type::ErasedRecord | Type::Record(_) => LoweredType::Record,
@@ -3035,17 +2759,33 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
         Type::Result(_, _) => LoweredType::Result,
         Type::Null | Type::Optional(_) | Type::Union(_) => LoweredType::Any,
         // A validated value is stored as a value of its base.
-        Type::Validated(validated) => lowered_type_from_type(validated.base())?,
+        Type::Validated(validated) => return lowered_type_for_type(validated.base()),
+        // Policy-only and transient types are handled by their narrow caller
+        // contracts rather than by the shared mapping.
         Type::BuiltinParameter(_)
         | Type::Inference(_)
         | Type::Invalid
         | Type::EnvPathList
-        | Type::ProcessError => {
-            return Err(IrVerifyError::new(
-                "semantic type has no lowered runtime equivalent",
-            ));
-        }
+        | Type::ErrorFacet(_)
+        | Type::ProcessError => return None,
     })
+}
+
+/// The verifier rejects checker recovery types but accepts error facets as Error.
+fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
+    match ty {
+        Type::ErrorFacet(_) => Ok(LoweredType::Error),
+        Type::BuiltinParameter(_)
+        | Type::Inference(_)
+        | Type::Invalid
+        | Type::EnvPathList
+        | Type::ProcessError => Err(IrVerifyError::new(
+            "semantic type has no lowered runtime equivalent",
+        )),
+        ty => lowered_type_for_type(ty).ok_or_else(|| {
+            IrVerifyError::new("semantic type has no lowered runtime equivalent")
+        }),
+    }
 }
 
 /// The hole kind an encoded index names.
@@ -3074,10 +2814,20 @@ pub(in crate::runtime::eval) struct FullCursor<'a> {
 
 #[derive(Clone, Copy)]
 pub(in crate::runtime::eval) struct FullPayload<'a> {
+    store: &'a FullStore,
     cursor: FullCursor<'a>,
 }
 
 impl<'a> FullPayload<'a> {
+    #[inline(always)]
+    fn check_store(&self, execution: &FullExecution<'a>) -> Result<(), IrVerifyError> {
+        if std::ptr::eq(self.store, execution.decoder.store) {
+            Ok(())
+        } else {
+            Err(IrVerifyError::new("full IR payload belongs to another program"))
+        }
+    }
+
     #[inline(always)]
     pub(in crate::runtime::eval) fn raw(&mut self) -> Result<u32, IrVerifyError> {
         self.cursor.raw()
@@ -3088,7 +2838,17 @@ impl<'a> FullPayload<'a> {
         &mut self,
         execution: &FullExecution<'a>,
     ) -> Result<T, IrVerifyError> {
+        self.check_store(execution)?;
         T::decode(&execution.decoder, &mut self.cursor)
+    }
+
+    #[inline(always)]
+    pub(in crate::runtime::eval) fn borrow<T: BorrowCodec>(
+        &mut self,
+        execution: &FullExecution<'a>,
+    ) -> Result<T::View<'a>, IrVerifyError> {
+        self.check_store(execution)?;
+        T::borrow(DecodeContext::new(execution), &mut self.cursor)
     }
 
     #[inline(always)]
@@ -3109,12 +2869,36 @@ impl<'a> FullExecution<'a> {
                 owner: self.decoder.owner,
                 instruction_range: self.decoder.instruction_range.clone(),
                 instruction_states: None,
+                instruction_proof: None,
                 block_states: None,
                 slot_count: self.decoder.slot_count,
                 pattern_ceiling: Cell::new(usize::MAX),
                 verified: self.decoder.verified,
             },
         }
+    }
+
+    /// The evaluator calls this for instruction IDs from an already verified
+    /// owner range, after verification has installed the derived mark table.
+    pub(in crate::runtime::eval) fn is_in_place(&self, instruction: u32) -> bool {
+        *self
+            .decoder
+            .store
+            .in_place
+            .get()
+            .expect("verified full IR has an in-place mark table")
+            .get(instruction as usize)
+            .expect("verified instruction ID is in bounds")
+    }
+
+    #[inline(always)]
+    pub(in crate::runtime::eval) fn transfers_resource(&self, instruction: u32) -> bool {
+        *self
+            .decoder
+            .store
+            .resource_transfers
+            .get(instruction as usize)
+            .expect("verified resource-transfer instruction ID is in bounds")
     }
 
     pub(in crate::runtime::eval) fn string(&self, raw: u32) -> Result<&str, IrVerifyError> {
@@ -3169,6 +2953,7 @@ impl<'a> FullExecution<'a> {
             return Ok((
                 tag,
                 FullPayload {
+                    store: self.decoder.store,
                     cursor: FullCursor::verified(words),
                 },
             ));
@@ -3190,6 +2975,7 @@ impl<'a> FullExecution<'a> {
         Ok((
             tag,
             FullPayload {
+                store: self.decoder.store,
                 cursor: self
                     .decoder
                     .cursor(self.decoder.store.payload(data.range())?),
@@ -3208,6 +2994,7 @@ impl<'a> FullExecution<'a> {
             return Ok((
                 tag,
                 FullPayload {
+                    store: self.decoder.store,
                     cursor: self
                         .decoder
                         .cursor(unsafe { self.decoder.store.payload_unchecked(data.range()) }),
@@ -3225,6 +3012,7 @@ impl<'a> FullExecution<'a> {
         Ok((
             tag,
             FullPayload {
+                store: self.decoder.store,
                 cursor: self
                     .decoder
                     .cursor(self.decoder.store.payload(data.range())?),
@@ -3232,18 +3020,13 @@ impl<'a> FullExecution<'a> {
         ))
     }
 
-    #[inline(always)]
-    pub(in crate::runtime::eval) fn instruction(
+    pub(in crate::runtime::eval) fn pattern_view(
         &self,
-        input: &mut FullPayload<'a>,
-    ) -> Result<(u32, FullTag, FullPayload<'a>), IrVerifyError> {
-        let (index, tag, payload) = self.decoder.instruction(&mut input.cursor)?;
-        Ok((
-            u32::try_from(index)
-                .map_err(|_| IrVerifyError::new("full IR instruction id overflows"))?,
-            tag,
-            FullPayload { cursor: payload },
-        ))
+        pattern: PatternId<'a>,
+    ) -> Result<schema::PatternView<'a>, IrVerifyError> {
+        let raw = pattern.raw_for_store(self.decoder.store)?;
+        let (tag, payload) = self.pattern(raw)?;
+        schema::PatternView::decode(self, tag, payload)
     }
 
     #[inline(always)]
@@ -3252,8 +3035,9 @@ impl<'a> FullExecution<'a> {
         input: &mut FullPayload<'a>,
         expected_flags: u8,
     ) -> Result<(IrBlockId, FullPayload<'a>), IrVerifyError> {
+        input.check_store(self)?;
         let (id, block) = self.decoder.block(&mut input.cursor, expected_flags)?;
-        Ok((id, FullPayload { cursor: block }))
+        Ok((id, FullPayload { store: self.decoder.store, cursor: block }))
     }
 
     #[inline(always)]
@@ -3279,6 +3063,7 @@ impl<'a> FullExecution<'a> {
             return Ok((
                 id,
                 FullPayload {
+                    store: self.decoder.store,
                     cursor: self.decoder.cursor(unsafe {
                         self.decoder.store.payload_unchecked(block.instructions)
                     }),
@@ -3308,6 +3093,7 @@ impl<'a> FullExecution<'a> {
         Ok((
             id,
             FullPayload {
+                store: self.decoder.store,
                 cursor: self
                     .decoder
                     .cursor(self.decoder.store.payload(block.instructions)?),
@@ -3315,117 +3101,11 @@ impl<'a> FullExecution<'a> {
         ))
     }
 
-    pub(in crate::runtime::eval) fn pattern_id(
+    pub(in crate::runtime::eval) fn stage_view(
         &self,
         raw: u32,
-    ) -> Result<(FullPatternTag, FullPayload<'a>), IrVerifyError> {
-        let index = raw as usize;
-        if self.decoder.verified {
-            let tag = unsafe { *self.decoder.store.patterns.get_unchecked(index) };
-            let data = unsafe { *self.decoder.store.pattern_data.get_unchecked(index) };
-            let words = unsafe { self.decoder.store.payload_unchecked(data.range()) };
-            return Ok((
-                tag,
-                FullPayload {
-                    cursor: FullCursor::verified(words),
-                },
-            ));
-        }
-        let tag = self
-            .decoder
-            .store
-            .patterns
-            .get(index)
-            .copied()
-            .ok_or_else(|| IrVerifyError::new("pattern id is out of bounds"))?;
-        let data = self.decoder.store.pattern_data[index];
-        Ok((
-            tag,
-            FullPayload {
-                cursor: self
-                    .decoder
-                    .cursor(self.decoder.store.payload(data.range())?),
-            },
-        ))
-    }
-
-    #[inline(always)]
-    pub(in crate::runtime::eval) fn stage_id(
-        &self,
-        raw: u32,
-    ) -> Result<(FullStageTag, FullPayload<'a>), IrVerifyError> {
-        let index = raw as usize;
-        if self.decoder.verified {
-            let tag = unsafe { *self.decoder.store.stages.get_unchecked(index) };
-            let data = unsafe { *self.decoder.store.stage_data.get_unchecked(index) };
-            let words = unsafe { self.decoder.store.payload_unchecked(data.range()) };
-            return Ok((
-                tag,
-                FullPayload {
-                    cursor: FullCursor::verified(words),
-                },
-            ));
-        }
-        let tag = self
-            .decoder
-            .store
-            .stages
-            .get(index)
-            .copied()
-            .ok_or_else(|| IrVerifyError::new("pipeline stage id is out of bounds"))?;
-        let data = self.decoder.store.stage_data[index];
-        Ok((
-            tag,
-            FullPayload {
-                cursor: self
-                    .decoder
-                    .cursor(self.decoder.store.payload(data.range())?),
-            },
-        ))
-    }
-
-    pub(in crate::runtime::eval) fn value_id(
-        &self,
-        raw: u32,
-    ) -> Result<(FullValueTag, FullPayload<'a>), IrVerifyError> {
-        let index = raw as usize;
-        if self.decoder.verified {
-            let tag = unsafe { *self.decoder.store.values.get_unchecked(index) };
-            let data = unsafe { *self.decoder.store.value_data.get_unchecked(index) };
-            let words = unsafe { self.decoder.store.payload_unchecked(data.range()) };
-            return Ok((
-                tag,
-                FullPayload {
-                    cursor: FullCursor::verified(words),
-                },
-            ));
-        }
-        let tag = self
-            .decoder
-            .store
-            .values
-            .get(index)
-            .copied()
-            .ok_or_else(|| IrVerifyError::new("literal value id is out of bounds"))?;
-        let data = self.decoder.store.value_data[index];
-        Ok((
-            tag,
-            FullPayload {
-                cursor: self
-                    .decoder
-                    .cursor(self.decoder.store.payload(data.range())?),
-            },
-        ))
-    }
-
-    #[inline(always)]
-    pub(in crate::runtime::eval) fn finish_instruction(&self, instruction: u32) {
-        self.decoder.finish_instruction(instruction as usize);
-    }
-
-    #[inline(always)]
-    pub(in crate::runtime::eval) fn finish_block(&self, block: IrBlockId) {
-        self.decoder.finish_block(block);
+    ) -> Result<StageView<'a>, IrVerifyError> {
+        StageView::decode(DecodeContext::new(self), raw)
     }
 }
 
@@ -3482,6 +3162,7 @@ pub(in crate::runtime::eval) struct FullDecoder<'a> {
     owner: u32,
     instruction_range: std::ops::Range<usize>,
     instruction_states: Option<RefCell<Vec<u8>>>,
+    instruction_proof: Option<RefCell<in_place::InstructionProof>>,
     block_states: Option<OwnedBlockStates>,
     slot_count: u32,
     pattern_ceiling: Cell<usize>,
@@ -3583,15 +3264,6 @@ impl<'a> FullDecoder<'a> {
                         BuildPatternIdSlots::decode(self, &mut payload)?
                             .into_iter()
                             .flatten(),
-                    );
-                }
-                FullPatternTag::ErrorVariant => {
-                    Name::decode(self, &mut payload)?;
-                    Name::decode(self, &mut payload)?;
-                    captures.extend(
-                        Box::<LoweredErrorPatternFields>::decode(self, &mut payload)?
-                            .iter()
-                            .filter_map(|(_, slot)| *slot),
                     );
                 }
                 FullPatternTag::List
@@ -3763,6 +3435,9 @@ impl<'a> FullDecoder<'a> {
             .copied()
             .ok_or_else(|| IrVerifyError::new("full IR instruction is out of bounds"))?;
         let data = self.store.data[index];
+        if let Some(proof) = &self.instruction_proof {
+            proof.borrow_mut().enter(index, tag);
+        }
         Ok((index, tag, self.cursor(self.store.payload(data.range())?)))
     }
 
@@ -3830,6 +3505,7 @@ impl<'a> FullDecoder<'a> {
                 ));
             }
             self.verify_typed_callee_parameter(function, callee, &payload)?;
+            self.verify_typed_callee_slot(function, callee, &payload)?;
         }
         let ty = TypeId::from_raw(payload.raw()?)
             .ok_or_else(|| IrVerifyError::new("typed call signature type id is invalid"))?;
@@ -3917,21 +3593,87 @@ impl<'a> FullDecoder<'a> {
             .get(validation as usize)
             .ok_or_else(|| IrVerifyError::new("typed callee validation is out of bounds"))?
             .type_id;
-        // A parameter declared as something wider, such as an optional
-        // callable narrowed before the call, has no single type to compare.
-        if self
+        self.verify_typed_callee_type(
+            declared,
+            payload,
+            "typed call signature differs from its callee parameter's callable type",
+        )
+    }
+
+    /// A direct slot whose checked declaration is one callable type holds a
+    /// typed call to that signature; parameter slots keep their existing proof.
+    fn verify_typed_callee_slot(
+        &self,
+        function: usize,
+        callee: usize,
+        payload: &FullCursor<'_>,
+    ) -> Result<(), IrVerifyError> {
+        if self.store.tags.get(callee) != Some(&FullTag::ExprParam) {
+            return Ok(());
+        }
+        let slot = *self
             .store
-            .semantic
-            .typed_callable_signature(declared)
-            .is_err()
-        {
+            .payload(self.store.data[callee].range())?
+            .first()
+            .ok_or_else(|| IrVerifyError::new("typed callee slot is missing"))?
+            as usize;
+        let function_row = self
+            .store
+            .functions
+            .get(function)
+            .ok_or_else(|| IrVerifyError::new("typed call owner is out of bounds"))?;
+        let params = function_row
+            .params
+            .bounds(self.store.params.len())
+            .ok_or_else(|| IrVerifyError::new("function parameter range is invalid"))?;
+        if slot < params.len() {
+            return Ok(());
+        }
+        let captures = function_row
+            .captures
+            .bounds(self.store.captures.len())
+            .ok_or_else(|| IrVerifyError::new("function capture range is invalid"))?;
+        if let Some(capture) = self.store.captures[captures].iter().find(|capture| {
+            (capture.slot_and_flags & !(1 << 31)) as usize == slot
+        }) {
+            return self.verify_typed_callee_type(
+                capture.type_id,
+                payload,
+                "typed call signature differs from its callee capture's callable type",
+            );
+        }
+        let slot_types = function_row
+            .callable_slot_types
+            .bounds(self.store.callable_slot_types.len())
+            .ok_or_else(|| IrVerifyError::new("function callable slot type range is invalid"))?;
+        let raw = *self
+            .store
+            .callable_slot_types
+            .get(slot_types.start + slot)
+            .ok_or_else(|| IrVerifyError::new("typed callee slot type is missing"))?;
+        if raw == IR_NONE { return Ok(()); }
+        let declared = TypeId::from_raw(raw)
+            .ok_or_else(|| IrVerifyError::new("function callable slot type id is invalid"))?;
+        self.verify_typed_callee_type(
+            declared,
+            payload,
+            "typed call signature differs from its callee slot's callable type",
+        )
+    }
+
+    fn verify_typed_callee_type(
+        &self,
+        declared: TypeId,
+        payload: &FullCursor<'_>,
+        reason: &'static str,
+    ) -> Result<(), IrVerifyError> {
+        // Wider declarations such as optional callables have no single signature.
+        if self.store.semantic.typed_callable_signature(declared).is_err() {
             return Ok(());
         }
         let mut row = *payload;
         if declared.raw() != row.raw()? {
-            return Err(IrVerifyError::new(
-                "typed call signature differs from its callee parameter's callable type",
-            ));
+            return Err(IrVerifyError::new(reason));
         }
         Ok(())
     }
@@ -3987,8 +3729,25 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn finish_instruction(&self, index: usize) {
+        if let Some(proof) = &self.instruction_proof {
+            proof.borrow_mut().finish(index);
+        }
         if let Some(states) = &self.instruction_states {
             states.borrow_mut()[index - self.instruction_range.start] = 2;
+        }
+    }
+
+    fn copy_in_place_marks_into(&self, output: &mut [bool]) -> Result<(), IrVerifyError> {
+        let complete = self
+            .instruction_proof
+            .as_ref()
+            .is_none_or(|proof| proof.borrow().copy_marks_into(output));
+        if complete {
+            Ok(())
+        } else {
+            Err(IrVerifyError::new(
+                "full IR in-place proof did not cover its instruction range",
+            ))
         }
     }
 
@@ -4001,7 +3760,11 @@ impl<'a> FullDecoder<'a> {
             .block_states
             .as_ref()
             .is_none_or(|states| states.finished_owned.get() == states.owned);
-        if instructions_complete && blocks_complete {
+        let proof_complete = self
+            .instruction_proof
+            .as_ref()
+            .is_none_or(|proof| proof.borrow().complete());
+        if instructions_complete && blocks_complete && proof_complete {
             Ok(())
         } else {
             Err(IrVerifyError::new(
@@ -4270,6 +4033,22 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
 }
 
 impl FullVerifier {
+    fn verify_resource_transfer_sites(store: &FullStore) -> Result<(), IrVerifyError> {
+        if store.resource_transfers.len() != store.tags.len() {
+            return Err(IrVerifyError::new(
+                "resource-transfer metadata does not match instruction count",
+            ));
+        }
+        for (&tag, &transfers_resource) in store.tags.iter().zip(&store.resource_transfers) {
+            if transfers_resource && !is_resource_transfer_instruction(tag) {
+                return Err(IrVerifyError::new(
+                    "resource-transfer metadata is attached to an invalid instruction",
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Private representation operations are reachable only from the embedded
     /// implementation module that declares them.
     ///
@@ -4331,6 +4110,19 @@ impl FullVerifier {
     fn verify(program: &FullProgram) -> Result<(), IrVerifyError> {
         let _symbols = program.symbol_owner().enter();
         let store = &program.store;
+        Self::verify_resource_transfer_sites(store)?;
+        for plan in &store.prepared_module_call_plans {
+            match plan.as_ref() {
+                crate::runtime::eval::ModuleCallPlan::SignatureCli(_) => {}
+                crate::runtime::eval::ModuleCallPlan::CommandArguments(plan) => {
+                    if !crate::modules::api_spec().module_entries().any(|(_, module)| {
+                        module.functions.iter().any(|function| function.overloads.iter().any(|registered| std::ptr::eq(registered, plan.signature)))
+                    }) {
+                        return Err(IrVerifyError::new("module command signature is not a registered module overload"));
+                    }
+                }
+            }
+        }
         let mut wire_types = rustc_hash::FxHashSet::default();
         for mapping in &store.wire_enums {
             if mapping.variants.is_empty()
@@ -4440,14 +4232,16 @@ impl FullVerifier {
             }
             previous_cold_param = Some(cold.param);
         }
+        let mut in_place_marks = vec![false; store.tags.len()];
         let owned_blocks = owned_block_counts(store);
+        let mut previous_callable_slot_type_end = 0usize;
         for (index, function) in store.functions.iter().enumerate() {
             store.string(function.name)?;
             let metadata = store.function_metadata[index];
             if metadata.owner != IR_NONE {
                 store.string(metadata.owner)?;
             }
-            if metadata.flags & !0b11 != 0 {
+            if metadata.flags & !0b1 != 0 {
                 return Err(IrVerifyError::new("function metadata flags are invalid"));
             }
             let instructions = store.function_instruction_range(index)?;
@@ -4465,6 +4259,30 @@ impl FullVerifier {
                 .captures
                 .bounds(store.captures.len())
                 .ok_or_else(|| IrVerifyError::new("function capture range is invalid"))?;
+            let callable_slot_types = function
+                .callable_slot_types
+                .bounds(store.callable_slot_types.len())
+                .ok_or_else(|| IrVerifyError::new("function callable slot type range is invalid"))?;
+            if callable_slot_types.start != previous_callable_slot_type_end
+                || callable_slot_types.len() != function.slot_count as usize
+            {
+                return Err(IrVerifyError::new(
+                    "function callable slot type ranges are not dense and slot-complete",
+                ));
+            }
+            previous_callable_slot_type_end = callable_slot_types.end;
+            for raw in &store.callable_slot_types[callable_slot_types] {
+                if *raw == IR_NONE {
+                    continue;
+                }
+                let ty = TypeId::from_raw(*raw).ok_or_else(|| {
+                    IrVerifyError::new("function callable slot type id is invalid")
+                })?;
+                store
+                    .semantic
+                    .typed_callable_signature(ty)
+                    .map_err(|_| IrVerifyError::new("function slot type is not callable"))?;
+            }
             if store.semantic.signature_param_count(function.signature)? != params.len() {
                 return Err(IrVerifyError::new(
                     "function parameters do not match its signature",
@@ -4491,8 +4309,11 @@ impl FullVerifier {
             let decoder = FullDecoder {
                 store,
                 owner,
-                instruction_range: instructions,
+                instruction_range: instructions.clone(),
                 instruction_states: Some(RefCell::new(vec![0; instruction_len])),
+                instruction_proof: Some(RefCell::new(in_place::InstructionProof::new(
+                    instructions.clone(),
+                ))),
                 block_states: Some(OwnedBlockStates::new(owner, &owned_blocks)),
                 slot_count: function.slot_count,
                 pattern_ceiling: Cell::new(usize::MAX),
@@ -4529,6 +4350,7 @@ impl FullVerifier {
                 }
             }
             decoder.finish_function()?;
+            decoder.copy_in_place_marks_into(&mut in_place_marks)?;
             let body_payload = store.payload(body_block.instructions)?;
             let mut default_slots = BTreeSet::new();
             let mut entry_open = true;
@@ -4604,6 +4426,11 @@ impl FullVerifier {
                     "function {index} body does not terminate with a return"
                 )));
             }
+        }
+        if previous_callable_slot_type_end != store.callable_slot_types.len() {
+            return Err(IrVerifyError::new(
+                "unowned function callable slot type rows",
+            ));
         }
         Self::verify_bridge_ownership(store)?;
         if store.driver_root == IR_NONE {
@@ -4805,11 +4632,17 @@ impl FullVerifier {
                     "driver plan contains an unreachable sync row",
                 ));
             }
-            program.verify_driver(&owned_blocks)?;
+            program.verify_driver(&owned_blocks, &mut in_place_marks)?;
         }
         if previous_end != store.tags.len() {
             return Err(IrVerifyError::new(
                 "full IR contains instructions outside executable owner ranges",
+            ));
+        }
+        let marks = store.in_place.get_or_init(|| in_place_marks.clone());
+        if marks != &in_place_marks {
+            return Err(IrVerifyError::new(
+                "full IR in-place mark cache does not match verifier proof",
             ));
         }
         Ok(())
@@ -5321,6 +5154,10 @@ impl<A: FullCodec, B: FullCodec, C: FullCodec> FullCodec for (A, B, C) {
 
 macro_rules! impl_vec_codec {
     ($ty:ty, $flags:expr) => {
+        impl decode::VectorElement for $ty {
+            const BLOCK_FLAGS: u8 = $flags;
+        }
+
         impl FullCodec for Vec<$ty> {
             fn encode(
                 &self,
@@ -5508,23 +5345,23 @@ fn visit_value_wire_mappings(
     }
 }
 
-impl FullCodec for Arc<crate::modules::cli::CliDescriptorPlan> {
+impl FullCodec for Arc<crate::runtime::eval::ModuleCallPlan> {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         let index = if let Some(index) = builder
             .store
-            .prepared_cli_plans
+            .prepared_module_call_plans
             .iter()
-            .position(|plan| Arc::ptr_eq(plan, self))
+            .position(|plan| plan.same_identity(self))
         {
             index
         } else {
-            let index = builder.store.prepared_cli_plans.len();
-            builder.store.prepared_cli_plans.push(Arc::clone(self));
+            let index = builder.store.prepared_module_call_plans.len();
+            builder.store.prepared_module_call_plans.push(Arc::clone(self));
             index
         };
         output.push(
             u32::try_from(index)
-                .map_err(|_| IrBuildError::format("CLI plan pool overflow", None, 0, 0))?,
+                .map_err(|_| IrBuildError::format("module call plan pool overflow", None, 0, 0))?,
         );
         Ok(())
     }
@@ -5534,10 +5371,10 @@ impl FullCodec for Arc<crate::modules::cli::CliDescriptorPlan> {
     ) -> Result<Self, IrVerifyError> {
         decoder
             .store
-            .prepared_cli_plans
+            .prepared_module_call_plans
             .get(input.raw()? as usize)
             .cloned()
-            .ok_or_else(|| IrVerifyError::new("prepared CLI descriptor plan is out of bounds"))
+            .ok_or_else(|| IrVerifyError::new("prepared module call plan is out of bounds"))
     }
 }
 
@@ -5801,7 +5638,7 @@ impl FullCodec for Type {
 
 impl FullCodec for LoweredType {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        lowered_type_to_type(*self)?.encode(builder, output)
+        lowered_type_to_type(*self).encode(builder, output)
     }
 
     fn decode(
@@ -5861,56 +5698,7 @@ impl FullCodec for Arc<super::super::require::PreparedSchema> {
     }
 }
 
-impl FullCodec for LoweredTypeCheck {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        self.ty.encode(builder, output)?;
-        self.name.encode(builder, output)?;
-        self.schema.encode(builder, output)
-    }
 
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        let check = Self {
-            ty: Type::decode(decoder, input)?,
-            name: Arc::<str>::decode(decoder, input)?,
-            schema: Option::decode(decoder, input)?,
-        };
-        if !decoder.verified
-            && check
-                .schema
-                .as_ref()
-                .is_some_and(|schema| !schema.matches_type(&check.ty))
-        {
-            return Err(IrVerifyError::new(
-                "prepared schema does not match its checked type",
-            ));
-        }
-        Ok(check)
-    }
-}
-
-impl FullCodec for LoweredTopLevelSlot {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        self.name.encode(builder, output)?;
-        self.slot.encode(builder, output)?;
-        self.kind.encode(builder, output)?;
-        self.mutable.encode(builder, output)
-    }
-
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        Ok(Self {
-            name: Name::decode(decoder, input)?,
-            slot: usize::decode(decoder, input)?,
-            kind: LoweredType::decode(decoder, input)?,
-            mutable: bool::decode(decoder, input)?,
-        })
-    }
-}
 
 impl FullCodec for LoweredModuleExport {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
@@ -6020,272 +5808,167 @@ fn decode_set_payload(
     Ok(elements)
 }
 
-impl FullCodec for LoweredValue {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        let mut payload = builder.take_payload();
-        let tag = match self {
-            Self::OmittedArgument => {
-                return Err(IrBuildError::format("omitted_argument_literal", None, 0, 0));
-            }
-            Self::Null => FullValueTag::Null,
-            Self::Unit => FullValueTag::Unit,
-            Self::Int(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::Int
-            }
-            Self::Float(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::Float
-            }
-            Self::Duration(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::Duration
-            }
-            Self::Bool(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::Bool
-            }
-            Self::Str(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::Str
-            }
-            Self::StrView(value) => {
-                Arc::<str>::from(value.as_str()).encode(builder, &mut payload)?;
-                FullValueTag::Str
-            }
-            Self::Bytes(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::Bytes
-            }
-            Self::BytesView(value) => {
-                Arc::<[u8]>::from(value.as_slice()).encode(builder, &mut payload)?;
-                FullValueTag::Bytes
-            }
-            Self::Path(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::Path
-            }
-            Self::Record(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::Record
-            }
-            Self::RecordVec(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::RecordVec
-            }
-            Self::Stats {
-                blanks,
-                code,
-                comments,
-            } => {
-                blanks.encode(builder, &mut payload)?;
-                code.encode(builder, &mut payload)?;
-                comments.encode(builder, &mut payload)?;
-                FullValueTag::Stats
-            }
-            Self::StatsBlob(value) => {
-                value.blanks.encode(builder, &mut payload)?;
-                value.blobs.encode(builder, &mut payload)?;
-                value.code.encode(builder, &mut payload)?;
-                value.comments.encode(builder, &mut payload)?;
-                FullValueTag::StatsBlob
-            }
-            Self::Module(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::Module
-            }
-            Self::List(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::List
-            }
-            Self::SharedList(value) => {
-                value.as_ref().encode(builder, &mut payload)?;
-                FullValueTag::List
-            }
-            Self::Map(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::Map
-            }
-            // A constant set: its length, then its elements in set order.
-            Self::Set(value) => {
-                payload.push(
-                    u32::try_from(value.len())
-                        .map_err(|_| IrBuildError::format("set_overflow", None, 0, 0))?,
-                );
-                for element in value.iter() {
-                    element.encode(builder, &mut payload)?;
-                }
-                FullValueTag::Set
-            }
-            Self::Tag(value) => {
-                value.type_name.encode(builder, &mut payload)?;
-                value.wire.encode(builder, &mut payload)?;
-                value.name.encode(builder, &mut payload)?;
-                value.fields.encode(builder, &mut payload)?;
-                FullValueTag::Tag
-            }
-            Self::ResultOk(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::ResultOk
-            }
-            Self::Regex(value) => {
-                value.as_ref().encode(builder, &mut payload)?;
-                FullValueTag::Regex
-            }
-            Self::Digest(_)
-            | Self::Status(_)
-            | Self::FsEntry(_)
-            | Self::Command(_)
-            | Self::ProcessHandle(_)
-            | Self::NetJob(_)
-            | Self::FsRoot(_)
-            | Self::Stream(_)
-            | Self::Pure(_)
-            | Self::Proc(_)
-            | Self::Error(_)
-            | Self::ResultErr(_) => {
-                return Err(IrBuildError::format(
-                    "non_literal_persistent_value",
-                    None,
-                    0,
-                    0,
-                ));
-            }
-        };
-        let value = builder.push_value(tag, &payload);
-        builder.recycle_payload(payload);
-        output.push(value?);
-        Ok(())
-    }
-
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        let index = input.raw()? as usize;
-        let tag = decoder
-            .store
-            .values
-            .get(index)
-            .copied()
-            .ok_or_else(|| IrVerifyError::new("literal value id is out of bounds"))?;
-        let data = decoder.store.value_data[index];
-        let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
-        let value = match tag {
-            FullValueTag::Null => Self::Null,
-            FullValueTag::Unit => Self::Unit,
-            FullValueTag::Int => Self::Int(i64::decode(decoder, &mut payload)?),
-            FullValueTag::Float => Self::Float(FloatValue::decode(decoder, &mut payload)?),
-            FullValueTag::Duration => Self::Duration(DurationValue::decode(decoder, &mut payload)?),
-            FullValueTag::Bool => Self::Bool(bool::decode(decoder, &mut payload)?),
-            FullValueTag::Str => Self::Str(Arc::<str>::decode(decoder, &mut payload)?),
-            FullValueTag::Bytes => Self::Bytes(Arc::<[u8]>::decode(decoder, &mut payload)?),
-            FullValueTag::Regex => {
-                Self::Regex(Box::new(RegexValue::decode(decoder, &mut payload)?))
-            }
-            FullValueTag::Path => Self::Path(PathValue::decode(decoder, &mut payload)?),
-            FullValueTag::Record => Self::Record(Arc::new(
-                BTreeMap::<Arc<str>, LoweredValue>::decode(decoder, &mut payload)?,
-            )),
-            FullValueTag::RecordVec => Self::RecordVec(Arc::new(
-                Vec::<(Name, LoweredValue)>::decode(decoder, &mut payload)?,
-            )),
-            FullValueTag::Stats => Self::Stats {
-                blanks: i64::decode(decoder, &mut payload)?,
-                code: i64::decode(decoder, &mut payload)?,
-                comments: i64::decode(decoder, &mut payload)?,
-            },
-            FullValueTag::StatsBlob => Self::StatsBlob(Box::new(LoweredStatsValue {
-                blanks: i64::decode(decoder, &mut payload)?,
-                blobs: BTreeMap::<crate::map_key::MapKey, LoweredValue>::decode(
-                    decoder,
-                    &mut payload,
-                )?,
-                code: i64::decode(decoder, &mut payload)?,
-                comments: i64::decode(decoder, &mut payload)?,
-            })),
-            FullValueTag::Module => Self::Module(Arc::new(
-                BTreeMap::<Arc<str>, LoweredValue>::decode(decoder, &mut payload)?,
-            )),
-            FullValueTag::List => Self::List(Vec::<LoweredValue>::decode(decoder, &mut payload)?),
-            FullValueTag::Map => Self::Map(Arc::new(BTreeMap::<
-                crate::map_key::MapKey,
-                LoweredValue,
-            >::decode(decoder, &mut payload)?)),
-            FullValueTag::Tag => Self::Tag(Box::new(LoweredTagValue {
-                type_name: Name::decode(decoder, &mut payload)?,
-                wire: Option::decode(decoder, &mut payload)?,
-                name: Arc::<str>::decode(decoder, &mut payload)?,
-                fields: Vec::<LoweredValue>::decode(decoder, &mut payload)?,
-            })),
-            FullValueTag::ResultOk => {
-                Self::ResultOk(Box::new(LoweredValue::decode(decoder, &mut payload)?))
-            }
-            FullValueTag::Set => Self::Set(Arc::new(decode_set_payload(decoder, &mut payload)?)),
-        };
-        payload.finish()?;
-        Ok(value)
-    }
-
-    fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
-        let index = input.raw()? as usize;
-        let tag = decoder
-            .store
-            .values
-            .get(index)
-            .copied()
-            .ok_or_else(|| IrVerifyError::new("literal value id is out of bounds"))?;
-        let data = decoder.store.value_data[index];
-        let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
-        match tag {
-            FullValueTag::Null | FullValueTag::Unit => {}
-            FullValueTag::Int => i64::verify(decoder, &mut payload)?,
-            FullValueTag::Float => FloatValue::verify(decoder, &mut payload)?,
-            FullValueTag::Duration => DurationValue::verify(decoder, &mut payload)?,
-            FullValueTag::Bool => bool::verify(decoder, &mut payload)?,
-            FullValueTag::Str => Arc::<str>::verify(decoder, &mut payload)?,
-            FullValueTag::Bytes => Arc::<[u8]>::verify(decoder, &mut payload)?,
-            FullValueTag::Regex => RegexValue::verify(decoder, &mut payload)?,
-            FullValueTag::Path => PathValue::verify(decoder, &mut payload)?,
-            FullValueTag::Record => {
-                BTreeMap::<Arc<str>, LoweredValue>::verify(decoder, &mut payload)?;
-            }
-            FullValueTag::RecordVec => {
-                Vec::<(Name, LoweredValue)>::verify(decoder, &mut payload)?;
-            }
-            FullValueTag::Stats => {
-                i64::verify(decoder, &mut payload)?;
-                i64::verify(decoder, &mut payload)?;
-                i64::verify(decoder, &mut payload)?;
-            }
-            FullValueTag::StatsBlob => {
-                i64::verify(decoder, &mut payload)?;
-                BTreeMap::<String, LoweredValue>::verify(decoder, &mut payload)?;
-                i64::verify(decoder, &mut payload)?;
-                i64::verify(decoder, &mut payload)?;
-            }
-            FullValueTag::Module => {
-                BTreeMap::<Arc<str>, LoweredValue>::verify(decoder, &mut payload)?;
-            }
-            FullValueTag::List => Vec::<LoweredValue>::verify(decoder, &mut payload)?,
-            FullValueTag::Map => {
-                BTreeMap::<crate::map_key::MapKey, LoweredValue>::verify(decoder, &mut payload)?;
-            }
-            FullValueTag::Tag => {
-                Name::verify(decoder, &mut payload)?;
-                Option::<Arc<crate::sema::wire_enums::WireEnumMapping>>::verify(
-                    decoder,
-                    &mut payload,
-                )?;
-                Arc::<str>::verify(decoder, &mut payload)?;
-                Vec::<LoweredValue>::verify(decoder, &mut payload)?;
-            }
-            FullValueTag::ResultOk => LoweredValue::verify(decoder, &mut payload)?,
-            FullValueTag::Set => {
-                decode_set_payload(decoder, &mut payload)?;
-            }
+lowered_value_schema! {
+    context { builder, decoder, payload }
+    rows {
+        Null = 0 {
+            fields {}
+            encode { Self::Null => {} }
+            decode Self::Null
         }
-        payload.finish()
+        Unit = 1 {
+            fields {}
+            encode { Self::Unit => {} }
+            decode Self::Unit
+        }
+        Int = 2 {
+            fields { value: i64 }
+            encode { Self::Int(value) => {} }
+            decode Self::Int(value)
+        }
+        Float = 3 {
+            fields { value: FloatValue }
+            encode { Self::Float(value) => {} }
+            decode Self::Float(value)
+        }
+        Duration = 4 {
+            fields { value: DurationValue }
+            encode { Self::Duration(value) => {} }
+            decode Self::Duration(value)
+        }
+        Bool = 5 {
+            fields { value: bool }
+            encode { Self::Bool(value) => {} }
+            decode Self::Bool(value)
+        }
+        Str = 6 {
+            fields { value: Arc<str> }
+            encode { Self::Str(value) => {} }
+            decode Self::Str(value)
+        }
+        Bytes = 7 {
+            fields { value: Arc<[u8]> }
+            encode { Self::Bytes(value) => {} }
+            decode Self::Bytes(value)
+        }
+        Regex = 8 {
+            fields { value: RegexValue }
+            encode { Self::Regex(value) => { let value = value.as_ref(); } }
+            decode Self::Regex(Box::new(value))
+        }
+        Path = 9 {
+            fields { value: PathValue }
+            encode { Self::Path(value) => {} }
+            decode Self::Path(value)
+        }
+        Record = 10 {
+            fields { value: BTreeMap<Arc<str>, LoweredValue> }
+            encode { Self::Record(value) => { let value = value.as_ref(); } }
+            decode Self::Record(Arc::new(value))
+        }
+        RecordVec = 11 {
+            fields { value: Vec<(Name, LoweredValue)> }
+            encode { Self::RecordVec(value) => { let value = value.as_ref(); } }
+            decode Self::RecordVec(Arc::new(value))
+        }
+        Stats = 12 {
+            fields { blanks: i64, code: i64, comments: i64 }
+            encode {
+                Self::Stats { blanks, code, comments } => {}
+            }
+            decode Self::Stats { blanks, code, comments }
+        }
+        // Owned decoding reconstructs MapKey keys; verification preserves the legacy string-key check.
+        StatsBlob = 13 {
+            fields {
+                blanks: i64,
+                blobs: BTreeMap<crate::map_key::MapKey, LoweredValue> => BTreeMap<String, LoweredValue>,
+                code: i64,
+                comments: i64,
+            }
+            encode {
+                Self::StatsBlob(value) => {
+                    let LoweredStatsValue { blanks, blobs, code, comments } = value.as_ref();
+                }
+            }
+            decode Self::StatsBlob(Box::new(LoweredStatsValue { blanks, blobs, code, comments }))
+        }
+        Module = 14 {
+            fields { value: BTreeMap<Arc<str>, LoweredValue> }
+            encode { Self::Module(value) => { let value = value.as_ref(); } }
+            decode Self::Module(Arc::new(value))
+        }
+        List = 15 {
+            fields { value: Vec<LoweredValue> }
+            encode { Self::List(value) => {} }
+            decode Self::List(value)
+        }
+        Map = 16 {
+            fields { value: BTreeMap<crate::map_key::MapKey, LoweredValue> }
+            encode { Self::Map(value) => { let value = value.as_ref(); } }
+            decode Self::Map(Arc::new(value))
+        }
+        Tag = 17 {
+            fields {
+                type_name: Name,
+                wire: Option<Arc<crate::sema::wire_enums::WireEnumMapping>>,
+                name: Arc<str>,
+                fields: Vec<LoweredValue>,
+            }
+            encode {
+                Self::Tag(value) => {
+                    let LoweredTagValue { type_name, wire, name, fields } = value.as_ref();
+                }
+            }
+            decode Self::Tag(Box::new(LoweredTagValue { type_name, wire, name, fields }))
+        }
+        ResultOk = 18 {
+            fields { value: LoweredValue }
+            encode { Self::ResultOk(value) => { let value = value.as_ref(); } }
+            decode Self::ResultOk(Box::new(value))
+        }
+    }
+    aliases {
+        Self::StrView(value) => Str { fields { Arc::<str>::from(value.as_str()) } }
+        Self::BytesView(value) => Bytes { fields { Arc::<[u8]>::from(value.as_slice()) } }
+        Self::SharedList(value) => List { fields { value.as_ref() } }
+    }
+    custom {
+        Set = 19 {
+            encode {
+                Self::Set(value) => {
+                    payload.push(
+                        u32::try_from(value.len())
+                            .map_err(|_| IrBuildError::format("set_overflow", None, 0, 0))?,
+                    );
+                    for element in value.iter() {
+                        element.encode(builder, &mut payload)?;
+                    }
+                }
+            }
+            decode { Self::Set(Arc::new(decode_set_payload(decoder, &mut payload)?)) }
+            verify { decode_set_payload(decoder, &mut payload)?; }
+        }
+    }
+    reject {
+        Self::OmittedArgument => {
+            return Err(IrBuildError::format("omitted_argument_literal", None, 0, 0));
+        },
+        Self::Digest(_)
+        | Self::Status(_)
+        | Self::FsEntry(_)
+        | Self::Command(_)
+        | Self::ProcessHandle(_)
+        | Self::NetJob(_)
+        | Self::FsRoot(_)
+        | Self::FsLock(_)
+        | Self::Stream(_)
+        | Self::Pure(_)
+        | Self::Proc(_)
+        | Self::Error(_)
+        | Self::ResultErr(_) => {
+            return Err(IrBuildError::format("non_literal_persistent_value", None, 0, 0));
+        }
     }
 }
 
@@ -6300,14 +5983,29 @@ fn verify_node_metadata(
         let mut metadata = payload;
         let op = RuntimeOp::decode(decoder, &mut metadata)?;
         let plan =
-            Option::<Arc<crate::modules::cli::CliDescriptorPlan>>::decode(decoder, &mut metadata)?;
-        if plan
-            .as_ref()
-            .is_some_and(|plan| !plan.matches_operation(op))
-        {
-            return Err(IrVerifyError::new(
-                "prepared CLI plan operation policy does not match its instruction",
-            ));
+            Option::<Arc<crate::runtime::eval::ModuleCallPlan>>::decode(decoder, &mut metadata)?;
+        if let Some(plan) = plan {
+            if !plan.matches_operation(op) {
+                return Err(IrVerifyError::new("prepared module call plan operation policy does not match its instruction"));
+            }
+            // Inspect the shape without entering this block in the graph walk;
+            // the generated field verifier owns its traversal and ownership check.
+            let arguments = IrBlockId::from_raw(metadata.raw()?)
+                .ok_or_else(|| IrVerifyError::new("module call argument block id is invalid"))?;
+            let arguments = decoder.store.blocks.get(arguments.index())
+                .ok_or_else(|| IrVerifyError::new("module call argument block is out of bounds"))?;
+            let mut arguments = FullCursor::new(decoder.store.payload(arguments.instructions)?);
+            let count = arguments.raw()? as usize;
+            let mut supplied = Vec::with_capacity(count);
+            for _ in 0..count {
+                supplied.push(match arguments.raw()? {
+                    0 => false,
+                    1 => { arguments.raw()?; true }
+                    _ => return Err(IrVerifyError::new("optional payload tag is invalid")),
+                });
+            }
+            arguments.finish()?;
+            plan.verify_arguments(op, &supplied).map_err(IrVerifyError::new)?;
         }
     }
     if tag == FullTag::ExprComparisonChain {
@@ -6350,113 +6048,10 @@ fn verify_node_metadata(
     Ok(())
 }
 
-macro_rules! impl_node_codec {
-    (
-        $ty:ty {
-            $(
-                $pattern:pat => $tag:ident {
-                    $($field:ident : $field_ty:ty),* $(,)?
-                } => $construct:expr
-            ),* $(,)?
-        }
-    ) => {
-        impl FullCodec for $ty {
-            fn encode(
-                &self,
-                builder: &mut FullBuilder,
-                output: &mut Vec<u32>,
-            ) -> Result<(), IrBuildError> {
-                // A row encodes the rows it refers to, so this function is on
-                // the stack once for every level of nesting in a lowered body.
-                // Each variant encodes its fields in a function of its own:
-                // an unoptimized build gives every temporary of every arm a
-                // separate stack slot, and with the arms inline one level of
-                // nesting cost tens of kilobytes of stack.
-                match self {
-                    $(
-                        #[allow(unused_variables)]
-                        $pattern => {
-                            #[allow(irrefutable_let_patterns)]
-                            fn encode_variant(
-                                row: &$ty,
-                                builder: &mut FullBuilder,
-                                output: &mut Vec<u32>,
-                            ) -> Result<(), IrBuildError> {
-                                let $pattern = row else {
-                                    unreachable!("the caller matched this variant")
-                                };
-                                #[allow(unused_mut)]
-                                let mut payload = builder.take_payload();
-                                $(
-                                    $field.encode(builder, &mut payload)?;
-                                )*
-                                let instruction = builder.push_instruction(FullTag::$tag, &payload);
-                                builder.recycle_payload(payload);
-                                output.push(instruction?);
-                                Ok(())
-                            }
-                            encode_variant(self, builder, output)
-                        }
-                    ),*
-                }
-            }
 
-            fn decode(
-                _decoder: &FullDecoder<'_>,
-                _input: &mut FullCursor<'_>,
-            ) -> Result<Self, IrVerifyError> {
-                Err(IrVerifyError::new(
-                    "indexed construction rows cannot be decoded from executable IR",
-                ))
-            }
-
-            fn verify(
-                decoder: &FullDecoder<'_>,
-                input: &mut FullCursor<'_>,
-            ) -> Result<(), IrVerifyError> {
-                let (instruction, tag, mut payload) = decoder.instruction(input)?;
-                verify_node_metadata(decoder, tag, payload)?;
-                // Verification follows the rows an instruction refers to, so
-                // this function is on the stack once for every level of
-                // nesting in a lowered body. Each tag verifies its fields in
-                // a function of its own, which keeps the temporaries of every
-                // other tag out of this frame in an unoptimized build.
-                match tag {
-                    $(
-                        FullTag::$tag => {
-                            #[allow(unused_variables)]
-                            fn verify_variant(
-                                decoder: &FullDecoder<'_>,
-                                payload: &mut FullCursor<'_>,
-                            ) -> Result<(), IrVerifyError> {
-                                $(
-                                    <$field_ty>::verify(decoder, payload)?;
-                                )*
-                                Ok(())
-                            }
-                            verify_variant(decoder, &mut payload)
-                        }
-                    ),*
-                    _ => Err(IrVerifyError::new("full IR instruction tag has the wrong category")),
-                }?;
-                payload.finish()?;
-                if tag == FullTag::ExprRetry {
-                    let payload = decoder.cursor(decoder.store.payload(decoder.store.data[instruction].range())?);
-                    decoder.verify_retry_shape(payload)?;
-                }
-                if tag == FullTag::StmtGuard {
-                    let payload = decoder.cursor(decoder.store.payload(decoder.store.data[instruction].range())?);
-                    decoder.verify_guard_shape(payload)?;
-                }
-                decoder.finish_instruction(instruction);
-                Ok(())
-            }
-        }
-    };
-}
 
 macro_rules! impl_build_id_codec {
-    ($id:ty, $rows:ident, $row:ty) => {
+    ($id:ty, $rows:ident, $row:ty, $resource_transfer:literal) => {
         impl FullCodec for $id {
             fn encode(
                 &self,
@@ -6471,7 +6066,41 @@ macro_rules! impl_build_id_codec {
                     .$rows
                     .get(self.index())
                     .ok_or_else(|| IrBuildError::format("indexed_build_id", None, 0, 0))?;
-                row.encode(builder, output)
+                let transfers_resource = if $resource_transfer {
+                    *scratch.resource_transfers.get(self.index()).ok_or_else(|| {
+                        IrBuildError::format("indexed_resource_transfer_fact", None, 0, 0)
+                    })?
+                } else {
+                    false
+                };
+                let instruction_start = builder.store.tags.len();
+                row.encode(builder, output)?;
+                if transfers_resource {
+                    let instruction = builder
+                        .store
+                        .tags
+                        .len()
+                        .checked_sub(1)
+                        .filter(|instruction| *instruction >= instruction_start)
+                        .ok_or_else(|| {
+                            IrBuildError::format(
+                                "indexed_resource_transfer_instruction",
+                                None,
+                                0,
+                                builder.store.tags.len(),
+                            )
+                        })?;
+                    if !is_resource_transfer_instruction(builder.store.tags[instruction]) {
+                        return Err(IrBuildError::format(
+                            "indexed_resource_transfer_tag",
+                            None,
+                            0,
+                            instruction,
+                        ));
+                    }
+                    builder.store.resource_transfers[instruction] = true;
+                }
+                Ok(())
             }
 
             fn decode(
@@ -6492,121 +6121,15 @@ macro_rules! impl_build_id_codec {
     };
 }
 
-impl_build_id_codec!(BuildExprId, expressions, BuildExprRow);
-impl_build_id_codec!(BuildStmtId, statements, BuildStmtRow);
-impl_build_id_codec!(BuildPatternId, patterns, BuildPatternRow);
-impl_build_id_codec!(BuildIntId, ints, BuildIntRow);
-impl_build_id_codec!(BuildBoolId, bools, BuildBoolRow);
+impl_build_id_codec!(BuildExprId, expressions, BuildExprRow, false);
+impl_build_id_codec!(BuildStmtId, statements, BuildStmtRow, true);
+impl_build_id_codec!(BuildPatternId, patterns, BuildPatternRow, false);
+impl_build_id_codec!(BuildIntId, ints, BuildIntRow, false);
+impl_build_id_codec!(BuildBoolId, bools, BuildBoolRow, false);
 
-impl_node_codec! {
-    BuildIntRow {
-        BuildIntRow::Int(value) => IntInt { value: i64 } => BuildIntRow::Int(value),
-        BuildIntRow::Slot(slot) => IntSlot { slot: usize } => BuildIntRow::Slot(slot),
-        BuildIntRow::Binary { op, left, right } => IntBinary {
-            op: BinaryOp,
-            left: BuildIntId,
-            right: BuildIntId,
-        } => BuildIntRow::Binary { op, left, right },
-        BuildIntRow::StrByteLenSlot { slot, span } => IntStrByteLenSlot {
-            slot: usize,
-            span: Span,
-        } => BuildIntRow::StrByteLenSlot { slot, span },
-        BuildIntRow::StrCountLinesSlot { slot, span } => IntStrCountLinesSlot {
-            slot: usize,
-            span: Span,
-        } => BuildIntRow::StrCountLinesSlot { slot, span },
-        BuildIntRow::StrByteAtSlot {
-            slot,
-            index,
-            default,
-            span,
-        } => IntStrByteAtSlot {
-            slot: usize,
-            index: BuildIntId,
-            default: Option<BuildIntId>,
-            span: Span,
-        } => BuildIntRow::StrByteAtSlot {
-            slot,
-            index,
-            default,
-            span,
-        },
-    }
-}
 
-impl_node_codec! {
-    BuildBoolRow {
-        BuildBoolRow::Bool(value) => BoolBool { value: bool } => BuildBoolRow::Bool(value),
-        BuildBoolRow::Slot(slot) => BoolSlot { slot: usize } => BuildBoolRow::Slot(slot),
-        BuildBoolRow::Not(value) => BoolNot {
-            value: BuildBoolId,
-        } => BuildBoolRow::Not(value),
-        BuildBoolRow::And(left, right) => BoolAnd {
-            left: BuildBoolId,
-            right: BuildBoolId,
-        } => BuildBoolRow::And(left, right),
-        BuildBoolRow::Or(left, right) => BoolOr {
-            left: BuildBoolId,
-            right: BuildBoolId,
-        } => BuildBoolRow::Or(left, right),
-        BuildBoolRow::IntCompare { op, left, right } => BoolIntCompare {
-            op: BinaryOp,
-            left: BuildIntId,
-            right: BuildIntId,
-        } => BuildBoolRow::IntCompare { op, left, right },
-        BuildBoolRow::StrPredicateSlot {
-            slot,
-            predicate,
-            needle,
-            span,
-        } => BoolStrPredicateSlot {
-            slot: usize,
-            predicate: LoweredStrPredicate,
-            needle: Arc<[u8]>,
-            span: Span,
-        } => BuildBoolRow::StrPredicateSlot {
-            slot,
-            predicate,
-            needle,
-            span,
-        },
-        BuildBoolRow::ContainsSlot { slot, needle, span } => BoolContainsSlot {
-            slot: usize,
-            needle: LoweredValue,
-            span: Span,
-        } => BuildBoolRow::ContainsSlot { slot, needle, span },
-        BuildBoolRow::StrContainsSlot { slot, needle, span } => BoolStrContainsSlot {
-            slot: usize,
-            needle: Arc<str>,
-            span: Span,
-        } => BuildBoolRow::StrContainsSlot { slot, needle, span },
-        BuildBoolRow::TrimEmptySlot { slot, span } => BoolTrimEmptySlot {
-            slot: usize,
-            span: Span,
-        } => BuildBoolRow::TrimEmptySlot { slot, span },
-        BuildBoolRow::TrimStrPredicateSlot {
-            slot,
-            predicate,
-            needle,
-            span,
-        } => BoolTrimStrPredicateSlot {
-            slot: usize,
-            predicate: LoweredStrPredicate,
-            needle: Arc<[u8]>,
-            span: Span,
-        } => BuildBoolRow::TrimStrPredicateSlot {
-            slot,
-            predicate,
-            needle,
-            span,
-        },
-        BuildBoolRow::LiteralCompareSlot { op, slot, value } => BoolLiteralCompareSlot {
-            op: BinaryOp,
-            slot: usize,
-            value: LoweredValue,
-        } => BuildBoolRow::LiteralCompareSlot { op, slot, value },
-    }
-}
+
+
 
 pub(in crate::runtime::eval) const BLOCK_LIST: u8 = 0;
 pub(in crate::runtime::eval) const BLOCK_STATEMENTS: u8 = 1;
@@ -6761,38 +6284,7 @@ macro_rules! impl_fx_map_codec {
 impl_fx_map_codec!(BuildExprId);
 impl_fx_map_codec!(Vec<BuildStmtId>);
 
-impl FullCodec for LoweredCompTarget {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        match self {
-            Self::Discard => {
-                output.push(2);
-                Ok(())
-            }
-            Self::Slot(slot) => {
-                output.push(0);
-                slot.encode(builder, output)
-            }
-            Self::Record { fields } => {
-                output.push(1);
-                fields.encode(builder, output)
-            }
-        }
-    }
 
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        match input.raw()? {
-            2 => Ok(Self::Discard),
-            0 => Ok(Self::Slot(usize::decode(decoder, input)?)),
-            1 => Ok(Self::Record {
-                fields: SmallVec::decode(decoder, input)?,
-            }),
-            _ => Err(IrVerifyError::new("comprehension target tag is invalid")),
-        }
-    }
-}
 
 impl FullCodec for LoweredAssignPath {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
@@ -6809,30 +6301,7 @@ impl FullCodec for LoweredAssignPath {
         Ok(Self(steps))
     }
 }
-impl FullCodec for LoweredAssignStep {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        match self {
-            Self::Field(name) => {
-                output.push(0);
-                name.encode(builder, output)
-            }
-            Self::Index(expr) => {
-                output.push(1);
-                expr.encode(builder, output)
-            }
-        }
-    }
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        match input.raw()? {
-            0 => Ok(Self::Field(Name::decode(decoder, input)?)),
-            1 => Ok(Self::Index(BuildExprId::decode(decoder, input)?)),
-            _ => Err(IrVerifyError::new("assignment path step tag is invalid")),
-        }
-    }
-}
+
 impl_vec_codec!(LoweredAssignStep, BLOCK_LIST);
 
 impl FullCodec for LoweredCompQualifiers {
@@ -6854,1134 +6323,704 @@ impl FullCodec for LoweredCompQualifiers {
     }
 }
 
-impl FullCodec for LoweredCompQualifier {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        match self {
-            Self::For { target, iter, span } => {
-                output.push(0);
-                target.encode(builder, output)?;
-                iter.encode(builder, output)?;
-                span.encode(builder, output)
-            }
-            Self::If { condition, span } => {
-                output.push(1);
-                condition.encode(builder, output)?;
-                span.encode(builder, output)
-            }
-        }
-    }
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        match input.raw()? {
-            0 => Ok(Self::For {
-                target: Box::decode(decoder, input)?,
-                iter: BuildExprId::decode(decoder, input)?,
-                span: Span::decode(decoder, input)?,
-            }),
-            1 => Ok(Self::If {
-                condition: BuildExprId::decode(decoder, input)?,
-                span: Span::decode(decoder, input)?,
-            }),
-            _ => Err(IrVerifyError::new("comprehension qualifier tag is invalid")),
-        }
-    }
-}
+
 impl_vec_codec!(LoweredCompQualifier, BLOCK_LIST);
 
-impl FullCodec for LoweredRecordEntry {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        match self {
-            Self::Field(name, value) => {
-                output.push(0);
-                name.encode(builder, output)?;
-                value.encode(builder, output)
-            }
-            Self::Spread(value) => {
-                output.push(1);
-                value.encode(builder, output)
-            }
-        }
-    }
 
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        match input.raw()? {
-            0 => Ok(Self::Field(
-                Name::decode(decoder, input)?,
-                BuildExprId::decode(decoder, input)?,
-            )),
-            1 => Ok(Self::Spread(BuildExprId::decode(decoder, input)?)),
-            _ => Err(IrVerifyError::new("record entry tag is invalid")),
-        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#[cfg(test)]
+struct StageViewExpectations<'a> {
+    store: &'a FullStore,
+    expressions: &'a [BuildExprRow],
+    statements: &'a [BuildStmtRow],
+}
+
+#[cfg(test)]
+fn stage_view_decoder(store: &FullStore) -> FullDecoder<'_> {
+    FullDecoder {
+        store,
+        owner: 0,
+        instruction_range: 0..store.tags.len(),
+        instruction_states: None,
+        instruction_proof: None,
+        block_states: None,
+        slot_count: 1,
+        pattern_ceiling: Cell::new(usize::MAX),
+        verified: false,
     }
 }
 
-impl FullCodec for LoweredCallArg {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        match self {
-            Self::Default(slot) => {
-                // This is a callable parameter index, not a caller frame slot.
-                output.push(2);
-                u32::try_from(*slot)
-                    .map_err(|_| IrBuildError::format("argument_slot_overflow", None, 0, 0))?
-                    .encode(builder, output)
-            }
-            Self::Single(value) => {
-                output.push(0);
-                value.encode(builder, output)
-            }
-            Self::Splice(value) => {
-                output.push(1);
-                value.encode(builder, output)
+#[cfg(test)]
+fn assert_expression_instruction_matches(
+    actual: decode::ExprInstructionId<'_>,
+    expected: BuildExprId,
+    expectations: &StageViewExpectations<'_>,
+) {
+    let row = expectations.expressions.get(expected.index())
+        .expect("fixture expression ID refers to its owned row");
+    let index = actual.raw() as usize;
+    let tag = expectations.store.tags[index];
+    let data = expectations.store.data[index];
+    let mut payload = FullCursor::new(expectations.store.payload(data.range()).unwrap());
+    let decoder = stage_view_decoder(expectations.store);
+    match row {
+        BuildExprRow::Int(value) => {
+            assert_eq!(tag, FullTag::ExprInt);
+            assert_eq!(i64::decode(&decoder, &mut payload).unwrap(), *value);
+        }
+        BuildExprRow::Bool(value) => {
+            assert_eq!(tag, FullTag::ExprBool);
+            assert_eq!(bool::decode(&decoder, &mut payload).unwrap(), *value);
+        }
+        _ => panic!("stage view fixture uses scalar expression rows"),
+    }
+    payload.finish().unwrap();
+}
+
+#[cfg(test)]
+fn assert_statement_instruction_matches(
+    actual: decode::StmtInstructionId<'_>,
+    expected: BuildStmtId,
+    expectations: &StageViewExpectations<'_>,
+) {
+    let row = expectations.statements.get(expected.index())
+        .expect("fixture statement ID refers to its owned row");
+    let index = actual.raw() as usize;
+    let tag = expectations.store.tags[index];
+    let data = expectations.store.data[index];
+    let mut payload = FullCursor::new(expectations.store.payload(data.range()).unwrap());
+    let execution = FullExecution { decoder: stage_view_decoder(expectations.store) };
+    let context = DecodeContext::new(&execution);
+    match row {
+        BuildStmtRow::Value { value } => {
+            assert_eq!(tag, FullTag::StmtValue);
+            let actual = BuildExprId::borrow(context, &mut payload).unwrap();
+            assert_expression_instruction_matches(actual, *value, expectations);
+        }
+        BuildStmtRow::Expr { value, span } => {
+            assert_eq!(tag, FullTag::StmtExpr);
+            let actual = BuildExprId::borrow(context, &mut payload).unwrap();
+            assert_expression_instruction_matches(actual, *value, expectations);
+            assert_eq!(Span::borrow(context, &mut payload).unwrap(), *span);
+        }
+        _ => panic!("stage view fixture uses value and expression statement rows"),
+    }
+    payload.finish().unwrap();
+}
+
+#[cfg(test)]
+trait StageFieldMatch<T> {
+    fn assert_matches(self, expected: &T, expectations: &StageViewExpectations<'_>);
+}
+
+#[cfg(test)]
+macro_rules! stage_scalar_match {
+    ($($ty:ty),* $(,)?) => {$(
+        impl StageFieldMatch<$ty> for $ty {
+            fn assert_matches(self, expected: &$ty, _expectations: &StageViewExpectations<'_>) {
+                assert_eq!(self, *expected);
             }
         }
-    }
+    )* };
+}
 
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        match input.raw()? {
-            0 => Ok(Self::Single(BuildExprId::decode(decoder, input)?)),
-            1 => Ok(Self::Splice(BuildExprId::decode(decoder, input)?)),
-            2 => Ok(Self::Default(u32::decode(decoder, input)? as usize)),
-            _ => Err(IrVerifyError::new("call argument tag is invalid")),
-        }
+#[cfg(test)]
+stage_scalar_match!(usize, bool, ReduceByOp);
+
+#[cfg(test)]
+impl<'a> StageFieldMatch<BuildExprId> for decode::ExprInstructionId<'a> {
+    fn assert_matches(self, expected: &BuildExprId, expectations: &StageViewExpectations<'_>) {
+        assert_expression_instruction_matches(self, *expected, expectations);
     }
 }
 
-impl FullCodec for LoweredFmtPart {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        match self {
-            Self::Text(value) => {
-                output.push(0);
-                value.encode(builder, output)
-            }
-            Self::Expr(value, span, format) => {
-                output.push(1);
-                value.encode(builder, output)?;
-                span.encode(builder, output)?;
-                format.encode(builder, output)
-            }
-        }
-    }
-
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        match input.raw()? {
-            0 => Ok(Self::Text(Arc::<str>::decode(decoder, input)?)),
-            1 => Ok(Self::Expr(
-                BuildExprId::decode(decoder, input)?,
-                Span::decode(decoder, input)?,
-                Option::<FormatSpec>::decode(decoder, input)?,
-            )),
-            _ => Err(IrVerifyError::new("format part tag is invalid")),
-        }
+#[cfg(test)]
+impl<'a> StageFieldMatch<BuildStmtId> for decode::StmtInstructionId<'a> {
+    fn assert_matches(self, expected: &BuildStmtId, expectations: &StageViewExpectations<'_>) {
+        assert_statement_instruction_matches(self, *expected, expectations);
     }
 }
 
-impl FullCodec for LoweredRunArgKind {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        let (tag, value) = match self {
-            Self::Single(value) => (0, value),
-            Self::SingleOrSplice(value) => (1, value),
-            Self::Splice(value) => (2, value),
-        };
-        output.push(tag);
-        value.encode(builder, output)
-    }
-
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        let tag = input.raw()?;
-        let value = BuildExprId::decode(decoder, input)?;
-        match tag {
-            0 => Ok(Self::Single(value)),
-            1 => Ok(Self::SingleOrSplice(value)),
-            2 => Ok(Self::Splice(value)),
-            _ => Err(IrVerifyError::new("run argument tag is invalid")),
-        }
+#[cfg(test)]
+impl<'a> StageFieldMatch<String> for &'a str {
+    fn assert_matches(self, expected: &String, _expectations: &StageViewExpectations<'_>) {
+        assert_eq!(self, expected.as_str());
     }
 }
 
-impl FullCodec for LoweredRunArg {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        self.kind.encode(builder, output)?;
-        self.span.encode(builder, output)
-    }
-
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        Ok(Self {
-            kind: LoweredRunArgKind::decode(decoder, input)?,
-            span: Span::decode(decoder, input)?,
-        })
-    }
-}
-
-impl FullCodec for LoweredRunEnv {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        self.name.encode(builder, output)?;
-        self.value.encode(builder, output)
-    }
-
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        Ok(Self {
-            name: Name::decode(decoder, input)?,
-            value: LoweredRunArg::decode(decoder, input)?,
-        })
-    }
-}
-
-impl FullCodec for LoweredRunRedirection {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        self.kind.encode(builder, output)?;
-        self.target.encode(builder, output)?;
-        self.span.encode(builder, output)
-    }
-
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        Ok(Self {
-            kind: RedirectionKind::decode(decoder, input)?,
-            target: LoweredRunArg::decode(decoder, input)?,
-            span: Span::decode(decoder, input)?,
-        })
-    }
-}
-
-impl FullCodec for LoweredRunPipelineSegment {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        self.kind.encode(builder, output)?;
-        self.target.encode(builder, output)?;
-        self.args.encode(builder, output)?;
-        self.env.encode(builder, output)?;
-        self.redirections.encode(builder, output)?;
-        self.timeout.encode(builder, output)?;
-        self.cpu_max.encode(builder, output)?;
-        self.accept.encode(builder, output)
-    }
-
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        Ok(Self {
-            kind: RunKind::decode(decoder, input)?,
-            target: LoweredRunArg::decode(decoder, input)?,
-            args: Vec::decode(decoder, input)?,
-            env: Vec::decode(decoder, input)?,
-            redirections: Vec::decode(decoder, input)?,
-            timeout: Option::decode(decoder, input)?,
-            cpu_max: Option::decode(decoder, input)?,
-            accept: Option::decode(decoder, input)?,
-        })
-    }
-}
-
-impl FullCodec for ScanCondition {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        match self {
-            Self::TrimEmpty => {
-                output.push(0);
-                Ok(())
-            }
-            Self::TrimStartsWith(value) => {
-                output.push(1);
-                value.encode(builder, output)
-            }
-            Self::StartsWith(value) => {
-                output.push(2);
-                value.encode(builder, output)
-            }
-        }
-    }
-
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        match input.raw()? {
-            0 => Ok(Self::TrimEmpty),
-            1 => Ok(Self::TrimStartsWith(Vec::<u8>::decode(decoder, input)?)),
-            2 => Ok(Self::StartsWith(Vec::<u8>::decode(decoder, input)?)),
-            _ => Err(IrVerifyError::new("scan condition tag is invalid")),
+#[cfg(test)]
+impl<T, V> StageFieldMatch<Option<T>> for Option<V>
+where
+    V: StageFieldMatch<T>,
+{
+    fn assert_matches(self, expected: &Option<T>, expectations: &StageViewExpectations<'_>) {
+        match (self, expected) {
+            (Some(view), Some(expected)) => view.assert_matches(expected, expectations),
+            (None, None) => {}
+            _ => panic!("borrowed pipeline stage option differs"),
         }
     }
 }
 
-impl FullCodec for ScanCheck {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        self.condition.encode(builder, output)?;
-        self.counter_slot.encode(builder, output)
-    }
-
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        Ok(Self {
-            condition: ScanCondition::decode(decoder, input)?,
-            counter_slot: usize::decode(decoder, input)?,
-        })
-    }
-}
-
-impl FullCodec for ScanBytes {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        self.line_slot.encode(builder, output)?;
-        self.block_depth_slot.encode(builder, output)?;
-        self.code_seen_slot.encode(builder, output)?;
-        self.comment_seen_slot.encode(builder, output)?;
-        self.in_string_slot.encode(builder, output)?;
-        self.string_delim_slot.encode(builder, output)?;
-        self.escaped_slot.encode(builder, output)?;
-        self.nested.encode(builder, output)?;
-        self.span.encode(builder, output)
-    }
-
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        Ok(Self {
-            line_slot: usize::decode(decoder, input)?,
-            block_depth_slot: usize::decode(decoder, input)?,
-            code_seen_slot: usize::decode(decoder, input)?,
-            comment_seen_slot: usize::decode(decoder, input)?,
-            in_string_slot: usize::decode(decoder, input)?,
-            string_delim_slot: usize::decode(decoder, input)?,
-            escaped_slot: usize::decode(decoder, input)?,
-            nested: bool::decode(decoder, input)?,
-            span: Span::decode(decoder, input)?,
-        })
-    }
-}
-
-impl FullCodec for LoweredProcessCommandArgv {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        self.target.encode(builder, output)?;
-        self.argv.encode(builder, output)?;
-        self.cwd.encode(builder, output)?;
-        self.env.encode(builder, output)?;
-        self.stdin.encode(builder, output)?;
-        self.stdout.encode(builder, output)?;
-        self.stderr.encode(builder, output)?;
-        self.stdout_append.encode(builder, output)?;
-        self.stderr_append.encode(builder, output)?;
-        self.timeout.encode(builder, output)?;
-        self.detach.encode(builder, output)?;
-        self.new_session.encode(builder, output)?;
-        self.ignore_hup.encode(builder, output)?;
-        self.cpu_max.encode(builder, output)?;
-        self.accept.encode(builder, output)?;
-        self.same_group.encode(builder, output)?;
-        self.span.encode(builder, output)
-    }
-
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        Ok(Self {
-            target: BuildExprId::decode(decoder, input)?,
-            argv: BuildExprId::decode(decoder, input)?,
-            cwd: Option::decode(decoder, input)?,
-            env: Option::decode(decoder, input)?,
-            stdin: Option::decode(decoder, input)?,
-            stdout: Option::decode(decoder, input)?,
-            stderr: Option::decode(decoder, input)?,
-            stdout_append: Option::decode(decoder, input)?,
-            stderr_append: Option::decode(decoder, input)?,
-            timeout: Option::decode(decoder, input)?,
-            detach: Option::decode(decoder, input)?,
-            new_session: Option::decode(decoder, input)?,
-            ignore_hup: Option::decode(decoder, input)?,
-            cpu_max: Option::decode(decoder, input)?,
-            accept: Option::decode(decoder, input)?,
-            same_group: Option::decode(decoder, input)?,
-            span: Span::decode(decoder, input)?,
-        })
-    }
-}
-
-impl FullCodec for LoweredRunCapture {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        self.kind.encode(builder, output)?;
-        self.target.encode(builder, output)?;
-        self.args.encode(builder, output)?;
-        self.env.encode(builder, output)?;
-        self.redirections.encode(builder, output)?;
-        self.timeout.encode(builder, output)?;
-        self.cpu_max.encode(builder, output)?;
-        self.accept.encode(builder, output)?;
-        self.propagate.encode(builder, output)?;
-        self.assert_success.encode(builder, output)?;
-        self.span.encode(builder, output)
-    }
-
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        Ok(Self {
-            kind: RunKind::decode(decoder, input)?,
-            target: Box::decode(decoder, input)?,
-            args: Vec::decode(decoder, input)?,
-            env: Vec::decode(decoder, input)?,
-            redirections: Vec::decode(decoder, input)?,
-            timeout: Option::decode(decoder, input)?,
-            cpu_max: Option::decode(decoder, input)?,
-            accept: Option::decode(decoder, input)?,
-            propagate: bool::decode(decoder, input)?,
-            assert_success: bool::decode(decoder, input)?,
-            span: Span::decode(decoder, input)?,
-        })
-    }
-}
-
-impl FullCodec for LoweredSpawnRun {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        self.target.encode(builder, output)?;
-        self.args.encode(builder, output)?;
-        self.env.encode(builder, output)?;
-        self.redirections.encode(builder, output)?;
-        self.timeout.encode(builder, output)?;
-        self.cpu_max.encode(builder, output)?;
-        self.accept.encode(builder, output)?;
-        self.span.encode(builder, output)
-    }
-
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        Ok(Self {
-            target: Box::decode(decoder, input)?,
-            args: Vec::decode(decoder, input)?,
-            env: Vec::decode(decoder, input)?,
-            redirections: Vec::decode(decoder, input)?,
-            timeout: Option::decode(decoder, input)?,
-            cpu_max: Option::decode(decoder, input)?,
-            accept: Option::decode(decoder, input)?,
-            span: Span::decode(decoder, input)?,
-        })
-    }
-}
-
-impl FullCodec for LoweredProcessCommandBuilderEntry {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        match self {
-            Self::Field { name, value, span } => {
-                output.push(0);
-                name.encode(builder, output)?;
-                value.encode(builder, output)?;
-                span.encode(builder, output)
-            }
-            Self::Run {
-                target,
-                args,
-                env,
-                timeout,
-                cpu_max,
-                accept,
-                span,
-            } => {
-                output.push(1);
-                target.encode(builder, output)?;
-                args.encode(builder, output)?;
-                env.encode(builder, output)?;
-                timeout.encode(builder, output)?;
-                cpu_max.encode(builder, output)?;
-                accept.encode(builder, output)?;
-                span.encode(builder, output)
-            }
+#[cfg(test)]
+impl<'a, T> StageFieldMatch<Vec<T>> for decode::ListView<'a, T>
+where
+    T: BorrowCodec,
+    T::View<'a>: StageFieldMatch<T>,
+{
+    fn assert_matches(
+        mut self,
+        expected: &Vec<T>,
+        expectations: &StageViewExpectations<'_>,
+    ) {
+        assert_eq!(self.len(), expected.len());
+        for expected in expected {
+            self.next()
+                .expect("stage list has an encoded element")
+                .unwrap()
+                .assert_matches(expected, expectations);
         }
-    }
-
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        match input.raw()? {
-            0 => Ok(Self::Field {
-                name: Name::decode(decoder, input)?,
-                value: BuildExprId::decode(decoder, input)?,
-                span: Span::decode(decoder, input)?,
-            }),
-            1 => Ok(Self::Run {
-                target: LoweredRunArg::decode(decoder, input)?,
-                args: Vec::decode(decoder, input)?,
-                env: Vec::decode(decoder, input)?,
-                timeout: Option::decode(decoder, input)?,
-                cpu_max: Option::decode(decoder, input)?,
-                accept: Option::decode(decoder, input)?,
-                span: Span::decode(decoder, input)?,
-            }),
-            _ => Err(IrVerifyError::new(
-                "process command builder entry tag is invalid",
-            )),
-        }
+        assert!(self.next().is_none());
     }
 }
 
-impl FullCodec for LoweredErrorExpr {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        match self {
-            Self::Simple { kind, message } => {
-                output.push(0);
-                kind.encode(builder, output)?;
-                message.encode(builder, output)
-            }
-            Self::Structured {
-                family,
-                variant,
-                fields,
-                facets,
-            } => {
-                output.push(1);
-                family.encode(builder, output)?;
-                variant.encode(builder, output)?;
-                fields.encode(builder, output)?;
-                facets.encode(builder, output)
-            }
-        }
-    }
-
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        match input.raw()? {
-            0 => Ok(Self::Simple {
-                kind: String::decode(decoder, input)?,
-                message: String::decode(decoder, input)?,
-            }),
-            1 => Ok(Self::Structured {
-                family: String::decode(decoder, input)?,
-                variant: String::decode(decoder, input)?,
-                fields: Vec::decode(decoder, input)?,
-                facets: Vec::decode(decoder, input)?,
-            }),
-            _ => Err(IrVerifyError::new("error expression tag is invalid")),
-        }
-    }
+#[cfg(test)]
+trait StageFieldsMatch<T> {
+    fn assert_matches(self, expected: &T, expectations: &StageViewExpectations<'_>);
 }
 
-impl FullCodec for BuildPatternRow {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        let mut payload = builder.take_payload();
-        let tag = match self {
-            Self::TagType {
-                type_name,
-                variants,
-            } => {
-                type_name.encode(builder, &mut payload)?;
-                variants.encode(builder, &mut payload)?;
-                FullPatternTag::TagType
-            }
-            Self::RecordTest { fields } => {
-                fields.encode(builder, &mut payload)?;
-                FullPatternTag::RecordTest
-            }
-            Self::ResultTest { ok, inner } => {
-                ok.encode(builder, &mut payload)?;
-                inner.encode(builder, &mut payload)?;
-                FullPatternTag::ResultTest
-            }
-            Self::TagTest {
-                type_name,
-                name,
-                fields,
-            } => {
-                type_name.encode(builder, &mut payload)?;
-                name.encode(builder, &mut payload)?;
-                fields.encode(builder, &mut payload)?;
-                FullPatternTag::TagTest
-            }
-            Self::ErrorTest {
-                family,
-                variant,
-                fields,
-            } => {
-                family.encode(builder, &mut payload)?;
-                variant.encode(builder, &mut payload)?;
-                fields.encode(builder, &mut payload)?;
-                FullPatternTag::ErrorTest
-            }
-            Self::List { elements, rest } => {
-                elements.encode(builder, &mut payload)?;
-                rest.encode(builder, &mut payload)?;
-                FullPatternTag::List
-            }
-            Self::Alias { pattern, slot } => {
-                pattern.encode(builder, &mut payload)?;
-                slot.encode(builder, &mut payload)?;
-                FullPatternTag::Alias
-            }
-            Self::Alternation { patterns } => {
-                patterns.encode(builder, &mut payload)?;
-                FullPatternTag::Alternation
-            }
-            Self::Wildcard => FullPatternTag::Wildcard,
-            // The hole count is the length of the child list; the kinds and
-            // then one more segment than holes follow it.
-            Self::Text {
-                holes,
-                kinds,
-                segments,
-            } => {
-                if kinds.len() != holes.len() || segments.len() != holes.len() + 1 {
-                    return Err(IrBuildError::format(
-                        "full_ir_text_pattern",
-                        None,
-                        0,
-                        builder.store.tags.len(),
-                    ));
-                }
-                holes.encode(builder, &mut payload)?;
-                // A kind is a plain word: it names no slot or table entry.
-                for kind in kinds {
-                    payload.push(*kind as u32);
-                }
-                for segment in segments {
-                    segment.encode(builder, &mut payload)?;
-                }
-                FullPatternTag::Text
-            }
-            Self::Bind { slot } => {
-                slot.encode(builder, &mut payload)?;
-                FullPatternTag::Bind
-            }
-            Self::Type { ty, slot } => {
-                ty.encode(builder, &mut payload)?;
-                slot.encode(builder, &mut payload)?;
-                FullPatternTag::Type
-            }
-            Self::Literal(value) => {
-                value.encode(builder, &mut payload)?;
-                FullPatternTag::Literal
-            }
-            Self::ResultOk { slot, unit_only } => {
-                slot.encode(builder, &mut payload)?;
-                unit_only.encode(builder, &mut payload)?;
-                FullPatternTag::ResultOk
-            }
-            Self::ResultErr { slot, unit_only } => {
-                slot.encode(builder, &mut payload)?;
-                unit_only.encode(builder, &mut payload)?;
-                FullPatternTag::ResultErr
-            }
-            Self::ErrorVariant {
-                family,
-                variant,
-                fields,
-                result_wrapped,
-            } => {
-                family.encode(builder, &mut payload)?;
-                variant.encode(builder, &mut payload)?;
-                fields.encode(builder, &mut payload)?;
-                result_wrapped.encode(builder, &mut payload)?;
-                FullPatternTag::ErrorVariant
-            }
-            Self::Facet {
-                facet,
-                result_wrapped,
-            } => {
-                facet.encode(builder, &mut payload)?;
-                result_wrapped.encode(builder, &mut payload)?;
-                FullPatternTag::Facet
-            }
-            Self::Tag {
-                type_name,
-                name,
-                slots,
-            } => {
-                type_name.encode(builder, &mut payload)?;
-                name.encode(builder, &mut payload)?;
-                slots.encode(builder, &mut payload)?;
-                FullPatternTag::Tag
-            }
-        };
-        let pattern = builder.push_pattern(tag, &payload);
-        builder.recycle_payload(payload);
-        output.push(pattern?);
-        Ok(())
-    }
-
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        let index = input.raw()? as usize;
-        let tag = decoder
-            .store
-            .patterns
-            .get(index)
-            .copied()
-            .ok_or_else(|| IrVerifyError::new("pattern id is out of bounds"))?;
-        let data = decoder.store.pattern_data[index];
-        let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
-        let pattern = match tag {
-            FullPatternTag::TagType => Self::TagType {
-                type_name: Name::decode(decoder, &mut payload)?,
-                variants: Vec::decode(decoder, &mut payload)?,
-            },
-            FullPatternTag::RecordTest => Self::RecordTest {
-                fields: Vec::decode(decoder, &mut payload)?,
-            },
-            FullPatternTag::ResultTest => Self::ResultTest {
-                ok: bool::decode(decoder, &mut payload)?,
-                inner: BuildPatternId::decode(decoder, &mut payload)?,
-            },
-            FullPatternTag::TagTest => Self::TagTest {
-                type_name: Name::decode(decoder, &mut payload)?,
-                name: Name::decode(decoder, &mut payload)?,
-                fields: Vec::decode(decoder, &mut payload)?,
-            },
-            FullPatternTag::ErrorTest => Self::ErrorTest {
-                family: Name::decode(decoder, &mut payload)?,
-                variant: Name::decode(decoder, &mut payload)?,
-                fields: Vec::decode(decoder, &mut payload)?,
-            },
-            FullPatternTag::List => Self::List {
-                elements: Vec::decode(decoder, &mut payload)?,
-                rest: Option::decode(decoder, &mut payload)?,
-            },
-            FullPatternTag::Alias => Self::Alias {
-                pattern: BuildPatternId::decode(decoder, &mut payload)?,
-                slot: usize::decode(decoder, &mut payload)?,
-            },
-            FullPatternTag::Alternation => Self::Alternation {
-                patterns: Vec::decode(decoder, &mut payload)?,
-            },
-            FullPatternTag::Wildcard => Self::Wildcard,
-            FullPatternTag::Text => {
-                let holes = Vec::<BuildPatternId>::decode(decoder, &mut payload)?;
-                let mut kinds = Vec::with_capacity(holes.len());
-                for _ in 0..holes.len() {
-                    kinds.push(text_hole_kind(payload.raw()?)?);
-                }
-                let mut segments = Vec::with_capacity(holes.len() + 1);
-                for _ in 0..=holes.len() {
-                    segments.push(Arc::<str>::decode(decoder, &mut payload)?);
-                }
-                Self::Text {
-                    holes,
-                    kinds,
-                    segments,
-                }
-            }
-            FullPatternTag::Bind => Self::Bind {
-                slot: usize::decode(decoder, &mut payload)?,
-            },
-            FullPatternTag::Type => Self::Type {
-                ty: Type::decode(decoder, &mut payload)?,
-                slot: Option::decode(decoder, &mut payload)?,
-            },
-            FullPatternTag::Literal => Self::Literal(LoweredValue::decode(decoder, &mut payload)?),
-            FullPatternTag::ResultOk => Self::ResultOk {
-                slot: Option::decode(decoder, &mut payload)?,
-                unit_only: bool::decode(decoder, &mut payload)?,
-            },
-            FullPatternTag::ResultErr => Self::ResultErr {
-                slot: Option::decode(decoder, &mut payload)?,
-                unit_only: bool::decode(decoder, &mut payload)?,
-            },
-            FullPatternTag::ErrorVariant => Self::ErrorVariant {
-                family: Name::decode(decoder, &mut payload)?,
-                variant: Name::decode(decoder, &mut payload)?,
-                fields: Box::decode(decoder, &mut payload)?,
-                result_wrapped: bool::decode(decoder, &mut payload)?,
-            },
-            FullPatternTag::Facet => Self::Facet {
-                facet: Name::decode(decoder, &mut payload)?,
-                result_wrapped: bool::decode(decoder, &mut payload)?,
-            },
-            FullPatternTag::Tag => Self::Tag {
-                type_name: Name::decode(decoder, &mut payload)?,
-                name: Name::decode(decoder, &mut payload)?,
-                slots: SmallVec::decode(decoder, &mut payload)?,
-            },
-        };
-        payload.finish()?;
-        Ok(pattern)
-    }
-
-    fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
-        let index = input.raw()? as usize;
-        let parent = decoder.pattern_ceiling.get();
-        // Child patterns are committed first. Descending IDs rule out cycles
-        // while allowing immutable children to be shared by multiple parents.
-        if index >= parent {
-            return Err(IrVerifyError::new("nested pattern must precede its parent"));
-        }
-        decoder.pattern_ceiling.set(index);
-        let tag = decoder
-            .store
-            .patterns
-            .get(index)
-            .copied()
-            .ok_or_else(|| IrVerifyError::new("pattern id is out of bounds"))?;
-        let data = decoder.store.pattern_data[index];
-        let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
-        match tag {
-            FullPatternTag::TagType => {
-                Name::verify(decoder, &mut payload)?;
-                Vec::<Name>::verify(decoder, &mut payload)?;
-            }
-            FullPatternTag::RecordTest => {
-                Box::<Vec<(Name, BuildPatternId)>>::verify(decoder, &mut payload)?
-            }
-            FullPatternTag::ResultTest => {
-                bool::verify(decoder, &mut payload)?;
-                BuildPatternId::verify(decoder, &mut payload)?;
-            }
-            FullPatternTag::TagTest => {
-                Name::verify(decoder, &mut payload)?;
-                Name::verify(decoder, &mut payload)?;
-                Vec::<BuildPatternId>::verify(decoder, &mut payload)?;
-            }
-            FullPatternTag::ErrorTest => {
-                Name::verify(decoder, &mut payload)?;
-                Name::verify(decoder, &mut payload)?;
-                Box::<Vec<(Name, BuildPatternId)>>::verify(decoder, &mut payload)?;
-            }
-            FullPatternTag::List => {
-                Vec::<BuildPatternId>::verify(decoder, &mut payload)?;
-                let mut rest_payload = payload;
-                if bool::decode(decoder, &mut rest_payload)? {
-                    let rest = rest_payload.raw()? as usize;
-                    if !matches!(
-                        decoder.store.patterns.get(rest),
-                        Some(FullPatternTag::Wildcard | FullPatternTag::Bind)
-                    ) {
-                        return Err(IrVerifyError::new(
-                            "list rest must be a wildcard or binding",
-                        ));
-                    }
-                }
-                Option::<BuildPatternId>::verify(decoder, &mut payload)?;
-            }
-            FullPatternTag::Alias => {
-                BuildPatternId::verify(decoder, &mut payload)?;
-                usize::verify(decoder, &mut payload)?;
-                decoder.pattern_capture_slots(index)?;
-            }
-            FullPatternTag::Alternation => {
-                let mut alternatives = payload;
-                Vec::<BuildPatternId>::verify(decoder, &mut payload)?;
-                let mut children = decoder.pattern_list_cursor(&mut alternatives)?;
-                let count = children.raw()? as usize;
-                if count < 2 {
-                    return Err(IrVerifyError::new(
-                        "alternative pattern requires at least two choices",
-                    ));
-                }
-                let mut common = None;
-                for _ in 0..count {
-                    let child = children.raw()? as usize;
-                    let captures = decoder.pattern_capture_slots(child)?;
-                    if common.as_ref().is_some_and(|common| common != &captures) {
-                        return Err(IrVerifyError::new(
-                            "pattern alternatives must publish identical capture slots",
-                        ));
-                    }
-                    common = Some(captures);
-                }
-                children.finish()?;
-            }
-            FullPatternTag::Wildcard => {}
-            // What matching assumes of a text pattern: every hole is a
-            // wildcard or a binding with a known kind, and text separates
-            // each two holes, so where a hole ends is never a choice.
-            FullPatternTag::Text => {
-                let mut children = payload;
-                Vec::<BuildPatternId>::verify(decoder, &mut payload)?;
-                let mut children = decoder.pattern_list_cursor(&mut children)?;
-                let count = children.raw()? as usize;
-                for _ in 0..count {
-                    let hole = children.raw()? as usize;
-                    if !matches!(
-                        decoder.store.patterns.get(hole),
-                        Some(FullPatternTag::Wildcard | FullPatternTag::Bind)
-                    ) {
-                        return Err(IrVerifyError::new(
-                            "text pattern hole must be a wildcard or binding",
-                        ));
-                    }
-                }
-                children.finish()?;
-                for _ in 0..count {
-                    text_hole_kind(payload.raw()?)?;
-                }
-                for index in 0..=count {
-                    let segment = decoder.store.string(payload.raw()?)?;
-                    if segment.is_empty() && index != 0 && index != count {
-                        return Err(IrVerifyError::new(
-                            "text pattern holes must be separated by text",
-                        ));
-                    }
-                }
-            }
-            FullPatternTag::Bind => usize::verify(decoder, &mut payload)?,
-            FullPatternTag::Type => {
-                Type::verify(decoder, &mut payload)?;
-                Option::<usize>::verify(decoder, &mut payload)?;
-            }
-            FullPatternTag::Literal => LoweredValue::verify(decoder, &mut payload)?,
-            FullPatternTag::ResultOk | FullPatternTag::ResultErr => {
-                Option::<usize>::verify(decoder, &mut payload)?;
-                bool::verify(decoder, &mut payload)?;
-            }
-            FullPatternTag::ErrorVariant => {
-                Name::verify(decoder, &mut payload)?;
-                Name::verify(decoder, &mut payload)?;
-                Box::<LoweredErrorPatternFields>::verify(decoder, &mut payload)?;
-                bool::verify(decoder, &mut payload)?;
-            }
-            FullPatternTag::Facet => {
-                Name::verify(decoder, &mut payload)?;
-                bool::verify(decoder, &mut payload)?;
-            }
-            FullPatternTag::Tag => {
-                Name::verify(decoder, &mut payload)?;
-                Name::verify(decoder, &mut payload)?;
-                BuildPatternIdSlots::verify(decoder, &mut payload)?;
-            }
-        }
-        payload.finish()?;
-        decoder.pattern_ceiling.set(parent);
-        Ok(())
-    }
+#[cfg(test)]
+impl StageFieldsMatch<()> for () {
+    fn assert_matches(self, _expected: &(), _expectations: &StageViewExpectations<'_>) {}
 }
 
-macro_rules! impl_stage_codec {
-    (
-        $(
-            $pattern:pat => $tag:ident {
-                $($field:ident : $field_ty:ty),* $(,)?
-            } => $construct:expr
-        ),* $(,)?
-    ) => {
-        impl FullCodec for LoweredPipelineStage {
-            fn encode(
-                &self,
-                builder: &mut FullBuilder,
-                output: &mut Vec<u32>,
-            ) -> Result<(), IrBuildError> {
-                let (tag, payload) = match self {
-                    $(
-                        $pattern => {
-                            #[allow(unused_mut)]
-                            let mut payload = builder.take_payload();
-                            $(
-                                $field.encode(builder, &mut payload)?;
-                            )*
-                            (FullStageTag::$tag, payload)
-                        }
-                    ),*
-                };
-                let stage = builder.push_stage(tag, &payload);
-                builder.recycle_payload(payload);
-                output.push(stage?);
-                Ok(())
-            }
-
-            fn decode(
-                decoder: &FullDecoder<'_>,
-                input: &mut FullCursor<'_>,
-            ) -> Result<Self, IrVerifyError> {
-                let index = input.raw()? as usize;
-                let tag = decoder
-                    .store
-                    .stages
-                    .get(index)
-                    .copied()
-                    .ok_or_else(|| IrVerifyError::new("pipeline stage id is out of bounds"))?;
-                let data = decoder.store.stage_data[index];
-                let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
-                let stage = match tag {
-                    $(
-                        FullStageTag::$tag => {
-                            $(
-                                let $field = <$field_ty>::decode(decoder, &mut payload)?;
-                            )*
-                            $construct
-                        }
-                    ),*
-                };
-                payload.finish()?;
-                Ok(stage)
-            }
-
-            fn verify(
-                decoder: &FullDecoder<'_>,
-                input: &mut FullCursor<'_>,
-            ) -> Result<(), IrVerifyError> {
-                let index = input.raw()? as usize;
-                let tag = decoder
-                    .store
-                    .stages
-                    .get(index)
-                    .copied()
-                    .ok_or_else(|| IrVerifyError::new("pipeline stage id is out of bounds"))?;
-                let data = decoder.store.stage_data[index];
-                let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
-                match tag {
-                    $(
-                        FullStageTag::$tag => {
-                            $(
-                                <$field_ty>::verify(decoder, &mut payload)?;
-                            )*
-                        }
-                    ),*
-                }
-                payload.finish()
+#[cfg(test)]
+macro_rules! stage_fields_match {
+    ($($view_ty:ident:$expected_ty:ident:$view:ident:$index:tt),+ $(,)?) => {
+        impl<$($view_ty, $expected_ty),+> StageFieldsMatch<($($expected_ty,)+)>
+            for ($($view_ty,)+)
+        where
+            $($view_ty: StageFieldMatch<$expected_ty>),+
+        {
+            fn assert_matches(
+                self,
+                expected: &($($expected_ty,)+),
+                expectations: &StageViewExpectations<'_>,
+            ) {
+                let ($($view,)+) = self;
+                $($view.assert_matches(&expected.$index, expectations);)+
             }
         }
     };
 }
 
-impl_stage_codec! {
-    LoweredPipelineStage::TextLines => TextLines {} => LoweredPipelineStage::TextLines,
-    LoweredPipelineStage::JsonLines => JsonLines {} => LoweredPipelineStage::JsonLines,
-    LoweredPipelineStage::Where { slot, predicate } => Where {
+#[cfg(test)]
+stage_fields_match!(V0:E0:view0:0);
+#[cfg(test)]
+stage_fields_match!(V0:E0:view0:0, V1:E1:view1:1);
+#[cfg(test)]
+stage_fields_match!(V0:E0:view0:0, V1:E1:view1:1, V2:E2:view2:2);
+#[cfg(test)]
+stage_fields_match!(V0:E0:view0:0, V1:E1:view1:1, V2:E2:view2:2, V3:E3:view3:3);
+#[cfg(test)]
+stage_fields_match!(V0:E0:view0:0, V1:E1:view1:1, V2:E2:view2:2, V3:E3:view3:3, V4:E4:view4:4);
+#[cfg(test)]
+stage_fields_match!(V0:E0:view0:0, V1:E1:view1:1, V2:E2:view2:2, V3:E3:view3:3, V4:E4:view4:4, V5:E5:view5:5);
+#[cfg(test)]
+stage_fields_match!(V0:E0:view0:0, V1:E1:view1:1, V2:E2:view2:2, V3:E3:view3:3, V4:E4:view4:4, V5:E5:view5:5, V6:E6:view6:6);
+#[cfg(test)]
+stage_fields_match!(V0:E0:view0:0, V1:E1:view1:1, V2:E2:view2:2, V3:E3:view3:3, V4:E4:view4:4, V5:E5:view5:5, V6:E6:view6:6, V7:E7:view7:7);
+#[cfg(test)]
+stage_fields_match!(V0:E0:view0:0, V1:E1:view1:1, V2:E2:view2:2, V3:E3:view3:3, V4:E4:view4:4, V5:E5:view5:5, V6:E6:view6:6, V7:E7:view7:7, V8:E8:view8:8);
+
+#[cfg(test)]
+fn assert_stage_fields_match<V, T>(
+    view: V,
+    expected: &T,
+    expectations: &StageViewExpectations<'_>,
+)
+where
+    V: StageFieldsMatch<T>,
+{
+    view.assert_matches(expected, expectations);
+}
+
+macro_rules! pipeline_stage_schema {
+    (
+        @build
+        [$stage_builder:ident]
+        [$stage_decoder:ident]
+        [$stage_payload:ident]
+        [$stage_view_context:ident] [$stage_view_input:ident]
+        [$stage_view_value:ident] [$stage_view_expectations:ident]
+        [$($variants:tt)*]
+        [$($tags:tt)*]
+        [$($encode_arms:tt)*]
+        [$($decode_arms:tt)*]
+        [$($verify_arms:tt)*]
+        [$($view_variants:tt)*]
+        [$($borrow_arms:tt)*]
+        [$($view_tag_arms:tt)*]
+        [$($view_match_arms:tt)*]
+        ;
+    ) => {
+        #[derive(Clone, Debug)]
+        pub(in crate::runtime::eval) enum LoweredPipelineStage {
+            $($variants)*
+        }
+
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        #[repr(u8)]
+        pub(in crate::runtime::eval) enum FullStageTag {
+            $($tags)*
+        }
+
+        pub(in crate::runtime::eval) enum StageView<'a> {
+            $($view_variants)*
+        }
+
+        impl<'a> StageView<'a> {
+            pub(in crate::runtime::eval) fn decode(
+                $stage_view_context: DecodeContext<'a>,
+                raw: u32,
+            ) -> Result<Self, IrVerifyError> {
+                let (tag, mut $stage_payload) =
+                    $stage_view_context.stage_payload(raw)?;
+                let view = match tag {
+                    $($borrow_arms)*
+                };
+                $stage_payload.finish()?;
+                Ok(view)
+            }
+
+            pub(in crate::runtime::eval) fn tag(&self) -> FullStageTag {
+                match self {
+                    $($view_tag_arms)*
+                }
+            }
+        }
+
+        impl LoweredPipelineStage {
+            pub(in crate::runtime::eval) fn borrow_with_id<'a>(
+                context: DecodeContext<'a>,
+                input: &mut FullCursor<'a>,
+            ) -> Result<StageRef<'a>, IrVerifyError> {
+                let raw = input.raw()?;
+                let view = StageView::decode(context, raw)?;
+                Ok(StageRef::new(raw, view))
+            }
+        }
+
+        impl FullCodec for LoweredPipelineStage {
+            fn encode(
+                &self,
+                $stage_builder: &mut FullBuilder,
+                output: &mut Vec<u32>,
+            ) -> Result<(), IrBuildError> {
+                let (tag, $stage_payload) = match self {
+                    $($encode_arms)*
+                };
+                let stage = $stage_builder.push_stage(tag, &$stage_payload);
+                $stage_builder.recycle_payload($stage_payload);
+                output.push(stage?);
+                Ok(())
+            }
+
+            fn decode(
+                $stage_decoder: &FullDecoder<'_>,
+                input: &mut FullCursor<'_>,
+            ) -> Result<Self, IrVerifyError> {
+                let index = input.raw()? as usize;
+                let tag = $stage_decoder
+                    .store
+                    .stages
+                    .get(index)
+                    .copied()
+                    .ok_or_else(|| IrVerifyError::new("pipeline stage id is out of bounds"))?;
+                let data = $stage_decoder.store.stage_data[index];
+                let mut $stage_payload =
+                    FullCursor::new($stage_decoder.store.payload(data.range())?);
+                let stage = match tag {
+                    $($decode_arms)*
+                };
+                $stage_payload.finish()?;
+                Ok(stage)
+            }
+
+            fn verify(
+                $stage_decoder: &FullDecoder<'_>,
+                input: &mut FullCursor<'_>,
+            ) -> Result<(), IrVerifyError> {
+                let index = input.raw()? as usize;
+                let tag = $stage_decoder
+                    .store
+                    .stages
+                    .get(index)
+                    .copied()
+                    .ok_or_else(|| IrVerifyError::new("pipeline stage id is out of bounds"))?;
+                let data = $stage_decoder.store.stage_data[index];
+                let mut $stage_payload =
+                    FullCursor::new($stage_decoder.store.payload(data.range())?);
+                match tag {
+                    $($verify_arms)*
+                }
+                $stage_payload.finish()
+            }
+        }
+
+        // A stage view must consume its complete tagged row before it escapes.
+        impl BorrowCodec for LoweredPipelineStage {
+            type View<'a> = StageView<'a>;
+
+            fn borrow<'a>(
+                $stage_view_context: DecodeContext<'a>,
+                $stage_view_input: &mut FullCursor<'a>,
+            ) -> Result<Self::View<'a>, IrVerifyError> {
+                Ok(Self::borrow_with_id($stage_view_context, $stage_view_input)?.view)
+            }
+        }
+
+        #[cfg(test)]
+        fn assert_stage_view_matches(
+            owned: LoweredPipelineStage,
+            $stage_view_value: StageView<'_>,
+            $stage_view_expectations: &StageViewExpectations<'_>,
+        ) {
+            match owned {
+                $($view_match_arms)*
+            }
+        }
+    };
+    (
+        @build
+        [$stage_builder:ident]
+        [$stage_decoder:ident]
+        [$stage_payload:ident]
+        [$stage_view_context:ident] [$stage_view_input:ident]
+        [$stage_view_value:ident] [$stage_view_expectations:ident]
+        [$($variants:tt)*]
+        [$($tags:tt)*]
+        [$($encode_arms:tt)*]
+        [$($decode_arms:tt)*]
+        [$($verify_arms:tt)*]
+        [$($view_variants:tt)*]
+        [$($borrow_arms:tt)*]
+        [$($view_tag_arms:tt)*]
+        [$($view_match_arms:tt)*]
+        ;
+        $variant:ident unit {};
+        $($rest:tt)*
+    ) => {
+        pipeline_stage_schema!(
+            @build
+            [$stage_builder]
+            [$stage_decoder]
+            [$stage_payload]
+            [$stage_view_context] [$stage_view_input]
+            [$stage_view_value] [$stage_view_expectations]
+            [$($variants)* $variant,]
+            [$($tags)* $variant,]
+            [$($encode_arms)*
+                LoweredPipelineStage::$variant => {
+                    #[allow(unused_mut)]
+                    let mut $stage_payload = $stage_builder.take_payload();
+                    (FullStageTag::$variant, $stage_payload)
+                },
+            ]
+            [$($decode_arms)*
+                FullStageTag::$variant => LoweredPipelineStage::$variant,
+            ]
+            [$($verify_arms)* FullStageTag::$variant => {},]
+            [$($view_variants)* $variant,]
+            [$($borrow_arms)* FullStageTag::$variant => StageView::$variant,]
+            [$($view_tag_arms)* StageView::$variant => FullStageTag::$variant,]
+            [$($view_match_arms)*
+                LoweredPipelineStage::$variant => match $stage_view_value {
+                    StageView::$variant => {},
+                    _ => panic!("borrowed pipeline stage tag differs"),
+                },
+            ]
+            ;
+            $($rest)*
+        );
+    };
+    (
+        @build
+        [$stage_builder:ident]
+        [$stage_decoder:ident]
+        [$stage_payload:ident]
+        [$stage_view_context:ident] [$stage_view_input:ident]
+        [$stage_view_value:ident] [$stage_view_expectations:ident]
+        [$($variants:tt)*]
+        [$($tags:tt)*]
+        [$($encode_arms:tt)*]
+        [$($decode_arms:tt)*]
+        [$($verify_arms:tt)*]
+        [$($view_variants:tt)*]
+        [$($borrow_arms:tt)*]
+        [$($view_tag_arms:tt)*]
+        [$($view_match_arms:tt)*]
+        ;
+        $variant:ident tuple { $($field:ident : $field_ty:ty),+ $(,)? };
+        $($rest:tt)*
+    ) => {
+        pipeline_stage_schema!(
+            @build
+            [$stage_builder]
+            [$stage_decoder]
+            [$stage_payload]
+            [$stage_view_context] [$stage_view_input]
+            [$stage_view_value] [$stage_view_expectations]
+            [$($variants)* $variant($($field_ty),*),]
+            [$($tags)* $variant,]
+            [$($encode_arms)*
+                LoweredPipelineStage::$variant($($field),*) => {
+                    #[allow(unused_mut)]
+                    let mut $stage_payload = $stage_builder.take_payload();
+                    $($field.encode($stage_builder, &mut $stage_payload)?;)*
+                    (FullStageTag::$variant, $stage_payload)
+                },
+            ]
+            [$($decode_arms)*
+                FullStageTag::$variant => {
+                    $(let $field = <$field_ty>::decode($stage_decoder, &mut $stage_payload)?;)*
+                    LoweredPipelineStage::$variant($($field),*)
+                },
+            ]
+            [$($verify_arms)*
+                FullStageTag::$variant => {
+                    $(<$field_ty>::verify($stage_decoder, &mut $stage_payload)?;)*
+                },
+            ]
+            [$($view_variants)*
+                $variant($(<$field_ty as BorrowCodec>::View<'a>),*),
+            ]
+            [$($borrow_arms)*
+                FullStageTag::$variant => {
+                    $(let $field = <$field_ty>::borrow(
+                        $stage_view_context,
+                        &mut $stage_payload,
+                    )?;)*
+                    StageView::$variant($($field),*)
+                },
+            ]
+            [$($view_tag_arms)*
+                StageView::$variant(..) => FullStageTag::$variant,
+            ]
+            [$($view_match_arms)*
+                LoweredPipelineStage::$variant($($field),*) => {
+                    let expected = ($($field,)*);
+                    let actual = match $stage_view_value {
+                        StageView::$variant($($field),*) => ($($field,)*),
+                        _ => panic!("borrowed pipeline stage tag differs"),
+                    };
+                    assert_stage_fields_match(actual, &expected, $stage_view_expectations);
+                },
+            ]
+            ;
+            $($rest)*
+        );
+    };
+    (
+        @build
+        [$stage_builder:ident]
+        [$stage_decoder:ident]
+        [$stage_payload:ident]
+        [$stage_view_context:ident] [$stage_view_input:ident]
+        [$stage_view_value:ident] [$stage_view_expectations:ident]
+        [$($variants:tt)*]
+        [$($tags:tt)*]
+        [$($encode_arms:tt)*]
+        [$($decode_arms:tt)*]
+        [$($verify_arms:tt)*]
+        [$($view_variants:tt)*]
+        [$($borrow_arms:tt)*]
+        [$($view_tag_arms:tt)*]
+        [$($view_match_arms:tt)*]
+        ;
+        $variant:ident struct { $($field:ident : $field_ty:ty),+ $(,)? };
+        $($rest:tt)*
+    ) => {
+        pipeline_stage_schema!(
+            @build
+            [$stage_builder]
+            [$stage_decoder]
+            [$stage_payload]
+            [$stage_view_context] [$stage_view_input]
+            [$stage_view_value] [$stage_view_expectations]
+            [$($variants)* $variant { $($field: $field_ty),* },]
+            [$($tags)* $variant,]
+            [$($encode_arms)*
+                LoweredPipelineStage::$variant { $($field),* } => {
+                    #[allow(unused_mut)]
+                    let mut $stage_payload = $stage_builder.take_payload();
+                    $($field.encode($stage_builder, &mut $stage_payload)?;)*
+                    (FullStageTag::$variant, $stage_payload)
+                },
+            ]
+            [$($decode_arms)*
+                FullStageTag::$variant => {
+                    $(let $field = <$field_ty>::decode($stage_decoder, &mut $stage_payload)?;)*
+                    LoweredPipelineStage::$variant { $($field),* }
+                },
+            ]
+            [$($verify_arms)*
+                FullStageTag::$variant => {
+                    $(<$field_ty>::verify($stage_decoder, &mut $stage_payload)?;)*
+                },
+            ]
+            [$($view_variants)*
+                $variant { $($field: <$field_ty as BorrowCodec>::View<'a>),* },
+            ]
+            [$($borrow_arms)*
+                FullStageTag::$variant => {
+                    $(let $field = <$field_ty>::borrow(
+                        $stage_view_context,
+                        &mut $stage_payload,
+                    )?;)*
+                    StageView::$variant { $($field),* }
+                },
+            ]
+            [$($view_tag_arms)*
+                StageView::$variant { .. } => FullStageTag::$variant,
+            ]
+            [$($view_match_arms)*
+                LoweredPipelineStage::$variant { $($field),* } => {
+                    let expected = ($($field,)*);
+                    let actual = match $stage_view_value {
+                        StageView::$variant { $($field),* } => ($($field,)*),
+                        _ => panic!("borrowed pipeline stage tag differs"),
+                    };
+                    assert_stage_fields_match(actual, &expected, $stage_view_expectations);
+                },
+            ]
+            ;
+            $($rest)*
+        );
+    };
+    (
+        @context
+        $stage_builder:ident
+        $stage_decoder:ident
+        $stage_payload:ident
+        $stage_view_context:ident $stage_view_input:ident
+        $stage_view_value:ident $stage_view_expectations:ident;
+        $($schema:tt)*
+    ) => {
+        pipeline_stage_schema!(
+            @build
+            [$stage_builder]
+            [$stage_decoder]
+            [$stage_payload]
+            [$stage_view_context] [$stage_view_input]
+            [$stage_view_value] [$stage_view_expectations]
+            [] [] [] [] [] [] [] [] []
+            ;
+            $($schema)*
+        );
+    };
+}
+
+pipeline_stage_schema! {
+    @context
+    stage_builder
+    stage_decoder
+    stage_payload
+    stage_view_context stage_view_input
+    stage_view_value stage_view_expectations;
+    TextLines unit {};
+    JsonLines unit {};
+    Where struct {
         slot: usize,
         predicate: BuildExprId,
-    } => LoweredPipelineStage::Where { slot, predicate },
-    LoweredPipelineStage::WhereBlock { slot, body, value } => WhereBlock {
+    };
+    WhereBlock struct {
         slot: usize,
         body: Vec<BuildStmtId>,
         value: BuildExprId,
-    } => LoweredPipelineStage::WhereBlock { slot, body, value },
-    LoweredPipelineStage::Map { slot, value } => Map {
+    };
+    Map struct {
         slot: usize,
         value: BuildExprId,
-    } => LoweredPipelineStage::Map { slot, value },
-    LoweredPipelineStage::MapBlock { slot, body, value } => MapBlock {
-        slot: usize,
-        body: Vec<BuildStmtId>,
-        value: BuildExprId,
-    } => LoweredPipelineStage::MapBlock { slot, body, value },
-    LoweredPipelineStage::FlatMap { slot, value } => FlatMap {
-        slot: usize,
-        value: BuildExprId,
-    } => LoweredPipelineStage::FlatMap { slot, value },
-    LoweredPipelineStage::FlatMapBlock { slot, body, value } => FlatMapBlock {
+    };
+    MapBlock struct {
         slot: usize,
         body: Vec<BuildStmtId>,
         value: BuildExprId,
-    } => LoweredPipelineStage::FlatMapBlock { slot, body, value },
-    LoweredPipelineStage::BytesChunks { size } => BytesChunks {
+    };
+    FlatMap struct {
+        slot: usize,
+        value: BuildExprId,
+    };
+    FlatMapBlock struct {
+        slot: usize,
+        body: Vec<BuildStmtId>,
+        value: BuildExprId,
+    };
+    BytesChunks struct {
         size: BuildExprId,
-    } => LoweredPipelineStage::BytesChunks { size },
-    LoweredPipelineStage::BatchCount { count } => BatchCount {
+    };
+    BatchCount struct {
         count: BuildExprId,
-    } => LoweredPipelineStage::BatchCount { count },
-    LoweredPipelineStage::BatchMaxArgv { max_argv } => BatchMaxArgv {
+    };
+    BatchMaxArgv struct {
         max_argv: Option<BuildExprId>,
-    } => LoweredPipelineStage::BatchMaxArgv { max_argv },
-    LoweredPipelineStage::BatchMaxBytes { max_bytes } => BatchMaxBytes {
+    };
+    BatchMaxBytes struct {
         max_bytes: BuildExprId,
-    } => LoweredPipelineStage::BatchMaxBytes { max_bytes },
-    LoweredPipelineStage::BatchLimits { configuration } => BatchLimits {
+    };
+    BatchLimits struct {
         configuration: BuildExprId,
-    } => LoweredPipelineStage::BatchLimits { configuration },
-    LoweredPipelineStage::Shuffle { seed } => Shuffle {
+    };
+    Shuffle struct {
         seed: Option<BuildExprId>,
-    } => LoweredPipelineStage::Shuffle { seed },
-    LoweredPipelineStage::Fold {
-        acc_slot,
-        item_slot,
-        initial,
-        body,
-        value,
-    } => Fold {
+    };
+    Fold struct {
         acc_slot: usize,
         item_slot: usize,
         initial: BuildExprId,
         body: Vec<BuildStmtId>,
         value: BuildExprId,
-    } => LoweredPipelineStage::Fold {
-        acc_slot,
-        item_slot,
-        initial,
-        body,
-        value,
-    },
-    LoweredPipelineStage::ReduceBy {
-        item_slot,
-        body,
-        value,
-        op,
-        jobs,
-    } => ReduceBy {
+    };
+    ReduceBy struct {
         item_slot: usize,
         body: Vec<BuildStmtId>,
         value: BuildExprId,
         op: ReduceByOp,
         jobs: Option<BuildExprId>,
-    } => LoweredPipelineStage::ReduceBy {
-        item_slot,
-        body,
-        value,
-        op,
-        jobs,
-    },
-    LoweredPipelineStage::ReduceByConfigured { item_slot, body, value, configuration } => ReduceByConfigured {
+    };
+    ReduceByConfigured struct {
         item_slot: usize,
         body: Vec<BuildStmtId>,
         value: BuildExprId,
         configuration: BuildExprId,
-    } => LoweredPipelineStage::ReduceByConfigured { item_slot, body, value, configuration },
-    LoweredPipelineStage::ParMap { slot, jobs, value } => ParMap {
+    };
+    ParMap struct {
         slot: usize,
         jobs: Option<BuildExprId>,
         value: BuildExprId,
-    } => LoweredPipelineStage::ParMap { slot, jobs, value },
-    LoweredPipelineStage::ParMapBlock {
-        slot,
-        body,
-        jobs,
-        value,
-    } => ParMapBlock {
+    };
+    ParMapBlock struct {
         slot: usize,
         body: Vec<BuildStmtId>,
         jobs: Option<BuildExprId>,
         value: BuildExprId,
-    } => LoweredPipelineStage::ParMapBlock {
-        slot,
-        body,
-        jobs,
-        value,
-    },
-    LoweredPipelineStage::ParMapFlatMapReduceBy {
-        slot,
-        body,
-        jobs,
-        value,
-        flatten,
-        reduce_item_slot,
-        reduce_body,
-        reduce_value,
-        op,
-    } => ParMapFlatMapReduceBy {
+    };
+    ParMapFlatMapReduceBy struct {
         slot: usize,
         body: Option<Vec<BuildStmtId>>,
         jobs: Option<BuildExprId>,
@@ -7991,1118 +7030,84 @@ impl_stage_codec! {
         reduce_body: Vec<BuildStmtId>,
         reduce_value: BuildExprId,
         op: ReduceByOp,
-    } => LoweredPipelineStage::ParMapFlatMapReduceBy {
-        slot,
-        body,
-        jobs,
-        value,
-        flatten,
-        reduce_item_slot,
-        reduce_body,
-        reduce_value,
-        op,
-    },
-    LoweredPipelineStage::Tee { slot, body } => Tee {
+    };
+    Tee struct {
         slot: usize,
         body: Vec<BuildStmtId>,
-    } => LoweredPipelineStage::Tee { slot, body },
-    LoweredPipelineStage::Each {
-        slot,
-        body,
-    } => Each {
+    };
+    Each struct {
         slot: usize,
         body: Vec<BuildStmtId>,
-    } => LoweredPipelineStage::Each {
-        slot,
-        body,
-    },
-    LoweredPipelineStage::TablePrint { columns } => TablePrint {
+    };
+    TablePrint struct {
         columns: Option<Vec<String>>,
-    } => LoweredPipelineStage::TablePrint { columns },
-    LoweredPipelineStage::TablePrintConfigured { columns } => TablePrintConfigured {
+    };
+    TablePrintConfigured struct {
         columns: BuildExprId,
-    } => LoweredPipelineStage::TablePrintConfigured { columns },
-    LoweredPipelineStage::Enumerate => Enumerate {} => LoweredPipelineStage::Enumerate,
-    LoweredPipelineStage::Zip { other } => Zip {
+    };
+    Enumerate unit {};
+    Zip struct {
         other: BuildExprId,
-    } => LoweredPipelineStage::Zip { other },
-    LoweredPipelineStage::Sort { descending } => Sort {
+    };
+    Sort struct {
         descending: Option<BuildExprId>,
-    } => LoweredPipelineStage::Sort { descending },
-    LoweredPipelineStage::SortBy {
-        slot,
-        key,
-        descending,
-    } => SortBy {
+    };
+    SortBy struct {
         slot: usize,
         key: BuildExprId,
         descending: Option<BuildExprId>,
-    } => LoweredPipelineStage::SortBy {
-        slot,
-        key,
-        descending,
-    },
-    LoweredPipelineStage::GroupBy { slot, key } => GroupBy {
+    };
+    GroupBy struct {
         slot: usize,
         key: BuildExprId,
-    } => LoweredPipelineStage::GroupBy { slot, key },
-    LoweredPipelineStage::CountBy { slot, key } => CountBy {
+    };
+    CountBy struct {
         slot: usize,
         key: BuildExprId,
-    } => LoweredPipelineStage::CountBy { slot, key },
-    LoweredPipelineStage::Any { slot, predicate } => Any {
+    };
+    Any struct {
         slot: usize,
         predicate: BuildExprId,
-    } => LoweredPipelineStage::Any { slot, predicate },
-    LoweredPipelineStage::AnyBlock { slot, body, value } => AnyBlock {
+    };
+    AnyBlock struct {
         slot: usize,
         body: Vec<BuildStmtId>,
         value: BuildExprId,
-    } => LoweredPipelineStage::AnyBlock { slot, body, value },
-    LoweredPipelineStage::All { slot, predicate } => All {
+    };
+    All struct {
         slot: usize,
         predicate: BuildExprId,
-    } => LoweredPipelineStage::All { slot, predicate },
-    LoweredPipelineStage::AllBlock { slot, body, value } => AllBlock {
+    };
+    AllBlock struct {
         slot: usize,
         body: Vec<BuildStmtId>,
         value: BuildExprId,
-    } => LoweredPipelineStage::AllBlock { slot, body, value },
-    LoweredPipelineStage::UniqueBy { slot, key } => UniqueBy {
+    };
+    UniqueBy struct {
         slot: usize,
         key: BuildExprId,
-    } => LoweredPipelineStage::UniqueBy { slot, key },
-    LoweredPipelineStage::Count => Count {} => LoweredPipelineStage::Count,
-    LoweredPipelineStage::Sum => Sum {} => LoweredPipelineStage::Sum,
-    LoweredPipelineStage::Collect => Collect {} => LoweredPipelineStage::Collect,
-    LoweredPipelineStage::First => First {} => LoweredPipelineStage::First,
-    LoweredPipelineStage::Last => Last {} => LoweredPipelineStage::Last,
-    LoweredPipelineStage::Min => Min {} => LoweredPipelineStage::Min,
-    LoweredPipelineStage::Max => Max {} => LoweredPipelineStage::Max,
-    LoweredPipelineStage::Take(value) => Take {
-        value: BuildExprId,
-    } => LoweredPipelineStage::Take(value),
-    LoweredPipelineStage::Drop(value) => Drop {
-        value: BuildExprId,
-    } => LoweredPipelineStage::Drop(value),
-    LoweredPipelineStage::Repeat { count } => Repeat {
+    };
+    Count unit {};
+    Sum unit {};
+    Collect unit {};
+    First unit {};
+    Last unit {};
+    Min unit {};
+    Max unit {};
+    Take tuple { value: BuildExprId };
+    Drop tuple { value: BuildExprId };
+    Repeat struct {
         count: BuildExprId,
-    } => LoweredPipelineStage::Repeat { count },
-    LoweredPipelineStage::Range { start, end } => Range {
+    };
+    Range struct {
         start: BuildExprId,
         end: BuildExprId,
-    } => LoweredPipelineStage::Range { start, end },
+    };
 }
 
-impl_node_codec! {
-    BuildExprRow {
-        BuildExprRow::Null => ExprNull {} => BuildExprRow::Null,
-        BuildExprRow::Unit => ExprUnit {} => BuildExprRow::Unit,
-        BuildExprRow::Int(value) => ExprInt { value: i64 } => BuildExprRow::Int(value),
-        BuildExprRow::Float(value) => ExprFloat {
-            value: FloatValue,
-        } => BuildExprRow::Float(value),
-        BuildExprRow::Duration(value) => ExprDuration {
-            value: DurationValue,
-        } => BuildExprRow::Duration(value),
-        BuildExprRow::Bool(value) => ExprBool { value: bool } => BuildExprRow::Bool(value),
-        BuildExprRow::Str(value) => ExprStr {
-            value: Arc<str>,
-        } => BuildExprRow::Str(value),
-        BuildExprRow::PreparedConstant(value) => ExprPreparedConstant {
-            value: PreparedConstantValue,
-        } => BuildExprRow::PreparedConstant(value),
-        BuildExprRow::PreparedRegex(value) => ExprPreparedRegex {
-            value: RegexValue,
-        } => BuildExprRow::PreparedRegex(value),
-        BuildExprRow::Bytes(value) => ExprBytes {
-            value: Arc<[u8]>,
-        } => BuildExprRow::Bytes(value),
-        BuildExprRow::Path(value) => ExprPath {
-            value: PathValue,
-        } => BuildExprRow::Path(value),
-        BuildExprRow::FunctionRef { function, pure } => ExprFunctionRef {
-            function: FunctionName,
-            pure: bool,
-        } => BuildExprRow::FunctionRef { function, pure },
-        BuildExprRow::PathFrom { value, span } => ExprPathFrom {
-            value: BuildExprId,
-            span: Span,
-        } => BuildExprRow::PathFrom { value, span },
-        BuildExprRow::Param(slot) => ExprParam {
-            slot: usize,
-        } => BuildExprRow::Param(slot),
-        BuildExprRow::ComparisonChain { pairs, assertion } => ExprComparisonChain {
-            pairs: Vec<BuildExprId>,
-            assertion: bool,
-        } => BuildExprRow::ComparisonChain { pairs, assertion },
-        BuildExprRow::Binary {
-            op,
-            left,
-            right,
-            span,
-        } => ExprBinary {
-            op: BinaryOp,
-            left: BuildExprId,
-            right: BuildExprId,
-            span: Span,
-        } => BuildExprRow::Binary {
-            op,
-            left,
-            right,
-            span,
-        },
-        BuildExprRow::IfExpr {
-            branches,
-            else_value,
-            span,
-        } => ExprIf {
-            branches: Vec<(BuildExprId, BuildExprId)>,
-            else_value: BuildExprId,
-            span: Span,
-        } => BuildExprRow::IfExpr {
-            branches,
-            else_value,
-            span,
-        },
-        BuildExprRow::PatternIf { branches, else_value, span } => ExprPatternIf {
-            branches: Vec<(BuildExprId, BuildExprId, Vec<usize>)>,
-            else_value: BuildExprId,
-            span: Span,
-        } => BuildExprRow::PatternIf { branches, else_value, span },
-        BuildExprRow::MatchExpr { value, arms, span } => ExprMatch {
-            value: BuildExprId,
-            arms: Vec<(BuildPatternId, Option<BuildExprId>, BuildExprId)>,
-            span: Span,
-        } => BuildExprRow::MatchExpr { value, arms, span },
-        BuildExprRow::StrMatchExpr {
-            value,
-            arms,
-            fallback,
-            span,
-        } => ExprStrMatch {
-            value: BuildExprId,
-            arms: FxHashMap<Arc<str>, BuildExprId>,
-            fallback: Option<BuildExprId>,
-            span: Span,
-        } => BuildExprRow::StrMatchExpr {
-            value,
-            arms,
-            fallback,
-            span,
-        },
-        BuildExprRow::TagMatchExpr {
-            value,
-            arms,
-            fallback,
-            span,
-        } => ExprTagMatch {
-            value: BuildExprId,
-            arms: FxHashMap<Arc<str>, BuildExprId>,
-            fallback: Option<BuildExprId>,
-            span: Span,
-        } => BuildExprRow::TagMatchExpr {
-            value,
-            arms,
-            fallback,
-            span,
-        },
-        BuildExprRow::ResultFallback { left, right } => ExprResultFallback {
-            left: BuildExprId,
-            right: BuildExprId,
-        } => BuildExprRow::ResultFallback { left, right },
-        BuildExprRow::FmtString(parts) => ExprFmtString {
-            parts: Vec<LoweredFmtPart>,
-        } => BuildExprRow::FmtString(parts),
-        BuildExprRow::PathFmtString { parts, span } => ExprPathFmtString {
-            parts: Vec<LoweredFmtPart>,
-            span: Span,
-        } => BuildExprRow::PathFmtString { parts, span },
-        BuildExprRow::Glob { pattern, span } => ExprGlob {
-            pattern: Arc<str>,
-            span: Span,
-        } => BuildExprRow::Glob { pattern, span },
-        BuildExprRow::LastStatus { span } => ExprLastStatus {
-            span: Span,
-        } => BuildExprRow::LastStatus { span },
-        BuildExprRow::MapLiteral(entries) => ExprMapLiteral {
-            entries: Vec<(Option<BuildExprId>, BuildExprId, Span)>,
-        } => BuildExprRow::MapLiteral(entries),
-        BuildExprRow::RecordUpdate { base, updates, span } => ExprRecordUpdate {
-            base: BuildExprId, updates: LoweredRecordUpdates, span: Span,
-        } => BuildExprRow::RecordUpdate { base, updates, span },
-        BuildExprRow::Record(entries) => ExprRecord {
-            entries: Vec<LoweredRecordEntry>,
-        } => BuildExprRow::Record(entries),
-        BuildExprRow::List(values) => ExprList {
-            values: Vec<BuildExprId>,
-        } => BuildExprRow::List(values),
-        BuildExprRow::ListBuild(values) => ExprListBuild {
-            values: Vec<(bool, BuildExprId, Span)>,
-        } => BuildExprRow::ListBuild(values),
-        BuildExprRow::EmptyMap => ExprEmptyMap {} => BuildExprRow::EmptyMap,
-        BuildExprRow::BytesConcat { arg, span } => ExprBytesConcat {
-            arg: BuildExprId,
-            span: Span,
-        } => BuildExprRow::BytesConcat { arg, span },
-        BuildExprRow::Range { start, end, span } => ExprRange {
-            start: BuildExprId,
-            end: BuildExprId,
-            span: Span,
-        } => BuildExprRow::Range { start, end, span },
-        BuildExprRow::Tag { type_name, name, fields, wire } => ExprTag {
-            type_name: Name,
-            name: Arc<str>,
-            fields: Vec<BuildExprId>,
-            wire: Option<Arc<crate::sema::wire_enums::WireEnumMapping>>,
-        } => BuildExprRow::Tag { type_name, name, fields, wire },
-        BuildExprRow::ListComp { value, qualifiers, span } => ExprListComp {
-            value: BuildExprId,
-            qualifiers: LoweredCompQualifiers,
-            span: Span,
-        } => BuildExprRow::ListComp { value, qualifiers, span },
-        BuildExprRow::MapComp { key, value, qualifiers, span } => ExprMapComp {
-            key: BuildExprId,
-            value: BuildExprId,
-            qualifiers: LoweredCompQualifiers,
-            span: Span,
-        } => BuildExprRow::MapComp { key, value, qualifiers, span },
-        BuildExprRow::ListPipeline {
-            input,
-            stages,
-            span,
-        } => ExprPipeline {
-            input: BuildExprId,
-            stages: Vec<LoweredPipelineStage>,
-            span: Span,
-        } => BuildExprRow::ListPipeline {
-            input,
-            stages,
-            span,
-        },
-        BuildExprRow::Field { base, name, span } => ExprField {
-            base: BuildExprId,
-            name: NameText,
-            span: Span,
-        } => BuildExprRow::Field { base, name, span },
-        BuildExprRow::Index { base, index, span } => ExprIndex {
-            base: BuildExprId,
-            index: BuildExprId,
-            span: Span,
-        } => BuildExprRow::Index { base, index, span },
-        BuildExprRow::IndexFromEnd { base, distance, span } => ExprIndexFromEnd {
-            base: BuildExprId,
-            distance: crate::runtime::eval::EndDistance,
-            span: Span,
-        } => BuildExprRow::IndexFromEnd { base, distance, span },
-        BuildExprRow::Slice {
-            base,
-            start,
-            end,
-            span,
-        } => ExprSlice {
-            base: BuildExprId,
-            start: Option<BuildExprId>,
-            end: Option<BuildExprId>,
-            span: Span,
-        } => BuildExprRow::Slice {
-            base,
-            start,
-            end,
-            span,
-        },
-        BuildExprRow::Method {
-            receiver,
-            name,
-            args,
-            span,
-        } => ExprMethod {
-            receiver: BuildExprId,
-            name: NameText,
-            args: Vec<BuildExprId>,
-            span: Span,
-        } => BuildExprRow::Method {
-            receiver,
-            name,
-            args,
-            span,
-        },
-        BuildExprRow::StrByteLen { receiver, span } => ExprStrByteLen {
-            receiver: BuildExprId,
-            span: Span,
-        } => BuildExprRow::StrByteLen { receiver, span },
-        BuildExprRow::StrByteAt {
-            receiver,
-            index,
-            span,
-        } => ExprStrByteAt {
-            receiver: BuildExprId,
-            index: BuildExprId,
-            span: Span,
-        } => BuildExprRow::StrByteAt {
-            receiver,
-            index,
-            span,
-        },
-        BuildExprRow::StrPredicate {
-            receiver,
-            predicate,
-            needle,
-            span,
-        } => ExprStrPredicate {
-            receiver: BuildExprId,
-            predicate: LoweredStrPredicate,
-            needle: BuildExprId,
-            span: Span,
-        } => BuildExprRow::StrPredicate {
-            receiver,
-            predicate,
-            needle,
-            span,
-        },
-        BuildExprRow::RegexCompile { pattern, span } => ExprRegexCompile {
-            pattern: BuildExprId,
-            span: Span,
-        } => BuildExprRow::RegexCompile { pattern, span },
-        BuildExprRow::CheckedValue { value, check, span } => ExprCheckedValue {
-            value: BuildExprId,
-            check: LoweredTypeCheck,
-            span: Span,
-        } => BuildExprRow::CheckedValue { value, check, span },
-        BuildExprRow::Require { value, check, span } => ExprRequire {
-            value: BuildExprId,
-            check: LoweredTypeCheck,
-            span: Span,
-        } => BuildExprRow::Require { value, check, span },
-        BuildExprRow::RunCapture(value) => ExprRunCapture {
-            value: Box<LoweredRunCapture>,
-        } => BuildExprRow::RunCapture(value),
-        BuildExprRow::RunPipeline {
-            segments,
-            propagate,
-            span,
-        } => ExprRunPipeline {
-            segments: Vec<LoweredRunPipelineSegment>,
-            propagate: bool,
-            span: Span,
-        } => BuildExprRow::RunPipeline {
-            segments,
-            propagate,
-            span,
-        },
-        BuildExprRow::SpawnRun(value) => ExprSpawnRun {
-            value: Box<LoweredSpawnRun>,
-        } => BuildExprRow::SpawnRun(value),
-        BuildExprRow::SpawnCommand { command, span } => ExprSpawnCommand {
-            command: BuildExprId,
-            span: Span,
-        } => BuildExprRow::SpawnCommand { command, span },
-        BuildExprRow::Wait { target, span } => ExprWait {
-            target: BuildExprId,
-            span: Span,
-        } => BuildExprRow::Wait { target, span },
-        BuildExprRow::Capture { body, span } => ExprCapture {
-            body: Vec<BuildStmtId>, span: Span,
-        } => BuildExprRow::Capture { body, span },
-        BuildExprRow::ErrorContext { message, body, span } => ExprErrorContext {
-            message: BuildExprId, body: Vec<BuildStmtId>, span: Span,
-        } => BuildExprRow::ErrorContext { message, body, span },
-        BuildExprRow::ContextScope { kind, input, body, span } => ExprContextScope {
-            kind: crate::syntax::arena::ContextScopeKind, input: BuildExprId, body: Vec<BuildStmtId>, span: Span,
-        } => BuildExprRow::ContextScope { kind, input, body, span },
-        BuildExprRow::ValueBlock { body, span } => ExprValueBlock {
-            body: Vec<BuildStmtId>, span: Span,
-        } => BuildExprRow::ValueBlock { body, span },
-        BuildExprRow::Loop { body, span } => ExprLoop {
-            body: Vec<BuildStmtId>,
-            span: Span,
-        } => BuildExprRow::Loop { body, span },
-        BuildExprRow::Retry { delays, pattern, body, span, schedule } => ExprRetry {
-            delays: Vec<BuildExprId>,
-            pattern: Option<BuildPatternId>,
-            body: Vec<BuildStmtId>,
-            span: Span,
-            schedule: crate::syntax::arena::RetrySchedule,
-        } => BuildExprRow::Retry { delays, pattern, body, span, schedule },
-        BuildExprRow::FsFiles {
-            root,
-            gitignore,
-            stat,
-            hidden,
-            exts,
-            result_wrapped,
-            span,
-        } => ExprFsFiles {
-            root: BuildExprId,
-            gitignore: Option<BuildExprId>,
-            stat: Option<BuildExprId>,
-            hidden: Option<BuildExprId>,
-            exts: Option<BuildExprId>,
-            result_wrapped: bool,
-            span: Span,
-        } => BuildExprRow::FsFiles {
-            root,
-            gitignore,
-            stat,
-            hidden,
-            exts,
-            result_wrapped,
-            span,
-        },
-        BuildExprRow::FsWalk {
-            root,
-            gitignore,
-            stat,
-            hidden,
-            exts,
-            result_wrapped,
-            span,
-        } => ExprFsWalk {
-            root: BuildExprId,
-            gitignore: Option<BuildExprId>,
-            stat: Option<BuildExprId>,
-            hidden: Option<BuildExprId>,
-            exts: Option<BuildExprId>,
-            result_wrapped: bool,
-            span: Span,
-        } => BuildExprRow::FsWalk {
-            root,
-            gitignore,
-            stat,
-            hidden,
-            exts,
-            result_wrapped,
-            span,
-        },
-        BuildExprRow::FsList {
-            op,
-            path,
-            stat,
-            ordered,
-            span,
-        } => ExprFsList {
-            op: RuntimeOp,
-            path: BuildExprId,
-            stat: Option<BuildExprId>,
-            ordered: Option<BuildExprId>,
-            span: Span,
-        } => BuildExprRow::FsList {
-            op,
-            path,
-            stat,
-            ordered,
-            span,
-        },
-        BuildExprRow::FsTempDir { span } => ExprFsTempDir {
-            span: Span,
-        } => BuildExprRow::FsTempDir { span },
-        BuildExprRow::FsMkdir {
-            path,
-            parents,
-            span,
-        } => ExprFsMkdir {
-            path: BuildExprId,
-            parents: Option<BuildExprId>,
-            span: Span,
-        } => BuildExprRow::FsMkdir {
-            path,
-            parents,
-            span,
-        },
-        BuildExprRow::FsRemove {
-            path,
-            missing_ok,
-            span,
-        } => ExprFsRemove {
-            path: BuildExprId,
-            missing_ok: Option<BuildExprId>,
-            span: Span,
-        } => BuildExprRow::FsRemove {
-            path,
-            missing_ok,
-            span,
-        },
-        BuildExprRow::PathReadText { path, span } => ExprPathReadText {
-            path: BuildExprId,
-            span: Span,
-        } => BuildExprRow::PathReadText { path, span },
-        BuildExprRow::PathReadBytes { path, span } => ExprPathReadBytes {
-            path: BuildExprId,
-            span: Span,
-        } => BuildExprRow::PathReadBytes { path, span },
-        BuildExprRow::PathExists { path, span } => ExprPathExists {
-            path: BuildExprId,
-            span: Span,
-        } => BuildExprRow::PathExists { path, span },
-        BuildExprRow::PathExecutable { path, span } => ExprPathExecutable {
-            path: BuildExprId,
-            span: Span,
-        } => BuildExprRow::PathExecutable { path, span },
-        BuildExprRow::PathDu { path, span } => ExprPathDu {
-            path: BuildExprId,
-            span: Span,
-        } => BuildExprRow::PathDu { path, span },
-        BuildExprRow::PathMetadata { path, span } => ExprPathMetadata {
-            path: BuildExprId,
-            span: Span,
-        } => BuildExprRow::PathMetadata { path, span },
-        BuildExprRow::PathReadlink { path, span } => ExprPathReadlink {
-            path: BuildExprId,
-            span: Span,
-        } => BuildExprRow::PathReadlink { path, span },
-        BuildExprRow::PathResolve { path, span } => ExprPathResolve {
-            path: BuildExprId,
-            span: Span,
-        } => BuildExprRow::PathResolve { path, span },
-        BuildExprRow::PathWrite {
-            path,
-            data,
-            atomic,
-            span,
-        } => ExprPathWrite {
-            path: BuildExprId,
-            data: BuildExprId,
-            atomic: bool,
-            span: Span,
-        } => BuildExprRow::PathWrite {
-            path,
-            data,
-            atomic,
-            span,
-        },
-        BuildExprRow::PathMkdir {
-            path,
-            parents,
-            span,
-        } => ExprPathMkdir {
-            path: BuildExprId,
-            parents: Option<BuildExprId>,
-            span: Span,
-        } => BuildExprRow::PathMkdir {
-            path,
-            parents,
-            span,
-        },
-        BuildExprRow::PathRemove {
-            path,
-            missing_ok,
-            span,
-        } => ExprPathRemove {
-            path: BuildExprId,
-            missing_ok: Option<BuildExprId>,
-            span: Span,
-        } => BuildExprRow::PathRemove {
-            path,
-            missing_ok,
-            span,
-        },
-        BuildExprRow::JsonEncode { value, span } => ExprJsonEncode {
-            value: BuildExprId,
-            span: Span,
-        } => BuildExprRow::JsonEncode { value, span },
-        BuildExprRow::ArchiveTarCreate {
-            path,
-            root,
-            entries,
-            compression,
-            overwrite,
-            span,
-        } => ExprArchiveTarCreate {
-            path: BuildExprId,
-            root: BuildExprId,
-            entries: BuildExprId,
-            compression: Option<BuildExprId>,
-            overwrite: Option<BuildExprId>,
-            span: Span,
-        } => BuildExprRow::ArchiveTarCreate {
-            path,
-            root,
-            entries,
-            compression,
-            overwrite,
-            span,
-        },
-        BuildExprRow::ArchiveTarList { path, span } => ExprArchiveTarList {
-            path: BuildExprId,
-            span: Span,
-        } => BuildExprRow::ArchiveTarList { path, span },
-        BuildExprRow::ArchiveTarExtract { path, dest, span } => ExprArchiveTarExtract {
-            path: BuildExprId,
-            dest: BuildExprId,
-            span: Span,
-        } => BuildExprRow::ArchiveTarExtract { path, dest, span },
-        BuildExprRow::ModuleCall { op, cli_plan, args, span } => ExprModuleCall {
-            op: RuntimeOp,
-            cli_plan: Option<Arc<crate::modules::cli::CliDescriptorPlan>>,
-            args: Vec<Option<BuildExprId>>,
-            span: Span,
-        } => BuildExprRow::ModuleCall { op, cli_plan, args, span },
-        BuildExprRow::ProcessCommandArgv(value) => ExprProcessCommandArgv {
-            value: Box<LoweredProcessCommandArgv>,
-        } => BuildExprRow::ProcessCommandArgv(value),
-        BuildExprRow::ProcessCommandBuilder { entries, span } => ExprProcessCommandBuilder {
-            entries: Vec<LoweredProcessCommandBuilderEntry>,
-            span: Span,
-        } => BuildExprRow::ProcessCommandBuilder { entries, span },
-        BuildExprRow::Abort { status, span } => ExprAbort {
-            status: BuildExprId,
-            span: Span,
-        } => BuildExprRow::Abort { status, span },
-        BuildExprRow::Fail { message, span } => ExprFail {
-            message: BuildExprId,
-            span: Span,
-        } => BuildExprRow::Fail { message, span },
-        BuildExprRow::Ok(value) => ExprOk {
-            value: BuildExprId,
-        } => BuildExprRow::Ok(value),
-        BuildExprRow::ProcCallResult(value) => ExprProcCallResult {
-            value: BuildExprId,
-        } => BuildExprRow::ProcCallResult(value),
-        BuildExprRow::Err { value, cause } => ExprErr {
-            value: BuildExprId,
-            cause: Option<BuildExprId>,
-        } => BuildExprRow::Err { value, cause },
-        BuildExprRow::Error(value) => ExprError {
-            value: Box<LoweredErrorExpr>,
-        } => BuildExprRow::Error(value),
-        BuildExprRow::Try { value, span } => ExprTry {
-            value: BuildExprId,
-            span: Span,
-        } => BuildExprRow::Try { value, span },
-        BuildExprRow::Call {
-            function,
-            args,
-            span,
-        } => ExprCall {
-            function: LoweredFunctionKey,
-            args: Vec<LoweredCallArg>,
-            span: Span,
-        } => BuildExprRow::Call {
-            function,
-            args,
-            span,
-        },
-        BuildExprRow::ExternalCall {
-            function,
-            args,
-            span,
-        } => ExprExternalCall {
-            function: QualifiedName,
-            args: Vec<LoweredCallArg>,
-            span: Span,
-        } => BuildExprRow::ExternalCall {
-            function,
-            args,
-            span,
-        },
-        BuildExprRow::DirectPureCall {
-            function,
-            args,
-            span,
-        } => ExprDirectPureCall {
-            function: LoweredFunctionKey,
-            args: Vec<LoweredCallArg>,
-            span: Span,
-        } => BuildExprRow::DirectPureCall {
-            function,
-            args,
-            span,
-        },
-        BuildExprRow::DynamicCall { callee, args, span } => ExprDynamicCall {
-            callee: BuildExprId,
-            args: Vec<LoweredCallArg>,
-            span: Span,
-        } => BuildExprRow::DynamicCall { callee, args, span },
-        BuildExprRow::SelfCall { args, span } => ExprSelfCall {
-            args: Vec<LoweredCallArg>,
-            span: Span,
-        } => BuildExprRow::SelfCall { args, span },
-        BuildExprRow::TypedCall { callee, pure, signature, args, span } => ExprTypedCall {
-            callee: BuildExprId,
-            pure: bool,
-            signature: Type,
-            args: Vec<LoweredCallArg>,
-            span: Span,
-        } => BuildExprRow::TypedCall { callee, pure, signature, args, span },
-    }
-}
 
-impl_node_codec! {
-    BuildStmtRow {
-        BuildStmtRow::DefaultParameter { slot, value, kind, check, span } => StmtDefaultParameter {
-            slot: usize,
-            value: BuildExprId,
-            kind: LoweredType,
-            check: Option<LoweredTypeCheck>,
-            span: Span,
-        } => BuildStmtRow::DefaultParameter { slot, value, kind, check, span },
-        BuildStmtRow::Let { slot, value } => StmtLet {
-            slot: usize,
-            value: BuildExprId,
-        } => BuildStmtRow::Let { slot, value },
-        BuildStmtRow::Guard {
-            target,
-            value,
-            else_param_slot,
-            else_body,
-            span,
-            optional,
-        } => StmtGuard {
-            target: LoweredCompTarget,
-            value: BuildExprId,
-            else_param_slot: Option<usize>,
-            else_body: Vec<BuildStmtId>,
-            span: Span,
-            optional: bool,
-        } => BuildStmtRow::Guard {
-            target,
-            value,
-            else_param_slot,
-            else_body,
-            span,
-            optional,
-        },
-        BuildStmtRow::With { bindings, body, else_param_slot, else_body, captures, span } => StmtWith {
-            bindings: Vec<(usize, BuildExprId)>,
-            body: Vec<BuildStmtId>,
-            else_param_slot: Option<usize>,
-            else_body: Vec<BuildStmtId>,
-            captures: Vec<usize>,
-            span: Span,
-        } => BuildStmtRow::With { bindings, body, else_param_slot, else_body, captures, span },
-        BuildStmtRow::LetInt { slot, value } => StmtLetInt {
-            slot: usize,
-            value: BuildIntId,
-        } => BuildStmtRow::LetInt { slot, value },
-        BuildStmtRow::LetBool { slot, value } => StmtLetBool {
-            slot: usize,
-            value: BuildBoolId,
-        } => BuildStmtRow::LetBool { slot, value },
-        BuildStmtRow::Assign {
-            slot,
-            op,
-            value,
-            check,
-            span,
-        } => StmtAssign {
-            slot: usize,
-            op: AssignOp,
-            value: BuildExprId,
-            check: Option<LoweredTypeCheck>,
-            span: Span,
-        } => BuildStmtRow::Assign {
-            slot,
-            op,
-            value,
-            check,
-            span,
-        },
-        BuildStmtRow::AssignField {
-            slot,
-            field,
-            op,
-            value,
-            span,
-        } => StmtAssignField {
-            slot: usize,
-            field: Arc<str>,
-            op: AssignOp,
-            value: BuildExprId,
-            span: Span,
-        } => BuildStmtRow::AssignField {
-            slot,
-            field,
-            op,
-            value,
-            span,
-        },
-        BuildStmtRow::AssignFieldInt {
-            slot,
-            field,
-            op,
-            value,
-            span,
-        } => StmtAssignFieldInt {
-            slot: usize,
-            field: Arc<str>,
-            op: AssignOp,
-            value: BuildIntId,
-            span: Span,
-        } => BuildStmtRow::AssignFieldInt {
-            slot,
-            field,
-            op,
-            value,
-            span,
-        },
-        BuildStmtRow::AssignPath { slot, path, op, value, check, span } => StmtAssignPath {
-            slot: usize,
-            path: LoweredAssignPath,
-            op: AssignOp,
-            value: BuildExprId,
-            check: Option<LoweredTypeCheck>,
-            span: Span,
-        } => BuildStmtRow::AssignPath { slot, path, op, value, check, span },
-        BuildStmtRow::AssignInt {
-            slot,
-            op,
-            value,
-            span,
-        } => StmtAssignInt {
-            slot: usize,
-            op: AssignOp,
-            value: BuildIntId,
-            span: Span,
-        } => BuildStmtRow::AssignInt {
-            slot,
-            op,
-            value,
-            span,
-        },
-        BuildStmtRow::AssignBool { slot, value } => StmtAssignBool {
-            slot: usize,
-            value: BuildBoolId,
-        } => BuildStmtRow::AssignBool { slot, value },
-        BuildStmtRow::Value { value } => StmtValue { value: BuildExprId } => BuildStmtRow::Value { value },
-        BuildStmtRow::Assert { value, message, span } => StmtAssert { value: BuildExprId, message: Option<BuildExprId>, span: Span } => BuildStmtRow::Assert { value, message, span },
-        BuildStmtRow::Expr { value, span } => StmtExpr {
-            value: BuildExprId,
-            span: Span,
-        } => BuildStmtRow::Expr { value, span },
-        BuildStmtRow::If {
-            branches,
-            else_body,
-        } => StmtIf {
-            branches: Vec<(BuildExprId, Vec<BuildStmtId>)>,
-            else_body: Option<Vec<BuildStmtId>>,
-        } => BuildStmtRow::If {
-            branches,
-            else_body,
-        },
-        BuildStmtRow::IfBool {
-            branches,
-            else_body,
-        } => StmtIfBool {
-            branches: Vec<(BuildBoolId, Vec<BuildStmtId>)>,
-            else_body: Option<Vec<BuildStmtId>>,
-        } => BuildStmtRow::IfBool {
-            branches,
-            else_body,
-        },
-        BuildStmtRow::PatternIf { branches, else_body, span } => StmtPatternIf {
-            branches: Vec<(BuildExprId, Vec<BuildStmtId>, Vec<usize>)>,
-            else_body: Option<Vec<BuildStmtId>>,
-            span: Span,
-        } => BuildStmtRow::PatternIf { branches, else_body, span },
-        BuildStmtRow::PatternWhile { condition, body, captures, span } => StmtPatternWhile {
-            condition: BuildExprId,
-            body: Vec<BuildStmtId>,
-            captures: Vec<usize>,
-            span: Span,
-        } => BuildStmtRow::PatternWhile { condition, body, captures, span },
-        BuildStmtRow::While { condition, body } => StmtWhile {
-            condition: BuildExprId,
-            body: Vec<BuildStmtId>,
-        } => BuildStmtRow::While { condition, body },
-        BuildStmtRow::WhileBool { condition, body } => StmtWhileBool {
-            condition: BuildBoolId,
-            body: Vec<BuildStmtId>,
-        } => BuildStmtRow::WhileBool { condition, body },
-        BuildStmtRow::Match { value, arms, span } => StmtMatch {
-            value: BuildExprId,
-            arms: Vec<(BuildPatternId, Option<BuildExprId>, Vec<BuildStmtId>)>,
-            span: Span,
-        } => BuildStmtRow::Match { value, arms, span },
-        BuildStmtRow::StrMatch {
-            value,
-            arms,
-            fallback,
-            span,
-        } => StmtStrMatch {
-            value: BuildExprId,
-            arms: FxHashMap<Arc<str>, Vec<BuildStmtId>>,
-            fallback: Option<Vec<BuildStmtId>>,
-            span: Span,
-        } => BuildStmtRow::StrMatch {
-            value,
-            arms,
-            fallback,
-            span,
-        },
-        BuildStmtRow::TagMatch {
-            value,
-            arms,
-            fallback,
-            span,
-        } => StmtTagMatch {
-            value: BuildExprId,
-            arms: FxHashMap<Arc<str>, Vec<BuildStmtId>>,
-            fallback: Option<Vec<BuildStmtId>>,
-            span: Span,
-        } => BuildStmtRow::TagMatch {
-            value,
-            arms,
-            fallback,
-            span,
-        },
-        BuildStmtRow::For {
-            slot,
-            iter,
-            body,
-            span,
-        } => StmtFor {
-            slot: usize,
-            iter: BuildExprId,
-            body: Vec<BuildStmtId>,
-            span: Span,
-        } => BuildStmtRow::For {
-            slot,
-            iter,
-            body,
-            span,
-        },
-        BuildStmtRow::LetRecord {
-            source,
-            target,
-            span,
-        } => StmtLetRecord {
-            source: BuildExprId,
-            target: LoweredCompTarget,
-            span: Span,
-        } => BuildStmtRow::LetRecord {
-            source,
-            target,
-            span,
-        },
-        BuildStmtRow::ForRecord {
-            target,
-            iter,
-            body,
-            span,
-        } => StmtForRecord {
-            target: LoweredCompTarget,
-            iter: BuildExprId,
-            body: Vec<BuildStmtId>,
-            span: Span,
-        } => BuildStmtRow::ForRecord {
-            target,
-            iter,
-            body,
-            span,
-        },
-        BuildStmtRow::ForStrLines {
-            slot,
-            text,
-            body,
-            span,
-        } => StmtForStrLines {
-            slot: usize,
-            text: BuildExprId,
-            body: Vec<BuildStmtId>,
-            span: Span,
-        } => BuildStmtRow::ForStrLines {
-            slot,
-            text,
-            body,
-            span,
-        },
-        BuildStmtRow::ScanLines {
-            text_slot,
-            line_slot,
-            checks,
-            span,
-        } => StmtScanLines {
-            text_slot: usize,
-            line_slot: usize,
-            checks: Vec<ScanCheck>,
-            span: Span,
-        } => BuildStmtRow::ScanLines {
-            text_slot,
-            line_slot,
-            checks,
-            span,
-        },
-        BuildStmtRow::ScanBytes { config } => StmtScanBytes {
-            config: ScanBytes,
-        } => BuildStmtRow::ScanBytes { config },
-        BuildStmtRow::Print {
-            args,
-            stderr,
-            flush,
-            propagate_result,
-            span,
-        } => StmtPrint {
-            args: Vec<BuildExprId>,
-            stderr: bool,
-            flush: bool,
-            propagate_result: bool,
-            span: Span,
-        } => BuildStmtRow::Print {
-            args,
-            stderr,
-            flush,
-            propagate_result,
-            span,
-        },
-        BuildStmtRow::Cd { target, body, span } => StmtCd {
-            target: BuildExprId,
-            body: Vec<BuildStmtId>,
-            span: Span,
-        } => BuildStmtRow::Cd { target, body, span },
-        BuildStmtRow::Env { env, body } => StmtEnv {
-            env: Vec<LoweredRunEnv>,
-            body: Vec<BuildStmtId>,
-        } => BuildStmtRow::Env { env, body },
-        BuildStmtRow::Proc {
-            op,
-            args,
-            propagate_result,
-            span,
-        } => StmtProc {
-            op: RuntimeOp,
-            args: Vec<BuildExprId>,
-            propagate_result: bool,
-            span: Span,
-        } => BuildStmtRow::Proc {
-            op,
-            args,
-            propagate_result,
-            span,
-        },
-        BuildStmtRow::Run {
-            value,
-            propagate_result,
-        } => StmtRun {
-            value: BuildExprId,
-            propagate_result: bool,
-        } => BuildStmtRow::Run {
-            value,
-            propagate_result,
-        },
-        BuildStmtRow::Loop { body } => StmtLoop {
-            body: Vec<BuildStmtId>,
-        } => BuildStmtRow::Loop { body },
-        BuildStmtRow::Return { value } => StmtReturn {
-            value: BuildExprId,
-        } => BuildStmtRow::Return { value },
-        BuildStmtRow::YieldDelegate { value, span } => StmtYieldDelegate {
-            value: BuildExprId,
-            span: Span,
-        } => BuildStmtRow::YieldDelegate { value, span },
-        BuildStmtRow::Yield { value } => StmtYield {
-            value: BuildExprId,
-        } => BuildStmtRow::Yield { value },
-        BuildStmtRow::Break => StmtBreak {} => BuildStmtRow::Break,
-        BuildStmtRow::BreakValue { value } => StmtBreakValue {
-            value: BuildExprId,
-        } => BuildStmtRow::BreakValue { value },
-        BuildStmtRow::Continue => StmtContinue {} => BuildStmtRow::Continue,
-        BuildStmtRow::Defer { value, on_error } => StmtDefer {
-            value: BuildExprId,
-            on_error: bool,
-        } => BuildStmtRow::Defer { value, on_error },
-    }
-}
+
+
 
 #[cfg(test)]
 mod tests {
@@ -9149,6 +7154,54 @@ defer run true
 run true
 "#;
 
+    #[test]
+    fn resource_transfer_marks_require_aligned_eligible_instructions() {
+        let mut store = FullStore::default();
+        store.tags.push(FullTag::StmtReturn);
+        store.resource_transfers.push(true);
+        assert!(FullVerifier::verify_resource_transfer_sites(&store).is_ok());
+
+        store.tags.push(FullTag::StmtContinue);
+        assert!(FullVerifier::verify_resource_transfer_sites(&store).is_err());
+
+        store.resource_transfers.push(false);
+        assert!(FullVerifier::verify_resource_transfer_sites(&store).is_ok());
+
+        store.resource_transfers[1] = true;
+        assert!(FullVerifier::verify_resource_transfer_sites(&store).is_err());
+    }
+
+    #[test]
+    fn compact_lowering_blocks_an_outer_assignment_without_its_checked_fact() {
+        let source = "proc transfer() [fs, error] -> Result[Unit] { var escaped: FsRoot? = null; { escaped = fs.tempdir()? }; return Ok() }\n";
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file("resource-transfer.xsh", source);
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let mut declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+
+        let assignment = (0..parsed.arena.arena.stmt_tags.len())
+            .map(crate::syntax::arena::StmtId::from_index)
+            .find(|&stmt| {
+                matches!(
+                    parsed.arena.arena.stmt(stmt).kind,
+                    crate::syntax::arena::ArenaStmtKind::Assign { .. }
+                )
+            })
+            .expect("the fixture has one assignment");
+        let site = crate::sema::check::ResourceTransferSite::Assignment(assignment);
+        assert_eq!(declarations.bodies.resource_transfer(site), Some(true));
+        declarations.bodies.resource_transfers.remove(&site);
+
+        let constructed = super::super::super::lower::probe_compact_lower_constructed_bodies(
+            &parsed.arena,
+            &declarations,
+            source,
+        );
+        assert!(constructed.blocker_events > 0, "{constructed:?}");
+    }
+
     fn run_with_large_stack(f: impl FnOnce() + Send + 'static) {
         std::thread::Builder::new()
             .stack_size(16 * 1024 * 1024)
@@ -9171,7 +7224,17 @@ run true
             .map(crate::source::SourceFile::id)
             .expect("entry source is present");
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        let checked = Checker::check_arena_with_sources_and_options(
+            &parsed.arena,
+            &sources,
+            source_id,
+            crate::sema::check::CheckOptions {
+                reveal_types: true,
+                embedded_bodies: true,
+                ..crate::sema::check::CheckOptions::default()
+            },
+        );
+        let declarations = Checker::compact_declarations(&parsed.arena, checked);
         assert!(
             declarations.diagnostics.is_empty(),
             "{:?}",
@@ -9189,6 +7252,1190 @@ run true
 
     fn program_name(program: &FullProgram, text: &str) -> Name {
         program.symbol_owner().with_current(|| Name::intern(text))
+    }
+
+    fn schema_execution(store: &FullStore) -> FullExecution<'_> {
+        schema_execution_with_slots(store, 1)
+    }
+
+    fn schema_execution_with_slots(store: &FullStore, slot_count: u32) -> FullExecution<'_> {
+        FullExecution {
+            decoder: FullDecoder {
+                store,
+                owner: 0,
+                instruction_range: 0..store.tags.len(),
+                instruction_states: None,
+                instruction_proof: None,
+                block_states: None,
+                slot_count,
+                pattern_ceiling: Cell::new(usize::MAX),
+                verified: false,
+            },
+        }
+    }
+
+    fn stage_view_fixture() -> (
+        FullBuilder,
+        Vec<LoweredPipelineStage>,
+        u32,
+        Vec<BuildExprRow>,
+        Vec<BuildStmtRow>,
+    ) {
+        let mut scratch = BuildScratch::default();
+        let expression0 = scratch.expr(BuildExprRow::Int(17));
+        let expression1 = scratch.expr(BuildExprRow::Bool(true));
+        let statement0 = scratch.stmt(BuildStmtRow::Value { value: expression0 });
+        let statement1 = scratch.stmt(BuildStmtRow::Expr {
+            value: expression1,
+            span: Span::at(SourceId::new(0), 0),
+        });
+        let expression_rows = scratch.expressions.clone();
+        let statement_rows = scratch.statements.clone();
+        let scratch = Rc::new(RefCell::new(scratch));
+        let expression = BuildExprId::new;
+        let body = || vec![statement0, statement1];
+        let stages = vec![
+            LoweredPipelineStage::TextLines,
+            LoweredPipelineStage::JsonLines,
+            LoweredPipelineStage::Where { slot: 2, predicate: expression(0) },
+            LoweredPipelineStage::WhereBlock { slot: 3, body: body(), value: expression(1) },
+            LoweredPipelineStage::Map { slot: 4, value: expression(0) },
+            LoweredPipelineStage::MapBlock { slot: 5, body: body(), value: expression(1) },
+            LoweredPipelineStage::FlatMap { slot: 6, value: expression(0) },
+            LoweredPipelineStage::FlatMapBlock { slot: 7, body: body(), value: expression(1) },
+            LoweredPipelineStage::BytesChunks { size: expression(0) },
+            LoweredPipelineStage::BatchCount { count: expression(1) },
+            LoweredPipelineStage::BatchMaxArgv { max_argv: Some(expression(0)) },
+            LoweredPipelineStage::BatchMaxBytes { max_bytes: expression(1) },
+            LoweredPipelineStage::BatchLimits { configuration: expression(0) },
+            LoweredPipelineStage::Shuffle { seed: Some(expression(1)) },
+            LoweredPipelineStage::Fold {
+                acc_slot: 8,
+                item_slot: 9,
+                initial: expression(0),
+                body: body(),
+                value: expression(1),
+            },
+            LoweredPipelineStage::ReduceBy {
+                item_slot: 10,
+                body: body(),
+                value: expression(1),
+                op: ReduceByOp::Sum,
+                jobs: Some(expression(0)),
+            },
+            LoweredPipelineStage::ReduceByConfigured {
+                item_slot: 11,
+                body: body(),
+                value: expression(0),
+                configuration: expression(1),
+            },
+            LoweredPipelineStage::ParMap {
+                slot: 12,
+                jobs: Some(expression(1)),
+                value: expression(0),
+            },
+            LoweredPipelineStage::ParMapBlock {
+                slot: 13,
+                body: body(),
+                jobs: None,
+                value: expression(1),
+            },
+            LoweredPipelineStage::ParMapFlatMapReduceBy {
+                slot: 14,
+                body: Some(body()),
+                jobs: Some(expression(0)),
+                value: expression(1),
+                flatten: true,
+                reduce_item_slot: 15,
+                reduce_body: body(),
+                reduce_value: expression(0),
+                op: ReduceByOp::Max,
+            },
+            LoweredPipelineStage::Tee { slot: 15, body: body() },
+            LoweredPipelineStage::Each { slot: 16, body: body() },
+            LoweredPipelineStage::TablePrint {
+                columns: Some(vec!["name".to_string(), "size".to_string()]),
+            },
+            LoweredPipelineStage::TablePrintConfigured { columns: expression(1) },
+            LoweredPipelineStage::Enumerate,
+            LoweredPipelineStage::Zip { other: expression(0) },
+            LoweredPipelineStage::Sort { descending: Some(expression(1)) },
+            LoweredPipelineStage::SortBy { slot: 17, key: expression(0), descending: None },
+            LoweredPipelineStage::GroupBy { slot: 18, key: expression(1) },
+            LoweredPipelineStage::CountBy { slot: 19, key: expression(0) },
+            LoweredPipelineStage::Any { slot: 20, predicate: expression(1) },
+            LoweredPipelineStage::AnyBlock { slot: 21, body: body(), value: expression(0) },
+            LoweredPipelineStage::All { slot: 22, predicate: expression(0) },
+            LoweredPipelineStage::AllBlock { slot: 23, body: body(), value: expression(1) },
+            LoweredPipelineStage::UniqueBy { slot: 24, key: expression(0) },
+            LoweredPipelineStage::Count,
+            LoweredPipelineStage::Sum,
+            LoweredPipelineStage::Collect,
+            LoweredPipelineStage::First,
+            LoweredPipelineStage::Last,
+            LoweredPipelineStage::Min,
+            LoweredPipelineStage::Max,
+            LoweredPipelineStage::Take(expression(0)),
+            LoweredPipelineStage::Drop(expression(1)),
+            LoweredPipelineStage::Repeat { count: expression(1) },
+            LoweredPipelineStage::Range { start: expression(0), end: expression(1) },
+        ];
+        assert_eq!(stages.len(), 46);
+
+        let mut builder = FullBuilder::new(SourceId::new(0));
+        builder.current_owner = Some(0);
+        builder.current_slot_count = 25;
+        builder.active_scratch = Some(scratch);
+        let mut encoded = Vec::new();
+        stages.encode(&mut builder, &mut encoded).unwrap();
+        assert_eq!(encoded.len(), 1);
+        (builder, stages, encoded[0], expression_rows, statement_rows)
+    }
+
+    fn pattern_view_fixture() -> (FullBuilder, Vec<u32>) {
+        let wildcard = BuildPatternId::new(8);
+        let binding = BuildPatternId::new(9);
+        let rows = [
+            BuildPatternRow::Alias { pattern: wildcard, slot: 0 },
+            BuildPatternRow::Alternation { patterns: vec![wildcard, wildcard] },
+            BuildPatternRow::List { elements: vec![wildcard], rest: Some(binding) },
+            BuildPatternRow::TagType { type_name: Name::INT, variants: vec![Name::STR] },
+            BuildPatternRow::RecordTest { fields: vec![(Name::INT, wildcard)] },
+            BuildPatternRow::ResultTest { ok: true, inner: wildcard },
+            BuildPatternRow::TagTest { type_name: Name::INT, name: Name::STR, fields: vec![wildcard] },
+            BuildPatternRow::ErrorTest { family: Name::ERROR, variant: Name::STR,
+                fields: vec![(Name::INT, wildcard)] },
+            BuildPatternRow::Wildcard,
+            BuildPatternRow::Bind { slot: 0 },
+            BuildPatternRow::Type { ty: Type::Int, slot: Some(0) },
+            BuildPatternRow::Literal(LoweredValue::Null),
+            BuildPatternRow::ResultOk { slot: Some(0), unit_only: false },
+            BuildPatternRow::ResultErr { slot: None, unit_only: true },
+            BuildPatternRow::Facet { facet: Name::ERROR, result_wrapped: false },
+            BuildPatternRow::Tag { type_name: Name::INT, name: Name::STR,
+                slots: SmallVec::from([Some(0), None]) },
+            BuildPatternRow::Text { holes: vec![wildcard],
+                kinds: vec![crate::sema::check::TextHoleKind::Decimal],
+                segments: vec![Arc::from("id="), Arc::from("")] },
+        ];
+        let scratch = Rc::new(RefCell::new(BuildScratch::default()));
+        for row in rows {
+            scratch.borrow_mut().pattern(row);
+        }
+        let mut builder = FullBuilder::new(SourceId::new(0));
+        builder.current_owner = Some(0);
+        builder.current_slot_count = 1;
+        builder.active_scratch = Some(scratch);
+        let roots = (0..17)
+            .map(|index| {
+                let mut words = Vec::new();
+                BuildPatternId::new(index).encode(&mut builder, &mut words).unwrap();
+                words[0]
+            })
+            .collect();
+        (builder, roots)
+    }
+
+    fn pattern_view_tag(view: schema::PatternView<'_>) -> FullPatternTag {
+        match view {
+            schema::PatternView::Alias { .. } => FullPatternTag::Alias,
+            schema::PatternView::Alternation { .. } => FullPatternTag::Alternation,
+            schema::PatternView::List { .. } => FullPatternTag::List,
+            schema::PatternView::TagType { .. } => FullPatternTag::TagType,
+            schema::PatternView::RecordTest { .. } => FullPatternTag::RecordTest,
+            schema::PatternView::ResultTest { .. } => FullPatternTag::ResultTest,
+            schema::PatternView::TagTest { .. } => FullPatternTag::TagTest,
+            schema::PatternView::ErrorTest { .. } => FullPatternTag::ErrorTest,
+            schema::PatternView::Wildcard => FullPatternTag::Wildcard,
+            schema::PatternView::Bind { .. } => FullPatternTag::Bind,
+            schema::PatternView::Type { .. } => FullPatternTag::Type,
+            schema::PatternView::Literal(_) => FullPatternTag::Literal,
+            schema::PatternView::ResultOk { .. } => FullPatternTag::ResultOk,
+            schema::PatternView::ResultErr { .. } => FullPatternTag::ResultErr,
+            schema::PatternView::Facet { .. } => FullPatternTag::Facet,
+            schema::PatternView::Tag { .. } => FullPatternTag::Tag,
+            schema::PatternView::Text { .. } => FullPatternTag::Text,
+        }
+    }
+
+    fn function_instruction_indices(
+        program: &FullProgram,
+        function: &str,
+        tag: FullTag,
+    ) -> Vec<usize> {
+        let function_index = program
+            .store
+            .functions
+            .iter()
+            .position(|row| program.store.string(row.name).is_ok_and(|name| name == function))
+            .expect("fixture function exists");
+        program
+            .store
+            .function_instruction_range(function_index)
+            .expect("fixture function range exists")
+            .filter(|instruction| program.store.tags[*instruction] == tag)
+            .collect()
+    }
+
+    #[test]
+    fn list_position_cannot_resume_a_different_statement_list() {
+        let program = fixture(
+            "statement-list-position.xsh",
+            "proc main() [io, error] -> Result[Unit] {\n  print \"first\" \"second\"\n  print \"third\"\n  return Ok()\n}\n",
+        );
+        let statements = function_instruction_indices(&program, "main", FullTag::StmtPrint);
+        assert_eq!(statements.len(), 2);
+
+        program.symbol_owner().with_current(|| {
+            let execution = program
+                .function_view(
+                    LoweredFunctionKey::Name(program_name(&program, "main")),
+                    LoweredFunctionKind::Proc,
+                )
+                .expect("main resolves")
+                .expect("main exists")
+                .execution()
+                .expect("main execution decodes");
+            let first = execution
+                .instruction_id(statements[0] as u32)
+                .expect("first print instruction exists");
+            let schema::StmtView::Print { args, .. } =
+                schema::StmtView::decode(&execution, first.0, first.1).expect("first print decodes")
+            else {
+                panic!("print tag decodes to a print row");
+            };
+            let position = args.position();
+
+            let second = execution
+                .instruction_id(statements[1] as u32)
+                .expect("second print instruction exists");
+            let schema::StmtView::Print { mut args, .. } =
+                schema::StmtView::decode(&execution, second.0, second.1)
+                    .expect("second print decodes")
+            else {
+                panic!("print tag decodes to a print row");
+            };
+            assert!(args.resume(position).is_err());
+        });
+    }
+
+    #[test]
+    fn statement_env_validates_all_names_before_evaluating_values() {
+        let source = r#"
+proc mark() -> Str { print "evaluated"; return "value" }
+proc main() [env, error] -> Result[Unit] {
+  env XSH_FRAME_VALID=${mark()} XSH_FRAME_LATE=${mark()} { print "body" }
+  return Ok()
+}
+"#;
+        let mut program = fixture("statement-env-name-order.xsh", source);
+        let statement = function_instruction_indices(&program, "main", FullTag::StmtEnv)[0];
+        let payload = program.store.payload(program.store.data[statement].range()).unwrap();
+        let env_block = IrBlockId::from_raw(payload[0]).unwrap();
+        let range = program.store.blocks[env_block.index()].instructions;
+        let second_name = program.symbol_owner().with_current(|| {
+            let mut execution = schema_execution(&program.store);
+            execution.decoder.owner = program.store.blocks[env_block.index()].owner;
+            let mut entries = FullCursor::new(program.store.payload(range).unwrap());
+            assert_eq!(entries.raw().unwrap(), 2);
+            LoweredRunEnv::decode(&execution.decoder, &mut entries).unwrap();
+            entries.index
+        });
+        let invalid_name = program
+            .symbol_owner()
+            .with_current(|| Name::intern("BAD=NAME"));
+        program.store.extra[range.start as usize + second_name] = invalid_name.symbol().raw();
+        assert!(FullVerifier::verify(&program).is_ok());
+
+        let program = Arc::new(program);
+        program.symbol_owner().with_current(|| {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            evaluator.force_frames = true;
+            let original_env = evaluator.env.snapshot_clone();
+            let error = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "main")),
+                    LoweredFunctionKind::Proc,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("main exists")
+                .expect_err("the corrupted later environment name is rejected");
+            assert_eq!(error.kind, "env-name");
+            assert!(evaluator.stdout.is_empty(), "no value or body expression ran");
+            assert_eq!(evaluator.env.snapshot_clone(), original_env);
+        });
+    }
+
+    fn append_string_addition_chain(program: &mut FullProgram, wrappers: usize) -> Vec<usize> {
+        program.store.in_place.take();
+        let function_index = program
+            .store
+            .functions
+            .iter()
+            .position(|row| program.store.string(row.name).is_ok_and(|name| name == "make_text"))
+            .expect("string fixture function exists");
+        let mut range = program
+            .store
+            .function_instruction_range(function_index)
+            .expect("string fixture function range exists");
+        assert_eq!(function_index + 1, program.store.functions.len());
+        assert_eq!(range.end, program.store.tags.len());
+        let old_instruction_end = u32::try_from(program.store.tags.len()).expect("fixture fits");
+        assert!(program
+            .store
+            .driver_steps
+            .iter()
+            .all(|step| step.instruction_start == old_instruction_end));
+        let template_index = range
+            .clone()
+            .find(|instruction| program.store.tags[*instruction] == FullTag::ExprBinary)
+            .expect("string fixture contains an addition");
+        let template_range = program.store.data[template_index]
+            .range()
+            .bounds(program.store.extra.len())
+            .expect("binary payload is in bounds");
+        let template = program.store.extra[template_range].to_vec();
+        let execution = schema_execution(&program.store);
+        let mut template_payload = FullCursor::new(&template);
+        let _op = BinaryOp::decode(&execution.decoder, &mut template_payload)
+            .expect("binary operation decodes");
+        let context = DecodeContext::new(&execution);
+        let left_offset = template_payload.index;
+        let _left = BuildExprId::borrow(context, &mut template_payload)
+            .expect("binary left operand belongs to the fixture function");
+        let right_offset = template_payload.index;
+        let right_template = BuildExprId::borrow(context, &mut template_payload)
+            .expect("binary right operand belongs to the fixture function")
+            .raw() as usize;
+        Span::decode(&execution.decoder, &mut template_payload)
+            .expect("binary source span decodes");
+        template_payload
+            .finish()
+            .expect("binary payload has no trailing fields");
+        assert_eq!(program.store.tags[right_template], FullTag::ExprStr);
+        let literal_range = program.store.data[right_template]
+            .range()
+            .bounds(program.store.extra.len())
+            .expect("string literal payload is in bounds");
+        let literal = program.store.extra[literal_range].to_vec();
+        let return_index = range
+            .find(|instruction| program.store.tags[*instruction] == FullTag::StmtReturn)
+            .expect("string fixture returns its addition");
+        let return_payload = program.store.data[return_index]
+            .range()
+            .bounds(program.store.extra.len())
+            .expect("return payload is in bounds");
+        let mut child = template_index as u32;
+        let mut appended = Vec::with_capacity(wrappers);
+        for _ in 0..wrappers {
+            let literal_index = program.store.tags.len();
+            let literal_start = u32::try_from(program.store.extra.len()).expect("literal fits");
+            let literal_len = u32::try_from(literal.len()).expect("literal payload fits");
+            program.store.extra.extend_from_slice(&literal);
+            program
+                .store
+                .data
+                .push(IrData::new(literal_start, literal_len));
+            program.store.tags.push(FullTag::ExprStr);
+            program.store.resource_transfers.push(false);
+
+            let instruction = program.store.tags.len();
+            let mut payload = template.clone();
+            payload[left_offset] = child;
+            payload[right_offset] =
+                u32::try_from(literal_index).expect("literal instruction ID fits");
+            let start = u32::try_from(program.store.extra.len()).expect("fixture payload fits");
+            let len = u32::try_from(payload.len()).expect("fixture payload fits");
+            program.store.extra.extend(payload);
+            program.store.data.push(IrData::new(start, len));
+            program.store.tags.push(FullTag::ExprBinary);
+            program.store.resource_transfers.push(false);
+            appended.push(instruction);
+            child = u32::try_from(instruction).expect("fixture instruction ID fits");
+        }
+        let new_instruction_end = u32::try_from(program.store.tags.len()).expect("fixture fits");
+        for step in &mut program.store.driver_steps {
+            step.instruction_start = new_instruction_end;
+        }
+        program.store.extra[return_payload.start] = child;
+        appended
+    }
+
+    fn direct_if_fixture() -> FullProgram {
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file(
+            "direct-if.xsh",
+            "pure selected(flag: Bool) -> Int { return if flag { 1 } else { 2 } }\n",
+        );
+        let span = Span::new(source_id, 0, 0);
+        let symbols = crate::symbol::SymbolOwner::new();
+        symbols.with_current(|| {
+            let scratch = Rc::new(RefCell::new(BuildScratch::default()));
+            let return_statement = {
+                let mut scratch = scratch.borrow_mut();
+                let condition = scratch.expr(BuildExprRow::Param(0));
+                let then_value = scratch.expr(BuildExprRow::Int(1));
+                let else_value = scratch.expr(BuildExprRow::Int(2));
+                let selection = scratch.expr(BuildExprRow::IfExpr {
+                    branches: vec![(condition, then_value)],
+                    else_value,
+                    span,
+                });
+                scratch.stmt(BuildStmtRow::Return { value: selection })
+            };
+            let body = FunctionBuild {
+                params: SmallVec::from_vec(vec![Name::intern("flag")]),
+                param_kinds: SmallVec::from_vec(vec![LoweredType::Bool]),
+                param_checks: SmallVec::from_vec(vec![None]),
+                param_rest: SmallVec::from_vec(vec![false]),
+                param_defaults: SmallVec::from_vec(vec![None]),
+                captures: SmallVec::new(),
+                return_kind: LoweredReturnKind::Plain(LoweredType::Int),
+                return_check: None,
+                slot_count: 1,
+                callable_slot_types: vec![None],
+                body: vec![return_statement],
+                scratch,
+            };
+            let unit = LoweredFunctionUnit {
+                key: LoweredFunctionKey::Name(Name::intern("selected")),
+                kind: LoweredFunctionKind::Pure,
+                source_span: span,
+                definition_span: span,
+                owner: None,
+                param_count: 1,
+                capture_count: 0,
+                slot_count: 1,
+                dependency_edges: Vec::new(),
+                body: Some(body),
+                blocker: None,
+                blocker_detail: None,
+                scc_member_count: 1,
+                scc_group: None,
+            };
+            let mut builder = FullBuilder::new(source_id);
+            builder.predeclare(&[&unit]).unwrap();
+            let body = unit.lowered_body().unwrap();
+            let function = builder.function_ids[&unit.key()];
+            builder.current_owner = Some(function.raw());
+            builder.current_slot_count = body.slot_count as u32;
+            builder.encode_body(function, &body).unwrap();
+            builder.current_owner = None;
+            builder.current_slot_count = 0;
+            builder
+                .finish(Arc::new(sources), symbols.clone())
+                .expect("direct selection artifact verifies")
+        })
+    }
+
+    #[test]
+    fn direct_if_children_are_marked_and_selected() {
+        let program = Arc::new(direct_if_fixture());
+        let selections = function_instruction_indices(&program, "selected", FullTag::ExprIf);
+        assert_eq!(selections.len(), 1);
+        assert!(program.store.in_place.get().unwrap()[selections[0]]);
+
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for (flag, expected) in [(true, 1), (false, 2)] {
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "selected")),
+                    LoweredFunctionKind::Pure,
+                    &[Value::Bool(flag)],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("selection function exists");
+            assert_eq!(result.unwrap(), Value::Int(expected));
+        }
+    }
+
+    #[test]
+    fn frame_apply_child_keeps_selection_on_the_explicit_machine() {
+        let source = r#"
+pure selected() -> Path {
+  return if true { Path("x") } else { Path("y") }
+}
+"#;
+        let program = Arc::new(fixture("frame-apply-selection.xsh", source));
+        FullVerifier::verify(&program).unwrap();
+        let marks = program.store.in_place.get().expect("verification installs marks");
+        let selection = function_instruction_indices(&program, "selected", FullTag::ExprIf);
+        assert_eq!(selection.len(), 1);
+        assert!(!marks[selection[0]]);
+        let paths = function_instruction_indices(&program, "selected", FullTag::ExprPathFrom);
+        assert_eq!(paths.len(), 2);
+        assert!(paths.iter().all(|path| !marks[*path]));
+
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        let result = evaluator
+            .call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "selected")),
+                LoweredFunctionKind::Pure,
+                &[],
+                Span::new(program.store.source_id, 0, 0),
+            )
+            .expect("selection function exists");
+        assert_eq!(result.unwrap(), Value::Path(PathValue::from_text("x").unwrap()));
+    }
+
+    #[test]
+    fn in_place_marks_follow_verified_operands_and_selection_runs_directly() {
+        let source = r#"
+pure leaf() -> Int { return 7 }
+pure sum(left: Int, right: Int) -> Int { return left + right }
+pure selected(flag: Bool) -> Int { return if flag { 1 } else { 2 } }
+pure selected_call(flag: Bool) -> Int { return if flag { leaf() } else { 2 } }
+pure aggregate() -> List[Int] { return [leaf(), 3] }
+pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
+"#;
+        let program = Arc::new(fixture("in-place-marks.xsh", source));
+        FullVerifier::verify(&program).unwrap();
+        let marks = program.store.in_place.get().expect("verification installs marks");
+        let selected = function_instruction_indices(&program, "selected", FullTag::ExprIf);
+        assert_eq!(selected.len(), 1);
+        assert!(!marks[selected[0]]);
+        let selected_call =
+            function_instruction_indices(&program, "selected_call", FullTag::ExprIf);
+        assert_eq!(selected_call.len(), 1);
+        assert!(!marks[selected_call[0]]);
+        let aggregate = function_instruction_indices(&program, "aggregate", FullTag::ExprList);
+        assert_eq!(aggregate.len(), 1);
+        assert!(!marks[aggregate[0]]);
+        assert!(function_instruction_indices(&program, "aggregate", FullTag::ExprInt)
+            .into_iter()
+            .any(|instruction| marks[instruction]));
+        let binary = function_instruction_indices(&program, "sum", FullTag::ExprBinary);
+        assert_eq!(binary.len(), 1);
+        assert!(marks[binary[0]]);
+        let matched = function_instruction_indices(&program, "matched", FullTag::ExprMatch);
+        assert_eq!(matched.len(), 1);
+        assert!(marks[matched[0]]);
+
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for (name, arguments, expected) in [
+            ("sum", vec![Value::Int(4), Value::Int(5)], Value::Int(9)),
+            ("selected", vec![Value::Bool(true)], Value::Int(1)),
+            ("selected", vec![Value::Bool(false)], Value::Int(2)),
+            ("matched", vec![Value::Int(1)], Value::Int(11)),
+            ("matched", vec![Value::Int(0)], Value::Int(12)),
+        ] {
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, name)),
+                    LoweredFunctionKind::Pure,
+                    &arguments,
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("selection function exists");
+            assert_eq!(result.unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn in_place_mark_cache_is_checked_against_independent_verification() {
+        let mut program = fixture(
+            "in-place-cache.xsh",
+            "pure value() -> Int { return 1 }",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let marks = program.store.in_place.get_mut().unwrap();
+        let mark = marks.iter_mut().find(|mark| **mark).expect("fixture has a mark");
+        *mark = !*mark;
+        let error = FullVerifier::verify(&program).unwrap_err();
+        assert!(error.message.contains("in-place mark cache does not match"));
+    }
+
+    #[test]
+    fn in_place_height_limit_marks_128_and_rejects_129_and_ancestors() {
+        let mut program = fixture(
+            "in-place-height.xsh",
+            "pure make_text(text: Str) -> Str { return text + \"x\" }",
+        );
+        let appended = append_string_addition_chain(&mut program, 128);
+        FullVerifier::verify(&program).unwrap();
+        let marks = program.store.in_place.get().expect("verification installs marks");
+        assert!(marks[appended[125]]);
+        assert!(!marks[appended[126]]);
+        assert!(!marks[appended[127]]);
+    }
+
+    #[test]
+    fn instruction_schema_preserves_all_tag_ordinals_and_effects() {
+        let expected = r#"
+            IntInt
+            IntSlot
+            IntBinary
+            IntStrByteLenSlot
+            IntStrCountLinesSlot
+            IntStrByteAtSlot
+            BoolBool
+            BoolSlot
+            BoolNot
+            BoolAnd
+            BoolOr
+            BoolIntCompare
+            BoolStrPredicateSlot
+            BoolContainsSlot
+            BoolStrContainsSlot
+            BoolTrimEmptySlot
+            BoolTrimStrPredicateSlot
+            BoolLiteralCompareSlot
+            ExprNull
+            ExprUnit
+            ExprInt
+            ExprFloat
+            ExprDuration
+            ExprBool
+            ExprStr
+            ExprBytes
+            ExprPreparedRegex
+            ExprPreparedConstant
+            ExprPath
+            ExprFunctionRef
+            ExprPathFrom
+            ExprParam
+            ExprComparisonChain
+            ExprBinary
+            ExprIf
+            ExprPatternIf
+            ExprMatch
+            ExprStrMatch
+            ExprTagMatch
+            ExprResultFallback
+            ExprFmtString
+            ExprPathFmtString
+            ExprGlob
+            ExprLastStatus
+            ExprRecord
+            ExprMapLiteral
+            ExprRecordUpdate
+            ExprList
+            ExprListBuild
+            ExprEmptyMap
+            ExprRange
+            ExprTag
+            ExprListComp
+            ExprMapComp
+            ExprPipeline
+            ExprField
+            ExprIndex
+            ExprIndexFromEnd
+            ExprSlice
+            ExprMethod
+            ExprStrByteLen
+            ExprStrByteAt
+            ExprStrPredicate
+            ExprRequire
+            ExprCheckedValue
+            ExprRunCapture
+            ExprRunPipeline
+            ExprSpawnRun
+            ExprSpawnCommand
+            ExprWait
+            ExprCapture
+            ExprValueBlock
+            ExprErrorContext
+            ExprContextScope
+            ExprLoop
+            ExprRetry
+            ExprFsFiles
+            ExprFsWalk
+            ExprFsList
+            ExprFsTempDir
+            ExprFsMkdir
+            ExprFsRemove
+            ExprPathReadText
+            ExprPathReadBytes
+            ExprPathExists
+            ExprPathExecutable
+            ExprPathDu
+            ExprPathMetadata
+            ExprPathReadlink
+            ExprPathResolve
+            ExprPathWrite
+            ExprPathMkdir
+            ExprPathRemove
+            ExprArchiveTarCreate
+            ExprModuleCall
+            ExprProcessCommandArgv
+            ExprProcessCommandBuilder
+            ExprAbort
+            ExprFail
+            ExprOk
+            ExprErr
+            ExprError
+            ExprTry
+            ExprCall
+            ExprDirectPureCall
+            ExprExternalCall
+            ExprDynamicCall
+            ExprSelfCall
+            ExprTypedCall
+            ExprProcCallResult
+            StmtLet
+            StmtGuard
+            StmtWith
+            StmtLetInt
+            StmtLetBool
+            StmtAssign
+            StmtAssignField
+            StmtAssignFieldInt
+            StmtAssignPath
+            StmtAssignInt
+            StmtAssignBool
+            StmtValue
+            StmtAssert
+            StmtExpr
+            StmtIf
+            StmtIfBool
+            StmtWhile
+            StmtWhileBool
+            StmtPatternIf
+            StmtPatternWhile
+            StmtMatch
+            StmtStrMatch
+            StmtTagMatch
+            StmtFor
+            StmtLetRecord
+            StmtForRecord
+            StmtForStrLines
+            StmtScanLines
+            StmtScanBytes
+            StmtPrint
+            StmtCd
+            StmtEnv
+            StmtRun
+            StmtLoop
+            StmtReturn
+            StmtYield
+            StmtYieldDelegate
+            StmtBreak
+            StmtBreakValue
+            StmtContinue
+            StmtDefer
+            StmtDefaultParameter
+        "#;
+        let names: Vec<_> = expected.split_whitespace().collect();
+        let dead_ordinals = [50, 64, 95, 97, 98, 147];
+        assert_eq!(schema::INSTRUCTION_TAGS.len(), 152);
+        let expected_ordinals = (0usize..158).filter(|ordinal| !dead_ordinals.contains(ordinal));
+        for ((tag, name), ordinal) in schema::INSTRUCTION_TAGS.iter().zip(names).zip(expected_ordinals) {
+            assert_eq!(*tag as usize, ordinal);
+            assert_eq!(tag.name(), name);
+        }
+        assert!(!schema::INSTRUCTION_TAGS.iter().any(|tag| dead_ordinals.contains(&(*tag as usize))));
+        assert_eq!(*schema::INSTRUCTION_TAGS.last().unwrap() as usize, 157);
+        fn previous_effects(tags: &[FullTag]) -> u32 {
+            tags.iter().fold(0, |effects, tag| {
+                effects
+                    | match tag {
+                        FullTag::ExprContextScope => EFFECT_CWD | EFFECT_ENV | EFFECT_HOST | EFFECT_TRACE,
+                        FullTag::StmtCd => EFFECT_CWD | EFFECT_HOST | EFFECT_TRACE,
+                        FullTag::StmtEnv => EFFECT_ENV | EFFECT_HOST | EFFECT_TRACE,
+                        FullTag::ExprRunCapture
+                        | FullTag::ExprRunPipeline
+                        | FullTag::ExprSpawnRun
+                        | FullTag::ExprSpawnCommand
+                        | FullTag::ExprWait
+                        | FullTag::ExprProcessCommandArgv
+                        | FullTag::ExprProcessCommandBuilder
+                        | FullTag::StmtRun => {
+                            EFFECT_PROCESS
+                                | EFFECT_CANCELLATION
+                                | EFFECT_PROPAGATE
+                                | EFFECT_HOST
+                                | EFFECT_TRACE
+                        }
+                        FullTag::ExprAbort | FullTag::ExprFail => EFFECT_PROPAGATE | EFFECT_TRACE,
+                        FullTag::ExprDynamicCall | FullTag::ExprTypedCall => {
+                            EFFECT_DYNAMIC_CALL | EFFECT_TRACE
+                        }
+                        FullTag::ExprCall
+                        | FullTag::ExprSelfCall
+                        | FullTag::ExprDirectPureCall
+                        | FullTag::ExprExternalCall => EFFECT_TRACE,
+                        FullTag::ExprModuleCall => EFFECT_HOST | EFFECT_TRACE,
+                        FullTag::StmtPrint => EFFECT_HOST | EFFECT_TRACE,
+                        FullTag::ExprFsFiles
+                        | FullTag::ExprFsWalk
+                        | FullTag::ExprFsList
+                        | FullTag::ExprFsTempDir
+                        | FullTag::ExprFsMkdir
+                        | FullTag::ExprFsRemove
+                        | FullTag::ExprPathReadText
+                        | FullTag::ExprPathReadBytes
+                        | FullTag::ExprPathExists
+                        | FullTag::ExprPathExecutable
+                        | FullTag::ExprPathDu
+                        | FullTag::ExprPathMetadata
+                        | FullTag::ExprPathReadlink
+                        | FullTag::ExprPathResolve
+                        | FullTag::ExprPathWrite
+                        | FullTag::ExprPathMkdir
+                        | FullTag::ExprPathRemove
+                        | FullTag::ExprArchiveTarCreate
+                        | FullTag::ExprTry
+                        | FullTag::StmtGuard
+                        | FullTag::StmtWith => EFFECT_PROPAGATE | EFFECT_TRACE,
+                        FullTag::StmtDefer => EFFECT_DEFER | EFFECT_PROPAGATE | EFFECT_TRACE,
+                        FullTag::ExprLoop
+                        | FullTag::StmtLoop
+                        | FullTag::StmtWhile
+                        | FullTag::StmtWhileBool
+                        | FullTag::StmtPatternIf
+                        | FullTag::StmtPatternWhile
+                        | FullTag::StmtFor
+                        | FullTag::StmtForRecord
+                        | FullTag::StmtForStrLines
+                        | FullTag::StmtScanLines
+                        | FullTag::StmtScanBytes => EFFECT_CANCELLATION,
+                        _ => 0,
+                    }
+            })
+        }
+        for tag in schema::INSTRUCTION_TAGS {
+            assert_eq!(tag.effects(), previous_effects(&[*tag]), "{}", tag.name());
+            if tag.kind() == schema::InstructionKind::Stmt {
+                assert_ne!(
+                    tag.frame_strategy(),
+                    FrameStrategy::LegacyRecursive,
+                    "statement {} must be scheduled on frames",
+                    tag.name()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn instruction_schema_preserves_scalar_encoding_and_borrows_storage() {
+        let mut builder = FullBuilder::new(SourceId::new(0));
+        builder.current_owner = Some(0);
+        let mut words = Vec::new();
+        for row in [
+            BuildExprRow::Int(-1), BuildExprRow::Bool(true),
+            BuildExprRow::Str(Arc::from("borrowed")),
+            BuildExprRow::Bytes(Arc::from(b"bytes".as_slice())),
+            BuildExprRow::Unit,
+        ] {
+            row.encode(&mut builder, &mut words).unwrap();
+        }
+        BuildIntRow::Int(i64::MIN).encode(&mut builder, &mut words).unwrap();
+        BuildBoolRow::Bool(false).encode(&mut builder, &mut words).unwrap();
+        assert_eq!(words, [0, 1, 2, 3, 4, 5, 6]);
+        assert_eq!(builder.store.tags, [FullTag::ExprInt, FullTag::ExprBool, FullTag::ExprStr,
+            FullTag::ExprBytes, FullTag::ExprUnit, FullTag::IntInt, FullTag::BoolBool]);
+        let payloads: Vec<_> = builder.store.data.iter()
+            .map(|data| builder.store.payload(data.range()).unwrap()).collect();
+        assert_eq!(payloads, [vec![u32::MAX, u32::MAX], vec![1], vec![1],
+            vec![1], vec![], vec![0, 0x8000_0000], vec![0]]);
+        let execution = schema_execution(&builder.store);
+        for (raw, expected) in [(0, -1)] {
+            let (tag, payload) = execution.instruction_id(raw).unwrap();
+            let schema::ExprView::Int(actual) = schema::ExprView::decode(&execution, tag, payload).unwrap()
+                else { panic!("integer view") };
+            assert_eq!(actual, expected);
+        }
+        let (tag, payload) = execution.instruction_id(2).unwrap();
+        let schema::ExprView::Str(text) = schema::ExprView::decode(&execution, tag, payload).unwrap()
+            else { panic!("string view") };
+        assert_eq!(text, "borrowed");
+        assert_eq!(text.as_ptr(), builder.store.string_bytes.as_ptr());
+        let (tag, payload) = execution.instruction_id(3).unwrap();
+        let schema::ExprView::Bytes(bytes) = schema::ExprView::decode(&execution, tag, payload).unwrap()
+            else { panic!("bytes view") };
+        assert_eq!(bytes, b"bytes");
+        assert_eq!(bytes.as_ptr(), builder.store.byte_data.as_ptr());
+        let (tag, payload) = execution.instruction_id(5).unwrap();
+        let schema::IntView::Int(value) = schema::IntView::decode(&execution, tag, payload).unwrap()
+            else { panic!("specialized integer view") };
+        assert_eq!(value, i64::MIN);
+        let (tag, payload) = execution.instruction_id(6).unwrap();
+        assert!(matches!(schema::BoolView::decode(&execution, tag, payload).unwrap(), schema::BoolView::Bool(false)));
+    }
+
+    #[test]
+    fn instruction_schema_list_views_keep_real_typed_child_ids() {
+        let scratch = Rc::new(RefCell::new(BuildScratch::default()));
+        let first = scratch.borrow_mut().expr(BuildExprRow::Int(7));
+        let second = scratch.borrow_mut().expr(BuildExprRow::Str(Arc::from("seven")));
+        let mut builder = FullBuilder::new(SourceId::new(0));
+        builder.current_owner = Some(0);
+        builder.active_scratch = Some(scratch);
+        let mut words = Vec::new();
+        BuildExprRow::List(vec![first, second]).encode(&mut builder, &mut words).unwrap();
+        assert_eq!(words, [2]);
+        assert_eq!(builder.store.tags, [FullTag::ExprInt, FullTag::ExprStr, FullTag::ExprList]);
+        let execution = schema_execution(&builder.store);
+        let (tag, payload) = execution.instruction_id(2).unwrap();
+        let schema::ExprView::List(mut children) = schema::ExprView::decode(&execution, tag, payload).unwrap()
+            else { panic!("list view") };
+        assert_eq!(children.len(), 2);
+        assert_eq!(children.next().unwrap().unwrap().raw(), 0);
+        let second = children.next().unwrap().unwrap();
+        assert_eq!(second.raw(), 1);
+        assert!(children.next().is_none());
+        let (tag, payload) = execution.instruction_id(second.raw()).unwrap();
+        assert!(matches!(schema::ExprView::decode(&execution, tag, payload).unwrap(), schema::ExprView::Str("seven")));
+
+        for malformed in [vec![2, 0], vec![2, 0, u32::MAX], vec![2, 0, 1, 99]] {
+            let mut invalid = builder.store.clone();
+            let start = invalid.extra.len() as u32;
+            invalid.extra.extend_from_slice(&malformed);
+            invalid.blocks[0].instructions = IrRange::new(start, malformed.len() as u32);
+            let execution = schema_execution(&invalid);
+            let (tag, payload) = execution.instruction_id(2).unwrap();
+            let schema::ExprView::List(mut children) = schema::ExprView::decode(&execution, tag, payload).unwrap()
+                else { panic!("list view") };
+            assert_eq!(children.next().unwrap().unwrap().raw(), 0);
+            assert!(children.next().unwrap().is_err());
+        }
+    }
+
+    #[test]
+    fn instruction_schema_views_reject_malformed_fields_and_wrong_child_categories() {
+        let mut builder = FullBuilder::new(SourceId::new(0));
+        builder.current_owner = Some(0);
+        builder.current_slot_count = 1;
+        let mut words = Vec::new();
+        BuildIntRow::Int(2).encode(&mut builder, &mut words).unwrap();
+        BuildBoolRow::Bool(true).encode(&mut builder, &mut words).unwrap();
+        let execution = schema_execution(&builder.store);
+        let decode_expr = |tag, words| schema::ExprView::decode(&execution, tag,
+            FullPayload { store: execution.decoder.store, cursor: FullCursor::new(words) });
+        assert!(decode_expr(FullTag::ExprInt, &[1]).is_err());
+        assert!(decode_expr(FullTag::ExprInt, &[1, 0, 9]).is_err());
+        assert!(decode_expr(FullTag::ExprBool, &[2]).is_err());
+        assert!(decode_expr(FullTag::ExprStr, &[u32::MAX]).is_err());
+        assert!(decode_expr(FullTag::IntInt, &[1, 0]).is_err());
+        assert!(schema::BoolView::decode(&execution, FullTag::BoolNot,
+            FullPayload { store: execution.decoder.store, cursor: FullCursor::new(&[0]) }).err().unwrap().message.contains("wrong category"));
+        assert!(schema::BoolView::decode(&execution, FullTag::BoolNot,
+            FullPayload { store: execution.decoder.store, cursor: FullCursor::new(&[u32::MAX]) }).is_err());
+        let mut other_owner = schema_execution(&builder.store);
+        other_owner.decoder.instruction_range = 1..2;
+        assert!(BuildIntId::borrow(DecodeContext::new(&other_owner),
+            &mut FullCursor::new(&[0])).unwrap_err().message.contains("another function"));
+        let context = DecodeContext::new(&execution);
+        assert!(Option::<BuildExprId>::borrow(context, &mut FullCursor::new(&[2])).is_err());
+        assert!(Option::<BuildExprId>::borrow(context, &mut FullCursor::new(&[1])).is_err());
+        let decode::CallArgView::Default(slot) = LoweredCallArg::borrow(context,
+            &mut FullCursor::new(&[2, 37])).unwrap() else { panic!("default argument") };
+        assert_eq!(slot, 37);
+        assert!(matches!(LoweredCallArg::decode(&execution.decoder,
+            &mut FullCursor::new(&[2, 37])).unwrap(), LoweredCallArg::Default(37)));
+        assert_eq!(
+            ScanCondition::borrow(context, &mut FullCursor::new(&[3]))
+                .err()
+                .unwrap()
+                .message,
+            "scan condition tag is invalid",
+        );
+        assert_eq!(
+            ScanCondition::decode(&execution.decoder, &mut FullCursor::new(&[3]))
+                .err()
+                .unwrap()
+                .message,
+            "scan condition tag is invalid",
+        );
+        assert_eq!(
+            ScanCheck::borrow(context, &mut FullCursor::new(&[0, 1]))
+                .err()
+                .unwrap()
+                .message,
+            "slot is out of bounds",
+        );
+        assert_eq!(
+            ScanCheck::decode(&execution.decoder, &mut FullCursor::new(&[0, 1]))
+                .err()
+                .unwrap()
+                .message,
+            "slot is out of bounds",
+        );
+    }
+
+    #[test]
+    fn pattern_schema_views_cover_all_rows_and_keep_fields_borrowed() {
+        let (builder, roots) = pattern_view_fixture();
+        let execution = schema_execution(&builder.store);
+        assert_eq!(schema::PATTERN_TAGS.len(), 17);
+        let mut ids = FullCursor::new(&roots);
+        let context = DecodeContext::new(&execution);
+        let mut viewed_tags = Vec::with_capacity(roots.len());
+        for _ in &roots {
+            let pattern = BuildPatternId::borrow(context, &mut ids).unwrap();
+            viewed_tags.push(pattern_view_tag(execution.pattern_view(pattern).unwrap()));
+        }
+        ids.finish().unwrap();
+        assert_eq!(viewed_tags, schema::PATTERN_TAGS);
+
+        let mut text_ids = FullCursor::new(&roots[16..]);
+        let text_id = BuildPatternId::borrow(context, &mut text_ids).unwrap();
+        let schema::PatternView::Text { mut holes, mut kinds, mut segments } =
+            execution.pattern_view(text_id).unwrap() else { panic!("text pattern view") };
+        assert_eq!(holes.len(), 1);
+        let hole = holes.next().unwrap().unwrap();
+        assert!(matches!(execution.pattern_view(hole).unwrap(), schema::PatternView::Wildcard));
+        assert_eq!(kinds.next().unwrap().unwrap(), crate::sema::check::TextHoleKind::Decimal);
+        let prefix = segments.next().unwrap().unwrap();
+        assert_eq!(prefix, "id=");
+        let pool_start = builder.store.string_bytes.as_ptr() as usize;
+        let pool_end = pool_start + builder.store.string_bytes.len();
+        assert!((pool_start..pool_end).contains(&(prefix.as_ptr() as usize)));
+        assert_eq!(segments.next().unwrap().unwrap(), "");
+        assert!(segments.next().is_none());
+
+        let mut payload = FullPayload {
+            store: execution.decoder.store,
+            cursor: FullCursor::new(&[2, 37, 99]),
+        };
+        let decode::CallArgView::Default(slot) = payload.borrow::<LoweredCallArg>(&execution).unwrap()
+            else { panic!("borrowed call argument") };
+        assert_eq!(slot, 37);
+        assert_eq!(payload.raw().unwrap(), 99);
+        payload.finish().unwrap();
+    }
+
+    #[test]
+    fn pattern_views_reject_corruption_and_foreign_store_identities() {
+        let (builder, roots) = pattern_view_fixture();
+        let execution = schema_execution(&builder.store);
+        let context = DecodeContext::new(&execution);
+        let mut text_ids = FullCursor::new(&roots[16..]);
+        let text_id = BuildPatternId::borrow(context, &mut text_ids).unwrap();
+
+        let mut invalid = builder.store.clone();
+        let text_range = invalid.pattern_data[roots[16] as usize].range();
+        invalid.extra[text_range.start as usize + 1] =
+            crate::sema::check::TextHoleKind::ALL.len() as u32;
+        let invalid_execution = schema_execution(&invalid);
+        let error = match invalid_execution.pattern_view(
+            BuildPatternId::borrow(DecodeContext::new(&invalid_execution), &mut FullCursor::new(&roots[16..])).unwrap()
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("invalid text hole kind was accepted"),
+        };
+        assert!(error.message.contains("text pattern hole kind is out of range"));
+
+        let mut trailing = builder.store.clone();
+        let text_index = roots[16] as usize;
+        let text_data = trailing.pattern_data[text_index];
+        let mut text_payload = trailing.payload(text_data.range()).unwrap().to_vec();
+        text_payload.push(0);
+        let start = u32::try_from(trailing.extra.len()).unwrap();
+        trailing.extra.extend_from_slice(&text_payload);
+        trailing.pattern_data[text_index] = IrData {
+            lhs: start,
+            rhs: u32::try_from(text_payload.len()).unwrap(),
+        };
+        let trailing_execution = schema_execution(&trailing);
+        let trailing_id = BuildPatternId::borrow(DecodeContext::new(&trailing_execution),
+            &mut FullCursor::new(&roots[16..])).unwrap();
+        let error = match trailing_execution.pattern_view(trailing_id) {
+            Err(error) => error,
+            Ok(_) => panic!("trailing pattern row word was accepted"),
+        };
+        assert!(error.message.contains("full IR payload has trailing words"));
+
+        let other_store = FullStore::default();
+        let other_execution = schema_execution(&other_store);
+        let error = match other_execution.pattern_view(text_id) {
+            Err(error) => error,
+            Ok(_) => panic!("foreign pattern identity was accepted"),
+        };
+        assert!(error.message.contains("another program"));
+
+        let mut foreign_block_payload = FullPayload {
+            store: execution.decoder.store,
+            cursor: FullCursor::new(&[0]),
+        };
+        let error = match other_execution.block(&mut foreign_block_payload, 0) {
+            Err(error) => error,
+            Ok(_) => panic!("foreign block payload was accepted"),
+        };
+        assert!(error.message.contains("another program"));
+        assert_eq!(foreign_block_payload.raw().unwrap(), 0);
+
+        let mut payload = FullPayload {
+            store: execution.decoder.store,
+            cursor: FullCursor::new(&[2, 37]),
+        };
+        assert!(payload.borrow::<LoweredCallArg>(&other_execution).is_err());
+    }
+
+    #[test]
+    fn module_command_plan_metadata_rejects_corrupt_interpretation() {
+        run_with_large_stack(|| {
+            use crate::modules::cli::ArgValueType;
+            use crate::runtime::eval::call_plan::ModuleCallPlan;
+            let program = fixture("command-plan-metadata.xsh", "json.write output ({value: 1}) false\njson.write output ({value: 1}) --pretty\ntime.sleep 0ms\nfs.fsync output\n");
+            FullVerifier::verify(&program).unwrap();
+            let (index, plan) = program.store.prepared_module_call_plans.iter().enumerate()
+                .find_map(|(index, plan)| match plan.as_ref() {
+                    ModuleCallPlan::CommandArguments(plan) if plan.word_conversions.len() == 2 => Some((index, plan)),
+                    _ => None,
+                }).expect("JSON command has Path and Bool word conversions");
+            let rejects = |change: &dyn Fn(&mut crate::runtime::eval::call_plan::CommandArgumentsPlan)| {
+                let mut invalid = program.clone();
+                let mut plan = plan.clone();
+                change(&mut plan);
+                invalid.store.prepared_module_call_plans[index] = Arc::new(ModuleCallPlan::CommandArguments(plan));
+                assert!(FullVerifier::verify(&invalid).is_err());
+            };
+            rejects(&|plan| plan.supplied_slots[0] = false);
+            rejects(&|plan| plan.word_conversions.push(plan.word_conversions[0].clone()));
+            rejects(&|plan| plan.word_conversions[0].slot = plan.supplied_slots.len());
+            rejects(&|plan| plan.word_conversions[0].scalar = ArgValueType::Int);
+            rejects(&|plan| plan.word_conversions.reverse());
+            rejects(&|plan| plan.flag_slots.push(plan.word_conversions[0].slot));
+            let other_signature = program.store.prepared_module_call_plans.iter().find_map(|entry| match entry.as_ref() {
+                ModuleCallPlan::CommandArguments(other) if other.signature.op != plan.signature.op => Some(other.signature),
+                _ => None,
+            }).unwrap();
+            rejects(&|plan| plan.signature = other_signature);
+            rejects(&|plan| plan.signature = Box::leak(Box::new(plan.signature.clone())));
+
+            let (flag_index, flag_plan) = program.store.prepared_module_call_plans.iter().enumerate()
+                .find_map(|(index, plan)| match plan.as_ref() {
+                    ModuleCallPlan::CommandArguments(plan) if !plan.flag_slots.is_empty() => Some((index, plan)),
+                    _ => None,
+                }).unwrap_or_else(|| panic!("Boolean flag command; published plans: {:?}",
+                    program.store.prepared_module_call_plans.iter().filter_map(|plan| match plan.as_ref() {
+                        ModuleCallPlan::CommandArguments(plan) => Some((plan.signature.op, &plan.flag_slots,
+                            plan.word_conversions.iter().map(|word| word.slot).collect::<Vec<_>>())),
+                        _ => None,
+                    }).collect::<Vec<_>>()));
+            for slot in [flag_plan.flag_slots[0], flag_plan.supplied_slots.len(), 0] {
+                let mut invalid = program.clone();
+                let mut flag_plan = flag_plan.clone();
+                flag_plan.flag_slots.push(slot);
+                invalid.store.prepared_module_call_plans[flag_index] = Arc::new(ModuleCallPlan::CommandArguments(flag_plan));
+                assert!(FullVerifier::verify(&invalid).is_err());
+            }
+
+            let mut invalid = program.clone();
+            let instruction = invalid.store.tags.iter().enumerate().find_map(|(instruction, tag)| {
+                if *tag != FullTag::ExprModuleCall { return None; }
+                let words = invalid.store.payload(invalid.store.data[instruction].range()).unwrap();
+                (words[1] == 1 && words[2] as usize == index).then_some(instruction)
+            }).unwrap();
+            let words = invalid.store.payload(invalid.store.data[instruction].range()).unwrap();
+            let arguments = IrBlockId::from_raw(words[3]).unwrap();
+            let original = invalid.store.payload(invalid.store.blocks[arguments.index()].instructions).unwrap();
+            let mut missing = vec![original[0], 0];
+            missing.extend_from_slice(&original[3..]);
+            let start = invalid.store.extra.len() as u32;
+            invalid.store.extra.extend_from_slice(&missing);
+            invalid.store.blocks[arguments.index()].instructions = IrRange::new(start, missing.len() as u32);
+            let mut absent = plan.clone();
+            absent.supplied_slots[0] = false;
+            invalid.store.prepared_module_call_plans[index] = Arc::new(ModuleCallPlan::CommandArguments(absent));
+            assert!(FullVerifier::verify(&invalid).unwrap_err().message.contains("checked signature"));
+        });
     }
 
     #[test]
@@ -9299,10 +8546,9 @@ run true
     #[test]
     fn empty_map_fold_inference_publishes_concrete_accumulator_types() {
         let source = "let counts = [\"one\", \"two\", \"one\"] |> fold(map.empty()) { |acc, item| acc.set(item, (acc.get(item) ?? 0) + 1) }\nprint ${counts.get(\"one\") ?? 0}\n";
-        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(
-            crate::source::SourceId::new(0),
-            source,
-        );
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file("empty-map-fold.xsh", source);
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(source_id, source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, source);
         assert!(
@@ -9310,7 +8556,7 @@ run true
             "full: {:?}",
             checked.diagnostics
         );
-        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
         assert!(
             declarations.diagnostics.is_empty(),
             "decl: {:?}",
@@ -9330,12 +8576,11 @@ run true
     fn local_collection_inference_publishes_concrete_indexed_call_and_slot_types() {
         let source =
             include_str!("../../../../tests/fixtures/frontend-indexed/local-inference.xsh");
-        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(
-            crate::source::SourceId::new(0),
-            source,
-        );
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file("local-inference.xsh", source);
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(source_id, source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
         parsed.arena.symbol_owner().with_current(|| {
             let function = parsed
                 .arena
@@ -9459,6 +8704,30 @@ run true
         unslotted.headers.clear();
         let decoded = header(&unslotted);
         assert_eq!(decoded.params.len(), first.params.len());
+    }
+
+    #[test]
+    fn verifier_rejects_the_retired_function_defer_flag() {
+        let mut program = fixture("indexed-execution.xsh", INDEXED_EXECUTION);
+        assert!(program
+            .store
+            .function_metadata
+            .iter()
+            .any(|metadata| metadata.flags & 1 == 0));
+        assert!(program
+            .store
+            .function_metadata
+            .iter()
+            .any(|metadata| metadata.flags & 1 != 0));
+        FullVerifier::verify(&program).unwrap();
+
+        program.store.function_metadata[0].flags |= 1 << 1;
+        let error = FullVerifier::verify(&program).unwrap_err();
+        assert!(
+            error.message.contains("function metadata flags are invalid"),
+            "{}",
+            error.message
+        );
     }
 
     #[test]
@@ -9693,6 +8962,7 @@ pure selected() -> Str {
                 owner: 0,
                 instruction_range: 0..0,
                 instruction_states: None,
+                instruction_proof: None,
                 block_states: None,
                 slot_count: 0,
                 pattern_ceiling: Cell::new(usize::MAX),
@@ -9742,6 +9012,7 @@ pure selected() -> Str {
                 owner: 0,
                 instruction_range: 0..0,
                 instruction_states: None,
+                instruction_proof: None,
                 block_states: None,
                 slot_count: 0,
                 pattern_ceiling: Cell::new(usize::MAX),
@@ -9780,13 +9051,20 @@ pure selected() -> Str {
                     "../../../../tests/fixtures/frontend-indexed/cli-constant-descriptors.xsh"
                 ),
             );
-            let plan = Arc::clone(&program.store.prepared_cli_plans[0]);
+            let plan = Arc::clone(&program.store.prepared_module_call_plans[0]);
             let mut builder = FullBuilder::new(SourceId::new(0));
             let checkpoint = builder.checkpoint();
-            plan.encode(&mut builder, &mut Vec::new()).unwrap();
-            assert_eq!(builder.store.prepared_cli_plans.len(), 1);
+            let crate::runtime::eval::ModuleCallPlan::SignatureCli(inner) = plan.as_ref()
+                else { panic!("CLI descriptor plan") };
+            let separately_wrapped = Arc::new(crate::runtime::eval::ModuleCallPlan::SignatureCli(Arc::clone(inner)));
+            assert!(!Arc::ptr_eq(&plan, &separately_wrapped));
+            let mut words = Vec::new();
+            plan.encode(&mut builder, &mut words).unwrap();
+            separately_wrapped.encode(&mut builder, &mut words).unwrap();
+            assert_eq!(words, [0, 0]);
+            assert_eq!(builder.store.prepared_module_call_plans.len(), 1);
             builder.rewind(checkpoint);
-            assert!(builder.store.prepared_cli_plans.is_empty());
+            assert!(builder.store.prepared_module_call_plans.is_empty());
         });
     }
 
@@ -9880,7 +9158,7 @@ pure selected() -> Str {
                 let mut sources = SourceMap::new();
                 let source_id = sources.add_file("indexed-execution.xsh", INDEXED_EXECUTION);
                 let parsed = Parser::parse_source_arena_only(source_id, INDEXED_EXECUTION);
-                let declarations = Checker::check_compact_declarations(&parsed.arena);
+                let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
                 FullBuilder::build_compact(
                     &parsed.arena,
                     &declarations,
@@ -9905,7 +9183,7 @@ pure selected() -> Str {
         assert_eq!(size_of::<FullStageTag>(), 1);
         assert_eq!(size_of::<FullValueTag>(), 1);
         assert_eq!(size_of::<FullBlock>(), 20);
-        assert_eq!(size_of::<FullFunction>(), 32);
+        assert_eq!(size_of::<FullFunction>(), 40);
         assert_eq!(size_of::<FullParam>(), 12);
         assert_eq!(size_of::<FullParamCold>(), 12);
         assert_eq!(size_of::<FullCapture>(), 12);
@@ -9928,6 +9206,261 @@ pure selected() -> Str {
     }
 
     #[test]
+    fn lowered_value_tags_keep_wire_ordinals() {
+        assert_eq!(
+            [
+                FullValueTag::Null as u8,
+                FullValueTag::Unit as u8,
+                FullValueTag::Int as u8,
+                FullValueTag::Float as u8,
+                FullValueTag::Duration as u8,
+                FullValueTag::Bool as u8,
+                FullValueTag::Str as u8,
+                FullValueTag::Bytes as u8,
+                FullValueTag::Regex as u8,
+                FullValueTag::Path as u8,
+                FullValueTag::Record as u8,
+                FullValueTag::RecordVec as u8,
+                FullValueTag::Stats as u8,
+                FullValueTag::StatsBlob as u8,
+                FullValueTag::Module as u8,
+                FullValueTag::List as u8,
+                FullValueTag::Map as u8,
+                FullValueTag::Tag as u8,
+                FullValueTag::ResultOk as u8,
+                FullValueTag::Set as u8,
+            ],
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+        );
+    }
+
+    #[test]
+    fn pattern_tags_keep_wire_ordinals() {
+        assert_eq!(
+            [
+                FullPatternTag::Alias as u8,
+                FullPatternTag::Alternation as u8,
+                FullPatternTag::List as u8,
+                FullPatternTag::TagType as u8,
+                FullPatternTag::RecordTest as u8,
+                FullPatternTag::ResultTest as u8,
+                FullPatternTag::TagTest as u8,
+                FullPatternTag::ErrorTest as u8,
+                FullPatternTag::Wildcard as u8,
+                FullPatternTag::Bind as u8,
+                FullPatternTag::Type as u8,
+                FullPatternTag::Literal as u8,
+                FullPatternTag::ResultOk as u8,
+                FullPatternTag::ResultErr as u8,
+                FullPatternTag::Facet as u8,
+                FullPatternTag::Tag as u8,
+                FullPatternTag::Text as u8,
+            ],
+            std::array::from_fn::<_, 17, _>(|index| {
+                if index < 14 { index as u8 } else { index as u8 + 1 }
+            }),
+        );
+    }
+
+    #[test]
+    fn driver_tags_keep_row_ordinals() {
+        assert_eq!(
+            [
+                FullDriverTag::Skip as u8,
+                FullDriverTag::Use as u8,
+                FullDriverTag::Let as u8,
+                FullDriverTag::LetRecord as u8,
+                FullDriverTag::Assign as u8,
+                FullDriverTag::Discard as u8,
+                FullDriverTag::Stmt as u8,
+                FullDriverTag::Expr as u8,
+                FullDriverTag::Defer as u8,
+                FullDriverTag::SignalHook as u8,
+            ],
+            std::array::from_fn::<_, 10, _>(|index| index as u8),
+        );
+    }
+
+    #[test]
+    fn stage_tags_keep_wire_ordinals() {
+        assert_eq!(
+            [
+                FullStageTag::TextLines as u8,
+                FullStageTag::JsonLines as u8,
+                FullStageTag::Where as u8,
+                FullStageTag::WhereBlock as u8,
+                FullStageTag::Map as u8,
+                FullStageTag::MapBlock as u8,
+                FullStageTag::FlatMap as u8,
+                FullStageTag::FlatMapBlock as u8,
+                FullStageTag::BytesChunks as u8,
+                FullStageTag::BatchCount as u8,
+                FullStageTag::BatchMaxArgv as u8,
+                FullStageTag::BatchMaxBytes as u8,
+                FullStageTag::BatchLimits as u8,
+                FullStageTag::Shuffle as u8,
+                FullStageTag::Fold as u8,
+                FullStageTag::ReduceBy as u8,
+                FullStageTag::ReduceByConfigured as u8,
+                FullStageTag::ParMap as u8,
+                FullStageTag::ParMapBlock as u8,
+                FullStageTag::ParMapFlatMapReduceBy as u8,
+                FullStageTag::Tee as u8,
+                FullStageTag::Each as u8,
+                FullStageTag::TablePrint as u8,
+                FullStageTag::TablePrintConfigured as u8,
+                FullStageTag::Enumerate as u8,
+                FullStageTag::Zip as u8,
+                FullStageTag::Sort as u8,
+                FullStageTag::SortBy as u8,
+                FullStageTag::GroupBy as u8,
+                FullStageTag::CountBy as u8,
+                FullStageTag::Any as u8,
+                FullStageTag::AnyBlock as u8,
+                FullStageTag::All as u8,
+                FullStageTag::AllBlock as u8,
+                FullStageTag::UniqueBy as u8,
+                FullStageTag::Count as u8,
+                FullStageTag::Sum as u8,
+                FullStageTag::Collect as u8,
+                FullStageTag::First as u8,
+                FullStageTag::Last as u8,
+                FullStageTag::Min as u8,
+                FullStageTag::Max as u8,
+                FullStageTag::Take as u8,
+                FullStageTag::Drop as u8,
+                FullStageTag::Repeat as u8,
+                FullStageTag::Range as u8,
+            ],
+            std::array::from_fn::<_, 46, _>(|index| index as u8),
+        );
+    }
+
+    #[test]
+    fn stage_schema_views_match_all_owned_fields_and_leave_trailing_fields() {
+        let (builder, rows, block, expressions, statements) = stage_view_fixture();
+        let execution = schema_execution_with_slots(&builder.store, 25);
+        let owned_block = [block];
+        let mut owned_input = FullCursor::new(&owned_block);
+        let decoded_owned = Vec::<LoweredPipelineStage>::decode(&execution.decoder, &mut owned_input)
+            .unwrap();
+        owned_input.finish().unwrap();
+        assert_eq!(decoded_owned.len(), rows.len());
+
+        let outer_payload = [block, 0x5a5a];
+        let mut payload = FullPayload {
+            store: &builder.store,
+            cursor: FullCursor::new(&outer_payload),
+        };
+        let mut views = payload.borrow::<Vec<LoweredPipelineStage>>(&execution).unwrap();
+        assert_eq!(views.len(), 46);
+        let expectations = StageViewExpectations {
+            store: &builder.store,
+            expressions: &expressions,
+            statements: &statements,
+        };
+        for (index, owned) in rows.into_iter().enumerate() {
+            let stage = views.next_with_id().unwrap().unwrap();
+            assert_eq!(stage.id.raw(), index as u32);
+            assert_eq!(stage.view.tag() as usize, index);
+            assert_stage_view_matches(owned, stage.view, &expectations);
+        }
+        assert!(views.next_with_id().is_none());
+        assert_eq!(payload.raw().unwrap(), 0x5a5a);
+        payload.finish().unwrap();
+    }
+
+    #[test]
+    fn borrowed_stage_list_views_reject_trailing_words() {
+        let (builder, _, block, _, _) = stage_view_fixture();
+        let mut trailing = builder.store.clone();
+        let block = IrBlockId::from_raw(block).unwrap();
+        trailing.extra.push(0);
+        trailing.blocks[block.index()].instructions.len += 1;
+        let execution = schema_execution_with_slots(&trailing, 25);
+        let encoded_block = [block.raw()];
+        let mut payload = FullPayload {
+            store: &trailing,
+            cursor: FullCursor::new(&encoded_block),
+        };
+        let mut stages = payload.borrow::<Vec<LoweredPipelineStage>>(&execution).unwrap();
+        for _ in 0..45 {
+            stages.next_with_id().unwrap().unwrap();
+        }
+        let error = match stages.next_with_id().unwrap() {
+            Err(error) => error,
+            Ok(_) => panic!("stage list with trailing words was accepted"),
+        };
+        assert!(error.message.contains("full IR payload has trailing words"));
+        payload.finish().unwrap();
+    }
+
+    #[test]
+    fn borrowed_stage_body_reuses_its_validated_statement_block() {
+        let (builder, _, _, _, _) = stage_view_fixture();
+        let execution = schema_execution_with_slots(&builder.store, 25);
+        let StageView::Tee { body, .. } = execution.stage_view(20).unwrap() else {
+            panic!("stage 20 is the Tee fixture row");
+        };
+        let (_, mut statements) = execution
+            .block_id(body.block_id(), BLOCK_STATEMENTS)
+            .unwrap();
+        assert_eq!(statements.raw().unwrap(), 2);
+        let first = statements.raw().unwrap();
+        let second = statements.raw().unwrap();
+        statements.finish().unwrap();
+        assert_eq!(execution.instruction_id(first).unwrap().0, FullTag::StmtValue);
+        assert_eq!(execution.instruction_id(second).unwrap().0, FullTag::StmtExpr);
+    }
+
+    #[test]
+    fn stage_schema_views_reject_malformed_trailing_and_foreign_payloads() {
+        let (builder, _, _, _, _) = stage_view_fixture();
+
+        let mut malformed = builder.store.clone();
+        let reduce_by = malformed.stage_data[15].range();
+        malformed.extra[reduce_by.start as usize + 3] = u32::MAX;
+        let malformed_execution = schema_execution_with_slots(&malformed, 25);
+        let mut malformed_payload = FullPayload {
+            store: &malformed,
+            cursor: FullCursor::new(&[15]),
+        };
+        let error = match malformed_payload.borrow::<LoweredPipelineStage>(&malformed_execution) {
+            Err(error) => error,
+            Ok(_) => panic!("invalid reduce-by operation was accepted"),
+        };
+        assert!(error.message.contains("reduce-by operation is invalid"));
+
+        let mut trailing = builder.store.clone();
+        let start = u32::try_from(trailing.extra.len()).unwrap();
+        trailing.extra.push(0);
+        trailing.stage_data[0] = IrData { lhs: start, rhs: 1 };
+        let trailing_execution = schema_execution_with_slots(&trailing, 25);
+        let mut trailing_payload = FullPayload {
+            store: &trailing,
+            cursor: FullCursor::new(&[0]),
+        };
+        let error = match trailing_payload.borrow::<LoweredPipelineStage>(&trailing_execution) {
+            Err(error) => error,
+            Ok(_) => panic!("trailing stage row word was accepted"),
+        };
+        assert!(error.message.contains("full IR payload has trailing words"));
+
+        let other_store = builder.store.clone();
+        let other_execution = schema_execution_with_slots(&other_store, 25);
+        let mut foreign_payload = FullPayload {
+            store: &builder.store,
+            cursor: FullCursor::new(&[15]),
+        };
+        let error = match foreign_payload.borrow::<LoweredPipelineStage>(&other_execution) {
+            Err(error) => error,
+            Ok(_) => panic!("foreign stage payload was accepted"),
+        };
+        assert!(error.message.contains("another program"));
+        assert_eq!(foreign_payload.raw().unwrap(), 15);
+    }
+
+    #[test]
     fn compact_driver_executes_effects_after_arena_drop() {
         run_with_large_stack(|| {
             let (program, plan, mut evaluator) = {
@@ -9936,7 +9469,7 @@ pure selected() -> Str {
                     sources.add_file("top-level-driver-boundary.xsh", TOP_LEVEL_DRIVER_BOUNDARY);
                 let parsed = Parser::parse_source_arena_only(source_id, TOP_LEVEL_DRIVER_BOUNDARY);
                 assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-                let declarations = Checker::check_compact_declarations(&parsed.arena);
+                let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
                 assert!(
                     declarations.diagnostics.is_empty(),
                     "{:?}",
@@ -10005,7 +9538,7 @@ pure selected() -> Str {
         let source_id =
             sources.add_file("top-level-driver-boundary.xsh", TOP_LEVEL_DRIVER_BOUNDARY);
         let parsed = Parser::parse_source_arena_only(source_id, TOP_LEVEL_DRIVER_BOUNDARY);
-        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
         let program = FullBuilder::build_compact(
             &parsed.arena,
             &declarations,
@@ -10044,12 +9577,40 @@ pure selected() -> Str {
     }
 
     #[test]
+    fn driver_verifier_rejects_invalid_signal_hook_option_tag() {
+        let mut sources = SourceMap::new();
+        let source_id =
+            sources.add_file("top-level-driver-boundary.xsh", TOP_LEVEL_DRIVER_BOUNDARY);
+        let parsed = Parser::parse_source_arena_only(source_id, TOP_LEVEL_DRIVER_BOUNDARY);
+        let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        let program = FullBuilder::build_compact(
+            &parsed.arena,
+            &declarations,
+            TOP_LEVEL_DRIVER_BOUNDARY,
+            Arc::new(sources),
+            source_id,
+        )
+        .unwrap();
+        let mut malformed = program;
+        let step = malformed
+            .store
+            .driver_steps
+            .iter()
+            .find(|step| step.tag == FullDriverTag::SignalHook)
+            .expect("boundary fixture includes a signal hook");
+        malformed.store.extra[step.data.range().start as usize + 1] = u32::MAX;
+
+        let error = FullVerifier::verify(&malformed).unwrap_err();
+        assert!(error.message.contains("optional payload tag is invalid"));
+    }
+
+    #[test]
     fn driver_propagated_process_failure_records_process_propagation_and_trace_effects() {
         let source = "run false ?\n";
         let mut sources = SourceMap::new();
         let source_id = sources.add_file("top-level-propagate.xsh", source);
         let parsed = Parser::parse_source_arena_only(source_id, source);
-        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
         let program = FullBuilder::build_compact(
             &parsed.arena,
             &declarations,
@@ -10181,9 +9742,9 @@ pure selected() -> Str {
                 "../../../../tests/fixtures/frontend-indexed/cli-constant-commands.xsh"
             );
             let program = fixture("cli-constant-commands.xsh", source);
-            assert_eq!(program.store.prepared_cli_plans.len(), 1);
-            assert!(program.store.prepared_cli_plans[0].matches_operation(RuntimeOp::CliCommands));
-            assert!(!program.store.prepared_cli_plans[0].matches_operation(RuntimeOp::CliParse));
+            assert_eq!(program.store.prepared_module_call_plans.len(), 1);
+            assert!(program.store.prepared_module_call_plans[0].matches_operation(RuntimeOp::CliCommands));
+            assert!(!program.store.prepared_module_call_plans[0].matches_operation(RuntimeOp::CliParse));
             FullVerifier::verify(&program).unwrap();
             let program = Arc::new(program);
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
@@ -10210,7 +9771,7 @@ pure selected() -> Str {
                 "../../../../tests/fixtures/frontend-indexed/cli-constant-descriptors.xsh"
             );
             let program = fixture("cli-constant-descriptors.xsh", source);
-            assert_eq!(program.store.prepared_cli_plans.len(), 2);
+            assert_eq!(program.store.prepared_module_call_plans.len(), 2);
             FullVerifier::verify(&program).unwrap();
             let instruction = program
                 .store
@@ -10228,12 +9789,12 @@ pure selected() -> Str {
                 FullVerifier::verify(&broken)
                     .unwrap_err()
                     .message
-                    .contains("CLI descriptor plan is out of bounds")
+                    .contains("module call plan is out of bounds")
             );
             let mut wrong_policy = program.clone();
             let applet = program
                 .store
-                .prepared_cli_plans
+                .prepared_module_call_plans
                 .iter()
                 .position(|plan| plan.matches_operation(RuntimeOp::CliApplet))
                 .unwrap();
@@ -10523,9 +10084,11 @@ pure selected() -> Str {
     fn pattern_aliases_compact_facts_preserve_captured_subject_and_element_types() {
         let source =
             include_str!("../../../../tests/fixtures/frontend-indexed/pattern-aliases.xsh");
-        let parsed = Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file("pattern-aliases.xsh", source);
+        let parsed = Parser::parse_source_arena_only(source_id, source);
         assert!(parsed.diagnostics.is_empty());
-        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
         parsed.arena.symbol_owner().with_current(|| {
             for (id, ty) in &declarations.bodies.expr_types {
                 match parsed.arena.arena.expr(*id).kind {
@@ -11181,7 +10744,7 @@ pure selected() -> Str {
                 .first()
                 .map(crate::source::SourceFile::id)
                 .expect("entry source is present");
-            let mut declarations = Checker::check_compact_declarations(&parsed.arena);
+            let mut declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
             assert_eq!(declarations.bodies.conversions.len(), 3);
             declarations.bodies.conversions.clear();
             assert!(
@@ -12132,7 +11695,7 @@ pure label(word: Word) -> Str {
                     .first()
                     .map(crate::source::SourceFile::id)
                     .expect("entry source is present");
-                let mut declarations = Checker::check_compact_declarations(&parsed.arena);
+                let mut declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
                 assert!(declarations.diagnostics.is_empty());
                 let receivers = declarations
                     .bodies
@@ -12218,7 +11781,7 @@ pure names(words: List[Word]) -> Str {
                     .first()
                     .map(crate::source::SourceFile::id)
                     .expect("entry source is present");
-                let mut declarations = Checker::check_compact_declarations(&parsed.arena);
+                let mut declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
                 assert!(declarations.diagnostics.is_empty());
                 let receivers = declarations
                     .bodies
@@ -12350,8 +11913,8 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
                 "typed call kind does not match its callable type",
             );
 
-            // The row names a type that is not a callable type: here `Int`,
-            // the pure signature's return type.
+            // The row names `Int` instead of the callee slot's checked callable
+            // type. Exact slot correlation rejects it before callable-shape validation.
             let semantic = &program.store.semantic;
             let scale = TypeId::from_raw(program.store.extra[pure_call + 2]).unwrap();
             let int = semantic
@@ -12359,7 +11922,7 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
                 .unwrap();
             let mut untyped = (*program).clone();
             untyped.store.extra[pure_call + 2] = int.raw();
-            rejected(&untyped, "typed call signature is not a callable type");
+            rejected(&untyped, "typed call signature differs from its callee slot's callable type");
 
             let arguments = |program: &FullProgram| {
                 let block = IrBlockId::from_raw(program.store.extra[pure_call + 3]).unwrap();
@@ -12406,25 +11969,19 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
             proc_in_pure.store.extra[pure_call + 2] = program.store.extra[proc_call + 2];
             rejected(&proc_in_pure, "typed call to a proc inside a pure function");
 
-            // Inside a proc such a row verifies when its callee is a local;
-            // the callee's kind is then checked where the call runs, before
-            // any argument is evaluated.
+            // `shifted` reads the local declared as `Shift` (a proc
+            // signature). Relabeling its call row to the pure `Scale`
+            // signature is rejected before execution.
             let mut other_kind = (*program).clone();
             other_kind.store.extra[proc_call + 1] = 1;
             other_kind.store.extra[proc_call + 2] = program.store.extra[pure_call + 2];
-            FullVerifier::verify(&other_kind).unwrap();
-            let error = call(
-                &Arc::new(other_kind),
-                "shifted",
-                LoweredFunctionKind::Proc,
-                true,
-            )
-            .unwrap_err();
+            let error = FullVerifier::verify(&other_kind).unwrap_err();
             assert!(
                 error
                     .message
-                    .contains("typed call expected a Pure of its callable type, found Proc"),
-                "{error:?}"
+                    .contains("typed call signature differs from its callee slot's callable type"),
+                "{}",
+                error.message
             );
         });
     }
@@ -12507,16 +12064,12 @@ pure both() -> Int {
         });
     }
 
-    // A typed call whose callee is a local, a field, or a call result has
-    // nothing in the program to be held to: only a parameter row records a
-    // declared type, and the type of any other expression is the checker's
-    // fact, which the program does not repeat per slot. Such a row therefore
-    // verifies with a callee of another callable type, and what stops the
-    // call is the callee's own parameter boundary, which a call through a
-    // value always runs: the function tests each argument against its
-    // declared type and its arity before its body starts.
+    // A direct local slot with one declared callable type carries the same
+    // signature proof as a function parameter. The verifier must reject a
+    // typed-call row that names a different callable signature before it can
+    // reach the callee's runtime parameter boundary.
     #[test]
-    fn typed_call_through_a_local_is_held_by_the_callee_s_parameter_boundary() {
+    fn typed_call_through_a_local_names_the_slot_s_callable_type() {
         run_with_large_stack(|| {
             let source = r#"type Scale = pure(n: Int) -> Int
 type Measure = pure(text: Str) -> Int
@@ -12601,24 +12154,86 @@ pure all(wide: Bool, n: Int, text: Str) -> Int {
                     .start
             };
 
-            // `scale(n)` reads the local that holds a `Measure`: the Int
-            // argument reaches a Str parameter.
+            // `scale(n)` reads the local that holds a `Measure`; the row's
+            // signature no longer agrees with the callee slot's declaration.
             let mut retyped = (*program).clone();
             retyped.store.extra[callee_slot(scale)] = program.store.extra[callee_slot(measure)];
-            FullVerifier::verify(&retyped).unwrap();
-            let error = call(&Arc::new(retyped)).unwrap_err();
+            let error = FullVerifier::verify(&retyped).unwrap_err();
             assert!(
-                error.message.contains("expected Str, found Int"),
-                "{error:?}"
+                error
+                    .message
+                    .contains("typed call signature differs from its callee slot's callable type"),
+                "{}",
+                error.message
             );
 
-            // `scale(n)` reads the local that holds a `Pair`: one argument
-            // reaches two parameters.
+            // `scale(n)` reading the two-argument `Pair` slot also disagrees.
             let mut short = (*program).clone();
             short.store.extra[callee_slot(scale)] = program.store.extra[callee_slot(pair)];
-            FullVerifier::verify(&short).unwrap();
-            let error = call(&Arc::new(short)).unwrap_err();
-            assert!(error.message.contains("argument"), "{error:?}");
+            let error = FullVerifier::verify(&short).unwrap_err();
+            assert!(
+                error
+                    .message
+                    .contains("typed call signature differs from its callee slot's callable type"),
+                "{}",
+                error.message
+            );
+        });
+    }
+
+    #[test]
+    fn typed_call_through_a_capture_names_the_capture_s_callable_type() {
+        run_with_large_stack(|| {
+            let source = r#"type Scale = pure(n: Int) -> Int
+type Measure = pure(text: Str) -> Int
+
+pure double(n: Int) -> Int { n * 2 }
+pure length(text: Str) -> Int { text.byte_len() }
+
+let scale: Scale = double
+let measure: Measure = length
+
+pure by_scale() -> Int { scale(5) }
+pure by_measure() -> Int { measure("abc") }
+pure outer() -> Int { by_scale() + by_measure() }
+"#;
+            let program = Arc::new(fixture("typed-callable-captures.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+
+            let mut capture_calls = Vec::new();
+            for (function, row) in program.store.functions.iter().enumerate() {
+                let captures = row.captures.bounds(program.store.captures.len()).unwrap();
+                if captures.is_empty() {
+                    continue;
+                }
+                for instruction in program.store.function_instruction_range(function).unwrap() {
+                    if program.store.tags[instruction] == FullTag::ExprTypedCall {
+                        capture_calls.push(
+                            program.store.data[instruction]
+                                .range()
+                                .bounds(program.store.extra.len())
+                                .unwrap()
+                                .start,
+                        );
+                    }
+                }
+            }
+            assert_eq!(capture_calls.len(), 2);
+            assert_ne!(
+                program.store.extra[capture_calls[0] + 2],
+                program.store.extra[capture_calls[1] + 2]
+            );
+            let mut swapped = (*program).clone();
+            swapped.store.extra[capture_calls[0] + 2] =
+                program.store.extra[capture_calls[1] + 2];
+            let error = FullVerifier::verify(&swapped).unwrap_err();
+            assert!(
+                error.message.contains(
+                    "typed call signature differs from its callee capture's callable type"
+                ),
+                "{}",
+                error.message
+            );
         });
     }
 
@@ -13072,7 +12687,7 @@ pure checked(number: Int) -> Result[Port] {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let source_id = parsed.arena.arena.span_source_id.unwrap();
         let source = sources.get(source_id).unwrap().text().to_string();
-        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
         assert!(
             declarations.diagnostics.is_empty(),
             "{:?}",
@@ -13196,11 +12811,7 @@ proc checked() [process, error] {
 "#,
             );
             FullVerifier::verify(&program).unwrap();
-            for (tag, value_offset) in [
-                (FullTag::ExprRunCapture, 4),
-                (FullTag::ExprSpawnRun, 2),
-                (FullTag::ExprProcessCommandArgv, 2),
-            ] {
+            for tag in [FullTag::ExprRunCapture, FullTag::ExprSpawnRun, FullTag::ExprProcessCommandArgv] {
                 let instruction = program
                     .store
                     .tags
@@ -13211,16 +12822,26 @@ proc checked() [process, error] {
                     .range()
                     .bounds(program.store.extra.len())
                     .unwrap();
-                assert_eq!(
-                    program.store.extra[payload.end - value_offset - 1],
-                    1,
-                    "policy is present"
-                );
+                let function = (0..program.function_count())
+                    .map(|index| program.function_view_at(index).unwrap())
+                    .find(|view| program.store.function_instruction_range(view.index()).unwrap().contains(&instruction))
+                    .expect("process row belongs to a function");
+                let execution = function.execution().unwrap();
+                let context = DecodeContext::new(&execution);
+                let cursor = FullCursor::new(&program.store.extra[payload.clone()]);
+                let policy = match tag {
+                    FullTag::ExprRunCapture => LoweredRunCapture::field_cursor(context, cursor, "accept"),
+                    FullTag::ExprSpawnRun => LoweredSpawnRun::field_cursor(context, cursor, "accept"),
+                    FullTag::ExprProcessCommandArgv => LoweredProcessCommandArgv::field_cursor(context, cursor, "accept"),
+                    _ => unreachable!(),
+                }.unwrap();
+                let presence = payload.start + policy.index;
+                assert_eq!(program.store.extra[presence], 1, "policy is present");
                 let mut invalid_value = program.clone();
-                invalid_value.store.extra[payload.end - value_offset] = u32::MAX;
+                invalid_value.store.extra[presence + 1] = u32::MAX;
                 assert!(FullVerifier::verify(&invalid_value).is_err());
                 let mut invalid_presence = program.clone();
-                invalid_presence.store.extra[payload.end - value_offset - 1] = 2;
+                invalid_presence.store.extra[presence] = 2;
                 assert!(FullVerifier::verify(&invalid_presence).is_err());
             }
         });
@@ -13235,7 +12856,7 @@ proc checked() [process, error] {
         let mut leaf = RuntimeError::new("inner", "resource payload");
         leaf.payload = crate::runtime::value::RecordMap::from([(
             "job".into(),
-            Value::NetJob(Box::new(crate::runtime::value::NetJobValue { id: 7 })),
+            Value::NetJob(Box::new(crate::runtime::value::NetJobValue { id: 7, owner: Arc::new(()) })),
         )]);
         let mut chain = Value::Error(Box::new(leaf));
         for _ in 0..100_000 {
@@ -13623,5 +13244,140 @@ proc local() [env, error] -> Int {
                 error.message
             );
         });
+    }
+
+    #[test]
+    fn lowered_type_mappings_cover_every_storage_kind_and_policy_edge() {
+        let owner = crate::symbol::SymbolOwner::new();
+        let _owner = owner.enter();
+
+        let kinds = [
+            (LoweredType::Any, Type::Any),
+            (LoweredType::Unit, Type::Unit),
+            (LoweredType::Int, Type::Int),
+            (LoweredType::Float, Type::Float),
+            (LoweredType::Duration, Type::Duration),
+            (LoweredType::Bool, Type::Bool),
+            (LoweredType::Str, Type::Str),
+            (LoweredType::Bytes, Type::Bytes),
+            (LoweredType::Digest, Type::Digest),
+            (LoweredType::Regex, Type::Regex),
+            (LoweredType::Status, Type::Status),
+            (LoweredType::Path, Type::Path),
+            (LoweredType::Command, Type::Command),
+            (LoweredType::ProcessHandle, Type::ProcessHandle),
+            (LoweredType::NetJob, Type::NetJob),
+            (LoweredType::FsRoot, Type::FsRoot),
+            (LoweredType::FsLock, Type::FsLock),
+            (
+                LoweredType::Stream,
+                Type::Stream(Box::new(Type::Any)),
+            ),
+            (LoweredType::Pure, Type::Pure),
+            (LoweredType::Proc, Type::Proc),
+            (LoweredType::Error, Type::Error),
+            (LoweredType::Record, Type::ErasedRecord),
+            (LoweredType::Module, Type::DynamicModule),
+            (LoweredType::List, Type::List(Box::new(Type::Any))),
+            (
+                LoweredType::Map,
+                Type::Map(Box::new(Type::Str), Box::new(Type::Any)),
+            ),
+            (
+                LoweredType::Tag,
+                Type::Tag(Name::intern("<tag>")),
+            ),
+            (
+                LoweredType::Result,
+                Type::Result(Box::new(Type::Any), Box::new(Type::Error)),
+            ),
+            (LoweredType::Set, Type::Set(Box::new(Type::Any))),
+        ];
+
+        for (kind, ty) in kinds {
+            assert_eq!(lowered_type_to_type(kind), ty, "{kind:?}");
+            assert_eq!(lowered_type_for_type(&ty), Some(kind), "{kind:?}");
+        }
+
+        let callable = |pure| {
+            Type::Callable(Arc::new(crate::sema::types::TypedCallable {
+                pure,
+                sig: CallableType {
+                    params: Vec::new(),
+                    return_ty: Box::new(Type::Unit),
+                    effects: None,
+                },
+            }))
+        };
+        let module = Type::Module(Arc::new(crate::sema::types::ModuleType::exact(
+            std::collections::BTreeMap::new(),
+        )));
+        let variants = vec![
+            (Type::Unknown, LoweredType::Any),
+            (Type::UInt, LoweredType::Int),
+            (Type::Null, LoweredType::Any),
+            (Type::Optional(Box::new(Type::Int)), LoweredType::Any),
+            (
+                Type::Union(vec![Type::Int, Type::Str]),
+                LoweredType::Any,
+            ),
+            (
+                Type::ErrorFamily(Name::intern("IOError")),
+                LoweredType::Error,
+            ),
+            (
+                Type::ErrorVariant {
+                    family: Name::intern("IOError"),
+                    variant: Name::intern("NotFound"),
+                },
+                LoweredType::Error,
+            ),
+            (Type::Record(std::collections::BTreeMap::new()), LoweredType::Record),
+            (module, LoweredType::Module),
+            (callable(true), LoweredType::Pure),
+            (callable(false), LoweredType::Proc),
+            (Type::non_empty(Type::Int), LoweredType::List),
+        ];
+        for (ty, expected) in variants {
+            assert_eq!(lowered_type_for_type(&ty), Some(expected), "{ty:?}");
+            assert_eq!(lowered_type_from_type(&ty), Ok(expected), "{ty:?}");
+        }
+
+        let mut fields = std::collections::BTreeMap::new();
+        fields.insert(Name::intern("field"), Type::Int);
+        let nominal = Type::Validated(Box::new(
+            crate::sema::validated::ValidatedType::new(
+                crate::sema::validated::Validation::Nominal(Name::intern("Nominal")),
+                Type::Record(fields),
+            )
+            .unwrap(),
+        ));
+        assert_eq!(lowered_type_for_type(&nominal), Some(LoweredType::Record));
+        assert_eq!(lowered_type_from_type(&nominal), Ok(LoweredType::Record));
+
+        let mut constraints = crate::sema::constraints::TypeConstraints::default();
+        let inference = constraints.fresh(crate::source::Span::new(
+            crate::source::SourceId::new(0),
+            0,
+            0,
+        ));
+        let unsupported = [
+            Type::BuiltinParameter(crate::sema::types::BuiltinTypeParameter::Receiver),
+            inference,
+            Type::Invalid,
+            Type::EnvPathList,
+            Type::ProcessError,
+        ];
+        for ty in unsupported {
+            assert_eq!(lowered_type_for_type(&ty), None, "{ty:?}");
+            assert!(lowered_type_from_type(&ty).is_err(), "{ty:?}");
+        }
+        let facet = Type::ErrorFacet(Name::intern("Error"));
+        assert_eq!(lowered_type_for_type(&facet), None);
+        assert_eq!(lowered_type_from_type(&facet), Ok(LoweredType::Error));
+        assert_eq!(
+            lowered_type_from_type(&Type::Unknown),
+            Ok(LoweredType::Any)
+        );
     }
 }

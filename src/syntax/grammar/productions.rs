@@ -4,7 +4,7 @@
 use super::{
     BINARY_OPERATORS, BUILDER_APIS, BUILDER_STATEMENT_KEYWORDS, Class, EXPORTABLE_KEYWORDS, Item,
     OperatorFamily, OperatorToken, RUN_FORMS, Rule, RunOption, STATEMENT_KEYWORDS, STREAM_STAGES,
-    Section, SignalHookOption, StatementForm, StreamStage, Term, effect_names,
+    Section, SignalHookOption, StatementForm, StreamStage, Term, PostfixForm, NameStatementForm, effect_names,
 };
 use crate::syntax::node::CoreCommand;
 use crate::syntax::token::{Keyword, TokenTag};
@@ -49,6 +49,30 @@ fn class(class: Class) -> Item {
 
 fn gclass(class: Class) -> Item {
     Item::Term(term(class, true))
+}
+
+fn condition_body(comma_terminator: bool) -> Item {
+    Item::ConditionBody { comma_terminator }
+}
+
+fn postfix(command_argument: bool) -> Item {
+    alt(PostfixForm::ALL.map(|form| {
+        let tail = match form {
+            PostfixForm::Member | PostfixForm::SafeMember => vec![r("member_access")],
+            PostfixForm::Index | PostfixForm::SafeIndex => vec![r("index"), t(TokenTag::RBracket)],
+            PostfixForm::Call => vec![r("call_arguments"), t(TokenTag::RParen)],
+            PostfixForm::Propagation => Vec::new(),
+        };
+        seq(form.lead(command_argument).map(Item::Term).chain(tail))
+    }))
+}
+
+fn postfix_starts() -> Vec<Vec<Term>> {
+    PostfixForm::ALL.map(|form| {
+        let mut lead: Vec<Term> = form.lead(true).collect();
+        if matches!(form, PostfixForm::Member | PostfixForm::SafeMember) { lead.push(term(Class::Member, false)); }
+        lead
+    }).to_vec()
 }
 
 fn r(name: &'static str) -> Item {
@@ -256,10 +280,7 @@ fn stream_stages(context: ExpressionContext) -> Item {
             (true, true) => alt([
                 seq([r("block"), continued()]),
                 seq([
-                    not([
-                        vec![tag_term(TokenTag::LBrace)],
-                        vec![tag_term(TokenTag::LParen)],
-                    ]),
+                    no_block(),
                     r(context.rule("stage_expression")),
                 ]),
                 r("stage_end"),
@@ -360,15 +381,6 @@ fn keyword_forms(keywords: impl IntoIterator<Item = Keyword>) -> Vec<StatementFo
     forms
 }
 
-/// The words that continue a name as a conversion or a type test. After
-/// `exit` or `fail` they make the word a binding of that name, so neither
-/// statement takes a status or a message named `as` or `is`.
-fn conversion_or_test_leads() -> Vec<Vec<Term>> {
-    ["as", "is"]
-        .map(|word| vec![word_term(word, false)])
-        .to_vec()
-}
-
 fn postfix_guard_leads() -> Vec<Vec<Term>> {
     [Keyword::When, Keyword::Unless]
         .map(|guard| vec![keyword_term(guard)])
@@ -376,20 +388,13 @@ fn postfix_guard_leads() -> Vec<Vec<Term>> {
 }
 
 /// What begins a statement of its own where an expression statement could
-/// start: keyword statements, scope statements, and `process.command {`,
-/// which reads as a dotted command.
+/// start: keyword and declaration forms, and `process.command {`.
 fn expression_statement_stops() -> Vec<Vec<Term>> {
     use TokenTag as T;
     let mut leads: Vec<Vec<Term>> = STATEMENT_KEYWORDS
         .iter()
         .map(|(keyword, _)| vec![keyword_term(*keyword)])
         .collect();
-    leads.push(vec![
-        word_term(CoreCommand::Env.as_str(), false),
-        tag_term(T::LParen),
-    ]);
-    // Contextual words that begin declarations and commands.
-    leads.push(vec![word_term(CoreCommand::Cd.as_str(), false)]);
     leads.extend([
         vec![word_term("test", false), term(Class::Name, false)],
         vec![word_term("on", false), term(Class::Name, false)],
@@ -468,21 +473,19 @@ fn pattern_primary(payload: &'static str) -> Item {
         seq([
             w("is"),
             t(TokenTag::Ident),
-            opt(seq([t(TokenTag::Dot), t(TokenTag::Ident)])),
+            opt(seq(super::PATTERN_MEMBER.map(Item::Term))),
         ]),
         seq([
             class(Class::Name),
-            t(TokenTag::Dot),
-            t(TokenTag::Ident),
+            seq(super::PATTERN_MEMBER.map(Item::Term)),
             t(TokenTag::LParen),
             opt(r("pattern")),
             t(TokenTag::RParen),
         ]),
         seq([
             class(Class::Name),
-            t(TokenTag::Dot),
-            t(TokenTag::Ident),
-            opt(seq([t(TokenTag::Dot), t(TokenTag::Ident)])),
+            seq(super::PATTERN_MEMBER.map(Item::Term)),
+            opt(seq(super::PATTERN_MEMBER.map(Item::Term))),
             opt(r(payload)),
         ]),
         seq([
@@ -497,8 +500,7 @@ fn pattern_primary(payload: &'static str) -> Item {
         ]),
         // A variant of the matched value's enum or error family.
         seq([
-            t(TokenTag::Dot),
-            t(TokenTag::Ident),
+            seq(super::PATTERN_MEMBER.map(Item::Term)),
             t(TokenTag::LParen),
             opt(seq([
                 r("pattern"),
@@ -721,12 +723,12 @@ fn expression_rules(context: ExpressionContext) -> Vec<Rule> {
 pub(super) fn rules() -> Vec<super::Rule> {
     use Section::*;
     use TokenTag as T;
-    let ident = || t(T::Ident);
+    let ident = || t(super::BINDING_NAME);
     let name = || class(Class::Name);
     let label = || class(Class::Label);
     let member = || class(Class::Member);
     let sep = || r("separator");
-    let dot_dot = || seq([t(T::Dot), g(T::Dot)]);
+    let dot_dot = || seq(super::RANGE_MARKER.map(Item::Term));
     let ellipsis = || seq([t(T::Dot), g(T::Dot), g(T::Dot)]);
     let parens = |inner: Item| seq([t(T::LParen), inner, t(T::RParen)]);
     let typed = || seq([t(T::Colon), r("type_expr")]);
@@ -803,7 +805,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
         rule(
             Programs,
             "top_level_declaration",
-            alt([r("test_declaration"), r("cli_main")]),
+            alt([r("test_declaration"), r("cli_entry")]),
         ),
         // Keyword statements come from the parser's dispatch table.
         rule(
@@ -1100,11 +1102,13 @@ pub(super) fn rules() -> Vec<super::Rule> {
         ),
         rule(
             Declarations,
-            "cli_main",
+            "cli_entry",
             seq([
                 w("cli"),
-                w("main"),
-                star(ident()),
+                alt([
+                    seq([w("main"), star(ident())]),
+                    ident(),
+                ]),
                 signature(),
                 opt(r("effects")),
                 opt(returns()),
@@ -1247,12 +1251,11 @@ pub(super) fn rules() -> Vec<super::Rule> {
         rule(
             Statements,
             "exit_statement",
-            seq([
+            seq([Item::NameStatement(NameStatementForm::Command), seq([
                 w("exit"),
-                not(conversion_or_test_leads()),
                 line(r("expression")),
                 opt(r("postfix_guard")),
-            ]),
+            ])]),
         ),
         // `fail` is a contextual word: it begins the statement where a
         // command named `fail` would be read, with its message or
@@ -1260,15 +1263,14 @@ pub(super) fn rules() -> Vec<super::Rule> {
         rule(
             Statements,
             "fail_statement",
-            seq([
+            seq([Item::NameStatement(NameStatementForm::Command), seq([
                 w("fail"),
-                not(conversion_or_test_leads()),
                 line(seq([
                     r("expression"),
                     opt(seq([w("because"), r("expression")])),
                 ])),
                 opt(r("postfix_guard")),
-            ]),
+            ])]),
         ),
         // `until` directly after `wait` always begins this statement. Its
         // limit and intervals are durations as a `within` scope writes one,
@@ -1318,6 +1320,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
             "expression_statement",
             seq([
                 not(expression_statement_stops()),
+                Item::NameStatement(NameStatementForm::Expression),
                 r("expression"),
                 opt(t(T::Question)),
             ]),
@@ -1346,6 +1349,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     ]);
                     stops
                 }),
+                Item::NameStatement(NameStatementForm::Expression),
                 r("expression"),
                 r("postfix_guard"),
             ]),
@@ -1373,11 +1377,13 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([
                 kw(Keyword::If),
                 r("condition"),
+                condition_body(false),
                 block(),
                 star(seq([
                     kw(Keyword::Else),
                     kw(Keyword::If),
                     r("condition"),
+                    condition_body(false),
                     block(),
                 ])),
                 opt(seq([kw(Keyword::Else), block()])),
@@ -1405,7 +1411,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
         rule(
             Statements,
             "while_statement",
-            seq([kw(Keyword::While), r("condition"), block()]),
+            seq([kw(Keyword::While), r("condition"), condition_body(false), block()]),
         ),
         rule(
             Statements,
@@ -1417,6 +1423,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 r("binding_target"),
                 kw(Keyword::In),
                 r("condition_expression"),
+                condition_body(false),
                 block(),
             ]),
         ),
@@ -1471,6 +1478,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([
                 kw(Keyword::Match),
                 r("condition_expression"),
+                condition_body(false),
                 t(T::LBrace),
                 star(alt([sep(), seq([r("arm_head"), r("arm_body")])])),
                 // The catch-all `else` arm is the last arm.
@@ -1575,6 +1583,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([
                 kw(Keyword::With),
                 list(seq([ident(), t(T::Equals), r("condition_expression")])),
+                condition_body(true),
                 block(),
                 nl(),
                 kw(Keyword::Else),
@@ -1667,14 +1676,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
         rule(
             Expressions,
             "postfix",
-            alt([
-                seq([g(T::Dot), r("member_access")]),
-                seq([g(T::Question), g(T::Dot), r("member_access")]),
-                seq([g(T::LBracket), r("index"), t(T::RBracket)]),
-                seq([g(T::Question), g(T::LBracket), r("index"), t(T::RBracket)]),
-                seq([g(T::LParen), r("call_arguments"), t(T::RParen)]),
-                g(T::Question),
-            ]),
+            postfix(false),
         ),
         rule(
             Expressions,
@@ -1695,8 +1697,8 @@ pub(super) fn rules() -> Vec<super::Rule> {
             Expressions,
             "index",
             alt([
-                seq([dot_dot(), opt(r("expression"))]),
-                seq([r("expression"), opt(seq([dot_dot(), opt(r("expression"))]))]),
+                seq([dot_dot(), opt(r("expression_item"))]),
+                seq([r("expression_item"), opt(seq([dot_dot(), opt(r("expression_item"))]))]),
             ]),
         ),
         rule(Expressions, "call_arguments", list(r("argument"))),
@@ -1721,16 +1723,9 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 opt(seq([
                     t(T::Question),
                     Item::Peek(
-                        [
-                            T::Newline,
-                            T::Semicolon,
-                            T::Comma,
-                            T::RParen,
-                            T::RBracket,
-                            T::RBrace,
-                        ]
-                        .map(|tag| vec![tag_term(tag)])
-                        .to_vec(),
+                        super::TRAILING_TRY_END.into_iter()
+                            .filter(|tag| *tag != T::Eof)
+                            .map(|tag| vec![tag_term(tag)]).collect(),
                     ),
                 ])),
             ]),
@@ -1744,6 +1739,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 // `collect {` always begins a collect expression.
                 seq([
                     not([vec![word_term("collect", false), tag_term(T::LBrace)]]),
+                    Item::NotContextScope,
                     ident(),
                 ]),
                 r("collect_expression"),
@@ -1753,15 +1749,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 r("set_literal"),
                 r("set_comprehension"),
                 block(),
-                seq([t(T::LParen), nl(), r("expression_item"), nl(), t(T::RParen)]),
-                seq([
-                    t(T::LParen),
-                    nl(),
-                    r("run_form"),
-                    opt(t(T::Question)),
-                    nl(),
-                    t(T::RParen),
-                ]),
+                seq([t(T::LParen), Item::Group(Box::new(seq([nl(), r("expression_item"), nl()]))), t(T::RParen)]),
                 r("if_expression"),
                 r("match_expression"),
                 seq([kw(Keyword::Loop), block()]),
@@ -1772,7 +1760,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     kw(Keyword::Try),
                     r("run_form"),
                     not([vec![tag_term(T::Question)]]),
-                    alt([r("run_end"), Item::Peek(vec![vec![tag_term(T::RParen)]])]),
+                    r("run_end"),
                 ]),
                 r("retry_expression"),
                 // The `?` before a `|>` belongs to the run form.
@@ -1790,7 +1778,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     alt([
                         seq([
                             r("run_form"),
-                            alt([r("run_end"), Item::Peek(vec![vec![tag_term(T::RParen)]])]),
+                            r("run_end"),
                         ]),
                         r("operand"),
                     ]),
@@ -1800,7 +1788,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     not([vec![word_term("until", false)]]),
                     r("operand"),
                 ]),
-                seq([w("ctx"), line(r("condition_expression")), block()]),
+                seq([w("ctx"), line(r("condition_expression")), condition_body(false), block()]),
                 r("context_scope"),
                 r("tempdir_scope"),
                 r("within_scope"),
@@ -1972,11 +1960,13 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([
                 kw(Keyword::If),
                 r("condition"),
+                condition_body(false),
                 block(),
                 star(seq([
                     kw(Keyword::Else),
                     kw(Keyword::If),
                     r("condition"),
+                    condition_body(false),
                     block(),
                 ])),
                 kw(Keyword::Else),
@@ -1989,6 +1979,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([
                 kw(Keyword::Match),
                 r("condition_expression"),
+                condition_body(false),
                 t(T::LBrace),
                 star(alt([
                     sep(),
@@ -2155,6 +2146,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 w("tempdir"),
                 ident(),
                 opt(seq([w("at"), r("condition_expression")])),
+                condition_body(false),
                 t(T::LBrace),
                 star(sep()),
                 r("statements"),
@@ -2169,6 +2161,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([
                 kw(Keyword::With),
                 list1(seq([ident(), t(T::Equals), r("condition_expression")])),
+                condition_body(true),
                 block(),
             ]),
         ),
@@ -2348,7 +2341,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 t(T::RBracket),
             ]),
         ),
-        rule(Patterns, "list_rest", seq([dot_dot(), opt(name())])),
+        rule(Patterns, "list_rest", seq([dot_dot(), opt(ident())])),
         rule(
             Patterns,
             "record_pattern",
@@ -2483,46 +2476,42 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 seq([
                     core_word(CoreCommand::Cd),
                     not([vec![tag_term(T::Equals)]]),
+                    // An opening brace starts the directory block, not its path.
+                    not([vec![tag_term(T::LBrace)]]),
                     r("command_argument"),
                     block(),
                 ]),
                 seq([
                     core_word(CoreCommand::Env),
-                    line(plus(r("env_assignment"))),
+                    line(star(r("env_assignment"))),
                     block(),
                 ]),
                 // The words that begin a `tempdir NAME at PATH` scope or an
                 // `atomically replace` statement always begin one: the parser
                 // decides on them alone, so a command cannot start that way.
                 seq([
-                    not(CoreCommand::ALL
-                        .map(|command| vec![word_term(command.as_str(), false)])
-                        .into_iter()
-                        .chain([
-                            vec![
-                                word_term("tempdir", false),
-                                tag_term(T::Ident),
-                                word_term("at", false),
-                            ],
-                            vec![word_term("atomically", false), word_term("replace", false)],
-                            vec![word_term("exit", false)],
-                            vec![word_term("fail", false)],
-                        ])),
-                    name(),
-                    opt(seq([r("lead_argument"), star(r("command_argument"))])),
+                    not([
+                        vec![word_term("tempdir", false), tag_term(T::Ident), word_term("at", false)],
+                        vec![word_term("atomically", false), word_term("replace", false)],
+                        vec![word_term("exit", false)],
+                        vec![word_term("fail", false)],
+                    ]),
+                    Item::NameStatement(NameStatementForm::ProcCommand),
+                    seq([
+                        name(), star(seq(super::COMMAND_MEMBER.map(Item::Term))),
+                        not([vec![tag_term(T::Dot)], vec![tag_term(T::Equals)]]),
+                        opt(seq([r("command_argument"), star(r("command_argument"))])),
+                    ]),
                 ]),
-                // `exit` and `fail` begin their statements whenever anything
-                // follows them on the line, a postfix guard included, so a
-                // command of either name is the bare word.
+                // Bare contextual commands end at a statement terminator.
+                // A glued comma after `fail` does not start its message.
                 seq([
-                    alt([w("exit"), w("fail")]),
-                    not([vec![tag_term(T::Question)]]),
+                    w("exit"),
+                    Item::Peek([T::Newline, T::Semicolon, T::RBrace].map(|tag| vec![tag_term(tag)]).to_vec()),
                 ]),
                 seq([
-                    name(),
-                    plus(seq([g(T::Dot), gclass(Class::Name)])),
-                    r("dotted_lead_argument"),
-                    star(r("command_argument")),
+                    w("fail"),
+                    Item::Peek(vec![vec![tag_term(T::Newline)], vec![tag_term(T::Semicolon)], vec![tag_term(T::RBrace)], vec![glued_tag_term(T::Comma)]]),
                 ]),
             ]),
         ),
@@ -2531,58 +2520,20 @@ pub(super) fn rules() -> Vec<super::Rule> {
         rule(
             Commands,
             "print_statement",
-            seq([
+            seq([Item::NameStatement(NameStatementForm::Command), seq([
                 alt([
                     core_word(CoreCommand::Print),
                     core_word(CoreCommand::Eprint),
                 ]),
+                not([vec![tag_term(T::Equals)]]),
                 opt(seq([
                     not(postfix_guard_leads()),
-                    r("lead_argument"),
+                    r("command_argument"),
                     star(seq([not(postfix_guard_leads()), r("command_argument")])),
                 ])),
                 opt(t(T::Question)),
                 opt(r("postfix_guard")),
-            ]),
-        ),
-        rule(
-            Commands,
-            "lead_argument",
-            alt([
-                seq([
-                    not({
-                        let mut stops = operator_leads();
-                        stops.extend([vec![tag_term(T::Equals)], vec![tag_term(T::Dot)]]);
-                        stops
-                    }),
-                    r("command_argument"),
-                ]),
-                seq([
-                    t(T::Minus),
-                    not([vec![glued_tag_term(T::Equals)]]),
-                    plus(seq([g_word_part()])),
-                ]),
-            ]),
-        ),
-        rule(
-            Commands,
-            "dotted_lead_argument",
-            seq([
-                not({
-                    let mut stops = operator_leads();
-                    stops.retain(|lead| lead != &vec![keyword_term(Keyword::Not)]);
-                    stops.extend([
-                        vec![keyword_term(Keyword::Not), keyword_term(Keyword::In)],
-                        vec![tag_term(T::Equals)],
-                        vec![tag_term(T::Dot)],
-                    ]);
-                    // A dotted name before a postfix guard is an expression
-                    // statement.
-                    stops.extend(postfix_guard_leads());
-                    stops
-                }),
-                r("command_argument"),
-            ]),
+            ])]),
         ),
         rule(
             Commands,
@@ -2612,6 +2563,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                         t(T::FmtString),
                     ]),
                     star(r("glued_postfix")),
+                    not(postfix_starts()),
                 ]),
                 r("word"),
             ]),
@@ -2632,24 +2584,18 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     ]),
                 ]),
                 star(r("glued_postfix")),
+                not(postfix_starts()),
             ]),
         ),
         rule(
             Commands,
             "glued_postfix",
-            alt([
-                seq([g(T::Dot), r("member_access")]),
-                seq([g(T::Question), g(T::Dot), r("member_access")]),
-                seq([g(T::LBracket), r("index"), t(T::RBracket)]),
-                seq([g(T::Question), g(T::LBracket), r("index"), t(T::RBracket)]),
-                seq([g(T::LParen), r("call_arguments"), t(T::RParen)]),
-                g(T::Question),
-            ]),
+            postfix(true),
         ),
         rule(
             Commands,
             "word",
-            seq([
+            seq([Item::WordStart, seq([
                 alt([
                     seq([
                         not([
@@ -2660,19 +2606,24 @@ pub(super) fn rules() -> Vec<super::Rule> {
                             T::FmtString,
                         ]
                         .map(|tag| vec![tag_term(tag)])),
-                        class(Class::WordPart),
+                        class(Class::WordPart(false)),
                     ]),
                     t(T::String),
                     r("dollar_name"),
                     seq([t(T::DollarLBrace), r("expression"), t(T::RBrace)]),
                 ]),
                 star(alt([
-                    gclass(Class::WordPart),
+                    gclass(Class::WordPart(false)),
                     g(T::String),
                     seq([g(T::DollarIdent), star(r("dollar_suffix"))]),
                     seq([g(T::DollarLBrace), r("expression"), t(T::RBrace)]),
                 ])),
-            ]),
+                not([
+                    vec![term(Class::WordPart(false), true)],
+                    vec![glued_tag_term(T::String)], vec![glued_tag_term(T::DollarIdent)],
+                    vec![glued_tag_term(T::DollarLBrace)], vec![glued_tag_term(T::LParen)],
+                ]),
+            ])]),
         ),
         rule(
             Commands,
@@ -2707,7 +2658,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     T::PipeGt,
                 ]
                 .map(|tag| vec![tag_term(tag)])
-                .to_vec(),
+                .into_iter().chain([vec![term(Class::GroupedEnd(false), false)]]).collect(),
             ),
         ),
         rule(
@@ -2729,13 +2680,17 @@ pub(super) fn rules() -> Vec<super::Rule> {
                         word_term(option.name(), true),
                     ]
                 })),
+                // The parser reads a bare `--` as a malformed option, not a target.
+                not([vec![tag_term(T::Minus), glued_tag_term(T::Minus)]]),
                 star(r("env_assignment")),
                 alt([
                     seq([
                         t(T::LParen),
                         t(T::Newline),
                         r("command_argument"),
-                        star(alt([t(T::Newline), r("redirection"), r("run_argument")])),
+                        star(alt([t(T::Newline), r("redirection"), seq([
+                            not([vec![tag_term(T::RParen)]]), r("run_argument"),
+                        ])])),
                         t(T::RParen),
                     ]),
                     seq([
@@ -2801,19 +2756,15 @@ pub(super) fn rules() -> Vec<super::Rule> {
                         vec![glued_tag_term(T::LBracket)],
                     ]),
                     plus(r("glued_postfix")),
+                    not(postfix_starts()),
                 ]),
-                // `spawn`, `wait`, and `run` would read past the whitespace that
-                // ends the option.
+                // Scalar values have dedicated branches so they stop before
+                // the command target.
                 seq([
-                    not([T::Int, T::Duration, T::Ident]
-                        .map(|tag| vec![tag_term(tag)])
-                        .into_iter()
-                        .chain(
-                            [Keyword::Spawn, Keyword::Wait, Keyword::Run]
-                                .map(|keyword| vec![keyword_term(keyword)]),
-                        )),
+                    not([T::Int, T::Duration, T::Ident].map(|tag| vec![tag_term(tag)])),
                     r("primary"),
                     star(r("glued_postfix")),
+                    not(postfix_starts()),
                 ]),
             ]),
         ),
@@ -2821,7 +2772,9 @@ pub(super) fn rules() -> Vec<super::Rule> {
             Commands,
             "run_argument",
             seq([
+                        // A standalone `{` starts the command block instead of a word.
                 not([
+                    vec![tag_term(T::LBrace)],
                     vec![tag_term(T::Gt)],
                     vec![tag_term(T::GtGt)],
                     vec![tag_term(T::Lt)],
@@ -2865,17 +2818,4 @@ pub(super) fn rules() -> Vec<super::Rule> {
     rules.extend(expression_rules(ExpressionContext::Condition));
     rules.sort_by_key(|rule| rule.section);
     rules
-}
-
-fn g_word_part() -> Item {
-    alt([
-        gclass(Class::WordPart),
-        g(TokenTag::String),
-        seq([g(TokenTag::DollarIdent), star(r("dollar_suffix"))]),
-        seq([
-            g(TokenTag::DollarLBrace),
-            r("expression"),
-            t(TokenTag::RBrace),
-        ]),
-    ])
 }

@@ -27,6 +27,16 @@ fn assert_output_policy(policy: &OutputPolicy, actual: &str, script: &str) {
     }
 }
 
+fn lint_diagnostics(stderr: &str) -> &str {
+    regex_lite::Regex::new(
+        r"(?s)^(.*)xsht lint: [0-9]+ files? in [^\n]* \(thread time by stage: [^\n]*\n$",
+    )
+    .expect("valid lint timing-line regex")
+    .captures(stderr)
+    .and_then(|captures| captures.get(1))
+    .map_or(stderr, |diagnostics| diagnostics.as_str())
+}
+
 #[test]
 fn example_corpus_runs_with_expected_output() {
     for case in example_catalog().examples {
@@ -136,7 +146,7 @@ fn example_corpus_lints_without_warnings() {
 
     assert_ok(&output);
     assert_eq!(stdout_text(&output), "");
-    assert_eq!(stderr_text(&output), "");
+    assert_eq!(lint_diagnostics(&stderr_text(&output)), "");
 }
 
 #[test]

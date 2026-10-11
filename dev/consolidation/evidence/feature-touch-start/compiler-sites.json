@@ -1,0 +1,180 @@
+{
+  "schema": 1,
+  "locations": "line is the probe-base source line; probe_line is the compiler-input line. Macro errors are attributed to their concrete codec invocation once.",
+  "sites": [
+    {
+      "code": "E0004",
+      "message": "non-exhaustive patterns: `&BuildExprRow::FeatureTouchProbe { .. }` not covered",
+      "category": "indexed_schema",
+      "path": "src/runtime/eval/indexed/full.rs",
+      "line": 8097,
+      "probe_line": 8098,
+      "symbol": "BuildExprRow codec registration",
+      "diagnostic_primary": {
+        "path": "src/runtime/eval/indexed/full.rs",
+        "line": 6376
+      },
+      "macro_expansion": true
+    },
+    {
+      "code": "E0004",
+      "message": "non-exhaustive patterns: `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+      "category": "lowering",
+      "path": "src/runtime/eval/lower.rs",
+      "line": 2437,
+      "probe_line": 2437,
+      "symbol": "compact_expr_kind_index",
+      "diagnostic_primary": {
+        "path": "src/runtime/eval/lower.rs",
+        "line": 2437
+      },
+      "macro_expansion": false
+    },
+    {
+      "code": "E0004",
+      "message": "non-exhaustive patterns: `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+      "category": "lowering",
+      "path": "src/runtime/eval/lower.rs",
+      "line": 2503,
+      "probe_line": 2503,
+      "symbol": "compact_expr_kind_label",
+      "diagnostic_primary": {
+        "path": "src/runtime/eval/lower.rs",
+        "line": 2503
+      },
+      "macro_expansion": false
+    },
+    {
+      "code": "E0004",
+      "message": "non-exhaustive patterns: `&ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+      "category": "checking",
+      "path": "src/sema/check/expr.rs",
+      "line": 492,
+      "probe_line": 492,
+      "symbol": "check_expr_arena_inner",
+      "diagnostic_primary": {
+        "path": "src/sema/check/expr.rs",
+        "line": 492
+      },
+      "macro_expansion": false
+    },
+    {
+      "code": "E0004",
+      "message": "non-exhaustive patterns: `ArenaExprTag::FeatureTouchProbe` not covered",
+      "category": "arena_storage",
+      "path": "src/syntax/arena.rs",
+      "line": 4718,
+      "probe_line": 4718,
+      "symbol": "expr_kind",
+      "diagnostic_primary": {
+        "path": "src/syntax/arena.rs",
+        "line": 4718
+      },
+      "macro_expansion": false
+    },
+    {
+      "code": "E0004",
+      "message": "non-exhaustive patterns: `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+      "category": "arena_storage",
+      "path": "src/syntax/arena.rs",
+      "line": 7892,
+      "probe_line": 7896,
+      "symbol": "encode_expr_kind",
+      "diagnostic_primary": {
+        "path": "src/syntax/arena.rs",
+        "line": 7896
+      },
+      "macro_expansion": false
+    },
+    {
+      "code": "E0004",
+      "message": "non-exhaustive patterns: `&ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+      "category": "tooling",
+      "path": "crates/xsht/src/format_equivalence.rs",
+      "line": 806,
+      "probe_line": 806,
+      "symbol": "expr",
+      "macro_expansion": false
+    },
+    {
+      "code": "E0004",
+      "message": "non-exhaustive patterns: `&ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+      "category": "tooling",
+      "path": "crates/xsht/src/format.rs",
+      "line": 2836,
+      "probe_line": 2836,
+      "symbol": "write_expr_contents",
+      "macro_expansion": false
+    },
+    {
+      "code": "E0004",
+      "message": "non-exhaustive patterns: `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+      "category": "tooling",
+      "path": "crates/xsht/src/lint.rs",
+      "line": 11816,
+      "probe_line": 11816,
+      "symbol": "expr_child_exprs",
+      "macro_expansion": false
+    },
+    {
+      "code": "E0004",
+      "message": "non-exhaustive patterns: `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+      "category": "tooling",
+      "path": "crates/xsht/src/lint.rs",
+      "line": 12349,
+      "probe_line": 12349,
+      "symbol": "expr_references_name",
+      "macro_expansion": false
+    },
+    {
+      "code": "E0004",
+      "message": "non-exhaustive patterns: `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+      "category": "tooling",
+      "path": "crates/xsht/src/lint.rs",
+      "line": 12915,
+      "probe_line": 12915,
+      "symbol": "walk_expr",
+      "macro_expansion": false
+    },
+    {
+      "code": "E0004",
+      "message": "non-exhaustive patterns: `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+      "category": "tooling",
+      "path": "crates/xsht/src/lint.rs",
+      "line": 13830,
+      "probe_line": 13830,
+      "symbol": "is_safe_const_expr",
+      "macro_expansion": false
+    },
+    {
+      "code": "E0004",
+      "message": "non-exhaustive patterns: `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+      "category": "tooling",
+      "path": "crates/xsht/src/lint.rs",
+      "line": 13907,
+      "probe_line": 13907,
+      "symbol": "expr_may_have_effects",
+      "macro_expansion": false
+    },
+    {
+      "code": "E0004",
+      "message": "non-exhaustive patterns: `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+      "category": "tooling",
+      "path": "crates/xsht/src/lint.rs",
+      "line": 14616,
+      "probe_line": 14616,
+      "symbol": "scan_expr",
+      "macro_expansion": false
+    },
+    {
+      "code": "E0004",
+      "message": "non-exhaustive patterns: `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+      "category": "tooling",
+      "path": "crates/xsht/src/lint.rs",
+      "line": 15382,
+      "probe_line": 15382,
+      "symbol": "expr_flow",
+      "macro_expansion": false
+    }
+  ]
+}

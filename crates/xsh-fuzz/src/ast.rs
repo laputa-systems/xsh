@@ -930,6 +930,23 @@ impl Printer<'_> {
         parts.join(", ")
     }
 
+    /// Str.replace's second argument keeps the API's required `with` label.
+    fn method_args_text(&self, method: &str, args: &[Expr]) -> String {
+        let parts: Vec<String> = args
+            .iter()
+            .enumerate()
+            .map(|(index, arg)| {
+                let value = self.expr_text(arg, 0);
+                if index == 1 && method == "replace" {
+                    format!("with: {value}")
+                } else {
+                    value
+                }
+            })
+            .collect();
+        parts.join(", ")
+    }
+
     /// Prints `expr` for a context that binds at least `min` tightly.
     fn expr_text(&self, expr: &Expr, min: u8) -> String {
         let text = self.expr_raw(expr);
@@ -1055,14 +1072,14 @@ impl Printer<'_> {
                 format!(
                     "{}.{name}({})",
                     self.expr_text(recv, PREC_POSTFIX),
-                    self.args_text(args)
+                    self.method_args_text(name, args)
                 )
             }
             Expr::OptMethod { recv, name, args } => {
                 format!(
                     "{}?.{name}({})",
                     self.expr_text(recv, PREC_POSTFIX),
-                    self.args_text(args)
+                    self.method_args_text(name, args)
                 )
             }
             Expr::List(elems) => {

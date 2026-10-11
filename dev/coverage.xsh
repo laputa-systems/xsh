@@ -3,6 +3,7 @@ use context
 use docker
 use stage as stages
 use targets
+use test_workflows as tests
 
 ## Concrete coverage execution backend.
 export enum CoverageBackend { NativeBackend, DockerBackend }
@@ -30,21 +31,6 @@ export pure parse_request(value: Str) -> Result[CoverageRequest, Error] {
   }
 }
 
-## Selects the automatic coverage backend from the preserved Alpine Linux contract.
-export pure automatic_backend_for(
-  ctx: context.Context,
-  alpine_linux: Bool,
-  cargo_available: Bool,
-  linker_available: Bool,
-) -> CoverageBackend {
-  let native_host = ctx.host_os == .Linux and ctx.host_arch == .X86_64
-  let prerequisites = alpine_linux and cargo_available and linker_available
-
-  return NativeBackend when native_host and prerequisites
-
-  DockerBackend
-}
-
 ## Renders a backend only at the test and display boundary.
 export pure backend_name(backend: CoverageBackend) -> Str {
   match backend {
@@ -64,37 +50,10 @@ export pure docker_target_triple(host_arch: targets.HostArch, selected: Str) -> 
   "x86_64-unknown-linux-musl"
 }
 
-## Selects the automatic coverage backend from the preserved Alpine Linux contract.
-export proc automatic_backend(ctx: context.Context) [fs, process, error] -> Result[CoverageBackend, Error] {
-  let alpine_linux = p"/etc/alpine-release".exists()?
-  let cargo_available = process.which("cargo") is Ok(_)
-  var linker_available = false
-
-  for name in ["cc", "clang", "gcc"] {
-    if ! linker_available {
-      match process.which(name) {
-        Ok(_) => linker_available = true
-        Err(_) => {}
-      }
-    }
-  }
-
-  automatic_backend_for(ctx, alpine_linux, cargo_available, linker_available)
-}
-
-## Resolves the native linker without hiding an unavailable tool.
-export proc native_linker() [process, env, error] -> Result[Path, Error] {
-  let configured = env.get_or("COV_NATIVE_LINKER", "")?.trim()
-
-  return fp"{configured}" when configured != ""
-
-  for name in ["cc", "clang", "gcc"] {
-    if let Ok(found) = process.which(name) {
-      return found
-    }
-  }
-
-  Err(stages.StageError.MissingTool(tool: "cc, clang, or gcc"))
+## Automatic coverage enters the pinned image; callers already inside it can
+## explicitly select the native backend.
+export pure automatic_backend() -> CoverageBackend {
+  DockerBackend
 }
 
 ## Runs the retained native combined Rust LLVM and XSH API coverage program.
@@ -108,7 +67,22 @@ export proc native_coverage(ctx: context.Context) [fs, process, env, error, io] 
   } else {
     configured_bin
   }
-  let linker = native_linker()?
+  let flags = tests.cargo_environment(ctx)?
+  let environment: Record = match ctx.target.triple {
+    "x86_64-unknown-linux-musl" => {
+      XSH_COV_CARGO_BIN: cargo_bin,
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: flags.get(
+        "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS",
+      )?.require(Str)?,
+    }
+    "aarch64-unknown-linux-musl" => {
+      XSH_COV_CARGO_BIN: cargo_bin,
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: flags.get(
+        "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS",
+      )?.require(Str)?,
+    }
+    else => { return Err(targets.TargetError.Unsupported(target: ctx.target.triple)) }
+  }
   stages.execute(
     stages.command(
       "coverage-native",
@@ -125,11 +99,7 @@ export proc native_coverage(ctx: context.Context) [fs, process, env, error, io] 
         "tools/cov-linux.xsh",
       ],
       ctx.root,
-      {
-        XSH_COV_CARGO_BIN: cargo_bin,
-        CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: linker.display(),
-        CC_x86_64_unknown_linux_musl: linker.display(),
-      },
+      environment,
     ),
   )
 }
@@ -139,10 +109,14 @@ export proc docker_backend(ctx: context.Context) [fs, process, env, error, io] -
   stages.ensure_dir(ctx.coverage_dir)
   let image = docker.ensure_image(ctx)?
   let identity = unix.id()?
+  let cargo_environment = docker.cargo_environment_argv(ctx)?
   let argv = [
     "docker",
     "run",
     "--rm",
+    "--init",
+    "--platform",
+    docker.platform(ctx)?,
     "--privileged",
     "-v",
     f"{ctx.root}:/work",
@@ -157,9 +131,12 @@ export proc docker_backend(ctx: context.Context) [fs, process, env, error, io] -
     "-e",
     "CARGO_TARGET_DIR=/work/target",
     "-e",
+    f"DIST_PROFILE={tests.profile_name(tests.execution_profile()?)}",
+    "-e",
     f"HOST_UID={identity.uid}",
     "-e",
     f"HOST_GID={identity.gid}",
+    @cargo_environment,
     image,
     "cargo",
     "run",
@@ -192,7 +169,7 @@ export proc coverage(
   request: CoverageRequest,
 ) [fs, process, env, error, io] -> Result[Unit, Error] {
   let backend = match request {
-    Automatic => automatic_backend(ctx)?,
+    Automatic => automatic_backend(),
     NativeRequest => NativeBackend,
     DockerRequest => DockerBackend,
   }

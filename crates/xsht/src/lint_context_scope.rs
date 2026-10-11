@@ -1,5 +1,5 @@
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
-use xsh::frontend::check::{Checker, Type};
+use xsh::frontend::check::Type;
 use xsh::frontend::source::Span;
 use xsh::frontend::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaCommand, ArenaCommandArg,
@@ -7,7 +7,6 @@ use xsh::frontend::syntax::arena::{
     StmtId,
 };
 use xsh::frontend::syntax::node::{AssignOp, CoreCommand, RunKind};
-use xsh::frontend::syntax::parser::Parser;
 
 /// A single propagated text capture may become the scope tail only when nothing
 /// can observe the placeholder before restoration. Keep its mutable binding and
@@ -153,11 +152,16 @@ pub(super) fn lint_command_scope_scaffolds(linter: &mut super::Linter<'_>, state
         let replacement = format!("{prefix}cd ({input}) {{ {run} }}?{suffix}");
         let mut candidate = linter.source.to_owned();
         candidate.replace_range(edit.range(), &replacement);
-        let parsed = Parser::parse_source_arena_only(edit.source_id, &candidate);
-        if !parsed.diagnostics.is_empty()
-            || !Checker::check_arena(&parsed.arena, &candidate)
-                .diagnostics
-                .is_empty()
+        let snapshot = super::probes::LintProbeTransport::standalone(
+            edit.source_id,
+            &candidate,
+            xsh::frontend::check::CheckOptions::default(),
+        );
+        if !snapshot.parse_diagnostics.is_empty()
+            || !snapshot
+                .checked
+                .as_ref()
+                .is_some_and(|checked| checked.diagnostics.is_empty())
         {
             continue;
         }

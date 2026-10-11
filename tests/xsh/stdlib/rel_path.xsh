@@ -214,7 +214,6 @@ pure prefix_failure(whole: Path, prefix: Path) -> Str {
 test test_fs_root_takes_a_rel_path { |ctx|
   let dir = test.temp_dir(ctx, name: "rel-path-root")?
   let root = fs.open_root(dir)?
-  defer root.close()
   let entry = Entry("etc/app/config", 0o600)
   root.mkdir(entry.rel.parent(), parents: true)
   root.write(entry.rel, "key = 1\n")
@@ -456,7 +455,10 @@ pure size(paths: List[Path]) -> Result[Int] {
 show(rel_items())
 let rels: List[RelPath] = ["a", "b"]
 let dynamic: Pure = size
-print ${dynamic.call(rels)?.require(Int)?}
+match dynamic.call(rels) {
+  Ok(value) => print ${value.require(Int)?}
+  Err(error) => Err(error)?
+}
 """,
     status: 0,
   )?

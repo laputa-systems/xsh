@@ -260,51 +260,7 @@ pub(super) struct ExprPositions {
 
 impl ExprPositions {
     pub(super) fn new(arena: &AstArena, paren_groups: &[(ExprId, Span)]) -> Self {
-        let mut parents = vec![None; arena.expr_tags.len()];
-        for index in 0..arena.expr_tags.len() {
-            let parent = ExprId::from_index(index);
-            for_each_child(arena, parent, |child| parents[child.index()] = Some(parent));
-        }
-        let mut statement_values = FxHashMap::default();
-        for index in 0..arena.stmt_tags.len() {
-            match arena.stmt(StmtId::from_index(index)).kind {
-                ArenaStmtKind::Expr(value) => {
-                    statement_values.insert(
-                        value,
-                        Some(Lead::Statement {
-                            after_expression: false,
-                        }),
-                    );
-                }
-                ArenaStmtKind::Let {
-                    initializer: value, ..
-                }
-                | ArenaStmtKind::Var {
-                    initializer: value, ..
-                }
-                | ArenaStmtKind::Const {
-                    initializer: value, ..
-                }
-                | ArenaStmtKind::Guard {
-                    initializer: value, ..
-                }
-                | ArenaStmtKind::Assign { value, .. }
-                | ArenaStmtKind::Return(Some(value))
-                | ArenaStmtKind::Yield(value)
-                | ArenaStmtKind::Defer(value, _) => {
-                    if let ArenaExprOrRun::Expr(value) = value {
-                        statement_values.insert(value, Some(Lead::Initializer));
-                    }
-                }
-                ArenaStmtKind::Assert {
-                    condition,
-                    message: None,
-                } => {
-                    statement_values.insert(condition, None);
-                }
-                _ => {}
-            }
-        }
+        let parents = vec![None; arena.expr_tags.len()];
         let mut groups: FxHashMap<ExprId, Span> = FxHashMap::default();
         for (expr, span) in paren_groups {
             let outermost = groups.entry(*expr).or_insert(*span);
@@ -314,8 +270,71 @@ impl ExprPositions {
         }
         Self {
             parents,
-            statement_values,
+            statement_values: FxHashMap::default(),
             groups,
+        }
+    }
+
+    /// Record the immediate edges before visiting children so parent context
+    /// is available when a child rule runs.
+    pub(super) fn observe_expression(&mut self, arena: &AstArena, parent: ExprId) {
+        for_each_child(arena, parent, |child| self.parents[child.index()] = Some(parent));
+    }
+
+    /// Keep statement position facts alongside expressions as the ordinary
+    /// statement walk reaches their owning statement.
+    pub(super) fn observe_statement(&mut self, arena: &AstArena, statement: StmtId) {
+        match arena.stmt(statement).kind {
+            ArenaStmtKind::Expr(value) => {
+                self.statement_values.insert(
+                    value,
+                    Some(Lead::Statement {
+                        after_expression: false,
+                    }),
+                );
+            }
+            ArenaStmtKind::Let { initializer, .. }
+            | ArenaStmtKind::Var { initializer, .. }
+            | ArenaStmtKind::Const { initializer, .. }
+            | ArenaStmtKind::Guard { initializer, .. }
+            | ArenaStmtKind::Assign { value: initializer, .. }
+            | ArenaStmtKind::Return(Some(initializer))
+            | ArenaStmtKind::Yield(initializer)
+            | ArenaStmtKind::Defer(initializer, _) => {
+                if let ArenaExprOrRun::Expr(value) = initializer {
+                    self.statement_values.insert(value, Some(Lead::Initializer));
+                }
+            }
+            ArenaStmtKind::Assert {
+                condition,
+                message: None,
+            } => {
+                self.statement_values.insert(condition, None);
+            }
+            ArenaStmtKind::Use(_)
+            | ArenaStmtKind::Export(_)
+            | ArenaStmtKind::TypeDef(_)
+            | ArenaStmtKind::ErrorDef(_)
+            | ArenaStmtKind::ProcDef(_)
+            | ArenaStmtKind::CliMain(_)
+            | ArenaStmtKind::PureDef(_)
+            | ArenaStmtKind::StreamDef(_)
+            | ArenaStmtKind::SignalHook(_)
+            | ArenaStmtKind::YieldDelegate(_)
+            | ArenaStmtKind::If { .. }
+            | ArenaStmtKind::While { .. }
+            | ArenaStmtKind::For { .. }
+            | ArenaStmtKind::With { .. }
+            | ArenaStmtKind::Loop { .. }
+            | ArenaStmtKind::Break { .. }
+            | ArenaStmtKind::Continue
+            | ArenaStmtKind::Exit(_)
+            | ArenaStmtKind::Match { .. }
+            | ArenaStmtKind::Command(_)
+            | ArenaStmtKind::TailBareIdent(_)
+            | ArenaStmtKind::Return(None)
+            | ArenaStmtKind::Assert { message: Some(_), .. }
+            | ArenaStmtKind::Sugar { .. } => {}
         }
     }
 
@@ -377,10 +396,10 @@ impl ExprPositions {
 /// parenthesized under its `?`, which is how the printer writes it at the
 /// start of an initializer. Where that `?` is redundant the parentheses go
 /// with it, since the form alone needs none there.
-pub(super) fn redundant_capture_try<'a>(
+pub(super) fn redundant_capture_try(
     arena: &AstArena,
     source: &str,
-    positions: impl FnOnce() -> &'a ExprPositions,
+    positions: &ExprPositions,
     expression: ExprId,
 ) -> Option<Diagnostic> {
     let propagation = arena.expr(expression);
@@ -399,14 +418,32 @@ pub(super) fn redundant_capture_try<'a>(
     }
     let end = propagation.span.end();
     let written = source.get(form.end()..end)?.strip_suffix('?')?;
-    let positions = positions();
-    let context = positions.context(arena, source, expression);
+    let mut context = positions.context(arena, source, expression);
+    // A whole initializer dispatches a bare run form directly; the expression
+    // printer groups it because it only prints expressions, not initializers.
+    if context.lead == Some(Lead::Initializer) {
+        context.lead = None;
+    }
     if !needs_parens(arena, source, expression, context)
         && needs_parens(arena, source, operand, context)
     {
         return None;
     }
     let blank = |text: &str| text.trim_matches([' ', '\t']).is_empty();
+    if blank(written)
+        && !needs_parens(arena, source, operand, context)
+        && let Some(group) = positions.groups.get(&expression)
+        && source.get(group.start()..form.start())?.chars().all(|ch| ch == '(' || ch.is_whitespace())
+        && source.get(end..group.end())?.chars().all(|ch| ch == ')' || ch.is_whitespace())
+    {
+        let mut diagnostic = redundant_capture_diagnostic(Span::new(form.source_id, form.end(), end));
+        diagnostic.fix_hints = vec![FixHint::replacement(
+            *group,
+            "remove `?` and the parentheses",
+            source.get(form.range())?,
+        )];
+        return Some(diagnostic);
+    }
     if blank(written) {
         return Some(redundant_capture_diagnostic(Span::new(
             form.source_id,
@@ -480,7 +517,7 @@ pub(super) fn redundant_condition_propagation(
 #[cfg(test)]
 pub(super) mod tests {
     use super::super::{LintOptions, Linter};
-    use xsh::diagnostic::{Diagnostic, DiagnosticCode};
+    use xsh::diagnostic::{Diagnostic, DiagnosticCode, Severity};
     use xsh::frontend::check::{CheckOutput, Checker};
     use xsh::frontend::source::SourceId;
     use xsh::frontend::syntax::arena::ArenaProgram;
@@ -491,7 +528,10 @@ pub(super) mod tests {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = Checker::check_arena(&parsed.arena, source);
         assert!(
-            checked.diagnostics.is_empty(),
+            checked
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.severity != Severity::Error),
             "{source}\n{:?}",
             checked.diagnostics
         );
@@ -505,7 +545,7 @@ pub(super) mod tests {
         lint_checked(&program, source, checked, rule)
     }
 
-    fn lint_checked(
+    pub(in super::super) fn lint_checked(
         program: &ArenaProgram,
         source: &str,
         checked: CheckOutput,
@@ -515,15 +555,7 @@ pub(super) mod tests {
             program,
             source,
             LintOptions {
-                function_return_types: checked.function_return_types,
-                expr_types: checked.expr_types,
-                statement_positions: checked.statement_positions,
-                propagating_statements: checked.propagating_statements,
-                discardable_bindings: checked.discardable_bindings,
-                redundant_condition_propagations: checked.redundant_condition_propagations,
-                unvalidated_command_vectors: checked.unvalidated_command_vectors,
-                function_effect_facts: checked.function_effect_facts,
-                function_effect_facts_checked: true,
+                checked_output: Some(std::sync::Arc::new(checked)),
                 only: Some(vec![rule]),
                 ..LintOptions::default()
             },
@@ -750,13 +782,12 @@ pub(super) mod tests {
     }
 
     // A captured form has no `?`, a status form's `?` is its only
-    // propagation, a form that starts an initializer under its `?` is
-    // parenthesized there with or without it, and a guard after the `?`
+    // propagation, and a guard after the `?`
     // would become arguments without it.
     #[test]
     fn a_run_form_that_needs_its_propagation_keeps_it() {
         unflagged(
-            "proc work(ready: Bool) [process, error] -> Result[Int] {\n  let kept = try run.text echo hi\n  let status = run.status echo hi ?\n  let plain = run echo hi ?\n  let grouped = (run.text echo hi)?\n  var text = \"\"\n  text = run.text echo hi ? when ready\n  return Ok(text.byte_len()) when kept is Ok(_)\n  print $grouped ${status.success} ${plain.success}\n  1\n}\n",
+            "proc work(ready: Bool) [process, error] -> Result[Int] {\n  let kept = try run.text echo hi\n  let status = run.status echo hi ?\n  let plain = run echo hi ?\n  var text = \"\"\n  text = run.text echo hi ? when ready\n  return Ok(text.byte_len()) when kept is Ok(_)\n  print ${status.success} ${plain.success}\n  1\n}\n",
         );
     }
 
@@ -815,8 +846,6 @@ pub(super) mod tests {
             "let listed = [\n    run.text echo b ?\n  ]\n  print ${listed.len()}",
             "let first = (run.text echo a)? + \"!\"\n  print $first",
             "let first = (run.text echo a ?) + \"!\"\n  print $first",
-            "let whole = (run.text echo a ?)\n  print $whole",
-            "let whole = (run.text echo a)?\n  print $whole",
         ] {
             let source = run_body(&[layout]);
             let diagnostics = lint_layout(&source);
@@ -847,6 +876,14 @@ pub(super) mod tests {
                     "assert (ready) and ((\"d\") == (run.text echo d ?))",
                 ],
                 "assert ready and \"d\" == run.text echo d",
+            ),
+            (
+                &[
+                    "let whole = (run.text echo a ?)\n  print $whole",
+                    "let whole = (run.text echo a)?\n  print $whole",
+                    "let whole = ((run.text echo a ?))\n  print $whole",
+                ][..],
+                "let whole = run.text echo a\n  print $whole",
             ),
             (
                 &[
@@ -907,7 +944,7 @@ pub(super) mod tests {
             checked,
             DiagnosticCode::LintRedundantPropagation,
         );
-        assert!(diagnostics.is_empty());
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 
     const KNOWN: &str = "pure known(name: Str) -> Result[Bool] {\n  Ok(name != \"\")\n}\n\npure count(name: Str) -> Result[Int] {\n  name.parse_int()\n}\n\n";

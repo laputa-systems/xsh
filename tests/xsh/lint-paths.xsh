@@ -75,7 +75,7 @@ test test_redundant_type_driven_roundtrips_are_fixed { |ctx|
   let file = fp"{dir}/roundtrips.xsh"
   let source = r"""type Row = {name: Str}
 
-proc main(root: Path, name: Str, row: Row, count: Int, ratio: Float) [error] {
+proc work(root: Path, name: Str, row: Row, count: Int, ratio: Float) [error] {
   let parsed_literal = Path("tmp/out")
   let parsed_fmt = Path(f"{root}/{name}")
   let constructed_fmt = Path(f"{root}/{name}")

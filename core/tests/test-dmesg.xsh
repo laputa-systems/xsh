@@ -29,6 +29,9 @@ test test_dmesg_notime_removes_only_a_leading_kernel_timestamp {
 # The linux fake always permits the read, so this runs against the real host
 # and is only meaningful where an unprivileged reader is denied the buffer.
 test test_dmesg_reports_a_denied_kernel_buffer_as_a_diagnostic { |ctx|
+  if 34 in linux.privileges()?.effective {
+    test.skip("CAP_SYSLOG permits reading the kernel buffer")
+  }
   let output = test.run_script(ctx, fp"{ctx.core_dir}/dmesg.xsh".read_text()?, [], {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "dmesg")?
   if output.success { test.skip("the host permits reading the kernel buffer") }
   assert output.status == 1, output.stderr

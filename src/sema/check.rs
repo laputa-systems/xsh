@@ -7,8 +7,9 @@ use crate::runtime::signal::{normalize_hook_signal, signal_rejection_message};
 pub(crate) use crate::sema::records::standard_record_type;
 pub(crate) use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
 pub(crate) use crate::source::Span;
+use crate::source::{SourceId, SourceMap};
 pub(crate) use crate::symbol::{Name, QualifiedName};
-use crate::syntax::arena::{ArenaProgram, ArenaStmtKind, TypeExprId};
+use crate::syntax::arena::{ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaRange, ArenaStmtKind, ArenaUserModule, StmtId, TypeExprId};
 pub(crate) use crate::syntax::node::{BinaryOp, CoreCommand, Effect, RunKind, UnaryOp};
 
 use callable_alias::CallableAlias;
@@ -16,6 +17,212 @@ pub use callable_alias::StaticCallableAlias;
 pub(crate) use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+
+/// Borrowed reachable scopes keep preparation on the original stable arena IDs.
+pub struct CheckBundleView<'a> {
+    pub(super) program: &'a ArenaProgram,
+    pub(super) sources: Option<&'a SourceMap>,
+    pub(super) modules: Vec<&'a ArenaUserModule>,
+    pub(super) root_statements: ArenaRange,
+    source_ids: FxHashSet<SourceId>,
+    all_sources: bool,
+}
+
+impl<'a> CheckBundleView<'a> {
+    pub(super) fn new(
+        program: &'a ArenaProgram,
+        sources: Option<&'a SourceMap>,
+        entry_source_id: Option<SourceId>,
+    ) -> Self {
+        Self::for_root(program, program.statements, sources, entry_source_id)
+    }
+
+    /// Select an entry range and its resolved dependency closure from one immutable arena.
+    pub fn for_root(
+        program: &'a ArenaProgram,
+        root_statements: ArenaRange,
+        sources: Option<&'a SourceMap>,
+        entry_source_id: Option<SourceId>,
+    ) -> Self {
+        let mut reachable = FxHashSet::<Arc<str>>::default();
+        let mut pending = Vec::new();
+        Self::enqueue_imports(
+            program,
+            program.arena.stmt_ids(root_statements),
+            &mut reachable,
+            &mut pending,
+        );
+        while let Some(key) = pending.pop() {
+            if let Some(module) = program
+                .modules
+                .iter()
+                .find(|module| !module.internal && module.key == key.as_ref())
+            {
+                Self::enqueue_imports(
+                    program,
+                    program.module_statements(module),
+                    &mut reachable,
+                    &mut pending,
+                );
+            }
+        }
+        let mut modules = Vec::new();
+        let mut visited = FxHashSet::default();
+        for module in program.modules.iter().filter(|module| module.internal) {
+            if module.statements != root_statements {
+                modules.push(module);
+            }
+        }
+        let mut roots = Vec::new();
+        let mut root_imports = FxHashSet::default();
+        Self::enqueue_imports(
+            program,
+            program.arena.stmt_ids(root_statements),
+            &mut root_imports,
+            &mut roots,
+        );
+        roots.sort_unstable();
+        for key in roots {
+            Self::order_module(
+                program,
+                &key,
+                &reachable,
+                root_statements,
+                &mut visited,
+                &mut modules,
+            );
+        }
+        let source_ids = entry_source_id.into_iter()
+            .chain(program.module_doc_for(root_statements).map(|span| span.source_id))
+            .chain(program.arena.stmt_ids(root_statements).map(|id| program.arena.stmt(id).span.source_id))
+            .chain(modules.iter().flat_map(|module| program.module_statements(module)
+                .map(|id| program.arena.stmt(id).span.source_id)))
+            .chain(modules.iter().filter_map(|module| program.module_doc_for(module.statements)
+                .map(|span| span.source_id)))
+            .collect();
+        Self {
+            program,
+            sources,
+            modules,
+            root_statements,
+            source_ids,
+            all_sources: false,
+        }
+    }
+
+    /// Select one source range for linting against checked facts from its entry.
+    pub fn for_module(
+        program: &'a ArenaProgram,
+        root_statements: ArenaRange,
+        sources: Option<&'a SourceMap>,
+        entry_source_id: Option<SourceId>,
+    ) -> Self {
+        let source_ids = entry_source_id
+            .into_iter()
+            .chain(program.module_doc_for(root_statements).map(|span| span.source_id))
+            .chain(program.arena.stmt_ids(root_statements).map(|id| program.arena.stmt(id).span.source_id))
+            .collect();
+        Self {
+            program,
+            sources,
+            modules: Vec::new(),
+            root_statements,
+            source_ids,
+            all_sources: false,
+        }
+    }
+
+    pub(super) fn whole_program(program: &'a ArenaProgram) -> Self {
+        Self {
+            program,
+            sources: None,
+            modules: program.modules.iter().collect(),
+            root_statements: program.statements,
+            source_ids: FxHashSet::default(),
+            all_sources: true,
+        }
+    }
+
+    fn order_module(
+        program: &'a ArenaProgram,
+        key: &str,
+        reachable: &FxHashSet<Arc<str>>,
+        root_statements: ArenaRange,
+        visited: &mut FxHashSet<Arc<str>>,
+        ordered: &mut Vec<&'a ArenaUserModule>,
+    ) {
+        let Some(module) = program.modules.iter().find(|module| {
+            !module.internal && module.key == key && module.statements != root_statements
+        }) else {
+            return;
+        };
+        let module_key: Arc<str> = Arc::from(module.key.as_str());
+        if !reachable.contains(&module_key) || !visited.insert(module_key) {
+            return;
+        }
+        let mut dependencies = Vec::new();
+        Self::enqueue_imports(
+            program,
+            program.module_statements(module),
+            &mut FxHashSet::default(),
+            &mut dependencies,
+        );
+        dependencies.sort_unstable();
+        for dependency in dependencies {
+            Self::order_module(
+                program,
+                &dependency,
+                reachable,
+                root_statements,
+                visited,
+                ordered,
+            );
+        }
+        ordered.push(module);
+    }
+
+    fn enqueue_imports(
+        program: &ArenaProgram,
+        statements: impl IntoIterator<Item = StmtId>,
+        reachable: &mut FxHashSet<Arc<str>>,
+        pending: &mut Vec<Arc<str>>,
+    ) {
+        for statement in statements {
+            let ArenaStmtKind::Use(use_id) = program.arena.stmt(statement).kind else {
+                continue;
+            };
+            if let Some(key) = program.arena.use_stmt(use_id).resolved.as_ref()
+                && reachable.insert(key.clone())
+            {
+                pending.push(key.clone());
+            }
+        }
+    }
+
+    pub(super) fn contains_source(&self, source_id: SourceId) -> bool {
+        self.all_sources || self.source_ids.contains(&source_id)
+    }
+
+    /// Return the immutable arena that owns every statement and module ID in this view.
+    pub fn program(&self) -> &'a ArenaProgram {
+        self.program
+    }
+
+    /// Return the entry statement range selected by this view.
+    pub fn root_statements(&self) -> ArenaRange {
+        self.root_statements
+    }
+
+    /// Iterate the entry's top-level statements.
+    pub fn statement_ids(&self) -> impl Iterator<Item = StmtId> + '_ {
+        self.program.arena.stmt_ids(self.root_statements)
+    }
+
+    /// Iterate reachable user modules in dependency order and embedded modules.
+    pub fn modules(&self) -> impl Iterator<Item = &'a ArenaUserModule> + '_ {
+        self.modules.iter().copied()
+    }
+}
 
 #[path = "check/args.rs"]
 mod args;
@@ -26,6 +233,11 @@ mod call;
 #[path = "check/callable_alias.rs"]
 mod callable_alias;
 mod collect;
+mod checked_declarations;
+pub use checked_declarations::{CheckedDeclarations, CheckedErrorDeclaration, CheckedFunctionDeclaration,
+    CheckedFunctionKind, CheckedTypeDeclaration, InstantiatedTypeExpressions, ResolvedTypeExpressions};
+mod scopecheck;
+pub use scopecheck::{BindingDeclaration, BindingId, BindingKind, ResolvedBindings};
 #[path = "check/command.rs"]
 mod command;
 #[path = "check/compact.rs"]
@@ -54,6 +266,8 @@ mod infer_return;
 mod inferred_variant;
 #[path = "check/local_inference.rs"]
 mod local_inference;
+#[path = "check/module_record.rs"]
+mod module_record;
 #[path = "check/method.rs"]
 mod method;
 pub(crate) use method::nearest_name;
@@ -66,6 +280,9 @@ mod pattern;
 #[path = "check/proof.rs"]
 mod proof;
 mod public_result;
+#[path = "check/resource.rs"]
+mod resource;
+pub use resource::{ResourceTransferFacts, ResourceTransferSite};
 #[path = "check/set.rs"]
 mod set;
 #[path = "check/stmt.rs"]
@@ -97,6 +314,7 @@ pub use super::projection::{CheckedProjection, ProjectionOperation};
 
 pub use self::infer_effects::{EffectDeclarationId, FunctionEffectFact};
 use self::infer_effects::{EffectGraph, EffectSummary};
+use self::module_record::{ArgsDomain, ModuleRecordCache, ModuleRecords};
 
 pub use self::compact::{
     CompactBodyFacts, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo,
@@ -123,6 +341,21 @@ pub struct CheckedApiCall {
     pub argument_slots: Vec<usize>,
 }
 
+/// A command retains its selected API and source argument treatment; only
+/// literal boolean flags change into a value without evaluating an operand.
+#[derive(Clone, Debug)]
+pub struct CheckedModuleCommand {
+    pub call: CheckedApiCall,
+    pub arguments: Vec<CheckedCommandArgument>,
+}
+
+#[derive(Clone, Debug)]
+pub enum CheckedCommandArgument {
+    BooleanFlag,
+    Value,
+    Word(Type),
+}
+
 /// A user callable call's or structured stage's source argument entries bound
 /// to parameter slots. A stage's `callable_entry` is its named callable
 /// descriptor; its slots describe the remaining configuration entries.
@@ -142,6 +375,9 @@ pub struct CheckedStreamStage {
 
 #[derive(Clone, Debug, Default)]
 pub struct CheckOutput {
+    pub checked_declarations: CheckedDeclarations,
+    pub resolved_type_expressions: ResolvedTypeExpressions,
+    pub resolved_bindings: Arc<ResolvedBindings>,
     pub static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
     pub local_binding_types: BTreeMap<Span, Type>,
     pub prepared_constants: super::constants::PreparedConstants,
@@ -189,6 +425,7 @@ pub struct CheckOutput {
     pub standard_call_spans: BTreeMap<Span, (String, String)>,
     pub statically_resolved_call_spans: BTreeSet<Span>,
     pub api_calls: BTreeMap<Span, CheckedApiCall>,
+    pub module_commands: BTreeMap<Span, CheckedModuleCommand>,
     /// Keyed by call expression or stage span.
     pub argument_bindings: BTreeMap<Span, CheckedArguments>,
     /// Ordinary blocks whose checked paths cannot reach their enclosing continuation.
@@ -246,12 +483,22 @@ pub struct CheckOutput {
     /// The resource kind of each binding of a managed `with` scope, in binding
     /// order, keyed by the scope. A scope with a rejected binding has none.
     pub resource_scopes: BTreeMap<Span, Vec<crate::modules::ManagedResource>>,
+    /// Whether each checked value sink can transfer a host resource into a
+    /// different runtime ownership scope. Missing entries indicate an
+    /// unpublished sink fact, not a scalar value.
+    pub resource_transfers: ResourceTransferFacts,
     /// Each text pattern, compiled: its literal segments and what each hole
     /// makes of the text it matches. Lowering copies this into the program.
     pub text_patterns: BTreeMap<Span, TextPattern>,
     /// Embedded implementation bodies were checked, so every body lowering
     /// builds has published facts.
     pub embedded_bodies_checked: bool,
+}
+
+impl CheckOutput {
+    pub fn resource_transfer(&self, site: ResourceTransferSite) -> Option<bool> {
+        self.resource_transfers.get(&site).copied()
+    }
 }
 
 /// The qualified pattern a target-typed `.Name` pattern was resolved to from
@@ -345,11 +592,37 @@ pub enum InferredVariant {
 pub struct CheckOptions {
     pub interactive_commands: Option<fn(&str) -> bool>,
     pub reveal_types: bool,
-    pub migration_diagnostics: bool,
     /// Check every embedded implementation body. A check whose output feeds
     /// lowering needs their facts; other checks only need the bodies whose
     /// inferred returns shape a signature.
     pub embedded_bodies: bool,
+}
+
+impl CheckOptions {
+    /// Publish the checked facts required to prepare a program for execution.
+    pub fn for_execution() -> Self {
+        Self {
+            embedded_bodies: true,
+            ..Self::default()
+        }
+    }
+
+    /// Publish the facts and revealed types shown by `xsht check`.
+    pub fn for_check_cli() -> Self {
+        Self {
+            reveal_types: true,
+            embedded_bodies: true,
+            ..Self::default()
+        }
+    }
+
+    /// Check interactive command statements using the caller's command set.
+    pub fn for_interactive_commands(interactive_commands: fn(&str) -> bool) -> Self {
+        Self {
+            interactive_commands: Some(interactive_commands),
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -379,6 +652,8 @@ pub enum AnnotationFactKind {
 
 #[derive(Clone, Debug)]
 pub(super) struct Binding {
+    id: Option<BindingId>,
+    recovery: bool,
     static_namespace: bool,
     callable_alias: Option<CallableAlias>,
     ty: Type,
@@ -393,6 +668,8 @@ pub(super) struct Binding {
 impl Binding {
     fn new(ty: Type, mutable: bool) -> Self {
         Self {
+            id: None,
+            recovery: false,
             callable_alias: None,
             static_namespace: false,
             ty,
@@ -406,17 +683,7 @@ impl Binding {
     }
 
     fn pure_local_var(ty: Type) -> Self {
-        Self {
-            callable_alias: None,
-            static_namespace: false,
-            ty,
-            mutable: true,
-            pure_local_mutation: true,
-            unrefined_ty: None,
-            proof: proof::BindingProof::default(),
-            boolean_proof: None,
-            schema_expectation: None,
-        }
+        Self { pure_local_mutation: true, ..Self::new(ty, true) }
     }
 }
 
@@ -681,8 +948,80 @@ pub(super) struct UserModuleSig {
     error_families: BTreeMap<Name, ErrorFamilyInfo>,
 }
 
+/// A producer accepts failures even in callbacks that cannot emit its items.
+/// Keeping its return contract distinct from its yield permission prevents a
+/// callback boundary from accidentally forbidding error propagation.
+#[derive(Clone, PartialEq)]
+enum ReturnContext {
+    Function(Type),
+    Producer,
+}
+
+impl ReturnContext {
+    fn ty(&self) -> &Type {
+        match self {
+            Self::Function(ty) => ty,
+            Self::Producer => &Type::Unit,
+        }
+    }
+
+    fn accepts_failure(&self) -> bool {
+        match self {
+            Self::Function(ty) => ty.is_result(),
+            Self::Producer => true,
+        }
+    }
+}
+
+/// State whose lifetime belongs to the body being checked. Crossing a callable
+/// boundary replaces and restores this value whole, so a producer's yields or
+/// an enclosing loop cannot become control targets in another body.
+#[derive(Clone, Default)]
+struct BoundaryContext {
+    current_return: Option<ReturnContext>,
+    current_yield: Option<Type>,
+    in_pure: bool,
+    current_effects: Option<Vec<Effect>>,
+    effect_owner: Option<EffectDeclarationId>,
+    return_schema: Option<super::constants::SchemaExpectation>,
+    expected_schema: Option<super::constants::SchemaExpectation>,
+    /// The `collect` expression a `yield` here appends to.
+    collect_scope: Option<collect::CollectScope>,
+    // Only propagation evaluated while initializing the current With reaches its handler.
+    with_initializer_errors: Option<Vec<Type>>,
+    error_boundary_errors: Vec<Vec<(Type, Span)>>,
+    retry_attempt_depth: usize,
+    /// `retry` attempts are a subset of the error boundaries.
+    retry_block_depth: usize,
+    /// A producer cannot suspend while its deadline remains open.
+    within_block_depth: usize,
+    loop_depth: usize,
+    block_depth: usize,
+    in_defer_block: bool,
+    in_signal_hook: bool,
+    item_frames: Vec<ItemFrame>,
+    context_scope_depths: Vec<usize>,
+    /// A statement-shaped scope consumes its body only in a value tail.
+    context_scope_tail_value: bool,
+    // The effects enclosing `without` regions exclude, outermost first.
+    excluded_effects: Vec<effect_bounds::ExcludedEffect>,
+    last_status_available: bool,
+    /// The direct function tail consumes a Result[Unit] as a statement and
+    /// propagates its failure rather than handing that failure back as data.
+    result_unit_function_tail: Option<crate::syntax::arena::StmtId>,
+    /// The next expression is a control position of a condition.
+    control_condition: bool,
+    /// Control positions extend through the operands of `!`, `and`, and `or`.
+    in_control_position: bool,
+}
+
 #[derive(Clone)]
 pub struct Checker {
+    checked_declarations: CheckedDeclarations,
+    resolved_type_expressions: ResolvedTypeExpressions,
+    resolved_bindings: Arc<ResolvedBindings>,
+    resolved_command_sites: FxHashMap<(Span, Name), BindingId>,
+    boundary: BoundaryContext,
     local_inference: local_inference::LocalInference,
     pub(super) type_constraints: super::constraints::TypeConstraints,
     static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
@@ -693,8 +1032,6 @@ pub struct Checker {
     argument_projection_contexts:
         FxHashMap<crate::syntax::arena::ExprId, (Type, crate::sema::constants::SchemaExpectation)>,
     record_constructors: RecordConstructors,
-    expected_schema: Option<super::constants::SchemaExpectation>,
-    return_schema: Option<super::constants::SchemaExpectation>,
     record_constructor_instances: BTreeMap<Span, super::constants::CheckedRecordConstructor>,
     requirement_targets: BTreeMap<Span, RequirementTarget>,
     requirement_expected_targets: BTreeMap<Span, RequirementTarget>,
@@ -709,10 +1046,9 @@ pub struct Checker {
     /// checked `Any` expression.
     dynamic_require_receivers: FxHashMap<Span, DynamicRequireReceiver>,
     current_namespace: Option<Name>,
+    bundle_root_statements: Option<ArenaRange>,
+    bundle_module_keys: Option<Arc<[String]>>,
     scopes: Vec<FxHashMap<Name, Binding>>,
-    context_scope_depths: Vec<usize>,
-    /// A statement-shaped scope consumes its body only in a value tail.
-    context_scope_tail_value: bool,
     procs: FxHashMap<Name, FunctionSig>,
     byte_script_arguments: bool,
     pures: FxHashMap<Name, FunctionSig>,
@@ -749,15 +1085,11 @@ pub struct Checker {
     propagating_conditions: BTreeSet<Span>,
     redundant_condition_propagations: BTreeSet<Span>,
     unvalidated_command_vectors: BTreeMap<Span, Type>,
-    /// The next expression checked is in a control position of a condition.
-    control_condition: bool,
-    /// The expression being checked is in a control position of a condition,
-    /// so the operands of its `!`, `and`, or `or` are too.
-    in_control_position: bool,
     membership_migration_spans: BTreeSet<Span>,
     standard_call_spans: BTreeMap<Span, (String, String)>,
     statically_resolved_call_spans: BTreeSet<Span>,
     api_calls: BTreeMap<Span, CheckedApiCall>,
+    module_commands: BTreeMap<Span, CheckedModuleCommand>,
     argument_bindings: BTreeMap<Span, CheckedArguments>,
     definitely_exiting_block_spans: BTreeSet<Span>,
     handler_input_types: BTreeMap<Span, Type>,
@@ -770,11 +1102,10 @@ pub struct Checker {
     error_constructors: BTreeMap<Span, CheckedErrorConstructor>,
     optional_binding_spans: BTreeSet<Span>,
     collect_yields: BTreeMap<Span, Span>,
-    /// The `collect` expression a `yield` here appends to.
-    collect_scope: Option<collect::CollectScope>,
     from_end_indexes: BTreeMap<Span, u32>,
     conversions: BTreeMap<Span, Conversion>,
     resource_scopes: BTreeMap<Span, Vec<crate::modules::ManagedResource>>,
+    resource_transfers: ResourceTransferFacts,
     text_patterns: BTreeMap<Span, TextPattern>,
     inferred_variant_patterns: BTreeMap<Span, InferredVariantPattern>,
     options: CheckOptions,
@@ -787,15 +1118,7 @@ pub struct Checker {
     inferred_propagations: Vec<(Type, Span)>,
     // A proc return probe records disagreeing completions instead of reporting them.
     return_conflicts: Option<Vec<(Type, Type, Span)>>,
-    // Only propagation evaluated while initializing the current With reaches its handler.
-    with_initializer_errors: Option<Vec<Type>>,
     inference_reachable: bool,
-    current_return: Option<Type>,
-    current_yield: Option<Type>,
-    in_pure: bool,
-    current_effects: Option<Vec<Effect>>,
-    // The effects enclosing `without` regions exclude, outermost first.
-    excluded_effects: Vec<effect_bounds::ExcludedEffect>,
     collecting_effects: bool,
     effect_graph: EffectGraph,
     effect_summaries: BTreeMap<EffectDeclarationId, EffectSummary>,
@@ -803,27 +1126,7 @@ pub struct Checker {
     /// instead of recording a graph edge, so the probe must repeat until the
     /// summaries it read are the solved ones.
     provisional_effects_read: std::cell::Cell<bool>,
-    effect_owner: Option<EffectDeclarationId>,
-    last_status_available: bool,
-    item_frames: Vec<ItemFrame>,
-    loop_depth: usize,
-    block_depth: usize,
-    /// The last statement of the function body being checked, when that body
-    /// returns `Result[Unit]` or has its return inferred.
-    /// A `Result[Unit]` there is the function's result and a statement at
-    /// once: it propagates from that tail rather than being handed back as a
-    /// value, so its failure is reported from inside the function.
-    result_unit_function_tail: Option<crate::syntax::arena::StmtId>,
-    retry_attempt_depth: usize,
-    /// `retry` attempt blocks being checked (a subset of the error
-    /// boundaries counted by `retry_attempt_depth`).
-    retry_block_depth: usize,
-    /// How many `within` bodies enclose the code being checked.
-    within_block_depth: usize,
-    error_boundary_errors: Vec<Vec<(Type, Span)>>,
     module_depth: usize,
-    in_signal_hook: bool,
-    in_defer_block: bool,
     root_signal_hooks: FxHashMap<Name, Span>,
     current_exported: bool,
     /// The final top-level statement of the script, whose `Int` value is
@@ -844,11 +1147,40 @@ pub struct Checker {
 }
 
 impl Checker {
-    pub(crate) fn prepare_regex_literals(program: &ArenaProgram) -> Vec<Diagnostic> {
+    fn enter_callable_boundary(&mut self) -> BoundaryContext {
+        std::mem::take(&mut self.boundary)
+    }
+
+    fn enter_callback_boundary(&mut self) -> BoundaryContext {
+        let mut callback = self.boundary.clone();
+        callback.current_yield = None;
+        callback.collect_scope = None;
+        callback.loop_depth = 0;
+        std::mem::replace(&mut self.boundary, callback)
+    }
+
+    fn leave_callback_boundary(&mut self, mut enclosing: BoundaryContext) {
+        // Callback failures still occur inside the lexical error boundary;
+        // its accumulated error types survive checking the callback body.
+        enclosing.error_boundary_errors = std::mem::take(&mut self.boundary.error_boundary_errors);
+        enclosing.with_initializer_errors = self.boundary.with_initializer_errors.take();
+        self.boundary = enclosing;
+    }
+
+    fn leave_cleanup_boundary(&mut self, mut enclosing: BoundaryContext) {
+        // Cleanup failures reach the lexical error boundary, but they are
+        // not failures of the initializer that registered the cleanup.
+        enclosing.error_boundary_errors = std::mem::take(&mut self.boundary.error_boundary_errors);
+        self.boundary = enclosing;
+    }
+
+    fn prepare_regex_literals(view: &CheckBundleView<'_>) -> Vec<Diagnostic> {
+        let program = view.program;
         program
             .arena
             .regex_literals
             .iter()
+            .filter(|literal| view.contains_source(literal.span.source_id))
             .filter_map(|literal| {
                 crate::modules::regex::prepare_literal(literal)
                     .as_ref()
@@ -879,31 +1211,117 @@ impl Checker {
         )
     }
 
-    /// Check a mutable view of an arena-backed bundle while reusing an owned
-    /// program for type references. Tooling can change the root statement
-    /// range and module list between checks without cloning the full arena.
+    /// Check an arena-backed program while resolving type references in a
+    /// separately owned program.
     pub fn check_arena_with_options_and_type_program(
         program: &crate::syntax::arena::ArenaProgram,
         source: &str,
         options: CheckOptions,
         type_program: Arc<crate::syntax::arena::ArenaProgram>,
     ) -> CheckOutput {
+        Self::check_arena_with_options_and_type_program_and_sources(
+            program,
+            source,
+            options,
+            type_program,
+            None,
+            program.source_text_source_id(),
+        )
+    }
+
+    /// Check a loaded program using the text belonging to each source span.
+    /// The entry text also controls the builtin `args` type, while imported
+    /// modules are checked against their own source files.
+    pub fn check_arena_with_sources_and_options(
+        program: &crate::syntax::arena::ArenaProgram,
+        sources: &SourceMap,
+        entry_source_id: SourceId,
+        options: CheckOptions,
+    ) -> CheckOutput {
+        Self::check_arena_with_sources_options_and_type_program(
+            program,
+            sources,
+            entry_source_id,
+            options,
+            Arc::new(program.clone()),
+        )
+    }
+
+    /// Check a source-loaded view while resolving type references in an owned
+    /// program, using the text and identity for each referenced source span.
+    pub fn check_arena_with_sources_options_and_type_program(
+        program: &crate::syntax::arena::ArenaProgram,
+        sources: &SourceMap,
+        entry_source_id: SourceId,
+        options: CheckOptions,
+        type_program: Arc<crate::syntax::arena::ArenaProgram>,
+    ) -> CheckOutput {
+        let source = sources
+            .get(entry_source_id)
+            .expect("entry source id must exist in the source map")
+            .text();
+        Self::check_arena_with_options_and_type_program_and_sources(
+            program,
+            source,
+            options,
+            type_program,
+            Some(sources),
+            Some(entry_source_id),
+        )
+    }
+
+    fn check_arena_with_options_and_type_program_and_sources(
+        program: &crate::syntax::arena::ArenaProgram,
+        source: &str,
+        options: CheckOptions,
+        type_program: Arc<crate::syntax::arena::ArenaProgram>,
+        sources: Option<&SourceMap>,
+        entry_source_id: Option<SourceId>,
+    ) -> CheckOutput {
+        let view = CheckBundleView::new(program, sources, entry_source_id);
+        Self::check_bundle_view_with_type_program(&view, source, options, type_program)
+    }
+
+    /// Check an immutable borrowed bundle view while reusing an owned program
+    /// for type references. Prepared facts stay tied to the selected root and
+    /// reachable modules.
+    pub fn check_bundle_view_with_type_program(
+        view: &CheckBundleView<'_>,
+        source: &str,
+        options: CheckOptions,
+        type_program: Arc<crate::syntax::arena::ArenaProgram>,
+    ) -> CheckOutput {
+        let program = view.program;
         program.symbol_owner().with_current(|| {
+            let mut module_record_cache = ModuleRecordCache::default();
             // Resolve bodies once to collect dependencies, then check against the
             // fixed-point contracts so callers never depend on source order.
             let mut byte_script_arguments = false;
             let (effect_graph, effect_summaries) = Self::solve_effect_probes(|summaries| {
                 loop {
+                    let records = module_record_cache.get_or_prepare(
+                        view,
+                        if byte_script_arguments {
+                            ArgsDomain::Bytes
+                        } else {
+                            ArgsDomain::Str
+                        },
+                    );
                     let mut probe = Self::new(options);
                     probe.byte_script_arguments = byte_script_arguments;
                     probe.define_standard_values();
                     probe.collecting_effects = true;
                     probe.effect_summaries = summaries.clone();
-                    probe.check_program_arena_with_type_program(program, source, type_program.clone());
+                    probe.check_program_arena_with_type_program_and_sources(
+                        view,
+                        source,
+                        type_program.clone(),
+                        &records,
+                    );
                     // Resolve the entry signature before committing any body facts.
                     // Rechecking also gives imported modules the same argument type.
                     if options.interactive_commands.is_none() && !byte_script_arguments
-                        && byte_argument_main(program, &probe.parameter_types) {
+                        && byte_argument_main_in_view(view, &probe.parameter_types) {
                         byte_script_arguments = true;
                         continue;
                     }
@@ -915,12 +1333,30 @@ impl Checker {
             checker.define_standard_values();
             checker.effect_summaries = effect_summaries;
             checker.effect_graph = effect_graph;
-            checker.check_program_arena_with_type_program(program, source, type_program);
+            let records = module_record_cache.get_or_prepare(
+                view,
+                if byte_script_arguments {
+                    ArgsDomain::Bytes
+                } else {
+                    ArgsDomain::Str
+                },
+            );
+            checker.check_program_arena_with_type_program_and_sources(
+                view,
+                source,
+                type_program,
+                &records,
+            );
+            checker.publish_command_binding_sites();
             let callable_effects = checker.callable_effects();
+            let checked_declarations = checker.take_checked_declarations();
             CheckOutput {
+                checked_declarations,
+                resolved_type_expressions: checker.resolved_type_expressions,
                 static_callable_aliases: checker.static_callable_aliases,
                 typed_callable_calls: checker.typed_callable_calls,
                 local_binding_types: checker.local_inference.checked_bindings,
+                resolved_bindings: checker.resolved_bindings,
                 prepared_constants: checker.prepared_constants,
                 proven_nonnull_fallback_receivers: checker.proven_nonnull_fallback_receivers,
                 diagnostics: checker.diagnostics,
@@ -948,6 +1384,7 @@ impl Checker {
                 standard_call_spans: checker.standard_call_spans,
                 statically_resolved_call_spans: checker.statically_resolved_call_spans,
                 api_calls: checker.api_calls,
+                module_commands: checker.module_commands,
                 argument_bindings: checker.argument_bindings,
                 definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
                 handler_input_types: checker.handler_input_types,
@@ -963,6 +1400,7 @@ impl Checker {
                 from_end_indexes: checker.from_end_indexes,
                 conversions: checker.conversions,
                 resource_scopes: checker.resource_scopes,
+                resource_transfers: checker.resource_transfers,
                 text_patterns: checker.text_patterns,
                 inferred_variant_patterns: checker.inferred_variant_patterns,
                 embedded_bodies_checked: options.embedded_bodies,
@@ -1005,170 +1443,18 @@ impl Checker {
         Self::check_arena_with_options(
             program,
             source,
-            CheckOptions {
-                interactive_commands: Some(interactive_commands),
-                reveal_types: false,
-                migration_diagnostics: false,
-                embedded_bodies: false,
-            },
+            CheckOptions::for_interactive_commands(interactive_commands),
         )
-    }
-
-    /// Check a multi-module program assembled from separately parsed arenas.
-    ///
-    /// `main` is the entry arena+source; each `(key, name, arena, source)` in
-    /// `modules` is linked with the entry source in one arena, with matching
-    /// imports resolved by module key or name. Declaring scopes and private
-    /// schema dependencies remain available during concrete instantiation.
-    pub fn check_arena_with_modules(
-        main: (&crate::syntax::arena::ArenaProgram, &str),
-        modules: &[(&str, &str, &crate::syntax::arena::ArenaProgram, &str)],
-    ) -> CheckOutput {
-        main.0.symbol_owner().with_current(|| {
-            let mut checker = Self::new(CheckOptions::default());
-            // One arena preserves declaration identities and private type dependencies across modules.
-            let mut builder =
-                crate::syntax::arena::ArenaProgramBuilder::with_token_capacity_and_symbols(
-                    main.1.len(),
-                    main.0.symbol_owner().clone(),
-                );
-            let entry_source = main
-                .0
-                .statement_ids()
-                .next()
-                .map(|id| main.0.arena.stmt(id).span.source_id)
-                .unwrap_or(crate::source::SourceId::new(0));
-            let entry = crate::syntax::parser::Parser::parse_source_into_arena_builder(
-                entry_source,
-                main.1,
-                &mut builder,
-            );
-            checker.diagnostics.extend(entry.diagnostics);
-            for (index, (key, name, arena, source)) in modules.iter().enumerate() {
-                let source_id = arena
-                    .statement_ids()
-                    .next()
-                    .map(|id| arena.arena.stmt(id).span.source_id)
-                    .unwrap_or(crate::source::SourceId::new(index + 1));
-                let fragment = crate::syntax::parser::Parser::parse_source_into_arena_builder(
-                    source_id,
-                    source,
-                    &mut builder,
-                );
-                checker.diagnostics.extend(fragment.diagnostics);
-                builder.push_arena_module(
-                    (*key).to_string(),
-                    Name::intern(name),
-                    fragment.statements,
-                );
-            }
-            let mut main_program = builder.finish_with_statements(entry.statements);
-            for index in 0..main_program.arena.use_stmts.len() {
-                let import = &main_program.arena.use_stmts[index];
-                let path = main_program
-                    .arena
-                    .names(import.path)
-                    .map(|name| name.to_string())
-                    .collect::<Vec<_>>()
-                    .join(".");
-                // The legacy single-module fixture form accepts the caller's import spelling.
-                let resolved = modules
-                    .iter()
-                    .find(|(key, name, ..)| *key == path || *name == path)
-                    .or_else(|| {
-                        if modules.len() == 1 {
-                            modules.first()
-                        } else {
-                            None
-                        }
-                    });
-                if let Some((key, ..)) = resolved {
-                    main_program.arena.use_stmts[index].resolved = Some(std::sync::Arc::from(*key));
-                }
-            }
-
-            let mut byte_script_arguments = false;
-            let (effect_graph, effect_summaries) = Self::solve_effect_probes(|summaries| {
-                loop {
-                    let mut probe = Self::new(CheckOptions::default());
-                    probe.byte_script_arguments = byte_script_arguments;
-                    probe.define_standard_values();
-                    probe.collecting_effects = true;
-                    probe.effect_summaries = summaries.clone();
-                    probe.check_program_arena(&main_program, main.1);
-                    if !byte_script_arguments && byte_argument_main(&main_program, &probe.parameter_types) {
-                        byte_script_arguments = true;
-                        continue;
-                    }
-                    break probe;
-                }
-            });
-            checker.byte_script_arguments = byte_script_arguments;
-            checker.define_standard_values();
-            checker.effect_summaries = effect_summaries;
-            checker.effect_graph = effect_graph;
-            checker.check_program_arena(&main_program, main.1);
-            let callable_effects = checker.callable_effects();
-            CheckOutput {
-                static_callable_aliases: checker.static_callable_aliases,
-                typed_callable_calls: checker.typed_callable_calls,
-                local_binding_types: checker.local_inference.checked_bindings,
-                prepared_constants: checker.prepared_constants,
-                proven_nonnull_fallback_receivers: checker.proven_nonnull_fallback_receivers,
-                diagnostics: checker.diagnostics,
-                annotation_facts: checker.annotation_facts,
-                function_return_types: checker.function_return_types,
-                record_constructor_instances: checker.record_constructor_instances,
-                parameter_types: checker.parameter_types,
-                requirement_targets: checker.requirement_targets,
-                requirement_expected_targets: checker.requirement_expected_targets,
-                reveal_types: checker.reveal_types,
-                expr_types: checker.expr_types,
-                stream_stage_types: checker.stream_stage_types,
-                projections: checker.projections,
-                statement_positions: checker.statement_positions,
-                function_effect_facts: checker.effect_graph.facts(&checker.effect_summaries),
-                callable_effects,
-                assertion_effect_spans: checker.assertion_effect_spans,
-                statement_expression_spans: checker.statement_expression_spans,
-                propagating_statements: checker.propagating_statements,
-                discardable_bindings: checker.discardable_bindings,
-                propagating_conditions: checker.propagating_conditions,
-                redundant_condition_propagations: checker.redundant_condition_propagations,
-                unvalidated_command_vectors: checker.unvalidated_command_vectors,
-                membership_migration_spans: checker.membership_migration_spans,
-                standard_call_spans: checker.standard_call_spans,
-                statically_resolved_call_spans: checker.statically_resolved_call_spans,
-                api_calls: checker.api_calls,
-                argument_bindings: checker.argument_bindings,
-                definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
-                handler_input_types: checker.handler_input_types,
-                inferred_variants: checker.inferred_variants,
-                path_literals: checker.path_literals,
-                redundant_variant_qualifiers: checker.redundant_variant_qualifiers,
-                record_constructor_fields: checker.record_constructor_fields,
-                message_payload_constructors: checker.message_payload_constructors,
-                record_require_migrations: checker.record_require_migrations,
-                error_constructors: checker.error_constructors,
-                optional_binding_spans: checker.optional_binding_spans,
-                collect_yields: checker.collect_yields,
-                from_end_indexes: checker.from_end_indexes,
-                conversions: checker.conversions,
-                resource_scopes: checker.resource_scopes,
-                text_patterns: checker.text_patterns,
-                inferred_variant_patterns: checker.inferred_variant_patterns,
-                embedded_bodies_checked: false,
-            }
-        })
     }
 
     pub(crate) fn new(options: CheckOptions) -> Self {
         let mut checker = Self {
+            checked_declarations: CheckedDeclarations::default(),
+            resolved_type_expressions: ResolvedTypeExpressions::default(),
+            boundary: BoundaryContext::default(),
             static_callable_aliases: BTreeMap::new(),
             typed_callable_calls: BTreeMap::new(),
             scopes: vec![FxHashMap::default()],
-            context_scope_depths: Vec::new(),
-            context_scope_tail_value: false,
             procs: FxHashMap::default(),
             byte_script_arguments: false,
             pures: FxHashMap::default(),
@@ -1183,13 +1469,13 @@ impl Checker {
             argument_projection_sources: FxHashMap::default(),
             argument_projection_contexts: FxHashMap::default(),
             record_constructors: RecordConstructors::default(),
-            expected_schema: None,
-            return_schema: None,
             record_constructor_instances: BTreeMap::new(),
             requirement_targets: BTreeMap::new(),
             requirement_expected_targets: BTreeMap::new(),
             constructor_group_depth: 0,
             pending_record_constructors: Vec::new(),
+            resolved_bindings: Arc::default(),
+            resolved_command_sites: FxHashMap::default(),
             prepared_constants: super::constants::PreparedConstants::default(),
             wire_enums: crate::sema::wire_enums::PreparedWireEnums::default(),
             condition_proofs: FxHashMap::default(),
@@ -1197,6 +1483,8 @@ impl Checker {
             proven_nonnull_fallback_receivers: BTreeSet::default(),
             dynamic_require_receivers: FxHashMap::default(),
             current_namespace: None,
+            bundle_root_statements: None,
+            bundle_module_keys: None,
             type_namespaces: FxHashMap::default(),
             tag_variants: FxHashMap::default(),
             error_families: FxHashMap::default(),
@@ -1219,12 +1507,11 @@ impl Checker {
             propagating_conditions: BTreeSet::new(),
             redundant_condition_propagations: BTreeSet::new(),
             unvalidated_command_vectors: BTreeMap::new(),
-            control_condition: false,
-            in_control_position: false,
             membership_migration_spans: BTreeSet::new(),
             standard_call_spans: BTreeMap::new(),
             statically_resolved_call_spans: BTreeSet::new(),
             api_calls: BTreeMap::new(),
+            module_commands: BTreeMap::new(),
             argument_bindings: BTreeMap::new(),
             definitely_exiting_block_spans: BTreeSet::new(),
             handler_input_types: BTreeMap::new(),
@@ -1237,10 +1524,10 @@ impl Checker {
             error_constructors: BTreeMap::new(),
             optional_binding_spans: BTreeSet::new(),
             collect_yields: BTreeMap::new(),
-            collect_scope: None,
             from_end_indexes: BTreeMap::new(),
             conversions: BTreeMap::new(),
             resource_scopes: BTreeMap::new(),
+            resource_transfers: ResourceTransferFacts::default(),
             text_patterns: BTreeMap::new(),
             inferred_variant_patterns: BTreeMap::new(),
             options,
@@ -1251,30 +1538,12 @@ impl Checker {
             inferred_returns: None,
             inferred_propagations: Vec::new(),
             return_conflicts: None,
-            with_initializer_errors: None,
             inference_reachable: true,
-            current_return: None,
-            current_yield: None,
-            in_pure: false,
-            current_effects: None,
-            excluded_effects: Vec::new(),
             collecting_effects: false,
             effect_graph: EffectGraph::default(),
             effect_summaries: BTreeMap::new(),
             provisional_effects_read: std::cell::Cell::new(false),
-            effect_owner: None,
-            last_status_available: false,
-            item_frames: Vec::new(),
-            loop_depth: 0,
-            block_depth: 0,
-            result_unit_function_tail: None,
-            retry_attempt_depth: 0,
-            retry_block_depth: 0,
-            within_block_depth: 0,
-            error_boundary_errors: Vec::new(),
             module_depth: 0,
-            in_signal_hook: false,
-            in_defer_block: false,
             root_signal_hooks: FxHashMap::default(),
             current_exported: false,
             exit_status_statement: None,
@@ -1283,6 +1552,7 @@ impl Checker {
             statement_root: None,
         };
         checker.register_builtin_process_error_family();
+        checker.checked_declarations.builtin_error_families = checker.error_families.clone();
         checker.define_standard_values();
         checker
     }
@@ -1362,67 +1632,89 @@ impl Checker {
         self.define_builtin_value("args", Binding::new(Type::List(Box::new(item)), false));
     }
 
-    pub(crate) fn check_program_arena(
+    fn check_program_arena_with_type_program_and_sources(
         &mut self,
-        program: &crate::syntax::arena::ArenaProgram,
-        source: &str,
-    ) {
-        self.check_program_arena_with_type_program(program, source, Arc::new(program.clone()));
-    }
-
-    pub(crate) fn check_program_arena_with_type_program(
-        &mut self,
-        program: &crate::syntax::arena::ArenaProgram,
+        bundle: &CheckBundleView<'_>,
         source: &str,
         type_program: Arc<crate::syntax::arena::ArenaProgram>,
+        records: &ModuleRecords,
     ) {
-        self.prepare_effect_declarations(program, None);
-        self.prepare_local_inference(program);
-        self.diagnostics
-            .extend(Self::prepare_regex_literals(program));
+        self.resolved_command_sites.clear();
+        let program = bundle.program;
+        self.bundle_root_statements = Some(bundle.root_statements);
+        self.bundle_module_keys = Some(
+            bundle
+                .modules
+                .iter()
+                .map(|module| module.key.clone())
+                .collect::<Vec<_>>()
+                .into(),
+        );
+        debug_assert_eq!(
+            records.root().args_domain,
+            if self.byte_script_arguments {
+                ArgsDomain::Bytes
+            } else {
+                ArgsDomain::Str
+            }
+        );
+        records.install(self, program);
+        let statements = records.root().statements();
         if !self.collecting_effects {
             self.diagnostics
-                .extend(crate::syntax::grouping::grouping_diagnostics(
-                    program, source,
+                .extend(crate::syntax::grouping::grouping_diagnostics_in_range(
+                    program,
+                    bundle.root_statements,
+                    source,
                 ));
         }
-        self.record_constructors = RecordConstructors::collect(program);
-        self.prepared_constants =
-            super::constants::PreparedConstants::collect(program, &self.record_constructors);
-        self.diagnostics
-            .extend(self.prepared_constants.diagnostics.clone());
-        self.record_constructors
-            .apply_prepared_defaults(program, &self.prepared_constants);
-        for (expression, fact) in &self.prepared_constants.record_constructor_instances {
-            self.record_constructor_instances
-                .insert(program.arena.expr(*expression).span, fact.clone());
-        }
-        let (wire_enums, wire_diagnostics) =
-            crate::sema::wire_enums::PreparedWireEnums::prepare(program, |expr| {
-                self.prepared_constants
-                    .analyze_expression(&program.arena, expr)
-            });
-        self.wire_enums = wire_enums;
-        self.diagnostics.extend(wire_diagnostics);
-        self.collect_user_modules_arena(program, type_program.clone(), source);
-        self.collect_type_imports_arena(program, program.statement_ids());
-        self.collect_definitions_arena(program, type_program, source, program.statement_ids());
-        let statements = program.statement_ids().collect::<Vec<_>>();
-        self.infer_default_parameter_types(program, source, &statements);
-        self.infer_local_pure_returns(program, source, &statements);
-        self.infer_default_parameter_types(program, source, &statements);
+        self.collect_user_modules_arena(&bundle, records, type_program.clone(), source);
+        self.collect_type_imports_arena(program, statements.iter().copied());
+        self.collect_definitions_arena(program, type_program, source, statements.iter().copied());
+        self.infer_default_parameter_types(program, source, statements);
+        self.infer_local_pure_returns(&bundle, source, statements);
+        self.infer_default_parameter_types(program, source, statements);
         // A signature CLI `main`, or a `proc main` that the last statement does
         // not call, runs after the top level and supplies the exit status, so
         // no statement does.
-        let main_runs_after = statements
+        let has_cli_main = statements
             .iter()
-            .any(|&stmt| matches!(program.arena.stmt(stmt).kind, ArenaStmtKind::CliMain(_)))
+            .any(|&stmt| matches!(program.arena.stmt(stmt).kind, ArenaStmtKind::CliMain(_)));
+        let main_runs_after = has_cli_main
             || statements
                 .iter()
                 .any(|&stmt| defines_proc_main(program, stmt))
                 && !statements
                     .last()
                     .is_some_and(|&stmt| calls_main(program, stmt));
+        let proc_main_auto_dispatch = !has_cli_main
+            && statements.iter().any(|&stmt| defines_proc_main(program, stmt))
+            && (!statements.last().is_some_and(|&stmt| calls_main(program, stmt))
+                || calls_main_with_implicit_spread_args(program, &statements, &self.resolved_bindings));
+        if self.options.interactive_commands.is_none() && proc_main_auto_dispatch {
+            let (span, has_unbindable_required_param) = {
+                let signature = self
+                    .procs
+                    .get(&Name::intern("main"))
+                    .expect("root proc main signature is collected before entry checking");
+                let span = signature
+                    .definition
+                    .expect("root proc main signature has a source definition");
+                let has_unbindable_required_param = signature.params.iter().any(|parameter| {
+                    !parameter.rest
+                        && !parameter.defaulted
+                        && !matches!(&parameter.ty, Type::Str | Type::Path)
+                });
+                (span, has_unbindable_required_param)
+            };
+            if has_unbindable_required_param {
+                self.error(
+                    span,
+                    "proc main must use the spread form `(...argv: List[Str])` to receive script arguments; a fixed parameter of this type cannot bind script arguments in the compact runtime",
+                    DiagnosticCode::CompactMainMissingSpread,
+                );
+            }
+        }
         if self.options.interactive_commands.is_none() && main_runs_after {
             if let Some(signature) = self.procs.get(&Name::intern("main")) {
                 let has_bytes = signature.params.iter().any(|parameter| {
@@ -1445,14 +1737,16 @@ impl Checker {
             .last()
             .filter(|_| !main_runs_after)
             .map(|&stmt| program.arena.stmt(stmt).span);
-        for stmt in program.statement_ids() {
+        for &stmt in statements {
             self.check_stmt_arena(program, source, stmt);
         }
-        self.check_public_result_types(program, &statements);
+        self.check_public_result_types(program, statements);
         self.exit_status_statement = None;
         self.resolve_checked_types();
-        let (_, diagnostics) = crate::sema::cli_entry::validate_cli_entry(
-            program,
+        let instances: Vec<_> = self.record_constructor_instances.iter().map(|(&span, fact)| (span, fact.clone())).collect();
+        for (span, fact) in instances { self.publish_constructor_type_expressions(program, span, &fact); }
+        let (entries, diagnostics) = crate::sema::cli_entry::validate_cli_entry(
+            bundle,
             |parameter| {
                 self.checked_parameter_type(program, parameter)
                     .unwrap_or_else(|| {
@@ -1466,7 +1760,13 @@ impl Checker {
                     .analyze_expression(&program.arena, expr)
             },
         );
+        self.checked_declarations.cli_entries = entries;
         self.diagnostics.extend(diagnostics);
+        if !self.collecting_effects {
+            let resource_check = resource::check(self, bundle);
+            self.diagnostics.extend(resource_check.diagnostics);
+            self.resource_transfers = resource_check.transfers;
+        }
     }
 
     pub(crate) fn check_public_module_docs(
@@ -1597,7 +1897,7 @@ impl Checker {
             }
             Some(callee_effs) => {
                 for eff in callee_effs {
-                    if *eff == Effect::Error && self.retry_attempt_depth > 0 {
+                    if *eff == Effect::Error && self.boundary.retry_attempt_depth > 0 {
                         continue;
                     }
                     if !Self::effects_covers(caller_effs, eff) {
@@ -1619,12 +1919,32 @@ impl Checker {
         self.scopes.iter().rev().find_map(|scope| scope.get(&name))
     }
 
-    fn define(&mut self, name: Name, binding: Binding, span: Span) {
+    // Probe checkers share immutable lexical facts. Command names need source
+    // text, so their selected identities accumulate locally and publish once.
+    fn publish_command_binding_sites(&mut self) {
+        let sites = std::mem::take(&mut self.resolved_command_sites);
+        if !sites.is_empty() {
+            Arc::make_mut(&mut self.resolved_bindings).value_sites.extend(sites);
+        }
+    }
+
+    fn lookup_value_binding(&self, name: Name, span: Span) -> Option<&Binding> {
+        match self.resolved_command_sites.get(&(span, name)).copied()
+            .or_else(|| self.resolved_bindings.at(span, name))
+        {
+            Some(id) => self.scopes.iter().rev().find_map(|scope| scope.get(&name).filter(|binding| binding.id == Some(id))),
+            None => self.lookup(name).filter(|binding| binding.recovery),
+        }
+    }
+
+    fn define(&mut self, name: Name, mut binding: Binding, span: Span) {
+        binding.id = self.resolved_bindings.declaration_sites.get(&(span, name)).copied();
         self.check_standard_module_shadow(&name.as_str(), span);
         self.current_scope_mut().insert(name, binding);
     }
 
-    fn define_builtin_value(&mut self, name: &str, binding: Binding) {
+    fn define_builtin_value(&mut self, name: &str, mut binding: Binding) {
+        if name == "args" { binding.id = Some(BindingId::args()); }
         self.current_scope_mut().insert(Name::intern(name), binding);
     }
 
@@ -1683,7 +2003,10 @@ impl Checker {
     /// one included: the scope must know how to release what it binds.
     pub(crate) fn reject_unmanaged_resource(&mut self, ty: &Type, span: Span) {
         let known = crate::modules::ManagedResource::ALL
+            .into_iter()
+            .filter(|kind| kind.release_op().is_some())
             .map(|kind| format!("`{}`", kind.type_name()))
+            .collect::<Vec<_>>()
             .join(" and ");
         let message = format!(
             "`with` without `else` binds a resource it releases when the block ends, and `{ty}` is not one; the resource types are {known}"
@@ -1735,10 +2058,60 @@ fn calls_main(program: &ArenaProgram, stmt: crate::syntax::arena::StmtId) -> boo
         if matches!(program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "main"))
 }
 
+fn calls_main_with_implicit_spread_args(
+    program: &ArenaProgram,
+    statements: &[StmtId],
+    resolved_bindings: &ResolvedBindings,
+) -> bool {
+    let Some((_, stmt)) = statements.iter().copied().enumerate().next_back() else {
+        return false;
+    };
+    let ArenaStmtKind::Expr(mut expr) = program.arena.stmt(stmt).kind else {
+        return false;
+    };
+    while let ArenaExprKind::Try(inner) = program.arena.expr(expr).kind {
+        expr = inner;
+    }
+    let ArenaExprKind::Call { callee, args } = program.arena.expr(expr).kind else {
+        return false;
+    };
+    if !matches!(program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == Name::intern("main")) {
+        return false;
+    }
+    let [argument] = program.arena.call_args(args) else {
+        return false;
+    };
+    let ArenaCallArgKind::Splice { value, .. } = &argument.kind else {
+        return false;
+    };
+    if !matches!(program.arena.expr(*value).kind, ArenaExprKind::Ident(name) if name == Name::intern("args")) {
+        return false;
+    }
+    let args_binding = resolved_bindings
+        .at(program.arena.expr(*value).span, Name::intern("args"))
+        .expect("implicit main argument splice has a resolved args binding");
+    args_binding == BindingId::args()
+}
+
 /// Only a single byte rest parameter opts an entry into raw OS arguments.
 /// Parameter facts come from checking, so aliases use their resolved types.
 pub(crate) fn byte_argument_main(
     program: &ArenaProgram,
+    parameter_types: &BTreeMap<Span, Type>,
+) -> bool {
+    byte_argument_main_with_statements(program, program.statement_ids(), parameter_types)
+}
+
+fn byte_argument_main_in_view(
+    view: &CheckBundleView<'_>,
+    parameter_types: &BTreeMap<Span, Type>,
+) -> bool {
+    byte_argument_main_with_statements(view.program, view.statement_ids(), parameter_types)
+}
+
+fn byte_argument_main_with_statements(
+    program: &ArenaProgram,
+    mut statements: impl Iterator<Item = StmtId>,
     parameter_types: &BTreeMap<Span, Type>,
 ) -> bool {
     fn entry(program: &ArenaProgram, id: crate::syntax::arena::StmtId) -> Option<crate::syntax::arena::FunctionDefId> {
@@ -1751,7 +2124,7 @@ pub(crate) fn byte_argument_main(
             _ => None,
         }
     }
-    let Some(definition) = program.statement_ids().find_map(|id| entry(program, id)) else {
+    let Some(definition) = statements.find_map(|id| entry(program, id)) else {
         return false;
     };
     let parameters = program.arena.params(program.arena.function_def(definition).params);

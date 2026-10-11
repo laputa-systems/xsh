@@ -11,6 +11,14 @@ pure statement_label(level: Level) -> Str {
   label
 }
 
+pure simple_statement_label(level: Level) -> Str {
+  match level {
+    Info() => return "info"
+    Warn() => return "warn"
+    else => return "other"
+  }
+}
+
 pure value_label(level: Level) -> Str {
   let label = match level {
     Info => "info",
@@ -26,6 +34,22 @@ test test_match_else_runs_only_when_no_earlier_arm_selects {
   assert value_label(Info) == "info"
   assert value_label(Warn) == "other"
   assert value_label(Fault("disk")) == "other"
+}
+
+test test_simple_tag_statement_match_preserves_selection_and_fallback {
+  assert simple_statement_label(Info) == "info"
+  assert simple_statement_label(Warn) == "warn"
+  assert simple_statement_label(Fault("disk")) == "other"
+
+  var seen = []
+  match Warn {
+    Warn() => {
+      defer { seen += ["cleanup"] }
+      seen += ["selected"]
+    }
+    else => seen += ["fallback"]
+  }
+  assert seen == ["selected", "cleanup"]
 }
 
 test test_match_else_follows_guarded_and_wildcard_patterns {

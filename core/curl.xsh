@@ -908,7 +908,6 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
 # because the codec works on paths.
 proc gunzip(data: Bytes) [fs, error] -> Result[Bytes] {
   let scratch = fs.tempdir()?
-  defer scratch.close()
   let dir = scratch.host_path()?
   fp"{dir}/in.gz".write(data)?
   compression.transform(fp"{dir}/in.gz", fp"{dir}/out", "gzip", true)?

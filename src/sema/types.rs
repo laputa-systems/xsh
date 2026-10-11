@@ -5,6 +5,9 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 use xsh_registry::types::BuiltinTypeName;
+
+#[path = "types/resource.rs"]
+mod resource;
 pub use xsh_registry::types::BuiltinTypeParameter;
 
 fn btree_map<K: Ord, V>(entries: Vec<(K, V)>) -> BTreeMap<K, V> {
@@ -62,6 +65,7 @@ pub enum Type {
     ProcessHandle,
     NetJob,
     FsRoot,
+    FsLock,
     Unit,
     Tag(Name),
     Optional(Box<Type>),
@@ -740,6 +744,7 @@ impl Type {
             BuiltinTypeName::ProcessHandle => Self::ProcessHandle,
             BuiltinTypeName::NetJob => Self::NetJob,
             BuiltinTypeName::FsRoot => Self::FsRoot,
+            BuiltinTypeName::FsLock => Self::FsLock,
             BuiltinTypeName::Result => Self::Result(Box::new(Self::Unknown), Box::new(Self::Error)),
             BuiltinTypeName::Unit => Self::Unit,
             BuiltinTypeName::RelPath => Self::rel_path(),
@@ -774,6 +779,7 @@ impl Type {
             Self::ProcessHandle => Some(BuiltinTypeName::ProcessHandle),
             Self::NetJob => Some(BuiltinTypeName::NetJob),
             Self::FsRoot => Some(BuiltinTypeName::FsRoot),
+            Self::FsLock => Some(BuiltinTypeName::FsLock),
             Self::Result(_, _) => Some(BuiltinTypeName::Result),
             Self::Unit => Some(BuiltinTypeName::Unit),
             Self::BuiltinParameter(_)
@@ -1323,6 +1329,7 @@ impl Type {
             Self::ProcessHandle => Some("ProcessHandle".to_string()),
             Self::NetJob => Some("NetJob".to_string()),
             Self::FsRoot => Some("FsRoot".to_string()),
+            Self::FsLock => Some("FsLock".to_string()),
             Self::Tag(name) => Some(name.to_string()),
             Self::Optional(inner) => Some(format!("{}?", inner.annotation_source()?)),
             Self::Union(members) => Some(format!(
@@ -1405,8 +1412,18 @@ impl fmt::Display for Type {
             Self::ProcessHandle => write!(f, "ProcessHandle"),
             Self::NetJob => write!(f, "NetJob"),
             Self::FsRoot => write!(f, "FsRoot"),
+            Self::FsLock => write!(f, "FsLock"),
             Self::Unit => write!(f, "Unit"),
-            Self::Tag(name) => write!(f, "{name}"),
+            Self::Tag(name) => {
+                // Imported enum identities include their declaring file, but
+                // diagnostics name the declaration without exposing that path.
+                let identity = name.as_str();
+                let display = identity.rsplit_once('.').map_or(
+                    identity.as_str(),
+                    |(owner, name)| if owner.starts_with('/') { name } else { identity.as_str() },
+                );
+                write!(f, "{display}")
+            }
             Self::Optional(inner) => write!(f, "{inner}?"),
             Self::Union(members) => {
                 write!(f, "Union[")?;
@@ -1521,6 +1538,21 @@ mod tests {
     use crate::symbol::Name;
     use crate::syntax::node::Effect;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn enum_display_hides_only_filesystem_owned_identities() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            for (identity, display) in [
+                ("/tmp/module.with.dots.xsh.Kind", "Kind"),
+                ("Kind", "Kind"),
+                ("module.Kind", "module.Kind"),
+                ("type parameter T", "type parameter T"),
+                ("<tag>", "<tag>"),
+            ] {
+                assert_eq!(Type::Tag(Name::intern(identity)).to_string(), display);
+            }
+        });
+    }
 
     fn module_type(exports: BTreeMap<Name, ModuleExportType>) -> std::sync::Arc<super::ModuleType> {
         std::sync::Arc::new(super::ModuleType::open(exports))

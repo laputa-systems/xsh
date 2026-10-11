@@ -1,6 +1,6 @@
 #![allow(clippy::single_call_fn)]
 
-use crate::diagnostic::{DiagnosticCode, DiagnosticFamily};
+use crate::diagnostic::{DiagnosticCode, DiagnosticFamily, Severity};
 use crate::map_key::MapKey;
 
 use crate::diagnostic::Diagnostic;
@@ -15,19 +15,20 @@ use crate::runtime::process::{
 use crate::runtime::signal::{
     HookSignal, hook_signal_from_number, normalize_hook_signal, signal_rejection_message,
 };
+use xsh_registry::managed_resource::ResourceKind;
 use crate::runtime::value::{
-    AbortSignal, CommandPlan, DigestValue, DurationValue, ErrorContext, FloatValue, FsRootValue,
+    AbortSignal, CommandPlan, DigestValue, DurationValue, ErrorContext, FloatValue, FsLockValue, FsRootValue,
     FunctionName, NetJobValue, PathValue, ProcessHandleValue, RecordMap, RegexValue, ResultValue,
-    RuntimeError, StreamValue, Value,
+    RuntimeError, StreamOwner, StreamSource, StreamValue, Value,
 };
 use crate::sema::check::{Checker, CompactDeclOutput};
 use crate::sema::types::{CallableType, Type};
 use crate::source::{SourceId, SourceMap, Span};
-use crate::symbol::{Name, NameText, QualifiedName};
+use crate::symbol::{Name, QualifiedName};
 use crate::syntax::arena::{
     ArenaCallArg, ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaStmtKind, ExprId, StmtId,
 };
-use crate::syntax::node::{AssignOp, BinaryOp, FormatSpec, RedirectionKind, RunKind};
+use crate::syntax::node::{AssignOp, FormatSpec, RedirectionKind, RunKind};
 use crate::trace::{
     TraceArg, TraceEnv, TraceError, TraceEvent, TraceKind, TracePayload, TraceStatus,
     TraceStatusKind, TraceTiming, Traceback, TracebackFrame,
@@ -36,6 +37,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
+use std::ops::ControlFlow;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::PathBuf;
 
@@ -45,17 +47,61 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use xsh_root::Root;
 
+mod call_plan;
+use call_plan::ModuleCallPlan;
 mod indexed;
 mod lower;
-use indexed::full::{FullBuilder, FullProgram};
+use indexed::full::{
+    BuildBoolRow, BuildExprRow, BuildIntRow, BuildPatternRow, BuildStmtRow, FullBuilder,
+    FullProgram, LoweredPipelineStage,
+};
 mod lowered_ops;
-use lowered_ops::{lowered_value_from_runtime, lowered_value_from_runtime_any};
+use lowered_ops::lowered_value_from_runtime;
 mod lowered_run;
 mod module_contract;
 mod modules;
 mod require;
 mod set;
 mod validated;
+mod type_view;
+mod json;
+use type_view::{ValueView, value_matches_static_type};
+
+pub(crate) fn encode_runtime_json(
+    value: &Value,
+    pretty: bool,
+    span: Span,
+) -> Result<String, RuntimeError> {
+    json::encode_runtime(value, pretty, span)
+}
+
+fn encode_lowered_json(
+    value: &LoweredValue,
+    pretty: bool,
+    span: Span,
+) -> Result<String, RuntimeError> {
+    json::encode_lowered(value, pretty, span)
+}
+
+fn encode_lowered_json_for_write(
+    value: &LoweredValue,
+    pretty: bool,
+    span: Span,
+) -> Result<String, RuntimeError> {
+    json::encode_lowered_for_write(value, pretty, span)
+}
+
+fn encode_lowered_json_lines_for_write(
+    values: &LoweredValue,
+    span: Span,
+) -> Result<String, RuntimeError> {
+    json::encode_lowered_lines_for_write(values, span)
+}
+
+pub(crate) fn runtime_value_type_name(value: &Value) -> &'static str {
+    ValueView::Runtime(value).type_name()
+}
+
 #[cfg(feature = "native-tests")]
 pub use modules::{LinuxFake, UnixFake};
 mod net_job;
@@ -165,6 +211,8 @@ pub struct NativeTestRunRequest {
     pub script_args: Vec<std::ffi::OsString>,
     /// Overrides by name; a value is the bytes the script receives.
     pub env: BTreeMap<String, Vec<u8>>,
+    /// Keeps test-spawned script processes on the explicit frame scheduler.
+    pub force_frames: bool,
     pub stdin: Vec<u8>,
     /// The fakes the requesting test installed; the host runs the script
     /// under the same fakes.
@@ -174,6 +222,21 @@ pub struct NativeTestRunRequest {
     /// when that test times out.
     pub cancellation: Option<TestCancellation>,
     pub span: Span,
+}
+
+const FORCE_FRAMES_ENV: &str = "XSH_INTERNAL_TEST_FORCE_FRAMES";
+
+#[cfg(feature = "native-tests")]
+pub const NATIVE_TEST_FORCE_FRAMES_ENV: &str = FORCE_FRAMES_ENV;
+
+fn force_frames_from_marker(value: Option<&std::ffi::OsStr>) -> bool {
+    match value {
+        None => false,
+        Some(value) if value == "1" => true,
+        Some(value) => panic!(
+            "reserved `{FORCE_FRAMES_ENV}` marker must be `1`, got {value:?}"
+        ),
+    }
 }
 
 #[cfg(feature = "native-tests")]
@@ -522,6 +585,29 @@ struct LiveProcessHandle {
     span: Span,
 }
 
+struct OwnedStream {
+    owner_scope: u64,
+    source: Option<StreamSource>,
+    script: Option<crate::runtime::value::ScriptStreamState>,
+}
+
+#[derive(Default)]
+struct ResourceTransferWorklist {
+    resources: Vec<OwnedHostResource>,
+    streams: Vec<StreamTransfer>,
+}
+
+struct StreamTransfer {
+    owner: StreamOwner,
+    /// Retrying a lock-busy visit must traverse captures even after ownership moved.
+    revisit: bool,
+}
+
+struct PendingStreamCapture {
+    owner: StreamOwner,
+    target_scope: u64,
+}
+
 use net_job::LiveNetJob;
 
 #[derive(Clone, Debug, Default)]
@@ -600,6 +686,7 @@ struct BuildScratch {
     /// prohibit integer-only specialization.
     non_int_binary_expressions: FxHashSet<usize>,
     statements: Vec<BuildStmtRow>,
+    resource_transfers: Vec<bool>,
     patterns: Vec<BuildPatternRow>,
     ints: Vec<BuildIntRow>,
     bools: Vec<BuildBoolRow>,
@@ -616,7 +703,12 @@ impl BuildScratch {
     fn stmt(&mut self, row: BuildStmtRow) -> BuildStmtId {
         let id = BuildStmtId::new(self.statements.len());
         self.statements.push(row);
+        self.resource_transfers.push(false);
         id
+    }
+
+    fn mark_resource_transfer(&mut self, id: BuildStmtId) {
+        self.resource_transfers[id.index()] = true;
     }
 
     fn pattern(&mut self, row: BuildPatternRow) -> BuildPatternId {
@@ -655,8 +747,9 @@ struct FunctionBuild {
     return_kind: LoweredReturnKind,
     return_check: Option<LoweredTypeCheck>,
     slot_count: usize,
+    /// One exact callable type per local dense slot; `None` records no unique checked signature.
+    callable_slot_types: Vec<Option<Type>>,
     body: Vec<BuildStmtId>,
-    has_defers: bool,
     scratch: Rc<RefCell<BuildScratch>>,
 }
 
@@ -1002,6 +1095,7 @@ struct LoweredTopLevelSlot {
     name: Name,
     slot: usize,
     kind: LoweredType,
+    callable_type: Option<Type>,
     mutable: bool,
 }
 
@@ -1056,6 +1150,7 @@ enum LoweredType {
     ProcessHandle,
     NetJob,
     FsRoot,
+    FsLock,
     Stream,
     Pure,
     Proc,
@@ -1077,7 +1172,6 @@ type LoweredParamDefaults = SmallVec<[Option<LoweredValue>; 4]>;
 type LoweredTopLevelSlots = SmallVec<[LoweredTopLevelSlot; 4]>;
 type BuildPatternIdSlots = SmallVec<[Option<usize>; 2]>;
 type LoweredCompFields = SmallVec<[(Name, Box<LoweredCompTarget>, Span); 4]>;
-type LoweredErrorPatternFields = SmallVec<[(Name, Option<usize>); 4]>;
 
 #[derive(Clone, Debug)]
 enum LoweredCompTarget {
@@ -1193,304 +1287,11 @@ enum LoweredAssignStep {
 #[derive(Clone, Debug)]
 struct LoweredAssignPath(Vec<LoweredAssignStep>);
 
-#[derive(Clone, Debug)]
-enum BuildStmtRow {
-    DefaultParameter {
-        slot: usize,
-        value: BuildExprId,
-        kind: LoweredType,
-        check: Option<LoweredTypeCheck>,
-        span: Span,
-    },
-    Let {
-        slot: usize,
-        value: BuildExprId,
-    },
-    /// `guard let slot = value else { |failure| ... }`: evaluate
-    /// `value` (a `Result`); on `Ok`, bind its inner value to `slot` and
-    /// continue; on `Err`, bind the error to `else_param_slot` (if present) and
-    /// run `else_body`, which must diverge.
-    ///
-    /// With `optional`, `value` is an optional instead: `null` runs
-    /// `else_body` and any other value is bound to `target` as it is. A null
-    /// value carries no error, so an optional guard has no `else_param_slot`.
-    Guard {
-        target: LoweredCompTarget,
-        value: BuildExprId,
-        else_param_slot: Option<usize>,
-        else_body: Vec<BuildStmtId>,
-        span: Span,
-        optional: bool,
-    },
-    With {
-        bindings: Vec<(usize, BuildExprId)>,
-        body: Vec<BuildStmtId>,
-        else_param_slot: Option<usize>,
-        else_body: Vec<BuildStmtId>,
-        captures: Vec<usize>,
-        span: Span,
-    },
-    LetInt {
-        slot: usize,
-        value: BuildIntId,
-    },
-    LetBool {
-        slot: usize,
-        value: BuildBoolId,
-    },
-    Assign {
-        slot: usize,
-        op: AssignOp,
-        value: BuildExprId,
-        // Validate the final replacement before offering storage to consuming operations.
-        check: Option<LoweredTypeCheck>,
-        span: Span,
-    },
-    AssignField {
-        slot: usize,
-        field: Arc<str>,
-        op: AssignOp,
-        value: BuildExprId,
-        span: Span,
-    },
-    AssignFieldInt {
-        slot: usize,
-        field: Arc<str>,
-        op: AssignOp,
-        value: BuildIntId,
-        span: Span,
-    },
-    AssignPath {
-        slot: usize,
-        path: LoweredAssignPath,
-        op: AssignOp,
-        value: BuildExprId,
-        check: Option<LoweredTypeCheck>,
-        span: Span,
-    },
-    AssignInt {
-        slot: usize,
-        op: AssignOp,
-        value: BuildIntId,
-        span: Span,
-    },
-    AssignBool {
-        slot: usize,
-        value: BuildBoolId,
-    },
-    Value {
-        value: BuildExprId,
-    },
-    Assert {
-        value: BuildExprId,
-        message: Option<BuildExprId>,
-        span: Span,
-    },
-    Expr {
-        value: BuildExprId,
-        span: Span,
-    },
-    If {
-        branches: Vec<(BuildExprId, Vec<BuildStmtId>)>,
-        else_body: Option<Vec<BuildStmtId>>,
-    },
-    IfBool {
-        branches: Vec<(BuildBoolId, Vec<BuildStmtId>)>,
-        else_body: Option<Vec<BuildStmtId>>,
-    },
-    PatternIf {
-        branches: Vec<(BuildExprId, Vec<BuildStmtId>, Vec<usize>)>,
-        else_body: Option<Vec<BuildStmtId>>,
-        span: Span,
-    },
-    PatternWhile {
-        condition: BuildExprId,
-        body: Vec<BuildStmtId>,
-        captures: Vec<usize>,
-        span: Span,
-    },
-    While {
-        condition: BuildExprId,
-        body: Vec<BuildStmtId>,
-    },
-    WhileBool {
-        condition: BuildBoolId,
-        body: Vec<BuildStmtId>,
-    },
-    Match {
-        value: BuildExprId,
-        arms: Vec<(BuildPatternId, Option<BuildExprId>, Vec<BuildStmtId>)>,
-        span: Span,
-    },
-    StrMatch {
-        value: BuildExprId,
-        arms: FxHashMap<Arc<str>, Vec<BuildStmtId>>,
-        fallback: Option<Vec<BuildStmtId>>,
-        span: Span,
-    },
-    TagMatch {
-        value: BuildExprId,
-        arms: FxHashMap<Arc<str>, Vec<BuildStmtId>>,
-        fallback: Option<Vec<BuildStmtId>>,
-        span: Span,
-    },
-    For {
-        slot: usize,
-        iter: BuildExprId,
-        body: Vec<BuildStmtId>,
-        span: Span,
-    },
-    // Select a recursive record target into independent local values.
-    LetRecord {
-        source: BuildExprId,
-        target: LoweredCompTarget,
-        span: Span,
-    },
-    // Select the recursive record target anew for each iteration.
-    ForRecord {
-        target: LoweredCompTarget,
-        iter: BuildExprId,
-        body: Vec<BuildStmtId>,
-        span: Span,
-    },
-    ForStrLines {
-        slot: usize,
-        text: BuildExprId,
-        body: Vec<BuildStmtId>,
-        span: Span,
-    },
-    ScanLines {
-        text_slot: usize,
-        line_slot: usize,
-        checks: Vec<ScanCheck>,
-        span: Span,
-    },
-    ScanBytes {
-        config: ScanBytes,
-    },
-    Print {
-        args: Vec<BuildExprId>,
-        stderr: bool,
-        flush: bool,
-        propagate_result: bool,
-        span: Span,
-    },
-    Cd {
-        target: BuildExprId,
-        body: Vec<BuildStmtId>,
-        span: Span,
-    },
-    Env {
-        env: Vec<LoweredRunEnv>,
-        body: Vec<BuildStmtId>,
-    },
-    Proc {
-        // The registry identity is stable; resolve it once while lowering
-        // instead of retaining two names and looking it up on every execution.
-        op: RuntimeOp,
-        args: Vec<BuildExprId>,
-        propagate_result: bool,
-        span: Span,
-    },
-    Run {
-        value: BuildExprId,
-        propagate_result: bool,
-    },
-    Loop {
-        body: Vec<BuildStmtId>,
-    },
-    Return {
-        value: BuildExprId,
-    },
-    Yield {
-        value: BuildExprId,
-    },
-    YieldDelegate {
-        value: BuildExprId,
-        span: Span,
-    },
-    Break,
-    BreakValue {
-        value: BuildExprId,
-    },
-    Continue,
-    Defer {
-        value: BuildExprId,
-        /// Whether this is an `errdefer`: the action runs only when its scope
-        /// leaves with an error.
-        on_error: bool,
-    },
-}
 
-#[derive(Clone, Debug)]
-enum BuildIntRow {
-    Int(i64),
-    Slot(usize),
-    Binary {
-        op: BinaryOp,
-        left: BuildIntId,
-        right: BuildIntId,
-    },
-    StrByteLenSlot {
-        slot: usize,
-        span: Span,
-    },
-    StrCountLinesSlot {
-        slot: usize,
-        span: Span,
-    },
-    StrByteAtSlot {
-        slot: usize,
-        index: BuildIntId,
-        default: Option<BuildIntId>,
-        span: Span,
-    },
-}
 
-#[derive(Clone, Debug)]
-enum BuildBoolRow {
-    Bool(bool),
-    Slot(usize),
-    Not(BuildBoolId),
-    And(BuildBoolId, BuildBoolId),
-    Or(BuildBoolId, BuildBoolId),
-    IntCompare {
-        op: BinaryOp,
-        left: BuildIntId,
-        right: BuildIntId,
-    },
-    StrPredicateSlot {
-        slot: usize,
-        predicate: LoweredStrPredicate,
-        needle: Arc<[u8]>,
-        span: Span,
-    },
-    ContainsSlot {
-        slot: usize,
-        needle: LoweredValue,
-        span: Span,
-    },
-    StrContainsSlot {
-        slot: usize,
-        needle: Arc<str>,
-        span: Span,
-    },
-    TrimEmptySlot {
-        slot: usize,
-        span: Span,
-    },
-    TrimStrPredicateSlot {
-        slot: usize,
-        predicate: LoweredStrPredicate,
-        needle: Arc<[u8]>,
-        span: Span,
-    },
-    LiteralCompareSlot {
-        op: BinaryOp,
-        slot: usize,
-        value: LoweredValue,
-    },
-}
+
+
+
 
 enum StmtFlow {
     None,
@@ -1517,424 +1318,7 @@ impl EndDistance {
     }
 }
 
-#[derive(Clone, Debug)]
-enum BuildExprRow {
-    Null,
-    Unit,
-    Int(i64),
-    Float(FloatValue),
-    Duration(DurationValue),
-    Bool(bool),
-    Str(Arc<str>),
-    Bytes(Arc<[u8]>),
-    PreparedRegex(RegexValue),
-    PreparedConstant(PreparedConstantValue),
-    Path(PathValue),
-    FunctionRef {
-        function: FunctionName,
-        pure: bool,
-    },
-    PathFrom {
-        value: BuildExprId,
-        span: Span,
-    },
-    Param(usize),
-    ComparisonChain {
-        pairs: Vec<BuildExprId>,
-        assertion: bool,
-    },
-    Binary {
-        op: BinaryOp,
-        left: BuildExprId,
-        right: BuildExprId,
-        span: Span,
-    },
-    IfExpr {
-        branches: Vec<(BuildExprId, BuildExprId)>,
-        else_value: BuildExprId,
-        span: Span,
-    },
-    PatternIf {
-        branches: Vec<(BuildExprId, BuildExprId, Vec<usize>)>,
-        else_value: BuildExprId,
-        span: Span,
-    },
-    MatchExpr {
-        value: BuildExprId,
-        arms: Vec<(BuildPatternId, Option<BuildExprId>, BuildExprId)>,
-        span: Span,
-    },
-    StrMatchExpr {
-        value: BuildExprId,
-        arms: FxHashMap<Arc<str>, BuildExprId>,
-        fallback: Option<BuildExprId>,
-        span: Span,
-    },
-    TagMatchExpr {
-        value: BuildExprId,
-        arms: FxHashMap<Arc<str>, BuildExprId>,
-        fallback: Option<BuildExprId>,
-        span: Span,
-    },
-    ResultFallback {
-        left: BuildExprId,
-        right: BuildExprId,
-    },
-    FmtString(Vec<LoweredFmtPart>),
-    PathFmtString {
-        parts: Vec<LoweredFmtPart>,
-        span: Span,
-    },
-    // A `g"..."` glob literal. Expanded against the current cwd at eval time into
-    // a `List[Path]` (mirrors the recursive evaluator's `eval_glob`).
-    Glob {
-        pattern: Arc<str>,
-        span: Span,
-    },
-    // The `$?` last-process-status expression. Reads the evaluator's tracked
-    // `last_status` at eval time, erroring if no process has run yet.
-    LastStatus {
-        span: Span,
-    },
-    Record(Vec<LoweredRecordEntry>),
-    // A missing key identifies a Map spread; keyed entries evaluate key before value.
-    MapLiteral(Vec<(Option<BuildExprId>, BuildExprId, Span)>),
-    RecordUpdate {
-        base: BuildExprId,
-        updates: LoweredRecordUpdates,
-        span: Span,
-    },
-    List(Vec<BuildExprId>),
-    // Each element records whether it splices, its value, and its source span.
-    ListBuild(Vec<(bool, BuildExprId, Span)>),
-    // The `map.empty()` builtin constructor (empty list literals already lower via `List`).
-    EmptyMap,
-    // The `bytes.concat(<List[Bytes]>)` builtin constructor.
-    BytesConcat {
-        arg: BuildExprId,
-        span: Span,
-    },
-    Range {
-        start: BuildExprId,
-        end: BuildExprId,
-        span: Span,
-    },
-    Tag {
-        type_name: Name,
-        name: Arc<str>,
-        fields: Vec<BuildExprId>,
-        wire: Option<Arc<crate::sema::wire_enums::WireEnumMapping>>,
-    },
-    ListComp {
-        value: BuildExprId,
-        qualifiers: LoweredCompQualifiers,
-        span: Span,
-    },
-    MapComp {
-        key: BuildExprId,
-        value: BuildExprId,
-        qualifiers: LoweredCompQualifiers,
-        span: Span,
-    },
-    ListPipeline {
-        input: BuildExprId,
-        stages: Vec<LoweredPipelineStage>,
-        span: Span,
-    },
-    Field {
-        base: BuildExprId,
-        // Scratch rows preserve generated static text without allocation while
-        // retaining an owned spelling for dynamic names.
-        name: NameText,
-        span: Span,
-    },
-    Index {
-        base: BuildExprId,
-        index: BuildExprId,
-        span: Span,
-    },
-    /// `base[-distance]` over a list, where the checker saw the negative
-    /// literal.
-    IndexFromEnd {
-        base: BuildExprId,
-        distance: EndDistance,
-        span: Span,
-    },
-    Slice {
-        base: BuildExprId,
-        start: Option<BuildExprId>,
-        end: Option<BuildExprId>,
-        span: Span,
-    },
-    Method {
-        receiver: BuildExprId,
-        name: NameText,
-        args: Vec<BuildExprId>,
-        span: Span,
-    },
-    StrByteLen {
-        receiver: BuildExprId,
-        span: Span,
-    },
-    StrByteAt {
-        receiver: BuildExprId,
-        index: BuildExprId,
-        span: Span,
-    },
-    StrPredicate {
-        receiver: BuildExprId,
-        predicate: LoweredStrPredicate,
-        needle: BuildExprId,
-        span: Span,
-    },
-    RegexCompile {
-        pattern: BuildExprId,
-        span: Span,
-    },
-    // Preserve a checked domain while retaining ordinary runtime failure semantics.
-    CheckedValue {
-        value: BuildExprId,
-        check: LoweredTypeCheck,
-        span: Span,
-    },
-    Require {
-        value: BuildExprId,
-        check: LoweredTypeCheck,
-        span: Span,
-    },
-    // Boxed because captured and spawned runs are cold, unusually wide
-    // payloads that would otherwise determine the size of every expression.
-    RunCapture(Box<LoweredRunCapture>),
-    RunPipeline {
-        segments: Vec<LoweredRunPipelineSegment>,
-        propagate: bool,
-        span: Span,
-    },
-    SpawnRun(Box<LoweredSpawnRun>),
-    SpawnCommand {
-        command: BuildExprId,
-        span: Span,
-    },
-    Wait {
-        target: BuildExprId,
-        span: Span,
-    },
-    Capture {
-        body: Vec<BuildStmtId>,
-        span: Span,
-    },
-    ValueBlock {
-        body: Vec<BuildStmtId>,
-        span: Span,
-    },
-    ErrorContext {
-        message: BuildExprId,
-        body: Vec<BuildStmtId>,
-        span: Span,
-    },
-    ContextScope {
-        kind: crate::syntax::arena::ContextScopeKind,
-        input: BuildExprId,
-        body: Vec<BuildStmtId>,
-        span: Span,
-    },
-    Loop {
-        body: Vec<BuildStmtId>,
-        span: Span,
-    },
-    Retry {
-        delays: Vec<BuildExprId>,
-        pattern: Option<BuildPatternId>,
-        body: Vec<BuildStmtId>,
-        span: Span,
-        schedule: crate::syntax::arena::RetrySchedule,
-    },
-    FsFiles {
-        root: BuildExprId,
-        gitignore: Option<BuildExprId>,
-        stat: Option<BuildExprId>,
-        hidden: Option<BuildExprId>,
-        exts: Option<BuildExprId>,
-        result_wrapped: bool,
-        span: Span,
-    },
-    FsWalk {
-        root: BuildExprId,
-        gitignore: Option<BuildExprId>,
-        stat: Option<BuildExprId>,
-        hidden: Option<BuildExprId>,
-        exts: Option<BuildExprId>,
-        result_wrapped: bool,
-        span: Span,
-    },
-    FsList {
-        op: RuntimeOp,
-        path: BuildExprId,
-        stat: Option<BuildExprId>,
-        ordered: Option<BuildExprId>,
-        span: Span,
-    },
-    FsTempDir {
-        span: Span,
-    },
-    FsMkdir {
-        path: BuildExprId,
-        parents: Option<BuildExprId>,
-        span: Span,
-    },
-    FsRemove {
-        path: BuildExprId,
-        missing_ok: Option<BuildExprId>,
-        span: Span,
-    },
-    PathReadText {
-        path: BuildExprId,
-        span: Span,
-    },
-    PathReadBytes {
-        path: BuildExprId,
-        span: Span,
-    },
-    PathExists {
-        path: BuildExprId,
-        span: Span,
-    },
-    PathExecutable {
-        path: BuildExprId,
-        span: Span,
-    },
-    PathDu {
-        path: BuildExprId,
-        span: Span,
-    },
-    PathMetadata {
-        path: BuildExprId,
-        span: Span,
-    },
-    PathReadlink {
-        path: BuildExprId,
-        span: Span,
-    },
-    PathResolve {
-        path: BuildExprId,
-        span: Span,
-    },
-    PathWrite {
-        path: BuildExprId,
-        data: BuildExprId,
-        atomic: bool,
-        span: Span,
-    },
-    PathMkdir {
-        path: BuildExprId,
-        parents: Option<BuildExprId>,
-        span: Span,
-    },
-    PathRemove {
-        path: BuildExprId,
-        missing_ok: Option<BuildExprId>,
-        span: Span,
-    },
-    JsonEncode {
-        value: BuildExprId,
-        span: Span,
-    },
-    ArchiveTarCreate {
-        path: BuildExprId,
-        root: BuildExprId,
-        entries: BuildExprId,
-        compression: Option<BuildExprId>,
-        overwrite: Option<BuildExprId>,
-        span: Span,
-    },
-    ArchiveTarList {
-        path: BuildExprId,
-        span: Span,
-    },
-    ArchiveTarExtract {
-        path: BuildExprId,
-        dest: BuildExprId,
-        span: Span,
-    },
-    ModuleCall {
-        op: RuntimeOp,
-        cli_plan: Option<Arc<crate::modules::cli::CliDescriptorPlan>>,
-        args: Vec<Option<BuildExprId>>,
-        span: Span,
-    },
-    // Boxed because this cold command-construction payload otherwise makes
-    // every `BuildExprId` 16 bytes larger, including expression-heavy scripts.
-    ProcessCommandArgv(Box<LoweredProcessCommandArgv>),
-    ProcessCommandBuilder {
-        entries: Vec<LoweredProcessCommandBuilderEntry>,
-        span: Span,
-    },
-    Abort {
-        status: BuildExprId,
-        span: Span,
-    },
-    Fail {
-        message: BuildExprId,
-        span: Span,
-    },
-    Ok(BuildExprId),
-    /// What `Proc.call` returns for the call it wraps: the `Result` the proc
-    /// returned, or `Ok` of any other value. A dynamic handle does not say
-    /// what its proc returns, so the checker types the call `Result[Any]`
-    /// and this makes every proc honor that.
-    ProcCallResult(BuildExprId),
-    Err {
-        value: BuildExprId,
-        cause: Option<BuildExprId>,
-    },
-    // Boxed: `LoweredErrorExpr::Structured` inlines two `String`s plus two
-    // `Vec`s (~96 bytes) that would otherwise size every `BuildExprId` variant
-    // for the sake of the comparatively rare structured-error-literal case.
-    Error(Box<LoweredErrorExpr>),
-    Try {
-        value: BuildExprId,
-        span: Span,
-    },
-    Call {
-        function: LoweredFunctionKey,
-        args: Vec<LoweredCallArg>,
-        span: Span,
-    },
-    DirectPureCall {
-        function: LoweredFunctionKey,
-        args: Vec<LoweredCallArg>,
-        span: Span,
-    },
-    DynamicCall {
-        callee: BuildExprId,
-        args: Vec<LoweredCallArg>,
-        span: Span,
-    },
-    /// A call through a value of a callable type. `signature` is the checked
-    /// `Type::Callable` the arguments were bound against, and `pure` its
-    /// kind; `args` supplies each of its parameters once, in order.
-    TypedCall {
-        callee: BuildExprId,
-        pure: bool,
-        signature: Type,
-        args: Vec<LoweredCallArg>,
-        span: Span,
-    },
-    SelfCall {
-        args: Vec<LoweredCallArg>,
-        span: Span,
-    },
-    /// A call to an implementation a loading program published.
-    ///
-    /// Used only by a dynamically loaded module that links its standard-library
-    /// calls to the implementations its loader already prepared, so the callee
-    /// has no local function identity to encode.
-    ExternalCall {
-        function: crate::symbol::QualifiedName,
-        args: Vec<LoweredCallArg>,
-        span: Span,
-    },
-}
+
 
 #[derive(Clone, Debug)]
 enum LoweredCallArg {
@@ -1989,90 +1373,6 @@ enum LoweredFmtPart {
     Expr(BuildExprId, Span, Option<FormatSpec>),
 }
 
-#[derive(Clone, Debug)]
-enum BuildPatternRow {
-    Alias {
-        pattern: BuildPatternId,
-        slot: usize,
-    },
-    Alternation {
-        patterns: Vec<BuildPatternId>,
-    },
-    List {
-        elements: Vec<BuildPatternId>,
-        rest: Option<BuildPatternId>,
-    },
-    TagType {
-        type_name: Name,
-        variants: Vec<Name>,
-    },
-    RecordTest {
-        fields: Vec<(Name, BuildPatternId)>,
-    },
-    ResultTest {
-        ok: bool,
-        inner: BuildPatternId,
-    },
-    TagTest {
-        type_name: Name,
-        name: Name,
-        fields: Vec<BuildPatternId>,
-    },
-    ErrorTest {
-        family: Name,
-        variant: Name,
-        fields: Vec<(Name, BuildPatternId)>,
-    },
-    Wildcard,
-    // A text pattern: `segments` are the literal text around `holes`, one
-    // more than there are holes, and `kinds` says what each hole makes of
-    // the text it takes. Each hole is a wildcard or a binding.
-    Text {
-        holes: Vec<BuildPatternId>,
-        kinds: Vec<crate::sema::check::TextHoleKind>,
-        segments: Vec<Arc<str>>,
-    },
-    // `name => …`: always matches, binds the scrutinee to `slot`.
-    Bind {
-        slot: usize,
-    },
-    // `name is T => …` / `_ is T => …`: matches when the value's runtime type
-    // satisfies `ty`, binding `slot` when present.
-    Type {
-        ty: crate::sema::types::Type,
-        slot: Option<usize>,
-    },
-    Literal(LoweredValue),
-    ResultOk {
-        slot: Option<usize>,
-        unit_only: bool,
-    },
-    ResultErr {
-        slot: Option<usize>,
-        unit_only: bool,
-    },
-    ErrorVariant {
-        family: Name,
-        variant: Name,
-        // Structured error patterns are rare; keep their multi-field payload
-        // from setting the size of every pattern in every match arm.
-        fields: Box<LoweredErrorPatternFields>,
-        result_wrapped: bool,
-    },
-    // `is Facet => …`: matches when the error value carries `facet`.
-    // `result_wrapped` distinguishes `Err(is Facet)` (scrutinee is a Result)
-    // from a standalone `is Facet` (scrutinee is the error value itself).
-    Facet {
-        facet: Name,
-        result_wrapped: bool,
-    },
-    Tag {
-        type_name: Name,
-        name: Name,
-        slots: BuildPatternIdSlots,
-    },
-}
-
 /// The aggregation a `reduce-by --sum|--min|--max` applies to the per-key
 /// `value` produced by its block.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2080,171 +1380,6 @@ enum ReduceByOp {
     Sum,
     Min,
     Max,
-}
-
-#[derive(Clone, Debug)]
-enum LoweredPipelineStage {
-    TextLines,
-    JsonLines,
-    Where {
-        slot: usize,
-        predicate: BuildExprId,
-    },
-    WhereBlock {
-        slot: usize,
-        body: Vec<BuildStmtId>,
-        value: BuildExprId,
-    },
-    Map {
-        slot: usize,
-        value: BuildExprId,
-    },
-    MapBlock {
-        slot: usize,
-        body: Vec<BuildStmtId>,
-        value: BuildExprId,
-    },
-    FlatMap {
-        slot: usize,
-        value: BuildExprId,
-    },
-    FlatMapBlock {
-        slot: usize,
-        body: Vec<BuildStmtId>,
-        value: BuildExprId,
-    },
-    BytesChunks {
-        size: BuildExprId,
-    },
-    BatchCount {
-        count: BuildExprId,
-    },
-    BatchMaxArgv {
-        max_argv: Option<BuildExprId>,
-    },
-    BatchMaxBytes {
-        max_bytes: BuildExprId,
-    },
-    BatchLimits {
-        configuration: BuildExprId,
-    },
-    Shuffle {
-        seed: Option<BuildExprId>,
-    },
-    Fold {
-        acc_slot: usize,
-        item_slot: usize,
-        initial: BuildExprId,
-        body: Vec<BuildStmtId>,
-        value: BuildExprId,
-    },
-    ReduceBy {
-        item_slot: usize,
-        body: Vec<BuildStmtId>,
-        value: BuildExprId,
-        op: ReduceByOp,
-        jobs: Option<BuildExprId>,
-    },
-    ReduceByConfigured {
-        item_slot: usize,
-        body: Vec<BuildStmtId>,
-        value: BuildExprId,
-        configuration: BuildExprId,
-    },
-    ParMap {
-        slot: usize,
-        jobs: Option<BuildExprId>,
-        value: BuildExprId,
-    },
-    ParMapBlock {
-        slot: usize,
-        body: Vec<BuildStmtId>,
-        jobs: Option<BuildExprId>,
-        value: BuildExprId,
-    },
-    ParMapFlatMapReduceBy {
-        slot: usize,
-        body: Option<Vec<BuildStmtId>>,
-        jobs: Option<BuildExprId>,
-        value: BuildExprId,
-        flatten: bool,
-        reduce_item_slot: usize,
-        reduce_body: Vec<BuildStmtId>,
-        reduce_value: BuildExprId,
-        op: ReduceByOp,
-    },
-    Tee {
-        slot: usize,
-        body: Vec<BuildStmtId>,
-    },
-    Each {
-        slot: usize,
-        body: Vec<BuildStmtId>,
-    },
-    TablePrint {
-        columns: Option<Vec<String>>,
-    },
-    TablePrintConfigured {
-        columns: BuildExprId,
-    },
-    Enumerate,
-    Zip {
-        other: BuildExprId,
-    },
-    Sort {
-        descending: Option<BuildExprId>,
-    },
-    SortBy {
-        slot: usize,
-        key: BuildExprId,
-        descending: Option<BuildExprId>,
-    },
-    GroupBy {
-        slot: usize,
-        key: BuildExprId,
-    },
-    CountBy {
-        slot: usize,
-        key: BuildExprId,
-    },
-    Any {
-        slot: usize,
-        predicate: BuildExprId,
-    },
-    AnyBlock {
-        slot: usize,
-        body: Vec<BuildStmtId>,
-        value: BuildExprId,
-    },
-    All {
-        slot: usize,
-        predicate: BuildExprId,
-    },
-    AllBlock {
-        slot: usize,
-        body: Vec<BuildStmtId>,
-        value: BuildExprId,
-    },
-    UniqueBy {
-        slot: usize,
-        key: BuildExprId,
-    },
-    Count,
-    Sum,
-    Collect,
-    First,
-    Last,
-    Min,
-    Max,
-    Take(BuildExprId),
-    Drop(BuildExprId),
-    Repeat {
-        count: BuildExprId,
-    },
-    Range {
-        start: BuildExprId,
-        end: BuildExprId,
-    },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2281,10 +1416,6 @@ struct ScanBytes {
 
 #[derive(Clone, Debug)]
 enum LoweredErrorExpr {
-    Simple {
-        kind: String,
-        message: String,
-    },
     Structured {
         family: String,
         variant: String,
@@ -2405,6 +1536,35 @@ fn assign_lowered_bytes_view(slot: &mut LoweredValue, bytes: &Arc<[u8]>, start: 
     }
 }
 
+pub(crate) struct RetainedLoweredValue<'a>(&'a LoweredValue);
+
+impl<'a> RetainedLoweredValue<'a> {
+    pub(in crate::runtime::eval) fn new(value: &'a LoweredValue) -> Self { Self(value) }
+    fn value(&self) -> &'a LoweredValue { self.0 }
+}
+
+pub(crate) enum RetainedValueRef<'a> {
+    Lowered(RetainedLoweredValue<'a>),
+    Runtime(&'a Value),
+    Stream(&'a StreamValue),
+}
+
+pub(in crate::runtime::eval) fn visit_retained_lowered_value(
+    value: &LoweredValue,
+    visitor: &mut dyn for<'a> FnMut(RetainedValueRef<'a>),
+) {
+    visitor(RetainedValueRef::Lowered(RetainedLoweredValue::new(value)));
+}
+
+pub(in crate::runtime::eval) fn visit_retained_lowered_values<'value>(
+    values: impl IntoIterator<Item = &'value LoweredValue>,
+    visitor: &mut dyn for<'retained> FnMut(RetainedValueRef<'retained>),
+) {
+    for value in values {
+        visit_retained_lowered_value(value, visitor);
+    }
+}
+
 #[derive(Clone, Debug)]
 enum LoweredValue {
     // This private marker survives argument binding only until callee entry.
@@ -2428,6 +1588,7 @@ enum LoweredValue {
     ProcessHandle(Box<ProcessHandleValue>),
     NetJob(Box<NetJobValue>),
     FsRoot(FsRootValue),
+    FsLock(Box<FsLockValue>),
     Stream(Box<StreamValue>),
     Pure(FunctionName),
     Proc(FunctionName),
@@ -2460,19 +1621,6 @@ struct LoweredTagValue {
     name: Arc<str>,
     fields: Vec<LoweredValue>,
     wire: Option<Arc<crate::sema::wire_enums::WireEnumMapping>>,
-}
-
-impl LoweredTagValue {
-    fn wire_string(&self) -> Option<&str> {
-        let mapping = self.wire.as_ref()?;
-        if !self.fields.is_empty() || self.type_name != mapping.type_name {
-            return None;
-        }
-        mapping
-            .variants
-            .get(&Name::intern(self.name.as_ref()))
-            .map(AsRef::as_ref)
-    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2739,6 +1887,7 @@ impl PartialEq for LoweredValue {
             (Self::ProcessHandle(left), Self::ProcessHandle(right)) => left == right,
             (Self::NetJob(left), Self::NetJob(right)) => left == right,
             (Self::FsRoot(left), Self::FsRoot(right)) => left == right,
+            (Self::FsLock(left), Self::FsLock(right)) => left == right,
             (Self::Stream(left), Self::Stream(right)) => left == right,
             (Self::Pure(left), Self::Pure(right)) => left == right,
             (Self::Proc(left), Self::Proc(right)) => left == right,
@@ -2814,6 +1963,7 @@ impl LoweredValue {
             Self::ProcessHandle(value) => Value::ProcessHandle(value),
             Self::NetJob(value) => Value::NetJob(value),
             Self::FsRoot(value) => Value::FsRoot(value),
+            Self::FsLock(value) => Value::FsLock(value),
             Self::Stream(value) => Value::Stream(value),
             Self::Pure(value) => Value::Pure(value),
             Self::Proc(value) => Value::Proc(value),
@@ -2876,39 +2026,7 @@ impl LoweredValue {
     }
 
     fn type_name(&self) -> &'static str {
-        match self {
-            Self::Null => "Null",
-            Self::OmittedArgument => "omitted argument",
-            Self::Unit => "Unit",
-            Self::Int(_) => "Int",
-            Self::Float(_) => "Float",
-            Self::Duration(_) => "Duration",
-            Self::Bool(_) => "Bool",
-            Self::Str(_) | Self::StrView(_) => "Str",
-            Self::Bytes(_) | Self::BytesView(_) => "Bytes",
-            Self::Digest(_) => "Digest",
-            Self::Regex(_) => "Regex",
-            Self::Status(_) => "Status",
-            Self::Path(_) => "Path",
-            Self::FsEntry(_) => "Record",
-            Self::Command(_) => "Command",
-            Self::ProcessHandle(_) => "ProcessHandle",
-            Self::NetJob(_) => "NetJob",
-            Self::FsRoot(_) => "FsRoot",
-            Self::Stream(_) => "Stream",
-            Self::Pure(_) => "Pure",
-            Self::Proc(_) => "Proc",
-            Self::Error(_) => "Error",
-            Self::Record(_) | Self::RecordVec(_) | Self::Stats { .. } | Self::StatsBlob(_) => {
-                "Record"
-            }
-            Self::Module(_) => "Module",
-            Self::List(_) | Self::SharedList(_) => "List",
-            Self::Map(_) => "Map",
-            Self::Set(_) => "Set",
-            Self::Tag(_) => "Tag",
-            Self::ResultOk(_) | Self::ResultErr(_) => "Result",
-        }
+        ValueView::Lowered(self).type_name()
     }
 }
 
@@ -3189,9 +2307,8 @@ pub struct Evaluator {
     // error it is reported for.
     pending_traceback: Option<Traceback>,
     unix_next_pid: i64,
-    fs_locks: Vec<Option<std::fs::File>>,
-    fs_roots: Vec<Option<FsRootHandle>>,
-    fs_root_owner: Arc<()>,
+    fs_capabilities: Vec<Option<OwnedFsCapability>>,
+    resource_owner: Arc<()>,
     net_runtime: Option<NetRuntimeOwner>,
     net_agents: FxHashMap<NetAgentKey, NetAgent>,
     net_pool_options: FxHashMap<String, NetPoolOptions>,
@@ -3203,6 +2320,10 @@ pub struct Evaluator {
     process_handles: BTreeMap<u64, LiveProcessHandle>,
     next_net_job_id: u64,
     net_jobs: BTreeMap<u64, LiveNetJob>,
+    next_stream_id: u64,
+    owned_streams: BTreeMap<u64, OwnedStream>,
+    pending_stream_captures: Vec<PendingStreamCapture>,
+    pending_stream_capture_error: Option<RuntimeError>,
     net_job_reserved_response_bytes: u64,
     network_wait_depth: u32,
     /// Set on the worker of a parallel stage: the evaluator that started the
@@ -3219,22 +2340,21 @@ pub struct Evaluator {
     next_within_id: u64,
     scope_ids: Vec<u64>,
     next_runtime_scope_id: u64,
+    owned_scope_parents: FxHashMap<u64, u64>,
+    owned_scope_counts: FxHashMap<u64, OwnedHostCounts>,
     signal_state: EvaluatorSignalState,
     /// Non-forced shutdown stops ordinary work but lets registered cleanup finish.
     cleanup_depth: usize,
+    /// Native machine activations share a depth across recursively entered work.
+    frame_machine_depth: Arc<std::sync::atomic::AtomicUsize>,
     /// The frame engine's reusable scratch vectors.
     frame_scratch: crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch,
+    /// Test-only policy that requires executed instructions to have frame handlers.
+    force_frames: bool,
     /// Set while a context-scoped frame lends its slots to the recursive
     /// evaluator, so nested bodies keep the outer-assignment escape rule.
     lent_context_slots:
         Option<crate::runtime::eval::lowered_run::indexed_run::explicit_run::LentContextSlots>,
-    /// Producers that have been created and not yet finished or stopped.
-    ///
-    /// A producer's body runs only while something is consuming it, so the
-    /// evaluator also has to notice the other case: a producer the program can
-    /// no longer reach. The sweep at `sweep_script_producers` stops those, which
-    /// is what runs their `defer` and closes their scopes exactly once.
-    script_producers: Vec<crate::runtime::value::ScriptStreamState>,
     // Suspended process cursors keep signal checkpoints active between pulls.
     live_process_streams: usize,
     #[cfg(feature = "native-tests")]
@@ -3259,6 +2379,7 @@ impl Drop for Evaluator {
         // output. This fallback covers root-owned jobs in early returns and
         // worker evaluators, and it deliberately ignores cleanup diagnostics:
         // destructors must not panic or replace a primary evaluation result.
+        let _ = self.finish_owned_resources();
         let _ = self.cancel_net_jobs_for_signal(zero_span());
         self.net_agents.clear();
         if let Some(mut runtime) = self.net_runtime.take() {
@@ -3289,6 +2410,7 @@ struct LoweredSharedState {
     module_roots: Arc<[PathBuf]>,
     cwd: PathBuf,
     env: RuntimeEnv,
+    force_frames: bool,
     #[cfg(feature = "native-tests")]
     native_test_host: Option<NativeTestHost>,
     #[cfg(feature = "native-tests")]
@@ -3304,6 +2426,7 @@ impl PreparedTestProgram {
         test_name: &str,
         ctx: Value,
         trace_enabled: bool,
+        force_frames: bool,
         env_overlay: Vec<(Vec<u8>, Vec<u8>)>,
         cancellation: TestCancellation,
     ) -> TestEvalOutput {
@@ -3319,6 +2442,7 @@ impl PreparedTestProgram {
                     &self.setup_shared
                 };
                 let mut evaluator = Evaluator::new_lowered_worker(shared);
+                evaluator.force_frames |= force_frames;
                 evaluator.capture_process_output = true;
                 evaluator.test_cancellation = Some(cancellation);
                 for (name, value) in env_overlay {
@@ -3339,6 +2463,28 @@ impl PreparedTestProgram {
         })
     }
 }
+
+#[derive(Default)]
+struct OwnedHostCounts { activities: usize, capabilities: usize }
+
+impl OwnedHostCounts {
+    fn count(&self, kind: ResourceKind) -> usize {
+        match kind { ResourceKind::Activity => self.activities, ResourceKind::Capability => self.capabilities }
+    }
+    fn count_mut(&mut self, kind: ResourceKind) -> &mut usize {
+        match kind { ResourceKind::Activity => &mut self.activities, ResourceKind::Capability => &mut self.capabilities }
+    }
+}
+
+/// The shared slot order is creation order across roots and locks. Ownership
+/// belongs to the live slot, so aliases cannot disagree about their lifetime.
+struct OwnedFsCapability { owner_scope: u64, value: FsCapability }
+
+// Root payloads are larger than files; keep released capability slots compact.
+enum FsCapability { Root(Box<FsRootHandle>), Lock(std::fs::File) }
+
+#[derive(Clone, Copy)]
+enum OwnedHostResource { Process(u64), Net(u64), Capability(usize) }
 
 pub(in crate::runtime::eval) enum FsRootHandle {
     Dir(Root),
@@ -3467,9 +2613,8 @@ impl Evaluator {
             call_stack: Vec::new(),
             pending_traceback: None,
             unix_next_pid: 1000,
-            fs_locks: Vec::new(),
-            fs_roots: Vec::new(),
-            fs_root_owner: Arc::new(()),
+            fs_capabilities: Vec::new(),
+            resource_owner: Arc::new(()),
             net_runtime: None,
             net_agents: FxHashMap::default(),
             net_pool_options: FxHashMap::default(),
@@ -3481,6 +2626,10 @@ impl Evaluator {
             process_handles: BTreeMap::new(),
             next_net_job_id: 1,
             net_jobs: BTreeMap::new(),
+            next_stream_id: 1,
+            owned_streams: BTreeMap::new(),
+            pending_stream_captures: Vec::new(),
+            pending_stream_capture_error: None,
             net_job_reserved_response_bytes: 0,
             network_wait_depth: 0,
             stage_abandoned: None,
@@ -3490,13 +2639,18 @@ impl Evaluator {
             next_within_id: 1,
             scope_ids: vec![0],
             next_runtime_scope_id: 1,
+            owned_scope_parents: FxHashMap::default(),
+            owned_scope_counts: FxHashMap::default(),
             signal_state: EvaluatorSignalState::default(),
             cleanup_depth: 0,
+            frame_machine_depth: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             frame_scratch:
                 crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch::default(
                 ),
+            force_frames: force_frames_from_marker(
+                std::env::var_os(FORCE_FRAMES_ENV).as_deref(),
+            ),
             lent_context_slots: None,
-            script_producers: Vec::new(),
             live_process_streams: 0,
             #[cfg(feature = "native-tests")]
             test_mocks: FxHashMap::default(),
@@ -3646,6 +2800,7 @@ impl Evaluator {
             module_roots: Arc::clone(&self.module_roots),
             cwd: self.cwd.clone(),
             env: self.env.clone(),
+            force_frames: self.force_frames,
             #[cfg(feature = "native-tests")]
             native_test_host: self.native_test_host.clone(),
             #[cfg(feature = "native-tests")]
@@ -3698,9 +2853,8 @@ impl Evaluator {
             call_stack: Vec::new(),
             pending_traceback: None,
             unix_next_pid: 1000,
-            fs_locks: Vec::new(),
-            fs_roots: Vec::new(),
-            fs_root_owner: Arc::new(()),
+            fs_capabilities: Vec::new(),
+            resource_owner: Arc::new(()),
             net_runtime: None,
             net_agents: FxHashMap::default(),
             net_pool_options: FxHashMap::default(),
@@ -3712,6 +2866,10 @@ impl Evaluator {
             process_handles: BTreeMap::new(),
             next_net_job_id: 1,
             net_jobs: BTreeMap::new(),
+            next_stream_id: 1,
+            owned_streams: BTreeMap::new(),
+            pending_stream_captures: Vec::new(),
+            pending_stream_capture_error: None,
             net_job_reserved_response_bytes: 0,
             network_wait_depth: 0,
             stage_abandoned: None,
@@ -3728,13 +2886,16 @@ impl Evaluator {
                 .unwrap_or(1),
             scope_ids: (0..shared.scopes.len() as u64).collect(),
             next_runtime_scope_id: shared.scopes.len() as u64,
+            owned_scope_parents: (1..shared.scopes.len() as u64).map(|id| (id, id - 1)).collect(),
+            owned_scope_counts: FxHashMap::default(),
             signal_state: EvaluatorSignalState::default(),
             cleanup_depth: 0,
+            frame_machine_depth: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             frame_scratch:
                 crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch::default(
                 ),
+            force_frames: shared.force_frames,
             lent_context_slots: None,
-            script_producers: Vec::new(),
             live_process_streams: 0,
             #[cfg(feature = "native-tests")]
             test_mocks: FxHashMap::default(),
@@ -4467,22 +3628,27 @@ impl Evaluator {
                 module.label,
                 parsed.diagnostics
             );
-            let declarations = Checker::check_compact_declarations(&parsed.arena);
-            assert!(
-                declarations.diagnostics.is_empty(),
-                "{}: {:?}",
-                module.label,
-                declarations.diagnostics
-            );
             let source_id = parsed
                 .arena
                 .arena
                 .span_source_id
-                .unwrap_or_else(|| SourceId::new(0));
+                .expect("embedded module has a source identity");
             let source = sources
                 .get(source_id)
-                .map(|source| source.text().to_string())
-                .unwrap_or_default();
+                .expect("embedded module source exists")
+                .text()
+                .to_string();
+            let declarations =
+                Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+            assert!(
+                !declarations
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.severity == Severity::Error),
+                "{}: {:?}",
+                module.label,
+                declarations.diagnostics
+            );
             let sources = Arc::new(sources);
             let program = FullBuilder::build_compact(
                 &parsed.arena,
@@ -4535,7 +3701,7 @@ impl Evaluator {
             program,
             source_id,
             allow_checker_only,
-            Checker::check_compact_declarations(program),
+            Checker::check_compact_declarations(program, &self.sources, source_id),
         )
     }
 
@@ -4546,10 +3712,14 @@ impl Evaluator {
         program: &ArenaProgram,
         source_id: SourceId,
         allow_checker_only: bool,
-        mut declarations: CompactDeclOutput,
+        declarations: CompactDeclOutput,
     ) -> Result<CompactIndexedRunPlan, Diagnostic> {
-        if !declarations.diagnostics.is_empty() {
-            return Err(declarations.diagnostics.remove(0));
+        if let Some(diagnostic) = declarations
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.severity == Severity::Error)
+        {
+            return Err(diagnostic.clone());
         }
         self.prepare_compact_indexed_only_or_diagnostic_with_parts(
             program,
@@ -4566,6 +3736,15 @@ impl Evaluator {
         allow_checker_only: bool,
         declarations: CompactDeclOutput,
     ) -> Result<CompactIndexedRunPlan, Diagnostic> {
+        if !allow_checker_only
+            && let Some(span) = compact_reveal_type_call_span(program)
+        {
+            return Err(compact_lowerability_diagnostic(
+                span,
+                "`reveal_type` is available only through `xsht check`",
+                DiagnosticCode::CheckRevealType,
+            ));
+        }
         // Text-only embedding APIs supply UTF-8 words; a checked byte entry
         // exposes their exact bytes through both main and imported args readers.
         if !self.interactive && crate::sema::check::byte_argument_main(program, &declarations.parameter_types) {
@@ -4778,30 +3957,6 @@ impl Evaluator {
                 "proc main could not be encoded in indexed IR",
                 DiagnosticCode::CompactUnloweredMain,
             ));
-        }
-        if auto_main_required && signature_cli.is_none() {
-            let span = root
-                .iter()
-                .copied()
-                .find_map(|stmt| compact_root_proc_main_span(program, stmt))
-                .unwrap_or_else(zero_span);
-            let unbindable = compact_root_proc_main_unbindable_fixed_param(
-                program, &root, &indexed,
-            )
-            .map_err(|error| {
-                compact_lowerability_diagnostic(
-                    span,
-                    &format!("indexed driver verification failed: {}", error.message),
-                    DiagnosticCode::CompactIndexedDriver,
-                )
-            })?;
-            if unbindable {
-                return Err(compact_lowerability_diagnostic(
-                    span,
-                    "proc main must use the spread form `(...argv: List[Str])` to receive script arguments; a fixed parameter of this type cannot bind script arguments in the compact runtime",
-                    DiagnosticCode::CompactMainMissingSpread,
-                ));
-            }
         }
         let indexed = Arc::new(indexed);
         self.indexed_program = Some(Arc::clone(&indexed));
@@ -5338,7 +4493,7 @@ impl Evaluator {
         {
             Ok(Flow::Continue(Value::Unit))
         } else {
-            let mut cleanup = self.cleanup_scope_process_handles(
+            let mut cleanup = self.cleanup_scope_owned_activities(
                 self.current_scope_id(),
                 Ok(Flow::Continue(Value::Unit)),
             );
@@ -5386,6 +4541,10 @@ impl Evaluator {
                 } else {
                     cleanup = action;
                 }
+            }
+            if !cleanup.as_ref().err().is_some_and(|error| error.abort.is_some_and(|signal| signal.force)) {
+                cleanup = self.cleanup_scope_owned_activities(self.current_scope_id(), cleanup);
+                if !self.signal_state.shutdown_force { self.release_owned_capabilities(self.current_scope_id()); }
             }
             if (traceback.is_some() || abort.is_some())
                 && let Err(error) = &cleanup
@@ -6153,8 +5312,7 @@ impl Evaluator {
         for index in (0..self.scopes.len()).rev() {
             if self.scopes[index].contains_key(&interned) {
                 let target_scope = self.scope_ids[index];
-                let source_scope = self.current_scope_id();
-                self.transfer_owned_host_resources_in_value(&value, source_scope, target_scope);
+                self.transfer_owned_host_resources_in_value(&value, target_scope);
                 let binding = self.scopes[index]
                     .get_mut(&interned)
                     .expect("binding existence checked");
@@ -6184,6 +5342,7 @@ impl Evaluator {
     pub(super) fn enter_owned_host_scope(&mut self) -> u64 {
         let scope_id = self.next_runtime_scope_id;
         self.next_runtime_scope_id = self.next_runtime_scope_id.wrapping_add(1);
+        self.owned_scope_parents.insert(scope_id, self.current_scope_id());
         self.scope_ids.push(scope_id);
         scope_id
     }
@@ -6201,6 +5360,9 @@ impl Evaluator {
 
     /// Puts a producer's scopes back for a pull, in the order they opened.
     pub(super) fn reattach_owned_host_scopes(&mut self, scopes: &[u64]) {
+        if let Some(scope) = scopes.first() {
+            self.owned_scope_parents.insert(*scope, self.current_scope_id());
+        }
         self.scope_ids.extend_from_slice(scopes);
     }
 
@@ -6213,24 +5375,110 @@ impl Evaluator {
             .expect("owned host scope has a parent")
     }
 
-    /// Most scopes own no host handles: those leave without building and
-    /// dropping a cleanup result.
-    #[inline]
+    /// Finish activities born in defers, then release capabilities newest first.
+    /// Empty owners never scan a live table, even while other scopes own work.
     pub(super) fn exit_owned_host_scope(&mut self, scope_id: u64) -> Result<(), RuntimeError> {
         debug_assert_eq!(self.current_scope_id(), scope_id);
-        if self.process_handles.is_empty() && self.net_jobs.is_empty() {
-            self.scope_ids.pop();
-            return Ok(());
+        let cleanup = self.release_owned_host_resources(scope_id);
+        if !self.signal_state.shutdown_force {
+            self.release_owned_capabilities(scope_id);
         }
-        self.cleanup_owned_host_scope(scope_id)
+        self.scope_ids.pop();
+        self.owned_scope_parents.remove(&scope_id);
+        cleanup
     }
 
-    #[inline(never)]
-    fn cleanup_owned_host_scope(&mut self, scope_id: u64) -> Result<(), RuntimeError> {
-        let cleanup = self.release_owned_host_resources(scope_id);
-        let popped = self.scope_ids.pop();
-        debug_assert_eq!(popped, Some(scope_id));
-        cleanup
+    fn owned_resource_count(&self, scope: u64, kind: ResourceKind) -> usize {
+        self.owned_scope_counts.get(&scope).map_or(0, |counts| counts.count(kind))
+    }
+
+    fn register_owned_resource(&mut self, scope: u64, kind: ResourceKind) {
+        *self.owned_scope_counts.entry(scope).or_default().count_mut(kind) += 1;
+    }
+
+    fn forget_owned_resource(&mut self, scope: u64, kind: ResourceKind) {
+        let counts = self.owned_scope_counts.get_mut(&scope).expect("live resource has an owner");
+        *counts.count_mut(kind) -= 1;
+        if counts.activities == 0 && counts.capabilities == 0 { self.owned_scope_counts.remove(&scope); }
+    }
+
+    fn scope_descends_from(&self, mut scope: u64, ancestor: u64) -> bool {
+        while scope != ancestor {
+            let Some(parent) = self.owned_scope_parents.get(&scope) else { return false; };
+            scope = *parent;
+        }
+        true
+    }
+
+    fn push_fs_capability(&mut self, value: FsCapability) -> i64 {
+        let owner_scope = self.current_scope_id();
+        self.register_owned_resource(owner_scope, ResourceKind::Capability);
+        self.fs_capabilities.push(Some(OwnedFsCapability { owner_scope, value }));
+        self.fs_capabilities.len() as i64
+    }
+
+    fn take_fs_capability(&mut self, index: usize) -> Option<FsCapability> {
+        let owned = self.fs_capabilities.get_mut(index)?.take()?;
+        self.forget_owned_resource(owned.owner_scope, ResourceKind::Capability);
+        Some(owned.value)
+    }
+
+    fn take_process_handle(&mut self, id: &u64) -> Option<LiveProcessHandle> {
+        let live = self.process_handles.remove(id)?;
+        self.forget_owned_resource(live.owner_scope, ResourceKind::Activity);
+        Some(live)
+    }
+
+    fn take_net_job(&mut self, id: &u64) -> Option<LiveNetJob> {
+        let live = self.net_jobs.remove(id)?;
+        self.forget_owned_resource(live.owner_scope, ResourceKind::Activity);
+        Some(live)
+    }
+
+    fn take_owned_stream(&mut self, id: &u64) -> Option<OwnedStream> {
+        let live = self.owned_streams.remove(id)?;
+        self.forget_owned_resource(live.owner_scope, ResourceKind::Activity);
+        Some(live)
+    }
+
+    fn release_owned_streams(&mut self, scope_id: u64) -> Result<(), RuntimeError> {
+        if self.owned_resource_count(scope_id, ResourceKind::Activity) == 0 {
+            return Ok(());
+        }
+        let ids = self
+            .owned_streams
+            .iter()
+            .filter_map(|(id, stream)| (stream.owner_scope == scope_id).then_some(*id))
+            .collect::<Vec<_>>();
+        let mut first_error = None;
+        for id in ids {
+            let Some(stream) = self.take_owned_stream(&id) else {
+                continue;
+            };
+            if let Some(script) = stream.script
+                && let Err(error) = self.cancel_script_state(script, zero_span())
+            {
+                first_error.get_or_insert(error);
+            }
+            if let Some(source) = stream.source
+                && let Err(error) = source.cancel(zero_span())
+            {
+                first_error.get_or_insert(error);
+            }
+        }
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
+    }
+
+    fn release_owned_capabilities(&mut self, scope: u64) {
+        if self.owned_resource_count(scope, ResourceKind::Capability) == 0 { return; }
+        for index in (0..self.fs_capabilities.len()).rev() {
+            if self.fs_capabilities[index].as_ref().is_some_and(|live| live.owner_scope == scope)
+                && let Some(FsCapability::Lock(file)) = self.take_fs_capability(index)
+            { let _ = crate::modules::fs::unlock_file(&file, zero_span()); }
+        }
     }
 
     /// Cancels and reaps the non-detached process handles `scope_id` owns,
@@ -6243,10 +5491,13 @@ impl Evaluator {
         &mut self,
         scope_id: u64,
     ) -> Result<(), RuntimeError> {
-        if self.process_handles.is_empty() && self.net_jobs.is_empty() {
+        if self.signal_state.shutdown_force {
             return Ok(());
         }
-        let cleanup = self.cleanup_scope_process_handles(scope_id, Ok(Flow::Continue(Value::Unit)));
+        let cleanup = self.cleanup_scope_owned_activities(
+            scope_id,
+            Ok(Flow::Continue(Value::Unit)),
+        );
         match cleanup {
             Ok(Flow::Continue(_)) => Ok(()),
             Ok(_) => Err(RuntimeError::new(
@@ -6255,6 +5506,50 @@ impl Evaluator {
             )),
             Err(error) => Err(error),
         }
+    }
+
+    /// Close worker activities before its result becomes visible to the stage.
+    pub(super) fn finish_owned_resources(&mut self) -> Option<RuntimeError> {
+        let scopes = self.owned_scope_counts.keys().copied().collect::<Vec<_>>();
+        let mut first_error = None;
+        for scope in &scopes {
+            if let Err(error) = self.release_owned_host_resources(*scope)
+                && first_error.is_none()
+            {
+                first_error = Some(error);
+            }
+        }
+        for scope in scopes { self.release_owned_capabilities(scope); }
+        first_error
+    }
+
+    fn cleanup_scope_owned_activities(
+        &mut self,
+        scope_id: u64,
+        primary: Result<Flow, RuntimeError>,
+    ) -> Result<Flow, RuntimeError> {
+        if self.signal_state.shutdown_force {
+            return primary;
+        }
+        let primary_failed = matches!(&primary, Err(_) | Ok(Flow::Propagate(_)));
+        let primary = match self.flush_pending_stream_captures() {
+            Ok(()) => primary,
+            Err(_) if primary_failed => primary,
+            Err(error) => Err(error),
+        };
+        let primary_failed = matches!(&primary, Err(_) | Ok(Flow::Propagate(_)));
+        let primary = match (self.release_owned_streams(scope_id), primary) {
+            (Ok(()), primary) => primary,
+            (Err(_), primary) if primary_failed => primary,
+            (Err(error), _) => Err(error),
+        };
+        let primary_failed = matches!(&primary, Err(_) | Ok(Flow::Propagate(_)));
+        let primary = match self.flush_pending_stream_captures() {
+            Ok(()) => primary,
+            Err(_) if primary_failed => primary,
+            Err(error) => Err(error),
+        };
+        self.cleanup_scope_process_handles(scope_id, primary)
     }
 
     fn producer_context(&self) -> ScopedProducerContext {
@@ -6271,6 +5566,255 @@ impl Evaluator {
         }
     }
 
+    fn transfer_owned_host_resource(&mut self, resource: OwnedHostResource, target: u64) {
+        let owner = match resource {
+            OwnedHostResource::Process(id) => self.process_handles.get(&id).map(|live| live.owner_scope),
+            OwnedHostResource::Net(id) => self.net_jobs.get(&id).map(|live| live.owner_scope),
+            OwnedHostResource::Capability(index) => self.fs_capabilities.get(index).and_then(Option::as_ref).map(|live| live.owner_scope),
+        };
+        let Some(owner) = owner else { return; };
+        if owner == target || !self.scope_descends_from(owner, target) { return; }
+        let kind = match resource {
+            OwnedHostResource::Process(id) => { self.process_handles.get_mut(&id).expect("live owner checked").owner_scope = target; ResourceKind::Activity }
+            OwnedHostResource::Net(id) => { self.net_jobs.get_mut(&id).expect("live owner checked").owner_scope = target; ResourceKind::Activity }
+            OwnedHostResource::Capability(index) => { self.fs_capabilities[index].as_mut().expect("live owner checked").owner_scope = target; ResourceKind::Capability }
+        };
+        self.forget_owned_resource(owner, kind);
+        self.register_owned_resource(target, kind);
+    }
+
+    pub(super) fn register_returned_stream(&mut self, stream: &mut StreamValue, span: Span) -> Result<(), RuntimeError> {
+        if stream.owner.is_some() {
+            return Ok(());
+        }
+        let id = self.next_stream_id;
+        self.next_stream_id = id.checked_add(1).ok_or_else(|| {
+            RuntimeError::new("stream-owner", "stream owner identity space is exhausted")
+                .with_span(span)
+        })?;
+        let owner_scope = self.current_scope_id();
+        let source = stream.source.clone();
+        let script = stream.script().cloned();
+        stream.owner = Some(StreamOwner { id, evaluator: Arc::clone(&self.resource_owner) });
+        self.owned_streams.insert(id, OwnedStream { owner_scope, source, script });
+        self.register_owned_resource(owner_scope, ResourceKind::Activity);
+        Ok(())
+    }
+
+    fn register_returned_lowered_streams(
+        &mut self,
+        flow: &mut ControlFlow<LoweredValue, LoweredValue>,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        let value = match flow {
+            ControlFlow::Continue(value) | ControlFlow::Break(value) => value,
+        };
+        self.register_returned_lowered_stream(value, span)
+    }
+
+    fn register_returned_lowered_stream(
+        &mut self,
+        value: &mut LoweredValue,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        match value {
+            LoweredValue::Stream(stream) => self.register_returned_stream(stream, span),
+            LoweredValue::ResultOk(value) => self.register_returned_lowered_stream(value, span),
+            _ => Ok(()),
+        }
+    }
+
+    pub(super) fn register_returned_runtime_streams(
+        &mut self,
+        value: &mut Value,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        match value {
+            Value::Stream(stream) => self.register_returned_stream(stream, span),
+            Value::Result(ResultValue::Ok(value)) => self.register_returned_runtime_streams(value, span),
+            _ => Ok(()),
+        }
+    }
+
+    pub(super) fn validate_stream_owner(&self, stream: &StreamValue, span: Span) -> Result<(), RuntimeError> {
+        let Some(owner) = stream.owner() else {
+            return Err(RuntimeError::new("stream-owner", "stream has no evaluator owner").with_span(span));
+        };
+        if !Arc::ptr_eq(&owner.evaluator, &self.resource_owner) {
+            return Err(RuntimeError::new("stream-owner", "stream belongs to another evaluator").with_span(span));
+        }
+        if !self.owned_streams.contains_key(&owner.id) {
+            return Err(RuntimeError::new("stream-owner", "stream owner is no longer active").with_span(span));
+        }
+        Ok(())
+    }
+
+    fn collect_lowered_resources(&self, value: &LoweredValue, worklist: &mut ResourceTransferWorklist) {
+        match value {
+            LoweredValue::ProcessHandle(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
+                worklist.resources.push(OwnedHostResource::Process(handle.id));
+            }
+            LoweredValue::NetJob(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
+                worklist.resources.push(OwnedHostResource::Net(handle.id));
+            }
+            LoweredValue::FsRoot(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
+                self.collect_capability(handle.id, worklist);
+            }
+            LoweredValue::FsLock(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
+                self.collect_capability(handle.id, worklist);
+            }
+            LoweredValue::StatsBlob(stats) => {
+                for value in stats.blobs.values() { self.collect_lowered_resources(value, worklist); }
+            }
+            LoweredValue::Stream(stream) => self.collect_stream_resources(stream, worklist),
+            LoweredValue::List(values) => {
+                for value in values { self.collect_lowered_resources(value, worklist); }
+            }
+            LoweredValue::SharedList(values) => {
+                for value in values.iter() { self.collect_lowered_resources(value, worklist); }
+            }
+            LoweredValue::Map(values) => {
+                for value in values.values() { self.collect_lowered_resources(value, worklist); }
+            }
+            LoweredValue::Record(fields) | LoweredValue::Module(fields) => {
+                for value in fields.values() { self.collect_lowered_resources(value, worklist); }
+            }
+            LoweredValue::RecordVec(fields) => {
+                for (_, value) in fields.iter() { self.collect_lowered_resources(value, worklist); }
+            }
+            LoweredValue::Tag(tag) => {
+                for value in &tag.fields { self.collect_lowered_resources(value, worklist); }
+            }
+            LoweredValue::ResultOk(value) => self.collect_lowered_resources(value, worklist),
+            LoweredValue::ResultErr(value) | LoweredValue::Error(value) => {
+                self.collect_runtime_resources(value, worklist);
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_runtime_resources(&self, value: &Value, worklist: &mut ResourceTransferWorklist) {
+        for value in value.resource_reachable_values() {
+            match value {
+                Value::ProcessHandle(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
+                    worklist.resources.push(OwnedHostResource::Process(handle.id));
+                }
+                Value::NetJob(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
+                    worklist.resources.push(OwnedHostResource::Net(handle.id));
+                }
+                Value::FsRoot(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
+                    self.collect_capability(handle.id, worklist);
+                }
+                Value::FsLock(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
+                    self.collect_capability(handle.id, worklist);
+                }
+                Value::Stream(stream) => self.collect_stream_resources(stream, worklist),
+                _ => {}
+            }
+        }
+    }
+
+    fn collect_capability(&self, id: i64, worklist: &mut ResourceTransferWorklist) {
+        if let Some(index) = id.checked_sub(1).and_then(|id| usize::try_from(id).ok()) {
+            worklist.resources.push(OwnedHostResource::Capability(index));
+        }
+    }
+
+    fn collect_stream_resources(&self, stream: &StreamValue, worklist: &mut ResourceTransferWorklist) {
+        if let Some(owner) = stream.owner() {
+            if Arc::ptr_eq(&owner.evaluator, &self.resource_owner)
+                && self.owned_streams.contains_key(&owner.id)
+            {
+                worklist.streams.push(StreamTransfer { owner: owner.clone(), revisit: false });
+            }
+        }
+        for item in &stream.items {
+            self.collect_runtime_resources(&item.value, worklist);
+        }
+    }
+
+    fn collect_retained_value(&self, value: crate::runtime::eval::RetainedValueRef<'_>, worklist: &mut ResourceTransferWorklist) {
+        match value {
+            RetainedValueRef::Lowered(value) => self.collect_lowered_resources(value.value(), worklist),
+            RetainedValueRef::Runtime(value) => self.collect_runtime_resources(value, worklist),
+            RetainedValueRef::Stream(value) => self.collect_stream_resources(value, worklist),
+        }
+    }
+
+    fn apply_resource_transfer_worklist(&mut self, mut worklist: ResourceTransferWorklist, target: u64) {
+        for resource in worklist.resources.drain(..) {
+            self.transfer_owned_host_resource(resource, target);
+        }
+        let mut expanded = FxHashSet::default();
+        while let Some(StreamTransfer { owner, revisit }) = worklist.streams.pop() {
+            if !Arc::ptr_eq(&owner.evaluator, &self.resource_owner) || expanded.contains(&owner.id) {
+                continue;
+            }
+            let Some(owner_scope) = self.owned_streams.get(&owner.id).map(|row| row.owner_scope) else {
+                continue;
+            };
+            let moves_outward = owner_scope != target && self.scope_descends_from(owner_scope, target);
+            // An ancestor stream keeps its producer scopes and captures until it moves outward.
+            if !moves_outward && !revisit {
+                continue;
+            }
+            expanded.insert(owner.id);
+            if moves_outward {
+                self.owned_streams.get_mut(&owner.id).expect("live stream owner checked").owner_scope = target;
+                self.forget_owned_resource(owner_scope, ResourceKind::Activity);
+                self.register_owned_resource(target, ResourceKind::Activity);
+            }
+            let Some(script) = self.owned_streams.get(&owner.id)
+                .and_then(|row| row.script.clone())
+            else { continue; };
+            let mut retained = ResourceTransferWorklist::default();
+            let visit = script.try_visit_retained_values(&mut |value| {
+                self.collect_retained_value(value, &mut retained);
+            });
+            match visit {
+                Ok(crate::runtime::value::RetainedVisit::Visited) => {
+                    for resource in retained.resources.drain(..) {
+                        self.transfer_owned_host_resource(resource, target);
+                    }
+                    worklist.streams.extend(retained.streams);
+                }
+                Ok(crate::runtime::value::RetainedVisit::Busy) => {
+                    self.pending_stream_captures.push(PendingStreamCapture {
+                        owner,
+                        target_scope: target,
+                    });
+                }
+                Err(error) => {
+                    if self.pending_stream_capture_error.is_none() {
+                        self.pending_stream_capture_error = Some(error);
+                    }
+                }
+            }
+        }
+    }
+
+    pub(super) fn flush_pending_stream_captures(&mut self) -> Result<(), RuntimeError> {
+        if let Some(error) = &self.pending_stream_capture_error {
+            return Err(error.clone());
+        }
+        let pending = std::mem::take(&mut self.pending_stream_captures);
+        for transfer in pending {
+            let mut worklist = ResourceTransferWorklist::default();
+            worklist.streams.push(StreamTransfer { owner: transfer.owner, revisit: true });
+            self.apply_resource_transfer_worklist(worklist, transfer.target_scope);
+        }
+        if let Some(error) = &self.pending_stream_capture_error {
+            Err(error.clone())
+        } else if self.pending_stream_captures.is_empty() {
+            Ok(())
+        } else {
+            Err(RuntimeError::new(
+                "stream-capture-active",
+                "a producer is active while its captured resources are being transferred",
+            ))
+        }
+    }
+
     /// Transfer ownership of host resources through a lowered value.
     ///
     /// The lowered form is walked directly. Converting it to a `Value` first
@@ -6279,117 +5823,44 @@ impl Evaluator {
     fn transfer_owned_host_resources_in_lowered_value(
         &mut self,
         value: &LoweredValue,
-        source_scope: u64,
         target_scope: u64,
     ) {
-        if source_scope == target_scope {
+        if self.owned_scope_counts.is_empty() {
             return;
         }
-        match value {
-            LoweredValue::ProcessHandle(handle) => {
-                if let Some(live) = self.process_handles.get_mut(&handle.id)
-                    && live.owner_scope == source_scope
-                {
-                    live.owner_scope = target_scope;
-                }
-            }
-            LoweredValue::NetJob(handle) => {
-                if let Some(live) = self.net_jobs.get_mut(&handle.id)
-                    && live.owner_scope == source_scope
-                {
-                    live.owner_scope = target_scope;
-                }
-            }
-            LoweredValue::List(values) => {
-                for value in values {
-                    self.transfer_owned_host_resources_in_lowered_value(
-                        value,
-                        source_scope,
-                        target_scope,
-                    );
-                }
-            }
-            LoweredValue::SharedList(values) => {
-                for value in values.iter() {
-                    self.transfer_owned_host_resources_in_lowered_value(
-                        value,
-                        source_scope,
-                        target_scope,
-                    );
-                }
-            }
-            LoweredValue::Map(values) => {
-                for value in values.values() {
-                    self.transfer_owned_host_resources_in_lowered_value(
-                        value,
-                        source_scope,
-                        target_scope,
-                    );
-                }
-            }
-            LoweredValue::Record(fields) | LoweredValue::Module(fields) => {
-                for value in fields.values() {
-                    self.transfer_owned_host_resources_in_lowered_value(
-                        value,
-                        source_scope,
-                        target_scope,
-                    );
-                }
-            }
-            LoweredValue::RecordVec(fields) => {
-                for (_, value) in fields.iter() {
-                    self.transfer_owned_host_resources_in_lowered_value(
-                        value,
-                        source_scope,
-                        target_scope,
-                    );
-                }
-            }
-            LoweredValue::Tag(tag) => {
-                for value in &tag.fields {
-                    self.transfer_owned_host_resources_in_lowered_value(
-                        value,
-                        source_scope,
-                        target_scope,
-                    );
-                }
-            }
-            LoweredValue::ResultOk(value) => {
-                self.transfer_owned_host_resources_in_lowered_value(
-                    value,
-                    source_scope,
-                    target_scope,
-                );
-            }
-            LoweredValue::ResultErr(value) | LoweredValue::Error(value) => {
-                self.transfer_owned_host_resources_in_value(value, source_scope, target_scope);
-            }
-            _ => {}
-        }
+        let mut worklist = ResourceTransferWorklist::default();
+        self.collect_lowered_resources(value, &mut worklist);
+        self.apply_resource_transfer_worklist(worklist, target_scope);
     }
 
     fn transfer_owned_host_resources_in_value(
         &mut self,
         value: &Value,
-        source_scope: u64,
         target_scope: u64,
     ) {
         self.transfer_owned_host_resources_in_values(
             value.resource_reachable_values(),
-            source_scope,
             target_scope,
         );
+    }
+
+    #[cfg(test)]
+    fn transfer_owned_host_resources_in_stream(&mut self, stream: &StreamValue, target_scope: u64) {
+        if self.owned_scope_counts.is_empty() {
+            return;
+        }
+        let mut worklist = ResourceTransferWorklist::default();
+        self.collect_stream_resources(stream, &mut worklist);
+        self.apply_resource_transfer_worklist(worklist, target_scope);
     }
 
     fn transfer_owned_host_resources_in_runtime_error(
         &mut self,
         error: &RuntimeError,
-        source_scope: u64,
         target_scope: u64,
     ) {
         self.transfer_owned_host_resources_in_values(
             error.resource_reachable_values(),
-            source_scope,
             target_scope,
         );
     }
@@ -6397,31 +5868,14 @@ impl Evaluator {
     fn transfer_owned_host_resources_in_values<'a>(
         &mut self,
         values: impl Iterator<Item = &'a Value>,
-        source_scope: u64,
         target_scope: u64,
     ) {
-        if source_scope == target_scope {
+        if self.owned_scope_counts.is_empty() {
             return;
         }
-        for value in values {
-            match value {
-                Value::ProcessHandle(handle) => {
-                    if let Some(live) = self.process_handles.get_mut(&handle.id)
-                        && live.owner_scope == source_scope
-                    {
-                        live.owner_scope = target_scope;
-                    }
-                }
-                Value::NetJob(handle) => {
-                    if let Some(live) = self.net_jobs.get_mut(&handle.id)
-                        && live.owner_scope == source_scope
-                    {
-                        live.owner_scope = target_scope;
-                    }
-                }
-                _ => {}
-            }
-        }
+        let mut worklist = ResourceTransferWorklist::default();
+        for value in values { self.collect_runtime_resources(value, &mut worklist); }
+        self.apply_resource_transfer_worklist(worklist, target_scope);
     }
 
     fn cleanup_scope_process_handles(
@@ -6433,7 +5887,7 @@ impl Evaluator {
             return primary;
         }
         // Most scopes own no host handles; avoid two table scans on every exit.
-        if self.process_handles.is_empty() && self.net_jobs.is_empty() {
+        if self.owned_resource_count(scope_id, ResourceKind::Activity) == 0 {
             return primary;
         }
         let mut primary_failed = matches!(primary, Err(_) | Ok(Flow::Propagate(_)));
@@ -6444,7 +5898,7 @@ impl Evaluator {
             .filter_map(|(id, live)| (live.owner_scope == scope_id).then_some(*id))
             .collect::<Vec<_>>();
         for id in ids {
-            let Some(live) = self.process_handles.remove(&id) else {
+            let Some(live) = self.take_process_handle(&id) else {
                 continue;
             };
             let cleanup = if live.child.detached {
@@ -6471,7 +5925,7 @@ impl Evaluator {
         let ids = self.process_handles.keys().copied().collect::<Vec<_>>();
         let mut first_error = None;
         for id in ids {
-            let Some(live) = self.process_handles.remove(&id) else {
+            let Some(live) = self.take_process_handle(&id) else {
                 continue;
             };
             let cleanup = if live.child.detached {
@@ -6705,19 +6159,9 @@ pub fn apply_question(
 
 #[cfg(feature = "native-tests")]
 fn display_value(value: &Value, span: Span) -> Result<String, RuntimeError> {
-    match value {
-        Value::Str(value) => Ok(value.to_string()),
-        Value::Int(value) => Ok(value.to_string()),
-        Value::Float(value) => Ok(value.format()),
-        Value::Duration(value) => Ok(format_duration(value.millis)),
-        Value::Bool(value) => Ok(value.to_string()),
-        Value::Path(path) => Ok(path.display()),
-        value => Err(RuntimeError::new(
-            "display-conversion",
-            format!("cannot display {}", value.type_name()),
-        )
-        .with_span(span)),
-    }
+    let mut output = String::new();
+    ValueView::Runtime(value).push_display(&mut output, span)?;
+    Ok(output)
 }
 
 fn format_duration(millis: u64) -> String {
@@ -7599,287 +7043,6 @@ fn glob_class_matches(pattern: &[u8], candidate: Option<u8>) -> Option<(bool, us
     None
 }
 
-fn standard_module_command_name(name: &str) -> Option<(&str, &str)> {
-    let (module, api) = name.split_once('.')?;
-    api_spec()
-        .is_standard_module(module)
-        .then_some((module, api))
-}
-
-pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
-    match ty {
-        Type::BuiltinParameter(_) => false,
-        Type::Inference(_) => false,
-        Type::Any | Type::Unknown | Type::Invalid => true,
-        Type::Null => matches!(value, Value::Null),
-        Type::Bool => matches!(value, Value::Bool(_)),
-        Type::Int => matches!(value, Value::Int(_)),
-        Type::UInt => matches!(value, Value::Int(value) if *value >= 0),
-        Type::Float => matches!(value, Value::Float(_)),
-        Type::Duration => matches!(value, Value::Duration(_)),
-        Type::Str => matches!(value, Value::Str(_)),
-        Type::Bytes => matches!(value, Value::Bytes(_)),
-        Type::Digest => matches!(value, Value::Digest(_)),
-        Type::Regex => matches!(value, Value::Regex(_)),
-        Type::Path => matches!(value, Value::Path(_)),
-        Type::List(item_ty) => match value {
-            Value::List(items) => items
-                .iter()
-                .all(|item| value_matches_static_type(item, item_ty)),
-            _ => false,
-        },
-        Type::Map(key_ty, item_ty) => match value {
-            Value::Map(items) => items.iter().all(|(key, item)| {
-                map_key_matches_type(key, key_ty) && value_matches_static_type(item, item_ty)
-            }),
-            _ => false,
-        },
-        Type::Set(item_ty) => match value {
-            Value::Set(items) => items.iter().all(|item| map_key_matches_type(item, item_ty)),
-            _ => false,
-        },
-        Type::Stream(item_ty) => match value {
-            Value::Stream(stream) => stream
-                .items
-                .iter()
-                .all(|item| value_matches_static_type(&item.value, item_ty)),
-            _ => false,
-        },
-        Type::ErasedRecord => matches!(value, Value::Record(_) | Value::FsEntry(_)),
-        Type::Record(fields) => match value {
-            Value::Record(_) | Value::FsEntry(_) if fields.is_empty() => true,
-            Value::Record(record) => fields.iter().all(|(field, field_ty)| {
-                record
-                    .get(field.as_str().as_ref())
-                    .is_some_and(|value| value_matches_static_type(value, field_ty))
-            }),
-            Value::FsEntry(entry) => fields.iter().all(|(field, field_ty)| {
-                entry
-                    .field_value(&field.as_str())
-                    .and_then(Result::ok)
-                    .as_ref()
-                    .is_some_and(|value| value_matches_static_type(value, field_ty))
-            }),
-            _ => false,
-        },
-        // The same shape rule as the lowered form of this test below.
-        Type::Module(contract) => match value {
-            Value::Module(_) if contract.is_empty() && !contract.exact => true,
-            Value::Module(module) => {
-                contract.iter().all(
-                    |(field, export)| match module.get(field.as_str().as_ref()) {
-                        Some(value) => value_matches_static_type(value, &export.field_type()),
-                        None => export.optional(),
-                    },
-                ) && (!contract.exact
-                    || module.iter().all(|(exported, _)| {
-                        contract.contains_key(&Name::intern(exported.to_string()))
-                    }))
-            }
-            _ => false,
-        },
-        Type::DynamicModule => matches!(value, Value::Module(_)),
-        Type::Result(ok_ty, err_ty) => match value {
-            Value::Result(ResultValue::Ok(value)) => value_matches_static_type(value, ok_ty),
-            Value::Result(ResultValue::Err(value)) => value_matches_static_type(value, err_ty),
-            _ => false,
-        },
-        Type::Status => matches!(value, Value::Status(_)),
-        Type::EnvPathList => matches!(value, Value::EnvPathList),
-        Type::Error => matches!(value, Value::Error(_) | Value::RunError(_)),
-        Type::ErrorFamily(family) => {
-            matches!(value, Value::Error(error) if crate::runtime::value::error_family_matches(error.family_name(), *family))
-        }
-        Type::ErrorVariant { family, variant } => {
-            matches!(value, Value::Error(error) if crate::runtime::value::error_family_matches(error.family_name(), *family) && error.variant_name() == *variant)
-        }
-        Type::ErrorFacet(facet) => {
-            matches!(value, Value::Error(error) if error.facets.iter().any(|value| value == facet))
-        }
-        Type::ProcessError => matches!(value, Value::RunError(_)),
-        Type::Pure => matches!(value, Value::Pure(_)),
-        Type::Proc => matches!(value, Value::Proc(_)),
-        // A signature is a checked fact, not something a value carries: a
-        // slot of a callable type can only confirm the handle's kind.
-        Type::Callable(callable) if callable.pure => matches!(value, Value::Pure(_)),
-        Type::Callable(_) => matches!(value, Value::Proc(_)),
-        Type::Command => matches!(value, Value::Command(_)),
-        Type::ProcessHandle => matches!(value, Value::ProcessHandle(_)),
-        Type::NetJob => matches!(value, Value::NetJob(_)),
-        Type::FsRoot => matches!(value, Value::FsRoot(_)),
-        Type::Unit => matches!(value, Value::Unit),
-        Type::Tag(name) => matches!(value, Value::Tag { type_name, .. } if type_name == name),
-        Type::Optional(inner) => {
-            matches!(value, Value::Null) || value_matches_static_type(value, inner)
-        }
-        Type::Union(members) => {
-            crate::sema::types::first_accepting_union_member(members, |member| {
-                value_matches_static_type(value, member)
-            })
-            .is_some()
-        }
-        Type::Validated(validated) => {
-            value_matches_static_type(value, validated.base())
-                && validated::value_passes(validated.validation(), value)
-        }
-    }
-}
-
-fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
-    match ty {
-        Type::BuiltinParameter(_) => false,
-        Type::Inference(_) => false,
-        Type::Any | Type::Unknown | Type::Invalid => true,
-        Type::Null => matches!(value, LoweredValue::Null),
-        Type::Bool => matches!(value, LoweredValue::Bool(_)),
-        Type::Int => matches!(value, LoweredValue::Int(_)),
-        Type::UInt => matches!(value, LoweredValue::Int(value) if *value >= 0),
-        Type::Float => matches!(value, LoweredValue::Float(_)),
-        Type::Duration => matches!(value, LoweredValue::Duration(_)),
-        Type::Str => matches!(value, LoweredValue::Str(_) | LoweredValue::StrView(_)),
-        Type::Bytes => matches!(value, LoweredValue::Bytes(_) | LoweredValue::BytesView(_)),
-        Type::Digest => matches!(value, LoweredValue::Digest(_)),
-        Type::Regex => matches!(value, LoweredValue::Regex(_)),
-        Type::Path => matches!(value, LoweredValue::Path(_)),
-        Type::List(item_ty) => match value {
-            LoweredValue::List(items) => items
-                .iter()
-                .all(|item| lowered_value_matches_static_type(item, item_ty)),
-            LoweredValue::SharedList(items) => items
-                .iter()
-                .all(|item| lowered_value_matches_static_type(item, item_ty)),
-            _ => false,
-        },
-        Type::Map(key_ty, item_ty) => match value {
-            LoweredValue::Map(items) => items.iter().all(|(key, item)| {
-                map_key_matches_type(key, key_ty)
-                    && lowered_value_matches_static_type(item, item_ty)
-            }),
-            LoweredValue::Record(record) if matches!(key_ty.as_ref(), Type::Str) => record
-                .values()
-                .all(|item| lowered_value_matches_static_type(item, item_ty)),
-            LoweredValue::RecordVec(record) if matches!(key_ty.as_ref(), Type::Str) => record
-                .iter()
-                .all(|(_, item)| lowered_value_matches_static_type(item, item_ty)),
-            LoweredValue::FsEntry(entry) => entry.to_record_map().is_ok_and(|record| {
-                record
-                    .values()
-                    .filter_map(lowered_value_from_runtime_any)
-                    .all(|item| lowered_value_matches_static_type(&item, item_ty))
-            }),
-            _ => false,
-        },
-        Type::Set(item_ty) => match value {
-            LoweredValue::Set(items) => {
-                items.iter().all(|item| map_key_matches_type(item, item_ty))
-            }
-            _ => false,
-        },
-        Type::Stream(_) => matches!(value, LoweredValue::Stream(_)),
-        Type::ErasedRecord => matches!(
-            value,
-            LoweredValue::Record(_) | LoweredValue::RecordVec(_) | LoweredValue::FsEntry(_)
-        ),
-        Type::Record(fields) => match value {
-            LoweredValue::Record(_) | LoweredValue::RecordVec(_) | LoweredValue::FsEntry(_)
-                if fields.is_empty() =>
-            {
-                true
-            }
-            LoweredValue::Stats { .. } | LoweredValue::StatsBlob(_) if fields.is_empty() => true,
-            LoweredValue::Record(record) => fields.iter().all(|(field, field_ty)| {
-                {
-                    let field_text = field.as_str();
-                    record.get::<str>(field_text.as_str())
-                }
-                .is_some_and(|value| lowered_value_matches_static_type(value, field_ty))
-            }),
-            LoweredValue::RecordVec(record) => fields.iter().all(|(field, field_ty)| {
-                lowered_record_vec_get(record, &field.as_str())
-                    .is_some_and(|value| lowered_value_matches_static_type(value, field_ty))
-            }),
-            value @ (LoweredValue::Stats { .. } | LoweredValue::StatsBlob(_)) => {
-                fields.iter().all(|(field, field_ty)| {
-                    lowered_stats_value_field(value, &field.as_str())
-                        .is_some_and(|value| lowered_value_matches_static_type(&value, field_ty))
-                })
-            }
-            LoweredValue::FsEntry(entry) => fields.iter().all(|(field, field_ty)| {
-                entry
-                    .field_value(&field.as_str())
-                    .and_then(Result::ok)
-                    .as_ref()
-                    .is_some_and(|value| value_matches_static_type(value, field_ty))
-            }),
-            _ => false,
-        },
-        // The shape a contract promises: each entry present with its kind and
-        // value type, an optional entry possibly absent, and nothing else when
-        // the contract is exact. Callable signatures are the business of
-        // `.require(Contract)` and of the checker.
-        Type::Module(contract) => match value {
-            LoweredValue::Module(_) if contract.is_empty() && !contract.exact => true,
-            LoweredValue::Module(module) => {
-                contract.iter().all(|(field, export)| {
-                    match module.get::<str>(field.as_str().as_str()) {
-                        Some(value) => {
-                            lowered_value_matches_static_type(value, &export.field_type())
-                        }
-                        None => export.optional(),
-                    }
-                }) && (!contract.exact
-                    || module
-                        .keys()
-                        .all(|exported| contract.contains_key(&Name::intern(exported.as_ref()))))
-            }
-            _ => false,
-        },
-        Type::DynamicModule => matches!(value, LoweredValue::Module(_)),
-        Type::Result(ok_ty, err_ty) => match value {
-            LoweredValue::ResultOk(value) => lowered_value_matches_static_type(value, ok_ty),
-            LoweredValue::ResultErr(value) => value_matches_static_type(value, err_ty),
-            _ => false,
-        },
-        Type::Status => matches!(value, LoweredValue::Status(_)),
-        Type::EnvPathList => false,
-        Type::Error => matches!(value, LoweredValue::Error(_)),
-        Type::ErrorFamily(family) => {
-            matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::Error(error) if crate::runtime::value::error_family_matches(error.family_name(), *family)))
-        }
-        Type::ErrorVariant { family, variant } => {
-            matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::Error(error) if crate::runtime::value::error_family_matches(error.family_name(), *family) && error.variant_name() == *variant))
-        }
-        Type::ErrorFacet(facet) => {
-            matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::Error(error) if error.facets.iter().any(|value| value == facet)))
-        }
-        Type::Command => matches!(value, LoweredValue::Command(_)),
-        Type::ProcessHandle => matches!(value, LoweredValue::ProcessHandle(_)),
-        Type::NetJob => matches!(value, LoweredValue::NetJob(_)),
-        Type::FsRoot => matches!(value, LoweredValue::FsRoot(_)),
-        Type::ProcessError => {
-            matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::RunError(_)))
-        }
-        Type::Pure => matches!(value, LoweredValue::Pure(_)),
-        Type::Proc => matches!(value, LoweredValue::Proc(_)),
-        Type::Callable(callable) if callable.pure => matches!(value, LoweredValue::Pure(_)),
-        Type::Callable(_) => matches!(value, LoweredValue::Proc(_)),
-        Type::Unit => matches!(value, LoweredValue::Unit),
-        Type::Tag(name) => matches!(value, LoweredValue::Tag(tag) if tag.type_name == *name),
-        Type::Optional(inner) => {
-            matches!(value, LoweredValue::Null) || lowered_value_matches_static_type(value, inner)
-        }
-        Type::Union(members) => {
-            crate::sema::types::first_accepting_union_member(members, |member| {
-                lowered_value_matches_static_type(value, member)
-            })
-            .is_some()
-        }
-        Type::Validated(validated) => {
-            lowered_value_matches_static_type(value, validated.base())
-                && validated::lowered_value_passes(validated.validation(), value)
-        }
-    }
-}
 
 fn runtime_diagnostic(span: Span, message: &str, code: DiagnosticCode) -> Diagnostic {
     crate::diagnostic::Diagnostic::error(message)
@@ -7919,7 +7082,30 @@ fn compact_top_level_stmt_is_skippable(
         | ArenaStmtKind::CliMain(_)
         | ArenaStmtKind::PureDef(_)
         | ArenaStmtKind::StreamDef(_) => true,
-        _ => false,
+        ArenaStmtKind::Const { .. }
+        | ArenaStmtKind::Let { .. }
+        | ArenaStmtKind::Var { .. }
+        | ArenaStmtKind::Assign { .. }
+        | ArenaStmtKind::SignalHook(_)
+        | ArenaStmtKind::Return(_)
+        | ArenaStmtKind::Yield(_)
+        | ArenaStmtKind::YieldDelegate(_)
+        | ArenaStmtKind::Defer(..)
+        | ArenaStmtKind::If { .. }
+        | ArenaStmtKind::While { .. }
+        | ArenaStmtKind::For { .. }
+        | ArenaStmtKind::With { .. }
+        | ArenaStmtKind::Loop { .. }
+        | ArenaStmtKind::Guard { .. }
+        | ArenaStmtKind::Sugar { .. }
+        | ArenaStmtKind::Assert { .. }
+        | ArenaStmtKind::Break { .. }
+        | ArenaStmtKind::Continue
+        | ArenaStmtKind::Exit(_)
+        | ArenaStmtKind::Expr(_)
+        | ArenaStmtKind::Match { .. }
+        | ArenaStmtKind::Command(_)
+        | ArenaStmtKind::TailBareIdent(_) => false,
     }
 }
 
@@ -7947,6 +7133,13 @@ fn compact_expr_is_reveal_type_call(program: &ArenaProgram, expr: ExprId) -> boo
         return false;
     };
     matches!(program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "reveal_type")
+}
+
+fn compact_reveal_type_call_span(program: &ArenaProgram) -> Option<Span> {
+    (0..program.arena.expr_tags.len()).find_map(|index| {
+        let expr = ExprId::from_index(index);
+        compact_expr_is_reveal_type_call(program, expr).then(|| program.arena.expr(expr).span)
+    })
 }
 
 fn compact_root_proc_main_requires_auto_call_indexed(
@@ -8054,74 +7247,6 @@ fn compact_root_proc_main_span(program: &ArenaProgram, id: StmtId) -> Option<Spa
                 && program.arena.function_def(def).name == Name::intern("main") =>
         {
             Some(program.arena.stmt(id).span)
-        }
-        _ => None,
-    }
-}
-
-/// Whether the entry `main` declares a fixed (non-rest, non-defaulted)
-/// parameter whose type is not a CLI scalar (`Str` or `Path`, the only types
-/// the compact runtime's auto-main dispatch can bind from script arguments).
-/// Such a `main` can never bind a script argument and never run under `xsh`, so
-/// it must be rejected at check/lowering time instead of failing at run time
-/// with `compact-unsupported-main`. The rule mirrors the runtime binder: a
-/// fixed scalar (`Str`/`Path`) parameter can bind a CLI argument, a fixed
-/// defaulted parameter can be satisfied by its default, and a rest parameter is
-/// always `List` and fine; only a non-defaulted fixed parameter of some other
-/// type (e.g. `List[Str]`) can never bind.
-fn compact_root_proc_main_unbindable_fixed_param(
-    program: &ArenaProgram,
-    root: &[StmtId],
-    indexed: &FullProgram,
-) -> Result<bool, crate::runtime::eval::indexed::IrVerifyError> {
-    let Some(main_def) =
-        root.iter()
-            .copied()
-            .find_map(|stmt| match program.arena.stmt(stmt).kind {
-                ArenaStmtKind::Export(inner) => {
-                    compact_root_proc_main_unbindable_fixed_param_inner(program, inner)
-                }
-                ArenaStmtKind::ProcDef(def)
-                    if !program.arena.function_def(def).test_declaration
-                        && program.arena.function_def(def).name == Name::intern("main") =>
-                {
-                    Some(def)
-                }
-                _ => None,
-            })
-    else {
-        return Ok(false);
-    };
-    let def = program.arena.function_def(main_def);
-    let params = program.arena.params(def.params);
-    let Some(kinds) = indexed.function_param_kinds(
-        LoweredFunctionKey::Name(Name::intern("main")),
-        LoweredFunctionKind::Proc,
-    )?
-    else {
-        return Ok(false);
-    };
-    Ok(kinds.iter().enumerate().any(|(index, kind)| {
-        let param = params.get(index);
-        let rest = param.is_some_and(|param| param.rest);
-        let defaulted = param.is_some_and(|param| param.default.is_some());
-        !rest && !defaulted && !matches!(kind, LoweredType::Str | LoweredType::Path)
-    }))
-}
-
-fn compact_root_proc_main_unbindable_fixed_param_inner(
-    program: &ArenaProgram,
-    id: StmtId,
-) -> Option<crate::syntax::arena::FunctionDefId> {
-    match program.arena.stmt(id).kind {
-        ArenaStmtKind::Export(inner) => {
-            compact_root_proc_main_unbindable_fixed_param_inner(program, inner)
-        }
-        ArenaStmtKind::ProcDef(def)
-            if !program.arena.function_def(def).test_declaration
-                && program.arena.function_def(def).name == Name::intern("main") =>
-        {
-            Some(def)
         }
         _ => None,
     }
@@ -8277,16 +7402,7 @@ fn next_event_id(events: &[TraceEvent]) -> u64 {
 struct PreparedConstantValue(LoweredValue);
 
 fn map_key_matches_type(key: &MapKey, ty: &Type) -> bool {
-    matches!(
-        (key, ty),
-        (MapKey::Str(_), Type::Str)
-            | (MapKey::Int(_), Type::Int)
-            | (MapKey::Bool(_), Type::Bool)
-            | (MapKey::Bytes(_), Type::Bytes)
-            | (MapKey::Path(_), Type::Path)
-            | (MapKey::Duration(_), Type::Duration)
-    ) || matches!((key, ty), (MapKey::Int(value), Type::UInt) if *value >= 0)
-        || matches!(ty, Type::Unknown | Type::Invalid | Type::Any)
+    value_matches_static_type(ValueView::Key(key.as_ref()), ty)
 }
 
 /// A `within` limit as a duration literal reads: whole seconds when it is
@@ -8297,5 +7413,622 @@ fn within_limit_text(limit: Duration) -> String {
         format!("{}s", millis / 1000)
     } else {
         format!("{millis}ms")
+    }
+}
+
+#[cfg(test)]
+mod frame_scheduler_marker_tests {
+    use super::force_frames_from_marker;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn internal_frame_marker_accepts_only_the_reserved_enabled_value() {
+        assert!(!force_frames_from_marker(None));
+        assert!(force_frames_from_marker(Some(OsStr::new("1"))));
+        assert!(std::panic::catch_unwind(|| {
+            force_frames_from_marker(Some(OsStr::new("enabled")))
+        })
+        .is_err());
+    }
+}
+
+#[cfg(test)]
+mod capture_transfer_tests {
+    use super::*;
+    use crate::runtime::value::{ScriptStream, ScriptStreamState, ScriptStreamStep};
+
+    struct CancellationCounter {
+        cancellations: Arc<std::sync::atomic::AtomicUsize>,
+        finished: bool,
+    }
+
+    impl ScriptStream for CancellationCounter {
+        fn finished(&self) -> bool { self.finished }
+
+        fn poll(
+            &mut self,
+            _evaluator: &mut Evaluator,
+            _span: Span,
+        ) -> Result<ScriptStreamStep, RuntimeError> {
+            Ok(ScriptStreamStep::Yielded(Value::Unit))
+        }
+
+        fn validate_item(&self, _value: &Value, _span: Span) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn visit_retained_values(
+            &self,
+            _visitor: &mut dyn for<'a> FnMut(RetainedValueRef<'a>),
+        ) {
+        }
+
+        fn delegated_finished(&mut self) {}
+
+        fn take_delegated(
+            &mut self,
+        ) -> (Option<ScriptStreamState>, Vec<u64>, Option<ScopedProducerContext>) {
+            (None, Vec::new(), None)
+        }
+
+        fn cancel(&mut self, _evaluator: &mut Evaluator, _span: Span) -> Result<(), RuntimeError> {
+            if !self.finished {
+                self.finished = true;
+                self.cancellations
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn dropped_stream_state_remains_available_for_scope_cleanup() {
+        let mut evaluator = Evaluator::new(Vec::new());
+        let owner_scope = evaluator.enter_owned_host_scope();
+        let cancellations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let state = ScriptStreamState::new(CancellationCounter {
+            cancellations: Arc::clone(&cancellations),
+            finished: false,
+        });
+        let mut stream = StreamValue::from_script(state.clone());
+        evaluator.register_returned_stream(&mut stream, zero_span()).unwrap();
+        let owner_id = stream.owner().unwrap().id;
+
+        assert_eq!(evaluator.stream_next(&mut stream, zero_span()).unwrap(), Some(Value::Unit));
+        drop(state);
+        drop(stream);
+        assert_eq!(cancellations.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert!(evaluator.owned_streams.contains_key(&owner_id));
+
+        evaluator.exit_owned_host_scope(owner_scope).unwrap();
+
+        assert_eq!(cancellations.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(!evaluator.owned_streams.contains_key(&owner_id));
+    }
+
+    struct DropProbeStream {
+        drops: Arc<std::sync::atomic::AtomicUsize>,
+        captured: Arc<std::sync::Mutex<Option<StreamValue>>>,
+    }
+
+    impl Drop for DropProbeStream {
+        fn drop(&mut self) {
+            self.drops
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    impl ScriptStream for DropProbeStream {
+        fn finished(&self) -> bool {
+            false
+        }
+
+        fn poll(
+            &mut self,
+            _evaluator: &mut Evaluator,
+            _span: Span,
+        ) -> Result<ScriptStreamStep, RuntimeError> {
+            Ok(ScriptStreamStep::Finished)
+        }
+
+        fn validate_item(&self, _value: &Value, _span: Span) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn visit_retained_values(
+            &self,
+            visitor: &mut dyn for<'a> FnMut(RetainedValueRef<'a>),
+        ) {
+            if let Some(stream) = self.captured.lock().expect("test stream holder").as_ref() {
+                visitor(RetainedValueRef::Stream(stream));
+            }
+        }
+
+        fn delegated_finished(&mut self) {}
+
+        fn take_delegated(
+            &mut self,
+        ) -> (Option<ScriptStreamState>, Vec<u64>, Option<ScopedProducerContext>) {
+            (None, Vec::new(), None)
+        }
+
+        fn cancel(&mut self, _evaluator: &mut Evaluator, _span: Span) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+    }
+
+    fn producer_capture_evaluator() -> (Evaluator, LoweredFunctionKey, Span, u64) {
+        let source = String::from(
+            "stream hold_stream(source: Stream[Unit]) -> Stream[Int] { yield 1 }\n",
+        );
+        let mut sources = crate::source::SourceMap::new();
+        let source_id = sources.add_file("stream-capture-lifecycle.xsh", &source);
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(source_id, &source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+        let function = parsed
+            .arena
+            .symbol_owner()
+            .with_current(|| Name::intern("hold_stream"));
+        let sources = Arc::new(sources);
+        let program = FullBuilder::build_compact(
+            &parsed.arena,
+            &declarations,
+            &source,
+            Arc::clone(&sources),
+            source_id,
+        )
+        .expect("stream function lowers");
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*sources).clone());
+        evaluator.install_compact_runtime_declarations(&declarations);
+        evaluator.indexed_program = Some(Arc::new(program));
+        let owner_scope = evaluator.enter_owned_host_scope();
+        (
+            evaluator,
+            LoweredFunctionKey::Name(function),
+            Span::new(source_id, 0, 0),
+            owner_scope,
+        )
+    }
+
+    fn stream_with_captured_drop_probe(
+        evaluator: &mut Evaluator,
+        function: LoweredFunctionKey,
+        span: Span,
+        drops: &Arc<std::sync::atomic::AtomicUsize>,
+    ) -> (StreamValue, ScriptStreamState) {
+        // The captured stream points back to its producer through this test cell.
+        let captured = Arc::new(std::sync::Mutex::new(None));
+        let source = StreamValue::from_script(ScriptStreamState::new(DropProbeStream {
+            drops: Arc::clone(drops),
+            captured: Arc::clone(&captured),
+        }));
+        let args = [Value::Stream(Box::new(source))];
+        let kind = [LoweredFunctionKind::Proc, LoweredFunctionKind::Pure]
+            .into_iter()
+            .find(|kind| {
+                evaluator
+                    .indexed_program
+                    .as_ref()
+                    .unwrap()
+                    .function_view(function, *kind)
+                    .unwrap()
+                    .is_some()
+            })
+            .expect("prepared stream function identity");
+        let value = evaluator
+            .call_indexed_direct(function, kind, &args, span)
+            .expect("prepared stream function")
+            .expect("stream producer call succeeds");
+        drop(args);
+        let Value::Stream(stream) = value else {
+            panic!("stream producer call returned {value:?}");
+        };
+        let state = stream.script().expect("script producer state").clone();
+        *captured.lock().expect("test stream holder") = Some((*stream).clone());
+        (*stream, state)
+    }
+
+    #[test]
+    fn unstarted_producer_drops_bound_captures_at_scope_exit() {
+        let (mut evaluator, function, span, owner_scope) = producer_capture_evaluator();
+        let drops = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (_stream, state) =
+            stream_with_captured_drop_probe(&mut evaluator, function, span, &drops);
+
+        assert_eq!(drops.load(std::sync::atomic::Ordering::SeqCst), 0);
+        evaluator.exit_owned_host_scope(owner_scope).unwrap();
+        assert!(state.lock(span).unwrap().finished());
+        assert_eq!(drops.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn started_producer_drops_bound_captures_when_cancelled() {
+        let (mut evaluator, function, span, owner_scope) = producer_capture_evaluator();
+        let drops = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (mut stream, state) =
+            stream_with_captured_drop_probe(&mut evaluator, function, span, &drops);
+
+        assert_eq!(
+            evaluator.stream_next(&mut stream, span).unwrap(),
+            Some(Value::Int(1))
+        );
+        assert_eq!(drops.load(std::sync::atomic::Ordering::SeqCst), 0);
+        evaluator.exit_owned_host_scope(owner_scope).unwrap();
+        assert!(state.lock(span).unwrap().finished());
+        assert_eq!(drops.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    struct RetainedStreamProducer {
+        retained: Option<StreamValue>,
+        self_stream: Option<Arc<std::sync::Mutex<Option<StreamValue>>>>,
+        retained_value: Option<Value>,
+        poll_error: bool,
+        transfer_target: Option<u64>,
+        expected_retained_scope: Option<u64>,
+        expected_pending: Option<usize>,
+        expected_cancel_pending: Option<usize>,
+        expected_capability_scope: Option<(usize, u64)>,
+    }
+
+    impl ScriptStream for RetainedStreamProducer {
+        fn finished(&self) -> bool { false }
+
+        fn poll(
+            &mut self,
+            evaluator: &mut Evaluator,
+            _span: Span,
+        ) -> Result<ScriptStreamStep, RuntimeError> {
+            if let (Some(self_stream), Some(target)) = (&self.self_stream, self.transfer_target) {
+                let stream = self_stream.lock().expect("test stream holder");
+                evaluator.transfer_owned_host_resources_in_stream(
+                    stream.as_ref().expect("test stream is registered"),
+                    target,
+                );
+                if let (Some(retained), Some(expected_scope)) =
+                    (&self.retained, self.expected_retained_scope)
+                {
+                    let id = retained.owner().expect("retained stream owner").id;
+                    assert_eq!(evaluator.owned_streams[&id].owner_scope, expected_scope);
+                }
+                if let Some(expected_pending) = self.expected_pending {
+                    assert_eq!(evaluator.pending_stream_captures.len(), expected_pending);
+                }
+            }
+            if self.poll_error {
+                return Err(RuntimeError::new("test-producer", "producer poll failed"));
+            }
+            Ok(ScriptStreamStep::Yielded(Value::Unit))
+        }
+
+        fn validate_item(&self, _value: &Value, _span: Span) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn visit_retained_values(
+            &self,
+            visitor: &mut dyn for<'a> FnMut(RetainedValueRef<'a>),
+        ) {
+            if let Some(stream) = &self.retained {
+                visitor(RetainedValueRef::Stream(stream));
+            }
+            if let Some(value) = &self.retained_value {
+                visitor(RetainedValueRef::Runtime(value));
+            }
+            if let Some(self_stream) = &self.self_stream {
+                let stream = self_stream.lock().expect("test stream holder");
+                if let Some(stream) = stream.as_ref() {
+                    visitor(RetainedValueRef::Stream(stream));
+                }
+            }
+        }
+
+        fn delegated_finished(&mut self) {}
+
+        fn take_delegated(
+            &mut self,
+        ) -> (Option<ScriptStreamState>, Vec<u64>, Option<ScopedProducerContext>) {
+            (None, Vec::new(), None)
+        }
+
+        fn cancel(&mut self, evaluator: &mut Evaluator, _span: Span) -> Result<(), RuntimeError> {
+            if let Some(expected_pending) = self.expected_cancel_pending {
+                assert_eq!(evaluator.pending_stream_captures.len(), expected_pending);
+            }
+            if let Some((capability_index, expected_scope)) = self.expected_capability_scope {
+                assert_eq!(
+                    evaluator.fs_capabilities[capability_index]
+                        .as_ref()
+                        .expect("captured capability remains live")
+                        .owner_scope,
+                    expected_scope
+                );
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn active_capture_busy_flushes_before_error_cancellation() {
+        let mut evaluator = Evaluator::new(Vec::new());
+        let root_scope = evaluator.current_scope_id();
+        let child_scope = evaluator.enter_owned_host_scope();
+        let temp_root = tempfile::tempdir().unwrap();
+        let root = Root::open(temp_root.path()).unwrap();
+        let root_id = evaluator.push_fs_capability(FsCapability::Root(Box::new(
+            FsRootHandle::TempDir {
+                root,
+                _temp: temp_root,
+            },
+        )));
+        let root_value = Value::FsRoot(FsRootValue {
+            id: root_id,
+            owner: Arc::clone(&evaluator.resource_owner),
+        });
+
+        let inner_state = ScriptStreamState::new(RetainedStreamProducer {
+            retained: None,
+            self_stream: None,
+            retained_value: Some(root_value),
+            poll_error: false,
+            transfer_target: None,
+            expected_retained_scope: None,
+            expected_pending: None,
+            expected_cancel_pending: None,
+            expected_capability_scope: None,
+        });
+        let mut inner = StreamValue::from_script(inner_state);
+        evaluator.register_returned_stream(&mut inner, zero_span()).unwrap();
+        let inner_id = inner.owner().expect("registered stream owner").id;
+
+        let self_stream = Arc::new(std::sync::Mutex::new(None));
+        let outer_state = ScriptStreamState::new(RetainedStreamProducer {
+            retained: Some(inner),
+            self_stream: Some(Arc::clone(&self_stream)),
+            retained_value: None,
+            poll_error: true,
+            transfer_target: Some(root_scope),
+            expected_retained_scope: Some(child_scope),
+            expected_pending: Some(1),
+            expected_cancel_pending: Some(0),
+            expected_capability_scope: Some((0, root_scope)),
+        });
+        let mut outer = StreamValue::from_script(outer_state.clone());
+        evaluator.register_returned_stream(&mut outer, zero_span()).unwrap();
+        let outer_id = outer.owner().expect("registered stream owner").id;
+        *self_stream.lock().expect("test stream holder") = Some(outer.clone());
+
+        assert_eq!(
+            evaluator.stream_next(&mut outer, zero_span()).unwrap_err().kind,
+            "test-producer"
+        );
+        assert_eq!(evaluator.owned_streams[&outer_id].owner_scope, root_scope);
+        assert!(evaluator.pending_stream_captures.is_empty());
+        assert_eq!(evaluator.owned_streams[&inner_id].owner_scope, root_scope);
+        assert_eq!(evaluator.fs_capabilities[0].as_ref().unwrap().owner_scope, root_scope);
+        *self_stream.lock().expect("test stream holder") = None;
+        evaluator.exit_owned_host_scope(child_scope).unwrap();
+        assert!(!evaluator.owned_scope_parents.contains_key(&child_scope));
+    }
+
+    #[test]
+    fn active_ancestor_stream_capture_does_not_queue_a_revisit() {
+        let mut evaluator = Evaluator::new(Vec::new());
+        let root_scope = evaluator.current_scope_id();
+        let self_stream = Arc::new(std::sync::Mutex::new(None));
+        let outer_state = ScriptStreamState::new(RetainedStreamProducer {
+            retained: None,
+            self_stream: Some(Arc::clone(&self_stream)),
+            retained_value: None,
+            poll_error: false,
+            transfer_target: Some(root_scope),
+            expected_retained_scope: None,
+            expected_pending: Some(0),
+            expected_cancel_pending: None,
+            expected_capability_scope: None,
+        });
+        let mut outer = StreamValue::from_script(outer_state);
+        evaluator.register_returned_stream(&mut outer, zero_span()).unwrap();
+
+        let child_scope = evaluator.enter_owned_host_scope();
+        let inner_state = ScriptStreamState::new(RetainedStreamProducer {
+            retained: Some(outer.clone()),
+            self_stream: None,
+            retained_value: None,
+            poll_error: false,
+            transfer_target: None,
+            expected_retained_scope: None,
+            expected_pending: None,
+            expected_cancel_pending: None,
+            expected_capability_scope: None,
+        });
+        let mut inner = StreamValue::from_script(inner_state);
+        evaluator.register_returned_stream(&mut inner, zero_span()).unwrap();
+        let inner_id = inner.owner().expect("registered stream owner").id;
+        *self_stream.lock().expect("test stream holder") = Some(inner);
+
+        assert_eq!(evaluator.stream_next(&mut outer, zero_span()).unwrap(), Some(Value::Unit));
+        assert_eq!(evaluator.owned_streams[&inner_id].owner_scope, root_scope);
+        assert!(evaluator.pending_stream_captures.is_empty());
+        *self_stream.lock().expect("test stream holder") = None;
+        evaluator.exit_owned_host_scope(child_scope).unwrap();
+    }
+
+    #[test]
+    fn inactive_stream_owner_does_not_hide_local_prefix_resources() {
+        fn temp_root_value(evaluator: &mut Evaluator) -> (usize, Value) {
+            let temp = tempfile::tempdir().unwrap();
+            let root = Root::open(temp.path()).unwrap();
+            let id = evaluator.push_fs_capability(FsCapability::Root(Box::new(
+                FsRootHandle::TempDir { root, _temp: temp },
+            )));
+            let value = Value::FsRoot(FsRootValue {
+                id,
+                owner: Arc::clone(&evaluator.resource_owner),
+            });
+            ((id - 1) as usize, value)
+        }
+
+        let mut evaluator = Evaluator::new(Vec::new());
+        let root_scope = evaluator.current_scope_id();
+        let child_scope = evaluator.enter_owned_host_scope();
+        let (foreign_capability, foreign_prefix) = temp_root_value(&mut evaluator);
+        let (foreign_capture_capability, foreign_capture) = temp_root_value(&mut evaluator);
+        let (missing_capability, missing_prefix) = temp_root_value(&mut evaluator);
+
+        let mut foreign_evaluator = Evaluator::new(Vec::new());
+        let foreign_state = ScriptStreamState::new(RetainedStreamProducer {
+            retained: None,
+            self_stream: None,
+            retained_value: Some(foreign_capture),
+            poll_error: false,
+            transfer_target: None,
+            expected_retained_scope: None,
+            expected_pending: None,
+            expected_cancel_pending: None,
+            expected_capability_scope: None,
+        });
+        let mut foreign_stream = StreamValue::from_script(foreign_state);
+        foreign_stream.items.push(crate::runtime::value::StreamItem {
+            value: foreign_prefix,
+            index: 0,
+            source_span: None,
+        });
+        foreign_evaluator
+            .register_returned_stream(&mut foreign_stream, zero_span())
+            .unwrap();
+        let foreign_owner = foreign_stream.owner().unwrap().clone();
+        let foreign_scope = foreign_evaluator.owned_streams[&foreign_owner.id].owner_scope;
+        evaluator.transfer_owned_host_resources_in_stream(&foreign_stream, root_scope);
+        assert_eq!(
+            evaluator.fs_capabilities[foreign_capability]
+                .as_ref()
+                .unwrap()
+                .owner_scope,
+            root_scope
+        );
+        assert_eq!(foreign_evaluator.owned_streams[&foreign_owner.id].owner_scope, foreign_scope);
+        assert_eq!(
+            evaluator.fs_capabilities[foreign_capture_capability]
+                .as_ref()
+                .unwrap()
+                .owner_scope,
+            child_scope
+        );
+
+        let mut missing_stream = StreamValue::from_values(vec![missing_prefix]);
+        missing_stream.owner = Some(crate::runtime::value::StreamOwner {
+            id: u64::MAX,
+            evaluator: Arc::clone(&evaluator.resource_owner),
+        });
+        evaluator.transfer_owned_host_resources_in_stream(&missing_stream, root_scope);
+        assert_eq!(
+            evaluator.fs_capabilities[missing_capability]
+                .as_ref()
+                .unwrap()
+                .owner_scope,
+            root_scope
+        );
+        assert_eq!(missing_stream.owner().unwrap().id, u64::MAX);
+        assert_eq!(evaluator.current_scope_id(), child_scope);
+        evaluator.exit_owned_host_scope(child_scope).unwrap();
+    }
+
+    #[test]
+    fn busy_capture_cleanup_closes_scope_and_releases_capabilities() {
+        let mut evaluator = Evaluator::new(Vec::new());
+        let root_scope = evaluator.current_scope_id();
+        let child_scope = evaluator.enter_owned_host_scope();
+        let temp = tempfile::tempdir().unwrap();
+        let root = Root::open(temp.path()).unwrap();
+        let root_id = evaluator.push_fs_capability(FsCapability::Root(Box::new(
+            FsRootHandle::TempDir {
+                root,
+                _temp: temp,
+            },
+        )));
+        let retained_root = Value::FsRoot(FsRootValue {
+            id: root_id,
+            owner: Arc::clone(&evaluator.resource_owner),
+        });
+        let mut stream = StreamValue::from_script(ScriptStreamState::new(
+            RetainedStreamProducer {
+                retained: None,
+                self_stream: None,
+                retained_value: Some(retained_root),
+                poll_error: false,
+                transfer_target: None,
+                expected_retained_scope: None,
+                expected_pending: None,
+                expected_cancel_pending: None,
+                expected_capability_scope: None,
+            },
+        ));
+        evaluator.register_returned_stream(&mut stream, zero_span()).unwrap();
+        let owner_id = stream.owner().unwrap().id;
+        let state = stream.script().unwrap().clone();
+        let guard = state.lock(zero_span()).unwrap();
+        evaluator.transfer_owned_host_resources_in_stream(&stream, root_scope);
+        assert_eq!(evaluator.pending_stream_captures.len(), 1);
+
+        let error = evaluator
+            .exit_owned_host_scope(child_scope)
+            .expect_err("an active capture cannot be reconciled during scope exit");
+
+        assert_eq!(error.kind, "stream-capture-active");
+        assert_eq!(evaluator.current_scope_id(), root_scope);
+        assert!(!evaluator.owned_scope_parents.contains_key(&child_scope));
+        assert!(evaluator.fs_capabilities[0].is_none());
+        assert_eq!(evaluator.owned_streams[&owner_id].owner_scope, root_scope);
+        drop(guard);
+        assert!(evaluator.finish_owned_resources().is_none());
+        assert!(!evaluator.owned_streams.contains_key(&owner_id));
+    }
+
+    #[test]
+    fn poisoned_capture_visit_fails_scope_exit_without_leaking_scope_resources() {
+        let mut evaluator = Evaluator::new(Vec::new());
+        let root_scope = evaluator.current_scope_id();
+        let child_scope = evaluator.enter_owned_host_scope();
+        let temp = tempfile::tempdir().unwrap();
+        let root = Root::open(temp.path()).unwrap();
+        let root_id = evaluator.push_fs_capability(FsCapability::Root(Box::new(
+            FsRootHandle::TempDir { root, _temp: temp },
+        )));
+        let root_value = Value::FsRoot(FsRootValue {
+            id: root_id,
+            owner: Arc::clone(&evaluator.resource_owner),
+        });
+        let state = ScriptStreamState::new(RetainedStreamProducer {
+            retained: None,
+            self_stream: None,
+            retained_value: Some(root_value),
+            poll_error: false,
+            transfer_target: None,
+            expected_retained_scope: None,
+            expected_pending: None,
+            expected_cancel_pending: None,
+            expected_capability_scope: None,
+        });
+        let poisoned = state.clone();
+        assert!(std::thread::spawn(move || {
+            let _guard = poisoned.lock(zero_span()).unwrap();
+            panic!("poison producer state for cleanup regression");
+        })
+        .join()
+        .is_err());
+        let mut stream = StreamValue::from_script(state);
+        evaluator.register_returned_stream(&mut stream, zero_span()).unwrap();
+
+        evaluator.transfer_owned_host_resources_in_stream(&stream, root_scope);
+        let error = evaluator
+            .exit_owned_host_scope(child_scope)
+            .expect_err("a poisoned capture visit must fail cleanup");
+        assert_eq!(error.kind, "stream-state");
+        assert_eq!(evaluator.current_scope_id(), root_scope);
+        assert!(!evaluator.owned_scope_parents.contains_key(&child_scope));
+        assert!(evaluator.fs_capabilities[0].is_none());
+        assert!(!evaluator.owned_scope_counts.contains_key(&child_scope));
     }
 }

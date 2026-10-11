@@ -535,3 +535,16 @@ print ${captured(true)} ${captured(false)} ${fallible(true) is Err(_)} ${inferre
   )?
   assert accepted.stdout == "0 1 true 1 true\n"
 }
+
+test test_print_argument_propagates_the_expression_error_at_top_level { |ctx|
+  let script = test.run_script(
+    ctx,
+    r"""enum State { Seen }
+let value: Any = Seen
+print json.encode(value)?
+""",
+  )?
+  assert !script.success, script.stderr
+  assert "json-compatible" in script.stderr, script.stderr
+  assert "return-outside-function" not in script.stderr, script.stderr
+}

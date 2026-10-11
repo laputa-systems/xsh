@@ -18,7 +18,8 @@ pub fn terminal_text(class: &Class) -> String {
         Class::Name => "NAME".to_string(),
         Class::Label => "LABEL".to_string(),
         Class::Member => "MEMBER".to_string(),
-        Class::WordPart => "WORD_PART".to_string(),
+        Class::WordPart(_) => "WORD_PART".to_string(),
+        Class::GroupedEnd(_) => "GROUP_END".to_string(),
         Class::PathPart => "PATH_PART".to_string(),
     }
 }
@@ -54,7 +55,7 @@ fn tag_name(tag: TokenTag) -> String {
 }
 
 /// The terminals named in EBNF text, with what each stands for.
-pub const TERMINAL_DESCRIPTIONS: [(&str, &str); 19] = [
+pub const TERMINAL_DESCRIPTIONS: [(&str, &str); 20] = [
     (
         "IDENT",
         "an identifier: `[A-Za-z_][A-Za-z0-9_]*`, not a keyword",
@@ -91,6 +92,7 @@ pub const TERMINAL_DESCRIPTIONS: [(&str, &str); 19] = [
         "any other token that can be part of a bare command word",
     ),
     ("PATH_PART", "a token made only of bare-path characters"),
+    ("GROUP_END", "a closing parenthesis owned by an expression group"),
     ("KEYWORD", "a reserved keyword"),
 ];
 
@@ -101,6 +103,14 @@ pub fn render_item(item: &Item, nested: bool) -> String {
             let text = terminal_text(&term.class);
             if term.glued { format!("~{text}") } else { text }
         }
+        Item::NameStatement(form) => match form {
+            super::NameStatementForm::Expression => "&name_expression".to_string(),
+            super::NameStatementForm::Command => "!name_expression".to_string(),
+            super::NameStatementForm::ProcCommand => "&proc_command".to_string(),
+        },
+        Item::WordStart => "&word_argument".to_string(),
+        Item::NotContextScope => "!context_scope_form".to_string(),
+        Item::ConditionBody { .. } => "!builder_callback_before_condition_body".to_string(),
         Item::Rule(name) => (*name).to_string(),
         Item::Seq(items) if items.is_empty() => "()".to_string(),
         Item::Seq(items) if items.len() == 1 => render_item(&items[0], nested),
@@ -138,6 +148,7 @@ pub fn render_item(item: &Item, nested: bool) -> String {
         }
         Item::Not(sequences) => format!("!{}", render_lookahead(sequences)),
         Item::Peek(sequences) => format!("&{}", render_lookahead(sequences)),
+        Item::Group(inner) => format!("group({})", render_item(inner, false)),
         Item::Line(inner) => format!("line({})", render_item(inner, false)),
     }
 }

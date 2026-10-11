@@ -159,6 +159,15 @@ fn format_wide(source: &str, width: usize) -> String {
     formatted.formatted
 }
 
+#[test]
+fn slice_start_type_test_parentheses_are_redundant() {
+    let grouped = "let v = xs[(b is Int)..1]";
+    let bare = "let v = xs[b is Int..1]";
+
+    assert_eq!(canonical(grouped), canonical(bare));
+    assert_eq!(remove_redundant_parens(grouped), bare);
+}
+
 /// Applies every redundant-parenthesis fix until none remain.
 fn remove_redundant_parens(source: &str) -> String {
     let mut text = source.to_string();
@@ -271,9 +280,10 @@ fn needs_parens_is_exact_for_every_slot_and_form() {
         }
     }
     assert_eq!((parents.len(), children.len()), (79, 67));
+    // `..` starts the enclosing slice range, so `(b is Int)` is redundant there.
     assert_eq!(
         (cases, required, redundant, kept, ambiguous),
-        (5293, 1496, 3762, 35, 192)
+        (5293, 1495, 3763, 35, 192)
     );
 }
 

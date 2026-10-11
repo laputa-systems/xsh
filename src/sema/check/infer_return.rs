@@ -1,8 +1,12 @@
-use super::{AnnotationFact, AnnotationFactKind, Checker, FxHashMap, FxHashSet, Name, Span, Type};
+use super::{
+    AnnotationFact, AnnotationFactKind, CheckBundleView, Checker, FxHashMap, FxHashSet, Name, Span,
+    Type,
+};
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
-    ArenaBindingTargetKind, ArenaCompQualifier, ArenaExprKind, ArenaPatternKind, ArenaProgram,
-    ArenaRecordFieldKind, ArenaStmtKind, BindingTargetId, ExprId, FunctionDefId, PatternId, StmtId,
+    ArenaBindingTargetKind, ArenaChild, ArenaCompQualifier, ArenaExprKind, ArenaPatternKind,
+    ArenaProgram, ArenaRecordFieldKind, ArenaStmtKind, BindingTargetId, ExprId, FunctionDefId,
+    PatternId, StmtId,
 };
 
 struct ReturnDeclaration {
@@ -27,7 +31,8 @@ pub(super) struct ReturnInferenceIndex {
 }
 
 impl ReturnInferenceIndex {
-    fn collect(program: &ArenaProgram) -> Self {
+    pub(super) fn collect(view: &CheckBundleView<'_>) -> Self {
+        let program = view.program;
         let mut shadows: FxHashMap<Name, Vec<Span>> = FxHashMap::default();
         let mut add_shadow = |target, span| {
             for name in binding_names(program, target) {
@@ -36,6 +41,9 @@ impl ReturnInferenceIndex {
         };
         for block in &program.arena.blocks {
             let block_span = program.arena.span(block.span);
+            if !view.contains_source(block_span.source_id) {
+                continue;
+            }
             for id in program.arena.stmt_ids(block.statements) {
                 let stmt = program.arena.stmt(program.arena.core_stmt_id(id));
                 match stmt.kind {
@@ -58,12 +66,19 @@ impl ReturnInferenceIndex {
         drop(add_shadow);
         for block in &program.arena.blocks {
             let span = program.arena.span(block.span);
+            if !view.contains_source(span.source_id) {
+                continue;
+            }
             for param in program.arena.block_params(block.params) {
                 shadows.entry(param.name).or_default().push(span);
             }
         }
         for raw in 0..program.arena.stmt_tags.len() {
-            match program.arena.stmt(StmtId::from_index(raw)).kind {
+            let statement = program.arena.stmt(StmtId::from_index(raw));
+            if !view.contains_source(statement.span.source_id) {
+                continue;
+            }
+            match statement.kind {
                 ArenaStmtKind::Match { arms, .. } => {
                     for arm in program.arena.match_arms(arms) {
                         let span = program.arena.span(arm.span);
@@ -97,6 +112,9 @@ impl ReturnInferenceIndex {
         }
         for raw in 0..program.arena.expr_tags.len() {
             let expr = program.arena.expr(ExprId::from_index(raw));
+            if !view.contains_source(expr.span.source_id) {
+                continue;
+            }
             match expr.kind {
                 ArenaExprKind::Match { arms, .. } => {
                     for arm in program.arena.match_expr_arms(arms) {
@@ -157,8 +175,9 @@ impl ReturnInferenceIndex {
         }
         let mut callees = FxHashSet::default();
         for raw in 0..program.arena.expr_tags.len() {
-            if let ArenaExprKind::Call { callee, .. } =
-                program.arena.expr(ExprId::from_index(raw)).kind
+            let expr = program.arena.expr(ExprId::from_index(raw));
+            if view.contains_source(expr.span.source_id)
+                && let ArenaExprKind::Call { callee, .. } = expr.kind
             {
                 callees.insert(callee);
             }
@@ -172,6 +191,9 @@ impl ReturnInferenceIndex {
             .filter_map(|field| match field.kind {
                 ArenaRecordFieldKind::Path { path, span, .. } => {
                     let span = program.arena.span(span);
+                    if !view.contains_source(span.source_id) {
+                        return None;
+                    }
                     program
                         .arena
                         .names(path)
@@ -180,6 +202,9 @@ impl ReturnInferenceIndex {
                 }
                 ArenaRecordFieldKind::Named { name, span, .. } => {
                     let span = program.arena.span(span);
+                    if !view.contains_source(span.source_id) {
+                        return None;
+                    }
                     Some((span.source_id, span.start(), name))
                 }
                 _ => None,
@@ -189,7 +214,8 @@ impl ReturnInferenceIndex {
         for raw in 0..program.arena.expr_tags.len() {
             let id = ExprId::from_index(raw);
             let expr = program.arena.expr(id);
-            if let ArenaExprKind::Ident(name) = expr.kind
+            if view.contains_source(expr.span.source_id)
+                && let ArenaExprKind::Ident(name) = expr.kind
                 && !record_keys.contains(&(expr.span.source_id, expr.span.start(), name))
             {
                 references.push((expr.span, name, callees.contains(&id)));
@@ -204,7 +230,9 @@ impl ReturnInferenceIndex {
         }
         for raw in 0..program.arena.stmt_tags.len() {
             let stmt = program.arena.stmt(StmtId::from_index(raw));
-            if let ArenaStmtKind::TailBareIdent(name) = stmt.kind {
+            if view.contains_source(stmt.span.source_id)
+                && let ArenaStmtKind::TailBareIdent(name) = stmt.kind
+            {
                 references.push((stmt.span, name, false));
             }
         }
@@ -224,10 +252,11 @@ impl Checker {
     /// their bodies are still checked in source order with the inferred return.
     pub(super) fn infer_local_pure_returns(
         &mut self,
-        program: &ArenaProgram,
+        view: &CheckBundleView<'_>,
         source: &str,
         statements: &[StmtId],
     ) {
+        let program = view.program;
         let mut declarations = Vec::new();
         for &statement in statements {
             let (statement, exported) = match program.arena.stmt(statement).kind {
@@ -295,7 +324,7 @@ impl Checker {
         let index = match &self.return_inference_index {
             Some(index) => index.clone(),
             None => {
-                let index = std::sync::Arc::new(ReturnInferenceIndex::collect(program));
+                let index = std::sync::Arc::new(ReturnInferenceIndex::collect(view));
                 self.return_inference_index = Some(index.clone());
                 index
             }
@@ -369,6 +398,7 @@ impl Checker {
                     use_stmt.path,
                     use_stmt.alias,
                     use_stmt.resolved.as_deref(),
+                    use_stmt.searched_candidates.as_deref(),
                     program.arena.stmt(id).span,
                 );
             }
@@ -562,7 +592,7 @@ impl Checker {
         probe.inferred_propagations.clear();
         probe.return_conflicts = Some(Vec::new());
         probe.inference_reachable = true;
-        probe.current_return = None;
+        probe.boundary.current_return = None;
         // Recursive calls contribute no completion, as for inferred pures.
         if boundary == Some("recursive")
             && let Some(sig) = probe.procs.get_mut(&decl.name)
@@ -849,14 +879,13 @@ fn binding_names(program: &ArenaProgram, target: BindingTargetId) -> Vec<Name> {
     while let Some(target) = work.pop() {
         match program.arena.binding_target(target).kind {
             ArenaBindingTargetKind::Name(name) => names.push(name),
-            ArenaBindingTargetKind::Record { fields, .. } => work.extend(
-                program
-                    .arena
-                    .destructure_fields(fields)
-                    .iter()
-                    .map(|field| field.target),
-            ),
+            ArenaBindingTargetKind::Record { .. } => {}
         }
+        program.arena.for_each_binding_target_child(target, |child| {
+            if let ArenaChild::BindingTarget(child) = child {
+                work.push(child);
+            }
+        });
     }
     names
 }
@@ -866,40 +895,32 @@ fn pattern_binding_names(program: &ArenaProgram, pattern: PatternId) -> Vec<Name
     let mut work = vec![pattern];
     while let Some(pattern) = work.pop() {
         match program.arena.pattern(pattern).kind {
-            ArenaPatternKind::Alias { pattern, name, .. } => {
+            ArenaPatternKind::Alias { name, .. } | ArenaPatternKind::Binding(name) => {
                 names.push(name);
-                work.push(pattern);
             }
-            ArenaPatternKind::Group(pattern) => work.push(pattern),
-            ArenaPatternKind::List { elements, rest } => {
-                work.extend(program.arena.pattern_ids(elements));
-                work.extend(rest);
+            ArenaPatternKind::Type { binding, .. } | ArenaPatternKind::TextHole { binding, .. } => {
+                if let Some(name) = binding {
+                    names.push(name);
+                }
             }
-            ArenaPatternKind::Binding(name)
-            | ArenaPatternKind::Type {
-                binding: Some(name),
-                ..
-            } => names.push(name),
-            ArenaPatternKind::Record { fields, .. }
-            | ArenaPatternKind::ErrorVariant { fields, .. } => work.extend(
-                program
-                    .arena
-                    .pattern_fields(fields)
-                    .iter()
-                    .map(|field| field.pattern),
-            ),
-            ArenaPatternKind::Constructor {
-                arg: Some(pattern), ..
-            } => work.push(pattern),
-            ArenaPatternKind::Tuple(patterns)
-            | ArenaPatternKind::Alternation(patterns)
-            | ArenaPatternKind::Text(patterns) => work.extend(program.arena.pattern_ids(patterns)),
-            ArenaPatternKind::TextHole {
-                binding: Some(name),
-                ..
-            } => names.push(name),
-            _ => {}
+            ArenaPatternKind::Group(_)
+            | ArenaPatternKind::Wildcard
+            | ArenaPatternKind::TestName { .. }
+            | ArenaPatternKind::Literal(_)
+            | ArenaPatternKind::Record { .. }
+            | ArenaPatternKind::List { .. }
+            | ArenaPatternKind::Alternation(_)
+            | ArenaPatternKind::Constructor { .. }
+            | ArenaPatternKind::ErrorVariant { .. }
+            | ArenaPatternKind::Facet(_)
+            | ArenaPatternKind::Tuple(_)
+            | ArenaPatternKind::Text(_) => {}
         }
+        program.arena.for_each_pattern_child(pattern, |child| {
+            if let ArenaChild::Pattern(child) = child {
+                work.push(child);
+            }
+        });
     }
     names
 }

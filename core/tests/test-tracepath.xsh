@@ -17,7 +17,7 @@ proc tracepath(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result
 
 # Skips the test unless UDP over the loopback address of `family` can be
 # bound, which the probes need.
-proc need_loopback(family: Str) [process, error] -> Result[Unit] {
+proc need_loopback(family: Str) [process, net, error] -> Result[Unit] {
   let c = linux.net_constants()
   let domain = if family == "inet6" { c.AF_INET6 } else { c.AF_INET }
   let address = if family == "inet6" { "::1" } else { "127.0.0.1" }

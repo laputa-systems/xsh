@@ -235,8 +235,24 @@ match lines("echo ab; exit 3") {
 """
   let ran = test.expect(ctx, source, status: 0)?
   assert ran.stdout == "10\ntrue\n", ran.stdout
-  # The hop is the propagation, so no `?` here is redundant.
   let candidate = test.temp_file(ctx, name: "lines.xsh", contents: bytes.from_text(source))?
   let linted = run.capture --text "xsht" lint --only lint.redundant-propagation $candidate
-  assert linted.status.exited_with(0), linted.stderr
+  assert linted.status.exited_with(1), linted.stderr
+  assert linted.stderr.split("warn[lint.redundant-propagation]").len() == 2, linted.stderr
+  assert "let grouped = (run.text sh -c $script)?" in linted.stderr, linted.stderr
+  assert "?.lines()" not in linted.stderr and "?[0..1]" not in linted.stderr, linted.stderr
+
+  let fixed = run.capture --text "xsht" lint --only lint.redundant-propagation --fix $candidate
+  assert fixed.status.exited_with(0), fixed.stderr
+  let rewritten = candidate.read_text()?
+  let expected = source.replace(
+    "let grouped = (run.text sh -c $script)?",
+    with: "let grouped = run.text sh -c $script",
+  )
+  assert rewritten == expected, rewritten
+  assert "run.text @words?.lines()" in rewritten, rewritten
+  assert "run.text sh -c $script?.lines()" in rewritten, rewritten
+  assert "(run.text sh -c $script)?[0..1]" in rewritten, rewritten
+  let after = test.expect(ctx, rewritten, status: 0)?
+  assert after.stdout == "10\ntrue\n", after.stdout
 }

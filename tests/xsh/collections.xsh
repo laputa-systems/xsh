@@ -118,8 +118,8 @@ test test_ergonomic_sugar_pass_forms { |ctx|
   assert version == "1"
   assert jobs == "1"
   assert ok == "set"
-  assert metadata.name == "demo"
-  assert metadata.jobs == "1"
+  assert json.get(metadata, ["name"])? == "demo"
+  assert json.get(metadata, ["jobs"])? == "1"
 }
 
 test test_multi_clause_list_comprehension_encounter_order {

@@ -8,7 +8,7 @@ use tempfile::TempDir;
 #[test]
 fn xsht_reports_non_utf8_argument_without_panicking() {
     let raw_path = std::ffi::OsString::from_vec(b"raw\xffpath.xsh".to_vec());
-    let output = Command::new(release_bin!("xsht"))
+    let output = Command::new(test_bin!("xsht"))
         .arg("check")
         .arg(raw_path)
         .output()
@@ -26,7 +26,7 @@ fn xsht_reports_non_utf8_argument_without_panicking() {
 fn copied_xsht_formats_and_lints_script_backed_calls_in_static_and_loaded_modules() {
     let root = TempDir::new().expect("create isolated source root");
     let xsht = root.path().join("xsht");
-    fs::copy(release_bin!("xsht"), &xsht).expect("copy xsht");
+    fs::copy(test_bin!("xsht"), &xsht).expect("copy xsht");
     fs::write(
         root.path().join("helper.xsh"),
         "##! Static helper.\n## Return a terminal sequence.\nexport pure color() -> Str { tui.red() }\n",
@@ -104,7 +104,7 @@ run sh -c \"sleep 300; : {marker}-grandchild\"
             ),
         )
         .expect("write descendant fixture");
-        let mut runner = Command::new(release_bin!("xsht"))
+        let mut runner = Command::new(test_bin!("xsht"))
             .args(["test", "--jobs", "1"])
             .current_dir(root.path())
             .stdout(std::process::Stdio::null())
@@ -166,7 +166,7 @@ fn lint_fix_cancellation_writes_no_file() {
             fs::write(root.path().join(format!("module_{file}.xsh")), &functions)
                 .expect("write lint fixture");
         }
-        let mut lint = Command::new(release_bin!("xsht"))
+        let mut lint = Command::new(test_bin!("xsht"))
             .args(["lint", "--fix", "."])
             .current_dir(root.path())
             .stdout(std::process::Stdio::piped())
@@ -240,7 +240,7 @@ fn fmt_cancellation_during_one_large_file_is_prompt_and_writes_no_file() {
         let root = TempDir::new().expect("temporary format fixture");
         let file = root.path().join("large.xsh");
         fs::write(&file, &functions).expect("write format fixture");
-        let mut format = Command::new(release_bin!("xsht"))
+        let mut format = Command::new(test_bin!("xsht"))
             .args(["fmt", "large.xsh"])
             .current_dir(root.path())
             .stdout(std::process::Stdio::piped())
@@ -333,7 +333,7 @@ test passes {{ |ctx|
     )
     .expect("write timeout fixture");
     let started = std::time::Instant::now();
-    let mut runner = Command::new(release_bin!("xsht"))
+    let mut runner = Command::new(test_bin!("xsht"))
         .args(["test", "--jobs", "2", "--timeout", "1s"])
         .current_dir(root.path())
         .stdout(std::process::Stdio::piped())
@@ -390,7 +390,7 @@ test passes {{ |ctx|
     );
     assert_eq!(processes_with_marker(&marker), Vec::<String>::new());
 
-    let invalid = Command::new(release_bin!("xsht"))
+    let invalid = Command::new(test_bin!("xsht"))
         .args(["test", "--timeout", "soon"])
         .current_dir(root.path())
         .output()

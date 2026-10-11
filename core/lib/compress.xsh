@@ -127,7 +127,7 @@ pure gzip_ratio(uncompressed: Int, stored: Int) -> Str {
   f"{f"{sign}{tenths / 10}.{tenths % 10}%":>6}"
 }
 
-pure has_bit(value: Int, bit: Int) -> Bool { (value / bit) % 2 == 1 }
+pure has_bit(value: Int, bit: Int) -> Bool { value / bit % 2 == 1 }
 
 # Length of a gzip member header: the fixed ten bytes plus whichever optional
 # extra, name, comment and header-CRC fields its flag byte announces. Returns
@@ -162,7 +162,6 @@ proc list_gzip(names: List[Str], quiet: Bool, stored_names: Bool) [fs, io, error
   var total_uncompressed = 0
   var overhead = 0
   let scratch = fs.tempdir()?
-  defer scratch.close()
   let work = scratch.host_path()?
   for name in names {
     var file = fp"{name}"
@@ -222,7 +221,7 @@ pure xz_varint(data: Bytes, at: Int) -> VarInt {
   var cursor = at
   while cursor < data.len() and cursor < at + 9 {
     let byte = data.byte_at(cursor) ?? 0
-    value += (byte % 128) * scale
+    value += byte % 128 * scale
     scale *= 128
     cursor += 1
     if byte < 128 { return {value: value, next: cursor} }
@@ -414,8 +413,8 @@ proc zstd_scan(file: Path, size: Int) [fs, error] -> Result[ZstdScan] {
     if head.len() < 1 { return Ok(bad) }
     let descriptor = head.byte_at(0) ?? 0
     let size_flag = descriptor / 64
-    let single = (descriptor / 32) % 2 == 1
-    let has_checksum = (descriptor / 4) % 2 == 1
+    let single = descriptor / 32 % 2 == 1
+    let has_checksum = descriptor / 4 % 2 == 1
     let dict_flag = descriptor % 4
     let dict_bytes = match dict_flag { 0 => 0, 1 => 1, 2 => 2, _ => 4 }
     var cursor = 1 + (if single { 0 } else { 1 }) + dict_bytes
@@ -433,7 +432,7 @@ proc zstd_scan(file: Path, size: Int) [fs, error] -> Result[ZstdScan] {
       let block = bytes.read_at(file, at, 3, regular: true)?
       let header = (block.byte_at(0) ?? 0) + 256 * (block.byte_at(1) ?? 0) + 65536 * (block.byte_at(2) ?? 0)
       last = header % 2 == 1
-      let kind = (header / 2) % 4
+      let kind = header / 2 % 4
       if kind == 3 { return Ok(bad) }
       at += 3 + (if kind == 1 { 1 } else { header / 8 })
       if at > size { return Ok(bad) }
@@ -628,7 +627,6 @@ proc write_concatenated(names: List[Str], output: Str, codec: Str, decode: Bool,
     return 1
   }
   let scratch = fs.tempdir()?
-  defer scratch.close()
   let part = fp"{scratch.host_path()?}/part"
   var joined: List[Bytes] = []
   var consumed: List[Str] = []

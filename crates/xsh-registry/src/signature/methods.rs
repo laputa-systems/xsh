@@ -1214,8 +1214,8 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 method(
                     "symlink",
                     vec![
-                        param("target", Type::Path),
-                        param("path", Type::Path),
+                        labeled_param("target", Type::Path),
+                        labeled_param("path", Type::Path),
                         default_param("parents", Type::Bool),
                         default_param("overwrite", Type::Bool),
                     ],

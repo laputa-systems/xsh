@@ -344,8 +344,16 @@ mod tests {
                     module.label,
                     parsed.diagnostics
                 );
+                let source_id = parsed
+                    .arena
+                    .source_text_source_id()
+                    .expect("catalog module source identity");
                 let declarations =
-                    crate::sema::check::Checker::check_compact_declarations(&parsed.arena);
+                    crate::sema::check::Checker::check_compact_declarations(
+                        &parsed.arena,
+                        &sources,
+                        source_id,
+                    );
                 assert!(
                     declarations.diagnostics.is_empty(),
                     "{}: {:?}",
@@ -353,15 +361,16 @@ mod tests {
                     declarations.diagnostics
                 );
                 let text = sources
-                    .get(crate::source::SourceId::new(0))
-                    .map(|source| source.text().to_string())
-                    .unwrap_or_default();
+                    .get(source_id)
+                    .expect("catalog module source exists")
+                    .text()
+                    .to_string();
                 crate::runtime::eval::Evaluator::probe_embedded_module_lowering(
                     &parsed.arena,
                     &declarations,
                     &text,
                     std::sync::Arc::new(sources),
-                    crate::source::SourceId::new(0),
+                    source_id,
                 )
                 .unwrap_or_else(|error| {
                     panic!("{}: indexed IR rejected the module: {error}", module.label)
@@ -447,21 +456,29 @@ mod tests {
                     let (sources, parsed) =
                         crate::loader::prepare_stdlib_catalog_module(identity).expect("identity");
                     phases[0].1 += start.elapsed();
+                    let source_id = parsed
+                        .arena
+                        .source_text_source_id()
+                        .expect("catalog module source identity");
                     let start = Instant::now();
-                    let declarations =
-                        crate::sema::check::Checker::check_compact_declarations(&parsed.arena);
+                    let declarations = crate::sema::check::Checker::check_compact_declarations(
+                        &parsed.arena,
+                        &sources,
+                        source_id,
+                    );
                     phases[1].1 += start.elapsed();
                     let text = sources
-                        .get(crate::source::SourceId::new(0))
-                        .map(|source| source.text().to_string())
-                        .unwrap_or_default();
+                        .get(source_id)
+                        .expect("catalog module source exists")
+                        .text()
+                        .to_string();
                     let start = Instant::now();
                     crate::runtime::eval::Evaluator::probe_embedded_module_lowering(
                         &parsed.arena,
                         &declarations,
                         &text,
                         std::sync::Arc::new(sources),
-                        crate::source::SourceId::new(0),
+                        source_id,
                     )
                     .expect("lowering");
                     phases[2].1 += start.elapsed();
@@ -502,21 +519,29 @@ mod tests {
                         crate::loader::StdlibLinkage::Prepare,
                     );
                 phases[0].1 += start.elapsed();
+                let source_id = parsed
+                    .arena
+                    .source_text_source_id()
+                    .expect("profile entry source identity");
                 let start = Instant::now();
-                let declarations =
-                    crate::sema::check::Checker::check_compact_declarations(&parsed.arena);
+                let declarations = crate::sema::check::Checker::check_compact_declarations(
+                    &parsed.arena,
+                    &sources,
+                    source_id,
+                );
                 phases[1].1 += start.elapsed();
                 let text = sources
-                    .get(crate::source::SourceId::new(0))
-                    .map(|entry| entry.text().to_string())
-                    .unwrap_or_default();
+                    .get(source_id)
+                    .expect("profile entry source exists")
+                    .text()
+                    .to_string();
                 let start = Instant::now();
                 crate::runtime::eval::Evaluator::probe_embedded_module_lowering(
                     &parsed.arena,
                     &declarations,
                     &text,
                     std::sync::Arc::new(sources),
-                    crate::source::SourceId::new(0),
+                    source_id,
                 )
                 .expect("lowering");
                 phases[2].1 += start.elapsed();

@@ -1,0 +1,216 @@
+{
+  "schema": 1,
+  "start_commit": "5e66b6b896a47d0c692739135d51200b007a2a67",
+  "upstream_commit": "4b0b4e7c5674db4ab029d8fcec456092608de576",
+  "merge_commit": "654bfad32ee66d6b74aba3a31594f5b44ab314db",
+  "scope": "Changed Rust paths under both production roots, counted on both exact commits with the same canonical scanner. Attribution only; original baseline and final source-shrink comparison remain unchanged.",
+  "scanner_sha256": "da2c3e70cf6cc08e79ff7eba3ce5ebaf05848203cd7f21797150141155f35e79",
+  "source_lines_src_delta": 575,
+  "source_lines_xsht_delta": -1,
+  "rows": [
+    {
+      "path": "crates/xsht/src/app.rs",
+      "status": "M",
+      "before": 665,
+      "after": 664,
+      "delta": -1,
+      "before_sha256": "ef1462549112d09ad938ae8d137100631e7ef74f10af63b8c6eea4cfc6c7456e",
+      "after_sha256": "a8d72c5dea949217a8cce10924208de6aff0ec63a54cde087ddd6de683668247"
+    },
+    {
+      "path": "src/entrypoints/xsh.rs",
+      "status": "M",
+      "before": 144,
+      "after": 143,
+      "delta": -1,
+      "before_sha256": "e6c55962aabce7faa8ffa0383c4947d776de0bb8cb01ed0c762284f35cb00ec0",
+      "after_sha256": "3464eb76a8913f0709b65033e753fc49eebf7d0642b6393317d39746fdbd8447"
+    },
+    {
+      "path": "src/lib.rs",
+      "status": "M",
+      "before": 59,
+      "after": 60,
+      "delta": 1,
+      "before_sha256": "f6371c445f3ab9e0b6eaa972ceeadbfcf66fb6490fac331eaf58c15b27b816f0",
+      "after_sha256": "0b077d3ab13e522709cfbd2a83cbe40a90c3d42b9c5a7f949a0fec8522b5faa6"
+    },
+    {
+      "path": "src/modules/bytes.rs",
+      "status": "M",
+      "before": 822,
+      "after": 830,
+      "delta": 8,
+      "before_sha256": "5ae2f8c6b265375bf8371552a1d7a6f93320236eae06ed8f02e512ac80e7152d",
+      "after_sha256": "9b81ad855ab268cb3d237ca222ed91f3620674e68cf2aa48a5490df4e0e49898"
+    },
+    {
+      "path": "src/modules/compression.rs",
+      "status": "M",
+      "before": 569,
+      "after": 571,
+      "delta": 2,
+      "before_sha256": "a04b93f770494842a96e4383837f86e1e5483134b4c9d14b1fa03348cd06dd16",
+      "after_sha256": "9a0dc623dfc420a4884cbabc30df15cfca6b95962f41f73f459d93812d83b406"
+    },
+    {
+      "path": "src/modules/fs.rs",
+      "status": "M",
+      "before": 2771,
+      "after": 2780,
+      "delta": 9,
+      "before_sha256": "1cb42a03b477e20ad7c491240ffb3609ff07792a18cea16c9eeb28d3fa0b2f1d",
+      "after_sha256": "01cb5d05e11c63a364abfdf7960c7a8754b588b780845cfdec0ba974e9a6d168"
+    },
+    {
+      "path": "src/modules/fs/prims.rs",
+      "status": "M",
+      "before": 879,
+      "after": 928,
+      "delta": 49,
+      "before_sha256": "09447f326b271ffb8d0105cfed388ca5fee832d89663fa9afb8382300405c102",
+      "after_sha256": "e60cea8c9011e73a03c6b0f9940ccda5e1f1f61cfd024a4b1a92e1f6f4efb365"
+    },
+    {
+      "path": "src/modules/locale.rs",
+      "status": "A",
+      "before": 0,
+      "after": 121,
+      "delta": 121,
+      "before_sha256": "-",
+      "after_sha256": "763f2d103fe072cb79695738f522ff9d8de8e80a5b9ff67ae48cbe4fe8d917b3"
+    },
+    {
+      "path": "src/modules/mod.rs",
+      "status": "M",
+      "before": 43,
+      "after": 45,
+      "delta": 2,
+      "before_sha256": "e3b56955027a5bd97c78aa6c0c46b306829a148ccf46d3355120ae858596fef0",
+      "after_sha256": "d3eb7acae52dbd0c3158dfe582fcc3a10f159b4f27d92bcd3161632d370c4a30"
+    },
+    {
+      "path": "src/modules/numeric.rs",
+      "status": "A",
+      "before": 0,
+      "after": 83,
+      "delta": 83,
+      "before_sha256": "-",
+      "after_sha256": "9679be9bc020657dbfbfc3e4bfa84b423088bd5444e69e897f1f532d1087eec2"
+    },
+    {
+      "path": "src/modules/signature.rs",
+      "status": "M",
+      "before": 494,
+      "after": 494,
+      "delta": 0,
+      "before_sha256": "539e51a507d72138e160dcca24e86bee8784da65638911d96beae9442e3a5387",
+      "after_sha256": "efd5b3249decccaf9186887fc923775abb289f63f354b7560f035a728abbceb1"
+    },
+    {
+      "path": "src/modules/tui.rs",
+      "status": "M",
+      "before": 94,
+      "after": 96,
+      "delta": 2,
+      "before_sha256": "beeaf9c36ee72646801f610d0c3a04788b60d543fe4d3a3d27b1a1e16ffc1362",
+      "after_sha256": "eb20dafeddc8af1e7433bb6f12aef41e32e04db5ca2517fcc5e3b329799f964d"
+    },
+    {
+      "path": "src/modules/unix.rs",
+      "status": "M",
+      "before": 1911,
+      "after": 1945,
+      "delta": 34,
+      "before_sha256": "5d818f0c8caaf95f561f548e79ab477f752c7ff06cbbafed9d71d327f60e3473",
+      "after_sha256": "5053441965c260c52ce72ee9e6b76bc38f0c00a815f5db28c15ef9925629b371"
+    },
+    {
+      "path": "src/modules/unix/process.rs",
+      "status": "M",
+      "before": 185,
+      "after": 226,
+      "delta": 41,
+      "before_sha256": "b0b39dd7d17ebb30a5cd11708d20ea9cdf38c64509c45c9cde3bdb892fee3c86",
+      "after_sha256": "ce564d0e3a67f1ea0fd36c7a18d445aeee2bc2ab874605f89885db7f561a656e"
+    },
+    {
+      "path": "src/modules/unix/tty.rs",
+      "status": "M",
+      "before": 761,
+      "after": 763,
+      "delta": 2,
+      "before_sha256": "91a8f0f7a5c5e7d20de5068f21cb80cc7a45c5585ecd1fd94965b5608d4bcf61",
+      "after_sha256": "91da46d65d8ff4ae57e410fc82bc621a2fb0968fecf325304a2f5357ecc3caa7"
+    },
+    {
+      "path": "src/runtime/eval.rs",
+      "status": "M",
+      "before": 8183,
+      "after": 8189,
+      "delta": 6,
+      "before_sha256": "da8e65cc1a40be6853edb835ba579b6e13720c640c339ff9a39bd13740775a0e",
+      "after_sha256": "20025dbbb0974a3b12c31d5bf98c2490b0864946aff4b037d89641df1435bc78"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "status": "M",
+      "before": 18116,
+      "after": 18180,
+      "delta": 64,
+      "before_sha256": "5cbb5445e177419563547eff0b5c3b4aee2acfa3457da5e28c006fa2d8ff670a",
+      "after_sha256": "f66275d95d59d188c89ce2971212cb01f25967eb6c39d435573a0536aca45b96"
+    },
+    {
+      "path": "src/runtime/eval/lowered_run.rs",
+      "status": "M",
+      "before": 12652,
+      "after": 12702,
+      "delta": 50,
+      "before_sha256": "3c101031d47b73b4659eab711dae65f8077afd97bef7138199837cd1f73e8914",
+      "after_sha256": "0d5be50428c12e687d97b72f6133288870a1d275114c21579917d44f3125954c"
+    },
+    {
+      "path": "src/runtime/eval/lowered_run/indexed_run.rs",
+      "status": "M",
+      "before": 10168,
+      "after": 10189,
+      "delta": 21,
+      "before_sha256": "3ccca1666de315c0d21345b6a4cf07bc2e3a9392e1859d44e4188eaecee9e40f",
+      "after_sha256": "bda4c2e7bf225eda2450f8d3d171023ec5e7d9ce08a065fca7de8f60f8ddc8d1"
+    },
+    {
+      "path": "src/runtime/eval/modules/host.rs",
+      "status": "M",
+      "before": 451,
+      "after": 451,
+      "delta": 0,
+      "before_sha256": "6e3923fbdf7e3eb8c6f3e89ab552ecdf1fc327cf3e8177b1cf178898e6427f90",
+      "after_sha256": "cf82c4d2d926529eb0e313e57f317142b8c1ef287f535e2787bc8d827c920350"
+    },
+    {
+      "path": "src/runtime/process.rs",
+      "status": "M",
+      "before": 2751,
+      "after": 2788,
+      "delta": 37,
+      "before_sha256": "83ba94f7407ba6cacf5cd5b8c6493971b308371edf1af5794e6f87270bebb74c",
+      "after_sha256": "bfcee4db0ff8d6d50fd779dec8f85c8c5132f4d88ee39e71e338ff90aad66d4f"
+    },
+    {
+      "path": "src/startup_stdio.rs",
+      "status": "A",
+      "before": 0,
+      "after": 44,
+      "delta": 44,
+      "before_sha256": "-",
+      "after_sha256": "be21f66e537d952262f19e128639ac6a73f225c1ba251c5baee5a8467c7f088f"
+    }
+  ],
+  "artifacts": {
+    "counts.tsv": "a29b2da240c17bf25b0e6f579270a0a117bf091538286c64ee8646407eaab684",
+    "sources/source-hashes.tsv": "0773372e02c25dae589d40b42b1a92e094a8f74d45bc26b4ccc822b2d01d9fc3",
+    "provenance.txt": "2daaf2ed399d1ff8798ff758fab99ebe24617e869fe3c95ab32e78b2458467bd",
+    "count_upstream.xsh": "ba2aa6fe2037ba5fe677f47262e66f16a75ae2186a42a49b2cdcf5d3448c310e"
+  }
+}

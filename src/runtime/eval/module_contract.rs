@@ -5,7 +5,7 @@
 //! violation category has its own error facet; a failure implements the facet
 //! of every category it contains.
 
-use super::{Evaluator, LoweredValue, ModuleExportSignature, Name, RuntimeError, Span};
+use super::{Evaluator, LoweredValue, ModuleExportSignature, Name, RuntimeError, Span, ValueView};
 use crate::sema::types::{CallableType, ModuleExportType, ModuleType};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -117,7 +117,7 @@ fn export_mismatch(
         (ModuleExportType::Value { ty, .. }, value) => {
             if matches!(value, LoweredValue::Proc(_) | LoweredValue::Pure(_)) {
                 Some("the contract declares a value, the module exports a callable".to_string())
-            } else if super::lowered_value_matches_static_type(value, ty) {
+            } else if super::value_matches_static_type(ValueView::Lowered(value), ty) {
                 None
             } else {
                 Some("the value type differs".to_string())

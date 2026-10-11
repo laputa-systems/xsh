@@ -7,7 +7,10 @@ use crate::xsht::config::FileToolConfig;
 use crate::xsht::edit::{
     SourceEdit, apply_cst_guarded_edits, apply_cst_guarded_migration_edits, migration_lint_code,
 };
-use crate::xsht::lint::{LintOptions, Linter, lint_code_selected};
+use crate::xsht::lint::{
+    CallableEdgeFacts, LintOptions, LintProbeTransport, Linter, finalize_callable_reachability,
+    lint_code_selected, lint_requires_check_output, lint_unused_callable_enabled, range_source_id,
+};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -18,14 +21,16 @@ use std::time::Instant;
 use xsh::diagnostic::{
     Diagnostic, DiagnosticCode, DiagnosticFamily, DiagnosticRenderer, Label, Severity,
 };
-use xsh::frontend::check::CheckOptions;
-use xsh::frontend::load::{module_key, parse_load_check_text, resolve_user_module};
-use xsh::frontend::source::{SourceId, SourceMap, Span};
-use xsh::frontend::symbols::{Name, SymbolOwner};
-use xsh::frontend::syntax::arena::{
-    ArenaProgram, ArenaProgramBuilder, ArenaRange, ArenaStmtKind, StmtId, UseStmtId,
+use xsh::frontend::check::{CheckBundleView, CheckOptions};
+use xsh::frontend::load::{
+    LoadedImport as WorkspaceImport, LoadedModule, ModuleLoader, module_key, parse_load_check_text,
 };
-use xsh::frontend::syntax::grouping::grouping_diagnostics;
+use xsh::frontend::source::{SourceId, SourceMap, Span};
+use xsh::frontend::symbols::SymbolOwner;
+use xsh::frontend::syntax::arena::{
+    ArenaProgram, ArenaProgramBuilder, ArenaRange, ArenaStmtKind, StmtId,
+};
+use xsh::frontend::syntax::grouping::grouping_diagnostics_in_range;
 use xsh::frontend::syntax::parser::Parser;
 pub fn lint_files(
     files: &[String],
@@ -273,6 +278,17 @@ enum LintResultKind {
     },
 }
 
+enum LintWorkspaceRootWork {
+    Complete(Vec<LintResult>),
+    Pending(LintWorkspaceRootPending),
+}
+
+struct LintWorkspaceRootPending {
+    source_ids: Vec<SourceId>,
+    checked_diagnostics: Vec<Diagnostic>,
+    modules: Vec<(String, crate::xsht::lint::LintOutput)>,
+}
+
 struct RenderedDiagnostic {
     key: String,
     severity: Severity,
@@ -299,16 +315,7 @@ struct ResolvedLintConfig {
     module_roots: Vec<PathBuf>,
 }
 
-#[derive(Clone)]
-struct WorkspaceImport {
-    use_id: UseStmtId,
-    path: Vec<Name>,
-    span: Span,
-    target: Option<String>,
-}
-
 struct WorkspaceModule {
-    key: String,
     path: PathBuf,
     source_id: SourceId,
     text: String,
@@ -319,191 +326,96 @@ struct WorkspaceModule {
     config: ResolvedLintConfig,
 }
 
+struct CallableEdgeFactStore {
+    needed: FxHashSet<SourceId>,
+    state: Mutex<FxHashMap<SourceId, Option<CallableEdgeFacts>>>,
+}
+
+impl CallableEdgeFactStore {
+    fn new(needed: FxHashSet<SourceId>) -> Self {
+        Self {
+            needed,
+            state: Mutex::new(FxHashMap::default()),
+        }
+    }
+
+    fn claim(&self, source_id: SourceId) -> bool {
+        if !self.needed.contains(&source_id) {
+            return false;
+        }
+        let mut state = self.state.lock().expect("callable fact store poisoned");
+        if state.contains_key(&source_id) {
+            false
+        } else {
+            state.insert(source_id, None);
+            true
+        }
+    }
+
+    fn publish(&self, source_id: SourceId, facts: CallableEdgeFacts) {
+        let mut state = self.state.lock().expect("callable fact store poisoned");
+        assert!(state
+            .get_mut(&source_id)
+            .expect("callable facts published without a claim")
+            .replace(facts)
+            .is_none());
+    }
+
+    fn facts_for(&self, source_ids: impl IntoIterator<Item = SourceId>) -> FxHashMap<SourceId, CallableEdgeFacts> {
+        let state = self.state.lock().expect("callable fact store poisoned");
+        let mut facts = FxHashMap::default();
+        for source_id in source_ids {
+            let source_facts = state
+                .get(&source_id)
+                .and_then(Option::as_ref)
+                .expect("callable source facts requested before worker completion");
+            facts.insert(source_id, source_facts.clone());
+        }
+        facts
+    }
+}
+
 /// Parsed source files and their resolved imports for one lint command.
 ///
-/// The arena is shared by every entry bundle. A bundle changes only its root
-/// statement range and reachable module list, so imports are parsed and
-/// resolved once even when several roots reach the same module.
+/// The arena is shared by every entry view. Root ranges and reachable module
+/// lists are borrowed from it, so imports are parsed and resolved once even
+/// when several roots reach the same module.
 struct LintWorkspace {
     sources: SourceMap,
     program: ArenaProgram,
-    module_indices: FxHashMap<String, usize>,
     type_program: std::sync::OnceLock<Arc<ArenaProgram>>,
     modules: FxHashMap<String, WorkspaceModule>,
     roots: Vec<String>,
     input_errors: Vec<String>,
 }
 
-/// Builds the workspace graph while appending every source to one arena.
-/// Dependencies are loaded recursively using the language loader's search
-/// order, including configured module roots and `XSH_MODULE_PATH`.
-struct WorkspaceLoader {
-    sources: SourceMap,
-    builder: ArenaProgramBuilder<'static>,
-    modules: FxHashMap<String, WorkspaceModule>,
-    stack: Vec<String>,
-    source_overrides: FxHashMap<String, Vec<u8>>,
-}
-
-impl WorkspaceLoader {
-    fn new() -> Self {
-        Self {
-            sources: SourceMap::new(),
-            builder: ArenaProgramBuilder::with_token_capacity(4096),
-            modules: FxHashMap::default(),
-            stack: Vec::new(),
-            source_overrides: FxHashMap::default(),
-        }
-    }
-
-    fn load(
-        &mut self,
-        path: PathBuf,
-        bytes: Vec<u8>,
-        module_roots: Vec<PathBuf>,
-    ) -> Result<String, String> {
-        let key = module_key(&path);
-        let bytes = self.source_overrides.get(&key).cloned().unwrap_or(bytes);
-        if self.modules.contains_key(&key) {
-            return Ok(key);
-        }
-
-        let display_path = path.to_string_lossy().into_owned();
-        let (source_id, text, mut diagnostics) = match self
-            .sources
-            .add_file_from_utf8(display_path.clone(), bytes.clone())
-        {
-            Ok(source_id) => {
-                let text = self
-                    .sources
-                    .get(source_id)
-                    .expect("source was just inserted")
-                    .text()
-                    .to_string();
-                (source_id, text, Vec::new())
-            }
-            Err(error) => {
-                let text = String::from_utf8_lossy(&bytes).into_owned();
-                let source_id = self.sources.add_file(display_path, text.clone());
-                let offset = error.offset.min(text.len());
-                let diagnostic = Diagnostic::error("source file is not valid UTF-8")
-                    .with_code(DiagnosticCode::SourceInvalidUtf8)
-                    .with_label(Label::primary(
-                        Span::new(source_id, offset, offset),
-                        "invalid UTF-8 starts here",
-                    ));
-                (source_id, text, vec![diagnostic])
-            }
-        };
-
-        let fragment = Parser::parse_source_into_arena_builder(source_id, &text, &mut self.builder);
-        diagnostics.extend(fragment.diagnostics);
-        let imports = self
-            .builder
-            .statement_ids(fragment.statements)
-            .into_iter()
-            .filter_map(|statement| {
-                let (use_id, path, span) = self.builder.use_stmt_for_statement(statement)?;
-                Some(WorkspaceImport {
-                    use_id,
-                    path,
-                    span,
-                    target: None,
-                })
-            })
-            .collect::<Vec<_>>();
-
-        let name = self.builder.name(&key);
-        self.builder
-            .push_arena_module(key.clone(), name, fragment.statements);
-        self.modules.insert(
-            key.clone(),
-            WorkspaceModule {
-                key: key.clone(),
-                path: path.clone(),
-                source_id,
-                text,
-                statements: fragment.statements,
-                imports,
-                diagnostics,
-                module_roots: module_roots.clone(),
-                config: ResolvedLintConfig {
-                    lint_options: LintOptions::default(),
-                    line_width: 0,
-                    module_roots,
-                },
-            },
-        );
-        self.stack.push(key.clone());
-
-        let import_count = self
-            .modules
-            .get(&key)
-            .map_or(0, |module| module.imports.len());
-        for import_index in 0..import_count {
-            let (use_id, path, span, roots, importer) = {
-                let module = self.modules.get(&key).expect("module was inserted");
-                let import = &module.imports[import_index];
-                (
-                    import.use_id,
-                    import.path.clone(),
-                    import.span,
-                    module.module_roots.clone(),
-                    module.path.clone(),
-                )
+/// Attach tool configuration after the language loader has parsed the graph.
+/// Imports and source identities belong to the loader, not a lint worker.
+fn workspace_modules(loaded: FxHashMap<String, LoadedModule>) -> FxHashMap<String, WorkspaceModule> {
+    loaded
+        .into_iter()
+        .map(|(key, module)| {
+            let mut diagnostics = module.diagnostics;
+            diagnostics.extend(
+                module.imports.iter().filter_map(|import| import.diagnostic.clone()),
+            );
+            let config = ResolvedLintConfig {
+                lint_options: LintOptions::default(),
+                line_width: 0,
+                module_roots: module.module_roots.clone(),
             };
-            match resolve_user_module(&importer, &path, &roots) {
-                Ok(None) => {}
-                Ok(Some((module_path, module_bytes))) => {
-                    let target_key = module_key(&module_path);
-                    let cycle = self.stack.contains(&target_key);
-                    match self.load(module_path, module_bytes, roots) {
-                        Ok(target) => {
-                            self.builder
-                                .set_use_resolved(use_id, std::sync::Arc::from(target.as_str()));
-                            if let Some(module) = self.modules.get_mut(&key) {
-                                module.imports[import_index].target = Some(target);
-                                if cycle {
-                                    module.diagnostics.push(
-                                        Diagnostic::error("cyclic module import")
-                                            .with_code(DiagnosticCode::ParseModuleCycle)
-                                            .with_label(Label::primary(
-                                                span,
-                                                "module import cycle starts here",
-                                            )),
-                                    );
-                                }
-                            }
-                        }
-                        Err(message) => {
-                            if let Some(module) = self.modules.get_mut(&key) {
-                                module.diagnostics.push(
-                                    Diagnostic::error("failed to load module")
-                                        .with_code(DiagnosticCode::ParseModuleLoad)
-                                        .with_label(Label::primary(span, message)),
-                                );
-                            }
-                        }
-                    }
-                }
-                Err(message) => {
-                    if let Some(module) = self.modules.get_mut(&key) {
-                        module.diagnostics.push(
-                            Diagnostic::error("failed to read module")
-                                .with_code(DiagnosticCode::ParseModuleRead)
-                                .with_label(Label::primary(span, message)),
-                        );
-                    }
-                }
-            }
-        }
-        self.stack.pop();
-        Ok(key)
-    }
-
-    fn finish(self) -> (SourceMap, ArenaProgram, FxHashMap<String, WorkspaceModule>) {
-        (self.sources, self.builder.finish(), self.modules)
-    }
+            (key, WorkspaceModule {
+                path: module.path,
+                source_id: module.source_id,
+                text: module.text,
+                statements: module.statements,
+                imports: module.imports,
+                diagnostics,
+                module_roots: module.module_roots,
+                config,
+            })
+        })
+        .collect()
 }
 
 fn lint_workspace(
@@ -528,7 +440,9 @@ fn lint_workspace_with_parallelism(
     timings: &StageTimings,
 ) -> Vec<LintResult> {
     let load_started = Instant::now();
-    let mut loader = WorkspaceLoader::new();
+    let mut sources = SourceMap::new();
+    let mut builder = ArenaProgramBuilder::with_token_capacity(4096);
+    let mut loader = ModuleLoader::new(&mut sources, &mut builder);
     let mut input_errors = Vec::new();
     let mut candidate_keys = Vec::new();
     for file in &discovery.files {
@@ -552,15 +466,13 @@ fn lint_workspace_with_parallelism(
                 continue;
             }
         };
-        match loader.load(path, bytes, config.module_roots.clone()) {
-            Ok(key) => candidate_keys.push(key),
-            Err(message) => input_errors.push(format!("xsht: {message}\n")),
-        }
+        candidate_keys.push(loader.load(path, bytes, config.module_roots.clone()));
     }
     candidate_keys.sort_unstable();
     candidate_keys.dedup();
 
-    let (sources, mut program, mut modules) = loader.finish();
+    let mut modules = workspace_modules(loader.finish());
+    let mut program = builder.finish();
     for module in modules.values_mut() {
         if let Ok(config) =
             lint_config_for_file(&module.path.to_string_lossy(), runless, config_cache)
@@ -578,6 +490,8 @@ fn lint_workspace_with_parallelism(
     let roots = select_lint_roots(&candidate_keys, &modules, &explicit_roots);
     program.modules.shrink_to_fit();
     let mut workspace = LintWorkspace::new(sources, program, modules, roots, input_errors);
+    let callable_edge_facts =
+        CallableEdgeFactStore::new(callable_reachability_sources(&workspace));
     timings.record(Stage::Load, load_started.elapsed());
 
     let mut results = Vec::new();
@@ -598,15 +512,13 @@ fn lint_workspace_with_parallelism(
             let next_root = &next_root;
             let tx = tx.clone();
             let linted_modules = &linted_modules;
+            let callable_edge_facts = &callable_edge_facts;
             let workspace = &workspace;
             thread::Builder::new()
                 .name("xsht-lint".to_string())
                 .stack_size(super::FRONTEND_WORKER_STACK_BYTES)
                 .spawn_scoped(scope, move || {
-                    // Each worker checks through its own copy of the program.
-                    let (mut bundle, type_program) = timings.time(Stage::Load, || {
-                        (workspace.program.clone(), workspace.type_program())
-                    });
+                    let type_program = timings.time(Stage::Load, || workspace.type_program());
                     loop {
                         if cancellation_output().is_some() {
                             break;
@@ -615,16 +527,16 @@ fn lint_workspace_with_parallelism(
                         let Some(root) = workspace.roots.get(root_index) else {
                             break;
                         };
-                        let root_results = lint_workspace_root(
+                        let root_work = lint_workspace_root(
                             workspace,
                             root,
                             fix,
-                            &mut bundle,
                             linted_modules,
+                            callable_edge_facts,
                             &type_program,
                             timings,
                         );
-                        if tx.send((root_index, root_results)).is_err() {
+                        if tx.send((root_index, root_work)).is_err() {
                             break;
                         }
                     }
@@ -635,7 +547,25 @@ fn lint_workspace_with_parallelism(
     drop(tx);
     let mut grouped = rx.into_iter().collect::<Vec<_>>();
     grouped.sort_unstable_by_key(|(root_index, _)| *root_index);
-    for (_, root_results) in grouped {
+    for (root_index, root_work) in grouped {
+        let root = &workspace.roots[root_index];
+        let root_results = match root_work {
+            LintWorkspaceRootWork::Complete(root_results) => root_results,
+            LintWorkspaceRootWork::Pending(mut pending) => {
+                if lint_unused_callable_enabled(
+                    &workspace.modules[root].config.lint_options,
+                ) && cancellation_output().is_none()
+                {
+                    let view = workspace.root_view(root);
+                    let source_facts =
+                        callable_edge_facts.facts_for(std::mem::take(&mut pending.source_ids));
+                    pending.modules[0].1.diagnostics.extend(
+                        finalize_callable_reachability(&view, &source_facts),
+                    );
+                }
+                finish_lint_workspace_root(&workspace, root, pending, fix, timings)
+            }
+        };
         for mut result in root_results {
             result.index += index;
             results.push(result);
@@ -645,104 +575,20 @@ fn lint_workspace_with_parallelism(
     results
 }
 
-// A lint traversal owns one source range. Imported declarations retain their
-// contracts in the program, while checked expression and statement facts use
-// that source's spans. Ordered ranges avoid walking or cloning other files.
-fn source_checked_map<T: Clone>(
-    facts: &std::collections::BTreeMap<Span, T>,
-    source_id: SourceId,
-) -> std::collections::BTreeMap<Span, T> {
-    facts
-        .range(Span::at(source_id, 0)..)
-        .take_while(|(span, _)| span.source_id == source_id)
-        .map(|(span, fact)| (*span, fact.clone()))
-        .collect()
-}
-
-fn source_checked_set(
-    facts: &std::collections::BTreeSet<Span>,
-    source_id: SourceId,
-) -> std::collections::BTreeSet<Span> {
-    facts
-        .range(Span::at(source_id, 0)..)
-        .take_while(|span| span.source_id == source_id)
-        .copied()
-        .collect()
-}
-
-/// The constructor facts `lint.prefer-implicit-message` counts calls with.
-/// A check that reported an error did not reach every call, and a count that
-/// misses one would delete a payload a call still names.
-fn checked_message_payload_constructors(
-    checked: &xsh::frontend::check::CheckOutput,
-) -> Option<&std::collections::BTreeMap<Span, xsh::frontend::check::MessagePayloadConstructor>> {
-    checked
-        .diagnostics
-        .iter()
-        .all(|diagnostic| diagnostic.severity != Severity::Error)
-        .then_some(&checked.message_payload_constructors)
-}
-
-fn set_checked_lint_facts_for_source(
-    options: &mut LintOptions,
-    checked: &xsh::frontend::check::CheckOutput,
-    source_id: SourceId,
-) {
-    options.function_return_types = source_checked_map(&checked.function_return_types, source_id);
-    options.expr_types = source_checked_map(&checked.expr_types, source_id);
-    options.proven_nonnull_fallback_receivers =
-        source_checked_set(&checked.proven_nonnull_fallback_receivers, source_id);
-    options.requirement_targets = source_checked_map(&checked.requirement_targets, source_id);
-    options.requirement_expected_targets =
-        source_checked_map(&checked.requirement_expected_targets, source_id);
-    options.statement_positions = source_checked_map(&checked.statement_positions, source_id);
-    options.callable_effects = checked.callable_effects.clone();
-    options.function_effect_facts = checked
-        .function_effect_facts
-        .iter()
-        .filter(|(id, _)| id.body.source_id == source_id)
-        .map(|(id, fact)| (*id, fact.clone()))
-        .collect();
-    options.function_effect_facts_checked = true;
-    options.assertion_effect_spans = source_checked_set(&checked.assertion_effect_spans, source_id);
-    options.statement_expression_spans =
-        source_checked_set(&checked.statement_expression_spans, source_id);
-    options.propagating_statements = source_checked_set(&checked.propagating_statements, source_id);
-    options.discardable_bindings = source_checked_set(&checked.discardable_bindings, source_id);
-    options.redundant_condition_propagations =
-        source_checked_set(&checked.redundant_condition_propagations, source_id);
-    options.unvalidated_command_vectors =
-        source_checked_map(&checked.unvalidated_command_vectors, source_id);
-    options.membership_migration_spans =
-        source_checked_set(&checked.membership_migration_spans, source_id);
-    options.standard_call_spans = source_checked_map(&checked.standard_call_spans, source_id);
-    options.definitely_exiting_block_spans =
-        source_checked_set(&checked.definitely_exiting_block_spans, source_id);
-    options.redundant_variant_qualifiers =
-        source_checked_map(&checked.redundant_variant_qualifiers, source_id);
-    options.message_payload_constructors = checked_message_payload_constructors(checked)
-        .map(|constructors| source_checked_map(constructors, source_id));
-    options.statically_resolved_call_spans = if checked.diagnostics.iter().all(spelling_only) {
-        source_checked_set(&checked.statically_resolved_call_spans, source_id)
-    } else {
-        Default::default()
-    };
-}
-
 fn lint_workspace_root(
     workspace: &LintWorkspace,
     root: &str,
     fix: bool,
-    bundle: &mut ArenaProgram,
     linted_modules: &Mutex<FxHashSet<String>>,
+    callable_edge_facts: &CallableEdgeFactStore,
     type_program: &Arc<ArenaProgram>,
     timings: &StageTimings,
-) -> Vec<LintResult> {
+) -> LintWorkspaceRootWork {
     let reachable = workspace.reachable_modules(root);
     let Some(root_module) = workspace.modules.get(root) else {
-        return Vec::new();
+        return LintWorkspaceRootWork::Complete(Vec::new());
     };
-    workspace.configure_program_for(root, &reachable, bundle);
+    let view = workspace.root_view(root);
     let mut relevant_diagnostics = Vec::new();
     for key in &reachable {
         if let Some(module) = workspace.modules.get(key) {
@@ -753,7 +599,7 @@ fn lint_workspace_root(
         .iter()
         .any(|diagnostic| migration_lint_code(diagnostic.code).is_none())
     {
-        return vec![LintResult {
+        return LintWorkspaceRootWork::Complete(vec![LintResult {
             index: 0,
             kind: LintResultKind::Diagnostics {
                 status: 2,
@@ -762,13 +608,13 @@ fn lint_workspace_root(
                     &workspace.sources,
                 ),
             },
-        }];
+        }]);
     }
 
     let mut checked = timings.time(Stage::Check, || {
         SymbolOwner::new().with_current(|| {
-            xsh::frontend::check::Checker::check_arena_with_options_and_type_program(
-                bundle,
+            xsh::frontend::check::Checker::check_bundle_view_with_type_program(
+                &view,
                 &root_module.text,
                 CheckOptions::default(),
                 type_program.clone(),
@@ -786,7 +632,7 @@ fn lint_workspace_root(
         && (!fix || !relevant_diagnostics.is_empty())
     {
         relevant_diagnostics.extend(checked.diagnostics.iter().cloned());
-        return vec![LintResult {
+        return LintWorkspaceRootWork::Complete(vec![LintResult {
             index: 0,
             kind: LintResultKind::Diagnostics {
                 status: 2,
@@ -795,7 +641,7 @@ fn lint_workspace_root(
                     &workspace.sources,
                 ),
             },
-        }];
+        }]);
     }
 
     let only = root_module.config.lint_options.only.as_deref();
@@ -808,7 +654,7 @@ fn lint_workspace_root(
                     .is_some_and(|code| lint_code_selected(only, Some(code)))
             })
     {
-        return timings.time(Stage::Fix, || {
+        return LintWorkspaceRootWork::Complete(timings.time(Stage::Fix, || {
             migrate_workspace_syntax(
                 workspace,
                 root,
@@ -816,9 +662,10 @@ fn lint_workspace_root(
                 linted_modules,
                 &checked.diagnostics,
             )
-        });
+        }));
     }
 
+    let checked = Arc::new(checked);
     let mut keys = reachable
         .iter()
         .filter(|key| key.as_str() != root)
@@ -827,35 +674,64 @@ fn lint_workspace_root(
     keys.sort_unstable();
     let mut ordered = vec![root.to_string()];
     ordered.extend(keys);
-    let mut results = Vec::new();
+    let mut pending = Vec::new();
     for key in ordered {
         // A pending signal ends the command, which then writes no file.
         if cancellation_output().is_some() {
             break;
         }
+        let Some(module) = workspace.modules.get(&key) else {
+            continue;
+        };
+        let collect_callable_edges = callable_edge_facts.claim(module.source_id);
         if key != root {
             let mut linted_modules = linted_modules
                 .lock()
                 .expect("linted module set mutex poisoned");
             if !linted_modules.insert(key.clone()) {
+                if collect_callable_edges {
+                    let view = workspace.module_view(&key);
+                    let facts = collect_workspace_module_callable_edges(
+                        &view,
+                        &module.text,
+                    );
+                    callable_edge_facts.publish(module.source_id, facts);
+                }
                 continue;
             }
         }
-        let Some(module) = workspace.modules.get(&key) else {
-            continue;
-        };
-        bundle.statements = module.statements;
-        if key != root {
-            bundle.modules.clear();
-        }
-        let mut options = module.config.lint_options.clone();
-        set_checked_lint_facts_for_source(&mut options, &checked, module.source_id);
-        let lint_started = Instant::now();
-        let mut linted = if key == root {
-            Linter::lint(bundle, &module.text, options)
+        let view = if key == root {
+            workspace.root_view(&key)
         } else {
-            Linter::lint_module(bundle, &module.text, options)
+            workspace.module_view(&key)
         };
+        let mut options = module.config.lint_options.clone();
+        options.checked_output = lint_requires_check_output(&options).then(|| Arc::clone(&checked));
+        let lint_started = Instant::now();
+        let run = if key == root {
+            Linter::lint_view_with_callable_edges(
+                &view,
+                &module.text,
+                options,
+                collect_callable_edges,
+            )
+        } else {
+            Linter::lint_module_view_with_callable_edges(
+                &view,
+                &module.text,
+                options,
+                collect_callable_edges,
+            )
+        };
+        timings.record(Stage::Lint, lint_started.elapsed());
+        if collect_callable_edges {
+            callable_edge_facts.publish(
+                module.source_id,
+                run.callable_edges
+                    .expect("a claimed source walk returns callable edge facts"),
+            );
+        }
+        let mut linted = run.output;
         if !module.diagnostics.is_empty() {
             linted.diagnostics.clear();
         }
@@ -867,8 +743,86 @@ fn lint_workspace_root(
                 linted.diagnostics.push(diagnostic);
             }
         }
-        for diagnostic in checked
-            .diagnostics
+        pending.push((key, linted));
+    }
+
+    let mut source_ids = if lint_unused_callable_enabled(&root_module.config.lint_options) {
+        reachable
+            .iter()
+            .filter_map(|key| workspace.modules.get(key).map(|module| module.source_id))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    if cancellation_output().is_none() {
+        for module in view.modules().filter(|module| module.internal) {
+            if let Some(source_id) = range_source_id(&workspace.program, module.statements) {
+                source_ids.push(source_id);
+                let collect = callable_edge_facts.claim(source_id);
+                if collect {
+                    let module_view = CheckBundleView::for_module(
+                        &workspace.program,
+                        module.statements,
+                        Some(&workspace.sources),
+                        Some(source_id),
+                    );
+                    let source = workspace
+                        .sources
+                        .get(source_id)
+                        .expect("loaded internal module source has source text")
+                        .text();
+                    callable_edge_facts.publish(
+                        source_id,
+                        collect_workspace_module_callable_edges(
+                            &module_view,
+                            source,
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    LintWorkspaceRootWork::Pending(LintWorkspaceRootPending {
+        source_ids,
+        checked_diagnostics: checked.diagnostics.clone(),
+        modules: pending,
+    })
+}
+
+fn collect_workspace_module_callable_edges<'a>(
+    view: &CheckBundleView<'a>,
+    source: &'a str,
+) -> CallableEdgeFacts {
+    let mut options = LintOptions::default();
+    options.only = Some(vec![DiagnosticCode::LintUnusedCallable]);
+    #[cfg(test)]
+    {
+        options.function_effect_facts_checked = true;
+    }
+    Linter::lint_module_view_with_callable_edges(view, source, options, true)
+        .callable_edges
+        .expect("a claimed source walk returns callable edge facts")
+}
+
+fn finish_lint_workspace_root(
+    workspace: &LintWorkspace,
+    root: &str,
+    pending: LintWorkspaceRootPending,
+    fix: bool,
+    timings: &StageTimings,
+) -> Vec<LintResult> {
+    let checked_diagnostics = pending.checked_diagnostics;
+    let only = workspace.modules[root].config.lint_options.only.as_deref();
+    let mut results = Vec::new();
+    for (key, mut linted) in pending.modules {
+        if cancellation_output().is_some() {
+            break;
+        }
+        let Some(module) = workspace.modules.get(&key) else {
+            continue;
+        };
+        for diagnostic in checked_diagnostics
             .iter()
             .filter(|diagnostic| diagnostic_mentions_source(diagnostic, module.source_id))
         {
@@ -884,13 +838,11 @@ fn lint_workspace_root(
         let module_grouping = if key == root {
             Vec::new()
         } else {
-            grouping_diagnostics(bundle, &module.text)
+            grouping_diagnostics_in_range(&workspace.program, module.statements, &module.text)
         };
-        timings.record(Stage::Lint, lint_started.elapsed());
         if !fix {
             linted.diagnostics.extend(
-                checked
-                    .diagnostics
+                checked_diagnostics
                     .iter()
                     .filter(|diagnostic| {
                         (spelling_only(diagnostic) || reported_check_finding(diagnostic))
@@ -910,8 +862,7 @@ fn lint_workspace_root(
         // A fix round is judged against every check diagnostic the file had,
         // selected or not: a rewrite may not add one, and one it leaves in
         // place is not new.
-        let file_check_diagnostics = checked
-            .diagnostics
+        let file_check_diagnostics = checked_diagnostics
             .iter()
             .filter(|diagnostic| diagnostic_mentions_source(diagnostic, module.source_id))
             .chain(&module_grouping)
@@ -1016,7 +967,9 @@ fn migrate_workspace_syntax(
         }]
     };
     let mut rewritten = FxHashMap::default();
-    let mut loader = WorkspaceLoader::new();
+    let mut sources = SourceMap::new();
+    let mut builder = ArenaProgramBuilder::with_token_capacity(4096);
+    let mut loader = ModuleLoader::new(&mut sources, &mut builder);
     for key in reachable {
         let module = &workspace.modules[key];
         let mut migration_diagnostics = module.diagnostics.clone();
@@ -1064,19 +1017,16 @@ fn migrate_workspace_syntax(
         if text != module.text {
             rewritten.insert(key.clone(), text.clone());
         }
-        loader
-            .source_overrides
-            .insert(key.clone(), text.into_bytes());
+        loader.set_source_override(key.clone(), text.into_bytes());
     }
     let root_module = &workspace.modules[root];
-    if let Err(message) = loader.load(
+    loader.load(
         root_module.path.clone(),
         root_module.text.as_bytes().to_vec(),
         root_module.module_roots.clone(),
-    ) {
-        return failure(Vec::new(), message, 2);
-    }
-    let (sources, program, modules) = loader.finish();
+    );
+    let modules = workspace_modules(loader.finish());
+    let program = builder.finish();
     let candidate = LintWorkspace::new(
         sources,
         program,
@@ -1096,13 +1046,12 @@ fn migrate_workspace_syntax(
             2,
         );
     }
-    let mut program = candidate.program.clone();
-    candidate.configure_program_for(root, &candidate.reachable_modules(root), &mut program);
-    let checked = xsh::frontend::check::Checker::check_arena_with_options_and_type_program(
-        &program,
+    let view = candidate.root_view(root);
+    let checked = xsh::frontend::check::Checker::check_bundle_view_with_type_program(
+        &view,
         &candidate.modules[root].text,
         CheckOptions::default(),
-        Arc::new(program.clone()),
+        candidate.type_program(),
     );
     if !checked.diagnostics.is_empty() {
         return failure(
@@ -1254,16 +1203,9 @@ impl LintWorkspace {
         roots: Vec<String>,
         input_errors: Vec<String>,
     ) -> Self {
-        let module_indices = program
-            .modules
-            .iter()
-            .enumerate()
-            .map(|(index, module)| (module.key.clone(), index))
-            .collect();
         Self {
             sources,
             program,
-            module_indices,
             type_program: std::sync::OnceLock::new(),
             modules,
             roots,
@@ -1287,87 +1229,49 @@ impl LintWorkspace {
         reachable_keys(&[root.to_string()].into_iter().collect(), &self.modules)
     }
 
-    fn configure_program_for(
-        &self,
-        root: &str,
-        reachable: &FxHashSet<String>,
-        program: &mut ArenaProgram,
-    ) {
-        program.statements = self
-            .modules
-            .get(root)
-            .expect("workspace root exists")
-            .statements;
-        let mut ordered_keys = Vec::new();
-        let mut visited = FxHashSet::default();
-        order_modules_depth_first(
-            root,
-            reachable,
-            &self.modules,
-            &mut visited,
-            &mut ordered_keys,
-        );
-        program.modules = ordered_keys
-            .into_iter()
-            .filter(|key| key != root)
-            .filter_map(|key| self.module_indices.get(&key))
-            .map(|index| self.program.modules[*index].clone())
-            .collect();
-        let allowed_ranges = std::iter::once(program.statements)
-            .chain(program.modules.iter().map(|module| module.statements))
-            .collect::<Vec<_>>();
-        let allowed_statements = allowed_ranges
-            .iter()
-            .flat_map(|range| program.arena.stmt_ids(*range))
-            .collect::<FxHashSet<StmtId>>();
-        let allowed_sources = std::iter::once(root)
-            .chain(program.modules.iter().map(|module| module.key.as_str()))
-            .filter_map(|key| self.modules.get(key).map(|module| module.source_id))
-            .collect::<FxHashSet<_>>();
-        program.docs = self.program.docs.clone();
-        program
-            .docs
-            .module_ranges
-            .retain(|(range, _)| allowed_ranges.contains(range));
-        program
-            .docs
-            .exports
-            .retain(|(statement, _)| allowed_statements.contains(statement));
-        program
-            .docs
-            .orphaned
-            .retain(|span| allowed_sources.contains(&span.source_id));
-        program
-            .docs
-            .duplicate_modules
-            .retain(|span| allowed_sources.contains(&span.source_id));
+    fn root_view(&self, root: &str) -> CheckBundleView<'_> {
+        let module = &self.modules[root];
+        CheckBundleView::for_root(
+            &self.program,
+            module.statements,
+            Some(&self.sources),
+            Some(module.source_id),
+        )
+    }
+
+    fn module_view(&self, key: &str) -> CheckBundleView<'_> {
+        let module = &self.modules[key];
+        CheckBundleView::for_module(
+            &self.program,
+            module.statements,
+            Some(&self.sources),
+            Some(module.source_id),
+        )
     }
 }
 
-fn order_modules_depth_first(
-    key: &str,
-    reachable: &FxHashSet<String>,
-    modules: &FxHashMap<String, WorkspaceModule>,
-    visited: &mut FxHashSet<String>,
-    ordered: &mut Vec<String>,
-) {
-    if !reachable.contains(key) || !visited.insert(key.to_string()) {
-        return;
-    }
-    if let Some(module) = modules.get(key) {
-        let mut dependencies = module
-            .imports
-            .iter()
-            .filter_map(|import| import.target.as_ref())
-            .filter(|target| reachable.contains(*target))
-            .cloned()
-            .collect::<Vec<_>>();
-        dependencies.sort_unstable();
-        for dependency in dependencies {
-            order_modules_depth_first(&dependency, reachable, modules, visited, ordered);
+fn callable_reachability_sources(workspace: &LintWorkspace) -> FxHashSet<SourceId> {
+    let mut sources = FxHashSet::default();
+    for root in &workspace.roots {
+        let Some(root_module) = workspace.modules.get(root) else {
+            continue;
+        };
+        if !lint_unused_callable_enabled(&root_module.config.lint_options) {
+            continue;
+        }
+        for key in workspace.reachable_modules(root) {
+            if let Some(module) = workspace.modules.get(&key) {
+                sources.insert(module.source_id);
+            }
+        }
+        let view = workspace.root_view(root);
+        for module in view.modules().filter(|module| module.internal) {
+            if let Some(source_id) = range_source_id(&workspace.program, module.statements) {
+                sources.insert(source_id);
+            }
         }
     }
-    ordered.push(key.to_string());
+    sources
 }
 
 /// Source parentheses that do not change the parse leave every checked fact
@@ -1531,7 +1435,6 @@ fn lint_config_for_file(
         prefer_item_shorthand: tool_config.config.lint.prefer_item_shorthand,
         prefer_tempdir_scope: tool_config.config.lint.prefer_tempdir_scope,
         prefer_text_pattern: tool_config.config.lint.prefer_text_pattern,
-        prefer_with_scope: tool_config.config.lint.prefer_with_scope,
         prefer_inferred_proc_returns: tool_config.config.lint.prefer_inferred_proc_returns,
         // A project that asks `xsht check --annotate` to write returns does
         // not also want them removed.
@@ -1545,27 +1448,7 @@ fn lint_config_for_file(
         runless,
         runless_except: tool_config.config.lint.runless_except,
         interactive_command_replacement: None,
-        function_return_types: Default::default(),
-        expr_types: Default::default(),
-        proven_nonnull_fallback_receivers: Default::default(),
-        requirement_targets: Default::default(),
-        requirement_expected_targets: Default::default(),
-        statement_positions: Default::default(),
-        callable_effects: Default::default(),
-        function_effect_facts: Default::default(),
-        function_effect_facts_checked: false,
-        assertion_effect_spans: Default::default(),
-        statement_expression_spans: Default::default(),
-        propagating_statements: Default::default(),
-        discardable_bindings: Default::default(),
-        redundant_condition_propagations: Default::default(),
-        unvalidated_command_vectors: Default::default(),
-        membership_migration_spans: Default::default(),
-        standard_call_spans: Default::default(),
-        statically_resolved_call_spans: Default::default(),
-        definitely_exiting_block_spans: Default::default(),
-        redundant_variant_qualifiers: Default::default(),
-        message_payload_constructors: None,
+        checked_output: None,
         dead_code: !is_path_excluded(
             &tool_config.config_dir,
             Path::new(file),
@@ -1581,6 +1464,7 @@ fn lint_config_for_file(
             })
             .map(|rule| rule.rule)
             .collect(),
+        ..LintOptions::default()
     };
     Ok(ResolvedLintConfig {
         lint_options,
@@ -1589,6 +1473,7 @@ fn lint_config_for_file(
     })
 }
 
+#[cfg(test)]
 #[allow(clippy::single_call_fn)]
 fn lint_one_file_with_fixes(
     index: usize,
@@ -1597,7 +1482,7 @@ fn lint_one_file_with_fixes(
     config: &ResolvedLintConfig,
 ) -> LintResult {
     let symbols = SymbolOwner::new();
-    let checked_program = symbols.with_current(|| {
+    let mut checked_program = symbols.with_current(|| {
         parse_load_check_text(
             file,
             text.clone(),
@@ -1618,39 +1503,15 @@ fn lint_one_file_with_fixes(
             },
         };
     }
-    let checked = checked_program
-        .checked
-        .as_ref()
-        .expect("checked program after clean parse");
+    let checked = std::sync::Arc::new(
+        checked_program
+            .checked
+            .take()
+            .expect("checked program after clean parse"),
+    );
     let mut lint_options = config.lint_options.clone();
-    lint_options.function_return_types = checked.function_return_types.clone();
-    lint_options.expr_types = checked.expr_types.clone();
-    lint_options.proven_nonnull_fallback_receivers =
-        checked.proven_nonnull_fallback_receivers.clone();
-    lint_options.requirement_targets = checked.requirement_targets.clone();
-    lint_options.requirement_expected_targets = checked.requirement_expected_targets.clone();
-    lint_options.statement_positions = checked.statement_positions.clone();
-    lint_options.callable_effects = checked.callable_effects.clone();
-    lint_options.function_effect_facts = checked.function_effect_facts.clone();
-    lint_options.function_effect_facts_checked = true;
-    lint_options.assertion_effect_spans = checked.assertion_effect_spans.clone();
-    lint_options.statement_expression_spans = checked.statement_expression_spans.clone();
-    lint_options.propagating_statements = checked.propagating_statements.clone();
-    lint_options.discardable_bindings = checked.discardable_bindings.clone();
-    lint_options.redundant_condition_propagations =
-        checked.redundant_condition_propagations.clone();
-    lint_options.unvalidated_command_vectors = checked.unvalidated_command_vectors.clone();
-    lint_options.membership_migration_spans = checked.membership_migration_spans.clone();
-    lint_options.standard_call_spans = checked.standard_call_spans.clone();
-    lint_options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
-    lint_options.redundant_variant_qualifiers = checked.redundant_variant_qualifiers.clone();
-    lint_options.message_payload_constructors =
-        checked_message_payload_constructors(checked).cloned();
-    lint_options.statically_resolved_call_spans = if checked.diagnostics.iter().all(spelling_only) {
-        checked.statically_resolved_call_spans.clone()
-    } else {
-        Default::default()
-    };
+    lint_options.checked_output = lint_requires_check_output(&lint_options)
+        .then(|| std::sync::Arc::clone(&checked));
     let linted = Linter::lint(&checked_program.parsed.arena, &text, lint_options);
 
     let mut ast_fixes = collect_fix_spans(&linted.diagnostics);
@@ -1776,24 +1637,19 @@ fn validate_fixed_text(
     config: &ResolvedLintConfig,
     original_check_diagnostics: &[Diagnostic],
 ) -> Result<Vec<RenderedDiagnostic>, FixedTextValidationError> {
-    let symbols = SymbolOwner::new();
-    let checked_program = symbols.with_current(|| {
-        parse_load_check_text(
-            file,
-            text.to_string(),
-            config.module_roots.clone(),
-            CheckOptions::default(),
-        )
-    });
-    if !checked_program.parsed.diagnostics.is_empty() {
+    let context = fixed_text_proof_context(file, config);
+    let snapshot = LintProbeTransport::loaded(&context, text, CheckOptions::default())
+        .expect("single-entry fixed-text checks always return the entry");
+    if !snapshot.parse_diagnostics.is_empty() {
+        let sources = snapshot.sources.as_ref().expect("loaded probe has source map");
         return Err(FixedTextValidationError::Diagnostics(
             render_diagnostics_with_keys(
-                &checked_program.parsed.diagnostics,
-                &checked_program.sources,
+                &snapshot.parse_diagnostics,
+                sources,
             ),
         ));
     }
-    let checked = checked_program
+    let checked = snapshot
         .checked
         .as_ref()
         .expect("checked program after clean parse");
@@ -1803,8 +1659,9 @@ fn validate_fixed_text(
         } else {
             &checked.diagnostics
         };
+        let sources = snapshot.sources.as_ref().expect("loaded probe has source map");
         return Err(FixedTextValidationError::Diagnostics(
-            render_diagnostics_with_keys(diagnostics, &checked_program.sources),
+            render_diagnostics_with_keys(diagnostics, sources),
         ));
     }
     let only = config.lint_options.only.as_deref();
@@ -1816,8 +1673,22 @@ fn validate_fixed_text(
         .collect::<Vec<_>>();
     Ok(render_diagnostics_with_keys(
         &selected,
-        &checked_program.sources,
+        snapshot.sources.as_ref().expect("loaded probe has source map"),
     ))
+}
+
+fn fixed_text_proof_context(
+    file: &str,
+    config: &ResolvedLintConfig,
+) -> crate::xsht::lint::ReturnProofContext {
+    config
+        .lint_options
+        .return_proof
+        .clone()
+        .unwrap_or_else(|| crate::xsht::lint::ReturnProofContext {
+            file: file.to_owned(),
+            module_roots: config.module_roots.clone(),
+        })
 }
 
 fn apply_cst_fixes(
@@ -1888,26 +1759,29 @@ fn apply_cst_fixes(
             return Err(format!("xsht: safe fixes for {file} do not converge\n"));
         }
         candidate = next;
-        let symbols = SymbolOwner::new();
-        let program = symbols.with_current(|| {
-            parse_load_check_text(
-                file,
-                candidate.clone(),
-                config.module_roots.clone(),
-                CheckOptions::default(),
-            )
-        });
-        if !program.parsed.diagnostics.is_empty() {
-            return Err(
-                DiagnosticRenderer::new().render(&program.parsed.diagnostics, &program.sources)
-            );
-        }
-        let checked = program
-            .checked
+        let context = fixed_text_proof_context(file, config);
+        let mut snapshot = LintProbeTransport::loaded(
+            &context,
+            &candidate,
+            CheckOptions::default(),
+        )
+        .expect("single-entry fixed-text checks always return the entry");
+        let sources = snapshot
+            .sources
             .as_ref()
-            .expect("checked program after clean parse");
+            .expect("loaded probe has source map")
+            .clone();
+        if !snapshot.parse_diagnostics.is_empty() {
+            return Err(DiagnosticRenderer::new().render(&snapshot.parse_diagnostics, &sources));
+        }
+        let checked = std::sync::Arc::new(
+            snapshot
+                .checked
+                .take()
+                .expect("checked program after clean parse"),
+        );
         if !check_diagnostics_are_preserved(original_check_diagnostics, &checked.diagnostics) {
-            return Err(DiagnosticRenderer::new().render(&checked.diagnostics, &program.sources));
+            return Err(DiagnosticRenderer::new().render(&checked.diagnostics, &sources));
         }
         // Only the selected codes are reported; the rest of the file's check
         // diagnostics were there before and are not this run's subject.
@@ -1919,7 +1793,7 @@ fn apply_cst_fixes(
             .collect::<Vec<_>>();
         remaining_diagnostics = Some(render_diagnostics_with_keys(
             &selected_checks,
-            &program.sources,
+            &sources,
         ));
         if migrating_syntax {
             return Ok(Some(ValidatedFixedText {
@@ -1928,42 +1802,18 @@ fn apply_cst_fixes(
             }));
         }
         let mut options = config.lint_options.clone();
-        options.function_return_types = checked.function_return_types.clone();
-        options.expr_types = checked.expr_types.clone();
-        options.proven_nonnull_fallback_receivers =
-            checked.proven_nonnull_fallback_receivers.clone();
-        options.requirement_targets = checked.requirement_targets.clone();
-        options.requirement_expected_targets = checked.requirement_expected_targets.clone();
-        options.statement_positions = checked.statement_positions.clone();
-        options.callable_effects = checked.callable_effects.clone();
-        options.function_effect_facts = checked.function_effect_facts.clone();
-        options.function_effect_facts_checked = true;
-        options.assertion_effect_spans = checked.assertion_effect_spans.clone();
-        options.statement_expression_spans = checked.statement_expression_spans.clone();
-        options.propagating_statements = checked.propagating_statements.clone();
-        options.discardable_bindings = checked.discardable_bindings.clone();
-        options.redundant_condition_propagations = checked.redundant_condition_propagations.clone();
-        options.unvalidated_command_vectors = checked.unvalidated_command_vectors.clone();
-        options.membership_migration_spans = checked.membership_migration_spans.clone();
-        options.standard_call_spans = checked.standard_call_spans.clone();
-        options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
-        options.redundant_variant_qualifiers = checked.redundant_variant_qualifiers.clone();
-        options.message_payload_constructors =
-            checked_message_payload_constructors(checked).cloned();
-        options.statically_resolved_call_spans = if checked.diagnostics.iter().all(spelling_only) {
-            checked.statically_resolved_call_spans.clone()
-        } else {
-            Default::default()
-        };
+        options.checked_output = lint_requires_check_output(&options)
+            .then(|| std::sync::Arc::clone(&checked));
+        options.return_proof = Some(context);
         let linted = if is_module {
-            Linter::lint_module(&program.parsed.arena, &candidate, options)
+            Linter::lint_module(&snapshot.program, &candidate, options)
         } else {
-            Linter::lint(&program.parsed.arena, &candidate, options)
+            Linter::lint(&snapshot.program, &candidate, options)
         };
-        fixes = collect_fix_spans_for_source(&linted.diagnostics, SourceId::new(0));
+        fixes = collect_fix_spans_for_source(&linted.diagnostics, snapshot.source_id);
         fixes.extend(collect_fix_spans_for_source(
             &selected_checks,
-            SourceId::new(0),
+            snapshot.source_id,
         ));
         if fixes.is_empty() {
             return Ok(Some(ValidatedFixedText {
@@ -1991,6 +1841,7 @@ fn render_diagnostics_with_keys(
         .collect()
 }
 
+#[cfg(test)]
 #[allow(clippy::single_call_fn)]
 fn collect_fix_spans(diagnostics: &[Diagnostic]) -> Vec<(usize, usize, String)> {
     collect_fix_spans_by_code(diagnostics, |_| true)
@@ -2007,6 +1858,7 @@ fn collect_fix_spans_for_source(
     )
 }
 
+#[cfg(test)]
 fn collect_fix_spans_by_code(
     diagnostics: &[Diagnostic],
     include: impl Fn(&Diagnostic) -> bool,
@@ -2132,18 +1984,22 @@ fn diagnostic_key(diagnostic: &Diagnostic, sources: &SourceMap) -> String {
 #[cfg(test)]
 mod tests {
     use crate::xsht::cli::lint::{
-        ConfigCache, LintResultKind, LintWorkspace, ResolvedLintConfig, WorkspaceLoader,
-        apply_cst_fixes, collect_fix_spans, discover_lint_files, lint_config_for_file,
-        lint_one_file_with_fixes, lint_workspace, unapplied_fixes_reason,
+        CallableEdgeFactStore, ConfigCache, LintResultKind, LintWorkspace, ResolvedLintConfig,
+        workspace_modules, apply_cst_fixes, collect_fix_spans, discover_lint_files,
+        lint_config_for_file, lint_one_file_with_fixes, lint_workspace, unapplied_fixes_reason,
     };
     use crate::xsht::cli::timing::StageTimings;
+    use crate::xsht::cli::XshConfig;
     use crate::xsht::format::DEFAULT_LINE_WIDTH;
-    use crate::xsht::lint::LintOptions;
+    use crate::xsht::lint::{CallableEdgeFacts, LintOptions};
     use std::fs;
     use std::path::PathBuf;
+    use std::thread;
     use tempfile::TempDir;
     use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Severity};
-    use xsh::frontend::source::{SourceId, Span};
+    use xsh::frontend::load::ModuleLoader;
+    use xsh::frontend::source::{SourceId, SourceMap, Span};
+    use xsh::frontend::syntax::arena::ArenaProgramBuilder;
     use xsh::frontend::symbols::SymbolOwner;
 
     fn config() -> ResolvedLintConfig {
@@ -2252,6 +2108,19 @@ mod tests {
     }
 
     #[test]
+    fn callable_edge_fact_store_claims_each_source_walk_once() {
+        let source_id = SourceId::new(7);
+        let needed = [source_id].into_iter().collect();
+        let store = CallableEdgeFactStore::new(needed);
+
+        assert!(store.claim(source_id));
+        assert!(!store.claim(source_id));
+        store.publish(source_id, CallableEdgeFacts::default());
+        assert!(!store.claim(source_id));
+        assert_eq!(store.facts_for([source_id]).len(), 1);
+    }
+
+    #[test]
     fn lint_four_workers_preserve_shared_import_diagnostics_and_source_bytes() {
         let fixture = TempDir::new().unwrap();
         let module = fixture.path().join("helper.xsh");
@@ -2306,7 +2175,121 @@ mod tests {
     }
 
     #[test]
-    fn lint_workspace_copies_only_current_source_checked_facts() {
+    fn lint_selected_root_reuses_imported_source_facts_without_waiting_for_its_root_walk() {
+        let fixture = TempDir::new().unwrap();
+        let entry = fixture.path().join("entry.xsh");
+        let imported = fixture.path().join("imported.xsh");
+        fs::write(&entry, "use imported as shared\npure unused_entry() -> Int { return 1 }\n")
+            .unwrap();
+        fs::write(
+            &imported,
+            "##! Imported source.\n## API.\nexport pure api() -> Int { return 1 }\npure initialized() -> Int { return 2 }\nlet value = initialized()\npure unused_imported() -> Int { return 3 }\n",
+        )
+        .unwrap();
+        let paths = [
+            entry.to_string_lossy().into_owned(),
+            imported.to_string_lossy().into_owned(),
+        ];
+        let config = XshConfig::default();
+        let mut discovery = discover_lint_files(&paths, &config).unwrap();
+        discovery.only = Some(vec![DiagnosticCode::LintUnusedCallable]);
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        thread::spawn(move || {
+            let results = super::lint_workspace_with_parallelism(
+                &discovery,
+                false,
+                false,
+                &ConfigCache::default(),
+                2,
+                &StageTimings::start(),
+            );
+            sender.send(results).unwrap();
+        });
+        let results = receiver
+            .recv_timeout(std::time::Duration::from_secs(20))
+            .expect("a root that imports a selected root must finish bounded parallel linting");
+
+        let mut diagnostics = Vec::new();
+        for result in results {
+            match result.kind {
+                LintResultKind::Clean => {}
+                LintResultKind::Diagnostics { status, diagnostics: found } => {
+                    let errors = found.iter().map(|diagnostic| diagnostic.text.as_str()).collect::<Vec<_>>();
+                    assert_ne!(status, 2, "unexpected checker failure: {errors:?}");
+                    diagnostics.extend(found);
+                }
+                _ => panic!("read-only valid workspace must only return lint diagnostics"),
+            }
+        }
+        let signal_findings = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.text.contains("unused callable `unused_imported`"))
+            .map(|diagnostic| diagnostic.text.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(signal_findings.len(), 2, "{signal_findings:?}");
+        assert_eq!(signal_findings[0], signal_findings[1]);
+    }
+
+    #[test]
+    fn lint_selected_root_collects_module_facts_when_that_modules_rule_is_disabled() {
+        let fixture = TempDir::new().unwrap();
+        let entry = fixture.path().join("entry.xsh");
+        let imported = fixture.path().join("imported.xsh");
+        fs::write(
+            fixture.path().join("xsht-config.ini"),
+            "[dead-code]\nexclude = imported.xsh\n",
+        )
+        .unwrap();
+        fs::write(
+            &entry,
+            "use imported\nproc main() { print imported.api() }\n",
+        )
+        .unwrap();
+        fs::write(
+            &imported,
+            "##! Imported source.\n## API.\nexport pure api() -> Int { return 1 }\npure initialized() -> Int { return 2 }\nlet value = initialized()\npure unused_imported() -> Int { return 3 }\n",
+        )
+        .unwrap();
+        let paths = [entry.to_string_lossy().into_owned()];
+        let config = XshConfig::default();
+        let mut discovery = discover_lint_files(&paths, &config).unwrap();
+        discovery.only = Some(vec![DiagnosticCode::LintUnusedCallable]);
+        let results = super::lint_workspace_with_parallelism(
+            &discovery,
+            false,
+            false,
+            &ConfigCache::default(),
+            1,
+            &StageTimings::start(),
+        );
+
+        let mut diagnostics = Vec::new();
+        for result in results {
+            match result.kind {
+                LintResultKind::Clean => {}
+                LintResultKind::Diagnostics { status, diagnostics: found } => {
+                    let errors = found.iter().map(|diagnostic| diagnostic.text.as_str()).collect::<Vec<_>>();
+                    assert_ne!(status, 2, "unexpected checker failure: {errors:?}");
+                    diagnostics.extend(found);
+                }
+                _ => panic!("read-only valid workspace must only return lint diagnostics"),
+            }
+        }
+        let callable_findings = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.text.contains("warn[lint.unused-callable]"))
+            .map(|diagnostic| diagnostic.text.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(callable_findings.len(), 1, "{callable_findings:?}");
+        assert!(
+            callable_findings[0].contains("unused callable `unused_imported`"),
+            "{callable_findings:?}"
+        );
+    }
+
+    #[test]
+    fn lint_workspace_shares_the_unfiltered_checked_output() {
         let local = SourceId::new(1);
         let foreign = SourceId::new(2);
         let local_span = Span::new(local, 10, 12);
@@ -2331,18 +2314,20 @@ mod tests {
             checked.proven_nonnull_fallback_receivers.insert(span);
             checked.propagating_statements.insert(span);
         }
+        let checked = std::sync::Arc::new(checked);
         let mut options = LintOptions::default();
-        super::set_checked_lint_facts_for_source(&mut options, &checked, local);
-        assert_eq!(options.expr_types.len(), 1);
+        options.checked_output = Some(std::sync::Arc::clone(&checked));
+        let shared = options.checked_output.as_ref().unwrap();
+        assert!(std::sync::Arc::ptr_eq(shared, &checked));
+        assert_eq!(shared.expr_types.len(), 101);
         assert_eq!(
-            options.expr_types.get(&local_span),
+            shared.expr_types.get(&local_span),
             Some(&xsh::frontend::check::Type::Int)
         );
-        assert_eq!(options.statement_positions.len(), 1);
-        assert_eq!(options.proven_nonnull_fallback_receivers.len(), 1);
-        assert!(options.propagating_statements.contains(&local_span));
-        assert_eq!(options.propagating_statements.len(), 1);
-        assert!(options.function_effect_facts_checked);
+        assert_eq!(shared.statement_positions.len(), 101);
+        assert_eq!(shared.proven_nonnull_fallback_receivers.len(), 101);
+        assert!(shared.propagating_statements.contains(&local_span));
+        assert_eq!(shared.propagating_statements.len(), 101);
     }
 
     #[test]
@@ -2546,7 +2531,7 @@ print ${name}
             ),
             (
                 "##! Choices.\nuse missing\n## An option.\nexport type Choice = One | Two\n",
-                Some("parse.module-read"),
+                Some("check.unknown-module"),
             ),
             (
                 "##! Choices.\n## An option.\nexport type Choice = One | Two\nlet broken: Int = \"wrong\"\n",
@@ -2620,45 +2605,46 @@ print ${name}
             "use helper\nlet value: Int = helper.echo(1)\nprint $value\n",
         )
         .unwrap();
-        let mut loader = WorkspaceLoader::new();
-        let root = loader
-            .load(entry.clone(), fs::read(&entry).unwrap(), Vec::new())
-            .unwrap();
-        let (sources, program, modules) = loader.finish();
+        let mut sources = SourceMap::new();
+        let mut builder = ArenaProgramBuilder::with_token_capacity(4096);
+        let mut loader = ModuleLoader::new(&mut sources, &mut builder);
+        let root = loader.load(entry.clone(), fs::read(&entry).unwrap(), Vec::new());
+        let modules = workspace_modules(loader.finish());
+        let program = builder.finish();
         let workspace =
             LintWorkspace::new(sources, program, modules, vec![root.clone()], Vec::new());
         let reachable = workspace.reachable_modules(&root);
-        let mut bundle = workspace.program.clone();
-        workspace.configure_program_for(&root, &reachable, &mut bundle);
-        let checked =
-            xsh::frontend::check::Checker::check_arena(&bundle, &workspace.modules[&root].text);
+        let view = workspace.root_view(&root);
+        let checked = xsh::frontend::check::Checker::check_bundle_view_with_type_program(
+            &view,
+            &workspace.modules[&root].text,
+            xsh::frontend::check::CheckOptions::default(),
+            workspace.type_program(),
+        );
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let checked = std::sync::Arc::new(checked);
         for key in reachable {
             let module = &workspace.modules[&key];
-            let mut projected = LintOptions::default();
-            super::set_checked_lint_facts_for_source(&mut projected, &checked, module.source_id);
-            let mut complete = projected.clone();
-            complete.function_return_types = checked.function_return_types.clone();
-            complete.expr_types = checked.expr_types.clone();
-            complete.statement_positions = checked.statement_positions.clone();
-            complete.standard_call_spans = checked.standard_call_spans.clone();
-            complete.function_effect_facts = checked.function_effect_facts.clone();
-            assert!(projected.expr_types.len() < complete.expr_types.len());
-            bundle.statements = module.statements;
-            if key != root {
-                bundle.modules.clear();
-            }
-            let lint = |options| {
-                if key == root {
-                    crate::xsht::lint::Linter::lint(&bundle, &module.text, options)
-                } else {
-                    crate::xsht::lint::Linter::lint_module(&bundle, &module.text, options)
-                }
+            assert!(checked
+                .expr_types
+                .keys()
+                .any(|span| span.source_id != module.source_id));
+            let mut shared = LintOptions::default();
+            shared.checked_output = Some(std::sync::Arc::clone(&checked));
+            let view = if key == root {
+                workspace.root_view(&root)
+            } else {
+                workspace.module_view(&key)
             };
-            assert_eq!(
-                format!("{:?}", lint(projected).diagnostics),
-                format!("{:?}", lint(complete).diagnostics)
-            );
+            let output = if key == root {
+                crate::xsht::lint::Linter::lint_view(&view, &module.text, shared)
+            } else {
+                crate::xsht::lint::Linter::lint_module_view(&view, &module.text, shared)
+            };
+            assert!(output.diagnostics.iter().all(|diagnostic| diagnostic
+                .labels
+                .iter()
+                .all(|label| label.span.source_id == module.source_id)));
         }
     }
 
@@ -2680,17 +2666,18 @@ print ${name}
         for (name, text) in sources {
             fs::write(root.path().join(name), text).expect("write workspace source");
         }
-        let mut loader = WorkspaceLoader::new();
+        let mut sources = SourceMap::new();
+        let mut builder = ArenaProgramBuilder::with_token_capacity(4096);
+        let mut loader = ModuleLoader::new(&mut sources, &mut builder);
         let mut roots = Vec::new();
         for name in ["left.xsh", "right.xsh"] {
             let file = root.path().join(name);
             roots.push(
-                loader
-                    .load(file.clone(), fs::read(file).unwrap(), Vec::new())
-                    .unwrap(),
+                loader.load(file.clone(), fs::read(file).unwrap(), Vec::new()),
             );
         }
-        let (sources, program, modules) = loader.finish();
+        let modules = workspace_modules(loader.finish());
+        let program = builder.finish();
         let workspace = LintWorkspace::new(sources, program, modules, roots, Vec::new());
         let type_program = workspace.type_program();
         assert!(type_program.modules.is_empty());
@@ -2698,7 +2685,6 @@ print ${name}
             std::sync::Arc::ptr_eq(&type_program, &workspace.type_program()),
             "workers share the same immutable arena for type references"
         );
-        let mut bundle = workspace.program.clone();
         for (root_index, expected_modules) in [
             (0, vec!["shared", "branch"]),
             (1, vec!["shared"]),
@@ -2706,11 +2692,11 @@ print ${name}
         ] {
             let key = &workspace.roots[root_index];
             let reachable = workspace.reachable_modules(key);
-            workspace.configure_program_for(key, &reachable, &mut bundle);
-            assert_eq!(bundle.statements, workspace.modules[key].statements);
+            let view = workspace.root_view(key);
+            assert_eq!(view.root_statements(), workspace.modules[key].statements);
+            let viewed_modules = view.modules().collect::<Vec<_>>();
             assert_eq!(
-                bundle
-                    .modules
+                viewed_modules
                     .iter()
                     .map(|module| module.key.clone())
                     .collect::<Vec<_>>(),
@@ -2721,30 +2707,26 @@ print ${name}
                     ))
                     .collect::<Vec<_>>()
             );
-            for module in &bundle.modules {
+            for module in &viewed_modules {
                 assert_eq!(module.statements, workspace.modules[&module.key].statements);
                 assert_eq!(module.name.as_str(), module.key.as_str());
+                assert!(workspace.program.module_doc_for(module.statements).is_some());
             }
             let allowed_sources = reachable
                 .iter()
                 .map(|key| workspace.modules[key].source_id)
                 .collect::<rustc_hash::FxHashSet<_>>();
-            assert_eq!(bundle.docs.module_ranges.len(), reachable.len());
+            assert_eq!(viewed_modules.len(), expected_modules.len());
             assert!(
-                bundle
-                    .docs
-                    .module_ranges
-                    .iter()
-                    .all(|(_, span)| allowed_sources.contains(&span.source_id))
+                viewed_modules.iter().all(|module| workspace
+                    .program
+                    .module_doc_for(module.statements)
+                    .is_some_and(|span| allowed_sources.contains(&span.source_id)))
             );
             assert!(
-                bundle
-                    .docs
-                    .exports
-                    .iter()
-                    .all(|(_, span)| allowed_sources.contains(&span.source_id))
+                workspace.program.docs.exports.iter().filter(|(_, span)| allowed_sources.contains(&span.source_id)).count()
+                    >= expected_modules.len()
             );
-            assert_eq!(bundle.docs.exports.len(), expected_modules.len());
         }
     }
 

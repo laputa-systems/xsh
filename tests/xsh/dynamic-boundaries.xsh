@@ -531,7 +531,8 @@ print row_path.read_text()?
 # Every operation that interprets an `Any` (a typed slot, an operator, a
 # condition, a display, or a command word) needs a validated type first.
 test test_dynamic_boundary_rejects_each_interpreting_use { |ctx|
-  let prelude = r"""let raw: Any = {a: 1, ok: true, xs: [1, 2], name: "n"}
+  let prelude = r"""let raw: Record = {a: 1, ok: true, xs: [1, 2], name: "n"}
+let opaque: Any = raw
 pure takes(count: Int) -> Int { count }
 """
   for snippet in [
@@ -550,7 +551,7 @@ pure takes(count: Int) -> Int { count }
     "assert raw.ok",
     "let kept = [x for x in [1] if raw.ok]",
     r"""let text = f"{raw.a}" """,
-    "print $raw",
+    "print $opaque",
     r"""run echo ${raw.a}""",
     "let found = 1 in raw.xs",
     "let found = raw.name in \"name\"",
@@ -558,7 +559,7 @@ pure takes(count: Int) -> Int { count }
     "let trimmed = raw.name.trim(chars: \" \")",
     "let sorted = [raw] |> sort-by .a",
     "let counted = [raw] |> count { |row| row.name }",
-    "let largest = raw.xs |> max",
+    "let largest = raw.xs.require(List[Any])? |> max",
   ] {
     let output = test.run_script(ctx, prelude + snippet + "\n")?
     assert output.status == 2, snippet
@@ -567,27 +568,27 @@ pure takes(count: Int) -> Int { count }
   }
 }
 
-# Navigation, `Any` destinations, equality, list membership, and validation
-# need no `.require`: each is defined for every value or yields `Any`.
-test test_dynamic_boundary_keeps_navigation_equality_and_validation { |ctx|
+# Path access preserves opaque values; interpreting a selected value needs
+# validation, while equality and dynamic destinations accept it directly.
+test test_dynamic_boundary_keeps_path_access_equality_and_validation { |ctx|
   let output = test.expect(
     ctx,
     r"""type Row = {a: Int, xs: List[Int]}
 let raw: Any = {a: 1, ok: true, xs: [1, 2], name: "n", nested: {b: 2}}
 pure keep(value: Any) -> Any { value }
-let field = raw.nested.b
-let item = raw.xs[0]
-let part = raw.xs[0..1]
-let size = raw.xs.len()
-let seen = [x for x in raw.xs]
-let same = raw.a == 1
-let listed = raw.a in [1, 2]
-let kept = keep(raw.nested)
-let groups = [raw, raw] |> group-by .name |> count()
+let field = json.get(raw, ["nested", "b"])?
+let item = json.get(raw, ["xs", 0])?
+let part = json.get(raw, ["xs"])?.require(List[Any])?[0..1]
+let size = json.get(raw, ["xs"])?.require(List[Any])?.len()
+let seen = [x for x in json.get(raw, ["xs"])?.require(List[Any])?]
+let same = json.get(raw, ["a"])? == 1
+let listed = json.get(raw, ["a"])? in [1, 2]
+let kept = keep(json.get(raw, ["nested"])?)
+let groups = [raw, raw] |> group-by { |item| json.get(item, ["name"])? } |> count()
 print ${json.encode([field, item, part, size, seen, same, listed, kept, groups])?}
-let count = raw.a.require(Int)? + 1
+let count = json.get(raw, ["a"])?.require(Int)? + 1
 print $count
-match raw.name {
+match json.get(raw, ["name"])? {
   name is Str => print $name
   _ => print other
 }
@@ -610,26 +611,34 @@ true
 # as `lint.inferred-require-target` asks.
 test test_dynamic_boundary_fix_inserts_require_for_the_contextual_type { |ctx|
   let source = r"""let raw: Any = {a: 1, ok: true, name: "n", xs: [3]}
+let a = json.get(raw, ["a"])?
+let ok = json.get(raw, ["ok"])?
+let name = json.get(raw, ["name"])?
+let xs = json.get(raw, ["xs"])?
 pure takes(name: Str) -> Str { name }
-let count: Int = raw.a
-let next = raw.a + 1
-if raw.ok { print $next }
-print ${takes(raw.name)}
-let first = [raw.xs][0]
-let items: List[Int] = raw.xs
+let count: Int = a
+let next = a + 1
+if ok { print $next }
+print ${takes(name)}
+let first = [xs][0]
+let items: List[Int] = xs
 print ${items.len() + count}
 """
   let candidate = test.temp_file(ctx, name: "dynamic-boundary-fix.xsh", contents: bytes.from_text(source))?
   let fixed = run.capture --text "xsht" lint --only check.dynamic-boundary --fix $candidate
   assert fixed.status.exited_with(0), fixed.stderr
   assert candidate.read_text()? == r"""let raw: Any = {a: 1, ok: true, name: "n", xs: [3]}
+let a = json.get(raw, ["a"])?
+let ok = json.get(raw, ["ok"])?
+let name = json.get(raw, ["name"])?
+let xs = json.get(raw, ["xs"])?
 pure takes(name: Str) -> Str { name }
-let count: Int = raw.a.require()?
-let next = raw.a.require(Int)? + 1
-if raw.ok.require(Bool)? { print $next }
-print ${takes(raw.name.require()?)}
-let first = [raw.xs][0]
-let items: List[Int] = raw.xs.require()?
+let count: Int = a.require()?
+let next = a.require(Int)? + 1
+if ok.require(Bool)? { print $next }
+print ${takes(name.require()?)}
+let first = [xs][0]
+let items: List[Int] = xs.require()?
 print ${items.len() + count}
 """
   let executed = test.expect(ctx, candidate.read_text()?, status: 0)?

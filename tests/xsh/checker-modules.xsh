@@ -25,6 +25,21 @@ proc check_with_module(
   {status: checked.status, stderr: checked.stderr}
 }
 
+# Checks `main.xsh` with a project made from multiple module files.
+proc check_with_modules(
+  ctx: TestContext,
+  files: Map[Str, Str],
+) [fs, process, error] -> Result[Checked] {
+  let root = test.temp_dir(ctx, name: "module-project")?
+  for name in files.keys() {
+    let file = fp"{root}/{name}"
+    file.parent().mkdir()
+    file.write(files[name])
+  }
+  let checked = run.capture --text "xsht" check fp"{root}/main.xsh"
+  {status: checked.status, stderr: checked.stderr}
+}
+
 # Requires `checked` to be a rejection carrying every diagnostic in `codes`.
 proc expect_codes(checked: Checked, codes: List[Str]) [error] {
   assert checked.status.exited_with(2), checked.stderr
@@ -228,6 +243,35 @@ export type Package = {name: Str}
 """,
   )?
   expect_codes(private_type, ["check.unknown-type"])
+}
+
+test test_checker_does_not_leak_sibling_module_imports { |ctx|
+  let checked = check_with_modules(
+    ctx,
+    {
+      "main.xsh": "use leaker\nuse victim\nlet _ = leaker.relay()\nlet _ = victim.relay()\n",
+      "provider.xsh": r"""
+##! Provider module.
+
+## Returns the provider value.
+export pure value() -> Int { return 1 }
+""",
+      "leaker.xsh": r"""
+##! Leaker module.
+use provider as leaked
+
+## Relays a value through the imported provider.
+export pure relay() -> Int { return leaked.value() }
+""",
+      "victim.xsh": r"""
+##! Victim module.
+
+## Attempts to use a namespace imported only by a sibling.
+export pure relay() -> Int { return leaked.value() }
+""",
+    },
+  )?
+  expect_codes(checked, ["check.unresolved-name"])
 }
 
 test test_checker_requires_retained_docs_for_public_exports { |ctx|

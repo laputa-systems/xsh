@@ -7,11 +7,10 @@ use super::{
 };
 use crate::diagnostic::DiagnosticCode;
 use crate::sema::check::{ApiArgCheck, MethodSig, ModuleFnSig};
-use crate::syntax::arena::{ArenaCallArg, ArenaCallArgKind, ArenaProgram};
+use crate::syntax::arena::{ArenaCallArg, ArenaProgram};
 
 /// Registered method calls instantiate receiver relationships before checking
 /// arguments. Effects and overload selection remain owned by the same registry.
-#[allow(dead_code)]
 impl Checker {
     pub(super) fn check_method_dispatch_arena(
         &mut self,
@@ -84,25 +83,11 @@ impl Checker {
             );
         }
         if base_ty == Type::Any {
-            // A dynamic method has no checked signature to bind names
-            // against; such a call used to check and then fail preparation.
-            if args.iter().any(|arg| {
-                matches!(
-                    arg.kind,
-                    ArenaCallArgKind::Named { .. } | ArenaCallArgKind::NamedSpread { .. }
-                )
-            }) {
-                self.error(
-                    span,
-                    &format!("named arguments to `{name}` need a checked receiver; validate the value with `.require(T)` first"),
-                    DiagnosticCode::CheckDynamicBoundary,
-                );
-            }
-            self.check_opaque_callable_effects(&format!("Any.{name}"), span);
+            self.reject_dynamic_use("a method receiver", None, arena.arena.expr(base).span);
             for arg in args {
                 self.check_call_arg_arena(arena, source, &arg.kind, None);
             }
-            return Type::Any;
+            return Type::Unknown;
         }
         if let Type::Result(_, _) = &base_ty {
             return self.check_registered_method_arena(
@@ -460,7 +445,7 @@ impl Checker {
             self.error(span, "unknown method", DiagnosticCode::CheckUnknownMethod);
             return Type::Unknown;
         }
-        if self.in_pure {
+        if self.boundary.in_pure {
             self.error(
                 span,
                 "effectful method is not allowed in pure functions",
@@ -545,15 +530,15 @@ impl Checker {
         {
             self.expect_type(&conflict.expected, &conflict.actual, span);
         }
-        if self.in_pure && !method.sig.pure {
+        if self.boundary.in_pure && !method.sig.pure {
             self.error(
                 span,
                 "effectful method is not allowed in pure functions",
                 DiagnosticCode::CheckPureEffect,
             );
         }
-        if let Some(required) = method.sig.effect.clone() {
-            self.require_effect(required, span, &format!("method `{name}`"));
+        for required in method.sig.effects {
+            self.require_effect(required.clone(), span, &format!("method `{name}`"));
         }
         let schemas = crate::sema::builtin_templates::parameter_schema_contexts(
             &method.sig,

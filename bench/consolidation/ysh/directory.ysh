@@ -1,0 +1,27 @@
+shopt --set errexit pipefail
+
+if (len(ARGV) !== 1) {
+  error 'expected one absolute fixture root' (code=2)
+}
+var root = ARGV[0]
+if (not root.startsWith('/')) {
+  error 'fixture root must be absolute' (code=2)
+}
+
+# find includes hidden entries and defaults to inspecting symlinks themselves.
+# The fixture excludes tabs and newlines, so line framing preserves each path.
+cd "$root/tree" {
+  /usr/bin/find . -mindepth 1 -print | LC_ALL=C /usr/bin/sort | for path in (io.stdin) {
+    var kind
+    if test -L $path {
+      setvar kind = 'link'
+    } elif test -d $path {
+      setvar kind = 'dir'
+    } elif test -f $path {
+      setvar kind = 'file'
+    } else {
+      error 'unsupported directory entry' (path=path)
+    }
+    write -- $[path[2:] ++ u'\t' ++ kind]
+  }
+}

@@ -178,7 +178,9 @@ test test_typed_map_path_and_bytes_keep_native_identity {
   assert data.get(b"\xff")? == 1
 }
 
-test test_typed_map_erased_updates_reject_mixed_domains { |ctx|
+# This case used to observe a map-type runtime error through `Any.set`; the
+# unchecked receiver now fails at the language boundary before mutation.
+test test_typed_map_erased_updates_require_validation { |ctx|
   for source in [
     """let values: Any = {[1]: 2}
 let _ = values.set("one", 3)
@@ -191,7 +193,7 @@ let _ = values.set("one", 3)
       assert assertion_condition, assertion_message
     }
     {
-      let assertion_condition = "type-error" in output.stderr
+      let assertion_condition = "check.dynamic-boundary" in output.stderr
       let assertion_message = output.stderr
       assert assertion_condition, assertion_message
     }

@@ -428,8 +428,11 @@ let fields = {contains: field_predicate, has: field_predicate}
 assert fields.contains.call("present") == true
 assert fields.has.call("present") == true
 let erased: Any = fields
-assert erased.contains("present").require(Bool)? == true
-assert erased.has("present").require(Bool)? == true
+let checked = erased.require(Record)?
+let contains = checked.get("contains")?.require(Pure)?
+let has = checked.get("has")?.require(Pure)?
+assert contains.call("present").require(Bool)? == true
+assert has.call("present").require(Bool)? == true
 assert custom.contains("present")
 assert custom.has("present")
 print "done"

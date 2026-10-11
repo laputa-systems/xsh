@@ -24,7 +24,7 @@ proc send(message_type: Int, flags: Int, payload: Bytes) [process, error] {
   assert replies.len() >= 0
 }
 
-proc index_of(name: Str) [process, error] -> Int {
+proc index_of(name: Str) [process, net, error] -> Int {
   let c = linux.net_constants()
   let socket = linux.socket(c.AF_INET, c.SOCK_DGRAM)?
   defer unix.close_fd(socket)
@@ -63,7 +63,7 @@ export proc link_add_veth(name: Str, peer: Str, mac: Str, peer_mac: Str) [proces
 }
 
 ## Brings an interface up through its flags.
-export proc link_up(name: Str) [process, error] {
+export proc link_up(name: Str) [process, net, error] {
   let c = linux.net_constants()
   let socket = linux.socket(c.AF_INET, c.SOCK_DGRAM)?
   defer unix.close_fd(socket)
@@ -74,7 +74,7 @@ export proc link_up(name: Str) [process, error] {
 }
 
 ## Assigns an IPv4 address with its broadcast address and an optional label.
-export proc address_add4(name: Str, address: Str, prefix: Int, broadcast: Str, label: Str) [process, error] {
+export proc address_add4(name: Str, address: Str, prefix: Int, broadcast: Str, label: Str) [process, net, error] {
   let c = linux.net_constants()
   let raw = nettools.ipv4_parse(address) ?? b""
   let brd = nettools.ipv4_parse(broadcast) ?? b""
@@ -85,7 +85,7 @@ export proc address_add4(name: Str, address: Str, prefix: Int, broadcast: Str, l
 }
 
 ## Assigns an IPv6 address.
-export proc address_add6(name: Str, address: Str, prefix: Int) [process, error] {
+export proc address_add6(name: Str, address: Str, prefix: Int) [process, net, error] {
   let c = linux.net_constants()
   let raw = nettools.ipv6_parse(address) ?? b""
   let header = bytes.concat([bytes.from_ints([c.AF_INET6, prefix, 0, 0])?, bytes.pack_le(index_of(name), 4)?])
@@ -93,7 +93,7 @@ export proc address_add6(name: Str, address: Str, prefix: Int) [process, error] 
 }
 
 ## Adds a neighbour entry in an explicit state (`state` is the NUD_* bit).
-export proc neighbour_add(name: Str, address: Str, mac: Str, state: Int) [process, error] {
+export proc neighbour_add(name: Str, address: Str, mac: Str, state: Int) [process, net, error] {
   let c = linux.net_constants()
   let raw = nettools.ipv4_parse(address) ?? b""
   let header = bytes.concat([bytes.from_ints([c.AF_INET, 0, 0, 0])?, bytes.pack_le(index_of(name), 4)?, bytes.pack_le(state, 2)?, bytes.from_ints([0, 1])?])

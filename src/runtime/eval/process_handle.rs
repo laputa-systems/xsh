@@ -30,11 +30,13 @@ impl Evaluator {
             .collect::<Vec<_>>();
         let handle = ProcessHandleValue {
             id,
+            owner: self.resource_owner.clone(),
             pid: i64::from(child.pid),
             command,
             argv: Arc::from(argv.into_boxed_slice()),
             detached: child.detached,
         };
+        self.register_owned_resource(self.current_scope_id(), super::ResourceKind::Activity);
         self.process_handles.insert(
             id,
             LiveProcessHandle {
@@ -132,7 +134,12 @@ impl Evaluator {
         span: Span,
     ) -> Result<Value, RuntimeError> {
         self.trace_wait_start(span, vec![handle.id]);
-        let Some(mut live) = self.process_handles.remove(&handle.id) else {
+        if !Arc::ptr_eq(&self.resource_owner, &handle.owner) {
+            let error = invalid_process_handle_error(handle.id, span);
+            self.trace_wait_end(span, Some(handle.id), None, None, Some(&error));
+            return Ok(process_handle_error(error));
+        }
+        let Some(mut live) = self.take_process_handle(&handle.id) else {
             let error = invalid_process_handle_error(handle.id, span);
             self.trace_wait_end(span, Some(handle.id), None, None, Some(&error));
             return Ok(process_handle_error(error));
@@ -213,6 +220,12 @@ impl Evaluator {
                 }
                 continue;
             };
+            if !Arc::ptr_eq(&self.resource_owner, &handle.owner) {
+                let error = invalid_process_handle_error(handle.id, span);
+                self.trace_wait_end(span, Some(handle.id), None, None, Some(&error));
+                if first_error.is_none() { first_error = Some(error); }
+                continue;
+            }
             if !seen.insert(handle.id) {
                 let error = RunError::new("unknown", "process handle was already requested")
                     .with_span(span);
@@ -222,7 +235,7 @@ impl Evaluator {
                 }
                 continue;
             }
-            let Some(mut live) = self.process_handles.remove(&handle.id) else {
+            let Some(mut live) = self.take_process_handle(&handle.id) else {
                 let error =
                     RunError::new("unknown", "process handle is no longer live").with_span(span);
                 self.trace_wait_end(span, Some(handle.id), None, None, Some(&error));

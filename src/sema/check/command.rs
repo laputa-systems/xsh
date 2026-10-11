@@ -89,11 +89,21 @@ pub(super) fn valid_env_name(name: &str) -> bool {
         && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
-#[allow(dead_code)]
 impl Checker {
+    // Command names have no expression row. Record the checker's selected
+    // identity locally so constraint probes keep sharing immutable facts.
+    fn record_command_binding_site(&mut self, name: Name, span: Span) {
+        let id = self.lookup(name).and_then(|binding| binding.id);
+        if let Some(id) = id {
+            self.resolved_command_sites.insert((span, name), id);
+        }
+    }
+
     pub(super) fn check_command_word_reference(&mut self, text: &str, span: Span) -> Option<Type> {
         let (root, segments) = parse_command_word_reference(text)?;
-        let mut ty = self.lookup(Name::intern(root))?.ty.clone();
+        let name = Name::intern(root);
+        let mut ty = self.lookup(name)?.ty.clone();
+        self.record_command_binding_site(name, span);
         for segment in segments {
             ty = match segment {
                 CommandWordRefSegment::Field(name) => {
@@ -129,8 +139,12 @@ impl Checker {
                     Type::Unknown
                 }
             },
-            Type::Any => Type::Any,
+            Type::Any => {
+                self.reject_dynamic_use("a field receiver", None, span);
+                Type::Unknown
+            }
             Type::Unknown => Type::Unknown,
+            Type::Optional(inner) => self.optional_field_error(&inner, name, span),
             _ => {
                 self.error(
                     span,
@@ -148,8 +162,12 @@ impl Checker {
         }
         match base_ty.into_unvalidated() {
             Type::List(item) => *item,
-            Type::Any => Type::Any,
+            Type::Any => {
+                self.reject_dynamic_use("an index receiver", None, span);
+                Type::Unknown
+            }
             Type::Record(_) | Type::Unknown => Type::Unknown,
+            Type::Optional(inner) => self.optional_index_error(&inner, span),
             _ => {
                 self.error(
                     span,
@@ -220,7 +238,6 @@ impl Checker {
 /// `module_sig_is_command_callable`/`standard_module_command_name`/
 /// `is_bare_ident`/`valid_env_name` are pure `Type`/`str`-level and reused
 /// unchanged too.
-#[allow(dead_code)]
 impl Checker {
     pub(super) fn check_command_stmt_arena(
         &mut self,
@@ -244,7 +261,7 @@ impl Checker {
             self.reject_bool_statement(source, &Type::Bool, span);
             return;
         }
-        if self.in_pure {
+        if self.boundary.in_pure {
             self.error(
                 span,
                 "commands are not allowed in pure functions",
@@ -297,7 +314,7 @@ impl Checker {
             } => self.check_core_command_arena(arena, source, *name, *args, *env, *block, span),
             ArenaCommand::Run(run_id) => {
                 self.record_required_effect(Effect::Process);
-                if let Some(effs) = &self.current_effects
+                if let Some(effs) = &self.boundary.current_effects
                     && !Self::effects_covers(effs, &Effect::Process)
                 {
                     let run_span = arena.arena.span(arena.arena.run_form(*run_id).span);
@@ -333,7 +350,8 @@ impl Checker {
             return Type::Invalid;
         }
 
-        if let Some(expr) = self.prepared_constants.tail_bindings.get(&span)
+        if let Some(expr) = self.resolved_bindings.at(span, name)
+            .and_then(|binding| self.prepared_constants.binding_values.get(&binding))
             && let Some(ty) = self.prepared_constants.types.get(expr)
         {
             let ty = ty.clone();
@@ -341,7 +359,7 @@ impl Checker {
             return ty;
         }
         if self.procs.contains_key(&name) {
-            if self.in_pure {
+            if self.boundary.in_pure {
                 self.error(
                     span,
                     "commands are not allowed in pure functions",
@@ -356,7 +374,7 @@ impl Checker {
                 span,
             );
         }
-        if let Some(binding) = self.lookup(name) {
+        if let Some(binding) = self.lookup_value_binding(name, span) {
             return binding.ty.clone();
         }
         if self
@@ -388,7 +406,7 @@ impl Checker {
             for arg in arena.arena.command_args(args) {
                 self.check_command_arg_arena(arena, source, arg, None);
             }
-            self.last_status_available = true;
+            self.boundary.last_status_available = true;
             return Type::Int;
         }
         let interned = Name::intern(name);
@@ -473,8 +491,8 @@ impl Checker {
         args: ArenaRange,
         span: Span,
     ) -> Type {
-        if let Some(required) = api_spec().module_required_effect(module, name) {
-            self.require_effect(required, span, &format!("`{module}.{name}`"));
+        for required in api_spec().module_required_effects(module, name) {
+            self.require_effect(required.clone(), span, &format!("`{module}.{name}`"));
         }
         let Some(module_sig) = api_spec().module(module) else {
             self.error(span, "unknown module", DiagnosticCode::CheckUnknownModule);
@@ -491,7 +509,6 @@ impl Checker {
         let command_overloads = overloads
             .iter()
             .filter(|&x| module_sig_is_command_callable(x))
-            .cloned()
             .collect::<Vec<_>>();
         if command_overloads.is_empty() {
             self.error(
@@ -501,7 +518,7 @@ impl Checker {
             );
             return Type::Unknown;
         }
-        if self.in_pure {
+        if self.boundary.in_pure {
             self.error(
                 span,
                 "effectful module API is not allowed in pure functions",
@@ -510,7 +527,7 @@ impl Checker {
         }
         let command_args = arena.arena.command_args(args);
         let sig = choose_module_command_sig_arena(arena, source, command_args, &command_overloads)
-            .unwrap_or(&command_overloads[0]);
+            .unwrap_or(command_overloads[0]);
         self.check_module_command_args_arena(arena, source, command_args, sig, span);
         sig.return_ty.clone()
     }
@@ -538,8 +555,9 @@ impl Checker {
                             self.check_command_arg_arena_print_tail(arena, source, arg);
                             continue;
                         }
-                        let word_text = word_parts_text_arena(arena, source, &word_list);
                         let arg_span = arena.arena.span(arg.span);
+                        let word_text =
+                            word_parts_text_arena(arena, arg_span.source_id, source, &word_list);
                         if word_text.is_empty() {
                             self.check_command_arg_arena_print_tail(arena, source, arg);
                             continue;
@@ -750,7 +768,7 @@ impl Checker {
                 DiagnosticCode::CheckPipelineCpumax,
             );
         }
-        self.last_status_available = true;
+        self.boundary.last_status_available = true;
 
         match segments[0].kind {
             RunKind::Plain | RunKind::Status => {
@@ -1048,8 +1066,19 @@ impl Checker {
         match &arg.kind {
             ArenaCommandArgKind::Word(parts) => {
                 let word_list: Vec<ArenaWordPart> = arena.arena.word_parts(*parts).collect();
+                if let Some(text) =
+                    bare_command_word_parts_arena(arena, arg_span.source_id, source, &word_list)
+                    && let Some((root, _)) = parse_command_word_reference(&text)
+                {
+                    self.record_command_binding_site(Name::intern(root), arg_span);
+                }
                 if let Some(expected) = expected
-                    && let Some(text) = bare_command_word_parts_arena(arena, source, &word_list)
+                    && let Some(text) = bare_command_word_parts_arena(
+                        arena,
+                        arg_span.source_id,
+                        source,
+                        &word_list,
+                    )
                     && let Some(ty) = self.check_command_word_reference(&text, arg_span)
                 {
                     self.expect_command_value_conversion(expected, &ty, arg_span);
@@ -1112,7 +1141,9 @@ impl Checker {
             // An unresolved splice name used to type as Unknown and fail
             // preparation; resolve it like any other name.
             ArenaCommandArgKind::SpliceName(name) => {
-                self.lookup_expr_ident(*name, arena.arena.span(arg.span))
+                let span = arena.arena.span(arg.span);
+                self.record_command_binding_site(*name, span);
+                self.lookup_expr_ident(*name, span)
             }
             ArenaCommandArgKind::SpliceExpr(expr_id) => {
                 self.check_expr_arena(arena, source, *expr_id, None)
@@ -1174,6 +1205,7 @@ impl Checker {
             }
             ArenaCommandArgKind::SpliceName(name) => {
                 let arg_span = arena.arena.span(arg.span);
+                self.record_command_binding_site(*name, arg_span);
                 let ty = self.lookup_expr_ident(*name, arg_span);
                 self.check_external_splice_type(&ty, arg_span);
             }
@@ -1209,14 +1241,15 @@ pub(super) fn run_statement_asserts_success_by_default_arena(
 }
 
 #[allow(dead_code)]
-pub(super) fn choose_module_command_sig_arena<'a>(
+pub(super) fn choose_module_command_sig_arena(
     arena: &ArenaProgram,
     source: &str,
     args: &[ArenaCommandArg],
-    overloads: &'a [ModuleFnSig],
-) -> Option<&'a ModuleFnSig> {
+    overloads: &[&'static ModuleFnSig],
+) -> Option<&'static ModuleFnSig> {
     overloads
         .iter()
+        .copied()
         .find(|sig| module_command_shape_matches_arena(arena, source, args, sig))
 }
 
@@ -1308,12 +1341,18 @@ pub(super) fn literal_command_word_text_arena(
         return None;
     };
     let word_list: Vec<ArenaWordPart> = arena.arena.word_parts(*parts).collect();
-    literal_command_word_parts_arena(arena, source, &word_list)
+    literal_command_word_parts_arena(
+        arena,
+        arena.arena.span(arg.span).source_id,
+        source,
+        &word_list,
+    )
 }
 
 #[allow(dead_code)]
 pub(super) fn literal_command_word_parts_arena(
     arena: &ArenaProgram,
+    source_id: crate::source::SourceId,
     source: &str,
     parts: &[ArenaWordPart],
 ) -> Option<String> {
@@ -1321,7 +1360,7 @@ pub(super) fn literal_command_word_parts_arena(
     for part in parts {
         match part {
             ArenaWordPart::Bare(value) | ArenaWordPart::Quoted(value) => {
-                text.push_str(arena.arena.text_value(value, source)?);
+                text.push_str(arena.arena.text_value_for_source(value, source_id, source)?);
             }
             ArenaWordPart::Interpolation(_) | ArenaWordPart::Shorthand(_) => return None,
         }
@@ -1332,21 +1371,27 @@ pub(super) fn literal_command_word_parts_arena(
 #[allow(dead_code)]
 pub(super) fn bare_command_word_parts_arena(
     arena: &ArenaProgram,
+    source_id: crate::source::SourceId,
     source: &str,
     parts: &[ArenaWordPart],
 ) -> Option<String> {
     let [ArenaWordPart::Bare(value)] = parts else {
         return None;
     };
-    Some(arena.arena.text_value(value, source)?.to_string())
+    Some(arena.arena.text_value_for_source(value, source_id, source)?.to_string())
 }
 
 #[allow(dead_code)]
-fn word_parts_text_arena(arena: &ArenaProgram, source: &str, parts: &[ArenaWordPart]) -> String {
+fn word_parts_text_arena(
+    arena: &ArenaProgram,
+    source_id: crate::source::SourceId,
+    source: &str,
+    parts: &[ArenaWordPart],
+) -> String {
     let mut text = String::new();
     for part in parts {
         if let ArenaWordPart::Bare(value) = part
-            && let Some(resolved) = arena.arena.text_value(value, source)
+            && let Some(resolved) = arena.arena.text_value_for_source(value, source_id, source)
         {
             text.push_str(resolved);
         }

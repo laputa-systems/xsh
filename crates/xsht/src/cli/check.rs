@@ -1,6 +1,6 @@
 use crate::xsht::cli::timing::{Stage, StageTimings};
 use crate::xsht::cli::{
-    CliOutput, ConfigCache, DiscoveryFor, XshConfig, cancellation_output, discover_scripts,
+    CliOutput, ConfigCache, DiscoveryFor, cancellation_output, discover_scripts,
     load_config, text_bytes,
 };
 use crate::xsht::config::config_for_file;
@@ -8,14 +8,13 @@ use crate::xsht::format::Formatter;
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticRenderer, Label, LabelStyle};
 use xsh::execution::evaluator::Evaluator;
 use xsh::frontend::check::{AnnotationFact, AnnotationFactKind, CheckOptions, Checker};
-use xsh::frontend::load::{self as loader, parse_load_check_file};
+use xsh::frontend::load as loader;
 use xsh::frontend::source::{SourceId, SourceMap, Span};
 use xsh::frontend::syntax::parser::Parser;
 
@@ -113,25 +112,6 @@ impl AnnotationPolicy {
         }
         Self::from_names(value.split(','))
     }
-}
-
-pub fn check_script(script: &str) -> CliOutput {
-    check_one_script(script, None, &[], XshConfig::default().format.line_width)
-}
-
-pub fn check_paths_with_options(
-    paths: &[String],
-    annotation_selection: Option<AnnotationSelection>,
-) -> CliOutput {
-    check_paths_with_summary_options(paths, annotation_selection, false)
-}
-
-pub fn check_paths_with_summary_options(
-    paths: &[String],
-    annotation_selection: Option<AnnotationSelection>,
-    summary: bool,
-) -> CliOutput {
-    check_paths_timed(paths, annotation_selection, summary, &StageTimings::start())
 }
 
 /// `xsht check` over files or directories, recording stage times in `timings`.
@@ -397,21 +377,12 @@ fn check_entry(
 
     // This one check renders the diagnostics and supplies the lowering facts.
     let arena = Arc::new(parsed.arena);
-    let entry_text = report
-        .sources
-        .get(source_id)
-        .map(|s| s.text())
-        .unwrap_or("");
     let mut checked = timings.time(Stage::Check, || {
-        Checker::check_arena_with_options_and_type_program(
+        Checker::check_arena_with_sources_options_and_type_program(
             &arena,
-            entry_text,
-            CheckOptions {
-                interactive_commands: None,
-                reveal_types: true,
-                migration_diagnostics: true,
-                embedded_bodies: true,
-            },
+            &report.sources,
+            source_id,
+            CheckOptions::for_check_cli(),
             Arc::clone(&arena),
         )
     });
@@ -538,176 +509,6 @@ fn diagnostic_summary_location(diagnostic: &Diagnostic, sources: &SourceMap) -> 
         "{}:{}:{} {}",
         location.file, location.line, location.column, diagnostic.message
     )
-}
-
-pub fn check_script_with_options(script: &str, annotate: bool) -> CliOutput {
-    let failed = |message: String| CliOutput {
-        status: 2,
-        stdout: Vec::new(),
-        stderr: text_bytes(format!("xsht: {message}\n")),
-        trace_text: String::new(),
-        syscall_summary: None,
-    };
-    let file_config = match config_for_file(script) {
-        Ok(file_config) => file_config,
-        Err(message) => return failed(message),
-    };
-    let annotation_policy = if annotate {
-        match configured_annotation_policy(&file_config.config) {
-            Ok(policy) => Some(policy),
-            Err(message) => return failed(message),
-        }
-    } else {
-        None
-    };
-    check_one_script(
-        script,
-        annotation_policy,
-        &file_config.module_roots(),
-        file_config.line_width(),
-    )
-}
-
-fn check_one_script(
-    script: &str,
-    annotation_policy: Option<AnnotationPolicy>,
-    module_roots: &[PathBuf],
-    line_width: usize,
-) -> CliOutput {
-    // This one check renders the diagnostics and supplies the lowering facts.
-    let mut checked_program = match parse_load_check_file(
-        script,
-        module_roots.to_vec(),
-        CheckOptions {
-            interactive_commands: None,
-            reveal_types: true,
-            migration_diagnostics: true,
-            embedded_bodies: true,
-        },
-    ) {
-        Ok(source) => source,
-        Err(err) => {
-            return CliOutput {
-                status: 2,
-                stdout: Vec::new(),
-                stderr: text_bytes(format!("xsh: failed to read '{script}': {err}\n")),
-                trace_text: String::new(),
-                syscall_summary: None,
-            };
-        }
-    };
-
-    if !checked_program.parsed.diagnostics.is_empty() {
-        return CliOutput {
-            status: 2,
-            stdout: Vec::new(),
-            stderr: text_bytes(checked_program.render_parse_diagnostics()),
-            trace_text: String::new(),
-            syscall_summary: None,
-        };
-    }
-
-    if !checked_program.check_diagnostics().is_empty() {
-        return CliOutput {
-            status: 2,
-            stdout: Vec::new(),
-            stderr: text_bytes(checked_program.render_check_diagnostics()),
-            trace_text: String::new(),
-            syscall_summary: None,
-        };
-    }
-    let mut checked = checked_program
-        .checked
-        .take()
-        .expect("checked program after clean parse");
-
-    let mut stderr =
-        DiagnosticRenderer::new().render(&checked.reveal_types, &checked_program.sources);
-    let annotation_facts = std::mem::take(&mut checked.annotation_facts);
-
-    let declarations = Checker::compact_declarations(&checked_program.parsed.arena, checked);
-    let diagnostics = Evaluator::compact_lowerability_diagnostics_with_parts(
-        &checked_program.parsed.arena,
-        checked_program.entry_source_id,
-        checked_program.sources.clone(),
-        declarations,
-        Vec::new(),
-        xsh::execution::script::script_command_name(script),
-    );
-    if !diagnostics.is_empty() {
-        return CliOutput {
-            status: 2,
-            stdout: Vec::new(),
-            stderr: text_bytes(
-                DiagnosticRenderer::new().render(&diagnostics, &checked_program.sources),
-            ),
-            trace_text: String::new(),
-            syscall_summary: None,
-        };
-    }
-
-    if let Some(annotation_policy) = annotation_policy {
-        let Some(original) = checked_program.entry_source_text() else {
-            return CliOutput {
-                status: 2,
-                stdout: Vec::new(),
-                stderr: text_bytes("xsht: missing script source\n"),
-                trace_text: String::new(),
-                syscall_summary: None,
-            };
-        };
-        let edits = annotation_edits(
-            &annotation_facts,
-            annotation_policy,
-            checked_program.entry_source_id,
-            original,
-        );
-        if !edits.is_empty() {
-            let mut annotated = original.to_string();
-            for (start, end, replacement) in edits {
-                annotated.replace_range(start..end, &replacement);
-            }
-
-            let mut fmt_sources = SourceMap::new();
-            let fmt_id = fmt_sources.add_file(script, annotated.clone());
-            let reformatted = Formatter::new()
-                .with_line_width(line_width)
-                .format_source(fmt_id, &annotated);
-            if !reformatted.diagnostics.is_empty() {
-                return CliOutput {
-                    status: 2,
-                    stdout: Vec::new(),
-                    stderr: text_bytes(
-                        DiagnosticRenderer::new().render(&reformatted.diagnostics, &fmt_sources),
-                    ),
-                    trace_text: String::new(),
-                    syscall_summary: None,
-                };
-            }
-            if reformatted.formatted != original
-                && let Err(err) = fs::write(script, &reformatted.formatted)
-            {
-                return CliOutput {
-                    status: 4,
-                    stdout: Vec::new(),
-                    stderr: text_bytes(format!("xsht: failed to write '{script}': {err}\n")),
-                    trace_text: String::new(),
-                    syscall_summary: None,
-                };
-            }
-        }
-    }
-
-    if !stderr.is_empty() && !stderr.ends_with('\n') {
-        stderr.push('\n');
-    }
-    CliOutput {
-        status: 0,
-        stdout: Vec::new(),
-        stderr: text_bytes(stderr),
-        trace_text: String::new(),
-        syscall_summary: None,
-    }
 }
 
 fn diagnostic_key(diagnostic: &Diagnostic, sources: &SourceMap) -> String {

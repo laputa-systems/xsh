@@ -25,7 +25,7 @@ impl<'a> Parser<'a> {
         arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,
     ) -> Option<(crate::syntax::arena::PatternId, crate::source::Span)> {
         let mut offset = 1;
-        while self.peek_tag(offset) == Some(TokenTag::Dot) {
+        while self.matches_terms_at(offset, crate::syntax::grammar::PATTERN_MEMBER, self.current_end()) {
             offset += 2;
         }
         if self.condition_expr
@@ -440,7 +440,10 @@ impl<'a> Parser<'a> {
                     let span = self.span(span.start(), self.previous_end());
                     return Some((arena.push_pattern_facet(facet, span), span, None));
                 }
-                if self.consume(TokenKindMatch::Dot).is_some() {
+                if self.at(TokenKindMatch::Dot)
+                    && !self.matches_terms(crate::syntax::grammar::RANGE_MARKER, self.current_start())
+                {
+                    self.bump();
                     let family_or_variant =
                         self.expect_ident("expected error variant after `.`")?;
                     if self.consume(TokenKindMatch::LParen).is_some() {
@@ -464,7 +467,10 @@ impl<'a> Parser<'a> {
                             None,
                         ));
                     }
-                    let (family, variant) = if self.consume(TokenKindMatch::Dot).is_some() {
+                    let (family, variant) = if self.at(TokenKindMatch::Dot)
+                        && !self.matches_terms(crate::syntax::grammar::RANGE_MARKER, self.current_start())
+                    {
+                        self.bump();
                         let variant = self.expect_ident("expected error variant after `.`")?;
                         (
                             crate::symbol::Name::intern(format!("{name}.{family_or_variant}")),
@@ -592,14 +598,11 @@ impl<'a> Parser<'a> {
                         );
                         return None;
                     }
-                    if self.at(TokenKindMatch::Dot) && self.peek_tag(1) == Some(TokenTag::Dot) {
+                    if self.matches_terms(crate::syntax::grammar::RANGE_MARKER, self.current_start()) {
                         let rest_start = self.current_start();
                         self.bump();
                         self.bump();
-                        let name = if matches!(
-                            self.current_tag(),
-                            TokenTag::Ident | TokenTag::ProcIdent
-                        ) {
+                        let name = if matches!(self.current_tag(), TokenTag::Ident | TokenTag::ProcIdent) {
                             Some(self.expect_ident("expected rest binding")?)
                         } else {
                             None

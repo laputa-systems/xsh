@@ -357,7 +357,7 @@ pure control_stamp(control: List[Control], level: Int, kind: Int) -> Int {
   seconds * 1000000000 + nanos
 }
 
-proc open_clock() [process, error] -> Clock {
+proc open_clock() [process, net, error] -> Clock {
   let c = linux.net_constants()
   let unusable: Clock = {fd: -1, address: {address: "", family: "unspec", port: 0, raw: b"", scope_id: 0}}
 
@@ -380,7 +380,7 @@ proc open_clock() [process, error] -> Clock {
 }
 
 # The current time in nanoseconds on the same clock as kernel receive stamps.
-proc stamp_ns(clock: Clock) [process, time, error] -> Int {
+proc stamp_ns(clock: Clock) [process, net, time, error] -> Int {
   let c = linux.net_constants()
   let coarse = time.now() * 1000000
 
@@ -400,7 +400,7 @@ proc stamp_ns(clock: Clock) [process, time, error] -> Int {
 }
 
 # The receive time of a message: its kernel stamp, or a fresh clock reading.
-proc receive_ns(clock: Clock, control: List[Control]) [process, time, error] -> Int {
+proc receive_ns(clock: Clock, control: List[Control]) [process, net, time, error] -> Int {
   let c = linux.net_constants()
   let stamped = control_stamp(control, c.SOL_SOCKET, c.SO_TIMESTAMPNS)
 
@@ -465,7 +465,7 @@ proc socket_option(fd: Int, level: Int, name: Int, value: Int, label: Str) [proc
 }
 
 # Creates a probe socket and applies every option the command line selected.
-proc open_socket(s: Settings, kind: Int, protocol: Int, recverr: Bool) [process, error] -> Result[Int] {
+proc open_socket(s: Settings, kind: Int, protocol: Int, recverr: Bool) [process, net, error] -> Result[Int] {
   let c = linux.net_constants()
   let family = if s.v6 { c.AF_INET6 } else { c.AF_INET }
 
@@ -545,7 +545,7 @@ proc set_ttl(s: Settings, fd: Int, ttl: Int) [process, error] -> Result[Unit] {
   }
 }
 
-proc connect_target(s: Settings, fd: Int, port: Int) [process, error] -> Result[Unit] {
+proc connect_target(s: Settings, fd: Int, port: Int) [process, net, error] -> Result[Unit] {
   let address = {family: if s.v6 { "inet6" } else { "inet" }, address: s.target, port: port}
 
   if let Err(failure) = linux.connect(fd, address) {
@@ -557,7 +557,7 @@ proc connect_target(s: Settings, fd: Int, port: Int) [process, error] -> Result[
 
 # Takes one entry off the extended error queue, or null when nothing is
 # queued. Clearing the pending socket error keeps poll from reporting it again.
-proc read_queue(s: Settings, fd: Int) [process, error] -> Result[Queued?] {
+proc read_queue(s: Settings, fd: Int) [process, net, error] -> Result[Queued?] {
   let c = linux.net_constants()
 
   match linux.recvfrom(fd, 2048, c.MSG_ERRQUEUE.bit_or(c.MSG_DONTWAIT)) {
@@ -598,7 +598,7 @@ proc read_queue(s: Settings, fd: Int) [process, error] -> Result[Queued?] {
 
 # One UDP probe. The kernel queues the ICMP answer on the socket's error
 # queue; the destination port of the quoted datagram names the probe.
-proc udp_probe(s: Settings, clock: Clock, fd: Int, ttl: Int, port: Int, wait_ms: Int) [process, time, error] -> Result[Reply?] {
+proc udp_probe(s: Settings, clock: Clock, fd: Int, ttl: Int, port: Int, wait_ms: Int) [process, net, time, error] -> Result[Reply?] {
   set_ttl(s, fd, ttl)?
   connect_target(s, fd, port)?
 
@@ -657,7 +657,7 @@ pure echo_matches(data: Bytes, at: Int, expected_type: Int, ident: Int, seq: Int
 
 # One ICMP echo probe over a datagram ICMP socket: the answer arrives as an
 # echo reply on the socket or as an entry on its error queue.
-proc icmp_dgram_probe(s: Settings, clock: Clock, ttl: Int, seq: Int, wait_ms: Int) [process, time, error] -> Result[Reply?] {
+proc icmp_dgram_probe(s: Settings, clock: Clock, ttl: Int, seq: Int, wait_ms: Int) [process, net, time, error] -> Result[Reply?] {
   let c = linux.net_constants()
   let protocol = if s.v6 { c.IPPROTO_ICMPV6 } else { c.IPPROTO_ICMP }
   let fd = open_socket(s, c.SOCK_DGRAM, protocol, true)?
@@ -738,7 +738,7 @@ pure quoted_start(v6: Bool, data: Bytes, at: Int) -> Int {
 
 # One raw-socket ICMP echo probe: the socket sees every ICMP message to this
 # host, so each is matched on the identifier and sequence it carries.
-proc icmp_raw_probe(s: Settings, clock: Clock, fd: Int, ident: Int, ttl: Int, seq: Int, wait_ms: Int) [process, time, error] -> Result[Reply?] {
+proc icmp_raw_probe(s: Settings, clock: Clock, fd: Int, ident: Int, ttl: Int, seq: Int, wait_ms: Int) [process, net, time, error] -> Result[Reply?] {
   let c = linux.net_constants()
   let address = {family: if s.v6 { "inet6" } else { "inet" }, address: s.target, port: 0}
 
@@ -804,7 +804,7 @@ proc icmp_raw_probe(s: Settings, clock: Clock, fd: Int, ident: Int, ttl: Int, se
 # says the destination answered (an open port or a reset); intermediate hops
 # and unreachables arrive as ICMP errors on the raw socket, matched on the
 # local and destination ports the quoted TCP header carries.
-proc tcp_probe(s: Settings, clock: Clock, raw_fd: Int, ttl: Int, port: Int, wait_ms: Int) [process, time, error] -> Result[Reply?] {
+proc tcp_probe(s: Settings, clock: Clock, raw_fd: Int, ttl: Int, port: Int, wait_ms: Int) [process, net, time, error] -> Result[Reply?] {
   let c = linux.net_constants()
   let fd = open_socket(s, c.SOCK_STREAM.bit_or(c.SOCK_NONBLOCK), 0, true)?
 
@@ -923,7 +923,7 @@ proc address_text(s: Settings, addr: Str) [net] -> Str {
 
 # Chooses the ICMP socket type once, before the first line of the trace, so a
 # permission problem is reported once instead of at every probe.
-proc pick_icmp_sockets(s: Settings) [process, error] -> Result[Str] {
+proc pick_icmp_sockets(s: Settings) [process, net, error] -> Result[Str] {
   let c = linux.net_constants()
   let protocol = if s.v6 { c.IPPROTO_ICMPV6 } else { c.IPPROTO_ICMP }
 

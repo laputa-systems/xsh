@@ -30,7 +30,6 @@ test fs_tempdir_in_creates_a_private_child_and_removes_it_on_close { |ctx|
 
 test fs_root_methods_preserve_bounded_observations_and_raw_names {
   let root = fs.tempdir()?
-  defer root.close()
   let raw = b"raw-name" as Path
   root.write(raw, b"abc\0def")
   root.write_atomic(p"text", "atomic")
@@ -57,20 +56,19 @@ test fs_root_methods_preserve_bounded_observations_and_raw_names {
 
 test fs_root_methods_keep_mutation_defaults_and_symlink_confinement { |ctx|
   let root = fs.tempdir()?
-  defer root.close()
   root.mkdir(p"nested/child", parents: true)
   root.mkdir(p"restricted", mode: 0o700)
   assert root.metadata(p"restricted")?.mode % 512 == 0o700
   root.write(p"nested/data", "data")
   root.chmod(p"nested/data", 0o600)
   assert root.metadata(p"nested/data")?.mode % 512 == 0o600
-  root.symlink(p"data", p"nested/link")
+  root.symlink(target: p"data", path: p"nested/link")
   assert root.readlink(p"nested/link")? == p"data"
   assert root.readlink_result(p"nested/link")?.state == "observed"
   assert root.read_text(p"nested/link")? == "data"
   assert root.readlink_result(p"missing")?.state == "absent"
   let outside = test.temp_path(ctx, name: "root-outside")
-  root.symlink(outside, p"escape")
+  root.symlink(target: outside, path: p"escape")
   test.error_kind(root.read_text(p"escape"), "fs-root-read")
   root.remove(p"nested/link")
   assert ! root.exists(p"nested/link")?

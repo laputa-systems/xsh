@@ -25,7 +25,7 @@ proc ping(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[Ran]
 
 # Skips the test unless the kernel lets this user open an ICMP datagram socket
 # of the family ("inet" or "inet6") and the loopback address is configured.
-proc need_icmp(family: Str) [process, error] -> Result[Unit] {
+proc need_icmp(family: Str) [process, net, error] -> Result[Unit] {
   let c = linux.net_constants()
   let domain = if family == "inet6" { c.AF_INET6 } else { c.AF_INET }
   let protocol = if family == "inet6" { c.IPPROTO_ICMPV6 } else { c.IPPROTO_ICMP }

@@ -226,8 +226,12 @@ type Packet = {state: State, history: List[State]}
 proc main(destination: Path) [fs, error] {
 let packet = Packet(state: Ready, history: [Empty, Ready])
 json.write(destination, packet, pretty: true)?
+assert destination.read_text()? == "{\n  \"history\": [\n    \"\",\n    \"ready\"\n  ],\n  \"state\": \"ready\"\n}"
+let compact_destination = fp"{destination}.compact"
+json.write(compact_destination, packet)?
+assert compact_destination.read_text()? == "{\"history\":[\"\",\"ready\"],\"state\":\"ready\"}"
 let raw = json.read(destination)?
-match raw.state { text is Str => print $text; _ => print "incorrectly converted" }
+match json.get(raw, ["state"])? { text is Str => print $text; _ => print "incorrectly converted" }
 let restored = raw.require(Packet)?
 print (restored == packet)
 print json.encode(restored)?

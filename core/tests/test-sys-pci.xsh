@@ -17,7 +17,7 @@ proc add_function(root: FsRoot, address: Str, device_path: Str, class_code: Str)
     root.write(fp"sys/devices/{device_path}/{item.name}", f"{item.value}\n")
   }
 
-  root.symlink(fp"../../../devices/{device_path}", fp"sys/bus/pci/devices/{address}")
+  root.symlink(target: fp"../../../devices/{device_path}", path: fp"sys/bus/pci/devices/{address}")
 }
 
 test test_sys_pci_address_and_identifier_parsers_keep_typed_boundaries {
@@ -48,8 +48,8 @@ test test_sys_pci_collect_links_a_function_to_its_bridge_by_index {
   root.write(p"sys/devices/pci0001:02/0001:02:01.0/0001:02:03.0/max_link_width", "4\n")
   root.mkdir(p"sys/bus/pci/drivers/nvme", parents: true)
   root.symlink(
-    ../../../../../../bus/pci/drivers/nvme,
-    p"sys/devices/pci0001:02/0001:02:01.0/0001:02:03.0/driver",
+    target: ../../../../../../bus/pci/drivers/nvme,
+    path: p"sys/devices/pci0001:02/0001:02:01.0/0001:02:03.0/driver",
   )
 
   let inventory = pci.collect(root)

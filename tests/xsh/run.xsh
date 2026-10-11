@@ -56,15 +56,16 @@ print $value.length()
   assert "check.unknown-method" in output.stderr
 }
 
-test test_runtime_unknown_method_names_receiver_and_candidate { |ctx|
-  test.expect(
+test test_unknown_method_on_any_receiver_is_rejected_before_execution { |ctx|
+  let output = test.expect(
     ctx,
     """let value: Any = "abc"
 let _ = value.length()
 """,
-    status: 3,
-    stderr: ["unknown method `length` on Str", "count_chars"],
+    status: 2,
+    stderr: ["check.dynamic-boundary"],
   )?
+  assert output.stdout == ""
 }
 
 test test_grouped_multiline_run_invocation_executes {

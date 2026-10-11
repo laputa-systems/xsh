@@ -1,0 +1,977 @@
+{
+  "schema": 1,
+  "locations": "line refers to the probe base; enum_only_scan_line refers to the initial enum-only patch state.",
+  "rules": {
+    "E1": "The wrapper has no intrinsic effect. Child instructions remain independent rows in this inventory; their own tags contribute effects.",
+    "E2": "This classifies statement tags. The new tag is an expression; existing child ValueBlock/ErrorContext statement return handling is outside this identity-expression extension.",
+    "E3": "Test-only corpus assertion selecting identifier facts; no new grammar/corpus expressions are introduced.",
+    "E4": "Selects existing syntax or an optional specialized representation. The wrapper adds no grammar spelling, binding, pattern form, intrinsic effect, method/call syntax, literal token, or syntax-specific refinement; a conservative nonmatch is valid for this bounded probe.",
+    "E5": "This fallback is reached after bounded literal analysis. The manual LiteralConstant::analyze_depth extension recognizes eligible wrapped literal/default data before the fallback; not an independent required edit.",
+    "E6": "Optional scalar/scan/literal optimization. A nonmatch uses the ordinary expression evaluator; adding the wrapper does not require a new optimized representation.",
+    "E7": "Optional leaf/slot/field optimization. A nonmatch enters general expression scheduling/evaluation; the wrapper contains a child and is not a leaf.",
+    "E8": "Different instruction category: the extension is an ordinary expression row, not a typed integer, typed boolean, or statement row.",
+    "E9": "These scans iterate every arena expression row independently and collect only binding-introducing syntax. The wrapper introduces no binding; its child is already scanned."
+  },
+  "sites": [
+    {
+      "path": "src/runtime/eval/indexed/full.rs",
+      "line": 2826,
+      "enum_only_scan_line": 2827,
+      "symbol": "instruction_effects",
+      "wildcard_body": [
+        "0"
+      ],
+      "rule": "E1"
+    },
+    {
+      "path": "src/runtime/eval/indexed/full.rs",
+      "line": 4081,
+      "enum_only_scan_line": 4082,
+      "symbol": "indexed_stmt_can_return",
+      "wildcard_body": [
+        "false"
+      ],
+      "rule": "E2"
+    },
+    {
+      "path": "src/runtime/eval/indexed/full.rs",
+      "line": 10531,
+      "enum_only_scan_line": 10532,
+      "symbol": "pattern_aliases_compact_facts_preserve_captured_subject_and_element_types",
+      "wildcard_body": [
+        "{}"
+      ],
+      "rule": "E3"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 2609,
+      "enum_only_scan_line": 2609,
+      "symbol": "compact_call_blocker_index",
+      "wildcard_body": [
+        "5"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 2630,
+      "enum_only_scan_line": 2630,
+      "symbol": "compact_call_blocker_label",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 2632,
+      "enum_only_scan_line": 2632,
+      "symbol": "compact_call_blocker_label",
+      "wildcard_body": [
+        "Some(format!(\"<field>.{}\", name.as_str()))"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 2636,
+      "enum_only_scan_line": 2636,
+      "symbol": "compact_call_blocker_label",
+      "wildcard_body": [
+        "Some(format!(\"<null-safe-field>.{}\", name.as_str()))"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 2681,
+      "enum_only_scan_line": 2681,
+      "symbol": "compact_error_family_name",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 2698,
+      "enum_only_scan_line": 2698,
+      "symbol": "compact_error_family_key",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 2700,
+      "enum_only_scan_line": 2700,
+      "symbol": "compact_error_family_key",
+      "wildcard_body": [
+        "compact_error_family_name(program, id).map(CompactErrorFamilyKey::Local)"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 2729,
+      "enum_only_scan_line": 2729,
+      "symbol": "compact_expr_call_blocker_callee",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 2731,
+      "enum_only_scan_line": 2731,
+      "symbol": "compact_expr_call_blocker_callee",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 3000,
+      "enum_only_scan_line": 3000,
+      "symbol": "lower_const_param_default",
+      "wildcard_body": [
+        "return None"
+      ],
+      "rule": "E5"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 6020,
+      "enum_only_scan_line": 6020,
+      "symbol": "lower_stmt",
+      "wildcard_body": [
+        "binding.initializer"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 7305,
+      "enum_only_scan_line": 7305,
+      "symbol": "lower_expr",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 7317,
+      "enum_only_scan_line": 7317,
+      "symbol": "lower_expr",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 8670,
+      "enum_only_scan_line": 8670,
+      "symbol": "lower_env_field",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 8938,
+      "enum_only_scan_line": 8938,
+      "symbol": "lower_process_command_builder",
+      "wildcard_body": [
+        "return None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 9942,
+      "enum_only_scan_line": 9942,
+      "symbol": "lower_call",
+      "wildcard_body": [
+        "callee"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 10054,
+      "enum_only_scan_line": 10054,
+      "symbol": "lower_call",
+      "wildcard_body": [
+        "return None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 10056,
+      "enum_only_scan_line": 10056,
+      "symbol": "lower_call",
+      "wildcard_body": [
+        "return None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 10081,
+      "enum_only_scan_line": 10081,
+      "symbol": "lower_call",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 12045,
+      "enum_only_scan_line": 12045,
+      "symbol": "lower_inferred_variant",
+      "wildcard_body": [
+        "Vec::new()"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 12513,
+      "enum_only_scan_line": 12513,
+      "symbol": "lower_pipeline_stage",
+      "wildcard_body": [
+        "false"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 12842,
+      "enum_only_scan_line": 12842,
+      "symbol": "lower_configured_pipeline_stage",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 13681,
+      "enum_only_scan_line": 13681,
+      "symbol": "pattern_str_literal",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 15079,
+      "enum_only_scan_line": 15079,
+      "symbol": "lower_pattern_literal",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 15084,
+      "enum_only_scan_line": 15084,
+      "symbol": "lower_pattern_literal",
+      "wildcard_body": [
+        "return None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 15623,
+      "enum_only_scan_line": 15623,
+      "symbol": "construct_is_main_at_args_expr",
+      "wildcard_body": [
+        "false"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 15647,
+      "enum_only_scan_line": 15647,
+      "symbol": "is_env_module_expr",
+      "wildcard_body": [
+        "false"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 16404,
+      "enum_only_scan_line": 16404,
+      "symbol": "lower_int_expr_candidate",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E6"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 16429,
+      "enum_only_scan_line": 16429,
+      "symbol": "lower_int_expr_candidate",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E6"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 16448,
+      "enum_only_scan_line": 16448,
+      "symbol": "lower_int_expr_candidate",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E6"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 16520,
+      "enum_only_scan_line": 16520,
+      "symbol": "lower_bool_expr_candidate",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E6"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 16729,
+      "enum_only_scan_line": 16729,
+      "symbol": "lowered_inert_int_literal",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E6"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 16738,
+      "enum_only_scan_line": 16738,
+      "symbol": "lowered_inert_int_literal",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E6"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 16752,
+      "enum_only_scan_line": 16752,
+      "symbol": "lowered_literal_value",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E6"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 16788,
+      "enum_only_scan_line": 16788,
+      "symbol": "lowered_needle_bytes",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E6"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 16818,
+      "enum_only_scan_line": 16818,
+      "symbol": "lowered_bool_literal",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E6"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 16851,
+      "enum_only_scan_line": 16851,
+      "symbol": "try_lower_scan_lines",
+      "wildcard_body": [
+        "return None"
+      ],
+      "rule": "E6"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 17174,
+      "enum_only_scan_line": 17174,
+      "symbol": "scan_bytes_expr_slot",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E6"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 17235,
+      "enum_only_scan_line": 17235,
+      "symbol": "scan_bytes_byte_at_expr",
+      "wildcard_body": [
+        "false"
+      ],
+      "rule": "E6"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 17329,
+      "enum_only_scan_line": 17329,
+      "symbol": "scan_bytes_expr_quote_values",
+      "wildcard_body": [
+        "{}"
+      ],
+      "rule": "E6"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 17569,
+      "enum_only_scan_line": 17569,
+      "symbol": "collect_scan_checks",
+      "wildcard_body": [
+        "return false"
+      ],
+      "rule": "E6"
+    },
+    {
+      "path": "src/runtime/eval/lower.rs",
+      "line": 17835,
+      "enum_only_scan_line": 17835,
+      "symbol": "lowered_expr_bool_literal",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E6"
+    },
+    {
+      "path": "src/runtime/eval/lowered_run/indexed_run/explicit_run.rs",
+      "line": 898,
+      "enum_only_scan_line": 898,
+      "symbol": "indexed_slot_read",
+      "wildcard_body": [
+        "Ok(None)"
+      ],
+      "rule": "E7"
+    },
+    {
+      "path": "src/runtime/eval/lowered_run/indexed_run/explicit_run.rs",
+      "line": 2064,
+      "enum_only_scan_line": 2064,
+      "symbol": "eval_statement",
+      "wildcard_body": [
+        "{\n                let flow = self.with_lent_context(index, |evaluator, execution, slots| {\n                    evaluator.eval_indexed_stmt(execution, instruction, slots, span)\n                })?;\n                match flow {\n                    StmtFlow::None => Ok(()),\n                    StmtFlow::Value(value) => self.complete_expression_value(index, value),\n                    StmtFlow::Break(value) => self.break_loop(index, value),\n                    StmtFlow::Continue => self.continue_loop(index),\n                    flow => self.complete_call(index, flow),\n                }\n            }"
+      ],
+      "rule": "E8"
+    },
+    {
+      "path": "src/runtime/eval/lowered_run/indexed_run/explicit_run.rs",
+      "line": 2635,
+      "enum_only_scan_line": 2635,
+      "symbol": "leaf_operand",
+      "wildcard_body": [
+        "return Ok(None)"
+      ],
+      "rule": "E7"
+    },
+    {
+      "path": "src/runtime/eval/lowered_run/indexed_run.rs",
+      "line": 3773,
+      "enum_only_scan_line": 3773,
+      "symbol": "indexed_field_chain_ref",
+      "wildcard_body": [
+        "Ok(None)"
+      ],
+      "rule": "E7"
+    },
+    {
+      "path": "src/runtime/eval/lowered_run/indexed_run.rs",
+      "line": 7248,
+      "enum_only_scan_line": 7248,
+      "symbol": "eval_indexed_expr_inner",
+      "wildcard_body": [
+        "unreachable!()"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lowered_run/indexed_run.rs",
+      "line": 7262,
+      "enum_only_scan_line": 7262,
+      "symbol": "eval_indexed_expr_inner",
+      "wildcard_body": [
+        "unreachable!()"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lowered_run/indexed_run.rs",
+      "line": 8235,
+      "enum_only_scan_line": 8235,
+      "symbol": "eval_indexed_expr_inner",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval/lowered_run/indexed_run.rs",
+      "line": 8819,
+      "enum_only_scan_line": 8819,
+      "symbol": "eval_indexed_stmt_inner",
+      "wildcard_body": [
+        "Err(RuntimeError::new(\n                \"indexed-ir\",\n                format!(\"direct indexed evaluator does not support {tag:?}\"),\n            )\n            .with_span(call_span))"
+      ],
+      "rule": "E8"
+    },
+    {
+      "path": "src/runtime/eval/lowered_run/indexed_run.rs",
+      "line": 9602,
+      "enum_only_scan_line": 9602,
+      "symbol": "eval_indexed_typed_int",
+      "wildcard_body": [
+        "{\n                return Err(RuntimeError::new(\n                    \"indexed-ir\",\n                    format!(\"direct indexed int evaluator does not support {tag:?}\"),\n                )\n                .with_span(call_span));\n            }"
+      ],
+      "rule": "E8"
+    },
+    {
+      "path": "src/runtime/eval/lowered_run/indexed_run.rs",
+      "line": 9686,
+      "enum_only_scan_line": 9686,
+      "symbol": "eval_indexed_typed_bool",
+      "wildcard_body": [
+        "{\n                return Err(RuntimeError::new(\n                    \"indexed-ir\",\n                    format!(\"direct indexed bool evaluator does not support {tag:?}\"),\n                )\n                .with_span(call_span));\n            }"
+      ],
+      "rule": "E8"
+    },
+    {
+      "path": "src/runtime/eval/lowered_run.rs",
+      "line": 1801,
+      "enum_only_scan_line": 1801,
+      "symbol": "validate_dynamic_module_top_level",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval.rs",
+      "line": 8146,
+      "enum_only_scan_line": 8149,
+      "symbol": "compact_is_main_at_args_expr",
+      "wildcard_body": [
+        "false"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/runtime/eval.rs",
+      "line": 8161,
+      "enum_only_scan_line": 8164,
+      "symbol": "compact_is_main_spliced_args_expr",
+      "wildcard_body": [
+        "false"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/builder.rs",
+      "line": 233,
+      "enum_only_scan_line": 233,
+      "symbol": "check_static_positive_builder_int_arena",
+      "wildcard_body": [
+        "{}"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/builder.rs",
+      "line": 258,
+      "enum_only_scan_line": 258,
+      "symbol": "checker_builder_call_parts_arena",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/call.rs",
+      "line": 117,
+      "enum_only_scan_line": 117,
+      "symbol": "warn_flattened_error_translation_arena",
+      "wildcard_body": [
+        "value"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/call.rs",
+      "line": 579,
+      "enum_only_scan_line": 579,
+      "symbol": "check_call_arena",
+      "wildcard_body": [
+        "false"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/call.rs",
+      "line": 902,
+      "enum_only_scan_line": 902,
+      "symbol": "check_spread_call_arena",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/call.rs",
+      "line": 911,
+      "enum_only_scan_line": 911,
+      "symbol": "check_spread_call_arena",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/call.rs",
+      "line": 1006,
+      "enum_only_scan_line": 1006,
+      "symbol": "check_spread_call_arena",
+      "wildcard_body": [
+        "false"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/call.rs",
+      "line": 2306,
+      "enum_only_scan_line": 2306,
+      "symbol": "check_static_positive_call_int_arena",
+      "wildcard_body": [
+        "{}"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/callable_alias.rs",
+      "line": 45,
+      "enum_only_scan_line": 45,
+      "symbol": "resolve_callable_alias_target",
+      "wildcard_body": [
+        "self.projections.get(&span)"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/callable_alias.rs",
+      "line": 69,
+      "enum_only_scan_line": 69,
+      "symbol": "resolve_callable_alias_target",
+      "wildcard_body": [
+        "return None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/callable_alias.rs",
+      "line": 187,
+      "enum_only_scan_line": 187,
+      "symbol": "resolve_callable_alias_call",
+      "wildcard_body": [
+        "target.signature.is_alias"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/command.rs",
+      "line": 929,
+      "enum_only_scan_line": 929,
+      "symbol": "check_static_positive_int_arena",
+      "wildcard_body": [
+        "{}"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/expr.rs",
+      "line": 115,
+      "enum_only_scan_line": 115,
+      "symbol": "schema_expectation_for_expr",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/expr.rs",
+      "line": 905,
+      "enum_only_scan_line": 905,
+      "symbol": "check_expr_arena_inner",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/expr.rs",
+      "line": 1255,
+      "enum_only_scan_line": 1255,
+      "symbol": "report_value_stage_not_call",
+      "wildcard_body": [
+        "expr"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/expr.rs",
+      "line": 1269,
+      "enum_only_scan_line": 1269,
+      "symbol": "report_value_stage_not_call",
+      "wildcard_body": [
+        "break"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/infer_return.rs",
+      "line": 100,
+      "enum_only_scan_line": 100,
+      "symbol": "collect",
+      "wildcard_body": [
+        "{}"
+      ],
+      "rule": "E9"
+    },
+    {
+      "path": "src/sema/check/infer_return.rs",
+      "line": 140,
+      "enum_only_scan_line": 140,
+      "symbol": "collect",
+      "wildcard_body": [
+        "Vec::new()"
+      ],
+      "rule": "E9"
+    },
+    {
+      "path": "src/sema/check/infer_return.rs",
+      "line": 910,
+      "enum_only_scan_line": 910,
+      "symbol": "pattern_condition_bindings",
+      "wildcard_body": [
+        "Vec::new()"
+      ],
+      "rule": "E9"
+    },
+    {
+      "path": "src/sema/check/inferred_variant.rs",
+      "line": 42,
+      "enum_only_scan_line": 42,
+      "symbol": "is_inferred_variant_expr",
+      "wildcard_body": [
+        "expr"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/local_inference.rs",
+      "line": 553,
+      "enum_only_scan_line": 553,
+      "symbol": "local_seed_kind",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/removed_fs.rs",
+      "line": 39,
+      "enum_only_scan_line": 39,
+      "symbol": "call_receiver_text",
+      "wildcard_body": [
+        "Some(format!(\"({text})\"))"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/stmt.rs",
+      "line": 1373,
+      "enum_only_scan_line": 1373,
+      "symbol": "proof_subject_arena",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/stmt.rs",
+      "line": 1390,
+      "enum_only_scan_line": 1390,
+      "symbol": "proof_subject_arena",
+      "wildcard_body": [
+        "return None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/stmt.rs",
+      "line": 1405,
+      "enum_only_scan_line": 1405,
+      "symbol": "infer_condition_proof_arena",
+      "wildcard_body": [
+        "ConditionNarrowings::default()"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/stmt.rs",
+      "line": 1570,
+      "enum_only_scan_line": 1570,
+      "symbol": "null_compared_optional_binding_arena",
+      "wildcard_body": [
+        "return None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/stmt.rs",
+      "line": 3227,
+      "enum_only_scan_line": 3227,
+      "symbol": "check_yield_delegation_arena",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/stmt.rs",
+      "line": 3489,
+      "enum_only_scan_line": 3489,
+      "symbol": "stmt_definitely_exits_arena",
+      "wildcard_body": [
+        "false"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/stmt.rs",
+      "line": 3517,
+      "enum_only_scan_line": 3517,
+      "symbol": "stmt_definitely_exits_arena",
+      "wildcard_body": [
+        "{}"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/stmt.rs",
+      "line": 3822,
+      "enum_only_scan_line": 3822,
+      "symbol": "check_tail_stmt_arena",
+      "wildcard_body": [
+        "expr"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/stmt.rs",
+      "line": 3940,
+      "enum_only_scan_line": 3940,
+      "symbol": "check_tail_stmt_arena",
+      "wildcard_body": [
+        "tail_expr_context_arena(arena, expr_id, expected)"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/stream.rs",
+      "line": 550,
+      "enum_only_scan_line": 550,
+      "symbol": "stage_callable_is_static",
+      "wildcard_body": [
+        "false"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/stream.rs",
+      "line": 797,
+      "enum_only_scan_line": 797,
+      "symbol": "check_stage_arguments_arena",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/stream.rs",
+      "line": 957,
+      "enum_only_scan_line": 957,
+      "symbol": "check_static_positive_value_arena",
+      "wildcard_body": [
+        "{}"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/check/typed_callable.rs",
+      "line": 196,
+      "enum_only_scan_line": 196,
+      "symbol": "check_typed_callable_call",
+      "wildcard_body": [
+        ".to_string()"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/constants.rs",
+      "line": 583,
+      "enum_only_scan_line": 583,
+      "symbol": "resolve_call",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/constants.rs",
+      "line": 850,
+      "enum_only_scan_line": 850,
+      "symbol": "constructor_definition",
+      "wildcard_body": [
+        "None"
+      ],
+      "rule": "E4"
+    },
+    {
+      "path": "src/sema/constants.rs",
+      "line": 2723,
+      "enum_only_scan_line": 2723,
+      "symbol": "tag_constructor",
+      "wildcard_body": [
+        "return None"
+      ],
+      "rule": "E4"
+    }
+  ]
+}

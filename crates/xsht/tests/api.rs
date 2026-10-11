@@ -13,7 +13,7 @@ fn workspace_root() -> std::path::PathBuf {
 }
 
 fn xsht(args: &[&str]) -> std::process::Output {
-    Command::new(release_bin!("xsht"))
+    Command::new(test_bin!("xsht"))
         .args(args)
         .current_dir(workspace_root())
         .output()
@@ -37,6 +37,10 @@ fn fs_root_registry_holds_native_receiver_operations_and_retains_factories() {
             .sum::<usize>(),
         21
     );
+    let readlink_result = methods.iter().find(|method| method.name == "readlink_result").unwrap();
+    assert_eq!(readlink_result.overloads.len(), 1);
+    assert_eq!(readlink_result.overloads[0].sig.op,
+        xsh_registry::signature::RuntimeOp::FsRootReadlinkResult);
     for name in [
         "open_root",
         "tempdir",

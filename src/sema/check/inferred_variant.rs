@@ -32,7 +32,7 @@ impl Checker {
     /// Reserve a leading dot for item syntax in a stream stage or an implicit
     /// one-item callback; elsewhere it may name a target-typed variant.
     pub(super) fn item_shorthand_in_scope(&self) -> bool {
-        self.item_frames.last().is_some_and(|frame| {
+        self.boundary.item_frames.last().is_some_and(|frame| {
             frame.is_stage() || matches!(frame, super::ItemFrame::Implicit { .. })
         })
     }

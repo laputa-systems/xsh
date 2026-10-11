@@ -1,6 +1,17 @@
-# A record of the lock type that names no lock: its release fails, which is
-# the one way these tests make a scope's own cleanup fail.
-const forged_lock = {id: 900001, path: p"nowhere", shared: false}
+# A real lock from another evaluator cannot select a local lock slot. This
+# preserves cleanup-failure coverage without constructing an opaque identity.
+# Two workers and inputs avoid the serial path that uses the caller evaluator.
+proc foreign_lock(lock_path: Path) [fs, error] -> Result[FsLock] {
+  let locks = [lock_path, fp"{lock_path}.other"] |> par-map(jobs: 2) { |lock_path| fs.lock(lock_path)? }
+  locks[0]
+}
+
+proc lock_available(lock_path: Path) [fs, error] -> Bool {
+  match fs.lock(lock_path, nonblocking: true) {
+    Ok(lock) => { fs.unlock(lock); true }
+    Err(_) => false
+  }
+}
 
 # Whether `lock` is still held: releasing a lock the scope already released
 # reports that the handle is not active.
@@ -66,7 +77,7 @@ test test_with_as_the_tail_of_a_result_function_is_its_result { |ctx|
 test test_with_enters_left_to_right_and_releases_every_resource { |ctx|
   let dir = test.temp_dir(ctx, name: "with-several")?
   fp"{dir}/inner".mkdir()
-  var outer_lock = forged_lock
+  var outer_lock: FsLock? = null
   var inner_root = null
   # The second value is opened through the first, so the first is in scope.
   with
@@ -80,7 +91,7 @@ test test_with_enters_left_to_right_and_releases_every_resource { |ctx|
   }
 
   assert fp"{dir}/inner/file".exists()?
-  assert was_released(outer_lock)
+  assert was_released(outer_lock.require(FsLock)?)
   if let root = inner_root {
     assert was_closed(root)
   } else {
@@ -88,17 +99,11 @@ test test_with_enters_left_to_right_and_releases_every_resource { |ctx|
   }
 }
 
-# The lock whose id a body wrote to `seen`: a record with that id names the
-# same lock.
-proc seen_lock(seen: Path, dir: Path) [fs, error] -> Result[FsLock] {
-  {id: seen.read_text()? as Int, path: fp"{dir}/lock", shared: false}
-}
-
 proc opens_then_fails(dir: Path, seen: Path) [fs, error] {
   with
     held = fs.lock(fp"{dir}/lock")?,
     root = {
-      seen.write(f"{held.id}")
+      seen.write("entered")
       fs.open_root(fp"{dir}/absent")?
     }
   {
@@ -114,19 +119,20 @@ test test_with_releases_what_was_opened_when_a_later_value_fails { |ctx|
     0
   }
   assert outcome is Err(_)
-  assert was_released(seen_lock(seen, dir)?)
+  assert seen.read_text()? == "entered"
+  assert lock_available(fp"{dir}/lock")
 }
 
 proc leaves_by_return(dir: Path, seen: Path) [fs, error] {
   with held = fs.lock(fp"{dir}/lock")? {
-    seen.write(f"{held.id}")
+    seen.write("entered")
     return
   }
 }
 
 proc leaves_by_propagation(dir: Path, seen: Path) [fs, error] -> Result[Int] {
   with held = fs.lock(fp"{dir}/lock")? {
-    seen.write(f"{held.id}")
+    seen.write("entered")
     let _ = fp"{dir}/absent".read_text()?
   }
 
@@ -135,7 +141,7 @@ proc leaves_by_propagation(dir: Path, seen: Path) [fs, error] -> Result[Int] {
 
 proc leaves_by_fail(dir: Path, seen: Path) [fs, error] {
   with held = fs.lock(fp"{dir}/lock")? {
-    seen.write(f"{held.id}")
+    seen.write("entered")
     fail "the body gave up"
   }
 }
@@ -144,17 +150,20 @@ test test_with_releases_on_return_propagation_and_fail { |ctx|
   let dir = test.temp_dir(ctx, name: "with-exits")?
   let seen = fp"{dir}/seen.json"
   leaves_by_return(dir, seen)
-  assert was_released(seen_lock(seen, dir)?)
+  assert seen.read_text()? == "entered"
+  assert lock_available(fp"{dir}/lock")
 
   assert leaves_by_propagation(dir, seen) is Err(_)
-  assert was_released(seen_lock(seen, dir)?)
+  assert seen.read_text()? == "entered"
+  assert lock_available(fp"{dir}/lock")
 
   match leaves_by_fail(dir, seen) {
     Ok(_) => test.fail("the body's failure was lost")
     Err(failure) => assert failure.message == "the body gave up"
   }
 
-  assert was_released(seen_lock(seen, dir)?)
+  assert seen.read_text()? == "entered"
+  assert lock_available(fp"{dir}/lock")
 }
 
 test test_with_releases_on_break_and_continue { |ctx|
@@ -214,24 +223,26 @@ test test_with_releases_on_exit_and_at_a_within_deadline { |ctx|
   assert ! fp"{seen.read_text()?}".exists()?
 }
 
-proc release_fails_in_statement_position() [fs, error] -> Result[Str] {
-  with held = forged_lock {
-    assert held.id == 900001
+proc release_fails_in_statement_position(lock: FsLock) [fs, error] -> Result[Str] {
+  with held = lock {
+    assert ! held.shared
   }
 
   "the failed release did not propagate"
 }
 
-test test_with_release_failure_after_a_finished_body_is_the_scope_failure {
+test test_with_release_failure_after_a_finished_body_is_the_scope_failure { |ctx|
+  let dir = test.temp_dir(ctx, name: "with-foreign-release")?
+  let foreign = foreign_lock(fp"{dir}/lock")?
   # In value position the failure is the scope's `Err`, and nothing propagates.
-  let outcome = with held = forged_lock { held.id }
+  let outcome = with held = foreign { held.path }
   match outcome {
     Ok(_) => test.fail("the failed release was lost")
     Err(failure) => assert failure.message == "lock handle is not active"
   }
 
   # In statement position it propagates, as a failed statement does.
-  match release_fails_in_statement_position() {
+  match release_fails_in_statement_position(foreign) {
     Ok(text) => test.fail(text)
     Err(failure) => assert failure.message == "lock handle is not active"
   }
@@ -239,31 +250,35 @@ test test_with_release_failure_after_a_finished_body_is_the_scope_failure {
 
 test test_with_releases_the_rest_when_one_release_fails { |ctx|
   let dir = test.temp_dir(ctx, name: "with-release-failure")?
-  var first = forged_lock
-  var last = forged_lock
-  let outcome = with a = fs.lock(fp"{dir}/a")?, broken = forged_lock, c = fs.lock(fp"{dir}/c")? {
+  var first: FsLock? = null
+  var last: FsLock? = null
+  let foreign = foreign_lock(fp"{dir}/foreign")?
+  let outcome = with a = fs.lock(fp"{dir}/a")?, broken = foreign, c = fs.lock(fp"{dir}/c")? {
     first = a
     last = c
-    broken.id
+    broken.path
   }
   assert outcome is Err(_)
-  assert was_released(first)
-  assert was_released(last)
+  assert was_released(first.require(FsLock)?)
+  assert was_released(last.require(FsLock)?)
 }
 
 test test_with_body_failure_wins_over_a_release_failure { |ctx|
   let failed = test.expect(
     ctx,
     """
-    const forged_lock = {id: 900001, path: p"nowhere", shared: false}
+    proc foreign_lock(lock_path: Path) [fs, error] -> Result[FsLock] {
+      let locks = [lock_path, fp"{lock_path}.other"] |> par-map(jobs: 2) { |lock_path| fs.lock(lock_path)? }
+      locks[0]
+    }
 
-    proc body_fails() [fs, error] {
-      with held = forged_lock {
+    proc body_fails(lock: FsLock) [fs, error] {
+      with held = lock {
         fail "the body failed first"
       }
     }
 
-    body_fails()
+    tempdir dir { body_fails(foreign_lock(fp"{dir}/lock")?) }
     """,
     status: 3,
     stderr: ["the body failed first", "cleanup error [fs-lock]", "lock handle is not active"],

@@ -2125,7 +2125,7 @@ proc extract_entry(st: Run, opts: Options, format: Str, header: Header, content:
 }
 
 # Reads one line from the controlling terminal (or the batch file) for -r.
-proc read_tty_line(descriptor: Int) [process] -> Str? {
+proc read_tty_line(descriptor: Int) [process, net] -> Str? {
   var line: List[Bytes] = []
   while true {
     match unix.read_fd(descriptor, 1) {

@@ -7,19 +7,19 @@ message = hello
 """)?
 
   assert config.global == "root"
-  assert config.server.host == "example.test"
+  assert json.get(config, ["server", "host"])? == "example.test"
 
-  assert config.server.message == """hello
+  assert json.get(config, ["server", "message"])? == """hello
 world"""
 
-  let encoded = ini.encode({server: {message: config.server.message, host: config.server.host}, global: config.global})?
+  let encoded = ini.encode({server: {message: json.get(config, ["server", "message"])?, host: json.get(config, ["server", "host"])?}, global: config.global})?
   assert "global = root" in encoded
   assert "[server]" in encoded
   assert "host = example.test" in encoded
   let config_path = test.temp_path(ctx, name: "app.ini")
   ini.write(config_path, {global: "root", server: {host: "example.test"}})
   let read_back = ini.read(config_path)?
-  assert read_back.server.host == "example.test"
+  assert json.get(read_back, ["server", "host"])? == "example.test"
   test.error_kind(ini.write(config_path, {global: "again"}, overwrite: false), "ini-write")
 
   # Encoding fails before overwrite policy examines the existing destination.
@@ -266,6 +266,6 @@ world""",
 })?,
   )?
   assert round_trip.global == "root"
-  assert round_trip.server.message == """hello
+  assert json.get(round_trip, ["server", "message"])? == """hello
 world"""
 }

@@ -1,6 +1,6 @@
 type TerminalRun = {status: Int, stderr: Str}
 
-proc run_du_on_terminal(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[TerminalRun] {
+proc run_du_on_terminal(ctx: TestContext, args: List[Str]) [fs, process, net, error] -> Result[TerminalRun] {
   let pty = unix.open_pty()?
   defer unix.close_fd(pty.master)
   defer unix.close_fd(pty.replica)

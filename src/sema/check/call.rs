@@ -19,7 +19,7 @@ fn process_command_argv_item_type_is_valid(ty: &Type) -> bool {
         Type::Union(members) => members.iter().all(process_command_argv_item_type_is_valid),
         _ => matches!(
             ty.unvalidated(),
-            Type::Str | Type::Path | Type::Any | Type::Unknown
+            Type::Str | Type::Path | Type::Unknown
         ),
     }
 }
@@ -60,9 +60,6 @@ impl Checker {
         subject: &Type,
     ) {
         use crate::syntax::arena::ArenaPatternKind;
-        if !self.options.migration_diagnostics {
-            return;
-        }
         let Type::Result(_, error) = subject else {
             return;
         };
@@ -111,9 +108,6 @@ impl Checker {
         value: ExprId,
         failure: Name,
     ) {
-        if !self.options.migration_diagnostics {
-            return;
-        }
         let value = match arena.arena.expr(value).kind {
             ArenaExprKind::ValueBlock(block) => {
                 match Self::single_error_handler_value_arena(arena, block) {
@@ -202,7 +196,6 @@ impl Checker {
 /// raise-fallback branches remain (the `Path` constructor and generic
 /// method-dispatch cases now go through `method.rs`'s arena-native
 /// `check_registered_method_arena`/`check_method_dispatch_arena`).
-#[allow(dead_code)]
 impl Checker {
     pub(super) fn check_call_arena(
         &mut self,
@@ -279,7 +272,7 @@ impl Checker {
                     .method_call = true;
             }
             if !alias.pure {
-                if self.in_pure {
+                if self.boundary.in_pure {
                     self.error(
                         span,
                         "effectful proc is not allowed in pure functions",
@@ -344,7 +337,7 @@ impl Checker {
                 return Type::Unknown;
             }
             if let Some(sig) = self.procs.get(&name).cloned() {
-                if self.in_pure {
+                if self.boundary.in_pure {
                     self.error(
                         span,
                         "effectful proc is not allowed in pure functions",
@@ -365,7 +358,7 @@ impl Checker {
                 return sig.return_ty;
             }
             if let Some(sig) = self.streams.get(&name).cloned() {
-                if self.in_pure {
+                if self.boundary.in_pure {
                     self.error(
                         span,
                         "stream producer is not allowed in pure functions",
@@ -489,7 +482,7 @@ impl Checker {
                     return sig.return_ty;
                 }
                 if let Some(sig) = self.qualified_procs.get(&qualified).cloned() {
-                    if self.in_pure {
+                    if self.boundary.in_pure {
                         self.error(
                             span,
                             "effectful proc is not allowed in pure functions",
@@ -503,7 +496,7 @@ impl Checker {
                     return sig.return_ty;
                 }
                 if let Some(sig) = self.qualified_streams.get(&qualified).cloned() {
-                    if self.in_pure {
+                    if self.boundary.in_pure {
                         self.error(
                             span,
                             "stream producer is not allowed in pure functions",
@@ -559,10 +552,10 @@ impl Checker {
                             DiagnosticCode::CheckBuilderCall,
                         );
                     }
-                    if let Some(required) = api_spec()
-                        .module_required_effect(&module.as_str(), &canonical_name.as_str())
+                    for required in api_spec()
+                        .module_required_effects(&module.as_str(), &canonical_name.as_str())
                     {
-                        self.require_effect(required, span, &format!("`{module}.{name}`"));
+                        self.require_effect(required.clone(), span, &format!("`{module}.{name}`"));
                     }
                     return self.check_module_call_arena(
                         arena,
@@ -611,10 +604,12 @@ impl Checker {
         if let ArenaExprKind::NullSafeField { base, name } = callee_kind {
             let base_ty = self.check_expr_arena(arena, source, base, None);
             let (inner_ty, wrap_optional) = match base_ty {
-                Type::Optional(inner) if !matches!(*inner, Type::Any | Type::Unknown) => {
-                    (*inner, true)
-                }
+                Type::Optional(inner) => (*inner, true),
                 Type::Result(_, _) => (self.check_propagation(&base_ty, span), false),
+                Type::Any => {
+                    self.reject_dynamic_use("a method receiver", None, arena.arena.expr(base).span);
+                    return Type::Unknown;
+                }
                 _ => {
                     self.error(
                         span,
@@ -729,13 +724,13 @@ impl Checker {
                         self.provisional_effects_read.set(true);
                     }
                     self.record_effect_contract(&sig.effects, &name.as_str());
-                    if self.in_pure {
+                    if self.boundary.in_pure {
                         self.error(
                             span,
                             "effectful proc is not allowed in pure functions",
                             DiagnosticCode::CheckPureEffect,
                         );
-                    } else if let Some(caller_effs) = self.current_effects.clone() {
+                    } else if let Some(caller_effs) = self.boundary.current_effects.clone() {
                         self.check_module_callable_effects(
                             &caller_effs,
                             &sig.effects,
@@ -836,19 +831,12 @@ impl Checker {
         for arg in args.iter().skip(1) {
             self.check_call_arg_arena(arena, source, &arg.kind, None);
         }
-        if self.options.reveal_types {
-            if args.len() == 1
-                && let Some(arg) = args.first()
-                && matches!(arg.kind, ArenaCallArgKind::Positional(_))
-            {
-                self.reveal_type(&revealed, call_arg_span_arena(arena, &arg.kind));
-            }
-        } else {
-            self.error(
-                span,
-                "`reveal_type` is available only through `xsht check`",
-                DiagnosticCode::CheckRevealType,
-            );
+        if self.options.reveal_types
+            && args.len() == 1
+            && let Some(arg) = args.first()
+            && matches!(arg.kind, ArenaCallArgKind::Positional(_))
+        {
+            self.reveal_type(&revealed, call_arg_span_arena(arena, &arg.kind));
         }
         Type::Unit
     }
@@ -1128,7 +1116,7 @@ impl Checker {
             self.current_namespace,
             span,
             expected_context,
-            self.expected_schema.as_ref(),
+            self.boundary.expected_schema.as_ref(),
             &mut self.type_constraints,
         ) {
             Ok(inference) => inference,
@@ -1265,9 +1253,9 @@ impl Checker {
                         .get(&crate::sema::constants::SchemaComponent::Field(name))
                 })
                 .cloned();
-            let previous = std::mem::replace(&mut self.expected_schema, context);
+            let previous = std::mem::replace(&mut self.boundary.expected_schema, context);
             let actual = self.check_call_arg_arena(arena, source, &arg.kind, field_type);
-            self.expected_schema = previous;
+            self.boundary.expected_schema = previous;
             if let Some(field_type) = field_type {
                 self.expect_type(field_type, &actual, call_arg_span_arena(arena, &arg.kind));
             }
@@ -1335,7 +1323,7 @@ impl Checker {
             "Ok" => {
                 let expected = expected_context.and_then(Type::result_ok);
                 let schema = self
-                    .expected_schema
+                    .boundary.expected_schema
                     .as_ref()
                     .and_then(|schema| {
                         schema
@@ -1343,11 +1331,11 @@ impl Checker {
                             .get(&crate::sema::constants::SchemaComponent::Success)
                     })
                     .cloned();
-                let previous = std::mem::replace(&mut self.expected_schema, schema);
+                let previous = std::mem::replace(&mut self.boundary.expected_schema, schema);
                 let ty = args.first().map_or(Type::Unit, |arg| {
                     self.check_call_arg_arena(arena, source, &arg.kind, expected)
                 });
-                self.expected_schema = previous;
+                self.boundary.expected_schema = previous;
                 let error = match expected_context {
                     Some(Type::Result(_, error)) => error.as_ref().clone(),
                     _ => Type::Error,
@@ -1360,12 +1348,12 @@ impl Checker {
                     Some(Type::Result(_, error)) => Some(error.as_ref()),
                     _ => None,
                 };
-                let previous = self.expected_schema.take();
+                let previous = self.boundary.expected_schema.take();
                 let types = args.iter().map(|arg| {
                     let outer = !matches!(arg.kind, ArenaCallArgKind::Named { name, .. } if name == "cause");
                     self.check_call_arg_arena(arena, source, &arg.kind, if outer { expected } else { None })
                 }).collect::<Vec<_>>();
-                self.expected_schema = previous;
+                self.boundary.expected_schema = previous;
                 let expanded = expand_named_arguments(arena, args, |expr| {
                     args.iter().zip(&types).find_map(|(arg, ty)| {
                         let value = match arg.kind {
@@ -1420,13 +1408,11 @@ impl Checker {
                 Type::Error
             }
             "ProcessError" => {
-                if self.options.migration_diagnostics {
-                    self.warning(
-                        span,
-                        "`ProcessError(...)` is produced by process APIs and is not a source constructor",
-                        DiagnosticCode::CheckMigrationError,
-                    );
-                }
+                self.warning(
+                    span,
+                    "`ProcessError(...)` is produced by process APIs and is not a source constructor",
+                    DiagnosticCode::CheckMigrationError,
+                );
                 for arg in args {
                     self.check_call_arg_arena(arena, source, &arg.kind, None);
                 }
@@ -1964,7 +1950,7 @@ impl Checker {
             self.expect_type(&conflict.expected, &conflict.actual, span);
         }
         let sig = &instance.signature;
-        if self.in_pure && !sig.pure {
+        if self.boundary.in_pure && !sig.pure {
             self.error(
                 span,
                 "effectful module API is not allowed in pure functions",
@@ -2160,9 +2146,11 @@ impl Checker {
         }
 
         let target_ty = self.check_optional_api_arg_arena(arena, source, slots[0], None);
-        if !matches!(
+        if target_ty == Type::Any {
+            self.reject_dynamic_use("a command target", None, slots[0].map(|arg| call_arg_span_arena(arena, arg)).unwrap_or(span));
+        } else if !matches!(
             target_ty.unvalidated(),
-            Type::Str | Type::Path | Type::Any | Type::Unknown
+            Type::Str | Type::Path | Type::Unknown
         ) {
             self.error(
                 slots[0]
@@ -2268,7 +2256,9 @@ impl Checker {
                 } else {
                     actual
                 };
-                if !process_command_argv_item_type_is_valid(&item_ty) {
+                if item_ty == Type::Any {
+                    self.reject_dynamic_use("an argv word", None, arena.arena.expr(item.value).span);
+                } else if !process_command_argv_item_type_is_valid(&item_ty) {
                     self.error(
                         arena.arena.expr(item.value).span,
                         "process.command_argv argv items must be Str or Path",
@@ -2282,7 +2272,9 @@ impl Checker {
         let actual = self.check_call_arg_arena(arena, source, arg, None);
         match actual.into_unvalidated() {
             Type::List(item) if process_command_argv_item_type_is_valid(&item) => {}
-            Type::Any | Type::Unknown => {}
+            Type::Any => self.reject_dynamic_use("an argv list", None, call_arg_span_arena(arena, arg)),
+            Type::List(item) if *item == Type::Any => self.reject_dynamic_use("an argv word", None, call_arg_span_arena(arena, arg)),
+            Type::Unknown => {}
             Type::List(_) => self.error(
                 call_arg_span_arena(arena, arg),
                 "process.command_argv argv must contain Str or Path items",
@@ -2594,6 +2586,83 @@ mod error_constructor_tests {
                 "error E = Triple(zulu: Int, mike: Str, alpha: Bool) | Usage\nlet a = {call}\n"
             );
             assert!(bindings(&source).is_empty(), "{call} published a binding");
+        }
+    }
+}
+
+#[cfg(test)]
+mod reveal_type_tests {
+    use crate::diagnostic::DiagnosticCode;
+    use crate::sema::check::{CheckOptions, Checker};
+    use crate::source::SourceId;
+    use crate::syntax::parser::Parser;
+
+    fn checked(source: &str, options: CheckOptions) -> crate::sema::check::CheckOutput {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        parsed
+            .arena
+            .symbol_owner()
+            .with_current(|| Checker::check_arena_with_options(&parsed.arena, source, options))
+    }
+
+    fn option_combinations(source: &str) -> Vec<crate::sema::check::CheckOutput> {
+        [false, true]
+            .into_iter()
+            .flat_map(|reveal_types| {
+                [false, true].map(|embedded_bodies| {
+                    checked(
+                        source,
+                        CheckOptions {
+                            reveal_types,
+                            embedded_bodies,
+                            ..CheckOptions::default()
+                        },
+                    )
+                })
+            })
+            .collect()
+    }
+
+    #[test]
+    fn reveal_type_option_only_publishes_revealed_types() {
+        let outputs = option_combinations("proc unused() { reveal_type(1) }\n");
+        let diagnostics = &outputs[0].diagnostics;
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        for output in &outputs[1..] {
+            assert_eq!(&output.diagnostics, diagnostics);
+        }
+        assert!(outputs[0].reveal_types.is_empty());
+        assert!(outputs[1].reveal_types.is_empty());
+        assert_eq!(outputs[2].reveal_types.len(), 1);
+        assert_eq!(outputs[3].reveal_types.len(), 1);
+    }
+
+    #[test]
+    fn reveal_type_argument_diagnostics_are_independent_of_publication() {
+        for (source, expected_code) in [
+            ("reveal_type()\n", DiagnosticCode::CheckArity),
+            ("reveal_type(1, 2)\n", DiagnosticCode::CheckArity),
+            ("reveal_type(value: 1)\n", DiagnosticCode::CheckNamedArg),
+            (
+                "let values = [1]\nreveal_type(@values)\n",
+                DiagnosticCode::CheckCallSplice,
+            ),
+        ] {
+            let outputs = option_combinations(source);
+            let diagnostics = &outputs[0].diagnostics;
+            assert!(
+                diagnostics.iter().any(|diagnostic| diagnostic.code == Some(expected_code)),
+                "{source}: {diagnostics:?}"
+            );
+            for output in &outputs[1..] {
+                assert_eq!(
+                    &output.diagnostics,
+                    diagnostics,
+                    "diagnostics changed with checker options for {source}"
+                );
+            }
+            assert!(outputs.iter().all(|output| output.reveal_types.is_empty()));
         }
     }
 }

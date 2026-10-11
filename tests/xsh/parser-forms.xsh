@@ -112,6 +112,59 @@ test test_parenthesized_expression_spans_lines { |ctx|
   test.expect(ctx, "let x = (1 +\n2) * 2\nprint \$x\n", status: 0, stdout: ["6"])?
 }
 
+test test_expression_suffixes_after_stages_allow_spaces { |ctx|
+  for source in ["xs |> first .name\n", "let selected = xs |> first [0]\n", "let item = xs[(f()) ?]\n", "let part = xs[y is a .. ]\n"] {
+    expect_parses(ctx, source)
+  }
+}
+
+test test_calls_in_value_context_can_use_spaces { |ctx|
+  for source in ["f(1, 2)\n", "let value = f (1, 2)\n", "print (f(1, 2))\n", "f().field (1, 2)\n", "f.field(1, 2)\n", "f.field (1)\n", "let value = f ?.name\n", "f.field when ready\n", "f -1\n", "f - 1\n"] {
+    expect_parses(ctx, source)
+  }
+  test.expect(ctx, "pure sum(left: Int, right: Int) -> Int { left + right }\nlet total = sum (1, 2)\nprint \$total\n", status: 0, stdout: ["3"])?
+}
+
+test test_command_names_and_core_dot_arguments_preserve_spacing { |ctx|
+  expect_parses(ctx, "f .name\nf . name\nf.field .name\nprint. name\n")
+  let stderr = check_output(ctx, "proc show(value: Str) { print \$value }\nshow .name\n")?
+  assert "unresolved proc command `show.name`" in stderr, stderr
+  let print_stderr = check_output(ctx, "print .name .field\n")?
+  assert "[check.bare-print-ident]" in print_stderr, print_stderr
+  assert "[check.unresolved-proc-command]" not in print_stderr, print_stderr
+}
+
+test test_env_without_a_block_uses_proc_command_rules { |ctx|
+  expect_parses(ctx, "env foo\nenv . name\nenv FOO=value { f() }\nenv value = \${ items |> each { |item| item } } { }\n")
+}
+
+test test_cd_scope_arguments_keep_command_word_interpolation { |ctx|
+  expect_parses(ctx, "cd +\${ x +\n1 } { }\n")
+  expect_parses(ctx, "cd (x) { } < []\n")
+  expect_parses(ctx, "env (x) { } < []\n")
+}
+
+test test_stage_arguments_can_precede_grouped_inline_expressions { |ctx|
+  expect_parses(ctx, "let ordered = xs |> sort-by(desc: reverse) (if .runtime_seconds <= 0 { 0 } else { .runtime_seconds })\n")
+}
+
+test test_bare_minus_command_arguments_preserve_source_adjacency { |ctx|
+  expect_parses(ctx, "f -\nf -#comment\nf -1\nf - 1\n")
+  test.expect(ctx, "print -\nprint -#comment\n", status: 0, stdout: ["-", "-"])?
+  expect_parses(ctx, "let result = values |> drop - - \$?\nrun.bytes --accept= 5s --timeout= y --cpumax= a target ? |> drop - - \$?\n")
+}
+
+test test_run_option_values_leave_following_words_as_command_arguments { |ctx|
+  expect_parses(ctx, "run --accept= spawn - ! value? (\n@y ) ;\n")
+  expect_parses(ctx, "guard let items = run --accept= spawn process.command { } --timeout= 1h --cpumax= a (\ne\"HOME\" ) ? else { }\nexport stream b ( ) -> b { }\n")
+}
+
+test test_block_parameters_duration_patterns_and_last_status_parse { |ctx|
+  for source in ["let block = { ; | c ,\n value | c }\n", "let matches = value is 10ms\n", "\$? * \$? > 0\n"] {
+    expect_parses(ctx, source)
+  }
+}
+
 test test_list_literal_spans_lines { |ctx|
   test.expect(ctx, "let xs = [\n1,\n2,\n3\n]\nprint \${xs.len()}\n", status: 0, stdout: ["3"])?
 }
@@ -214,4 +267,24 @@ test test_type_pattern_arms_follow_unbraced_arm_values { |ctx|
     ctx,
     "pure describe(failure: Error) -> Str {\n  match failure {\n    is PermissionDenied => return \"permission_denied\"\n    is NotFound => return \"not_found\"\n    _ => return \"other\"\n  }\n}\n",
   )
+}
+
+test test_multiline_set_entries_continue_after_operators { |ctx|
+  for source in ["let values = {x or\ny for a in xs}\n", "let values = {x +\ny, 1}\n", "let values = {x\n+ y, 1}\n", "run --timeout={x or\ny for a in xs} f\n", "run --timeout={x +\ny, 1}(b: 1) f\n"] {
+    expect_parses(ctx, source)
+  }
+  test.expect(ctx, "let values = {x +\n1 for x in [1, 2]}\nprint \$values.len()\n", status: 0, stdout: ["2"])?
+}
+
+test test_command_words_and_empty_env_scopes_parse { |ctx|
+  for source in ["env {}\n", "asrunsert seen == []\n", "f []\n", "f )\n", "pure f() { e { }\n"] {
+    expect_parses(ctx, source)
+  }
+  expect_parses(ctx, "print [] )\n")
+}
+
+test test_value_match_arms_keep_separator_forms { |ctx|
+  for source in ["let value = match x { E => \"\", 0 => 4 }\n", "let value = match x { E => \"\"\n0 => 4 }\n", "let value = match x { E => { \"\" }, 0 => { 4 } }\n", "let value = match x { E => { \"\" }\n0 => { 4 } }\n"] {
+    expect_parses(ctx, source)
+  }
 }

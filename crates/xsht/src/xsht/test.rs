@@ -19,6 +19,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticRenderer, Label};
 use xsh::execution::evaluator::{
     Evaluator, NativeTestRunKind, NativeTestRunRequest, PreparedTestProgram, TestCancellation,
+    NATIVE_TEST_FORCE_FRAMES_ENV,
 };
 use xsh::execution::script::XSH_COVERAGE_TRACE_DIR;
 use xsh::execution::value::{PathValue, RecordMap, ResultValue, RuntimeError, Value};
@@ -42,6 +43,7 @@ pub(crate) struct TestOptions {
     pub(crate) coverage: bool,
     pub(crate) api: bool,
     pub(crate) coverage_json_out: Option<String>,
+    pub(crate) force_frames: bool,
 }
 
 impl TestOptions {
@@ -494,9 +496,32 @@ fn test_top_level_allowed(program: &ArenaProgram, id: StmtId) -> bool {
         | ArenaStmtKind::TypeDef(_)
         | ArenaStmtKind::ErrorDef(_)
         | ArenaStmtKind::ProcDef(_)
-        | ArenaStmtKind::PureDef(_) => true,
+        | ArenaStmtKind::PureDef(_)
+        | ArenaStmtKind::StreamDef(_) => true,
         ArenaStmtKind::Export(inner) => test_top_level_allowed(program, inner),
-        _ => false,
+        ArenaStmtKind::Var { .. }
+        | ArenaStmtKind::Assign { .. }
+        | ArenaStmtKind::CliMain(_)
+        | ArenaStmtKind::SignalHook(_)
+        | ArenaStmtKind::Return(_)
+        | ArenaStmtKind::Yield(_)
+        | ArenaStmtKind::YieldDelegate(_)
+        | ArenaStmtKind::Defer(_, _)
+        | ArenaStmtKind::If { .. }
+        | ArenaStmtKind::While { .. }
+        | ArenaStmtKind::For { .. }
+        | ArenaStmtKind::With { .. }
+        | ArenaStmtKind::Loop { .. }
+        | ArenaStmtKind::Guard { .. }
+        | ArenaStmtKind::Sugar { .. }
+        | ArenaStmtKind::Assert { .. }
+        | ArenaStmtKind::Break { .. }
+        | ArenaStmtKind::Continue
+        | ArenaStmtKind::Exit(_)
+        | ArenaStmtKind::Match { .. }
+        | ArenaStmtKind::Command(_)
+        | ArenaStmtKind::TailBareIdent(_)
+        | ArenaStmtKind::Expr(_) => false,
     }
 }
 
@@ -610,21 +635,14 @@ fn discover_native_tests(
             .files()
             .first()
             .map(xsh::frontend::source::SourceFile::id)
-            .unwrap_or_else(|| xsh::frontend::source::SourceId::new(0));
-        let entry_text = sources
-            .get(source_id)
-            .map(|source| source.text().to_string())
-            .unwrap_or_default();
+            .expect("entry source must be present in a parsed test file");
         let arena = Arc::new(parsed.arena);
         // This one check gates the file and supplies its lowering facts.
-        let checked = Checker::check_arena_with_options_and_type_program(
+        let checked = Checker::check_arena_with_sources_and_options(
             &arena,
-            &entry_text,
-            CheckOptions {
-                embedded_bodies: true,
-                ..CheckOptions::default()
-            },
-            Arc::clone(&arena),
+            &sources,
+            source_id,
+            CheckOptions::for_execution(),
         );
         if !checked.diagnostics.is_empty() {
             let id = file_name.clone();
@@ -893,6 +911,7 @@ fn run_native_test(
         &case.name,
         ctx,
         options.collect_coverage(),
+        options.force_frames,
         env_overlay,
         cancellation,
     );
@@ -945,6 +964,13 @@ fn native_test_host(
     request: NativeTestRunRequest,
     module_path: Option<&OsString>,
 ) -> Result<Value, RuntimeError> {
+    if request.env.contains_key(NATIVE_TEST_FORCE_FRAMES_ENV) {
+        return Err(RuntimeError::new(
+            native_test_error_kind(request.kind),
+            "the frame-scheduler test marker is reserved for the test harness",
+        )
+        .with_span(request.span));
+    }
     let script_path = PathBuf::from(OsString::from_vec(request.script_path.bytes.clone()));
     if let Some(parent) = script_path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
@@ -1025,6 +1051,11 @@ fn native_test_host(
     for (name, value) in &request.env {
         let value: &std::ffi::OsStr = std::os::unix::ffi::OsStrExt::from_bytes(value);
         command.env(name, value);
+    }
+    if request.force_frames {
+        command.env(NATIVE_TEST_FORCE_FRAMES_ENV, "1");
+    } else {
+        command.env_remove(NATIVE_TEST_FORCE_FRAMES_ENV);
     }
     command.stdout(Stdio::piped());
     command.stderr(Stdio::piped());

@@ -44,6 +44,12 @@ test test_fs_children_for_yields_precollected_entries { |ctx|
   assert names == ["first", "second"]
 }
 
+test test_fs_dirs_stream_is_owned_before_materialization { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-dirs-owner")?
+  fp"{root}/nested".mkdir()
+  assert fs.dirs(root)? |> any .name == "nested"
+}
+
 test test_fs_walk_dynamic_stat_flag_preserves_metadata_boundary { |ctx|
   let root = test.temp_dir(ctx, name: "fs-walk-dynamic-stat")?
   fp"{root}/file.txt".write("data")
@@ -151,6 +157,11 @@ test test_fs_write_atomic_keeps_plain_write_modes { |ctx|
   atomic.write_atomic("replaced")
   assert atomic.read_text()? == "replaced"
   assert atomic.metadata()?.mode % 512 == 0o751
+}
+
+# The parameter keeps the post-close operation on the runtime error path.
+proc assert_closed_temp_root_rejects_host_path(root: FsRoot) [fs] {
+  test.error_kind(root.host_path(), "fs-root")
 }
 
 test test_fs_tree_metadata_install_and_locking { |ctx|
@@ -279,8 +290,9 @@ print \$entry.size
   let temp_path = temp_dir.host_path()?
   fp"{temp_path}/host-path.txt".write("host")
   assert temp_dir.read_text(p"host-path.txt")? == "host"
+  let closed_temp_dir = temp_dir
   temp_dir.close()
-  test.error_kind(temp_dir.host_path(), "fs-root")
+  assert_closed_temp_root_rejects_host_path(closed_temp_dir)
   let home = fs.user_root("home")?
   assert home.exists(p".")?
   home.close()
@@ -364,7 +376,7 @@ test test_fs_root_operations_reject_traversal { |ctx|
   assert root.metadata(p"nested/data.txt")?.kind == "file"
   let nested_root = root.open_root(p"nested")?
   assert nested_root.read_text(p"data.txt")? == "atomic"
-  root.symlink(p"data.txt", p"nested/internal-link")
+  root.symlink(target: p"data.txt", path: p"nested/internal-link")
   assert root.readlink(p"nested/internal-link")?.display() == "data.txt"
   assert root.read_text(p"nested/internal-link")? == "atomic"
   assert root.read_text(p"nested/../nested/data.txt")? == "atomic"
@@ -388,7 +400,7 @@ test test_fs_root_operations_reject_traversal { |ctx|
   let escaped_path = root.children(../outside)?
   assert ! escaped_path.enumeration_succeeded
   test.error_kind(root.read_text(../secret.txt), "fs-root-read")
-  test.error_kind(root.symlink(p"target", ../escape), "fs-root-symlink")
+  test.error_kind(root.symlink(target: p"target", path: ../escape), "fs-root-symlink")
   test.error_kind(root.write_atomic(p"missing/parent.txt", "x"), "fs-root-write")
   test.error_kind(fs.root_install_file(source_root, ../secret.txt, root, p"escape.txt", 0o600), "fs-root-install")
   root.remove(p"nested/data.txt")
@@ -403,7 +415,7 @@ test test_fs_root_stat_preserves_metadata_and_symlink_policy { |ctx|
   let root = fs.open_root(root_dir)?
   root.mkdir(p"nested")
   root.write(p"nested/data.txt", "rooted")
-  root.symlink(p"data.txt", p"nested/link")
+  root.symlink(target: p"data.txt", path: p"nested/link")
 
   let file = root.stat(p"nested/data.txt")?
   assert file.kind == "file"
@@ -474,7 +486,7 @@ test test_fs_root_symlink_preserves_default_parents_with_named_overwrite { |ctx|
   let root_dir = test.temp_dir(ctx, name: "root-symlink-overwrite-defaults")?
   let root = fs.open_root(root_dir)?
   let overwrite = false
-  root.symlink(p"target", p"nested/link", overwrite:)
+  root.symlink(target: p"target", path: p"nested/link", overwrite:)
   assert root.readlink(p"nested/link")?.display() == "target"
   root.close()
 }
@@ -803,7 +815,7 @@ test test_filesystem_package_policy_apis { |ctx|
   fs.chown(copied_tool, me)
   fs.chgrp(copied_tool, grp)
   let lock = fs.lock(fp"{root}/pm.lock")?
-  assert lock.id > 0
+  assert lock.path == fp"{root}/pm.lock"
   assert ! lock.shared
   fs.unlock(lock)
   let installed = fp"{root}/image/usr/bin/tool"

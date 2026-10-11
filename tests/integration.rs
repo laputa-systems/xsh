@@ -1,6 +1,6 @@
 #[macro_use]
-#[path = "release_binary.rs"]
-mod release_binary;
+#[path = "test_binary.rs"]
+mod test_binary;
 #[path = "cli.rs"]
 mod cli;
 #[path = "core.rs"]
@@ -15,6 +15,8 @@ mod libxsh_api;
 mod runtime;
 #[path = "sema.rs"]
 mod sema;
+#[path = "sema_bundle_view.rs"]
+mod sema_bundle_view;
 #[path = "stdlib_port.rs"]
 mod stdlib_port;
 #[path = "syntax.rs"]

@@ -1,10 +1,13 @@
 # XSH Consolidation Campaign
 
-Status: Setup may start before compatibility correctness closes (drafted
-2026-10-10; sequence and Codex policy revised 2026-10-11). The decisions under
-"Decisions" are made. The six designs under "Designs" are drafted and await
-approval before their affected workstreams start. Nothing in this document
-has been implemented.
+Status: resumed after the owner-requested reboot on 2026-10-11. Setup and implementation
+are incomplete; the restart checkpoint is [`HANDOFF.md`](HANDOFF.md).
+The owner approved the entire campaign
+and all six designs on 2026-10-11, including the Codex model policy and
+completeness-first sequence. The start commit is
+`5e66b6b896a47d0c692739135d51200b007a2a67`; integration is on `consolidation`
+in a separate worktree. Implementation and gate evidence are tracked in
+`ITEMS.md` and the handoff log.
 
 The campaign runs unattended: once started it never waits for the owner.
 Every question it would otherwise ask is answered here or in a design file
@@ -64,17 +67,17 @@ relying on Claude agent definitions.
 
 | Role | Codex model | Reasoning effort |
 |---|---|---|
-| Routine: scoped migrations, pure file moves, tests from an explicit list, inventories | `gpt-6.1-sol` | `medium` |
-| Implementation: checker, lowering, verifier, runtime, ownership, or other complex changes | `gpt-6.1-sol` | `high` |
-| Review: contract, invariant, and integration review of complex changes | `gpt-6.1-sol` | `high` |
+| Routine: scoped migrations, pure file moves, tests from an explicit list, inventories | `gpt-6-luna` | `xhigh` |
+| Implementation: checker, lowering, verifier, runtime, ownership, or other complex changes | `gpt-6-luna` | `xhigh` |
+| Review: contract, invariant, and integration review of complex changes | `gpt-6-luna` | `xhigh` |
 
-Every Codex lane uses `gpt-6.1-sol`; no Luna lane is permitted. Pass `model`
+On resume the owner changed every Codex lane to `gpt-6-luna` at `xhigh` effort.
+This overrides the previous Sol-only policy, including the campaign skill.
+Pass `model`
 and `reasoning_effort` explicitly on every spawn. With the session's
 `spawn_agent` tool, use `fork_turns: "none"` for these explicit settings and
-provide a self-contained brief. A routine lane that meets a design decision
-or a checker, lowering, or runtime change stops and reports; the integrator
-re-issues the item at `high` effort. This overrides the compatibility
-campaign's Codex model policy.
+provide a self-contained brief. Lanes report unapproved contract decisions to
+the integrator. This overrides the compatibility campaign's Codex model policy.
 
 Claude Code sessions retain `xsh-lane` on Sonnet 5.5 at high effort and
 `xsh-routine` on Haiku 5.5 at high effort, with `model` and `effort` explicit.
@@ -114,11 +117,13 @@ integrator; a lane that needs one files a `Requests:` line. Most of this work
 lands in a few large files, so isolation is scheduled, not free: Setup
 partitions those files, and items that still collide run in series.
 
-**Tests are the oracle.** No lane weakens, skips, deletes, or rewrites the
-expected text of an existing test to pass. There are no exceptions during the
-campaign. A lane that believes a test is wrong parks its item with the
-evidence. The one sanctioned change to existing tests is a migration a design
-file names, applied by the lint rule that design defines.
+**Tests are the oracle.** No lane weakens, skips, or deletes coverage to
+make a patch pass. On 2026-10-11 the owner explicitly approved updating
+existing expectations that contradict the newly approved contracts, while
+retaining their coverage and recording every migration in the handoff log.
+The concrete starting conflicts are listed in `ITEMS.md`; each replacement
+asserts the approved behavior. Other suspected incorrect tests are reported
+with evidence. Design-specified migrations remain authorized.
 
 **Acceptance.** The same mechanical gate accepts a lane and its merge:
 
@@ -128,9 +133,9 @@ file names, applied by the lint rule that design defines.
 4. No structural ratchet rose, and the item's functional and structural
    targets reached their stated values. Performance measurements are reported
    under the performance policy below.
-5. Net non-test Rust lines are within the item's budget. The default budget
-   is zero or negative: a lane that adds a path for an existing decision
-   deletes the old path in the same slice.
+5. Report exact non-test Rust and touched-line deltas. Source budgets are
+   advisory under the owner update; remove replaced decisions and assess
+   performance without using line count as a substitute.
 6. Generated documentation is fresh when a contract changed.
 
 A behavior-preserving item additionally changes nothing in
@@ -178,8 +183,8 @@ the item. Nothing is pushed.
   A design whose facts no longer hold is not repaired: its workstream is
   parked whole.
 - **Park, never ask.** An item is parked, with its evidence, when it would
-  need a contract change that was not approved, when a test appears to be
-  wrong, when it reaches twice its size budget, or when its gate cannot be
+  need a contract change that was not approved, when an unapproved test
+  correction is needed, when it reaches twice its size budget, or when its gate cannot be
   made green. The lane's branch is kept and the worktree removed. Work that
   does not depend on a parked item continues. Three parked items in one
   workstream park the rest of that workstream.
@@ -195,6 +200,26 @@ the item. Nothing is pushed.
 - **Close.** The report lists each workstream as closed or parked with its
   closing check, the start and end value of every ratchet, and each parked
   item with the decision it needs.
+
+## Owner update — source budgets, 2026-10-11
+
+The owner relaxed source budgets and made performance the priority. Per-item
+production-line and touched-line limits, temporary source ceilings, and final
+strict source shrink are now advisory measurements rather than acceptance
+blockers. Record exact source deltas and review volume; preserve original
+baseline artifacts. This supersedes older hard source-budget language below
+and in item grants. Structural end states, correctness, ownership contracts,
+documentation, platform gates and performance verification remain required.
+Remove genuine duplication and unused code; do not compress layout to improve
+counts. A passing source count is not performance evidence.
+
+## Owner update — platform scope, 2026-10-11
+
+ARM64 and macOS are outside this campaign. Development and final platform
+verification use host-native x86_64 Linux musl in the pinned `Dockerfile.test`
+environment. This supersedes all older ARM final-verification requirements;
+Linux correctness and performance gates remain required. Preserve historical
+ARM artifacts and remove only campaign-owned runtime registrations at cleanup.
 
 ## Planning figures
 
@@ -219,9 +244,35 @@ performance gates; they do not introduce new acceptance thresholds here.
 | Whole-program copies made to lower one stage that names a callable | 1 | 0 |
 | `xsht lint` on this repository | about 17 s against a 15 s budget | inside the budget, measured alone |
 | Wall time of the full gate sequence | about 8 minutes on the 32-thread machine, before the two targets Setup adds | measured at functional close with those targets included; stricter target set afterwards |
-| Lines under a blanket `allow(dead_code)` | about 15,800 | 0 |
+| Lines under a blanket `allow(dead_code)` | 47,061 under the corrected scope definition (the original report recorded 47,705) | 0 |
 | Entries under "Defects" in `TODO.md` | all open | closed, or moved out with a reason |
 | Non-test Rust lines, `src/` and `crates/xsht/src` | 205,864 and 60,041 | lower |
+
+The lowering type-expression resolver metric counts lowerer functions that take
+a `TypeExprId`, dispatch on `ArenaTypeExprTag`, and construct a semantic `Type`
+or `LoweredType`. Syntax-name renderers and wrappers around already checked
+types do not resolve type expressions.
+
+The blanket dead-code measure counts retained production lines covered by
+file or module inner allowances and outer module/impl/trait/extern-block
+scopes, including such scopes written inside macro expansions. Attributes on a
+macro definition do not propagate to its expanded items, and an attribute on a
+macro invocation is ignored, so both are listed as item allowances instead.
+Narrow allowances on individual functions, types, variants, or fields are
+listed in separate start and current inventories, including inherited module
+coverage. The original baseline files remain unchanged; the companion ratchet
+report changes only the blanket metric row and records its checked source and
+scanner hashes.
+
+The same scanner accepts both stage-table forms present at the frozen start
+and current source trees. At the start commit, `full.rs` used a handwritten
+`FullStageTag` enum and `impl_stage_codec!` table; the previous scanner rejected
+that layout because it required the generated table. The scanner validates the
+legacy tag and codec rows together but continues to count variants only from
+`LoweredPipelineStage`, avoiding double counting. The generated table now has
+seven context names, including four borrowed-view contexts, so the scanner
+accepts the complete supported sequence and rejects partial or overlapping
+authority layouts.
 
 ## Setup
 
@@ -231,8 +282,13 @@ parallel while that work proceeds.
 
 - **Baseline and ratchets.** One XSH program under `dev/` measures every row
   above and writes `dev/consolidation/baseline.json`; `cargo dev check` fails
-  when a structural measure rises. Timing samples are recorded without a new
-  ratchet. Lane tooling for this campaign is XSH, not Python.
+  when a structural measure rises. The original baseline and metadata remain
+  immutable, while `baseline-blanket-scope.json` supplies the corrected scope
+  row after both pinned source trees are measured by the same scanner. Its
+  provenance enumerates every original-to-remeasured metric difference and
+  binds the companion to the original start commit, source manifest, scanner,
+  and ratchet fixtures. Timing samples are recorded without a new ratchet.
+  Lane tooling for this campaign is XSH, not Python.
 - **Lane gate.** `cargo dev` gains a command that maps changed paths to the
   rows of the gate table in `docs/TESTING.md` and runs them. The full
   sequence the integrator runs once per batch adds two targets the default
@@ -373,6 +429,10 @@ it "interprets binding annotations itself", and a debug-only drift recorder
 plus a corpus test exist to catch lowering disagreeing with the checker.
 Four functions map between `Type` and `LoweredType`, and the two reverse
 mappings disagree on `Set` and `Tag`.
+
+For the mapping count, a definition owns a full match-based conversion table
+for one direction. Entry guards and functions that delegate to a table are
+not counted as mappings.
 
 **End state.** One type test, written once over a view both representations
 provide. The checker publishes the resolved type of every type expression as
@@ -564,7 +624,8 @@ tests start a fresh process, while an in-process `run_script` exists and is
 not wired to them.
 
 **End state.** A module is checked once per workspace within one process,
-and a fix round rechecks only the changed module and its importers. The
+and each fix round checks its freshly parsed affected bundle without reusing
+records from older arenas, as specified in the approved module-check design. The
 checker prepares a bundle once. Lowering a stage copies nothing. Parameter
 lookup in a spread is by name. The limits listed in `TODO.md` are
 diagnostics. An on-disk cache and in-process script tests are not part of
@@ -658,22 +719,21 @@ be taken at the start commit is written as a rule with its threshold, not
 left open.
 
 Four change what a user of the language or its tools sees, and two are
-internal but costly to get wrong. All six are drafted; each must be approved
-before its affected workstream starts. Pending approval does not block Setup
-or independent work under already approved contracts.
+internal but costly to get wrong. All six were approved by the owner on 2026-10-11. Setup and
+implementation proceed after their facts and prerequisites are checked.
 
 | File | Settles | Status |
 |---|---|---|
-| `any.md` | What an `Any` permits and the migration. The escape hatch is the existing `json.get`, so no spelling is added | proposed |
-| `check-session.md` | One set of check diagnostics for every tool; which stage reports what; one code for an unresolved import | proposed |
-| `resources.md` | The one resource rule and its table; `FsLock` as a type; scope ownership of roots, locks, and streams; moving ownership by type; `check.use-after-release`; the migration | proposed |
-| `effects.md` | Socket calls in `linux` and `unix` need `net` | proposed |
-| `module-check.md` | Checking a module once: what a module's check depends on, the three defects that make it depend on its importer, the per-module driver, reuse | proposed |
-| `evaluator.md` | The in-place mark and what the verifier proves; apply functions; the order in which nested machines are removed | proposed |
+| `any.md` | What an `Any` permits and the migration. The escape hatch is the existing `json.get`, so no spelling is added | approved 2026-10-11 |
+| `check-session.md` | One set of check diagnostics for every tool; which stage reports what; one code for an unresolved import | approved 2026-10-11 |
+| `resources.md` | The one resource rule and its table; `FsLock` as a type; scope ownership of roots, locks, and streams; moving ownership by type; `check.use-after-release`; the migration | approved 2026-10-11 |
+| `effects.md` | Socket calls in `linux` and `unix` need `net` | approved 2026-10-11 |
+| `module-check.md` | Checking a module once: what a module's check depends on, the three defects that make it depend on its importer, the per-module driver, reuse | approved 2026-10-11 |
+| `evaluator.md` | The in-place mark and what the verifier proves; apply functions; the order in which nested machines are removed | approved 2026-10-11 |
 
-Three are internal shapes with no contract and no decision left for the
-owner. The integrator writes each in Setup, within the end state its
-workstream already states:
+Three are internal shapes with no language contract or decision left for
+the owner. The integrator established these designs in Setup on 2026-10-11,
+within each workstream's stated end state:
 
 | File | Settles |
 |---|---|
@@ -699,5 +759,131 @@ time and native-suite time, with thin LTO excluded.
 
 ## Handoff log
 
-Empty. Dated entries are added at the top of this section once the campaign
-starts.
+### 2026-10-11 — resumed with Luna xhigh
+
+The owner resumed from `HANDOFF.md` and selected `gpt-6-luna` at `xhigh` for
+all subagents. Integration remains at the preserved checkpoint `e8533c12`;
+dirty lane trees and incomplete evidence are retained. Independent schema,
+module, declaration, source-session, BindingId, grammar, fuzz, lint, and Any
+work has resumed. The source-aware helper/session adapter now has an owner.
+The Docker daemon was restarted; its missing pinned image is being recovered
+before any build or test runs. No interrupted gate has been counted as passing.
+
+### 2026-10-11 — paused for reboot
+
+The owner paused implementation and requested a durable restart handoff. See
+[`HANDOFF.md`](HANDOFF.md) for the integration checkpoint, unmerged commits,
+unfinished diffs, completed versus interrupted gates, environment recovery,
+and remaining campaign work. All owned jobs are stopped. Required artifacts
+and extra source snapshots are on disk outside `/tmp`; resume only on the
+owner's request. The campaign is not complete.
+
+### 2026-10-11 — approval and Setup started
+
+- Owner approved the entire campaign and all six designs, and requested
+  implementation through completion without stopping.
+- Start commit: `5e66b6b896a47d0c692739135d51200b007a2a67`. Consolidation has
+  its own integration worktree and branch; compatibility remains separate.
+- Fifteen independent scouts revalidated code facts and planned exclusive
+  implementation slices. Sol-only lane settings are enforced explicitly.
+- Owner selected native x86_64 musl development verification in the same
+  `Dockerfile.test` environment, with aarch64 final verification. Baseline
+  gates and coverage are pending; the ARM image is being prepared separately.
+- Owner resolved the concrete oracle conflicts in `ITEMS.md`: approved
+  contracts take precedence over prior expectations, preserving coverage and
+  logging each migration.
+- D12 recount found zero roots and zero locks in the derived-value hazard
+  row across this start commit and Laputa `048592b0`; scope ownership may
+  proceed. The draft's 731-site denominator was not reproduced.
+- Structural starting counts from source: 158 instructions, 18 patterns,
+  46 stages, 923 hand-ordered read/finish calls across 922 lines plus 43 optional reads,
+  57 wide wildcard matches including aliased pattern matches. Raw Rust
+  physical lines include inline tests and are not the non-test baseline.
+- Stale design examples are corrected against source evidence without
+  inventing APIs. Independent Setup and implementation preparation continue.
+
+### 2026-10-11 — baseline and parallel implementation
+
+- Native release products rebuilt in the pinned Dockerfile environment;
+  full native baseline: 5,996 passed, 0 failed, 118 capability/fixture skips.
+  Rust full-gate and baseline coverage remain pending.
+- Manually repaired five pre-existing redundant-parentheses findings in
+  compression code (`44c7567d`). Focused compression tests: 52 passed,
+  0 failed, 3 skips. XSH check: 1,162 files clean; initial lightweight
+  Laputa check: 305 files clean.
+- D3 buffered exec regressions integrated as `b6f1af4f`; focused Unix process
+  gate: 21 passed, 0 failed, 2 privilege skips. No runtime change required.
+- Diagnostic and imported-enum defects reproduced against frozen baseline
+  products. The diagnostic lane's native gates pass; remaining focused unit
+  and compiler checks are queued before acceptance.
+- Four pure partition drafts retain every moved body and comment under
+  visibility/path normalization. Compiler checks are queued; full coverage
+  and allocation evidence remain required before acceptance.
+- Established the three internal designs under `designs/`. Their schema,
+  child-order, semantic-walker, lint-fact, and fix-proof invariants constrain
+  later implementation slices.
+- Owner requested disk-backed worktrees and build artifacts outside `/tmp`.
+  All campaign worktrees use `xsh-consolidation-lanes`; logs, launchers,
+  frozen binaries, and scratch evidence use `.work/consolidation`.
+- Owner excluded `dev/compat` check/lint while compatibility is WIP.
+  Consolidation project discovery and batch respect this exclusion.
+  Laputa remains in migration scope with focused lightweight verification;
+  automatic heavy sibling-corpus checks are excluded.
+- Native build queue is serialized independently of ready agent lanes.
+  No formatter, autofixer, push, or unrelated worktree change has run.
+
+
+### 2026-10-11 — construction prerequisites and contract slices
+
+- Integrated all four pure partitions after source-body preservation proofs
+  and pinned musl compiler checks. Combined coverage and allocation evidence
+  remain required; partitioning is not a completed semantic workstream.
+- D1 and D2 focused gates passed and their TODOs closed; D3 retained the
+  exact buffered-output/exit/defer process regressions.
+- Boundary contexts passed 104 native tests. The prior value-block outer-loop
+  transfer expectation contradicted the approved callable-boundary rule:
+  `abe26163` retains tests for rejecting outer break/continue and for valid
+  callback-local loops (30 focused tests).
+- Bounded nested machines passed 66 native tests and an actual-overflow host
+  lifecycle test proving reuse of the same evaluator. The opaque lock and
+  evaluator-token foundation passed 24 native tests, two foreign-handle host
+  tests and two registry tests. Roots/locks are not yet scope-owned until R2.
+- Lock test migrations retain release-error precedence and resource liveness
+  coverage: foreign opaque handles replace forged records; marker files and
+  independent nonblocking reacquisition replace inspection of private IDs.
+- Twenty socket APIs now require process and net. The registry's starting
+  required-label test was already contradicted by set_capabilities: coverage
+  now checks label/binding invariants, positional rejection and labeled calls.
+  Clause-only migrations changed 17 library and 39 applet/test clauses; all
+  affected source checks and 21 linux_net tests passed (one capability skip).
+- First grammar sharing passed 23 grammar and 50 native tests. The deeper
+  22,768-candidate proof found nine parser disagreements and 58.323% validity
+  against the retained 80% threshold. Repair is active; no deep-proof pass
+  or full rule coverage is claimed.
+- Baseline LLVM coverage records pre-existing stale/corpus assertions instead
+  of treating aggregate failures as green. Its frozen runtime/lowering source
+  hashes still match the starting commit. Signal-fixture readiness and LLVM
+  fuzz-worker flush handling have independent host regressions. Corpus phases
+  temporarily mask the known directory-symlink cycle and WIP compatibility
+  subtree; those mounts are removed before native tests. Production corpus
+  helpers are being fixed with retained symlink/WIP regressions.
+- The source scanner was remeasured against the exact starting tree: 189,274 /
+  49,968 non-test Rust lines and 47,061 lines under blanket dead-code scopes.
+  Its earlier report recorded 47,705 because it treated narrow item allowances
+  as scopes; those items are now separately inventoried. The same scanner
+  measures the current source tree and retains the complete start report as a
+  diagnostic artifact. Semantic/performance rows remain unmeasured. Batch
+  ratchets use a recorded, bounded intermediate envelope. This campaign uses
+  the corrected companion at final close, without an envelope; the CLI also
+  preserves original-baseline checks and independently enforces zero blankets
+  and source reduction.
+- Lexical identities, authoritative instructions, resource scope ownership,
+  opaque Any, borrowed value/type predicates, common lint descent and module
+  command plans now run on independent file sets. Remaining dependencies are
+  scheduled at slice boundaries, with one queued primary compiler and one
+  bounded coverage compiler. Timing remains deferred until functional close.
+- Comparative workload preparation passed 35 exact seven-tool parity cases,
+  eight harness tests and five XSH source checks. No timing result is claimed.
+  Separate Laputa consolidation and migration worktrees were created on disk;
+  symlink audit found no required Laputa caller migration. Heavy sibling
+  corpus checks remain excluded.

@@ -9,8 +9,8 @@
 use crate::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use crate::source::Span;
 use crate::syntax::arena::{
-    ArenaExprKind, ArenaFmtPart, ArenaProgram, ArenaRecordFieldKind, ArenaSpawnTarget,
-    ArenaStmtKind, AstArena, ExprId,
+    ArenaExprKind, ArenaFmtPart, ArenaProgram, ArenaRange, ArenaRecordFieldKind,
+    ArenaSpawnTarget, ArenaStmtKind, AstArena, ExprId,
 };
 use crate::syntax::grammar::{
     self, CONVERSION, OperatorFamily, PATTERN_TEST, PREFIX, PREFIX_OPERAND, binary_precedence,
@@ -331,6 +331,45 @@ fn binding_power(kind: &ArenaExprKind) -> u8 {
             ..
         })
         | ArenaExprKind::Wait(_) => PREFIX,
+        ArenaExprKind::Spawn(crate::syntax::arena::ArenaSpawnForm {
+            target: ArenaSpawnTarget::Run(_),
+            ..
+        })
+        | ArenaExprKind::Null
+        | ArenaExprKind::Bool(_)
+        | ArenaExprKind::Int(_)
+        | ArenaExprKind::Float(_)
+        | ArenaExprKind::Duration(_)
+        | ArenaExprKind::Str(_)
+        | ArenaExprKind::PathStr(_)
+        | ArenaExprKind::GlobStr(_)
+        | ArenaExprKind::FmtString(_)
+        | ArenaExprKind::PathFmtString(_)
+        | ArenaExprKind::Bytes(_)
+        | ArenaExprKind::Regex(_)
+        | ArenaExprKind::Ident(_)
+        | ArenaExprKind::Item
+        | ArenaExprKind::LastStatus
+        | ArenaExprKind::List(_)
+        | ArenaExprKind::ListComp { .. }
+        | ArenaExprKind::MapComp { .. }
+        | ArenaExprKind::Set(_)
+        | ArenaExprKind::SetComp { .. }
+        | ArenaExprKind::Record(_)
+        | ArenaExprKind::If { .. }
+        | ArenaExprKind::Match { .. }
+        | ArenaExprKind::EnvString(_)
+        | ArenaExprKind::EnvPathList
+        | ArenaExprKind::Run(_)
+        | ArenaExprKind::Capture(_)
+        | ArenaExprKind::Collect { .. }
+        | ArenaExprKind::Loop { .. }
+        | ArenaExprKind::Retry { .. }
+        | ArenaExprKind::ValueBlock(_)
+        | ArenaExprKind::ErrorContext { .. }
+        | ArenaExprKind::ContextScope { .. }
+        | ArenaExprKind::TempDirScope { .. }
+        | ArenaExprKind::ResourceScope { .. } => PRIMARY,
         ArenaExprKind::Call { .. }
         | ArenaExprKind::Field { .. }
         | ArenaExprKind::NullSafeField { .. }
@@ -339,7 +378,6 @@ fn binding_power(kind: &ArenaExprKind) -> u8 {
         | ArenaExprKind::Try(_)
         | ArenaExprKind::Require { .. }
         | ArenaExprKind::BuilderCall { .. } => POSTFIX,
-        _ => PRIMARY,
     }
 }
 
@@ -453,7 +491,45 @@ fn reads_inline(arena: &AstArena, expr: ExprId) -> bool {
             | ArenaExprKind::Slice { base, .. } => base,
             ArenaExprKind::Call { callee, .. } => callee,
             ArenaExprKind::Try(inner) => inner,
-            _ => return true,
+            ArenaExprKind::Null
+            | ArenaExprKind::Bool(_)
+            | ArenaExprKind::Int(_)
+            | ArenaExprKind::Float(_)
+            | ArenaExprKind::Duration(_)
+            | ArenaExprKind::Str(_)
+            | ArenaExprKind::PathStr(_)
+            | ArenaExprKind::GlobStr(_)
+            | ArenaExprKind::FmtString(_)
+            | ArenaExprKind::PathFmtString(_)
+            | ArenaExprKind::Bytes(_)
+            | ArenaExprKind::Regex(_)
+            | ArenaExprKind::Ident(_)
+            | ArenaExprKind::Item
+            | ArenaExprKind::LastStatus
+            | ArenaExprKind::List(_)
+            | ArenaExprKind::ListComp { .. }
+            | ArenaExprKind::If { .. }
+            | ArenaExprKind::Match { .. }
+            | ArenaExprKind::PatternTest { .. }
+            | ArenaExprKind::PatternCondition { .. }
+            | ArenaExprKind::Unary { .. }
+            | ArenaExprKind::ComparisonChain(_)
+            | ArenaExprKind::EnvString(_)
+            | ArenaExprKind::EnvPathList
+            | ArenaExprKind::Run(_)
+            | ArenaExprKind::Spawn(_)
+            | ArenaExprKind::Wait(_)
+            | ArenaExprKind::BuilderCall { .. }
+            | ArenaExprKind::Require { .. }
+            | ArenaExprKind::Convert { .. }
+            | ArenaExprKind::Capture(_)
+            | ArenaExprKind::Collect { .. }
+            | ArenaExprKind::Loop { .. }
+            | ArenaExprKind::Retry { .. }
+            | ArenaExprKind::ErrorContext { .. }
+            | ArenaExprKind::ContextScope { .. }
+            | ArenaExprKind::TempDirScope { .. }
+            | ArenaExprKind::ResourceScope { .. } => return true,
         };
     }
 }
@@ -729,8 +805,11 @@ pub fn needs_parens(arena: &AstArena, source: &str, expr: ExprId, context: Conte
                     .is_some_and(|run| run_takes_null_safe_chain(arena, source, run, follow))
         }
         // `. in x` reads as the field `.in`.
-        // A type pattern takes in an adjacent `.`, `[`, `(`, or `?`.
-        ArenaExprKind::PatternTest { .. } => follow.is_suffix(),
+        // A type pattern takes in an adjacent `.`, `[`, `(`, or `?`; `..`
+        // starts the enclosing slice range instead.
+        ArenaExprKind::PatternTest { .. } => {
+            follow.is_suffix() && follow.token != FollowToken::DotDot
+        }
         // So does the type a conversion names.
         ArenaExprKind::Convert { .. } => follow.is_suffix(),
         ArenaExprKind::Item => {
@@ -881,7 +960,56 @@ fn lead_needs_parens(arena: &AstArena, kind: &ArenaExprKind, lead: Lead, context
             ),
             _ => context.follow.token == FollowToken::End,
         },
-        _ => false,
+        ArenaExprKind::Null
+        | ArenaExprKind::Bool(_)
+        | ArenaExprKind::Int(_)
+        | ArenaExprKind::Float(_)
+        | ArenaExprKind::Duration(_)
+        | ArenaExprKind::Str(_)
+        | ArenaExprKind::PathStr(_)
+        | ArenaExprKind::GlobStr(_)
+        | ArenaExprKind::FmtString(_)
+        | ArenaExprKind::PathFmtString(_)
+        | ArenaExprKind::Bytes(_)
+        | ArenaExprKind::Regex(_)
+        | ArenaExprKind::Item
+        | ArenaExprKind::LastStatus
+        | ArenaExprKind::List(_)
+        | ArenaExprKind::ListComp { .. }
+        | ArenaExprKind::MapComp { .. }
+        | ArenaExprKind::Record(_)
+        | ArenaExprKind::Set(_)
+        | ArenaExprKind::SetComp { .. }
+        | ArenaExprKind::PatternTest { .. }
+        | ArenaExprKind::PatternCondition { .. }
+        | ArenaExprKind::Unary { .. }
+        | ArenaExprKind::ComparisonChain(_)
+        | ArenaExprKind::Binary { .. }
+        | ArenaExprKind::Call { .. }
+        | ArenaExprKind::ValuePipelineCall { .. }
+        | ArenaExprKind::NullSafeField { .. }
+        | ArenaExprKind::Index { .. }
+        | ArenaExprKind::Slice { .. }
+        | ArenaExprKind::EnvString(_)
+        | ArenaExprKind::EnvPathList
+        | ArenaExprKind::Pipeline { .. }
+        | ArenaExprKind::StructuredPipeline { .. }
+        | ArenaExprKind::Spawn(_)
+        | ArenaExprKind::Wait(_)
+        | ArenaExprKind::BuilderCall { .. }
+        | ArenaExprKind::Try(_)
+        | ArenaExprKind::Capture(_)
+        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::Convert { .. }
+        | ArenaExprKind::Collect { .. }
+        | ArenaExprKind::Retry { .. }
+        | ArenaExprKind::ValueBlock(_)
+        | ArenaExprKind::ErrorContext { .. }
+        | ArenaExprKind::ContextScope { .. }
+        | ArenaExprKind::TempDirScope { .. }
+        | ArenaExprKind::ResourceScope { .. }
+        | ArenaExprKind::Field { .. }
+        | ArenaExprKind::Ident(_) => false,
     }
 }
 
@@ -1025,8 +1153,31 @@ pub fn child_context(arena: &AstArena, parent: ExprId, context: Context, child: 
             Slot::PipelineInput { structured: true },
             Follow::spaced(FollowToken::PipeGt),
         ),
-        // Each ordering pair is written as an operand pair of the chain.
-        ArenaExprKind::ComparisonChain(_) => context,
+        // The shared descent exposes each source operand once, so derive its
+        // context from the comparison pair that writes it.
+        ArenaExprKind::ComparisonChain(pairs) => {
+            let pair_count = arena.expr_ids(pairs).count();
+            for (index, pair) in arena.expr_ids(pairs).enumerate() {
+                let ArenaExprKind::Binary { op, left: first, right } = arena.expr(pair).kind else {
+                    unreachable!("comparison chain pairs are binary expressions")
+                };
+                if index == 0 && first == child {
+                    return left(
+                        Slot::Left(op),
+                        Follow::spaced(FollowToken::Operator),
+                    );
+                }
+                if right == child {
+                    let mut operand =
+                        inherit(Slot::Right(op), binary_right_operand_precedence(op));
+                    if index + 1 < pair_count {
+                        operand.follow = Follow::spaced(FollowToken::Operator);
+                    }
+                    return operand;
+                }
+            }
+            context
+        }
         ArenaExprKind::ValuePipelineCall { .. } => inherit(Slot::Open, 0),
         ArenaExprKind::If { .. } | ArenaExprKind::Match { .. }
             if is_condition(arena, parent, child) =>
@@ -1067,7 +1218,42 @@ pub fn child_context(arena: &AstArena, parent: ExprId, context: Context, child: 
                 Follow::END
             })
         }
-        _ => open(Follow::CLOSE),
+        // These children have no grouping-specific syntactic context.
+        ArenaExprKind::Null
+        | ArenaExprKind::Bool(_)
+        | ArenaExprKind::Int(_)
+        | ArenaExprKind::Float(_)
+        | ArenaExprKind::Duration(_)
+        | ArenaExprKind::Str(_)
+        | ArenaExprKind::PathStr(_)
+        | ArenaExprKind::GlobStr(_)
+        | ArenaExprKind::Bytes(_)
+        | ArenaExprKind::Regex(_)
+        | ArenaExprKind::Ident(_)
+        | ArenaExprKind::Item
+        | ArenaExprKind::LastStatus
+        | ArenaExprKind::List(_)
+        | ArenaExprKind::ListComp { .. }
+        | ArenaExprKind::MapComp { .. }
+        | ArenaExprKind::SetComp { .. }
+        | ArenaExprKind::Record(_)
+        | ArenaExprKind::If { .. }
+        | ArenaExprKind::Match { .. }
+        | ArenaExprKind::Call { .. }
+        | ArenaExprKind::Field { .. }
+        | ArenaExprKind::Index { .. }
+        | ArenaExprKind::Slice { .. }
+        | ArenaExprKind::EnvString(_)
+        | ArenaExprKind::EnvPathList
+        | ArenaExprKind::Pipeline { .. }
+        | ArenaExprKind::StructuredPipeline { .. }
+        | ArenaExprKind::Run(_)
+        | ArenaExprKind::Capture(_)
+        | ArenaExprKind::Collect { .. }
+        | ArenaExprKind::Loop { .. }
+        | ArenaExprKind::Retry { .. }
+        | ArenaExprKind::ValueBlock(_)
+        | ArenaExprKind::ContextScope { .. } => open(Follow::CLOSE),
     }
 }
 
@@ -1116,140 +1302,121 @@ fn for_each_operand(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(Expr
             }
         }
         ArenaExprKind::Wait(form) => visit(form.target),
-        _ => {}
+        ArenaExprKind::Null
+        | ArenaExprKind::Bool(_)
+        | ArenaExprKind::Int(_)
+        | ArenaExprKind::Float(_)
+        | ArenaExprKind::Duration(_)
+        | ArenaExprKind::Str(_)
+        | ArenaExprKind::PathStr(_)
+        | ArenaExprKind::GlobStr(_)
+        | ArenaExprKind::FmtString(_)
+        | ArenaExprKind::PathFmtString(_)
+        | ArenaExprKind::Bytes(_)
+        | ArenaExprKind::Regex(_)
+        | ArenaExprKind::Ident(_)
+        | ArenaExprKind::Item
+        | ArenaExprKind::LastStatus
+        | ArenaExprKind::List(_)
+        | ArenaExprKind::ListComp { .. }
+        | ArenaExprKind::MapComp { .. }
+        | ArenaExprKind::Set(_)
+        | ArenaExprKind::SetComp { .. }
+        | ArenaExprKind::Record(_)
+        | ArenaExprKind::If { .. }
+        | ArenaExprKind::Match { .. }
+        | ArenaExprKind::PatternCondition { .. }
+        | ArenaExprKind::EnvString(_)
+        | ArenaExprKind::EnvPathList
+        | ArenaExprKind::Run(_)
+        | ArenaExprKind::Capture(_)
+        | ArenaExprKind::Collect { .. }
+        | ArenaExprKind::Loop { .. }
+        | ArenaExprKind::Retry { .. }
+        | ArenaExprKind::ValueBlock(_)
+        | ArenaExprKind::ErrorContext { .. }
+        | ArenaExprKind::ContextScope { .. }
+        | ArenaExprKind::TempDirScope { .. }
+        | ArenaExprKind::ResourceScope { .. } => {}
     }
 }
 
 /// Every expression child of `parent`.
 pub fn for_each_child(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(ExprId)) {
-    use crate::syntax::arena::{ArenaCallArgKind, ArenaFmtPart};
     match arena.expr(parent).kind {
-        ArenaExprKind::Binary { left, right, .. } => {
-            visit(left);
-            visit(right);
-        }
-        ArenaExprKind::ComparisonChain(pairs) => arena.expr_ids(pairs).for_each(visit),
+        // These match-shaped forms keep their written value; their arms are
+        // not expression children in the source.
         ArenaExprKind::PatternTest { value, .. }
         | ArenaExprKind::PatternCondition { value, .. } => visit(value),
-        ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => visit(expr),
         // `.name` on the item is one token pair, not a receiver and suffix.
         ArenaExprKind::Field { base, .. }
             if matches!(arena.expr(base).kind, ArenaExprKind::Item) => {}
-        ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => {
-            visit(base)
-        }
-        ArenaExprKind::Require { value, .. } | ArenaExprKind::Convert { value, .. } => visit(value),
-        ArenaExprKind::Index { base, index, .. } => {
-            visit(base);
-            visit(index);
-        }
-        ArenaExprKind::Slice {
-            base, start, end, ..
-        } => {
-            visit(base);
-            start.into_iter().chain(end).for_each(visit);
-        }
-        ArenaExprKind::Call { callee, args } => {
-            visit(callee);
-            for arg in arena.call_args(args) {
-                match arg.kind {
-                    ArenaCallArgKind::Positional(value)
-                    | ArenaCallArgKind::NamedSpread { value, .. }
-                    | ArenaCallArgKind::Splice { value, .. } => visit(value),
-                    ArenaCallArgKind::Named { value, .. } => visit(value),
-                }
-            }
-        }
-        ArenaExprKind::ValuePipelineCall { input, call, .. } => {
-            visit(input);
-            visit(call);
-        }
+        // Stream stages establish their own expression contexts.
         ArenaExprKind::Pipeline { input, .. } | ArenaExprKind::StructuredPipeline { input, .. } => {
             visit(input)
         }
+        // Only a command target is an expression held by spawn.
         ArenaExprKind::Spawn(form) => {
             if let ArenaSpawnTarget::Command(target) = form.target {
                 visit(target)
             }
         }
-        ArenaExprKind::Wait(form) => visit(form.target),
-        ArenaExprKind::BuilderCall { call, .. } => visit(call),
-        ArenaExprKind::List(items) => arena
-            .list_elements(items)
-            .for_each(|item| visit(item.value)),
-        ArenaExprKind::Set(items) => arena
-            .list_elements(items)
-            .for_each(|item| visit(item.value)),
-        ArenaExprKind::ListComp { expr, qualifiers }
-        | ArenaExprKind::SetComp { expr, qualifiers } => {
-            visit(expr);
-            arena
-                .comp_qualifiers(qualifiers)
-                .iter()
-                .for_each(|q| visit(q.expr()));
-        }
-        ArenaExprKind::MapComp {
-            key,
-            value,
-            qualifiers,
-        } => {
-            visit(key);
-            visit(value);
-            arena
-                .comp_qualifiers(qualifiers)
-                .iter()
-                .for_each(|q| visit(q.expr()));
-        }
-        ArenaExprKind::Record(fields) => {
-            for field in arena.record_fields(fields) {
-                match field.kind {
-                    ArenaRecordFieldKind::Computed { key, value, .. } => {
-                        visit(key);
-                        visit(value);
-                    }
-                    ArenaRecordFieldKind::Path { value, .. }
-                    | ArenaRecordFieldKind::Named { value, .. } => visit(value),
-                    ArenaRecordFieldKind::Spread { expr, .. } => visit(expr),
-                    ArenaRecordFieldKind::Shorthand { .. } => {}
+        // Command words are parsed at the run boundary, outside grouping's expression walk.
+        ArenaExprKind::Run(_) => {}
+        ArenaExprKind::Null
+        | ArenaExprKind::Bool(_)
+        | ArenaExprKind::Int(_)
+        | ArenaExprKind::Float(_)
+        | ArenaExprKind::Duration(_)
+        | ArenaExprKind::Str(_)
+        | ArenaExprKind::PathStr(_)
+        | ArenaExprKind::GlobStr(_)
+        | ArenaExprKind::FmtString(_)
+        | ArenaExprKind::PathFmtString(_)
+        | ArenaExprKind::Bytes(_)
+        | ArenaExprKind::Regex(_)
+        | ArenaExprKind::Ident(_)
+        | ArenaExprKind::Item
+        | ArenaExprKind::LastStatus
+        | ArenaExprKind::List(_)
+        | ArenaExprKind::ListComp { .. }
+        | ArenaExprKind::MapComp { .. }
+        | ArenaExprKind::Set(_)
+        | ArenaExprKind::SetComp { .. }
+        | ArenaExprKind::Record(_)
+        | ArenaExprKind::If { .. }
+        | ArenaExprKind::Match { .. }
+        | ArenaExprKind::Unary { .. }
+        | ArenaExprKind::ComparisonChain(_)
+        | ArenaExprKind::Binary { .. }
+        | ArenaExprKind::Call { .. }
+        | ArenaExprKind::ValuePipelineCall { .. }
+        | ArenaExprKind::Field { .. }
+        | ArenaExprKind::NullSafeField { .. }
+        | ArenaExprKind::Index { .. }
+        | ArenaExprKind::Slice { .. }
+        | ArenaExprKind::EnvString(_)
+        | ArenaExprKind::EnvPathList
+        | ArenaExprKind::Wait(_)
+        | ArenaExprKind::BuilderCall { .. }
+        | ArenaExprKind::Try(_)
+        | ArenaExprKind::Capture(_)
+        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::Convert { .. }
+        | ArenaExprKind::Collect { .. }
+        | ArenaExprKind::Loop { .. }
+        | ArenaExprKind::Retry { .. }
+        | ArenaExprKind::ValueBlock(_)
+        | ArenaExprKind::ErrorContext { .. }
+        | ArenaExprKind::ContextScope { .. }
+        | ArenaExprKind::TempDirScope { .. }
+        | ArenaExprKind::ResourceScope { .. } => {
+            arena.for_each_expr_child(parent, |child| {
+                if let crate::syntax::arena::ArenaChild::Expr(child) = child {
+                    visit(child);
                 }
-            }
-        }
-        ArenaExprKind::If {
-            branches,
-            else_value,
-        } => {
-            arena.if_expr_branches(branches).iter().for_each(|branch| {
-                visit(branch.condition);
-                visit(branch.value);
             });
-            visit(else_value);
         }
-        ArenaExprKind::Match { value, arms } => {
-            visit(value);
-            for arm in arena.match_expr_arms(arms) {
-                arm.guard.into_iter().for_each(&mut visit);
-                visit(arm.value);
-            }
-        }
-        ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
-            for part in arena.fmt_parts(parts) {
-                if let ArenaFmtPart::Expr(expr, _) = part {
-                    visit(expr)
-                }
-            }
-        }
-        ArenaExprKind::ErrorContext { message, .. } => visit(message),
-        ArenaExprKind::ContextScope { input, .. } => visit(input),
-        ArenaExprKind::TempDirScope {
-            path: Some(path), ..
-        } => visit(path),
-        ArenaExprKind::Retry { delays, .. } => arena.expr_ids(delays).for_each(visit),
-        ArenaExprKind::ResourceScope { bindings, .. } => {
-            for binding in arena.with_bindings(bindings) {
-                visit(binding.initializer);
-            }
-        }
-        _ => {}
     }
 }
 
@@ -1283,17 +1450,26 @@ pub fn statement_may_continue(kind: &ArenaStmtKind) -> bool {
 /// `check.redundant-parens`, `check.mixed-logical`, and
 /// `check.ambiguous-grouping` for the root source.
 pub fn grouping_diagnostics(program: &ArenaProgram, source: &str) -> Vec<Diagnostic> {
+    grouping_diagnostics_in_range(program, program.statements, source)
+}
+
+/// Check parenthesized spelling only in one root range of a shared arena.
+pub fn grouping_diagnostics_in_range(
+    program: &ArenaProgram,
+    root_statements: ArenaRange,
+    source: &str,
+) -> Vec<Diagnostic> {
     let arena = &program.arena;
-    let Some(source_id) = program
-        .statement_ids()
+    let Some(source_id) = arena
+        .stmt_ids(root_statements)
         .next()
         .map(|id| arena.stmt(id).span.source_id)
     else {
         return Vec::new();
     };
     // Only a check that holds the root source text can judge its spelling.
-    if program
-        .statement_ids()
+    if arena
+        .stmt_ids(root_statements)
         .any(|id| source.get(arena.stmt(id).span.range()).is_none())
     {
         return Vec::new();

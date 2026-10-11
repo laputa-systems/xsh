@@ -1,4 +1,4 @@
-#![allow(clippy::single_call_fn, dead_code)]
+#![allow(clippy::single_call_fn)]
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum TableAlign {

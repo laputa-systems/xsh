@@ -1,28 +1,39 @@
 use rustc_hash::FxHashMap;
 use std::collections::BTreeMap;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label, Severity};
-use xsh::frontend::check::{Checker, LiteralConstant, Type};
+use xsh::frontend::check::{CheckBundleView, LiteralConstant, RecordConstructors, Type};
 use xsh::frontend::syntax::arena::{
-    ArenaBindingTargetKind, ArenaCallArgKind, ArenaExprKind, ArenaExprOrRun, ArenaProgram,
+    ArenaBindingTargetKind, ArenaCallArgKind, ArenaExprKind, ArenaExprOrRun,
     ArenaRecordFieldKind, ArenaStmtKind,
 };
-use xsh::frontend::syntax::parser::Parser;
 
 /// Only defaulted options can preserve the explicit schema's complete argv
 /// policy: ordinary positional descriptors also accept their long spelling.
 /// Exact generated help and an initializer-free entry keep preflight observable
 /// output and timing unchanged.
-pub(super) fn signature_cli_migration(program: &ArenaProgram, source: &str) -> Vec<Diagnostic> {
+pub(super) fn signature_cli_migration(
+    view: &CheckBundleView<'_>,
+    source: &str,
+    check_original: Option<std::sync::Arc<xsh::frontend::check::CheckOutput>>,
+) -> Vec<Diagnostic> {
+    let program = view.program();
     program
         .symbol_owner()
-        .with_current(|| signature_cli_migration_inner(program, source))
+        .with_current(|| signature_cli_migration_inner(view, source, check_original))
 }
 
-fn signature_cli_migration_inner(program: &ArenaProgram, source: &str) -> Vec<Diagnostic> {
-    if !program.modules.is_empty() || program.module_doc_for(program.statements).is_some() {
+fn signature_cli_migration_inner(
+    view: &CheckBundleView<'_>,
+    source: &str,
+    check_original: Option<std::sync::Arc<xsh::frontend::check::CheckOutput>>,
+) -> Vec<Diagnostic> {
+    let program = view.program();
+    if view.modules().next().is_some()
+        || program.module_doc_for(view.root_statements()).is_some()
+    {
         return Vec::new();
     }
-    let roots = program.statement_ids().collect::<Vec<_>>();
+    let roots = view.statement_ids().collect::<Vec<_>>();
     if !roots.iter().all(|id| {
         matches!(
             program.arena.stmt(*id).kind,
@@ -35,7 +46,10 @@ fn signature_cli_migration_inner(program: &ArenaProgram, source: &str) -> Vec<Di
         return Vec::new();
     }
     let arena = &program.arena;
-    let constructors = xsh::frontend::check::RecordConstructors::collect(program);
+    let constructors = RecordConstructors::collect_view(view);
+    let Some(before) = check_original else {
+        return Vec::new();
+    };
     let mut diagnostics = Vec::new();
     for statement in roots {
         let declaration = arena.stmt(statement);
@@ -226,12 +240,17 @@ fn signature_cli_migration_inner(program: &ArenaProgram, source: &str) -> Vec<Di
         } else {
             let mut candidate = source.to_string();
             candidate.replace_range(declaration.span.range(), &replacement);
-            let parsed = Parser::parse_source_arena_only(declaration.span.source_id, &candidate);
-            if !parsed.diagnostics.is_empty() {
+            let snapshot = super::probes::LintProbeTransport::standalone(
+                declaration.span.source_id,
+                &candidate,
+                xsh::frontend::check::CheckOptions::default(),
+            );
+            if !snapshot.parse_diagnostics.is_empty() {
                 continue;
             }
-            let before = Checker::check_arena(program, source);
-            let after = Checker::check_arena(&parsed.arena, &candidate);
+            let Some(after) = snapshot.checked.as_ref() else {
+                continue;
+            };
             if !before.diagnostics.is_empty() || !after.diagnostics.is_empty() {
                 continue;
             }
@@ -260,10 +279,10 @@ fn signature_cli_migration_inner(program: &ArenaProgram, source: &str) -> Vec<Di
             let original_facts = program
                 .symbol_owner()
                 .with_current(|| facts(&before, old_prefix, delta));
-            let replacement_facts = parsed
-                .arena
+            let replacement_facts = snapshot
+                .program
                 .symbol_owner()
-                .with_current(|| facts(&after, new_prefix, 0));
+                .with_current(|| facts(after, new_prefix, 0));
             if original_facts != replacement_facts {
                 continue;
             }
@@ -305,10 +324,10 @@ fn signature_cli_migration_inner(program: &ArenaProgram, source: &str) -> Vec<Di
             if program
                 .symbol_owner()
                 .with_current(|| return_facts(&before))
-                != parsed
-                    .arena
+                != snapshot
+                    .program
                     .symbol_owner()
-                    .with_current(|| return_facts(&after))
+                    .with_current(|| return_facts(after))
             {
                 continue;
             }

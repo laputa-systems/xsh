@@ -36,6 +36,46 @@ pure describe(line: Str) -> Str {
   }
 }
 
+pure literal_statement_label(line: Str) -> Str {
+  match line {
+    "ready" => return "ready"
+    "queued" => return "queued"
+    else => return "other"
+  }
+}
+
+pure literal_statement_flow(items: List[Str]) -> List[Str] {
+  var seen = []
+  for item in items {
+    match item {
+      "skip" => continue
+      "stop" => { seen += [item]; break }
+      else => seen += [item]
+    }
+    seen += ["after"]
+  }
+  seen
+}
+
+proc propagated_text_match(input: Result[Str]) [error] -> Result[Str] {
+  var label = "unset"
+  match input? {
+    "ready" => label = "ready"
+    else => label = "other"
+  }
+  Ok(label)
+}
+
+test test_literal_statement_match_preserves_selection_and_loop_transfers { |ctx|
+  assert literal_statement_label("ready") == "ready"
+  assert literal_statement_label("other") == "other"
+  assert literal_statement_flow(["skip", "seen", "stop", "late"]) == ["seen", "after", "stop"]
+  assert propagated_text_match(Ok("ready")) == Ok("ready")
+  let root = test.temp_dir(ctx, name: "match-scrutinee")?
+  let missing = fp"{root}/missing".read_text()
+  assert propagated_text_match(missing) is Err(_)
+}
+
 test test_text_pattern_binds_each_hole_to_the_shortest_text {
   assert setting("a=b=c") == {key: "a", value: "b=c"}
   assert setting("PATH=/bin:/usr/bin") == {key: "PATH", value: "/bin:/usr/bin"}

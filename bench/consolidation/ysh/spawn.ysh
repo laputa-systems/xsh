@@ -1,0 +1,13 @@
+shopt --set errexit pipefail
+
+if (len(ARGV) !== 1) {
+  error 'expected one absolute fixture root' (code=2)
+}
+var root = ARGV[0]
+if (not root.startsWith('/')) {
+  error 'fixture root must be absolute' (code=2)
+}
+
+for i in (0 ..< 128) {
+  /usr/bin/printf 'probe %s\n' $i
+}

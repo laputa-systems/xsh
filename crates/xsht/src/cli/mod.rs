@@ -1,4 +1,4 @@
-#![allow(dead_code, unused_imports)]
+#![allow(unused_imports)]
 
 use crate::xsht::trace::SyscallSummary;
 use xsh::execution::script::ScriptOutput;
@@ -14,20 +14,9 @@ pub struct CliOutput {
     /// Rendered trace output (XSH trace + syscall summary). Empty when no trace was requested
     /// or when a trace_file was specified.
     pub trace_text: String,
-    /// Structured syscall summary, populated by the ptrace supervisor.
+    /// Structured syscall summary returned to callers that need per-syscall counts.
+    #[allow(dead_code)]
     pub syscall_summary: Option<SyscallSummary>,
-}
-
-impl CliOutput {
-    pub fn success() -> Self {
-        Self {
-            status: 0,
-            stdout: Vec::new(),
-            stderr: Vec::new(),
-            trace_text: String::new(),
-            syscall_summary: None,
-        }
-    }
 }
 
 impl From<ScriptOutput> for CliOutput {
@@ -116,8 +105,7 @@ pub(crate) const FRONTEND_WORKER_STACK_BYTES: usize = 16 * 1024 * 1024;
 
 pub use api::api_command;
 pub use check::{
-    AnnotationPolicy, AnnotationSelection, check_paths_timed, check_paths_with_options,
-    check_paths_with_summary_options, check_script, check_script_with_options,
+    AnnotationPolicy, AnnotationSelection, check_paths_timed,
 };
 pub use coverage::CoverageCollector;
 pub use desugar::desugar_script;

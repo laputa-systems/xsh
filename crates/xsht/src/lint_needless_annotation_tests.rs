@@ -11,12 +11,46 @@ fn lint(source: &str) -> Vec<Diagnostic> {
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let checked_output = std::sync::Arc::new(checked.clone());
     let options = LintOptions {
+        checked_output: Some(checked_output),
         expr_types: checked.expr_types,
         only: Some(vec![DiagnosticCode::LintNeedlessAnnotation]),
         ..LintOptions::default()
     };
     Linter::lint(&parsed.arena, source, options).diagnostics
+}
+
+#[test]
+fn syntax_findings_remain_when_checked_proof_facts_are_absent() {
+    let source = "proc greet(name: Str = \"world\") {\n  return\n  print $name\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let output = Linter::lint(
+        &parsed.arena,
+        source,
+        LintOptions {
+            only: Some(vec![
+                DiagnosticCode::LintNeedlessAnnotation,
+                DiagnosticCode::LintDeadCode,
+            ]),
+            ..LintOptions::default()
+        },
+    );
+    assert!(
+        output.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == Some(DiagnosticCode::LintDeadCode)
+        }),
+        "the syntax-only finding does not need checker facts: {:?}",
+        output.diagnostics
+    );
+    assert!(
+        !output.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == Some(DiagnosticCode::LintNeedlessAnnotation)
+        }),
+        "removal proof requires the caller's checked baseline: {:?}",
+        output.diagnostics
+    );
 }
 
 fn flagged(source: &str) -> Vec<String> {

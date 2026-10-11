@@ -1,0 +1,39 @@
+shopt --set errexit pipefail
+
+if (len(ARGV) !== 1) {
+  error 'expected one absolute fixture root' (code=2)
+}
+var root = ARGV[0]
+if (not root.startsWith('/')) {
+  error 'fixture root must be absolute' (code=2)
+}
+
+var records, replacement, addition
+json read (&records) < "$root/index.json"
+json read (&replacement) < "$root/replacement.json"
+json read (&addition) < "$root/addition.json"
+
+# Buckets retain every duplicate record, including every replaced occurrence.
+var by_name = {}
+for record in (records) {
+  var selected = record
+  if (record.name === replacement.name) {
+    setvar selected = replacement
+  }
+  if (not (selected.name in by_name)) {
+    setvar by_name[selected.name] = []
+  }
+  var bucket = by_name[selected.name]
+  call bucket->append({name: selected.name, version: selected.version})
+}
+if (addition.name in by_name) {
+  error 'addition name must be unique' (name=addition.name)
+}
+setvar by_name[addition.name] = [{name: addition.name, version: addition.version}]
+
+# Only restricted ASCII fixture names cross the line-oriented sort boundary.
+var result = []
+write -- @[keys(by_name)] | LC_ALL=C /usr/bin/sort | for name in (io.stdin) {
+  call result->extend(by_name[name])
+}
+json write (result, space=0)

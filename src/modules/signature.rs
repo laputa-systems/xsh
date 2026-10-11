@@ -186,9 +186,10 @@ impl ApiSpec {
             .map(|sig| sig.op)
     }
 
-    pub fn module_required_effect(&self, module: &str, name: &str) -> Option<Effect> {
+    pub fn module_required_effects(&self, module: &str, name: &str) -> &'static [Effect] {
         self.module_overloads(module, name)
-            .and_then(|overloads| overloads.iter().find_map(|sig| sig.effect.clone()))
+            .and_then(|overloads| overloads.first())
+            .map_or(&[], |sig| sig.effects)
     }
 
     pub fn method_overloads(&self, receiver: MethodReceiver, name: &str) -> Option<&[MethodSig]> {
@@ -256,9 +257,9 @@ pub struct ModuleFnSig {
     /// entries keep their `op` dispatch; `Script` entries resolve to the named
     /// embedded implementation function at preparation time.
     pub binding: ImplBinding,
-    /// Host capability inferred while adapting the canonical module or method
+    /// Host capabilities inferred while adapting the canonical module or method
     /// signature. The checker and `xsht api` consume the same value.
-    pub effect: Option<Effect>,
+    pub effects: &'static [Effect],
     /// The call's value may be dropped in statement position once its
     /// failure is propagated. Copied from the canonical signature; the
     /// checker's ignored-value rule is its only consumer.
@@ -344,7 +345,7 @@ fn convert_module_fn_sig(module: &str, function: &str, sig: &registry::ModuleFnS
         semantic_rule: sig.semantic_rule,
         op: sig.op,
         binding: sig.binding,
-        effect: Effect::from_module_call(module, function),
+        effects: Effect::from_module_call(module, function),
         discardable: sig.discardable,
     }
 }
@@ -394,7 +395,7 @@ fn convert_method_sig(receiver: MethodReceiver, sig: &registry::MethodSig) -> Me
             semantic_rule: sig.sig.semantic_rule,
             op: sig.sig.op,
             binding: sig.sig.binding,
-            effect: method_required_effect(receiver, sig.sig.pure),
+            effects: method_required_effects(receiver, sig.sig.pure),
             discardable: sig.sig.discardable,
         },
         receiver_ty: sig.receiver_ty.as_ref().map(convert_type),
@@ -463,6 +464,7 @@ pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
         xsh_registry::types::Type::ProcessHandle => Type::ProcessHandle,
         xsh_registry::types::Type::NetJob => Type::NetJob,
         xsh_registry::types::Type::FsRoot => Type::FsRoot,
+        xsh_registry::types::Type::FsLock => Type::FsLock,
         xsh_registry::types::Type::Unit => Type::Unit,
         xsh_registry::types::Type::Optional(inner) => Type::Optional(Box::new(convert_type(inner))),
         xsh_registry::types::Type::Union(members) => {
@@ -479,16 +481,16 @@ pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
 /// A Path method that is not pure reaches the filesystem; that is the only
 /// way a Path method is impure. Deriving the effect from the registry's
 /// purity flag means a new filesystem method cannot be registered without it.
-fn method_required_effect(receiver: MethodReceiver, pure: bool) -> Option<Effect> {
+fn method_required_effects(receiver: MethodReceiver, pure: bool) -> &'static [Effect] {
     match receiver {
-        MethodReceiver::Path => (!pure).then_some(Effect::Fs),
+        MethodReceiver::Path if !pure => &[Effect::Fs],
         // The scoped `PATH` view is environment state: every method reads or
         // assigns it, and a view handed to another proc still does.
-        MethodReceiver::EnvPathList => Some(Effect::Env),
-        MethodReceiver::ProcessHandle => Some(Effect::Process),
-        MethodReceiver::NetJob => Some(Effect::Net),
-        MethodReceiver::FsRoot => Some(Effect::Fs),
-        _ => None,
+        MethodReceiver::EnvPathList => &[Effect::Env],
+        MethodReceiver::ProcessHandle => &[Effect::Process],
+        MethodReceiver::NetJob => &[Effect::Net],
+        MethodReceiver::FsRoot => &[Effect::Fs],
+        _ => &[],
     }
 }
 
@@ -532,7 +534,7 @@ mod tests {
                 {
                     assert_module_overload_matches_registry(main_overload, registry_overload);
                     assert_eq!(
-                        main_overload.effect,
+                        main_overload.effects,
                         crate::syntax::node::Effect::from_module_call(
                             main_module.name,
                             main_function.name,
@@ -559,8 +561,8 @@ mod tests {
                         &registry_overload.sig,
                     );
                     assert_eq!(
-                        main_overload.sig.effect,
-                        super::method_required_effect(
+                        main_overload.sig.effects,
+                        super::method_required_effects(
                             main_receiver.receiver,
                             main_overload.sig.pure,
                         )
@@ -620,14 +622,14 @@ mod tests {
             for method in &receiver.methods {
                 for overload in &method.overloads {
                     let label = format!("{:?}.{}", receiver.receiver, method.name);
-                    let Some(effect) = overload.sig.effect.clone() else {
+                    if overload.sig.effects.is_empty() {
                         // An impure method with no effect could run anywhere
                         // a proc can, unseen by every effect clause.
                         if !overload.sig.pure {
                             undeclared.push(label);
                         }
                         continue;
-                    };
+                    }
                     let receiver_ty =
                         overload
                             .receiver_ty
@@ -670,27 +672,29 @@ mod tests {
                     let every = Effect::ALL.iter().map(Effect::as_str).collect::<Vec<_>>();
                     let allowed = check(&probe(every.clone()));
                     assert!(allowed.is_empty(), "{label}: {allowed:?}");
-                    // Every effect that does not grant the required one;
-                    // `io` grants several, so the rule is asked, not assumed.
-                    let without = Effect::ALL
-                        .iter()
-                        .filter(|other| !Checker::effects_covers(&[(*other).clone()], &effect))
-                        .map(Effect::as_str)
-                        .collect();
-                    let denied = check(&probe(without));
-                    let demanded = denied.iter().any(|diagnostic| {
-                        diagnostic.code == Some(DiagnosticCode::CheckEffectViolation)
-                            && diagnostic
-                                .labels
-                                .iter()
-                                .filter_map(|label| label.message.as_deref())
-                                .chain([diagnostic.message.as_str()])
-                                .any(|text| text.contains(&format!("`{}` effect", effect.as_str())))
-                    });
-                    if !demanded {
-                        unenforced.push(label);
+                    for effect in overload.sig.effects {
+                        // Every effect that does not grant the required one;
+                        // `io` grants several, so the rule is asked, not assumed.
+                        let without = Effect::ALL
+                            .iter()
+                            .filter(|other| !Checker::effects_covers(&[(*other).clone()], effect))
+                            .map(Effect::as_str)
+                            .collect();
+                        let denied = check(&probe(without));
+                        let demanded = denied.iter().any(|diagnostic| {
+                            diagnostic.code == Some(DiagnosticCode::CheckEffectViolation)
+                                && diagnostic
+                                    .labels
+                                    .iter()
+                                    .filter_map(|label| label.message.as_deref())
+                                    .chain([diagnostic.message.as_str()])
+                                    .any(|text| text.contains(&format!("`{}` effect", effect.as_str())))
+                        });
+                        if !demanded {
+                            unenforced.push(label.clone());
+                        }
+                        probed += 1;
                     }
-                    probed += 1;
                 }
             }
         }
@@ -705,10 +709,8 @@ mod tests {
         );
     }
 
-    // The checker rejects a positional argument of a labeled parameter where
-    // it binds the arguments of a method that has one overload and the
-    // standard argument check. Module functions use a separate checker path,
-    // so probe its required labels directly as well.
+    // Every required label must reach the checker path that enforces it. Probe
+    // module calls and methods, then retain the concrete capability call check.
     #[test]
     fn a_required_label_is_declared_only_where_the_checker_enforces_it() {
         use super::{ApiArgCheck, LabelRule, MethodReceiver, ModuleFnSig};
@@ -718,7 +720,7 @@ mod tests {
         use crate::syntax::node::Effect;
         use crate::syntax::parser::Parser;
 
-        let check = |source: &str| {
+        let check_source = |source: &str| {
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
             assert!(
                 parsed.diagnostics.is_empty(),
@@ -742,6 +744,11 @@ mod tests {
         for (module, sig) in api_spec().module_entries() {
             for function in &sig.functions {
                 for overload in &function.overloads {
+                    assert!(
+                        !requires(overload) || overload.arg_check == ApiArgCheck::Standard,
+                        "{module}.{} requires a label without standard argument binding",
+                        function.name
+                    );
                     let required = overload
                         .params
                         .iter()
@@ -780,13 +787,13 @@ mod tests {
                         )
                     };
 
-                    let accepted = check(&probe(&named_args));
+                    let accepted = check_source(&probe(&named_args));
                     assert!(
                         accepted.is_empty(),
                         "{module}.{} named labels: {accepted:?}",
                         function.name
                     );
-                    let rejected = check(&probe(&positional_args));
+                    let rejected = check_source(&probe(&positional_args));
                     let label_errors = rejected
                         .iter()
                         .filter(|diagnostic| {
@@ -840,5 +847,21 @@ mod tests {
             }
         }
         assert_eq!(required, 6);
+
+        let check_capability_arguments = |arguments: &str| {
+            let source = format!(
+                "proc probe() [process] {{ let _ = linux.set_capabilities({arguments}) }}"
+            );
+            check_source(&source)
+        };
+        let positional = check_capability_arguments("[], [], []");
+        assert!(
+            positional.iter().any(|diagnostic| {
+                diagnostic.code == Some(DiagnosticCode::CheckNamedArg)
+            }),
+            "required labels accepted positional arguments: {positional:?}"
+        );
+        let labeled = check_capability_arguments("effective: [], permitted: [], inheritable: []");
+        assert!(labeled.is_empty(), "labeled arguments rejected: {labeled:?}");
     }
 }

@@ -3,11 +3,17 @@
 //!
 //! Mutants only go through parsing, checking, and preparation: the frontend
 //! must reject them with ordinary diagnostics, never panic, hang, or report an
-//! internal error, and every diagnostic span must address the source.
+//! internal error, and every diagnostic span must address the source. Every
+//! mutant that parses without diagnostics must be a grammar sentence.
 
 use crate::harness::check_text;
 use crate::rng::Rng;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+use xsh::frontend::source::SourceId;
+use xsh::frontend::syntax::grammar::earley::Recognizer;
+use xsh::frontend::syntax::grammar::{grammar, grammar_tokens};
+use xsh::frontend::syntax::parser::Parser;
 
 /// Corpus directories, relative to the repository root. They are only read.
 pub const CORPUS_DIRS: &[&str] = &["tests", "core", "dev", "showcase", "examples"];
@@ -22,7 +28,7 @@ pub const MAX_CORPUS_BYTES: u64 = 32 << 10;
 pub const MUTANT_FILE: &str = "mutant.xsh";
 
 /// Every `.xsh` file of at most [`MAX_CORPUS_BYTES`] under the corpus
-/// directories of `root`, sorted.
+/// directories of `root`, sorted. Directory symlinks are not traversed.
 pub fn corpus_files(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     for dir in CORPUS_DIRS {
@@ -36,14 +42,17 @@ pub fn corpus_files(root: &Path) -> Vec<PathBuf> {
 }
 
 fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
+    if dir.symlink_metadata().is_ok_and(|metadata| metadata.is_symlink()) {
+        return;
+    }
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_dir() {
+        if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
             collect(&path, out);
-        } else if path.extension().is_some_and(|ext| ext == "xsh") {
+        } else if path.extension().is_some_and(|ext| ext == "xsh") && path.is_file() {
             out.push(path);
         }
     }
@@ -288,17 +297,35 @@ pub fn mutate(text: &str, rng: &mut Rng) -> String {
 /// Checks a mutant; `Err` describes a frontend defect.
 pub fn check_mutant(file: &str, text: &str) -> Result<bool, String> {
     let report = check_text(file, text);
-    match report.internal_error() {
-        Some(internal) => Err(internal),
-        None => Ok(report.accepted()),
+    if let Some(internal) = report.internal_error() {
+        return Err(internal);
     }
+    // Loading adds import diagnostics to the parse report. Parse separately
+    // so unresolved imports and checker errors cannot hide grammar drift.
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), text);
+    if parsed.diagnostics.is_empty() {
+        static RECOGNIZER: OnceLock<Recognizer> = OnceLock::new();
+        let recognizer = RECOGNIZER.get_or_init(|| Recognizer::new(grammar()));
+        let tokens = grammar_tokens(text, parsed.cst.token_table());
+        if let Err(rejection) = recognizer.recognize(&tokens) {
+            let near: Vec<&str> = tokens
+                [rejection.token.saturating_sub(4)..(rejection.token + 3).min(tokens.len())]
+                .iter()
+                .map(|token| token.text)
+                .collect();
+            return Err(format!(
+                "grammar rejected a cleanly parsed mutant near {near:?}; expected {}",
+                rejection.expected.join(" ")
+            ));
+        }
+    }
+    Ok(report.accepted())
 }
 
 /// Formatter and lint invariants for a program that checks clean: the
 /// formatter must accept it, its output must check clean, be a fixed point,
 /// and leave the lint codes unchanged.
 pub fn format_invariants(source: &str, scratch: &Path) -> Result<(), String> {
-    use xsh::frontend::source::SourceId;
     let formatter = xsht::format::Formatter::new();
     let first = formatter.format_source(SourceId::new(0), source);
     if !first.diagnostics.is_empty() {
@@ -374,4 +401,32 @@ pub fn lint_codes(source: &str, path: &Path) -> Result<Vec<String>, String> {
     }
     codes.sort();
     Ok(codes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::corpus_files;
+
+    // A real host symlink is needed to reproduce traversal through an
+    // ancestor, which a native source fixture cannot model in Rust's walker.
+    #[test]
+    fn corpus_files_skip_directory_symlinks_and_include_nested_sources() {
+        let root = tempfile::tempdir().expect("corpus directory");
+        let fixture = root.path().join("core/tests/data/grep/fx/dl/real");
+        std::fs::create_dir_all(&fixture).expect("create symlink fixture");
+        let core = fixture.join("source.xsh");
+        std::fs::write(&core, "let value = 1\n").expect("write source fixture");
+        std::os::unix::fs::symlink("..", fixture.join("up")).expect("create ancestor symlink");
+        std::os::unix::fs::symlink("core", root.path().join("examples"))
+            .expect("create corpus directory symlink");
+        let nested = root.path().join("dev/compat/smoke/source.xsh");
+        std::fs::create_dir_all(nested.parent().unwrap())
+            .expect("create nested development directory");
+        std::fs::write(&nested, "let value = 2\n").expect("write nested development fixture");
+        let dev = root.path().join("dev/tool.xsh");
+        std::fs::write(&dev, "let value = 3\n").expect("write development fixture");
+        let alias = root.path().join("dev/alias.xsh");
+        std::os::unix::fs::symlink("tool.xsh", &alias).expect("create source file symlink");
+        assert_eq!(corpus_files(root.path()), vec![core, alias, nested, dev]);
+    }
 }

@@ -7,12 +7,13 @@
 use super::lower::take_shared;
 use super::{
     LoweredReturnKind, LoweredStatsValue, LoweredStrPredicate, LoweredTagValue, LoweredType,
-    LoweredValue, add_error_context, bytes_contains, bytes_find, format_duration,
+    LoweredValue, add_error_context, bytes_contains, bytes_find,
     lowered_bytes_view_value, lowered_inline_stats_field_value, lowered_record_vec_get,
     lowered_stats_field_value, lowered_str_view_value, normalize_path_value, path_parent,
     path_posix_dirname, path_posix_extension, path_text_field, path_value_from_pathbuf,
     path_with_ext, pathbuf_from_path_value,
 };
+use super::type_view::ValueView;
 use crate::map_key::{MapKey, MapKeyRef};
 use crate::runtime::process::{ProcessStatus, ProcessStatusKind};
 use crate::runtime::value::{
@@ -1031,6 +1032,7 @@ pub(super) fn lowered_value_matches(kind: LoweredType, value: &LoweredValue) -> 
             | (LoweredType::ProcessHandle, LoweredValue::ProcessHandle(_))
             | (LoweredType::NetJob, LoweredValue::NetJob(_))
             | (LoweredType::FsRoot, LoweredValue::FsRoot(_))
+            | (LoweredType::FsLock, LoweredValue::FsLock(_))
             | (LoweredType::Stream, LoweredValue::Stream(_))
             | (LoweredType::Pure, LoweredValue::Pure(_))
             | (LoweredType::Proc, LoweredValue::Proc(_))
@@ -1069,6 +1071,7 @@ pub(super) fn lowered_type_name(kind: LoweredType) -> &'static str {
         LoweredType::ProcessHandle => "ProcessHandle",
         LoweredType::NetJob => "NetJob",
         LoweredType::FsRoot => "FsRoot",
+        LoweredType::FsLock => "FsLock",
         LoweredType::Stream => "Stream",
         LoweredType::Pure => "Pure",
         LoweredType::Proc => "Proc",
@@ -1117,6 +1120,7 @@ pub(super) fn lowered_value_from_runtime(value: &Value, kind: LoweredType) -> Op
         }
         (LoweredType::NetJob, Value::NetJob(value)) => Some(LoweredValue::NetJob(value.clone())),
         (LoweredType::FsRoot, Value::FsRoot(value)) => Some(LoweredValue::FsRoot(value.clone())),
+        (LoweredType::FsLock, Value::FsLock(value)) => Some(LoweredValue::FsLock(value.clone())),
         (LoweredType::Stream, Value::Stream(value)) => Some(LoweredValue::Stream(value.clone())),
         (LoweredType::Pure, Value::Pure(value)) => Some(LoweredValue::Pure(*value)),
         (LoweredType::Proc, Value::Proc(value)) => Some(LoweredValue::Proc(*value)),
@@ -1168,6 +1172,7 @@ pub(super) fn lowered_value_from_runtime_any(value: &Value) -> Option<LoweredVal
         Value::ProcessHandle(value) => Some(LoweredValue::ProcessHandle(value.clone())),
         Value::NetJob(value) => Some(LoweredValue::NetJob(value.clone())),
         Value::FsRoot(value) => Some(LoweredValue::FsRoot(value.clone())),
+        Value::FsLock(value) => Some(LoweredValue::FsLock(value.clone())),
         Value::Stream(value) => Some(LoweredValue::Stream(value.clone())),
         Value::Pure(value) => Some(LoweredValue::Pure(*value)),
         Value::Proc(value) => Some(LoweredValue::Proc(*value)),
@@ -1256,32 +1261,7 @@ pub(super) fn push_lowered_display(
     value: &LoweredValue,
     span: Span,
 ) -> Result<(), RuntimeError> {
-    match value {
-        LoweredValue::Int(value) => output.push_str(&value.to_string()),
-        LoweredValue::Float(value) => output.push_str(&value.format()),
-        LoweredValue::Duration(value) => output.push_str(&format_duration(value.millis)),
-        LoweredValue::Bool(value) => output.push_str(if *value { "true" } else { "false" }),
-        LoweredValue::Str(value) => output.push_str(value),
-        LoweredValue::StrView(value) => output.push_str(value.as_str()),
-        LoweredValue::Path(value) => output.push_str(&value.display()),
-        LoweredValue::Status(value) => output.push_str(&format!("{:?}", value.kind).to_lowercase()),
-        LoweredValue::Error(value) => match value.as_ref() {
-            Value::Error(error) => output.push_str(&error.message),
-            _ => output.push_str("error"),
-        },
-        LoweredValue::ResultOk(value) => push_lowered_display(output, value, span)?,
-        LoweredValue::ResultErr(value) => {
-            output.push_str(value.error_message().unwrap_or("error"));
-        }
-        value => {
-            return Err(RuntimeError::new(
-                "display-conversion",
-                format!("cannot display {}", value.type_name()),
-            )
-            .with_span(span));
-        }
-    }
-    Ok(())
+    ValueView::Lowered(value).push_display(output, span)
 }
 
 pub(super) fn lowered_method_value(

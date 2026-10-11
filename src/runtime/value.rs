@@ -229,6 +229,11 @@ impl FsEntryValue {
         }
     }
 
+    /// Type validation borrows native bytes without constructing a Path value.
+    pub(crate) fn path_bytes(&self) -> &[u8] {
+        self.path.as_os_str().as_bytes()
+    }
+
     /// Presence does not fetch metadata or construct the field's value.
     pub fn has_field(&self, name: &str) -> bool {
         matches!(
@@ -914,6 +919,7 @@ pub enum Value {
     ProcessHandle(Box<ProcessHandleValue>),
     NetJob(Box<NetJobValue>),
     FsRoot(FsRootValue),
+    FsLock(Box<FsLockValue>),
     Unit,
     Tag {
         type_name: Name,
@@ -941,37 +947,7 @@ impl Value {
     }
 
     pub fn type_name(&self) -> &'static str {
-        match self {
-            Self::Null => "Null",
-            Self::Bool(_) => "Bool",
-            Self::Int(_) => "Int",
-            Self::Float(_) => "Float",
-            Self::Duration(_) => "Duration",
-            Self::Str(_) => "Str",
-            Self::Bytes(_) => "Bytes",
-            Self::Digest(_) => "Digest",
-            Self::Regex(_) => "Regex",
-            Self::Path(_) => "Path",
-            Self::List(_) => "List",
-            Self::Map(_) => "Map",
-            Self::Set(_) => "Set",
-            Self::Stream(_) => "Stream",
-            Self::Record(_) | Self::FsEntry(_) => "Record",
-            Self::Module(_) => "Module",
-            Self::Result(_) => "Result",
-            Self::Status(_) => "Status",
-            Self::EnvPathList => "EnvPathList",
-            Self::Error(_) => "Error",
-            Self::RunError(_) => "RunError",
-            Self::Pure(_) => "Pure",
-            Self::Proc(_) => "Proc",
-            Self::Command(_) => "Command",
-            Self::ProcessHandle(_) => "ProcessHandle",
-            Self::NetJob(_) => "NetJob",
-            Self::FsRoot(_) => "FsRoot",
-            Self::Unit => "Unit",
-            Self::Tag { .. } => "Tag",
-        }
+        crate::runtime::eval::runtime_value_type_name(self)
     }
 
     pub fn error_kind(&self) -> Option<&str> {
@@ -1110,14 +1086,22 @@ pub enum CommandRedirectionMode {
     Append,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct ProcessHandleValue {
     pub id: u64,
+    pub(crate) owner: Arc<()>,
     pub pid: i64,
     pub command: Arc<str>,
     pub argv: Arc<[Arc<str>]>,
     pub detached: bool,
 }
+
+impl PartialEq for ProcessHandleValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id && Arc::ptr_eq(&self.owner, &other.owner)
+    }
+}
+impl Eq for ProcessHandleValue {}
 
 /// Opaque filesystem capability identity. Aliases share explicit close state;
 /// child roots retain their own open directory handle. The owner token prevents
@@ -1135,15 +1119,40 @@ impl PartialEq for FsRootValue {
 }
 impl Eq for FsRootValue {}
 
+/// Lock identity is evaluator-local. Metadata can be read without exposing
+/// the live table index or allowing records to forge a release capability.
+#[derive(Clone, Debug)]
+pub struct FsLockValue {
+    pub(crate) id: i64,
+    pub(crate) owner: Arc<()>,
+    pub(crate) path: PathValue,
+    pub(crate) shared: bool,
+}
+
+impl PartialEq for FsLockValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id && Arc::ptr_eq(&self.owner, &other.owner)
+    }
+}
+impl Eq for FsLockValue {}
+
 /// Opaque evaluator-owned network job identity.
 ///
 /// The evaluator's live-job registry owns the transport task, completion
 /// receiver, request metadata, and capacity reservation. Cloning the language
 /// value only creates another alias to this ID.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct NetJobValue {
     pub id: u64,
+    pub(crate) owner: Arc<()>,
 }
+
+impl PartialEq for NetJobValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id && Arc::ptr_eq(&self.owner, &other.owner)
+    }
+}
+impl Eq for NetJobValue {}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StreamValue {
@@ -1157,7 +1166,24 @@ pub struct StreamValue {
     /// `LiveStream::next`, and a pull from anywhere that has no evaluator
     /// reports that instead of quietly reporting an empty stream.
     pub(crate) script: Option<ScriptStreamState>,
+    pub(crate) owner: Option<StreamOwner>,
 }
+
+/// Identity of the evaluator that owns a stream and the live resource row it
+/// registered. Clones retain this identity so they cannot be adopted elsewhere.
+#[derive(Clone, Debug)]
+pub(crate) struct StreamOwner {
+    pub(crate) id: u64,
+    pub(crate) evaluator: Arc<()>,
+}
+
+impl PartialEq for StreamOwner {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id && Arc::ptr_eq(&self.evaluator, &other.evaluator)
+    }
+}
+
+impl Eq for StreamOwner {}
 
 /// A pull either emits a value, ends, or asks the evaluator to pull a child.
 /// Child pulls are scheduled iteratively so delegation depth does not consume
@@ -1188,6 +1214,12 @@ pub(crate) trait ScriptStream: Send {
     /// Validate one reached item before it crosses this producer's boundary.
     fn validate_item(&self, value: &Value, span: Span) -> Result<(), RuntimeError>;
 
+    /// Exposes values retained by a suspended producer without cloning them.
+    fn visit_retained_values(
+        &self,
+        visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
+    );
+
     /// Resume this frame after its delegated child has exhausted.
     fn delegated_finished(&mut self);
 
@@ -1215,6 +1247,11 @@ pub(crate) struct ScriptStreamState {
     producer: Arc<Mutex<Box<dyn ScriptStream>>>,
 }
 
+pub(crate) enum RetainedVisit {
+    Visited,
+    Busy,
+}
+
 impl ScriptStreamState {
     pub(crate) fn new(producer: impl ScriptStream + 'static) -> Self {
         Self {
@@ -1231,31 +1268,30 @@ impl ScriptStreamState {
         })
     }
 
+    /// Reads a suspended producer only when no pull or cancellation owns it.
+    pub(crate) fn try_visit_retained_values(
+        &self,
+        visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
+    ) -> Result<RetainedVisit, RuntimeError> {
+        match self.producer.try_lock() {
+            Ok(producer) => {
+                producer.visit_retained_values(visitor);
+                Ok(RetainedVisit::Visited)
+            }
+            Err(std::sync::TryLockError::WouldBlock) => Ok(RetainedVisit::Busy),
+            Err(std::sync::TryLockError::Poisoned(_)) => Err(RuntimeError::new(
+                "stream-state",
+                "stream producer state is poisoned",
+            )),
+        }
+    }
+
     pub(crate) fn identity(&self) -> usize {
         Arc::as_ptr(&self.producer) as usize
     }
 
     pub(crate) fn same_as(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.producer, &other.producer)
-    }
-
-    /// Whether this registry entry is the only handle left.
-    ///
-    /// Callers that hold a handle count as reachable, so this is only true once
-    /// every value, slot, and container that referred to the producer is gone.
-    pub(crate) fn only_registry_holds(&self) -> bool {
-        Arc::strong_count(&self.producer) == 1
-    }
-
-    /// Whether the producer has already finished or been stopped.
-    ///
-    /// `None` means a pull is running it right now, so its state cannot be read
-    /// or stopped from here; callers leave it alone until the pull is done.
-    pub(crate) fn try_finished(&self) -> Option<bool> {
-        self.producer
-            .try_lock()
-            .ok()
-            .map(|producer| producer.finished())
     }
 }
 
@@ -1279,6 +1315,7 @@ impl StreamValue {
             items,
             source: None,
             script: None,
+            owner: None,
         }
     }
 
@@ -1295,6 +1332,7 @@ impl StreamValue {
                 .collect(),
             source: None,
             script: None,
+            owner: None,
         }
     }
 
@@ -1304,12 +1342,17 @@ impl StreamValue {
             items: Vec::new(),
             source: None,
             script: Some(producer),
+            owner: None,
         }
     }
 
     /// Whether this stream is a script producer that has not been exhausted.
     pub(crate) fn script(&self) -> Option<&ScriptStreamState> {
         self.script.as_ref()
+    }
+
+    pub(crate) fn owner(&self) -> Option<&StreamOwner> {
+        self.owner.as_ref()
     }
 
     pub(crate) fn from_values_live(name: &'static str, values: Vec<Value>) -> Self {
@@ -1326,6 +1369,7 @@ impl StreamValue {
             items: Vec::new(),
             source: Some(StreamSource::new(name, source)),
             script: None,
+            owner: None,
         }
     }
 
@@ -1369,14 +1413,14 @@ impl LiveStream for ValuesStream {
 #[derive(Clone)]
 pub(crate) struct StreamSource {
     name: &'static str,
-    state: Arc<Mutex<Box<dyn LiveStream>>>,
+    state: Arc<Mutex<Option<Box<dyn LiveStream>>>>,
 }
 
 impl StreamSource {
     fn new(name: &'static str, source: impl LiveStream + 'static) -> Self {
         Self {
             name,
-            state: Arc::new(Mutex::new(Box::new(source))),
+            state: Arc::new(Mutex::new(Some(Box::new(source)))),
         }
     }
 
@@ -1388,7 +1432,22 @@ impl StreamSource {
             )
             .with_span(span)
         })?;
-        source.next(span)
+        source.as_mut().ok_or_else(|| {
+            RuntimeError::new("stream-canceled", format!("{} stream was canceled", self.name))
+                .with_span(span)
+        })?.next(span)
+    }
+
+    pub(crate) fn cancel(&self, span: Span) -> Result<(), RuntimeError> {
+        let source = self.state.lock().map_err(|_| {
+            RuntimeError::new(
+                "stream-state",
+                format!("{} stream state is poisoned", self.name),
+            )
+            .with_span(span)
+        })?.take();
+        drop(source);
+        Ok(())
     }
 }
 

@@ -310,7 +310,19 @@ fn parse_test_timeout(value: &str) -> Result<Option<std::time::Duration>, String
 }
 
 fn parse_test(args: &[String]) -> Result<Command, String> {
-    parse_command("test", args, |parsed| {
+    let mut force_frames = false;
+    let mut visible_args = Vec::with_capacity(args.len());
+    for arg in args {
+        if arg == "--force-frames" {
+            if force_frames {
+                return Err("`--force-frames` may only be used once".to_string());
+            }
+            force_frames = true;
+        } else {
+            visible_args.push(arg.clone());
+        }
+    }
+    parse_command("test", &visible_args, |parsed| {
         let jobs = parsed
             .value("--jobs")
             .map(|value| match value.parse::<usize>() {
@@ -345,6 +357,7 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
                 coverage,
                 api,
                 coverage_json_out: parsed.value("--cov-json").map(str::to_string),
+                force_frames,
             },
         })
     })
@@ -554,10 +567,7 @@ fn parse_lint(args: &[String]) -> Result<Command, String> {
 /// Every code `xsht lint --only` accepts: lint codes first, then the fixable
 /// codes of other stages, each in declaration order.
 fn lint_selectable_codes() -> impl Iterator<Item = DiagnosticCode> {
-    let lints = DiagnosticCode::ALL
-        .iter()
-        .copied()
-        .filter(|code| code.family() == DiagnosticFamily::Lint);
+    let lints = crate::xsht::lint::lint_rule_codes();
     let fixable = DiagnosticCode::ALL
         .iter()
         .copied()
@@ -676,5 +686,53 @@ mod tests {
             };
             assert_eq!(Some(text), generated_command_help(command.name));
         }
+    }
+
+    #[test]
+    fn force_frames_test_switch_stays_hidden_from_the_command_surface() {
+        let args = ["--force-frames", "--exact", "selected-test"]
+            .map(str::to_string);
+        let Command::Test { options } = parse_test(&args).expect("parse hidden test switch") else {
+            panic!("test parser returned the wrong command");
+        };
+        assert!(options.force_frames);
+        assert!(options.exact);
+        assert_eq!(options.filter.as_deref(), Some("selected-test"));
+        assert!(
+            !generated_command_help("test")
+                .expect("test command help")
+                .contains("--force-frames")
+        );
+        assert!(parse_test(&["--force-frames", "--force-frames"].map(str::to_string)).is_err());
+    }
+
+    #[test]
+    fn lint_list_preserves_the_rule_catalog_and_fixable_alias_order() {
+        let lint_codes = crate::xsht::lint::lint_rule_codes().collect::<Vec<_>>();
+        let aliases = DiagnosticCode::ALL
+            .iter()
+            .copied()
+            .filter(|code| code.family() != DiagnosticFamily::Lint && code.fixable())
+            .collect::<Vec<_>>();
+        assert_eq!(lint_codes.len(), 147);
+        assert_eq!(aliases.len(), 9);
+        assert!(aliases.iter().all(|code| code.lint_selectable()));
+
+        let expected = lint_codes
+            .into_iter()
+            .chain(aliases)
+            .map(|code| code.name())
+            .collect::<Vec<_>>();
+        let rendered = lint_code_list("jsonl").expect("lint JSONL listing");
+        let listed = rendered
+            .lines()
+            .map(|line| {
+                line.strip_prefix("{\"code\":\"")
+                    .and_then(|line| line.split_once("\",\"summary\":"))
+                    .map(|(code, _)| code)
+                    .expect("JSONL row starts with code")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(listed, expected);
     }
 }

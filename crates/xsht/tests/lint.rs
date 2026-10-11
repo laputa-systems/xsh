@@ -165,6 +165,22 @@ proc parsed(value: Int) -> Result[Int] {
         .expect("expected redundant tail Ok diagnostic");
 
     assert!(diagnostic.fix_hints.is_empty());
+    let checked_diagnostics = Linter::lint(
+        &parsed.arena,
+        source,
+        LintOptions {
+            checked_output: Some(std::sync::Arc::new(checked)),
+            ..LintOptions::default()
+        },
+    )
+    .diagnostics;
+    let checked_diagnostic = checked_diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-ok-tail")
+        })
+        .expect("checked output retains the redundant tail Ok finding");
+    assert!(!checked_diagnostic.fix_hints.is_empty());
 }
 
 #[test]
@@ -179,6 +195,20 @@ fn linter_named_argument_pun_requires_checked_identifier_resolution() {
             .any(|diagnostic| diagnostic.code.map(DiagnosticCode::name)
                 == Some("lint.prefer-named-argument-pun"))
     );
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let checked_diagnostics = Linter::lint(
+        &parsed.arena,
+        source,
+        LintOptions {
+            checked_output: Some(std::sync::Arc::new(checked)),
+            ..LintOptions::default()
+        },
+    )
+    .diagnostics;
+    assert!(checked_diagnostics.iter().any(|diagnostic| {
+        diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-named-argument-pun")
+    }));
 }
 
 #[test]
@@ -191,6 +221,20 @@ fn linter_prefer_slice_requires_checked_builtin_receiver() {
             |diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-slice")
         )
     );
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let checked_diagnostics = Linter::lint(
+        &parsed.arena,
+        source,
+        LintOptions {
+            checked_output: Some(std::sync::Arc::new(checked)),
+            ..LintOptions::default()
+        },
+    )
+    .diagnostics;
+    assert!(checked_diagnostics.iter().any(|diagnostic| {
+        diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-slice")
+    }));
 }
 
 #[test]
@@ -247,6 +291,25 @@ let value = loop {
         .map(|hint| (hint.span.unwrap(), hint.replacement.as_ref().unwrap()))
         .collect::<Vec<_>>();
     assert_eq!(edits.len(), 3);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let checked_diagnostics = Linter::lint(
+        &parsed.arena,
+        source,
+        LintOptions {
+            checked_output: Some(std::sync::Arc::new(checked)),
+            ..LintOptions::default()
+        },
+    )
+    .diagnostics;
+    let checked_guard_fixes = checked_diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-guard")
+        })
+        .flat_map(|diagnostic| diagnostic.fix_hints.iter())
+        .count();
+    assert_eq!(checked_guard_fixes, 2);
     edits.sort_by_key(|(span, _)| std::cmp::Reverse(span.start()));
     let mut fixed = source.to_string();
     for (span, replacement) in edits {
@@ -320,7 +383,7 @@ fn linter_map_entry_iteration_keeps_mutation_annotations_comments_and_unknown_me
             &parsed.arena,
             &source,
             LintOptions {
-                expr_types: checked.expr_types,
+                checked_output: Some(std::sync::Arc::new(checked)),
                 ..LintOptions::default()
             },
         );
@@ -421,7 +484,7 @@ fn value_pipeline_hole_lint_retains_effect_order_optional_calls_and_context() {
             &parsed.arena,
             source,
             LintOptions {
-                expr_types: checked.expr_types,
+                checked_output: Some(std::sync::Arc::new(checked)),
                 ..LintOptions::default()
             },
         );
@@ -440,7 +503,7 @@ fn value_pipeline_hole_lint_retains_effect_order_optional_calls_and_context() {
         &parsed.arena,
         source,
         LintOptions {
-            expr_types: checked.expr_types,
+            checked_output: Some(std::sync::Arc::new(checked)),
             ..LintOptions::default()
         },
     );
@@ -482,7 +545,7 @@ fn duration_arithmetic_conversion_refuses_custom_module_alias() {
         &loaded.parsed.arena,
         source,
         LintOptions {
-            expr_types: checked.expr_types,
+            checked_output: Some(std::sync::Arc::new(checked)),
             ..LintOptions::default()
         },
     );
@@ -558,6 +621,20 @@ fn linter_named_argument_spread_requires_checked_record_facts() {
             .any(|diagnostic| diagnostic.code.map(DiagnosticCode::name)
                 == Some("lint.prefer-named-argument-spread"))
     );
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let checked_diagnostics = Linter::lint(
+        &parsed.arena,
+        source,
+        LintOptions {
+            checked_output: Some(std::sync::Arc::new(checked)),
+            ..LintOptions::default()
+        },
+    )
+    .diagnostics;
+    assert!(checked_diagnostics.iter().any(|diagnostic| {
+        diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-named-argument-spread")
+    }));
 }
 
 fn private_effects_lints(source: &str, enabled: bool) -> Vec<Diagnostic> {
@@ -601,8 +678,20 @@ fn private_effects_removal_retains_bounds_entry_points_exports_and_recursion() {
 #[test]
 fn signature_cli_migration_retains_comments_and_advanced_cli_policy() {
     let simple = "type Options = {jobs: Int}\nproc main(...argv: List[Str]) [error] {\n  # Preserve the options explanation.\n  let {jobs}: Options = cli.parse(argv, {jobs: {kind: \"Int\", default: 4, help: \"Int, default: 4\"}})?\n  print $jobs\n}\n";
-    let parsed = parse_lint_source(simple);
-    let diagnostics = Linter::lint(&parsed.arena, simple, LintOptions::default()).diagnostics;
+    let lint_with_checked = |source: &str| {
+        let parsed = parse_lint_source(source);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        Linter::lint(
+            &parsed.arena,
+            source,
+            LintOptions {
+                checked_output: Some(std::sync::Arc::new(checked)),
+                ..LintOptions::default()
+            },
+        )
+        .diagnostics
+    };
+    let diagnostics = lint_with_checked(simple);
     let diagnostic = diagnostics
         .iter()
         .find(|diagnostic| {
@@ -619,8 +708,7 @@ fn signature_cli_migration_retains_comments_and_advanced_cli_policy() {
         simple.replace("Int, default: 4", "Number of workers"),
         simple.replace("default: 4", "default: cpu.count()"),
     ] {
-        let parsed = parse_lint_source(&source);
-        let diagnostics = Linter::lint(&parsed.arena, &source, LintOptions::default()).diagnostics;
+        let diagnostics = lint_with_checked(&source);
         assert!(
             !diagnostics
                 .iter()
@@ -640,7 +728,7 @@ fn absence_lookup_literal_fallback_fix_rechecks_and_converges() {
         &parsed.arena,
         source,
         LintOptions {
-            expr_types: checked.expr_types,
+            checked_output: Some(std::sync::Arc::new(checked)),
             ..LintOptions::default()
         },
     );
@@ -665,7 +753,7 @@ fn absence_lookup_literal_fallback_fix_rechecks_and_converges() {
         &parsed.arena,
         &formatted.formatted,
         LintOptions {
-            expr_types: checked.expr_types,
+            checked_output: Some(std::sync::Arc::new(checked)),
             ..LintOptions::default()
         },
     );
@@ -692,7 +780,7 @@ fn absence_lookup_path_literal_fallback_fix_rechecks_and_converges() {
         &parsed.arena,
         source,
         LintOptions {
-            expr_types: checked.expr_types,
+            checked_output: Some(std::sync::Arc::new(checked)),
             ..LintOptions::default()
         },
     );
@@ -710,7 +798,7 @@ fn absence_lookup_path_literal_fallback_fix_rechecks_and_converges() {
     assert_parse_check_standalone("Path lookup fallback", &fixed);
     let parsed = parse_lint_source(&fixed);
     let checked = Checker::check_arena(&parsed.arena, &fixed);
-    assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics
+    assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions { checked_output: Some(std::sync::Arc::new(checked)), ..LintOptions::default() }).diagnostics
         .iter().any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.lookup-fallback")));
 }
 
@@ -723,7 +811,7 @@ fn absence_lookup_immutable_fallback_fix_preserves_typed_parameter_and_alias() {
         &parsed.arena,
         source,
         LintOptions {
-            expr_types: checked.expr_types,
+            checked_output: Some(std::sync::Arc::new(checked)),
             ..LintOptions::default()
         },
     );
@@ -757,7 +845,7 @@ fn absence_lookup_fallback_fix_refuses_eager_effects_failure_comments_and_named_
             &parsed.arena,
             source,
             LintOptions {
-                expr_types: checked.expr_types,
+                checked_output: Some(std::sync::Arc::new(checked)),
                 ..LintOptions::default()
             },
         );
@@ -802,7 +890,7 @@ fn linter_env_strings_ignore_shadowed_env_bindings() {
         &parsed.arena,
         source,
         LintOptions {
-            expr_types: checked.expr_types,
+            checked_output: Some(std::sync::Arc::new(checked)),
             ..LintOptions::default()
         },
     )

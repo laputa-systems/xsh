@@ -1,4 +1,5 @@
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Label};
+use crate::sema::check::CheckBundleView;
 use crate::sema::constants::LiteralConstant;
 use crate::symbol::Name;
 use crate::syntax::arena::{ArenaProgram, ArenaStmtKind, ArenaTypeDefBody, ExprId};
@@ -24,38 +25,30 @@ pub fn nominal_enum_name(namespace: Option<Name>, name: Name) -> Name {
     })
 }
 
-pub fn declaring_enum_name(program: &ArenaProgram, id: crate::syntax::arena::TypeDefId) -> Name {
-    let namespace = program
-        .modules
-        .iter()
-        .find(|module| {
-            program.module_statements(module).any(|statement| {
-                let kind = match program.arena.stmt(statement).kind {
-                    ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
-                    kind => kind,
-                };
-                matches!(kind, ArenaStmtKind::TypeDef(candidate) if candidate == id)
-            })
-        })
-        .map(|module| module.name);
-    nominal_enum_name(
-        namespace.or(program.root_nominal_namespace),
-        program.arena.type_def(id).name,
-    )
-}
-
 impl PreparedWireEnums {
     pub fn prepare(
         program: &ArenaProgram,
         analyze: impl Fn(ExprId) -> Option<LiteralConstant>,
     ) -> (Self, Vec<Diagnostic>) {
+        Self::prepare_scopes(&CheckBundleView::whole_program(program), analyze)
+    }
+
+    pub(super) fn prepare_bundle(
+        view: &CheckBundleView<'_>,
+        analyze: impl Fn(ExprId) -> Option<LiteralConstant>,
+    ) -> (Self, Vec<Diagnostic>) {
+        Self::prepare_scopes(view, analyze)
+    }
+
+    fn prepare_scopes(
+        view: &CheckBundleView<'_>,
+        analyze: impl Fn(ExprId) -> Option<LiteralConstant>,
+    ) -> (Self, Vec<Diagnostic>) {
+        let program = view.program;
         let mut prepared = Self::default();
         let mut diagnostics = Vec::new();
-        let scopes = std::iter::once((
-            program.root_nominal_namespace,
-            program.statement_ids().collect::<Vec<_>>(),
-        ))
-        .chain(program.modules.iter().map(|module| {
+        let scopes = std::iter::once((program.root_nominal_namespace, view.statement_ids().collect::<Vec<_>>()))
+        .chain(view.modules.iter().copied().map(|module| {
             (
                 Some(module.name),
                 program.module_statements(module).collect(),

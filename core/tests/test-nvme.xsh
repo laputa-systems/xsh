@@ -297,7 +297,7 @@ test test_nvme_id_ctrl_vendor_json_and_binary_forms { |ctx|
   assert "  \"psds\":[\n    {\n      \"max_power\":849,\n      \"flags\":0,\n" in printed.stdout
   assert printed.stdout.ends_with("    }\n  ]\n}\n")
   let decoded = json.decode(printed.stdout)?
-  assert decoded.nn == 1 and decoded.psds.len() == 2
+  assert json.get(decoded, ["nn"])? == 1 and json.get(decoded, ["psds"])?.require(List[Any])?.len() == 2
 
   let raw = ran_ok(nvme(ctx, [identify_line(0, 1, page)], ["id-ctrl", "-b", "/dev/null"], log)?)
   assert raw.bytes == page
@@ -357,9 +357,9 @@ test test_nvme_id_ns_uses_the_device_namespace_and_decodes_formats { |ctx|
 
   let printed = ran_ok(nvme(ctx, [identify_line(7, 0, ns_page()?)], ["id-ns", "-n", "7", "-o", "json", "/dev/null"], log)?)
   let decoded = json.decode(printed.stdout)?
-  assert decoded.nsze == 1000215216 and decoded.nlbaf == 1
-  assert decoded.nguid == "0102030405060708090a0b0c0d0e0f10"
-  assert decoded.lbafs[0].ds == 9 and decoded.lbafs[1].ds == 12
+  assert json.get(decoded, ["nsze"])? == 1000215216 and json.get(decoded, ["nlbaf"])? == 1
+  assert json.get(decoded, ["nguid"])? == "0102030405060708090a0b0c0d0e0f10"
+  assert json.get(decoded, ["lbafs", 0, "ds"])? == 9 and json.get(decoded, ["lbafs", 1, "ds"])? == 12
 }
 
 test test_nvme_smart_log_decodes_counters_and_temperatures { |ctx|
@@ -398,12 +398,12 @@ Thermal Management T2 Total Time\t: 0
   assert "\t[3:3]\t: 0\tMedia has not been placed in read only mode" in human.stdout.lines()
   let printed = ran_ok(nvme(ctx, lines, ["smart-log", "-o", "json", "/dev/null"], log)?)
   let decoded = json.decode(printed.stdout)?
-  assert decoded.critical_warning == 4 and decoded.temperature == 311
-  assert decoded.avail_spare == 100 and decoded.spare_thresh == 10 and decoded.percent_used == 2
-  assert decoded.data_units_read == 4102436 and decoded.power_on_hours == 1953
-  assert decoded.temperature_sensor_1 == 312 and decoded.temperature_sensor_3 == 315
+  assert json.get(decoded, ["critical_warning"])? == 4 and json.get(decoded, ["temperature"])? == 311
+  assert json.get(decoded, ["avail_spare"])? == 100 and json.get(decoded, ["spare_thresh"])? == 10 and json.get(decoded, ["percent_used"])? == 2
+  assert json.get(decoded, ["data_units_read"])? == 4102436 and json.get(decoded, ["power_on_hours"])? == 1953
+  assert json.get(decoded, ["temperature_sensor_1"])? == 312 and json.get(decoded, ["temperature_sensor_3"])? == 315
   assert "temperature_sensor_2" not in printed.stdout
-  assert decoded.thm_temp1_trans_count == 11
+  assert json.get(decoded, ["thm_temp1_trans_count"])? == 11
   let raw = ran_ok(nvme(ctx, lines, ["smart-log", "--raw-binary", "/dev/null"], log)?)
   assert raw.bytes == smart_page()?
 }
@@ -462,8 +462,8 @@ trtype_spec_info: 0
   let one = [identify_line(0, 1, ctrl), log_line(1, 64, error_entry(8)?)]
   let printed = ran_ok(nvme(ctx, one, ["error-log", "-e", "1", "-o", "json", "/dev/null"], log)?)
   let decoded = json.decode(printed.stdout)?
-  assert decoded.errors.len() == 1
-  assert decoded.errors[0].error_count == 8 and decoded.errors[0].status_field == 2 and decoded.errors[0].phase_tag == 1
+  assert json.get(decoded, ["errors"])?.require(List[Any])?.len() == 1
+  assert json.get(decoded, ["errors", 0, "error_count"])? == 8 and json.get(decoded, ["errors", 0, "status_field"])? == 2 and json.get(decoded, ["errors", 0, "phase_tag"])? == 1
   let raw = ran_ok(nvme(ctx, one, ["error-log", "-e", "1", "-b", "/dev/null"], log)?)
   assert raw.bytes == error_entry(8)?
   let zero = nvme(ctx, one, ["error-log", "-e", "0", "/dev/null"], log)?
@@ -535,9 +535,9 @@ Self Test Result[1]:
   assert short.stdout.starts_with("Device Self Test Log for NVME device:null\nCurrent operation  : 0\nSelf Test Result[0]:")
   let printed = ran_ok(nvme(ctx, lines, ["self-test-log", "-o", "json", "/dev/null"], log)?)
   let decoded = json.decode(printed.stdout)?
-  assert decoded["Current Device Self-Test Completion"] == 50
-  assert decoded["Self Test Results"].len() == 2
-  assert decoded["Self Test Results"][0]["Failing LBA"] == 4096
+  assert json.get(decoded, ["Current Device Self-Test Completion"])? == 50
+  assert json.get(decoded, ["Self Test Results"])?.require(List[Any])?.len() == 2
+  assert json.get(decoded, ["Self Test Results", 0, "Failing LBA"])? == 4096
 }
 
 test test_nvme_fw_log_shows_the_active_slot_and_revisions { |ctx|
@@ -611,8 +611,8 @@ test test_nvme_list_ns_prints_active_namespace_ids { |ctx|
   assert ran.stdout == "[   0]:0x1\n[   1]:0x3\n[   2]:0xc\n", ran.stdout
   let printed = ran_ok(nvme(ctx, [identify_line(0, 2, page)], ["list-ns", "-o", "json", "/dev/null"], log)?)
   let decoded = json.decode(printed.stdout)?
-  assert decoded.nsid_list.len() == 3
-  assert decoded.nsid_list[0].nsid == 1 and decoded.nsid_list[2].nsid == 12
+  assert json.get(decoded, ["nsid_list"])?.require(List[Any])?.len() == 3
+  assert json.get(decoded, ["nsid_list", 0, "nsid"])? == 1 and json.get(decoded, ["nsid_list", 2, "nsid"])? == 12
   assert printed.stdout == "{\n  \"nsid_list\":[\n    {\n      \"nsid\":1\n    },\n    {\n      \"nsid\":3\n    },\n    {\n      \"nsid\":12\n    }\n  ]\n}\n"
   let all = ran_ok(nvme(ctx, [identify_line(4, 16, page)], ["list-ns", "-a", "-n", "5", "/dev/null"], log)?)
   assert all.stdout.starts_with("[   0]:0x1\n")
@@ -697,14 +697,14 @@ test test_nvme_list_prints_the_nvme_cli_table_and_json { |ctx|
 
   let printed = ran_ok(nvme_list(ctx, root, [identify_line(1, 0, ns_page()?)], ["-o", "json"])?)
   let decoded = json.decode(printed.stdout)?
-  assert decoded.Devices.len() == 3
-  let first = decoded.Devices[0]
+  assert json.get(decoded, ["Devices"])?.require(List[Any])?.len() == 3
+  let first = json.get(decoded, ["Devices", 0])?.require(Record)?
   assert first.NameSpace == 1 and first.DevicePath == "nvme0n1" and first.GenericPath == "ng0n1"
   assert first.ModelNumber == "Example NVMe SSD 1TB" and first.SerialNumber == "S5GXNX0T000001"
   assert first.Firmware == "5B2QGXA7"
   assert first.UsedBytes == 256000000000 and first.MaximumLBA == 1000215216
   assert first.PhysicalSize == 512110190592 and first.SectorSize == 512
-  let third = decoded.Devices[2]
+  let third = json.get(decoded, ["Devices", 2])?.require(Record)?
   assert third.DevicePath == "nvme1n1" and third.SectorSize == 4096
   assert third.PhysicalSize == 7814037168 * 512 and third.UsedBytes == third.PhysicalSize
   assert printed.stdout.starts_with("{\n  \"Devices\":[\n    {\n      \"NameSpace\":1,\n")
@@ -859,6 +859,6 @@ test test_nvme_id_ns_vendor_region_and_fw_log_json { |ctx|
   firmware = put(firmware, 8, b"5B2QGXA7")?
   let printed = ran_ok(nvme(ctx, [log_line(3, 512, firmware)], ["fw-log", "-o", "json", "/dev/null"], log)?)
   let decoded = json.decode(printed.stdout)?
-  assert decoded["Firmware Log"]["Active Slot"] == 1
-  assert decoded["Firmware Log"].frs1 == "5B2QGXA7"
+  assert json.get(decoded, ["Firmware Log", "Active Slot"])? == 1
+  assert json.get(decoded, ["Firmware Log", "frs1"])? == "5B2QGXA7"
 }

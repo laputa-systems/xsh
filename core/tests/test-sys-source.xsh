@@ -54,9 +54,9 @@ test test_sys_source_links_separate_unbound_failed_and_present_states {
   let root = fs.tempdir()?
   defer root.close()
   root.mkdir(p"dev/real/driver_target", parents: true)
-  root.symlink(p"driver_target", p"dev/real/driver")
+  root.symlink(target: p"driver_target", path: p"dev/real/driver")
   root.mkdir(p"class/entry", parents: true)
-  root.symlink(../dev/real, p"class/entry/device")
+  root.symlink(target: ../dev/real, path: p"class/entry/device")
 
   assert src.driver_name(root, p"dev/real/driver").observation.value == "driver_target"
   assert src.driver_name(root, p"dev/real/unbound").observation.state == .Absent

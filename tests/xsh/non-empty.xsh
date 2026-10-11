@@ -238,10 +238,9 @@ print ${result is Err(_)}
   assert "expected NonEmpty[Str]" in output.stderr, output.stderr
 }
 
-# `first()` on a dynamic receiver has no checked guarantee and fails where it
-# runs; this is also what a `NonEmpty[T]` operation does if an empty list ever
-# reaches it.
-test test_first_on_a_dynamic_empty_list_fails_at_run_time { |ctx|
+# A dynamic receiver has no checked guarantee that it is a list. Validate it
+# before using a list method.
+test test_first_on_a_dynamic_receiver_requires_validation { |ctx|
   let output = test.run_script(
     ctx,
     r"""let dynamic: Any = []
@@ -249,8 +248,9 @@ let value = dynamic.first()
 print ${value == null}
 """,
   )?
-  assert output.status == 3, f"{output.stdout}{output.stderr}"
-  assert "index-out-of-bounds: `first()` needs a non-empty list, found an empty list" in output.stderr, output.stderr
+  assert output.status == 2, f"{output.stdout}{output.stderr}"
+  assert output.stdout == "", output.stdout
+  assert "err[check.dynamic-boundary]" in output.stderr, output.stderr
 }
 
 proc check_errors(ctx: TestContext, source: Str) [fs, process, env, error] -> Result[Str] {

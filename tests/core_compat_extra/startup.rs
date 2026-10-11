@@ -90,7 +90,7 @@ fn absent_stdin_does_not_alias_loaded_source_and_can_be_reopened() {
     // An external child must close fd 0 before exec; native captured input
     // cannot express the descriptor state that Rust initializes at startup.
     std::fs::write(&script, "assert io.stdin_bytes() is Err(is HostIo)\nunix.redirect_fd(0, Path(args[0]))?\nio.write_stdout_bytes(io.stdin_bytes()?)?\nio.flush_stdout()?\n").unwrap();
-    let mut command = Command::new(release_bin!("xsh"));
+    let mut command = Command::new(test_bin!("xsh"));
     command.arg(script).arg("--").arg(input)
         .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     close_standard(&mut command, 0);
@@ -108,7 +108,7 @@ fn absent_stdout_can_be_redirected_and_inherited_by_exec() {
     // Startup descriptor absence and exec inheritance require a real process;
     // the script only supplies the typed descriptor replacement operation.
     std::fs::write(&script, "unix.redirect_fd(1, Path(args[0]), write: true)?\nunix.dup_fd(1, 2)?\nunix.exec(process.command_argv(\"sh\", [\"sh\", \"-c\", \"printf output; printf error >&2\"]))?\n").unwrap();
-    let mut command = Command::new(release_bin!("xsh"));
+    let mut command = Command::new(test_bin!("xsh"));
     command.arg(script).arg("--").arg(&log)
         .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     close_standard(&mut command, 1);

@@ -17,11 +17,11 @@ pub(super) fn expr_ty_auto_propagates(ty: &Type) -> bool {
 }
 
 /// Whether a checked argument can stand where a `Path` is required: a
-/// `Path`, or a dynamic or recovery type whose own diagnostics apply. A string
+/// `Path`, or a recovery type whose own diagnostics apply. A string
 /// literal qualifies only by having taken the `Path` type from its expected
 /// type; a `Str` never does.
 pub(super) fn is_path_like_type(ty: &Type) -> bool {
-    matches!(ty.unvalidated(), Type::Path | Type::Any | Type::Unknown)
+    matches!(ty.unvalidated(), Type::Path | Type::Unknown)
 }
 
 /// Arena-native span helper for expression-or-run values.
@@ -73,7 +73,9 @@ impl Checker {
     ) -> Option<super::super::constants::SchemaExpectation> {
         use super::super::constants::{SchemaComponent, SchemaExpectation};
         match arena.arena.expr(expression).kind {
-            ArenaExprKind::Ident(name) => self.lookup(name)?.schema_expectation.clone(),
+            ArenaExprKind::Ident(name) => self
+                .lookup_value_binding(name, arena.arena.expr(expression).span)?
+                .schema_expectation.clone(),
             ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } => {
                 self.schema_expectation_for_expr(arena, base)?
                     .value_context()
@@ -147,7 +149,7 @@ impl Checker {
             );
             return Type::Invalid;
         }
-        if let Some(binding) = self.lookup(name) {
+        if let Some(binding) = self.lookup_value_binding(name, span) {
             let alias = binding.callable_alias.clone();
             let ty = self
                 .type_constraints
@@ -280,7 +282,7 @@ impl Checker {
     /// variable is unset or not UTF-8.
     pub(super) fn check_env_string(&mut self, span: Span) -> Type {
         self.require_effect(Effect::Env, span, "environment lookup");
-        if self.in_pure {
+        if self.boundary.in_pure {
             self.error(
                 span,
                 "environment lookup is not allowed in pure functions",
@@ -292,13 +294,13 @@ impl Checker {
 
     pub(super) fn check_process_effect(&mut self, span: Span, form: &str) {
         self.record_required_effect(Effect::Process);
-        if self.in_pure {
+        if self.boundary.in_pure {
             self.error(
                 span,
                 &format!("{form} forms are not allowed in pure functions"),
                 DiagnosticCode::CheckPureRun,
             );
-        } else if let Some(effs) = &self.current_effects
+        } else if let Some(effs) = &self.boundary.current_effects
             && !Self::effects_covers(effs, &Effect::Process)
         {
             self.error(
@@ -314,7 +316,6 @@ impl Checker {
 /// Arena-native port of [`Checker::check_expr`] and its callees.
 ///
 /// This is the live arena checker path used by `check_arena_with_options`.
-#[allow(dead_code)]
 impl Checker {
     pub(super) fn check_expr_or_run_arena(
         &mut self,
@@ -325,7 +326,12 @@ impl Checker {
     ) -> Type {
         match value {
             ArenaExprOrRun::Expr(id) => self.check_expr_arena(arena, source, id, expected),
-            ArenaExprOrRun::Run(run_id) => self.check_run_expr_arena(arena, source, run_id),
+            ArenaExprOrRun::Run(run_id) => {
+                let ty = self.check_run_expr_arena(arena, source, run_id);
+                let span = arena.arena.span(arena.arena.run_form(run_id).span);
+                self.expr_types.insert(span, ty.clone());
+                ty
+            }
         }
     }
 
@@ -337,9 +343,9 @@ impl Checker {
         expected: Option<&Type>,
         schema: Option<crate::sema::constants::SchemaExpectation>,
     ) -> Type {
-        let previous = std::mem::replace(&mut self.expected_schema, schema);
+        let previous = std::mem::replace(&mut self.boundary.expected_schema, schema);
         let actual = self.check_expr_or_run_arena(arena, source, value, expected);
-        self.expected_schema = previous;
+        self.boundary.expected_schema = previous;
         actual
     }
 
@@ -350,18 +356,18 @@ impl Checker {
         id: ExprId,
         expected: Option<&Type>,
     ) -> Type {
-        let previous = self.expected_schema.clone();
+        let previous = self.boundary.expected_schema.clone();
         if expected.is_none() {
-            self.expected_schema = None;
+            self.boundary.expected_schema = None;
         }
         let resolved = expected.and_then(|ty| self.type_constraints.resolve(ty).ok());
-        let control = std::mem::take(&mut self.control_condition);
-        let outer_control = std::mem::replace(&mut self.in_control_position, control);
+        let control = std::mem::take(&mut self.boundary.control_condition);
+        let outer_control = std::mem::replace(&mut self.boundary.in_control_position, control);
         let actual = self.check_expr_arena_inner(arena, source, id, resolved.as_ref().or(expected));
         let actual = self.name_typed_callable(arena, id, actual, resolved.as_ref().or(expected));
-        self.in_control_position = outer_control;
+        self.boundary.in_control_position = outer_control;
         let actual = self.propagate_condition_arena(arena, id, control, actual);
-        self.expected_schema = previous;
+        self.boundary.expected_schema = previous;
         if actual == Type::Any {
             self.record_dynamic_require_receiver(arena, source, id, expected);
         }
@@ -394,7 +400,7 @@ impl Checker {
             ))
         };
         let grouped = crate::syntax::grouping::needs_parens(&arena.arena, source, id, context);
-        let schema = expected.and(self.expected_schema.as_ref());
+        let schema = expected.and(self.boundary.expected_schema.as_ref());
         let inferred = super::expected::infer_requirement_target(
             &arena.arena,
             expected,
@@ -549,7 +555,7 @@ impl Checker {
                 }
             }
             ArenaExprKind::GlobStr(_) => {
-                if self.in_pure {
+                if self.boundary.in_pure {
                     self.error(
                         expr.span,
                         "glob expansion is not allowed in pure functions",
@@ -608,7 +614,7 @@ impl Checker {
             }
             ArenaExprKind::Item => self.check_item_arena(expr.span),
             ArenaExprKind::LastStatus => {
-                if !self.last_status_available {
+                if !self.boundary.last_status_available {
                     self.error(
                         expr.span,
                         "`$?` is not set",
@@ -651,8 +657,8 @@ impl Checker {
                 value_body,
             } => {
                 use crate::syntax::arena::ContextScopeKind;
-                let tail_value = std::mem::replace(&mut self.context_scope_tail_value, false);
-                if self.in_pure {
+                let tail_value = std::mem::replace(&mut self.boundary.context_scope_tail_value, false);
+                if self.boundary.in_pure {
                     self.error(
                         expr.span,
                         "context scopes are not allowed in pure functions",
@@ -728,10 +734,10 @@ impl Checker {
                         }
                     }
                 }
-                self.context_scope_depths.push(self.scopes.len());
+                self.boundary.context_scope_depths.push(self.scopes.len());
                 self.push_scope();
                 let within = usize::from(matches!(kind, ContextScopeKind::Within));
-                self.within_block_depth += within;
+                self.boundary.within_block_depth += within;
                 let body_type = if *value_body
                     || tail_value
                     || matches!(expected, Some(Type::Result(ok, _)) if **ok != Type::Unit)
@@ -745,9 +751,9 @@ impl Checker {
                     self.check_block_arena(arena, source, *block);
                     Type::Unit
                 };
-                self.within_block_depth -= within;
+                self.boundary.within_block_depth -= within;
                 self.pop_scope();
-                self.context_scope_depths.pop();
+                self.boundary.context_scope_depths.pop();
                 if !body_type.can_escape_context_scope() {
                     self.error(
                         expr.span,
@@ -755,7 +761,7 @@ impl Checker {
                         DiagnosticCode::CheckContextScopeEscape,
                     );
                 }
-                self.context_scope_tail_value = tail_value;
+                self.boundary.context_scope_tail_value = tail_value;
                 Type::Result(Box::new(body_type), Box::new(Type::Error))
             }
             ArenaExprKind::TempDirScope {
@@ -763,8 +769,8 @@ impl Checker {
                 block,
                 value_body,
             } => {
-                let tail_value = std::mem::replace(&mut self.context_scope_tail_value, false);
-                if self.in_pure {
+                let tail_value = std::mem::replace(&mut self.boundary.context_scope_tail_value, false);
+                if self.boundary.in_pure {
                     self.error(
                         expr.span,
                         "`tempdir` scopes are not allowed in pure functions",
@@ -805,7 +811,7 @@ impl Checker {
                     Type::Unit
                 };
                 self.pop_scope();
-                self.context_scope_tail_value = tail_value;
+                self.boundary.context_scope_tail_value = tail_value;
                 Type::Result(Box::new(body_type), Box::new(Type::Error))
             }
             ArenaExprKind::ResourceScope {
@@ -813,8 +819,8 @@ impl Checker {
                 block,
                 value_body,
             } => {
-                let tail_value = std::mem::replace(&mut self.context_scope_tail_value, false);
-                if self.in_pure {
+                let tail_value = std::mem::replace(&mut self.boundary.context_scope_tail_value, false);
+                if self.boundary.in_pure {
                     self.error(
                         expr.span,
                         "a `with` resource scope is not allowed in pure functions",
@@ -866,7 +872,7 @@ impl Checker {
                     Type::Unit
                 };
                 self.pop_scope();
-                self.context_scope_tail_value = tail_value;
+                self.boundary.context_scope_tail_value = tail_value;
                 Type::Result(Box::new(body_type), Box::new(Type::Error))
             }
             ArenaExprKind::ValueBlock(block)
@@ -940,23 +946,12 @@ impl Checker {
                             None,
                         )
                         .into_unvalidated();
-                    if !matches!(
-                        left_ty,
-                        Type::Int
-                            | Type::UInt
-                            | Type::Float
-                            | Type::Duration
-                            | Type::Str
-                            | Type::Any
-                            | Type::Unknown
-                    ) {
-                        self.error(
-                            arena.arena.expr(left).span,
-                            "comparison requires Int, Float, Str, or Duration",
-                            DiagnosticCode::CheckOperatorType,
-                        );
-                    }
-                    self.expect_type(&left_ty, &right_ty, arena.arena.expr(right).span);
+                    self.check_ordering_operands(
+                        &left_ty,
+                        &right_ty,
+                        arena.arena.expr(left).span,
+                        arena.arena.expr(right).span,
+                    );
                     previous = Some(right_ty);
                 }
                 Type::Bool
@@ -1003,7 +998,7 @@ impl Checker {
                 let inner_expected = expected
                     .cloned()
                     .map(|ty| Type::Result(Box::new(ty), Box::new(Type::Error)));
-                let schema = self.expected_schema.clone().map(|schema| {
+                let schema = self.boundary.expected_schema.clone().map(|schema| {
                     let mut wrapped = crate::sema::constants::SchemaExpectation::default();
                     wrapped
                         .children
@@ -1034,7 +1029,7 @@ impl Checker {
                 let inferred = super::expected::infer_requirement_target(
                     &arena.arena,
                     expected,
-                    self.expected_schema.as_ref(),
+                    self.boundary.expected_schema.as_ref(),
                     &self.type_constraints,
                 );
                 if let Some(inferred) = &inferred {
@@ -1396,7 +1391,7 @@ impl Checker {
                 }
             } else {
                 let schema = self
-                    .expected_schema
+                    .boundary.expected_schema
                     .as_ref()
                     .and_then(|schema| {
                         schema
@@ -1441,7 +1436,7 @@ impl Checker {
         component: crate::sema::constants::SchemaComponent,
     ) -> Type {
         let schema = self
-            .expected_schema
+            .boundary.expected_schema
             .as_ref()
             .and_then(|schema| schema.value_context().children.get(&component))
             .cloned();
@@ -1531,6 +1526,10 @@ impl Checker {
                     let ty = self.check_expr_arena(arena, source, expr, expected);
                     match ty {
                         Type::Map(key, item) => (*key, *item, arena.arena.span(span)),
+                        Type::Any => {
+                            self.reject_dynamic_use("a map spread", None, arena.arena.expr(expr).span);
+                            (Type::Unknown, Type::Unknown, arena.arena.span(span))
+                        }
                         Type::Unknown => (Type::Unknown, Type::Unknown, arena.arena.span(span)),
                         _ => {
                             self.error(
@@ -1616,7 +1615,9 @@ impl Checker {
                 Type::Unknown
             }
         };
-        if !matches!(&base_ty, Type::Record(fields) if !fields.is_empty()) {
+        if base_ty == Type::Any {
+            self.reject_dynamic_use("a record update base", None, span);
+        } else if !matches!(&base_ty, Type::Record(fields) if !fields.is_empty()) {
             self.error(
                 span,
                 "nested record updates require a statically known record shape",
@@ -1733,7 +1734,7 @@ impl Checker {
         }
         if matches!(
             expected,
-            Some(Type::Status | Type::ProcessHandle | Type::NetJob | Type::FsRoot)
+            Some(Type::Status | Type::ProcessHandle | Type::NetJob | Type::FsRoot | Type::FsLock)
         ) {
             for field in fields {
                 match &field.kind {
@@ -1757,6 +1758,10 @@ impl Checker {
                     "`ProcessHandle` is a runtime-only type and cannot be constructed with a record literal; obtain it from `spawn`",
                     DiagnosticCode::CheckTypeMismatch,
                 );
+                return Type::Unknown;
+            }
+            if matches!(expected, Some(Type::FsLock)) {
+                self.error(span, "`FsLock` is an opaque runtime capability and cannot be constructed with a record literal; obtain it from `fs.lock`", DiagnosticCode::CheckTypeMismatch);
                 return Type::Unknown;
             }
             if matches!(expected, Some(Type::FsRoot)) {
@@ -1805,7 +1810,8 @@ impl Checker {
                                 record.entry(k).or_insert(v);
                             }
                         }
-                        Type::Any | Type::Unknown => {}
+                        Type::Any => self.reject_dynamic_use("a record spread", None, arena.arena.expr(*expr).span),
+                        Type::Unknown => {}
                         _ => {
                             self.error(
                                 last_span,
@@ -1839,7 +1845,7 @@ impl Checker {
                     }
                     let field_expected = expected_fields.and_then(|fields| fields.get(name));
                     let schema = self
-                        .expected_schema
+                        .boundary.expected_schema
                         .as_ref()
                         .and_then(|schema| {
                             schema
@@ -1998,7 +2004,10 @@ impl Checker {
                         self.check_propagation(&iter_ty, arena.arena.expr(iter).span);
                     }
                     let item_ty = iter_ty.iteration_item_type().unwrap_or_else(|| {
-                        if matches!(iter_ty, Type::Any | Type::Unknown) { Type::Any } else if self.reject_unnarrowed_union(&iter_ty, "iteration", arena.arena.expr(iter).span) { Type::Unknown } else {
+                        if iter_ty == Type::Any {
+                            self.reject_dynamic_use("a comprehension source", None, arena.arena.expr(iter).span);
+                            Type::Unknown
+                        } else if iter_ty == Type::Unknown { Type::Unknown } else if self.reject_unnarrowed_union(&iter_ty, "iteration", arena.arena.expr(iter).span) { Type::Unknown } else {
                             self.error(arena.arena.expr(iter).span, "comprehension iterates over List, Stream, Set, Map, Str, or Bytes values", if map { DiagnosticCode::CheckMapcompIterator } else { DiagnosticCode::CheckListcompIterator });
                             Type::Unknown
                         }
@@ -2115,9 +2124,9 @@ impl Checker {
         block: BlockId,
         span: Span,
     ) -> Type {
-        self.loop_depth += 1;
+        self.boundary.loop_depth += 1;
         self.check_block_arena(arena, source, block);
-        self.loop_depth -= 1;
+        self.boundary.loop_depth -= 1;
         if !block_has_exit_point_arena(arena, block) {
             self.error(
                 span,
@@ -2188,13 +2197,13 @@ impl Checker {
         }
         if !delay_ids.is_empty() {
             self.record_required_effect(Effect::Time);
-            if self.in_pure {
+            if self.boundary.in_pure {
                 self.error(
                     span,
                     "retry delays are not allowed in pure functions",
                     DiagnosticCode::CheckPureEffect,
                 );
-            } else if let Some(effs) = &self.current_effects
+            } else if let Some(effs) = &self.boundary.current_effects
                 && !Self::effects_covers(effs, &Effect::Time)
             {
                 self.error(
@@ -2208,13 +2217,13 @@ impl Checker {
 
         self.push_scope();
         self.begin_error_boundary();
-        self.retry_block_depth += 1;
+        self.boundary.retry_block_depth += 1;
         let expected_ok = match expected {
             Some(Type::Result(ok, _)) => Some(ok.as_ref()),
             _ => None,
         };
         let body_ty = self.check_tail_block_arena(arena, source, block, expected_ok);
-        self.retry_block_depth -= 1;
+        self.boundary.retry_block_depth -= 1;
         let error_ty = self.end_error_boundary(None);
         self.pop_scope();
 
@@ -2266,13 +2275,13 @@ impl Checker {
     ) -> Type {
         let run_span = arena.arena.span(arena.arena.run_form(run_id).span);
         self.record_required_effect(Effect::Process);
-        if self.in_pure {
+        if self.boundary.in_pure {
             self.error(
                 run_span,
                 "`run` forms are not allowed in pure functions",
                 DiagnosticCode::CheckPureRun,
             );
-        } else if let Some(effs) = &self.current_effects
+        } else if let Some(effs) = &self.boundary.current_effects
             && !Self::effects_covers(effs, &Effect::Process)
         {
             self.error(
@@ -2370,7 +2379,10 @@ impl Checker {
                     Box::new(Type::ProcessError),
                 )
             }
-            Type::Any => Type::Result(Box::new(Type::Status), Box::new(Type::ProcessError)),
+            Type::Any => {
+                self.reject_dynamic_use("a wait target", None, target_span);
+                Type::Unknown
+            }
             Type::Unknown | Type::Invalid => {
                 Type::Result(Box::new(Type::Status), Box::new(Type::ProcessError))
             }
@@ -2479,7 +2491,7 @@ impl Checker {
         inner: ExprId,
     ) -> Type {
         // The operand of `!` in a control position is in one too.
-        self.control_condition = op == UnaryOp::Not && self.in_control_position;
+        self.boundary.control_condition = op == UnaryOp::Not && self.boundary.in_control_position;
         let ty = self.check_expr_arena(arena, source, inner, None);
         let span = arena.arena.expr(inner).span;
         match op {
@@ -2506,7 +2518,7 @@ impl Checker {
 
     /// `.` is the implicit parameter of the innermost one-parameter callback.
     fn check_item_arena(&mut self, span: Span) -> Type {
-        let message = match self.item_frames.last_mut() {
+        let message = match self.boundary.item_frames.last_mut() {
             Some(super::ItemFrame::Implicit { ty, used, .. }) => {
                 *used = true;
                 let ty = ty.clone();
@@ -2592,7 +2604,7 @@ impl Checker {
                 arena.arena.span(arena.arena.block(block).span),
             );
         }
-        self.item_frames.push(match params.first() {
+        self.boundary.item_frames.push(match params.first() {
             None => super::ItemFrame::Implicit {
                 ty: error_ty,
                 used: false,
@@ -2611,7 +2623,7 @@ impl Checker {
         let context =
             (!matches!(value_ty, Type::Unit) && !value_ty.is_result_unit()).then_some(&value_ty);
         let actual = self.check_tail_block_contents_arena(arena, source, block, context);
-        if let Some(super::ItemFrame::Implicit { used: false, .. }) = self.item_frames.pop() {
+        if let Some(super::ItemFrame::Implicit { used: false, .. }) = self.boundary.item_frames.pop() {
             self.error(
                 arena.arena.expr(expression).span,
                 "error fallback block requires one parameter: name it with `{ |error| ... }` or use `.`",
@@ -2629,6 +2641,33 @@ impl Checker {
         };
         self.record_expr_type(arena.arena.expr(expression).span, actual);
         result
+    }
+
+    fn check_ordering_operands(
+        &mut self,
+        left: &Type,
+        right: &Type,
+        left_span: Span,
+        right_span: Span,
+    ) {
+        let ordered = |ty: &Type| {
+            matches!(ty, Type::Int | Type::UInt | Type::Float | Type::Duration | Type::Str)
+        };
+        if *left == Type::Any || *right == Type::Any {
+            for (ty, other, span) in [(left, right, left_span), (right, left, right_span)] {
+                if *ty == Type::Any {
+                    self.reject_dynamic_use("an ordering operand", ordered(other).then_some(other), span);
+                }
+            }
+            return;
+        }
+        if self.reject_unnarrowed_union(left, "an ordering comparison", left_span) {
+            return;
+        }
+        if !ordered(left) && !left.is_recovery() {
+            self.error(left_span, "comparison requires Int, Float, Str, or Duration", DiagnosticCode::CheckOperatorType);
+        }
+        self.expect_type(left, right, right_span);
     }
 
     #[allow(clippy::too_many_lines)]
@@ -2698,13 +2737,13 @@ impl Checker {
             BinaryOp::Or => {
                 // Both operands of `and` and `or` in a control position are
                 // in one too.
-                let control = self.in_control_position;
-                self.control_condition = control;
+                let control = self.boundary.in_control_position;
+                self.boundary.control_condition = control;
                 let left_ty = self.check_expr_arena(arena, source, left, None);
                 let facts = self.infer_condition_narrowings_arena(arena, left);
                 self.push_scope();
                 self.apply_narrowings(&facts.when_false);
-                self.control_condition = control;
+                self.boundary.control_condition = control;
                 let right_ty = if left_ty.is_result() {
                     self.check_expr_arena(arena, source, right, None)
                 } else {
@@ -2730,8 +2769,8 @@ impl Checker {
                 Type::Bool
             }
             BinaryOp::And => {
-                let control = self.in_control_position;
-                self.control_condition = control;
+                let control = self.boundary.in_control_position;
+                self.boundary.control_condition = control;
                 let left_ty = self.check_expr_with_schema_arena(
                     arena,
                     source,
@@ -2742,7 +2781,7 @@ impl Checker {
                 let facts = self.infer_condition_narrowings_arena(arena, left);
                 self.push_scope();
                 self.apply_narrowings(&facts.when_true);
-                self.control_condition = control;
+                self.boundary.control_condition = control;
                 let right_ty = self.check_expr_with_schema_arena(
                     arena,
                     source,
@@ -2817,38 +2856,7 @@ impl Checker {
                         None,
                     )
                     .into_unvalidated();
-                let ordered = |ty: &Type| {
-                    matches!(
-                        ty,
-                        Type::Int | Type::UInt | Type::Float | Type::Duration | Type::Str
-                    )
-                };
-                if left_ty == Type::Any || right_ty == Type::Any {
-                    for (ty, other, span) in [
-                        (&left_ty, &right_ty, left_span),
-                        (&right_ty, &left_ty, right_span),
-                    ] {
-                        if *ty == Type::Any {
-                            self.reject_dynamic_use(
-                                "an ordering operand",
-                                ordered(other).then_some(other),
-                                span,
-                            );
-                        }
-                    }
-                    return Type::Bool;
-                }
-                if self.reject_unnarrowed_union(&left_ty, "an ordering comparison", left_span) {
-                    return Type::Bool;
-                }
-                if !ordered(&left_ty) && !left_ty.is_recovery() {
-                    self.error(
-                        left_span,
-                        "comparison requires Int, Float, Str, or Duration",
-                        DiagnosticCode::CheckOperatorType,
-                    );
-                }
-                self.expect_type(&left_ty, &right_ty, right_span);
+                self.check_ordering_operands(&left_ty, &right_ty, left_span, right_span);
                 Type::Bool
             }
             BinaryOp::In | BinaryOp::NotIn => {
@@ -3201,10 +3209,12 @@ impl Checker {
             receiver if Self::fixed_field_type(&receiver, name).is_some() => {
                 self.checked_fixed_field(&receiver, name, span)
             }
-            // A dynamic field is checked at runtime and stays dynamic; it
-            // used to type as Unknown, which let it reach any concrete use.
-            Type::Any => Type::Any,
+            Type::Any => {
+                self.reject_dynamic_use("a field receiver", None, arena.arena.expr(base).span);
+                Type::Unknown
+            }
             Type::Unknown => Type::Unknown,
+            Type::Optional(inner) => self.optional_field_error(&inner, &name.as_str(), span),
             _ => {
                 self.error(
                     span,
@@ -3214,6 +3224,30 @@ impl Checker {
                 Type::Unknown
             }
         }
+    }
+
+    pub(super) fn optional_field_error(&mut self, inner: &Type, name: &str, span: Span) -> Type {
+        self.diagnostics.push(
+            Diagnostic::error(format!("field `{name}` needs a present value, found {inner}?"))
+                .with_code(DiagnosticCode::CheckFieldAccess)
+                .with_label(Label::primary(
+                    span,
+                    format!("use `?.{name}` or test for null before reading a {inner} field"),
+                )),
+        );
+        Type::Unknown
+    }
+
+    pub(super) fn optional_index_error(&mut self, inner: &Type, span: Span) -> Type {
+        self.diagnostics.push(
+            Diagnostic::error(format!("indexing needs a present value, found {inner}?"))
+                .with_code(DiagnosticCode::CheckIndexType)
+                .with_label(Label::primary(
+                    span,
+                    format!("use `?[...]` or test for null before indexing {inner}"),
+                )),
+        );
+        Type::Unknown
     }
 
     /// Fields of runtime values whose field set is fixed. `None` when the
@@ -3228,6 +3262,8 @@ impl Checker {
                 "segments" => Some(Type::List(Box::new(Type::ErasedRecord))),
                 _ => None,
             },
+            Type::FsLock => xsh_registry::records::fs_lock_fields().get(name)
+                .map(crate::modules::signature::convert_type),
             Type::ProcessHandle => match name {
                 "pid" => Some(Type::Int),
                 "command" => Some(Type::Str),
@@ -3308,7 +3344,10 @@ impl Checker {
         let (inner, wrap_optional) = match base_ty {
             Type::Optional(inner) => (*inner, true),
             Type::Result(_, _) => (self.check_propagation(&base_ty, span), false),
-            Type::Any => return Type::Any,
+            Type::Any => {
+                self.reject_dynamic_use("a field receiver", None, arena.arena.expr(base).span);
+                return Type::Unknown;
+            }
             Type::Unknown => return Type::Unknown,
             _ => {
                 self.error(
@@ -3354,7 +3393,11 @@ impl Checker {
                     Type::Unknown
                 }
             },
-            Type::Any | Type::DynamicModule => Type::Any,
+            Type::Any => {
+                self.reject_dynamic_use("a field receiver", None, arena.arena.expr(base).span);
+                Type::Unknown
+            }
+            Type::DynamicModule => Type::Any,
             Type::Unknown => Type::Unknown,
             _ => {
                 self.error(
@@ -3392,7 +3435,7 @@ impl Checker {
         if !matches!(&namespace_kind, ArenaExprKind::Ident(module) if module == "env") {
             return None;
         }
-        if self.in_pure {
+        if self.boundary.in_pure {
             self.error(
                 span,
                 "environment lookup is not allowed in pure functions",
@@ -3426,7 +3469,11 @@ impl Checker {
             Type::Optional(inner) if inner.validated().is_some() => {
                 (inner.into_unvalidated(), true)
             }
-            Type::Optional(inner) if !matches!(*inner, Type::Any | Type::Unknown) => (*inner, true),
+            Type::Optional(inner) => (*inner, true),
+            Type::Any => {
+                self.reject_dynamic_use("a guarded receiver", None, span);
+                (Type::Unknown, false)
+            }
             Type::Result(_, _) => {
                 let held = self.check_propagation(&ty, span);
                 // One `?[` is one hop: the propagation. An optional the
@@ -3542,12 +3589,14 @@ impl Checker {
             }
             Type::Any => {
                 self.check_expr_arena(arena, source, index, None);
-                Type::Any
+                self.reject_dynamic_use("an index receiver", None, arena.arena.expr(base).span);
+                Type::Unknown
             }
             Type::Unknown => {
                 self.check_expr_arena(arena, source, index, None);
                 Type::Unknown
             }
+            Type::Optional(inner) => self.optional_index_error(&inner, span),
             _ => {
                 self.error(
                     span,
@@ -3602,7 +3651,10 @@ impl Checker {
             Type::List(_) => base_ty,
             Type::Str => Type::Str,
             Type::Bytes => Type::Bytes,
-            Type::Any => Type::Any,
+            Type::Any => {
+                self.reject_dynamic_use("a slice receiver", None, arena.arena.expr(base).span);
+                Type::Unknown
+            }
             Type::Unknown => Type::Unknown,
             _ => {
                 self.error(
@@ -3653,6 +3705,7 @@ mod arena_tests {
 
         program.symbol_owner().with_current(|| {
             let mut native = Checker::new(CheckOptions::default());
+            native.resolved_bindings = std::sync::Arc::new(super::super::ResolvedBindings::collect(&program));
             let _ = native.check_expr_arena(&program, source, id, None);
         });
     }
@@ -3670,6 +3723,7 @@ mod arena_tests {
 
         program.symbol_owner().with_current(|| {
             let mut native = Checker::new(CheckOptions::default());
+            native.resolved_bindings = std::sync::Arc::new(super::super::ResolvedBindings::collect(&program));
             for &id in &stmt_ids {
                 native.check_stmt_arena(&program, source, id);
             }

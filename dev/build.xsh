@@ -3,6 +3,7 @@ use cargo_steps
 use context
 use docs as documentation
 use stage as stages
+use test_workflows as tests
 use targets
 
 ## Prepares the native musl sysroot only on the Linux host/target combination that needs it.
@@ -69,7 +70,7 @@ export proc check_libxsh_imports(ctx: context.Context) [process, error] -> Resul
 ## Checks command inventory, native test origins and applet invariants through
 ## the release native test runner. Metadata checks need no upstream checkout.
 export proc check_core_contracts(ctx: context.Context) [process, error, io] -> Result[Unit, Error] {
-  let xsht = fp"{ctx.target_dir}/release/xsht"
+  let xsht = fp"{ctx.target_dir}/{ctx.target.triple}/release/xsht"
   stages.execute(
     stages.command(
       "check-core-contracts",
@@ -94,6 +95,8 @@ export proc check_lint(ctx: context.Context) [fs, process, env, error, io] -> Re
         "cargo",
         "test",
         "--release",
+        "--target",
+        ctx.target.triple,
         "-p",
         "xsht",
         "--test",
@@ -104,7 +107,7 @@ export proc check_lint(ctx: context.Context) [fs, process, env, error, io] -> Re
         "--nocapture",
       ],
       ctx.root,
-      {},
+      tests.cargo_environment(ctx)?,
     ),
   )
   check_core_contracts(ctx)
@@ -133,6 +136,8 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
         "cargo",
         "build",
         "--release",
+        "--target",
+        ctx.target.triple,
         "-p",
         "xsh",
         "-p",
@@ -147,7 +152,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
         "xsht",
       ],
       ctx.root,
-      {},
+      tests.cargo_environment(ctx)?,
     ),
   )
   stages.execute(
@@ -157,7 +162,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       "cargo",
       ["cargo", "fmt", "--all", "--", "--check"],
       ctx.root,
-      {},
+      tests.cargo_environment(ctx)?,
     ),
   )
   cargo_steps.run_build(
@@ -176,10 +181,10 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
         "warnings",
       ],
       ctx.root,
-      {},
+      tests.cargo_environment(ctx)?,
     ),
   )
-  let xsht = fp"{ctx.target_dir}/release/xsht"
+  let xsht = fp"{ctx.target_dir}/{ctx.target.triple}/release/xsht"
   stages.execute(
     stages.command(
       "check-xsh",
@@ -187,7 +192,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       xsht.display(),
       [xsht.display(), "check"],
       ctx.root,
-      {},
+      tests.cargo_environment(ctx)?,
     ),
   )
   stages.execute(
@@ -197,7 +202,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       xsht.display(),
       [xsht.display(), "fmt", "--check"],
       ctx.root,
-      {},
+      tests.cargo_environment(ctx)?,
     ),
   )
   stages.execute(
@@ -207,7 +212,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       xsht.display(),
       [xsht.display(), "lint"],
       ctx.root,
-      {},
+      tests.cargo_environment(ctx)?,
     ),
   )
   check_core_contracts(ctx)
@@ -220,7 +225,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       "git",
       ["git", "diff", "--check"],
       ctx.root,
-      {},
+      tests.cargo_environment(ctx)?,
     ),
   )
 }

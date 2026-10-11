@@ -1,6 +1,6 @@
 #[macro_use]
-#[path = "../../../tests/release_binary.rs"]
-mod release_binary;
+#[path = "../../../tests/test_binary.rs"]
+mod test_binary;
 
 use std::os::unix::ffi::OsStringExt;
 use std::process::{Command, Output};
@@ -9,7 +9,7 @@ use std::process::{Command, Output};
 /// developer's history, trust, or configuration.
 fn xshi(args: &[&str]) -> (Output, tempfile::TempDir) {
     let home = tempfile::tempdir().expect("temporary HOME");
-    let output = Command::new(release_bin!("xshi"))
+    let output = Command::new(test_bin!("xshi"))
         .args(args)
         .env("HOME", home.path())
         .env("USER", "testuser")
@@ -22,7 +22,7 @@ fn xshi(args: &[&str]) -> (Output, tempfile::TempDir) {
 fn xshi_reports_non_utf8_command_without_panicking() {
     let home = tempfile::tempdir().expect("temporary HOME");
     let raw_command = std::ffi::OsString::from_vec(b"print \"\xff\"".to_vec());
-    let output = Command::new(release_bin!("xshi"))
+    let output = Command::new(test_bin!("xshi"))
         .arg("-c")
         .arg(raw_command)
         .env("HOME", home.path())
@@ -97,7 +97,7 @@ fn explicit_config_replaces_the_default_and_warns_when_missing() {
     std::fs::write(&custom, "alias probe echo from-custom\n").unwrap();
 
     let run = |args: &[&str]| {
-        Command::new(release_bin!("xshi"))
+        Command::new(test_bin!("xshi"))
             .args(args)
             .env("HOME", home.path())
             .output()

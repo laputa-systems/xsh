@@ -3,7 +3,7 @@
 use rustc_hash::FxHashMap;
 use xsh::frontend::source::Span;
 use xsh::frontend::syntax::arena::{
-    ArenaBindingTargetKind, ArenaCallArgKind, ArenaExprKind, ArenaPatternKind, ArenaProgram,
+    ArenaBindingTargetKind, ArenaCallArgKind, ArenaChild, ArenaExprKind, ArenaPatternKind, ArenaProgram,
     ArenaStmtKind, ArenaSugar, AstArena, BindingTargetId, BlockId, ExprId, PatternId, StmtId,
 };
 
@@ -84,64 +84,60 @@ fn match_expr_structural(
     source: &str,
     bindings: &mut FxHashMap<String, Span>,
 ) -> bool {
-    match (pattern, target) {
-        (ArenaExprKind::Null, ArenaExprKind::Null) => true,
-        (ArenaExprKind::Bool(a), ArenaExprKind::Bool(b)) => a == b,
-        (ArenaExprKind::Int(a), ArenaExprKind::Int(b)) => p.int_literal(*a) == t.int_literal(*b),
-        (ArenaExprKind::Float(a), ArenaExprKind::Float(b)) => {
+    // Kinds that share an arm still match only their own surface form.
+    if std::mem::discriminant(pattern) != std::mem::discriminant(target) {
+        return false;
+    }
+    match pattern {
+        ArenaExprKind::Null => true,
+        ArenaExprKind::Bool(a) => {
+            let ArenaExprKind::Bool(b) = target else { return false; };
+            a == b
+        }
+        ArenaExprKind::Int(a) => {
+            let ArenaExprKind::Int(b) = target else { return false; };
+            p.int_literal(*a) == t.int_literal(*b)
+        }
+        ArenaExprKind::Float(a) => {
+            let ArenaExprKind::Float(b) = target else { return false; };
             p.float_literal(*a) == t.float_literal(*b)
         }
-        (ArenaExprKind::Regex(a), ArenaExprKind::Regex(b)) => {
+        ArenaExprKind::Regex(a) => {
+            let ArenaExprKind::Regex(b) = target else { return false; };
             p.regex_literal(*a).pattern == t.regex_literal(*b).pattern
         }
-        (ArenaExprKind::Str(a), ArenaExprKind::Str(b)) => {
+        ArenaExprKind::Str(a) => {
+            let ArenaExprKind::Str(b) = target else { return false; };
             p.string_literal(*a) == t.string_literal(*b)
         }
-        (ArenaExprKind::Duration(a), ArenaExprKind::Duration(b)) => {
+        ArenaExprKind::Duration(a) => {
+            let ArenaExprKind::Duration(b) = target else { return false; };
             p.duration_literal(*a) == t.duration_literal(*b)
         }
-        (ArenaExprKind::Bytes(a), ArenaExprKind::Bytes(b)) => {
+        ArenaExprKind::Bytes(a) => {
+            let ArenaExprKind::Bytes(b) = target else { return false; };
             p.bytes_literal(*a) == t.bytes_literal(*b)
         }
-        (ArenaExprKind::Ident(a), ArenaExprKind::Ident(b)) => a == b,
-        (
-            ArenaExprKind::Field { base: pb, name: pn },
-            ArenaExprKind::Field { base: tb, name: tn },
-        ) => pn == tn && match_expr(p, *pb, t, *tb, source, bindings),
-        (
-            ArenaExprKind::NullSafeField { base: pb, name: pn },
-            ArenaExprKind::NullSafeField { base: tb, name: tn },
-        ) => pn == tn && match_expr(p, *pb, t, *tb, source, bindings),
-        (
-            ArenaExprKind::Index {
-                base: pb,
-                index: pi,
-                guarded: pg,
-            },
-            ArenaExprKind::Index {
-                base: tb,
-                index: ti,
-                guarded: tg,
-            },
-        ) => {
+        ArenaExprKind::Ident(a) => {
+            let ArenaExprKind::Ident(b) = target else { return false; };
+            a == b
+        }
+        ArenaExprKind::Field { base: pb, name: pn } => {
+            let ArenaExprKind::Field { base: tb, name: tn } = target else { return false; };
+            pn == tn && match_expr(p, *pb, t, *tb, source, bindings)
+        }
+        ArenaExprKind::NullSafeField { base: pb, name: pn } => {
+            let ArenaExprKind::NullSafeField { base: tb, name: tn } = target else { return false; };
+            pn == tn && match_expr(p, *pb, t, *tb, source, bindings)
+        }
+        ArenaExprKind::Index { base: pb, index: pi, guarded: pg } => {
+            let ArenaExprKind::Index { base: tb, index: ti, guarded: tg } = target else { return false; };
             pg == tg
                 && match_expr(p, *pb, t, *tb, source, bindings)
                 && match_expr(p, *pi, t, *ti, source, bindings)
         }
-        (
-            ArenaExprKind::Slice {
-                base: pb,
-                start: ps,
-                end: pe,
-                guarded: pg,
-            },
-            ArenaExprKind::Slice {
-                base: tb,
-                start: ts,
-                end: te,
-                guarded: tg,
-            },
-        ) => {
+        ArenaExprKind::Slice { base: pb, start: ps, end: pe, guarded: pg } => {
+            let ArenaExprKind::Slice { base: tb, start: ts, end: te, guarded: tg } = target else { return false; };
             pg == tg
                 && match_expr(p, *pb, t, *tb, source, bindings)
                 && match ps.zip(*ts) {
@@ -153,16 +149,8 @@ fn match_expr_structural(
                     None => pe.is_none() && te.is_none(),
                 }
         }
-        (
-            ArenaExprKind::Call {
-                callee: pc,
-                args: pa,
-            },
-            ArenaExprKind::Call {
-                callee: tc,
-                args: ta,
-            },
-        ) => {
+        ArenaExprKind::Call { callee: pc, args: pa } => {
+            let ArenaExprKind::Call { callee: tc, args: ta } = target else { return false; };
             let mut b2 = bindings.clone();
             if !match_expr(p, *pc, t, *tc, source, &mut b2) {
                 return false;
@@ -173,18 +161,8 @@ fn match_expr_structural(
             *bindings = b2;
             true
         }
-        (
-            ArenaExprKind::ValuePipelineCall {
-                input: pi,
-                call: pc,
-                ..
-            },
-            ArenaExprKind::ValuePipelineCall {
-                input: ti,
-                call: tc,
-                ..
-            },
-        ) => {
+        ArenaExprKind::ValuePipelineCall { input: pi, call: pc, .. } => {
+            let ArenaExprKind::ValuePipelineCall { input: ti, call: tc, .. } = target else { return false; };
             let mut next = bindings.clone();
             if match_expr(p, *pi, t, *ti, source, &mut next)
                 && match_expr(p, *pc, t, *tc, source, &mut next)
@@ -195,10 +173,12 @@ fn match_expr_structural(
                 false
             }
         }
-        (ArenaExprKind::Unary { op: po, expr: pe }, ArenaExprKind::Unary { op: to, expr: te }) => {
+        ArenaExprKind::Unary { op: po, expr: pe } => {
+            let ArenaExprKind::Unary { op: to, expr: te } = target else { return false; };
             po == to && match_expr(p, *pe, t, *te, source, bindings)
         }
-        (ArenaExprKind::ComparisonChain(pp), ArenaExprKind::ComparisonChain(tp)) => {
+        ArenaExprKind::ComparisonChain(pp) => {
+            let ArenaExprKind::ComparisonChain(tp) = target else { return false; };
             let pp = p.expr_ids(*pp).collect::<Vec<_>>();
             let tp = t.expr_ids(*tp).collect::<Vec<_>>();
             pp.len() == tp.len()
@@ -207,52 +187,18 @@ fn match_expr_structural(
                     .zip(tp)
                     .all(|(pp, tp)| match_expr(p, pp, t, tp, source, bindings))
         }
-        (
-            ArenaExprKind::Binary {
-                op: po,
-                left: pl,
-                right: pr,
-            },
-            ArenaExprKind::Binary {
-                op: to,
-                left: tl,
-                right: tr,
-            },
-        ) => {
+        ArenaExprKind::Binary { op: po, left: pl, right: pr } => {
+            let ArenaExprKind::Binary { op: to, left: tl, right: tr } = target else { return false; };
             po == to
                 && match_expr(p, *pl, t, *tl, source, bindings)
                 && match_expr(p, *pr, t, *tr, source, bindings)
         }
-        (
-            ArenaExprKind::PatternTest {
-                value: pv,
-                arms: pa,
-            },
-            ArenaExprKind::PatternTest {
-                value: tv,
-                arms: ta,
-            },
-        )
-        | (
-            ArenaExprKind::PatternCondition {
-                value: pv,
-                arms: pa,
-            },
-            ArenaExprKind::PatternCondition {
-                value: tv,
-                arms: ta,
-            },
-        )
-        | (
-            ArenaExprKind::Match {
-                value: pv,
-                arms: pa,
-            },
-            ArenaExprKind::Match {
-                value: tv,
-                arms: ta,
-            },
-        ) => {
+        ArenaExprKind::PatternTest { value: pv, arms: pa }
+        | ArenaExprKind::PatternCondition { value: pv, arms: pa }
+        | ArenaExprKind::Match { value: pv, arms: pa } => {
+            let (ArenaExprKind::PatternTest { value: tv, arms: ta }
+                | ArenaExprKind::PatternCondition { value: tv, arms: ta }
+                | ArenaExprKind::Match { value: tv, arms: ta }) = target else { return false; };
             let pa = p.match_expr_arms(*pa);
             let ta = t.match_expr_arms(*ta);
             let mut candidate = bindings.clone();
@@ -273,24 +219,13 @@ fn match_expr_structural(
             *bindings = candidate;
             true
         }
-        (ArenaExprKind::Capture(pb), ArenaExprKind::Capture(tb))
-        | (ArenaExprKind::ValueBlock(pb), ArenaExprKind::ValueBlock(tb)) => {
+        ArenaExprKind::Capture(pb) | ArenaExprKind::ValueBlock(pb) => {
+            let (ArenaExprKind::Capture(tb) | ArenaExprKind::ValueBlock(tb)) = target else { return false; };
             match_value_block(p, *pb, t, *tb, source, bindings)
         }
-        (
-            ArenaExprKind::Retry {
-                schedule: ps,
-                delays: pd,
-                pattern: pp,
-                block: pb,
-            },
-            ArenaExprKind::Retry {
-                schedule: ts,
-                delays: td,
-                pattern: tp,
-                block: tb,
-            },
-        ) if ps == ts => {
+        ArenaExprKind::Retry { schedule: ps, delays: pd, pattern: pp, block: pb } => {
+            let ArenaExprKind::Retry { schedule: ts, delays: td, pattern: tp, block: tb } = target else { return false; };
+            if ps != ts { return false; }
             let pd = p.expr_ids(*pd).collect::<Vec<_>>();
             let td = t.expr_ids(*td).collect::<Vec<_>>();
             let mut candidate = bindings.clone();
@@ -313,20 +248,8 @@ fn match_expr_structural(
             *bindings = candidate;
             true
         }
-        (
-            ArenaExprKind::ContextScope {
-                kind: pk,
-                input: pi,
-                block: pb,
-                value_body: pv,
-            },
-            ArenaExprKind::ContextScope {
-                kind: tk,
-                input: ti,
-                block: tb,
-                value_body: tv,
-            },
-        ) => {
+        ArenaExprKind::ContextScope { kind: pk, input: pi, block: pb, value_body: pv } => {
+            let ArenaExprKind::ContextScope { kind: tk, input: ti, block: tb, value_body: tv } = target else { return false; };
             let mut candidate = bindings.clone();
             if pk != tk
                 || pv != tv
@@ -341,18 +264,8 @@ fn match_expr_structural(
         // A resource scope matches in statement and in value position. A
         // binding name in the pattern is literal unless it is a metavariable,
         // which stands for any name.
-        (
-            ArenaExprKind::ResourceScope {
-                bindings: pbind,
-                block: pb,
-                ..
-            },
-            ArenaExprKind::ResourceScope {
-                bindings: tbind,
-                block: tb,
-                ..
-            },
-        ) => {
+        ArenaExprKind::ResourceScope { bindings: pbind, block: pb, .. } => {
+            let ArenaExprKind::ResourceScope { bindings: tbind, block: tb, .. } = target else { return false; };
             let pbind = p.with_bindings(*pbind);
             let tbind = t.with_bindings(*tbind);
             let mut candidate = bindings.clone();
@@ -375,16 +288,8 @@ fn match_expr_structural(
             *bindings = candidate;
             true
         }
-        (
-            ArenaExprKind::ErrorContext {
-                message: pm,
-                block: pb,
-            },
-            ArenaExprKind::ErrorContext {
-                message: tm,
-                block: tb,
-            },
-        ) => {
+        ArenaExprKind::ErrorContext { message: pm, block: pb } => {
+            let ArenaExprKind::ErrorContext { message: tm, block: tb } = target else { return false; };
             let mut candidate = bindings.clone();
             if !match_expr(p, *pm, t, *tm, source, &mut candidate)
                 || !match_context_block(p, *pb, t, *tb, source, &mut candidate)
@@ -394,24 +299,18 @@ fn match_expr_structural(
             *bindings = candidate;
             true
         }
-        (ArenaExprKind::Try(pe), ArenaExprKind::Try(te)) => {
+        ArenaExprKind::Try(pe) => {
+            let ArenaExprKind::Try(te) = target else { return false; };
             match_expr(p, *pe, t, *te, source, bindings)
         }
         // A conversion matches a conversion to the same plainly named type.
-        (
-            ArenaExprKind::Convert {
-                value: pv,
-                target: pt,
-            },
-            ArenaExprKind::Convert {
-                value: tv,
-                target: tt,
-            },
-        ) => {
+        ArenaExprKind::Convert { value: pv, target: pt } => {
+            let ArenaExprKind::Convert { value: tv, target: tt } = target else { return false; };
             named_type(p, *pt).is_some_and(|name| named_type(t, *tt) == Some(name))
                 && match_expr(p, *pv, t, *tv, source, bindings)
         }
-        (ArenaExprKind::Record(pfields), ArenaExprKind::Record(tfields)) => {
+        ArenaExprKind::Record(pfields) => {
+            let ArenaExprKind::Record(tfields) = target else { return false; };
             use xsh::frontend::syntax::arena::ArenaRecordFieldKind as Field;
             let pfields = p.record_fields(*pfields);
             let tfields = t.record_fields(*tfields);
@@ -474,8 +373,8 @@ fn match_expr_structural(
             *bindings = local;
             true
         }
-        (ArenaExprKind::List(pi), ArenaExprKind::List(ti))
-        | (ArenaExprKind::Set(pi), ArenaExprKind::Set(ti)) => {
+        ArenaExprKind::List(pi) | ArenaExprKind::Set(pi) => {
+            let (ArenaExprKind::List(ti) | ArenaExprKind::Set(ti)) = target else { return false; };
             let pitems: Vec<_> = p.list_elements(*pi).collect();
             let titems: Vec<_> = t.list_elements(*ti).collect();
             if pitems.len() != titems.len() {
@@ -492,7 +391,15 @@ fn match_expr_structural(
             *bindings = b2;
             true
         }
-        _ => false,
+        ArenaExprKind::PathStr(_) | ArenaExprKind::GlobStr(_)
+        | ArenaExprKind::FmtString(_) | ArenaExprKind::PathFmtString(_)
+        | ArenaExprKind::Item | ArenaExprKind::LastStatus | ArenaExprKind::EnvString(_)
+        | ArenaExprKind::EnvPathList | ArenaExprKind::ListComp { .. } | ArenaExprKind::MapComp { .. }
+        | ArenaExprKind::SetComp { .. } | ArenaExprKind::If { .. }
+        | ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. }
+        | ArenaExprKind::Run(_) | ArenaExprKind::Spawn(_) | ArenaExprKind::Wait(_)
+        | ArenaExprKind::BuilderCall { .. } | ArenaExprKind::Require { .. }
+        | ArenaExprKind::Collect { .. } | ArenaExprKind::Loop { .. } | ArenaExprKind::TempDirScope { .. } => false,
     }
 }
 
@@ -538,45 +445,42 @@ fn match_pattern(
     bindings: &mut FxHashMap<String, Span>,
 ) -> bool {
     use xsh::frontend::check::Type;
-    match (&p.pattern(pi).kind, &t.pattern(ti).kind) {
-        (ArenaPatternKind::Group(a), _) => match_pattern(p, *a, t, ti, source, bindings),
-        (_, ArenaPatternKind::Group(b)) => match_pattern(p, pi, t, *b, source, bindings),
-        (
-            ArenaPatternKind::Alias {
-                pattern: a,
-                name: an,
-                ..
-            },
-            ArenaPatternKind::Alias {
-                pattern: b,
-                name: bn,
-                ..
-            },
-        ) => an == bn && match_pattern(p, *a, t, *b, source, bindings),
-        (ArenaPatternKind::Wildcard, ArenaPatternKind::Wildcard) => true,
-        (ArenaPatternKind::Binding(a), ArenaPatternKind::Binding(b))
-        | (ArenaPatternKind::Facet(a), ArenaPatternKind::Facet(b)) => a == b,
-        (
-            ArenaPatternKind::TestName { name: a, ty: at },
-            ArenaPatternKind::TestName { name: b, ty: bt },
-        ) => a == b && Type::from_arena(p, *at) == Type::from_arena(t, *bt),
-        (
-            ArenaPatternKind::Type { binding: a, ty: at },
-            ArenaPatternKind::Type { binding: b, ty: bt },
-        ) => a == b && Type::from_arena(p, *at) == Type::from_arena(t, *bt),
-        (ArenaPatternKind::Literal(a), ArenaPatternKind::Literal(b)) => {
+    let pattern = &p.pattern(pi).kind;
+    let target = &t.pattern(ti).kind;
+    if let ArenaPatternKind::Group(a) = pattern {
+        return match_pattern(p, *a, t, ti, source, bindings);
+    }
+    if let ArenaPatternKind::Group(b) = target {
+        return match_pattern(p, pi, t, *b, source, bindings);
+    }
+    if std::mem::discriminant(pattern) != std::mem::discriminant(target) {
+        return false;
+    }
+    match pattern {
+        ArenaPatternKind::Group(_) => unreachable!("grouped patterns are matched through their inner pattern"),
+        ArenaPatternKind::Alias { pattern: a, name: an, .. } => {
+            let ArenaPatternKind::Alias { pattern: b, name: bn, .. } = target else { return false; };
+            an == bn && match_pattern(p, *a, t, *b, source, bindings)
+        }
+        ArenaPatternKind::Wildcard => true,
+        ArenaPatternKind::Binding(a) | ArenaPatternKind::Facet(a) => {
+            let (ArenaPatternKind::Binding(b) | ArenaPatternKind::Facet(b)) = target else { return false; };
+            a == b
+        }
+        ArenaPatternKind::TestName { name: a, ty: at } => {
+            let ArenaPatternKind::TestName { name: b, ty: bt } = target else { return false; };
+            a == b && Type::from_arena(p, *at) == Type::from_arena(t, *bt)
+        }
+        ArenaPatternKind::Type { binding: a, ty: at } => {
+            let ArenaPatternKind::Type { binding: b, ty: bt } = target else { return false; };
+            a == b && Type::from_arena(p, *at) == Type::from_arena(t, *bt)
+        }
+        ArenaPatternKind::Literal(a) => {
+            let ArenaPatternKind::Literal(b) = target else { return false; };
             match_expr(p, *a, t, *b, source, bindings)
         }
-        (
-            ArenaPatternKind::List {
-                elements: a,
-                rest: ar,
-            },
-            ArenaPatternKind::List {
-                elements: b,
-                rest: br,
-            },
-        ) => {
+        ArenaPatternKind::List { elements: a, rest: ar } => {
+            let ArenaPatternKind::List { elements: b, rest: br } = target else { return false; };
             let a: Vec<_> = p.pattern_ids(*a).collect();
             let b: Vec<_> = t.pattern_ids(*b).collect();
             a.len() == b.len()
@@ -588,16 +492,8 @@ fn match_pattern(
                     None => ar.is_none() && br.is_none(),
                 }
         }
-        (
-            ArenaPatternKind::Record {
-                fields: a,
-                rest: ar,
-            },
-            ArenaPatternKind::Record {
-                fields: b,
-                rest: br,
-            },
-        ) => {
+        ArenaPatternKind::Record { fields: a, rest: ar } => {
+            let ArenaPatternKind::Record { fields: b, rest: br } = target else { return false; };
             let a = p.pattern_fields(*a);
             let b = t.pattern_fields(*b);
             ar == br
@@ -606,29 +502,20 @@ fn match_pattern(
                     a.name == b.name && match_pattern(p, a.pattern, t, b.pattern, source, bindings)
                 })
         }
-        (
-            ArenaPatternKind::Constructor { name: a, arg: aa },
-            ArenaPatternKind::Constructor { name: b, arg: ba },
-        ) => {
+        ArenaPatternKind::Constructor { name: a, arg: aa } => {
+            let ArenaPatternKind::Constructor { name: b, arg: ba } = target else { return false; };
             a == b
                 && match aa.zip(*ba) {
                     Some((a, b)) => match_pattern(p, a, t, b, source, bindings),
                     None => aa.is_none() && ba.is_none(),
                 }
         }
-        (
-            ArenaPatternKind::TextHole {
-                binding: a,
-                spec: a_spec,
-            },
-            ArenaPatternKind::TextHole {
-                binding: b,
-                spec: b_spec,
-            },
-        ) => a == b && a_spec == b_spec,
-        (ArenaPatternKind::Tuple(a), ArenaPatternKind::Tuple(b))
-        | (ArenaPatternKind::Text(a), ArenaPatternKind::Text(b))
-        | (ArenaPatternKind::Alternation(a), ArenaPatternKind::Alternation(b)) => {
+        ArenaPatternKind::TextHole { binding: a, spec: a_spec } => {
+            let ArenaPatternKind::TextHole { binding: b, spec: b_spec } = target else { return false; };
+            a == b && a_spec == b_spec
+        }
+        ArenaPatternKind::Tuple(a) | ArenaPatternKind::Text(a) | ArenaPatternKind::Alternation(a) => {
+            let (ArenaPatternKind::Tuple(b) | ArenaPatternKind::Text(b) | ArenaPatternKind::Alternation(b)) = target else { return false; };
             let a: Vec<_> = p.pattern_ids(*a).collect();
             let b: Vec<_> = t.pattern_ids(*b).collect();
             a.len() == b.len()
@@ -636,18 +523,8 @@ fn match_pattern(
                     .zip(b)
                     .all(|(a, b)| match_pattern(p, a, t, b, source, bindings))
         }
-        (
-            ArenaPatternKind::ErrorVariant {
-                family: af,
-                variant: av,
-                fields: a,
-            },
-            ArenaPatternKind::ErrorVariant {
-                family: bf,
-                variant: bv,
-                fields: b,
-            },
-        ) => {
+        ArenaPatternKind::ErrorVariant { family: af, variant: av, fields: a } => {
+            let ArenaPatternKind::ErrorVariant { family: bf, variant: bv, fields: b } = target else { return false; };
             let a = p.pattern_fields(*a);
             let b = t.pattern_fields(*b);
             af == bf
@@ -657,7 +534,6 @@ fn match_pattern(
                     a.name == b.name && match_pattern(p, a.pattern, t, b.pattern, source, bindings)
                 })
         }
-        _ => false,
     }
 }
 
@@ -813,31 +689,27 @@ fn build_replacement_text(
             }
             Some(format!("{callee_text}({})", arg_parts.join(", ")))
         }
-        ArenaExprKind::Record(fields) => {
-            use xsh::frontend::syntax::arena::ArenaRecordFieldKind;
+        ArenaExprKind::Record(_) => {
             let mut text = pattern_source
                 .get(expr.span.start()..expr.span.end())?
                 .to_string();
-            let mut edits = Vec::new();
-            for field in arena.record_fields(*fields) {
-                let children = match field.kind {
-                    ArenaRecordFieldKind::Computed { key, value, .. } => vec![key, value],
-                    ArenaRecordFieldKind::Named { value, .. }
-                    | ArenaRecordFieldKind::Path { value, .. } => vec![value],
-                    ArenaRecordFieldKind::Spread { expr, .. } => vec![expr],
-                    ArenaRecordFieldKind::Shorthand { .. } => Vec::new(),
+            let mut edits = Some(Vec::new());
+            arena.for_each_expr_child(id, |child| {
+                let child = match child {
+                    ArenaChild::Expr(child) => child,
+                    ArenaChild::Stmt(_) | ArenaChild::Pattern(_) | ArenaChild::Block(_)
+                    | ArenaChild::BindingTarget(_) | ArenaChild::AssignTarget(_)
+                    | ArenaChild::TypeExpr(_) | ArenaChild::BuilderBlock(_) => unreachable!("record children are expressions"),
                 };
-                for child in children {
-                    let span = arena.expr(child).span;
-                    let replacement =
-                        build_replacement_text(arena, child, m, target_source, pattern_source)?;
-                    edits.push((
-                        span.start() - expr.span.start(),
-                        span.end() - expr.span.start(),
-                        replacement,
-                    ));
-                }
-            }
+                let Some(pending) = edits.as_mut() else { return; };
+                let Some(replacement) = build_replacement_text(arena, child, m, target_source, pattern_source) else {
+                    edits = None;
+                    return;
+                };
+                let span = arena.expr(child).span;
+                pending.push((span.start() - expr.span.start(), span.end() - expr.span.start(), replacement));
+            });
+            let mut edits = edits?;
             edits.sort_unstable_by_key(|(start, _, _)| std::cmp::Reverse(*start));
             for (start, end, replacement) in edits {
                 text.replace_range(start..end, &replacement);
@@ -960,8 +832,22 @@ fn build_replacement_text(
             Some(text)
         }
         ArenaExprKind::Ident(name) => Some(name.to_string()),
-        // For non-metavar, non-structural nodes: fall back to pattern source text.
-        _ => {
+        // Forms without a replacement template keep their original source text.
+        ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_)
+        | ArenaExprKind::Float(_) | ArenaExprKind::Duration(_) | ArenaExprKind::Str(_)
+        | ArenaExprKind::PathStr(_) | ArenaExprKind::GlobStr(_)
+        | ArenaExprKind::FmtString(_) | ArenaExprKind::PathFmtString(_)
+        | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_) | ArenaExprKind::Item
+        | ArenaExprKind::LastStatus | ArenaExprKind::List(_) | ArenaExprKind::ListComp { .. }
+        | ArenaExprKind::MapComp { .. } | ArenaExprKind::Set(_) | ArenaExprKind::SetComp { .. }
+        | ArenaExprKind::If { .. } | ArenaExprKind::PatternCondition { .. }
+        | ArenaExprKind::Unary { .. } | ArenaExprKind::ComparisonChain(_) | ArenaExprKind::Binary { .. }
+        | ArenaExprKind::Index { .. } | ArenaExprKind::Slice { .. } | ArenaExprKind::EnvString(_)
+        | ArenaExprKind::EnvPathList | ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. }
+        | ArenaExprKind::Run(_) | ArenaExprKind::Spawn(_) | ArenaExprKind::Wait(_)
+        | ArenaExprKind::BuilderCall { .. } | ArenaExprKind::Capture(_) | ArenaExprKind::Require { .. }
+        | ArenaExprKind::Collect { .. } | ArenaExprKind::Loop { .. }
+        | ArenaExprKind::TempDirScope { .. } | ArenaExprKind::ResourceScope { .. } => {
             let text = pattern_source.get(expr.span.start()..expr.span.end())?;
             Some(text.to_string())
         }
