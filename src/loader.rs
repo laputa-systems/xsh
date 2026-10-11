@@ -481,7 +481,30 @@ fn collect_exported_top_level_binding_name(
         ArenaStmtKind::ErrorDef(def) => {
             names.insert(program.arena.error_def(def).name);
         }
-        _ => {}
+        ArenaStmtKind::Use(_)
+        | ArenaStmtKind::Export(_)
+        | ArenaStmtKind::Assign { .. }
+        | ArenaStmtKind::CliMain(_)
+        | ArenaStmtKind::SignalHook(_)
+        | ArenaStmtKind::Return(_)
+        | ArenaStmtKind::Yield(_)
+        | ArenaStmtKind::YieldDelegate(_)
+        | ArenaStmtKind::Defer(..)
+        | ArenaStmtKind::If { .. }
+        | ArenaStmtKind::While { .. }
+        | ArenaStmtKind::For { .. }
+        | ArenaStmtKind::With { .. }
+        | ArenaStmtKind::Loop { .. }
+        | ArenaStmtKind::Guard { .. }
+        | ArenaStmtKind::Sugar { .. }
+        | ArenaStmtKind::Assert { .. }
+        | ArenaStmtKind::Break { .. }
+        | ArenaStmtKind::Continue
+        | ArenaStmtKind::Exit(_)
+        | ArenaStmtKind::Match { .. }
+        | ArenaStmtKind::Command(_)
+        | ArenaStmtKind::TailBareIdent(_)
+        | ArenaStmtKind::Expr(_) => {}
     }
 }
 

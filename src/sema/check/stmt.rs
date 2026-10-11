@@ -173,7 +173,13 @@ pub(super) fn stmt_has_exit_point_arena(arena: &ArenaProgram, id: StmtId) -> boo
             _ => false,
         },
         ArenaStmtKind::Sugar { expansion, .. } => stmt_has_exit_point_arena(arena, *expansion),
-        _ => false,
+        ArenaStmtKind::Use(_) | ArenaStmtKind::Export(_) | ArenaStmtKind::TypeDef(_)
+        | ArenaStmtKind::ErrorDef(_) | ArenaStmtKind::Const { .. } | ArenaStmtKind::Let { .. }
+        | ArenaStmtKind::Var { .. } | ArenaStmtKind::Assign { .. } | ArenaStmtKind::ProcDef(_)
+        | ArenaStmtKind::CliMain(_) | ArenaStmtKind::PureDef(_) | ArenaStmtKind::StreamDef(_)
+        | ArenaStmtKind::SignalHook(_) | ArenaStmtKind::Yield(_) | ArenaStmtKind::YieldDelegate(_)
+        | ArenaStmtKind::Defer(..) | ArenaStmtKind::Assert { .. } | ArenaStmtKind::Command(_)
+        | ArenaStmtKind::TailBareIdent(_) | ArenaStmtKind::Continue | ArenaStmtKind::Exit(_) => false,
     }
 }
 
@@ -367,7 +373,12 @@ pub(super) fn collect_variant_coverage(
                 coverage.booleans[usize::from(value)] = true;
             }
         }
-        _ => {}
+        ArenaPatternKind::Constructor { .. }
+        | ArenaPatternKind::Record { .. }
+        | ArenaPatternKind::List { .. }
+        | ArenaPatternKind::Tuple(_)
+        | ArenaPatternKind::Text(_)
+        | ArenaPatternKind::TextHole { .. } => {}
     }
 }
 
@@ -2173,7 +2184,17 @@ impl Checker {
                 | ArenaStmtKind::Break { .. }
                 | ArenaStmtKind::Continue => true,
                 ArenaStmtKind::If { .. } => if_stmt_may_produce_value(arena, tail),
-                _ => false,
+                ArenaStmtKind::Use(_) | ArenaStmtKind::Export(_) | ArenaStmtKind::TypeDef(_)
+                | ArenaStmtKind::ErrorDef(_) | ArenaStmtKind::Const { .. }
+                | ArenaStmtKind::Let { .. } | ArenaStmtKind::Var { .. }
+                | ArenaStmtKind::Assign { .. } | ArenaStmtKind::ProcDef(_)
+                | ArenaStmtKind::CliMain(_) | ArenaStmtKind::PureDef(_)
+                | ArenaStmtKind::StreamDef(_) | ArenaStmtKind::SignalHook(_)
+                | ArenaStmtKind::Yield(_) | ArenaStmtKind::YieldDelegate(_)
+                | ArenaStmtKind::Defer(..) | ArenaStmtKind::While { .. }
+                | ArenaStmtKind::For { .. } | ArenaStmtKind::With { .. }
+                | ArenaStmtKind::Loop { .. } | ArenaStmtKind::Guard { .. }
+                | ArenaStmtKind::Sugar { .. } | ArenaStmtKind::Assert { .. } => false,
             };
             let checked_stmts: &[StmtId] = if tail_producing { non_tail } else { &stmt_ids };
             for &stmt_id in checked_stmts {
@@ -3509,7 +3530,19 @@ impl Checker {
             {
                 !block_has_exit_point_arena(arena, block)
             }
-            _ => false,
+            ArenaStmtKind::Use(_) | ArenaStmtKind::Export(_) | ArenaStmtKind::TypeDef(_)
+            | ArenaStmtKind::ErrorDef(_) | ArenaStmtKind::Const { .. }
+            | ArenaStmtKind::ProcDef(_) | ArenaStmtKind::CliMain(_)
+            | ArenaStmtKind::PureDef(_) | ArenaStmtKind::StreamDef(_)
+            | ArenaStmtKind::SignalHook(_) | ArenaStmtKind::Yield(_)
+            | ArenaStmtKind::YieldDelegate(_) | ArenaStmtKind::Defer(..)
+            | ArenaStmtKind::For { .. } | ArenaStmtKind::Guard { .. }
+            | ArenaStmtKind::Let { initializer: ArenaExprOrRun::Run(_), .. }
+            | ArenaStmtKind::Var { initializer: ArenaExprOrRun::Run(_), .. }
+            | ArenaStmtKind::Assign { value: ArenaExprOrRun::Run(_), .. }
+            | ArenaStmtKind::Assert { .. } | ArenaStmtKind::Command(_)
+            | ArenaStmtKind::TailBareIdent(_) => false,
+            ArenaStmtKind::While { .. } => false,
         }
     }
 
@@ -4089,7 +4122,17 @@ impl Checker {
                 self.check_stmt_arena(arena, source, id);
                 Type::Unknown
             }
-            _ => {
+            ArenaStmtKind::Use(_) | ArenaStmtKind::Export(_) | ArenaStmtKind::TypeDef(_)
+            | ArenaStmtKind::ErrorDef(_) | ArenaStmtKind::Const { .. }
+            | ArenaStmtKind::Let { .. } | ArenaStmtKind::Var { .. }
+            | ArenaStmtKind::Assign { .. } | ArenaStmtKind::ProcDef(_)
+            | ArenaStmtKind::CliMain(_) | ArenaStmtKind::PureDef(_)
+            | ArenaStmtKind::StreamDef(_) | ArenaStmtKind::SignalHook(_)
+            | ArenaStmtKind::Yield(_) | ArenaStmtKind::YieldDelegate(_)
+            | ArenaStmtKind::Defer(..) | ArenaStmtKind::While { .. }
+            | ArenaStmtKind::For { .. } | ArenaStmtKind::With { .. }
+            | ArenaStmtKind::Loop { .. } | ArenaStmtKind::Guard { .. }
+            | ArenaStmtKind::Sugar { .. } => {
                 self.check_stmt_arena(arena, source, id);
                 // Reached only where the tail is read as a value.
                 self.discardable_bindings.remove(&stmt.span);
@@ -4325,7 +4368,51 @@ pub(super) fn tail_expr_uses_result_context_arena(arena: &ArenaProgram, expr: Ex
                     .iter()
                     .any(|branch| tail_expr_uses_result_context_arena(arena, branch.value))
         }
-        _ => false,
+        ArenaExprKind::Null
+        | ArenaExprKind::Bool(_)
+        | ArenaExprKind::Int(_)
+        | ArenaExprKind::Float(_)
+        | ArenaExprKind::Duration(_)
+        | ArenaExprKind::Str(_)
+        | ArenaExprKind::PathStr(_)
+        | ArenaExprKind::GlobStr(_)
+        | ArenaExprKind::FmtString(_)
+        | ArenaExprKind::PathFmtString(_)
+        | ArenaExprKind::Bytes(_)
+        | ArenaExprKind::Regex(_)
+        | ArenaExprKind::Ident(_)
+        | ArenaExprKind::Item
+        | ArenaExprKind::LastStatus
+        | ArenaExprKind::List(_)
+        | ArenaExprKind::ListComp { .. }
+        | ArenaExprKind::MapComp { .. }
+        | ArenaExprKind::Set(_)
+        | ArenaExprKind::SetComp { .. }
+        | ArenaExprKind::Record(_)
+        | ArenaExprKind::PatternTest { .. }
+        | ArenaExprKind::PatternCondition { .. }
+        | ArenaExprKind::Unary { .. }
+        | ArenaExprKind::ComparisonChain(_)
+        | ArenaExprKind::Binary { .. }
+        | ArenaExprKind::ValuePipelineCall { .. }
+        | ArenaExprKind::Field { .. }
+        | ArenaExprKind::NullSafeField { .. }
+        | ArenaExprKind::Index { .. }
+        | ArenaExprKind::Slice { .. }
+        | ArenaExprKind::EnvString(_)
+        | ArenaExprKind::EnvPathList
+        | ArenaExprKind::Pipeline { .. }
+        | ArenaExprKind::StructuredPipeline { .. }
+        | ArenaExprKind::Run(_)
+        | ArenaExprKind::Spawn(_)
+        | ArenaExprKind::Wait(_)
+        | ArenaExprKind::BuilderCall { .. }
+        | ArenaExprKind::Try(_)
+        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::Convert { .. }
+        | ArenaExprKind::Collect { .. }
+        | ArenaExprKind::Loop { .. }
+        | ArenaExprKind::Retry { .. } => false,
     }
 }
 
