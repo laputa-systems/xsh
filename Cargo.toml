@@ -160,6 +160,11 @@ name = "core_compat_boundaries"
 path = "tests/core_compat_boundaries.rs"
 
 [[test]]
+# Owns PTYs, privileges, shared offsets and exact applet process boundaries.
+name = "core_compat_extra"
+path = "tests/core_compat_extra.rs"
+
+[[test]]
 name = "linux_priv"
 path = "tests/linux_priv.rs"
 required-features = ["linux-priv-tests"]

@@ -25,7 +25,7 @@ adjacent comment explaining why a native test cannot express it.
 |---|---|
 | native XSH | `tests/xsh`, `core/tests`, `dev/tests`, `showcase/tests` (the `test_roots` in `xsht-config.ini`) |
 | root integration | `tests/integration.rs` aggregates `tests/syntax.rs`, `tests/sema.rs`, `tests/runtime/`, `tests/cli.rs`, and the rest |
-| separate root targets | `tests/ambient_fs_policy.rs`, `tests/symbol_plateau.rs`, `tests/core_compat_boundaries.rs` (core applet descriptors and child lifecycles), `tests/linux_priv.rs` (`linux-priv-tests` feature) |
+| separate root targets | `tests/ambient_fs_policy.rs`, `tests/symbol_plateau.rs`, `tests/core_compat_boundaries.rs` and `tests/core_compat_extra.rs` (core applet descriptors, PTYs and child lifecycles), `tests/linux_priv.rs` (`linux-priv-tests` feature) |
 | tooling | `crates/xsht/tests/` (`integration`, `profile_parity` targets) |
 | interactive | `crates/xshi/tests/`, `tests/runtime/interactive.rs`, `tests/runtime/interactive/parity/` |
 | fixtures | `tests/fixtures/{syntax,sema,runtime,fmt,frontend-indexed}` |
@@ -299,3 +299,16 @@ settings, and treat single-run latency changes as inconclusive.
 - `xsht runtime-stats --json REPORT SCRIPT` reports construction, controller,
   and `par-map` worker allocation; pair memory claims with a host RSS check.
   It and `xsht frontend-stats` are not listed in `xsht --help`.
+
+Core applet host boundaries run with `cargo test --release --test core_compat_extra`.
+The `linux-priv-tests` feature enables the credential, device, and private mount
+namespace cases in the pinned Linux image; these require root and fail when a
+required capability is absent. The same tests accept
+`XSH_CORE_COMPAT_REFERENCE_DIR=/usr/local/bin` to exercise the installed GNU
+9.12 tools with identical descriptor and fixture setup. Bound the container to
+1 GiB for the large virtual `dd` buffer case; its empty input must not commit
+the virtual allocation to physical memory.
+
+Successful `date --set` tests require a disposable virtual machine: Linux time
+namespaces isolate monotonic and boot clocks, but not the realtime clock. They
+must never run in a container sharing the host clock.

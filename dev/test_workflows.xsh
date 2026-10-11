@@ -26,6 +26,8 @@ export proc rust(ctx: context.Context) [fs, process, env, error, io] -> Result[U
         "symbol_plateau",
         "--test",
         "core_compat_boundaries",
+        "--test",
+        "core_compat_extra",
         "--",
         "-Zunstable-options",
         "--report-time",
