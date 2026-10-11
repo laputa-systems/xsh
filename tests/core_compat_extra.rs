@@ -18,6 +18,8 @@ mod pty;
 mod privilege;
 #[path = "core_compat_extra/cp.rs"]
 mod cp;
+#[path = "core_compat_extra/date_clock.rs"]
+mod date_clock;
 #[path = "core_compat_extra/lifecycle.rs"]
 mod lifecycle;
 #[path = "core_compat_extra/descriptor.rs"]
