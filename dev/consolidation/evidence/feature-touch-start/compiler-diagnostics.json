@@ -1,0 +1,737 @@
+{
+  "schema": 1,
+  "coverage": "Every compiler error from the three original checks; no artifacts, warnings, full rendered diagnostic strings, or full macro expansion bodies. Raw files are local-only.",
+  "stages": [
+    {
+      "stage": "xsh-enum-only",
+      "command": [
+        "cargo",
+        "check",
+        "--target",
+        "x86_64-unknown-linux-musl",
+        "-p",
+        "xsh",
+        "--lib",
+        "--all-features",
+        "--message-format=json"
+      ],
+      "exit_status": 101,
+      "build_finished_success": false,
+      "error_count": 6,
+      "other_error_count": 0,
+      "errors": [
+        {
+          "code": "E0004",
+          "message": "non-exhaustive patterns: `&BuildExprRow::FeatureTouchProbe { .. }` not covered",
+          "level": "error",
+          "spans": [
+            {
+              "file_name": "src/runtime/eval/indexed/full.rs",
+              "byte_start": 238630,
+              "byte_end": 238634,
+              "line_start": 6376,
+              "line_end": 6376,
+              "column_start": 23,
+              "column_end": 27,
+              "is_primary": true,
+              "label": "pattern `&BuildExprRow::FeatureTouchProbe { .. }` not covered",
+              "text": [
+                {
+                  "highlight_end": 27,
+                  "highlight_start": 23,
+                  "text": "                match self {"
+                }
+              ],
+              "expansion": {
+                "macro": "impl_node_codec!",
+                "invocation": {
+                  "file_name": "src/runtime/eval/indexed/full.rs",
+                  "byte_start": 303442,
+                  "byte_end": 325899,
+                  "line_start": 8098,
+                  "line_end": 8729,
+                  "column_start": 1,
+                  "column_end": 2,
+                  "is_primary": false,
+                  "label": null
+                },
+                "definition": {
+                  "file_name": "src/runtime/eval/indexed/full.rs",
+                  "byte_start": 237699,
+                  "byte_end": 237727,
+                  "line_start": 6354,
+                  "line_end": 6354,
+                  "column_start": 1,
+                  "column_end": 29,
+                  "is_primary": false,
+                  "label": null
+                }
+              }
+            }
+          ],
+          "notes": [
+            {
+              "level": "note",
+              "message": "`BuildExprRow` defined here"
+            },
+            {
+              "level": "note",
+              "message": "the matched value is of type `&BuildExprRow`"
+            },
+            {
+              "level": "help",
+              "message": "ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown"
+            }
+          ]
+        },
+        {
+          "code": "E0004",
+          "message": "non-exhaustive patterns: `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+          "level": "error",
+          "spans": [
+            {
+              "file_name": "src/runtime/eval/lower.rs",
+              "byte_start": 88801,
+              "byte_end": 88805,
+              "line_start": 2437,
+              "line_end": 2437,
+              "column_start": 11,
+              "column_end": 15,
+              "is_primary": true,
+              "label": "pattern `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+              "text": [
+                {
+                  "highlight_end": 15,
+                  "highlight_start": 11,
+                  "text": "    match kind {"
+                }
+              ]
+            }
+          ],
+          "notes": [
+            {
+              "level": "note",
+              "message": "`ArenaExprKind` defined here"
+            },
+            {
+              "level": "note",
+              "message": "the matched value is of type `ArenaExprKind`"
+            },
+            {
+              "level": "help",
+              "message": "ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown"
+            }
+          ]
+        },
+        {
+          "code": "E0004",
+          "message": "non-exhaustive patterns: `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+          "level": "error",
+          "spans": [
+            {
+              "file_name": "src/runtime/eval/lower.rs",
+              "byte_start": 91513,
+              "byte_end": 91517,
+              "line_start": 2503,
+              "line_end": 2503,
+              "column_start": 11,
+              "column_end": 15,
+              "is_primary": true,
+              "label": "pattern `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+              "text": [
+                {
+                  "highlight_end": 15,
+                  "highlight_start": 11,
+                  "text": "    match kind {"
+                }
+              ]
+            }
+          ],
+          "notes": [
+            {
+              "level": "note",
+              "message": "`ArenaExprKind` defined here"
+            },
+            {
+              "level": "note",
+              "message": "the matched value is of type `ArenaExprKind`"
+            },
+            {
+              "level": "help",
+              "message": "ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown"
+            }
+          ]
+        },
+        {
+          "code": "E0004",
+          "message": "non-exhaustive patterns: `&ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+          "level": "error",
+          "spans": [
+            {
+              "file_name": "src/sema/check/expr.rs",
+              "byte_start": 19540,
+              "byte_end": 19550,
+              "line_start": 492,
+              "line_end": 492,
+              "column_start": 24,
+              "column_end": 34,
+              "is_primary": true,
+              "label": "pattern `&ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+              "text": [
+                {
+                  "highlight_end": 34,
+                  "highlight_start": 24,
+                  "text": "        let ty = match &expr.kind {"
+                }
+              ]
+            }
+          ],
+          "notes": [
+            {
+              "level": "note",
+              "message": "`ArenaExprKind` defined here"
+            },
+            {
+              "level": "note",
+              "message": "the matched value is of type `&ArenaExprKind`"
+            },
+            {
+              "level": "help",
+              "message": "ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown"
+            }
+          ]
+        },
+        {
+          "code": "E0004",
+          "message": "non-exhaustive patterns: `ArenaExprTag::FeatureTouchProbe` not covered",
+          "level": "error",
+          "spans": [
+            {
+              "file_name": "src/syntax/arena.rs",
+              "byte_start": 163500,
+              "byte_end": 163503,
+              "line_start": 4718,
+              "line_end": 4718,
+              "column_start": 15,
+              "column_end": 18,
+              "is_primary": true,
+              "label": "pattern `ArenaExprTag::FeatureTouchProbe` not covered",
+              "text": [
+                {
+                  "highlight_end": 18,
+                  "highlight_start": 15,
+                  "text": "        match tag {"
+                }
+              ]
+            }
+          ],
+          "notes": [
+            {
+              "level": "note",
+              "message": "`ArenaExprTag` defined here"
+            },
+            {
+              "level": "note",
+              "message": "the matched value is of type `ArenaExprTag`"
+            },
+            {
+              "level": "help",
+              "message": "ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown"
+            }
+          ]
+        },
+        {
+          "code": "E0004",
+          "message": "non-exhaustive patterns: `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+          "level": "error",
+          "spans": [
+            {
+              "file_name": "src/syntax/arena.rs",
+              "byte_start": 261189,
+              "byte_end": 261193,
+              "line_start": 7896,
+              "line_end": 7896,
+              "column_start": 15,
+              "column_end": 19,
+              "is_primary": true,
+              "label": "pattern `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+              "text": [
+                {
+                  "highlight_end": 19,
+                  "highlight_start": 15,
+                  "text": "        match kind {"
+                }
+              ]
+            }
+          ],
+          "notes": [
+            {
+              "level": "note",
+              "message": "`ArenaExprKind` defined here"
+            },
+            {
+              "level": "note",
+              "message": "the matched value is of type `ArenaExprKind`"
+            },
+            {
+              "level": "help",
+              "message": "ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown"
+            }
+          ]
+        }
+      ],
+      "omitted_raw_files": [
+        {
+          "name": "xsh-enum-only.jsonl",
+          "bytes": 268533,
+          "sha256": "f69c9c7fcb901450703a377bfb9078cd487ab8690505532f2b8dbb29b6d049c5",
+          "committed": false
+        },
+        {
+          "name": "xsh-enum-only.stderr",
+          "bytes": 5672,
+          "sha256": "401e56aa22d0b2d9874f8b4519cb73e6e5a66f2e988c250d636d82ea7423ac2c",
+          "committed": false
+        },
+        {
+          "name": "xsh-enum-only.exit",
+          "bytes": 4,
+          "sha256": "39b8dc3fc8b44765c8e6f1adee04c5b465e555ab791cc42d0d9e810d5b64297c",
+          "committed": false
+        }
+      ]
+    },
+    {
+      "stage": "xsht-after-xsh-demanded",
+      "command": [
+        "cargo",
+        "check",
+        "--target",
+        "x86_64-unknown-linux-musl",
+        "-p",
+        "xsht",
+        "--lib",
+        "--all-features",
+        "--message-format=json"
+      ],
+      "exit_status": 101,
+      "build_finished_success": false,
+      "error_count": 9,
+      "other_error_count": 0,
+      "errors": [
+        {
+          "code": "E0004",
+          "message": "non-exhaustive patterns: `&ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+          "level": "error",
+          "spans": [
+            {
+              "file_name": "crates/xsht/src/format_equivalence.rs",
+              "byte_start": 29244,
+              "byte_end": 29254,
+              "line_start": 806,
+              "line_end": 806,
+              "column_start": 15,
+              "column_end": 25,
+              "is_primary": true,
+              "label": "pattern `&ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+              "text": [
+                {
+                  "highlight_end": 25,
+                  "highlight_start": 15,
+                  "text": "        match &expr.kind {"
+                }
+              ]
+            }
+          ],
+          "notes": [
+            {
+              "level": "note",
+              "message": "`ArenaExprKind` defined here"
+            },
+            {
+              "level": "note",
+              "message": "the matched value is of type `&ArenaExprKind`"
+            },
+            {
+              "level": "help",
+              "message": "ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown"
+            }
+          ]
+        },
+        {
+          "code": "E0004",
+          "message": "non-exhaustive patterns: `&ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+          "level": "error",
+          "spans": [
+            {
+              "file_name": "crates/xsht/src/format.rs",
+              "byte_start": 111789,
+              "byte_end": 111794,
+              "line_start": 2836,
+              "line_end": 2836,
+              "column_start": 15,
+              "column_end": 20,
+              "is_primary": true,
+              "label": "pattern `&ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+              "text": [
+                {
+                  "highlight_end": 20,
+                  "highlight_start": 15,
+                  "text": "        match &kind {"
+                }
+              ]
+            }
+          ],
+          "notes": [
+            {
+              "level": "note",
+              "message": "`ArenaExprKind` defined here"
+            },
+            {
+              "level": "note",
+              "message": "the matched value is of type `&ArenaExprKind`"
+            },
+            {
+              "level": "help",
+              "message": "ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown"
+            }
+          ]
+        },
+        {
+          "code": "E0004",
+          "message": "non-exhaustive patterns: `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+          "level": "error",
+          "spans": [
+            {
+              "file_name": "crates/xsht/src/lint.rs",
+              "byte_start": 466023,
+              "byte_end": 466044,
+              "line_start": 11816,
+              "line_end": 11816,
+              "column_start": 11,
+              "column_end": 32,
+              "is_primary": true,
+              "label": "pattern `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+              "text": [
+                {
+                  "highlight_end": 32,
+                  "highlight_start": 11,
+                  "text": "    match arena.expr(expr).kind {"
+                }
+              ]
+            }
+          ],
+          "notes": [
+            {
+              "level": "note",
+              "message": "`ArenaExprKind` defined here"
+            },
+            {
+              "level": "note",
+              "message": "the matched value is of type `ArenaExprKind`"
+            },
+            {
+              "level": "help",
+              "message": "ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown"
+            }
+          ]
+        },
+        {
+          "code": "E0004",
+          "message": "non-exhaustive patterns: `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+          "level": "error",
+          "spans": [
+            {
+              "file_name": "crates/xsht/src/lint.rs",
+              "byte_start": 485055,
+              "byte_end": 485076,
+              "line_start": 12349,
+              "line_end": 12349,
+              "column_start": 11,
+              "column_end": 32,
+              "is_primary": true,
+              "label": "pattern `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+              "text": [
+                {
+                  "highlight_end": 32,
+                  "highlight_start": 11,
+                  "text": "    match arena.expr(expr).kind {"
+                }
+              ]
+            }
+          ],
+          "notes": [
+            {
+              "level": "note",
+              "message": "`ArenaExprKind` defined here"
+            },
+            {
+              "level": "note",
+              "message": "the matched value is of type `ArenaExprKind`"
+            },
+            {
+              "level": "help",
+              "message": "ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown"
+            }
+          ]
+        },
+        {
+          "code": "E0004",
+          "message": "non-exhaustive patterns: `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+          "level": "error",
+          "spans": [
+            {
+              "file_name": "crates/xsht/src/lint.rs",
+              "byte_start": 507785,
+              "byte_end": 507806,
+              "line_start": 12915,
+              "line_end": 12915,
+              "column_start": 15,
+              "column_end": 36,
+              "is_primary": true,
+              "label": "pattern `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+              "text": [
+                {
+                  "highlight_end": 36,
+                  "highlight_start": 15,
+                  "text": "        match arena.expr(expr).kind {"
+                }
+              ]
+            }
+          ],
+          "notes": [
+            {
+              "level": "note",
+              "message": "`ArenaExprKind` defined here"
+            },
+            {
+              "level": "note",
+              "message": "the matched value is of type `ArenaExprKind`"
+            },
+            {
+              "level": "help",
+              "message": "ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown"
+            }
+          ]
+        },
+        {
+          "code": "E0004",
+          "message": "non-exhaustive patterns: `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+          "level": "error",
+          "spans": [
+            {
+              "file_name": "crates/xsht/src/lint.rs",
+              "byte_start": 543433,
+              "byte_end": 543454,
+              "line_start": 13830,
+              "line_end": 13830,
+              "column_start": 11,
+              "column_end": 32,
+              "is_primary": true,
+              "label": "pattern `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+              "text": [
+                {
+                  "highlight_end": 32,
+                  "highlight_start": 11,
+                  "text": "    match arena.expr(expr).kind {"
+                }
+              ]
+            }
+          ],
+          "notes": [
+            {
+              "level": "note",
+              "message": "`ArenaExprKind` defined here"
+            },
+            {
+              "level": "note",
+              "message": "the matched value is of type `ArenaExprKind`"
+            },
+            {
+              "level": "help",
+              "message": "ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown"
+            }
+          ]
+        },
+        {
+          "code": "E0004",
+          "message": "non-exhaustive patterns: `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+          "level": "error",
+          "spans": [
+            {
+              "file_name": "crates/xsht/src/lint.rs",
+              "byte_start": 546628,
+              "byte_end": 546649,
+              "line_start": 13907,
+              "line_end": 13907,
+              "column_start": 11,
+              "column_end": 32,
+              "is_primary": true,
+              "label": "pattern `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+              "text": [
+                {
+                  "highlight_end": 32,
+                  "highlight_start": 11,
+                  "text": "    match arena.expr(expr).kind {"
+                }
+              ]
+            }
+          ],
+          "notes": [
+            {
+              "level": "note",
+              "message": "`ArenaExprKind` defined here"
+            },
+            {
+              "level": "note",
+              "message": "the matched value is of type `ArenaExprKind`"
+            },
+            {
+              "level": "help",
+              "message": "ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown"
+            }
+          ]
+        },
+        {
+          "code": "E0004",
+          "message": "non-exhaustive patterns: `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+          "level": "error",
+          "spans": [
+            {
+              "file_name": "crates/xsht/src/lint.rs",
+              "byte_start": 572864,
+              "byte_end": 572892,
+              "line_start": 14616,
+              "line_end": 14616,
+              "column_start": 15,
+              "column_end": 43,
+              "is_primary": true,
+              "label": "pattern `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+              "text": [
+                {
+                  "highlight_end": 43,
+                  "highlight_start": 15,
+                  "text": "        match self.arena().expr(expr).kind {"
+                }
+              ]
+            }
+          ],
+          "notes": [
+            {
+              "level": "note",
+              "message": "`ArenaExprKind` defined here"
+            },
+            {
+              "level": "note",
+              "message": "the matched value is of type `ArenaExprKind`"
+            },
+            {
+              "level": "help",
+              "message": "ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown"
+            }
+          ]
+        },
+        {
+          "code": "E0004",
+          "message": "non-exhaustive patterns: `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+          "level": "error",
+          "spans": [
+            {
+              "file_name": "crates/xsht/src/lint.rs",
+              "byte_start": 601921,
+              "byte_end": 601936,
+              "line_start": 15382,
+              "line_end": 15382,
+              "column_start": 11,
+              "column_end": 26,
+              "is_primary": true,
+              "label": "pattern `ArenaExprKind::FeatureTouchProbe { .. }` not covered",
+              "text": [
+                {
+                  "highlight_end": 26,
+                  "highlight_start": 11,
+                  "text": "    match arena_expr.kind {"
+                }
+              ]
+            }
+          ],
+          "notes": [
+            {
+              "level": "note",
+              "message": "`ArenaExprKind` defined here"
+            },
+            {
+              "level": "note",
+              "message": "the matched value is of type `ArenaExprKind`"
+            },
+            {
+              "level": "help",
+              "message": "ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown"
+            }
+          ]
+        }
+      ],
+      "omitted_raw_files": [
+        {
+          "name": "xsht-after-xsh-demanded.jsonl",
+          "bytes": 176188,
+          "sha256": "611b5dce1c937f3f276af9a823b3c5b6108668d940dcfeb251125e322bab6d4b",
+          "committed": false
+        },
+        {
+          "name": "xsht-after-xsh-demanded.stderr",
+          "bytes": 1320,
+          "sha256": "ad428500762ef4ecdd81ee28dae5db0f47caa1d71ce3f7c3b43200cbad3a605a",
+          "committed": false
+        },
+        {
+          "name": "xsht-after-xsh-demanded.exit",
+          "bytes": 4,
+          "sha256": "39b8dc3fc8b44765c8e6f1adee04c5b465e555ab791cc42d0d9e810d5b64297c",
+          "committed": false
+        }
+      ]
+    },
+    {
+      "stage": "all-demanded-satisfied",
+      "command": [
+        "cargo",
+        "check",
+        "--target",
+        "x86_64-unknown-linux-musl",
+        "-p",
+        "xsh",
+        "-p",
+        "xsht",
+        "--lib",
+        "--all-features",
+        "--message-format=json"
+      ],
+      "exit_status": 0,
+      "build_finished_success": true,
+      "error_count": 0,
+      "other_error_count": 0,
+      "errors": [],
+      "omitted_raw_files": [
+        {
+          "name": "all-demanded-satisfied.jsonl",
+          "bytes": 134055,
+          "sha256": "4d0e27e0406c1d0552dccf561a8afe283f07c9c13aaba633b87f386ce066b511",
+          "committed": false
+        },
+        {
+          "name": "all-demanded-satisfied.stderr",
+          "bytes": 258,
+          "sha256": "f9e3e9035f578a9623cae16248364f8cb5cba5f06d9361ec5eef5ce61cdf5632",
+          "committed": false
+        },
+        {
+          "name": "all-demanded-satisfied.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+          "committed": false
+        }
+      ]
+    }
+  ]
+}

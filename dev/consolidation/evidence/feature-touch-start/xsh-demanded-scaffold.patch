@@ -1,0 +1,106 @@
+diff --git a/src/runtime/eval.rs b/src/runtime/eval.rs
+index 4cf9b720..235749ec 100644
+--- a/src/runtime/eval.rs
++++ b/src/runtime/eval.rs
+@@ -1934,6 +1934,9 @@ enum BuildExprRow {
+         args: Vec<LoweredCallArg>,
+         span: Span,
+     },
++    FeatureTouchProbe {
++        child: BuildExprId,
++    },
+ }
+ 
+ #[derive(Clone, Debug)]
+diff --git a/src/runtime/eval/indexed/full.rs b/src/runtime/eval/indexed/full.rs
+index 3ef26784..aa180f2c 100644
+--- a/src/runtime/eval/indexed/full.rs
++++ b/src/runtime/eval/indexed/full.rs
+@@ -249,6 +249,7 @@ pub(in crate::runtime::eval) enum FullTag {
+     StmtContinue,
+     StmtDefer,
+     StmtDefaultParameter,
++    ExprFeatureTouchProbe,
+ }
+ 
+ #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+@@ -8096,6 +8097,9 @@ impl_stage_codec! {
+ 
+ impl_node_codec! {
+     BuildExprRow {
++        BuildExprRow::FeatureTouchProbe { child } => ExprFeatureTouchProbe {
++            child: BuildExprId,
++        } => BuildExprRow::FeatureTouchProbe { child },
+         BuildExprRow::Null => ExprNull {} => BuildExprRow::Null,
+         BuildExprRow::Unit => ExprUnit {} => BuildExprRow::Unit,
+         BuildExprRow::Int(value) => ExprInt { value: i64 } => BuildExprRow::Int(value),
+diff --git a/src/runtime/eval/lower.rs b/src/runtime/eval/lower.rs
+index 4b1e0b9f..2278aeef 100644
+--- a/src/runtime/eval/lower.rs
++++ b/src/runtime/eval/lower.rs
+@@ -2435,6 +2435,7 @@ fn compact_stmt_blocker_label(program: &ArenaProgram, stmt: StmtId) -> String {
+ 
+ fn compact_expr_kind_index(kind: ArenaExprKind) -> usize {
+     match kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unimplemented!(),
+         ArenaExprKind::Null => 0,
+         ArenaExprKind::Bool(_) => 1,
+         ArenaExprKind::Int(_) => 2,
+@@ -2501,6 +2502,7 @@ fn collect_local(collect: ExprId) -> Name {
+ 
+ fn compact_expr_kind_label(kind: ArenaExprKind) -> &'static str {
+     match kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unimplemented!(),
+         ArenaExprKind::Null => "null",
+         ArenaExprKind::Bool(_) => "bool",
+         ArenaExprKind::Int(_) => "int",
+diff --git a/src/sema/check/expr.rs b/src/sema/check/expr.rs
+index 905c9853..548d9a24 100644
+--- a/src/sema/check/expr.rs
++++ b/src/sema/check/expr.rs
+@@ -490,6 +490,7 @@ impl Checker {
+             return ty;
+         }
+         let ty = match &expr.kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unimplemented!(),
+             ArenaExprKind::Null => Type::Null,
+             ArenaExprKind::Bool(_) => Type::Bool,
+             ArenaExprKind::Int(value) => {
+diff --git a/src/syntax/arena.rs b/src/syntax/arena.rs
+index 2bef170c..625ebad3 100644
+--- a/src/syntax/arena.rs
++++ b/src/syntax/arena.rs
+@@ -4716,6 +4716,7 @@ impl AstArena {
+         let tag = self.expr_tags[id.index()];
+         let data = self.expr_data[id.index()];
+         match tag {
++            ArenaExprTag::FeatureTouchProbe => unimplemented!(),
+             ArenaExprTag::Null => ArenaExprKind::Null,
+             ArenaExprTag::BoolFalse => ArenaExprKind::Bool(false),
+             ArenaExprTag::BoolTrue => ArenaExprKind::Bool(true),
+@@ -6621,6 +6622,7 @@ pub enum ArenaExprTag {
+     Collect,
+     ResourceScope,
+     ResourceStatementScope,
++    FeatureTouchProbe,
+ }
+ 
+ #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+@@ -6867,6 +6869,9 @@ pub enum ArenaExprKind {
+         block: BlockId,
+         value_body: bool,
+     },
++    FeatureTouchProbe {
++        child: ExprId,
++    },
+ }
+ 
+ #[derive(Clone, Debug, Eq, PartialEq)]
+@@ -7890,6 +7895,7 @@ impl ArenaLowerer<'_> {
+ 
+     fn encode_expr_kind(&mut self, kind: ArenaExprKind) -> (ArenaExprTag, ArenaExprData) {
+         match kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unimplemented!(),
+             ArenaExprKind::Null => (ArenaExprTag::Null, ArenaExprData::ZERO),
+             ArenaExprKind::Bool(false) => (ArenaExprTag::BoolFalse, ArenaExprData::ZERO),
+             ArenaExprKind::Bool(true) => (ArenaExprTag::BoolTrue, ArenaExprData::ZERO),

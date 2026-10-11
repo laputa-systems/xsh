@@ -1,0 +1,124 @@
+{
+  "schema": 1,
+  "status": "measured",
+  "probe": {
+    "expression": "ArenaExprKind::FeatureTouchProbe { child: ExprId }",
+    "instruction": "BuildExprRow::FeatureTouchProbe { child: BuildExprId }",
+    "tags": [
+      "ArenaExprTag::FeatureTouchProbe",
+      "FullTag::ExprFeatureTouchProbe"
+    ],
+    "contract": "AST-only value identity: check and evaluate its child once, preserve ordinary expected type/schema and control transfer, admit bounded constants when its child is admitted, retain bounded frame execution; no new grammar spelling, binding or syntax-specific refinement."
+  },
+  "counts": {
+    "pipeline_compiler_demanded": 4,
+    "pipeline_manual_required": 15,
+    "arena_storage_compiler_demanded": 2,
+    "tooling_compiler_demanded": 9,
+    "compiler_other_errors": 0,
+    "all_compiler_demanded": 15,
+    "ancillary_compiler_demanded": 11
+  },
+  "pipeline_breakdown": {
+    "checking": {
+      "compiler_demanded": 1,
+      "manual_required": 10
+    },
+    "lowering": {
+      "compiler_demanded": 2,
+      "manual_required": 3
+    },
+    "shared_indexed_schema": {
+      "compiler_demanded": 1,
+      "manual_required": 0
+    },
+    "verification_outside_shared_schema": {
+      "compiler_demanded": 0,
+      "manual_required": 0
+    },
+    "execution": {
+      "compiler_demanded": 0,
+      "manual_required": 2
+    }
+  },
+  "counting_rule": "Count distinct source consumer sites. Include only E0004 naming the probe variant in compiler count. Attribute the codec macro error to its BuildExprRow invocation once; that required registration also generates structural child/category/owner/cycle/payload verification. Review wildcard/shadow/tag/array inventories independently; omit optional optimizations and existing-syntax selectors when conservative fallback remains valid for the probe.",
+  "environment": {
+    "image_id": "sha256:99e195582ba55dc427b1551022fbe56f8f344ed7838e971ecba86ce43a7733e9",
+    "image_architecture": "amd64",
+    "image_definition_sha256": "7b8017b69d3ecc51f04ac2fe481af7e5059e0bcf0f1494fb39abecadcfb0e5ff",
+    "rustflags": "-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol",
+    "wrapper_sha256": "3ed77c4db9e174724e4e68280bf50885f59f6174f0a4784dd5e2ab3821b6d662"
+  },
+  "checks": [
+    {
+      "stage": "xsh-enum-only",
+      "command": [
+        "cargo",
+        "check",
+        "--target",
+        "x86_64-unknown-linux-musl",
+        "-p",
+        "xsh",
+        "--lib",
+        "--all-features",
+        "--message-format=json"
+      ],
+      "exit_status": 101
+    },
+    {
+      "stage": "xsht-after-xsh-demanded",
+      "command": [
+        "cargo",
+        "check",
+        "--target",
+        "x86_64-unknown-linux-musl",
+        "-p",
+        "xsht",
+        "--lib",
+        "--all-features",
+        "--message-format=json"
+      ],
+      "exit_status": 101
+    },
+    {
+      "stage": "all-demanded-satisfied",
+      "command": [
+        "cargo",
+        "check",
+        "--target",
+        "x86_64-unknown-linux-musl",
+        "-p",
+        "xsh",
+        "-p",
+        "xsht",
+        "--lib",
+        "--all-features",
+        "--message-format=json"
+      ],
+      "exit_status": 0
+    }
+  ],
+  "manual_definitions_unchanged": 15,
+  "test_suites_run": 0,
+  "checked_packages": [
+    "xsh",
+    "xsht"
+  ],
+  "final_compiler_only_check_passed": true,
+  "campaign_start_revision": "5e66b6b896a47d0c692739135d51200b007a2a67",
+  "probe_base_revision": "44c7567df12a82056d2fd97523a825c08aa125e8",
+  "evidence_directory": "dev/consolidation/evidence/feature-touch-start",
+  "artifacts": {
+    "method": "METHOD.md",
+    "compiler_diagnostics": "compiler-diagnostics.json",
+    "compiler_sites": "compiler-sites.json",
+    "manual_sites": "manual-sites.json",
+    "exclusions": "exclusions.json",
+    "inventory_review": "inventory-review.json",
+    "hashes": "hashes.json",
+    "manifest": "SHA256SUMS"
+  },
+  "source_equivalence": "All relevant source bytes are identical at campaign start and actual probe base; individual hashes are retained in hashes.json.",
+  "synthetic_feature_merged": false,
+  "limitations": "Static extension obligations and observed exhaustiveness checks, with no parser spelling or runtime acceptance claim. Complete Cargo JSON streams and stderr remain in the local campaign archive only; compiler-diagnostics.json retains every error, final success, and the omitted-file SHA256/byte lengths. Those hashes identify raw logs but cannot validate their bytes without the local archive. The lexer inventory is a review aid, not a certified Rust parser."
+}

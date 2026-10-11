@@ -1,0 +1,184 @@
+{
+  "schema": 1,
+  "locations": "Probe-base source lines. Witnesses describe synthetic ASTs; they are not parser spellings or executed tests.",
+  "sites": [
+    {
+      "category": "lowering",
+      "path": "src/runtime/eval/lower.rs",
+      "line": 1860,
+      "symbol": "compact_collect_expr_call_edges",
+      "evidence": [
+        "{}"
+      ],
+      "reason": "Descend once to find child call graph edges; default empty body silently hides SCC/callee edges.",
+      "witness": "A recursive function body containing FeatureTouchProbe(Call(callee = self, args = [])).",
+      "source_context": "    edges: &mut Vec<usize>,\n) {\n    match program.arena.expr(id).kind {\n        ArenaExprKind::Call { callee, args } => {\n            if let ArenaExprKind::Ident(name) = program.arena.expr(callee).kind\n                && let Some(index) = index_of.get(&compact_function_key(namespace, name))\n            {"
+    },
+    {
+      "category": "lowering",
+      "path": "src/runtime/eval/lower.rs",
+      "line": 7364,
+      "symbol": "lower_expr",
+      "evidence": [
+        "None"
+      ],
+      "reason": "Emit the new child-bearing BuildExprRow; default None records unsupported lowering instead.",
+      "witness": "A checked function body containing FeatureTouchProbe(Ident(parameter)).",
+      "source_context": "        .flatten()\n        .filter(Type::has_unsigned_constraint);\n        let lowered = match self.program.arena.expr(id).kind {\n            ArenaExprKind::Field { .. } | ArenaExprKind::Call { .. }\n                if self.bodies.inferred_variants.contains_key(&id) =>\n            {\n                self.lower_inferred_variant(id, slots, current_function, item_slot)"
+    },
+    {
+      "category": "execution",
+      "path": "src/runtime/eval/lowered_run/indexed_run/explicit_run.rs",
+      "line": 2669,
+      "symbol": "eval_expr",
+      "evidence": [
+        "{\n                let flow = self.with_lent_context(index, |evaluator, execution, slots| {\n                    evaluator.eval_indexed_expr(execution, instruction, slots, span)\n                })?;\n                let value = match flow {\n                    ControlFlow::Continue(value) => FrameValue::Value(value),\n                    ControlFlow::Break(value) => FrameValue::Break(value),\n                };\n                self.push_value(index, value, next);\n            }"
+      ],
+      "reason": "Schedule the child on the explicit frame stack; fallback calls recursive evaluation and fails the bounded-stack contract for nested wrappers.",
+      "witness": "A deep chain of ExprFeatureTouchProbe wrappers around ExprParam on the explicit frame route.",
+      "source_context": "            span,\n        )?;\n        match tag {\n            FullTag::ExprValueBlock => {\n                let body = indexed_raw(&mut payload, span)?;\n                let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;\n                indexed_finish(payload, span)?;"
+    },
+    {
+      "category": "execution",
+      "path": "src/runtime/eval/lowered_run/indexed_run.rs",
+      "line": 4062,
+      "symbol": "eval_indexed_expr_inner",
+      "evidence": [
+        "{\n                return Err(RuntimeError::new(\n                    \"indexed-ir\",\n                    format!(\"direct indexed evaluator does not support {tag:?}\"),\n                )\n                .with_span(call_span));\n            }"
+      ],
+      "reason": "Read the child instruction and return its flow/value once; default rejects the otherwise structurally valid tag.",
+      "witness": "A structurally verified ExprFeatureTouchProbe whose child instruction is ExprParam.",
+      "source_context": "    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {\n        let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), call_span)?;\n        let result = match tag {\n            FullTag::ExprNull => {\n                indexed_finish(payload, call_span)?;\n                ControlFlow::Continue(LoweredValue::Null)\n            }"
+    },
+    {
+      "category": "checking",
+      "path": "src/sema/check/expr.rs",
+      "line": 75,
+      "symbol": "schema_expectation_for_expr",
+      "evidence": [
+        "None"
+      ],
+      "reason": "Delegate the retained schema expectation of the value; the wildcard loses generic schema context used by bindings and method checking.",
+      "witness": "FeatureTouchProbe(Ident(binding_with_schema_expectation)) reused through a binding or generic record method.",
+      "source_context": "    ) -> Option<super::super::constants::SchemaExpectation> {\n        use super::super::constants::{SchemaComponent, SchemaExpectation};\n        match arena.arena.expr(expression).kind {\n            ArenaExprKind::Ident(name) => self.lookup(name)?.schema_expectation.clone(),\n            ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } => {\n                self.schema_expectation_for_expr(arena, base)?\n                    .value_context()"
+    },
+    {
+      "category": "checking",
+      "path": "src/sema/check/stmt.rs",
+      "line": 52,
+      "symbol": "stmt_always_returns_arena",
+      "evidence": [
+        "false"
+      ],
+      "reason": "Recurse into the child for an ErrorContext whose block returns; default false loses the existing return classification.",
+      "witness": "Expr(FeatureTouchProbe(ErrorContext(block = [Return(value)]))).",
+      "source_context": "        ArenaStmtKind::Sugar { expansion, .. } => stmt_always_returns_arena(arena, expansion),\n        ArenaStmtKind::Return(_) => true,\n        ArenaStmtKind::Expr(expr) => match arena.arena.expr(expr).kind {\n            ArenaExprKind::ErrorContext { block, .. } => block_always_returns_arena(arena, block),\n            _ => false,\n        },\n"
+    },
+    {
+      "category": "checking",
+      "path": "src/sema/check/stmt.rs",
+      "line": 171,
+      "symbol": "stmt_has_exit_point_arena",
+      "evidence": [
+        "false"
+      ],
+      "reason": "Recurse into the child to retain break/continue discovery through ErrorContext inside loops; default false hides the existing exit.",
+      "witness": "Loop(block = [Expr(FeatureTouchProbe(ErrorContext(block = [Break])))]).",
+      "source_context": "        }\n        ArenaStmtKind::Guard { else_block, .. } => block_has_exit_point_arena(arena, *else_block),\n        ArenaStmtKind::Expr(expr) => match arena.arena.expr(*expr).kind {\n            ArenaExprKind::ErrorContext { block, .. } => block_has_exit_point_arena(arena, block),\n            _ => false,\n        },\n        ArenaStmtKind::Sugar { expansion, .. } => stmt_has_exit_point_arena(arena, *expansion),"
+    },
+    {
+      "category": "checking",
+      "path": "src/sema/check/stmt.rs",
+      "line": 3559,
+      "symbol": "expr_definitely_exits_arena",
+      "evidence": [
+        "false"
+      ],
+      "reason": "Delegate definite exits of a child ValueBlock; default false treats a checked terminating child as completing.",
+      "witness": "FeatureTouchProbe(ValueBlock(block = [Return(value)])).",
+      "source_context": "\n    fn expr_definitely_exits_arena(&self, arena: &ArenaProgram, expr: ExprId) -> bool {\n        match arena.arena.expr(expr).kind {\n            ArenaExprKind::ValueBlock(block) => self.block_definitely_exits_arena(arena, block),\n            _ => false,\n        }\n    }"
+    },
+    {
+      "category": "checking",
+      "path": "src/sema/check/stmt.rs",
+      "line": 3719,
+      "symbol": "return_inference_stmt_returns",
+      "evidence": [
+        "false"
+      ],
+      "reason": "Delegate return inference through a child ErrorContext; default false makes a terminating body appear to fall through.",
+      "witness": "An inferred-return function ending in Expr(FeatureTouchProbe(ErrorContext(block = [Return(value)]))).",
+      "source_context": "                    && self.return_inference_block_returns(arena, else_block)\n            }\n            ArenaStmtKind::Expr(expr) => match arena.arena.expr(expr).kind {\n                ArenaExprKind::ErrorContext { block, .. } => {\n                    self.return_inference_block_returns(arena, block)\n                }\n                _ => false,"
+    },
+    {
+      "category": "checking",
+      "path": "src/sema/check/stmt.rs",
+      "line": 4264,
+      "symbol": "match_scrutinee_definitely_exits_arena",
+      "evidence": [
+        "false"
+      ],
+      "reason": "Delegate this classifier to the child, including context scopes beyond the ValueBlock-only exit helper; default false permits spurious non-exhaustiveness.",
+      "witness": "Match(value = FeatureTouchProbe(ContextScope(block = [Return(value)])), arms = [LiteralPattern(0) => Int(0)]).",
+      "source_context": "            return true;\n        }\n        match &arena.arena.expr(value).kind {\n            ArenaExprKind::ErrorContext { block, .. }\n            | ArenaExprKind::ContextScope { block, .. }\n            | ArenaExprKind::TempDirScope { block, .. }\n            | ArenaExprKind::ResourceScope { block, .. } => {"
+    },
+    {
+      "category": "checking",
+      "path": "src/sema/check/stmt.rs",
+      "line": 4340,
+      "symbol": "tail_expr_uses_result_context_arena",
+      "evidence": [
+        "false"
+      ],
+      "reason": "Delegate complete Result expected context to a child explicit Result tail; default false strips the success payload before checking the child.",
+      "witness": "A Result-returning function tail FeatureTouchProbe(Call(Ok, [value])).",
+      "source_context": "// block boundaries. Their Unit success payload still leaves the Result as data.\npub(super) fn tail_expr_uses_result_context_arena(arena: &ArenaProgram, expr: ExprId) -> bool {\n    match arena.arena.expr(expr).kind {\n        ArenaExprKind::Capture(_)\n        | ArenaExprKind::ContextScope { .. }\n        | ArenaExprKind::TempDirScope { .. }\n        | ArenaExprKind::ResourceScope { .. } => true,"
+    },
+    {
+      "category": "checking",
+      "path": "src/sema/check/stmt.rs",
+      "line": 4483,
+      "symbol": "statement_tail_needs_value_context_arena",
+      "evidence": [
+        "false"
+      ],
+      "reason": "Delegate value-context need of ValueBlock, ErrorContext or require-without-schema child; default false withholds the declared context.",
+      "witness": "A statement tail FeatureTouchProbe(Require(value = dynamic_value, schema = None)) with a declared result context.",
+      "source_context": "\nfn statement_tail_needs_value_context_arena(arena: &ArenaProgram, expr: ExprId) -> bool {\n    match arena.arena.expr(expr).kind {\n        ArenaExprKind::ValueBlock(_)\n        | ArenaExprKind::ErrorContext { .. }\n        | ArenaExprKind::Require { schema: None, .. } => true,\n        ArenaExprKind::Try(inner) => statement_tail_needs_value_context_arena(arena, inner),"
+    },
+    {
+      "category": "checking",
+      "path": "src/sema/constants.rs",
+      "line": 134,
+      "symbol": "analyze_depth",
+      "evidence": [
+        "return None"
+      ],
+      "reason": "Delegate bounded literal analysis to child for literal/default and constant call sites; default None loses identity-wrapped literal data.",
+      "witness": "A parameter/schema default whose expression is FeatureTouchProbe(Int(literal)).",
+      "source_context": "            return Some(value.clone());\n        }\n        let value = match arena.expr(expr).kind {\n            ArenaExprKind::Null => Self::Null,\n            ArenaExprKind::Bool(value) => Self::Bool(value),\n            ArenaExprKind::Int(value) => Self::Int(arena.int_literal(value).value()?),\n            ArenaExprKind::Float(value) => {"
+    },
+    {
+      "category": "checking",
+      "path": "src/sema/constants.rs",
+      "line": 2945,
+      "symbol": "expression_inner",
+      "evidence": [
+        "LiteralConstant::analyze(arena, id, &FxHashMap::default()).ok_or_else(failure)?"
+      ],
+      "reason": "Delegate bounded constant preparation with expected/schema context; the fallback literal analyzer cannot prepare a child referencing constants or constructors.",
+      "witness": "Const(initializer = FeatureTouchProbe(Ident(previous_const))) or an admitted bounded constructor call.",
+      "source_context": "            return Err((expr.span, \"constant preparation limit exceeded\".into()));\n        }\n        let value = match expr.kind {\n            ArenaExprKind::Ident(name) => {\n                if let Some((family, variant, fields)) = self.tag_constructor(id, scope) {\n                    if !fields.is_empty() {\n                        return Err(failure());"
+    },
+    {
+      "category": "lowering",
+      "path": "src/runtime/eval.rs",
+      "line": 389,
+      "symbol": "COMPACT_EXPR_KIND_COUNT",
+      "evidence": "pub const COMPACT_EXPR_KIND_COUNT: usize = 52;",
+      "reason": "A distinct compact expression inventory index 52 needs arrays of length 53. The existing literal length compiles after enum extension and permits a later out-of-bounds metric write. Updating the nearby literal consistency assertion is induced compiler work once this manual length is changed.",
+      "witness": "A blocked FeatureTouchProbe expression classified with a new distinct compact index 52 writes expression_blockers[52].",
+      "source_context": "pub const COMPACT_TYPE_EXPR_TAG_COUNT: usize = 13;\npub const COMPACT_STMT_KIND_COUNT: usize = 30;\npub const COMPACT_EXPR_KIND_COUNT: usize = 52;\npub const COMPACT_CALL_BLOCKER_KIND_COUNT: usize = 6;\npub const COMPACT_COMMAND_BLOCKER_KIND_COUNT: usize = 6;\n\n#[derive(Clone, Debug, Default)]"
+    }
+  ]
+}
