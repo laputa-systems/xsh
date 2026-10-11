@@ -2,13 +2,12 @@ pure helper_bin(ctx: TestContext) -> Path {
   fp"{ctx.xsh_bin.parent()}/xsh-test-helper"
 }
 
-## A command that sleeps until signaled, run from a copy of the test helper
-## named `marker` so that the process list shows the marker as its executable.
+## Link the shared test helper under a marker name so process listings can
+## match its executable without copying an executable for every test.
 proc marker_command(ctx: TestContext, marker: Str) [fs, error] -> Result[Command] {
   let root = test.temp_dir(ctx, name: marker)?
   let executable = fp"{root}/{marker}"
-  helper_bin(ctx).resolve()?.copy(to: executable)
-  executable.chmod(0o755)
+  executable.symlink(to: helper_bin(ctx).resolve()?)?
   process.command_argv(executable, [executable, "ready-sleep", fp"{root}/ready"])
 }
 
