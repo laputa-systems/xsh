@@ -28,6 +28,8 @@ mod startup;
 mod rm;
 #[path = "core_compat_extra/split.rs"]
 mod split;
+#[path = "core_compat_extra/more.rs"]
+mod more;
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 
