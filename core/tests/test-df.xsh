@@ -100,7 +100,7 @@ test test_df_explicit_decimal_block_label_and_invalid_suffix { |ctx|
   assert selected.stdout.lines().collect()[0].trim() == "128kB-blocks"
   let invalid = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" -- -B1fb $root
   assert invalid.status.exited_with(1)
-  assert invalid.stderr == "df: invalid suffix in --block-size argument '1fb'\n"
+  assert invalid.stderr == "df: invalid suffix in -B argument '1fb'\n"
 }
 
 pure df_percent(used: Int, available: Int) -> Str {
@@ -136,7 +136,7 @@ test test_df_reports_filesystem_capacity_counters { |ctx|
 test test_df_block_size_errors_point_into_terminal_arguments { |ctx|
   let unknown = run_df_on_terminal(ctx, ["-B", "1fb"])?
   assert unknown.status == 1
-  assert unknown.stderr == """df: invalid suffix in --block-size argument '1fb'
+  assert unknown.stderr == """df: invalid suffix in -B argument '1fb'
    ╭─[ df:1:8 ]
    │
  1 │ df -B 1fb
@@ -237,4 +237,23 @@ test test_df_source_column_is_at_least_fourteen_wide { |ctx|
   assert output.status.exited_with(0), output.stderr
   let header = output.stdout.lines().collect()[0]
   assert header.starts_with("Filesystem     "), header
+}
+
+test test_df_gnu_size_diagnostics_type_order_and_c_locale_width { |ctx|
+  for value in ["0b", "0B"] {
+    let bad = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" -- -B$value
+    assert bad.status.exited_with(1)
+    assert bad.stderr == f"df: invalid -B argument '{value}'\n"
+  }
+  let conflict = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" -- -t ext4 -x ext4 -t ext3 -x ext3
+  assert conflict.status.exited_with(1)
+  assert conflict.stderr == "df: file system type 'ext3' both selected and excluded\ndf: file system type 'ext4' both selected and excluded\n"
+  let root = test.temp_dir(ctx, name: "df-unicode")?
+  let file = fp"{root}/äöü.txt"
+  file.write("")
+  let out = fp"{root}/stdout"
+  let err = fp"{root}/stderr"
+  let status = process.run(process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), fp"{ctx.core_dir}/df.xsh".display(), "--output=file,target", "äöü.txt"], root, {LC_ALL: "C"}, b"", out, err))?
+  assert status.exited_with(0), err.read_text()?
+  assert out.read_text()?.lines().collect()[0] == "File Mounted on"
 }

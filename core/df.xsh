@@ -42,6 +42,11 @@ pure minimum_width(field: Str) -> Int {
   0
 }
 
+# In the C locale, non-ASCII bytes have no printable display width.
+pure column_width(text: Str, ascii: Bool) -> Int {
+  if ascii { [ch for ch in text if ch.byte_len() == 1].len() } else { text.count_chars() }
+}
+
 pure left_column(field: Str) -> Bool { field in ["source", "fstype", "target", "file"] }
 
 # The option parser yields values without source offsets; retain a location in the original argv.
@@ -74,6 +79,13 @@ proc report_size_error(program: Str, argv: List[Str], location: ValueLocation, v
   eprint f"   ╭─[ {program}:1:{column} ]\n   │\n 1 │ {source}\n   │{diagnostic_spaces(column)}{marker}{if unsupported { "┬" } else { "" }}{annotation}{tail}\n───╯"
 }
 
+# Zero is an invalid block size even when its suffix is also unsupported.
+proc block_size_error(value: Str, option: Str) [env] -> Str {
+  if rx"^0+[bB]?$".matches(value) { f"invalid {option} argument {gnu.quote_value(value)}" } else {
+    disk.size_error(value, "block-size").replace("--block-size", with: option)
+  }
+}
+
 # Check explicit sizes before the shared unit selector emits an error without argv location.
 proc validate_block_sizes(argv: List[Str]) [env, process, error] {
   var index = 0
@@ -83,6 +95,7 @@ proc validate_block_sizes(argv: List[Str]) [env, process, error] {
     if raw == "--" or (posix and (raw == "-" or ! raw.starts_with("-"))) { break }
     var location: ValueLocation? = null
     var value = ""
+    let option = if raw.starts_with("--") { "--block-size" } else { "-B" }
     if raw.starts_with("--") {
       let equal = raw.find("=")
       let equal_at = equal ?? 0
@@ -110,9 +123,9 @@ proc validate_block_sizes(argv: List[Str]) [env, process, error] {
     if let found = location {
       if value not in ["human-readable", "si"] {
         if let size = disk.parse_size(value) {
-          if size <= 0 { report_size_error("df", argv, found, value, disk.size_error(value, "block-size")); exit 1 }
+          if size <= 0 { report_size_error("df", argv, found, value, block_size_error(value, option)); exit 1 }
         } else {
-          report_size_error("df", argv, found, value, disk.size_error(value, "block-size"))
+          report_size_error("df", argv, found, value, block_size_error(value, option))
           exit 1
         }
       }
@@ -151,7 +164,14 @@ proc main(...argv: List[Str]) [fs, env, process, io, error] {
     gnu.usage_error("options --output and -i, -P or -T are mutually exclusive")
   }
   var invalid_types = false
+  var selected_types: List[Str] = []
   for kind in opts.include {
+    if kind in selected_types { continue }
+    var at = 0
+    while at < selected_types.len() and selected_types[at] < kind { at += 1 }
+    selected_types = selected_types[..at].push(kind).extend(selected_types[at..])
+  }
+  for kind in selected_types {
     if kind in opts.exclude {
       gnu.error(f"file system type {gnu.quote_value(kind)} both selected and excluded")
       invalid_types = true
@@ -242,11 +262,13 @@ proc main(...argv: List[Str]) [fs, env, process, io, error] {
     if "source" not in columns and "target" in columns { total_row["target"] = "total" }
     table += [total_row]
   }
+  let locale = env.get_or("LC_ALL", env.get_or("LC_CTYPE", env.get_or("LANG", "C") ?? "C") ?? "C") ?? "C"
+  let ascii = locale in ["C", "POSIX"]
   var widths: List[Int] = []
   for column in columns {
     var width = minimum_width(column)
-    if headings[column].count_chars() > width { width = headings[column].count_chars() }
-    for data in table { if data[column].count_chars() > width { width = data[column].count_chars() } }
+    if column_width(headings[column], ascii) > width { width = column_width(headings[column], ascii) }
+    for data in table { if column_width(data[column], ascii) > width { width = column_width(data[column], ascii) } }
     widths += [width]
   }
   for data in [headings].extend(table) {
@@ -254,7 +276,7 @@ proc main(...argv: List[Str]) [fs, env, process, io, error] {
     for index in range(columns.len()) {
       let field = columns[index]
       let text = data[field]
-      let padding = [" " for _ in range(widths[index] - text.count_chars())].join("")
+      let padding = [" " for _ in range(widths[index] - column_width(text, ascii))].join("")
       cells += [if left_column(field) { text + (if index == columns.len() - 1 { "" } else { padding }) } else { padding + text }]
     }
     gnu.write_text(cells.join(" ") + "\n")
