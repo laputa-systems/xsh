@@ -1,8 +1,8 @@
 use super::{
-    Arc, AssertionFailure, BinaryOp, BinaryWork, ControlFlow, Evaluator,
+    Arc, AssertionFailure, BinaryOp, ControlFlow, Evaluator,
     FullExecution, FullTag, LoweredValue, Name, RuntimeError, Span, StmtFlow,
-    TraceKind, TracePayload, Value, bytes_contains, checked_int_binary, indexed_decode,
-    indexed_error, indexed_finish, indexed_raw, indexed_value,
+    TraceKind, TracePayload, Value, bytes_contains, checked_int_binary, indexed_error,
+    indexed_value,
     lowered_binary_value, lowered_contains_value,
     lowered_path_method_value, lowered_record_field_value, lowered_record_vec_or_stats,
     lowered_result_err_value, lowered_status_segment_record,
@@ -323,79 +323,6 @@ impl Evaluator {
             assertion_failure_message(self.sources.span_text(span), operands, reached, context);
         let error = crate::runtime::eval::modules::assertion_error(message, Some(span));
         self.lowered_question_propagation_value(lowered_result_err_value(error), span)
-    }
-
-    pub(super) fn eval_indexed_binary_stack(
-        &mut self,
-        execution: &FullExecution<'_>,
-        slots: &mut [LoweredValue],
-        call_span: Span,
-        op: BinaryOp,
-        left: u32,
-        right: u32,
-        span: Span,
-    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
-        let mut work = vec![
-            BinaryWork::Apply { op, span },
-            BinaryWork::Expr(right),
-            BinaryWork::Expr(left),
-        ];
-        let mut values = Vec::new();
-        while let Some(item) = work.pop() {
-            match item {
-                BinaryWork::Apply { op, span } => {
-                    let right = values.pop().ok_or_else(|| {
-                        RuntimeError::new(
-                            "indexed-ir",
-                            "binary expression is missing a right value",
-                        )
-                        .with_span(span)
-                    })?;
-                    let left = values.pop().ok_or_else(|| {
-                        RuntimeError::new("indexed-ir", "binary expression is missing a left value")
-                            .with_span(span)
-                    })?;
-                    values.push(lowered_binary_value(op, left, right, span)?);
-                }
-                BinaryWork::Expr(instruction) => {
-                    let (tag, mut payload) =
-                        indexed_value(execution.instruction_id(instruction), call_span)?;
-                    if tag != FullTag::ExprBinary {
-                        match self.eval_indexed_expr(execution, instruction, slots, call_span)? {
-                            ControlFlow::Continue(value) => values.push(value),
-                            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                        }
-                        continue;
-                    }
-                    let op = indexed_decode::<BinaryOp>(&mut payload, execution, call_span)?;
-                    let left = indexed_raw(&mut payload, call_span)?;
-                    let right = indexed_raw(&mut payload, call_span)?;
-                    let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                    indexed_finish(payload, call_span)?;
-                    if op == BinaryOp::And || op == BinaryOp::Or {
-                        match self.eval_indexed_expr(execution, instruction, slots, call_span)? {
-                            ControlFlow::Continue(value) => values.push(value),
-                            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                        }
-                    } else {
-                        work.push(BinaryWork::Apply { op, span });
-                        work.push(BinaryWork::Expr(right));
-                        work.push(BinaryWork::Expr(left));
-                    }
-                }
-            }
-        }
-        let value = values.pop().ok_or_else(|| {
-            RuntimeError::new("indexed-ir", "binary expression produced no value").with_span(span)
-        })?;
-        if !values.is_empty() {
-            return Err(RuntimeError::new(
-                "indexed-ir",
-                "binary expression left extra values on its work stack",
-            )
-            .with_span(span));
-        }
-        Ok(ControlFlow::Continue(value))
     }
 
     pub(super) fn indexed_field_value(

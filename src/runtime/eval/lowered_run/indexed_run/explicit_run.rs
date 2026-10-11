@@ -3521,8 +3521,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             self.calls[index].execution.instruction_id(instruction),
             span,
         )?;
-        // Frame-applied constructors keep their children on this machine even when in place.
-        if in_place && !super::indexed_frame_apply_tag(tag) {
+        // Frame-applied operations and binary control keep their children on this machine.
+        if in_place && !super::indexed_frame_apply_tag(tag) && tag != FullTag::ExprBinary {
             let flow = {
                 let call = &mut self.calls[index];
                 self.evaluator.eval_indexed_expr(

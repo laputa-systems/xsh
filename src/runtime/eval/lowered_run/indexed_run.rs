@@ -202,11 +202,6 @@ enum AssertionWork {
     },
 }
 
-enum BinaryWork {
-    Expr(u32),
-    Apply { op: BinaryOp, span: Span },
-}
-
 enum ProcessCommandEntry {
     Field {
         name: Name,
@@ -882,11 +877,11 @@ impl Evaluator {
         call_span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
         self.sync_indexed_root_slots(slots, call_span)?;
-        let frame_pipeline = execution
+        let frame_scheduled = execution
             .instruction_id(instruction)
-            .map(|(tag, _)| tag == FullTag::ExprPipeline)
+            .map(|(tag, _)| matches!(tag, FullTag::ExprPipeline | FullTag::ExprBinary))
             .map_err(|error| indexed_error(error, call_span))?;
-        let result = if self.force_frames || frame_pipeline {
+        let result = if self.force_frames || frame_scheduled {
             self.eval_indexed_expr_with_frames(execution, instruction, slots, call_span)
         } else {
             self.eval_indexed_expr_inner(execution, instruction, slots, call_span)
@@ -1072,50 +1067,6 @@ impl Evaluator {
                     left = right;
                 }
                 ControlFlow::Continue(LoweredValue::Bool(true))
-            }
-            FullTag::ExprBinary => {
-                let op = indexed_decode::<BinaryOp>(&mut payload, execution, call_span)?;
-                let left = indexed_raw(&mut payload, call_span)?;
-                let right = indexed_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                if op == BinaryOp::And {
-                    let left = match self.eval_indexed_bool(execution, left, slots, span)? {
-                        ControlFlow::Continue(value) => value,
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    };
-                    if !left {
-                        return Ok(ControlFlow::Continue(LoweredValue::Bool(false)));
-                    }
-                    return self
-                        .eval_indexed_bool(execution, right, slots, span)
-                        .map(|flow| flow.map_continue(LoweredValue::Bool));
-                }
-                if op == BinaryOp::Or {
-                    let left = match self.eval_indexed_bool(execution, left, slots, span)? {
-                        ControlFlow::Continue(value) => value,
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    };
-                    if left {
-                        return Ok(ControlFlow::Continue(LoweredValue::Bool(true)));
-                    }
-                    return self
-                        .eval_indexed_bool(execution, right, slots, span)
-                        .map(|flow| flow.map_continue(LoweredValue::Bool));
-                }
-                if execution.is_in_place(instruction) {
-                    let left = match self.eval_indexed_expr(execution, left, slots, call_span)? {
-                        ControlFlow::Continue(value) => value,
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    };
-                    let right = match self.eval_indexed_expr(execution, right, slots, call_span)? {
-                        ControlFlow::Continue(value) => value,
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    };
-                    return Ok(ControlFlow::Continue(lowered_binary_value(op, left, right, span)?));
-                }
-                return self
-                    .eval_indexed_binary_stack(execution, slots, call_span, op, left, right, span);
             }
             FullTag::ExprPatternIf => {
                 let (_, mut branches) = execution
