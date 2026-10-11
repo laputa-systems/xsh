@@ -93,7 +93,7 @@ test test_seq_negative_zero_and_tiny_exponents { |ctx|
 test test_seq_arbitrary_precision_and_hex { |ctx|
   assert seq_out(ctx, ["1000000000000000000000000000", "1000000000000000000000000001"])? == "1000000000000000000000000000\n1000000000000000000000000001\n"
   assert seq_out(ctx, ["0xa", "0XA"])? == "10\n"
-  let precision = numeric.long_double_precision()
+  let precision = system.long_double_precision()
   let first_tie = if precision > 64 { "18446744073709551617\n" } else { "18446744073709551616\n" }
   let second_tie = if precision > 64 { "18446744073709551619\n" } else if precision == 64 { "18446744073709551620\n" } else { "18446744073709551616\n" }
   assert seq_out(ctx, ["0x10000000000000001", "0x10000000000000001"])? == first_tie

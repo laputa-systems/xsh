@@ -309,7 +309,7 @@ pure parse_hex(body: Str, neg: Bool) -> Num {
 
   bits = strip_zeros(bits)
   var mantissa = "0"
-  let precision = numeric.long_double_precision()
+  let precision = system.long_double_precision()
   let keep = if bits.byte_len() > precision { precision } else { bits.byte_len() }
 
   for at in range(keep) {
