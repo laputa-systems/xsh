@@ -65,7 +65,7 @@ test test_nl_matches_raw_section_delimiters { |ctx|
 
 test test_nl_treats_section_delimiters_as_bytes { |ctx|
   let input = test.temp_file(ctx, name: "sections", contents: bytes.from_text("a\nä:ä:ä:\nä\nb"))?
-  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/nl.xsh" -- "-dä" $input
+  let output = run.text env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/nl.xsh" -- "-dä" $input
   assert output == "     1\ta\n     2\tä:ä:ä:\n\n       b\n"
 }
 

@@ -36,11 +36,12 @@ pure formatted(value: Int, width: Int, style: Str) -> Str {
   if style == "ln" { digits + text.padding(count) } else if style == "rz" and value < 0 { "-" + text.padding(count, "0") + digits.byte_slice(1) } else { text.padding(count, if style == "rz" { "0" } else { " " }) + digits }
 }
 
-pure separator_width(separator: Bytes) -> Int {
+# Keep malformed bytes separate while counting valid multibyte characters once.
+pure character_count(data: Bytes) -> Int {
   var at = 0
   var count = 0
-  while at < separator.len() {
-    let character = text.character(separator, at)
+  while at < data.len() {
+    let character = text.character(data, at)
     at += character.size
     count += 1
   }
@@ -75,9 +76,10 @@ proc main(...argv: List[Bytes]) {
   let start = number(opts.start, "starting line number", -9223372036854775807 - 1, 9223372036854775807)
   let blanks = number(opts.blanks, "line number of blank lines", 0, 9223372036854775807)
   let delimiter_arg = text.argument_bytes(arguments, opts.delimiter)
-  let delimiter = if delimiter_arg.len() == 1 { bytes.concat([delimiter_arg, b":"]) } else { delimiter_arg }
+  let single_delimiter_character = if text.byte_columns() { delimiter_arg.len() == 1 } else { character_count(delimiter_arg) == 1 }
+  let delimiter = if single_delimiter_character { bytes.concat([delimiter_arg, b":"]) } else { delimiter_arg }
   let separator = text.argument_bytes(arguments, opts.separator)
-  let separator_count = separator_width(separator)
+  let separator_count = character_count(separator)
   var lines: List[Bytes] = []
   var failed = false
   let paths = if opts.paths.is_empty() { [b"-"] } else { text.argument_bytes_list(arguments, opts.paths) }
