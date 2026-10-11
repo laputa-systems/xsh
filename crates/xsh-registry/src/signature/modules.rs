@@ -28,7 +28,6 @@ use super::{test_call_type, test_context_type, test_script_output_type};
 pub(in crate::signature) fn build_api_spec() -> ApiSpec {
     ApiSpec::new(
         vec![
-            ModuleEntry { name: "numeric", sig: numeric_module() },
             ModuleEntry {
                 name: "applet",
                 sig: applet_module(),
@@ -101,7 +100,6 @@ pub(in crate::signature) fn build_api_spec() -> ApiSpec {
                 name: "linux",
                 sig: linux_module(),
             },
-            ModuleEntry { name: "locale", sig: locale_module() },
             ModuleEntry {
                 name: "map",
                 sig: map_module(),
@@ -4027,7 +4025,24 @@ fn process_module() -> ModuleSig {
 }
 
 fn system_module() -> ModuleSig {
+    let parsed = Type::Record(btree_map(vec![
+        ("consumed", Type::Int), ("range_error", Type::Bool), ("order_key", Type::Str),
+    ]));
+    let formatted = Type::Record(btree_map(vec![
+        ("consumed", Type::Int), ("range_error", Type::Bool), ("text", Type::Str),
+    ]));
+    let numeric = Type::Record(btree_map(vec![
+        ("decimal_point", Type::Bytes), ("thousands_separator", Type::Bytes),
+    ]));
+    let time = Type::Record(btree_map(vec![
+        ("abbreviated_months", Type::List(Box::new(Type::Bytes))),
+    ]));
     module_sig(vec![
+        ("parse_long_double", sig(vec![param("text", Type::Str)], result(parsed), true, RuntimeOp::NumericParseLongDouble)),
+        ("format_long_double", sig(vec![param("text", Type::Str), param("conversion", Type::Str), default_param("precision", Type::Optional(Box::new(Type::Int))), default_param("alternate", Type::Bool)], result(formatted), true, RuntimeOp::NumericFormatLongDouble)),
+        ("long_double_precision", sig(vec![], Type::Int, true, RuntimeOp::NumericLongDoublePrecision)),
+        ("locale_numeric_info", sig(vec![param("name", Type::Str)], result(numeric), false, RuntimeOp::LocaleNumericInfo)),
+        ("locale_time_info", sig(vec![param("name", Type::Str)], result(time), false, RuntimeOp::LocaleTimeInfo)),
         (
             "hostname",
             sig(
@@ -5089,31 +5104,4 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
         contract: doc.1,
         tags: doc.2,
     })
-}
-
-fn numeric_module() -> ModuleSig {
-    let parsed = Type::Record(btree_map(vec![
-        ("consumed", Type::Int), ("range_error", Type::Bool), ("order_key", Type::Str),
-    ]));
-    let formatted = Type::Record(btree_map(vec![
-        ("consumed", Type::Int), ("range_error", Type::Bool), ("text", Type::Str),
-    ]));
-    module_sig(vec![
-        ("parse_long_double", sig(vec![param("text", Type::Str)], result(parsed), true, RuntimeOp::NumericParseLongDouble)),
-        ("format_long_double", sig(vec![param("text", Type::Str), param("conversion", Type::Str), default_param("precision", Type::Optional(Box::new(Type::Int))), default_param("alternate", Type::Bool)], result(formatted), true, RuntimeOp::NumericFormatLongDouble)),
-        ("long_double_precision", sig(vec![], Type::Int, true, RuntimeOp::NumericLongDoublePrecision)),
-    ])
-}
-
-fn locale_module() -> ModuleSig {
-    let numeric = Type::Record(btree_map(vec![
-        ("decimal_point", Type::Bytes), ("thousands_separator", Type::Bytes),
-    ]));
-    let time = Type::Record(btree_map(vec![
-        ("abbreviated_months", Type::List(Box::new(Type::Bytes))),
-    ]));
-    module_sig(vec![
-        ("numeric_info", sig(vec![param("name", Type::Str)], result(numeric), false, RuntimeOp::LocaleNumericInfo)),
-        ("time_info", sig(vec![param("name", Type::Str)], result(time), false, RuntimeOp::LocaleTimeInfo)),
-    ])
 }

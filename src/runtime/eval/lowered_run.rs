@@ -8444,7 +8444,8 @@ impl Evaluator {
                 }
             }
             RuntimeOp::LocaleNumericInfo | RuntimeOp::LocaleTimeInfo => {
-                let name = lowered_str_arg_owned(values.first().cloned(), "", "locale", span)?;
+                let api = if op == RuntimeOp::LocaleNumericInfo { "system.locale_numeric_info" } else { "system.locale_time_info" };
+                let name = lowered_str_arg_owned(values.first().cloned(), "", api, span)?;
                 let result = if op == RuntimeOp::LocaleNumericInfo {
                     crate::modules::locale::numeric_info(&name, span)
                 } else {
@@ -8454,17 +8455,17 @@ impl Evaluator {
             }
             RuntimeOp::NumericLongDoublePrecision => LoweredValue::Int(crate::modules::numeric::precision()),
             RuntimeOp::NumericParseLongDouble => {
-                let text = lowered_str_arg_owned(values.first().cloned(), "", "numeric.parse_long_double", span)?;
+                let text = lowered_str_arg_owned(values.first().cloned(), "", "system.parse_long_double", span)?;
                 lowered_runtime_result(crate::modules::numeric::parse(&text, span), span)?
             }
             RuntimeOp::NumericFormatLongDouble => {
-                let text = lowered_str_arg_owned(values.first().cloned(), "", "numeric.format_long_double", span)?;
-                let conversion = lowered_str_arg_owned(values.get(1).cloned(), "", "numeric.format_long_double", span)?;
+                let text = lowered_str_arg_owned(values.first().cloned(), "", "system.format_long_double", span)?;
+                let conversion = lowered_str_arg_owned(values.get(1).cloned(), "", "system.format_long_double", span)?;
                 let precision = match values.get(2) {
                     None | Some(LoweredValue::Null) => None,
-                    _ => Some(lowered_int_arg(values.get(2).cloned(), "numeric.format_long_double", span)?),
+                    _ => Some(lowered_int_arg(values.get(2).cloned(), "system.format_long_double", span)?),
                 };
-                let alternate = lowered_bool_arg_or(values.get(3).cloned(), false, "numeric.format_long_double", span)?;
+                let alternate = lowered_bool_arg_or(values.get(3).cloned(), false, "system.format_long_double", span)?;
                 lowered_runtime_result(crate::modules::numeric::format(&text, &conversion, precision, alternate, span), span)?
             }
             RuntimeOp::CompressionTransform => {

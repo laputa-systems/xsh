@@ -172,6 +172,18 @@ mod tests {
     }
 
     #[test]
+    fn native_codec_metadata_does_not_reserve_ordinary_module_names() {
+        let modules = &api_spec().modules;
+        for name in ["numeric", "locale", "text"] {
+            assert!(!modules.iter().any(|module| module.name == name));
+        }
+        let system = modules.iter().find(|module| module.name == "system").unwrap();
+        for name in ["parse_long_double", "format_long_double", "long_double_precision", "locale_numeric_info", "locale_time_info"] {
+            assert!(system.sig.functions.iter().any(|function| function.name == name));
+        }
+    }
+
+    #[test]
     fn preloaded_symbols_start_with_fixed_core_symbols() {
         let symbols = preloaded_symbol_names();
         assert!(symbols.len() >= CORE_BUILTIN_SYMBOLS.len());

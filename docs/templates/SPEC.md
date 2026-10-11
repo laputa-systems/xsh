@@ -617,8 +617,8 @@ again to be a `Port`, and `+=` on a variable of a bounded type is
 {{.spec.bounded_int_unvalidated.source}}
 ```
 
-`locale.numeric_info(name)` returns decimal and thousands separators as `Bytes`;
-`locale.time_info(name)` returns twelve abbreviated month names as `List[Bytes]`
+`system.locale_numeric_info(name)` returns decimal and thousands separators as `Bytes`;
+`system.locale_time_info(name)` returns twelve abbreviated month names as `List[Bytes]`
 in January-to-December order. Neither changes process or thread locale. Names
 must be explicit and contain no NUL (`locale-name`); unavailable metadata
 returns `locale-unavailable`. Returned bytes retain the locale's encoding.
@@ -635,10 +635,10 @@ and `zh_CN.gb18030`. Exact encoding suffix aliases are `.utf8`, `.UTF-8`,
 back to C. On other targets, each query opens an isolated native locale and
 copies its installed metadata before freeing the handle.
 
-`numeric.parse_long_double` and `numeric.format_long_double` keep numeric text
+`system.parse_long_double` and `system.format_long_double` keep numeric text
 at the native C `long double` boundary without a binary64 intermediate. Their
 locale is always C. Precision and range follow the target C ABI;
-`numeric.long_double_precision()` reports the significand bit count. Parsing
+`system.long_double_precision()` reports the significand bit count. Parsing
 reports the consumed byte prefix and range errors, including underflow.
 Embedded NUL ends the prefix. The opaque ordering key compares lexically as
 failed conversions, NaNs, negative infinity, negative finite numbers, zero,
