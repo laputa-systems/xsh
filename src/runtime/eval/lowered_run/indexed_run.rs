@@ -12,7 +12,7 @@ use super::{
     append_lowered_list_element, append_lowered_map_literal, assign_lowered_bytes_view,
     assign_lowered_str_view, bind_lowered_comp_target, btree_map, bytes_contains, bytes_module,
     check_env_name, checked_int_binary, compare_lowered_sort_keys, compound_assignment_value,
-    error_constructor, execute_run_with_policy, exit_status, fs_module, archive_module,
+    error_constructor, execute_run_with_policy, exit_status, fs_module,
     lowered_assign_value, lowered_binary_value, lowered_bool_arg_or, lowered_bool_builder_field,
     lowered_bytes_parts, lowered_bytes_value,
     lowered_command_plan_value, lowered_command_redirections, lowered_contains_value,
@@ -35,14 +35,16 @@ use super::{
     lowered_str_view_value, lowered_table_print_value, lowered_tag_key,
     lowered_trace_error_from_value, lowered_trim_is_empty_value, lowered_trim_str_predicate_value,
     lowered_type_name, lowered_value_argv_len, lowered_value_from_runtime,
-    lowered_value_from_runtime_any, lowered_unit_result,
+    lowered_value_from_runtime_any,
     path_bytes, push_lowered_display, push_lowered_fmt_value, push_lowered_native_fmt_value,
     read_host_path_bytes, run_pipeline_inherit_with_policy,
     runtime_error_from_value, splice_to_argv, structured_error_constructor,
     ValueView, value_matches_static_type, value_to_argv_bytes,
 };
 use crate::map_key::MapKey;
+use crate::runtime::eval::BuildExprId;
 use crate::runtime::eval::indexed::IrVerifyError;
+use crate::runtime::eval::indexed::full::decode::{ListPosition, ListView};
 use crate::runtime::eval::indexed::full::{
     BLOCK_LIST, BLOCK_STATEMENTS, FrameStrategy, FullDriverTag, FullExecution, FullFunctionView,
     FullPayload, FullProgram, FullStageTag, FullTag,
@@ -744,6 +746,182 @@ pub(super) enum FrameApplyValue {
     PathList(Vec<PathValue>),
 }
 
+pub(super) struct FrameApplyChild {
+    pub(super) id: u32,
+    pub(super) operand: Option<FrameApplyOperand>,
+    pub(super) tag_position: Option<ListPosition<BuildExprId>>,
+    pub(super) next_tag_position: Option<ListPosition<BuildExprId>>,
+    pub(super) span: Span,
+}
+
+type FrameApplyField = Option<(u32, Option<FrameApplyOperand>)>;
+
+fn indexed_frame_apply_child_from_fields<const N: usize>(
+    fields: [FrameApplyField; N],
+    position: usize,
+    span: Span,
+) -> Option<FrameApplyChild> {
+    fields
+        .into_iter()
+        .flatten()
+        .nth(position)
+        .map(|(id, operand)| FrameApplyChild {
+            id,
+            operand,
+            tag_position: None,
+            next_tag_position: None,
+            span,
+        })
+}
+
+pub(super) fn indexed_frame_apply_child(
+    tag: FullTag,
+    view: &mut ExprView<'_>,
+    position: usize,
+    tag_position: Option<ListPosition<BuildExprId>>,
+    span: Span,
+) -> Result<Option<FrameApplyChild>, RuntimeError> {
+    let child = match view {
+        ExprView::FunctionRef { .. } | ExprView::EmptyMap => None,
+        ExprView::PathFrom { value, span } => {
+            indexed_frame_apply_child_from_fields([(Some((value.raw(), None)))], position, *span)
+        }
+        ExprView::Range { start, end, span } => indexed_frame_apply_child_from_fields(
+            [(Some((start.raw(), None))), (Some((end.raw(), None)))],
+            position,
+            *span,
+        ),
+        ExprView::Tag { fields, .. } => {
+            if let Some(tag_position) = tag_position {
+                fields
+                    .resume(tag_position)
+                    .map_err(|error| indexed_error(error, span))?;
+            }
+            let tag_position = ListView::position(fields);
+            let Some(id) = fields
+                .next()
+                .transpose()
+                .map_err(|error| indexed_error(error, span))?
+            else {
+                return Ok(None);
+            };
+            let next_tag_position = ListView::position(fields);
+            return Ok(Some(FrameApplyChild {
+                id: id.raw(),
+                operand: None,
+                tag_position: Some(tag_position),
+                next_tag_position: Some(next_tag_position),
+                span,
+            }));
+        }
+        ExprView::Slice { base, start, end, span } => indexed_frame_apply_child_from_fields(
+            [Some((base.raw(), None)), start.map(|id| (id.raw(), None)), end.map(|id| (id.raw(), None))],
+            position,
+            *span,
+        ),
+        ExprView::StrByteLen { receiver, span } => {
+            indexed_frame_apply_child_from_fields([Some((receiver.raw(), None))], position, *span)
+        }
+        ExprView::StrByteAt { receiver, index, span } => indexed_frame_apply_child_from_fields(
+            [Some((receiver.raw(), None)), Some((index.raw(), None))],
+            position,
+            *span,
+        ),
+        ExprView::StrPredicate { receiver, needle, span, .. } => {
+            indexed_frame_apply_child_from_fields(
+                [Some((receiver.raw(), None)), Some((needle.raw(), None))],
+                position,
+                *span,
+            )
+        }
+        ExprView::FsFiles { root, gitignore, stat, hidden, exts, span, .. }
+        | ExprView::FsWalk { root, gitignore, stat, hidden, exts, span, .. } => {
+            let operation = if tag == FullTag::ExprFsFiles { "fs.files" } else { "fs.walk" };
+            let ext_operation = if tag == FullTag::ExprFsFiles { "fs.files exts" } else { "fs.walk exts" };
+            indexed_frame_apply_child_from_fields(
+                [
+                    Some((root.raw(), Some(FrameApplyOperand::Path(operation)))),
+                    gitignore.map(|id| (id.raw(), Some(FrameApplyOperand::Bool(operation)))),
+                    stat.map(|id| (id.raw(), Some(FrameApplyOperand::Bool(operation)))),
+                    exts.map(|id| (id.raw(), Some(FrameApplyOperand::StringList(ext_operation)))),
+                    hidden.map(|id| (id.raw(), Some(FrameApplyOperand::Bool(operation)))),
+                ],
+                position,
+                *span,
+            )
+        }
+        ExprView::FsList { path, stat, ordered, span, .. } => {
+            indexed_frame_apply_child_from_fields(
+                [
+                    Some((path.raw(), Some(FrameApplyOperand::Path("fs.children")))),
+                    stat.map(|id| (id.raw(), Some(FrameApplyOperand::Bool("fs.children")))),
+                    ordered.map(|id| (id.raw(), Some(FrameApplyOperand::Bool("fs.children")))),
+                ],
+                position,
+                *span,
+            )
+        }
+        ExprView::FsTempDir { .. } => None,
+        ExprView::PathWrite { path, data, span, .. } => indexed_frame_apply_child_from_fields(
+            [
+                Some((path.raw(), Some(FrameApplyOperand::Path("write")))),
+                Some((data.raw(), Some(FrameApplyOperand::Raw))),
+            ],
+            position,
+            *span,
+        ),
+        ExprView::FsMkdir { path, parents, span }
+        | ExprView::PathMkdir { path, parents, span } => {
+            let operation = if tag == FullTag::ExprFsMkdir { "fs.mkdir" } else { "mkdir" };
+            indexed_frame_apply_child_from_fields(
+                [
+                    Some((path.raw(), Some(FrameApplyOperand::Path(operation)))),
+                    parents.map(|id| (id.raw(), Some(FrameApplyOperand::Bool(operation)))),
+                ],
+                position,
+                *span,
+            )
+        }
+        ExprView::FsRemove { path, missing_ok, span }
+        | ExprView::PathRemove { path, missing_ok, span } => {
+            let operation = if tag == FullTag::ExprFsRemove { "fs.remove" } else { "remove" };
+            indexed_frame_apply_child_from_fields(
+                [
+                    Some((path.raw(), Some(FrameApplyOperand::Path(operation)))),
+                    missing_ok.map(|id| (id.raw(), Some(FrameApplyOperand::Bool(operation)))),
+                ],
+                position,
+                *span,
+            )
+        }
+        ExprView::PathReadText { path, span }
+        | ExprView::PathReadBytes { path, span }
+        | ExprView::PathExists { path, span }
+        | ExprView::PathExecutable { path, span }
+        | ExprView::PathDu { path, span }
+        | ExprView::PathMetadata { path, span }
+        | ExprView::PathReadlink { path, span }
+        | ExprView::PathResolve { path, span } => {
+            indexed_frame_apply_child_from_fields([Some((path.raw(), None))], position, *span)
+        }
+        ExprView::ArchiveTarCreate { path, root, entries, compression, overwrite, span } => {
+            indexed_frame_apply_child_from_fields(
+                [
+                    Some((path.raw(), Some(FrameApplyOperand::Path("archive.tar_create")))),
+                    Some((root.raw(), Some(FrameApplyOperand::Path("archive.tar_create")))),
+                    Some((entries.raw(), Some(FrameApplyOperand::PathList("archive.tar_create")))),
+                    compression.map(|id| (id.raw(), Some(FrameApplyOperand::String("archive.tar_create")))),
+                    overwrite.map(|id| (id.raw(), Some(FrameApplyOperand::Bool("archive.tar_create")))),
+                ],
+                position,
+                *span,
+            )
+        }
+        _ => unreachable!("frame apply tag has a matching typed view"),
+    };
+    Ok(child)
+}
+
 impl FrameApplyValue {
     fn path(self) -> PathValue {
         let Self::Path(path) = self else {
@@ -933,40 +1111,6 @@ fn indexed_frame_apply_module_call(
     }
 }
 
-fn indexed_frame_apply_host_call(
-    evaluator: &mut Evaluator,
-    op: RuntimeOp,
-    span: Span,
-    call: impl FnOnce(&mut Evaluator) -> Result<LoweredValue, RuntimeError>,
-) -> Result<LoweredValue, RuntimeError> {
-    let trace_name = super::api_spec()
-        .op_trace_name(op)
-        .map(str::to_string);
-    let rooted = trace_name
-        .as_deref()
-        .is_some_and(|name| name.starts_with("FsRoot."));
-    if evaluator.trace_enabled {
-        evaluator.trace_enter(
-            if rooted { TraceKind::MethodCall } else { TraceKind::ModuleCall },
-            Some(span),
-            trace_name.as_deref(),
-            TracePayload::None,
-        );
-    }
-    let result = call(evaluator);
-    if evaluator.trace_enabled {
-        evaluator.trace_exit(
-            if rooted { TraceKind::MethodResult } else { TraceKind::ModuleResult },
-            Some(span),
-            trace_name.as_deref(),
-            TracePayload::None,
-        );
-    }
-    let mut value = result?;
-    evaluator.register_returned_lowered_stream(&mut value, span)?;
-    Ok(value)
-}
-
 fn indexed_frame_apply_host_value(
     evaluator: &mut Evaluator,
     tag: FullTag,
@@ -1025,18 +1169,18 @@ fn indexed_frame_apply_host_value(
             let path = values.next().expect("archive output path operand").path();
             let root = values.next().expect("archive root operand").path();
             let entries = values.next().expect("archive entries operand").path_list();
-            let compression = compression.map_or_else(|| "auto".to_string(), |_| {
+            let compression = compression.map(|_| {
                 values.next().expect("archive compression operand").string()
             });
-            let overwrite = overwrite.map_or(false, |_| values.next().expect("archive overwrite operand").bool());
+            let overwrite = overwrite.map(|_| {
+                values.next().expect("archive overwrite operand").bool()
+            });
             assert!(values.next().is_none(), "archive create operand count mismatch");
-            indexed_frame_apply_host_call(evaluator, RuntimeOp::ArchiveTarCreate, span, |evaluator| {
-                Ok(lowered_unit_result(archive_module::tar_create(
-                    evaluator.host_path(&path), evaluator.host_path(&root), entries, &compression, overwrite, span,
-                )))
+            evaluator.eval_archive_tar_create_apply(span, || {
+                Ok((path, root, entries, compression, overwrite))
             })
         }
-        _ => unreachable!("prepared frame-apply tag has a matching filesystem view"),
+        _ => unreachable!("frame-apply tag has a matching typed view"),
     }
 }
 
@@ -1284,7 +1428,7 @@ impl Evaluator {
             plan.convert_command_words(&mut values.0)?;
         }
         let cli_descriptor = call_plan.and_then(ModuleCallPlan::cli_descriptor);
-        if !self.trace_enabled {
+        if !self.trace_enabled || op == RuntimeOp::ArchiveTarCreate {
             let mut result = self.eval_lowered_module_call_values(op, values, span, cli_descriptor)?;
             self.register_returned_lowered_streams(&mut result, span)?;
             return Ok(result);

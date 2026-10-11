@@ -1,8 +1,10 @@
 use super::{
     Evaluator, ControlFlow, LoweredValue, NativeArgumentValues, RuntimeError, Span, archive_module,
     lowered_bool_arg_or, lowered_int_arg_or, lowered_path_arg, lowered_path_list_arg,
-    lowered_str_arg_owned, lowered_unit_result,
+    lowered_str_arg_owned, lowered_unit_result, TraceKind, TracePayload,
 };
+use crate::runtime::eval::PathValue;
+use crate::modules::RuntimeOp;
 
 impl Evaluator {
     pub(super) fn eval_lowered_archive_compress_values(
@@ -36,7 +38,7 @@ impl Evaluator {
     pub(super) fn eval_lowered_archive_tar_create_values(
         &mut self, mut values: NativeArgumentValues, span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
-        let value = {
+        let value = self.eval_archive_tar_create_apply(span, || {
             let overwrite =
                 lowered_bool_arg_or(values.get(4).cloned(), false, "archive.tar_create", span)?;
             let compression = lowered_str_arg_owned(
@@ -48,16 +50,49 @@ impl Evaluator {
             let entries = lowered_path_list_arg(values.remove(2), "archive.tar_create", span)?;
             let root = lowered_path_arg(values.remove(1), "archive.tar_create", span)?;
             let path = lowered_path_arg(values.remove(0), "archive.tar_create", span)?;
-            lowered_unit_result(archive_module::tar_create(
+            Ok((path, root, entries, Some(compression), Some(overwrite)))
+        })?;
+        Ok(ControlFlow::Continue(value))
+    }
+
+    pub(super) fn eval_archive_tar_create_apply(
+        &mut self,
+        span: Span,
+        prepare: impl FnOnce() -> Result<(PathValue, PathValue, Vec<PathValue>, Option<String>, Option<bool>), RuntimeError>,
+    ) -> Result<LoweredValue, RuntimeError> {
+        let trace_name = super::api_spec()
+            .op_trace_name(RuntimeOp::ArchiveTarCreate)
+            .map(str::to_string);
+        if self.trace_enabled {
+            self.trace_enter(
+                TraceKind::ModuleCall,
+                Some(span),
+                trace_name.as_deref(),
+                TracePayload::None,
+            );
+        }
+        let result = (|| {
+            let (path, root, entries, compression, overwrite) = prepare()?;
+            let compression = compression.unwrap_or_else(|| "auto".to_string());
+            let overwrite = overwrite.unwrap_or(false);
+            Ok(lowered_unit_result(archive_module::tar_create(
                 self.host_path(&path),
                 self.host_path(&root),
                 entries,
                 &compression,
                 overwrite,
                 span,
-            ))
-        };
-        Ok(ControlFlow::Continue(value))
+            )))
+        })();
+        if self.trace_enabled {
+            self.trace_exit(
+                TraceKind::ModuleResult,
+                Some(span),
+                trace_name.as_deref(),
+                TracePayload::None,
+            );
+        }
+        result
     }
 
     pub(super) fn eval_lowered_archive_tar_extract_values(

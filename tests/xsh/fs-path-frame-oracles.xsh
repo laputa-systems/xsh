@@ -99,6 +99,31 @@ target.write(if true {{
   assert ! target.exists()?
 }
 
+test test_archive_tar_create_frame_emits_one_module_trace_pair { |ctx|
+  let root = test.temp_dir(ctx, name: "archive-tar-create-trace")?
+  fp"{root}/member".write("payload")
+  let traced = test.run_xsht_trace(
+    ctx,
+    f"""archive.tar_create(p"{root}/out.tar", p"{root}", [p"member"])
+""",
+    ["--trace", "--raw", "--trace-format", "jsonl"],
+  )?
+
+  assert traced.success, traced.stderr
+  let calls = [
+    line for line in traced.stderr.lines()
+    if "\"kind\":\"module.call\"" in line
+      and "\"api_id\":\"module.archive.tar_create\"" in line
+  ]
+  let results = [
+    line for line in traced.stderr.lines()
+    if "\"kind\":\"module.result\"" in line
+      and "\"api_id\":\"module.archive.tar_create\"" in line
+  ]
+  assert calls.len() == 1, traced.stderr
+  assert results.len() == 1, traced.stderr
+}
+
 test test_fs_tempdir_frame_apply_releases_created_resources { |ctx|
   let root = test.temp_dir(ctx, name: "fs-tempdir-frame-cleanup")?
   let path_file = fp"{root}/scratch-path"
