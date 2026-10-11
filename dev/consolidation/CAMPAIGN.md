@@ -1,22 +1,33 @@
 # XSH Consolidation Campaign
 
-Status: planned, not ready to start (drafted 2026-10-10). The decisions under
-"Decisions" are made. The designs under "Designs" are not all written, and
-the campaign does not start until each is written and approved. Nothing in
-this document has been implemented.
+Status: Setup may start before compatibility correctness closes (drafted
+2026-10-10; sequence and Codex policy revised 2026-10-11). The decisions under
+"Decisions" are made. The six designs under "Designs" are drafted and await
+approval before their affected workstreams start. Nothing in this document
+has been implemented.
 
 The campaign runs unattended: once started it never waits for the owner.
 Every question it would otherwise ask is answered here or in a design file
-before it starts, or it is parked under the rules in "Unattended operation".
+before the affected item starts, or it is parked under the rules in
+"Unattended operation".
 
 ## Start condition and sequence
 
-1. The compatibility campaign (`dev/compat/CAMPAIGN.md`) finishes its
-   correctness work: parity, the native port, and harness retirement.
-2. This campaign runs.
-3. Compatibility performance work (utility throughput, speed-only native
-   primitives, moving policy out of Rust) runs after this campaign closes, on
-   the instruction set and value representation this campaign leaves behind.
+1. This campaign starts Setup from a recorded commit with green consolidation
+   gates. Completion of compatibility correctness work (parity, the native
+   port, and harness retirement) is not a prerequisite. Record its current
+   evidence and unfinished work alongside the consolidation baseline.
+2. Approved workstreams run on the `consolidation` branch. Compatibility
+   correctness work may continue on a separate branch and worktree. Changes
+   between campaigns are integrated explicitly at batch boundaries, with
+   design assumptions revalidated and the affected gates rerun; a moving
+   compatibility head never silently replaces the consolidation baseline.
+3. Complete the consolidation behavior and structural end states first.
+   Stricter performance gates follow functional completion. Compatibility
+   performance work (utility throughput, speed-only native primitives, moving
+   policy out of Rust) runs after both consolidation and compatibility
+   correctness close, on the instruction set and value representation this
+   campaign leaves behind.
 
 The figures below were read from the tree on 2026-10-10 while compatibility
 lanes were still landing. They size the work; they are not the baseline. The
@@ -41,17 +52,60 @@ tests this plan adopts as its own:
 
 ## Rules
 
-Lane process, roles, and review follow the compatibility campaign unless a
-rule below says otherwise.
+Lane ownership, briefs, and review follow the compatibility campaign unless
+a rule below says otherwise. This campaign defines its own model policy,
+integration branch, scheduling, and gates; verification follows
+`docs/TESTING.md`.
 
 **Roles and models.** One coordinating session, on its own model, is the
-integrator and the only one that merges. Implementation lanes are `xsh-lane`
-agents on Sonnet 5.5 at high effort. Routine lanes (scoped lint migrations,
-pure file moves, test additions from an explicit list, inventories) are
-`xsh-routine` agents on Haiku 5.5 at high effort, never Sonnet or Opus. Pass
-`model` and `effort` explicitly on every spawn. A routine lane that meets a
-design decision or a checker, lowering, or runtime change stops and reports;
-the integrator re-issues the item as an `xsh-lane` item.
+integrator and the only one that merges. `xsh-lane` and `xsh-routine` name
+roles; Codex receives their instructions in the lane brief rather than
+relying on Claude agent definitions.
+
+| Role | Codex model | Reasoning effort |
+|---|---|---|
+| Routine: scoped migrations, pure file moves, tests from an explicit list, inventories | `gpt-6.1-sol` | `medium` |
+| Implementation: checker, lowering, verifier, runtime, ownership, or other complex changes | `gpt-6.1-sol` | `high` |
+| Review: contract, invariant, and integration review of complex changes | `gpt-6.1-sol` | `high` |
+
+Every Codex lane uses `gpt-6.1-sol`; no Luna lane is permitted. Pass `model`
+and `reasoning_effort` explicitly on every spawn. With the session's
+`spawn_agent` tool, use `fork_turns: "none"` for these explicit settings and
+provide a self-contained brief. A routine lane that meets a design decision
+or a checker, lowering, or runtime change stops and reports; the integrator
+re-issues the item at `high` effort. This overrides the compatibility
+campaign's Codex model policy.
+
+Claude Code sessions retain `xsh-lane` on Sonnet 5.5 at high effort and
+`xsh-routine` on Haiku 5.5 at high effort, with `model` and `effort` explicit.
+The Codex model and effort choices are supported by the
+[OpenAI model documentation](https://developers.openai.com/api/docs/models/gpt-6.1-sol);
+the delegation mechanics follow the
+[Codex subagent guidance](https://learn.chatgpt.com/docs/agent-configuration/subagents).
+
+**Parallel scheduling.** Use as many available agent slots as ready,
+independent items permit. There is no fixed four-lane cap or barrier between
+whole workstreams. Setup creates a dependency graph and exclusive file sets;
+the integrator immediately fills a free slot with the next ready item,
+prioritizing items that unblock others. Read-only inventories can run during
+Setup; editing lanes start after their ownership and prerequisites are set.
+Independent review can overlap implementation on other files. Lanes do not
+delegate further unless the integrator assigns an explicit nested scope.
+
+Agent concurrency and machine load are separate budgets. Queue compilation
+and linking according to host memory, and run only one full native suite at
+a time across both campaigns. Give Rust lanes separate build directories;
+script-only and inventory lanes reuse binaries from their recorded base.
+Run timing measurements alone. A lane waiting for a build slot does not
+prevent another agent from doing independent code or review work.
+
+**Lane brief.** Each spawn names the worktree, branch and base commit, exact
+owned paths, approved design and item, observable end state, structural
+metric and size budget, exact gates, and model and effort. It states whether
+the lane may commit, forbids merging or pushing, and requires a report under
+200 words with changed behavior, verification, metrics, blockers, and
+`Requests:` for shared paths. The integrator reviews the diff and accepts
+gates before merging; agent completion alone is not acceptance.
 
 **Isolation.** Each lane works in its own worktree and branch over an
 exclusive file set the integrator assigns. Shared paths (facades,
@@ -71,7 +125,9 @@ file names, applied by the lint rule that design defines.
 1. Changed paths are inside the lane's file set.
 2. The gate the item names is green on release binaries.
 3. No test was removed or weakened.
-4. No ratchet rose, and the item's target metric reached its stated value.
+4. No structural ratchet rose, and the item's functional and structural
+   targets reached their stated values. Performance measurements are reported
+   under the performance policy below.
 5. Net non-test Rust lines are within the item's budget. The default budget
    is zero or negative: a lane that adds a path for an existing decision
    deletes the old path in the same slice.
@@ -93,9 +149,19 @@ Out of scope: how fast any utility in `core/` runs, and any native primitive
 added for speed. A lane that finds one records it for the later
 compatibility performance phase.
 
+**Completeness before stricter performance gates.** Correctness, structural
+agreement, resource and stack bounds, and existing regression tests remain
+acceptance gates. Record latency, allocation, build time, and gate wall time
+as evidence, but do not add tighter performance thresholds or park otherwise
+complete items for noisy timing samples. Functional completion of
+workstreams 1 to 9 comes first; stricter performance gates and tuning follow
+on the completed implementation. This does not authorize weakening an
+existing test or removing a safety bound.
+
 **Contract changes.** Every change this campaign makes to an API, a type, a
-diagnostic, SPEC wording, or a gate command is written down before it starts:
-in "Decisions" and in the design files. Approving those approves the changes.
+diagnostic, SPEC wording, or a gate command is written down before the
+affected item starts, in "Decisions" and in the design files. Approving those
+approves the changes.
 A lane makes no other contract change. One that turns out to be needed parks
 the item. Nothing is pushed.
 
@@ -107,7 +173,8 @@ the item. Nothing is pushed.
   the same name in that repository under the same rule.
 - **Revalidate the designs.** Each design file lists the facts about the code
   it relies on, as symbols and behaviors a search can confirm. Before a
-  workstream starts, the integrator checks those facts at the start commit.
+  workstream starts, the integrator checks those facts at its recorded base
+  commit. It repeats the check after integrating a change from compatibility.
   A design whose facts no longer hold is not repaired: its workstream is
   parked whole.
 - **Park, never ask.** An item is parked, with its evidence, when it would
@@ -131,8 +198,9 @@ the item. Nothing is pushed.
 
 ## Planning figures
 
-Each row is a ratchet: Setup records its value at the start commit, and the
-value may only fall.
+Setup records every row at the start commit. Structural counts are ratchets
+whose values may only fall. Timing measurements are evidence for the later
+performance gates; they do not introduce new acceptance thresholds here.
 
 | Measure | 2026-10-10 | End state |
 |---|---|---|
@@ -150,18 +218,21 @@ value may only fall.
 | Checks of a shared module in one `xsht lint` run without `--fix` | once per importing root: 778 module checks per pass for 90 modules | once per module |
 | Whole-program copies made to lower one stage that names a callable | 1 | 0 |
 | `xsht lint` on this repository | about 17 s against a 15 s budget | inside the budget, measured alone |
-| Wall time of the full gate sequence | about 8 minutes on the 32-thread machine, before the two targets Setup adds | lower than the start value measured with those targets included |
+| Wall time of the full gate sequence | about 8 minutes on the 32-thread machine, before the two targets Setup adds | measured at functional close with those targets included; stricter target set afterwards |
 | Lines under a blanket `allow(dead_code)` | about 15,800 | 0 |
 | Entries under "Defects" in `TODO.md` | all open | closed, or moved out with a reason |
 | Non-test Rust lines, `src/` and `crates/xsht/src` | 205,864 and 60,041 | lower |
 
 ## Setup
 
-Run by the integrator, in series, before any workstream.
+The integrator owns Setup and serializes changes to shared files before
+implementation fan-out. Delegate independent read-only inventories in
+parallel while that work proceeds.
 
 - **Baseline and ratchets.** One XSH program under `dev/` measures every row
   above and writes `dev/consolidation/baseline.json`; `cargo dev check` fails
-  when a measure rises. Lane tooling for this campaign is XSH, not Python.
+  when a structural measure rises. Timing samples are recorded without a new
+  ratchet. Lane tooling for this campaign is XSH, not Python.
 - **Lane gate.** `cargo dev` gains a command that maps changed paths to the
   rows of the gate table in `docs/TESTING.md` and runs them. The full
   sequence the integrator runs once per batch adds two targets the default
@@ -196,6 +267,9 @@ Run by the integrator, in series, before any workstream.
 - **Item list.** This document is a charter, not yet a lane plan. Once the
   files are partitioned, the integrator writes the items for each workstream
   with a file set, a gate, and a size budget, in `dev/consolidation/ITEMS.md`.
+  Include dependencies and ownership status. Split independent slices into
+  separate items so available lanes can stay occupied; items that share a
+  mutable definition or invariant remain ordered.
 - **Dead code.** Remove the blanket `allow(dead_code)` over
   `src/runtime/eval/indexed.rs` and its children and delete what the compiler
   then reports.
@@ -204,8 +278,12 @@ Run by the integrator, in series, before any workstream.
   functions that no longer exist), the benchmark section of
   `docs/TESTING.md` and `dev/bench.xsh` (they name a bench target that is not
   in the tree), and the line counts in `TODO.md`.
-- **Skill.** Write `.claude/skills/xsh-consolidation-campaign/SKILL.md` from
-  this document.
+- **Skill.** Write a Codex-discoverable
+  `.agents/skills/xsh-consolidation-campaign/SKILL.md` from this document,
+  including explicit delegation instructions and the model policy above.
+  If Claude Code is used, its
+  `.claude/skills/xsh-consolidation-campaign/SKILL.md` follows the same
+  ownership, scheduling, and acceptance rules with its own model settings.
 
 ## Workstreams
 
@@ -236,9 +314,10 @@ operations have a lowered body. The coverage tool reads a generated listing.
 The encoding itself does not change.
 
 **Closes when** the hand-ordered read count is zero outside generated code,
-the duplicate return analysis and mirror structs are deleted, and paired
-runs of the existing loop and call micro-workloads under `bench/` show no
-regression.
+the duplicate return analysis and mirror structs are deleted, and the
+correctness gates pass. Paired runs of the existing loop and call
+micro-workloads under `bench/` are evidence collected after functional
+completion; stricter latency gates follow later.
 
 ### 2. One definition of each instruction's behavior
 
@@ -492,14 +571,16 @@ diagnostics. An on-disk cache and in-process script tests are not part of
 this campaign (D7, D8).
 
 Checking a module once is the most invasive checker change in this document
-and has no design yet. A module's check depends on its bundle today in four
-ways: type definitions are indexes into the bundle's arena, effect inference
+and requires approval of its draft design. A module's check depends on its
+bundle today in four ways: type definitions are indexes into the bundle's arena, effect inference
 is one fixed point over every proc in the bundle, the type of the builtin
 `args` follows the entry's `main`, and each entry point passes different
 options. The design is `designs/module-check.md`.
 
-**Closes when** the two counts and the lint time in the table reach their
-end state and the 16,000-field spread has a native test with a time bound.
+**Closes when** the two structural counts in the table reach their end state,
+existing lint gates pass, and the 16,000-field spread has a native test with a
+safety timeout. Lint timing is recorded; tighter performance bounds follow
+functional completion.
 Follows workstream 4, which supplies the single check session.
 
 ### 10. Evidence and close
@@ -527,13 +608,21 @@ campaign can make the claim checkable; it cannot supply adoption.
 
 ## Order
 
-| Phase | Work | Runs |
+| Work | Prerequisite | Runs |
 |---|---|---|
-| 0 | Setup | integrator, in series |
-| 1 | Workstreams 1, 4, 5, 7 in parallel over disjoint files; designs for 8 drafted and decided | lanes |
-| 2 | Workstream 2 after 1; workstream 6 after 5 | lanes |
-| 3 | Workstreams 3 and 9; approved parts of 8 | lanes |
-| 4 | Workstream 10 | integrator |
+| Setup | recorded start commit with green gates | integrator; independent inventories in parallel |
+| Workstreams 1, 4, 5, 7 | Setup; each item's required design approved | as many disjoint lanes as ready items permit |
+| Workstream 2 | 1; evaluator design approved | lanes |
+| Workstream 6 | 5 | lanes |
+| Workstream 3 | 2 and 4 | lanes |
+| Workstream 9 | 4; module-check design approved | lanes |
+| Workstream 8 | its designs approved and each item's checker/runtime prerequisites complete | lanes, alongside other ready work |
+| Workstream 10 | functional completion of all unparked implementation items | integrator, with independent evidence lanes |
+
+These are dependencies, not global phase barriers. An item starts as soon as
+its prerequisites are accepted and its files are free; it does not wait for
+unrelated items in another workstream. Stricter performance gates follow the
+functional milestone.
 
 Workstreams 1 and 2 share the executor files and run in series. Workstream 3
 touches lowering, the checker, and the executor, so it waits for the lanes
@@ -569,8 +658,9 @@ be taken at the start commit is written as a rule with its threshold, not
 left open.
 
 Four change what a user of the language or its tools sees, and two are
-internal but costly to get wrong. All six are written and approved before
-the campaign starts.
+internal but costly to get wrong. All six are drafted; each must be approved
+before its affected workstream starts. Pending approval does not block Setup
+or independent work under already approved contracts.
 
 | File | Settles | Status |
 |---|---|---|
