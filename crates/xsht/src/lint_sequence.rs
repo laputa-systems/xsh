@@ -1,4 +1,5 @@
 use super::{
+    rules,
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaCallArgKind,
     ArenaCommand, ArenaCommandArgKind, ArenaExprKind,
     ArenaExprOrRun, ArenaRange, ArenaRecordFieldKind,
@@ -8,8 +9,7 @@ use super::{
     Name, Severity, Span, StmtId, SugarForm, Type, TypeExprId, UnaryOp,
     binding_target_contains_name, context_scope, direct_call_name,
     expr_may_assign_local, expr_may_have_effects, expr_references_name,
-    format_binding_target, is_map_empty_call, lint_empty_sentinel, lint_optional_binding,
-    lint_prefer_test_expect, lint_write_mode, list_splice_element_type_is_precise,
+    format_binding_target, is_map_empty_call, list_splice_element_type_is_precise,
     list_update_argument_stable, map_comp_key_can_be_bare, pipeline_argument_expr,
     span_end_after_following_newlines, span_may_contain_comment, stmt_flow, type_expr_kind,
 };
@@ -759,30 +759,18 @@ impl<'a> Linter<'a> {
     }
 
     pub(super) fn lint_statement_sequence(&mut self, stmts: &[StmtId]) {
-        self.lint_context_scope_scaffolds(stmts);
-        self.lint_record_destructuring(stmts);
-        self.lint_fresh_map_initializations(stmts);
-        self.lint_list_element_reconstruction(stmts);
-        if let Some(&first) = stmts.first() {
-            self.lint_negative_if_as_boolean_guard(first);
-        }
-        lint_optional_binding::lint_null_test_then_binding(self, stmts);
-        lint_write_mode::lint_write_then_chmod(self, stmts);
-        lint_prefer_test_expect::lint_script_runs(self, stmts);
-        lint_empty_sentinel::lint_empty_fallback_then_test(self, stmts);
+        rules::statement_sequence(self, stmts);
         let mut flow = FlowSummary::fallthrough();
         let mut reported_dead_region = false;
         for (index, &stmt) in stmts.iter().enumerate() {
             if index > 0 {
-                self.lint_linear_value_pipeline(stmts[index - 1], stmt, stmts);
+                rules::statement_pair(self, stmts[index - 1], stmt, stmts);
             }
-            if self.dead_code && !flow.fallthrough && !reported_dead_region {
-                self.warning(
-                    self.arena.stmt(stmt).span,
-                    "unreachable code",
-                    DiagnosticCode::LintDeadCode,
-                    "this statement can never execute",
-                );
+            if rules::enabled(self, DiagnosticCode::LintDeadCode)
+                && !flow.fallthrough
+                && !reported_dead_region
+            {
+                rules::before_statement(self, stmt);
                 reported_dead_region = true;
             }
             self.lint_stmt(stmt, false);
@@ -1372,9 +1360,22 @@ impl<'a> Linter<'a> {
     }
 
     pub(super) fn lint_list_comp_suggestions(&mut self, stmts: &[StmtId]) {
+        let list_comp = self
+            .rule_selection
+            .enabled(DiagnosticCode::LintPreferListComp);
+        let map_comp = self
+            .rule_selection
+            .enabled(DiagnosticCode::LintPreferMapComp);
+        if !list_comp && !map_comp {
+            return;
+        }
         for pair in stmts.windows(2) {
-            self.lint_suggest_list_comp(pair[0], pair[1]);
-            self.lint_suggest_map_comp(pair[0], pair[1]);
+            if list_comp {
+                self.lint_suggest_list_comp(pair[0], pair[1]);
+            }
+            if map_comp {
+                self.lint_suggest_map_comp(pair[0], pair[1]);
+            }
         }
     }
 

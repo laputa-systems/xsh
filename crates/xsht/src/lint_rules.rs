@@ -1,129 +1,1601 @@
 use super::{
     ArenaCallArgKind, ArenaExprKind, ArenaExprOrRun, ArenaPatternKind, ArenaRecordFieldKind,
     ArenaStmtKind,
-    AstArena, BinaryOp, Diagnostic, DiagnosticCode, ExprId, FixHint, Label, Linter, Name,
-    PatternArm, Severity, Span, StmtId, Type, is_module_call, list_splice_element_type_is_precise,
+    AstArena, BinaryOp, Binding, BlockId, Diagnostic, DiagnosticCode, ExprId, FixHint, Label, Linter,
+    LintOptions, Name,
+    PatternArm, PatternId, Severity, Span, StmtId, Type, command_name, is_module_call, is_predeclared_script_args, list_splice_element_type_is_precise,
     lint_code_selected, pipeline_argument_expr, same_ordering_operand, span_may_contain_comment,
     widen_over_grouping,
 };
+use xsh::frontend::check::CheckBundleView;
 
 #[cfg(test)]
 use super::nested_pipeline_index_tests;
 
-struct ExpressionRule {
-    code: DiagnosticCode,
-    enabled: fn(&Linter<'_>) -> bool,
-    // The source arena lifetime is independent of each hook's mutable borrow.
-    apply: for<'source> fn(&mut Linter<'source>, ExprId),
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RuleOption { InferredPrivateEffects, EnvString, ItemShorthand, TempdirScope, InferredPureReturns, InferredProcReturns, TextPattern, RelPath }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RuleSetting { Always, AlwaysWithOptInAdvice, Configured(RuleOption), OptIn(RuleOption), DeadCode, Runless, NativeTestFile, Migration }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CheckedFact { ExpressionTypes, FunctionReturns, FunctionEffects, StatementPositions, ResolvedBindings, ProvenNonNullFallbacks, RequirementTargets, MessagePayloadConstructors, DefinitelyExitingBlocks, StandardCallAndMembership, StandardCallIdentities, MembershipMigrations, PropagatingStatements, RedundantConditionPropagations, DiscardableBindings, UnvalidatedCommandVectors, RedundantVariantQualifiers, RecordRequireMigrations, CallableSignatures, ReturnProofProbe }
+impl CheckedFact { fn needs_check_output(self) -> bool { !matches!(self, Self::ReturnProofProbe) } }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RuleView { Source }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FixPolicy { ProducerProof, NoFix, Migration }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SequenceHook { ListComprehensions, StreamProducerCandidates, ScratchDirectory, AtomicReplace, ForIndex, TextPattern, RepeatedTimeout, BuiltList, PollingLoop }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum StatementHook { Propagation, RedundantDiscard, CoreAssert, NeedlessAnnotation, MissingEffects, InferredPureReturn, AtomicallyNeverReplaces, RecordConstructor, EmptyMapInitializer, ListCompoundAssignment, ListPattern, IfAsGuard, LexicalBlock, AdjacentPatternArms, PatternConditional, CatchAllMatch, StringlyMatch, InteractiveCommand, StreamProducerCandidates, FailCandidates, SetLikeBindings, ListAnyBindings, TypedCallableParameters, SizeProductInitializer, RedundantOkReturn, ReturnPathParse, ReturnRequire }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StatementSequenceHook { ContextScopeScaffolds, RecordDestructuring, FreshMapInitializations, ListElementReconstruction, NegativeIfGuard, OptionalBinding, WriteMode, TestExpect, EmptySentinel }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StatementPairHook { LinearValuePipeline }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LoopHook { ScalarSplitIteration, ByteIteration, MapEntryIteration, YieldDelegation, FileLines, CountedLoop }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ExpressionAnalysis { RedundantCloseUses, StreamProducers, FailCandidates, SetLikeBindings, EmptyFallbacks, RedundantConditionPropagation, RedundantCapturePropagation, SizeProducts, RunArgv, CatchAllArms, NegatedCalls }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StreamStageHook { ItemShorthand, CallableWrapper }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StructuredPipelineHook { FileCollection, RedundantStage }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FunctionHook { BareReturn, TailPathParse, TailRequire, TailOkReturn, TailReturnBinding, TailReturn }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ProcedureHook { InferredEffects, RedundantResultUnit }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BeforeStatementHook { DeadCode }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ExpressionSiteHook { PathDisplay }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum CommandArgumentHook { RedundantInterpolation, FormatWrapper, CommandFormat, CommandValue }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum CallArgumentHook { NamedPun }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ExpressionGroup { PathMigrations, CallStyle, SingleInterpolation }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RunCheck { CapturePropagation, SegmentChecks }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum SequenceExit { Root, Block }
+type ExpressionHook = for<'source> fn(&mut Linter<'source>, ExprId);
+#[derive(Clone, Copy)]
+enum RuleHook {
+    Pattern(for<'source> fn(&mut Linter<'source>, PatternId)),
+    ScopeExit(for<'source> fn(&mut Linter<'source>, &[(String, Binding)])),
+    Run(for<'source> fn(&mut Linter<'source>, super::RunFormId)),
+    Root(RootStage, for<'source, 'view> fn(&mut Linter<'source>, &'view CheckBundleView<'source>, &[StmtId])),
+    Statement(StatementHook),
+    StatementSequence(StatementSequenceHook),
+    StatementPair(StatementPairHook),
+    Loop(LoopHook),
+    ExpressionAnalysis(ExpressionAnalysis),
+    Parameter(for<'source> fn(&mut Linter<'source>, &xsh::frontend::syntax::arena::ArenaParam)),
+    Expression(ExpressionHook),
+    ExpressionSite(ExpressionSiteHook),
+    CommandArgument(CommandArgumentHook),
+    CallArgument(CallArgumentHook),
+    StreamStage(StreamStageHook),
+    StructuredPipeline(StructuredPipelineHook),
+    Function(FunctionHook),
+    Procedure(ProcedureHook),
+    BeforeStatement(BeforeStatementHook),
+    Binding(for<'source> fn(&mut Linter<'source>, &str, Span)),
+    ExpressionGroup(ExpressionGroup),
+    RunCheck(RunCheck),
+    SequenceExit(SequenceExit),
+}
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum RootStage {
+    BeforeProgram,
+    AfterProgram,
+    SignatureCli,
+    TryCapture,
+    DeclarationReachability,
+    CallableAlias,
+    RedundantUseAlias,
+    InferredProcReturns,
+    SortItemShorthands,
+    SortCatchAllArms,
+    ListAnyUnion,
+    SetLike,
+    FailCandidates,
+    ImplicitMessages,
+    TypedCallable,
+    ImportBlock,
+    TopLevelConstOrder,
+    PreparedConstants,
+    ImplicitMain,
+    UnusedTypes,
+    StreamProducerFinalizer,
+    DeferBlockHelpers,
+}
+struct LintRule { code: DiagnosticCode, setting: RuleSetting, view: RuleView, facts: &'static [CheckedFact], fix: FixPolicy, root_sequence: Option<SequenceHook>, block_sequence: Option<SequenceHook>, expression: Option<ExpressionHook>, hooks: &'static [RuleHook] }
+macro_rules! lint_rules { ($( $code:ident: ($setting:expr, [$($fact:ident),* $(,)?], $fix:expr, $root:expr, $block:expr, $expression:expr, [$($hook:expr),* $(,)?]); )+) => { const LINT_RULES: &[LintRule] = &[$(LintRule { code: DiagnosticCode::$code, setting: $setting, view: RuleView::Source, facts: &[$(CheckedFact::$fact),*], fix: $fix, root_sequence: $root, block_sequence: $block, expression: $expression, hooks: &[$($hook),*] },)*]; }; }
+lint_rules! {
+    LintRedundantOptionalFallback: (RuleSetting::Always, [ProvenNonNullFallbacks], FixPolicy::ProducerProof, None, None, Some(|linter, expr| linter.lint_proven_nonnull_fallback(expr)), []);
+    LintPreferNestedRecordUpdate: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, Some(|linter, expr| linter.lint_nested_record_update(expr)), []);
+    LintPreferValuePipeline: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, Some(|linter, expr| linter.lint_nested_value_pipeline(expr)), [RuleHook::StatementPair(StatementPairHook::LinearValuePipeline)]);
+    LintPreferBlockString: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, Some(|linter, expr| linter.lint_block_string_concatenation(expr)), []);
+    LintPreferListSplicing: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, Some(|linter, expr| linter.lint_list_splicing(expr)), []);
+    LintPreferMapLiteral: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, Some(|linter, expr| linter.lint_map_literal_chain(expr)), []);
+    LintPreferRegexLiteral: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, Some(|linter, expr| linter.lint_prepared_regex(expr)), []);
+    LintPreferEnvString: (RuleSetting::Configured(RuleOption::EnvString), [ExpressionTypes], FixPolicy::ProducerProof, None, None, Some(|linter, expr| linter.lint_env_string(expr)), []);
+    LintPreferComparisonChain: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, Some(|linter, expr| linter.lint_comparison_chain(expr)), []);
+    LintLookupAbsence: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, Some(|linter, expr| linter.lint_lookup_sentinel(expr)), []);
+    LintPreferOptionalPostfix: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, Some(|linter, expr| linter.lint_optional_postfix(expr)), []);
+    LintIdenticalMatchArms: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, Some(lint_expression_adjacent_pattern_arms), [RuleHook::Statement(StatementHook::AdjacentPatternArms)]);
+    LintBooleanPatternTest: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, Some(|linter, expr| linter.lint_boolean_match(expr)), []);
+    LintPatternConditional: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, Some(|linter, expr| linter.lint_pattern_conditional_expr(expr)), [RuleHook::Statement(StatementHook::PatternConditional)]);
+    LintErrorFallbackBlock: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, Some(|linter, expr| linter.lint_error_fallback_block(expr)), []);
+    LintRedundantPathParse: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, Some(|linter, expr| linter.lint_path_roundtrip(expr)), [RuleHook::Statement(StatementHook::ReturnPathParse), RuleHook::Function(FunctionHook::TailPathParse)]);
+    LintRedundantRequire: (RuleSetting::Always, [RequirementTargets], FixPolicy::ProducerProof, None, None, Some(|linter, expr| linter.lint_redundant_require(expr)), [RuleHook::Statement(StatementHook::ReturnRequire), RuleHook::Function(FunctionHook::TailRequire)]);
+    LintPreferKnownFieldAccess: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, Some(|linter, expr| linter.lint_known_field_access(expr)), []);
+    LintInferredRequireTarget: (RuleSetting::Always, [RequirementTargets], FixPolicy::ProducerProof, None, None, Some(|linter, expr| linter.lint_inferred_require_target(expr)), []);
+    LintPreferListComp: (RuleSetting::Always, [], FixPolicy::ProducerProof, Some(SequenceHook::ListComprehensions), Some(SequenceHook::ListComprehensions), None, []);
+    LintPreferMapComp: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, Some(SequenceHook::ListComprehensions), Some(SequenceHook::ListComprehensions), None, []);
+    LintPreferStreamProducer: (RuleSetting::Always, [], FixPolicy::NoFix, Some(SequenceHook::StreamProducerCandidates), None, None, [RuleHook::Statement(StatementHook::StreamProducerCandidates), RuleHook::ExpressionAnalysis(ExpressionAnalysis::StreamProducers), RuleHook::Root(RootStage::StreamProducerFinalizer, run_stream_producer_finalizer_hook)]);
+    LintPreferTempdir: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, Some(SequenceHook::ScratchDirectory), Some(SequenceHook::ScratchDirectory), None, []);
+    LintPreferAtomicallyReplace: (RuleSetting::Always, [DefinitelyExitingBlocks], FixPolicy::ProducerProof, Some(SequenceHook::AtomicReplace), Some(SequenceHook::AtomicReplace), None, []);
+    LintPreferForIndex: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, Some(SequenceHook::ForIndex), None, []);
+    LintPreferTextPattern: (RuleSetting::OptIn(RuleOption::TextPattern), [], FixPolicy::NoFix, None, Some(SequenceHook::TextPattern), None, []);
+    LintPreferWithin: (RuleSetting::Always, [], FixPolicy::NoFix, Some(SequenceHook::RepeatedTimeout), Some(SequenceHook::RepeatedTimeout), None, []);
+    LintPreferCollect: (RuleSetting::Always, [], FixPolicy::ProducerProof, Some(SequenceHook::BuiltList), Some(SequenceHook::BuiltList), None, []);
+    LintPreferWaitUntil: (RuleSetting::Always, [], FixPolicy::ProducerProof, Some(SequenceHook::PollingLoop), Some(SequenceHook::PollingLoop), None, []);
+    LintAtomicallyNeverReplaces: (RuleSetting::Always, [DefinitelyExitingBlocks], FixPolicy::NoFix, None, None, None, [RuleHook::Statement(StatementHook::AtomicallyNeverReplaces)]);
+    LintBlockHeader: (RuleSetting::Migration, [], FixPolicy::Migration, None, None, None, []);
+    LintBooleanGuard: (RuleSetting::Always, [ExpressionTypes, DefinitelyExitingBlocks], FixPolicy::ProducerProof, None, None, None, [RuleHook::StatementSequence(StatementSequenceHook::NegativeIfGuard)]);
+    LintCommandValue: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::CommandArgument(CommandArgumentHook::CommandValue)]);
+    LintCompatibilityVocabulary: (RuleSetting::Migration, [], FixPolicy::Migration, None, None, None, []);
+    LintCoreAssert: (RuleSetting::Always, [ExpressionTypes, StatementPositions], FixPolicy::ProducerProof, None, None, None, [RuleHook::Statement(StatementHook::CoreAssert), RuleHook::ExpressionGroup(ExpressionGroup::CallStyle)]);
+    LintDeadCode: (RuleSetting::DeadCode, [], FixPolicy::NoFix, None, None, None, [RuleHook::BeforeStatement(BeforeStatementHook::DeadCode)]);
+    LintDefaultParamType: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Parameter(run_default_parameter_annotation)]);
+    LintDollarInExpressionString: (RuleSetting::Always, [], FixPolicy::NoFix, None, None, None, [RuleHook::Expression(run_dollar_in_expression_string)]);
+    LintDurationArithmetic: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::CallStyle)]);
+    LintEnumDeclaration: (RuleSetting::Migration, [], FixPolicy::Migration, None, None, None, []);
+    LintEnvScope: (RuleSetting::Migration, [], FixPolicy::Migration, None, None, None, []);
+    LintFsRootReceiver: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::CallStyle)]);
+    LintInteractiveCommand: (RuleSetting::Always, [], FixPolicy::NoFix, None, None, None, [RuleHook::Statement(StatementHook::InteractiveCommand)]);
+    LintJsonRoundtrip: (RuleSetting::Always, [], FixPolicy::NoFix, None, None, None, [RuleHook::Expression(|linter, expr| linter.lint_json_encode_decode_roundtrip(expr))]);
+    LintLegacyTestProc: (RuleSetting::NativeTestFile, [FunctionReturns], FixPolicy::ProducerProof, None, None, None, [RuleHook::Root(RootStage::BeforeProgram, run_legacy_test_proc_hook)]);
+    LintLexicalBlock: (RuleSetting::Always, [StatementPositions], FixPolicy::ProducerProof, None, None, None, [RuleHook::Statement(StatementHook::LexicalBlock)]);
+    LintLookupFallback: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::CallStyle)]);
+    LintMissingEffects: (RuleSetting::Always, [FunctionEffects], FixPolicy::ProducerProof, None, None, None, [RuleHook::Statement(StatementHook::MissingEffects)]);
+    LintMissingFPrefix: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Expression(run_missing_f_prefix)]);
+    LintNeedlessAnnotation: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::Statement(StatementHook::NeedlessAnnotation)]);
+    LintOrganizeTopLevelConsts: (RuleSetting::Always, [], FixPolicy::NoFix, None, None, None, [RuleHook::Root(RootStage::TopLevelConstOrder, run_top_level_const_order_hook)]);
+    LintPathConstructor: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::CallStyle)]);
+    LintPathDisplayEquality: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::PathMigrations)]);
+    LintPathDisplaySink: (RuleSetting::Always, [ExpressionTypes], FixPolicy::NoFix, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::PathMigrations)]);
+    LintPathTextQuery: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::PathMigrations)]);
+    LintPositionalErrorArguments: (RuleSetting::Migration, [], FixPolicy::Migration, None, None, None, []);
+    LintPreferBareFieldLabel: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Expression(run_quoted_field_labels)]);
+    LintPreferCallableAlias: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Root(RootStage::CallableAlias, run_callable_alias_hook)]);
+    LintPreferConst: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::Root(RootStage::PreparedConstants, run_prepared_constants_hook)]);
+    LintPreferContextScopeValue: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::StatementSequence(StatementSequenceHook::ContextScopeScaffolds)]);
+    LintPreferDeferBlock: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::Root(RootStage::DeferBlockHelpers, run_defer_block_helpers_hook)]);
+    LintPreferEmptyMapLiteral: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Statement(StatementHook::EmptyMapInitializer), RuleHook::StatementSequence(StatementSequenceHook::FreshMapInitializations)]);
+    LintPreferFail: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Statement(StatementHook::FailCandidates), RuleHook::ExpressionAnalysis(ExpressionAnalysis::FailCandidates), RuleHook::Root(RootStage::FailCandidates, run_fail_candidates_finalizer)]);
+    LintPreferFileLines: (RuleSetting::Always, [ExpressionTypes], FixPolicy::NoFix, None, None, None, [RuleHook::Loop(LoopHook::FileLines)]);
+    LintPreferFsFiles: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::StructuredPipeline(StructuredPipelineHook::FileCollection)]);
+    LintPreferGenericRecordConstructor: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::Statement(StatementHook::RecordConstructor)]);
+    LintPreferGuard: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Statement(StatementHook::IfAsGuard)]);
+    LintPreferImplicitMessage: (RuleSetting::Always, [MessagePayloadConstructors], FixPolicy::ProducerProof, None, None, None, [RuleHook::Root(RootStage::ImplicitMessages, run_implicit_message_finalizer)]);
+    LintPreferIn: (RuleSetting::Always, [StandardCallAndMembership, StandardCallIdentities, MembershipMigrations], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionAnalysis(ExpressionAnalysis::NegatedCalls), RuleHook::ExpressionGroup(ExpressionGroup::CallStyle)]);
+    LintPreferInferredPrivateEffects: (RuleSetting::Configured(RuleOption::InferredPrivateEffects), [FunctionEffects], FixPolicy::ProducerProof, None, None, None, [RuleHook::Procedure(ProcedureHook::InferredEffects)]);
+    LintPreferInferredPureReturn: (RuleSetting::OptIn(RuleOption::InferredPureReturns), [FunctionReturns, ReturnProofProbe], FixPolicy::ProducerProof, None, None, None, [RuleHook::Statement(StatementHook::InferredPureReturn)]);
+    LintPreferInferredVariant: (RuleSetting::Always, [RedundantVariantQualifiers], FixPolicy::ProducerProof, None, None, None, [RuleHook::Pattern(run_inferred_variant_pattern_hook), RuleHook::Expression(|linter, expr| linter.lint_inferred_variant(expr))]);
+    LintPreferItemShorthand: (RuleSetting::Configured(RuleOption::ItemShorthand), [], FixPolicy::ProducerProof, None, None, Some(run_item_shorthand_expression), [RuleHook::StreamStage(StreamStageHook::ItemShorthand), RuleHook::Root(RootStage::SortItemShorthands, run_item_shorthand_finalizer)]);
+    LintPreferListCompoundAssignment: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::Statement(StatementHook::ListCompoundAssignment)]);
+    LintPreferListElementAssignment: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::StatementSequence(StatementSequenceHook::ListElementReconstruction)]);
+    LintPreferListPattern: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::Statement(StatementHook::ListPattern)]);
+    LintPreferMapEntryIteration: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::Loop(LoopHook::MapEntryIteration)]);
+    LintPreferMatchElse: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionAnalysis(ExpressionAnalysis::CatchAllArms), RuleHook::Statement(StatementHook::CatchAllMatch), RuleHook::Root(RootStage::SortCatchAllArms, run_catch_all_finalizer)]);
+    LintPreferMethod: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::CallStyle)]);
+    LintPreferNamedArgumentPun: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::CallArgument(CallArgumentHook::NamedPun)]);
+    LintPreferNamedArgumentSpread: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::CallStyle)]);
+    LintPreferOptionalBinding: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::StatementSequence(StatementSequenceHook::OptionalBinding)]);
+    LintPreferPositionalConstructor: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::Expression(|linter, expr| linter.lint_positional_constructor(expr))]);
+    LintPreferPropagation: (RuleSetting::Always, [StatementPositions, PropagatingStatements, RedundantConditionPropagations], FixPolicy::ProducerProof, None, None, None, [RuleHook::Statement(StatementHook::Propagation)]);
+    LintPreferReadLines: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::PathMigrations)]);
+    LintPreferRecordConstructor: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::Statement(StatementHook::RecordConstructor)]);
+    LintPreferRecordDestructuring: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::StatementSequence(StatementSequenceHook::RecordDestructuring)]);
+    LintPreferRepeat: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Loop(LoopHook::CountedLoop)]);
+    LintPreferScalarIteration: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::Loop(LoopHook::ScalarSplitIteration), RuleHook::Loop(LoopHook::ByteIteration)]);
+    LintPreferRunArgv: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionAnalysis(ExpressionAnalysis::RunArgv)]);
+    LintPreferSignatureCli: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Root(RootStage::SignatureCli, run_signature_cli_hook)]);
+    LintPreferSizeLiteral: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Statement(StatementHook::SizeProductInitializer), RuleHook::ExpressionAnalysis(ExpressionAnalysis::SizeProducts)]);
+    LintPreferSlice: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::CallStyle)]);
+    LintPreferStringConcat: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::CallStyle)]);
+    LintPreferTempdirScope: (RuleSetting::Configured(RuleOption::TempdirScope), [FunctionReturns], FixPolicy::ProducerProof, None, None, None, [RuleHook::Root(RootStage::AfterProgram, run_tempdir_scope_hook)]);
+    LintPreferTryCapture: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Root(RootStage::TryCapture, run_try_capture_hook)]);
+    LintPreferWriteLines: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::PathMigrations)]);
+    LintPreferYieldDelegation: (RuleSetting::Always, [ExpressionTypes, FunctionReturns], FixPolicy::ProducerProof, None, None, None, [RuleHook::Loop(LoopHook::YieldDelegation)]);
+    LintPublicResultError: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, []);
+    LintRedundantBareReturn: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Function(FunctionHook::BareReturn)]);
+    LintRedundantClose: (RuleSetting::Always, [ExpressionTypes, ResolvedBindings], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionAnalysis(ExpressionAnalysis::RedundantCloseUses), RuleHook::SequenceExit(SequenceExit::Root), RuleHook::SequenceExit(SequenceExit::Block)]);
+    LintRedundantCommandFmt: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::CommandArgument(CommandArgumentHook::CommandFormat)]);
+    LintRedundantCommandInterpolation: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::CommandArgument(CommandArgumentHook::RedundantInterpolation)]);
+    LintRedundantDefault: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::CallStyle)]);
+    LintRedundantDisplayParse: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Expression(|linter, expr| linter.lint_scalar_display_parse_roundtrip(expr))]);
+    LintRedundantFmtWrapper: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::CommandArgument(CommandArgumentHook::FormatWrapper)]);
+    LintRedundantMainCall: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Root(RootStage::ImplicitMain, run_implicit_main_hook)]);
+    LintRedundantNewlineTripleString: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Expression(run_redundant_newline_triple_string)]);
+    LintRedundantOkReturn: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Statement(StatementHook::RedundantOkReturn)]);
+    LintRedundantOkTail: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Function(FunctionHook::TailOkReturn)]);
+    LintRedundantPathDisplay: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionSite(ExpressionSiteHook::PathDisplay)]);
+    LintRedundantPathInterpolation: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::SingleInterpolation)]);
+    LintRedundantPipelineStage: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::StructuredPipeline(StructuredPipelineHook::RedundantStage)]);
+    LintRedundantPropagation: (RuleSetting::Always, [StatementPositions, PropagatingStatements, RedundantConditionPropagations], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionAnalysis(ExpressionAnalysis::RedundantConditionPropagation), RuleHook::ExpressionAnalysis(ExpressionAnalysis::RedundantCapturePropagation), RuleHook::Statement(StatementHook::Propagation), RuleHook::RunCheck(RunCheck::CapturePropagation)]);
+    LintRedundantResultUnit: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Procedure(ProcedureHook::RedundantResultUnit)]);
+    LintRedundantScopePropagation: (RuleSetting::Always, [ExpressionTypes, StatementPositions, PropagatingStatements], FixPolicy::ProducerProof, None, None, None, [RuleHook::Statement(StatementHook::Propagation)]);
+    LintRedundantStringInterpolation: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::SingleInterpolation)]);
+    LintRedundantTailReturnBinding: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Function(FunctionHook::TailReturnBinding)]);
+    LintRedundantTailReturn: (RuleSetting::Always, [StatementPositions], FixPolicy::ProducerProof, None, None, None, [RuleHook::Function(FunctionHook::TailReturn)]);
+    LintRemovedRecordRequire: (RuleSetting::Migration, [RecordRequireMigrations], FixPolicy::Migration, None, None, None, []);
+    LintRunStatus: (RuleSetting::Always, [StatementPositions], FixPolicy::ProducerProof, None, None, None, [RuleHook::RunCheck(RunCheck::SegmentChecks)]);
+    LintRunless: (RuleSetting::Runless, [], FixPolicy::NoFix, None, None, None, [RuleHook::Run(run_runless_hook)]);
+    LintShadowing: (RuleSetting::Always, [], FixPolicy::NoFix, None, None, None, [RuleHook::Binding(run_shadowing_hook)]);
+    LintStageCallable: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::StreamStage(StreamStageHook::CallableWrapper)]);
+    LintStreamOptions: (RuleSetting::Migration, [], FixPolicy::Migration, None, None, None, []);
+    LintStringlyTypedMatch: (RuleSetting::Always, [], FixPolicy::NoFix, None, None, None, [RuleHook::Statement(StatementHook::StringlyMatch)]);
+    LintUnsortedImports: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Root(RootStage::ImportBlock, run_import_block_hook)]);
+    LintUnusedCallable: (RuleSetting::DeadCode, [], FixPolicy::NoFix, None, None, None, [RuleHook::Root(RootStage::DeclarationReachability, run_unused_callable_hook)]);
+    LintUnusedLocal: (RuleSetting::Always, [], FixPolicy::NoFix, None, None, None, [RuleHook::ScopeExit(run_unused_local_hook)]);
+    LintUnusedType: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Root(RootStage::UnusedTypes, run_unused_types_hook)]);
+    LintPreferInferredProcReturn: (RuleSetting::OptIn(RuleOption::InferredProcReturns), [FunctionReturns, ReturnProofProbe], FixPolicy::ProducerProof, None, None, None, [RuleHook::Root(RootStage::InferredProcReturns, run_inferred_proc_return_hook)]);
+    LintRedundantUseAlias: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Root(RootStage::RedundantUseAlias, run_redundant_use_alias_hook)]);
+    LintListAnyUnion: (RuleSetting::Always, [ExpressionTypes], FixPolicy::NoFix, None, None, None, [RuleHook::Statement(StatementHook::ListAnyBindings), RuleHook::Root(RootStage::ListAnyUnion, run_list_any_finalizer)]);
+    LintPreferEnvPathList: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::PathMigrations)]);
+    LintPreferWriteMode: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::StatementSequence(StatementSequenceHook::WriteMode)]);
+    LintPreferPathKind: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::PathMigrations)]);
+    LintPreferTypedCallable: (RuleSetting::Always, [CallableSignatures], FixPolicy::NoFix, None, None, None, [RuleHook::Statement(StatementHook::TypedCallableParameters), RuleHook::Root(RootStage::TypedCallable, run_typed_callable_finalizer)]);
+    LintPreferTestExpect: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::StatementSequence(StatementSequenceHook::TestExpect)]);
+    LintPreferIsEmpty: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::PathMigrations)]);
+    LintPreferNegativeIndex: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::PathMigrations)]);
+    LintPreferNonEmptyArgv: (RuleSetting::Always, [UnvalidatedCommandVectors], FixPolicy::NoFix, None, None, None, [RuleHook::RunCheck(RunCheck::SegmentChecks)]);
+    LintPreferAsConversion: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::PathMigrations)]);
+    LintPreferRelPath: (RuleSetting::OptIn(RuleOption::RelPath), [ExpressionTypes], FixPolicy::NoFix, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::PathMigrations)]);
+    LintPreferArgumentLabel: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::PathMigrations)]);
+    LintEmptySentinel: (RuleSetting::Always, [], FixPolicy::NoFix, None, None, None, [RuleHook::ExpressionAnalysis(ExpressionAnalysis::EmptyFallbacks), RuleHook::StatementSequence(StatementSequenceHook::EmptySentinel)]);
+    LintPreferSet: (RuleSetting::AlwaysWithOptInAdvice, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Statement(StatementHook::SetLikeBindings), RuleHook::ExpressionAnalysis(ExpressionAnalysis::SetLikeBindings), RuleHook::Root(RootStage::SetLike, run_set_like_finalizer)]);
+    LintRedundantDiscard: (RuleSetting::Always, [DiscardableBindings], FixPolicy::ProducerProof, None, None, None, [RuleHook::Statement(StatementHook::RedundantDiscard)]);
 }
 
-fn always_enabled(_: &Linter<'_>) -> bool { true }
-fn env_string_enabled(linter: &Linter<'_>) -> bool { linter.prefer_env_string }
-
-pub(super) struct RuleSelection {
-    only: Option<Vec<DiagnosticCode>>,
-    excluded: Vec<DiagnosticCode>,
+fn run_inferred_variant_pattern_hook(linter: &mut Linter<'_>, pattern: PatternId) {
+    let span = linter.arena.span(linter.arena.pattern(pattern).span);
+    linter.lint_inferred_variant_pattern(span);
 }
 
-impl RuleSelection {
-    pub(super) fn new(only: Option<Vec<DiagnosticCode>>, excluded: Vec<DiagnosticCode>) -> Self {
-        Self { only, excluded }
+fn run_dollar_in_expression_string(linter: &mut Linter<'_>, expr: ExprId) {
+    if matches!(linter.arena.expr(expr).kind, ArenaExprKind::Str(_)) {
+        linter.lint_dollar_in_expression_string(expr);
     }
+}
 
-    pub(super) fn accepts(&self, code: Option<DiagnosticCode>) -> bool {
-        lint_code_selected(self.only.as_deref(), code)
-            && !code.is_some_and(|code| self.excluded.contains(&code))
+fn run_missing_f_prefix(linter: &mut Linter<'_>, expr: ExprId) {
+    if matches!(
+        linter.arena.expr(expr).kind,
+        ArenaExprKind::Str(_) | ArenaExprKind::PathStr(_)
+    ) {
+        linter.lint_missing_f_prefix(expr);
     }
 }
 
-// The order is the expression's established reporting order. Rules that
-// resolve overlapping rewrites can read findings from preceding hooks.
-const EXPRESSION_RULES: &[ExpressionRule] = &[
-    ExpressionRule { code: DiagnosticCode::LintRedundantOptionalFallback, enabled: always_enabled, apply: |linter, expr| linter.lint_proven_nonnull_fallback(expr) },
-    ExpressionRule { code: DiagnosticCode::LintPreferNestedRecordUpdate, enabled: always_enabled, apply: |linter, expr| linter.lint_nested_record_update(expr) },
-    ExpressionRule { code: DiagnosticCode::LintPreferValuePipeline, enabled: always_enabled, apply: |linter, expr| linter.lint_nested_value_pipeline(expr) },
-    ExpressionRule { code: DiagnosticCode::LintPreferBlockString, enabled: always_enabled, apply: |linter, expr| linter.lint_block_string_concatenation(expr) },
-    ExpressionRule { code: DiagnosticCode::LintPreferListSplicing, enabled: always_enabled, apply: |linter, expr| linter.lint_list_splicing(expr) },
-    ExpressionRule { code: DiagnosticCode::LintPreferMapLiteral, enabled: always_enabled, apply: |linter, expr| linter.lint_map_literal_chain(expr) },
-    ExpressionRule { code: DiagnosticCode::LintPreferRegexLiteral, enabled: always_enabled, apply: |linter, expr| linter.lint_prepared_regex(expr) },
-    ExpressionRule { code: DiagnosticCode::LintPreferEnvString, enabled: env_string_enabled, apply: |linter, expr| linter.lint_env_string(expr) },
-    ExpressionRule { code: DiagnosticCode::LintPreferComparisonChain, enabled: always_enabled, apply: |linter, expr| linter.lint_comparison_chain(expr) },
-    ExpressionRule { code: DiagnosticCode::LintLookupAbsence, enabled: always_enabled, apply: |linter, expr| linter.lint_lookup_sentinel(expr) },
-    ExpressionRule { code: DiagnosticCode::LintPreferOptionalPostfix, enabled: always_enabled, apply: |linter, expr| linter.lint_optional_postfix(expr) },
-    ExpressionRule { code: DiagnosticCode::LintIdenticalMatchArms, enabled: always_enabled, apply: lint_expression_adjacent_pattern_arms },
-    ExpressionRule { code: DiagnosticCode::LintBooleanPatternTest, enabled: always_enabled, apply: |linter, expr| linter.lint_boolean_match(expr) },
-    ExpressionRule { code: DiagnosticCode::LintPatternConditional, enabled: always_enabled, apply: |linter, expr| linter.lint_pattern_conditional_expr(expr) },
-    ExpressionRule { code: DiagnosticCode::LintErrorFallbackBlock, enabled: always_enabled, apply: |linter, expr| linter.lint_error_fallback_block(expr) },
-    ExpressionRule { code: DiagnosticCode::LintRedundantPathParse, enabled: always_enabled, apply: |linter, expr| linter.lint_path_roundtrip(expr) },
-    ExpressionRule { code: DiagnosticCode::LintRedundantRequire, enabled: always_enabled, apply: |linter, expr| linter.lint_redundant_require(expr) },
-    ExpressionRule { code: DiagnosticCode::LintPreferKnownFieldAccess, enabled: always_enabled, apply: |linter, expr| linter.lint_known_field_access(expr) },
-    ExpressionRule { code: DiagnosticCode::LintInferredRequireTarget, enabled: always_enabled, apply: |linter, expr| linter.lint_inferred_require_target(expr) },
-];
+fn run_quoted_field_labels(linter: &mut Linter<'_>, expr: ExprId) {
+    if let ArenaExprKind::Record(fields) = linter.arena.expr(expr).kind {
+        linter.lint_quoted_field_labels(fields);
+    }
+}
+
+fn run_redundant_newline_triple_string(linter: &mut Linter<'_>, expr: ExprId) {
+    if matches!(linter.arena.expr(expr).kind, ArenaExprKind::Str(_)) {
+        linter.lint_redundant_newline_triple_string(expr);
+    }
+}
+
+fn run_item_shorthand_expression(linter: &mut Linter<'_>, expr: ExprId) {
+    if let ArenaExprKind::Binary { op: super::BinaryOp::ResultFallback, right, .. } =
+        linter.arena.expr(expr).kind
+    {
+        linter.item_shorthands.extend(super::item_shorthand::handler_report(
+            linter.arena,
+            linter.source,
+            right,
+        ));
+    }
+}
+
+fn run_unused_local_hook(linter: &mut Linter<'_>, unused: &[(String, Binding)]) {
+    for (name, binding) in unused {
+        linter.warning(
+            binding.span,
+            format!("unused local variable `{name}`"),
+            DiagnosticCode::LintUnusedLocal,
+            "binding is never read",
+        );
+    }
+}
+
+fn run_shadowing_hook(linter: &mut Linter<'_>, name: &str, span: Span) {
+    if linter.is_defined_in_outer_scope(name) && !is_predeclared_script_args(name) && name != "_" {
+        linter.diagnostics.push(
+            Diagnostic::error("binding shadows an outer name")
+                .with_code(DiagnosticCode::LintShadowing)
+                .with_label(Label::secondary(span, "shadowed binding starts here")),
+        );
+    }
+}
+
+fn run_runless_hook(linter: &mut Linter<'_>, run_id: super::RunFormId) {
+    let run = linter.arena.run_form(run_id).clone();
+    for segment in linter.arena.run_segments(run.segments).to_vec() {
+        let seg_span = linter.arena.span(segment.span);
+        let name = command_name(linter.arena, linter.source, &segment.target);
+        let exempt = name
+            .as_deref()
+            .is_some_and(|name| linter.runless_except.iter().any(|item| item == name));
+        if exempt {
+            continue;
+        }
+        let label = match name {
+            Some(name) => format!("`{name}` is an external command"),
+            None => "external command not allowed in runless mode".to_string(),
+        };
+        linter.diagnostics.push(
+            Diagnostic::new(Severity::Error, "external command not permitted (--runless)")
+                .with_code(DiagnosticCode::LintRunless)
+                .with_label(Label::secondary(seg_span, label)),
+        );
+    }
+}
+
+fn run_legacy_test_proc_hook(
+    linter: &mut Linter<'_>,
+    _view: &CheckBundleView<'_>,
+    statements: &[StmtId],
+) {
+    linter.lint_legacy_test_declarations(statements);
+}
+
+fn run_tempdir_scope_hook(
+    linter: &mut Linter<'_>,
+    view: &CheckBundleView<'_>,
+    _statements: &[StmtId],
+) {
+    super::tempdir_scope::lint_tempdir_scopes(linter, view);
+}
+
+fn run_signature_cli_hook(
+    linter: &mut Linter<'_>,
+    view: &CheckBundleView<'_>,
+    _statements: &[StmtId],
+) {
+    linter
+        .diagnostics
+        .extend(super::cli_entry::signature_cli_migration(view, linter.source));
+}
+
+fn run_try_capture_hook(
+    linter: &mut Linter<'_>,
+    view: &CheckBundleView<'_>,
+    _statements: &[StmtId],
+) {
+    linter
+        .diagnostics
+        .extend(super::lint_try_capture::lint_try_capture_helpers(
+            view,
+            linter.source,
+        ));
+}
+
+fn run_unused_callable_hook<'source>(
+    linter: &mut Linter<'source>,
+    view: &CheckBundleView<'source>,
+    _statements: &[StmtId],
+) {
+    linter.lint_declaration_reachability(view);
+}
+
+fn run_callable_alias_hook(
+    linter: &mut Linter<'_>,
+    view: &CheckBundleView<'_>,
+    _statements: &[StmtId],
+) {
+    linter
+        .diagnostics
+        .extend(super::lint_callable_alias::lint_callable_aliases(
+            view,
+            linter.source,
+        ));
+}
+
+fn run_redundant_use_alias_hook(
+    linter: &mut Linter<'_>,
+    view: &CheckBundleView<'_>,
+    _statements: &[StmtId],
+) {
+    linter
+        .diagnostics
+        .extend(super::redundant_use_alias::lint_redundant_use_aliases(
+            view,
+            linter.source,
+        ));
+}
+
+fn run_inferred_proc_return_hook(
+    linter: &mut Linter<'_>,
+    _view: &CheckBundleView<'_>,
+    _statements: &[StmtId],
+) {
+    linter.lint_inferred_proc_returns();
+}
+
+fn run_item_shorthand_finalizer(
+    linter: &mut Linter<'_>,
+    _view: &CheckBundleView<'_>,
+    _statements: &[StmtId],
+) {
+    let mut findings = std::mem::take(&mut linter.item_shorthands);
+    findings.sort_by_key(|diagnostic| diagnostic.labels[0].span.start());
+    linter.diagnostics.extend(findings);
+}
+
+fn run_catch_all_finalizer(
+    linter: &mut Linter<'_>,
+    _view: &CheckBundleView<'_>,
+    _statements: &[StmtId],
+) {
+    let mut findings = std::mem::take(&mut linter.catch_all_arms);
+    findings.sort_by_key(|diagnostic| diagnostic.labels[0].span.start());
+    linter.diagnostics.extend(findings);
+}
+
+fn run_list_any_finalizer(
+    linter: &mut Linter<'_>,
+    _view: &CheckBundleView<'_>,
+    _statements: &[StmtId],
+) {
+    let findings = std::mem::take(&mut linter.list_any_bindings).finish();
+    linter.diagnostics.extend(findings);
+}
+
+fn run_set_like_finalizer(
+    linter: &mut Linter<'_>,
+    _view: &CheckBundleView<'_>,
+    _statements: &[StmtId],
+) {
+    let findings = std::mem::take(&mut linter.set_like_bindings)
+        .finish(linter.source, linter.prefer_set_advice);
+    linter.diagnostics.extend(findings);
+}
+
+fn run_fail_candidates_finalizer(
+    linter: &mut Linter<'_>,
+    view: &CheckBundleView<'_>,
+    _statements: &[StmtId],
+) {
+    let findings = std::mem::take(&mut linter.fail_candidates)
+        .finish(&view.program().arena, linter.source);
+    linter.diagnostics.extend(findings);
+}
+
+fn run_implicit_message_finalizer(
+    linter: &mut Linter<'_>,
+    view: &CheckBundleView<'_>,
+    _statements: &[StmtId],
+) {
+    let checked = linter.checked_output.as_deref().and_then(|checked| {
+        checked
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.severity != Severity::Error)
+            .then_some(&checked.message_payload_constructors)
+    });
+    #[cfg(test)]
+    let constructors = linter.message_payload_constructors.as_ref().or(checked);
+    #[cfg(not(test))]
+    let constructors = checked;
+    if let Some(constructors) = constructors {
+        let findings = super::lint_implicit_message::lint_implicit_messages(
+            view,
+            linter.source,
+            constructors,
+            &linter.diagnostics,
+        );
+        linter.diagnostics.extend(findings);
+    }
+}
+
+fn run_typed_callable_finalizer(
+    linter: &mut Linter<'_>,
+    _view: &CheckBundleView<'_>,
+    _statements: &[StmtId],
+) {
+    let parameters = std::mem::take(&mut linter.callable_parameters);
+    let findings = parameters.finish(
+        linter.arena,
+        linter.source,
+        &linter.checked_function_returns,
+        &|body| linter.checked_effect_fact(body).cloned(),
+    );
+    linter.diagnostics.extend(findings);
+}
+
+fn run_import_block_hook(
+    linter: &mut Linter<'_>,
+    _view: &CheckBundleView<'_>,
+    statements: &[StmtId],
+) {
+    linter.lint_import_blocks(statements);
+}
+
+fn run_top_level_const_order_hook(
+    linter: &mut Linter<'_>,
+    _view: &CheckBundleView<'_>,
+    statements: &[StmtId],
+) {
+    linter.lint_top_level_const_order(statements);
+}
+
+fn run_prepared_constants_hook(
+    linter: &mut Linter<'_>,
+    _view: &CheckBundleView<'_>,
+    statements: &[StmtId],
+) {
+    linter.lint_prepared_constants(statements);
+}
+
+fn run_implicit_main_hook(
+    linter: &mut Linter<'_>,
+    _view: &CheckBundleView<'_>,
+    statements: &[StmtId],
+) {
+    linter.lint_implicit_main(statements);
+}
+
+fn run_unused_types_hook(
+    linter: &mut Linter<'_>,
+    _view: &CheckBundleView<'_>,
+    _statements: &[StmtId],
+) {
+    linter.lint_unused_types();
+}
+
+fn run_stream_producer_finalizer_hook(
+    linter: &mut Linter<'_>,
+    _view: &CheckBundleView<'_>,
+    _statements: &[StmtId],
+) {
+    linter.finish_stream_producer_suggestions();
+}
+
+fn run_defer_block_helpers_hook(
+    linter: &mut Linter<'_>,
+    _view: &CheckBundleView<'_>,
+    statements: &[StmtId],
+) {
+    linter.lint_defer_block_helpers(statements);
+}
+
+fn run_default_parameter_annotation(
+    linter: &mut Linter<'_>,
+    parameter: &xsh::frontend::syntax::arena::ArenaParam,
+) {
+    linter.lint_default_parameter_annotation(parameter);
+}
 
 fn lint_expression_adjacent_pattern_arms(linter: &mut Linter<'_>, expr: ExprId) {
     if let ArenaExprKind::Match { arms, .. } = linter.arena.expr(expr).kind {
         let arms = linter.arena.match_expr_arms(arms).iter().map(|arm| {
-            (
-                arm.pattern,
-                arm.guard,
-                Err(arm.value),
-                linter.arena.span(arm.span),
-            )
+            (arm.pattern, arm.guard, Err(arm.value), linter.arena.span(arm.span))
         }).collect();
         linter.lint_adjacent_pattern_arms(arms);
     }
 }
 
-pub(super) fn expression(linter: &mut Linter<'_>, expr: ExprId) {
-    for rule in EXPRESSION_RULES {
-        if !(rule.enabled)(linter) || !linter.rule_selection.accepts(Some(rule.code)) {
-            continue;
+impl RuleSetting {
+    fn enabled_for_options(self, options: &LintOptions, named: bool) -> bool {
+        match self {
+            Self::Always | Self::AlwaysWithOptInAdvice => true,
+            Self::Configured(option) | Self::OptIn(option) => named || match option {
+                RuleOption::InferredPrivateEffects => options.prefer_inferred_private_effects,
+                RuleOption::EnvString => options.prefer_env_string,
+                RuleOption::ItemShorthand => options.prefer_item_shorthand,
+                RuleOption::TempdirScope => options.prefer_tempdir_scope,
+                RuleOption::InferredPureReturns => options.prefer_inferred_pure_returns,
+                RuleOption::InferredProcReturns => options.prefer_inferred_proc_returns,
+                RuleOption::TextPattern => options.prefer_text_pattern,
+                RuleOption::RelPath => options.prefer_rel_path,
+            },
+            Self::DeadCode => options.dead_code,
+            Self::Runless => options.runless,
+            Self::NativeTestFile => options.native_test_file,
+            Self::Migration => false,
         }
-        let first = linter.diagnostics.len();
-        (rule.apply)(linter, expr);
-        debug_assert!(linter.diagnostics[first..].iter().all(|finding| finding.code == Some(rule.code)),
-            "expression rule emitted another rule's code: {}", rule.code.name());
     }
 }
-
+fn rule(code: DiagnosticCode) -> Option<&'static LintRule> { LINT_RULES.iter().find(|rule| rule.code == code) }
+pub(super) fn lint_codes() -> impl Iterator<Item = DiagnosticCode> {
+    DiagnosticCode::ALL.iter().copied().filter(|code| code.family() == xsh::diagnostic::DiagnosticFamily::Lint && rule(*code).is_some_and(|rule| rule.view == RuleView::Source))
+}
+pub(super) fn assert_fix_policy(diagnostics: &[Diagnostic]) {
+    debug_assert!(diagnostics.iter().all(|diagnostic| diagnostic.code.and_then(rule).is_none_or(|rule| rule.fix != FixPolicy::NoFix || diagnostic.fix_hints.is_empty())));
+}
+fn enabled_rule_codes(selection: &RuleSelection) -> impl Iterator<Item = DiagnosticCode> + '_ {
+    LINT_RULES
+        .iter()
+        .filter(move |rule| selection.enabled(rule.code))
+        .map(|rule| rule.code)
+}
+impl RuleSelection {
+    pub(super) fn new(options: &LintOptions) -> Self {
+        let named = |code| {
+            options
+                .only
+                .as_deref()
+                .is_some_and(|only| only.contains(&code))
+        };
+        let enabled = LINT_RULES
+            .iter()
+            .filter(|rule| {
+                rule.setting.enabled_for_options(options, named(rule.code))
+                    && !(options.annotation_policy_writes_returns
+                        && matches!(
+                            rule.code,
+                            DiagnosticCode::LintPreferInferredPureReturn
+                                | DiagnosticCode::LintPreferInferredProcReturn
+                        ))
+            })
+            .map(|rule| rule.code)
+            .collect();
+        Self {
+            enabled,
+            only: options.only.clone(),
+            excluded: options.excluded_rules.clone(),
+        }
+    }
+    pub(super) fn enabled(&self, code: DiagnosticCode) -> bool {
+        self.enabled.contains(&code)
+    }
+    pub(super) fn prefer_set_named(&self) -> bool {
+        self.only
+            .as_deref()
+            .is_some_and(|only| only.contains(&DiagnosticCode::LintPreferSet))
+    }
+    pub(super) fn accepts(&self, code: Option<DiagnosticCode>) -> bool {
+        lint_code_selected(self.only.as_deref(), code)
+            && !code.is_some_and(|code| self.excluded.contains(&code))
+    }
+    pub(super) fn requires_check_output(&self) -> bool {
+        enabled_rule_codes(self)
+            .any(|code| rule(code).is_some_and(|rule| rule.facts.iter().any(|fact| fact.needs_check_output())))
+    }
+}
+pub(super) fn enabled(linter: &Linter<'_>, code: DiagnosticCode) -> bool {
+    linter.rule_selection.enabled(code)
+}
+pub(super) struct RuleSelection {
+    enabled: rustc_hash::FxHashSet<DiagnosticCode>,
+    only: Option<Vec<DiagnosticCode>>,
+    excluded: Vec<DiagnosticCode>,
+}
+impl SequenceHook {
+    fn run(self, linter: &mut Linter<'_>, statements: &[StmtId], block: Option<BlockId>) {
+        match self {
+            Self::ListComprehensions => linter.lint_list_comp_suggestions(statements),
+            Self::StreamProducerCandidates => linter.lint_stream_producer_suggestions(statements),
+            Self::ScratchDirectory => super::prefer_tempdir::lint_scratch_directories(linter, statements, block),
+            Self::AtomicReplace => super::prefer_atomically::lint_published_files(linter, statements, block),
+            Self::ForIndex => super::lint_prefer_for_index::lint_counter_loops(linter, statements, block),
+            Self::TextPattern => super::lint_prefer_text_pattern::lint_positional_text(linter, statements),
+            Self::RepeatedTimeout => super::prefer_within::lint_repeated_timeouts(linter, statements),
+            Self::BuiltList => super::prefer_collect::lint_built_lists(linter, statements),
+            Self::PollingLoop => super::prefer_wait_until::lint_polling_loops(linter, statements),
+        }
+    }
+}
+impl StatementSequenceHook {
+    fn run(self, linter: &mut Linter<'_>, statements: &[StmtId]) {
+        match self {
+            Self::ContextScopeScaffolds => linter.lint_context_scope_scaffolds(statements),
+            Self::RecordDestructuring => linter.lint_record_destructuring(statements),
+            Self::FreshMapInitializations => linter.lint_fresh_map_initializations(statements),
+            Self::ListElementReconstruction => linter.lint_list_element_reconstruction(statements),
+            Self::NegativeIfGuard => {
+                if let Some(&first) = statements.first() {
+                    linter.lint_negative_if_as_boolean_guard(first);
+                }
+            }
+            Self::OptionalBinding => {
+                super::lint_optional_binding::lint_null_test_then_binding(linter, statements)
+            }
+            Self::WriteMode => super::lint_write_mode::lint_write_then_chmod(linter, statements),
+            Self::TestExpect => super::lint_prefer_test_expect::lint_script_runs(linter, statements),
+            Self::EmptySentinel => {
+                super::lint_empty_sentinel::lint_empty_fallback_then_test(linter, statements)
+            }
+        }
+    }
+}
+impl StatementPairHook {
+    fn run(self, linter: &mut Linter<'_>, previous: StmtId, current: StmtId, statements: &[StmtId]) {
+        match self {
+            Self::LinearValuePipeline => {
+                linter.lint_linear_value_pipeline(previous, current, statements)
+            }
+        }
+    }
+}
+impl LoopHook {
+    fn run_for(
+        self,
+        linter: &mut Linter<'_>,
+        statement: StmtId,
+        target: super::BindingTargetId,
+        iter: ExprId,
+        block: BlockId,
+        span: Span,
+    ) {
+        match self {
+            Self::ScalarSplitIteration => linter.lint_scalar_split_iteration(iter),
+            Self::ByteIteration => linter.lint_byte_iteration(statement, target, iter, block),
+            Self::MapEntryIteration => linter.lint_map_entry_iteration(statement, target, iter, block),
+            Self::YieldDelegation => linter.lint_yield_delegation(span, target, iter, block),
+            Self::FileLines => linter.lint_prefer_file_lines(iter),
+            Self::CountedLoop => super::prefer_repeat::lint_counted_loop(linter, span, target, iter, block),
+        }
+    }
+}
+impl ExpressionAnalysis {
+    fn run(self, linter: &mut Linter<'_>, expr: ExprId) {
+        match self {
+            Self::RedundantCloseUses => super::redundant_close::record_binding_use(linter, expr),
+            Self::StreamProducers => linter.stream_producers.observe_expr(linter.arena, expr),
+            Self::FailCandidates => linter.fail_candidates.visit_expr(linter.arena, expr),
+            Self::SetLikeBindings => {
+                linter
+                    .set_like_bindings
+                    .visit_expr(linter.arena, linter.source, expr)
+            }
+            Self::EmptyFallbacks => {
+                let findings = linter
+                    .empty_fallbacks
+                    .visit_expr(linter.arena, linter.source, expr);
+                linter.diagnostics.extend(findings);
+            }
+            Self::RedundantConditionPropagation => {
+                if let Some(finding) = super::lint_redundant_propagation::redundant_condition_propagation(
+                    linter.arena,
+                    linter.source,
+                    &linter.redundant_condition_propagations,
+                    expr,
+                ) {
+                    linter.diagnostics.push(finding);
+                }
+            }
+            Self::RedundantCapturePropagation => {
+                if let Some(finding) = super::lint_redundant_propagation::redundant_capture_try(
+                    linter.arena,
+                    linter.source,
+                    || {
+                        linter.expr_positions.get_or_init(|| {
+                            super::lint_redundant_propagation::ExprPositions::new(
+                                linter.arena,
+                                linter.paren_groups,
+                            )
+                        })
+                    },
+                    expr,
+                ) {
+                    linter.diagnostics.push(finding);
+                }
+            }
+            Self::SizeProducts => {
+                if let Some(finding) = linter.size_products.visit(linter.arena, linter.source, expr) {
+                    linter.diagnostics.push(finding);
+                }
+            }
+            Self::RunArgv => {
+                if let Some(finding) = super::lint_run_argv::run_argv_diagnostic(
+                    linter.arena,
+                    linter.source,
+                    &linter.standard_call_spans,
+                    expr,
+                ) {
+                    linter.diagnostics.push(finding);
+                }
+            }
+            Self::CatchAllArms => {
+                if let ArenaExprKind::Match { arms, .. } = linter.arena.expr(expr).kind
+                    && let Some(arm) = linter.arena.match_expr_arms(arms).last()
+                {
+                    let findings = super::lint_prefer_match_else::catch_all_arm_report(
+                        linter.arena,
+                        linter.source,
+                        arm.pattern,
+                        arm.guard,
+                        arm.spelling,
+                    );
+                    linter.catch_all_arms.extend(findings);
+                }
+            }
+            Self::NegatedCalls => {
+                if let ArenaExprKind::Unary {
+                    op: super::UnaryOp::Not,
+                    expr: inner,
+                } = linter.arena.expr(expr).kind
+                    && matches!(linter.arena.expr(inner).kind, ArenaExprKind::Call { .. })
+                {
+                    linter.negated_call_spans.insert(
+                        linter.arena.expr(inner).span,
+                        linter.arena.expr(expr).span,
+                    );
+                }
+            }
+        }
+    }
+}
+impl ExpressionGroup {
+    fn run(self, linter: &mut Linter<'_>, expr: ExprId) {
+        match self {
+            Self::PathMigrations => linter.lint_path_migrations(expr),
+            Self::SingleInterpolation => linter.lint_redundant_single_interpolation(expr),
+            Self::CallStyle => {
+                if let ArenaExprKind::Call { callee, args } = linter.arena.expr(expr).kind {
+                    let span = linter.arena.expr(expr).span;
+                    linter.lint_call_style(callee, args, span);
+                }
+            }
+        }
+    }
+}
+impl StreamStageHook {
+    fn run(self, linter: &mut Linter<'_>, stage: &super::ArenaStreamStage) {
+        match self {
+            Self::ItemShorthand => {
+                linter.item_shorthands.extend(super::item_shorthand::stage_report(
+                    linter.arena,
+                    linter.source,
+                    stage,
+                ));
+            }
+            Self::CallableWrapper => linter.lint_stage_callable_wrapper(stage),
+        }
+    }
+}
+impl StructuredPipelineHook {
+    fn run(self, linter: &mut Linter<'_>, input: ExprId, stages: super::ArenaRange) {
+        match self {
+            Self::FileCollection => linter.lint_prefer_fs_files(input, stages),
+            Self::RedundantStage => linter.lint_redundant_stream_stages(stages),
+        }
+    }
+}
+impl StatementHook {
+    fn run(self, linter: &mut Linter<'_>, statement: StmtId, exported: bool) {
+        match self {
+            Self::Propagation => linter.lint_propagation(statement),
+            Self::RedundantDiscard => {
+                super::lint_redundant_discard::lint_redundant_discard(linter, statement)
+            }
+            Self::CoreAssert => {
+                let stmt = linter.arena.stmt(statement);
+                if let ArenaStmtKind::Expr(expression) = stmt.kind {
+                    linter.lint_core_assert(stmt.span, expression);
+                }
+            }
+            Self::NeedlessAnnotation => {
+                let stmt = linter.arena.stmt(statement).clone();
+                let (target, mutable, ty, initializer) = match stmt.kind {
+                    ArenaStmtKind::Let { target, ty: Some(ty), initializer }
+                    | ArenaStmtKind::Const { target, ty: Some(ty), initializer } =>
+                        (target, false, ty, initializer),
+                    ArenaStmtKind::Var { target, ty: Some(ty), initializer } =>
+                        (target, true, ty, initializer),
+                    _ => return,
+                };
+                linter.lint_needless_annotation(
+                    target, mutable, ty, &initializer, exported, stmt.span,
+                );
+            }
+            Self::MissingEffects => {
+                let stmt = linter.arena.stmt(statement);
+                match stmt.kind {
+                    ArenaStmtKind::ProcDef(def) | ArenaStmtKind::CliMain(def) => {
+                        let function = linter.arena.function_def(def);
+                        let entrypoint = matches!(stmt.kind, ArenaStmtKind::CliMain(_))
+                            || function.test_declaration
+                            || (!exported && linter.scopes.len() == 1 && function.name == "main");
+                        if !entrypoint { linter.lint_effect_annotation(def, stmt.span); }
+                    }
+                    ArenaStmtKind::StreamDef(def) => linter.lint_effect_annotation(def, stmt.span),
+                    _ => {}
+                }
+            }
+            Self::InferredPureReturn => {
+                if let ArenaStmtKind::PureDef(def) = linter.arena.stmt(statement).kind {
+                    linter.lint_inferred_pure_return(def, exported);
+                }
+            }
+            Self::AtomicallyNeverReplaces => {
+                let stmt = linter.arena.stmt(statement);
+                if let ArenaStmtKind::Sugar {
+                    form: super::SugarForm::Atomically,
+                    operands,
+                    ..
+                } = stmt.kind
+                    && let super::ArenaSugar::Atomically { body, .. } =
+                        linter.arena.sugar(super::SugarForm::Atomically, operands)
+                {
+                    super::prefer_atomically::lint_body_that_never_finishes(
+                        linter,
+                        stmt.span,
+                        body,
+                    );
+                }
+            }
+            Self::RecordConstructor | Self::EmptyMapInitializer => {
+                let stmt = linter.arena.stmt(statement).clone();
+                let (ty, initializer) = match stmt.kind {
+                    ArenaStmtKind::Let { ty, initializer, .. }
+                    | ArenaStmtKind::Const { ty, initializer, .. }
+                    | ArenaStmtKind::Var { ty, initializer, .. } => (ty, initializer),
+                    _ => return,
+                };
+                if self == Self::RecordConstructor {
+                    linter.lint_record_constructor(ty, &initializer);
+                } else {
+                    linter.lint_empty_map_initializer(ty, &initializer);
+                }
+            }
+            Self::ListCompoundAssignment => {
+                if let ArenaStmtKind::Assign { target, op: super::AssignOp::Set, value } =
+                    linter.arena.stmt(statement).kind
+                {
+                    linter.lint_list_compound_assignment(target, value, linter.arena.stmt(statement).span);
+                }
+            }
+            Self::ListPattern | Self::IfAsGuard | Self::LexicalBlock => {
+                if let ArenaStmtKind::If { branches, else_block } = linter.arena.stmt(statement).kind {
+                    let span = linter.arena.stmt(statement).span;
+                    if self == Self::ListPattern {
+                        linter.lint_list_pattern(branches, else_block, span);
+                    } else if self == Self::IfAsGuard {
+                        linter.lint_if_as_guard(branches, else_block, span);
+                    } else {
+                        linter.lint_lexical_block(branches, else_block, span);
+                    }
+                }
+            }
+            Self::AdjacentPatternArms => {
+                if let ArenaStmtKind::Match { arms, .. } = linter.arena.stmt(statement).kind {
+                    let arms = linter.arena.match_arms(arms).iter().map(|arm| {
+                        (arm.pattern, arm.guard, Ok(arm.block), linter.arena.span(arm.span))
+                    }).collect();
+                    linter.lint_adjacent_pattern_arms(arms);
+                }
+            }
+            Self::PatternConditional => {
+                if let ArenaStmtKind::Match { value, arms } = linter.arena.stmt(statement).kind {
+                    linter.lint_pattern_conditional_stmt(value, arms, linter.arena.stmt(statement).span);
+                }
+            }
+            Self::CatchAllMatch => {
+                if let ArenaStmtKind::Match { arms, .. } = linter.arena.stmt(statement).kind
+                    && let Some(arm) = linter.arena.match_arms(arms).last()
+                {
+                    let report = super::lint_prefer_match_else::catch_all_arm_report(
+                        linter.arena,
+                        linter.source,
+                        arm.pattern,
+                        arm.guard,
+                        arm.spelling,
+                    );
+                    linter.catch_all_arms.extend(report);
+                }
+            }
+            Self::StringlyMatch => {
+                if let ArenaStmtKind::Match { arms, .. } = linter.arena.stmt(statement).kind {
+                    let count = linter.arena.match_arms(arms).iter().filter(|arm| {
+                        matches!(
+                            &linter.arena.pattern(arm.pattern).kind,
+                            ArenaPatternKind::Literal(expr) if matches!(linter.arena.expr(*expr).kind, ArenaExprKind::Str(_))
+                        )
+                    }).count();
+                    let has_catch_all = linter.arena.match_arms(arms).iter().any(|arm| {
+                        matches!(linter.arena.pattern(arm.pattern).kind, ArenaPatternKind::Wildcard | ArenaPatternKind::Binding(_))
+                    });
+                    if count >= 3 && !has_catch_all {
+                        linter.warning(
+                            linter.arena.stmt(statement).span,
+                            "3+ string-literal match arms — consider defining a tag union type",
+                            DiagnosticCode::LintStringlyTypedMatch,
+                            "tag unions are safer and exhaustiveness-checked",
+                        );
+                    }
+                }
+            }
+            Self::InteractiveCommand => {
+                if let ArenaStmtKind::Command(command) = linter.arena.stmt(statement).kind {
+                    let command = linter.arena.command_stmt(command).clone();
+                    if let super::ArenaCommand::Proc { name, .. } = command.command {
+                        linter.lint_interactive_command(
+                            name.as_str().as_str(),
+                            linter.arena.span(command.span),
+                        );
+                    }
+                }
+            }
+            Self::StreamProducerCandidates => {
+                linter.stream_producers.observe_stmt(linter.arena, statement);
+            }
+            Self::FailCandidates => {
+                linter.fail_candidates.visit_stmt(linter.arena, statement);
+            }
+            Self::SetLikeBindings => {
+                linter.set_like_bindings.visit_stmt(linter.arena, linter.source, statement);
+            }
+            Self::ListAnyBindings => {
+                match linter.arena.stmt(statement).kind.clone() {
+                    ArenaStmtKind::Let { target, ty, initializer }
+                    | ArenaStmtKind::Const { target, ty, initializer }
+                    | ArenaStmtKind::Var { target, ty, initializer } => {
+                        linter.declare_list_any_binding(target, ty, &initializer);
+                    }
+                    ArenaStmtKind::Assign { target, op, value } => {
+                        if let Some(definition) = super::lint_list_any_union::assigned_root(linter.arena, target)
+                            .and_then(|root| linter.binding_definition(root))
+                        {
+                            let mut bindings = std::mem::take(&mut linter.list_any_bindings);
+                            bindings.assign(
+                                linter.arena,
+                                definition,
+                                target,
+                                op,
+                                &value,
+                                &linter.expr_types,
+                                &|name| linter.binding_definition(name),
+                            );
+                            linter.list_any_bindings = bindings;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Self::TypedCallableParameters => {
+                if linter.scopes.len() == 1 {
+                    match linter.arena.stmt(statement).kind {
+                        ArenaStmtKind::ProcDef(def) | ArenaStmtKind::CliMain(def) => {
+                            let function = linter.arena.function_def(def);
+                            let entrypoint = matches!(linter.arena.stmt(statement).kind, ArenaStmtKind::CliMain(_))
+                                || function.test_declaration
+                                || (!exported && function.name == "main");
+                            linter.callable_parameters.define(
+                                function.name,
+                                def,
+                                false,
+                                !exported && !entrypoint,
+                            );
+                        }
+                        ArenaStmtKind::PureDef(def) => {
+                            let name = linter.arena.function_def(def).name;
+                            linter.callable_parameters.define(name, def, true, !exported);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Self::SizeProductInitializer => {
+                if let ArenaStmtKind::Let { ty: Some(_), initializer: ArenaExprOrRun::Expr(value), .. }
+                    | ArenaStmtKind::Const { ty: Some(_), initializer: ArenaExprOrRun::Expr(value), .. }
+                    | ArenaStmtKind::Var { ty: Some(_), initializer: ArenaExprOrRun::Expr(value), .. } =
+                    linter.arena.stmt(statement).kind
+                {
+                    linter.size_products.typed_initializer(linter.arena, value);
+                }
+            }
+            Self::RedundantOkReturn => {
+                if let ArenaStmtKind::Return(Some(value)) = linter.arena.stmt(statement).kind {
+                    linter.lint_return_value(&value);
+                }
+            }
+            Self::ReturnPathParse => {
+                if let ArenaStmtKind::Return(Some(value)) = linter.arena.stmt(statement).kind {
+                    linter.lint_return_path_parse_roundtrip(&value);
+                }
+            }
+            Self::ReturnRequire => {
+                if let ArenaStmtKind::Return(Some(value)) = linter.arena.stmt(statement).kind {
+                    linter.lint_return_redundant_require(&value);
+                }
+            }
+        }
+    }
+}
+pub(super) fn statement(
+    linter: &mut Linter<'_>,
+    statement: StmtId,
+    requested: StatementHook,
+    exported: bool,
+) {
+    for rule in LINT_RULES {
+        if !linter.rule_selection.enabled(rule.code) { continue; }
+        for hook in rule.hooks {
+            if let RuleHook::Statement(callback) = hook && *callback == requested {
+                callback.run(linter, statement, exported);
+                return;
+            }
+        }
+    }
+}
+pub(super) fn parameter(
+    linter: &mut Linter<'_>,
+    parameter: &xsh::frontend::syntax::arena::ArenaParam,
+) {
+    for rule in LINT_RULES {
+        if !linter.rule_selection.enabled(rule.code) { continue; }
+        for hook in rule.hooks {
+            if let RuleHook::Parameter(callback) = hook {
+                callback(linter, parameter);
+                return;
+            }
+        }
+    }
+}
+fn dispatch_sequence(linter: &mut Linter<'_>, statements: &[StmtId], block: Option<BlockId>) {
+    let mut visited = Vec::new();
+    for rule in LINT_RULES {
+        let hook = if block.is_some() { rule.block_sequence } else { rule.root_sequence };
+        let Some(hook) = hook else { continue; };
+        if visited.contains(&hook) { continue; }
+        visited.push(hook);
+        let enabled = LINT_RULES.iter().any(|candidate| {
+            (if block.is_some() { candidate.block_sequence } else { candidate.root_sequence }) == Some(hook)
+                && linter.rule_selection.enabled(candidate.code)
+        });
+        if enabled { hook.run(linter, statements, block); }
+    }
+}
+pub(super) fn root_sequence(linter: &mut Linter<'_>, statements: &[StmtId]) { dispatch_sequence(linter, statements, None); }
+pub(super) fn block_sequence(linter: &mut Linter<'_>, statements: &[StmtId], block: BlockId) { dispatch_sequence(linter, statements, Some(block)); }
+pub(super) fn statement_sequence(linter: &mut Linter<'_>, statements: &[StmtId]) {
+    const ORDER: [StatementSequenceHook; 9] = [
+        StatementSequenceHook::ContextScopeScaffolds,
+        StatementSequenceHook::RecordDestructuring,
+        StatementSequenceHook::FreshMapInitializations,
+        StatementSequenceHook::ListElementReconstruction,
+        StatementSequenceHook::NegativeIfGuard,
+        StatementSequenceHook::OptionalBinding,
+        StatementSequenceHook::WriteMode,
+        StatementSequenceHook::TestExpect,
+        StatementSequenceHook::EmptySentinel,
+    ];
+    for hook in ORDER {
+        let selected = LINT_RULES.iter().any(|rule| {
+            linter.rule_selection.enabled(rule.code)
+                && rule.hooks.iter().any(|candidate| matches!(candidate, RuleHook::StatementSequence(found) if *found == hook))
+        });
+        if selected {
+            hook.run(linter, statements);
+        }
+    }
+}
+pub(super) fn statement_pair(
+    linter: &mut Linter<'_>,
+    previous: StmtId,
+    current: StmtId,
+    statements: &[StmtId],
+) {
+    for rule in LINT_RULES {
+        if !linter.rule_selection.enabled(rule.code) {
+            continue;
+        }
+        for hook in rule.hooks {
+            if let RuleHook::StatementPair(callback) = hook {
+                callback.run(linter, previous, current, statements);
+            }
+        }
+    }
+}
+pub(super) fn sequence_exit(
+    linter: &mut Linter<'_>,
+    scope: SequenceExit,
+    statements: &[StmtId],
+    diagnostic_index: usize,
+) {
+    let enabled = LINT_RULES.iter().any(|rule| {
+        linter.rule_selection.enabled(rule.code)
+            && rule.hooks.iter().any(|hook| matches!(hook, RuleHook::SequenceExit(candidate) if *candidate == scope))
+    });
+    if enabled {
+        let diagnostics = super::redundant_close::lint_deferred_root_closes(linter, statements);
+        linter.diagnostics.splice(diagnostic_index..diagnostic_index, diagnostics);
+    }
+}
+pub(super) fn expression(linter: &mut Linter<'_>, expr: ExprId) {
+    for rule in LINT_RULES {
+        let Some(callback) = rule.expression else { continue; };
+        if !linter.rule_selection.enabled(rule.code) { continue; }
+        let first = linter.diagnostics.len();
+        callback(linter, expr);
+        debug_assert!(linter.diagnostics[first..].iter().all(|finding| finding.code == Some(rule.code)), "expression rule emitted another rule's code: {}", rule.code.name());
+    }
+}
+pub(super) fn expression_analysis(linter: &mut Linter<'_>, expr: ExprId) {
+    const ORDER: [ExpressionAnalysis; 11] = [
+        ExpressionAnalysis::RedundantCloseUses,
+        ExpressionAnalysis::StreamProducers,
+        ExpressionAnalysis::FailCandidates,
+        ExpressionAnalysis::SetLikeBindings,
+        ExpressionAnalysis::EmptyFallbacks,
+        ExpressionAnalysis::RedundantConditionPropagation,
+        ExpressionAnalysis::RedundantCapturePropagation,
+        ExpressionAnalysis::NegatedCalls,
+        ExpressionAnalysis::SizeProducts,
+        ExpressionAnalysis::RunArgv,
+        ExpressionAnalysis::CatchAllArms,
+    ];
+    for requested in ORDER {
+        let selected = LINT_RULES.iter().any(|rule| {
+            linter.rule_selection.enabled(rule.code)
+                && rule.hooks.iter().any(|hook| matches!(hook, RuleHook::ExpressionAnalysis(found) if *found == requested))
+        });
+        if selected {
+            requested.run(linter, expr);
+        }
+    }
+}
+pub(super) fn expression_rule(linter: &mut Linter<'_>, code: DiagnosticCode, expr: ExprId) {
+    let Some(rule) = rule(code) else { return; };
+    if !linter.rule_selection.enabled(code) { return; }
+    for hook in rule.hooks {
+        if let RuleHook::Expression(callback) = hook {
+            callback(linter, expr);
+        }
+    }
+}
+pub(super) fn expression_site(
+    linter: &mut Linter<'_>,
+    requested: ExpressionSiteHook,
+    expr: ExprId,
+    site: super::PathDisplaySite,
+) {
+    let selected = LINT_RULES.iter().any(|rule| {
+        linter.rule_selection.enabled(rule.code)
+            && rule.hooks.iter().any(|hook| matches!(hook, RuleHook::ExpressionSite(found) if *found == requested))
+    });
+    if selected {
+        match requested {
+            ExpressionSiteHook::PathDisplay => linter.lint_redundant_path_display(expr, site),
+        }
+    }
+}
+pub(super) fn command_argument_enabled(
+    linter: &Linter<'_>,
+    requested: CommandArgumentHook,
+) -> bool {
+    LINT_RULES.iter().any(|rule| {
+        linter.rule_selection.enabled(rule.code)
+            && rule.hooks.iter().any(|hook| matches!(hook, RuleHook::CommandArgument(found) if *found == requested))
+    })
+}
+pub(super) fn call_argument_enabled(linter: &Linter<'_>, requested: CallArgumentHook) -> bool {
+    LINT_RULES.iter().any(|rule| {
+        linter.rule_selection.enabled(rule.code)
+            && rule.hooks.iter().any(|hook| matches!(hook, RuleHook::CallArgument(found) if *found == requested))
+    })
+}
+pub(super) fn expression_group(linter: &mut Linter<'_>, group: ExpressionGroup, expr: ExprId) {
+    let selected = LINT_RULES.iter().any(|rule| {
+        linter.rule_selection.enabled(rule.code)
+            && rule.hooks.iter().any(|hook| matches!(hook, RuleHook::ExpressionGroup(candidate) if *candidate == group))
+    });
+    if selected { group.run(linter, expr); }
+}
+pub(super) fn pattern(linter: &mut Linter<'_>, pattern: PatternId) {
+    for rule in LINT_RULES {
+        if !linter.rule_selection.enabled(rule.code) { continue; }
+        for hook in rule.hooks {
+            if let RuleHook::Pattern(callback) = hook { callback(linter, pattern); }
+        }
+    }
+}
+pub(super) fn scope_exit(linter: &mut Linter<'_>, unused: &[(String, Binding)]) {
+    for rule in LINT_RULES {
+        if !linter.rule_selection.enabled(rule.code) { continue; }
+        for hook in rule.hooks {
+            if let RuleHook::ScopeExit(callback) = hook { callback(linter, unused); }
+        }
+    }
+}
+pub(super) fn run(linter: &mut Linter<'_>, run: super::RunFormId) {
+    for rule in LINT_RULES {
+        if !linter.rule_selection.enabled(rule.code) { continue; }
+        for hook in rule.hooks {
+            if let RuleHook::Run(callback) = hook { callback(linter, run); }
+        }
+    }
+}
+pub(super) fn stream_stage(linter: &mut Linter<'_>, stage: &super::ArenaStreamStage) {
+    for rule in LINT_RULES {
+        if !linter.rule_selection.enabled(rule.code) { continue; }
+        for hook in rule.hooks {
+            if let RuleHook::StreamStage(callback) = hook {
+                callback.run(linter, stage);
+            }
+        }
+    }
+}
+pub(super) fn structured_pipeline(
+    linter: &mut Linter<'_>,
+    input: ExprId,
+    stages: super::ArenaRange,
+) {
+    for rule in LINT_RULES {
+        if !linter.rule_selection.enabled(rule.code) { continue; }
+        for hook in rule.hooks {
+            if let RuleHook::StructuredPipeline(callback) = hook {
+                callback.run(linter, input, stages);
+            }
+        }
+    }
+}
+pub(super) fn function(
+    linter: &mut Linter<'_>,
+    body: BlockId,
+    result_unit: bool,
+    result_path: bool,
+    result_ok: Option<&Type>,
+    return_type: &Type,
+) {
+    const ORDER: [FunctionHook; 6] = [
+        FunctionHook::BareReturn,
+        FunctionHook::TailPathParse,
+        FunctionHook::TailRequire,
+        FunctionHook::TailOkReturn,
+        FunctionHook::TailReturnBinding,
+        FunctionHook::TailReturn,
+    ];
+    for requested in ORDER {
+        let selected = LINT_RULES.iter().any(|rule| {
+            linter.rule_selection.enabled(rule.code)
+                && rule.hooks.iter().any(|hook| matches!(hook, RuleHook::Function(hook) if *hook == requested))
+        });
+        if !selected { continue; }
+        match requested {
+            FunctionHook::BareReturn if result_unit => linter.lint_redundant_bare_return(body),
+            FunctionHook::TailPathParse if result_path => linter.lint_tail_path_parse_roundtrip(body),
+            FunctionHook::TailRequire if result_ok.is_some() => linter.lint_tail_redundant_require(body),
+            FunctionHook::TailOkReturn if result_ok.is_some() => linter.lint_tail_redundant_ok_return(body, result_ok),
+            FunctionHook::TailReturnBinding => linter.lint_redundant_tail_return_binding(body),
+            FunctionHook::TailReturn => linter.lint_redundant_tail_return(body, return_type),
+            _ => {}
+        }
+    }
+}
+pub(super) fn procedure(
+    linter: &mut Linter<'_>,
+    requested: ProcedureHook,
+    definition: super::FunctionDefId,
+    exported: bool,
+    entrypoint: bool,
+    statement_span: Span,
+) {
+    let selected = LINT_RULES.iter().any(|rule| {
+        linter.rule_selection.enabled(rule.code)
+            && rule.hooks.iter().any(|hook| matches!(hook, RuleHook::Procedure(hook) if *hook == requested))
+    });
+    if !selected { return; }
+    match requested {
+        ProcedureHook::InferredEffects => {
+            linter.lint_inferred_proc_effects(definition, exported, entrypoint, statement_span);
+        }
+        ProcedureHook::RedundantResultUnit => linter.lint_redundant_result_unit(definition, exported),
+    }
+}
+pub(super) fn before_statement(linter: &mut Linter<'_>, statement: StmtId) {
+    for rule in LINT_RULES {
+        if !linter.rule_selection.enabled(rule.code) { continue; }
+        for hook in rule.hooks {
+            if let RuleHook::BeforeStatement(BeforeStatementHook::DeadCode) = hook {
+                linter.warning(
+                    linter.arena.stmt(statement).span,
+                    "unreachable code",
+                    DiagnosticCode::LintDeadCode,
+                    "this statement can never execute",
+                );
+            }
+        }
+    }
+}
+pub(super) fn binding(linter: &mut Linter<'_>, name: &str, span: Span) {
+    for rule in LINT_RULES {
+        if !linter.rule_selection.enabled(rule.code) { continue; }
+        for hook in rule.hooks {
+            if let RuleHook::Binding(callback) = hook {
+                callback(linter, name, span);
+            }
+        }
+    }
+}
+fn loop_hook_enabled(linter: &Linter<'_>, requested: LoopHook) -> bool {
+    LINT_RULES.iter().any(|rule| {
+        linter.rule_selection.enabled(rule.code)
+            && rule.hooks.iter().any(|hook| matches!(hook, RuleHook::Loop(found) if *found == requested))
+    })
+}
+pub(super) fn scalar_iteration(linter: &mut Linter<'_>, expr: ExprId) {
+    if loop_hook_enabled(linter, LoopHook::ScalarSplitIteration) {
+        linter.lint_scalar_split_iteration(expr);
+    }
+}
+pub(super) fn for_loop(
+    linter: &mut Linter<'_>,
+    statement: StmtId,
+    target: super::BindingTargetId,
+    iter: ExprId,
+    block: BlockId,
+    span: Span,
+) {
+    const ORDER: [LoopHook; 6] = [
+        LoopHook::ScalarSplitIteration,
+        LoopHook::ByteIteration,
+        LoopHook::MapEntryIteration,
+        LoopHook::YieldDelegation,
+        LoopHook::FileLines,
+        LoopHook::CountedLoop,
+    ];
+    for hook in ORDER {
+        if loop_hook_enabled(linter, hook) {
+            hook.run_for(linter, statement, target, iter, block, span);
+        }
+    }
+}
+pub(super) fn run_checks(linter: &mut Linter<'_>, run: super::RunFormId) {
+    let selected = |linter: &Linter<'_>, requested: RunCheck| {
+        LINT_RULES.iter().any(|rule| {
+            linter.rule_selection.enabled(rule.code)
+                && rule.hooks.iter().any(|hook| matches!(hook, RuleHook::RunCheck(check) if *check == requested))
+        })
+    };
+    if selected(linter, RunCheck::CapturePropagation)
+        && let Some(diagnostic) = super::lint_redundant_propagation::redundant_capture_propagation(
+            linter.arena,
+            linter.source,
+            run,
+        )
+    {
+        linter.diagnostics.push(diagnostic);
+    }
+    if !selected(linter, RunCheck::SegmentChecks) { return; }
+    let run_form = linter.arena.run_form(run).clone();
+    for segment in linter.arena.run_segments(run_form.segments).to_vec() {
+        if linter.rule_selection.enabled(DiagnosticCode::LintPreferNonEmptyArgv)
+            && let Some(diagnostic) = super::lint_prefer_non_empty_argv::prefer_non_empty_argv(
+                linter.arena,
+                &linter.unvalidated_command_vectors,
+                &segment.target,
+            )
+        {
+            linter.diagnostics.push(diagnostic);
+        }
+        if linter.rule_selection.enabled(DiagnosticCode::LintRunStatus)
+            && let Some(target) = super::literal_command_word(linter.arena, linter.source, &segment.target)
+            && segment.kind == super::RunKind::Plain
+            && segment.accept.is_none()
+            && run_form.propagation_written
+            && super::expects_nonzero_status(&target)
+        {
+            let deletion_span = super::scan_run_propagate_deletion_span(
+                linter.source,
+                linter.arena.span(run_form.span),
+            );
+            linter.diagnostics.push(
+                Diagnostic::new(
+                    Severity::Warning,
+                    "remove `?` when inspecting an expected nonzero status",
+                )
+                .with_code(DiagnosticCode::LintRunStatus)
+                .with_label(Label::secondary(
+                    linter.arena.span(segment.span),
+                    "nonzero status is expected for this command",
+                ))
+                .with_fix_hint(FixHint::deletion(
+                    deletion_span,
+                    "remove status propagation",
+                )),
+            );
+        }
+    }
+}
+pub(super) fn root_hooks<'source>(
+    linter: &mut Linter<'source>,
+    stage: RootStage,
+    view: &CheckBundleView<'source>,
+    statements: &[StmtId],
+) {
+    for rule in LINT_RULES {
+        if !linter.rule_selection.enabled(rule.code) { continue; }
+        for hook in rule.hooks {
+            if let RuleHook::Root(hook_stage, callback) = hook
+                && *hook_stage == stage
+            {
+                callback(linter, view, statements);
+            }
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
-    use super::{EXPRESSION_RULES, RuleSelection};
-    use xsh::diagnostic::DiagnosticFamily;
-
+    use super::{LINT_RULES, LintOptions, Linter, RuleSelection, lint_codes};
+    use xsh::diagnostic::{DiagnosticCode, DiagnosticFamily};
     #[test]
-    fn expression_declarations_have_unique_lint_codes() {
-        for (index, rule) in EXPRESSION_RULES.iter().enumerate() {
-            assert_eq!(rule.code.family(), DiagnosticFamily::Lint);
-            assert!(EXPRESSION_RULES[..index].iter().all(|previous| previous.code != rule.code),
-                "duplicate expression rule: {}", rule.code.name());
+    fn table_contains_every_lint_code_once() {
+        let codes: Vec<_> = LINT_RULES.iter().map(|rule| rule.code).collect();
+        assert_eq!(codes.len(), 147);
+        for (index, code) in codes.iter().enumerate() {
+            assert_eq!(code.family(), DiagnosticFamily::Lint);
+            assert!(codes[..index].iter().all(|previous| previous != code), "duplicate rule: {}", code.name());
         }
+        let expected: Vec<_> = DiagnosticCode::ALL.iter().copied().filter(|code| code.family() == DiagnosticFamily::Lint).collect();
+        assert_eq!(lint_codes().collect::<Vec<_>>(), expected);
+    }
+    #[test]
+    fn selected_facts_follow_only_and_exclusion() {
+        let selection = |only, excluded_rules| {
+            RuleSelection::new(&LintOptions {
+                only,
+                excluded_rules,
+                ..LintOptions::default()
+            })
+        };
+        let no_facts = selection(Some(vec![DiagnosticCode::LintRunless]), Vec::new());
+        let checked = selection(Some(vec![DiagnosticCode::LintPreferListSplicing]), Vec::new());
+        let excluded = selection(
+            Some(vec![DiagnosticCode::LintPreferListSplicing]),
+            vec![DiagnosticCode::LintPreferListSplicing],
+        );
+        assert!(!no_facts.requires_check_output());
+        assert!(checked.requires_check_output());
+        assert!(!excluded.requires_check_output());
+        assert!(checked.enabled(DiagnosticCode::LintPreferListSplicing));
+        assert!(!excluded.enabled(DiagnosticCode::LintPreferListSplicing));
+
+        let annotation_policy = RuleSelection::new(&LintOptions {
+            only: Some(vec![DiagnosticCode::LintPreferInferredProcReturn]),
+            annotation_policy_writes_returns: true,
+            ..LintOptions::default()
+        });
+        assert!(!annotation_policy.enabled(DiagnosticCode::LintPreferInferredProcReturn));
+        assert!(!annotation_policy.requires_check_output());
     }
 
     #[test]
-    fn selection_preserves_only_and_exclusion_semantics() {
-        let codes: Vec<_> = EXPRESSION_RULES.iter().map(|rule| rule.code).collect();
-        let default = RuleSelection::new(None, Vec::new());
-        assert!(default.accepts(None));
-        for code in &codes {
-            assert!(default.accepts(Some(*code)));
-        }
+    fn selecting_an_opt_in_rule_runs_its_table_hook() {
+        use xsh::diagnostic::DiagnosticCode;
+        use xsh::frontend::source::SourceId;
+        use xsh::frontend::syntax::parser::Parser;
 
-        let only = RuleSelection::new(Some(codes[..2].to_vec()), Vec::new());
-        assert!(only.accepts(Some(codes[0])));
-        assert!(only.accepts(Some(codes[1])));
-        assert!(!only.accepts(Some(codes[2])));
-        assert!(!only.accepts(None));
-
-        let excluded = RuleSelection::new(None, vec![codes[0]]);
-        assert!(!excluded.accepts(Some(codes[0])));
-        assert!(excluded.accepts(Some(codes[1])));
-        assert!(excluded.accepts(None));
-
-        let only_and_excluded = RuleSelection::new(Some(codes.clone()), vec![codes[1]]);
-        assert!(only_and_excluded.accepts(Some(codes[0])));
-        assert!(!only_and_excluded.accepts(Some(codes[1])));
-        assert!(!only_and_excluded.accepts(None));
+        let source = "pure probe(line: Str) -> Str {\n  let parts = line.split(\"=\")\n  let key = parts[0]\n  let value = parts[1]\n  if line.starts_with(\"#define \") {\n    return line.byte_slice(8, line.byte_len() - 8)\n  }\n  key + value\n}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let diagnostics = Linter::lint(
+            &parsed.arena,
+            source,
+            LintOptions {
+                only: Some(vec![DiagnosticCode::LintPreferTextPattern]),
+                ..LintOptions::default()
+            },
+        )
+        .diagnostics;
+        assert_eq!(
+            diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferTextPattern))
+                .count(),
+            2,
+            "{diagnostics:?}"
+        );
     }
 }
 
@@ -731,9 +2203,6 @@ impl<'a> Linter<'a> {
     /// it fails on a value that is not UTF-8, while `e"NAME" ?? fallback`
     /// would fall back, and it returns a `Result` where `??` returns `Str`.
     pub(super) fn lint_env_string(&mut self, expr: ExprId) {
-        if !self.prefer_env_string {
-            return;
-        }
         let outer = self.arena.expr(expr);
         let name = match outer.kind {
             ArenaExprKind::Call { callee, args }

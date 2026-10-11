@@ -87,7 +87,7 @@ pub(super) fn lint_deferred_root_closes(
     stmts: &[StmtId],
 ) -> Vec<Diagnostic> {
     let code = DiagnosticCode::LintRedundantClose;
-    if !linter.rule_selection.accepts(Some(code)) {
+    if !super::rules::enabled(linter, code) {
         return Vec::new();
     }
     let Some(checked) = linter.checked_output.as_deref() else {

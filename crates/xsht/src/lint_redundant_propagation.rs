@@ -560,15 +560,7 @@ pub(super) mod tests {
             program,
             source,
             LintOptions {
-                function_return_types: checked.function_return_types,
-                expr_types: checked.expr_types,
-                statement_positions: checked.statement_positions,
-                propagating_statements: checked.propagating_statements,
-                discardable_bindings: checked.discardable_bindings,
-                redundant_condition_propagations: checked.redundant_condition_propagations,
-                unvalidated_command_vectors: checked.unvalidated_command_vectors,
-                function_effect_facts: checked.function_effect_facts,
-                function_effect_facts_checked: true,
+                checked_output: Some(std::sync::Arc::new(checked)),
                 only: Some(vec![rule]),
                 ..LintOptions::default()
             },
@@ -957,7 +949,7 @@ pub(super) mod tests {
             checked,
             DiagnosticCode::LintRedundantPropagation,
         );
-        assert!(diagnostics.is_empty());
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 
     const KNOWN: &str = "pure known(name: Str) -> Result[Bool] {\n  Ok(name != \"\")\n}\n\npure count(name: Str) -> Result[Int] {\n  name.parse_int()\n}\n\n";

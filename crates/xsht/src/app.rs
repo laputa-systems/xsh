@@ -567,10 +567,7 @@ fn parse_lint(args: &[String]) -> Result<Command, String> {
 /// Every code `xsht lint --only` accepts: lint codes first, then the fixable
 /// codes of other stages, each in declaration order.
 fn lint_selectable_codes() -> impl Iterator<Item = DiagnosticCode> {
-    let lints = DiagnosticCode::ALL
-        .iter()
-        .copied()
-        .filter(|code| code.family() == DiagnosticFamily::Lint);
+    let lints = crate::xsht::lint::lint_rule_codes();
     let fixable = DiagnosticCode::ALL
         .iter()
         .copied()

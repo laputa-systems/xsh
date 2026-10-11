@@ -14,7 +14,7 @@ use xsh::frontend::syntax::arena::{ArenaChild, ArenaSpawnTarget};
 impl<'a> Linter<'a> {
     pub(super) fn lint_inferred_pure_return(&mut self, id: FunctionDefId, exported: bool) {
         let def = self.arena.function_def(id);
-        if !self.prefer_inferred_pure_returns || exported || def.return_ty_defaulted {
+        if exported || def.return_ty_defaulted {
             return;
         }
         let ty_span = self.arena.type_expr_span(def.return_ty);
@@ -186,7 +186,7 @@ impl<'a> Linter<'a> {
         entrypoint: bool,
         statement_span: Span,
     ) {
-        if !self.prefer_inferred_private_effects || exported || entrypoint {
+        if exported || entrypoint {
             return;
         }
         let def = self.arena.function_def(definition);
@@ -247,8 +247,29 @@ impl<'a> Linter<'a> {
         entrypoint: bool,
         statement_span: Span,
     ) {
-        self.lint_inferred_proc_effects(def_id, exported, entrypoint, statement_span);
-        self.note_proc_return_candidate(def_id, exported);
+        super::rules::procedure(
+            self,
+            super::rules::ProcedureHook::InferredEffects,
+            def_id,
+            exported,
+            entrypoint,
+            statement_span,
+        );
+        if super::rules::enabled(self, DiagnosticCode::LintPreferInferredProcReturn) {
+            self.note_proc_return_candidate(def_id, exported);
+        }
+        super::rules::procedure(
+            self,
+            super::rules::ProcedureHook::RedundantResultUnit,
+            def_id,
+            exported,
+            entrypoint,
+            statement_span,
+        );
+        self.lint_function(def_id);
+    }
+
+    pub(super) fn lint_redundant_result_unit(&mut self, def_id: FunctionDefId, exported: bool) {
         let def = self.arena.function_def(def_id).clone();
         // Without the annotation, a complete `if`/`match` tail may infer a value.
         let branching_tail = self
@@ -291,7 +312,6 @@ impl<'a> Linter<'a> {
                 )),
             );
         }
-        self.lint_function(def_id);
     }
 
     pub(super) fn lint_effect_annotation(&mut self, def_id: FunctionDefId, stmt_span: Span) {

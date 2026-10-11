@@ -11,16 +11,14 @@ use super::{
     ArenaSugarOperand, ArenaTypeDefBody, ArenaTypeExprKind, ArenaTypeExprTag, ArenaWordPart,
     AssignOp, AssignTargetId, BinaryOp, Binding, BindingTargetId, BlockId, BuilderBlockId,
     CommandStmtId, Diagnostic, DiagnosticCode, ExprId, FixHint, FunctionDefId, FxHashMap, Label,
-    Linter, Name, PathDisplaySite, PatternId, RunFormId, RunKind, Severity, Span, StmtId, SugarForm,
-    Type, TypeExprId, UnaryOp, bare_command_word_parts, command_name, command_value_replacement,
-    expects_nonzero_status, insertion_sort_by, is_predeclared_script_args, item_shorthand,
-    lint_inferred_variant_pattern, lint_list_any_union, lint_prefer_for_index,
-    lint_prefer_match_else, lint_prefer_non_empty_argv, lint_prefer_propagation,
-    lint_prefer_text_pattern, lint_redundant_discard, lint_redundant_propagation, lint_run_argv,
-    literal_command_word, parse_command_word_reference, prefer_atomically, prefer_collect,
-    prefer_repeat, prefer_tempdir, prefer_wait_until, prefer_within, redundant_close,
+    Linter, Name, PathDisplaySite, PatternId, RunFormId, Severity, Span, StmtId, SugarForm,
+    Type, TypeExprId, UnaryOp, bare_command_word_parts, command_value_replacement,
+    insertion_sort_by,
+    lint_inferred_variant_pattern,
+    lint_prefer_propagation,
+    parse_command_word_reference,
     result_ok_type_expr, result_path_type_expr, result_unit_type_expr,
-    scan_run_propagate_deletion_span, simple_command_value_expr, type_expr_kind,
+    simple_command_value_expr, type_expr_kind,
 };
 
 pub(super) struct LintExprVisitor<'a, 'b> {
@@ -33,7 +31,7 @@ impl LintExprVisitor<'_, '_> {
         let mut scopes = 0;
         for qualifier in self.linter.arena.comp_qualifiers(range).to_vec() {
             if let ArenaCompQualifier::For { iter, .. } = qualifier {
-                self.linter.lint_scalar_split_iteration(iter);
+                rules::scalar_iteration(self.linter, iter);
             }
             self.visit_expr(qualifier.expr());
             if let ArenaCompQualifier::For { target, .. } = qualifier {
@@ -53,106 +51,33 @@ impl LintExprVisitor<'_, '_> {
     }
 
     fn visit_expression(&mut self, expr: ExprId) {
-        redundant_close::record_binding_use(self.linter, expr);
-        self.linter.stream_producers.observe_expr(self.linter.arena, expr);
-        self.linter
-            .fail_candidates
-            .visit_expr(self.linter.arena, expr);
-        self.linter
-            .set_like_bindings
-            .visit_expr(self.linter.arena, self.linter.source, expr);
-        let tested_fallbacks =
-            self.linter
-                .empty_fallbacks
-                .visit_expr(self.linter.arena, self.linter.source, expr);
-        self.linter.diagnostics.extend(tested_fallbacks);
-        if let Some(diagnostic) = lint_redundant_propagation::redundant_condition_propagation(
-            self.linter.arena,
-            self.linter.source,
-            &self.linter.redundant_condition_propagations,
-            expr,
-        ) {
-            self.linter.diagnostics.push(diagnostic);
-        }
-        if let Some(diagnostic) = lint_redundant_propagation::redundant_capture_try(
-            self.linter.arena,
-            self.linter.source,
-            || {
-                self.linter.expr_positions.get_or_init(|| {
-                    lint_redundant_propagation::ExprPositions::new(
-                        self.linter.arena,
-                        self.linter.paren_groups,
-                    )
-                })
-            },
-            expr,
-        ) {
-            self.linter.diagnostics.push(diagnostic);
-        }
-        if let ArenaExprKind::Unary {
-            op: UnaryOp::Not,
-            expr: inner,
-        } = self.linter.arena.expr(expr).kind
-            && matches!(
-                self.linter.arena.expr(inner).kind,
-                ArenaExprKind::Call { .. }
-            )
-        {
-            self.linter.negated_call_spans.insert(
-                self.linter.arena.expr(inner).span,
-                self.linter.arena.expr(expr).span,
-            );
-        }
-
-        if let Some(diagnostic) =
-            self.linter
-                .size_products
-                .visit(self.linter.arena, self.linter.source, expr)
-        {
-            self.linter.diagnostics.push(diagnostic);
-        }
-        if let Some(diagnostic) = lint_run_argv::run_argv_diagnostic(
-            self.linter.arena,
-            self.linter.source,
-            &self.linter.standard_call_spans,
-            expr,
-        ) {
-            self.linter.diagnostics.push(diagnostic);
-        }
-        if let ArenaExprKind::Match { arms, .. } = self.linter.arena.expr(expr).kind
-            && let Some(arm) = self.linter.arena.match_expr_arms(arms).last()
-        {
-            let report = lint_prefer_match_else::catch_all_arm_report(
-                self.linter.arena,
-                self.linter.source,
-                arm.pattern,
-                arm.guard,
-                arm.spelling,
-            );
-            self.linter.catch_all_arms.extend(report);
-        }
+        rules::expression_analysis(self.linter, expr);
         if !self.suppress_expr_autofixes {
             rules::expression(self.linter, expr);
-            self.linter.lint_redundant_single_interpolation(expr);
-            self.linter.lint_scalar_display_parse_roundtrip(expr);
-            self.linter.lint_json_encode_decode_roundtrip(expr);
-            self.linter.lint_inferred_variant(expr);
-            self.linter.lint_positional_constructor(expr);
-            self.linter.lint_path_migrations(expr);
+            rules::expression_group(self.linter, rules::ExpressionGroup::SingleInterpolation, expr);
+            rules::expression_rule(self.linter, DiagnosticCode::LintRedundantDisplayParse, expr);
+            rules::expression_rule(self.linter, DiagnosticCode::LintJsonRoundtrip, expr);
+            rules::expression_rule(self.linter, DiagnosticCode::LintPreferInferredVariant, expr);
+            rules::expression_rule(self.linter, DiagnosticCode::LintPreferPositionalConstructor, expr);
+            rules::expression_group(self.linter, rules::ExpressionGroup::PathMigrations, expr);
         }
         let arena_expr = self.linter.arena.expr(expr);
         match arena_expr.kind {
             ArenaExprKind::Ident(name) => {
                 self.linter.mark_used(name.as_str().as_str());
-                let hidden = self.linter.local_hides(name);
-                self.linter.callable_parameters.value(expr, name, hidden);
+                if rules::enabled(self.linter, DiagnosticCode::LintPreferTypedCallable) {
+                    let hidden = self.linter.local_hides(name);
+                    self.linter.callable_parameters.value(expr, name, hidden);
+                }
             }
             ArenaExprKind::Call { callee, args } => {
-                let mut parameters = std::mem::take(&mut self.linter.callable_parameters);
-                parameters.call(self.linter.arena, callee, args, &|name| {
-                    self.linter.local_hides(name)
-                });
-                self.linter.callable_parameters = parameters;
+                if rules::enabled(self.linter, DiagnosticCode::LintPreferTypedCallable) {
+                    let mut parameters = std::mem::take(&mut self.linter.callable_parameters);
+                    parameters.call(self.linter.arena, callee, args, &|name| {
+                        self.linter.local_hides(name)
+                    });
+                    self.linter.callable_parameters = parameters;
+                }
                 if self
                     .linter
                     .record_constructors
@@ -165,7 +90,7 @@ impl LintExprVisitor<'_, '_> {
                         .insert(name.as_str().to_string());
                 }
                 self.walk_expr(expr);
-                self.linter.lint_call_style(callee, args, arena_expr.span);
+                rules::expression_group(self.linter, rules::ExpressionGroup::CallStyle, expr);
             }
             _ => self.walk_expr(expr),
         }
@@ -213,8 +138,12 @@ impl LintExprVisitor<'_, '_> {
                 for part in arena.fmt_parts(parts).collect::<Vec<_>>() {
                     if let ArenaFmtPart::Expr(e, spec) = part {
                         if spec.is_none() {
-                            self.linter
-                                .lint_redundant_path_display(e, PathDisplaySite::Interpolation);
+                            rules::expression_site(
+                                self.linter,
+                                rules::ExpressionSiteHook::PathDisplay,
+                                e,
+                                PathDisplaySite::Interpolation,
+                            );
                         }
                         self.visit_expr(e);
                     }
@@ -242,7 +171,11 @@ impl LintExprVisitor<'_, '_> {
             }
             ArenaExprKind::Record(fields) => {
                 if !self.suppress_expr_autofixes {
-                    self.linter.lint_quoted_field_labels(fields);
+                    rules::expression_rule(
+                        self.linter,
+                        DiagnosticCode::LintPreferBareFieldLabel,
+                        expr,
+                    );
                 }
                 for field in arena.record_fields(fields).to_vec() {
                     self.visit_record_field(&field);
@@ -284,10 +217,6 @@ impl LintExprVisitor<'_, '_> {
                 self.linter.regex_recovery_context = old;
             }
             ArenaExprKind::Binary { op, left, right } => {
-                if op == BinaryOp::ResultFallback && self.linter.prefer_item_shorthand {
-                    let report = item_shorthand::handler_report(arena, self.linter.source, right);
-                    self.linter.item_shorthands.extend(report);
-                }
                 let old = self.linter.regex_recovery_context;
                 self.linter.regex_recovery_context |= op == BinaryOp::ResultFallback;
                 self.visit_expr(left);
@@ -312,8 +241,7 @@ impl LintExprVisitor<'_, '_> {
                     self.visit_stream_stage(&stage);
                 }
                 // fs.walk(X) |> where .kind == "file" → fs.files(X)
-                self.linter.lint_prefer_fs_files(input, stages);
-                self.linter.lint_redundant_stream_stages(stages);
+                rules::structured_pipeline(self.linter, input, stages);
             }
             ArenaExprKind::Run(run) => self.visit_run_form(run),
             ArenaExprKind::Spawn(form) => match form.target {
@@ -381,13 +309,23 @@ impl LintExprVisitor<'_, '_> {
                 self.linter.regex_recovery_context = old;
             }
             ArenaExprKind::Str(_) => {
-                self.linter.lint_dollar_in_expression_string(expr);
-                self.linter.lint_missing_f_prefix(expr);
+                rules::expression_rule(
+                    self.linter,
+                    DiagnosticCode::LintDollarInExpressionString,
+                    expr,
+                );
+                rules::expression_rule(self.linter, DiagnosticCode::LintMissingFPrefix, expr);
                 if !self.suppress_expr_autofixes {
-                    self.linter.lint_redundant_newline_triple_string(expr);
+                    rules::expression_rule(
+                        self.linter,
+                        DiagnosticCode::LintRedundantNewlineTripleString,
+                        expr,
+                    );
                 }
             }
-            ArenaExprKind::PathStr(_) => self.linter.lint_missing_f_prefix(expr),
+            ArenaExprKind::PathStr(_) => {
+                rules::expression_rule(self.linter, DiagnosticCode::LintMissingFPrefix, expr)
+            }
             ArenaExprKind::Null
             | ArenaExprKind::Bool(_)
             | ArenaExprKind::Int(_)
@@ -430,7 +368,12 @@ impl LintExprVisitor<'_, '_> {
     }
 
     fn visit_call_arg(&mut self, arg: &ArenaCallArg) {
-        if !self.suppress_expr_autofixes {
+        if !self.suppress_expr_autofixes
+            && rules::call_argument_enabled(
+                self.linter,
+                rules::CallArgumentHook::NamedPun,
+            )
+        {
             self.linter.lint_named_argument_pun(arg);
         }
         match arg.kind {
@@ -454,7 +397,12 @@ impl LintExprVisitor<'_, '_> {
         match arg.kind {
             ArenaCommandArgKind::SpliceName(name) => self.linter.mark_used(name.as_str().as_str()),
             ArenaCommandArgKind::Word(parts) => {
-                self.linter.lint_redundant_command_arg_interpolation(arg);
+                if rules::command_argument_enabled(
+                    self.linter,
+                    rules::CommandArgumentHook::RedundantInterpolation,
+                ) {
+                    self.linter.lint_redundant_command_arg_interpolation(arg);
+                }
                 let part_list: Vec<ArenaWordPart> = self.linter.arena.word_parts(parts).collect();
                 if allow_bare_refs
                     && let Some(text) =
@@ -466,7 +414,10 @@ impl LintExprVisitor<'_, '_> {
                 // ${f"..."} is a Word with a single Interpolation whose expr is an FmtString.
                 // Since f"..." is now accepted directly as a typed command arg, the wrapper is
                 // redundant.
-                if let [ArenaWordPart::Interpolation(expr)] = part_list.as_slice()
+                if rules::command_argument_enabled(
+                    self.linter,
+                    rules::CommandArgumentHook::FormatWrapper,
+                ) && let [ArenaWordPart::Interpolation(expr)] = part_list.as_slice()
                     && matches!(
                         self.linter.arena.expr(*expr).kind,
                         ArenaExprKind::FmtString(_)
@@ -491,8 +442,12 @@ impl LintExprVisitor<'_, '_> {
                     if let ArenaWordPart::Interpolation(expr) | ArenaWordPart::Shorthand(expr) =
                         *part
                     {
-                        self.linter
-                            .lint_redundant_path_display(expr, PathDisplaySite::Interpolation);
+                        rules::expression_site(
+                            self.linter,
+                            rules::ExpressionSiteHook::PathDisplay,
+                            expr,
+                            PathDisplaySite::Interpolation,
+                        );
                         if matches!(part, ArenaWordPart::Interpolation(_)) {
                             self.visit_command_delimited_expr(expr);
                         } else {
@@ -502,33 +457,49 @@ impl LintExprVisitor<'_, '_> {
                 }
             }
             ArenaCommandArgKind::SpliceExpr(expr) => {
-                self.linter
-                    .lint_redundant_path_display(expr, PathDisplaySite::Splice);
+                rules::expression_site(
+                    self.linter,
+                    rules::ExpressionSiteHook::PathDisplay,
+                    expr,
+                    PathDisplaySite::Splice,
+                );
                 self.visit_command_delimited_expr(expr);
             }
             ArenaCommandArgKind::Typed(expr) => {
                 let expr_span = self.linter.arena.expr(expr).span;
-                self.linter
-                    .lint_redundant_path_display(expr, PathDisplaySite::CommandWord(arg_span));
+                rules::expression_site(
+                    self.linter,
+                    rules::ExpressionSiteHook::PathDisplay,
+                    expr,
+                    PathDisplaySite::CommandWord(arg_span),
+                );
                 // (f"...") → f"..." : f-strings don't need paren wrapping
                 if matches!(
                     self.linter.arena.expr(expr).kind,
                     ArenaExprKind::FmtString(_) | ArenaExprKind::PathFmtString(_)
                 ) && self.linter.source.as_bytes().get(arg_span.start()) == Some(&b'(')
                 {
-                    let replacement =
-                        self.linter.source[expr_span.start()..expr_span.end()].to_string();
-                    self.linter.diagnostics.push(
-                        Diagnostic::new(Severity::Warning, "redundant `()` around f-string")
-                            .with_code(DiagnosticCode::LintRedundantFmtWrapper)
-                            .with_span(arg_span)
-                            .with_fix_hint(FixHint::replacement(
-                                arg_span,
-                                "remove the `()` wrapper",
-                                replacement,
-                            )),
-                    );
-                } else if let Some(replacement) = self.linter.command_single_fmt_replacement(expr) {
+                    if rules::command_argument_enabled(
+                        self.linter,
+                        rules::CommandArgumentHook::FormatWrapper,
+                    ) {
+                        let replacement =
+                            self.linter.source[expr_span.start()..expr_span.end()].to_string();
+                        self.linter.diagnostics.push(
+                            Diagnostic::new(Severity::Warning, "redundant `()` around f-string")
+                                .with_code(DiagnosticCode::LintRedundantFmtWrapper)
+                                .with_span(arg_span)
+                                .with_fix_hint(FixHint::replacement(
+                                    arg_span,
+                                    "remove the `()` wrapper",
+                                    replacement,
+                                )),
+                        );
+                    }
+                } else if rules::command_argument_enabled(
+                    self.linter,
+                    rules::CommandArgumentHook::CommandFormat,
+                ) && let Some(replacement) = self.linter.command_single_fmt_replacement(expr) {
                     self.linter.diagnostics.push(
                         Diagnostic::new(
                             Severity::Warning,
@@ -545,7 +516,10 @@ impl LintExprVisitor<'_, '_> {
                             replacement,
                         )),
                     );
-                } else if simple_command_value_expr(self.linter.arena, expr) {
+                } else if rules::command_argument_enabled(
+                    self.linter,
+                    rules::CommandArgumentHook::CommandValue,
+                ) && simple_command_value_expr(self.linter.arena, expr) {
                     let replacement = command_value_replacement(self.linter.arena, expr);
                     self.linter.diagnostics.push(
                         Diagnostic::new(
@@ -626,48 +600,7 @@ impl LintExprVisitor<'_, '_> {
     fn visit_run_form(&mut self, run: RunFormId) {
         let arena = self.linter.arena;
         let run_form = arena.run_form(run).clone();
-        if let Some(diagnostic) = lint_redundant_propagation::redundant_capture_propagation(
-            arena,
-            self.linter.source,
-            run,
-        ) {
-            self.linter.diagnostics.push(diagnostic);
-        }
-        for segment in arena.run_segments(run_form.segments).to_vec() {
-            if let Some(diagnostic) = lint_prefer_non_empty_argv::prefer_non_empty_argv(
-                arena,
-                &self.linter.unvalidated_command_vectors,
-                &segment.target,
-            ) {
-                self.linter.diagnostics.push(diagnostic);
-            }
-            let seg_span = arena.span(segment.span);
-            if segment.kind == RunKind::Plain
-                && segment.accept.is_none()
-                && run_form.propagation_written
-                && let Some(target) =
-                    literal_command_word(arena, self.linter.source, &segment.target)
-                && expects_nonzero_status(&target)
-            {
-                let deletion_span =
-                    scan_run_propagate_deletion_span(self.linter.source, arena.span(run_form.span));
-                self.linter.diagnostics.push(
-                    Diagnostic::new(
-                        Severity::Warning,
-                        "remove `?` when inspecting an expected nonzero status",
-                    )
-                    .with_code(DiagnosticCode::LintRunStatus)
-                    .with_label(Label::secondary(
-                        seg_span,
-                        "nonzero status is expected for this command",
-                    ))
-                    .with_fix_hint(FixHint::deletion(
-                        deletion_span,
-                        "remove status propagation",
-                    )),
-                );
-            }
-        }
+        rules::run_checks(self.linter, run);
         for segment in arena.run_segments(run_form.segments).to_vec() {
             if let Some(timeout) = segment.timeout {
                 self.visit_expr(timeout);
@@ -938,12 +871,11 @@ impl<'a> Linter<'a> {
 
     pub(super) fn lint_stmt(&mut self, stmt_id: StmtId, exported: bool) {
         let stmt = self.arena.stmt(stmt_id);
-        self.stream_producers.observe_stmt(self.arena, stmt_id);
-        self.lint_propagation(stmt_id);
-        lint_redundant_discard::lint_redundant_discard(self, stmt_id);
-        self.fail_candidates.visit_stmt(self.arena, stmt_id);
-        self.set_like_bindings
-            .visit_stmt(self.arena, self.source, stmt_id);
+        rules::statement(self, stmt_id, rules::StatementHook::StreamProducerCandidates, exported);
+        rules::statement(self, stmt_id, rules::StatementHook::Propagation, exported);
+        rules::statement(self, stmt_id, rules::StatementHook::RedundantDiscard, exported);
+        rules::statement(self, stmt_id, rules::StatementHook::FailCandidates, exported);
+        rules::statement(self, stmt_id, rules::StatementHook::SetLikeBindings, exported);
         match stmt.kind {
             ArenaStmtKind::Use(_) | ArenaStmtKind::TypeDef(_) | ArenaStmtKind::ErrorDef(_) => {}
             ArenaStmtKind::Export(inner) => self.lint_stmt(inner, true),
@@ -957,21 +889,12 @@ impl<'a> Linter<'a> {
                 ty,
                 initializer,
             } => {
-                self.lint_record_constructor(ty, &initializer);
-                self.lint_empty_map_initializer(ty, &initializer);
-                if let (Some(_), ArenaExprOrRun::Expr(value)) = (ty, &initializer) {
-                    self.size_products.typed_initializer(self.arena, *value);
-                }
+                rules::statement(self, stmt_id, rules::StatementHook::RecordConstructor, exported);
+                rules::statement(self, stmt_id, rules::StatementHook::EmptyMapInitializer, exported);
+                rules::statement(self, stmt_id, rules::StatementHook::SizeProductInitializer, exported);
                 if let Some(type_expr) = ty {
                     self.collect_type_expr_refs(type_expr);
-                    self.lint_needless_annotation(
-                        target,
-                        false,
-                        type_expr,
-                        &initializer,
-                        exported,
-                        stmt.span,
-                    );
+                    rules::statement(self, stmt_id, rules::StatementHook::NeedlessAnnotation, exported);
                 }
                 self.lint_expr_or_run(&initializer);
                 let absence_lookup = match initializer {
@@ -987,7 +910,7 @@ impl<'a> Linter<'a> {
                     _ => None,
                 };
                 self.define_binding_target(target, stmt.span, true);
-                self.declare_list_any_binding(target, ty, &initializer);
+                rules::statement(self, stmt_id, rules::StatementHook::ListAnyBindings, exported);
                 if let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind
                     && let Some(binding) = self
                         .scopes
@@ -1005,25 +928,16 @@ impl<'a> Linter<'a> {
                 ty,
                 initializer,
             } => {
-                self.lint_record_constructor(ty, &initializer);
-                self.lint_empty_map_initializer(ty, &initializer);
-                if let (Some(_), ArenaExprOrRun::Expr(value)) = (ty, &initializer) {
-                    self.size_products.typed_initializer(self.arena, *value);
-                }
+                rules::statement(self, stmt_id, rules::StatementHook::RecordConstructor, exported);
+                rules::statement(self, stmt_id, rules::StatementHook::EmptyMapInitializer, exported);
+                rules::statement(self, stmt_id, rules::StatementHook::SizeProductInitializer, exported);
                 if let Some(type_expr) = ty {
                     self.collect_type_expr_refs(type_expr);
-                    self.lint_needless_annotation(
-                        target,
-                        true,
-                        type_expr,
-                        &initializer,
-                        exported,
-                        stmt.span,
-                    );
+                    rules::statement(self, stmt_id, rules::StatementHook::NeedlessAnnotation, exported);
                 }
                 self.lint_expr_or_run(&initializer);
                 self.define_binding_target(target, stmt.span, true);
-                self.declare_list_any_binding(target, ty, &initializer);
+                rules::statement(self, stmt_id, rules::StatementHook::ListAnyBindings, exported);
                 if let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind
                     && let Some(binding) = self
                         .scopes
@@ -1035,23 +949,9 @@ impl<'a> Linter<'a> {
             }
             ArenaStmtKind::Assign { target, op, value } => {
                 if op == AssignOp::Set {
-                    self.lint_list_compound_assignment(target, value, stmt.span);
+                    rules::statement(self, stmt_id, rules::StatementHook::ListCompoundAssignment, exported);
                 }
-                if let Some(definition) = lint_list_any_union::assigned_root(self.arena, target)
-                    .and_then(|root| self.binding_definition(root))
-                {
-                    let mut bindings = std::mem::take(&mut self.list_any_bindings);
-                    bindings.assign(
-                        self.arena,
-                        definition,
-                        target,
-                        op,
-                        &value,
-                        &self.expr_types,
-                        &|name| self.binding_definition(name),
-                    );
-                    self.list_any_bindings = bindings;
-                }
+                rules::statement(self, stmt_id, rules::StatementHook::ListAnyBindings, exported);
                 self.lint_assign_target(target);
                 self.lint_expr_or_run(&value);
             }
@@ -1060,14 +960,7 @@ impl<'a> Linter<'a> {
                 let entrypoint = matches!(stmt.kind, ArenaStmtKind::CliMain(_))
                     || function.test_declaration
                     || (!exported && self.scopes.len() == 1 && function.name == "main");
-                if self.scopes.len() == 1 {
-                    self.callable_parameters.define(
-                        function.name,
-                        def,
-                        false,
-                        !exported && !entrypoint,
-                    );
-                }
+                rules::statement(self, stmt_id, rules::StatementHook::TypedCallableParameters, exported);
                 if matches!(stmt.kind, ArenaStmtKind::ProcDef(_)) {
                     self.lint_propagating_function(def, false, |linter| {
                         linter.lint_proc_function(def, exported, entrypoint, stmt.span);
@@ -1075,23 +968,16 @@ impl<'a> Linter<'a> {
                 } else {
                     self.lint_proc_function(def, exported, entrypoint, stmt.span);
                 }
-                // Test declarations and program entrypoints have no restricted
-                // callers, so a clause there is a bound the author chose.
-                if !entrypoint {
-                    self.lint_effect_annotation(def, stmt.span);
-                }
+                rules::statement(self, stmt_id, rules::StatementHook::MissingEffects, exported);
             }
             ArenaStmtKind::PureDef(def) => {
-                if self.scopes.len() == 1 {
-                    let name = self.arena.function_def(def).name;
-                    self.callable_parameters.define(name, def, true, !exported);
-                }
-                self.lint_inferred_pure_return(def, exported);
+                rules::statement(self, stmt_id, rules::StatementHook::TypedCallableParameters, exported);
+                rules::statement(self, stmt_id, rules::StatementHook::InferredPureReturn, exported);
                 self.lint_propagating_function(def, true, |linter| linter.lint_function(def));
             }
             ArenaStmtKind::StreamDef(def) => {
                 self.lint_proc_function(def, exported, false, stmt.span);
-                self.lint_effect_annotation(def, stmt.span);
+                rules::statement(self, stmt_id, rules::StatementHook::MissingEffects, exported);
             }
             ArenaStmtKind::SignalHook(hook_id) => {
                 let body = self.arena.signal_hook(hook_id).body;
@@ -1099,9 +985,9 @@ impl<'a> Linter<'a> {
             }
             ArenaStmtKind::Return(value) => {
                 if let Some(value) = value {
-                    self.lint_return_value(&value);
-                    self.lint_return_path_parse_roundtrip(&value);
-                    self.lint_return_redundant_require(&value);
+                    rules::statement(self, stmt_id, rules::StatementHook::RedundantOkReturn, exported);
+                    rules::statement(self, stmt_id, rules::StatementHook::ReturnPathParse, exported);
+                    rules::statement(self, stmt_id, rules::StatementHook::ReturnRequire, exported);
                     self.lint_expr_or_run(&value);
                 }
             }
@@ -1114,9 +1000,9 @@ impl<'a> Linter<'a> {
                 branches,
                 else_block,
             } => {
-                self.lint_list_pattern(branches, else_block, stmt.span);
-                self.lint_if_as_guard(branches, else_block, stmt.span);
-                self.lint_lexical_block(branches, else_block, stmt.span);
+                rules::statement(self, stmt_id, rules::StatementHook::ListPattern, exported);
+                rules::statement(self, stmt_id, rules::StatementHook::IfAsGuard, exported);
+                rules::statement(self, stmt_id, rules::StatementHook::LexicalBlock, exported);
                 for branch in self.arena.if_branches(branches).to_vec() {
                     self.lint_pattern_condition_block(branch.condition, branch.block);
                 }
@@ -1132,12 +1018,7 @@ impl<'a> Linter<'a> {
                 iter,
                 block,
             } => {
-                self.lint_scalar_split_iteration(iter);
-                self.lint_byte_iteration(stmt_id, target, iter, block);
-                self.lint_map_entry_iteration(stmt_id, target, iter, block);
-                self.lint_yield_delegation(stmt.span, target, iter, block);
-                self.lint_prefer_file_lines(iter);
-                prefer_repeat::lint_counted_loop(self, stmt.span, target, iter, block);
+                rules::for_loop(self, stmt_id, target, iter, block, stmt.span);
                 self.lint_expr(iter);
                 self.push_scope();
                 self.define_binding_target(target, stmt.span, true);
@@ -1169,7 +1050,12 @@ impl<'a> Linter<'a> {
                     self.define_binding_target(name, stmt.span, false);
                     self.lint_block(body);
                     self.pop_scope();
-                    prefer_atomically::lint_body_that_never_finishes(self, stmt.span, body);
+                    rules::statement(
+                        self,
+                        stmt_id,
+                        rules::StatementHook::AtomicallyNeverReplaces,
+                        exported,
+                    );
                 }
             }
             // Both names an indexed `for` binds are loop bindings, in scope
@@ -1226,33 +1112,11 @@ impl<'a> Linter<'a> {
                 }
             }
             ArenaStmtKind::Match { value, arms } => {
-                self.lint_adjacent_pattern_arms(
-                    self.arena
-                        .match_arms(arms)
-                        .iter()
-                        .map(|arm| {
-                            (
-                                arm.pattern,
-                                arm.guard,
-                                Ok(arm.block),
-                                self.arena.span(arm.span),
-                            )
-                        })
-                        .collect(),
-                );
-                if let Some(arm) = self.arena.match_arms(arms).last() {
-                    let report = lint_prefer_match_else::catch_all_arm_report(
-                        self.arena,
-                        self.source,
-                        arm.pattern,
-                        arm.guard,
-                        arm.spelling,
-                    );
-                    self.catch_all_arms.extend(report);
-                }
+                rules::statement(self, stmt_id, rules::StatementHook::AdjacentPatternArms, exported);
+                rules::statement(self, stmt_id, rules::StatementHook::CatchAllMatch, exported);
                 let old_regex_context = self.regex_recovery_context;
                 self.regex_recovery_context = true;
-                self.lint_pattern_conditional_stmt(value, arms, stmt.span);
+                rules::statement(self, stmt_id, rules::StatementHook::PatternConditional, exported);
                 self.lint_expr(value);
                 for arm in self.arena.match_arms(arms).to_vec() {
                     self.push_scope();
@@ -1266,33 +1130,12 @@ impl<'a> Linter<'a> {
                     self.pop_scope();
                 }
                 self.regex_recovery_context = old_regex_context;
-                let str_literal_arms = self
-                    .arena
-                    .match_arms(arms)
-                    .iter()
-                    .filter(|arm| {
-                        matches!(
-                            &self.arena.pattern(arm.pattern).kind,
-                            ArenaPatternKind::Literal(expr) if matches!(self.arena.expr(*expr).kind, ArenaExprKind::Str(_))
-                        )
-                    })
-                    .count();
-                let has_catch_all = self.arena.match_arms(arms).iter().any(|arm| {
-                    matches!(
-                        self.arena.pattern(arm.pattern).kind,
-                        ArenaPatternKind::Wildcard | ArenaPatternKind::Binding(_)
-                    )
-                });
-                if str_literal_arms >= 3 && !has_catch_all {
-                    self.warning(
-                        stmt.span,
-                        "3+ string-literal match arms — consider defining a tag union type",
-                        DiagnosticCode::LintStringlyTypedMatch,
-                        "tag unions are safer and exhaustiveness-checked",
-                    );
-                }
+                rules::statement(self, stmt_id, rules::StatementHook::StringlyMatch, exported);
             }
-            ArenaStmtKind::Command(command) => self.lint_command_stmt(command),
+            ArenaStmtKind::Command(command) => {
+                rules::statement(self, stmt_id, rules::StatementHook::InteractiveCommand, exported);
+                self.lint_command_stmt(command)
+            }
             ArenaStmtKind::TailBareIdent(name) => {
                 self.mark_used(name.as_str().as_str());
                 let hidden = self.local_hides(name);
@@ -1318,7 +1161,7 @@ impl<'a> Linter<'a> {
                         }
                     }
                 }
-                self.lint_core_assert(stmt.span, expr);
+                rules::statement(self, stmt_id, rules::StatementHook::CoreAssert, exported);
                 self.lint_expr(expr);
             }
             ArenaStmtKind::With {
@@ -1357,28 +1200,14 @@ impl<'a> Linter<'a> {
         self.result_unit_functions.push(result_unit);
         self.result_path_functions.push(result_path);
         self.result_return_ok_types.push(result_ok.clone());
-        self.function_return_types.push(return_ty);
+        self.function_return_types.push(return_ty.clone());
         self.function_bodies.push(def.body);
-        if result_unit {
-            self.lint_redundant_bare_return(def.body);
-        }
-        if result_path {
-            self.lint_tail_path_parse_roundtrip(def.body);
-        }
-        if result_ok.is_some() {
-            self.lint_tail_redundant_require(def.body);
-            self.lint_tail_redundant_ok_return(def.body, result_ok.as_ref());
-        }
-        self.lint_redundant_tail_return_binding(def.body);
-        self.lint_redundant_tail_return(
-            def.body,
-            self.function_return_types.last().cloned().as_ref().unwrap(),
-        );
+        rules::function(self, def.body, result_unit, result_path, result_ok.as_ref(), &return_ty);
         if !def.return_ty_defaulted {
             self.collect_type_expr_refs(def.return_ty);
         }
         for param in self.arena.params(def.params).to_vec() {
-            self.lint_default_parameter_annotation(&param);
+            rules::parameter(self, &param);
             if !param.ty_defaulted {
                 self.collect_type_expr_refs(param.ty);
             }
@@ -1428,7 +1257,7 @@ impl<'a> Linter<'a> {
     pub(super) fn lint_pattern(&mut self, pattern: PatternId) {
         let arena_pattern = self.arena.pattern(pattern).clone();
         let span = self.arena.span(arena_pattern.span);
-        self.lint_inferred_variant_pattern(span);
+        rules::pattern(self, pattern);
         match arena_pattern.kind {
             ArenaPatternKind::Group(child) => self.lint_pattern(child),
             ArenaPatternKind::Alias {
@@ -1585,31 +1414,21 @@ impl<'a> Linter<'a> {
             .arena
             .stmt_ids(self.arena.block(block).statements)
             .collect();
-        self.lint_list_comp_suggestions(&stmts);
-        prefer_tempdir::lint_scratch_directories(self, &stmts, Some(block));
-        prefer_atomically::lint_published_files(self, &stmts, Some(block));
-        lint_prefer_for_index::lint_counter_loops(self, &stmts, Some(block));
-        if self.prefer_text_pattern {
-            lint_prefer_text_pattern::lint_positional_text(self, &stmts);
-        }
-        prefer_within::lint_repeated_timeouts(self, &stmts);
-        prefer_collect::lint_built_lists(self, &stmts);
-        prefer_wait_until::lint_polling_loops(self, &stmts);
+        rules::block_sequence(self, &stmts, block);
         let close_diagnostic_index = self.diagnostics.len();
         self.lint_statement_sequence(&stmts);
-        let close_diagnostics = redundant_close::lint_deferred_root_closes(self, &stmts);
-        self.diagnostics
-            .splice(close_diagnostic_index..close_diagnostic_index, close_diagnostics);
+        rules::sequence_exit(
+            self,
+            rules::SequenceExit::Block,
+            &stmts,
+            close_diagnostic_index,
+        );
     }
 
     pub(super) fn lint_command_stmt(&mut self, stmt_id: CommandStmtId) {
         let stmt = self.arena.command_stmt(stmt_id).clone();
-        let span = self.arena.span(stmt.span);
         match stmt.command {
-            ArenaCommand::Proc { name, args } => {
-                self.lint_interactive_command(name.as_str().as_str(), span);
-                self.lint_proc_command_args(args);
-            }
+            ArenaCommand::Proc { args, .. } => self.lint_proc_command_args(args),
             ArenaCommand::Core {
                 name: _,
                 args,
@@ -1629,30 +1448,7 @@ impl<'a> Linter<'a> {
     }
 
     pub(super) fn lint_run(&mut self, run_id: RunFormId) {
-        let run = self.arena.run_form(run_id).clone();
-        if self.runless {
-            for segment in self.arena.run_segments(run.segments).to_vec() {
-                let seg_span = self.arena.span(segment.span);
-                let name = command_name(self.arena, self.source, &segment.target);
-                let exempt = name
-                    .as_deref()
-                    .is_some_and(|n| self.runless_except.iter().any(|e| e == n));
-                if !exempt {
-                    let label = match &name {
-                        Some(n) => format!("`{n}` is an external command"),
-                        None => "external command not allowed in runless mode".to_string(),
-                    };
-                    self.diagnostics.push(
-                        Diagnostic::new(
-                            Severity::Error,
-                            "external command not permitted (--runless)",
-                        )
-                        .with_code(DiagnosticCode::LintRunless)
-                        .with_label(Label::secondary(seg_span, label)),
-                    );
-                }
-            }
-        }
+        rules::run(self, run_id);
         LintExprVisitor {
             linter: self,
             suppress_expr_autofixes: false,
@@ -1768,14 +1564,7 @@ impl<'a> Linter<'a> {
     }
 
     pub(super) fn lint_stream_stage(&mut self, stage: &ArenaStreamStage) {
-        if self.prefer_item_shorthand {
-            self.item_shorthands.extend(item_shorthand::stage_report(
-                self.arena,
-                self.source,
-                stage,
-            ));
-        }
-        self.lint_stage_callable_wrapper(stage);
+        rules::stream_stage(self, stage);
         for arg in self.arena.call_args(stage.args).to_vec() {
             self.lint_call_arg(&arg);
         }
@@ -1851,14 +1640,7 @@ impl<'a> Linter<'a> {
     }
 
     pub(super) fn define(&mut self, name: &str, span: Span, report_unused: bool) {
-        if self.is_defined_in_outer_scope(name) && !is_predeclared_script_args(name) && name != "_"
-        {
-            self.diagnostics.push(
-                Diagnostic::error("binding shadows an outer name")
-                    .with_code(DiagnosticCode::LintShadowing)
-                    .with_label(Label::secondary(span, "shadowed binding starts here")),
-            );
-        }
+        rules::binding(self, name, span);
         if let Some(scope) = self.scopes.last_mut() {
             scope.insert(
                 name.to_string(),
@@ -1908,14 +1690,7 @@ impl<'a> Linter<'a> {
         insertion_sort_by(&mut unused, |(_, left), (_, right)| {
             left.span.start().cmp(&right.span.start())
         });
-        for (name, binding) in unused {
-            self.warning(
-                binding.span,
-                format!("unused local variable `{name}`"),
-                DiagnosticCode::LintUnusedLocal,
-                "binding is never read",
-            );
-        }
+        rules::scope_exit(self, &unused);
     }
 
     pub(super) fn expr_or_run_span(&self, value: &ArenaExprOrRun) -> Span {

@@ -44,8 +44,7 @@ impl Linter<'_> {
     /// Called from the traversal for each proc definition of the linted file.
     pub(super) fn note_proc_return_candidate(&mut self, id: FunctionDefId, exported: bool) {
         let def = self.arena.function_def(id);
-        if !self.prefer_inferred_proc_returns
-            || exported
+        if exported
             || def.return_ty_defaulted
             || def.test_declaration
             || def.name == "main"

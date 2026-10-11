@@ -426,6 +426,10 @@ pub fn lint_code_selected(only: Option<&[DiagnosticCode]>, code: Option<Diagnost
     only.is_none_or(|only| code.is_some_and(|code| only.contains(&code)))
 }
 
+pub(super) fn lint_rule_codes() -> impl Iterator<Item = DiagnosticCode> {
+    rules::lint_codes()
+}
+
 impl Default for LintOptions {
     fn default() -> Self {
         Self {
@@ -513,14 +517,6 @@ pub struct Linter<'a> {
     paren_groups: &'a [(ExprId, Span)],
     expr_positions: std::cell::OnceCell<lint_redundant_propagation::ExprPositions>,
     record_constructors: xsh::frontend::check::RecordConstructors,
-    prefer_inferred_pure_returns: bool,
-    prefer_inferred_private_effects: bool,
-    prefer_env_string: bool,
-    prefer_item_shorthand: bool,
-    prefer_tempdir_scope: bool,
-    prefer_inferred_proc_returns: bool,
-    prefer_text_pattern: bool,
-    prefer_rel_path: bool,
     checked_output: Option<std::sync::Arc<xsh::frontend::check::CheckOutput>>,
     return_proof: Option<ReturnProofContext>,
     proc_return_candidates: Vec<inferred_proc_return::ProcReturnCandidate>,
@@ -528,7 +524,6 @@ pub struct Linter<'a> {
     local_annotation_before: Option<Option<CheckedLocalAnnotationFacts>>,
     source: &'a str,
     source_cst: std::sync::OnceLock<xsh::frontend::syntax::cst::SyntaxTree>,
-    runless: bool,
     runless_except: Vec<String>,
     interactive_command_replacement: Option<fn(&str) -> Option<&'static str>>,
     scopes: Vec<FxHashMap<String, Binding>>,
@@ -582,8 +577,11 @@ pub struct Linter<'a> {
     /// or condition also stores its pattern as an arm, and is not one.
     match_arm_head_starts: FxHashSet<usize>,
     inferred_variant_patterns_reported: FxHashSet<Span>,
-    dead_code: bool,
     rule_selection: rules::RuleSelection,
+    prefer_set_advice: bool,
+    #[cfg(test)]
+    message_payload_constructors:
+        Option<BTreeMap<Span, xsh::frontend::check::MessagePayloadConstructor>>,
     tag_variants: FxHashSet<String>,
     type_declarations: FxHashMap<String, Span>,
     user_type_names: FxHashSet<String>,
@@ -715,28 +713,18 @@ impl<'a> Linter<'a> {
         // Constructor facts intern qualified enum names after checking. Retain
         // those names in the source program even when the caller is a worker.
         let _symbols = program.symbol_owner().enter();
-        let native_test_file = options.native_test_file;
-        let only = options.only;
-        // Naming a rule in `--only` asks for it as its setting does, whether
-        // the setting is an opt-in that was left out or a default that was
-        // turned off.
-        let named = |code: DiagnosticCode| only.as_deref().is_some_and(|only| only.contains(&code));
-        let prefer_set_advice = options.prefer_set || named(DiagnosticCode::LintPreferSet);
-        let resource_close_selected = lint_code_selected(
-            only.as_deref(),
-            Some(DiagnosticCode::LintRedundantClose),
-        ) && !options
-            .excluded_rules
-            .contains(&DiagnosticCode::LintRedundantClose);
-        let checked_output = options.checked_output;
-        // A project whose `check --annotate` writes return annotations keeps
-        // them, however their removal was asked for.
-        let removes_returns = !options.annotation_policy_writes_returns;
-        let excluded_rules = options.excluded_rules;
+        let rule_selection = rules::RuleSelection::new(&options);
+        let prefer_set_advice = rule_selection.enabled(DiagnosticCode::LintPreferSet)
+            && (options.prefer_set || rule_selection.prefer_set_named());
+        let fail_candidates = if rule_selection.enabled(DiagnosticCode::LintPreferFail) {
+            lint_prefer_fail::Candidates::collect(view, source)
+        } else {
+            lint_prefer_fail::Candidates::default()
+        };
+        // Shared baseline facts belong to the caller's checked workspace.
+        let checked_output = options.checked_output.clone();
         #[cfg(test)]
-        let message_payload_constructors = options.message_payload_constructors;
-        #[cfg(not(test))]
-        let message_payload_constructors = None;
+        let message_payload_constructors = options.message_payload_constructors.clone();
         #[cfg(test)]
         let checked_effects_shared = !options.function_effect_facts_checked;
         let statically_resolved_output = checked_output
@@ -782,39 +770,21 @@ impl<'a> Linter<'a> {
                         .alias
                         .or_else(|| program.arena.names(import.path).last())
                         .is_some_and(|name| name == "time")
-                }),
-            prefer_inferred_pure_returns: removes_returns
-                && (options.prefer_inferred_pure_returns
-                    || named(DiagnosticCode::LintPreferInferredPureReturn)),
-            prefer_inferred_private_effects: options.prefer_inferred_private_effects
-                || named(DiagnosticCode::LintPreferInferredPrivateEffects),
-            prefer_env_string: options.prefer_env_string
-                || named(DiagnosticCode::LintPreferEnvString),
-            prefer_item_shorthand: options.prefer_item_shorthand
-                || named(DiagnosticCode::LintPreferItemShorthand),
-            prefer_tempdir_scope: options.prefer_tempdir_scope
-                || named(DiagnosticCode::LintPreferTempdirScope),
-            prefer_text_pattern: options.prefer_text_pattern
-                || named(DiagnosticCode::LintPreferTextPattern),
-            prefer_rel_path: options.prefer_rel_path || named(DiagnosticCode::LintPreferRelPath),
+            }),
             checked_output: checked_output.clone(),
-            prefer_inferred_proc_returns: removes_returns
-                && (options.prefer_inferred_proc_returns
-                    || named(DiagnosticCode::LintPreferInferredProcReturn)),
             return_proof: options.return_proof,
             proc_return_candidates: Vec::new(),
             return_removal_before: None,
             local_annotation_before: None,
             source,
             source_cst: std::sync::OnceLock::new(),
-            runless: options.runless,
             runless_except: options.runless_except,
             interactive_command_replacement: options.interactive_command_replacement,
             scopes: vec![FxHashMap::default()],
             diagnostics: Vec::new(),
             checked_binding_uses: BTreeMap::new(),
             borrowed_root_receivers: BTreeMap::new(),
-            non_expression_binding_uses: if resource_close_selected {
+            non_expression_binding_uses: if rule_selection.enabled(DiagnosticCode::LintRedundantClose) {
                 checked_output.as_deref().map_or_else(BTreeMap::new, |checked| {
                     redundant_close::non_expression_binding_uses(&program.arena, checked)
                 })
@@ -944,7 +914,6 @@ impl<'a> Linter<'a> {
             ),
             match_arm_head_starts: FxHashSet::default(),
             inferred_variant_patterns_reported: FxHashSet::default(),
-            dead_code: options.dead_code,
             tag_variants: FxHashSet::default(),
             type_declarations: FxHashMap::default(),
             user_type_names: FxHashSet::default(),
@@ -958,10 +927,13 @@ impl<'a> Linter<'a> {
             empty_fallbacks: lint_empty_sentinel::EmptyFallbacks::default(),
             item_shorthands: Vec::new(),
             catch_all_arms: Vec::new(),
-            fail_candidates: lint_prefer_fail::Candidates::collect(view, source),
+            fail_candidates,
             stream_producers: sequence::StreamProducers::default(),
             callable_parameters: lint_prefer_typed_callable::CallableParameters::default(),
-            rule_selection: rules::RuleSelection::new(only, excluded_rules),
+            rule_selection,
+            prefer_set_advice,
+            #[cfg(test)]
+            message_payload_constructors,
         };
         linter.define(
             "args",
@@ -969,92 +941,56 @@ impl<'a> Linter<'a> {
             false,
         );
         let statements: Vec<StmtId> = view.statement_ids().collect();
-        if native_test_file {
-            linter.lint_legacy_test_declarations(&statements);
-        }
-        linter.lint_program(&statements);
-        linter.finish_stream_producer_suggestions();
-        linter.lint_defer_block_helpers(&statements);
-        let mut item_shorthands = std::mem::take(&mut linter.item_shorthands);
-        item_shorthands.sort_by_key(|diagnostic| diagnostic.labels[0].span.start());
-        linter.diagnostics.extend(item_shorthands);
-        if linter.prefer_tempdir_scope {
-            tempdir_scope::lint_tempdir_scopes(&mut linter, view);
-        }
-        if include_reachability {
-            linter
-                .diagnostics
-                .extend(cli_entry::signature_cli_migration(view, source));
+        rules::root_hooks(
+            &mut linter,
+            rules::RootStage::BeforeProgram,
+            view,
+            &statements,
+        );
+        linter.lint_program(view, &statements);
+        for stage in [
+            rules::RootStage::StreamProducerFinalizer,
+            rules::RootStage::DeferBlockHelpers,
+            rules::RootStage::SortItemShorthands,
+            rules::RootStage::AfterProgram,
+        ] {
+            rules::root_hooks(&mut linter, stage, view, &statements);
         }
         if include_reachability {
-            linter
-                .diagnostics
-                .extend(lint_try_capture::lint_try_capture_helpers(view, source));
+            for stage in [
+                rules::RootStage::SignatureCli,
+                rules::RootStage::TryCapture,
+                rules::RootStage::DeclarationReachability,
+                rules::RootStage::CallableAlias,
+            ] {
+                rules::root_hooks(&mut linter, stage, view, &statements);
+            }
         }
-        if include_reachability {
-            linter.lint_declaration_reachability(view);
-            linter
-                .diagnostics
-                .extend(lint_callable_alias::lint_callable_aliases(view, source));
-        }
-        linter
-            .diagnostics
-            .extend(redundant_use_alias::lint_redundant_use_aliases(
-                view, source,
-            ));
+        rules::root_hooks(
+            &mut linter,
+            rules::RootStage::RedundantUseAlias,
+            view,
+            &statements,
+        );
         // The proof checks the file again, so it runs only when its result
         // can be reported.
-        if linter
-            .rule_selection
-            .accepts(Some(DiagnosticCode::LintPreferInferredProcReturn))
-        {
-            linter.lint_inferred_proc_returns();
+        rules::root_hooks(
+            &mut linter,
+            rules::RootStage::InferredProcReturns,
+            view,
+            &statements,
+        );
+        for stage in [
+            rules::RootStage::SortCatchAllArms,
+            rules::RootStage::ListAnyUnion,
+            rules::RootStage::SetLike,
+            rules::RootStage::FailCandidates,
+            rules::RootStage::ImplicitMessages,
+            rules::RootStage::TypedCallable,
+        ] {
+            rules::root_hooks(&mut linter, stage, view, &statements);
         }
-        let mut catch_all_arms = std::mem::take(&mut linter.catch_all_arms);
-        catch_all_arms.sort_by_key(|diagnostic| diagnostic.labels[0].span.start());
-        linter.diagnostics.extend(catch_all_arms);
-        let list_any_bindings = std::mem::take(&mut linter.list_any_bindings);
-        linter.diagnostics.extend(list_any_bindings.finish());
-        let set_like_bindings = std::mem::take(&mut linter.set_like_bindings);
-        linter
-            .diagnostics
-            .extend(set_like_bindings.finish(source, prefer_set_advice));
-        let fail_candidates = std::mem::take(&mut linter.fail_candidates);
-        linter
-            .diagnostics
-            .extend(fail_candidates.finish(&program.arena, source));
-        // Offered declaration deletions suppress overlapping payload fixes.
-        // An incomplete check cannot prove every constructor call, so the
-        // implicit-message rule stays silent in that case.
-        let checked_message_payloads = linter.checked_output.as_deref().and_then(|checked| {
-            checked
-                .diagnostics
-                .iter()
-                .all(|diagnostic| diagnostic.severity != Severity::Error)
-                .then_some(&checked.message_payload_constructors)
-        });
-        if let Some(constructors) = message_payload_constructors
-            .as_ref()
-            .or(checked_message_payloads)
-        {
-            let implicit_messages = lint_implicit_message::lint_implicit_messages(
-                view,
-                source,
-                constructors,
-                &linter.diagnostics,
-            );
-            linter.diagnostics.extend(implicit_messages);
-        }
-        {
-            let callable_parameters = std::mem::take(&mut linter.callable_parameters);
-            let reports = callable_parameters.finish(
-                linter.arena,
-                source,
-                &linter.checked_function_returns,
-                &|body| linter.checked_effect_fact(body).cloned(),
-            );
-            linter.diagnostics.extend(reports);
-        }
+        rules::assert_fix_policy(&linter.diagnostics);
         let selection = &linter.rule_selection;
         linter
             .diagnostics
@@ -1269,11 +1205,11 @@ impl<'a> Linter<'a> {
         }
     }
 
-    fn lint_program(&mut self, statements: &[StmtId]) {
+    fn lint_program(&mut self, view: &CheckBundleView<'a>, statements: &[StmtId]) {
         self.collect_assigned_names(statements);
-        self.lint_import_blocks(statements);
-        self.lint_top_level_const_order(statements);
-        self.lint_prepared_constants(statements);
+        rules::root_hooks(self, rules::RootStage::ImportBlock, view, statements);
+        rules::root_hooks(self, rules::RootStage::TopLevelConstOrder, view, statements);
+        rules::root_hooks(self, rules::RootStage::PreparedConstants, view, statements);
         for &stmt_id in statements {
             let stmt = self.arena.stmt(stmt_id);
             let (inner_id, inner, is_exported) = match &stmt.kind {
@@ -1311,24 +1247,21 @@ impl<'a> Linter<'a> {
                 _ => {}
             }
         }
-        self.lint_list_comp_suggestions(statements);
-        self.lint_stream_producer_suggestions(statements);
-        prefer_tempdir::lint_scratch_directories(self, statements, None);
-        prefer_atomically::lint_published_files(self, statements, None);
-        prefer_within::lint_repeated_timeouts(self, statements);
-        prefer_collect::lint_built_lists(self, statements);
-        prefer_wait_until::lint_polling_loops(self, statements);
+        rules::root_sequence(self, statements);
         let close_diagnostic_index = self.diagnostics.len();
         self.lint_statement_sequence(statements);
-        let close_diagnostics = redundant_close::lint_deferred_root_closes(self, statements);
-        self.diagnostics
-            .splice(close_diagnostic_index..close_diagnostic_index, close_diagnostics);
-        self.lint_implicit_main(statements);
-        self.lint_unused_types();
+        rules::sequence_exit(
+            self,
+            rules::SequenceExit::Root,
+            statements,
+            close_diagnostic_index,
+        );
+        rules::root_hooks(self, rules::RootStage::ImplicitMain, view, statements);
+        rules::root_hooks(self, rules::RootStage::UnusedTypes, view, statements);
     }
 
     fn lint_declaration_reachability(&mut self, view: &CheckBundleView<'_>) {
-        if !self.dead_code {
+        if !rules::enabled(self, DiagnosticCode::LintDeadCode) {
             return;
         }
         self.diagnostics
@@ -1593,44 +1526,57 @@ impl<'a> Linter<'a> {
             statement_positions: &self.statement_positions,
             propagating_statements: &self.propagating_statements,
         };
-        let found = [
-            lint_redundant_propagation::redundant_propagation(
+        if rules::enabled(self, DiagnosticCode::LintRedundantPropagation) {
+            if let Some(finding) = lint_redundant_propagation::redundant_propagation(
                 self.arena,
                 self.source,
                 &facts,
                 statement,
-            ),
-            lint_redundant_scope_propagation::redundant_scope_propagation(
+            ) {
+                self.diagnostics.push(finding);
+            }
+        }
+        if rules::enabled(self, DiagnosticCode::LintRedundantScopePropagation)
+            && let Some(finding) = lint_redundant_scope_propagation::redundant_scope_propagation(
                 self.arena,
                 self.source,
                 &facts,
                 statement,
-            ),
-            lint_redundant_propagation::redundant_run_propagation(
-                self.arena,
-                self.source,
-                &facts,
-                statement,
-            ),
-            lint_redundant_propagation::redundant_defer_propagation(
-                self.arena,
-                self.source,
-                &facts,
-                statement,
-            ),
-            self.propagation_function
+            )
+        {
+            self.diagnostics.push(finding);
+        }
+        if rules::enabled(self, DiagnosticCode::LintRedundantPropagation) {
+            let found = [
+                lint_redundant_propagation::redundant_run_propagation(
+                    self.arena,
+                    self.source,
+                    &facts,
+                    statement,
+                ),
+                lint_redundant_propagation::redundant_defer_propagation(
+                    self.arena,
+                    self.source,
+                    &facts,
+                    statement,
+                ),
+            ];
+            self.diagnostics.extend(found.into_iter().flatten());
+        }
+        if rules::enabled(self, DiagnosticCode::LintPreferPropagation)
+            && let Some(allowed) = self
+                .propagation_function
                 .filter(|_| self.propagation_boundary_depth == 0)
-                .and_then(|allowed| {
-                    lint_prefer_propagation::repropagating_match(
-                        self.arena,
-                        self.source,
-                        &facts,
-                        statement,
-                        allowed,
-                    )
-                }),
-        ];
-        self.diagnostics.extend(found.into_iter().flatten());
+            && let Some(finding) = lint_prefer_propagation::repropagating_match(
+                self.arena,
+                self.source,
+                &facts,
+                statement,
+                allowed,
+            )
+        {
+            self.diagnostics.push(finding);
+        }
     }
 
     fn lint_core_assert(&mut self, stmt_span: Span, expression: ExprId) {
@@ -4054,16 +4000,44 @@ impl<'a> Linter<'a> {
     }
 
     fn lint_call_style(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
-        self.lint_named_argument_forwarding(args, span);
-        self.lint_path_constructor(callee, args, span);
-        self.lint_duration_conversion(callee, args, span);
-        self.lint_removed_lookup_fallback(callee, args, span);
-        self.lint_redundant_defaults(callee, args);
-        self.lint_prefer_in(callee, args, span);
-        self.lint_fs_root_receiver(callee, args, span);
-        self.lint_prefer_method(callee, args, span);
-        self.lint_join_to_concat(callee, args, span);
-        self.lint_prefer_slice(callee, args, span);
+        let selected = |linter: &Linter<'_>, code| linter.rule_selection.enabled(code);
+        if selected(self, DiagnosticCode::LintPreferNamedArgumentSpread) {
+            self.lint_named_argument_forwarding(args, span);
+        }
+        if selected(self, DiagnosticCode::LintPathConstructor) {
+            self.lint_path_constructor(callee, args, span);
+        }
+        if selected(self, DiagnosticCode::LintDurationArithmetic) {
+            self.lint_duration_conversion(callee, args, span);
+        }
+        if selected(self, DiagnosticCode::LintLookupFallback) {
+            self.lint_removed_lookup_fallback(callee, args, span);
+        }
+        if selected(self, DiagnosticCode::LintRedundantDefault) {
+            self.lint_redundant_defaults(callee, args);
+        }
+        if selected(self, DiagnosticCode::LintCoreAssert)
+            && let Some((module, name)) = self.standard_call_spans.get(&span).cloned()
+            && module == "test"
+            && matches!(name.as_str(), "ok" | "eq" | "ne" | "contains" | "not_contains")
+        {
+            self.lint_assertion_helper(args, span, &name);
+        }
+        if selected(self, DiagnosticCode::LintPreferIn) {
+            self.lint_prefer_in(callee, args, span);
+        }
+        if selected(self, DiagnosticCode::LintFsRootReceiver) {
+            self.lint_fs_root_receiver(callee, args, span);
+        }
+        if selected(self, DiagnosticCode::LintPreferMethod) {
+            self.lint_prefer_method(callee, args, span);
+        }
+        if selected(self, DiagnosticCode::LintPreferStringConcat) {
+            self.lint_join_to_concat(callee, args, span);
+        }
+        if selected(self, DiagnosticCode::LintPreferSlice) {
+            self.lint_prefer_slice(callee, args, span);
+        }
     }
 
     fn bare_field_label(&self, text: &str) -> bool {
@@ -4865,7 +4839,6 @@ impl<'a> Linter<'a> {
                     "ok" | "eq" | "ne" | "contains" | "not_contains"
                 )
             {
-                self.lint_assertion_helper(args, span, &name);
                 return;
             }
             if module == "set" && name == "has" {
@@ -5384,69 +5357,105 @@ impl<'a> Linter<'a> {
     // Path API migrations, each matched in its own file against the one
     // expression being visited.
     fn lint_path_migrations(&mut self, expr: ExprId) {
-        let found = [
-            lint_path_text_query::path_text_query(self.arena, self.source, &self.expr_types, expr),
-            lint_path_display_equality::path_display_equality(
+        let selected = |linter: &Linter<'_>, code| linter.rule_selection.enabled(code);
+        if selected(self, DiagnosticCode::LintPathTextQuery) {
+            self.diagnostics.extend(lint_path_text_query::path_text_query(
                 self.arena,
                 self.source,
                 &self.expr_types,
                 expr,
-            ),
-            lint_write_lines::write_lines(self.arena, self.source, &self.expr_types, expr),
-            lint_read_lines::read_lines(
+            ));
+        }
+        if selected(self, DiagnosticCode::LintPathDisplayEquality) {
+            self.diagnostics.extend(lint_path_display_equality::path_display_equality(
+                self.arena,
+                self.source,
+                &self.expr_types,
+                expr,
+            ));
+        }
+        if selected(self, DiagnosticCode::LintPreferWriteLines) {
+            self.diagnostics.extend(lint_write_lines::write_lines(
+                self.arena,
+                self.source,
+                &self.expr_types,
+                expr,
+            ));
+        }
+        if selected(self, DiagnosticCode::LintPreferReadLines) {
+            let findings = lint_read_lines::read_lines(
                 self.arena,
                 self.source,
                 &self.expr_types,
                 expr,
                 &self.diagnostics,
-            ),
-        ];
-        self.diagnostics.extend(found.into_iter().flatten());
-        let sinks = lint_path_display_sink::path_display_sinks(
-            self.arena,
-            self.source,
-            &self.expr_types,
-            expr,
-        );
-        self.diagnostics.extend(sinks);
-        let search_paths =
-            lint_env_path_list::env_path_lists(self.arena, self.source, &self.expr_types, expr);
-        self.diagnostics.extend(search_paths);
-        let kind =
-            lint_path_kind::path_kind_comparison(self.arena, self.source, &self.expr_types, expr);
-        self.diagnostics.extend(kind);
-        let fs_is_shadowed = self.scopes.iter().any(|scope| scope.contains_key("fs"));
-        let symlink =
-            lint_argument_label::positional_symlink(self.arena, self.source, fs_is_shadowed, expr);
-        self.diagnostics.extend(symlink);
-        if self.prefer_rel_path {
+            );
+            self.diagnostics.extend(findings);
+        }
+        if selected(self, DiagnosticCode::LintPathDisplaySink) {
+            self.diagnostics.extend(lint_path_display_sink::path_display_sinks(
+                self.arena,
+                self.source,
+                &self.expr_types,
+                expr,
+            ));
+        }
+        if selected(self, DiagnosticCode::LintPreferEnvPathList) {
+            self.diagnostics.extend(lint_env_path_list::env_path_lists(
+                self.arena,
+                self.source,
+                &self.expr_types,
+                expr,
+            ));
+        }
+        if selected(self, DiagnosticCode::LintPreferPathKind) {
+            self.diagnostics.extend(lint_path_kind::path_kind_comparison(
+                self.arena,
+                self.source,
+                &self.expr_types,
+                expr,
+            ));
+        }
+        if selected(self, DiagnosticCode::LintPreferArgumentLabel) {
+            let fs_is_shadowed = self.scopes.iter().any(|scope| scope.contains_key("fs"));
+            self.diagnostics.extend(lint_argument_label::positional_symlink(
+                self.arena,
+                self.source,
+                fs_is_shadowed,
+                expr,
+            ));
+        }
+        if selected(self, DiagnosticCode::LintPreferRelPath) {
             let rooted =
                 lint_prefer_rel_path::unvalidated_rooted_path(self.arena, &self.expr_types, expr);
             self.diagnostics.extend(rooted);
         }
-        let emptiness = lint_prefer_is_empty::length_compared_with_zero(
-            self.arena,
-            self.source,
-            &self.expr_types,
-            expr,
-        );
-        self.diagnostics.extend(emptiness);
-        let end_index = lint_prefer_negative_index::length_minus_literal_index(
-            self.arena,
-            self.source,
-            &self.expr_types,
-            expr,
-        );
-        self.diagnostics.extend(end_index);
-        let bytes_is_shadowed = self.scopes.iter().any(|scope| scope.contains_key("bytes"));
-        let conversion = lint_prefer_as_conversion::propagated_conversion(
-            self.arena,
-            self.source,
-            &self.expr_types,
-            bytes_is_shadowed,
-            expr,
-        );
-        self.diagnostics.extend(conversion);
+        if selected(self, DiagnosticCode::LintPreferIsEmpty) {
+            self.diagnostics.extend(lint_prefer_is_empty::length_compared_with_zero(
+                self.arena,
+                self.source,
+                &self.expr_types,
+                expr,
+            ));
+        }
+        if selected(self, DiagnosticCode::LintPreferNegativeIndex) {
+            self.diagnostics.extend(lint_prefer_negative_index::length_minus_literal_index(
+                self.arena,
+                self.source,
+                &self.expr_types,
+                expr,
+            ));
+        }
+        if selected(self, DiagnosticCode::LintPreferAsConversion) {
+            let bytes_is_shadowed = self.scopes.iter().any(|scope| scope.contains_key("bytes"));
+            self.diagnostics.extend(lint_prefer_as_conversion::propagated_conversion(
+                self.arena,
+                self.source,
+                &self.expr_types,
+                bytes_is_shadowed,
+                expr,
+            ));
+        }
     }
 
     fn lint_redundant_named_bool(
