@@ -17,7 +17,6 @@ use crate::source::SourceMap;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
-#[allow(dead_code)]
 impl Checker {
     pub(super) fn collect_user_modules_arena(
         &mut self,
@@ -874,7 +873,6 @@ fn module_type_from_user_signature(module: &UserModuleSig) -> Type {
     )))
 }
 
-#[allow(dead_code)]
 impl Checker {
     pub(super) fn import_user_module(
         &mut self,
@@ -1185,7 +1183,6 @@ fn params_arena(program: Arc<ArenaProgram>, range: ArenaRange) -> Vec<ContractPa
         .collect()
 }
 
-#[allow(dead_code)]
 impl Checker {
     pub(super) fn check_use_arena(
         &mut self,
