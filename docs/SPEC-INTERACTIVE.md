@@ -5,6 +5,11 @@ runner and `xsht` remains tooling-only. Interactive conveniences exist only
 inside `xshi`; they must not change `.xsh` script syntax, checking, runtime
 behavior, examples, docs generation, or tooling.
 
+The interactive implementation is enabled by the `laputa-asterinas` Cargo
+feature, which Laputa opts into only for its Asterinas shell guest. Builds
+without that feature retain a small executable stub and do not compile the
+interactive shell.
+
 ## 1. Reference Shell And Deviations
 
 `xshi` is behaviorally the `ish` shell built on XSH's process,
