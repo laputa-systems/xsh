@@ -14,6 +14,18 @@ fn compact_bounded_type(range: crate::sema::validated::IntRange, base: Type) -> 
     Type::bounded(range, base.clone()).unwrap_or(base)
 }
 
+pub(super) fn checked_type_annotation(
+    declarations: &CompactDeclOutput,
+    namespace: Option<Name>,
+    ty: TypeExprId,
+) -> Option<&Type> {
+    declarations
+        .bodies
+        .resolved_type_expressions
+        .annotations
+        .get(&(namespace, ty))
+}
+
 pub(super) fn stream_item_type(ty: &Type) -> Option<&Type> {
     match ty.unvalidated() {
         Type::List(item) | Type::Stream(item) => Some(item.as_ref()),
@@ -226,12 +238,9 @@ fn compact_record_type(
 
 pub(super) fn compact_type_check(
     kind: LoweredType,
-    arena: &AstArena,
-    ty: TypeExprId,
-    declarations: &CompactDeclOutput,
-    namespace: Option<Name>,
+    checked: &Type,
+    name: Arc<str>,
 ) -> Option<LoweredTypeCheck> {
-    let checked = compact_runtime_type_in_namespace(arena, ty, declarations, namespace);
     // A validated type stored as a scalar has a storage kind that says
     // nothing of the validation, so the type itself is tested where an
     // unchecked value arrives.
@@ -240,8 +249,8 @@ pub(super) fn compact_type_check(
         || checked.validated().is_some())
     .then(|| LoweredTypeCheck {
         schema: None,
-        ty: checked,
-        name: compact_type_expr_name(arena, ty),
+        ty: checked.clone(),
+        name,
     })
 }
 
@@ -673,21 +682,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 
     pub(super) fn lower_binding_checked_type(&self, ty: Option<TypeExprId>, value: ExprId) -> Option<Type> {
-        ty.map(|ty| {
-            compact_runtime_type_in_namespace(
-                &self.program.arena,
-                ty,
-                self.declarations,
-                self.current_namespace,
-            )
-        })
-        .or_else(|| {
-            self.bodies
-                .expr_types
-                .get(&value)
-                .filter(|ty| !matches!(ty, Type::Invalid))
-                .cloned()
-        })
+        match ty {
+            Some(ty) => checked_type_annotation(self.declarations, self.current_namespace, ty)
+                .cloned(),
+            None => {
+                self.bodies
+                    .expr_types
+                    .get(&value)
+                    .filter(|ty| !matches!(ty, Type::Invalid))
+                    .cloned()
+            }
+        }
     }
 
     pub(super) fn checked_unsigned_value(&mut self, value: BuildExprId, ty: &Type, span: Span) -> BuildExprId {
@@ -750,14 +755,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         if lowered_type_needs_static_check(kind) || matches!(checked_ty, Some(Type::UInt)) {
             let check = LoweredTypeCheck {
                 schema: None,
-                ty: checked_ty.cloned().unwrap_or_else(|| {
-                    compact_runtime_type_in_namespace(
-                        &self.program.arena,
-                        ty,
+                ty: match checked_ty {
+                    Some(ty) => ty.clone(),
+                    None => checked_type_annotation(
                         self.declarations,
                         self.current_namespace,
-                    )
-                }),
+                        ty,
+                    )?
+                    .clone(),
+                },
                 name: compact_type_expr_name(&self.program.arena, ty),
             };
             Some(push_build_row!(
@@ -881,11 +887,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 
     pub(super) fn lowered_return_kind(&self, ty: TypeExprId) -> Option<LoweredReturnKind> {
-        let ty = self
-            .bodies
-            .resolved_type_expressions
-            .annotations
-            .get(&(self.current_namespace, ty))?;
+        let ty = checked_type_annotation(self.declarations, self.current_namespace, ty)?;
         match ty.unvalidated() {
             Type::Result(ok, _) => Some(LoweredReturnKind::Result(lowered_checked_type(ok)?)),
             Type::Optional(inner) if matches!(inner.unvalidated(), Type::Result(_, _)) => {
