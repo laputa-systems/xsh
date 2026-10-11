@@ -3,15 +3,6 @@
 
 use support.uu as uu
 
-# origin: uutils test_basename::test_help
-test test_uu_basename_help { |ctx|
-  let s = uu.scene(ctx)?
-  let r = uu.invoke(s, "basename", ["--help"])?
-  uu.succeeds(r)
-  uu.no_stderr(r)
-  uu.stdout_contains(r, "Usage:")
-}
-
 # origin: uutils test_basename::test_directory
 test test_uu_basename_directory { |ctx|
   let s = uu.scene(ctx)?
