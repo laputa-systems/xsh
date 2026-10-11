@@ -1,5 +1,46 @@
 # Consolidation restart handoff
 
+## Recount and reader preparation — 2026-10-11, `78aaa3af`
+
+The exact `6db4c917` production recount is complete. `src` has 193,062
+lexical lines against 189,274 at the start, only 112 below its interim
+193,174 ceiling. `crates/xsht/src` has 49,710 against 49,968, below its
+50,368 interim ceiling. Positive runtime and module work therefore waits for
+a genuinely source-deleting batch. The full private lint table and proof
+transport also need additional deletion before their combined batch fits the
+xsht envelope. Final strict shrink remains required for both roots.
+
+The same source-bound scan reports zero lowering type resolvers, one static
+type predicate, two storage mappings, 916 manual payload calls, 42 optional
+raw calls, five remaining wide arena matches, five machine factory sites,
+and 10,770 lines under the remaining indexed blanket. The live inventory at
+this revision is still 158 instructions, 18 patterns and 46 stages. Recount
+and provenance artifacts are in the private `root6db4c917` worktree under
+`.work/consolidation/recount-6db4c917/`; scanner SHA is
+`da2c3e70cf6cc08e79ff7eba3ce5ebaf05848203cd7f21797150141155f35e79`.
+
+`c78a8031` accepts the focused pattern mismatch test. Its isolated frozen
+profile proves the previously zero Facet and Tag completion reads; the
+coverage overlay is separate from the original aggregate. Exact writer/caller
+audits qualify unreachable specialized error-pattern, archive and recursive
+pattern-control paths. The frozen StmtProc gap now has an isolated native
+profile with nonzero payload and completion reads; its new fixture still
+needs the current opaque-Any validation migration before integration.
+
+The CoreAssert migration fixture fails identically under three frozen pairs.
+Its retained recheck assertion also rejects the fixer's redundant parentheses,
+so this is an existing invalid-fix bug, not permission to change the expected
+text and accept unchecked fixes. The repair remains private. Independent
+frame review found that operand-classified rows could enter a new machine
+through an enclosing in-place selection; the private fix marks those rows
+scheduled and retains a test-first verifier regression. Neither candidate is
+accepted yet.
+
+The campaign skill now records the owner's Luna xhigh policy. Stopped
+accepted-lane incremental caches were removed with receipts under root
+`.work/consolidation/restart/`; binaries, harnesses, source evidence and all
+original coverage data remain preserved. No final gate is claimed.
+
 ## Integration checkpoint — 2026-10-11, `bfb18460`
 
 The campaign remains active under the owner's unattended completion instruction.
