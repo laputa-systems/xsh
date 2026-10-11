@@ -1,6 +1,6 @@
 # Design: one evaluator, two ways to schedule operands
 
-Status: proposed 2026-10-10, awaiting owner approval. Part of workstream 2 of
+Status: approved by the owner 2026-10-11 (drafted 2026-10-10). Part of workstream 2 of
 `../CAMPAIGN.md`. Carries decision D1. Internal: nothing a script observes
 changes except the three corrections listed under "Observable".
 

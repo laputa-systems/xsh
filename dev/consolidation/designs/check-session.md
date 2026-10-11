@@ -1,6 +1,6 @@
 # Design: one check session
 
-Status: proposed 2026-10-10, awaiting owner approval. Part of workstream 4 of
+Status: approved by the owner 2026-10-11 (drafted 2026-10-10). Part of workstream 4 of
 `../CAMPAIGN.md`.
 
 ## Rule

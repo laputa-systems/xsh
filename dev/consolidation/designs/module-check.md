@@ -1,6 +1,6 @@
 # Design: check a module once
 
-Status: proposed 2026-10-10, awaiting owner approval. Part of workstream 9 of
+Status: approved by the owner 2026-10-11 (drafted 2026-10-10). Part of workstream 9 of
 `../CAMPAIGN.md`. Depends on the one loader in `check-session.md`.
 
 ## Problem, measured from source

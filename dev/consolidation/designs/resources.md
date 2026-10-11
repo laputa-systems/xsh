@@ -1,6 +1,6 @@
 # Design: one resource rule
 
-Status: proposed 2026-10-10, awaiting owner approval. Part of workstream 8 of
+Status: approved by the owner 2026-10-11 (drafted 2026-10-10). Part of workstream 8 of
 `../CAMPAIGN.md`. Carries decisions D3, D5, and D12.
 
 ## The rule

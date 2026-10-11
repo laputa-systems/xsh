@@ -1,10 +1,11 @@
 # XSH Consolidation Campaign
 
-Status: Setup may start before compatibility correctness closes (drafted
-2026-10-10; sequence and Codex policy revised 2026-10-11). The decisions under
-"Decisions" are made. The six designs under "Designs" are drafted and await
-approval before their affected workstreams start. Nothing in this document
-has been implemented.
+Status: active, Setup in progress. The owner approved the entire campaign
+and all six designs on 2026-10-11, including the Codex model policy and
+completeness-first sequence. The start commit is
+`5e66b6b896a47d0c692739135d51200b007a2a67`; integration is on `consolidation`
+in a separate worktree. Implementation and gate evidence are tracked in
+`ITEMS.md` and the handoff log.
 
 The campaign runs unattended: once started it never waits for the owner.
 Every question it would otherwise ask is answered here or in a design file
@@ -114,11 +115,13 @@ integrator; a lane that needs one files a `Requests:` line. Most of this work
 lands in a few large files, so isolation is scheduled, not free: Setup
 partitions those files, and items that still collide run in series.
 
-**Tests are the oracle.** No lane weakens, skips, deletes, or rewrites the
-expected text of an existing test to pass. There are no exceptions during the
-campaign. A lane that believes a test is wrong parks its item with the
-evidence. The one sanctioned change to existing tests is a migration a design
-file names, applied by the lint rule that design defines.
+**Tests are the oracle.** No lane weakens, skips, or deletes coverage to
+make a patch pass. On 2026-10-11 the owner explicitly approved updating
+existing expectations that contradict the newly approved contracts, while
+retaining their coverage and recording every migration in the handoff log.
+The concrete starting conflicts are listed in `ITEMS.md`; each replacement
+asserts the approved behavior. Other suspected incorrect tests are reported
+with evidence. Design-specified migrations remain authorized.
 
 **Acceptance.** The same mechanical gate accepts a lane and its merge:
 
@@ -178,8 +181,8 @@ the item. Nothing is pushed.
   A design whose facts no longer hold is not repaired: its workstream is
   parked whole.
 - **Park, never ask.** An item is parked, with its evidence, when it would
-  need a contract change that was not approved, when a test appears to be
-  wrong, when it reaches twice its size budget, or when its gate cannot be
+  need a contract change that was not approved, when an unapproved test
+  correction is needed, when it reaches twice its size budget, or when its gate cannot be
   made green. The lane's branch is kept and the worktree removed. Work that
   does not depend on a parked item continues. Three parked items in one
   workstream park the rest of that workstream.
@@ -658,18 +661,17 @@ be taken at the start commit is written as a rule with its threshold, not
 left open.
 
 Four change what a user of the language or its tools sees, and two are
-internal but costly to get wrong. All six are drafted; each must be approved
-before its affected workstream starts. Pending approval does not block Setup
-or independent work under already approved contracts.
+internal but costly to get wrong. All six were approved by the owner on 2026-10-11. Setup and
+implementation proceed after their facts and prerequisites are checked.
 
 | File | Settles | Status |
 |---|---|---|
-| `any.md` | What an `Any` permits and the migration. The escape hatch is the existing `json.get`, so no spelling is added | proposed |
-| `check-session.md` | One set of check diagnostics for every tool; which stage reports what; one code for an unresolved import | proposed |
-| `resources.md` | The one resource rule and its table; `FsLock` as a type; scope ownership of roots, locks, and streams; moving ownership by type; `check.use-after-release`; the migration | proposed |
-| `effects.md` | Socket calls in `linux` and `unix` need `net` | proposed |
-| `module-check.md` | Checking a module once: what a module's check depends on, the three defects that make it depend on its importer, the per-module driver, reuse | proposed |
-| `evaluator.md` | The in-place mark and what the verifier proves; apply functions; the order in which nested machines are removed | proposed |
+| `any.md` | What an `Any` permits and the migration. The escape hatch is the existing `json.get`, so no spelling is added | approved 2026-10-11 |
+| `check-session.md` | One set of check diagnostics for every tool; which stage reports what; one code for an unresolved import | approved 2026-10-11 |
+| `resources.md` | The one resource rule and its table; `FsLock` as a type; scope ownership of roots, locks, and streams; moving ownership by type; `check.use-after-release`; the migration | approved 2026-10-11 |
+| `effects.md` | Socket calls in `linux` and `unix` need `net` | approved 2026-10-11 |
+| `module-check.md` | Checking a module once: what a module's check depends on, the three defects that make it depend on its importer, the per-module driver, reuse | approved 2026-10-11 |
+| `evaluator.md` | The in-place mark and what the verifier proves; apply functions; the order in which nested machines are removed | approved 2026-10-11 |
 
 Three are internal shapes with no contract and no decision left for the
 owner. The integrator writes each in Setup, within the end state its
@@ -699,5 +701,26 @@ time and native-suite time, with thin LTO excluded.
 
 ## Handoff log
 
-Empty. Dated entries are added at the top of this section once the campaign
-starts.
+### 2026-10-11 — approval and Setup started
+
+- Owner approved the entire campaign and all six designs, and requested
+  implementation through completion without stopping.
+- Start commit: `5e66b6b896a47d0c692739135d51200b007a2a67`. Consolidation has
+  its own integration worktree and branch; compatibility remains separate.
+- Fifteen independent scouts revalidated code facts and planned exclusive
+  implementation slices. Sol-only lane settings are enforced explicitly.
+- Owner selected native x86_64 musl development verification in the same
+  `Dockerfile.test` environment, with aarch64 final verification. Baseline
+  gates and coverage are pending; the ARM image is being prepared separately.
+- Owner resolved the concrete oracle conflicts in `ITEMS.md`: approved
+  contracts take precedence over prior expectations, preserving coverage and
+  logging each migration.
+- D12 recount found zero roots and zero locks in the derived-value hazard
+  row across this start commit and Laputa `048592b0`; scope ownership may
+  proceed. The draft's 731-site denominator was not reproduced.
+- Structural starting counts from source: 158 instructions, 18 patterns,
+  46 stages, 922 hand-ordered read/finish calls plus 43 optional reads,
+  57 wide wildcard matches including aliased pattern matches. Raw Rust
+  physical lines include inline tests and are not the non-test baseline.
+- Stale design examples are corrected against source evidence without
+  inventing APIs. Independent Setup and implementation preparation continue.
