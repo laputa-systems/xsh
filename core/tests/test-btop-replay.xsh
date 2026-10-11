@@ -44,6 +44,7 @@ test test_btop_b3_fixture_raw_sources_match_frozen_digests {
   assert bundle.read_bytes(p"frames/0/proc/meminfo")?.sha256().hex() == "5eb49555bb8760e441cb32d6be6ed9dfb7db207bba7a5ba9942b0d644d407a37"
   assert bundle.read_bytes(p"frames/0/proc/net/dev")?.sha256().hex() == "109413ba19cda5adaf5d86b6d0b2846695db0450b3384865cd8e3bc94bf9a7b8"
   assert bundle.read_bytes(p"frames/1/proc/net/dev")?.sha256().hex() == "5a57468231108652c6f00d64ac3075c83c9a143b0930cd1f06585eebaf6dfa26"
+  assert bundle.read_bytes(p"frames/0/sys/class/net/eth0/ifindex")?.sha256().hex() == "53c234e5e8472b6ac51c1ae1cab3fe06fad053beb8ebfd8977b010655bfdd3c3"
   assert bundle.read_bytes(p"frames/0/proc/42/stat")?.sha256().hex() == "b88086dd0d70c6b9b44cfda6ee07f83dc4bb5882b86652bdc6c47c2b5d4395ca"
   assert bundle.read_bytes(p"frames/1/proc/42/stat")?.sha256().hex() == "f212e62d305d16e8487e75583e552e5df512b389753db23480d74446df225002"
 }

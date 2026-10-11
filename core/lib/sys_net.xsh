@@ -6,7 +6,7 @@ use sys_source as src
 use system_report as report
 
 ## Keeps one interface's name and byte counters from a complete kernel row.
-export type NetworkInterface = {name: Str, rx_bytes: Int, tx_bytes: Int}
+export type NetworkInterface = {name: Str, ifindex: Int?, rx_bytes: Int, tx_bytes: Int}
 ## Preserves valid rows alongside source state and field-level issues.
 export type NetworkSource = {
   state: report.ObservationState,
@@ -60,7 +60,7 @@ export pure parse(source: src.SourceRead) -> NetworkSource {
       issues += [src.issue(f"network.{name}", state ?? report.Malformed, "invalid_netdev_counter", null)]
       continue
     }
-    interfaces += [{name: name, rx_bytes: counters[0], tx_bytes: counters[8]}]
+    interfaces += [{name: name, ifindex: null, rx_bytes: counters[0], tx_bytes: counters[8]}]
   }
 
   {state: report.Observed, interfaces: interfaces |> sort-by .name, issues: issues}
@@ -68,7 +68,31 @@ export pure parse(source: src.SourceRead) -> NetworkSource {
 
 ## Reads a complete network-interface table from the caller-owned root.
 export proc collect(root: FsRoot) [fs, error] -> NetworkSource {
-  parse(src.read_source_text(root, p"proc/net/dev", max_bytes: 1048576))
+  let parsed = parse(src.read_source_text(root, p"proc/net/dev", max_bytes: 1048576))
+  if parsed.state != report.Observed {
+    return parsed
+  }
+
+  var interfaces: List[NetworkInterface] = []
+  var issues = parsed.issues
+  for item in parsed.interfaces {
+    let source = src.read_source_text(root, fp"sys/class/net/{item.name}/ifindex", max_bytes: 128)
+    if source.observation.state != report.Observed or source.observation.value == null {
+      issues += [src.issue(f"network.{item.name}.ifindex", source.observation.state, source.error_kind, source.errno)]
+      interfaces += [{...item, ifindex: null}]
+      continue
+    }
+    let raw = (source.observation.value ?? "").trim()
+    let parsed_index = src.parse_integer(raw)
+    if parsed_index == null or (parsed_index ?? 0) <= 0 {
+      let state = if src.decimal_digits(raw) { report.RangeFailure } else { report.Malformed }
+      issues += [src.issue(f"network.{item.name}.ifindex", state, "invalid_interface_index", null)]
+      interfaces += [{...item, ifindex: null}]
+      continue
+    }
+    interfaces += [{...item, ifindex: parsed_index}]
+  }
+  {...parsed, interfaces: interfaces, issues: issues}
 }
 
 ## Selects the first name-sorted non-loopback interface, falling back to loopback only.

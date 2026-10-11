@@ -113,6 +113,52 @@ test test_btop_model_does_not_mix_source_identities_or_invalid_intervals {
   assert invalid.processes[0].cpu_percent.state == rates.Invalid
 }
 
+test test_btop_network_name_changes_and_replacement_start_new_counter_epochs {
+  let bundle = fs.tempdir()?
+  defer bundle.close()
+  fixture.write_b3_frame(bundle, "frames/000000", 0, default_processes())
+  fixture.write_b3_frame(bundle, "frames/000001", 1, default_processes())
+  let before = capture(bundle, p"frames/000000", "net-epoch", 1000000000, 0)?
+  let previous = model.step(before, null)
+
+  bundle.write(p"frames/000001/sys/class/net/eth0/ifindex", "3\n")
+  let replaced = capture(bundle, p"frames/000001", "net-epoch", 2000000000, 1)?
+  let replacement = model.step(replaced, before)
+  assert replacement.network.interface_name == "eth0"
+  assert replacement.network.rx_bytes_per_second.state == rates.Warming
+
+  bundle.write(
+    p"frames/000001/proc/net/dev",
+    "Inter-| Receive                                                | Transmit\n face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\nenp0: 1010240 100 0 0 0 0 0 0 502048 100 0 0 0 0 0 0\nlo: 64 1 0 0 0 0 0 0 64 1 0 0 0 0 0 0\n",
+  )
+  bundle.mkdir(p"frames/000001/sys/class/net/enp0", parents: true)
+  bundle.write(p"frames/000001/sys/class/net/enp0/ifindex", "2\n")
+  let renamed = capture(bundle, p"frames/000001", "net-epoch", 2000000000, 1)?
+  let rename_step = model.step(renamed, before)
+  assert rename_step.network.interface_name == "enp0"
+  assert rename_step.network.rx_bytes_per_second.state == rates.Warming
+
+  bundle.write(
+    p"frames/000001/proc/net/dev",
+    "Inter-| Receive                                                | Transmit\n face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\neth0: 999999 100 0 0 0 0 0 0 499999 100 0 0 0 0 0 0\nlo: 64 1 0 0 0 0 0 0 64 1 0 0 0 0 0 0\n",
+  )
+  bundle.write(p"frames/000001/sys/class/net/eth0/ifindex", "2\n")
+  let reset = capture(bundle, p"frames/000001", "net-epoch", 2000000000, 1)?
+  let reset_step = model.step(reset, before)
+  assert reset_step.network.rx_bytes_per_second.state == rates.Reset
+  assert previous.network.rx_bytes_per_second.state == rates.Warming
+
+  var previous_observation = before
+  for index in range(40) {
+    let epoch = 10 + index
+    bundle.write(p"frames/000001/sys/class/net/eth0/ifindex", f"{epoch}\n")
+    let current = capture(bundle, p"frames/000001", "net-epoch", 3000000000 + index * 1000000000, index)?
+    let current_model = model.step(current, previous_observation)
+    assert current_model.network.rx_bytes_per_second.state == rates.Warming
+    previous_observation = current
+  }
+}
+
 test test_btop_process_uid_cache_expires_and_invalidates_on_exec_or_credentials {
   let bundle = fs.tempdir()?
   defer bundle.close()

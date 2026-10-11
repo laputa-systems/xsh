@@ -47,6 +47,10 @@ export proc write_b3_frame(root: FsRoot, prefix: Str, index: Int, process_rows: 
     fp"{frame}/net/dev",
     f"Inter-| Receive                                                | Transmit\n face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\neth0: {receive} 100 0 0 0 0 0 0 {transmit} 100 0 0 0 0 0 0\nlo: 64 1 0 0 0 0 0 0 64 1 0 0 0 0 0 0\n",
   )
+  root.mkdir(fp"{prefix}/sys/class/net/eth0", parents: true)
+  root.write(fp"{prefix}/sys/class/net/eth0/ifindex", "2\n")
+  root.mkdir(fp"{prefix}/sys/class/net/lo", parents: true)
+  root.write(fp"{prefix}/sys/class/net/lo/ifindex", "1\n")
   for row in process_rows {
     let directory = fp"{frame}/{row.pid}"
     root.mkdir(directory, parents: true)

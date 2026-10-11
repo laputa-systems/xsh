@@ -657,10 +657,13 @@
     {
       "id": "g3.cache.eviction",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-model.xsh::test_btop_process_uid_cache_evicts_exits_and_pid_reuse",
+        "core/tests/test-btop-model.xsh::test_btop_network_name_changes_and_replacement_start_new_counter_epochs"
+      ],
+      "evidence": "Host release: .work/btop-campaign/g3-btop-regression.log passed 51/51 native btop tests. Network counter history is accepted only when both interface name and positive sysfs ifindex match; PID metadata is retained only for live current identities."
     },
     {
       "id": "g3.cpu.per_core",
@@ -801,50 +804,63 @@
     {
       "id": "g3.net.selection",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_network_source_selects_name_order_and_skips_loopback"
+      ],
+      "evidence": "Host release: .work/btop-campaign/g3-btop-regression.log passed 51/51 native btop tests. Network counter history is accepted only when both interface name and positive sysfs ifindex match; PID metadata is retained only for live current identities."
     },
     {
       "id": "g3.net.rename_epoch",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-model.xsh::test_btop_network_name_changes_and_replacement_start_new_counter_epochs"
+      ],
+      "evidence": "Host release: .work/btop-campaign/g3-btop-regression.log passed 51/51 native btop tests. Network counter history is accepted only when both interface name and positive sysfs ifindex match; PID metadata is retained only for live current identities."
     },
     {
       "id": "g3.net.replacement_epoch",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-model.xsh::test_btop_network_name_changes_and_replacement_start_new_counter_epochs"
+      ],
+      "evidence": "Host release: .work/btop-campaign/g3-btop-regression.log passed 51/51 native btop tests. Network counter history is accepted only when both interface name and positive sysfs ifindex match; PID metadata is retained only for live current identities."
     },
     {
       "id": "g3.net.reset",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-model.xsh::test_btop_network_name_changes_and_replacement_start_new_counter_epochs",
+        "core/tests/test-btop-sources.xsh::test_btop_rates_distinguish_warming_idle_reset_and_invalid_interval"
+      ],
+      "evidence": "Host release: .work/btop-campaign/g3-btop-regression.log passed 51/51 native btop tests. Network counter history is accepted only when both interface name and positive sysfs ifindex match; PID metadata is retained only for live current identities."
     },
     {
       "id": "g3.net.empty_set",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_network_source_distinguishes_empty_from_unavailable"
+      ],
+      "evidence": "Host release: .work/btop-campaign/g3-btop-regression.log passed 51/51 native btop tests. Network counter history is accepted only when both interface name and positive sysfs ifindex match; PID metadata is retained only for live current identities."
     },
     {
       "id": "g3.net.namespace",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-model.xsh::test_btop_model_does_not_mix_source_identities_or_invalid_intervals"
+      ],
+      "evidence": "Host release: .work/btop-campaign/g3-btop-regression.log passed 51/51 native btop tests. Network counter history is accepted only when both interface name and positive sysfs ifindex match; PID metadata is retained only for live current identities."
     },
     {
       "id": "g3.net.units",
@@ -1049,10 +1065,13 @@
     {
       "id": "g3.cache.churn_bounded",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-model.xsh::test_btop_process_uid_cache_evicts_exits_and_pid_reuse",
+        "core/tests/test-btop-model.xsh::test_btop_network_name_changes_and_replacement_start_new_counter_epochs"
+      ],
+      "evidence": "Host release: .work/btop-campaign/g3-btop-regression.log passed 51/51 native btop tests. Network counter history is accepted only when both interface name and positive sysfs ifindex match; PID metadata is retained only for live current identities."
     },
     {
       "id": "g3.source.degradation",
@@ -1515,14 +1534,14 @@
     "g3_s3_1": {
       "host_only": true,
       "native_monitor_tests": {
-        "passed": 49,
+        "passed": 51,
         "failed": 0,
         "log": ".work/btop-campaign/g3-btop-regression.log"
       },
       "model_tests": {
-        "passed": 5,
+        "passed": 6,
         "failed": 0,
-        "log": ".work/btop-campaign/g3-model-tests.log"
+        "log": ".work/btop-campaign/g3-btop-regression.log"
       },
       "schedule_tests": {
         "passed": 4,
@@ -1530,7 +1549,17 @@
         "log": ".work/btop-campaign/g3-schedule-tests.log"
       },
       "uid_cache_ttl_ns": 5000000000,
-      "uid_cache_bound": "only identities in the current process inventory survive one model step; source, command, start time, and observation age gate reuse"
+      "uid_cache_bound": "only identities in the current process inventory survive one model step; source, command, start time, and observation age gate reuse",
+      "network_source_tests": {
+        "passed": 11,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-btop-regression.log"
+      },
+      "identity_churn_cases": {
+        "process_identities": 40,
+        "network_device_epochs": 40,
+        "old_rate_history_reused": false
+      }
     }
   },
   "defaults": [
@@ -1872,6 +1901,6 @@
     }
   ],
   "next": [
-    "G3 S3.1: finish identity-cache eviction across network device epochs; then continue with CPU accounting, reset, load, uptime, topology, and frequency fixtures."
+    "G3 S3.2: extend per-core CPU derivation and fixtures for sparse IDs, hotplug, guest accounting, iowait correction, resets, load, uptime, core mapping, and frequency."
   ]
 }

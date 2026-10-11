@@ -163,7 +163,7 @@ pure interface_rate(
 
   if let prior = observed_interface(before.network) {
     let now = current
-    if prior.name != now.name {
+    if prior.name != now.name or prior.ifindex == null or now.ifindex == null or prior.ifindex != now.ifindex {
       return rate(rates.Warming)
     }
 

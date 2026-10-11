@@ -117,7 +117,7 @@ than 80 by 24 displays a safe size message.
 | Aggregate CPU usage | `/proc/stat` aggregate `cpu` row | `sys_cpu.parse_stat`, then `btop_rates.cpu_percent` | ticks, counter interval | Nonnegative signed 64-bit fields; incomplete source withheld |
 | Uptime and load | `/proc/uptime`, `/proc/loadavg` | `sys_cpu.parse_uptime`, `sys_cpu.parse_loadavg` | seconds and load averages, gauges | Bounded reads; malformed values withheld |
 | Total, available, used memory and swap | `/proc/meminfo` | `sys_mem.parse`, then `btop_rates.used_bytes` | bytes, gauges | kB-to-byte conversion checked against signed 64-bit range |
-| Interface name, RX/TX totals and rates | `/proc/net/dev` | `sys_net.parse`, `sys_net.selected_interface`, `btop_rates.counter_rate` | bytes and bytes/second; totals are counters | Bounded read; nonnegative signed 64-bit counters |
+| Interface name, RX/TX totals and rates | `/proc/net/dev`, `/sys/class/net/[name]/ifindex` | `sys_net.collect`, `sys_net.selected_interface`, `btop_rates.counter_rate` | bytes and bytes/second; totals are counters | Bounded reads; rates require matching observed interface indices across samples |
 | PID, UID, command, CPU and RSS | `/proc/[pid]/stat`, `status`, `statm` | `sys_proc.collect`, `system_report_live.parse_proc_stat`, `btop_rates.process_percent` | identity, ticks and bytes | PID/start-time race is withheld; RSS page conversion is checked; cached UID expires after five seconds |
 
 The system-report and btop paths share the `/proc/meminfo` parser. Process

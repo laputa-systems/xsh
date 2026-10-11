@@ -102,12 +102,19 @@ test test_btop_network_source_selects_name_order_and_skips_loopback {
     p"proc/net/dev",
     "Inter-| Receive                                                | Transmit\n face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\nlo: 10 1 0 0 0 0 0 0 20 1 0 0 0 0 0 0\neth1: 30 1 0 0 0 0 0 0 40 1 0 0 0 0 0 0\neth0: 50 1 0 0 0 0 0 0 60 1 0 0 0 0 0 0\n",
   )
+  root.mkdir(p"sys/class/net/eth0", parents: true)
+  root.write(p"sys/class/net/eth0/ifindex", "2\n")
+  root.mkdir(p"sys/class/net/eth1", parents: true)
+  root.write(p"sys/class/net/eth1/ifindex", "3\n")
+  root.mkdir(p"sys/class/net/lo", parents: true)
+  root.write(p"sys/class/net/lo/ifindex", "1\n")
 
   let sample = network.collect(root)
   assert sample.state == report.Observed
   assert [item.name for item in sample.interfaces] == ["eth0", "eth1", "lo"]
   let selected = network.select_interface(sample.interfaces)?
   assert selected.name == "eth0"
+  assert selected.ifindex == 2
   assert selected.rx_bytes == 50 and selected.tx_bytes == 60
 }
 
@@ -120,6 +127,26 @@ test test_btop_network_source_distinguishes_empty_from_unavailable {
   root.write(p"proc/net/dev", "Inter-| Receive | Transmit\n face |bytes packets|bytes packets\n")
   let empty = network.collect(root)
   assert empty.state == report.Observed and empty.interfaces == []
+}
+
+test test_btop_network_identity_requires_a_positive_sysfs_index {
+  let root = fs.tempdir()?
+  defer root.close()
+  root.mkdir(p"proc/net", parents: true)
+  root.mkdir(p"sys/class/net/eth0", parents: true)
+  root.write(
+    p"proc/net/dev",
+    "Inter-| Receive | Transmit\n face |bytes packets|bytes packets\neth0: 10 1 0 0 0 0 0 0 20 1 0 0 0 0 0 0\n",
+  )
+  root.write(p"sys/class/net/eth0/ifindex", "0\n")
+  let invalid = network.collect(root)
+  assert invalid.interfaces[0].ifindex == null
+  assert invalid.issues[0].state == report.RangeFailure
+
+  root.remove(p"sys/class/net/eth0/ifindex")
+  let absent = network.collect(root)
+  assert absent.interfaces[0].ifindex == null
+  assert absent.issues[0].state == report.Absent
 }
 
 test test_btop_process_source_keeps_identity_uid_cpu_ticks_and_rss {
