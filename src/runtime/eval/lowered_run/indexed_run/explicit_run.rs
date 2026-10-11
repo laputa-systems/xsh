@@ -998,6 +998,11 @@ enum FrameContinuation {
         span: Span,
         next: Box<FrameContinuation>,
     },
+    UtilsCacheResult {
+        key: String,
+        span: Span,
+        next: Box<FrameContinuation>,
+    },
     BinaryLeft {
         op: BinaryOp,
         right: u32,
@@ -1386,7 +1391,8 @@ impl FrameContinuation {
             | C::MethodReceiver { next, .. }
             | C::FmtValue { next, .. }
             | C::ResultFallback { next, .. }
-            | C::RecordUpdateBase { next, .. } => next.visit_retained_values(visitor),
+            | C::RecordUpdateBase { next, .. }
+            | C::UtilsCacheResult { next, .. } => next.visit_retained_values(visitor),
             C::ApplyOperands { values, next, .. } => {
                 for value in values {
                     if let super::FrameApplyValue::Value(value) = value {
@@ -1480,6 +1486,7 @@ fn with_initializer_handler(
             | FrameContinuation::IndexValue { next, .. }
             | FrameContinuation::IndexFromEnd { next, .. }
             | FrameContinuation::ModuleArguments { next, .. }
+            | FrameContinuation::UtilsCacheResult { next, .. }
             | FrameContinuation::ComparisonLeft { next, .. }
             | FrameContinuation::ComparisonRight { next, .. }
             | FrameContinuation::BinaryLeft { next, .. }
@@ -2816,6 +2823,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Some(&name),
                 TracePayload::None,
             );
+            if let Some(FrameContinuation::UtilsCacheResult { span, .. }) =
+                call.return_to.as_ref()
+            {
+                self.evaluator.trace_lowered_utils_cache_result(*span);
+            }
         }
     }
 
@@ -5507,6 +5519,22 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },
+            FrameContinuation::UtilsCacheResult { key, span, next } => {
+                let value = match value {
+                    FrameValue::Value(value) => {
+                        let result = self
+                            .evaluator
+                            .finish_lowered_utils_cache_frame(key, value, span);
+                        self.evaluator.trace_lowered_utils_cache_result(span);
+                        FrameValue::Value(result?)
+                    }
+                    FrameValue::Break(value) => {
+                        self.evaluator.trace_lowered_utils_cache_result(span);
+                        FrameValue::Break(value)
+                    }
+                };
+                self.push_value(index, value, *next);
+            }
             FrameContinuation::WithBinding {
                 bindings,
                 position,
@@ -7917,6 +7945,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             values.push(None);
             position += 1;
         }
+        if op == super::RuntimeOp::UtilsCache {
+            return self.step_utils_cache(
+                index,
+                super::super::NativeArgumentValues::new(values),
+                span,
+                next,
+            );
+        }
         let flow = self.evaluator.eval_indexed_module_call_values(
             op,
             super::super::NativeArgumentValues::new(values),
@@ -7932,6 +7968,92 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             next,
         );
         Ok(())
+    }
+
+    fn step_utils_cache(
+        &mut self,
+        index: usize,
+        values: super::super::NativeArgumentValues,
+        span: Span,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        self.evaluator.trace_lowered_utils_cache_call(span);
+        match self.step_utils_cache_after_trace(values, span, next) {
+            Ok(Some((value, next))) => {
+                self.evaluator.trace_lowered_utils_cache_result(span);
+                self.push_value(index, FrameValue::Value(value), next);
+                Ok(())
+            }
+            Ok(None) => Ok(()),
+            Err(error) => {
+                self.evaluator.trace_lowered_utils_cache_result(span);
+                Err(error)
+            }
+        }
+    }
+
+    fn step_utils_cache_after_trace(
+        &mut self,
+        values: super::super::NativeArgumentValues,
+        span: Span,
+        next: FrameContinuation,
+    ) -> Result<Option<(LoweredValue, FrameContinuation)>, RuntimeError> {
+        use super::super::module_utils::LoweredUtilsCacheLookup;
+
+        let lookup = self
+            .evaluator
+            .prepare_lowered_utils_cache_values(values, span)?;
+        let miss = match lookup {
+            LoweredUtilsCacheLookup::Hit(value) => return Ok(Some((value, next))),
+            LoweredUtilsCacheLookup::Miss(miss) => miss,
+        };
+        let view = self
+            .program
+            .function_view(miss.function, miss.kind)
+            .map_err(|error| indexed_error(error, span))?;
+        let Some(view) = view else {
+            // The active execution borrows one program, so a callback owned by
+            // another prepared program must run with that program's owner.
+            let value = self
+                .evaluator
+                .call_lowered_utils_cache_miss(miss, span)?;
+            return Ok(Some((value, next)));
+        };
+        if !self.evaluator.indexed_frames_supported(view, span)? {
+            // Stream producers return suspended work rather than ordinary
+            // function frames, so the producer entrypoint retains its owner.
+            let value = self
+                .evaluator
+                .call_lowered_utils_cache_miss(miss, span)?;
+            return Ok(Some((value, next)));
+        }
+        let header = view
+            .header()
+            .map_err(|error| indexed_error(error, span))?;
+        super::super::validate_unsigned_runtime_args(&header, &miss.args, &[], span)?;
+        let display_name = miss.function.display_name();
+        let Some(slots) = self
+            .evaluator
+            .try_bind_lowered_runtime_args(&header, &miss.args, &[])
+        else {
+            return Err(RuntimeError::new(
+                "unresolved-call",
+                format!("utils.cache target {display_name} could not be lowered"),
+            )
+            .with_span(span));
+        };
+        self.push_call_with_slots(
+            miss.function,
+            miss.kind,
+            slots,
+            span,
+            Some(FrameContinuation::UtilsCacheResult {
+                key: miss.key,
+                span,
+                next: Box::new(next),
+            }),
+        )?;
+        Ok(None)
     }
 
     fn push_method_result(
@@ -8171,6 +8293,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             return Ok(());
         }
+        if let Some(FrameContinuation::UtilsCacheResult { span, .. }) =
+            call.return_to.as_ref()
+        {
+            self.evaluator.trace_lowered_utils_cache_result(*span);
+        }
         if is_function && let Some(error) = self.pending_error.as_mut() {
             error.scope_cleanup = false;
         }
@@ -8270,7 +8397,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 self.push_value(parent, FrameValue::Value(value), next);
             }
-            (Some(_), Err(error)) | (None, Err(error)) => self.begin_error_unwind(error),
+            (Some(next), Err(error)) => {
+                if let FrameContinuation::UtilsCacheResult { span, .. } = next {
+                    self.evaluator.trace_lowered_utils_cache_result(span);
+                }
+                self.begin_error_unwind(error);
+            }
+            (None, Err(error)) => self.begin_error_unwind(error),
             (None, Ok(value)) => self.result = Some(Ok(value)),
         }
         Ok(())
