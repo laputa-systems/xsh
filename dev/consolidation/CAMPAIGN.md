@@ -673,9 +673,9 @@ implementation proceed after their facts and prerequisites are checked.
 | `module-check.md` | Checking a module once: what a module's check depends on, the three defects that make it depend on its importer, the per-module driver, reuse | approved 2026-10-11 |
 | `evaluator.md` | The in-place mark and what the verifier proves; apply functions; the order in which nested machines are removed | approved 2026-10-11 |
 
-Three are internal shapes with no contract and no decision left for the
-owner. The integrator writes each in Setup, within the end state its
-workstream already states:
+Three are internal shapes with no language contract or decision left for
+the owner. The integrator established these designs in Setup on 2026-10-11,
+within each workstream's stated end state:
 
 | File | Settles |
 |---|---|
@@ -724,3 +724,33 @@ time and native-suite time, with thin LTO excluded.
   physical lines include inline tests and are not the non-test baseline.
 - Stale design examples are corrected against source evidence without
   inventing APIs. Independent Setup and implementation preparation continue.
+
+### 2026-10-11 — baseline and parallel implementation
+
+- Native release products rebuilt in the pinned Dockerfile environment;
+  full native baseline: 5,996 passed, 0 failed, 118 capability/fixture skips.
+  Rust full-gate and baseline coverage remain pending.
+- Manually repaired five pre-existing redundant-parentheses findings in
+  compression code (`44c7567d`). Focused compression tests: 52 passed,
+  0 failed, 3 skips. XSH check: 1,162 files clean; initial lightweight
+  Laputa check: 305 files clean.
+- D3 buffered exec regressions integrated as `b6f1af4f`; focused Unix process
+  gate: 21 passed, 0 failed, 2 privilege skips. No runtime change required.
+- Diagnostic and imported-enum defects reproduced against frozen baseline
+  products. The diagnostic lane's native gates pass; remaining focused unit
+  and compiler checks are queued before acceptance.
+- Four pure partition drafts retain every moved body and comment under
+  visibility/path normalization. Compiler checks are queued; full coverage
+  and allocation evidence remain required before acceptance.
+- Established the three internal designs under `designs/`. Their schema,
+  child-order, semantic-walker, lint-fact, and fix-proof invariants constrain
+  later implementation slices.
+- Owner requested disk-backed worktrees and build artifacts outside `/tmp`.
+  All campaign worktrees use `xsh-consolidation-lanes`; logs, launchers,
+  frozen binaries, and scratch evidence use `.work/consolidation`.
+- Owner excluded `dev/compat` check/lint while compatibility is WIP.
+  Consolidation project discovery and batch respect this exclusion.
+  Laputa remains in migration scope with focused lightweight verification;
+  automatic heavy sibling-corpus checks are excluded.
+- Native build queue is serialized independently of ready agent lanes.
+  No formatter, autofixer, push, or unrelated worktree change has run.

@@ -17,6 +17,9 @@ One integrator owns the `consolidation` branch, shared paths, review, and
 merges. Every editing lane has its own worktree and exclusive file set.
 Compatibility work has a separate branch and does not silently change the
 baseline. Integrate between campaigns only at recorded batch boundaries.
+Keep worktrees and build artifacts on disk outside `/tmp`. While compatibility
+is WIP, exclude `dev/compat` from check/lint and automatic compatibility
+ratchets. Keep sibling Laputa verification focused and lightweight.
 
 Explicitly delegate every ready independent item, using as many available
 slots as ownership and dependencies permit. All subagents use

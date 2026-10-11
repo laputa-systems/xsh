@@ -15,26 +15,26 @@ the stated gates; scouting is not verification.
 | Item | Ownership / deliverable | Prerequisite | State |
 |---|---|---|---|
 | S0 | Integrator: approvals, baseline commit, ownership and handoff | owner approval | active |
-| S1 | Integrator: pinned Linux environment, baseline correctness gates and coverage | S0 | pending target execution |
-| S2 | Integrator: XSH structural scanner, baseline JSON, evidence for each metric | S0; verified binaries to run | drafting |
-| S3 | Integrator: measured no-LTO optimized test profile and path-mapped lane gate | S1 | planned |
-| S4 | Pure partitions of lower, indexed executor, module executor, and lint | coverage; baseline gates | planned |
+| S1 | Integrator: pinned Linux environment, baseline correctness gates and coverage | S0 | native baseline green; Rust and coverage pending |
+| S2 | Integrator: XSH structural scanner, baseline JSON, evidence for each metric | S0; verified binaries to run | 13 fixture tests green; exact-source scan running |
+| S3 | Integrator: measured no-LTO optimized test profile and path-mapped lane gate | S1 | draft reviewed; corrections and candidate measurements pending |
+| S4 | Pure partitions of lower, indexed executor, module executor, and lint | coverage; baseline gates | body-preservation proofs green; compiler gates queued; acceptance pending coverage |
 | S5 | Integrator: instruction-table, traversal, and lint-rule designs; campaign skill | revalidation | active |
-| D1 | `src/diagnostic.rs`, new native diagnostic-rendering coverage | recorded contract below; S1 for execution | ready |
-| D2 | `src/sema/types.rs`, imported-enum diagnostic coverage | recorded contract below; S1 for execution | ready |
-| D3 | `tests/xsh/stdlib/unix_process.xsh`: prove buffered output survives both exec forms | S1 for execution | ready |
-| W7A | grammar and parser rule sharing; parser native tests and grammar proofs | S1 for execution | ready |
+| D1 | `src/diagnostic.rs`, new native diagnostic-rendering coverage | recorded contract below; S1 for execution | baseline failure reproduced; focused native green; unit gate pending |
+| D2 | `src/sema/types.rs`, imported-enum diagnostic coverage | recorded contract below; S1 for execution | baseline failure reproduced; fixed gates active |
+| D3 | `tests/xsh/stdlib/unix_process.xsh`: prove buffered output survives both exec forms | S1 for execution | integrated `b6f1af4f`; 21 passed, 2 privilege skips |
+| W7A | grammar and parser rule sharing; parser native tests and grammar proofs | S1 for execution | baseline probes recorded; context-specific lookahead repair active |
 | W7B | `crates/xsh-fuzz/src/mutate.rs`, soundness tests: recognize every cleanly parsed mutant | S1; W7A before acceptance | ready |
-| W5A | `src/syntax/arena.rs`: immediate exhaustive child enumerators and sugar views | traversal design; S1 for execution | ready |
+| W5A | `src/syntax/arena.rs`: immediate exhaustive child enumerators and sugar views | traversal design; S1 for execution | prepared; compiler/unit gate active |
 | W1 | instruction/row/tag/decoder table, patterns/stages, return analysis, module inventory | S1, S4, instruction-table design | planned |
 | W2 | bounded nested machines, verifier mark, shared apply functions, frame scheduling, one pipeline | W1; oracle resolution below | planned |
 | W3 | checked type-expression facts, storage mappings, one borrowed value/type view | W2, checked declarations | planned |
-| W4 | boundary context, lexical identities, callee proof, module commands, checked declarations/session | S1, S4; exclusive checker/IR owners | planned |
+| W4 | boundary context, lexical identities, callee proof, module commands, checked declarations/session | S1, S4; exclusive checker/IR owners | boundary context regressions reproduced; A compiler gate queued; B/E wait for traversal/A |
 | W5 | exhaustive behavior matches and recursive-only enumerator migrations | W5A, S4 | planned |
 | W6 | lint declaration table, one descent, shared checked facts/probes, rule repairs | W5, check-session; oracle resolution below | planned |
 | W8A | opaque Any plus repository/Laputa migration | checker owner; design corrections below | planned |
-| W8R | opaque locks, resource table/tokens/scopes/escape facts/streams/affine checks and migrations | W1/W3/checker owners; D12 recount | planned |
-| W8E | socket effect sets and explicit-clause migrations | effect consumers' exclusive ownership | planned |
+| W8R | opaque locks, resource table/tokens/scopes/escape facts/streams/affine checks and migrations | W1/W3/checker owners; D12 recount | regression and shared-type drafts active; runtime ownership waits for partition |
+| W8E | socket effect sets and explicit-clause migrations | effect consumers' exclusive ownership | four intended baseline failures; static effect-set implementation active |
 | W9 | isolated module checking/records/reuse; no stage program clone; wide-spread lookup | check-session; lowering ownership | planned |
 | W10 | feature-touch recount, reliability, comparative workloads, docs and closing report | functional completion | planned |
 
@@ -42,6 +42,15 @@ The first ready implementation set is independent by source ownership.
 Preparation may happen before the baseline completes; changes cannot be
 accepted before the baseline and their own gate pass. Each later slice gets
 an exact file set and budget after the pure partitions establish it.
+
+Pure partition scaffolding budgets are explicitly +400 production Rust lines
+for lower, indexed execution, and lint, and +700 for module execution. Their
+prepared deltas are +142, +137, +136, and +609 respectively; moved bodies and
+comments are retained. The traversal prerequisite has a +650 production-line
+budget before consumer deletion offsets it. Grammar rule sharing has +80.
+Boundary-context A has +100 / 1,800 touched; effect sets +150 / 900 touched;
+resource foundation preparation +600 / 2,500 touched. These are scoped
+exceptions to the default zero-growth budget, not waivers of final ratchets.
 
 ## Ordinary defect contracts
 
@@ -109,8 +118,31 @@ imports currently use `source.invalid-utf8`, not `parse.module-read`.
 
 ## Verification state
 
-No consolidation build, test, or coverage result is claimed yet. Existing
-main-worktree binaries have no proven source revision. Baseline verification
-uses the `Dockerfile.test` environment and exact target flags, one full
-native suite at a time, without formatters or autofixers. The owner selected
-native x86_64 musl for development gates and aarch64 for final verification.
+The pinned native image is `xsh-test:latest`, image ID
+`sha256:99e195582ba55dc427b1551022fbe56f8f344ed7838e971ecba86ce43a7733e9`.
+Baseline release products were rebuilt from the recorded source inside that
+image with the Dockerfile's static musl flags and compiler-only jemalloc.
+The full native corpus passed: 5,996 passed, 0 failed, 118 capability/fixture
+skips. Five existing redundant-parentheses findings in `core/lib/compress.xsh`
+were repaired manually in `44c7567d`; its focused tests passed 52/0 with 3
+skips. XSH check then passed 1,162 files, and the initial lightweight Laputa
+check passed 305 files. Rust full-gate and coverage evidence remain pending.
+
+Logs, launchers, frozen baseline products, and draft evidence live in the
+integration worktree's disk-backed `.work/consolidation/`. Lane worktrees
+live in `/home/josh/d/laputa-systems/xsh-consolidation-lanes/`. No worktree or
+build cache goes in `/tmp`. Compilation is serialized independently of agent
+concurrency, and only one full native corpus runs at a time.
+
+The owner selected native x86_64 musl development gates and aarch64 final
+verification. The unchanged Dockerfile also produced
+`xsh-test:consolidation-aarch64`; a bounded ARM help probe passed. Final ARM
+build/test evidence is pending. Only this campaign's binfmt registration is
+removed at close.
+
+The owner subsequently excluded `dev/compat` from check and lint while its
+campaign remains WIP. Project discovery excludes its XSH scripts; the
+consolidation batch also omits compatibility ratchets. Preserve tests and
+tools for that campaign's explicit runs. Laputa verification stays focused
+and lightweight; full sibling formatting and lint-invariance corpus tests
+are filtered from automatic consolidation gates.
