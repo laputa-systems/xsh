@@ -35,7 +35,7 @@ adjacent comment explaining why a native test cannot express it.
 | root integration | `tests/integration.rs` aggregates `tests/syntax.rs`, `tests/sema.rs`, `tests/runtime/`, `tests/cli.rs`, and the rest |
 | separate root targets | `tests/ambient_fs_policy.rs`, `tests/symbol_plateau.rs`, `tests/core_compat_boundaries.rs`, `tests/core_compat_extra.rs` (core applet descriptors, PTYs and child lifecycles), `tests/linux_priv.rs` (`linux-priv-tests` feature) |
 | tooling | `crates/xsht/tests/` (`integration`, `profile_parity` targets) |
-| interactive | `crates/xshi/tests/`, `tests/runtime/interactive.rs`, `tests/runtime/interactive/parity/` |
+| interactive | `crates/xshi/src/interactive/` units and `crates/xshi/tests/` (`laputa-asterinas` feature) |
 | fixtures | `tests/fixtures/{syntax,sema,runtime,fmt,frontend-indexed}` |
 
 ## Finding tests
@@ -308,7 +308,14 @@ the separately constrained container.
 
 ## Interactive parity
 
-`tests/runtime/interactive/parity/` replays scenarios against `xshi` in an
+The current interactive gates require `-p xshi --features laputa-asterinas`:
+use `--lib` for units and optimized `--test cli --test stdlib_preparation`
+for CLI and repeated-input preparation. Builds without the feature compile
+the disabled stub. Linux runs use the pinned image.
+
+The PTY scenario drivers are absent from this tree. Retained goldens in
+`tests/fixtures/interactive-parity/<os>/` are historical evidence, not a
+currently runnable gate. The historical driver replayed scenarios in an
 isolated `HOME` and compares transcripts with goldens recorded from `ish`
 (`tests/fixtures/interactive-parity/<os>/`). The gate needs no `ish` install.
 `XSHI_PARITY_ISH_BIN=/path/to/ish` also runs `ish` and requires
@@ -316,7 +323,6 @@ ish == golden == xshi; adding `XSHI_PARITY_RECORD=1` rewrites goldens;
 `XSHI_PARITY_FULL=1` prints whole transcripts on mismatch. Scenarios pin locale,
 `XSHI_PROFILE_PATH=/dev/null`, and `XSHI_HOSTNAME=sentry`; record `ish` where
 its host name is also six characters (`docker run --hostname sentry`).
-Behavior `ish` lacks is tested in `tests/runtime/interactive.rs`.
 
 ## What not to run
 

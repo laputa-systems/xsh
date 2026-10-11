@@ -419,12 +419,16 @@ prompt marker.
 
 | Layer | Where | Runs |
 | --- | --- | --- |
-| units: line buffer, input, render math, completion, prompt, listing, denv, aliases, config, history store | `crates/xshi/src/**` (`ported_tests.rs`, `history/tests.rs`) | `cargo test -p xshi` |
-| CLI boundary | `crates/xshi/tests/cli.rs` | `cargo test --release -p xshi` |
-| differential PTY scenarios | `tests/runtime/interactive/parity/{scenarios,extended}.rs`, goldens in `tests/fixtures/interactive-parity/<os>/` | `cargo test --release --test integration runtime::interactive::` |
-| `xshi`-only behavior and the piped session | `tests/runtime/interactive.rs` | same |
+| units: line buffer, input, render math, completion, prompt, listing, denv, aliases, config, history store | `crates/xshi/src/**` (`ported_tests.rs`, `history/tests.rs`) | `cargo test -p xshi --features laputa-asterinas --lib` |
+| CLI boundary and repeated input preparation | `crates/xshi/tests/{cli,stdlib_preparation}.rs` | `cargo test --profile verification --target "$TARGET" -p xshi --features laputa-asterinas --test cli --test stdlib_preparation` |
 
-A scenario drives a real shell through a PTY (`laputa-ptytest`: a `vt100` screen
+The interactive implementation is opt-in through `laputa-asterinas`; ordinary
+builds retain the disabled stub. Linux gates run in the pinned test image as
+described in `TESTING.md`. PTY parity goldens remain in
+`tests/fixtures/interactive-parity/<os>/`, but their scenario drivers are absent
+from this tree, so the available gates do not establish end-to-end terminal parity.
+
+The recorded scenarios drove a real shell through a PTY (`laputa-ptytest`: a `vt100` screen
 model, event-driven waits, no sleeps), records frames — visible rows, styled
 runs, cursor position and visibility — and effects (files, history, directory
 listings, exit status), and compares the transcript with the golden recorded
