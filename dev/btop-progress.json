@@ -6,7 +6,7 @@
     "commit": "6e39144aaf5a6bc01b9f795010b0914431067183"
   },
   "gate": "G4a",
-  "last_green_commit": "93cd0f3d",
+  "last_green_commit": "65528bda",
   "audit": {
     "new_core_script": "New core/*.xsh applets are installed by the release script at dev/release.xsh:146-160; dev/tests/test-repository-contracts.xsh owns the required core script inventory and contract checks. No separate command registration is needed.",
     "launcher_argument_separator": "Use xsh SCRIPT -- ARGS for an applet and xsh -- SCRIPT ARGS for an explicit script; src/entrypoints/xsh.rs:90-120.",
@@ -1417,6 +1417,16 @@
       "status": "not_run",
       "tests": [],
       "evidence": ""
+    },
+    {
+      "id": "g4.defaults.constants",
+      "gate": "G4a",
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-defaults.xsh::test_btop_default_constants_match_the_ledger_extraction"
+      ],
+      "evidence": "The named constants module has 56 typed settings; the release native test compares every key and value against the progress ledger extraction, with duplicate and count checks."
     }
   ],
   "blocked": [
@@ -1536,6 +1546,12 @@
       "name": "btop capability-mapped palette",
       "commit": "93cd0f3d",
       "summary": "Panel rows use a fixed truecolor palette mapped to the detected truecolor, 256-color, or 16-color depth; NO_COLOR and unusable TERM values omit foreground colors."
+    },
+    {
+      "kind": "behavior",
+      "name": "btop fixed default inventory",
+      "commit": "65528bda",
+      "summary": "All 56 in-scope pinned defaults are named typed constants in one module and are cross-checked against the G0 ledger extraction. The monitor continues to expose no product option or configuration-file interface."
     }
   ],
   "limitations": [
@@ -2077,6 +2093,20 @@
         "p99": 4.401,
         "runner": "Alpine x86_64 musl release, 80x24 replay, 60s interval"
       }
+    },
+    "g4a_defaults": {
+      "host_only": true,
+      "native_tests": {
+        "passed": 1,
+        "failed": 0,
+        "log": ".work/btop-campaign/g4a-defaults-tests.log"
+      },
+      "constant_count": 56,
+      "ledger_test": {
+        "passed": 1,
+        "failed": 0,
+        "log": ".work/btop-campaign/g4a-defaults-ledger.log"
+      }
     }
   },
   "defaults": [
@@ -2418,6 +2448,6 @@
     }
   ],
   "next": [
-    "G4a defaults: centralize every pinned in-scope default in named constants and assert exact agreement with the ledger extraction."
+    "G4a process tree: wire the pinned tree toggle, expand/collapse operations, collapse-all behavior, deterministic ordering, and optional child aggregation into the read-only process view."
   ]
 }
