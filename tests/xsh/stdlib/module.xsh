@@ -793,6 +793,62 @@ print ${{provider.failure() is Err(_)}}
 """
 }
 
+test test_imported_error_variant_retains_its_declared_facet { |ctx|
+  let root = test.temp_dir(ctx)?
+  fp"{root}/helper.xsh".write("""##! Imported error facet fixture.
+## The constructor carries its declared facet.
+export error HelperError = Failed(detail: Str) : Temporary
+
+## Constructs the declared failure inside the imported module.
+export pure failure() -> Error {
+  HelperError.Failed(detail: "inside")
+}
+""")
+  let result = test.run_script(
+    ctx,
+    """error LocalError = Failed(detail: Str) : LocalFacet
+use helper
+let dynamic: Any = helper.HelperError.Failed(detail: "failed")
+match dynamic {
+  _ is helper.Temporary => print "qualified"
+  _ => print "wrong-qualified"
+}
+let returned: Any = helper.failure()
+match returned {
+  _ is helper.Temporary => print "function"
+  _ => print "wrong-function"
+}
+let local: Any = LocalError.Failed(detail: "local")
+match local {
+  _ is LocalFacet => print "local"
+  _ => print "wrong-local"
+}
+""",
+    [],
+    {XSH_MODULE_PATH: root},
+  )?
+  assert result.success, result.stderr
+  assert result.stdout == """qualified
+function
+local
+""", result.stdout
+
+  let unresolved = test.run_script(
+    ctx,
+    """use helper
+let dynamic: Any = helper.failure()
+match dynamic {
+  _ is missing.Temporary => print "wrong"
+  _ => print "fallback"
+}
+""",
+    [],
+    {XSH_MODULE_PATH: root},
+  )?
+  assert ! unresolved.success
+  assert "check.unknown-type" in unresolved.stderr
+}
+
 test test_static_module_exports_bind_one_namespace { |ctx|
   let root = test.temp_dir(ctx, name: "module-namespace")?
   fp"{root}/helper.xsh".write("""

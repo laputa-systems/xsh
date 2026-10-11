@@ -456,12 +456,20 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 ))
             }
             ArenaPatternKind::Type { binding: None, ty } => {
-                let lowered_ty = checked_type_annotation(
+                let checked_ty = checked_type_annotation(
                     self.declarations,
                     self.current_namespace,
                     *ty,
-                )?
-                .clone();
+                )?;
+                // Checked imported facets keep their module alias, while runtime
+                // errors store the declared facet name. Validate the alias owner
+                // and declaration before canonicalizing the checked facet.
+                let lowered_ty = match checked_ty {
+                    Type::ErrorFacet(facet) if facet.as_str().contains('.') => {
+                        Type::ErrorFacet(self.compact_qualified_pattern_facet(*facet)?)
+                    }
+                    _ => checked_ty.clone(),
+                };
                 Some((
                     push_build_row!(
                         self,
