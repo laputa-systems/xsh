@@ -584,6 +584,67 @@ proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int) [
   variants
 }
 
+# The generated lowered-stage enum has no source members; its schema invocation owns them.
+proc pipeline_stage_schema_variants(source_path: Str, lexed: Lexed, opening: Int) [error] -> Result[List[Evidence]] {
+  let closing = lexed.mates[f"{opening}"]
+  var cursor = opening + 1
+  if (lexed.tokens.get(cursor) ?? end_token).text != "@" or (lexed.tokens.get(cursor + 1) ?? end_token).text != "context" {
+    invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "malformed pipeline stage schema context")?
+  }
+  cursor += 2
+  for context in ["stage_builder", "stage_decoder", "stage_payload"] {
+    if (lexed.tokens.get(cursor) ?? end_token).text != context {
+      invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "malformed pipeline stage schema context")?
+    }
+    cursor += 1
+  }
+  if (lexed.tokens.get(cursor) ?? end_token).text != ";" {
+    invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "malformed pipeline stage schema context")?
+  }
+  cursor += 1
+
+  var seen: Map[Bool] = {}
+  var variants: List[Evidence] = []
+  while cursor < closing {
+    let variant = lexed.tokens.get(cursor) ?? end_token
+    if variant.text == "_" or ! ident_start(first(variant.text)) {
+      invalid(source_path, variant.line, "malformed pipeline stage schema entry")?
+    }
+    if seen.get(variant.text) ?? false {
+      invalid(source_path, variant.line, f"repeated pipeline stage schema variant {variant.text}")?
+    }
+    seen[variant.text] = true
+    let form = (lexed.tokens.get(cursor + 1) ?? end_token).text
+    if form not in ["unit", "tuple", "struct"] {
+      invalid(source_path, variant.line, f"unknown pipeline stage schema form {form}")?
+    }
+    let fields_open = cursor + 2
+    if (lexed.tokens.get(fields_open) ?? end_token).text != "{" {
+      invalid(source_path, variant.line, f"malformed pipeline stage schema fields for {variant.text}")?
+    }
+    let fields_close = lexed.mates[f"{fields_open}"]
+    if fields_close <= fields_open or fields_close >= closing {
+      invalid(source_path, variant.line, f"malformed pipeline stage schema fields for {variant.text}")?
+    }
+    if form == "unit" {
+      if fields_open + 1 != fields_close {
+        invalid(source_path, variant.line, f"unit pipeline stage has fields in {variant.text}")?
+      }
+    } else if fields_open + 1 == fields_close {
+      invalid(source_path, variant.line, f"empty pipeline stage schema fields in {variant.text}")?
+    }
+    if (lexed.tokens.get(fields_close + 1) ?? end_token).text != ";" {
+      invalid(source_path, variant.line, f"malformed pipeline stage schema terminator for {variant.text}")?
+    }
+    variants += [evidence(source_path, variant, f"LoweredPipelineStage::{variant.text}")]
+    cursor = fields_close + 2
+  }
+  if variants.is_empty() {
+    invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "empty pipeline stage schema")?
+  }
+  variants
+}
+
 proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[Attribute], count: SourceCount) [error] -> Result[List[Metric]] {
   let families = ["ArenaExprKind", "ArenaStmtKind", "ArenaPatternKind"]
   var aliases: Map[Str] = {}
@@ -600,18 +661,33 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
   var instruction_schema_calls = 0
   var instruction_schema_definition = false
   var hand_instruction_rows = false
+  var pipeline_stage_schema_calls = 0
+  var pipeline_stage_schema_definitions = 0
+  var pipeline_stage_schema_definition = false
   var blanket: List[Evidence] = []
   var cursor = 0
   while cursor < lexed.tokens.len() {
     let item = lexed.tokens[cursor]
     let name = item.text
     if ! item.literal and ! inside(item, spans) {
+      if name == "macro_rules" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" and (lexed.tokens.get(cursor + 2) ?? end_token).text == "pipeline_stage_schema" {
+        pipeline_stage_schema_definitions += 1
+        pipeline_stage_schema_definition = true
+        cursor = lexed.mates[f"{cursor + 3}"] + 1
+        continue
+      }
       if name == "macro_rules" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" and (lexed.tokens.get(cursor + 2) ?? end_token).text == "instruction_schema" { instruction_schema_definition = true }
       if name == "instruction_schema" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" {
         let opening = cursor + 2
         if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "instruction schema invocation must use a table block")? }
         instruction_schema_calls += 1
         instructions += instruction_schema_variants(source_path, lexed, opening)?
+      }
+      if name == "pipeline_stage_schema" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" {
+        let opening = cursor + 2
+        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "pipeline stage schema invocation must use a table block")? }
+        pipeline_stage_schema_calls += 1
+        stages += pipeline_stage_schema_variants(source_path, lexed, opening)?
       }
       if name in families and (lexed.tokens.get(cursor + 1) ?? end_token).text == "as" { aliases[(lexed.tokens.get(cursor + 2) ?? end_token).text] = name }
       if name in ["indexed_raw", "indexed_decode", "indexed_finish", "indexed_optional_raw"] and (lexed.tokens.get(cursor - 1) ?? end_token).text != "fn" {
@@ -709,6 +785,10 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
   if instruction_schema_definition and instruction_schema_calls != 1 { invalid(source_path, 1, "instruction schema definition has no supported table invocation")? }
   if source_path == "src/runtime/eval/indexed/full/schema.rs" and instruction_schema_calls != 1 { invalid(source_path, 1, "unrecognized generated instruction schema layout")? }
   if instruction_schema_calls > 0 and hand_instruction_rows { invalid(source_path, 1, "handwritten instruction rows overlap the generated schema")? }
+  if pipeline_stage_schema_definitions > 1 { invalid(source_path, 1, "multiple pipeline stage schema definitions in one source file")? }
+  if pipeline_stage_schema_calls > 1 { invalid(source_path, 1, "multiple pipeline stage schema tables in one source file")? }
+  if pipeline_stage_schema_definition and pipeline_stage_schema_calls != 1 { invalid(source_path, 1, "pipeline stage schema definition has no supported table invocation")? }
+  if source_path == "src/runtime/eval/indexed/full.rs" and pipeline_stage_schema_calls != 1 { invalid(source_path, 1, "unrecognized generated pipeline stage schema layout")? }
   for attr in attrs {
     if inside(lexed.tokens[attr.start], spans) or ! attr.condition_active { continue }
     let kind = attr.start + (if attr.inner { 3 } else { 2 })

@@ -5,12 +5,16 @@ pure value(scan: metrics.SourceScan, name: Str) -> Int {
   rows[0].value
 }
 
-proc rejection(source: Str) [error] -> Str {
-  match metrics.scan_file("src/fixture.rs", source) {
+proc rejection_at(source_path: Str, source: Str) [error] -> Str {
+  match metrics.scan_file(source_path, source) {
     Ok(_) => "accepted"
     Err(metrics.MetricError.Invalid {detail, ..}) => detail
     Err(error) => error.message
   }
+}
+
+proc rejection(source: Str) [error] -> Str {
+  rejection_at("src/fixture.rs", source)
 }
 
 pure schema_rows(start_ordinal: Int, end_ordinal: Int) -> Str {
@@ -158,6 +162,38 @@ test test_instruction_schema_unknown_and_malformed_layouts_fail_loudly {
   assert "unknown instruction schema row" in rejection("instruction_schema! { BuildTaskRow => TaskView [Task] { Item => TaskItem = 0 [0]; } }")
   assert "malformed instruction schema entry" in rejection("instruction_schema! { BuildIntRow => IntView [Int] { Value Missing = 0 [0]; } }")
   assert "no supported table invocation" in rejection("macro_rules! instruction_schema { () => {}; }")
+}
+
+test test_pipeline_stage_schema_counts_unit_tuple_and_struct_variants {
+  let source = "pipeline_stage_schema! { @context stage_builder stage_decoder stage_payload; One unit {}; Two tuple { value: BuildExprId }; Three struct { body: Vec<BuildStmtId>, value: Option<(BuildExprId, Option<BuildExprId>)>, }; }"
+  let scan = metrics.scan_file("src/fixture.rs", source)?
+  let stages = scan.metrics |> where .name == "stage_variants" |> collect
+  assert stages[0].value == 3
+  assert stages[0].evidence[0].detail == "LoweredPipelineStage::One"
+  assert stages[0].evidence[1].detail == "LoweredPipelineStage::Two"
+  assert stages[0].evidence[2].detail == "LoweredPipelineStage::Three"
+}
+
+test test_pipeline_stage_schema_requires_one_valid_authority_table {
+  let table = "pipeline_stage_schema! { @context stage_builder stage_decoder stage_payload; One unit {}; }"
+  assert "malformed pipeline stage schema context" in rejection("pipeline_stage_schema! { One unit {}; }")
+  assert "empty pipeline stage schema" in rejection("pipeline_stage_schema! { @context stage_builder stage_decoder stage_payload; }")
+  assert "unknown pipeline stage schema form" in rejection("pipeline_stage_schema! { @context stage_builder stage_decoder stage_payload; One opaque {}; }")
+  assert "repeated pipeline stage schema variant" in rejection("pipeline_stage_schema! { @context stage_builder stage_decoder stage_payload; One unit {}; One unit {}; }")
+  assert "multiple pipeline stage schema tables" in rejection(f"{table} {table}")
+  assert "no supported table invocation" in rejection("macro_rules! pipeline_stage_schema { () => {}; }")
+  assert "multiple pipeline stage schema definitions" in rejection("macro_rules! pipeline_stage_schema { () => {}; } macro_rules! pipeline_stage_schema { () => {}; }")
+  assert "unrecognized generated pipeline stage schema layout" in rejection_at("src/runtime/eval/indexed/full.rs", "enum LoweredPipelineStage { Old, }")
+}
+
+test test_generated_pipeline_stage_schema_counts_current_source {
+  let source_path = "src/runtime/eval/indexed/full.rs"
+  let scan = metrics.scan_file(source_path, p"src/runtime/eval/indexed/full.rs".read_text()?)?
+  let stages = scan.metrics |> where .name == "stage_variants" |> collect
+  assert stages.len() == 1
+  assert stages[0].value == 46
+  assert stages[0].evidence.len() == 46
+  assert (stages[0].evidence |> where .path != source_path |> count()) == 0
 }
 
 test test_malformed_lexical_forms_and_eligibility_cfg_attr_fail_loudly {
