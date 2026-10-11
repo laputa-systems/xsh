@@ -644,6 +644,20 @@ pub(super) fn indexed_frame_apply_tag(tag: FullTag) -> bool {
     )
 }
 
+pub(super) fn indexed_type_check(
+    check: crate::runtime::eval::indexed::full::decode::TypeCheckView<'_>,
+    span: Span,
+) -> Result<LoweredTypeCheck, RuntimeError> {
+    Ok(LoweredTypeCheck {
+        ty: check
+            .ty
+            .materialize()
+            .map_err(|error| indexed_error(error, span))?,
+        name: Arc::from(check.name),
+        schema: check.schema.cloned(),
+    })
+}
+
 #[derive(Clone, Copy)]
 pub(super) enum FrameApplyOperand {
     Raw,
@@ -1761,10 +1775,13 @@ impl Evaluator {
                 ControlFlow::Continue(LoweredValue::Bool(true))
             }
             FullTag::ExprResultFallback => {
-                let left = indexed_raw(&mut payload, call_span)?;
-                let right = indexed_raw(&mut payload, call_span)?;
-                indexed_finish(payload, call_span)?;
-                return match self.eval_indexed_expr(execution, left, slots, call_span)? {
+                let ExprView::ResultFallback { left, right } =
+                    ExprView::decode(execution, tag, payload)
+                        .map_err(|error| indexed_error(error, call_span))?
+                else {
+                    unreachable!("result-fallback tag has a result-fallback view")
+                };
+                return match self.eval_indexed_expr(execution, left.raw(), slots, call_span)? {
                     ControlFlow::Continue(value) => match lowered_fallback_value(value) {
                         Some(value) => Ok(ControlFlow::Continue(value)),
                         None => {
@@ -1772,7 +1789,7 @@ impl Evaluator {
                             // `Err`: its traceback describes nothing the
                             // fallback produces, even an equal error.
                             self.pending_traceback = None;
-                            self.eval_indexed_expr(execution, right, slots, call_span)
+                            self.eval_indexed_expr(execution, right.raw(), slots, call_span)
                         }
                     },
                     ControlFlow::Break(value) => Ok(ControlFlow::Break(value)),
@@ -1907,10 +1924,14 @@ impl Evaluator {
                 .with_span(call_span));
             }
             FullTag::ExprField => {
-                let base = indexed_raw(&mut payload, call_span)?;
-                let name = indexed_string(&mut payload, execution, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
+                let ExprView::Field { base, name, span } =
+                    ExprView::decode(execution, tag, payload)
+                        .map_err(|error| indexed_error(error, call_span))?
+                else {
+                    unreachable!("field tag has a field view")
+                };
+                let base = base.raw();
+                let name = name.as_ref();
                 if let Some(base) = Self::indexed_field_chain_ref(execution, base, slots, span)?
                     && let Some(value) = lowered_record_field_value(base, name)
                 {
@@ -1923,10 +1944,14 @@ impl Evaluator {
                 ControlFlow::Continue(self.indexed_field_value(base, name, span)?)
             }
             FullTag::ExprIndex => {
-                let base = indexed_raw(&mut payload, call_span)?;
-                let index = indexed_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
+                let ExprView::Index { base, index, span } =
+                    ExprView::decode(execution, tag, payload)
+                        .map_err(|error| indexed_error(error, call_span))?
+                else {
+                    unreachable!("index tag has an index view")
+                };
+                let base = base.raw();
+                let index = index.raw();
                 let base = match self.eval_indexed_expr(execution, base, slots, span)? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
@@ -1938,14 +1963,16 @@ impl Evaluator {
                 ControlFlow::Continue(lowered_index_value(base, index, span)?)
             }
             FullTag::ExprIndexFromEnd => {
-                let base = indexed_raw(&mut payload, call_span)?;
-                let distance = indexed_decode::<crate::runtime::eval::EndDistance>(
-                    &mut payload,
-                    execution,
-                    call_span,
-                )?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
+                let ExprView::IndexFromEnd {
+                    base,
+                    distance,
+                    span,
+                } = ExprView::decode(execution, tag, payload)
+                    .map_err(|error| indexed_error(error, call_span))?
+                else {
+                    unreachable!("index-from-end tag has an index-from-end view")
+                };
+                let base = base.raw();
                 let base = match self.eval_indexed_expr(execution, base, slots, span)? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
@@ -1977,10 +2004,14 @@ impl Evaluator {
                 return self.eval_indexed_method_dispatch(receiver, name, values, span);
             }
             FullTag::ExprCheckedValue => {
-                let value = indexed_raw(&mut payload, call_span)?;
-                let check = indexed_decode::<LoweredTypeCheck>(&mut payload, execution, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
+                let ExprView::CheckedValue { value, check, span } =
+                    ExprView::decode(execution, tag, payload)
+                        .map_err(|error| indexed_error(error, call_span))?
+                else {
+                    unreachable!("checked-value tag has a checked-value view")
+                };
+                let check = indexed_type_check(check, call_span)?;
+                let value = value.raw();
                 match self.eval_indexed_expr(execution, value, slots, span)? {
                     ControlFlow::Continue(value) => {
                         super::checked_unsigned_value(&value, &check, span)?;
@@ -1990,10 +2021,14 @@ impl Evaluator {
                 }
             }
             FullTag::ExprRequire => {
-                let value = indexed_raw(&mut payload, call_span)?;
-                let check = indexed_decode::<LoweredTypeCheck>(&mut payload, execution, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
+                let ExprView::Require { value, check, span } =
+                    ExprView::decode(execution, tag, payload)
+                        .map_err(|error| indexed_error(error, call_span))?
+                else {
+                    unreachable!("require tag has a require view")
+                };
+                let check = indexed_type_check(check, call_span)?;
+                let value = value.raw();
                 let value = match self.eval_indexed_expr(execution, value, slots, span)? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
@@ -2005,10 +2040,18 @@ impl Evaluator {
             // A value block enters a block frame directly, without the expression
             // boundary an expression frame adds; stage bodies run one per item.
             FullTag::ExprValueBlock => {
-                let body = indexed_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                match self.eval_indexed_statement_block(execution, body, slots, span)? {
+                let ExprView::ValueBlock { body, span } =
+                    ExprView::decode(execution, tag, payload)
+                        .map_err(|error| indexed_error(error, call_span))?
+                else {
+                    unreachable!("value-block tag has a value-block view")
+                };
+                match self.eval_indexed_statement_block(
+                    execution,
+                    body.block_id(),
+                    slots,
+                    span,
+                )? {
                     StmtFlow::Value(value) => ControlFlow::Continue(value),
                     StmtFlow::None => ControlFlow::Continue(LoweredValue::Unit),
                     flow => self.preserve_lexical_expression_flow(flow),

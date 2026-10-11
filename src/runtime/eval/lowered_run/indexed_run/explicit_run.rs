@@ -5527,14 +5527,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
             }
             FullTag::ExprValueBlock => {
-                let body = indexed_raw(&mut payload, span)?;
-                let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
+                let super::ExprView::ValueBlock { body, span } =
+                    super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                        .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("value-block tag has a value-block view")
+                };
                 self.calls[index].work.push(FrameWork::ExpressionBoundary {
                     policy: ExpressionBoundaryPolicy::Value,
                     next,
                 });
-                self.push_statement_block(index, body, span)?;
+                self.push_statement_block(index, body.block_id(), span)?;
             }
             FullTag::ExprLoop => {
                 let body = indexed_raw(&mut payload, span)?;
@@ -5639,41 +5642,46 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
             }
             FullTag::ExprBinary => {
-                let op = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                let left = indexed_raw(&mut payload, span)?;
-                let right = indexed_raw(&mut payload, span)?;
-                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
+                let super::ExprView::Binary {
+                    op,
+                    left,
+                    right,
+                    span: value_span,
+                } = super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("binary tag has a binary view")
+                };
                 self.push_expr(
                     index,
-                    left,
+                    left.raw(),
                     value_span,
                     FrameContinuation::BinaryLeft {
                         op,
-                        right,
+                        right: right.raw(),
                         span: value_span,
                         next: Box::new(next),
                     },
                 );
             }
             FullTag::ExprIf => {
-                let (_, mut branches) = self.calls[index]
-                    .execution
-                    .block(&mut payload, BLOCK_LIST)
-                    .map_err(|error| indexed_error(error, span))?;
-                let len = indexed_raw(&mut branches, span)? as usize;
+                let super::ExprView::IfExpr {
+                    branches,
+                    else_value,
+                    span: value_span,
+                } = super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("if-expression tag has an if-expression view")
+                };
+                let len = branches.len();
                 let mut values = self.evaluator.frame_scratch.take_if_branches();
                 values.reserve(len);
-                for _ in 0..len {
-                    values.push((
-                        indexed_raw(&mut branches, span)?,
-                        indexed_raw(&mut branches, span)?,
-                    ));
+                for branch in branches {
+                    let (condition, value) = branch.map_err(|error| indexed_error(error, span))?;
+                    values.push((condition.raw(), value.raw()));
                 }
-                indexed_finish(branches, span)?;
-                let else_value = indexed_raw(&mut payload, span)?;
-                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
+                let else_value = else_value.raw();
                 if let Some((condition, _)) = values.first().copied() {
                     self.push_expr(
                         index,
@@ -5902,15 +5910,18 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 )?;
             }
             FullTag::ExprResultFallback => {
-                let left = indexed_raw(&mut payload, span)?;
-                let right = indexed_raw(&mut payload, span)?;
-                indexed_finish(payload, span)?;
+                let super::ExprView::ResultFallback { left, right } =
+                    super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                        .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("result-fallback tag has a result-fallback view")
+                };
                 self.push_expr(
                     index,
-                    left,
+                    left.raw(),
                     span,
                     FrameContinuation::ResultFallback {
-                        right,
+                        right: right.raw(),
                         span,
                         next: Box::new(next),
                     },
@@ -5971,29 +5982,42 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
             }
             FullTag::ExprCheckedValue => {
-                let value = indexed_raw(&mut payload, span)?;
-                let check = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
+                let super::ExprView::CheckedValue {
+                    value,
+                    check,
+                    span: value_span,
+                } =
+                    super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                        .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("checked-value tag has a checked-value view")
+                };
+                let check = super::indexed_type_check(check, span)?;
                 self.push_expr(
                     index,
-                    value,
-                    span,
+                    value.raw(),
+                    value_span,
                     FrameContinuation::CheckedValue {
                         check,
-                        span,
+                        span: value_span,
                         next: Box::new(next),
                     },
                 );
             }
             FullTag::ExprRequire => {
-                let value = indexed_raw(&mut payload, span)?;
-                let check = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
+                let super::ExprView::Require {
+                    value,
+                    check,
+                    span: value_span,
+                } = super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("require tag has a require view")
+                };
+                let check = super::indexed_type_check(check, span)?;
                 self.push_expr(
                     index,
-                    value,
+                    value.raw(),
                     value_span,
                     FrameContinuation::Require {
                         check,
@@ -6085,11 +6109,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
             }
             FullTag::ExprField => {
-                let base = indexed_raw(&mut payload, span)?;
-                let name =
-                    indexed_string(&mut payload, &self.calls[index].execution, span)?.to_string();
-                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
+                let super::ExprView::Field {
+                    base,
+                    name,
+                    span: value_span,
+                } = super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("field tag has a field view")
+                };
+                let base = base.raw();
+                let name = name.to_string();
                 if !self.evaluator.force_frames {
                     if let Some(base) = Evaluator::indexed_field_chain_ref(
                         &self.calls[index].execution,
@@ -6114,30 +6144,39 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
             }
             FullTag::ExprIndex => {
-                let base = indexed_raw(&mut payload, span)?;
-                let instruction = indexed_raw(&mut payload, span)?;
-                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
+                let super::ExprView::Index {
+                    base,
+                    index: instruction,
+                    span: value_span,
+                } = super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("index tag has an index view")
+                };
                 self.push_expr(
                     index,
-                    base,
+                    base.raw(),
                     value_span,
                     FrameContinuation::IndexBase {
-                        instruction,
+                        instruction: instruction.raw(),
                         span: value_span,
                         next: Box::new(next),
                     },
                 );
             }
             FullTag::ExprIndexFromEnd => {
-                let base = indexed_raw(&mut payload, span)?;
-                let distance: crate::runtime::eval::EndDistance =
-                    indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
+                let super::ExprView::IndexFromEnd {
+                    base,
+                    distance,
+                    span: value_span,
+                } = super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("index-from-end tag has an index-from-end view")
+                };
                 self.push_expr(
                     index,
-                    base,
+                    base.raw(),
                     value_span,
                     FrameContinuation::IndexFromEnd {
                         distance: distance.get(),
