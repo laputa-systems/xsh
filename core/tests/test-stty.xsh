@@ -311,9 +311,10 @@ test test_stty_line_discipline_number { |ctx|
   defer unix.close_fd(pty.replica)
   assert stty_run(ctx, pty, ["line", "0"])?.status == 0
   assert "line = 0;" in show(ctx, pty)?
-  let bad = stty_run(ctx, pty, ["line", "256"])?
-  assert bad.status == 1
-  assert bad.stderr.starts_with("stty: invalid integer argument: '256'"), bad.stderr
+  let overflow = stty_run(ctx, pty, ["line", "256"])?
+  let diagnostic = "stty: invalid line discipline '256': Value too large for defined data type\n"
+  assert overflow.status == 0
+  assert overflow.stderr == diagnostic + diagnostic, overflow.stderr
 }
 
 test test_stty_save_round_trips_the_whole_state { |ctx|
@@ -570,4 +571,27 @@ test test_stty_reports_a_full_device { |ctx|
   let result = stty_plain(ctx, ["--file", pty.name], sink: /dev/full)?
   assert result.status == 1
   assert result.stderr == "stty: write error: No space left on device\n", result.stderr
+}
+
+test test_stty_checks_terminal_before_window_sizes_and_numeric_speeds { |ctx|
+  for args in [["rows", "abc"], ["cols", "xyz"], ["columns", "12.5"], ["rows", "-1"], ["cols", "4294967296"], ["rows", ""], ["100"], ["ispeed", "995"], ["ospeed", "999999999"]] {
+    let result = stty_plain(ctx, args)?
+    assert result.status == 1, args.join(" ")
+    assert result.stdout == ""
+    assert result.stderr == "stty: 'standard input': Inappropriate ioctl for device\n", result.stderr
+  }
+}
+
+test test_stty_line_overflow_warns_in_both_setting_passes { |ctx|
+  let diagnostic = "stty: invalid line discipline '256': Value too large for defined data type\n"
+  let plain = stty_plain(ctx, ["line", "256"])?
+  assert plain.status == 1
+  assert plain.stderr == diagnostic + "stty: 'standard input': Inappropriate ioctl for device\n", plain.stderr
+  let pty = with_pty()?
+  defer unix.close_fd(pty.master)
+  defer unix.close_fd(pty.replica)
+  let result = stty_run(ctx, pty, ["line", "256"])?
+  assert result.status == 0
+  assert result.stderr == diagnostic + diagnostic, result.stderr
+  assert "line = 0;" in show(ctx, pty)?
 }
