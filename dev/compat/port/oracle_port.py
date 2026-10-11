@@ -80,7 +80,7 @@ def docker_command(corpus: Path, binaries: Path, name: str) -> list[str]:
         "-w", "/corpus", "-e", "HOME=/tmp", "-e", "TMPDIR=/tmp",
         "-e", "LC_ALL=C", "-e", "TZ=UTC", "-e", "XSH_BIN=/release/xsh",
         "-e", "PATH=/release:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-        "xsh-oracle", "/release/xsht", "test", "-j", "1",
+        os.environ.get("XSH_ORACLE_IMAGE", "xsh-oracle"), "/release/xsht", "test", "-j", "1",
     ]
 
 

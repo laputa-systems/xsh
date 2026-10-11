@@ -18,7 +18,7 @@ proc warnings(data: Bytes) {
       if at + 1 == data.len() { gnu.error("warning: an unescaped backslash at end of string is not portable") } else if at + 3 < data.len() and (data.byte_at(at + 1) ?? 0) in [52, 53, 54, 55] and (data.byte_at(at + 2) ?? 0) in [48, 49, 50, 51, 52, 53, 54, 55] and (data.byte_at(at + 3) ?? 0) in [48, 49, 50, 51, 52, 53, 54, 55] {
         let raw = data[at..at + 4].utf8()?
         let final = data[at + 3..at + 4].utf8()?
-        gnu.error(f"warning: the ambiguous octal escape {raw} is being interpreted as the 2-byte sequence \\{item.value / 64}{item.value / 8 % 8}{item.value % 8}, {final}")
+        gnu.error(f"warning: the ambiguous octal escape {raw} is being\n\tinterpreted as the 2-byte sequence \\{item.value / 64}{item.value / 8 % 8}{item.value % 8}, {final}")
       }
     }
     at = item.next

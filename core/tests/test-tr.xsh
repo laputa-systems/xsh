@@ -134,7 +134,7 @@ test test_tr_preserves_non_utf8_set_operands { |ctx|
   let delete_status = run.status env LC_ALL=C sh -c $delete_command sh ${ctx.xsh_bin} fp"{ctx.core_dir}/tr.xsh" $escaped_input $deleted 2> $error
   assert delete_status.exited_with(0)
   assert deleted.read_bytes()? == b")"
-  assert "warning: the ambiguous octal escape" in error.read_text()?
+  assert error.read_text()? == "tr: warning: the ambiguous octal escape \\501 is being\n\tinterpreted as the 2-byte sequence \\050, 1\n"
 
   let malformed = test.temp_path(ctx, name: "malformed-repeat")
   let malformed_error = test.temp_path(ctx, name: "malformed-repeat.err")
@@ -142,4 +142,17 @@ test test_tr_preserves_non_utf8_set_operands { |ctx|
   let malformed_status = run.status env LC_ALL=C sh -c $malformed_command sh ${ctx.xsh_bin} fp"{ctx.core_dir}/tr.xsh" $malformed $malformed_error
   assert malformed_status.exited_with(1)
   assert "invalid repeat count" in malformed_error.read_text()?
+}
+
+test test_tr_octal_warning_preserves_gnu_layout_and_precedes_set_errors { |ctx|
+  let input = test.temp_file(ctx, name: "octal-input", contents: bytes.from_text("(1Ł)"))?
+  let translated = run.capture --text env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/tr.xsh" -- -d r"\501" < $input
+  assert translated.status.exited_with(0)
+  assert translated.stdout == "Ł)"
+  assert translated.stderr == "tr: warning: the ambiguous octal escape \\501 is being\n\tinterpreted as the 2-byte sequence \\050, 1\n"
+
+  let invalid = run.capture --text env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/tr.xsh" -- r"[:foo:]\400" y < /dev/null
+  assert invalid.status.exited_with(1)
+  assert invalid.stdout == ""
+  assert invalid.stderr == "tr: warning: the ambiguous octal escape \\400 is being\n\tinterpreted as the 2-byte sequence \\040, 0\ntr: invalid character class 'foo'\n"
 }
