@@ -827,21 +827,21 @@ instruction_schema! {
         } => ExprCheckedValue = 66 [0; Operands; FrameControl];
         // Boxed because captured and spawned runs are cold, unusually wide
         // payloads that would otherwise determine the size of every expression.
-        RunCapture(value: Box<LoweredRunCapture>) => ExprRunCapture = 67 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled; LegacyRecursive];
+        RunCapture(value: Box<LoweredRunCapture>) => ExprRunCapture = 67 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled; FrameControl];
         RunPipeline {
             segments: Vec<LoweredRunPipelineSegment>,
             propagate: bool,
             span: Span,
-        } => ExprRunPipeline = 68 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled; LegacyRecursive];
-        SpawnRun(value: Box<LoweredSpawnRun>) => ExprSpawnRun = 69 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled; LegacyRecursive];
+        } => ExprRunPipeline = 68 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled; FrameControl];
+        SpawnRun(value: Box<LoweredSpawnRun>) => ExprSpawnRun = 69 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled; FrameControl];
         SpawnCommand {
             command: BuildExprId,
             span: Span,
-        } => ExprSpawnCommand = 70 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled; LegacyRecursive];
+        } => ExprSpawnCommand = 70 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled; FrameControl];
         Wait {
             target: BuildExprId,
             span: Span,
-        } => ExprWait = 71 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled; LegacyRecursive];
+        } => ExprWait = 71 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled; FrameControl];
         Capture {
             body: Vec<BuildStmtId>,
             span: Span,
@@ -1231,7 +1231,7 @@ instruction_schema! {
         Run {
             value: BuildExprId,
             propagate_result: bool,
-        } => StmtRun = 148 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled; LegacyRecursive];
+        } => StmtRun = 148 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled; FrameControl];
         Loop {
             body: Vec<BuildStmtId>,
         } => StmtLoop = 149 [EFFECT_CANCELLATION; Scheduled; FrameControl];
@@ -1560,6 +1560,12 @@ mod tests {
             FullTag::ExprTagMatch,
             FullTag::StmtStrMatch,
             FullTag::StmtTagMatch,
+            FullTag::ExprRunCapture,
+            FullTag::ExprRunPipeline,
+            FullTag::ExprSpawnRun,
+            FullTag::ExprSpawnCommand,
+            FullTag::ExprWait,
+            FullTag::StmtRun,
         ] {
             assert_eq!(tag.frame_strategy(), FrameStrategy::FrameControl, "{}", tag.name());
         }

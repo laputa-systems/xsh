@@ -1,30 +1,27 @@
 use super::{
-    BLOCK_LIST, BTreeMap, ControlFlow, Duration, Evaluator, FileRedirectionMode, FullExecution,
-    FullPayload, LoweredValue, Name, PathValue, ProcessInvocation,
-    ProcessRedirection, RUN_ARG_SPLICE, RedirectionKind, RedirectionStream, RunArg, RunEnv,
-    RunError, RunKind, RunRedirection, RunSegment, RuntimeError, Span, Value, indexed_decode,
-    indexed_error, indexed_finish, indexed_optional_raw, indexed_raw, runtime_error_from_value,
-    splice_to_argv, value_to_argv_bytes,
+    ControlFlow, DurationValue, Evaluator, FileRedirectionMode, LoweredValue, PathValue,
+    ProcessEnd, ProcessInvocation, ProcessStatus, RunArg, RunKind,
+    ProcessRedirection, RedirectionKind, RedirectionStream, RunError, RuntimeError, Span, Value,
+    RUN_ARG_SPLICE, execute_run_with_policy, lowered_process_run_error,
+    lowered_value_from_runtime_any, run_pipeline_inherit_with_policy,
+    runtime_error_from_value, splice_to_argv, value_to_argv_bytes,
 };
+use std::time::Duration;
 
-/// The executable of a run form and the arguments its target contributes
-/// after it. A spliced target, `run @argv`, is a whole command vector: its
-/// first element is the executable and the rest lead the arguments. An empty
-/// vector names no program, which fails as `ProcessError.InvalidTarget`
-/// before anything starts. Any other target is one argv item.
+/// A spliced run target supplies the executable and any leading argv words.
 pub(super) fn run_target_and_leading_argv(
-    target: &RunArg,
+    mode: u32,
+    span: Span,
     mut items: Vec<Vec<u8>>,
 ) -> Result<(Vec<u8>, Vec<Vec<u8>>), RuntimeError> {
-    if target.mode == RUN_ARG_SPLICE {
+    if mode == RUN_ARG_SPLICE {
         if items.is_empty() {
             let error = RunError::new(
                 "empty-command",
                 "spliced command is empty: its first element names the program to run",
             )
-            .with_span(target.span);
-            let mut failure =
-                runtime_error_from_value(Value::RunError(Box::new(error)), target.span);
+            .with_span(span);
+            let mut failure = runtime_error_from_value(Value::RunError(Box::new(error)), span);
             failure.propagated = true;
             return Err(failure);
         }
@@ -33,354 +30,323 @@ pub(super) fn run_target_and_leading_argv(
     }
     let [executable]: [Vec<u8>; 1] = items.try_into().map_err(|_| {
         RuntimeError::new("argv-conversion", "run target must produce one argv item")
-            .with_span(target.span)
+            .with_span(span)
     })?;
     Ok((executable, Vec::new()))
 }
 
 impl Evaluator {
-    pub(super) fn decode_indexed_run_arg<'a>(
-        payload: &mut FullPayload<'a>,
-        execution: &FullExecution<'a>,
+    pub(super) fn run_arg_items_for(
+        mode: u32,
         span: Span,
-    ) -> Result<RunArg, RuntimeError> {
-        let mode = indexed_raw(payload, span)?;
-        if mode > 2 {
-            return Err(
-                RuntimeError::new("indexed-ir", "invalid indexed run argument tag").with_span(span),
-            );
-        }
-        Ok(RunArg {
-            mode,
-            value: indexed_raw(payload, span)?,
-            span: indexed_decode::<Span>(payload, execution, span)?,
-        })
+        value: Value,
+    ) -> Result<Vec<Vec<u8>>, RuntimeError> {
+        Self::run_arg_items_mode(mode, span, value)
     }
 
-    pub(super) fn decode_indexed_run_args<'a>(
-        payload: &mut FullPayload<'a>,
-        execution: &FullExecution<'a>,
-        span: Span,
-    ) -> Result<Vec<RunArg>, RuntimeError> {
-        let (_, mut values) = execution
-            .block(payload, BLOCK_LIST)
-            .map_err(|error| indexed_error(error, span))?;
-        let len = indexed_raw(&mut values, span)? as usize;
-        let mut decoded = Vec::with_capacity(len);
-        for _ in 0..len {
-            decoded.push(Self::decode_indexed_run_arg(&mut values, execution, span)?);
-        }
-        indexed_finish(values, span)?;
-        Ok(decoded)
-    }
-
-    pub(super) fn decode_indexed_run_env<'a>(
-        payload: &mut FullPayload<'a>,
-        execution: &FullExecution<'a>,
-        span: Span,
-    ) -> Result<Vec<RunEnv>, RuntimeError> {
-        let (_, mut values) = execution
-            .block(payload, BLOCK_LIST)
-            .map_err(|error| indexed_error(error, span))?;
-        let len = indexed_raw(&mut values, span)? as usize;
-        let mut decoded = Vec::with_capacity(len);
-        for _ in 0..len {
-            decoded.push(RunEnv {
-                name: indexed_decode::<Name>(&mut values, execution, span)?,
-                value: Self::decode_indexed_run_arg(&mut values, execution, span)?,
-            });
-        }
-        indexed_finish(values, span)?;
-        Ok(decoded)
-    }
-
-    pub(super) fn decode_indexed_run_redirections<'a>(
-        payload: &mut FullPayload<'a>,
-        execution: &FullExecution<'a>,
-        span: Span,
-    ) -> Result<Vec<RunRedirection>, RuntimeError> {
-        let (_, mut values) = execution
-            .block(payload, BLOCK_LIST)
-            .map_err(|error| indexed_error(error, span))?;
-        let len = indexed_raw(&mut values, span)? as usize;
-        let mut decoded = Vec::with_capacity(len);
-        for _ in 0..len {
-            decoded.push(RunRedirection {
-                kind: indexed_decode::<RedirectionKind>(&mut values, execution, span)?,
-                target: Self::decode_indexed_run_arg(&mut values, execution, span)?,
-                span: indexed_decode::<Span>(&mut values, execution, span)?,
-            });
-        }
-        indexed_finish(values, span)?;
-        Ok(decoded)
-    }
-
-    pub(super) fn decode_indexed_run_segments<'a>(
-        payload: &mut FullPayload<'a>,
-        execution: &FullExecution<'a>,
-        span: Span,
-    ) -> Result<Vec<RunSegment>, RuntimeError> {
-        let (_, mut values) = execution
-            .block(payload, BLOCK_LIST)
-            .map_err(|error| indexed_error(error, span))?;
-        let len = indexed_raw(&mut values, span)? as usize;
-        let mut decoded = Vec::with_capacity(len);
-        for _ in 0..len {
-            decoded.push(RunSegment {
-                kind: indexed_decode::<RunKind>(&mut values, execution, span)?,
-                target: Self::decode_indexed_run_arg(&mut values, execution, span)?,
-                args: Self::decode_indexed_run_args(&mut values, execution, span)?,
-                env: Self::decode_indexed_run_env(&mut values, execution, span)?,
-                redirections: Self::decode_indexed_run_redirections(&mut values, execution, span)?,
-                timeout: indexed_optional_raw(&mut values, span)?,
-                cpu_max: indexed_optional_raw(&mut values, span)?,
-                accept: indexed_optional_raw(&mut values, span)?,
-            });
-        }
-        indexed_finish(values, span)?;
-        Ok(decoded)
-    }
-
-    pub(super) fn eval_indexed_run_arg(
-        &mut self,
-        execution: &FullExecution<'_>,
+    pub(super) fn run_arg_items(
         arg: &RunArg,
-        slots: &mut [LoweredValue],
-        call_span: Span,
-    ) -> Result<ControlFlow<LoweredValue, Vec<Vec<u8>>>, RuntimeError> {
-        let value = match self.eval_indexed_expr(execution, arg.value, slots, call_span)? {
-            ControlFlow::Continue(value) => value.into_value(),
-            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-        };
-        Self::run_arg_items(arg, value).map(ControlFlow::Continue)
+        value: Value,
+    ) -> Result<Vec<Vec<u8>>, RuntimeError> {
+        Self::run_arg_items_mode(arg.mode, arg.span, value)
     }
 
-    /// The argv items one evaluated run argument contributes.
-    pub(super) fn run_arg_items(arg: &RunArg, value: Value) -> Result<Vec<Vec<u8>>, RuntimeError> {
-        match arg.mode {
-            0 => Ok(vec![value_to_argv_bytes(value, arg.span)?]),
+    /// Convert one evaluated run argument without changing its source descriptor.
+    fn run_arg_items_mode(
+        mode: u32,
+        span: Span,
+        value: Value,
+    ) -> Result<Vec<Vec<u8>>, RuntimeError> {
+        match mode {
+            0 => Ok(vec![value_to_argv_bytes(value, span)?]),
             1 => match value {
-                Value::List(_) => splice_to_argv(value, arg.span),
-                value => Ok(vec![value_to_argv_bytes(value, arg.span)?]),
+                Value::List(_) => splice_to_argv(value, span),
+                value => Ok(vec![value_to_argv_bytes(value, span)?]),
             },
-            RUN_ARG_SPLICE => splice_to_argv(value, arg.span),
+            RUN_ARG_SPLICE => splice_to_argv(value, span),
             _ => unreachable!("indexed run argument tag was checked"),
         }
     }
 
-    pub(super) fn run_env_value(arg: &RunArg, value: Value) -> Result<Vec<u8>, RuntimeError> {
-        // A `$name` word is one value too, so its nonempty path list is a
-        // search path; every other list keeps the word rule that accepts
-        // exactly one item, because an empty list does not say what it is.
+    /// Convert an evaluated environment word, retaining Path-list search-path behavior.
+    pub(super) fn run_env_value_for(
+        mode: u32,
+        span: Span,
+        value: Value,
+    ) -> Result<Vec<u8>, RuntimeError> {
+        Self::run_env_value_mode(mode, span, value)
+    }
+
+    pub(super) fn run_env_value(
+        arg: &RunArg,
+        value: Value,
+    ) -> Result<Vec<u8>, RuntimeError> {
+        Self::run_env_value_mode(arg.mode, arg.span, value)
+    }
+
+    fn run_env_value_mode(
+        mode: u32,
+        span: Span,
+        value: Value,
+    ) -> Result<Vec<u8>, RuntimeError> {
         let is_path_list = matches!(
             &value,
             Value::List(items)
                 if !items.is_empty() && items.iter().all(|item| matches!(item, Value::Path(_)))
         );
-        if arg.mode == 0 || (arg.mode == 1 && is_path_list) {
-            super::super::super::value_to_env_bytes(value, arg.span)
+        if mode == 0 || (mode == 1 && is_path_list) {
+            super::super::super::value_to_env_bytes(value, span)
         } else {
-            let items = Self::run_arg_items(arg, value)?;
+            let items = Self::run_arg_items_mode(mode, span, value)?;
             let [value]: [Vec<u8>; 1] = items.try_into().map_err(|_| {
                 RuntimeError::new("env-value", "environment values must be one value")
-                    .with_span(arg.span)
+                    .with_span(span)
             })?;
             Ok(value)
         }
     }
 
-    pub(super) fn eval_indexed_run_env(
-        &mut self,
-        execution: &FullExecution<'_>,
-        env: &[RunEnv],
-        slots: &mut [LoweredValue],
-        call_span: Span,
-    ) -> Result<ControlFlow<LoweredValue, BTreeMap<Vec<u8>, Vec<u8>>>, RuntimeError> {
-        let mut overlay = BTreeMap::new();
-        for assignment in env {
-            let arg = &assignment.value;
-            let value = match self.eval_indexed_expr(execution, arg.value, slots, call_span)? {
-                ControlFlow::Continue(value) => value.into_value(),
-                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-            };
-            let value = Self::run_env_value(arg, value)?;
-            overlay.insert(assignment.name.as_str().as_bytes().to_vec(), value);
-        }
-        Ok(ControlFlow::Continue(overlay))
-    }
-
-    pub(super) fn eval_indexed_run_redirections(
-        &mut self,
-        execution: &FullExecution<'_>,
-        redirections: &[RunRedirection],
-        slots: &mut [LoweredValue],
-    ) -> Result<ControlFlow<LoweredValue, Vec<ProcessRedirection>>, RuntimeError> {
-        let mut out = Vec::with_capacity(redirections.len());
-        for redirection in redirections {
-            let value = match self.eval_indexed_expr(
-                execution,
-                redirection.target.value,
-                slots,
-                redirection.span,
-            )? {
-                ControlFlow::Continue(value) => value,
-                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-            };
-            if let LoweredValue::Bytes(bytes) = value {
-                if redirection.kind != RedirectionKind::StdinRead || redirection.target.mode == 2 {
-                    return Err(RuntimeError::new(
-                        "redirection-target",
-                        "Bytes are only valid as a single stdin input",
-                    )
-                    .with_span(redirection.span));
-                }
-                out.push(ProcessRedirection::Input { bytes });
-                continue;
+    pub(super) fn run_redirection_value(
+        &self,
+        kind: RedirectionKind,
+        mode: u32,
+        target_span: Span,
+        span: Span,
+        value: LoweredValue,
+    ) -> Result<ProcessRedirection, RuntimeError> {
+        if let LoweredValue::Bytes(bytes) = value {
+            if kind != RedirectionKind::StdinRead || mode == RUN_ARG_SPLICE {
+                return Err(RuntimeError::new(
+                    "redirection-target",
+                    "Bytes are only valid as a single stdin input",
+                )
+                .with_span(span));
             }
-            let value = value.into_value();
-            let target = match redirection.target.mode {
-                2 => splice_to_argv(value, redirection.target.span)?,
-                1 if matches!(value, Value::List(_)) => {
-                    splice_to_argv(value, redirection.target.span)?
-                }
-                _ => vec![value_to_argv_bytes(value, redirection.target.span)?],
-            };
-            let [target]: [Vec<u8>; 1] = target.try_into().map_err(|_| {
+            return Ok(ProcessRedirection::Input { bytes });
+        }
+        let value = value.into_value();
+        let target = match mode {
+            RUN_ARG_SPLICE => splice_to_argv(value, target_span)?,
+            1 if matches!(value, Value::List(_)) => splice_to_argv(value, target_span)?,
+            _ => vec![value_to_argv_bytes(value, target_span)?],
+        };
+        let [target]: [Vec<u8>; 1] = target.try_into().map_err(|_| {
+            RuntimeError::new(
+                "redirection-target",
+                "redirection target must produce one path",
+            )
+            .with_span(span)
+        })?;
+        if matches!(kind, RedirectionKind::StdoutDup | RedirectionKind::StdinDup) {
+            let text = String::from_utf8(target).map_err(|_| {
                 RuntimeError::new(
                     "redirection-target",
-                    "redirection target must produce one path",
+                    "fd redirection target must be a number",
                 )
-                .with_span(redirection.span)
+                .with_span(span)
             })?;
-            if matches!(
-                redirection.kind,
-                RedirectionKind::StdoutDup | RedirectionKind::StdinDup
-            ) {
-                let text = String::from_utf8(target).map_err(|_| {
-                    RuntimeError::new(
-                        "redirection-target",
-                        "fd redirection target must be a number",
-                    )
-                    .with_span(redirection.span)
-                })?;
-                let fd = text.trim().parse::<i32>().map_err(|_| {
-                    RuntimeError::new(
-                        "redirection-target",
-                        "fd redirection target must be a number",
-                    )
-                    .with_span(redirection.span)
-                })?;
-                out.push(ProcessRedirection::Dup {
-                    stream: if redirection.kind == RedirectionKind::StdinDup {
-                        RedirectionStream::Stdin
-                    } else {
-                        RedirectionStream::Stdout
-                    },
-                    fd,
-                });
-                continue;
-            }
-            let path = PathValue::new(target).map_err(|error| error.with_span(redirection.span))?;
-            out.push(ProcessRedirection::File {
-                stream: match redirection.kind {
-                    RedirectionKind::StdinRead => RedirectionStream::Stdin,
-                    RedirectionKind::StderrWrite | RedirectionKind::StderrAppend => {
-                        RedirectionStream::Stderr
-                    }
-                    _ => RedirectionStream::Stdout,
+            let fd = text.trim().parse::<i32>().map_err(|_| {
+                RuntimeError::new(
+                    "redirection-target",
+                    "fd redirection target must be a number",
+                )
+                .with_span(span)
+            })?;
+            return Ok(ProcessRedirection::Dup {
+                stream: if kind == RedirectionKind::StdinDup {
+                    RedirectionStream::Stdin
+                } else {
+                    RedirectionStream::Stdout
                 },
-                mode: match redirection.kind {
-                    RedirectionKind::StdinRead => FileRedirectionMode::Read,
-                    RedirectionKind::StdoutAppend | RedirectionKind::StderrAppend => {
-                        FileRedirectionMode::Append
-                    }
-                    _ => FileRedirectionMode::Write,
-                },
-                path: self.host_path(&path),
+                fd,
             });
         }
-        Ok(ControlFlow::Continue(out))
+        let path = PathValue::new(target).map_err(|error| error.with_span(span))?;
+        Ok(ProcessRedirection::File {
+            stream: match kind {
+                RedirectionKind::StdinRead => RedirectionStream::Stdin,
+                RedirectionKind::StderrWrite | RedirectionKind::StderrAppend => {
+                    RedirectionStream::Stderr
+                }
+                _ => RedirectionStream::Stdout,
+            },
+            mode: match kind {
+                RedirectionKind::StdinRead => FileRedirectionMode::Read,
+                RedirectionKind::StdoutAppend | RedirectionKind::StderrAppend => {
+                    FileRedirectionMode::Append
+                }
+                _ => FileRedirectionMode::Write,
+            },
+            path: self.host_path(&path),
+        })
+    }
+}
+
+pub(super) fn run_target_and_leading_argv_for_arg(
+    arg: &RunArg,
+    items: Vec<Vec<u8>>,
+) -> Result<(Vec<u8>, Vec<Vec<u8>>), RuntimeError> {
+    run_target_and_leading_argv(arg.mode, arg.span, items)
+}
+
+pub(super) fn run_timeout_value(value: LoweredValue, span: Span) -> Result<Duration, RuntimeError> {
+    match value {
+        LoweredValue::Duration(DurationValue { millis }) => Ok(Duration::from_millis(millis)),
+        other => Err(RuntimeError::new(
+            "type-error",
+            format!("run timeout expected Duration, found {}", other.type_name()),
+        )
+        .with_span(span)),
+    }
+}
+
+pub(super) fn run_cpu_max_value(value: LoweredValue, span: Span) -> Result<i64, RuntimeError> {
+    match value {
+        LoweredValue::Int(value) => Ok(value),
+        other => Err(RuntimeError::new(
+            "type-error",
+            format!("run cpumax expected Int, found {}", other.type_name()),
+        )
+        .with_span(span)),
+    }
+}
+
+impl Evaluator {
+    pub(super) fn apply_indexed_run_capture(
+        &mut self,
+        kind: RunKind,
+        invocation: ProcessInvocation,
+        propagate: bool,
+        assert_success: bool,
+        span: Span,
+    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        if invocation.accepted_exit_codes.is_some()
+            && matches!(kind, RunKind::StreamText | RunKind::StreamBytes)
+        {
+            let value = self.start_policy_process_stream(
+                &invocation,
+                kind == RunKind::StreamText,
+                span,
+            )?;
+            if propagate && matches!(value, LoweredValue::ResultErr(_)) {
+                let value = self.lowered_question_propagation_value(value, span)?;
+                return Ok(self.preserve_lexical_expression_flow(
+                    super::StmtFlow::Propagate(value),
+                ));
+            }
+            return Ok(ControlFlow::Continue(value));
+        }
+        self.trace_process_run_start(span, &invocation);
+        let execution = execute_run_with_policy(
+            kind,
+            std::slice::from_ref(&invocation),
+            span,
+            assert_success,
+            self,
+        );
+        if let Some(status) = execution.end.status.clone() {
+            self.last_status = Some(status);
+        }
+        self.trace_process_run_end(span, &execution.end);
+        if self.signal_state.shutdown_complete && self.signal_state.shutdown_status.is_some() {
+            return Ok(ControlFlow::Continue(LoweredValue::ResultOk(Box::new(
+                LoweredValue::Status(Box::new(
+                    execution
+                        .end
+                        .status
+                        .clone()
+                        .unwrap_or_else(|| ProcessStatus::signaled(libc::SIGTERM)),
+                )),
+            ))));
+        }
+        let value = execution.value?;
+        let mut value = lowered_value_from_runtime_any(&value).ok_or_else(|| {
+            RuntimeError::new(
+                "type-error",
+                format!("lowered run produced unsupported {}", value.type_name()),
+            )
+            .with_span(span)
+        })?;
+        if matches!(kind, RunKind::Status)
+            && let LoweredValue::ResultOk(inner) = value
+        {
+            value = *inner;
+        }
+        if (propagate
+            || (matches!(kind, RunKind::Status | RunKind::Plain)
+                && invocation.accepted_exit_codes.is_some()))
+            && matches!(value, LoweredValue::ResultErr(_))
+        {
+            let value = self.lowered_question_propagation_value(value, span)?;
+            return Ok(self.preserve_lexical_expression_flow(super::StmtFlow::Propagate(value)));
+        }
+        Ok(ControlFlow::Continue(value))
     }
 
-    pub(super) fn indexed_process_invocation(
+    pub(super) fn apply_indexed_run_pipeline(
         &mut self,
-        execution: &FullExecution<'_>,
-        target: &RunArg,
-        args: &[RunArg],
-        env: &[RunEnv],
-        redirections: &[RunRedirection],
-        timeout: Option<u32>,
-        cpu_max: Option<u32>,
-        accept: Option<u32>,
-        slots: &mut [LoweredValue],
+        head: RunKind,
+        invocations: &[ProcessInvocation],
+        propagate: bool,
         span: Span,
-    ) -> Result<ControlFlow<LoweredValue, ProcessInvocation>, RuntimeError> {
-        let target_items = match self.eval_indexed_run_arg(execution, target, slots, span)? {
-            ControlFlow::Continue(items) => items,
-            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-        };
-        let (target_value, mut argv) = run_target_and_leading_argv(target, target_items)?;
-        for arg in args {
-            match self.eval_indexed_run_arg(execution, arg, slots, span)? {
-                ControlFlow::Continue(items) => argv.extend(items),
-                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-            }
+    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        self.trace_lowered_pipeline_enter(span);
+        if !matches!(head, RunKind::Plain | RunKind::Status) {
+            return self.eval_capture_pipeline(head, invocations, span);
         }
-        let env_overlay = match self.eval_indexed_run_env(execution, env, slots, span)? {
-            ControlFlow::Continue(value) => value,
-            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-        };
-        let redirections =
-            match self.eval_indexed_run_redirections(execution, redirections, slots)? {
-                ControlFlow::Continue(value) => value,
-                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-            };
-        let timeout = match self.eval_indexed_optional_expr(execution, timeout, slots, span)? {
-            ControlFlow::Continue(Some(LoweredValue::Duration(duration))) => {
-                Some(Duration::from_millis(duration.millis))
+        let mut end = match run_pipeline_inherit_with_policy(invocations, self) {
+            Ok(end) => end,
+            Err(error) => {
+                self.trace_lowered_pipeline_end(
+                    span,
+                    &ProcessEnd {
+                        pid: Some(0),
+                        status: error.status.as_deref().cloned(),
+                        error: Some(error.clone()),
+                    },
+                );
+                return Ok(ControlFlow::Continue(lowered_process_run_error(error)));
             }
-            ControlFlow::Continue(Some(other)) => {
-                return Err(RuntimeError::new(
-                    "type-error",
-                    format!("run timeout expected Duration, found {}", other.type_name()),
-                )
-                .with_span(span));
-            }
-            ControlFlow::Continue(None) => None,
-            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
         };
-        let cpu_max = match self.eval_indexed_optional_expr(execution, cpu_max, slots, span)? {
-            ControlFlow::Continue(Some(LoweredValue::Int(value))) => Some(value),
-            ControlFlow::Continue(Some(other)) => {
-                return Err(RuntimeError::new(
-                    "type-error",
-                    format!("run cpumax expected Int, found {}", other.type_name()),
-                )
-                .with_span(span));
+        if let Some(status) = &end.status {
+            self.last_status = Some(status.clone());
+        }
+        let validation_error = end.status.as_ref().and_then(|status| {
+            crate::runtime::run::run_completion_error(status, invocations, propagate)
+        });
+        end.error = validation_error.clone();
+        self.trace_lowered_pipeline_end(span, &end);
+        if self.signal_state.shutdown_complete && self.signal_state.shutdown_status.is_some() {
+            return Ok(ControlFlow::Continue(LoweredValue::ResultOk(Box::new(
+                LoweredValue::Status(Box::new(
+                    end.status
+                        .clone()
+                        .unwrap_or_else(|| ProcessStatus::signaled(libc::SIGTERM)),
+                )),
+            ))));
+        }
+        let status = end
+            .status
+            .clone()
+            .unwrap_or_else(|| ProcessStatus::exited(1));
+        if let Some(error) = validation_error {
+            let value = lowered_process_run_error(error.with_span(span));
+            if invocations
+                .iter()
+                .any(|invocation| invocation.accepted_exit_codes.is_some())
+            {
+                let value = self.lowered_question_propagation_value(value, span)?;
+                return Ok(self.preserve_lexical_expression_flow(
+                    super::StmtFlow::Propagate(value),
+                ));
             }
-            ControlFlow::Continue(None) => None,
-            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-        };
-        let accepted_exit_codes =
-            match self.eval_indexed_optional_expr(execution, accept, slots, span)? {
-                ControlFlow::Continue(value) => value
-                    .map(|value| super::super::lowered_accepted_exit_codes(value, span))
-                    .transpose()?,
-                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-            };
-        let mut full_env = self.env.snapshot_clone();
-        full_env.extend(env_overlay.clone());
-        Ok(ControlFlow::Continue(ProcessInvocation {
-            target: target_value,
-            argv,
-            cwd: self.cwd.clone(),
-            env: full_env,
-            env_overlay,
-            redirections,
-            timeout,
-            cpu_max,
-            accepted_exit_codes,
-            namespaces: None,
-        }))
+            Ok(ControlFlow::Continue(value))
+        } else if propagate {
+            Ok(ControlFlow::Continue(LoweredValue::ResultOk(Box::new(
+                LoweredValue::Status(Box::new(status)),
+            ))))
+        } else {
+            Ok(ControlFlow::Continue(LoweredValue::Status(Box::new(status))))
+        }
     }
 }

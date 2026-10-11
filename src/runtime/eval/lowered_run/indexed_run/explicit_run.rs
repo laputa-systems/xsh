@@ -13,7 +13,8 @@ use super::{
     IndexedRecordEntry, LoweredFunctionKey, LoweredFunctionKind, LoweredReturnKind,
     LoweredStrPredicate, LoweredType,
     LoweredTypeCheck, LoweredValue, Name, RegisteredDefer, ResolvedAssignStep, RuntimeError, Span,
-    RunArg, StmtFlow, StreamValue, TraceArg, TraceKind, TracePayload, TracebackFrame, TracebackFrameKind,
+    RedirectionKind, RunArg, RunKind, StmtFlow, StreamValue, TraceArg, TraceKind, TracePayload,
+    TracebackFrame, TracebackFrameKind,
     append_call_argument, append_lowered_list_element, append_lowered_map_literal,
     apply_indexed_assignment, apply_indexed_path_assignment, assign_lowered_bytes_view,
     assign_lowered_str_view,
@@ -40,7 +41,8 @@ use crate::runtime::eval::indexed::full::decode::{
     ScanConditionView,
 };
 use crate::runtime::eval::{
-    BuildExprId, LoweredCompTarget, LoweredProcessCommandBuilderEntry, LoweredRunArg, LoweredRunEnv,
+    BuildExprId, LoweredCompTarget, LoweredProcessCommandBuilderEntry,
+    LoweredRunArg, LoweredRunEnv, LoweredRunPipelineSegment, LoweredRunRedirection,
     visit_retained_lowered_value, visit_retained_lowered_values,
 };
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
@@ -784,6 +786,193 @@ struct ProcessCommandRunState {
     env_assignments: ListPosition<LoweredRunEnv>,
 }
 
+#[derive(Clone, Copy)]
+enum ProcessExecutionMode {
+    Capture,
+    Spawn,
+    Pipeline { propagate: bool },
+}
+
+#[derive(Clone, Copy)]
+enum ProcessExecutionPhase {
+    Target,
+    Arguments,
+    Environment,
+    Redirections,
+    Timeout,
+    CpuMax,
+    Accept,
+    Finish,
+}
+
+enum ProcessExecutionOperand {
+    Target { mode: u32, span: Span },
+    Argument { mode: u32, span: Span },
+    Environment { name: Name, mode: u32, span: Span },
+    Redirection {
+        kind: RedirectionKind,
+        mode: u32,
+        target_span: Span,
+        span: Span,
+    },
+    Timeout(Span),
+    CpuMax(Span),
+    Accept(Span),
+}
+
+struct ProcessInvocationBuilder {
+    target: Option<Vec<u8>>,
+    argv: Vec<Vec<u8>>,
+    env_overlay: BTreeMap<Vec<u8>, Vec<u8>>,
+    redirections: Vec<crate::runtime::process::ProcessRedirection>,
+    timeout: Option<std::time::Duration>,
+    cpu_max: Option<i64>,
+    accepted_exit_codes: Option<crate::runtime::process::AcceptedExitCodes>,
+}
+
+impl ProcessInvocationBuilder {
+    fn new() -> Self {
+        Self {
+            target: None,
+            argv: Vec::new(),
+            env_overlay: BTreeMap::new(),
+            redirections: Vec::new(),
+            timeout: None,
+            cpu_max: None,
+            accepted_exit_codes: None,
+        }
+    }
+
+    fn finish(self, evaluator: &mut Evaluator) -> crate::runtime::process::ProcessInvocation {
+        let mut env = evaluator.env.snapshot_clone();
+        env.extend(self.env_overlay.clone());
+        crate::runtime::process::ProcessInvocation {
+            target: self.target.expect("run target is converted before invocation"),
+            argv: self.argv,
+            cwd: evaluator.cwd.clone(),
+            env,
+            env_overlay: self.env_overlay,
+            redirections: self.redirections,
+            timeout: self.timeout,
+            cpu_max: self.cpu_max,
+            accepted_exit_codes: self.accepted_exit_codes,
+            namespaces: None,
+        }
+    }
+}
+
+struct ProcessExecutionState {
+    instruction: u32,
+    tag: FullTag,
+    span: Span,
+    mode: ProcessExecutionMode,
+    phase: ProcessExecutionPhase,
+    pending: Option<ProcessExecutionOperand>,
+    segment_cursor: Option<ListPosition<LoweredRunPipelineSegment>>,
+    segment_position: Option<ListPosition<LoweredRunPipelineSegment>>,
+    args_position: Option<ListPosition<LoweredRunArg>>,
+    env_position: Option<ListPosition<LoweredRunEnv>>,
+    redirections_position: Option<ListPosition<LoweredRunRedirection>>,
+    invocation: ProcessInvocationBuilder,
+    invocations: Vec<crate::runtime::process::ProcessInvocation>,
+    pipeline_head: Option<RunKind>,
+}
+
+struct ProcessRunOperands<'a> {
+    kind: RunKind,
+    target: RunArgView<'a>,
+    args: ListView<'a, LoweredRunArg>,
+    env: ListView<'a, LoweredRunEnv>,
+    redirections: ListView<'a, LoweredRunRedirection>,
+    timeout: Option<u32>,
+    cpu_max: Option<u32>,
+    accept: Option<u32>,
+    span: Span,
+}
+
+fn run_arg_parts(value: RunArgView<'_>) -> (u32, u32, Span) {
+    let span = value.span;
+    let (mode, instruction) = match value.kind {
+        RunArgKindView::Single(value) => (0, value.raw()),
+        RunArgKindView::SingleOrSplice(value) => (1, value.raw()),
+        RunArgKindView::Splice(value) => (2, value.raw()),
+    };
+    (mode, instruction, span)
+}
+
+fn process_run_operands<'a>(
+    execution: &FullExecution<'a>,
+    instruction: u32,
+    tag: FullTag,
+    segment: Option<ListPosition<LoweredRunPipelineSegment>>,
+    span: Span,
+) -> Result<ProcessRunOperands<'a>, RuntimeError> {
+    let (decoded_tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
+    let view = super::ExprView::decode(execution, decoded_tag, payload)
+        .map_err(|error| indexed_error(error, span))?;
+    match (tag, view) {
+        (FullTag::ExprRunCapture, super::ExprView::RunCapture(value)) => {
+            Ok(ProcessRunOperands {
+                kind: value.kind,
+                target: value.target,
+                args: value.args,
+                env: value.env,
+                redirections: value.redirections,
+                timeout: value.timeout.map(|id| id.raw()),
+                cpu_max: value.cpu_max.map(|id| id.raw()),
+                accept: value.accept.map(|id| id.raw()),
+                span: value.span,
+            })
+        }
+        (FullTag::ExprSpawnRun, super::ExprView::SpawnRun(value)) => {
+            Ok(ProcessRunOperands {
+                kind: RunKind::Plain,
+                target: value.target,
+                args: value.args,
+                env: value.env,
+                redirections: value.redirections,
+                timeout: value.timeout.map(|id| id.raw()),
+                cpu_max: value.cpu_max.map(|id| id.raw()),
+                accept: value.accept.map(|id| id.raw()),
+                span: value.span,
+            })
+        }
+        (FullTag::ExprRunPipeline, super::ExprView::RunPipeline { segments, .. }) => {
+            let Some(segment) = segment else {
+                return Err(RuntimeError::new(
+                    "indexed-ir",
+                    "run pipeline segment cursor is missing",
+                )
+                .with_span(span));
+            };
+            let mut segments = segments;
+            segments
+                .resume(segment)
+                .map_err(|error| indexed_error(error, span))?;
+            let segment = segments
+                .next()
+                .transpose()
+                .map_err(|error| indexed_error(error, span))?
+                .ok_or_else(|| {
+                    RuntimeError::new("indexed-ir", "run pipeline segment cursor ended early")
+                        .with_span(span)
+                })?;
+            Ok(ProcessRunOperands {
+                kind: segment.kind,
+                target: segment.target,
+                args: segment.args,
+                env: segment.env,
+                redirections: segment.redirections,
+                timeout: segment.timeout.map(|id| id.raw()),
+                cpu_max: segment.cpu_max.map(|id| id.raw()),
+                accept: segment.accept.map(|id| id.raw()),
+                span,
+            })
+        }
+        _ => unreachable!("process execution tag has its typed run view"),
+    }
+}
+
 struct ProcessCommandBuilderState {
     call_span: Span,
     span: Span,
@@ -1035,6 +1224,22 @@ enum FrameContinuation {
         phase: ProcessCommandBuilderPhase,
         state: ProcessCommandBuilderState,
         next: Box<FrameContinuation>,
+    },
+    ProcessRun {
+        state: ProcessExecutionState,
+        next: Box<FrameContinuation>,
+    },
+    SpawnCommand {
+        span: Span,
+        next: Box<FrameContinuation>,
+    },
+    Wait {
+        span: Span,
+        next: Box<FrameContinuation>,
+    },
+    StatementRun {
+        propagate_result: bool,
+        call_span: Span,
     },
     TypedBoolNot {
         span: Span,
@@ -1346,7 +1551,8 @@ impl FrameContinuation {
             | C::YieldDelegate { .. }
             | C::StatementScopeEnd
             | C::EnvValue(_)
-            | C::PrintArgument(_) => {}
+            | C::PrintArgument(_)
+            | C::StatementRun { .. } => {}
             C::ExprPatternIf { next, .. } => next.visit_retained_values(visitor),
             C::RetryDelay(state, next) => {
                 state.visit_retained_values(visitor);
@@ -1405,6 +1611,9 @@ impl FrameContinuation {
                 state.visit_retained_values(visitor);
                 next.visit_retained_values(visitor);
             }
+            C::ProcessRun { next, .. }
+            | C::SpawnCommand { next, .. }
+            | C::Wait { next, .. } => next.visit_retained_values(visitor),
             C::ComparisonRight { left, next, .. } | C::BinaryRight { left, next, .. } => {
                 visit_retained_lowered_value(left, visitor);
                 next.visit_retained_values(visitor);
@@ -1494,6 +1703,9 @@ fn with_initializer_handler(
             | FrameContinuation::BoolBinaryRight { next, .. }
             | FrameContinuation::ApplyOperands { next, .. }
             | FrameContinuation::ProcessCommandBuilder { next, .. }
+            | FrameContinuation::ProcessRun { next, .. }
+            | FrameContinuation::SpawnCommand { next, .. }
+            | FrameContinuation::Wait { next, .. }
             | FrameContinuation::TypedBoolNot { next, .. }
             | FrameContinuation::TypedIntByteAtIndex { next, .. }
             | FrameContinuation::TypedIntByteAtFallback { next, .. }
@@ -2591,6 +2803,450 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.push_statement_block(index, state.body, state.span)
     }
 
+    fn start_process_run(
+        &mut self,
+        index: usize,
+        instruction: u32,
+        tag: FullTag,
+        span: Span,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        let (mode, segment_cursor, span) = match tag {
+            FullTag::ExprRunCapture => {
+                let execution = &self.calls[index].execution;
+                let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
+                let super::ExprView::RunCapture(value) =
+                    super::ExprView::decode(execution, tag, payload)
+                        .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("run capture tag has a capture view")
+                };
+                (ProcessExecutionMode::Capture, None, value.span)
+            }
+            FullTag::ExprSpawnRun => {
+                let execution = &self.calls[index].execution;
+                let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
+                let super::ExprView::SpawnRun(value) =
+                    super::ExprView::decode(execution, tag, payload)
+                        .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("spawn-run tag has a spawn view")
+                };
+                (ProcessExecutionMode::Spawn, None, value.span)
+            }
+            FullTag::ExprRunPipeline => {
+                let execution = &self.calls[index].execution;
+                let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
+                let super::ExprView::RunPipeline {
+                    segments,
+                    propagate,
+                    span: pipeline_span,
+                } = super::ExprView::decode(execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("pipeline tag has a pipeline view")
+                };
+                (
+                    ProcessExecutionMode::Pipeline { propagate },
+                    Some(segments.position()),
+                    pipeline_span,
+                )
+            }
+            _ => unreachable!("process runner starts only run expressions"),
+        };
+        self.step_process_run(
+            index,
+            ProcessExecutionState {
+                instruction,
+                tag,
+                span,
+                mode,
+                phase: ProcessExecutionPhase::Target,
+                pending: None,
+                segment_cursor,
+                segment_position: None,
+                args_position: None,
+                env_position: None,
+                redirections_position: None,
+                invocation: ProcessInvocationBuilder::new(),
+                invocations: Vec::new(),
+                pipeline_head: None,
+            },
+            next,
+        )
+    }
+
+    fn begin_next_process_segment(
+        &self,
+        index: usize,
+        state: &mut ProcessExecutionState,
+    ) -> Result<bool, RuntimeError> {
+        let position = state
+            .segment_cursor
+            .expect("pipeline runner retains its next segment cursor");
+        let execution = &self.calls[index].execution;
+        let (tag, payload) = indexed_value(
+            execution.instruction_id(state.instruction),
+            state.span,
+        )?;
+        let super::ExprView::RunPipeline { mut segments, .. } =
+            super::ExprView::decode(execution, tag, payload)
+                .map_err(|error| indexed_error(error, state.span))?
+        else {
+            unreachable!("pipeline tag has a pipeline view")
+        };
+        segments
+            .resume(position)
+            .map_err(|error| indexed_error(error, state.span))?;
+        let Some(segment) = segments
+            .next()
+            .transpose()
+            .map_err(|error| indexed_error(error, state.span))?
+        else {
+            state.segment_cursor = Some(segments.position());
+            return Ok(false);
+        };
+        state.segment_position = Some(position);
+        state.segment_cursor = Some(segments.position());
+        state.args_position = Some(segment.args.position());
+        state.env_position = Some(segment.env.position());
+        state.redirections_position = Some(segment.redirections.position());
+        state.phase = ProcessExecutionPhase::Target;
+        Ok(true)
+    }
+
+    fn step_process_run(
+        &mut self,
+        index: usize,
+        mut state: ProcessExecutionState,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        loop {
+            if matches!(state.mode, ProcessExecutionMode::Pipeline { .. })
+                && state.segment_position.is_none()
+            {
+                if self.begin_next_process_segment(index, &mut state)? {
+                    continue;
+                }
+                let ProcessExecutionMode::Pipeline { propagate } = state.mode else {
+                    unreachable!()
+                };
+                let head = state
+                    .pipeline_head
+                    .unwrap_or(RunKind::Plain);
+                let flow = self.evaluator.apply_indexed_run_pipeline(
+                    head,
+                    &state.invocations,
+                    propagate,
+                    state.span,
+                )?;
+                return self.push_process_flow(index, flow, next);
+            }
+
+            let mut operands = process_run_operands(
+                &self.calls[index].execution,
+                state.instruction,
+                state.tag,
+                state.segment_position,
+                state.span,
+            )?;
+            if state.args_position.is_none() {
+                state.args_position = Some(operands.args.position());
+                state.env_position = Some(operands.env.position());
+                state.redirections_position = Some(operands.redirections.position());
+            }
+            match state.phase {
+                ProcessExecutionPhase::Target => {
+                    let (mode, child, target_span) = run_arg_parts(operands.target);
+                    state.phase = ProcessExecutionPhase::Arguments;
+                    state.pending = Some(ProcessExecutionOperand::Target {
+                        mode,
+                        span: target_span,
+                    });
+                    self.push_expr(
+                        index,
+                        child,
+                        operands.span,
+                        FrameContinuation::ProcessRun {
+                            state,
+                            next: Box::new(next),
+                        },
+                    );
+                    return Ok(());
+                }
+                ProcessExecutionPhase::Arguments => {
+                    operands
+                        .args
+                        .resume(state.args_position.expect("run argument cursor initialized"))
+                        .map_err(|error| indexed_error(error, operands.span))?;
+                    if let Some(argument) = operands
+                        .args
+                        .next()
+                        .transpose()
+                        .map_err(|error| indexed_error(error, operands.span))?
+                    {
+                        state.args_position = Some(operands.args.position());
+                        let (mode, child, arg_span) = run_arg_parts(argument);
+                        state.pending = Some(ProcessExecutionOperand::Argument {
+                            mode,
+                            span: arg_span,
+                        });
+                        self.push_expr(
+                            index,
+                            child,
+                            operands.span,
+                            FrameContinuation::ProcessRun {
+                                state,
+                                next: Box::new(next),
+                            },
+                        );
+                        return Ok(());
+                    }
+                    state.phase = ProcessExecutionPhase::Environment;
+                }
+                ProcessExecutionPhase::Environment => {
+                    operands
+                        .env
+                        .resume(state.env_position.expect("run environment cursor initialized"))
+                        .map_err(|error| indexed_error(error, operands.span))?;
+                    if let Some(assignment) = operands
+                        .env
+                        .next()
+                        .transpose()
+                        .map_err(|error| indexed_error(error, operands.span))?
+                    {
+                        state.env_position = Some(operands.env.position());
+                        let RunEnvView { name, value, .. } = assignment;
+                        let (mode, child, value_span) = run_arg_parts(value);
+                        state.pending = Some(ProcessExecutionOperand::Environment {
+                            name,
+                            mode,
+                            span: value_span,
+                        });
+                        self.push_expr(
+                            index,
+                            child,
+                            operands.span,
+                            FrameContinuation::ProcessRun {
+                                state,
+                                next: Box::new(next),
+                            },
+                        );
+                        return Ok(());
+                    }
+                    state.phase = ProcessExecutionPhase::Redirections;
+                }
+                ProcessExecutionPhase::Redirections => {
+                    operands
+                        .redirections
+                        .resume(
+                            state
+                                .redirections_position
+                                .expect("run redirection cursor initialized"),
+                        )
+                        .map_err(|error| indexed_error(error, operands.span))?;
+                    if let Some(redirection) = operands
+                        .redirections
+                        .next()
+                        .transpose()
+                        .map_err(|error| indexed_error(error, operands.span))?
+                    {
+                        state.redirections_position = Some(operands.redirections.position());
+                        let (mode, child, target_span) = run_arg_parts(redirection.target);
+                        state.pending = Some(ProcessExecutionOperand::Redirection {
+                            kind: redirection.kind,
+                            mode,
+                            target_span,
+                            span: redirection.span,
+                        });
+                        self.push_expr(
+                            index,
+                            child,
+                            redirection.span,
+                            FrameContinuation::ProcessRun {
+                                state,
+                                next: Box::new(next),
+                            },
+                        );
+                        return Ok(());
+                    }
+                    state.phase = ProcessExecutionPhase::Timeout;
+                }
+                ProcessExecutionPhase::Timeout => {
+                    state.phase = ProcessExecutionPhase::CpuMax;
+                    if let Some(child) = operands.timeout {
+                        state.pending = Some(ProcessExecutionOperand::Timeout(operands.span));
+                        self.push_expr(
+                            index,
+                            child,
+                            operands.span,
+                            FrameContinuation::ProcessRun {
+                                state,
+                                next: Box::new(next),
+                            },
+                        );
+                        return Ok(());
+                    }
+                }
+                ProcessExecutionPhase::CpuMax => {
+                    state.phase = ProcessExecutionPhase::Accept;
+                    if let Some(child) = operands.cpu_max {
+                        state.pending = Some(ProcessExecutionOperand::CpuMax(operands.span));
+                        self.push_expr(
+                            index,
+                            child,
+                            operands.span,
+                            FrameContinuation::ProcessRun {
+                                state,
+                                next: Box::new(next),
+                            },
+                        );
+                        return Ok(());
+                    }
+                }
+                ProcessExecutionPhase::Accept => {
+                    state.phase = ProcessExecutionPhase::Finish;
+                    if let Some(child) = operands.accept {
+                        state.pending = Some(ProcessExecutionOperand::Accept(operands.span));
+                        self.push_expr(
+                            index,
+                            child,
+                            operands.span,
+                            FrameContinuation::ProcessRun {
+                                state,
+                                next: Box::new(next),
+                            },
+                        );
+                        return Ok(());
+                    }
+                }
+                ProcessExecutionPhase::Finish => {
+                    let invocation = std::mem::replace(
+                        &mut state.invocation,
+                        ProcessInvocationBuilder::new(),
+                    )
+                    .finish(&mut self.evaluator);
+                    if matches!(state.mode, ProcessExecutionMode::Pipeline { .. }) {
+                        state.pipeline_head.get_or_insert(operands.kind);
+                        state.invocations.push(invocation);
+                        state.segment_position = None;
+                        state.args_position = None;
+                        state.env_position = None;
+                        state.redirections_position = None;
+                        state.phase = ProcessExecutionPhase::Target;
+                        continue;
+                    }
+                    let flow = match state.mode {
+                        ProcessExecutionMode::Capture => {
+                            let (tag, payload) = indexed_value(
+                                self.calls[index]
+                                    .execution
+                                    .instruction_id(state.instruction),
+                                state.span,
+                            )?;
+                            let super::ExprView::RunCapture(capture) =
+                                super::ExprView::decode(
+                                    &self.calls[index].execution,
+                                    tag,
+                                    payload,
+                                )
+                                .map_err(|error| indexed_error(error, state.span))?
+                            else {
+                                unreachable!("run capture tag has a capture view")
+                            };
+                            self.evaluator.apply_indexed_run_capture(
+                                capture.kind,
+                                invocation,
+                                capture.propagate,
+                                capture.assert_success,
+                                capture.span,
+                            )?
+                        }
+                        ProcessExecutionMode::Spawn => self.evaluator.eval_lowered_spawn_invocation(
+                            invocation,
+                            super::SpawnOptions::default(),
+                            state.span,
+                        )?,
+                        ProcessExecutionMode::Pipeline { .. } => unreachable!(),
+                    };
+                    return self.push_process_flow(index, flow, next);
+                }
+            }
+        }
+    }
+
+    fn continue_process_run(
+        &mut self,
+        index: usize,
+        mut state: ProcessExecutionState,
+        value: LoweredValue,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        let operand = state
+            .pending
+            .take()
+            .expect("run expression child has a conversion descriptor");
+        match operand {
+            ProcessExecutionOperand::Target { mode, span } => {
+                let items = Evaluator::run_arg_items_for(mode, span, value.into_value())?;
+                let (target, leading) = super::run_target_and_leading_argv(mode, span, items)?;
+                state.invocation.target = Some(target);
+                state.invocation.argv.extend(leading);
+            }
+            ProcessExecutionOperand::Argument { mode, span } => {
+                state
+                    .invocation
+                    .argv
+                    .extend(Evaluator::run_arg_items_for(mode, span, value.into_value())?);
+            }
+            ProcessExecutionOperand::Environment { name, mode, span } => {
+                let value = Evaluator::run_env_value_for(mode, span, value.into_value())?;
+                state
+                    .invocation
+                    .env_overlay
+                    .insert(name.as_str().as_bytes().to_vec(), value);
+            }
+            ProcessExecutionOperand::Redirection {
+                kind,
+                mode,
+                target_span,
+                span,
+            } => state.invocation.redirections.push(
+                self.evaluator
+                    .run_redirection_value(kind, mode, target_span, span, value)?,
+            ),
+            ProcessExecutionOperand::Timeout(span) => {
+                state.invocation.timeout = Some(super::process::run_timeout_value(value, span)?);
+            }
+            ProcessExecutionOperand::CpuMax(span) => {
+                state.invocation.cpu_max = Some(super::process::run_cpu_max_value(value, span)?);
+            }
+            ProcessExecutionOperand::Accept(span) => {
+                state.invocation.accepted_exit_codes = Some(
+                    super::super::lowered_accepted_exit_codes(value, span)?,
+                );
+            }
+        }
+        self.step_process_run(index, state, next)
+    }
+
+    fn push_process_flow(
+        &mut self,
+        index: usize,
+        flow: ControlFlow<LoweredValue, LoweredValue>,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        self.push_value(
+            index,
+            match flow {
+                ControlFlow::Continue(value) => FrameValue::Value(value),
+                ControlFlow::Break(value) => FrameValue::Break(value),
+            },
+            next,
+        );
+        Ok(())
+    }
+
     fn begin_error_unwind(&mut self, mut error: RuntimeError) {
         if error.abort.as_ref().is_some_and(|signal| signal.force) {
             self.discard_calls();
@@ -3661,6 +4317,26 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 )
             }
+            FullTag::StmtRun => {
+                let StmtView::Run {
+                    value,
+                    propagate_result,
+                } = StmtView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("run statement tag has a run view")
+                };
+                self.push_expr(
+                    index,
+                    value.raw(),
+                    span,
+                    FrameContinuation::StatementRun {
+                        propagate_result,
+                        call_span: span,
+                    },
+                );
+                Ok(())
+            }
             FullTag::StmtAssert => {
                 let condition = indexed_raw(&mut payload, span)?;
                 let message = match indexed_raw(&mut payload, span)? {
@@ -4351,6 +5027,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     | FullTag::ExprStrMatch
                     | FullTag::ExprTagMatch
                     | FullTag::ExprProcessCommandBuilder
+                    | FullTag::ExprRunCapture
+                    | FullTag::ExprRunPipeline
+                    | FullTag::ExprSpawnRun
+                    | FullTag::ExprSpawnCommand
+                    | FullTag::ExprWait
             )
         {
             let flow = {
@@ -4411,6 +5092,43 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             return Ok(());
         }
         match tag {
+            FullTag::ExprRunCapture | FullTag::ExprSpawnRun | FullTag::ExprRunPipeline => {
+                self.start_process_run(index, instruction, tag, span, next)?;
+            }
+            FullTag::ExprSpawnCommand => {
+                let super::ExprView::SpawnCommand { command, span } =
+                    super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                        .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("spawn-command tag has a command view")
+                };
+                self.push_expr(
+                    index,
+                    command.raw(),
+                    span,
+                    FrameContinuation::SpawnCommand {
+                        span,
+                        next: Box::new(next),
+                    },
+                );
+            }
+            FullTag::ExprWait => {
+                let super::ExprView::Wait { target, span } =
+                    super::ExprView::decode(&self.calls[index].execution, tag, payload)
+                        .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("wait tag has a wait view")
+                };
+                self.push_expr(
+                    index,
+                    target.raw(),
+                    span,
+                    FrameContinuation::Wait {
+                        span,
+                        next: Box::new(next),
+                    },
+                );
+            }
             FullTag::ExprProcessCommandBuilder => {
                 let (entries, builder_span) = process_command_builder_view(
                     &self.calls[index].execution,
@@ -6113,6 +6831,113 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 )?,
                 FrameValue::Break(value) => {
                     self.push_value(index, FrameValue::Break(value), *next);
+                }
+            },
+            FrameContinuation::ProcessRun { state, next } => match value {
+                FrameValue::Value(value) => {
+                    self.continue_process_run(index, state, value, *next)?;
+                }
+                FrameValue::Break(value) => {
+                    self.push_value(index, FrameValue::Break(value), *next);
+                }
+            },
+            FrameContinuation::SpawnCommand { span, next } => match value {
+                FrameValue::Value(LoweredValue::Command(plan)) => {
+                    let options = super::SpawnOptions {
+                        detach: plan.detach,
+                        new_session: plan.new_session,
+                        ignore_hup: plan.ignore_hup,
+                        same_group: plan.same_group,
+                    };
+                    let invocation = self
+                        .evaluator
+                        .invocation_from_command_plan(&plan, span)?;
+                    let flow = self
+                        .evaluator
+                        .eval_lowered_spawn_invocation(invocation, options, span)?;
+                    self.push_process_flow(index, flow, *next)?;
+                }
+                FrameValue::Value(value) => {
+                    return Err(RuntimeError::new(
+                        "type-error",
+                        format!("spawn expected Command, found {}", value.type_name()),
+                    )
+                    .with_span(span));
+                }
+                FrameValue::Break(value) => {
+                    self.push_value(index, FrameValue::Break(value), *next);
+                }
+            },
+            FrameContinuation::Wait { span, next } => match value {
+                FrameValue::Value(target) => {
+                    let target = target.into_value();
+                    let value = match target {
+                        Value::ProcessHandle(handle) => {
+                            self.evaluator.wait_one_process_handle(*handle, span)?
+                        }
+                        Value::List(items) => {
+                            self.evaluator.wait_process_handle_list(items, span)?
+                        }
+                        value => super::process_handle::process_handle_error(
+                            super::RunError::new(
+                                "unknown",
+                                format!(
+                                    "wait expected ProcessHandle or List[ProcessHandle], found {}",
+                                    value.type_name()
+                                ),
+                            )
+                            .with_span(span),
+                        ),
+                    };
+                    let value = lowered_value_from_runtime_any(&value).ok_or_else(|| {
+                        RuntimeError::new(
+                            "type-error",
+                            format!("wait produced unsupported {}", value.type_name()),
+                        )
+                        .with_span(span)
+                    })?;
+                    self.push_value(index, FrameValue::Value(value), *next);
+                }
+                FrameValue::Break(value) => {
+                    self.push_value(index, FrameValue::Break(value), *next);
+                }
+            },
+            FrameContinuation::StatementRun {
+                propagate_result,
+                call_span,
+            } => match value {
+                FrameValue::Value(value) if !propagate_result => {
+                    let _ = value;
+                }
+                FrameValue::Value(value) => match value {
+                    value @ LoweredValue::ResultOk(_) => {
+                        let _ = value;
+                    }
+                    value @ LoweredValue::ResultErr(_) => {
+                        let span = match &value {
+                            LoweredValue::ResultErr(error) => match error.as_ref() {
+                                Value::RunError(error) => error.span,
+                                Value::Error(error) => error.span,
+                                _ => None,
+                            },
+                            _ => None,
+                        }
+                        .unwrap_or(call_span);
+                        let value = self
+                            .evaluator
+                            .lowered_question_propagation_value(value, span)?;
+                        self.complete_call(index, StmtFlow::Propagate(value))?;
+                    }
+                    other => {
+                        return Err(RuntimeError::new(
+                            "type-error",
+                            format!("`?` expected Result, found {}", other.type_name()),
+                        )
+                        .with_span(call_span));
+                    }
+                },
+                FrameValue::Break(value) => {
+                    self.complete_call(index, StmtFlow::Propagate(value))?;
                 }
             },
             FrameContinuation::TypedBoolNot { span, next } => match value {
@@ -9560,7 +10385,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             ProcessCommandRunPhase::Target => {
                 let arg = run_arg_from_view(target);
                 let items = Evaluator::run_arg_items(&arg, value.into_value())?;
-                let (target, leading) = super::run_target_and_leading_argv(&arg, items)?;
+                let (target, leading) =
+                    super::process::run_target_and_leading_argv_for_arg(&arg, items)?;
                 plan.target = target;
                 plan.argv.extend(leading);
                 ProcessCommandRunPhase::Argument

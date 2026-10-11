@@ -606,20 +606,6 @@ impl Evaluator {
         )))
     }
 
-    pub(super) fn eval_indexed_optional_expr(
-        &mut self,
-        execution: &FullExecution<'_>,
-        instruction: Option<u32>,
-        slots: &mut [LoweredValue],
-        span: Span,
-    ) -> Result<ControlFlow<LoweredValue, Option<LoweredValue>>, RuntimeError> {
-        let Some(instruction) = instruction else {
-            return Ok(ControlFlow::Continue(None));
-        };
-        self.eval_indexed_expr(execution, instruction, slots, span)
-            .map(|flow| flow.map_continue(Some))
-    }
-
     pub(super) fn indexed_stage_name(tag: FullStageTag) -> &'static str {
         match tag {
             FullStageTag::TextLines => "text.lines",
