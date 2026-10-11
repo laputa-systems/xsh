@@ -108,6 +108,42 @@ and API counter completion are still pending. W2 follow-up, W4 session closure,
 W5 behavior traversal, W9 module reuse, R3 runtime transfer transport, and dead
 code inventories now have independent preparation owners.
 
+Further accepted structural slices: W3 annotation storage facts `b4d5ad37`
+(-103 production; seven focused native cases and corpus lowering consistency
+proof pass), formatter dead-code contraction `7b231e21` (-39 production and
+removal of the formatter's inherited blanket allowance), and generated stage
+tags `153d8595` (-43 production; three stage proofs pass, all 46 ordinals
+preserved). The unused public `Formatter::format_program_with_source` method
+was removed with no repository callers. Test-only source-session option
+qualification is fixed in `feaf24df`. The formatter proof exposes a preexisting
+slice-range grouping defect; the grouping owner is retaining its per-case
+assertions and repairing that defect, not claiming the full proof green yet.
+
+R3 checker/type/transfer facts are ready in lane commit `76fa3df4`, based on
+`4b0ebefc`, not yet integrated. Strict units and reassignment pass with the
+sealed adapter assignment-root hunk in an isolated joint probe. The runtime
+bridge lane uses separate prerequisite commits and a typed instruction sidecar
+without payload/tag changes. The full adapter has a sealed 14-file prerequisite
+patch (`b57c11f0...9ec526`); its final source-aware arena text and fixture fixes
+are outside that earlier artifact. Imported module tests now pass 30/30 and
+all 18 expanded native suites pass; the final lint gate remains running.
+
+ARM infrastructure has been recovered from the exact Dockerfile. Final gates
+will use image `sha256:7aec577a12163bc2aee78e759dde9ae571c692632183a83a564ae1bb88384026`
+and the host-visible `xsh-consolidation-aarch64-5e66b6b8` binfmt registration.
+The bounded compiler/QEMU identity probe passes; no ARM product gate has run.
+Evidence is `.work/consolidation/infra/arm-environment-current.md`.
+
+Coverage continuation preserves an observed `dmesg` failure and profiler
+permission errors rather than normalizing them. The latter contaminate child
+stderr and require an explicitly linked retry with writable disk-backed profile
+storage. Noninstrumented frozen/current `dmesg` cases both pass; instrumentation
+is being investigated before changing that test. Original statuses and profiles
+remain intact. Primary compiler launches now have 12-CPU/24-GiB limits;
+secondary/third retain their separate bounded queues. An in-place launcher
+update caused EOF errors after some successful compiles; affected commands
+must rerun incrementally to obtain a valid launch return code.
+
 Paused at the owner's request on 2026-10-11 for a computer reboot. The campaign
 is **incomplete**. Do not resume implementation, tests, or profiling until the
 owner resumes it. This checkpoint supersedes older progress rows; approved
