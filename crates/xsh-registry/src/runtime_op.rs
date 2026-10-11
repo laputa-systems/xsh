@@ -1,5 +1,8 @@
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum RuntimeOp {
+    NumericParseLongDouble,
+    NumericFormatLongDouble,
+    NumericLongDoublePrecision,
     AppletHashPassword,
     AppletVerifyPassword,
     AppletCurrentEuid,

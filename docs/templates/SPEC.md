@@ -617,6 +617,17 @@ again to be a `Port`, and `+=` on a variable of a bounded type is
 {{.spec.bounded_int_unvalidated.source}}
 ```
 
+`numeric.parse_long_double` and `numeric.format_long_double` keep numeric text
+at the native C `long double` boundary without a binary64 intermediate. Their
+locale is always C. Precision and range follow the target C ABI;
+`numeric.long_double_precision()` reports the significand bit count. Parsing
+reports the consumed byte prefix and range errors, including underflow.
+Embedded NUL ends the prefix. The opaque ordering key compares lexically as
+failed conversions, NaNs, negative infinity, negative finite numbers, zero,
+positive finite numbers, positive infinity; signed zeros and NaNs each compare
+equal within their class. Formatting accepts one floating conversion and an
+optional nonnegative precision, retaining negative zero and native rounding.
+
 `Float` and `Int` never mix: convert with `.float()`, or back with
 `.floor()`, `.ceil()`, or `.round()`, which return `Result[Int]` and reject
 NaN, infinities, and out-of-range values. Float equality compares exact

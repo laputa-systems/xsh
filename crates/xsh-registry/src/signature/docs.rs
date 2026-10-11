@@ -109,6 +109,7 @@ fn module_docs(module: &str) -> ApiDocs {
             "Descriptors define the stable script-facing command-line contract.",
         ),
         "compression" => ("Bounded compression of files or standard streams.", "Null paths select standard input and output; named destinations are created exclusively unless overwrite is true."),
+        "numeric" => ("Native C long double text conversion.", "Uses an isolated C locale and the target C long double precision and range; values never pass through XSH Float."),
         "cpu" => ("CPU capability queries.", ""),
         "diff" => ("Unified diff generation.", ""),
         "dns" => (
@@ -253,6 +254,9 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
     let docs: Option<(&'static str, &'static str, &'static [&'static str])> = match (
         module, function,
     ) {
+        ("numeric", "parse_long_double") => Some(("Parses a native C long double prefix and returns its ordering key.", "Consumed is a byte offset, including leading whitespace, or zero when no number is recognized. NUL ends parsing. range_error reports native ERANGE. C locale is isolated from process locale. Keys compare lexically: failed conversion, NaN, negative infinity, negative finite values, zero, positive finite values, positive infinity. All NaNs and signed zeros compare equal. Keys are opaque and target-specific.", &["numeric", "parsing", "ordering"])),
+        ("numeric", "format_long_double") => Some(("Parses and formats numeric text with native C long double precision.", "Accepts fFeEgGaA with optional nonnegative C-int precision; null uses the native default. alternate selects the # form. Reports consumed bytes and ERANGE from parsing. Uses C locale; retains signed zero, infinities, NaNs and target-native rounding. Invalid conversions, invalid precision, formatting and allocation failures return errors.", &["numeric", "formatting"])),
+        ("numeric", "long_double_precision") => Some(("Returns the target C long double significand bit count.", "Matches the native parsing and formatting boundary: 64 on x86 extended precision, 113 on IEEE binary128 targets, and 53 on targets where C long double is binary64.", &["numeric", "precision"])),
         ("json", "read") => Some((
             "Reads one JSON document from a path.",
             "Successful parsing returns Any; require a schema before trusting fields.",

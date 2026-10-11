@@ -20,6 +20,7 @@ fn main() {
 
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR set"));
     write_symbols(&preloaded_symbol_names(), &root);
+    build_long_double(&root);
 }
 
 fn write_symbols(symbols: &[String], root: &Path) {
@@ -72,4 +73,60 @@ fn write_symbols(symbols: &[String], root: &Path) {
         .unwrap_or_else(|err| panic!("failed to write '{}': {err}", path.display()));
 
     let _ = root;
+}
+
+// Match the C compiler and target flags selected by the repository build driver.
+fn build_long_double(root: &Path) {
+    use std::process::Command;
+    let target = env::var("TARGET").expect("TARGET set");
+    let normalized = target.replace('-', "_");
+    let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR set"));
+    let setting = |name: &str| {
+        let names = [format!("{name}_{target}"), format!("{name}_{normalized}"),
+            format!("{name}_{}", normalized.to_uppercase()), format!("TARGET_{name}"), name.to_string()];
+        for key in names {
+            println!("cargo:rerun-if-env-changed={key}");
+            if let Ok(value) = env::var(&key) { return Some(value); }
+        }
+        None
+    };
+    let run = |tool: String, args: Vec<String>| {
+        let words = c_build_words(&tool);
+        let executable = words.first().expect("C build tool must not be empty");
+        let status = Command::new(executable).args(&words[1..]).args(args).status()
+            .unwrap_or_else(|error| panic!("cannot execute {executable}: {error}"));
+        assert!(status.success(), "C numeric boundary build failed: {executable}");
+    };
+    let compiler = setting("CC").unwrap_or_else(|| "cc".to_string());
+    let archiver = setting("AR").unwrap_or_else(|| "ar".to_string());
+    let mut flags: Vec<String> = c_build_words(&setting("CFLAGS").unwrap_or_default());
+    flags.extend(["-std=c11".into(), "-O2".into(), "-fPIC".into(), "-c".into(),
+        root.join("src/modules/numeric/long_double.c").display().to_string(), "-o".into(), out.join("long_double.o").display().to_string()]);
+    run(compiler, flags);
+    run(archiver, vec!["crs".into(), out.join("libxsh_numeric.a").display().to_string(), out.join("long_double.o").display().to_string()]);
+    println!("cargo:rerun-if-changed=src/modules/numeric/long_double.c");
+    println!("cargo:rustc-link-search=native={}", out.display());
+    println!("cargo:rustc-link-lib=static=xsh_numeric");
+    println!("cargo:rustc-link-lib=m");
+}
+
+
+fn c_build_words(input: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let mut quote = None;
+    let mut escaped = false;
+    let mut started = false;
+    for character in input.chars() {
+        if escaped { word.push(character); escaped = false; }
+        else if character == '\\' && quote != Some('\'') { escaped = true; started = true; }
+        else if quote == Some(character) { quote = None; }
+        else if quote.is_none() && matches!(character, '\'' | '"') { quote = Some(character); started = true; }
+        else if quote.is_none() && character.is_whitespace() {
+            if started { words.push(std::mem::take(&mut word)); started = false; }
+        } else { word.push(character); started = true; }
+    }
+    assert!(!escaped && quote.is_none(), "unterminated quote or escape in C build setting");
+    if started { words.push(word); }
+    words
 }

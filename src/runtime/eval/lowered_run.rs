@@ -8431,6 +8431,21 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
+            RuntimeOp::NumericLongDoublePrecision => LoweredValue::Int(crate::modules::numeric::precision()),
+            RuntimeOp::NumericParseLongDouble => {
+                let text = lowered_str_arg_owned(values.first().cloned(), "", "numeric.parse_long_double", span)?;
+                lowered_runtime_result(crate::modules::numeric::parse(&text, span), span)?
+            }
+            RuntimeOp::NumericFormatLongDouble => {
+                let text = lowered_str_arg_owned(values.first().cloned(), "", "numeric.format_long_double", span)?;
+                let conversion = lowered_str_arg_owned(values.get(1).cloned(), "", "numeric.format_long_double", span)?;
+                let precision = match values.get(2) {
+                    None | Some(LoweredValue::Null) => None,
+                    _ => Some(lowered_int_arg(values.get(2).cloned(), "numeric.format_long_double", span)?),
+                };
+                let alternate = lowered_bool_arg_or(values.get(3).cloned(), false, "numeric.format_long_double", span)?;
+                lowered_runtime_result(crate::modules::numeric::format(&text, &conversion, precision, alternate, span), span)?
+            }
             RuntimeOp::CompressionTransform => {
                 let source = match values.first().cloned() { None | Some(LoweredValue::Null) => None, Some(value) => Some(lowered_path_arg(value, "compression.transform", span)?) };
                 let destination = match values.get(1).cloned() { None | Some(LoweredValue::Null) => None, Some(value) => Some(lowered_path_arg(value, "compression.transform", span)?) };

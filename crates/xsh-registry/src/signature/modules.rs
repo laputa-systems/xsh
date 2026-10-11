@@ -28,6 +28,7 @@ use super::{test_call_type, test_context_type, test_script_output_type};
 pub(in crate::signature) fn build_api_spec() -> ApiSpec {
     ApiSpec::new(
         vec![
+            ModuleEntry { name: "numeric", sig: numeric_module() },
             ModuleEntry {
                 name: "applet",
                 sig: applet_module(),
@@ -5082,4 +5083,18 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
         contract: doc.1,
         tags: doc.2,
     })
+}
+
+fn numeric_module() -> ModuleSig {
+    let parsed = Type::Record(btree_map(vec![
+        ("consumed", Type::Int), ("range_error", Type::Bool), ("order_key", Type::Str),
+    ]));
+    let formatted = Type::Record(btree_map(vec![
+        ("consumed", Type::Int), ("range_error", Type::Bool), ("text", Type::Str),
+    ]));
+    module_sig(vec![
+        ("parse_long_double", sig(vec![param("text", Type::Str)], result(parsed), true, RuntimeOp::NumericParseLongDouble)),
+        ("format_long_double", sig(vec![param("text", Type::Str), param("conversion", Type::Str), default_param("precision", Type::Optional(Box::new(Type::Int))), default_param("alternate", Type::Bool)], result(formatted), true, RuntimeOp::NumericFormatLongDouble)),
+        ("long_double_precision", sig(vec![], Type::Int, true, RuntimeOp::NumericLongDoublePrecision)),
+    ])
 }
