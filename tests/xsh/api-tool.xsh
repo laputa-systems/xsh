@@ -181,6 +181,19 @@ test test_api_exact_item_explains_effects_and_contract {
   api(["api:fs.copy_tree"])? |> assert_contains(_, ["contract:", "effects: fs", "signature: fs.copy_tree"])
 }
 
+test test_api_time_monotonic_documents_its_duration_contract {
+  api(["api:time.monotonic"])? |> assert_contains(
+    _,
+    [
+      "api: module.time.monotonic",
+      "time.monotonic() -> Result[Int, Error]",
+      "nanoseconds",
+      "process-local",
+      "never wall-clock time",
+    ],
+  )
+}
+
 test test_api_filesystem_walk_contract_documents_hidden_default {
   let stdout = api(["api:fs.files", "api:fs.walk"])?
   assert occurrences(stdout, "hidden: false") == 2, stdout

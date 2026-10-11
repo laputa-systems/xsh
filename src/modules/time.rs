@@ -1,10 +1,18 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::OnceLock;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+static MONOTONIC_ORIGIN: OnceLock<Instant> = OnceLock::new();
 
 pub(crate) fn now_epoch_ms() -> i64 {
     match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(duration) => duration.as_millis().min(i64::MAX as u128) as i64,
         Err(error) => -(error.duration().as_millis().min(i64::MAX as u128) as i64),
     }
+}
+
+pub(crate) fn monotonic_ns() -> Result<i64, String> {
+    let elapsed = MONOTONIC_ORIGIN.get_or_init(Instant::now).elapsed().as_nanos();
+    i64::try_from(elapsed).map_err(|_| "monotonic clock exceeds the signed nanosecond range".into())
 }
 
 pub(crate) fn duration_compact(seconds: i64) -> String {

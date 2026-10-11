@@ -6516,6 +6516,9 @@ impl Evaluator {
             RuntimeOp::TimeClockResolution if values.is_empty() => {
                 lowered_runtime_result(crate::modules::time::clock_resolution().map(Value::Int).map_err(|message| RuntimeError::new("time-resolution", message).with_span(span)), span)?
             }
+            RuntimeOp::TimeMonotonic if values.is_empty() => {
+                lowered_runtime_result(crate::modules::time::monotonic_ns().map(Value::Int).map_err(|message| RuntimeError::new("time-monotonic", message).with_span(span)), span)?
+            }
             RuntimeOp::TimeNow if values.is_empty() => {
                 LoweredValue::Int(crate::modules::time::now_epoch_ms())
             }

@@ -4380,6 +4380,7 @@ fn time_module() -> ModuleSig {
         ("to_calendar", sig(vec![param("epoch_ns", Type::Int), default_param("utc", Type::Bool)], result(crate::records::time_calendar_type()), false, RuntimeOp::TimeToCalendar)),
 
         ("now", sig(Vec::new(), Type::Int, false, RuntimeOp::TimeNow)),
+        ("monotonic", sig(Vec::new(), result(Type::Int), false, RuntimeOp::TimeMonotonic)),
         ("clock_resolution", sig(Vec::new(), result(Type::Int), false, RuntimeOp::TimeClockResolution)),
         ("format", sig(vec![param("epoch_ns", Type::Int), param("format", Type::Str), default_param("utc", Type::Bool)], result(Type::Str), false, RuntimeOp::TimeFormat)),
         ("from_calendar", sig(vec![param("year", Type::Int), param("month", Type::Int), param("day", Type::Int), default_param("hour", Type::Int), default_param("minute", Type::Int), default_param("second", Type::Int), default_param("utc", Type::Bool), default_param("normalize", Type::Bool)], result(Type::Int), false, RuntimeOp::TimeFromCalendar)),

@@ -62,6 +62,15 @@ test test_time_clock_resolution {
   assert time.format(0, "%! %_::::z", utc: true)? == "%! %_::::z"
 }
 
+test test_time_monotonic_is_an_opaque_duration_clock {
+  let first = time.monotonic()?
+  let second = time.monotonic()?
+  assert first >= 0
+  assert second >= first
+  time.sleep(2ms)
+  assert time.monotonic()? > second
+}
+
 test test_time_explicit_calendar_normalization { |ctx|
   let source = "assert time.from_calendar(2024, 3, 10, 2, 30) is Err(_)\nlet epoch = time.from_calendar(2024, 3, 10, 2, 30, normalize: true)?\nprint time.format(epoch, \"%F %T %z\")?"
   let output = test.run_xsh(ctx, source, env: {TZ: "EST5EDT,M3.2.0,M11.1.0"})?

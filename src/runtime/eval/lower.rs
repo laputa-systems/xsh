@@ -608,6 +608,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::SystemExecutionUnits
             | RuntimeOp::SystemOsRelease
             | RuntimeOp::TimeNow
+            | RuntimeOp::TimeMonotonic
             | RuntimeOp::TimeClockResolution
             | RuntimeOp::TimeFormat
             | RuntimeOp::TimeToCalendar

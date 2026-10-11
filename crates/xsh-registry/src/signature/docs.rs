@@ -1530,6 +1530,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The value is a host clock observation and is not a monotonic duration source.",
             &["time", "clock", "host-state"],
         )),
+        ("time", "monotonic") => Some((
+            "Reads a monotonic clock for measuring elapsed durations.",
+            "Returns nanoseconds from an opaque, process-local origin. Only differences between readings are meaningful; the value is never wall-clock time and must not be persisted as an epoch timestamp. The clock does not move backward during a process run.",
+            &["time", "clock", "duration", "host-state"],
+        )),
         ("time", "format") => Some((
             "Formats an epoch nanosecond timestamp as calendar text.",
             "Uses the process TZ and system timezone rules unless utc is true. Supports strftime directives plus nanoseconds (%N), epoch seconds (%s), quarter (%q), and colon timezone offsets. Format widths and total output are limited to 65536 bytes; embedded NUL and non-UTF-8 output are errors.",

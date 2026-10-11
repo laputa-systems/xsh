@@ -609,6 +609,7 @@ pub enum RuntimeOp {
     TestExpect,
     TemplateRender,
     TimeNow,
+    TimeMonotonic,
     TimeClockResolution,
     TimeFormat,
     TimeToCalendar,
