@@ -76,24 +76,24 @@ comment */
 
   let output = run.text "xsh" "showcase/tokei.xsh" -- --json $root
   let data = json.decode(output)?
-  assert data["BASH"]["code"].require(Int)? == 1
-  assert data["Shell"]["blanks"].require(Int)? == 1
-  assert data["JSON"]["code"].require(Int)? == 1
-  assert data["TOML"]["comments"].require(Int)? == 1
-  assert data["JavaScript"]["comments"].require(Int)? == 2
-  assert data["HTML"]["children"]["JavaScript"].require(List[Any])?.len() == 1
-  assert data["HTML"]["children"]["JavaScript"][0]["stats"]["code"].require(Int)? == 1
-  assert data["Markdown"]["children"]["BASH"][0]["stats"]["comments"].require(Int)? == 1
-  assert data["Markdown"]["children"]["Shell"][0]["stats"]["code"].require(Int)? == 1
-  assert data["MDX"]["comments"].require(Int)? == 4
-  assert data["MDX"]["blanks"].require(Int)? == 1
-  assert data["MDX"]["children"].require(Record)?.keys().is_empty()
-  assert data["Rust"]["children"]["Markdown"][0]["stats"]["blobs"]["TOML"]["code"].require(Int)? == 1
-  assert data["Total"]["code"].require(Int)? == 16
-  assert data["Total"]["comments"].require(Int)? == 23
-  assert data["Total"]["blanks"].require(Int)? == 5
-  assert ".hidden" not in data["Total"]["children"]["JSON"][0]["name"].require(Str)?
-  assert data["Rust"]["reports"].require(List[Any])?.len() == 1
+  assert json.get(data, ["BASH", "code"])?.require(Int)? == 1
+  assert json.get(data, ["Shell", "blanks"])?.require(Int)? == 1
+  assert json.get(data, ["JSON", "code"])?.require(Int)? == 1
+  assert json.get(data, ["TOML", "comments"])?.require(Int)? == 1
+  assert json.get(data, ["JavaScript", "comments"])?.require(Int)? == 2
+  assert json.get(data, ["HTML", "children", "JavaScript"])?.require(List[Any])?.len() == 1
+  assert json.get(data, ["HTML", "children", "JavaScript", 0, "stats", "code"])?.require(Int)? == 1
+  assert json.get(data, ["Markdown", "children", "BASH", 0, "stats", "comments"])?.require(Int)? == 1
+  assert json.get(data, ["Markdown", "children", "Shell", 0, "stats", "code"])?.require(Int)? == 1
+  assert json.get(data, ["MDX", "comments"])?.require(Int)? == 4
+  assert json.get(data, ["MDX", "blanks"])?.require(Int)? == 1
+  assert json.get(data, ["MDX", "children"])?.require(Record)?.keys().is_empty()
+  assert json.get(data, ["Rust", "children", "Markdown", 0, "stats", "blobs", "TOML", "code"])?.require(Int)? == 1
+  assert json.get(data, ["Total", "code"])?.require(Int)? == 16
+  assert json.get(data, ["Total", "comments"])?.require(Int)? == 23
+  assert json.get(data, ["Total", "blanks"])?.require(Int)? == 5
+  assert ".hidden" not in json.get(data, ["Total", "children", "JSON", 0, "name"])?.require(Str)?
+  assert json.get(data, ["Rust", "reports"])?.require(List[Any])?.len() == 1
   let table = run.text "xsh" "showcase/tokei.xsh" -- $root
 
   # tokei-format table: heavy rules, capitalized header, embedded ("|-") child rows,
