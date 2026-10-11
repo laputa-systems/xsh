@@ -14,7 +14,7 @@ proc add_block_device(root: FsRoot, name: Str, number: Str, disk_sequence: Str, 
   root.write(fp"{device_path}/diskseq", f"{disk_sequence}\n")
   root.write(fp"{device_path}/size", "4096\n")
   root.write(fp"{device_path}/stat", stats)
-  root.symlink(fp"../../devices/virtual/block/{name}", fp"sys/class/block/{name}")
+  root.symlink(target: fp"../../devices/virtual/block/{name}", path: fp"sys/class/block/{name}")
 }
 
 proc write_mounts(root: FsRoot, text: Str) [fs, error] {
@@ -135,7 +135,7 @@ test test_btop_disk_rows_use_only_the_mounted_stacked_device_counters {
   root.mkdir(p"sys/class/block", parents: true)
   add_block_device(root, "sda", "8:0", "11", "1 0 1000 0 1 0 2000 0 0 0 0\n")
   add_block_device(root, "dm-0", "253:0", "12", "1 0 10 0 1 0 20 0 0 0 0\n")
-  root.symlink(p"../../sda", p"sys/devices/virtual/block/dm-0/slaves/sda")
+  root.symlink(target: p"../../sda", path: p"sys/devices/virtual/block/dm-0/slaves/sda")
   root.mkdir(p"mnt/root", parents: true)
   write_mounts(root, "1 0 253:0 / /mnt/root rw - ext4 /dev/dm-0 rw\n")
   let source = disks.collect(root, 1000000000)?

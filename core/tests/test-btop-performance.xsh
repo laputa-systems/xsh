@@ -70,7 +70,7 @@ proc write_storage_frame(root: FsRoot) [fs, error] {
   root.write(p"frame/sys/devices/virtual/block/dm-0/diskseq", "1\n")
   root.write(p"frame/sys/devices/virtual/block/dm-0/size", "4096\n")
   root.write(p"frame/sys/devices/virtual/block/dm-0/stat", "1 0 10 0 1 0 20 0 0 0 0\n")
-  root.symlink(p"../../devices/virtual/block/dm-0", p"frame/sys/class/block/dm-0")
+  root.symlink(target: p"../../devices/virtual/block/dm-0", path: p"frame/sys/class/block/dm-0")
   root.mkdir(p"frame/mnt/disk", parents: true)
   root.mkdir(p"frame/proc/self", parents: true)
   root.write(p"frame/proc/self/mountinfo", "1 0 253:0 / /mnt/disk rw - ext4 /dev/dm-0 rw\n")
