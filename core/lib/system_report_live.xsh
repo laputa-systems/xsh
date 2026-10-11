@@ -1,6 +1,7 @@
 ##! Collects a bounded, process-visible Linux report from one rooted source tree.
 use sys_block
 use sys_mount
+use sys_mem as memory
 use sys_pci
 use sys_source as src
 use sys_usb
@@ -571,6 +572,8 @@ export type ProcStat = {
   state: Str,
   thread_count: Int?,
   start_ticks: Int,
+  cpu_ticks: Int?,
+  cpu_ticks_state: report.ObservationState?,
   virtual_bytes: Int?,
   resident_pages: Int?,
   field_issues: List[ProcStatFieldIssue],
@@ -622,6 +625,21 @@ pure proc_stat_error(message: Str) -> Error {
 }
 
 type ProcOptionalNumber = {value: Int?, issue_state: report.ObservationState?}
+
+type ProcCounter = {value: Int?, issue_state: report.ObservationState?}
+
+# Parses a signed-i64 kernel counter without narrowing it to JSON's exact integer range.
+pure proc_counter(raw: Str) -> ProcCounter {
+  let parsed = parse_integer(raw)
+  if parsed == null {
+    return {value: null, issue_state: if decimal_identifier(raw) { report.RangeFailure } else { report.Malformed }}
+  }
+  let number = parsed ?? -1
+  if number < 0 {
+    return {value: null, issue_state: report.Malformed}
+  }
+  {value: number, issue_state: null}
+}
 
 pure proc_optional_number(raw: Str, positive: Bool = false) -> ProcOptionalNumber {
   let parsed = parse_integer(raw)
@@ -676,6 +694,23 @@ export pure parse_proc_stat(text: Str) -> Result[ProcStat, Error] {
   }
 
   let thread_count = proc_optional_number(fields[17], positive: true)
+  let user_ticks = proc_counter(fields[11])
+  let system_ticks = proc_counter(fields[12])
+  var cpu_ticks: Int? = null
+  var cpu_ticks_state: report.ObservationState? = null
+  if user_ticks.issue_state != null {
+    cpu_ticks_state = user_ticks.issue_state
+  } else if system_ticks.issue_state != null {
+    cpu_ticks_state = system_ticks.issue_state
+  } else {
+    let user_value = user_ticks.value ?? 0
+    let system_value = system_ticks.value ?? 0
+    if user_value > 9223372036854775807 - system_value {
+      cpu_ticks_state = report.RangeFailure
+    } else {
+      cpu_ticks = user_value + system_value
+    }
+  }
   let virtual_bytes = proc_optional_number(fields[20])
   let resident_pages = proc_optional_number(fields[21])
   var field_issues = [
@@ -703,6 +738,8 @@ export pure parse_proc_stat(text: Str) -> Result[ProcStat, Error] {
     state: fields[0],
     thread_count: thread_count.value,
     start_ticks: start_ticks,
+    cpu_ticks: cpu_ticks,
+    cpu_ticks_state: cpu_ticks_state,
     virtual_bytes: virtual_bytes.value,
     resident_pages: resident_pages.value,
     field_issues: field_issues,
@@ -3449,124 +3486,21 @@ proc read_huge_page_pool(root: FsRoot, huge_path: Path, node_id: Int?, field: St
 
 proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> report.SystemReport {
   let source = read_value(root, p"proc/meminfo", max_bytes: 1048576)
-  var total: Int? = null
-  var free: Int? = null
-  var available: Int? = null
-  var buffers: Int? = null
-  var cached: Int? = null
-  var active: Int? = null
-  var inactive: Int? = null
-  var dirty: Int? = null
-  var writeback: Int? = null
-  var swap_total: Int? = null
-  var swap_free: Int? = null
-  var counters: List[report.MemoryCounter] = []
+  let meminfo = memory.parse(source)
+  let total = meminfo.total.bytes
+  let free = meminfo.free.bytes
+  let available = meminfo.available.bytes
+  let buffers = meminfo.buffers.bytes
+  let cached = meminfo.cached.bytes
+  let active = meminfo.active.bytes
+  let inactive = meminfo.inactive.bytes
+  let dirty = meminfo.dirty.bytes
+  let writeback = meminfo.writeback.bytes
+  let swap_total = meminfo.swap_total.bytes
+  let swap_free = meminfo.swap_free.bytes
+  let counters = meminfo.counters
   var issues = base.issues
-  if source.observation.state != .Observed or source.observation.value == null {
-    issues += [issue("memory", "meminfo", source.observation.state, source.error_kind, source.errno)]
-  } else if source.observation.value.trim() == "" {
-    issues += [issue("memory", "meminfo", report.Malformed, "empty_meminfo", null)]
-  } else {
-    let meminfo_lines = source.observation.value.lines()
-    var seen_names: Set[Str] = set.empty()
-    var duplicate_names: Set[Str] = set.empty()
-    for line in meminfo_lines {
-      let pair = line.split(":", maxsplit: 1)
-      continue when pair.len() != 2
-      let name = pair[0].trim()
-      continue when name == ""
-      if name in seen_names and name not in duplicate_names {
-        duplicate_names = duplicate_names.add(name)
-        issues += [issue("memory", f"meminfo.{name}", report.Malformed, "duplicate_field", null)]
-      }
-
-      seen_names = seen_names.add(name)
-    }
-
-    for line_item in meminfo_lines |> enumerate() {
-      let line = line_item.value
-      continue when line.trim() == ""
-      let pair = line.split(":", maxsplit: 1)
-      if pair.len() != 2 {
-        issues += [
-          issue("memory", f"meminfo.line.{line_item.index}", report.Malformed, "missing_field_separator", null),
-        ]
-        continue
-      }
-
-      let name = pair[0].trim()
-      continue when name in duplicate_names
-      let values = parse_words(pair[1].trim().replace("\t", with: " "))
-      if values.is_empty() {
-        issues += [issue("memory", f"meminfo.{name}", report.Malformed, "missing_integer", null)]
-        continue
-      }
-
-      let parsed = parse_integer(values[0])
-      let has_kib_unit = values.len() > 1 and values[1] == "kB"
-      let byte_counter = name in [
-        "MemTotal",
-        "MemFree",
-        "MemAvailable",
-        "Buffers",
-        "Cached",
-        "Active",
-        "Inactive",
-        "Dirty",
-        "Writeback",
-        "SwapTotal",
-        "SwapFree",
-      ]
-      if values.len() > 2 {
-        issues += [issue("memory", f"meminfo.{name}", report.Malformed, "unexpected_meminfo_columns", null)]
-        continue
-      }
-
-      if parsed == null {
-        let state = if decimal_identifier(values[0]) { report.RangeFailure } else { report.Malformed }
-        let error_kind = if state == .RangeFailure { "integer_out_of_range" } else { "invalid_integer" }
-        issues += [issue("memory", f"meminfo.{name}", state, error_kind, null)]
-        continue
-      }
-
-      let parsed_value = parsed ?? -1
-      if parsed_value < 0 {
-        issues += [issue("memory", f"meminfo.{name}", report.Malformed, "negative_integer", null)]
-        continue
-      }
-
-      let maximum_source_value = if has_kib_unit { 8796093022207 } else { 9007199254740991 }
-      if parsed_value > maximum_source_value {
-        let error_kind = if has_kib_unit { "byte_count_out_of_range" } else { "json_integer_out_of_range" }
-        issues += [issue("memory", f"meminfo.{name}", report.RangeFailure, error_kind, null)]
-        continue
-      }
-
-      if byte_counter and ! has_kib_unit {
-        issues += [issue("memory", f"meminfo.{name}", report.Malformed, "invalid_byte_counter_unit", null)]
-        continue
-      }
-
-      let multiplier = if has_kib_unit { 1024 } else { 1 }
-      let value = parsed_value * multiplier
-      let unit = if has_kib_unit { "bytes" } else { values.get(1) ?? "count" }
-      counters += [{name: name, value: value, unit: unit}]
-      match name {
-        "MemTotal" => total = value
-        "MemFree" => free = value
-        "MemAvailable" => available = value
-        "Buffers" => buffers = value
-        "Cached" => cached = value
-        "Active" => active = value
-        "Inactive" => inactive = value
-        "Dirty" => dirty = value
-        "Writeback" => writeback = value
-        "SwapTotal" => swap_total = value
-        "SwapFree" => swap_free = value
-        else => {}
-      }
-    }
-  }
+  issues += src.with_section("memory", meminfo.issues)
 
   let swaps_source = read_value(root, p"proc/swaps", max_bytes: 262144)
   var swaps: List[report.SwapDevice] = []
