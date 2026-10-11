@@ -51,6 +51,7 @@ Resumed bounded slices have separate worktrees and disjoint shared-file hunks:
 | W2 complete stage engine | all 46 rows on the active frame machine; remove recursive pipeline materializer and use borrowed stage views | net <= 0 / 5,800 interim touched; stable statement-list references avoid copied row metadata; lifecycle and counter closure gate acceptance |
 | W2 next operand apply cohort | nine operand rows and shared operand continuation; preserve observable order | +350 lexical / 1,600 interim; final deletion offsets required |
 | W2 statement frames | Print/Cd/Env on the active machine with per-operand conversion and balanced scope restoration | +200 lexical / 1,800 interim; remove replaced readers and recursive handlers; final W2 shrink required |
+| W2 binary recursive retirement | reuse the existing FrameControl binary handler and delete its duplicate recursive reader/helper; preserve assertion-specific reporting | net < 0 / 350 touched; isolated binary hunks, no new schema or machine factory |
 | W1 stable live wire ordinals | preserve surviving tag numbers after three proven-dead row deletions | net <= 0 / 250 touched; no decoder fallback |
 | W1 decoder gap tests | isolated native stage and pattern scenarios plus exact frozen counter proof | zero production / 500 test touched per owner; unreachable arms need writer/caller closure |
 | W3 shared storage conversions | canonical forward/inverse mappings with strict caller-specific guards | +150 lexical / 1,200 interim; delete replaced mapping bodies |
