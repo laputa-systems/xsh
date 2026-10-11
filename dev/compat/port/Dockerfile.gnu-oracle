@@ -12,15 +12,16 @@ RUN make distclean
 RUN test "$(sed -n "s/^PACKAGE_VERSION='\([^']*\)'/\1/p" configure)" = 9.12 \
     && FORCE_UNSAFE_CONFIGURE=1 ./configure --prefix=/usr/local \
        --disable-nls --enable-install-program=arch,hostname,kill,uptime \
-    && make -j8 \
+    && make -j4 all src/getlimits \
     && make install DESTDIR=/install \
+    && install -m755 src/getlimits /install/usr/local/bin/getlimits \
     && /install/usr/local/bin/arch --version | head -1 | grep -Fx 'arch (GNU coreutils) 9.12' \
     && /install/usr/local/bin/hostname --version | head -1 | grep -Fx 'hostname (GNU coreutils) 9.12'
 
 FROM debian:unstable-slim@sha256:c08a0224cfc8b218e619427b09aac70939ec5ac68d91a58a558b7c20e5f0d280
 RUN apt-get update && apt-get install -y --no-install-recommends \
     locales libgmp10 libacl1 libattr1 libcap2 libselinux1 busybox \
-    strace acl e2fsprogs \
+    strace acl e2fsprogs binutils \
     && rm -rf /var/lib/apt/lists/* \
     && localedef -i en_US -f UTF-8 en_US.UTF-8 \
     && localedef -i en_US -f ISO-8859-1 en_US \
@@ -28,6 +29,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && for locale_name in fr_FR de_DE es_ES it_IT pt_BR ja_JP zh_CN hu_HU fa_IR th_TH am_ET; \
        do localedef -i "$locale_name" -f UTF-8 "$locale_name.UTF-8" || exit 1; done \
     && localedef -i fr_FR -f ISO-8859-1 fr_FR \
+    && localedef -i sv_SE -f ISO-8859-1 sv_SE \
+    && localedef -i sv_SE -f UTF-8 sv_SE.UTF-8 \
     && groupadd --gid 1000 compat \
     && useradd --uid 1000 --gid 1000 --no-create-home --home-dir /tmp compat
 COPY --from=build /install/usr/local /usr/local
@@ -39,12 +42,20 @@ RUN test "$(id -u compat)" = 1000 && test "$(id -g compat)" = 1000 \
     && locale -a | grep -Fx fr_FR.utf8 \
     && test "$(LC_ALL=fr_FR locale charmap)" = ISO-8859-1 \
     && test "$(LC_ALL=en_US locale charmap)" = ISO-8859-1 \
+    && test "$(LC_ALL=sv_SE locale charmap)" = ISO-8859-1 \
+    && test "$(LC_ALL=sv_SE.UTF-8 locale charmap)" = UTF-8 \
     && test "$(LC_ALL=fr_FR.utf-8 locale charmap)" = UTF-8 \
     && test "$(LC_ALL=en_US.UTF-8 locale charmap)" = UTF-8 \
     && test "$(LC_ALL=en_US.utf-8 locale charmap)" = UTF-8 \
     && for locale_name in fr_FR de_DE es_ES it_IT pt_BR ja_JP zh_CN hu_HU fa_IR th_TH am_ET; \
        do test "$(LC_ALL="$locale_name.UTF-8" locale charmap)" = UTF-8 || exit 1; done \
-    && for tool in strace setfacl getfacl filefrag; do command -v "$tool" || exit 1; done \
+    && for tool in strace setfacl getfacl filefrag strip; do command -v "$tool" || exit 1; done \
+    && /usr/local/bin/getlimits --version | head -1 | grep -Fx 'getlimits (GNU coreutils) 9.12' \
+    && /usr/local/bin/getlimits | grep '^LDBL_MIN=' \
+    && /usr/local/bin/getlimits | grep '^LDBL_MAX=' \
+    && LC_ALL=fr_FR /usr/local/bin/getlimits | grep '^LDBL_MIN=[0-9]*,' \
+    && /usr/local/bin/sort --version | head -1 | grep -Fx 'sort (GNU coreutils) 9.12' \
+    && /usr/local/bin/install --version | head -1 | grep -Fx 'install (GNU coreutils) 9.12' \
     && ldd /usr/local/bin/expand | grep 'libc.so.6' \
     && /usr/local/bin/expand --version | head -1 | grep -Fx 'expand (GNU coreutils) 9.12' \
     && /usr/local/bin/dircolors --version | head -1 | grep -Fx 'dircolors (GNU coreutils) 9.12'
