@@ -305,16 +305,11 @@ proc write_path_chunk(dest: Path, offset: Int, data: Bytes, create: Bool) [fs, p
   {written: written, failure: null}
 }
 
-## stdout is a byte stream even when it is redirected to a file, so a seek
-## prefix must be emitted as zero bytes rather than represented by a hole.
-proc prepare_stdout_seek(offset: Int) [error, io, env, process] {
-  return when offset == 0
-  var remaining = offset
-  while remaining > 0 {
-    let width = if remaining < 8192 { remaining } else { 8192 }
-    gnu.write_bytes(bytes.zero(width)?)
-    remaining -= width
-  }
+# Seeking the inherited descriptor preserves existing output bytes and lets the
+# kernel reject pipes before any input record is consumed.
+proc prepare_stdout_seek(offset: Int) [process] -> Result[Int] {
+  if offset == 0 { return Ok(0) }
+  unix.seek_fd(1, offset)
 }
 
 proc seek_output_fifo(dest: Path, offset: Int, block_size: Int) [fs, process, error] -> Result[Unit] {
@@ -606,7 +601,13 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
   if opts.seek > 0 and ! opts.seek_bytes and opts.seek > 9223372036854775807 / opts.obs { gnu.error("Value too large for defined data type"); exit 1 }
   let skip = if opts.skip_bytes { opts.skip } else { opts.skip * opts.ibs }
   let seek = if opts.seek_bytes { opts.seek } else { opts.seek * opts.obs }
-  if opts.output == null { prepare_stdout_seek(seek) }
+  if opts.output == null {
+    if let Err(failure) = prepare_stdout_seek(seek) {
+      gnu.error(f"'standard output': cannot seek: {gnu.strerror(failure)}")
+      report(opts, 0, 0, 0, 0, started)
+      exit 1
+    }
+  }
   if opts.count > 0 and ! opts.count_bytes and opts.count > 9223372036854775807 / opts.ibs { gnu.error("count is too large"); exit 1 }
   let limit = if opts.count < 0 { 9223372036854775807 } else if opts.count_bytes { opts.count } else { opts.count * opts.ibs }
   if let input = opts.input {

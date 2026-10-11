@@ -106,7 +106,17 @@ test test_dd_seek_bytes_on_stdout { |ctx|
   assert result.stdout == b"\0\0\0abc"
   let empty = invoke(ctx, ["status=none", "seek=8", "oflag=seek_bytes", "count=0"])?
   assert empty.status == 0, empty.stderr
-  assert empty.stdout == b"\0\0\0\0\0\0\0\0"
+  assert empty.stdout == b""
+}
+
+test test_dd_zero_count_seek_preserves_existing_stdout_bytes { |ctx|
+  let root = test.temp_dir(ctx, name: "dd-seek-stdout")?
+  let out = fp"{root}/out"
+  let err = fp"{root}/err"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/dd.xsh".display(), "status=none", "bs=2", "oseek=8", "oflag=seek_bytes", "count=0"]
+  let plan = process.command_argv(p"/bin/sh", ["sh", "-c", "printf abcdef; exec \"$@\"", "dd-seek-stdout"].extend(argv), root, {LC_ALL: "C"}, b"", out, err, timeout: 3s)
+  assert process.run(plan)?.exited_with(0), err.read_text()?
+  assert out.read_bytes()? == b"abcdef"
 }
 
 test test_dd_seek_bytes_on_regular_output { |ctx|
