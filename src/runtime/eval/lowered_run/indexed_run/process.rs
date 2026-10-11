@@ -1,6 +1,6 @@
 use super::{
     BLOCK_LIST, BTreeMap, ControlFlow, Duration, Evaluator, FileRedirectionMode, FullExecution,
-    FullPayload, LoweredValue, Name, PathValue, ProcessCommandEntry, ProcessInvocation,
+    FullPayload, LoweredValue, Name, PathValue, ProcessInvocation,
     ProcessRedirection, RUN_ARG_SPLICE, RedirectionKind, RedirectionStream, RunArg, RunEnv,
     RunError, RunKind, RunRedirection, RunSegment, RuntimeError, Span, Value, indexed_decode,
     indexed_error, indexed_finish, indexed_optional_raw, indexed_raw, runtime_error_from_value,
@@ -135,45 +135,6 @@ impl Evaluator {
                 timeout: indexed_optional_raw(&mut values, span)?,
                 cpu_max: indexed_optional_raw(&mut values, span)?,
                 accept: indexed_optional_raw(&mut values, span)?,
-            });
-        }
-        indexed_finish(values, span)?;
-        Ok(decoded)
-    }
-
-    pub(super) fn decode_indexed_process_command_entries<'a>(
-        payload: &mut FullPayload<'a>,
-        execution: &FullExecution<'a>,
-        span: Span,
-    ) -> Result<Vec<ProcessCommandEntry>, RuntimeError> {
-        let (_, mut values) = execution
-            .block(payload, BLOCK_LIST)
-            .map_err(|error| indexed_error(error, span))?;
-        let len = indexed_raw(&mut values, span)? as usize;
-        let mut decoded = Vec::with_capacity(len);
-        for _ in 0..len {
-            decoded.push(match indexed_raw(&mut values, span)? {
-                0 => ProcessCommandEntry::Field {
-                    name: indexed_decode::<Name>(&mut values, execution, span)?,
-                    value: indexed_raw(&mut values, span)?,
-                    span: indexed_decode::<Span>(&mut values, execution, span)?,
-                },
-                1 => ProcessCommandEntry::Run {
-                    target: Self::decode_indexed_run_arg(&mut values, execution, span)?,
-                    args: Self::decode_indexed_run_args(&mut values, execution, span)?,
-                    env: Self::decode_indexed_run_env(&mut values, execution, span)?,
-                    timeout: indexed_optional_raw(&mut values, span)?,
-                    cpu_max: indexed_optional_raw(&mut values, span)?,
-                    accept: indexed_optional_raw(&mut values, span)?,
-                    span: indexed_decode::<Span>(&mut values, execution, span)?,
-                },
-                _ => {
-                    return Err(RuntimeError::new(
-                        "indexed-ir",
-                        "invalid indexed process command entry tag",
-                    )
-                    .with_span(span));
-                }
             });
         }
         indexed_finish(values, span)?;
