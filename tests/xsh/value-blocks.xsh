@@ -362,37 +362,53 @@ source cleanup
 """
 }
 
-test test_value_callbacks_keep_enclosing_loop_targets {
-  var visits = 0
-  for number in [1, 2, 3] {
-    [number]
-      |> each { |item|
-        let selected = if item == 2 {
-          continue
-        } else {
-          item
-        }
-        let _ = selected
-      }
-    visits += number
+test test_value_callbacks_reject_enclosing_loop_targets { |ctx|
+  for transfer in ["continue", "break"] {
+    test.expect(
+      ctx,
+      f"""for number in [1, 2, 3] {{
+  [number] |> each {{ |item|
+    let selected = if true {{
+      if item == 2 {{ {transfer} }} else {{ item }}
+    }} else {{ 0 }}
+    let _ = selected
+  }}
+}}
+""",
+      status: 2,
+      stderr: ["err[check.loop-control]"],
+    )?
   }
+}
 
-  assert visits == 4
-  visits = 0
-  for number in [1, 2, 3] {
-    [number]
-      |> each { |item|
-        let selected = if item == 2 {
-          break
-        } else {
-          item
-        }
-        let _ = selected
+test test_value_callbacks_keep_inner_loop_targets {
+  let continuing = [0] |> map { |_|
+    var visits = 0
+    for number in [1, 2, 3] {
+      let selected = if number == 2 {
+        continue
+      } else {
+        number
       }
-    visits += number
+      visits += selected
+    }
+    visits
   }
+  assert continuing == [4]
 
-  assert visits == 1
+  let breaking = [0] |> map { |_|
+    var visits = 0
+    for number in [1, 2, 3] {
+      let selected = if number == 2 {
+        break
+      } else {
+        number
+      }
+      visits += selected
+    }
+    visits
+  }
+  assert breaking == [1]
 }
 
 test test_value_callback_tail_precedes_cleanup { |ctx|
