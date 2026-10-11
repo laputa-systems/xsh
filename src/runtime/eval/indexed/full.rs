@@ -6475,66 +6475,6 @@ impl_vec_codec!(LoweredCompQualifier, BLOCK_LIST);
 
 
 
-impl FullCodec for ScanCondition {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        match self {
-            Self::TrimEmpty => {
-                output.push(0);
-                Ok(())
-            }
-            Self::TrimStartsWith(value) => {
-                output.push(1);
-                value.encode(builder, output)
-            }
-            Self::StartsWith(value) => {
-                output.push(2);
-                value.encode(builder, output)
-            }
-        }
-    }
-
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        match input.raw()? {
-            0 => Ok(Self::TrimEmpty),
-            1 => Ok(Self::TrimStartsWith(Vec::<u8>::decode(decoder, input)?)),
-            2 => Ok(Self::StartsWith(Vec::<u8>::decode(decoder, input)?)),
-            _ => Err(IrVerifyError::new("scan condition tag is invalid")),
-        }
-    }
-}
-
-impl FullCodec for ScanCheck {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        self.condition.encode(builder, output)?;
-        self.counter_slot.encode(builder, output)
-    }
-
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        Ok(Self {
-            condition: ScanCondition::decode(decoder, input)?,
-            counter_slot: usize::decode(decoder, input)?,
-        })
-    }
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
 #[cfg(test)]
 struct StageViewExpectations<'a> {
     store: &'a FullStore,
@@ -8367,6 +8307,34 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
         assert_eq!(slot, 37);
         assert!(matches!(LoweredCallArg::decode(&execution.decoder,
             &mut FullCursor::new(&[2, 37])).unwrap(), LoweredCallArg::Default(37)));
+        assert_eq!(
+            ScanCondition::borrow(context, &mut FullCursor::new(&[3]))
+                .err()
+                .unwrap()
+                .message,
+            "scan condition tag is invalid",
+        );
+        assert_eq!(
+            ScanCondition::decode(&execution.decoder, &mut FullCursor::new(&[3]))
+                .err()
+                .unwrap()
+                .message,
+            "scan condition tag is invalid",
+        );
+        assert_eq!(
+            ScanCheck::borrow(context, &mut FullCursor::new(&[0, 1]))
+                .err()
+                .unwrap()
+                .message,
+            "slot is out of bounds",
+        );
+        assert_eq!(
+            ScanCheck::decode(&execution.decoder, &mut FullCursor::new(&[0, 1]))
+                .err()
+                .unwrap()
+                .message,
+            "slot is out of bounds",
+        );
     }
 
     #[test]
