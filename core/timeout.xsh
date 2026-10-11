@@ -29,37 +29,6 @@ on TERM [] {
   exit 143
 }
 
-# Options may follow DURATION, but parsing stops at COMMAND so its flags survive.
-pure normalize(argv: List[Str]) -> List[Str] {
-  var prefix: List[Str] = []
-  var interval_word: Str? = null
-  var index = 0
-  while index < argv.len() {
-    let word = argv[index]
-    if word == "--" {
-      prefix += [word]
-      if let given = interval_word { prefix += [given] }
-      return prefix.extend(argv[index + 1..])
-    }
-    if word.starts_with("-") and word != "-" {
-      prefix += [word]
-      let takes_value = word == "-s" or word == "-k" or (word.byte_len() > 2 and ("--signal".starts_with(word) or "--kill-after".starts_with(word)))
-      if takes_value and index + 1 < argv.len() {
-        prefix += [argv[index + 1]]
-        index += 1
-      }
-    } else if interval_word == null {
-      interval_word = word
-    } else {
-      prefix += [interval_word]
-      return prefix.extend(argv[index..])
-    }
-    index += 1
-  }
-  if let given = interval_word { prefix += [given] }
-  prefix
-}
-
 proc duration(text: Str) [process, env] -> Duration {
   let parsed = proc_launch.interval(text)
   if parsed == null {
@@ -117,7 +86,7 @@ proc wait_until_exit(handle: ProcessHandle) [process, error] -> Result[Status] {
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
-  let opts: Options = cli.applet(normalize(argv), {
+  let opts: Options = cli.applet(argv, {
     gnu: {status: 125, permute: false},
     signal: {form: "-s --signal SIGNAL", default: "TERM"},
     kill_after: {form: "-k --kill-after DURATION"},

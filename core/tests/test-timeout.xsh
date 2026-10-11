@@ -213,11 +213,14 @@ test timeout_accepts_hex_intervals_and_saturates_large_intervals { |ctx|
   assert invoke(ctx, ["1e-100", "sleep", "1"])?.status == 124
 }
 
-test timeout_options_after_duration_stop_at_command { |ctx|
-  let result = invoke(ctx, ["0", "-s0", "-k0", "printf", "%s", "-v"])?
-  assert result.status == 0
-  assert result.stdout == "-v"
-  assert result.stderr == ""
+test timeout_duration_stops_option_parsing { |ctx|
+  for args in [["-v", "0", "-s0", "-k0", "sleep", ".1"], ["0", "--help"], ["--", "0", "-s0"]] {
+    let result = invoke(ctx, args)?
+    assert result.status == 127, result.stderr
+    assert result.stdout == "", result.stdout
+    let command = if args[0] == "0" { "--help" } else { "-s0" }
+    assert result.stderr == f"timeout: failed to run command '{command}': No such file or directory\n", result.stderr
+  }
 }
 
 
