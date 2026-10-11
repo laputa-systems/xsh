@@ -92,8 +92,21 @@ fn terminal_run(mut command: Command, streams: [bool; 3], size: (u16, u16), inpu
 
 fn tty_case(streams: [bool; 3], size: (u16, u16), stdout: &[u8], stderr: &[u8]) {
     let directory = tempfile::tempdir().unwrap();
-    fs::copy(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("core/tests/data/uutils/nohup/is_a_tty.sh"), directory.path().join("is_a_tty.sh")).unwrap();
+    fs::write(directory.path().join("is_a_tty.sh"), r#"for descriptor in '0 stdin' '1 stdout' '2 stderr'; do
+    set -- $descriptor
+    if test -t "$1"; then
+        printf '%s is a tty\n' "$2"
+        if test "$1" = 0; then
+            printf 'terminal size: '
+            stty size
+        fi
+    else
+        printf '%s is not a tty\n' "$2"
+    fi
+done
+printf 'This is an error message.\n' >&2
+exit 0
+"#).unwrap();
     let mut command = applet("env", directory.path());
     command.args(["sh", "is_a_tty.sh"]);
     let output = terminal_run(command, streams, size, b"", false);
