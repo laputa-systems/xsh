@@ -219,7 +219,9 @@ All Linux building and testing runs in the image defined by `Dockerfile.test`
 (`xsh-test`), target `aarch64-unknown-linux-musl`, with the flags in
 `dev/targets.xsh::docker_test_env`. Run `cargo dev test linux` (privileged,
 `make test-linux`) or `cargo dev test linux --ci`. CI (`.github/workflows/`)
-runs the same image. A build outside that image is not evidence about Linux.
+runs the same image. This AArch64 target is retained for internal Linux test
+coverage; it is not a supported product target. XSH's ARM64 support scope is
+macOS only. A build outside that image is not evidence about Linux behavior.
 The driver passes `--init` so orphaned stopped jobs are reaped. For a native
 gate inside the image, run the container-built
 `target/aarch64-unknown-linux-musl/release/xsht`.

@@ -303,6 +303,34 @@ Focused host release tests are kept with the implementation:
 These tests establish host release behavior. Linux qualification is recorded
 separately in `dev/btop-progress.json`.
 
+## Campaign completion summary
+
+This implementation targets the fixed default behavior inventoried from btop
+v1.4.7 on Linux. All G0–G3 and G4a product assertions passed with host release
+evidence. The final pinned Linux lane attempt failed before tests started:
+Docker could not execute `cargo` in its ARM64 container on this x86_64 runner.
+The monitor therefore has host-only evidence and no ARM64 Linux qualification.
+XSH's platform scope excludes ARM64 on Linux and other non-macOS systems; ARM64
+macOS remains in scope.
+
+The run added `time.monotonic` and Unicode 16 cell-aware TUI APIs, and aligned
+raw terminal mode with its documented behavior. Replay schema 2 records display
+capabilities; schema 3 records mount capacity observations. Model dumps gained
+sparse CPU topology, process ancestry and lifetime CPU, CPU telemetry, per-
+interface network metrics, and lossless wide counters and storage values. The
+monitor now reports explicit rate gaps, uses the monitor's i64 process identity
+policy while preserving system-report JSON v1 bounds, and refreshes block
+counters separately from slower mount capacity. The fixed default UI now has
+the pinned panels, graphs, palette, process tree, sort and view controls, and
+mounted-disk capacity and I/O details. The monitor remains read-only and has no
+configuration interface.
+
+The final release profile passed the 1,000-to-2,000 process-join hard gate at
+2.04x. The 120-by-40 model/render/diff p95 was 2.631 seconds (p99 2.692
+seconds), above the 50 ms target. PTY input-to-present latency was 2.955 ms at
+p95 and 3.014 ms at p99. These absolute timings are runner-specific. Battery
+behavior remains fixture-tested only; no live battery hardware was available.
+
 ## Current limits
 
 Battery behavior is fixture-tested only; live hardware battery behavior has

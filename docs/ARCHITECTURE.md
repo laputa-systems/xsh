@@ -26,6 +26,13 @@ tooling in `docs/XSHT.md`, formatter policy in `docs/XSHT-FMT.md`.
 | `crates/xsh-fuzz` | the soundness fuzzer: a seeded generator of well-typed programs, an independent reference evaluator, registry-derived call probes, corpus mutation, a sandboxed runner, and failure shrinking (`make fuzz`) |
 | `crates/xsh-applets` | native applet support (`mdev`) |
 
+## Platform scope
+
+ARM64 is in scope on macOS (`aarch64-apple-darwin`). ARM64 on Linux and other
+operating systems is outside XSH's supported product scope. The repository
+retains `aarch64-unknown-linux-musl` in internal target and test infrastructure;
+building or testing that target does not promise Linux ARM64 release support.
+
 A subsystem gets its own crate only when it has a stable Rust boundary that does
 not depend on XSH source spans, runtime values, diagnostics, or evaluator state.
 `xsh-net` is the model: `src/modules/net.rs` and `src/runtime/eval/modules/net.rs`
