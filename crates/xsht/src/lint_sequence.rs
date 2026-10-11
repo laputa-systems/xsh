@@ -1,13 +1,13 @@
 use super::{
-    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCallArgKind,
-    ArenaCommand, ArenaCommandArg, ArenaCommandArgKind, ArenaEnvAssignmentValue, ArenaExprKind,
-    ArenaExprOrRun, ArenaRange, ArenaRecordFieldKind, ArenaRedirectionTarget, ArenaSpawnTarget,
-    ArenaStmtKind, ArenaSugar, ArenaSugarOperand, ArenaTypeExprKind, ArenaWordPart, AssignOp,
-    AssignTargetId, AstArena, BinaryOp, BindingTargetId, BlockId, BuilderBlockId, CommandStmtId,
+    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaCallArgKind,
+    ArenaCommand, ArenaCommandArgKind, ArenaExprKind,
+    ArenaExprOrRun, ArenaRange, ArenaRecordFieldKind,
+    ArenaStmtKind, ArenaSugar, ArenaSugarOperand, ArenaTypeExprKind, AssignOp,
+    AssignTargetId, AstArena, BinaryOp, BindingTargetId, BlockId,
     CoreCommand, Diagnostic, DiagnosticCode, ExprId, FixHint, FlowSummary, FxHashSet, Label, Linter,
-    Name, RunFormId, Severity, Span, StmtId, SugarForm, Type, TypeExprId, UnaryOp,
-    binding_target_contains_name, context_scope, direct_call_name, expr_child_blocks,
-    expr_child_exprs, expr_may_assign_local, expr_may_have_effects, expr_references_name,
+    Name, Severity, Span, StmtId, SugarForm, Type, TypeExprId, UnaryOp,
+    binding_target_contains_name, context_scope, direct_call_name,
+    expr_may_assign_local, expr_may_have_effects, expr_references_name,
     format_binding_target, is_map_empty_call, lint_empty_sentinel, lint_optional_binding,
     lint_prefer_test_expect, lint_write_mode, list_splice_element_type_is_precise,
     list_update_argument_stable, map_comp_key_can_be_bare, pipeline_argument_expr,
@@ -56,294 +56,47 @@ pub(super) fn collect_stream_producer_candidates(
     }
 }
 
-pub(super) fn collect_lazy_consumed_calls(
-    arena: &AstArena,
-    stmts: &[StmtId],
-    out: &mut FxHashSet<xsh::frontend::symbols::Name>,
-) {
-    for &stmt_id in stmts {
-        lazy_visit_stmt(arena, stmt_id, out);
-    }
+// Only the common lint walk records consumers. Pending reports remember
+// their original pass position so later observations cannot reorder findings.
+#[derive(Default)]
+pub(super) struct StreamProducers {
+    observing: bool,
+    consumed: FxHashSet<Name>,
+    pending: Option<PendingStreamProducers>,
 }
 
-pub(super) fn lazy_visit_stmt(
-    arena: &AstArena,
-    stmt_id: StmtId,
-    out: &mut FxHashSet<xsh::frontend::symbols::Name>,
-) {
-    match arena.stmt(stmt_id).kind {
-        ArenaStmtKind::Use(_)
-        | ArenaStmtKind::TypeDef(_)
-        | ArenaStmtKind::ErrorDef(_)
-        | ArenaStmtKind::Continue
-        | ArenaStmtKind::TailBareIdent(_)
-        | ArenaStmtKind::Return(None)
-        // Old visitor::walk_stmt treats Break (with or without value) as a leaf.
-        | ArenaStmtKind::Break { .. } => {}
-        ArenaStmtKind::Export(inner) => lazy_visit_stmt(arena, inner, out),
-        ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Const { initializer, .. } | ArenaStmtKind::Var { initializer, .. } => {
-            lazy_visit_expr_or_run(arena, &initializer, out);
-        }
-        ArenaStmtKind::Assign { target, value, .. } => {
-            lazy_visit_assign_target(arena, target, out);
-            lazy_visit_expr_or_run(arena, &value, out);
-        }
-        ArenaStmtKind::Return(Some(v)) | ArenaStmtKind::Defer(v, _) | ArenaStmtKind::Yield(v) => {
-            lazy_visit_expr_or_run(arena, &v, out);
-        }
-        ArenaStmtKind::ProcDef(def) | ArenaStmtKind::CliMain(def) | ArenaStmtKind::PureDef(def) | ArenaStmtKind::StreamDef(def) => {
-            lazy_visit_block(arena, arena.function_def(def).body, out);
-        }
-        ArenaStmtKind::SignalHook(hook) => {
-            lazy_visit_block(arena, arena.signal_hook(hook).body, out);
-        }
-        ArenaStmtKind::If { branches, else_block } => {
-            for branch in arena.if_branches(branches).to_vec() {
-                lazy_visit_expr(arena, branch.condition, out);
-                lazy_visit_block(arena, branch.block, out);
-            }
-            if let Some(block) = else_block {
-                lazy_visit_block(arena, block, out);
-            }
-        }
-        ArenaStmtKind::While { condition, block } => {
-            lazy_visit_expr(arena, condition, out);
-            lazy_visit_block(arena, block, out);
-        }
-        ArenaStmtKind::For { iter, block, .. } => {
-            if let Some(name) = direct_call_name(arena, iter) {
-                out.insert(name);
-            }
-            lazy_visit_expr(arena, iter, out);
-            lazy_visit_block(arena, block, out);
-        }
-        ArenaStmtKind::Loop { block } => lazy_visit_block(arena, block, out),
-        ArenaStmtKind::Sugar { operands, .. } => {
-            for operand in arena.sugar_operands(operands) {
-                match *operand {
-                    ArenaSugarOperand::Expr(expr) => lazy_visit_expr(arena, expr, out),
-                    ArenaSugarOperand::Block(block) => lazy_visit_block(arena, block, out),
-                    ArenaSugarOperand::Stmt(stmt) => lazy_visit_stmt(arena, stmt, out),
-                    _ => {}
-                }
-            }
-        }
-        ArenaStmtKind::Guard { initializer, else_block, .. } => {
-            lazy_visit_expr_or_run(arena, &initializer, out);
-            lazy_visit_block(arena, else_block, out);
-        }
-        ArenaStmtKind::Assert { condition, message } => {
-            lazy_visit_expr(arena, condition, out);
-            if let Some(message) = message { lazy_visit_expr(arena, message, out); }
-        }
-        ArenaStmtKind::With { bindings, body, else_block, .. } => {
-            for binding in arena.with_bindings(bindings).to_vec() {
-                lazy_visit_expr(arena, binding.initializer, out);
-            }
-            lazy_visit_block(arena, body, out);
-            lazy_visit_block(arena, else_block, out);
-        }
-        ArenaStmtKind::Match { value, arms } => {
-            lazy_visit_expr(arena, value, out);
-            for arm in arena.match_arms(arms).to_vec() {
-                if let Some(guard) = arm.guard {
-                    lazy_visit_expr(arena, guard, out);
-                }
-                lazy_visit_block(arena, arm.block, out);
-            }
-        }
-        ArenaStmtKind::Expr(expr)
-        | ArenaStmtKind::YieldDelegate(expr)
-        | ArenaStmtKind::Exit(expr) => {
-            lazy_visit_expr(arena, expr, out);
-        }
-        ArenaStmtKind::Command(cmd_id) => {
-            lazy_visit_command(arena, cmd_id, out);
-        }
-    }
+struct PendingStreamProducers {
+    report_at: usize,
+    candidates: Vec<StreamProducerCandidate>,
 }
 
-pub(super) fn lazy_visit_assign_target(
-    arena: &AstArena,
-    target: AssignTargetId,
-    out: &mut FxHashSet<xsh::frontend::symbols::Name>,
-) {
-    match arena.assign_target(target).kind.clone() {
-        ArenaAssignTargetKind::Name(_) | ArenaAssignTargetKind::Env(_) => {}
-        ArenaAssignTargetKind::Field { base, .. } => lazy_visit_assign_target(arena, base, out),
-        ArenaAssignTargetKind::Index { base, index } => {
-            lazy_visit_assign_target(arena, base, out);
-            lazy_visit_expr(arena, index, out);
+impl StreamProducers {
+    pub(super) fn observe_expr(&mut self, arena: &AstArena, expr: ExprId) {
+        if self.observing
+            && let ArenaExprKind::StructuredPipeline { input, .. } = arena.expr(expr).kind
+            && let Some(name) = direct_call_name(arena, input)
+        {
+            self.consumed.insert(name);
         }
     }
-}
 
-pub(super) fn lazy_visit_command(
-    arena: &AstArena,
-    cmd_id: CommandStmtId,
-    out: &mut FxHashSet<xsh::frontend::symbols::Name>,
-) {
-    match arena.command_stmt(cmd_id).command.clone() {
-        ArenaCommand::Proc { args, .. } => {
-            for arg in arena.command_args(args).to_vec() {
-                lazy_visit_command_arg(arena, &arg, out);
-            }
+    pub(super) fn observe_stmt(&mut self, arena: &AstArena, stmt: StmtId) {
+        if self.observing
+            && let ArenaStmtKind::For { iter, .. } = arena.stmt(stmt).kind
+            && let Some(name) = direct_call_name(arena, iter)
+        {
+            self.consumed.insert(name);
         }
-        ArenaCommand::Core {
-            args, env, block, ..
-        } => {
-            for arg in arena.command_args(args).to_vec() {
-                lazy_visit_command_arg(arena, &arg, out);
-            }
-            for assignment in arena.env_assignments(env).to_vec() {
-                match assignment.value {
-                    ArenaEnvAssignmentValue::CommandArg(arg) => {
-                        lazy_visit_command_arg(arena, &arg, out);
-                    }
-                    ArenaEnvAssignmentValue::Expr(e) => lazy_visit_expr(arena, e, out),
-                }
-            }
-            if let Some(block) = block {
-                lazy_visit_block(arena, block, out);
-            }
-        }
-        ArenaCommand::Run(run) => lazy_visit_run(arena, run, out),
     }
-}
 
-pub(super) fn lazy_visit_run(
-    arena: &AstArena,
-    run: RunFormId,
-    out: &mut FxHashSet<xsh::frontend::symbols::Name>,
-) {
-    let segments = arena.run_form(run).segments;
-    for segment in arena.run_segments(segments).to_vec() {
-        if let Some(timeout) = segment.timeout {
-            lazy_visit_expr(arena, timeout, out);
-        }
-        if let Some(cpu_max) = segment.cpu_max {
-            lazy_visit_expr(arena, cpu_max, out);
-        }
-        if let Some(accept) = segment.accept {
-            lazy_visit_expr(arena, accept, out);
-        }
-        for assignment in arena.env_assignments(segment.env).to_vec() {
-            match assignment.value {
-                ArenaEnvAssignmentValue::CommandArg(arg) => {
-                    lazy_visit_command_arg(arena, &arg, out);
-                }
-                ArenaEnvAssignmentValue::Expr(e) => lazy_visit_expr(arena, e, out),
-            }
-        }
-        lazy_visit_command_arg(arena, &segment.target, out);
-        for arg in arena.command_args(segment.args).to_vec() {
-            lazy_visit_command_arg(arena, &arg, out);
-        }
-        for redirection in arena.redirections(segment.redirections).to_vec() {
-            match redirection.target {
-                ArenaRedirectionTarget::Path(arg) | ArenaRedirectionTarget::Fd(arg) => {
-                    lazy_visit_command_arg(arena, &arg, out);
-                }
-            }
-        }
+    // The legacy projection skips certain children that other rules still
+    // visit. Save its observation state around just those child visits.
+    pub(super) fn suspend_legacy_projection(&mut self) -> bool {
+        std::mem::replace(&mut self.observing, false)
     }
-}
 
-pub(super) fn lazy_visit_command_arg(
-    arena: &AstArena,
-    arg: &ArenaCommandArg,
-    out: &mut FxHashSet<xsh::frontend::symbols::Name>,
-) {
-    match arg.kind {
-        ArenaCommandArgKind::Word(parts) => {
-            for part in arena.word_parts(parts).collect::<Vec<_>>() {
-                if let ArenaWordPart::Interpolation(e) | ArenaWordPart::Shorthand(e) = part {
-                    lazy_visit_expr(arena, e, out);
-                }
-            }
-        }
-        ArenaCommandArgKind::SpliceExpr(e) | ArenaCommandArgKind::Typed(e) => {
-            lazy_visit_expr(arena, e, out);
-        }
-        ArenaCommandArgKind::SpliceName(_) => {}
-    }
-}
-
-pub(super) fn lazy_visit_block(
-    arena: &AstArena,
-    block: BlockId,
-    out: &mut FxHashSet<xsh::frontend::symbols::Name>,
-) {
-    for stmt in arena
-        .stmt_ids(arena.block(block).statements)
-        .collect::<Vec<_>>()
-    {
-        lazy_visit_stmt(arena, stmt, out);
-    }
-}
-
-pub(super) fn lazy_visit_expr_or_run(
-    arena: &AstArena,
-    value: &ArenaExprOrRun,
-    out: &mut FxHashSet<xsh::frontend::symbols::Name>,
-) {
-    if let ArenaExprOrRun::Expr(expr) = value {
-        lazy_visit_expr(arena, *expr, out);
-    }
-}
-
-pub(super) fn lazy_visit_expr(
-    arena: &AstArena,
-    expr: ExprId,
-    out: &mut FxHashSet<xsh::frontend::symbols::Name>,
-) {
-    match arena.expr(expr).kind {
-        ArenaExprKind::StructuredPipeline { input, .. } => {
-            if let Some(name) = direct_call_name(arena, input) {
-                out.insert(name);
-            }
-        }
-        ArenaExprKind::Run(run) => lazy_visit_run(arena, run, out),
-        ArenaExprKind::Spawn(form) => {
-            if let ArenaSpawnTarget::Run(run) = form.target {
-                lazy_visit_run(arena, run, out);
-            }
-        }
-        ArenaExprKind::BuilderCall { block, .. } => {
-            lazy_visit_builder_block(arena, block, out);
-        }
-        _ => {}
-    }
-    for child in expr_child_exprs(arena, expr) {
-        lazy_visit_expr(arena, child, out);
-    }
-    for block in expr_child_blocks(arena, expr) {
-        lazy_visit_block(arena, block, out);
-    }
-}
-
-pub(super) fn lazy_visit_builder_block(
-    arena: &AstArena,
-    block: BuilderBlockId,
-    out: &mut FxHashSet<xsh::frontend::symbols::Name>,
-) {
-    for entry in arena
-        .builder_entries(arena.builder_block(block).entries)
-        .to_vec()
-    {
-        match entry.kind {
-            ArenaBuilderEntryKind::Field { value, .. } => lazy_visit_expr(arena, value, out),
-            ArenaBuilderEntryKind::Entry { args, block, .. } => {
-                for arg in arena.command_args(args).to_vec() {
-                    lazy_visit_command_arg(arena, &arg, out);
-                }
-                if let Some(block) = block {
-                    lazy_visit_builder_block(arena, block, out);
-                }
-            }
-            ArenaBuilderEntryKind::Task { block, .. } => lazy_visit_block(arena, block, out),
-            ArenaBuilderEntryKind::Stmt(stmt) => lazy_visit_stmt(arena, stmt, out),
-        }
+    pub(super) fn restore_projection(&mut self, observing: bool) {
+        self.observing = observing;
     }
 }
 
@@ -1581,13 +1334,22 @@ impl<'a> Linter<'a> {
         if candidates.is_empty() {
             return;
         }
-        let mut consumed = FxHashSet::default();
-        collect_lazy_consumed_calls(self.arena, stmts, &mut consumed);
-        for candidate in candidates {
-            if !consumed.contains(&candidate.function_name) {
+        self.stream_producers.observing = true;
+        self.stream_producers.pending = Some(PendingStreamProducers {
+            report_at: self.diagnostics.len(),
+            candidates,
+        });
+    }
+
+    pub(super) fn finish_stream_producer_suggestions(&mut self) {
+        self.stream_producers.observing = false;
+        let Some(pending) = self.stream_producers.pending.take() else { return; };
+        let mut reports = Vec::new();
+        for candidate in pending.candidates {
+            if !self.stream_producers.consumed.contains(&candidate.function_name) {
                 continue;
             }
-            self.diagnostics.push(
+            reports.push(
                 Diagnostic::new(
                     Severity::Warning,
                     format!(
@@ -1602,6 +1364,7 @@ impl<'a> Linter<'a> {
                 )),
             );
         }
+        self.diagnostics.splice(pending.report_at..pending.report_at, reports);
     }
 
     pub(super) fn accumulator_qualifiers(
@@ -2562,5 +2325,50 @@ impl<'a> Linter<'a> {
                     replacement,
                 ))
             });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{DiagnosticCode, LintOptions, Linter};
+    use xsh::frontend::source::SourceId;
+    use xsh::frontend::syntax::parser::Parser;
+
+    #[test]
+    fn lazy_consumer_projection_preserves_source_boundaries() {
+        let cases: &[(&str, &[&str])] = &[
+            ("let value = rows() |> count()\n", &["rows"]),
+            ("for item in rows()? { print item }\n", &["rows"]),
+            ("proc wrap() [] { let value = rows() |> count() }\n", &["rows"]),
+            ("let value = outer(inner() |> count()) |> count()\n", &["inner", "outer"]),
+            ("pure wrap(value: Int = rows() |> count()) -> Int { return value }\n", &[]),
+            ("let value = loop { break rows() |> count() }\n", &[]),
+            ("let value = (run.text echo ${(rows() |> count())})\n", &["rows"]),
+            ("let value = run.text echo ${(rows() |> count())}\n", &[]),
+            ("run echo ${(rows() |> count())}\n", &["rows"]),
+            ("let value = [item for item in rows()]\n", &[]),
+            ("let value = [1] |> map { |item| rows() |> count() }\n", &["rows"]),
+        ];
+        for &(source, expected) in cases {
+            let mut complete = String::new();
+            for name in ["inner", "outer", "rows"] {
+                complete.push_str(&format!("proc {name}() [] -> List[Int] {{\n  var out: List[Int] = []\n  for item in [1] {{ out = out.push(item) }}\n  return out\n}}\n"));
+            }
+            complete.push_str(source);
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &complete);
+            assert!(parsed.diagnostics.is_empty(), "{complete}\n{:?}", parsed.diagnostics);
+            let reports = Linter::lint(&parsed.arena, &complete, LintOptions {
+                function_effect_facts_checked: true,
+                ..LintOptions::default()
+            }).diagnostics;
+            let actual = reports.iter()
+                .filter(|report| report.code == Some(DiagnosticCode::LintPreferStreamProducer))
+                .map(|report| report.message.as_str())
+                .collect::<Vec<_>>();
+            let wanted = expected.iter()
+                .map(|name| format!("proc `{name}` builds list `out` item-by-item and is consumed lazily; consider a `stream` producer"))
+                .collect::<Vec<_>>();
+            assert_eq!(actual, wanted, "{source}");
+        }
     }
 }

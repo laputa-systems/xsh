@@ -168,7 +168,7 @@ use fixes::{
 mod safety;
 use safety::{
     list_splice_element_type_is_precise, pipeline_argument_expr, list_update_argument_stable,
-    mentions_identifier, expr_may_assign_local, expr_child_exprs, expr_child_blocks,
+    mentions_identifier, expr_may_assign_local, expr_child_exprs,
     type_has_unsigned_constraint, type_has_contextual_collection_domain, type_mentions_path,
     expr_is_dynamic_require_boundary, expr_references_name, command_arg_references_name,
     is_safe_const_expr, expr_may_have_effects, migration_inert, migration_reorder_safe,
@@ -471,6 +471,7 @@ pub struct Linter<'a> {
     item_shorthands: Vec<Diagnostic>,
     catch_all_arms: Vec<Diagnostic>,
     fail_candidates: lint_prefer_fail::Candidates,
+    stream_producers: sequence::StreamProducers,
     callable_parameters: lint_prefer_typed_callable::CallableParameters,
 }
 
@@ -688,6 +689,7 @@ impl<'a> Linter<'a> {
             item_shorthands: Vec::new(),
             catch_all_arms: Vec::new(),
             fail_candidates: lint_prefer_fail::Candidates::collect(program, source),
+            stream_producers: sequence::StreamProducers::default(),
             callable_parameters: lint_prefer_typed_callable::CallableParameters::default(),
         };
         linter.define(
@@ -700,6 +702,7 @@ impl<'a> Linter<'a> {
             linter.lint_legacy_test_declarations(&statements);
         }
         linter.lint_program(&statements);
+        linter.finish_stream_producer_suggestions();
         linter.lint_defer_block_helpers(&statements);
         let mut item_shorthands = std::mem::take(&mut linter.item_shorthands);
         item_shorthands.sort_by_key(|diagnostic| diagnostic.labels[0].span.start());

@@ -53,6 +53,7 @@ impl LintExprVisitor<'_, '_> {
     }
 
     fn visit_expression(&mut self, expr: ExprId) {
+        self.linter.stream_producers.observe_expr(self.linter.arena, expr);
         self.linter
             .fail_candidates
             .visit_expr(self.linter.arena, expr);
@@ -960,6 +961,7 @@ impl<'a> Linter<'a> {
 
     pub(super) fn lint_stmt(&mut self, stmt_id: StmtId, exported: bool) {
         let stmt = self.arena.stmt(stmt_id);
+        self.stream_producers.observe_stmt(self.arena, stmt_id);
         self.lint_propagation(stmt_id);
         lint_redundant_discard::lint_redundant_discard(self, stmt_id);
         self.fail_candidates.visit_stmt(self.arena, stmt_id);
@@ -1167,7 +1169,9 @@ impl<'a> Linter<'a> {
             }
             ArenaStmtKind::Break { value } => {
                 if let Some(expr) = value {
+                    let observing = self.stream_producers.suspend_legacy_projection();
                     self.lint_expr(expr);
+                    self.stream_producers.restore_projection(observing);
                 }
             }
             ArenaStmtKind::Continue => {}
@@ -1402,7 +1406,9 @@ impl<'a> Linter<'a> {
                 self.collect_type_expr_refs(param.ty);
             }
             if let Some(default) = param.default {
+                let observing = self.stream_producers.suspend_legacy_projection();
                 self.lint_expr(default);
+                self.stream_producers.restore_projection(observing);
             }
             self.define(
                 param.name.as_str().as_str(),
@@ -1726,7 +1732,11 @@ impl<'a> Linter<'a> {
     pub(super) fn lint_expr_or_run(&mut self, value: &ArenaExprOrRun) {
         match value {
             ArenaExprOrRun::Expr(expr) => self.lint_expr(*expr),
-            ArenaExprOrRun::Run(run) => self.lint_run(*run),
+            ArenaExprOrRun::Run(run) => {
+                let observing = self.stream_producers.suspend_legacy_projection();
+                self.lint_run(*run);
+                self.stream_producers.restore_projection(observing);
+            }
         }
     }
 
