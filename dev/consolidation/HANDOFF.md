@@ -1,5 +1,19 @@
 # Consolidation restart handoff
 
+## Combined frame verification — 2026-10-11, `55d16b01`
+
+The pinned optimized build passes. Frozen binaries/source hashes are in
+`joint-55d-bin` / `joint-55d-source.json`. The 38-file combined gate has
+**37 passing files and one failing file**, not a green integration receipt:
+`tests/xsh/stream-producers.xsh` fails two existing process-stream ownership
+cases (discarded streams stop early; retained streams outlive scope defers).
+Both cases passed at 43d58034. The process lane is reproducing and repairing
+this regression on the refreshed source; preserve the original failing log.
+All 11 additional forced-frame files pass, including full retry, wait-until,
+within, context, error/resource ownership, defer, propagation, process/cache
+oracles and Tokei. Exact commands and hashes are in `joint-55d-gates` and
+`joint-55d-forced-gates`. No full final or performance acceptance is claimed.
+
 ## Integrated typed readers and process frames — 2026-10-11, `0f2eb080`
 
 Accepted scanner `896b1c59` / `5834c235` as `1ef86555` / `43d58034`.
