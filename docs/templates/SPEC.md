@@ -3875,7 +3875,9 @@ moves to that receiving scope: this happens for a returned or block value, a
 resource created in any nested scope inside the receiving scope moves with the
 value, so an intermediate scope does not release a resource that remains
 reachable from an outer value. Passing a handle as an argument lends it; it
-does not transfer ownership.
+does not transfer ownership. `process.spawn(plan)` is separate: it returns a
+record containing the child's pid and releases the child to the background
+reaper instead of returning a live `ProcessHandle`.
 
 Scope exit has two phases around its deferred actions. First, the scope stops
 its owned activities: open streams are cancelled, non-detached process handles
@@ -4109,9 +4111,10 @@ uses the enclosing scope before the callback parameters are bound.
   (short-circuit).
 - `each` and `tee` callbacks are statement bodies: a `Result[Unit]` failure
   propagates.
-- `flat-map` accepts a `List` or `Stream` per item (a live stream is drained
-  before the next item). It does not unwrap a `Result`; use `?` to propagate a
-  callback error.
+- `flat-map` callbacks return a `List` or `Stream` per item (a live stream is
+  drained before the next item). A `Result` is not implicitly unwrapped; a
+  callback returning one is a check error (`check.flat-map`). Use `?` inside
+  the callback to propagate its error.
 - `fold` and `reduce` callbacks must return exactly the accumulator's type and
   run serially. A `Result[T]` accumulator keeps `Err` values as data.
 - `reduce-by` keeps one accumulator per key, and its callback must return the
@@ -4214,8 +4217,8 @@ Str-backed enums (as their wire strings). Everything else needs explicit convers
 errors, handles, command plans, ordinary enums, non-`Str`-keyed maps, and
 non-finite floats.
 
-`json.encode` and `json.write` emit ordinary JSON with record keys in sorted
-order (`pretty: true` indents deterministically). A set is written as an array
+`json.encode` and `json.write` sort record keys in both compact and pretty
+output; `pretty: true` changes indentation. A set is written as an array
 of its elements in key order, so a `Set[Str]` is a sorted array.
 `.require(Set[T])` accepts a set, or an array whose elements are distinct
 values of `T`; an array that repeats an element fails with `schema`, because

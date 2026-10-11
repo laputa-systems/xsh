@@ -2,10 +2,12 @@
 
 XSH is a compiler-style pipeline around one verified executable form. Source is
 parsed once into a compact arena and a lossless CST, checked once, and the
-checker publishes facts that every later consumer reads: lowering, the
-formatter, lint, and the other `xsht` tools. Lowering commits a verified indexed
-program, and a heap-frame executor runs it. There is no second frontend, no
-alternate executable representation, and no fallback interpreter.
+checker publishes facts that later consumers read: lowering, the formatter,
+lint, and the other `xsht` tools. Lowering commits a verified indexed program.
+The indexed executor schedules work and continuations on heap-backed frames,
+with a verifier-bounded in-place route for operand-only instructions. Some
+instruction tags still use legacy recursive handlers; there is no second
+frontend or alternate executable representation.
 
 `docs/SPEC.md` is the language contract. This document is the contributor map:
 where each stage lives, the invariants that hold the stages together, and the
@@ -125,7 +127,7 @@ tool configuration.
 | source structure | `SyntaxTree::from_token_table` (CST), `Parser::parse_source_arena_only`, `ArenaProgram`, `AstArena` | `src/syntax/cst.rs`, `src/syntax/parser.rs`, `src/syntax/arena.rs` |
 | load | `CompactFileUnit`, `CompactModuleGraph`, `CheckedEntry` | `src/loader.rs` |
 | check | `Checker`, `CheckOptions`, `CheckOutput`, `CheckBundleView`, `Checker::compact_declarations`, `CompactDeclOutput` | `src/sema/check.rs`, `src/sema/check/compact.rs` |
-| publish facts | `CompactBodyFacts`, `CheckedApiCall`, `CheckedArguments`, `PreparedConstants` | `src/sema/check/compact.rs`, `src/sema/constants.rs` |
+| publish facts | `CompactBodyFacts`, `CheckedDeclarations`, `ResolvedTypeExpressions`, `CheckedApiCall`, `CheckedArguments`, `PreparedConstants` | `src/sema/check/compact.rs`, `src/sema/check/checked_declarations.rs`, `src/sema/constants.rs` |
 | lower | `FullBuilder::build_compact`, `BuildScratch` | `src/runtime/eval/lower.rs` |
 | verify | `FullVerifier::verify`, `FullStore`, `FullProgram` | `src/runtime/eval/indexed/full.rs` |
 | execute | `Evaluator::prepare_compact_indexed_only`, `indexed_run`, `CallFrame`, `FrameWork` | `src/runtime/eval.rs`, `src/runtime/eval/lowered_run/indexed_run.rs`, `src/runtime/eval/lowered_run/indexed_run/explicit_run.rs` |
@@ -195,9 +197,14 @@ diagnostic and continues with an internal recovery type; public dynamic data is
 expression and binding types, the selected overload and argument slots for every
 registered call (`CheckedApiCall`), argument bindings for user calls and stages
 (`CheckedArguments`), statement positions, function return and effect facts,
-and prepared constants. `CompactBodyFacts` re-keys them by
-arena identity. Lowering, lint, and annotation all consume these facts instead
-of re-deriving them. Each record constructor call keeps its instantiated type
+and prepared constants. `CheckedDeclarations` retains resolved declaration
+metadata. `ResolvedTypeExpressions` keeps annotation types, generic templates,
+and per-construction instantiations distinct; the unit test in
+`src/sema/check/checked_declarations.rs` verifies that two `Box[T]`
+constructions retain separate concrete field types through compact projection.
+`CompactBodyFacts` re-keys expression and binding facts by arena identity.
+Lowering, lint, and annotation all consume these facts instead of re-deriving
+them. Each record constructor call keeps its instantiated type
 on that call's expression fact; the callee identifies the schema, not the
 generic instance. A program is checked once: the runner, `xsht check`, and
 `xsht test` check with `CheckOptions::embedded_bodies`, render that check's
@@ -210,8 +217,8 @@ Source-aware checker constructors use the same map for diagnostics and
 command binding sites. Standalone single-source constructors remain available.
 Frontend telemetry includes retained declaration and type-expression facts,
 template instances, and literal storage. `CheckOptions::for_execution`,
-`for_check_cli`, and `for_interactive` select entry policy; warnings are
-published by every profile and only errors block runtime preparation.
+`for_check_cli`, and `for_interactive_commands` select entry policy; warnings
+are published by every profile and only errors block runtime preparation.
 Lint workers share an `Arc<CheckOutput>` when rules require checked binding
 identities, rather than starting another check for each source in the bundle.
 `CheckBundleView` pairs an immutable `ArenaProgram` with one root statement
@@ -238,11 +245,13 @@ they shadow enclosing bindings. Lowering restores the enclosing slot and
 checked type after the callback; fold initializers use the enclosing scope.
 
 **Execution.** `indexed_run` executes function blocks and driver ranges from
-borrowed `FullProgram` views. Calls, work, and continuations live in heap-backed
-frames (`CallFrame`, `FrameWork`), so XSH call depth never becomes native
-stack depth; statement blocks nested in expressions run on lent block frames
-over the caller's slots. After installation, parser, checker, and builder state
-are dropped: only `FullProgram`, its `SourceMap`, and its `SymbolOwner` survive
+borrowed `FullProgram` views. Scheduled calls and continuations live in
+heap-backed frames (`CallFrame`, `FrameWork`); the verifier marks eligible
+operand-only instructions for in-place execution up to height 128. Instruction
+tags marked `LegacyRecursive` still use recursive handlers. Statement blocks
+nested in frame-controlled expressions run on lent block frames over the
+caller's slots. After installation, parser, checker, and builder state are
+dropped: only `FullProgram`, its `SourceMap`, and its `SymbolOwner` survive
 execution. The runner, native tests, direct calls, module loading, auto-main,
 and signal-hook setup all prepare through
 `Evaluator::prepare_compact_indexed_only`.
@@ -307,10 +316,10 @@ annotated ones, and `xsht test` in the project.
    it cannot select another evaluator.
 2. **One decision pipeline.** Each semantic decision (overload selection,
    argument binding, narrowing, inference, effects, constants) is made once, by
-   the checker. Two routes that must agree (full and compact checking, the
-   recursive and frame evaluators) share one implementation or are pinned by a
-   parity test. Which member of a `Union[...]` a value belongs to is one such
-   decision: the checker, the runtime type test, and schema decoding all ask
+   the checker. Two routes that must agree (full and compact checking, legacy
+   and frame evaluation for tags with both routes) share one implementation or
+   are pinned by a parity test. Which member of a `Union[...]` a value belongs
+   to is one such decision: the checker, the runtime type test, and schema decoding all ask
    `sema::types::first_accepting_union_member`, and `union_member_error` is
    the one definition of a well-formed union for both type resolvers.
 3. **Lowering consumes checker facts.** Lowering never checks a body again,
@@ -547,12 +556,12 @@ and child disposition reset. The process substrate never decides XSH control
 flow, handlers never inspect evaluator state, and the evaluator never calls
 `waitpid` or `tcsetpgrp` directly.
 
-**Ownership plus checkpoints.** Every process XSH starts is owned by a scope,
-owned by an active wait, released to a background reaper on explicit detach, or
-deliberately outside XSH's process group. Ownership answers who must reap or
-cancel; checkpoints answer when a recorded signal may become XSH behavior. XSH
-code never runs inside a signal handler, and shutdown is never deferred until
-the script returns.
+**Ownership plus checkpoints.** Every process XSH starts is owned by a scope or
+an active wait, transferred to a background reaper by explicit detach or
+`process.spawn`, or deliberately outside XSH's process group. Ownership answers
+who must reap or cancel; checkpoints answer when a recorded signal may become
+XSH behavior. XSH code never runs inside a signal handler, and shutdown is
+never deferred until the script returns.
 
 **The process group is the unit of cancellation.** A simple command gets a new
 group; a byte pipeline shares one; a managed `spawn` handle owns one until
@@ -597,11 +606,12 @@ spans, or trace buffers, and cannot run XSH code. `NetJob` identity, ownership,
 trace events, and signal decisions stay in `src/runtime/eval/net_job.rs`.
 
 **Streams.** A `StreamValue` holds a materialized prefix plus an optional live
-source or suspended script producer. Supported serial stages
-(`src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs`) pull one source
-item through every stage before the next, stop at bounded terminals, and
-materialize before an unsupported stage. `yield @source` delegation and
-cancellation are iterative
+source or suspended script producer. `IndexedStageEngine` in
+`src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs` runs serial and
+materializing stages on active frame continuations. Serial stages pull one
+source item through every stage before the next, stop at bounded terminals, and
+materialize before an unsupported stage. `par-map` is the worker boundary.
+`yield @source` delegation and cancellation are iterative
 (`src/runtime/eval/lowered_run/indexed_run/producer.rs`), so delegation depth
 never becomes native stack depth; child cleanup runs before parent cleanup.
 Stages that need a complete input (`sort`, `collect`, `batch`) keep an explicit
