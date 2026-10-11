@@ -37,7 +37,8 @@ fn stdout_only(output: Output, expected: &[u8]) {
 }
 
 // The pinned Linux image's BusyBox supplies real command execution inside an
-// owned jail. Copy its musl loader rather than exposing the host filesystem.
+// owned jail. An explicit fixture directory supplies that same binary and
+// loader when the reference applet runs in an image with a different libc.
 fn jail() -> tempfile::TempDir {
     require_chroot();
     let directory = tempfile::tempdir().expect("create owned chroot fixture");
@@ -46,12 +47,16 @@ fn jail() -> tempfile::TempDir {
         fs::create_dir(directory.path().join(subdirectory)).unwrap();
     }
     let root = directory.path().join("CHROOT_DIR");
-    fs::copy("/bin/busybox", root.join("bin/busybox")).expect("pinned image must provide /bin/busybox");
+    let tools = std::env::var_os("XSH_CORE_COMPAT_JAIL_TOOLS");
+    let binary_directory = tools.as_deref().map(Path::new).unwrap_or(Path::new("/bin"));
+    let loader_directory = tools.as_deref().map(Path::new).unwrap_or(Path::new("/lib"));
+    fs::copy(binary_directory.join("busybox"), root.join("bin/busybox"))
+        .expect("jail fixture must provide the pinned image's busybox");
     for tool in ["whoami", "id", "pwd"] {
         symlink("busybox", root.join("bin").join(tool)).unwrap();
     }
     let mut loaders = 0;
-    for entry in fs::read_dir("/lib").unwrap() {
+    for entry in fs::read_dir(loader_directory).expect("read jail fixture loader directory") {
         let entry = entry.unwrap();
         let name = entry.file_name();
         let name_text = name.to_string_lossy();
