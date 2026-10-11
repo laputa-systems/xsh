@@ -527,6 +527,8 @@ test test_uu_tail_follow_descriptor_vs_rename2 { |ctx|
   defer child.cancel(signal: "KILL", kill_after: 0ms)?
     time.sleep(row.delay)?
     alive(child)
+    # Do not rename either path until tail has opened both descriptors.
+    wait_output(s, bytes.from_text("==> FILE_A <==\n\n==> FILE_B <==\n"), b"")
     uu.at(s, "FILE_A").rename(to: uu.at(s, "FILE_C"), overwrite: true)?
     time.sleep(row.delay)?
     append(s, "FILE_C", "X\n")?
