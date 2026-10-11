@@ -551,7 +551,7 @@ struct LiveProcessHandle {
 struct OwnedStream {
     owner_scope: u64,
     source: Option<StreamSource>,
-    script: Option<std::sync::Weak<std::sync::Mutex<Box<dyn crate::runtime::value::ScriptStream>>>>,
+    script: Option<crate::runtime::value::ScriptStreamState>,
 }
 
 #[derive(Default)]
@@ -2454,13 +2454,6 @@ pub struct Evaluator {
     /// evaluator, so nested bodies keep the outer-assignment escape rule.
     lent_context_slots:
         Option<crate::runtime::eval::lowered_run::indexed_run::explicit_run::LentContextSlots>,
-    /// Producers that have been created and not yet finished or stopped.
-    ///
-    /// A producer's body runs only while something is consuming it, so the
-    /// evaluator also has to notice the other case: a producer the program can
-    /// no longer reach. The sweep at `sweep_script_producers` stops those, which
-    /// is what runs their `defer` and closes their scopes exactly once.
-    script_producers: Vec<crate::runtime::value::ScriptStreamState>,
     // Suspended process cursors keep signal checkpoints active between pulls.
     live_process_streams: usize,
     #[cfg(feature = "native-tests")]
@@ -2757,7 +2750,6 @@ impl Evaluator {
                 std::env::var_os(FORCE_FRAMES_ENV).as_deref(),
             ),
             lent_context_slots: None,
-            script_producers: Vec::new(),
             live_process_streams: 0,
             #[cfg(feature = "native-tests")]
             test_mocks: FxHashMap::default(),
@@ -3003,7 +2995,6 @@ impl Evaluator {
                 ),
             force_frames: shared.force_frames,
             lent_context_slots: None,
-            script_producers: Vec::new(),
             live_process_streams: 0,
             #[cfg(feature = "native-tests")]
             test_mocks: FxHashMap::default(),
@@ -5564,10 +5555,7 @@ impl Evaluator {
             let Some(stream) = self.take_owned_stream(&id) else {
                 continue;
             };
-            if let Some(script) = stream
-                .script
-                .as_ref()
-                .and_then(crate::runtime::value::ScriptStreamState::upgrade)
+            if let Some(script) = stream.script
                 && let Err(error) = self.cancel_script_state(script, zero_span())
             {
                 first_error.get_or_insert(error);
@@ -5706,7 +5694,7 @@ impl Evaluator {
         })?;
         let owner_scope = self.current_scope_id();
         let source = stream.source.clone();
-        let script = stream.script().map(crate::runtime::value::ScriptStreamState::downgrade);
+        let script = stream.script().cloned();
         stream.owner = Some(StreamOwner { id, evaluator: Arc::clone(&self.resource_owner) });
         self.owned_streams.insert(id, OwnedStream { owner_scope, source, script });
         self.register_owned_resource(owner_scope, ResourceKind::Activity);
@@ -5877,8 +5865,7 @@ impl Evaluator {
                 self.register_owned_resource(target, ResourceKind::Activity);
             }
             let Some(script) = self.owned_streams.get(&owner.id)
-                .and_then(|row| row.script.as_ref())
-                .and_then(crate::runtime::value::ScriptStreamState::upgrade)
+                .and_then(|row| row.script.clone())
             else { continue; };
             let mut retained = ResourceTransferWorklist::default();
             let visit = script.try_visit_retained_values(&mut |value| {
@@ -7552,6 +7539,75 @@ mod frame_scheduler_marker_tests {
 mod capture_transfer_tests {
     use super::*;
     use crate::runtime::value::{ScriptStream, ScriptStreamState, ScriptStreamStep};
+
+    struct CancellationCounter {
+        cancellations: Arc<std::sync::atomic::AtomicUsize>,
+        finished: bool,
+    }
+
+    impl ScriptStream for CancellationCounter {
+        fn finished(&self) -> bool { self.finished }
+
+        fn poll(
+            &mut self,
+            _evaluator: &mut Evaluator,
+            _span: Span,
+        ) -> Result<ScriptStreamStep, RuntimeError> {
+            Ok(ScriptStreamStep::Yielded(Value::Unit))
+        }
+
+        fn validate_item(&self, _value: &Value, _span: Span) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn visit_retained_values(
+            &self,
+            _visitor: &mut dyn for<'a> FnMut(RetainedValueRef<'a>),
+        ) {
+        }
+
+        fn delegated_finished(&mut self) {}
+
+        fn take_delegated(
+            &mut self,
+        ) -> (Option<ScriptStreamState>, Vec<u64>, Option<ScopedProducerContext>) {
+            (None, Vec::new(), None)
+        }
+
+        fn cancel(&mut self, _evaluator: &mut Evaluator, _span: Span) -> Result<(), RuntimeError> {
+            if !self.finished {
+                self.finished = true;
+                self.cancellations
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn dropped_stream_state_remains_available_for_scope_cleanup() {
+        let mut evaluator = Evaluator::new(Vec::new());
+        let owner_scope = evaluator.enter_owned_host_scope();
+        let cancellations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let state = ScriptStreamState::new(CancellationCounter {
+            cancellations: Arc::clone(&cancellations),
+            finished: false,
+        });
+        let mut stream = StreamValue::from_script(state.clone());
+        evaluator.register_returned_stream(&mut stream, zero_span()).unwrap();
+        let owner_id = stream.owner().unwrap().id;
+
+        assert_eq!(evaluator.stream_next(&mut stream, zero_span()).unwrap(), Some(Value::Unit));
+        drop(state);
+        drop(stream);
+        assert_eq!(cancellations.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert!(evaluator.owned_streams.contains_key(&owner_id));
+
+        evaluator.exit_owned_host_scope(owner_scope).unwrap();
+
+        assert_eq!(cancellations.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(!evaluator.owned_streams.contains_key(&owner_id));
+    }
 
     struct RetainedStreamProducer {
         retained: Option<StreamValue>,

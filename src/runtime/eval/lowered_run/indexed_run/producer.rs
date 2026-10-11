@@ -265,57 +265,7 @@ impl Evaluator {
             delegated: None,
             context: None,
         });
-        // The evaluator keeps a handle so a producer the program can no longer
-        // reach can still be stopped, which is what runs its defers.
-        self.script_producers.push(state.clone());
         Ok(state)
-    }
-
-    /// Stops unreachable producers at a point with no statement span at hand.
-    pub(in crate::runtime::eval) fn sweep_script_producers_at_rest(&mut self) {
-        let span = Span::new(crate::source::SourceId::new(0), 0, 0);
-        let _ = self.sweep_script_producers(span);
-    }
-
-    /// Stops the producers the program can no longer reach.
-    ///
-    /// A producer is reachable while a slot, argument, container, or the pull in
-    /// progress holds a handle to it; once only this registry holds one, nothing
-    /// can ever resume the body, so its `defer` bodies and host scopes are
-    /// released here. Finished producers are simply forgotten.
-    pub(in crate::runtime::eval) fn sweep_script_producers(
-        &mut self,
-        span: Span,
-    ) -> Result<(), RuntimeError> {
-        if self.script_producers.is_empty() {
-            return Ok(());
-        }
-        let pending = std::mem::take(&mut self.script_producers);
-        let mut kept = Vec::with_capacity(pending.len());
-        let mut first_error = None;
-        for state in pending {
-            match state.try_finished() {
-                // A pull owns the state: it is running, not abandoned.
-                None => {
-                    kept.push(state);
-                    continue;
-                }
-                Some(true) => continue,
-                Some(false) => {}
-            }
-            if !state.only_registry_holds() {
-                kept.push(state);
-                continue;
-            }
-            if let Err(error) = self.cancel_script_state(state.clone(), span) {
-                first_error.get_or_insert(error);
-            }
-        }
-        self.script_producers = kept;
-        match first_error {
-            Some(error) => Err(error),
-            None => Ok(()),
-        }
     }
 
     /// Resume the frame or hand a retained child to the pull driver.
@@ -811,7 +761,6 @@ impl Evaluator {
             trace,
             span,
         });
-        self.script_producers.push(state.clone());
         Ok(LoweredValue::ResultOk(Box::new(LoweredValue::Stream(
             Box::new(StreamValue::from_script(state)),
         ))))

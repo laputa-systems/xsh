@@ -314,6 +314,28 @@ assert (nested_return() |> collect()) == [true]
   assert output.status == 0, output.stderr
 }
 
+test resource_nested_producer_cancellation_keeps_its_captured_root { |ctx|
+  let marker = test.temp_path(ctx, name: "cancelled-root-stream")
+  let output = test.run_script(ctx, f"""
+stream root_exists_until_cancel(root: FsRoot, marker: Path) [fs, error] -> Stream[Bool] {{
+  defer {{
+    assert root.exists(p".")?
+    marker.write_atomic("root-alive")?
+  }}
+  yield root.exists(p".")?
+  yield false
+}}
+proc make_root_stream(marker: Path) [fs, error] -> Result[Stream[Bool]] {{
+  let root = fs.tempdir()?
+  return Ok(root_exists_until_cancel(root, marker))
+}}
+let values = make_root_stream(p"{marker}")? |> take(1) |> collect()
+assert values == [true]
+""")?
+  assert output.status == 0, output.stderr
+  assert marker.read_text()? == "root-alive"
+}
+
 test resource_outer_assignment_moves_root_out_of_nested_scope {
   var escaped: FsRoot? = null
   {

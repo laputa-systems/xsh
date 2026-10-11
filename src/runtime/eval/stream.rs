@@ -14,10 +14,11 @@ impl Evaluator {
         child: &ScriptStreamState,
         span: Span,
     ) -> Result<(), RuntimeError> {
-        if self.owned_streams.values().any(|owned| {
-            owned.script.as_ref().and_then(ScriptStreamState::upgrade)
-                .is_some_and(|state| state.same_as(child))
-        }) {
+        if self
+            .owned_streams
+            .values()
+            .any(|owned| owned.script.as_ref().is_some_and(|state| state.same_as(child)))
+        {
             return Ok(());
         }
         Err(RuntimeError::new(
@@ -244,11 +245,13 @@ impl Evaluator {
             if !seen.insert(current.identity()) {
                 break;
             }
-            let delegation = current
-                .lock(span)
-                .map(|mut producer| producer.take_delegated());
+            let delegation = current.lock(span).map(|mut producer| {
+                let finished = producer.finished();
+                let (child, scopes, context) = producer.take_delegated();
+                (finished, child, scopes, context)
+            });
             match delegation {
-                Ok((child, scopes, context)) => {
+                Ok((finished, child, scopes, context)) => {
                     let count = if child.is_some() {
                         self.reattach_owned_host_scopes(&scopes);
                         scopes.len()
@@ -260,7 +263,7 @@ impl Evaluator {
                     } else {
                         None
                     };
-                    pending.push((current, count, consumer));
+                    pending.push((current, count, consumer, !finished));
                     let Some(child) = child else {
                         break;
                     };
@@ -272,10 +275,13 @@ impl Evaluator {
                 }
             }
         }
-        for (state, count, context) in pending.into_iter().rev() {
+        for (state, count, context, should_cancel) in pending.into_iter().rev() {
             self.detach_owned_host_scopes(count);
             if let Some(context) = context {
                 self.swap_producer_context(context);
+            }
+            if !should_cancel {
+                continue;
             }
             if let Err(error) = state
                 .lock(span)

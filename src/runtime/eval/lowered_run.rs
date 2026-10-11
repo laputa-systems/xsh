@@ -7257,9 +7257,6 @@ impl Evaluator {
             slots.clear();
             self.lowered_slot_pool.push(slots);
         }
-        // Dropping the slots is what makes an unconsumed producer unreachable,
-        // so this is where its defers are run.
-        self.sweep_script_producers_at_rest();
     }
 
     fn lowered_question_propagation_value(

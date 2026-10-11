@@ -1321,37 +1321,8 @@ impl ScriptStreamState {
         Arc::as_ptr(&self.producer) as usize
     }
 
-    pub(crate) fn downgrade(&self) -> Weak<Mutex<Box<dyn ScriptStream>>> {
-        Arc::downgrade(&self.producer)
-    }
-
-    pub(crate) fn upgrade(
-        producer: &Weak<Mutex<Box<dyn ScriptStream>>>,
-    ) -> Option<Self> {
-        producer.upgrade().map(|producer| Self { producer })
-    }
-
     pub(crate) fn same_as(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.producer, &other.producer)
-    }
-
-    /// Whether this registry entry is the only handle left.
-    ///
-    /// Callers that hold a handle count as reachable, so this is only true once
-    /// every value, slot, and container that referred to the producer is gone.
-    pub(crate) fn only_registry_holds(&self) -> bool {
-        Arc::strong_count(&self.producer) == 1
-    }
-
-    /// Whether the producer has already finished or been stopped.
-    ///
-    /// `None` means a pull is running it right now, so its state cannot be read
-    /// or stopped from here; callers leave it alone until the pull is done.
-    pub(crate) fn try_finished(&self) -> Option<bool> {
-        self.producer
-            .try_lock()
-            .ok()
-            .map(|producer| producer.finished())
     }
 }
 

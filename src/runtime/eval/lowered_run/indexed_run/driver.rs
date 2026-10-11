@@ -50,14 +50,7 @@ impl Evaluator {
         }
         // A top-level statement starts only once any earlier `Err` was handled.
         self.pending_traceback = None;
-        let outcome = self.eval_indexed_driver_step_inner(view, call_span);
-        // A top-level statement is a boundary at which nothing can still reach a
-        // producer it built and dropped.
-        let swept = self.sweep_script_producers(call_span);
-        Some(match (outcome, swept) {
-            (Ok(flow), Ok(())) => Ok(flow),
-            (Err(error), _) | (Ok(_), Err(error)) => Err(error),
-        })
+        Some(self.eval_indexed_driver_step_inner(view, call_span))
     }
 
     pub(super) fn eval_indexed_driver_step_inner(
