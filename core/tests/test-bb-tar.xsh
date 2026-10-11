@@ -173,3 +173,33 @@ test test_bb_tar_tar_extracts_all_subdirs_bdbd050d { |ctx|
   let names = fs.walk(uu.at(s, "foo"), hidden: true)? |> map { |entry| entry.path.relative_to(s.root).display() } |> sort() |> collect()
   assert names == ["foo", "foo/1", "foo/1/10", "foo/1/10/100", "foo/1/10/101", "foo/1/10/102"]
 }
+
+# origin: busybox tar/tar_with_link_with_size
+test test_bb_tar_tar_with_link_with_size_fb9b5c3d { |ctx|
+  let s = uu.scene(ctx)?
+  let input = fp"{s.ctx.core_dir}/tests/data/busybox/tar/tar_with_link_with_size-1.bz2".read_bytes()?
+  let expanded = uu.invoke(s, "bunzip2", [], stdin: input)?
+  uu.succeeds(expanded)
+  let r = uu.invoke(s, "tar", ["tvf", "-"], stdin: expanded.stdout, vars: {TZ: "UTC-2"})?
+  uu.succeeds(r)
+  uu.stdout_is(r, "lrwxrwxrwx user/group         0 2008-07-19 15:02:37 firmware-372/sources/native/bin/chroot-setup.sh -> qemu-setup.sh\n-rwxr-xr-x user/group       512 2008-07-19 15:02:37 firmware-372/sources/native/bin/qemu-setup.sh\n")
+}
+
+# origin: busybox tar/tar_with_prefix_fields
+test test_bb_tar_tar_with_prefix_fields_c677280b { |ctx|
+  let s = uu.scene(ctx)?
+  let expected = [
+    "-rw-r--r-- fm3/users      9869 2007-03-12 10:44:54 VirtualBox-1.5.6_OSE/src/libs/xpcom18a4/ipc/ipcd/extensions/transmngr/public/ipcITransactionService.idl\n",
+    "drwxr-xr-x fm3/users         0 2008-02-19 16:33:20 VirtualBox-1.5.6_OSE/src/VBox/Additions/linux/x11include/4.3/programs/Xserver/hw/xfree86/xf24_32bpp/\n",
+  ]
+  for index in range(2) {
+    let input = fp"{s.ctx.core_dir}/tests/data/busybox/tar/tar_with_prefix_fields-{index + 1}.bz2".read_bytes()?
+    for args in [["tvf", "-"], ["tv"]] {
+      let expanded = uu.invoke(s, "bunzip2", [], stdin: input)?
+      uu.succeeds(expanded)
+      let r = uu.invoke(s, "tar", args, stdin: expanded.stdout, vars: {TZ: "UTC-1"})?
+      uu.succeeds(r)
+      uu.stdout_is(r, expected[index])
+    }
+  }
+}
