@@ -191,7 +191,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
         if ! opts.no_dereference and name != b"-" {
           creating = true
           if name.len() > 0 and name.byte_at(name.len() - 1) == 47 {
-            gnu.error(f"cannot touch {gnu.quote_bytes(name)}: No such file or directory")
+            gnu.error(f"setting times of {gnu.quote_bytes(name)}: No such file or directory")
             failed = true
             continue
           }

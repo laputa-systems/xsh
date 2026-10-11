@@ -66,18 +66,17 @@ test test_truncate_without_size_or_reference_reports_required_argument { |ctx|
   let root = test.temp_dir(ctx, name: "truncate-no-size")?
   let result = run_applet(ctx, root, ["file"])?
   assert result.status == 1
-  assert "error: the following required arguments were not provided:" in result.stderr, result.stderr
+  assert "you must specify either '--size' or '--reference'" in result.stderr, result.stderr
   assert result.stdout == ""
 }
 
-test test_truncate_size_diagnostic_counts_the_relative_mode { |ctx|
+test test_truncate_invalid_size_diagnostic_stays_plain { |ctx|
   let root = test.temp_dir(ctx, name: "truncate-size-diagnostic")?
   let file = fp"{root}/probe"
   file.write("keep")
   let result = run_applet(ctx, root, ["--size=+2Zx", "probe"], diagnostics: "always")?
   assert result.status == 1
-  assert "truncate:1:19" in result.stderr, result.stderr
-  assert "not a known unit" in result.stderr, result.stderr
+  assert result.stderr == "truncate: Invalid number: '+2Zx'\n", result.stderr
   assert file.read_text()? == "keep"
 }
 
