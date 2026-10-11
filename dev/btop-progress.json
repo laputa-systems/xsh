@@ -6,7 +6,7 @@
     "commit": "6e39144aaf5a6bc01b9f795010b0914431067183"
   },
   "gate": "G3",
-  "last_green_commit": "2d117e88",
+  "last_green_commit": "fadabf2d",
   "audit": {
     "new_core_script": "New core/*.xsh applets are installed by the release script at dev/release.xsh:146-160; dev/tests/test-repository-contracts.xsh owns the required core script inventory and contract checks. No separate command registration is needed.",
     "launcher_argument_separator": "Use xsh SCRIPT -- ARGS for an applet and xsh -- SCRIPT ARGS for an explicit script; src/entrypoints/xsh.rs:90-120.",
@@ -839,9 +839,10 @@
       "implemented": true,
       "status": "passed",
       "tests": [
-        "core/tests/test-btop-sources.xsh::test_btop_network_source_selects_name_order_and_skips_loopback"
+        "core/tests/test-btop-sources.xsh::test_btop_network_source_selects_name_order_and_skips_loopback",
+        "core/tests/test-btop-sources.xsh::test_btop_network_selection_uses_loopback_when_it_is_the_only_interface"
       ],
-      "evidence": "Host release: .work/btop-campaign/g3-btop-regression.log passed 51/51 native btop tests. Network counter history is accepted only when both interface name and positive sysfs ifindex match; PID metadata is retained only for live current identities."
+      "evidence": "Host release: the 58-test btop suite passed in .work/btop-campaign/g3-network-regression.log. Selection chooses the sorted non-loopback interface and falls back to loopback only when it is alone."
     },
     {
       "id": "g3.net.rename_epoch",
@@ -851,7 +852,7 @@
       "tests": [
         "core/tests/test-btop-model.xsh::test_btop_network_name_changes_and_replacement_start_new_counter_epochs"
       ],
-      "evidence": "Host release: .work/btop-campaign/g3-btop-regression.log passed 51/51 native btop tests. Network counter history is accepted only when both interface name and positive sysfs ifindex match; PID metadata is retained only for live current identities."
+      "evidence": "Host release: the 58-test btop suite passed in .work/btop-campaign/g3-network-regression.log. A rename resets the selected interface's rate baseline."
     },
     {
       "id": "g3.net.replacement_epoch",
@@ -861,7 +862,7 @@
       "tests": [
         "core/tests/test-btop-model.xsh::test_btop_network_name_changes_and_replacement_start_new_counter_epochs"
       ],
-      "evidence": "Host release: .work/btop-campaign/g3-btop-regression.log passed 51/51 native btop tests. Network counter history is accepted only when both interface name and positive sysfs ifindex match; PID metadata is retained only for live current identities."
+      "evidence": "Host release: the 58-test btop suite passed in .work/btop-campaign/g3-network-regression.log. Reusing an interface name with a changed positive ifindex starts a new epoch."
     },
     {
       "id": "g3.net.reset",
@@ -872,7 +873,7 @@
         "core/tests/test-btop-model.xsh::test_btop_network_name_changes_and_replacement_start_new_counter_epochs",
         "core/tests/test-btop-sources.xsh::test_btop_rates_distinguish_warming_idle_reset_and_invalid_interval"
       ],
-      "evidence": "Host release: .work/btop-campaign/g3-btop-regression.log passed 51/51 native btop tests. Network counter history is accepted only when both interface name and positive sysfs ifindex match; PID metadata is retained only for live current identities."
+      "evidence": "Host release: the 58-test btop suite passed in .work/btop-campaign/g3-network-regression.log. Decreasing byte counters report reset without a rate."
     },
     {
       "id": "g3.net.empty_set",
@@ -882,7 +883,7 @@
       "tests": [
         "core/tests/test-btop-sources.xsh::test_btop_network_source_distinguishes_empty_from_unavailable"
       ],
-      "evidence": "Host release: .work/btop-campaign/g3-btop-regression.log passed 51/51 native btop tests. Network counter history is accepted only when both interface name and positive sysfs ifindex match; PID metadata is retained only for live current identities."
+      "evidence": "Host release: the 58-test btop suite passed in .work/btop-campaign/g3-network-regression.log. An observed empty interface table stays distinct from an absent /proc/net/dev source."
     },
     {
       "id": "g3.net.namespace",
@@ -892,15 +893,19 @@
       "tests": [
         "core/tests/test-btop-model.xsh::test_btop_model_does_not_mix_source_identities_or_invalid_intervals"
       ],
-      "evidence": "Host release: .work/btop-campaign/g3-btop-regression.log passed 51/51 native btop tests. Network counter history is accepted only when both interface name and positive sysfs ifindex match; PID metadata is retained only for live current identities."
+      "evidence": "Host release: the 58-test btop suite passed in .work/btop-campaign/g3-network-regression.log. A source identity change invalidates the predecessor before network rates are derived."
     },
     {
       "id": "g3.net.units",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_rates_match_the_independent_gate_one_oracle",
+        "core/tests/test-btop-render.xsh::test_btop_g1_screen_places_all_panel_values_at_80_by_24",
+        "core/tests/test-btop-render.xsh::test_btop_g1_screen_places_all_panel_values_at_120_by_40"
+      ],
+      "evidence": "Host release: rates are bytes per second and render with binary KiB/s labels (10.00 KiB/s RX, 2.00 KiB/s TX); all 58 btop native tests passed in .work/btop-campaign/g3-network-regression.log."
     },
     {
       "id": "g3.proc.stat_parse",
@@ -1939,6 +1944,6 @@
     }
   ],
   "next": [
-    "G3 S3.4: verify network selection, rename and replacement epochs, reset, empty and unavailable sources, namespace changes, and units."
+    "G3 S3.5: finish process parsing, identity-race handling, indexed joins, parent/child aggregation, sorting, and local command-line display."
   ]
 }
