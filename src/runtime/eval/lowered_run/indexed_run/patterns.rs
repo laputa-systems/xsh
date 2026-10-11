@@ -479,10 +479,7 @@ impl Evaluator {
             | StmtFlow::Break(Some(value)),
         ) = &result
         {
-            self.transfer_owned_host_resources_in_value(
-                &value.clone().into_value(),
-                parent_scope,
-            );
+            self.transfer_owned_host_resources_in_lowered_value(value, parent_scope);
         }
         if let Err(error) = &result
             && error.abort.is_none()
