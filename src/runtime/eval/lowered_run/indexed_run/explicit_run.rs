@@ -7228,6 +7228,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         policy: ExpressionBoundaryPolicy::Value
                             | ExpressionBoundaryPolicy::Context(_)
                             | ExpressionBoundaryPolicy::Capture
+                            | ExpressionBoundaryPolicy::Retry(_)
                             | ExpressionBoundaryPolicy::Scope(_),
                         ..
                     }
