@@ -11,6 +11,12 @@ proc run_tool(root: Path, tool: Str) [process, env, error] -> Result[Captured] {
   }
 }
 
+proc lint_only(root: Path, rule: Str) [process, env, error] -> Result[Captured] {
+  cd (root) {
+    run.capture --text "xsht" lint --only $rule "entry.xsh"
+  }
+}
+
 proc fixture(ctx: TestContext, name: Str) [fs, error] -> Result[Path] {
   let root = test.temp_dir(ctx, name:)?
   fp"{root}/xsht-config.ini".write("module_path = modules\n")
@@ -25,6 +31,57 @@ proc expect_code(root: Path, code: Str) [process, env, error] {
     assert f"err[{code}]" in result.stderr, f"{tool}: {result.stderr}"
     assert result.stdout == "", f"{tool}: {result.stdout}"
   }
+}
+
+test test_checker_warnings_are_shared_and_follow_lint_selection { |ctx|
+  let root = fixture(ctx, "checker-warnings")?
+  fp"{root}/entry.xsh".write(r"""error Input = Failed(message: Str)
+error Output = Failed(message: Str)
+proc translate(input: Result[Int, Input]) -> Result[Int, Output] {
+  match input {
+    Ok(value) => return value
+    Err(failure) => return Err(Output.Failed(message: failure.message))
+  }
+}
+proc legacy_process_error() {
+  let _error = ProcessError("legacy")
+}
+proc unused_local() {
+  let unused = 1
+}
+""")
+
+  let checked = run_tool(root, "check")?
+  assert checked.status.exited_with(2), checked.stderr
+  assert "warn[check.error-cause]" in checked.stderr, checked.stderr
+  assert "warn[check.migration-error]" in checked.stderr, checked.stderr
+
+  let linted = run_tool(root, "lint")?
+  assert "err[" not in linted.stderr, linted.stderr
+  assert "warn[check.error-cause]" in linted.stderr, linted.stderr
+  assert "warn[check.migration-error]" in linted.stderr, linted.stderr
+
+  let linted_only = lint_only(root, "lint.unused-local")?
+  assert "warn[lint.unused-local]" in linted_only.stderr, linted_only.stderr
+  assert "warn[check.error-cause]" not in linted_only.stderr, linted_only.stderr
+  assert "warn[check.migration-error]" not in linted_only.stderr, linted_only.stderr
+
+  fp"{root}/execution.xsh".write(r"""error Input = Failed(message: Str)
+error Output = Failed(message: Str)
+proc translate(input: Result[Int, Input]) -> Result[Int, Output] {
+  match input {
+    Ok(value) => return value
+    Err(failure) => return Err(Output.Failed(message: failure.message))
+  }
+}
+print "entry-ran"
+""")
+  let executed = cd (root) {
+    run.capture --text "xsh" "execution.xsh"
+  }?
+  assert executed.status.exited_with(0), executed.stderr
+  assert executed.stdout == "entry-ran\n", executed.stdout
+  assert executed.stderr == "", executed.stderr
 }
 
 test test_missing_import_is_a_checker_error_in_every_tool { |ctx|

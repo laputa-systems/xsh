@@ -360,7 +360,7 @@ diagnostic_codes! {
         CheckMapcompIterator = "check.mapcomp-iterator", error, "Reject a map comprehension that iterates over a value that is not a List, Stream, Map, Str, or Bytes";
         CheckMatchValueExhaustive = "check.match-value-exhaustive", error, "Reject a value-producing `match` that does not cover every case";
         CheckMembershipType = "check.membership-type", error, "Reject an `in` test whose container or element type does not support membership";
-        CheckMigrationError = "check.migration-error", warning, "Warn that `ProcessError(...)` is not a source constructor when migration diagnostics are on";
+        CheckMigrationError = "check.migration-error", warning, "Warn that `ProcessError(...)` is produced by process APIs, not a source constructor";
         CheckMissingModuleDoc = "check.missing-module-doc", error, "Reject an exported module that has no preceding `##!` module doc comment";
         CheckMissingPublicDoc = "check.missing-public-doc", error, "Reject an exported declaration that has no preceding `##` doc comment";
         CheckMissingReturn = "check.missing-return", error, "Reject a function that can fall through without returning its declared type";

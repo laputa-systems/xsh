@@ -1,5 +1,8 @@
 #![allow(clippy::single_call_fn)]
 
+use std::path::{Path, PathBuf};
+
+use walkdir::WalkDir;
 use xsh::diagnostic::DiagnosticCode;
 use xsh::frontend::check::{AnnotationFactKind, CheckOptions, Checker, CompactDeclOutput};
 use xsh::frontend::source::{SourceId, SourceMap};
@@ -12,6 +15,114 @@ fn compact_check(
     let mut sources = SourceMap::new();
     let source_id = sources.add_file("compact-check.xsh", source.as_ref().to_string());
     Checker::check_compact_declarations(program, &sources, source_id)
+}
+
+fn repository_xsh_sources() -> Vec<PathBuf> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut sources = WalkDir::new(root)
+        .into_iter()
+        .filter_entry(|entry| {
+            let relative = entry
+                .path()
+                .strip_prefix(root)
+                .expect("walked path is inside the repository");
+            let excluded = relative == Path::new("dev/compat")
+                || relative.components().any(|component| {
+                    matches!(component.as_os_str().to_str(), Some(".git" | ".work" | "target"))
+                });
+            !excluded
+        })
+        .filter_map(|entry| {
+            let entry = entry.expect("walk repository source corpus");
+            (entry.file_type().is_file()
+                && entry.path().extension().is_some_and(|extension| extension == "xsh"))
+            .then(|| entry.into_path())
+        })
+        .collect::<Vec<_>>();
+    sources.sort();
+    sources
+}
+
+#[test]
+fn checker_publication_options_preserve_repository_diagnostics() {
+    let sources = repository_xsh_sources();
+    assert!(sources.len() >= 1_000, "unexpectedly small XSH corpus: {}", sources.len());
+
+    let options = [
+        CheckOptions::default(),
+        CheckOptions {
+            reveal_types: true,
+            ..CheckOptions::default()
+        },
+        CheckOptions::for_execution(),
+        CheckOptions::for_check_cli(),
+    ];
+    for path in sources {
+        let source = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        let diagnostic_sets = options.map(|options| {
+            parsed.arena.symbol_owner().with_current(|| {
+                let checked = Checker::check_arena_with_options(&parsed.arena, &source, options);
+                let mut diagnostics = parsed.diagnostics.clone();
+                diagnostics.extend(checked.diagnostics);
+                diagnostics
+            })
+        });
+        for diagnostics in &diagnostic_sets[1..] {
+            assert_eq!(
+                diagnostics,
+                &diagnostic_sets[0],
+                "checker publication options changed diagnostics for {}",
+                path.display()
+            );
+        }
+    }
+}
+
+#[test]
+fn embedded_standard_library_diagnostics_are_not_reported_as_user_findings() {
+    let source = "let value = json.decode(\"{}\")?\n";
+    let (sources, parsed) = xsh::frontend::load::parse_load_entry_source_arena_only(
+        "entry.xsh",
+        xsh::frontend::load::entry_source_from_text("entry.xsh", source.to_owned()),
+        Vec::new(),
+    );
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let source_id = parsed
+        .arena
+        .source_text_source_id()
+        .expect("loaded entry source has a source identity");
+    let options = [
+        CheckOptions::default(),
+        CheckOptions {
+            reveal_types: true,
+            ..CheckOptions::default()
+        },
+        CheckOptions::for_execution(),
+        CheckOptions::for_check_cli(),
+    ];
+
+    for options in options {
+        let checked = Checker::check_arena_with_sources_and_options(
+            &parsed.arena,
+            &sources,
+            source_id,
+            options,
+        );
+        for diagnostic in checked.diagnostics {
+            let spans = diagnostic
+                .span
+                .into_iter()
+                .chain(diagnostic.labels.iter().map(|label| label.span))
+                .collect::<Vec<_>>();
+            assert!(!spans.is_empty(), "unlocated diagnostic: {diagnostic:?}");
+            assert!(
+                spans.iter().all(|span| span.source_id == source_id),
+                "embedded standard-library finding escaped into user diagnostics: {diagnostic:?}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -528,7 +639,6 @@ reveal_type(names)
         CheckOptions {
             interactive_commands: None,
             reveal_types: true,
-            migration_diagnostics: false,
             embedded_bodies: false,
         },
     );
@@ -572,25 +682,6 @@ fn check(source: &str) -> Vec<Option<String>> {
         .into_iter()
         .map(|diagnostic| diagnostic.code.map(|code| code.name().to_owned()))
         .collect()
-}
-
-fn check_with_migration(source: &str) -> Vec<Option<String>> {
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    Checker::check_arena_with_options(
-        &parsed.arena,
-        source,
-        CheckOptions {
-            interactive_commands: None,
-            reveal_types: false,
-            migration_diagnostics: true,
-            embedded_bodies: false,
-        },
-    )
-    .diagnostics
-    .into_iter()
-    .map(|diagnostic| diagnostic.code.map(|code| code.name().to_owned()))
-    .collect()
 }
 
 fn check_interactive(source: &str) -> Vec<Option<String>> {
@@ -1052,10 +1143,7 @@ fn typed_cause_flattened_handler_guidance_has_no_automatic_fix() {
     let checked = Checker::check_arena_with_options(
         &parsed.arena,
         source,
-        CheckOptions {
-            migration_diagnostics: true,
-            ..CheckOptions::default()
-        },
+        CheckOptions::default(),
     );
     let guidance = checked
         .diagnostics
@@ -1069,7 +1157,7 @@ fn typed_cause_flattened_handler_guidance_has_no_automatic_fix() {
         "Err(Outer.Failed(message: \"custom\"))",
     ] {
         let improved = source.replace("Err(Outer.Failed(message: failure.message))", replacement);
-        assert!(!check_with_migration(&improved).contains(&Some("check.error-cause".to_string())));
+        assert!(!check(&improved).contains(&Some("check.error-cause".to_string())));
     }
     let richer = source
         .replace(
@@ -1080,7 +1168,7 @@ fn typed_cause_flattened_handler_guidance_has_no_automatic_fix() {
             "Outer.Failed(message: failure.message)",
             "Outer.Failed(message: failure.message, code: 7)",
         );
-    assert!(!check_with_migration(&richer).contains(&Some("check.error-cause".to_string())));
+    assert!(!check(&richer).contains(&Some("check.error-cause".to_string())));
 }
 
 #[test]

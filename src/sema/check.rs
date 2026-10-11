@@ -383,11 +383,37 @@ pub enum InferredVariant {
 pub struct CheckOptions {
     pub interactive_commands: Option<fn(&str) -> bool>,
     pub reveal_types: bool,
-    pub migration_diagnostics: bool,
     /// Check every embedded implementation body. A check whose output feeds
     /// lowering needs their facts; other checks only need the bodies whose
     /// inferred returns shape a signature.
     pub embedded_bodies: bool,
+}
+
+impl CheckOptions {
+    /// Publish the checked facts required to prepare a program for execution.
+    pub fn for_execution() -> Self {
+        Self {
+            embedded_bodies: true,
+            ..Self::default()
+        }
+    }
+
+    /// Publish the facts and revealed types shown by `xsht check`.
+    pub fn for_check_cli() -> Self {
+        Self {
+            reveal_types: true,
+            embedded_bodies: true,
+            ..Self::default()
+        }
+    }
+
+    /// Check interactive command statements using the caller's command set.
+    pub fn for_interactive_commands(interactive_commands: fn(&str) -> bool) -> Self {
+        Self {
+            interactive_commands: Some(interactive_commands),
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1180,12 +1206,7 @@ impl Checker {
         Self::check_arena_with_options(
             program,
             source,
-            CheckOptions {
-                interactive_commands: Some(interactive_commands),
-                reveal_types: false,
-                migration_diagnostics: false,
-                embedded_bodies: false,
-            },
+            CheckOptions::for_interactive_commands(interactive_commands),
         )
     }
 

@@ -422,10 +422,7 @@ fn prepare_entry_source(
         &arena,
         &sources,
         source_id,
-        CheckOptions {
-            embedded_bodies: true,
-            ..CheckOptions::default()
-        },
+        CheckOptions::for_execution(),
         Arc::clone(&arena),
     );
     if check

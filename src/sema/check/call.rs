@@ -60,9 +60,6 @@ impl Checker {
         subject: &Type,
     ) {
         use crate::syntax::arena::ArenaPatternKind;
-        if !self.options.migration_diagnostics {
-            return;
-        }
         let Type::Result(_, error) = subject else {
             return;
         };
@@ -111,9 +108,6 @@ impl Checker {
         value: ExprId,
         failure: Name,
     ) {
-        if !self.options.migration_diagnostics {
-            return;
-        }
         let value = match arena.arena.expr(value).kind {
             ArenaExprKind::ValueBlock(block) => {
                 match Self::single_error_handler_value_arena(arena, block) {
@@ -1413,13 +1407,11 @@ impl Checker {
                 Type::Error
             }
             "ProcessError" => {
-                if self.options.migration_diagnostics {
-                    self.warning(
-                        span,
-                        "`ProcessError(...)` is produced by process APIs and is not a source constructor",
-                        DiagnosticCode::CheckMigrationError,
-                    );
-                }
+                self.warning(
+                    span,
+                    "`ProcessError(...)` is produced by process APIs and is not a source constructor",
+                    DiagnosticCode::CheckMigrationError,
+                );
                 for arg in args {
                     self.check_call_arg_arena(arena, source, &arg.kind, None);
                 }

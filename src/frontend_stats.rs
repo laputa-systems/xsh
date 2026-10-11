@@ -514,10 +514,7 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
         path,
         source.to_string(),
         Vec::new(),
-        CheckOptions {
-            embedded_bodies: true,
-            ..CheckOptions::default()
-        },
+        CheckOptions::for_execution(),
     );
     let _ = checked.parsed.cst.get();
     let ast_traffic = mem_track::end_stage();

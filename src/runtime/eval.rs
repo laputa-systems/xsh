@@ -1,6 +1,6 @@
 #![allow(clippy::single_call_fn)]
 
-use crate::diagnostic::{DiagnosticCode, DiagnosticFamily};
+use crate::diagnostic::{DiagnosticCode, DiagnosticFamily, Severity};
 use crate::map_key::MapKey;
 
 use crate::diagnostic::Diagnostic;
@@ -3809,7 +3809,10 @@ impl Evaluator {
             let declarations =
                 Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
             assert!(
-                declarations.diagnostics.is_empty(),
+                !declarations
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.severity == Severity::Error),
                 "{}: {:?}",
                 module.label,
                 declarations.diagnostics
@@ -3877,10 +3880,14 @@ impl Evaluator {
         program: &ArenaProgram,
         source_id: SourceId,
         allow_checker_only: bool,
-        mut declarations: CompactDeclOutput,
+        declarations: CompactDeclOutput,
     ) -> Result<CompactIndexedRunPlan, Diagnostic> {
-        if !declarations.diagnostics.is_empty() {
-            return Err(declarations.diagnostics.remove(0));
+        if let Some(diagnostic) = declarations
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.severity == Severity::Error)
+        {
+            return Err(diagnostic.clone());
         }
         self.prepare_compact_indexed_only_or_diagnostic_with_parts(
             program,

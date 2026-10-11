@@ -310,10 +310,7 @@ impl Checker {
         sources: &crate::source::SourceMap,
         entry_source_id: crate::source::SourceId,
     ) -> CompactDeclOutput {
-        let options = super::CheckOptions {
-            embedded_bodies: true,
-            ..super::CheckOptions::default()
-        };
+        let options = super::CheckOptions::for_execution();
         let checked = Checker::check_arena_with_sources_and_options(
             program,
             sources,

@@ -145,12 +145,7 @@ pub fn check_text(file: &str, text: &str) -> CheckReport {
             file,
             text.to_string(),
             Vec::new(),
-            CheckOptions {
-                interactive_commands: None,
-                reveal_types: false,
-                migration_diagnostics: true,
-                embedded_bodies: true,
-            },
+            CheckOptions::for_execution(),
         );
         span_problems(
             &entry.parsed.diagnostics,

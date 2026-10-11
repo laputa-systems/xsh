@@ -618,10 +618,7 @@ fn discover_native_tests(
             &arena,
             &sources,
             source_id,
-            CheckOptions {
-                embedded_bodies: true,
-                ..CheckOptions::default()
-            },
+            CheckOptions::for_execution(),
         );
         if !checked.diagnostics.is_empty() {
             let id = file_name.clone();

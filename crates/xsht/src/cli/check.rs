@@ -402,12 +402,7 @@ fn check_entry(
             &arena,
             &report.sources,
             source_id,
-            CheckOptions {
-                interactive_commands: None,
-                reveal_types: true,
-                migration_diagnostics: true,
-                embedded_bodies: true,
-            },
+            CheckOptions::for_check_cli(),
             Arc::clone(&arena),
         )
     });
@@ -574,12 +569,7 @@ fn check_one_script(
     let mut checked_program = match parse_load_check_file(
         script,
         module_roots.to_vec(),
-        CheckOptions {
-            interactive_commands: None,
-            reveal_types: true,
-            migration_diagnostics: true,
-            embedded_bodies: true,
-        },
+        CheckOptions::for_check_cli(),
     ) {
         Ok(source) => source,
         Err(err) => {
