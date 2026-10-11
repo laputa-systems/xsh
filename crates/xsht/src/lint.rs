@@ -146,7 +146,8 @@ use flow::{FlowSummary, stmt_flow};
 
 #[path = "lint_reachability.rs"]
 mod reachability;
-use reachability::CallableReachability;
+pub(crate) use reachability::CallableEdgeFacts;
+use reachability::{CallableEdgeCollector, CallableEdgeOwner, CallableReachability};
 
 #[path = "lint_probes.rs"]
 mod probes;
@@ -189,7 +190,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label, Severity};
 use xsh::frontend::check::{BindingId, CheckBundleView, Type};
-use xsh::frontend::source::Span;
+use xsh::frontend::source::{SourceId, Span};
 use xsh::frontend::symbols::{Name, Symbol};
 use xsh::frontend::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCallArg,
@@ -229,6 +230,11 @@ fn insertion_sort_by<T>(items: &mut [T], mut compare: impl FnMut(&T, &T) -> std:
 #[derive(Clone, Debug, Default)]
 pub struct LintOutput {
     pub diagnostics: Vec<Diagnostic>,
+}
+
+pub(crate) struct LintRun {
+    pub output: LintOutput,
+    pub callable_edges: Option<CallableEdgeFacts>,
 }
 
 #[cfg(test)]
@@ -430,6 +436,32 @@ pub(super) fn lint_rule_codes() -> impl Iterator<Item = DiagnosticCode> {
     rules::lint_codes()
 }
 
+pub(crate) fn lint_unused_callable_enabled(options: &LintOptions) -> bool {
+    rules::RuleSelection::new(options).enabled(DiagnosticCode::LintUnusedCallable)
+}
+
+pub(crate) fn finalize_callable_reachability(
+    view: &CheckBundleView<'_>,
+    source_facts: &FxHashMap<SourceId, CallableEdgeFacts>,
+) -> Vec<Diagnostic> {
+    CallableReachability::new(view).diagnostics(source_facts)
+}
+
+pub(crate) fn range_source_id(program: &ArenaProgram, statements: ArenaRange) -> Option<SourceId> {
+    program
+        .arena
+        .stmt_ids(statements)
+        .next()
+        .map(|statement| program.arena.stmt(statement).span.source_id)
+        .or_else(|| program.module_doc_for(statements).map(|span| span.source_id))
+}
+
+fn view_source_id(view: &CheckBundleView<'_>) -> Option<SourceId> {
+    let program = view.program();
+    range_source_id(program, view.root_statements())
+        .or_else(|| program.source_text_source_id())
+}
+
 impl Default for LintOptions {
     fn default() -> Self {
         Self {
@@ -611,6 +643,8 @@ pub struct Linter<'a> {
     fail_candidates: lint_prefer_fail::Candidates,
     stream_producers: sequence::StreamProducers,
     callable_parameters: lint_prefer_typed_callable::CallableParameters,
+    callable_edges: Option<CallableEdgeCollector>,
+    defer_callable_reachability: bool,
 }
 
 /// A decoded type expression node, mirroring the arena's compact type-expr
@@ -701,7 +735,59 @@ impl<'a> Linter<'a> {
     }
 
     pub fn lint_view(view: &CheckBundleView<'a>, source: &'a str, options: LintOptions) -> LintOutput {
-        Self::lint_view_internal(view, source, options, true)
+        let selection = rules::RuleSelection::new(&options);
+        let collect_callable_edges = selection.enabled(DiagnosticCode::LintUnusedCallable);
+        let mut run = Self::lint_view_internal(
+            view,
+            source,
+            options,
+            true,
+            collect_callable_edges,
+            true,
+        );
+        if collect_callable_edges {
+            let mut source_facts = FxHashMap::default();
+            if let (Some(source_id), Some(facts)) =
+                (view_source_id(view), run.callable_edges.take())
+            {
+                source_facts.insert(source_id, facts);
+            }
+            for module in view.modules() {
+                let Some(source_id) = range_source_id(view.program(), module.statements) else {
+                    continue;
+                };
+                let module_view = CheckBundleView::for_module(
+                    view.program(),
+                    module.statements,
+                    None,
+                    Some(source_id),
+                );
+                let mut module_options = LintOptions::default();
+                module_options.only = Some(vec![DiagnosticCode::LintUnusedCallable]);
+                #[cfg(test)]
+                {
+                    module_options.function_effect_facts_checked = true;
+                }
+                let module_run = Self::lint_view_internal(
+                    &module_view,
+                    "",
+                    module_options,
+                    false,
+                    true,
+                    true,
+                );
+                if let Some(facts) = module_run.callable_edges {
+                    source_facts.insert(source_id, facts);
+                }
+            }
+            run.output
+                .diagnostics
+                .extend(finalize_callable_reachability(view, &source_facts));
+            run.output
+                .diagnostics
+                .retain(|diagnostic| selection.accepts(diagnostic.code));
+        }
+        run.output
     }
 
     pub fn lint_module_view(
@@ -709,7 +795,39 @@ impl<'a> Linter<'a> {
         source: &'a str,
         options: LintOptions,
     ) -> LintOutput {
-        Self::lint_view_internal(view, source, options, false)
+        Self::lint_view_internal(view, source, options, false, false, true).output
+    }
+
+    pub(crate) fn lint_view_with_callable_edges(
+        view: &CheckBundleView<'a>,
+        source: &'a str,
+        options: LintOptions,
+        collect_callable_edges: bool,
+    ) -> LintRun {
+        Self::lint_view_internal(
+            view,
+            source,
+            options,
+            true,
+            collect_callable_edges,
+            true,
+        )
+    }
+
+    pub(crate) fn lint_module_view_with_callable_edges(
+        view: &CheckBundleView<'a>,
+        source: &'a str,
+        options: LintOptions,
+        collect_callable_edges: bool,
+    ) -> LintRun {
+        Self::lint_view_internal(
+            view,
+            source,
+            options,
+            false,
+            collect_callable_edges,
+            true,
+        )
     }
 
     fn lint_view_internal(
@@ -717,7 +835,9 @@ impl<'a> Linter<'a> {
         source: &'a str,
         options: LintOptions,
         include_reachability: bool,
-    ) -> LintOutput {
+        collect_callable_edges: bool,
+        defer_callable_reachability: bool,
+    ) -> LintRun {
         let program = view.program();
         // Constructor facts intern qualified enum names after checking. Retain
         // those names in the source program even when the caller is a worker.
@@ -949,6 +1069,9 @@ impl<'a> Linter<'a> {
             fail_candidates,
             stream_producers: sequence::StreamProducers::default(),
             callable_parameters: lint_prefer_typed_callable::CallableParameters::default(),
+            callable_edges: collect_callable_edges
+                .then(CallableEdgeCollector::new),
+            defer_callable_reachability,
             rule_selection,
             prefer_set_advice,
             #[cfg(test)]
@@ -1019,8 +1142,15 @@ impl<'a> Linter<'a> {
             .next()
             .map(|statement| program.arena.stmt(statement).span.source_id);
         minimize_fix_grouping(source_id, source, &mut linter.diagnostics);
-        LintOutput {
-            diagnostics: linter.diagnostics,
+        let callable_edges = linter
+            .callable_edges
+            .take()
+            .map(CallableEdgeCollector::into_facts);
+        LintRun {
+            output: LintOutput {
+                diagnostics: linter.diagnostics,
+            },
+            callable_edges,
         }
     }
 
@@ -1259,9 +1389,15 @@ impl<'a> Linter<'a> {
                 _ => {}
             }
         }
+        if let Some(edges) = &mut self.callable_edges {
+            edges.begin_program();
+        }
         rules::root_sequence(self, statements);
         let close_diagnostic_index = self.diagnostics.len();
         self.lint_statement_sequence(statements);
+        if let Some(edges) = &mut self.callable_edges {
+            edges.finish_program();
+        }
         rules::sequence_exit(
             self,
             rules::SequenceExitSite::Root,
@@ -1273,11 +1409,21 @@ impl<'a> Linter<'a> {
     }
 
     fn lint_declaration_reachability(&mut self, view: &CheckBundleView<'_>) {
-        if !rules::enabled(self, DiagnosticCode::LintDeadCode) {
+        if !rules::enabled(self, DiagnosticCode::LintUnusedCallable)
+            || self.defer_callable_reachability
+        {
             return;
         }
+        let Some(source_id) = view_source_id(view) else {
+            return;
+        };
+        let Some(facts) = self.callable_edges.as_ref().map(CallableEdgeCollector::facts) else {
+            return;
+        };
+        let mut source_facts = FxHashMap::default();
+        source_facts.insert(source_id, facts.clone());
         self.diagnostics
-            .extend(CallableReachability::new(view).diagnostics());
+            .extend(CallableReachability::new(view).diagnostics(&source_facts));
     }
 
     fn lint_import_blocks(&mut self, statements: &[StmtId]) {

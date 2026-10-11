@@ -227,6 +227,16 @@ pure pure_rows(items: List[Str]) -> List[Str] {
     definitions + "\nlet count = rows([\"a\"])? |> count()\n",
   )?
   assert consumed.split("warn[lint.prefer-stream-producer]").len() == 2, consumed
+
+  let reassigned = """proc rows() -> List[Str] {
+  var out: List[Str] = []
+  if true { out = ["one"] }
+  return out
+}
+let count = rows() |> count()
+"""
+  let rejected = reported_by(file, "lint.prefer-stream-producer", reassigned)?
+  assert "lint.prefer-stream-producer" not in rejected, rejected
 }
 
 test test_join_with_an_empty_separator_becomes_string_concatenation { |ctx|

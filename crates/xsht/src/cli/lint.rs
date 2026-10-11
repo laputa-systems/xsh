@@ -7,7 +7,10 @@ use crate::xsht::config::FileToolConfig;
 use crate::xsht::edit::{
     SourceEdit, apply_cst_guarded_edits, apply_cst_guarded_migration_edits, migration_lint_code,
 };
-use crate::xsht::lint::{LintOptions, Linter, lint_code_selected};
+use crate::xsht::lint::{
+    CallableEdgeFacts, LintOptions, Linter, finalize_callable_reachability,
+    lint_code_selected, lint_unused_callable_enabled, range_source_id,
+};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -275,6 +278,17 @@ enum LintResultKind {
     },
 }
 
+enum LintWorkspaceRootWork {
+    Complete(Vec<LintResult>),
+    Pending(LintWorkspaceRootPending),
+}
+
+struct LintWorkspaceRootPending {
+    source_ids: Vec<SourceId>,
+    checked_diagnostics: Vec<Diagnostic>,
+    modules: Vec<(String, crate::xsht::lint::LintOutput)>,
+}
+
 struct RenderedDiagnostic {
     key: String,
     severity: Severity,
@@ -310,6 +324,55 @@ struct WorkspaceModule {
     diagnostics: Vec<Diagnostic>,
     module_roots: Vec<PathBuf>,
     config: ResolvedLintConfig,
+}
+
+struct CallableEdgeFactStore {
+    needed: FxHashSet<SourceId>,
+    state: Mutex<FxHashMap<SourceId, Option<CallableEdgeFacts>>>,
+}
+
+impl CallableEdgeFactStore {
+    fn new(needed: FxHashSet<SourceId>) -> Self {
+        Self {
+            needed,
+            state: Mutex::new(FxHashMap::default()),
+        }
+    }
+
+    fn claim(&self, source_id: SourceId) -> bool {
+        if !self.needed.contains(&source_id) {
+            return false;
+        }
+        let mut state = self.state.lock().expect("callable fact store poisoned");
+        if state.contains_key(&source_id) {
+            false
+        } else {
+            state.insert(source_id, None);
+            true
+        }
+    }
+
+    fn publish(&self, source_id: SourceId, facts: CallableEdgeFacts) {
+        let mut state = self.state.lock().expect("callable fact store poisoned");
+        assert!(state
+            .get_mut(&source_id)
+            .expect("callable facts published without a claim")
+            .replace(facts)
+            .is_none());
+    }
+
+    fn facts_for(&self, source_ids: impl IntoIterator<Item = SourceId>) -> FxHashMap<SourceId, CallableEdgeFacts> {
+        let state = self.state.lock().expect("callable fact store poisoned");
+        let mut facts = FxHashMap::default();
+        for source_id in source_ids {
+            let source_facts = state
+                .get(&source_id)
+                .and_then(Option::as_ref)
+                .expect("callable source facts requested before worker completion");
+            facts.insert(source_id, source_facts.clone());
+        }
+        facts
+    }
 }
 
 /// Parsed source files and their resolved imports for one lint command.
@@ -427,6 +490,8 @@ fn lint_workspace_with_parallelism(
     let roots = select_lint_roots(&candidate_keys, &modules, &explicit_roots);
     program.modules.shrink_to_fit();
     let mut workspace = LintWorkspace::new(sources, program, modules, roots, input_errors);
+    let callable_edge_facts =
+        CallableEdgeFactStore::new(callable_reachability_sources(&workspace));
     timings.record(Stage::Load, load_started.elapsed());
 
     let mut results = Vec::new();
@@ -447,6 +512,7 @@ fn lint_workspace_with_parallelism(
             let next_root = &next_root;
             let tx = tx.clone();
             let linted_modules = &linted_modules;
+            let callable_edge_facts = &callable_edge_facts;
             let workspace = &workspace;
             thread::Builder::new()
                 .name("xsht-lint".to_string())
@@ -461,15 +527,16 @@ fn lint_workspace_with_parallelism(
                         let Some(root) = workspace.roots.get(root_index) else {
                             break;
                         };
-                        let root_results = lint_workspace_root(
+                        let root_work = lint_workspace_root(
                             workspace,
                             root,
                             fix,
                             linted_modules,
+                            callable_edge_facts,
                             &type_program,
                             timings,
                         );
-                        if tx.send((root_index, root_results)).is_err() {
+                        if tx.send((root_index, root_work)).is_err() {
                             break;
                         }
                     }
@@ -480,7 +547,25 @@ fn lint_workspace_with_parallelism(
     drop(tx);
     let mut grouped = rx.into_iter().collect::<Vec<_>>();
     grouped.sort_unstable_by_key(|(root_index, _)| *root_index);
-    for (_, root_results) in grouped {
+    for (root_index, root_work) in grouped {
+        let root = &workspace.roots[root_index];
+        let root_results = match root_work {
+            LintWorkspaceRootWork::Complete(root_results) => root_results,
+            LintWorkspaceRootWork::Pending(mut pending) => {
+                if lint_unused_callable_enabled(
+                    &workspace.modules[root].config.lint_options,
+                ) && cancellation_output().is_none()
+                {
+                    let view = workspace.root_view(root);
+                    let source_facts =
+                        callable_edge_facts.facts_for(std::mem::take(&mut pending.source_ids));
+                    pending.modules[0].1.diagnostics.extend(
+                        finalize_callable_reachability(&view, &source_facts),
+                    );
+                }
+                finish_lint_workspace_root(&workspace, root, pending, fix, timings)
+            }
+        };
         for mut result in root_results {
             result.index += index;
             results.push(result);
@@ -495,12 +580,13 @@ fn lint_workspace_root(
     root: &str,
     fix: bool,
     linted_modules: &Mutex<FxHashSet<String>>,
+    callable_edge_facts: &CallableEdgeFactStore,
     type_program: &Arc<ArenaProgram>,
     timings: &StageTimings,
-) -> Vec<LintResult> {
+) -> LintWorkspaceRootWork {
     let reachable = workspace.reachable_modules(root);
     let Some(root_module) = workspace.modules.get(root) else {
-        return Vec::new();
+        return LintWorkspaceRootWork::Complete(Vec::new());
     };
     let view = workspace.root_view(root);
     let mut relevant_diagnostics = Vec::new();
@@ -513,7 +599,7 @@ fn lint_workspace_root(
         .iter()
         .any(|diagnostic| migration_lint_code(diagnostic.code).is_none())
     {
-        return vec![LintResult {
+        return LintWorkspaceRootWork::Complete(vec![LintResult {
             index: 0,
             kind: LintResultKind::Diagnostics {
                 status: 2,
@@ -522,7 +608,7 @@ fn lint_workspace_root(
                     &workspace.sources,
                 ),
             },
-        }];
+        }]);
     }
 
     let mut checked = timings.time(Stage::Check, || {
@@ -546,7 +632,7 @@ fn lint_workspace_root(
         && (!fix || !relevant_diagnostics.is_empty())
     {
         relevant_diagnostics.extend(checked.diagnostics.iter().cloned());
-        return vec![LintResult {
+        return LintWorkspaceRootWork::Complete(vec![LintResult {
             index: 0,
             kind: LintResultKind::Diagnostics {
                 status: 2,
@@ -555,7 +641,7 @@ fn lint_workspace_root(
                     &workspace.sources,
                 ),
             },
-        }];
+        }]);
     }
 
     let only = root_module.config.lint_options.only.as_deref();
@@ -568,7 +654,7 @@ fn lint_workspace_root(
                     .is_some_and(|code| lint_code_selected(only, Some(code)))
             })
     {
-        return timings.time(Stage::Fix, || {
+        return LintWorkspaceRootWork::Complete(timings.time(Stage::Fix, || {
             migrate_workspace_syntax(
                 workspace,
                 root,
@@ -576,7 +662,7 @@ fn lint_workspace_root(
                 linted_modules,
                 &checked.diagnostics,
             )
-        });
+        }));
     }
 
     let checked = Arc::new(checked);
@@ -588,23 +674,33 @@ fn lint_workspace_root(
     keys.sort_unstable();
     let mut ordered = vec![root.to_string()];
     ordered.extend(keys);
-    let mut results = Vec::new();
+    let mut pending = Vec::new();
     for key in ordered {
         // A pending signal ends the command, which then writes no file.
         if cancellation_output().is_some() {
             break;
         }
+        let Some(module) = workspace.modules.get(&key) else {
+            continue;
+        };
+        let collect_callable_edges = callable_edge_facts.claim(module.source_id);
         if key != root {
             let mut linted_modules = linted_modules
                 .lock()
                 .expect("linted module set mutex poisoned");
             if !linted_modules.insert(key.clone()) {
+                if collect_callable_edges {
+                    let view = workspace.module_view(&key);
+                    let facts = collect_workspace_module_callable_edges(
+                        &view,
+                        &module.text,
+                        &checked,
+                    );
+                    callable_edge_facts.publish(module.source_id, facts);
+                }
                 continue;
             }
         }
-        let Some(module) = workspace.modules.get(&key) else {
-            continue;
-        };
         let view = if key == root {
             workspace.root_view(&key)
         } else {
@@ -613,11 +709,30 @@ fn lint_workspace_root(
         let mut options = module.config.lint_options.clone();
         options.checked_output = Some(Arc::clone(&checked));
         let lint_started = Instant::now();
-        let mut linted = if key == root {
-            Linter::lint_view(&view, &module.text, options)
+        let run = if key == root {
+            Linter::lint_view_with_callable_edges(
+                &view,
+                &module.text,
+                options,
+                collect_callable_edges,
+            )
         } else {
-            Linter::lint_module_view(&view, &module.text, options)
+            Linter::lint_module_view_with_callable_edges(
+                &view,
+                &module.text,
+                options,
+                collect_callable_edges,
+            )
         };
+        timings.record(Stage::Lint, lint_started.elapsed());
+        if collect_callable_edges {
+            callable_edge_facts.publish(
+                module.source_id,
+                run.callable_edges
+                    .expect("a claimed source walk returns callable edge facts"),
+            );
+        }
+        let mut linted = run.output;
         if !module.diagnostics.is_empty() {
             linted.diagnostics.clear();
         }
@@ -629,8 +744,89 @@ fn lint_workspace_root(
                 linted.diagnostics.push(diagnostic);
             }
         }
-        for diagnostic in checked
-            .diagnostics
+        pending.push((key, linted));
+    }
+
+    let mut source_ids = if lint_unused_callable_enabled(&root_module.config.lint_options) {
+        reachable
+            .iter()
+            .filter_map(|key| workspace.modules.get(key).map(|module| module.source_id))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    if cancellation_output().is_none() {
+        for module in view.modules().filter(|module| module.internal) {
+            if let Some(source_id) = range_source_id(&workspace.program, module.statements) {
+                source_ids.push(source_id);
+                let collect = callable_edge_facts.claim(source_id);
+                if collect {
+                    let module_view = CheckBundleView::for_module(
+                        &workspace.program,
+                        module.statements,
+                        Some(&workspace.sources),
+                        Some(source_id),
+                    );
+                    let source = workspace
+                        .sources
+                        .get(source_id)
+                        .expect("loaded internal module source has source text")
+                        .text();
+                    callable_edge_facts.publish(
+                        source_id,
+                        collect_workspace_module_callable_edges(
+                            &module_view,
+                            source,
+                            &checked,
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    LintWorkspaceRootWork::Pending(LintWorkspaceRootPending {
+        source_ids,
+        checked_diagnostics: checked.diagnostics.clone(),
+        modules: pending,
+    })
+}
+
+fn collect_workspace_module_callable_edges<'a>(
+    view: &CheckBundleView<'a>,
+    source: &'a str,
+    checked: &Arc<xsh::frontend::check::CheckOutput>,
+) -> CallableEdgeFacts {
+    let mut options = LintOptions::default();
+    options.only = Some(vec![DiagnosticCode::LintUnusedCallable]);
+    options.checked_output = Some(Arc::clone(checked));
+    #[cfg(test)]
+    {
+        options.function_effect_facts_checked = true;
+    }
+    Linter::lint_module_view_with_callable_edges(view, source, options, true)
+        .callable_edges
+        .expect("a claimed source walk returns callable edge facts")
+}
+
+fn finish_lint_workspace_root(
+    workspace: &LintWorkspace,
+    root: &str,
+    pending: LintWorkspaceRootPending,
+    fix: bool,
+    timings: &StageTimings,
+) -> Vec<LintResult> {
+    let checked_diagnostics = pending.checked_diagnostics;
+    let only = workspace.modules[root].config.lint_options.only.as_deref();
+    let mut results = Vec::new();
+    for (key, mut linted) in pending.modules {
+        if cancellation_output().is_some() {
+            break;
+        }
+        let Some(module) = workspace.modules.get(&key) else {
+            continue;
+        };
+        for diagnostic in checked_diagnostics
             .iter()
             .filter(|diagnostic| diagnostic_mentions_source(diagnostic, module.source_id))
         {
@@ -648,11 +844,9 @@ fn lint_workspace_root(
         } else {
             grouping_diagnostics_in_range(&workspace.program, module.statements, &module.text)
         };
-        timings.record(Stage::Lint, lint_started.elapsed());
         if !fix {
             linted.diagnostics.extend(
-                checked
-                    .diagnostics
+                checked_diagnostics
                     .iter()
                     .filter(|diagnostic| {
                         (spelling_only(diagnostic) || reported_check_finding(diagnostic))
@@ -672,8 +866,7 @@ fn lint_workspace_root(
         // A fix round is judged against every check diagnostic the file had,
         // selected or not: a rewrite may not add one, and one it leaves in
         // place is not new.
-        let file_check_diagnostics = checked
-            .diagnostics
+        let file_check_diagnostics = checked_diagnostics
             .iter()
             .filter(|diagnostic| diagnostic_mentions_source(diagnostic, module.source_id))
             .chain(&module_grouping)
@@ -1059,6 +1252,30 @@ impl LintWorkspace {
             Some(module.source_id),
         )
     }
+}
+
+fn callable_reachability_sources(workspace: &LintWorkspace) -> FxHashSet<SourceId> {
+    let mut sources = FxHashSet::default();
+    for root in &workspace.roots {
+        let Some(root_module) = workspace.modules.get(root) else {
+            continue;
+        };
+        if !lint_unused_callable_enabled(&root_module.config.lint_options) {
+            continue;
+        }
+        for key in workspace.reachable_modules(root) {
+            if let Some(module) = workspace.modules.get(&key) {
+                sources.insert(module.source_id);
+            }
+        }
+        let view = workspace.root_view(root);
+        for module in view.modules().filter(|module| module.internal) {
+            if let Some(source_id) = range_source_id(&workspace.program, module.statements) {
+                sources.insert(source_id);
+            }
+        }
+    }
+    sources
 }
 
 /// Source parentheses that do not change the parse leave every checked fact
@@ -1757,15 +1974,17 @@ fn diagnostic_key(diagnostic: &Diagnostic, sources: &SourceMap) -> String {
 #[cfg(test)]
 mod tests {
     use crate::xsht::cli::lint::{
-        ConfigCache, LintResultKind, LintWorkspace, ResolvedLintConfig, workspace_modules,
-        apply_cst_fixes, collect_fix_spans, discover_lint_files, lint_config_for_file,
-        lint_one_file_with_fixes, lint_workspace, unapplied_fixes_reason,
+        CallableEdgeFactStore, ConfigCache, LintResultKind, LintWorkspace, ResolvedLintConfig,
+        workspace_modules, apply_cst_fixes, collect_fix_spans, discover_lint_files,
+        lint_config_for_file, lint_one_file_with_fixes, lint_workspace, unapplied_fixes_reason,
     };
     use crate::xsht::cli::timing::StageTimings;
+    use crate::xsht::cli::XshConfig;
     use crate::xsht::format::DEFAULT_LINE_WIDTH;
-    use crate::xsht::lint::LintOptions;
+    use crate::xsht::lint::{CallableEdgeFacts, LintOptions};
     use std::fs;
     use std::path::PathBuf;
+    use std::thread;
     use tempfile::TempDir;
     use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Severity};
     use xsh::frontend::load::ModuleLoader;
@@ -1879,6 +2098,19 @@ mod tests {
     }
 
     #[test]
+    fn callable_edge_fact_store_claims_each_source_walk_once() {
+        let source_id = SourceId::new(7);
+        let needed = [source_id].into_iter().collect();
+        let store = CallableEdgeFactStore::new(needed);
+
+        assert!(store.claim(source_id));
+        assert!(!store.claim(source_id));
+        store.publish(source_id, CallableEdgeFacts::default());
+        assert!(!store.claim(source_id));
+        assert_eq!(store.facts_for([source_id]).len(), 1);
+    }
+
+    #[test]
     fn lint_four_workers_preserve_shared_import_diagnostics_and_source_bytes() {
         let fixture = TempDir::new().unwrap();
         let module = fixture.path().join("helper.xsh");
@@ -1930,6 +2162,120 @@ mod tests {
         for path in paths {
             assert_eq!(fs::read_to_string(path).unwrap(), source);
         }
+    }
+
+    #[test]
+    fn lint_selected_root_reuses_imported_source_facts_without_waiting_for_its_root_walk() {
+        let fixture = TempDir::new().unwrap();
+        let entry = fixture.path().join("entry.xsh");
+        let imported = fixture.path().join("imported.xsh");
+        fs::write(&entry, "use imported as shared\npure unused_entry() -> Int { return 1 }\n")
+            .unwrap();
+        fs::write(
+            &imported,
+            "##! Imported source.\n## API.\nexport pure api() -> Int { return 1 }\npure initialized() -> Int { return 2 }\nlet value = initialized()\npure unused_imported() -> Int { return 3 }\n",
+        )
+        .unwrap();
+        let paths = [
+            entry.to_string_lossy().into_owned(),
+            imported.to_string_lossy().into_owned(),
+        ];
+        let config = XshConfig::default();
+        let mut discovery = discover_lint_files(&paths, &config).unwrap();
+        discovery.only = Some(vec![DiagnosticCode::LintUnusedCallable]);
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        thread::spawn(move || {
+            let results = super::lint_workspace_with_parallelism(
+                &discovery,
+                false,
+                false,
+                &ConfigCache::default(),
+                2,
+                &StageTimings::start(),
+            );
+            sender.send(results).unwrap();
+        });
+        let results = receiver
+            .recv_timeout(std::time::Duration::from_secs(20))
+            .expect("a root that imports a selected root must finish bounded parallel linting");
+
+        let mut diagnostics = Vec::new();
+        for result in results {
+            match result.kind {
+                LintResultKind::Clean => {}
+                LintResultKind::Diagnostics { status, diagnostics: found } => {
+                    let errors = found.iter().map(|diagnostic| diagnostic.text.as_str()).collect::<Vec<_>>();
+                    assert_ne!(status, 2, "unexpected checker failure: {errors:?}");
+                    diagnostics.extend(found);
+                }
+                _ => panic!("read-only valid workspace must only return lint diagnostics"),
+            }
+        }
+        let signal_findings = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.text.contains("unused callable `unused_imported`"))
+            .map(|diagnostic| diagnostic.text.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(signal_findings.len(), 2, "{signal_findings:?}");
+        assert_eq!(signal_findings[0], signal_findings[1]);
+    }
+
+    #[test]
+    fn lint_selected_root_collects_module_facts_when_that_modules_rule_is_disabled() {
+        let fixture = TempDir::new().unwrap();
+        let entry = fixture.path().join("entry.xsh");
+        let imported = fixture.path().join("imported.xsh");
+        fs::write(
+            fixture.path().join("xsht-config.ini"),
+            "[dead-code]\nexclude = imported.xsh\n",
+        )
+        .unwrap();
+        fs::write(
+            &entry,
+            "use imported\nproc main() { print imported.api() }\n",
+        )
+        .unwrap();
+        fs::write(
+            &imported,
+            "##! Imported source.\n## API.\nexport pure api() -> Int { return 1 }\npure initialized() -> Int { return 2 }\nlet value = initialized()\npure unused_imported() -> Int { return 3 }\n",
+        )
+        .unwrap();
+        let paths = [entry.to_string_lossy().into_owned()];
+        let config = XshConfig::default();
+        let mut discovery = discover_lint_files(&paths, &config).unwrap();
+        discovery.only = Some(vec![DiagnosticCode::LintUnusedCallable]);
+        let results = super::lint_workspace_with_parallelism(
+            &discovery,
+            false,
+            false,
+            &ConfigCache::default(),
+            1,
+            &StageTimings::start(),
+        );
+
+        let mut diagnostics = Vec::new();
+        for result in results {
+            match result.kind {
+                LintResultKind::Clean => {}
+                LintResultKind::Diagnostics { status, diagnostics: found } => {
+                    let errors = found.iter().map(|diagnostic| diagnostic.text.as_str()).collect::<Vec<_>>();
+                    assert_ne!(status, 2, "unexpected checker failure: {errors:?}");
+                    diagnostics.extend(found);
+                }
+                _ => panic!("read-only valid workspace must only return lint diagnostics"),
+            }
+        }
+        let callable_findings = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.text.contains("warn[lint.unused-callable]"))
+            .map(|diagnostic| diagnostic.text.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(callable_findings.len(), 1, "{callable_findings:?}");
+        assert!(
+            callable_findings[0].contains("unused callable `unused_imported`"),
+            "{callable_findings:?}"
+        );
     }
 
     #[test]

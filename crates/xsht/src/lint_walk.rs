@@ -10,6 +10,7 @@ use super::{
     ArenaRedirectionTarget, ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaSugar,
     ArenaSugarOperand, ArenaTypeDefBody, ArenaTypeExprKind, ArenaTypeExprTag, ArenaWordPart,
     AssignOp, AssignTargetId, BinaryOp, Binding, BindingTargetId, BlockId, BuilderBlockId,
+    CallableEdgeOwner,
     CommandStmtId, Diagnostic, DiagnosticCode, ExprId, FixHint, FunctionDefId, FxHashMap, Label,
     Linter, Name, PathDisplaySite, PatternId, RunFormId, Severity, Span, StmtId, SugarForm,
     Type, TypeExprId, UnaryOp, bare_command_word_parts, command_value_replacement,
@@ -64,6 +65,9 @@ impl LintExprVisitor<'_, '_> {
         let arena_expr = self.linter.arena.expr(expr);
         match arena_expr.kind {
             ArenaExprKind::Ident(name) => {
+                if let Some(edges) = &mut self.linter.callable_edges {
+                    edges.dynamic_name(name, Some(expr));
+                }
                 self.linter.mark_used(name.as_str().as_str());
                 if rules::enabled(self.linter, DiagnosticCode::LintPreferTypedCallable) {
                     let hidden = self.linter.local_hides(name);
@@ -71,6 +75,20 @@ impl LintExprVisitor<'_, '_> {
                 }
             }
             ArenaExprKind::Call { callee, args } => {
+                if let Some(edges) = &mut self.linter.callable_edges {
+                    match self.linter.arena.expr(callee).kind {
+                        ArenaExprKind::Ident(name) => {
+                            edges.direct_name(name, Some(expr));
+                        }
+                        ArenaExprKind::Field { base, name }
+                            if let ArenaExprKind::Ident(alias) =
+                                self.linter.arena.expr(base).kind =>
+                        {
+                            edges.direct_qualified(alias, name, expr);
+                        }
+                        _ => {}
+                    }
+                }
                 if rules::enabled(self.linter, DiagnosticCode::LintPreferTypedCallable) {
                     let mut parameters = std::mem::take(&mut self.linter.callable_parameters);
                     parameters.call(self.linter.arena, callee, args, &|name| {
@@ -91,6 +109,14 @@ impl LintExprVisitor<'_, '_> {
                 }
                 self.walk_expr(expr);
                 rules::expression_group(self.linter, rules::ExpressionGroupSite::CallStyle, expr);
+            }
+            ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } => {
+                if let ArenaExprKind::Ident(alias) = self.linter.arena.expr(base).kind
+                    && let Some(edges) = &mut self.linter.callable_edges
+                {
+                    edges.dynamic_qualified(alias, name, base);
+                }
+                self.walk_expr(expr);
             }
             _ => self.walk_expr(expr),
         }
@@ -120,8 +146,6 @@ impl LintExprVisitor<'_, '_> {
             | ArenaExprKind::Unary { .. }
             | ArenaExprKind::Try(_)
             | ArenaExprKind::ComparisonChain(_)
-            | ArenaExprKind::Field { .. }
-            | ArenaExprKind::NullSafeField { .. }
             | ArenaExprKind::Index { .. }
             | ArenaExprKind::Slice { .. }
             | ArenaExprKind::Wait(_)
@@ -224,10 +248,26 @@ impl LintExprVisitor<'_, '_> {
                 self.linter.regex_recovery_context = old;
             }
             ArenaExprKind::Call { callee, args } => {
+                let direct_shape = match arena.expr(callee).kind {
+                    ArenaExprKind::Ident(_) => true,
+                    ArenaExprKind::Field { base, .. } => {
+                        matches!(arena.expr(base).kind, ArenaExprKind::Ident(_))
+                    }
+                    _ => false,
+                };
+                if let Some(edges) = &mut self.linter.callable_edges {
+                    edges.enter_call_callee(expr, direct_shape);
+                }
                 self.visit_expr(callee);
+                if let Some(edges) = &mut self.linter.callable_edges {
+                    edges.leave_call_callee();
+                }
                 for arg in arena.call_args(args).to_vec() {
                     self.visit_call_arg(&arg);
                 }
+            }
+            ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => {
+                self.visit_expr(base);
             }
             ArenaExprKind::Pipeline { input, stages } => {
                 self.visit_expr(input);
@@ -346,6 +386,9 @@ impl LintExprVisitor<'_, '_> {
         rules::record_field(self.linter, field);
         match field.kind {
             ArenaRecordFieldKind::Shorthand { name, .. } => {
+                if let Some(edges) = &mut self.linter.callable_edges {
+                    edges.dynamic_name(name, None);
+                }
                 self.linter.mark_used(name.as_str().as_str())
             }
             ArenaRecordFieldKind::Computed { key, value, .. } => {
@@ -391,7 +434,12 @@ impl LintExprVisitor<'_, '_> {
     fn visit_command_arg(&mut self, arg: &ArenaCommandArg, allow_bare_refs: bool) {
         let arg_span = self.linter.arena.span(arg.span);
         match arg.kind {
-            ArenaCommandArgKind::SpliceName(name) => self.linter.mark_used(name.as_str().as_str()),
+            ArenaCommandArgKind::SpliceName(name) => {
+                if let Some(edges) = &mut self.linter.callable_edges {
+                    edges.dynamic_name(name, None);
+                }
+                self.linter.mark_used(name.as_str().as_str());
+            }
             ArenaCommandArgKind::Word(parts) => {
                 if rules::command_argument_enabled(
                     self.linter,
@@ -957,6 +1005,15 @@ impl<'a> Linter<'a> {
             }
             ArenaStmtKind::ProcDef(def) | ArenaStmtKind::CliMain(def) => {
                 let function = self.arena.function_def(def);
+                if let Some(edges) = &mut self.callable_edges {
+                    let cli_main = matches!(stmt.kind, ArenaStmtKind::CliMain(_));
+                    let owner = if cli_main {
+                        CallableEdgeOwner::CliMain
+                    } else {
+                        CallableEdgeOwner::Callable(def)
+                    };
+                    edges.enter_owner(owner, cli_main);
+                }
                 let entrypoint = matches!(stmt.kind, ArenaStmtKind::CliMain(_))
                     || function.test_declaration
                     || (!exported && self.scopes.len() == 1 && function.name == "main");
@@ -969,19 +1026,43 @@ impl<'a> Linter<'a> {
                     self.lint_proc_function(def, exported, entrypoint, stmt.span);
                 }
                 rules::statement(self, stmt_id, rules::StatementSite::MissingEffects, exported);
+                if let Some(edges) = &mut self.callable_edges {
+                    edges.leave_owner();
+                }
             }
             ArenaStmtKind::PureDef(def) => {
+                if let Some(edges) = &mut self.callable_edges {
+                    edges.enter_owner(CallableEdgeOwner::Callable(def), false);
+                }
                 rules::statement(self, stmt_id, rules::StatementSite::TypedCallableParameters, exported);
                 rules::statement(self, stmt_id, rules::StatementSite::InferredPureReturn, exported);
                 self.lint_propagating_function(def, true, |linter| linter.lint_function(def));
+                if let Some(edges) = &mut self.callable_edges {
+                    edges.leave_owner();
+                }
             }
             ArenaStmtKind::StreamDef(def) => {
+                if let Some(edges) = &mut self.callable_edges {
+                    edges.enter_owner(CallableEdgeOwner::Callable(def), false);
+                }
                 self.lint_proc_function(def, exported, false, stmt.span);
                 rules::statement(self, stmt_id, rules::StatementSite::MissingEffects, exported);
+                if let Some(edges) = &mut self.callable_edges {
+                    edges.leave_owner();
+                }
             }
             ArenaStmtKind::SignalHook(hook_id) => {
                 let body = self.arena.signal_hook(hook_id).body;
+                if let Some(edges) = &mut self.callable_edges {
+                    edges.enter_owner(CallableEdgeOwner::RootSignal, false);
+                }
+                let active_candidate = self.stream_producers.suspend_candidate_analysis();
                 self.lint_block(body);
+                self.stream_producers
+                    .restore_candidate_analysis(active_candidate);
+                if let Some(edges) = &mut self.callable_edges {
+                    edges.leave_owner();
+                }
             }
             ArenaStmtKind::Return(value) => {
                 if let Some(value) = value {
@@ -1102,8 +1183,15 @@ impl<'a> Linter<'a> {
                 ..
             } => {
                 self.lint_expr_or_run(&initializer);
+                if let Some(edges) = &mut self.callable_edges {
+                    edges.suppress_definitions(true);
+                }
                 self.define_binding_target(target, stmt.span, true);
+                if let Some(edges) = &mut self.callable_edges {
+                    edges.suppress_definitions(false);
+                }
                 self.lint_block(else_block);
+                self.collect_callable_edge_binding_target(target);
             }
             ArenaStmtKind::Assert { condition, message } => {
                 self.lint_expr(condition);
@@ -1134,9 +1222,15 @@ impl<'a> Linter<'a> {
             }
             ArenaStmtKind::Command(command) => {
                 rules::statement(self, stmt_id, rules::StatementSite::InteractiveCommand, exported);
-                self.lint_command_stmt(command)
+                let active_candidate = self.stream_producers.suspend_candidate_analysis();
+                self.lint_command_stmt(command);
+                self.stream_producers
+                    .restore_candidate_analysis(active_candidate);
             }
             ArenaStmtKind::TailBareIdent(name) => {
+                if let Some(edges) = &mut self.callable_edges {
+                    edges.direct_name(name, None);
+                }
                 self.mark_used(name.as_str().as_str());
                 let hidden = self.local_hides(name);
                 self.callable_parameters.tail_value(name, hidden);
@@ -1172,12 +1266,27 @@ impl<'a> Linter<'a> {
             } => {
                 let old_regex_context = self.regex_recovery_context;
                 self.regex_recovery_context = true;
+                if let Some(edges) = &mut self.callable_edges {
+                    edges.push_scope();
+                }
                 for binding in self.arena.with_bindings(bindings).to_vec() {
                     self.lint_expr_or_run(&ArenaExprOrRun::Expr(binding.initializer));
+                    if binding.name.as_str() != "_"
+                        && let Some(edges) = &mut self.callable_edges
+                    {
+                        edges.define(binding.name);
+                    }
                 }
                 self.propagation_boundary_depth += 1;
                 self.lint_block(body);
+                if let Some(edges) = &mut self.callable_edges {
+                    edges.pop_scope();
+                    edges.push_scope();
+                }
                 self.lint_block(else_block);
+                if let Some(edges) = &mut self.callable_edges {
+                    edges.pop_scope();
+                }
                 self.propagation_boundary_depth -= 1;
                 self.regex_recovery_context = old_regex_context;
             }
@@ -1185,6 +1294,7 @@ impl<'a> Linter<'a> {
     }
 
     pub(super) fn lint_function(&mut self, def_id: FunctionDefId) {
+        let previous_candidate = self.stream_producers.enter_function(def_id);
         let def = self.arena.function_def(def_id).clone();
         self.push_scope();
         let result_unit = result_unit_type_expr(self.arena, def.return_ty);
@@ -1229,6 +1339,7 @@ impl<'a> Linter<'a> {
         self.function_return_types.pop();
         self.function_bodies.pop();
         self.pop_scope();
+        self.stream_producers.leave_function(previous_candidate);
     }
 
     pub(super) fn note_match_arm_head(&mut self, pattern: PatternId) {
@@ -1390,6 +1501,21 @@ impl<'a> Linter<'a> {
         }
     }
 
+    fn collect_callable_edge_binding_target(&mut self, target: BindingTargetId) {
+        match self.arena.binding_target(target).kind.clone() {
+            ArenaBindingTargetKind::Name(name) => {
+                if let Some(edges) = &mut self.callable_edges {
+                    edges.define(name);
+                }
+            }
+            ArenaBindingTargetKind::Record { fields, .. } => {
+                for field in self.arena.destructure_fields(fields).to_vec() {
+                    self.collect_callable_edge_binding_target(field.target);
+                }
+            }
+        }
+    }
+
     pub(super) fn lint_pattern_condition_block(&mut self, condition: ExprId, block: BlockId) {
         if let ArenaExprKind::PatternCondition { value, arms } = self.arena.expr(condition).kind {
             self.lint_expr(value);
@@ -1428,7 +1554,12 @@ impl<'a> Linter<'a> {
     pub(super) fn lint_command_stmt(&mut self, stmt_id: CommandStmtId) {
         let stmt = self.arena.command_stmt(stmt_id).clone();
         match stmt.command {
-            ArenaCommand::Proc { args, .. } => self.lint_proc_command_args(args),
+            ArenaCommand::Proc { name, args } => {
+                if let Some(edges) = &mut self.callable_edges {
+                    edges.direct_name(name, None);
+                }
+                self.lint_proc_command_args(args);
+            }
             ArenaCommand::Core {
                 name: _,
                 args,
@@ -1515,11 +1646,14 @@ impl<'a> Linter<'a> {
     }
 
     pub(super) fn lint_expr(&mut self, expr: ExprId) {
+        let active_candidate = self.stream_producers.suspend_candidate_analysis();
         LintExprVisitor {
             linter: self,
             suppress_expr_autofixes: false,
         }
         .visit_expr(expr);
+        self.stream_producers
+            .restore_candidate_analysis(active_candidate);
     }
 
     pub(super) fn observe_expression_positions(&mut self, expression: ExprId) {
@@ -1726,6 +1860,9 @@ impl<'a> Linter<'a> {
 
     pub(super) fn define(&mut self, name: &str, span: Span, report_unused: bool) {
         rules::binding(self, name, span);
+        if let Some(edges) = &mut self.callable_edges {
+            edges.define(Name::intern(name));
+        }
         if let Some(scope) = self.scopes.last_mut() {
             scope.insert(
                 name.to_string(),
@@ -1761,10 +1898,16 @@ impl<'a> Linter<'a> {
     }
 
     pub(super) fn push_scope(&mut self) {
+        if let Some(edges) = &mut self.callable_edges {
+            edges.push_scope();
+        }
         self.scopes.push(FxHashMap::default());
     }
 
     pub(super) fn pop_scope(&mut self) {
+        if let Some(edges) = &mut self.callable_edges {
+            edges.pop_scope();
+        }
         let Some(scope) = self.scopes.pop() else {
             return;
         };

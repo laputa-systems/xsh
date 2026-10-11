@@ -3,8 +3,8 @@ use super::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaCallArgKind,
     ArenaCommand, ArenaCommandArgKind, ArenaExprKind,
     ArenaExprOrRun, ArenaRange, ArenaRecordFieldKind,
-    ArenaStmtKind, ArenaSugar, ArenaSugarOperand, ArenaTypeExprKind, AssignOp,
-    AssignTargetId, AstArena, BinaryOp, BindingTargetId, BlockId,
+    ArenaStmtKind, ArenaSugar, ArenaTypeExprKind, AssignOp,
+    AssignTargetId, AstArena, BinaryOp, BindingTargetId, BlockId, FunctionDefId,
     CoreCommand, Diagnostic, DiagnosticCode, ExprId, FixHint, FlowSummary, FxHashSet, Label, Linter,
     Name, Severity, Span, StmtId, SugarForm, Type, TypeExprId, UnaryOp,
     binding_target_contains_name, context_scope, direct_call_name,
@@ -26,9 +26,12 @@ pub(super) fn return_list_type_expr(arena: &AstArena, ty: TypeExprId) -> bool {
 
 #[derive(Clone, Debug)]
 pub(super) struct StreamProducerCandidate {
+    definition: FunctionDefId,
     function_name: xsh::frontend::symbols::Name,
     accumulator_name: xsh::frontend::symbols::Name,
     span: Span,
+    saw_push: bool,
+    assigned_another_way: bool,
 }
 
 pub(super) fn collect_stream_producer_candidates(
@@ -43,13 +46,29 @@ pub(super) fn collect_stream_producer_candidates(
         };
         if let ArenaStmtKind::ProcDef(def_id) = inner {
             let def = arena.function_def(def_id);
-            if return_list_type_expr(arena, def.return_ty)
-                && let Some((accumulator_name, span)) = stream_producer_candidate(arena, def.body)
-            {
+            if !return_list_type_expr(arena, def.return_ty) {
+                continue;
+            }
+            let body_statements = arena
+                .stmt_ids(arena.block(def.body).statements)
+                .collect::<Vec<_>>();
+            let Some(&final_statement) = body_statements.last() else {
+                continue;
+            };
+            for &statement in &body_statements {
+                let Some((accumulator_name, span)) = empty_list_var(arena, statement) else {
+                    continue;
+                };
+                if !stmt_returns_value_from(arena, final_statement, accumulator_name) {
+                    continue;
+                }
                 out.push(StreamProducerCandidate {
+                    definition: def_id,
                     function_name: def.name,
                     accumulator_name,
                     span,
+                    saw_push: false,
+                    assigned_another_way: false,
                 });
             }
         }
@@ -63,6 +82,7 @@ pub(super) struct StreamProducers {
     observing: bool,
     consumed: FxHashSet<Name>,
     pending: Option<PendingStreamProducers>,
+    active_candidates: Vec<usize>,
 }
 
 struct PendingStreamProducers {
@@ -87,6 +107,69 @@ impl StreamProducers {
         {
             self.consumed.insert(name);
         }
+        if self.active_candidates.is_empty() {
+            return;
+        }
+        let Some((target, push)) = (match arena.stmt(stmt).kind {
+            ArenaStmtKind::Assign { target, .. } => {
+                let name = assign_target_root_name(arena, target);
+                name.map(|name| (name, stmt_is_push_assignment(arena, stmt, name)))
+            }
+            _ => None,
+        }) else {
+            return;
+        };
+        let statement = arena.stmt(stmt);
+        let Some(pending) = self.pending.as_mut() else {
+            return;
+        };
+        for index in self.active_candidates.iter().copied() {
+            let Some(candidate) = pending.candidates.get_mut(index) else {
+                continue;
+            };
+            if target != candidate.accumulator_name
+                || statement.span.source_id != candidate.span.source_id
+                || statement.span.start() <= candidate.span.end()
+            {
+                continue;
+            }
+            if push {
+                candidate.saw_push = true;
+            } else {
+                candidate.assigned_another_way = true;
+            }
+        }
+    }
+
+    pub(super) fn enter_function(&mut self, definition: FunctionDefId) -> Vec<usize> {
+        let previous = std::mem::take(&mut self.active_candidates);
+        self.active_candidates = self
+            .pending
+            .as_ref()
+            .map(|pending| {
+                pending
+                    .candidates
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, candidate)| {
+                        (candidate.definition == definition).then_some(index)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        previous
+    }
+
+    pub(super) fn leave_function(&mut self, previous: Vec<usize>) {
+        self.active_candidates = previous;
+    }
+
+    pub(super) fn suspend_candidate_analysis(&mut self) -> Vec<usize> {
+        std::mem::take(&mut self.active_candidates)
+    }
+
+    pub(super) fn restore_candidate_analysis(&mut self, active: Vec<usize>) {
+        self.active_candidates = active;
     }
 
     // The legacy projection skips certain children that other rules still
@@ -98,31 +181,6 @@ impl StreamProducers {
     pub(super) fn restore_projection(&mut self, observing: bool) {
         self.observing = observing;
     }
-}
-
-pub(super) fn stream_producer_candidate(
-    arena: &AstArena,
-    body: BlockId,
-) -> Option<(xsh::frontend::symbols::Name, Span)> {
-    let stmts: Vec<StmtId> = arena.stmt_ids(arena.block(body).statements).collect();
-    let &final_stmt = stmts.last()?;
-    stmts.iter().enumerate().find_map(|(index, &stmt)| {
-        let (name, span) = empty_list_var(arena, stmt)?;
-        let rest = &stmts[index + 1..];
-        if !rest.iter().any(|&stmt| stmt_pushes_to(arena, stmt, name)) {
-            return None;
-        }
-        if rest
-            .iter()
-            .any(|&stmt| stmt_assigns_non_push_to(arena, stmt, name))
-        {
-            return None;
-        }
-        if !stmt_returns_value_from(arena, final_stmt, name) {
-            return None;
-        }
-        Some((name, span))
-    })
 }
 
 pub(super) fn empty_list_var(arena: &AstArena, stmt: StmtId) -> Option<(xsh::frontend::symbols::Name, Span)> {
@@ -148,157 +206,6 @@ pub(super) fn empty_list_var(arena: &AstArena, stmt: StmtId) -> Option<(xsh::fro
     }
 }
 
-pub(super) fn stmt_pushes_to(arena: &AstArena, stmt: StmtId, name: xsh::frontend::symbols::Name) -> bool {
-    if stmt_is_push_assignment(arena, stmt, name) {
-        return true;
-    }
-    match arena.stmt(stmt).kind {
-        ArenaStmtKind::If {
-            branches,
-            else_block,
-        } => {
-            arena
-                .if_branches(branches)
-                .iter()
-                .any(|branch| block_pushes_to(arena, branch.block, name))
-                || else_block.is_some_and(|block| block_pushes_to(arena, block, name))
-        }
-        ArenaStmtKind::While { block, .. }
-        | ArenaStmtKind::For { block, .. }
-        | ArenaStmtKind::Loop { block } => block_pushes_to(arena, block, name),
-        ArenaStmtKind::Sugar { operands, .. } => {
-            arena
-                .sugar_operands(operands)
-                .iter()
-                .any(|operand| match *operand {
-                    ArenaSugarOperand::Block(block) => block_pushes_to(arena, block, name),
-                    ArenaSugarOperand::Stmt(stmt) => stmt_pushes_to(arena, stmt, name),
-                    ArenaSugarOperand::Expr(_)
-                    | ArenaSugarOperand::BindingTarget(_)
-                    | ArenaSugarOperand::TypeExpr(_)
-                    | ArenaSugarOperand::Name(_) => false,
-                })
-        }
-        ArenaStmtKind::Guard { else_block, .. } => block_pushes_to(arena, else_block, name),
-        ArenaStmtKind::Export(stmt) => stmt_pushes_to(arena, stmt, name),
-        ArenaStmtKind::With {
-            body, else_block, ..
-        } => block_pushes_to(arena, body, name) || block_pushes_to(arena, else_block, name),
-        ArenaStmtKind::Match { arms, .. } => arena
-            .match_arms(arms)
-            .iter()
-            .any(|arm| block_pushes_to(arena, arm.block, name)),
-        ArenaStmtKind::Use(_)
-        | ArenaStmtKind::TypeDef(_)
-        | ArenaStmtKind::ErrorDef(_)
-        | ArenaStmtKind::Const { .. }
-        | ArenaStmtKind::Let { .. }
-        | ArenaStmtKind::Var { .. }
-        | ArenaStmtKind::Assign { .. }
-        | ArenaStmtKind::ProcDef(_)
-        | ArenaStmtKind::CliMain(_)
-        | ArenaStmtKind::PureDef(_)
-        | ArenaStmtKind::StreamDef(_)
-        | ArenaStmtKind::SignalHook(_)
-        | ArenaStmtKind::Return(_)
-        | ArenaStmtKind::Yield(_)
-        | ArenaStmtKind::YieldDelegate(_)
-        | ArenaStmtKind::Defer(_, _)
-        | ArenaStmtKind::Assert { .. }
-        | ArenaStmtKind::Break { .. }
-        | ArenaStmtKind::Continue
-        | ArenaStmtKind::Exit(_)
-        | ArenaStmtKind::Command(_)
-        | ArenaStmtKind::TailBareIdent(_)
-        | ArenaStmtKind::Expr(_) => false,
-    }
-}
-
-pub(super) fn block_pushes_to(arena: &AstArena, block: BlockId, name: xsh::frontend::symbols::Name) -> bool {
-    arena
-        .stmt_ids(arena.block(block).statements)
-        .any(|stmt| stmt_pushes_to(arena, stmt, name))
-}
-
-pub(super) fn stmt_assigns_non_push_to(
-    arena: &AstArena,
-    stmt: StmtId,
-    name: xsh::frontend::symbols::Name,
-) -> bool {
-    match arena.stmt(stmt).kind {
-        ArenaStmtKind::Assign { target, .. }
-            if assign_target_root_name(arena, target) == Some(name) =>
-        {
-            !stmt_is_push_assignment(arena, stmt, name)
-        }
-        ArenaStmtKind::If {
-            branches,
-            else_block,
-        } => {
-            arena
-                .if_branches(branches)
-                .iter()
-                .any(|branch| block_assigns_non_push_to(arena, branch.block, name))
-                || else_block.is_some_and(|block| block_assigns_non_push_to(arena, block, name))
-        }
-        ArenaStmtKind::While { block, .. }
-        | ArenaStmtKind::For { block, .. }
-        | ArenaStmtKind::Loop { block } => block_assigns_non_push_to(arena, block, name),
-        ArenaStmtKind::Sugar { operands, .. } => {
-            arena
-                .sugar_operands(operands)
-                .iter()
-                .any(|operand| match *operand {
-                    ArenaSugarOperand::Block(block) => {
-                        block_assigns_non_push_to(arena, block, name)
-                    }
-                    ArenaSugarOperand::Stmt(stmt) => stmt_assigns_non_push_to(arena, stmt, name),
-                    ArenaSugarOperand::Expr(_)
-                    | ArenaSugarOperand::BindingTarget(_)
-                    | ArenaSugarOperand::TypeExpr(_)
-                    | ArenaSugarOperand::Name(_) => false,
-                })
-        }
-        ArenaStmtKind::Guard { else_block, .. } => {
-            block_assigns_non_push_to(arena, else_block, name)
-        }
-        ArenaStmtKind::Export(stmt) => stmt_assigns_non_push_to(arena, stmt, name),
-        ArenaStmtKind::With {
-            body, else_block, ..
-        } => {
-            block_assigns_non_push_to(arena, body, name)
-                || block_assigns_non_push_to(arena, else_block, name)
-        }
-        ArenaStmtKind::Match { arms, .. } => arena
-            .match_arms(arms)
-            .iter()
-            .any(|arm| block_assigns_non_push_to(arena, arm.block, name)),
-        ArenaStmtKind::Use(_)
-        | ArenaStmtKind::TypeDef(_)
-        | ArenaStmtKind::ErrorDef(_)
-        | ArenaStmtKind::Const { .. }
-        | ArenaStmtKind::Let { .. }
-        | ArenaStmtKind::Var { .. }
-        | ArenaStmtKind::Assign { .. }
-        | ArenaStmtKind::ProcDef(_)
-        | ArenaStmtKind::CliMain(_)
-        | ArenaStmtKind::PureDef(_)
-        | ArenaStmtKind::StreamDef(_)
-        | ArenaStmtKind::SignalHook(_)
-        | ArenaStmtKind::Return(_)
-        | ArenaStmtKind::Yield(_)
-        | ArenaStmtKind::YieldDelegate(_)
-        | ArenaStmtKind::Defer(_, _)
-        | ArenaStmtKind::Assert { .. }
-        | ArenaStmtKind::Break { .. }
-        | ArenaStmtKind::Continue
-        | ArenaStmtKind::Exit(_)
-        | ArenaStmtKind::Command(_)
-        | ArenaStmtKind::TailBareIdent(_)
-        | ArenaStmtKind::Expr(_) => false,
-    }
-}
-
 /// The binding an assignment writes through; an environment variable target
 /// has none.
 pub(super) fn assign_target_root_name(
@@ -312,16 +219,6 @@ pub(super) fn assign_target_root_name(
             assign_target_root_name(arena, base)
         }
     }
-}
-
-pub(super) fn block_assigns_non_push_to(
-    arena: &AstArena,
-    block: BlockId,
-    name: xsh::frontend::symbols::Name,
-) -> bool {
-    arena
-        .stmt_ids(arena.block(block).statements)
-        .any(|stmt| stmt_assigns_non_push_to(arena, stmt, name))
 }
 
 pub(super) fn stmt_is_push_assignment(
@@ -1386,13 +1283,21 @@ impl<'a> Linter<'a> {
             report_at: self.diagnostics.len(),
             candidates,
         });
+        self.stream_producers.active_candidates.clear();
     }
 
     pub(super) fn finish_stream_producer_suggestions(&mut self) {
         self.stream_producers.observing = false;
         let Some(pending) = self.stream_producers.pending.take() else { return; };
         let mut reports = Vec::new();
+        let mut selected_functions = FxHashSet::default();
         for candidate in pending.candidates {
+            if !candidate.saw_push
+                || candidate.assigned_another_way
+                || !selected_functions.insert(candidate.definition)
+            {
+                continue;
+            }
             if !self.stream_producers.consumed.contains(&candidate.function_name) {
                 continue;
             }
