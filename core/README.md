@@ -21,6 +21,9 @@ verification, and `lib/proc_launch.xsh` for executable lookup and exit status.
 `base32`, `base64`, and `basenc` preserve a decoded prefix before reporting
 invalid input, use GNU option-argument diagnostics, and report stdout failures
 with the `write error:` prefix.
+`comm` checks ordering as each input advances, checks file 1 first after a
+shared row, and activates default checks only after an unpairable row; reaching
+EOF rechecks the final pair of records from that input.
 
 
 An applet never spells a `/proc` or `/sys` path itself

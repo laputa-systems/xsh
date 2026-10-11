@@ -168,9 +168,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var bad1 = false
   var bad2 = false
 
-  # Check only lines selected by the merge step. The default mode starts
-  # checking once the streams differ; --check-order checks immediately and
-  # stops at the first disorder. Equal rows check file 1 first.
+  # Check newly read records after outputting the merge row. Default checking
+  # starts with the first unpairable row; earlier pairable disorder is ignored.
+  # Advancing both inputs checks file 1 first, and EOF rechecks its final pair.
   while first < left.len() or second < right.len() {
     let step = if first >= left.len() {
       1
@@ -182,30 +182,6 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
     if step != 0 {
       unpairable = true
-    }
-
-    let checking = mode == "always" or (mode == "default" and unpairable)
-
-    if checking {
-      if step <= 0 and first > 0 and first < left.len() and order(left[first - 1], left[first]) > 0 and ! bad1 {
-        gnu.error("file 1 is not in sorted order")
-        bad1 = true
-
-        if mode == "always" {
-          gnu.write_bytes(bytes.concat(out))
-          exit 1
-        }
-      }
-
-      if step >= 0 and second > 0 and second < right.len() and order(right[second - 1], right[second]) > 0 and ! bad2 {
-        gnu.error("file 2 is not in sorted order")
-        bad2 = true
-
-        if mode == "always" {
-          gnu.write_bytes(bytes.concat(out))
-          exit 1
-        }
-      }
     }
 
     if step < 0 {
@@ -228,12 +204,36 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       both += 1
     }
 
-    if step >= 0 {
-      second += 1
-    }
+    let checking = mode == "always" or (mode == "default" and unpairable)
 
     if step <= 0 {
       first += 1
+      let current = if first < left.len() { first } else { first - 1 }
+
+      if checking and current > 0 and order(left[current - 1], left[current]) > 0 and ! bad1 {
+        gnu.error("file 1 is not in sorted order")
+        bad1 = true
+
+        if mode == "always" {
+          gnu.write_bytes(bytes.concat(out))
+          exit 1
+        }
+      }
+    }
+
+    if step >= 0 {
+      second += 1
+      let current = if second < right.len() { second } else { second - 1 }
+
+      if checking and current > 0 and order(right[current - 1], right[current]) > 0 and ! bad2 {
+        gnu.error("file 2 is not in sorted order")
+        bad2 = true
+
+        if mode == "always" {
+          gnu.write_bytes(bytes.concat(out))
+          exit 1
+        }
+      }
     }
   }
 
