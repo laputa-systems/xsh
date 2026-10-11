@@ -12,6 +12,7 @@ type CfgValue = {value: Bool, next: Int}
 type CfgPredicate = {start: Int, end: Int}
 type InlineModule = {end: Int, directory: Str}
 type ModuleEdge = {owner: Str, target: Str, excluded: Bool, dead_code: Bool}
+type FunctionRegion = {name: Str, params_start: Int, params_end: Int, body_start: Int, body_end: Int}
 
 ## One physical Rust file, with exact excluded spans and retained line numbers.
 export type SourceCount = {path: Str, physical: Int, production: Int, retained_lines: List[Int], excluded: List[Span]}
@@ -645,6 +646,111 @@ proc pipeline_stage_schema_variants(source_path: Str, lexed: Lexed, opening: Int
   variants
 }
 
+pure contains_token(lexed: Lexed, start: Int, end: Int, value: Str) -> Bool {
+  var cursor = start
+  while cursor < end {
+    let token = lexed.tokens[cursor]
+    if ! token.literal and token.text == value { return true }
+    cursor += 1
+  }
+  false
+}
+
+proc lowering_function_region(source_path: Str, lexed: Lexed, keyword: Int) [error] -> Result[FunctionRegion] {
+  let name = (lexed.tokens.get(keyword + 1) ?? end_token).text
+  if ! ident_start(first(name)) { return {name: "", params_start: -1, params_end: -1, body_start: -1, body_end: -1} }
+  var params_start = keyword + 2
+  var generic_depth = 0
+  while params_start < lexed.tokens.len() {
+    let value = lexed.tokens[params_start].text
+    if value == "<" { generic_depth += 1; params_start += 1; continue }
+    if value == ">" and (lexed.tokens.get(params_start - 1) ?? end_token).text != "-" and generic_depth > 0 {
+      generic_depth -= 1
+      params_start += 1
+      continue
+    }
+    if value == "(" and generic_depth == 0 { break }
+    if value in ["{", ";"] and generic_depth == 0 { return {name: "", params_start: -1, params_end: -1, body_start: -1, body_end: -1} }
+    if value in ["(", "[", "{"] { params_start = lexed.mates[f"{params_start}"] + 1 } else { params_start += 1 }
+  }
+  if params_start >= lexed.tokens.len() or (lexed.tokens.get(params_start) ?? end_token).text != "(" {
+    return {name: "", params_start: -1, params_end: -1, body_start: -1, body_end: -1}
+  }
+  let params_end = lexed.mates[f"{params_start}"]
+  if ! contains_token(lexed, params_start + 1, params_end, "TypeExprId") {
+    return {name: "", params_start: -1, params_end: -1, body_start: -1, body_end: -1}
+  }
+  var body_start = params_end + 1
+  var angle_depth = 0
+  while body_start < lexed.tokens.len() {
+    let value = lexed.tokens[body_start].text
+    if value == "<" { angle_depth += 1; body_start += 1; continue }
+    if value == ">" and (lexed.tokens.get(body_start - 1) ?? end_token).text != "-" and angle_depth > 0 {
+      angle_depth -= 1
+      body_start += 1
+      continue
+    }
+    if value == ";" and angle_depth == 0 {
+      return {name: "", params_start: -1, params_end: -1, body_start: -1, body_end: -1}
+    }
+    if value == "{" {
+      if angle_depth == 0 { break }
+      body_start = lexed.mates[f"{body_start}"] + 1
+      continue
+    }
+    if value in ["(", "["] { body_start = lexed.mates[f"{body_start}"] + 1 } else { body_start += 1 }
+  }
+  if body_start >= lexed.tokens.len() or lexed.tokens[body_start].text != "{" {
+    invalid(source_path, lexed.tokens[keyword].line, "cannot locate TypeExpr function body")?
+  }
+  {name: name, params_start: params_start + 1, params_end: params_end, body_start: body_start + 1, body_end: lexed.mates[f"{body_start}"]}
+}
+
+pure recursive_type_expr_call(lexed: Lexed, region: FunctionRegion) -> Bool {
+  var cursor = region.body_start
+  while cursor < region.body_end {
+    if lexed.tokens[cursor].text == region.name and (lexed.tokens.get(cursor + 1) ?? end_token).text == "(" { return true }
+    cursor += 1
+  }
+  false
+}
+
+pure constructs_semantic_type(lexed: Lexed, region: FunctionRegion) -> Bool {
+  var cursor = region.body_start
+  while cursor + 2 < region.body_end {
+    let value = lexed.tokens[cursor].text
+    if value in ["Type", "LoweredType"] and lexed.tokens[cursor + 1].text == ":" and lexed.tokens[cursor + 2].text == ":" { return true }
+    cursor += 1
+  }
+  false
+}
+
+# Count semantic walks over type-expression tags, not wrappers or name rendering.
+proc lowering_type_resolver_evidence(source_path: Str, lexed: Lexed, spans: List[Span]) [error] -> Result[List[Evidence]] {
+  if source_path != "src/runtime/eval/lower.rs" and ! source_path.starts_with("src/runtime/eval/lower/") { return [] }
+  var found: List[Evidence] = []
+  var cursor = 0
+  while cursor < lexed.tokens.len() {
+    let item = lexed.tokens[cursor]
+    if ! item.literal and item.text == "fn" and ! inside(item, spans) {
+      let region = lowering_function_region(source_path, lexed, cursor)?
+      if region.body_start >= 0 {
+        let type_dispatch = contains_token(lexed, region.body_start, region.body_end, "ArenaTypeExprTag")
+        let recursive = recursive_type_expr_call(lexed, region)
+        if type_dispatch and recursive {
+          if constructs_semantic_type(lexed, region) {
+            found += [evidence(source_path, item, region.name)]
+          } else if ! contains_token(lexed, region.params_end + 1, region.body_start, "String") {
+            invalid(source_path, item.line, "unclassified recursive type-expression walker")?
+          }
+        }
+      }
+    }
+    cursor += 1
+  }
+  found
+}
+
 proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[Attribute], count: SourceCount) [error] -> Result[List[Metric]] {
   let families = ["ArenaExprKind", "ArenaStmtKind", "ArenaPatternKind"]
   var aliases: Map[Str] = {}
@@ -656,7 +762,7 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
   var wildcards: List[Evidence] = []
   var predicates: List[Evidence] = []
   var mappings: List[Evidence] = []
-  var resolvers: List[Evidence] = []
+  let resolvers = lowering_type_resolver_evidence(source_path, lexed, spans)?
   var factories: List[Evidence] = []
   var instruction_schema_calls = 0
   var instruction_schema_definition = false
@@ -700,7 +806,6 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
         let definition = (lexed.tokens.get(cursor + 1) ?? end_token).text
         if definition in ["value_matches_static_type", "lowered_value_matches_static_type", "test_value_matches_type"] { predicates += [evidence(source_path, item, definition)] }
         if definition in ["lowered_checked_type", "type_for_lowered_type", "lowered_type_to_type", "lowered_type_from_type"] { mappings += [evidence(source_path, item, definition)] }
-        if definition in ["lowered_arena_type_inner", "compact_runtime_type_inner", "compact_type_check"] { resolvers += [evidence(source_path, item, definition)] }
       }
       if name == "enum" and (lexed.tokens.get(cursor + 2) ?? end_token).text == "{" {
         let definition = (lexed.tokens.get(cursor + 1) ?? end_token).text

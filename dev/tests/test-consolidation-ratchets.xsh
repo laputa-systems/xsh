@@ -164,6 +164,38 @@ test test_instruction_schema_unknown_and_malformed_layouts_fail_loudly {
   assert "no supported table invocation" in rejection("macro_rules! instruction_schema { () => {}; }")
 }
 
+test test_lowering_type_resolver_metric_recognizes_recursive_semantic_walkers {
+  let source = "fn resolve_runtime_type(arena: &AstArena, ty: TypeExprId) -> Option<LoweredType> {\n let index = ty.index();\n let data = arena.type_expr_data[index];\n match arena.type_expr_tags[index] {\n ArenaTypeExprTag::List => Some(LoweredType::List),\n ArenaTypeExprTag::Named => resolve_runtime_type(arena, TypeExprId::from_index(data.lhs as usize)),\n }\n}\n"
+  let scan = metrics.scan_file("src/runtime/eval/lower/types.rs", source)?
+  let resolvers = scan.metrics |> where .name == "lowering_type_resolver_definitions" |> collect
+  assert resolvers.len() == 1
+  assert resolvers[0].value == 1
+  assert resolvers[0].evidence[0].detail == "resolve_runtime_type"
+}
+
+test test_lowering_type_resolver_metric_excludes_checked_type_wrappers_and_renderers {
+  let source = "fn compact_type_check(kind: LoweredType, checked: &Type, name: Arc<str>) -> Option<LoweredTypeCheck> {\n (needs_static_check(kind) || checked.is_validated()).then(|| LoweredTypeCheck { ty: checked.clone(), name })\n}\nfn compact_type_expr_name_string(arena: &AstArena, ty: TypeExprId) -> String {\n let index = ty.index();\n match arena.type_expr_tags[index] {\n ArenaTypeExprTag::List => compact_type_expr_name_string(arena, TypeExprId::from_index(index)),\n ArenaTypeExprTag::Named => String::new(),\n }\n}\n"
+  let scan = metrics.scan_file("src/runtime/eval/lower/types.rs", source)?
+  assert value(scan, "lowering_type_resolver_definitions") == 0
+}
+
+test test_lowering_type_resolver_metric_rejects_unclassified_recursive_walkers {
+  let source = "fn walk_type_expr(arena: &AstArena, ty: TypeExprId) -> UnknownType {\n let index = ty.index();\n match arena.type_expr_tags[index] {\n ArenaTypeExprTag::List => walk_type_expr(arena, TypeExprId::from_index(index)),\n ArenaTypeExprTag::Named => UnknownType::fallback(),\n }\n}\n"
+  assert "unclassified recursive type-expression walker" in rejection_at("src/runtime/eval/lower/types.rs", source)
+}
+
+test test_current_lowering_tree_has_no_recursive_type_expr_resolvers {
+  let root = p".".resolve()?
+  var count = 0
+  for entry in fs.walk(p"src/runtime/eval/lower")? |> where .kind == "file" and .path.ext() == "rs" |> sort-by .path {
+    let source_path = entry.path.strip_prefix(root)?.display()
+    count += value(metrics.scan_file(source_path, entry.path.read_text()?)?, "lowering_type_resolver_definitions")
+  }
+  let root_source = p"src/runtime/eval/lower.rs".read_text()?
+  count += value(metrics.scan_file("src/runtime/eval/lower.rs", root_source)?, "lowering_type_resolver_definitions")
+  assert count == 0
+}
+
 test test_pipeline_stage_schema_counts_unit_tuple_and_struct_variants {
   let source = "pipeline_stage_schema! { @context stage_builder stage_decoder stage_payload; One unit {}; Two tuple { value: BuildExprId }; Three struct { body: Vec<BuildStmtId>, value: Option<(BuildExprId, Option<BuildExprId>)>, }; }"
   let scan = metrics.scan_file("src/fixture.rs", source)?

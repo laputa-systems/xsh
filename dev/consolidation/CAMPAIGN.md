@@ -228,6 +228,11 @@ performance gates; they do not introduce new acceptance thresholds here.
 | Entries under "Defects" in `TODO.md` | all open | closed, or moved out with a reason |
 | Non-test Rust lines, `src/` and `crates/xsht/src` | 205,864 and 60,041 | lower |
 
+The lowering type-expression resolver metric counts recursive lowerer functions
+that take a `TypeExprId`, dispatch on `ArenaTypeExprTag`, and construct a
+semantic `Type` or `LoweredType`. Syntax-name renderers and wrappers around
+already checked types do not resolve type expressions.
+
 ## Setup
 
 The integrator owns Setup and serializes changes to shared files before
