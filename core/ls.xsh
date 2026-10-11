@@ -26,8 +26,7 @@ Mandatory arguments to long options are mandatory for short options too.
   -F, --classify[=WHEN]      append indicator (one of */=>@|) to entries WHEN
       --file-type            likewise, except do not append '*'
       --format=WORD          across -x, commas -m, horizontal -x, long -l,
-                               single-column -1, verbose -l, vertical -C,
-                               column(s) -C
+                               single-column -1, verbose -l, vertical -C
       --full-time            like -l --time-style=full-iso
   -g                         like -l, but do not list owner
       --group-directories-first
@@ -53,7 +52,7 @@ Mandatory arguments to long options are mandatory for short options too.
   -I, --ignore=PATTERN       do not list implied entries matching shell PATTERN
   -k, --kibibytes            default to 1024-byte blocks for file system usage;
                                used only with -s and per directory totals
-  -l, --long                 use a long listing format
+  -l                         use a long listing format
   -L, --dereference          when showing file information for a symbolic
                                link, show information for the file the link
                                references rather than for the link itself
@@ -201,7 +200,6 @@ const OPTS: List[Opt] = [
   {short: "I", long: "ignore", arg: 1, id: "ignore"},
   {short: "k", long: "kibibytes", arg: 0, id: "kibibytes"},
   {short: "l", long: "", arg: 0, id: "long"},
-  {short: "", long: "long", arg: 0, id: "long"},
   {short: "L", long: "dereference", arg: 0, id: "deref_all"},
   {short: "m", long: "", arg: 0, id: "commas"},
   {short: "n", long: "numeric-uid-gid", arg: 0, id: "numeric"},
@@ -248,8 +246,8 @@ const QUOTING_NAMES = [
 ]
 const WHEN_NAMES = ["always", "yes", "force", "never", "no", "none", "auto", "tty", "if-tty"]
 const WHEN_VALUES = ["always", "always", "always", "never", "never", "never", "auto", "auto", "auto"]
-const FORMAT_NAMES = ["verbose", "long", "commas", "horizontal", "across", "vertical", "columns", "column", "single-column"]
-const FORMAT_VALUES = ["long", "long", "commas", "across", "across", "columns", "columns", "columns", "single-column"]
+const FORMAT_NAMES = ["verbose", "long", "commas", "horizontal", "across", "vertical", "single-column"]
+const FORMAT_VALUES = ["long", "long", "commas", "across", "across", "columns", "single-column"]
 const SORT_NAMES = ["none", "size", "time", "version", "extension", "width", "name"]
 const TIME_NAMES = ["atime", "access", "use", "ctime", "status", "birth", "creation", "mtime"]
 const TIME_VALUES = ["atime", "atime", "atime", "ctime", "ctime", "birth", "birth", "mtime"]
@@ -446,7 +444,9 @@ proc block_size_option(c: Cfg, text: Str) [process, env] -> Cfg {
   let parsed = parse_block_size(text)
 
   if ! parsed.ok {
-    gnu.error(f"invalid --block-size argument {gnu.quote_value(text)}")
+    let bad_suffix = rx"^'?[0-9]+[^0-9]".matches(text) and rx"^'?([0-9]*)([EGKMPTYZRQegkmptyzrq]?)(iB|B)?$".captures(text).is_empty()
+    let reason = if bad_suffix { "invalid suffix in" } else { "invalid" }
+    gnu.error(f"{reason} --block-size argument {gnu.quote_value(text)}")
     exit 2
   }
 
@@ -497,7 +497,7 @@ proc apply(c: Cfg, id: Str, v: Str?, tty: Bool) [process, env] -> Cfg {
     "color" => {...c, color: if when_option(v, "--color", tty) { "always" } else { "never" }}
     "directory" => {...c, directory: true}
     "dired" => {...c, format_set: true, format: "long", hyperlink: "never", dired: true}
-    "f" => {...c, ignore_mode: "all", sort: "none"}
+    "f" => {...c, ignore_mode: "all", sort: "none", color: "never"}
     "classify_short" => {...c, indicator: "classify"}
     "classify" => {...c, indicator: if when_option(v, "--classify", tty) { "classify" } else { "none" }}
     "file_type" => {...c, indicator: "file-type"}
@@ -595,10 +595,9 @@ proc parse_args(argv: List[Str], start: Cfg, tty: Bool) [process, env, io] -> Pa
         var matches = [opt for opt in OPTS if opt.long == name]
 
         if matches.is_empty() {
-          # Keep `--l` as an abbreviation for `--literal` while `--long` is an exact alias.
           matches = [
             opt for opt in OPTS
-            if opt.long != "" and opt.long.starts_with(name) and (opt.long != "long" or name == "long")
+            if opt.long != "" and opt.long.starts_with(name)
           ]
         }
 
@@ -651,7 +650,7 @@ proc parse_args(argv: List[Str], start: Cfg, tty: Bool) [process, env, io] -> Pa
         if opt.arg == 1 {
           if position < total {
             let attached = arg[position..]
-            value = if attached.starts_with("=") { attached[1..] } else { attached }
+            value = attached
             position = total
           } else if index < argv.len() {
             value = argv[index]
@@ -1613,7 +1612,14 @@ proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, proces
   # those entries are statted to learn which type they are. Classification
   # reads the mode only of regular files: the read already gives directories
   # and links their indicators.
-  if arg or ctx.needs_stat or hint == "" or hint == "other" or (ctx.cfg.indicator == "classify" and hint == "file") {
+  # Type colors use directory entries directly; only enabled styles that
+  # depend on mode bits, link counts, or a symlink target request metadata.
+  let color_stat = ctx.color and (
+    (hint == "dir" and (is_colored(ctx.colors, "tw") or is_colored(ctx.colors, "ow") or is_colored(ctx.colors, "st"))) or
+    (hint == "file" and (is_colored(ctx.colors, "su") or is_colored(ctx.colors, "sg") or is_colored(ctx.colors, "ex") or is_colored(ctx.colors, "mh"))) or
+    (hint == "symlink" and (ctx.check_symlink or ctx.colors.referent))
+  )
+  if arg or ctx.needs_stat or hint == "" or hint == "other" or color_stat or (ctx.cfg.indicator == "classify" and hint == "file") {
     var result = follow_stat(target, ctx.deref == "always")
 
     if arg and (ctx.deref == "cmdline" or ctx.deref == "cmdline_dir") {
@@ -1867,15 +1873,13 @@ pure glob_matches(globs: List[Glob], name: Str) -> Bool {
   false
 }
 
-# Whether the terminal advertises color support. An unset TERM counts as capable,
-# and an empty TERM is capable only when COLORTERM is unset, so an environment
-# that clears TERM still gets color while an explicitly blank pair does not.
+# Built-in ANSI styles require an advertised terminal; explicit LS_COLORS
+# settings are independent of terminal detection.
 proc terminal_has_color() [process, env] -> Bool {
   return true when (env_text("COLORTERM") ?? "") != ""
 
   let term_value = env_text("TERM")
-  return true when term_value == null
-  return env_text("COLORTERM") == null when term_value == ""
+  return false when term_value == null or term_value == ""
 
   let term = term_value ?? ""
   let patterns = [
@@ -2069,12 +2073,12 @@ pure merge_version(items: List[File]) -> List[File] {
 pure extension_of(name: Str) -> Str {
   let pieces = name.split(".")
 
-  return "" when pieces.len() < 2 or name == ".."
+  return "" when pieces.len() < 2
 
   let tail = pieces[-1]
   let cut = name.byte_len() - tail.byte_len() - 1
 
-  if cut <= 0 { "" } else { name.byte_slice(cut) }
+  name.byte_slice(cut)
 }
 
 pure file_time(ctx: Ctx, f: File) -> Int {
@@ -2852,7 +2856,7 @@ pure entry_raw(name: Str, entry_path: Path) -> Bytes {
 
 type Pending = {raw: Bytes, arg: Bool, marker: Bool}
 
-type Rendered = {bytes: Bytes, used: Bool, dired: List[Int]}
+type Rendered = {bytes: Bytes, used: Bool, dired: List[Int], indexed_length: Int}
 
 proc render_files(ctx: Ctx, files: List[File], used0: Bool) [fs] -> Rendered {
   let cfg = ctx.cfg
@@ -2866,6 +2870,7 @@ proc render_files(ctx: Ctx, files: List[File], used0: Bool) [fs] -> Rendered {
   var chunks: List[Bytes] = []
   var used = used0
   var dired: List[Int] = []
+  var length = 0
 
   match ctx.format {
     "long" => {
@@ -2876,11 +2881,14 @@ proc render_files(ctx: Ctx, files: List[File], used0: Bool) [fs] -> Rendered {
         used = line.used
         chunks += [line.bytes, bytes.from_text(ctx.eol)]
 
+        # ANSI prefixes do not advance the byte positions consumed by Dired.
+        let indexed = if cfg.dired and ctx.color { long_line({...ctx, color: false}, f, wd, pad, false) } else { line }
         if cfg.dired {
-          dired += [offset + line.start, offset + line.end]
+          dired += [offset + indexed.start, offset + indexed.end]
         }
 
-        offset += line.bytes.len() + 1
+        offset += indexed.bytes.len() + 1
+        length = offset
       }
     }
     "single-column" => {
@@ -2907,7 +2915,8 @@ proc render_files(ctx: Ctx, files: List[File], used0: Bool) [fs] -> Rendered {
     }
   }
 
-  {bytes: bytes.concat(chunks), used: used, dired: dired}
+  let output = bytes.concat(chunks)
+  {bytes: output, used: used, dired: dired, indexed_length: if cfg.dired { length } else { output.len() }}
 }
 
 pure file_ignored(ctx: Ctx, name: Str) -> Bool {
@@ -3007,7 +3016,7 @@ proc list_all(ctx: Ctx, operands: List[Str]) [fs, process, env, error, io] -> In
     used = r.used
     dired += [pos + x for x in r.dired]
     out += [r.bytes]
-    pos += r.bytes.len()
+    pos += r.indexed_length
 
     if ! pending.is_empty() {
       out += [b"\n"]
@@ -3129,9 +3138,9 @@ proc list_all(ctx: Ctx, operands: List[Str]) [fs, process, env, error, io] -> In
     }
 
     if ctx.format == "long" or cfg.size {
-      # A `no` style puts its sequence before the first output line, the total
-      # line included, and that sequence counts towards the dired offsets.
-      let lead = norm_text(ctx, used)
+      # Dired indexes the listing independently of ANSI prefixes and leaves the
+      # directory total uncolored.
+      let lead = if cfg.dired { "" } else { norm_text(ctx, used) }
       used = used or lead != ""
       let line = bytes.from_text(f"{lead}{indent}total {human_readable(total, 512, ctx.block_size, ctx.human)}\n")
       out += [line]
@@ -3143,7 +3152,7 @@ proc list_all(ctx: Ctx, operands: List[Str]) [fs, process, env, error, io] -> In
       used = r.used
       dired += [pos + x for x in r.dired]
       out += [r.bytes]
-      pos += r.bytes.len()
+      pos += r.indexed_length
     }
 
     flush(out)
@@ -3182,38 +3191,33 @@ pure quiet_match(text: Str, names: List[Str]) -> Str? {
 
 # GNU reports time-style errors with the option's accepted values and status.
 proc invalid_time_style(value: Str) [process, env] -> Unit {
-  gnu.error(f"invalid --time-style argument {gnu.quote_value(value)}")
-  eprint "Possible values are:"
+  let kind = if [name for name in TIME_STYLE_NAMES if name.starts_with(value)].len() > 1 { "ambiguous" } else { "invalid" }
+  gnu.error(f"{kind} argument {gnu.quote_value(value)} for 'time style'")
+  eprint "Valid arguments are:"
   eprint "  - [posix-]full-iso"
   eprint "  - [posix-]long-iso"
   eprint "  - [posix-]iso"
   eprint "  - [posix-]locale"
   eprint "  - +FORMAT (e.g., +%H:%M) for a 'date'-style format"
-  eprint
-  eprint "For more information try --help"
+  gnu.try_help()
   exit 2
 }
 
 # The [old, recent] strftime formats for the long listing.
 proc time_formats(cfg: Cfg) [process, env] -> List[Str] {
   var style = cfg.time_style ?? env_text("TIME_STYLE") ?? "locale"
-  var locale_only = false
 
   while style.starts_with("posix-") {
     if ! hard_time_locale() {
-      locale_only = true
+      return ["%b %e  %Y", "%b %e %H:%M"]
     }
 
     style = style[6..]
   }
 
-  # The name is validated before the POSIX-locale shortcut so that a bad name is
-  # rejected in every locale, including an empty name left after "posix-".
   if ! style.starts_with("+") and quiet_match(style, TIME_STYLE_NAMES) == null {
     invalid_time_style(style)
   }
-
-  return ["%b %e  %Y", "%b %e %H:%M"] when locale_only
 
   if style.starts_with("+") {
     let lines = style[1..].split("\n")
@@ -3265,7 +3269,7 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
   }
 
   line_length = cfg.width ?? line_length
-  var tabsize = if tty { 0 } else { 8 }
+  var tabsize = 8
   let tab_env = env_text("TABSIZE") ?? ""
 
   if cfg.tabsize == null and tab_env != "" {
@@ -3338,7 +3342,7 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
   var colors: Colors = Colors(ok: true, ind: DEFAULT_COLORS, exts: [], referent: false, unknown: [])
   var color = cfg.color == "always"
 
-  if color and ! terminal_has_color() {
+  if color and (env_text("LS_COLORS") ?? "") == "" and ! terminal_has_color() {
     color = false
   }
 
@@ -3359,6 +3363,9 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
     }
   }
 
+  # ANSI attributes and tab expansion do not compose reliably on terminals.
+  if color { tabsize = 0 }
+
   let long = cfg.format == "long"
   let deref = cfg.deref ?? (if cfg.directory or cfg.indicator == "classify" or long { "never" } else { "cmdline_dir" })
   let sort = cfg.sort ?? (if cfg.time_given and ! long { "time" } else { "name" })
@@ -3372,7 +3379,7 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
   # Entries carry the type from the directory read, so a stat is taken only when
   # the output needs more than that: -p and --file-type need none unless -L
   # must resolve a symlink's type, and -F also reads the mode of regular files.
-  let needs_stat = long or cfg.inode or cfg.size or cfg.context or sort == "size" or sort == "time" or color or (cfg.indicator != "none" and deref == "always") or cfg.recursive or cfg.dirs_first or cfg.hyperlink == "always"
+  let needs_stat = long or cfg.inode or cfg.size or cfg.context or sort == "size" or sort == "time" or (cfg.indicator != "none" and deref == "always") or cfg.recursive or cfg.dirs_first or cfg.hyperlink == "always"
   let hyper = cfg.hyperlink == "always"
   # Quoted names are padded to line up their outer quotes only in long format
   # and in column layouts with a width limit; one-per-line and commas never pad.
@@ -3388,7 +3395,7 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
   let formats = if long { time_formats(cfg) } else { ["%b %e  %Y", "%b %e %H:%M"] }
   let ignore_globs = [compile_glob(pattern) for pattern in cfg.ignores]
   let hide_globs = [compile_glob(pattern) for pattern in cfg.hides]
-  let qmark_newline = cfg.quoting == null and !cfg.show_control and !cfg.zero and (
+  let qmark_newline = !cfg.show_control and !cfg.zero and (
     cfg.format == "single-column" or cfg.format == "long" or (line_length > 0 and cfg.format in ["columns", "across", "commas"])
   )
 
@@ -3431,19 +3438,22 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
   let prog = gnu.prog()
   let tty = stdout_is_tty()
   var quoting: Str? = null
+  var warning_failed = false
 
   match env.get("QUOTING_STYLE") {
     Ok(text) => {
       quoting = quiet_match(text, QUOTING_NAMES)
 
       if quoting == null {
-        eprint f"{prog}: ignoring invalid value of environment variable QUOTING_STYLE: {gnu.quote_value(text)}"
+        let warning = f"{prog}: ignoring invalid value of environment variable QUOTING_STYLE: {gnu.quote_value(text)}\n"
+        warning_failed = io.write_stderr(warning) is Err(_) or io.flush_stderr() is Err(_)
       }
     }
     Err(problem) => {
       if problem.message.find("UTF-8") != null {
         let raw = (env.Path.QUOTING_STYLE ?? p"").bytes()
-        eprint f"{prog}: ignoring invalid value of environment variable QUOTING_STYLE: {gnu.quote_value_bytes(raw)}"
+        let warning = f"{prog}: ignoring invalid value of environment variable QUOTING_STYLE: {gnu.quote_value_bytes(raw)}\n"
+        warning_failed = io.write_stderr(warning) is Err(_) or io.flush_stderr() is Err(_)
       }
     }
   }
@@ -3501,7 +3511,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
 
   let parsed = parse_args(argv, start, tty)
   let ctx = build_ctx(parsed.cfg, tty)
-  let status = list_all(ctx, parsed.operands)
+  let status = max_of(list_all(ctx, parsed.operands), if warning_failed { 2 } else { 0 })
 
   if status != 0 {
     exit status

@@ -221,23 +221,23 @@ test test_ls_option_errors_use_getopt_and_argmatch_wording { |ctx|
 
   let style = ls_in(ctx, work, ["-l", "--time-style=bogus"])?
   assert style.status == 2
-  assert style.err == "ls: invalid --time-style argument 'bogus'\nPossible values are:\n  - [posix-]full-iso\n  - [posix-]long-iso\n  - [posix-]iso\n  - [posix-]locale\n  - +FORMAT (e.g., +%H:%M) for a 'date'-style format\n\nFor more information try --help\n", style.err
+  assert style.err == "ls: invalid argument 'bogus' for 'time style'\nValid arguments are:\n  - [posix-]full-iso\n  - [posix-]long-iso\n  - [posix-]iso\n  - [posix-]locale\n  - +FORMAT (e.g., +%H:%M) for a 'date'-style format\nTry 'ls --help' for more information.\n", style.err
   assert ls_in(ctx, work, ["--time-style=bogus"])?.status == 0, "the style is checked only for long listings"
 }
 
-test test_ls_posix_prefix_still_validates_the_style_name { |ctx|
+test test_ls_posix_prefix_ignores_style_in_the_c_locale { |ctx|
   let work = sandbox(ctx)?
   fp"{work}/old".write("")
 
-  for style in ["posix-", "posix-l", "posix-lo", "posix-full-isox", "Locale"] {
+  for style in ["posix-", "posix-l", "posix-lo", "posix-full-isox"] {
     let result = ls_in(ctx, work, ["-l", f"--time-style={style}", "old"], {LC_ALL: "C", TZ: "UTC"})?
-    assert result.status == 2, style
-    assert result.out == b"", style
-    assert "invalid --time-style argument" in result.err, result.err
+    assert result.status == 0, style
+    assert result.err == "", result.err
+    assert result.text == ls_in(ctx, work, ["-l", "old"])?.text, result.text
   }
-
-  let empty = ls_in(ctx, work, ["-l", "--time-style=posix-", "old"], {LC_ALL: "C", TZ: "UTC"})?
-  assert empty.err.starts_with("ls: invalid --time-style argument ''\n"), empty.err
+  let invalid = ls_in(ctx, work, ["-l", "--time-style=Locale", "old"])?
+  assert invalid.status == 2
+  assert invalid.err.starts_with("ls: invalid argument 'Locale' for 'time style'\n"), invalid.err
 }
 
 test test_ls_invalid_value_uses_failure_status { |ctx|
@@ -469,7 +469,9 @@ test test_ls_columns_across_commas_and_width { |ctx|
   }
 
   assert ls_in(ctx, work, ["-C", "-w", "100"])?.text == "test-width-1  test-width-2  test-width-3  test-width-4\n"
-  assert ls_in(ctx, work, ["-C", "-w=100"])?.text == "test-width-1  test-width-2  test-width-3  test-width-4\n"
+  let invalid_width = ls_in(ctx, work, ["-C", "-w=100"])?
+  assert invalid_width.status == 2
+  assert invalid_width.err == "ls: invalid line width: '=100'\n", invalid_width.err
   assert ls_in(ctx, work, ["-C", "-w", "50"])?.text == "test-width-1  test-width-3\ntest-width-2  test-width-4\n"
   assert ls_in(ctx, work, ["-x", "-w", "30"])?.text == "test-width-1  test-width-2\ntest-width-3  test-width-4\n"
   assert ls_in(ctx, work, ["-C", "-w", "25"])?.text == "test-width-1\ntest-width-2\ntest-width-3\ntest-width-4\n"
@@ -501,13 +503,21 @@ test test_ls_layout_aliases { |ctx|
   }
   fp"{work}/two words".write("")
 
-  assert ls_in(ctx, work, ["--long", "first"])?.text == ls_in(ctx, work, ["-l", "first"])?.text
+  let unsupported = ls_in(ctx, work, ["--long", "first"])?
+  assert unsupported.status == 2
+  assert unsupported.err == "ls: unrecognized option '--long'\nTry 'ls --help' for more information.\n", unsupported.err
   assert ls_in(ctx, work, ["--l", "two words"], {LC_ALL: "C", TZ: "UTC", QUOTING_STYLE: "c"})?.text == "two words\n"
 
   let columns = ls_in(ctx, work, ["-C", "-w", "40"])?.text
 
-  for option in ["--format=column", "--format=columns", "--for=columns"] {
+  for option in ["--format=vertical", "--for=vertical"] {
     assert ls_in(ctx, work, [option, "-w", "40"])?.text == columns, option
+  }
+  for option in ["--format=column", "--format=columns", "--for=columns"] {
+    let invalid = ls_in(ctx, work, [option, "-w", "40"])?
+    assert invalid.status == 1
+    assert invalid.out == b""
+    assert "invalid argument" in invalid.err, invalid.err
   }
 }
 
@@ -637,12 +647,12 @@ test test_ls_color_fallback_requires_a_known_terminal { |ctx|
   assert colorterm.text == "\u{1b}[0m\u{1b}[01;32mexe\u{1b}[0m\n", colorterm.text
 }
 
-test test_ls_color_requires_a_capable_term_even_with_ls_colors { |ctx|
+test test_ls_explicit_ls_colors_override_terminal_detection { |ctx|
   let work = sandbox(ctx)?
   fp"{work}/exe".write("", mode: 0o755)
 
   let dumb = ls_in(ctx, work, ["--color=always", "exe"], {LC_ALL: "C", TZ: "UTC", LS_COLORS: "ex=1;31", TERM: "dumb", COLORTERM: ""})?
-  assert dumb.text == "exe\n", dumb.text
+  assert dumb.text == "\u{1b}[0m\u{1b}[1;31mexe\u{1b}[0m\n", dumb.text
 }
 
 test test_ls_no_style_precedes_the_total_line { |ctx|
@@ -660,9 +670,8 @@ test test_ls_explicit_color_survives_format_options { |ctx|
   fp"{work}/dir".mkdir()
   let vars = {LC_ALL: "C", TZ: "UTC", LS_COLORS: "", TERM: "xterm", COLORTERM: ""}
 
-  for args in [["--color=always", "-f"], ["-f", "--color=always"]] {
-    assert ls_in(ctx, work, args, vars)?.text.find("\u{1b}[01;34m") != null
-  }
+  assert ls_in(ctx, work, ["--color=always", "-f"], vars)?.text.find("\u{1b}") == null
+  assert ls_in(ctx, work, ["-f", "--color=always"], vars)?.text.find("\u{1b}[01;34m") != null
 
   let zero_resets = ls_in(ctx, work, ["--color=always", "--zero"], vars)?
   assert zero_resets.text.find("\u{1b}") == null, zero_resets.text
@@ -671,12 +680,13 @@ test test_ls_explicit_color_survives_format_options { |ctx|
   assert color_after_zero.text.find("\u{1b}[01;34m") != null, color_after_zero.text
 }
 
-test test_ls_explicit_literal_style_preserves_newlines { |ctx|
+test test_ls_literal_style_hides_newlines_unless_requested { |ctx|
   let work = sandbox(ctx)?
   fp"{work}/name\npart".write("")
 
-  assert ls_in(ctx, work, ["--quoting-style=literal"])?.text == "name\npart\n"
-  assert ls_in(ctx, work, [], {LC_ALL: "C", TZ: "UTC", QUOTING_STYLE: "literal"})?.text == "name\npart\n"
+  assert ls_in(ctx, work, ["--quoting-style=literal"])?.text == "name?part\n"
+  assert ls_in(ctx, work, ["--quoting-style=literal", "--show-control-chars"])?.text == "name\npart\n"
+  assert ls_in(ctx, work, [], {LC_ALL: "C", TZ: "UTC", QUOTING_STYLE: "literal"})?.text == "name?part\n"
 }
 
 test test_ls_color_normal_attributes_apply_to_long_fields { |ctx|
@@ -824,10 +834,27 @@ test test_ls_help_and_version_go_to_stdout { |ctx|
   assert help.status == 0
   assert help.err == ""
   assert "--version" in help.text
-  assert "-l, --long" in help.text
-  assert "column(s) -C" in help.text
+  assert "-l                         use a long listing format" in help.text
+  assert "vertical -C" in help.text
 
   let version = ls_in(ctx, work, ["--version"])?
   assert version.status == 0
   assert version.text.starts_with("ls (XSH core)"), version.text
+}
+
+test test_ls_gnu_option_and_environment_regressions { |ctx|
+  let work = sandbox(ctx)?
+  fp"{work}/exe".write("", mode: 0o755)
+  let width = ls_in(ctx, work, ["-w=4"])?
+  assert width.status == 2, width.err
+  assert "invalid line width: '=4'" in width.err, width.err
+  let time_style = ls_in(ctx, work, ["-l", "--time-style=posix-bogus", "exe"])?
+  assert time_style.status == 0, time_style.err
+  let term = ls_in(ctx, work, ["--color=always", "exe"])?
+  assert term.text == "exe\n", term.text
+  let invalid = ls_in(ctx, work, ["--lo"])?
+  assert invalid.status == 2, invalid.err
+  assert "unrecognized option '--lo'" in invalid.err, invalid.err
+  let unsupported = ls_in(ctx, work, ["--long"])?
+  assert unsupported.status == 2, unsupported.err
 }
