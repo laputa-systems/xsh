@@ -364,7 +364,22 @@ impl ScopeChecker<'_> {
                     self.facts.value_sites.insert((node.span, name), id);
                 }
             }
-            _ => self.stmt_children(statement),
+            ArenaStmtKind::Export(_)
+            | ArenaStmtKind::TypeDef(_)
+            | ArenaStmtKind::ErrorDef(_)
+            | ArenaStmtKind::SignalHook(_)
+            | ArenaStmtKind::Return(_)
+            | ArenaStmtKind::Yield(_)
+            | ArenaStmtKind::YieldDelegate(_)
+            | ArenaStmtKind::Defer(_, _)
+            | ArenaStmtKind::Loop { .. }
+            | ArenaStmtKind::Sugar { .. }
+            | ArenaStmtKind::Assert { .. }
+            | ArenaStmtKind::Break { .. }
+            | ArenaStmtKind::Continue
+            | ArenaStmtKind::Exit(_)
+            | ArenaStmtKind::Command(_)
+            | ArenaStmtKind::Expr(_) => self.stmt_children(statement),
         }
     }
 
@@ -440,7 +455,28 @@ impl ScopeChecker<'_> {
                 }
                 self.expr_children(expression);
             }
-            _ => self.expr_children(expression),
+            ArenaExprKind::Null | ArenaExprKind::Bool(_)
+            | ArenaExprKind::Int(_) | ArenaExprKind::Float(_)
+            | ArenaExprKind::Duration(_) | ArenaExprKind::Str(_)
+            | ArenaExprKind::PathStr(_) | ArenaExprKind::GlobStr(_)
+            | ArenaExprKind::FmtString(_) | ArenaExprKind::PathFmtString(_)
+            | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_)
+            | ArenaExprKind::LastStatus | ArenaExprKind::List(_)
+            | ArenaExprKind::Set(_) | ArenaExprKind::Unary { .. }
+            | ArenaExprKind::ComparisonChain(_) | ArenaExprKind::Binary { .. }
+            | ArenaExprKind::Call { .. } | ArenaExprKind::ValuePipelineCall { .. }
+            | ArenaExprKind::Field { .. } | ArenaExprKind::NullSafeField { .. }
+            | ArenaExprKind::Index { .. } | ArenaExprKind::Slice { .. }
+            | ArenaExprKind::EnvString(_) | ArenaExprKind::EnvPathList
+            | ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. }
+            | ArenaExprKind::Run(_) | ArenaExprKind::Spawn(_)
+            | ArenaExprKind::Wait(_) | ArenaExprKind::BuilderCall { .. }
+            | ArenaExprKind::Try(_) | ArenaExprKind::Capture(_)
+            | ArenaExprKind::Require { .. } | ArenaExprKind::Convert { .. }
+            | ArenaExprKind::Collect { .. } | ArenaExprKind::Loop { .. }
+            | ArenaExprKind::Retry { .. } | ArenaExprKind::ValueBlock(_)
+            | ArenaExprKind::ErrorContext { .. } | ArenaExprKind::ContextScope { .. }
+            | ArenaExprKind::TempDirScope { .. } => self.expr_children(expression),
         }
         if let ArenaExprKind::Field { base, name } = node.kind
             && let Some(base) = self.facts.expressions.get(&base)

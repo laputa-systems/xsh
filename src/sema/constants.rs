@@ -317,7 +317,45 @@ impl LiteralConstant {
                 }
                 Self::Record(Arc::new(values))
             }
-            _ => return None,
+            ArenaExprKind::GlobStr(_)
+            | ArenaExprKind::FmtString(_)
+            | ArenaExprKind::PathFmtString(_)
+            | ArenaExprKind::Item
+            | ArenaExprKind::LastStatus
+            | ArenaExprKind::ListComp { .. }
+            | ArenaExprKind::MapComp { .. }
+            | ArenaExprKind::Set(_)
+            | ArenaExprKind::SetComp { .. }
+            | ArenaExprKind::If { .. }
+            | ArenaExprKind::Match { .. }
+            | ArenaExprKind::PatternTest { .. }
+            | ArenaExprKind::PatternCondition { .. }
+            | ArenaExprKind::ComparisonChain(_)
+            | ArenaExprKind::Call { .. }
+            | ArenaExprKind::ValuePipelineCall { .. }
+            | ArenaExprKind::NullSafeField { .. }
+            | ArenaExprKind::Index { .. }
+            | ArenaExprKind::Slice { .. }
+            | ArenaExprKind::EnvString(_)
+            | ArenaExprKind::EnvPathList
+            | ArenaExprKind::Pipeline { .. }
+            | ArenaExprKind::StructuredPipeline { .. }
+            | ArenaExprKind::Run(_)
+            | ArenaExprKind::Spawn(_)
+            | ArenaExprKind::Wait(_)
+            | ArenaExprKind::BuilderCall { .. }
+            | ArenaExprKind::Try(_)
+            | ArenaExprKind::Capture(_)
+            | ArenaExprKind::Require { .. }
+            | ArenaExprKind::Convert { .. }
+            | ArenaExprKind::Collect { .. }
+            | ArenaExprKind::Loop { .. }
+            | ArenaExprKind::Retry { .. }
+            | ArenaExprKind::ValueBlock(_)
+            | ArenaExprKind::ErrorContext { .. }
+            | ArenaExprKind::ContextScope { .. }
+            | ArenaExprKind::TempDirScope { .. }
+            | ArenaExprKind::ResourceScope { .. } => return None,
         };
         constant_size_within_limit(&value).then_some(value)
     }
@@ -3318,7 +3356,54 @@ impl ConstantPreparation<'_> {
                 }
                 LiteralConstant::Int(bytes)
             }
-            _ => LiteralConstant::analyze(arena, id, &FxHashMap::default()).ok_or_else(failure)?,
+            ArenaExprKind::Null
+            | ArenaExprKind::Bool(_)
+            | ArenaExprKind::Float(_)
+            | ArenaExprKind::Duration(_)
+            | ArenaExprKind::Str(_)
+            | ArenaExprKind::PathStr(_)
+            | ArenaExprKind::GlobStr(_)
+            | ArenaExprKind::FmtString(_)
+            | ArenaExprKind::PathFmtString(_)
+            | ArenaExprKind::Int(_)
+            | ArenaExprKind::Bytes(_)
+            | ArenaExprKind::Regex(_)
+            | ArenaExprKind::Item
+            | ArenaExprKind::LastStatus
+            | ArenaExprKind::ListComp { .. }
+            | ArenaExprKind::MapComp { .. }
+            | ArenaExprKind::SetComp { .. }
+            | ArenaExprKind::If { .. }
+            | ArenaExprKind::Match { .. }
+            | ArenaExprKind::PatternTest { .. }
+            | ArenaExprKind::PatternCondition { .. }
+            | ArenaExprKind::ComparisonChain(_)
+            | ArenaExprKind::ValuePipelineCall { .. }
+            | ArenaExprKind::NullSafeField { .. }
+            | ArenaExprKind::Index { .. }
+            | ArenaExprKind::Slice { .. }
+            | ArenaExprKind::EnvString(_)
+            | ArenaExprKind::EnvPathList
+            | ArenaExprKind::Pipeline { .. }
+            | ArenaExprKind::StructuredPipeline { .. }
+            | ArenaExprKind::Run(_)
+            | ArenaExprKind::Spawn(_)
+            | ArenaExprKind::Wait(_)
+            | ArenaExprKind::BuilderCall { .. }
+            | ArenaExprKind::Try(_)
+            | ArenaExprKind::Capture(_)
+            | ArenaExprKind::Require { .. }
+            | ArenaExprKind::Convert { .. }
+            | ArenaExprKind::Collect { .. }
+            | ArenaExprKind::Loop { .. }
+            | ArenaExprKind::Retry { .. }
+            | ArenaExprKind::ValueBlock(_)
+            | ArenaExprKind::ErrorContext { .. }
+            | ArenaExprKind::ContextScope { .. }
+            | ArenaExprKind::TempDirScope { .. }
+            | ArenaExprKind::ResourceScope { .. } => {
+                LiteralConstant::analyze(arena, id, &FxHashMap::default()).ok_or_else(failure)?
+            }
         };
         if matches!(
             expr.kind,

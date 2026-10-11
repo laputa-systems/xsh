@@ -349,7 +349,35 @@ impl Analyzer<'_> {
             | ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expr)))
             | ArenaStmtKind::Yield(ArenaExprOrRun::Expr(expr)) => vec![expr],
             ArenaStmtKind::Assert { condition, .. } => vec![condition],
-            _ => return Vec::new(),
+            ArenaStmtKind::Let { initializer: ArenaExprOrRun::Run(_), .. }
+            | ArenaStmtKind::Var { initializer: ArenaExprOrRun::Run(_), .. }
+            | ArenaStmtKind::Assign { value: ArenaExprOrRun::Run(_), .. }
+            | ArenaStmtKind::Return(Some(ArenaExprOrRun::Run(_)))
+            | ArenaStmtKind::Return(None)
+            | ArenaStmtKind::Yield(ArenaExprOrRun::Run(_))
+            | ArenaStmtKind::Break { value: None }
+            | ArenaStmtKind::Const { .. }
+            | ArenaStmtKind::Use(_)
+            | ArenaStmtKind::Export(_)
+            | ArenaStmtKind::TypeDef(_)
+            | ArenaStmtKind::ErrorDef(_)
+            | ArenaStmtKind::ProcDef(_)
+            | ArenaStmtKind::CliMain(_)
+            | ArenaStmtKind::PureDef(_)
+            | ArenaStmtKind::StreamDef(_)
+            | ArenaStmtKind::SignalHook(_)
+            | ArenaStmtKind::Defer(_, _)
+            | ArenaStmtKind::If { .. }
+            | ArenaStmtKind::While { .. }
+            | ArenaStmtKind::For { .. }
+            | ArenaStmtKind::With { .. }
+            | ArenaStmtKind::Loop { .. }
+            | ArenaStmtKind::Guard { .. }
+            | ArenaStmtKind::Sugar { .. }
+            | ArenaStmtKind::Continue
+            | ArenaStmtKind::Match { .. }
+            | ArenaStmtKind::Command(_)
+            | ArenaStmtKind::TailBareIdent(_) => return Vec::new(),
         };
         let mut releases = Vec::new();
         let mut seen = FxHashSet::default();
@@ -369,7 +397,52 @@ impl Analyzer<'_> {
                 | ArenaExprKind::StructuredPipeline { .. }
                 | ArenaExprKind::ContextScope { .. }
                 | ArenaExprKind::Loop { .. } => true,
-                _ => false,
+                ArenaExprKind::Null
+                | ArenaExprKind::Bool(_)
+                | ArenaExprKind::Int(_)
+                | ArenaExprKind::Float(_)
+                | ArenaExprKind::Duration(_)
+                | ArenaExprKind::Str(_)
+                | ArenaExprKind::PathStr(_)
+                | ArenaExprKind::GlobStr(_)
+                | ArenaExprKind::FmtString(_)
+                | ArenaExprKind::PathFmtString(_)
+                | ArenaExprKind::Bytes(_)
+                | ArenaExprKind::Regex(_)
+                | ArenaExprKind::Ident(_)
+                | ArenaExprKind::Item
+                | ArenaExprKind::LastStatus
+                | ArenaExprKind::List(_)
+                | ArenaExprKind::ListComp { .. }
+                | ArenaExprKind::MapComp { .. }
+                | ArenaExprKind::Set(_)
+                | ArenaExprKind::SetComp { .. }
+                | ArenaExprKind::Record(_)
+                | ArenaExprKind::PatternTest { .. }
+                | ArenaExprKind::PatternCondition { .. }
+                | ArenaExprKind::Unary { .. }
+                | ArenaExprKind::ComparisonChain(_)
+                | ArenaExprKind::Call { .. }
+                | ArenaExprKind::Field { .. }
+                | ArenaExprKind::NullSafeField { .. }
+                | ArenaExprKind::Index { .. }
+                | ArenaExprKind::Slice { .. }
+                | ArenaExprKind::EnvString(_)
+                | ArenaExprKind::EnvPathList
+                | ArenaExprKind::Run(_)
+                | ArenaExprKind::Spawn(_)
+                | ArenaExprKind::Wait(_)
+                | ArenaExprKind::BuilderCall { .. }
+                | ArenaExprKind::Try(_)
+                | ArenaExprKind::Capture(_)
+                | ArenaExprKind::Require { .. }
+                | ArenaExprKind::Convert { .. }
+                | ArenaExprKind::Collect { .. }
+                | ArenaExprKind::Retry { .. }
+                | ArenaExprKind::ValueBlock(_)
+                | ArenaExprKind::ErrorContext { .. }
+                | ArenaExprKind::TempDirScope { .. }
+                | ArenaExprKind::ResourceScope { .. } => false,
             };
             if let Some(release) = self.expression_release(expr, locals)
                 && seen.insert(release)
