@@ -182,6 +182,20 @@ fn expr_pattern_if_view<'a>(
     super::ExprView::decode(execution, tag, payload).map_err(|error| indexed_error(error, span))
 }
 
+fn expr_if_branches<'e>(
+    execution: &'e FullExecution<'_>,
+    instruction: u32,
+    span: Span,
+) -> Result<ListView<'e, (BuildExprId, BuildExprId)>, RuntimeError> {
+    let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
+    match super::ExprView::decode(execution, tag, payload)
+        .map_err(|error| indexed_error(error, span))?
+    {
+        super::ExprView::IfExpr { branches, .. } => Ok(branches),
+        _ => unreachable!("if-expression instruction has an if-expression view"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -800,6 +814,8 @@ enum ExprPatternIfStep {
 type ExprPatternIfBranch = (BuildExprId, BuildExprId, Vec<usize>);
 type ExprPatternIfPosition = ListPosition<ExprPatternIfBranch>;
 
+type IfExprPosition = ListPosition<(BuildExprId, BuildExprId)>;
+
 struct ProcessCommandRunState {
     args: ListPosition<LoweredRunArg>,
     env_assignments: ListPosition<LoweredRunEnv>,
@@ -1305,9 +1321,10 @@ enum FrameContinuation {
         failure: super::AssertionFailure,
         span: Span,
     },
-    If {
-        branches: Vec<(u32, u32)>,
-        index: usize,
+    IfExpr {
+        instruction: u32,
+        position: IfExprPosition,
+        current_body: u32,
         else_value: u32,
         span: Span,
         next: Box<FrameContinuation>,
@@ -1605,7 +1622,7 @@ impl FrameContinuation {
             | C::IndexFromEnd { next, .. }
             | C::BinaryLeft { next, .. }
             | C::BoolBinaryRight { next, .. }
-            | C::If { next, .. }
+            | C::IfExpr { next, .. }
             | C::MatchExprValue { next, .. }
             | C::StrTagMatch { next, .. }
             | C::DynamicCallee { next, .. }
@@ -1730,7 +1747,7 @@ fn with_initializer_handler(
             | FrameContinuation::TypedBoolNot { next, .. }
             | FrameContinuation::TypedIntByteAtIndex { next, .. }
             | FrameContinuation::TypedIntByteAtFallback { next, .. }
-            | FrameContinuation::If { next, .. }
+            | FrameContinuation::IfExpr { next, .. }
             | FrameContinuation::MatchExprValue { next, .. }
             | FrameContinuation::StrTagMatch { next, .. }
             | FrameContinuation::MatchExprGuard { next, .. }
@@ -5660,31 +5677,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 else {
                     unreachable!("if-expression tag has an if-expression view")
                 };
-                let len = branches.len();
-                let mut values = self.evaluator.frame_scratch.take_if_branches();
-                values.reserve(len);
-                for branch in branches {
-                    let (condition, value) = branch.map_err(|error| indexed_error(error, span))?;
-                    values.push((condition.raw(), value.raw()));
-                }
-                let else_value = else_value.raw();
-                if let Some((condition, _)) = values.first().copied() {
-                    self.push_expr(
-                        index,
-                        condition,
-                        value_span,
-                        FrameContinuation::If {
-                            branches: values,
-                            index: 0,
-                            else_value,
-                            span: value_span,
-                            next: Box::new(next),
-                        },
-                    );
-                } else {
-                    self.evaluator.frame_scratch.recycle_if_branches(values);
-                    self.push_expr(index, else_value, value_span, next);
-                }
+                self.start_if_expr(
+                    index,
+                    instruction,
+                    branches.position(),
+                    else_value.raw(),
+                    value_span,
+                    span,
+                    Box::new(next),
+                )?;
             }
             FullTag::ExprMatch => {
                 let (value, decoded_arms, value_span) =
@@ -7548,37 +7549,26 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::If {
-                branches,
-                index: branch,
+            FrameContinuation::IfExpr {
+                instruction,
+                position,
+                current_body,
                 else_value,
                 span,
                 next,
             } => match value {
                 FrameValue::Value(value) => {
                     if lowered_condition_bool(value, span)? {
-                        let value = branches[branch].1;
-                        self.evaluator.frame_scratch.recycle_if_branches(branches);
-                        self.push_expr(index, value, span, *next);
+                        self.push_expr(index, current_body, span, *next);
                     } else {
-                        let next_index = branch + 1;
-                        if let Some((condition, _)) = branches.get(next_index).copied() {
-                            self.push_expr(
-                                index,
-                                condition,
-                                span,
-                                FrameContinuation::If {
-                                    branches,
-                                    index: next_index,
-                                    else_value,
-                                    span,
-                                    next,
-                                },
-                            );
-                        } else {
-                            self.evaluator.frame_scratch.recycle_if_branches(branches);
-                            self.push_expr(index, else_value, span, *next);
-                        }
+                        self.if_expr_condition_step(
+                            index,
+                            instruction,
+                            position,
+                            else_value,
+                            span,
+                            next,
+                        )?;
                     }
                 }
                 FrameValue::Break(value) => {
@@ -11255,6 +11245,98 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 step: ExprPatternIfStep::Condition,
             },
         );
+        Ok(())
+    }
+
+    fn start_if_expr(
+        &mut self,
+        index: usize,
+        instruction: u32,
+        position: IfExprPosition,
+        else_value: u32,
+        span: Span,
+        decode_span: Span,
+        next: Box<FrameContinuation>,
+    ) -> Result<(), RuntimeError> {
+        let (branch, position) = {
+            let mut branches =
+                expr_if_branches(&self.calls[index].execution, instruction, decode_span)?;
+            branches
+                .resume(position)
+                .map_err(|error| indexed_error(error, decode_span))?;
+            let first = branches
+                .next()
+                .transpose()
+                .map_err(|error| indexed_error(error, decode_span))?;
+            let position = branches.position();
+            // Validate future rows before any condition can run effects, without
+            // retaining their expression IDs.
+            for branch in branches {
+                branch.map_err(|error| indexed_error(error, decode_span))?;
+            }
+            (
+                first.map(|(condition, body)| (condition.raw(), body.raw())),
+                position,
+            )
+        };
+        if let Some((condition, current_body)) = branch {
+            self.push_expr(
+                index,
+                condition,
+                span,
+                FrameContinuation::IfExpr {
+                    instruction,
+                    position,
+                    current_body,
+                    else_value,
+                    span,
+                    next,
+                },
+            );
+        } else {
+            self.push_expr(index, else_value, span, *next);
+        }
+        Ok(())
+    }
+
+    fn if_expr_condition_step(
+        &mut self,
+        index: usize,
+        instruction: u32,
+        position: IfExprPosition,
+        else_value: u32,
+        span: Span,
+        next: Box<FrameContinuation>,
+    ) -> Result<(), RuntimeError> {
+        let branch = {
+            let mut branches = expr_if_branches(&self.calls[index].execution, instruction, span)?;
+            branches
+                .resume(position)
+                .map_err(|error| indexed_error(error, span))?;
+            let branch = branches
+                .next()
+                .transpose()
+                .map_err(|error| indexed_error(error, span))?;
+            let position = branches.position();
+            branch.map(|(condition, body)| (condition.raw(), body.raw(), position))
+        };
+        if let Some((condition, current_body, position)) = branch {
+            self.push_expr(
+                index,
+                condition,
+                span,
+                FrameContinuation::IfExpr {
+                    instruction,
+                    position,
+                    current_body,
+                    else_value,
+                    span,
+                    next,
+                },
+            );
+        } else {
+            self.push_expr(index, else_value, span, *next);
+        }
         Ok(())
     }
 
