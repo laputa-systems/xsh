@@ -108,33 +108,143 @@ fn driver_owner_index(owner: u32) -> Option<usize> {
     usize::try_from((owner & !DRIVER_OWNER_BIT).checked_sub(1)?).ok()
 }
 
-
-
 pub(in crate::runtime::eval) use schema::FullPatternTag;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u8)]
-pub(in crate::runtime::eval) enum FullValueTag {
-    Null,
-    Unit,
-    Int,
-    Float,
-    Duration,
-    Bool,
-    Str,
-    Bytes,
-    Regex,
-    Path,
-    Record,
-    RecordVec,
-    Stats,
-    StatsBlob,
-    Module,
-    List,
-    Map,
-    Tag,
-    ResultOk,
-    Set,
+macro_rules! value_codec_verify_field {
+    ($decoder:ident, $payload:ident; $field_ty:ty) => {
+        <$field_ty as FullCodec>::verify($decoder, &mut $payload)?;
+    };
+    ($decoder:ident, $payload:ident; $field_ty:ty => $verify_ty:ty) => {
+        <$verify_ty as FullCodec>::verify($decoder, &mut $payload)?;
+    };
+}
+
+/// Keeps persisted value tags and their wire field order in one declaration.
+macro_rules! lowered_value_schema {
+    (
+        context { $builder:ident, $decoder:ident, $payload:ident }
+        rows {
+            $(
+                $tag:ident = $ordinal:literal {
+                    fields { $($field:ident: $field_ty:ty $(=> $verify_ty:ty)?),* $(,)? }
+                    encode { $pattern:pat => { $($prepare:tt)* } }
+                    decode $construct:expr
+                }
+            )*
+        }
+        aliases {
+            $(
+                $alias:pat => $alias_tag:ident {
+                    fields { $($alias_field:expr),* $(,)? }
+                }
+            )*
+        }
+        custom {
+            $(
+                $custom_tag:ident = $custom_ordinal:literal {
+                    encode { $($custom_pattern:pat => $encode:block),+ $(,)? }
+                    decode $decode:block
+                    verify $verify:block
+                }
+            )*
+        }
+        reject { $($rejected:pat => $reject:block),* $(,)? }
+    ) => {
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        #[repr(u8)]
+        pub(in crate::runtime::eval) enum FullValueTag {
+            $($tag = $ordinal,)*
+            $($custom_tag = $custom_ordinal,)*
+        }
+
+        impl FullCodec for LoweredValue {
+            fn encode(
+                &self,
+                $builder: &mut FullBuilder,
+                output: &mut Vec<u32>,
+            ) -> Result<(), IrBuildError> {
+                let mut $payload = $builder.take_payload();
+                let tag = match self {
+                    $(
+                        $pattern => {
+                            $($prepare)*
+                            $($field.encode($builder, &mut $payload)?;)*
+                            FullValueTag::$tag
+                        },
+                    )*
+                    $(
+                        $alias => {
+                            $($alias_field.encode($builder, &mut $payload)?;)*
+                            FullValueTag::$alias_tag
+                        },
+                    )*
+                    $(
+                        $(
+                            $custom_pattern => {
+                                $encode
+                                FullValueTag::$custom_tag
+                            },
+                        )+
+                    )*
+                    $($rejected => $reject,)*
+                };
+                let value = $builder.push_value(tag, &$payload);
+                $builder.recycle_payload($payload);
+                output.push(value?);
+                Ok(())
+            }
+
+            fn decode(
+                $decoder: &FullDecoder<'_>,
+                input: &mut FullCursor<'_>,
+            ) -> Result<Self, IrVerifyError> {
+                let index = input.raw()? as usize;
+                let tag = $decoder
+                    .store
+                    .values
+                    .get(index)
+                    .copied()
+                    .ok_or_else(|| IrVerifyError::new("literal value id is out of bounds"))?;
+                let data = $decoder.store.value_data[index];
+                let mut $payload = FullCursor::new($decoder.store.payload(data.range())?);
+                let value = match tag {
+                    $(
+                        FullValueTag::$tag => {
+                            $(let $field = <$field_ty as FullCodec>::decode($decoder, &mut $payload)?;)*
+                            $construct
+                        },
+                    )*
+                    $(FullValueTag::$custom_tag => $decode,)*
+                };
+                $payload.finish()?;
+                Ok(value)
+            }
+
+            fn verify(
+                $decoder: &FullDecoder<'_>,
+                input: &mut FullCursor<'_>,
+            ) -> Result<(), IrVerifyError> {
+                let index = input.raw()? as usize;
+                let tag = $decoder
+                    .store
+                    .values
+                    .get(index)
+                    .copied()
+                    .ok_or_else(|| IrVerifyError::new("literal value id is out of bounds"))?;
+                let data = $decoder.store.value_data[index];
+                let mut $payload = FullCursor::new($decoder.store.payload(data.range())?);
+                match tag {
+                    $(
+                        FullValueTag::$tag => {
+                            $(value_codec_verify_field!($decoder, $payload; $field_ty $(=> $verify_ty)?);)*
+                        },
+                    )*
+                    $(FullValueTag::$custom_tag => $verify,)*
+                }
+                $payload.finish()
+            }
+        }
+    };
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -5712,273 +5822,167 @@ fn decode_set_payload(
     Ok(elements)
 }
 
-impl FullCodec for LoweredValue {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        let mut payload = builder.take_payload();
-        let tag = match self {
-            Self::OmittedArgument => {
-                return Err(IrBuildError::format("omitted_argument_literal", None, 0, 0));
-            }
-            Self::Null => FullValueTag::Null,
-            Self::Unit => FullValueTag::Unit,
-            Self::Int(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::Int
-            }
-            Self::Float(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::Float
-            }
-            Self::Duration(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::Duration
-            }
-            Self::Bool(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::Bool
-            }
-            Self::Str(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::Str
-            }
-            Self::StrView(value) => {
-                Arc::<str>::from(value.as_str()).encode(builder, &mut payload)?;
-                FullValueTag::Str
-            }
-            Self::Bytes(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::Bytes
-            }
-            Self::BytesView(value) => {
-                Arc::<[u8]>::from(value.as_slice()).encode(builder, &mut payload)?;
-                FullValueTag::Bytes
-            }
-            Self::Path(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::Path
-            }
-            Self::Record(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::Record
-            }
-            Self::RecordVec(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::RecordVec
-            }
-            Self::Stats {
-                blanks,
-                code,
-                comments,
-            } => {
-                blanks.encode(builder, &mut payload)?;
-                code.encode(builder, &mut payload)?;
-                comments.encode(builder, &mut payload)?;
-                FullValueTag::Stats
-            }
-            Self::StatsBlob(value) => {
-                value.blanks.encode(builder, &mut payload)?;
-                value.blobs.encode(builder, &mut payload)?;
-                value.code.encode(builder, &mut payload)?;
-                value.comments.encode(builder, &mut payload)?;
-                FullValueTag::StatsBlob
-            }
-            Self::Module(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::Module
-            }
-            Self::List(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::List
-            }
-            Self::SharedList(value) => {
-                value.as_ref().encode(builder, &mut payload)?;
-                FullValueTag::List
-            }
-            Self::Map(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::Map
-            }
-            // A constant set: its length, then its elements in set order.
-            Self::Set(value) => {
-                payload.push(
-                    u32::try_from(value.len())
-                        .map_err(|_| IrBuildError::format("set_overflow", None, 0, 0))?,
-                );
-                for element in value.iter() {
-                    element.encode(builder, &mut payload)?;
-                }
-                FullValueTag::Set
-            }
-            Self::Tag(value) => {
-                value.type_name.encode(builder, &mut payload)?;
-                value.wire.encode(builder, &mut payload)?;
-                value.name.encode(builder, &mut payload)?;
-                value.fields.encode(builder, &mut payload)?;
-                FullValueTag::Tag
-            }
-            Self::ResultOk(value) => {
-                value.encode(builder, &mut payload)?;
-                FullValueTag::ResultOk
-            }
-            Self::Regex(value) => {
-                value.as_ref().encode(builder, &mut payload)?;
-                FullValueTag::Regex
-            }
-            Self::Digest(_)
-            | Self::Status(_)
-            | Self::FsEntry(_)
-            | Self::Command(_)
-            | Self::ProcessHandle(_)
-            | Self::NetJob(_)
-            | Self::FsRoot(_)
-            | Self::FsLock(_)
-            | Self::Stream(_)
-            | Self::Pure(_)
-            | Self::Proc(_)
-            | Self::Error(_)
-            | Self::ResultErr(_) => {
-                return Err(IrBuildError::format(
-                    "non_literal_persistent_value",
-                    None,
-                    0,
-                    0,
-                ));
-            }
-        };
-        let value = builder.push_value(tag, &payload);
-        builder.recycle_payload(payload);
-        output.push(value?);
-        Ok(())
-    }
-
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        let index = input.raw()? as usize;
-        let tag = decoder
-            .store
-            .values
-            .get(index)
-            .copied()
-            .ok_or_else(|| IrVerifyError::new("literal value id is out of bounds"))?;
-        let data = decoder.store.value_data[index];
-        let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
-        let value = match tag {
-            FullValueTag::Null => Self::Null,
-            FullValueTag::Unit => Self::Unit,
-            FullValueTag::Int => Self::Int(i64::decode(decoder, &mut payload)?),
-            FullValueTag::Float => Self::Float(FloatValue::decode(decoder, &mut payload)?),
-            FullValueTag::Duration => Self::Duration(DurationValue::decode(decoder, &mut payload)?),
-            FullValueTag::Bool => Self::Bool(bool::decode(decoder, &mut payload)?),
-            FullValueTag::Str => Self::Str(Arc::<str>::decode(decoder, &mut payload)?),
-            FullValueTag::Bytes => Self::Bytes(Arc::<[u8]>::decode(decoder, &mut payload)?),
-            FullValueTag::Regex => {
-                Self::Regex(Box::new(RegexValue::decode(decoder, &mut payload)?))
-            }
-            FullValueTag::Path => Self::Path(PathValue::decode(decoder, &mut payload)?),
-            FullValueTag::Record => Self::Record(Arc::new(
-                BTreeMap::<Arc<str>, LoweredValue>::decode(decoder, &mut payload)?,
-            )),
-            FullValueTag::RecordVec => Self::RecordVec(Arc::new(
-                Vec::<(Name, LoweredValue)>::decode(decoder, &mut payload)?,
-            )),
-            FullValueTag::Stats => Self::Stats {
-                blanks: i64::decode(decoder, &mut payload)?,
-                code: i64::decode(decoder, &mut payload)?,
-                comments: i64::decode(decoder, &mut payload)?,
-            },
-            FullValueTag::StatsBlob => Self::StatsBlob(Box::new(LoweredStatsValue {
-                blanks: i64::decode(decoder, &mut payload)?,
-                blobs: BTreeMap::<crate::map_key::MapKey, LoweredValue>::decode(
-                    decoder,
-                    &mut payload,
-                )?,
-                code: i64::decode(decoder, &mut payload)?,
-                comments: i64::decode(decoder, &mut payload)?,
-            })),
-            FullValueTag::Module => Self::Module(Arc::new(
-                BTreeMap::<Arc<str>, LoweredValue>::decode(decoder, &mut payload)?,
-            )),
-            FullValueTag::List => Self::List(Vec::<LoweredValue>::decode(decoder, &mut payload)?),
-            FullValueTag::Map => Self::Map(Arc::new(BTreeMap::<
-                crate::map_key::MapKey,
-                LoweredValue,
-            >::decode(decoder, &mut payload)?)),
-            FullValueTag::Tag => Self::Tag(Box::new(LoweredTagValue {
-                type_name: Name::decode(decoder, &mut payload)?,
-                wire: Option::decode(decoder, &mut payload)?,
-                name: Arc::<str>::decode(decoder, &mut payload)?,
-                fields: Vec::<LoweredValue>::decode(decoder, &mut payload)?,
-            })),
-            FullValueTag::ResultOk => {
-                Self::ResultOk(Box::new(LoweredValue::decode(decoder, &mut payload)?))
-            }
-            FullValueTag::Set => Self::Set(Arc::new(decode_set_payload(decoder, &mut payload)?)),
-        };
-        payload.finish()?;
-        Ok(value)
-    }
-
-    fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
-        let index = input.raw()? as usize;
-        let tag = decoder
-            .store
-            .values
-            .get(index)
-            .copied()
-            .ok_or_else(|| IrVerifyError::new("literal value id is out of bounds"))?;
-        let data = decoder.store.value_data[index];
-        let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
-        match tag {
-            FullValueTag::Null | FullValueTag::Unit => {}
-            FullValueTag::Int => i64::verify(decoder, &mut payload)?,
-            FullValueTag::Float => FloatValue::verify(decoder, &mut payload)?,
-            FullValueTag::Duration => DurationValue::verify(decoder, &mut payload)?,
-            FullValueTag::Bool => bool::verify(decoder, &mut payload)?,
-            FullValueTag::Str => Arc::<str>::verify(decoder, &mut payload)?,
-            FullValueTag::Bytes => Arc::<[u8]>::verify(decoder, &mut payload)?,
-            FullValueTag::Regex => RegexValue::verify(decoder, &mut payload)?,
-            FullValueTag::Path => PathValue::verify(decoder, &mut payload)?,
-            FullValueTag::Record => {
-                BTreeMap::<Arc<str>, LoweredValue>::verify(decoder, &mut payload)?;
-            }
-            FullValueTag::RecordVec => {
-                Vec::<(Name, LoweredValue)>::verify(decoder, &mut payload)?;
-            }
-            FullValueTag::Stats => {
-                i64::verify(decoder, &mut payload)?;
-                i64::verify(decoder, &mut payload)?;
-                i64::verify(decoder, &mut payload)?;
-            }
-            FullValueTag::StatsBlob => {
-                i64::verify(decoder, &mut payload)?;
-                BTreeMap::<String, LoweredValue>::verify(decoder, &mut payload)?;
-                i64::verify(decoder, &mut payload)?;
-                i64::verify(decoder, &mut payload)?;
-            }
-            FullValueTag::Module => {
-                BTreeMap::<Arc<str>, LoweredValue>::verify(decoder, &mut payload)?;
-            }
-            FullValueTag::List => Vec::<LoweredValue>::verify(decoder, &mut payload)?,
-            FullValueTag::Map => {
-                BTreeMap::<crate::map_key::MapKey, LoweredValue>::verify(decoder, &mut payload)?;
-            }
-            FullValueTag::Tag => {
-                Name::verify(decoder, &mut payload)?;
-                Option::<Arc<crate::sema::wire_enums::WireEnumMapping>>::verify(
-                    decoder,
-                    &mut payload,
-                )?;
-                Arc::<str>::verify(decoder, &mut payload)?;
-                Vec::<LoweredValue>::verify(decoder, &mut payload)?;
-            }
-            FullValueTag::ResultOk => LoweredValue::verify(decoder, &mut payload)?,
-            FullValueTag::Set => {
-                decode_set_payload(decoder, &mut payload)?;
-            }
+lowered_value_schema! {
+    context { builder, decoder, payload }
+    rows {
+        Null = 0 {
+            fields {}
+            encode { Self::Null => {} }
+            decode Self::Null
         }
-        payload.finish()
+        Unit = 1 {
+            fields {}
+            encode { Self::Unit => {} }
+            decode Self::Unit
+        }
+        Int = 2 {
+            fields { value: i64 }
+            encode { Self::Int(value) => {} }
+            decode Self::Int(value)
+        }
+        Float = 3 {
+            fields { value: FloatValue }
+            encode { Self::Float(value) => {} }
+            decode Self::Float(value)
+        }
+        Duration = 4 {
+            fields { value: DurationValue }
+            encode { Self::Duration(value) => {} }
+            decode Self::Duration(value)
+        }
+        Bool = 5 {
+            fields { value: bool }
+            encode { Self::Bool(value) => {} }
+            decode Self::Bool(value)
+        }
+        Str = 6 {
+            fields { value: Arc<str> }
+            encode { Self::Str(value) => {} }
+            decode Self::Str(value)
+        }
+        Bytes = 7 {
+            fields { value: Arc<[u8]> }
+            encode { Self::Bytes(value) => {} }
+            decode Self::Bytes(value)
+        }
+        Regex = 8 {
+            fields { value: RegexValue }
+            encode { Self::Regex(value) => { let value = value.as_ref(); } }
+            decode Self::Regex(Box::new(value))
+        }
+        Path = 9 {
+            fields { value: PathValue }
+            encode { Self::Path(value) => {} }
+            decode Self::Path(value)
+        }
+        Record = 10 {
+            fields { value: BTreeMap<Arc<str>, LoweredValue> }
+            encode { Self::Record(value) => { let value = value.as_ref(); } }
+            decode Self::Record(Arc::new(value))
+        }
+        RecordVec = 11 {
+            fields { value: Vec<(Name, LoweredValue)> }
+            encode { Self::RecordVec(value) => { let value = value.as_ref(); } }
+            decode Self::RecordVec(Arc::new(value))
+        }
+        Stats = 12 {
+            fields { blanks: i64, code: i64, comments: i64 }
+            encode {
+                Self::Stats { blanks, code, comments } => {}
+            }
+            decode Self::Stats { blanks, code, comments }
+        }
+        // Owned decoding reconstructs MapKey keys; verification preserves the legacy string-key check.
+        StatsBlob = 13 {
+            fields {
+                blanks: i64,
+                blobs: BTreeMap<crate::map_key::MapKey, LoweredValue> => BTreeMap<String, LoweredValue>,
+                code: i64,
+                comments: i64,
+            }
+            encode {
+                Self::StatsBlob(value) => {
+                    let LoweredStatsValue { blanks, blobs, code, comments } = value.as_ref();
+                }
+            }
+            decode Self::StatsBlob(Box::new(LoweredStatsValue { blanks, blobs, code, comments }))
+        }
+        Module = 14 {
+            fields { value: BTreeMap<Arc<str>, LoweredValue> }
+            encode { Self::Module(value) => { let value = value.as_ref(); } }
+            decode Self::Module(Arc::new(value))
+        }
+        List = 15 {
+            fields { value: Vec<LoweredValue> }
+            encode { Self::List(value) => {} }
+            decode Self::List(value)
+        }
+        Map = 16 {
+            fields { value: BTreeMap<crate::map_key::MapKey, LoweredValue> }
+            encode { Self::Map(value) => { let value = value.as_ref(); } }
+            decode Self::Map(Arc::new(value))
+        }
+        Tag = 17 {
+            fields {
+                type_name: Name,
+                wire: Option<Arc<crate::sema::wire_enums::WireEnumMapping>>,
+                name: Arc<str>,
+                fields: Vec<LoweredValue>,
+            }
+            encode {
+                Self::Tag(value) => {
+                    let LoweredTagValue { type_name, wire, name, fields } = value.as_ref();
+                }
+            }
+            decode Self::Tag(Box::new(LoweredTagValue { type_name, wire, name, fields }))
+        }
+        ResultOk = 18 {
+            fields { value: LoweredValue }
+            encode { Self::ResultOk(value) => { let value = value.as_ref(); } }
+            decode Self::ResultOk(Box::new(value))
+        }
+    }
+    aliases {
+        Self::StrView(value) => Str { fields { Arc::<str>::from(value.as_str()) } }
+        Self::BytesView(value) => Bytes { fields { Arc::<[u8]>::from(value.as_slice()) } }
+        Self::SharedList(value) => List { fields { value.as_ref() } }
+    }
+    custom {
+        Set = 19 {
+            encode {
+                Self::Set(value) => {
+                    payload.push(
+                        u32::try_from(value.len())
+                            .map_err(|_| IrBuildError::format("set_overflow", None, 0, 0))?,
+                    );
+                    for element in value.iter() {
+                        element.encode(builder, &mut payload)?;
+                    }
+                }
+            }
+            decode { Self::Set(Arc::new(decode_set_payload(decoder, &mut payload)?)) }
+            verify { decode_set_payload(decoder, &mut payload)?; }
+        }
+    }
+    reject {
+        Self::OmittedArgument => {
+            return Err(IrBuildError::format("omitted_argument_literal", None, 0, 0));
+        },
+        Self::Digest(_)
+        | Self::Status(_)
+        | Self::FsEntry(_)
+        | Self::Command(_)
+        | Self::ProcessHandle(_)
+        | Self::NetJob(_)
+        | Self::FsRoot(_)
+        | Self::FsLock(_)
+        | Self::Stream(_)
+        | Self::Pure(_)
+        | Self::Proc(_)
+        | Self::Error(_)
+        | Self::ResultErr(_) => {
+            return Err(IrBuildError::format("non_literal_persistent_value", None, 0, 0));
+        }
     }
 }
 
@@ -9166,6 +9170,35 @@ pure selected() -> Str {
             size_of::<FullTag>() + size_of::<IrData>(),
             9,
             "full indexed instructions use one-byte tags and eight-byte data"
+        );
+    }
+
+    #[test]
+    fn lowered_value_tags_keep_wire_ordinals() {
+        assert_eq!(
+            [
+                FullValueTag::Null as u8,
+                FullValueTag::Unit as u8,
+                FullValueTag::Int as u8,
+                FullValueTag::Float as u8,
+                FullValueTag::Duration as u8,
+                FullValueTag::Bool as u8,
+                FullValueTag::Str as u8,
+                FullValueTag::Bytes as u8,
+                FullValueTag::Regex as u8,
+                FullValueTag::Path as u8,
+                FullValueTag::Record as u8,
+                FullValueTag::RecordVec as u8,
+                FullValueTag::Stats as u8,
+                FullValueTag::StatsBlob as u8,
+                FullValueTag::Module as u8,
+                FullValueTag::List as u8,
+                FullValueTag::Map as u8,
+                FullValueTag::Tag as u8,
+                FullValueTag::ResultOk as u8,
+                FullValueTag::Set as u8,
+            ],
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
         );
     }
 
