@@ -1288,8 +1288,8 @@ Because the checker establishes the property, typed code never tests it
 again. Where an unchecked value reaches a checked slot at run time (an
 argument of a dynamic `Proc.call` or `Pure.call`), the slot's type is tested
 there, validation included, and a value that fails is the same `type-error` a
-value of the wrong type is. `first()` and `last()` on a dynamic (`Any`)
-receiver fail with `index-out-of-bounds` on an empty list.
+value of the wrong type is. An `Any` receiver must be validated before
+calling `first()` or `last()`.
 
 A rest parameter collects zero or more arguments, so it is a `List[T]` and
 cannot be declared `NonEmpty[T]`. `cli main` parameters do not take a
@@ -1396,23 +1396,28 @@ records, results of dynamic callables. A concrete value can always become
 `Any`, but `Any` never becomes concrete implicitly. Without validation, an
 `Any` value may only:
 
-- be navigated: `.name`, `?.name`, `[key]`, `?[key]`, `[a..b]`, `?`, method
-  calls with positional arguments, and `for` iteration are checked at runtime
-  and produce `Any`;
 - flow where `Any` is expected: an `Any` binding, parameter, return, record
   field, or `List[Any]` or `Map[Any]` element, including APIs such as
   `json.encode` that accept `Any`;
 - be compared with `==` or `!=`, tested with `in`/`not in` against a `List`,
   or used as a `group-by` or `unique-by` key, which compare by equality and are
   defined for every pair of values;
-- be validated by `.require(T)` or a type pattern.
+- be validated by `.require(T)`, a contextual `.require()`, or a type pattern;
+- be read or rebuilt by path with `json.get`, `json.set`, or `json.remove`.
+  `json.get(value, path)` returns `Result[Any]`; its fallback form returns
+  `Any` and uses the fallback when the path is absent.
+
+Field and index access, guarded navigation, slicing, iteration,
+comprehensions, pipeline sources, method calls, spread operands, `?`,
+`attempt`, and `wait` require validation first. A `List[Any]` or `Map[Any]`
+is a concrete container whose elements remain opaque.
 
 Every other use needs a concrete type that the data may not have, and is
 `check.dynamic-boundary`: a typed binding, parameter, return, or field; an
 arithmetic, ordering, or logical operand, including a `sort-by` key and
 `min`/`max` items; a condition; any other membership operand; an index into a
 concrete container; f-string interpolation, a command word, a `print`
-argument, or a `count` key; and named arguments to a dynamic method. `??`
+argument, or a `count` key. `??`
 applies only to `Optional` and `Result`, so a possibly-null field is validated
 as `T?` first.
 
@@ -1739,8 +1744,8 @@ from the end: `list[-1]` is the last item, and `list[-n]` requires
 `n <= len`. Only the literal does. An index computed at run time that turns
 out negative still fails with `index-out-of-range`, so an off-by-one never
 reads the last item silently, and `-0` is `0`. The rule belongs to reading an
-item of a `List`: `Str` and `Bytes` have no single-element indexing, a value
-of type `Any` is indexed as written, and an assignment target (`list[-1] = x`)
+item of a `List`: `Str` and `Bytes` have no single-element indexing, an `Any`
+must be validated before indexing, and an assignment target (`list[-1] = x`)
 does not count from the end. A negative literal that reaches past the start
 of a list literal is `check.index-out-of-range`:
 
@@ -4396,9 +4401,9 @@ Contracts worth knowing without consulting the reference:
   {{.spec.argument_label_positional.source}}
   ```
 
-  A method called on an unchecked `Any` receiver takes no named argument at
-  all, so there the argument stays positional until the receiver is
-  validated. `fs.symlink(target, link)` keeps its two positional operands;
+  An unchecked `Any` receiver must be validated before any method call.
+  `FsRoot.symlink(target:, path:)` requires both labels and evaluates the
+  supplied operands in source order. `fs.symlink(target, link)` keeps its two positional operands;
   `lint.prefer-argument-label` rewrites it to `link.symlink(to: target)`.
   The method evaluates the link before the target, so the rewrite is offered
   only where the order cannot be observed: one operand is a literal, or both

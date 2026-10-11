@@ -525,7 +525,10 @@ Over an optional it binds the value that is not `null` the same way:
 
 `jq` is a second language you embed as strings inside the first. In XSH, JSON
 is just data, with one rule: decoded JSON has type `Any`, and you must check
-it against a schema before using its values.
+it against a schema before using its values. For an open shape, `json.get`
+reads a path and returns an opaque value to validate or compare; `json.set`
+and `json.remove` rebuild by path. Field and index navigation require a
+validated receiver.
 
 ```xsh
 {{.tour.json_services.source}}

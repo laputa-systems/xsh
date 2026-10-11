@@ -3,7 +3,7 @@
   "limits": [
     {
       "metric": "source_lines_src",
-      "ceiling": 192984,
+      "ceiling": 193174,
       "approval": "Campaign integrator, approved contracts and recorded slice budgets, 2026-10-11",
       "reason": "Bounded partition, child enumeration, resource, diagnostic, evaluator, Any and command-plan prerequisites; every completed removal slice retains its own net-reduction target.",
       "remove_when": "All workstreams reach their structural end states; final closure requires fewer source lines than the unchanged starting baseline."
@@ -17,7 +17,7 @@
     },
     {
       "metric": "blanket_dead_code_lines",
-      "ceiling": 51815,
+      "ceiling": 52005,
       "approval": "Campaign integrator, inherited scopes during approved prerequisite partitions, 2026-10-11",
       "reason": "Existing inherited blanket scopes temporarily cover bounded prerequisite scaffolding. This permits no new blanket allowance or hidden unused path.",
       "remove_when": "Dead paths and blanket allowances are removed; final closure requires this metric to be zero and rejects this envelope."

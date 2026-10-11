@@ -567,7 +567,8 @@ tests start a fresh process, while an in-process `run_script` exists and is
 not wired to them.
 
 **End state.** A module is checked once per workspace within one process,
-and a fix round rechecks only the changed module and its importers. The
+and each fix round checks its freshly parsed affected bundle without reusing
+records from older arenas, as specified in the approved module-check design. The
 checker prepares a bundle once. Lowering a stage copies nothing. Parameter
 lookup in a spread is by name. The limits listed in `TODO.md` are
 diagnostics. An on-disk cache and in-process script tests are not part of

@@ -32,7 +32,7 @@ Navigation is removed. Each of these on a receiver of type `Any` becomes
 | `v.method(args)` | `v.require(T)?.method(args)` with the receiver type the method needs |
 | `v?` | `v.require(T)?` |
 | `{...v}` | `{...v.require(T)?}` |
-| `wait v` | `wait v.require(ProcessHandle)?` |
+| `wait v` | `let handle: ProcessHandle = v.require()?`, then `wait handle` |
 
 No new syntax, keyword, method, or diagnostic code is added. The escape hatch
 for code without a schema is `json.get`, which is greppable and local. This
@@ -47,8 +47,9 @@ Unchanged:
   one still has type `Any`; what changes is that the result is opaque. A
   module contract (SPEC 4.9) remains the typed way into a loaded module.
 - `Pure.call` and `Proc.call` still return `Any` and `Result[Any, Error]`.
-- An API parameter declared `Any`, such as the words of
-  `process.command_argv`, still accepts an `Any` argument. A parameter
+- An API parameter declared `Any`, such as the value of `json.encode`,
+  still accepts an `Any` argument. `process.command_argv` takes concrete
+  `List[Str]` or `List[Path]` words; its checker exceptions are removed. A parameter
   declared with a concrete type that today accepts `Any` by a special case in
   the checker stops accepting it.
 
@@ -114,7 +115,9 @@ either way.
 - `tests/xsh/checker-records.xsh` or a new `tests/xsh/checker-any.xsh`:
   accepted programs for each permitted use, including `json.get` with and
   without a fallback on a record, a `Str`-keyed map, and a list.
-- The existing fix test for `check.dynamic-boundary` still passes unchanged.
+- The existing contextual-fix test for `check.dynamic-boundary` retains its
+  target inference and grouping coverage, with raw navigation replaced by
+  `json.get` under the owner's approved test migration.
 
 ## Relies on
 

@@ -316,6 +316,13 @@ gate, with the selected target and profile. Compiler preload stays confined to
 build steps; test processes never inherit it. Executable discovery includes
 the target profile's nested Cargo output directories. For XSH source coverage, run `xsht test --cov`;
 add `--api` for API hits and `--cov-json FILE` for the machine-readable report.
+Instrumented fuzz workers forward only an explicit `LLVM_PROFILE_FILE` from
+the caller environment. Their file-size soft limit remains zero during script
+evaluation, deferred cleanup and output; immediately before the compiler profile
+flush they restore the inherited limit. Without that destination, both file-size
+limits remain zero. Host regressions verify environment isolation, a nonempty
+profile and rejected script file growth. Limit setup/restoration errors are fatal.
+
 The line denominator counts parsed executable statements in every configured
 file, including files no test loads; `proc entries` reports only whether each
 callable was entered. Exclude source families with `[coverage] exclude`.

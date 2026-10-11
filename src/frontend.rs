@@ -11,7 +11,8 @@ pub mod check {
         bind_static_arguments, expand_named_arguments,
     };
     pub use crate::sema::check::{
-        AnnotationFact, AnnotationFactKind, CheckOptions, CheckOutput, CheckedProjection,
+        AnnotationFact, AnnotationFactKind, BindingDeclaration, BindingId, BindingKind,
+        CheckOptions, CheckOutput, CheckedProjection, ResolvedBindings,
         CheckedStreamStage, Checker, CompactBodyFacts, CompactDeclOutput, CompactFunctionSig,
         CompactTypeDefInfo, Conversion, EffectDeclarationId, ErrorFamilyInfo, ErrorVariantInfo,
         FunctionEffectFact, MessagePayloadConstructor, ProjectionOperation, RecordRequireMigration,

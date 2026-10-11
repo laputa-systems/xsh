@@ -67,7 +67,7 @@ Three disagreements follow, all listed in `TODO.md`:
   unresolved import and the check continues with the checker's recovery
   type, as the in-process check does today.
 - `parse.module-read` remains for a candidate that exists and cannot be
-  read, or is not UTF-8.
+  read. Invalid UTF-8 retains its existing `source.invalid-utf8` code.
 - Existing tests that assert `parse.module-read` for a missing module are
   rewritten to assert `check.unknown-module`. This is the one sanctioned
   change to existing tests in this design; the integrator lists each in the
