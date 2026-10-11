@@ -1,5 +1,12 @@
 # XSH Core Compatibility Campaign
 
+## Restart after owner-requested shutdown (2026-10-11)
+
+Read [RESTART-HANDOFF.md](RESTART-HANDOFF.md) first. The resumed native port and
+harness retirement are incomplete. All persistent work is in the separate
+on-disk integration/lane worktrees; no essential artifact depends on `/tmp`.
+The original checkout must remain available for the owner's unrelated work.
+
 ## Handoff to Codex (2026-10-11)
 
 Read this section first. The expanded campaign is closed (next section); what

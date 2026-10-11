@@ -24,6 +24,9 @@ with the `write error:` prefix.
 `comm` checks ordering as each input advances, checks file 1 first after a
 shared row, and activates default checks only after an unpairable row; reaching
 EOF rechecks the final pair of records from that input.
+`expand` counts input bytes as columns in the C and POSIX locales and uses
+Unicode display columns in UTF-8 locales. It preserves input bytes; backspace
+moves one column left and newline resets the tab position.
 
 
 An applet never spells a `/proc` or `/sys` path itself
