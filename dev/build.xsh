@@ -4,6 +4,7 @@ use context
 use docs as documentation
 use stage as stages
 use test_workflows as tests
+use targets
 
 ## Prepares the native musl sysroot only on the Linux host/target combination that needs it.
 export proc prepare_native_musl(ctx: context.Context) [fs, process, error] -> Result[Unit, Error] {

@@ -1,7 +1,7 @@
 #![cfg(unix)]
 
 #[macro_use]
-mod release_binary;
+mod test_binary;
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
@@ -22,7 +22,7 @@ fn applet(name: &str, directory: &Path) -> Command {
     let mut command = if let Some(reference) = std::env::var_os("XSH_CORE_COMPAT_REFERENCE_DIR") {
         Command::new(Path::new(&reference).join(name))
     } else {
-        let mut command = Command::new(release_bin!("xsh"));
+        let mut command = Command::new(test_bin!("xsh"));
         command.arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("core").join(format!("{name}.xsh")));
         command.arg("--");
         command

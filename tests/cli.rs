@@ -45,7 +45,7 @@ io.write_stderr("suffix")?
 "#,
     )
     .expect("write raw stderr script");
-    let output = Command::new(release_bin!("xsh"))
+    let output = Command::new(test_bin!("xsh"))
         .arg(&script)
         .output()
         .expect("run raw stderr script");

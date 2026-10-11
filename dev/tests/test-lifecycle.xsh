@@ -112,7 +112,7 @@ match build.check_lint(ctx) {{
 
 test test_check_core_contracts_propagates_native_runner_failure { |ctx|
   let root = test.temp_dir(ctx, name: "check-core-contracts")?
-  let release = fp"{root}/target/release"
+  let release = fp"{root}/target/x86_64-unknown-linux-musl/release"
   release.mkdir()
   let repository = fs.cwd()?
   let log = fp"{root}/xsht-argv"

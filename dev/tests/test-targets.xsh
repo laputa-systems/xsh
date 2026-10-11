@@ -112,7 +112,7 @@ test test_docker_argv_applies_split_resource_limits_before_the_image {
       20,
       "",
       [],
-    )
+    )?
     var docker_options_before_image: List[Str] = []
     var image_seen = false
     for argument in argv {
