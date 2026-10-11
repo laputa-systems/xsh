@@ -63,7 +63,27 @@ first; its expanded bounded grant in ITEMS requires closing both gaps and
 removing actual dead preparation state, without waiving final shrink. Typed
 callee review found lost exact checker expression facts behind the partial
 initializer proof; a narrow authoritative fact view is under review rather
-than accepting a second general type checker or rejecting legal expressions. The prior module,
+than accepting a second general type checker or rejecting legal expressions. The exact `c495971b` whole-tree recount reports 193,228 src and 49,714
+xsht lexical lines, below the derived interim bounds. It also reports 155
+instructions, 46 stages, 844 manual payload calls, 42 optional raw calls, five
+wide arena matches, five machine factories and 10,736 blanket lines. Its 364
+source hashes, per-file counts and 48 item allowances are preserved in the
+private `upstream-source-current-c495` worktree under
+`.work/current-production-accounting/`; report SHA is
+`a9b5f9ca9b2a6a2d5c79b25ed9fc97490c800e59860f99c3add083d3d91e8347`.
+This is an exact checkpoint, not a final gate or a claim about later sources.
+
+The frame/stage joint slice is sealed privately at `ef7b317c` with 257 focused
+native executions and the layout/schema/corruption/frame filters passing.
+Its actual same-root delta is +246 src / zero xsht: frame +387, stage -140 and
+scalar readers -1. Four lines are overlapping removals counted only once;
+three preserve upstream allocation failures. Independent review found no
+proven defect but requested distinct suspended-stage resource retention and
+conversion-before-later-side-effect regressions; those test-only follow-ups
+are required before parent acceptance. Filesystem and Print/Cd/Env statement
+cohorts continue on that private base with explicit ownership and budgets.
+
+The prior module,
 lint-table, proof transport, verifier and filesystem candidates remain on disk;
 none was reset or implicitly accepted during this merge. Full structural,
 semantic, final platform, documentation and performance closure remains open.
