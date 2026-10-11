@@ -28,6 +28,107 @@ fn sandbox() -> Sandbox {
     Sandbox::new(PathBuf::from(test_bin!("xsh-fuzz")))
 }
 
+#[test]
+fn sandbox_preserves_explicit_llvm_profile_destination_only() {
+    const WORKER: &str = "XSH_FUZZ_PROFILE_ENV_TEST_WORKER";
+    if std::env::var_os(WORKER).is_some() {
+        let destination = std::env::var("LLVM_PROFILE_FILE").expect("profile destination");
+        let directory = Path::new(&destination).parent().expect("profile parent");
+        let before: std::collections::BTreeSet<_> = std::fs::read_dir(directory)
+            .expect("read profile directory")
+            .map(|entry| entry.expect("profile entry").path())
+            .collect();
+        let report = sandbox()
+            .run(
+                "print (e\"LLVM_PROFILE_FILE\" ?? \"missing\")\n\
+                 print (e\"XSH_FUZZ_PROFILE_ENV_SENTINEL\" ?? \"missing\")\n\
+                 print (e\"PATH\" ?? \"missing\")\n\
+                 print (e\"XSH_FUZZ_PROFILE_ENV_TEST_WORKER\" ?? \"missing\")\n",
+            )
+            .expect("run sandbox environment probe");
+        assert_eq!(report.status, Some(0), "{report:?}");
+        assert_eq!(report.stdout, format!("{destination}\nmissing\nmissing\nmissing\n"));
+        if std::env::var_os("XSH_FUZZ_PROFILE_EXPECT_COUNTERS").is_some() {
+            assert!(std::fs::read_dir(directory)
+                .expect("read child profiles")
+                .map(|entry| entry.expect("child profile entry").path())
+                .any(|path| !before.contains(&path)
+                    && path.extension().is_some_and(|extension| extension == "profraw")
+                    && std::fs::metadata(path).expect("child profile metadata").len() > 0),
+                "instrumented child emitted no profile");
+        }
+        let forbidden = directory.join("script-file-growth");
+        let blocked = sandbox()
+            .run(&format!("fp\"{}\".write(\"must not grow\")?\n", forbidden.display()))
+            .expect("run file-growth probe");
+        assert_eq!(blocked.signal, Some(libc::SIGXFSZ), "{blocked:?}");
+        assert_eq!(std::fs::metadata(&forbidden).expect("blocked file metadata").len(), 0);
+        std::fs::remove_file(forbidden).expect("remove blocked file");
+        return;
+    }
+
+    // A separate test process supplies the environment without mutating the
+    // environment shared by concurrently running tests.
+    let profiles = tempfile::tempdir().expect("profile directory");
+    let inherited_profile = std::env::var_os("LLVM_PROFILE_FILE");
+    let destination = if let Some(inherited) = &inherited_profile {
+        let directory = Path::new(inherited).parent().expect("inherited profile parent");
+        let unique = profiles.path().file_name().expect("unique profile name").to_string_lossy();
+        directory.join(format!("env-probe-{unique}-%m-%p.profraw"))
+    } else {
+        profiles.path().join("%m-%p.profraw")
+    };
+    let mut command = std::process::Command::new(std::env::current_exe().expect("test executable"));
+    command.args(["--exact", "sandbox_preserves_explicit_llvm_profile_destination_only", "--nocapture"])
+        .env(WORKER, "1")
+        .env("LLVM_PROFILE_FILE", destination)
+        .env("XSH_FUZZ_PROFILE_ENV_SENTINEL", "must remain outside the sandbox")
+        .env("PATH", "must remain outside the sandbox");
+    if inherited_profile.is_some() {
+        command.env("XSH_FUZZ_PROFILE_EXPECT_COUNTERS", "1");
+    }
+    let output = command.output().expect("run isolated environment probe");
+    assert!(output.status.success(), "{output:?}");
+}
+
+#[test]
+fn sandbox_without_profile_destination_clears_caller_environment() {
+    const WORKER: &str = "XSH_FUZZ_CLEAR_ENV_TEST_WORKER";
+    if std::env::var_os(WORKER).is_some() {
+        use std::os::unix::fs::PermissionsExt;
+
+        assert!(std::env::var_os("LLVM_PROFILE_FILE").is_none());
+        // This host probe is uninstrumented, so absence of the destination
+        // cannot trigger an LLVM default-file write in the sandbox child.
+        let root = tempfile::tempdir().expect("environment probe directory");
+        let executable = root.path().join("environment-probe.sh");
+        std::fs::write(&executable,
+            "#!/bin/sh\nprintf '%s\\n' \"${LLVM_PROFILE_FILE-missing}\" \"${XSH_FUZZ_PROFILE_ENV_SENTINEL-missing}\" \"${XSH_FUZZ_CLEAR_ENV_TEST_WORKER-missing}\"\n")
+            .expect("write uninstrumented environment probe");
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))
+            .expect("make environment probe executable");
+        let report = Sandbox::new(executable).run("unused").expect("run environment probe");
+        assert_eq!(report.status, Some(0), "{report:?}");
+        assert_eq!(report.stdout, "missing\nmissing\nmissing\n");
+        return;
+    }
+
+    let profiles = tempfile::tempdir().expect("default profile directory");
+    let inherited_profile = std::env::var_os("LLVM_PROFILE_FILE");
+    let directory = inherited_profile.as_ref()
+        .map(|value| Path::new(value).parent().expect("inherited profile parent"))
+        .unwrap_or(profiles.path());
+    let output = std::process::Command::new(std::env::current_exe().expect("test executable"))
+        .args(["--exact", "sandbox_without_profile_destination_clears_caller_environment", "--nocapture"])
+        .env_remove("LLVM_PROFILE_FILE")
+        .env(WORKER, "1")
+        .env("XSH_FUZZ_PROFILE_ENV_SENTINEL", "must remain outside the sandbox")
+        .current_dir(directory)
+        .output()
+        .expect("run isolated default environment probe");
+    assert!(output.status.success(), "{output:?}");
+}
+
 fn jobs() -> usize {
     std::thread::available_parallelism()
         .map_or(2, std::num::NonZeroUsize::get)

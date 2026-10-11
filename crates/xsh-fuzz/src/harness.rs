@@ -254,10 +254,16 @@ impl Sandbox {
         let work = dir.path().join("work");
         std::fs::create_dir(&work)?;
         let started = Instant::now();
-        let mut child = Command::new(&self.exe)
-            .arg("exec")
+        let mut command = Command::new(&self.exe);
+        command.arg("exec")
             .arg(&script)
-            .env_clear()
+            .env_clear();
+        // Compiler profiles belong outside the temporary sandbox, which is
+        // removed after execution. No other caller environment is inherited.
+        if let Some(destination) = std::env::var_os("LLVM_PROFILE_FILE") {
+            command.env("LLVM_PROFILE_FILE", destination);
+        }
+        let mut child = command
             .current_dir(&work)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -356,7 +362,7 @@ fn read_capped(mut reader: impl Read, cap: usize) -> String {
 /// The child side of [`Sandbox::run`]: apply resource limits, then run the
 /// script through the ordinary runner. Never returns.
 pub fn exec_worker(script: &Path) -> ! {
-    use rustix::process::{Resource, Rlimit, setrlimit};
+    use rustix::process::{Resource, Rlimit, getrlimit, setrlimit};
     let limit = |resource: Resource, value: u64| {
         let _ = setrlimit(
             resource,
@@ -367,8 +373,18 @@ pub fn exec_worker(script: &Path) -> ! {
         );
     };
     limit(Resource::Cpu, 20);
-    // No file may grow: generated programs have no filesystem effect.
-    limit(Resource::Fsize, 0);
+    // No file may grow while the script or its cleanup runs. An explicit
+    // compiler profile needs the inherited ceiling only for its exit flush;
+    // without profiling, both file-size limits remain permanently zero.
+    let profile_fsize = std::env::var_os("LLVM_PROFILE_FILE")
+        .map(|_| getrlimit(Resource::Fsize));
+    if let Some(inherited) = profile_fsize {
+        setrlimit(Resource::Fsize, Rlimit { current: Some(0), maximum: inherited.maximum })
+            .expect("set sandbox file-size limit for profiling");
+    } else {
+        setrlimit(Resource::Fsize, Rlimit { current: Some(0), maximum: Some(0) })
+            .expect("set sandbox file-size limit");
+    }
     limit(Resource::Core, 0);
     // Enforced on Linux only; the parent's footprint sampling is the bound
     // everywhere.
@@ -382,6 +398,10 @@ pub fn exec_worker(script: &Path) -> ! {
     use std::io::Write;
     let _ = std::io::stdout().write_all(&output.stdout);
     let _ = std::io::stderr().write_all(&output.stderr);
+    if let Some(inherited) = profile_fsize {
+        setrlimit(Resource::Fsize, inherited)
+            .expect("restore inherited file-size limit for compiler profile flush");
+    }
     std::process::exit(i32::from(output.status))
 }
 
