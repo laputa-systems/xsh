@@ -305,6 +305,7 @@ export pure strerror(failure: Error) -> Str {
   let text = failure.message
   let number = errno(failure)
   return "Invalid cross-device link" when number == 18
+  return "Inappropriate ioctl for device" when number == 25
   return "Illegal seek" when number == 29
   return "Numerical result out of range" when number == 34
   return "Operation not supported" when number == 95
