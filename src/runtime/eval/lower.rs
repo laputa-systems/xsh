@@ -2438,17 +2438,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .function_return_types
             .get(&body_span)
             .and_then(|ty| {
-                let storage_kind = |ty: &Type| match ty {
-                    Type::Null | Type::Optional(_) => Some(LoweredType::Any),
-                    _ => lowered_checked_type(ty),
-                };
                 if let Type::Result(ok, _) = ty {
-                    storage_kind(ok).map(LoweredReturnKind::Result)
+                    lowered_checked_type(ok).map(LoweredReturnKind::Result)
                 } else if matches!(ty, Type::Optional(inner) if matches!(**inner, Type::Result(_, _)))
                 {
                     Some(LoweredReturnKind::OptionalResult)
                 } else {
-                    storage_kind(ty).map(LoweredReturnKind::Plain)
+                    lowered_checked_type(ty).map(LoweredReturnKind::Plain)
                 }
             });
         let return_kind = match inferred_kind.or_else(|| self.lowered_return_kind(def.return_ty)) {
@@ -2479,11 +2475,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         .cloned()
                 })
                 .ok_or(CompactFunctionBlocker::ParamType)?;
-            let kind = match &expected {
-                Type::Optional(_) | Type::Null => Some(LoweredType::Any),
-                _ => lowered_checked_type(&expected),
-            }
-            .ok_or(CompactFunctionBlocker::ParamType)?;
+            let kind = lowered_checked_type(&expected).ok_or(CompactFunctionBlocker::ParamType)?;
             // A parameter of a callable type records the checked type, so
             // the verifier can tie a typed call through the parameter to it.
             let check = if matches!(expected, Type::Callable(_)) {

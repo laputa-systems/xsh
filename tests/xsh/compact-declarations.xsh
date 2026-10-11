@@ -57,3 +57,23 @@ assert n.extract(name).upper() == "SEVEN"
   )?
   assert output.success, output.stderr
 }
+
+test test_null_storage_keeps_explicit_boundary_type { |ctx|
+  let returned = test.run_script(
+    ctx,
+    "pure absent() -> Null { null }\nassert absent() == null\n",
+  )?
+  assert returned.success, returned.stderr
+
+  let accepted = test.run_script(
+    ctx,
+    "let exact: Null = null\nassert exact == null\n",
+  )?
+  assert accepted.success, accepted.stderr
+
+  let rejected = test.run_script(
+    ctx,
+    "let raw: Any = \"not null\"\ntest.error_kind(raw.require(Null), \"schema\")\n",
+  )?
+  assert rejected.success, rejected.stderr
+}

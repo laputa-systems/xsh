@@ -256,7 +256,7 @@ pub(super) fn lowered_checked_type(ty: &Type) -> Option<LoweredType> {
         Type::Any | Type::Unknown | Type::Invalid => Some(LoweredType::Any),
         // A union value is stored as whichever member it is, so its slot
         // has no single storage kind.
-        Type::Optional(_) | Type::Union(_) => Some(LoweredType::Any),
+        Type::Null | Type::Optional(_) | Type::Union(_) => Some(LoweredType::Any),
         // A validated value is stored as a value of its base.
         Type::Validated(validated) => lowered_checked_type(validated.base()),
         _ => None,
