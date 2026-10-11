@@ -146,6 +146,7 @@ type SortOptions = {
   decimal_point: Str,
   thousands_separator: Bytes,
   months: List[Str],
+  debug_byte_columns: Bool,
 }
 
 type NumericSortKey = {number: Str, raw: Str}
@@ -730,6 +731,25 @@ pure non_nul_byte_count(input: Bytes) -> Int {
   count
 }
 
+## Debug tabs are displayed as one marker; other decoded characters use the
+## shared renderer's terminal width. Byte locales count every non-NUL byte.
+pure debug_column_count(input: Bytes, opts: SortOptions) -> Int {
+  if opts.debug_byte_columns { return non_nul_byte_count(input) }
+  var columns = 0
+  var at = 0
+  while at < input.len() {
+    if input.byte_at(at) == 9 {
+      columns += 1
+      at += 1
+    } else {
+      let character = text.character(input, at)
+      columns += character.width
+      at += character.size
+    }
+  }
+  columns
+}
+
 pure key_order_value(line: Str, delimiter: Str, spec: Str, opts: SortOptions) -> Str {
   let key_opts = key_effective_options(spec, opts)
   let reverse = opts.reverse != key_reversed(spec)
@@ -1170,17 +1190,17 @@ pure leading_blank_count(line: Str) -> Int {
   at
 }
 
-pure debug_annotation(value: Str) -> Str {
-  if value == "" { "^ no match for key" } else { text.padding(value.byte_len(), "_") }
+pure debug_annotation(value: Str, opts: SortOptions) -> Str {
+  if value == "" { "^ no match for key" } else { text.padding(debug_column_count(bytes.from_text(value), opts), "_") }
 }
 
 pure debug_key_annotation(line: Str, opts: SortOptions, spec: Str) -> Str {
   let key_opts = key_effective_options(spec, opts)
   if is_month_sort(key_opts) or is_human_numeric_sort(key_opts) or is_numeric_sort(key_opts) or is_general_numeric_sort(key_opts) {
-    debug_annotation(debug_key_text(line, opts, spec))
+    debug_annotation(debug_key_text(line, opts, spec), opts)
   } else {
     let range = key_range_bytes(line, sort_delimiter(opts), spec, key_opts)
-    if range.len() == 0 { "^ no match for key" } else { text.padding(non_nul_byte_count(range), "_") }
+    if range.len() == 0 { "^ no match for key" } else { text.padding(debug_column_count(range, opts), "_") }
   }
 }
 
@@ -1195,15 +1215,15 @@ pure debug_sort_text(lines: List[Str], opts: SortOptions, has_key: Bool, key_fie
         let start = key_start_byte(line, sort_delimiter(opts), spec, key_opts)
         let selected = key_field_value(line, sort_delimiter(opts), spec, key_opts)
         let numeric_blanks = if is_month_sort(key_opts) or is_human_numeric_sort(key_opts) or is_numeric_sort(key_opts) or is_general_numeric_sort(key_opts) { leading_blank_count(selected) } else { 0 }
-        let indentation = text.padding(non_nul_byte_count(bytes.from_text(line).slice(0, length: start)) + numeric_blanks, " ")
+        let indentation = text.padding(debug_column_count(bytes.from_text(line).slice(0, length: start), opts) + numeric_blanks, " ")
         output += indentation + debug_key_annotation(line, opts, spec) + "\n"
       }
-      if ! opts.stable and ! opts.unique { output += debug_annotation(line) + "\n" }
+      if ! opts.stable and ! opts.unique { output += debug_annotation(line, opts) + "\n" }
     } else {
       let primary = debug_primary_text(line, opts, false, key_field)
       let indentation = if is_month_sort(opts) or is_general_numeric_sort(opts) or is_numeric_sort(opts) or is_human_numeric_sort(opts) or opts.blank { text.padding(leading_blank_count(line), " ") } else { "" }
-      output += indentation + debug_annotation(primary) + "\n"
-      if has_last_resort and ! opts.stable and ! opts.unique { output += debug_annotation(line) + "\n" }
+      output += indentation + debug_annotation(primary, opts) + "\n"
+      if has_last_resort and ! opts.stable and ! opts.unique { output += debug_annotation(line, opts) + "\n" }
     }
   }
   output
@@ -2332,6 +2352,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     decimal_point: conventions.decimal_point.utf8()?,
     thousands_separator: conventions.thousands_separator,
     months: [],
+    debug_byte_columns: text.byte_columns(),
   }
   var needs_months = is_month_sort(opts)
   for spec in opts.key {

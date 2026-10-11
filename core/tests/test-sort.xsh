@@ -1717,3 +1717,21 @@ test test_sort_key_fields_exclude_leading_blank_pseudo_field { |ctx|
   assert result.exit_code()? == 0
   assert stdout.read_bytes()? == b"  z 1\n    _\n  a 2\n    _\n"
 }
+
+test test_sort_debug_locale_uses_terminal_columns { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-debug-locale-columns")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  for case in [
+    {input: "1²\t2\n", expected: "1²>2\n   _\n"},
+    {input: "界\t2\n", expected: "界>2\n   _\n"},
+    {input: "á\t2\n", expected: "á>2\n  _\n"},
+  ] {
+    let result = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display(), "-s", "-k2g", "--debug"], root,
+      {LC_ALL: "", LC_CTYPE: "fr_FR.UTF-8", LC_NUMERIC: "C", LANG: "C"}, bytes.from_text(case.input), stdout, stderr))?
+    assert result.exit_code()? == 0, stderr.read_text()?
+    assert stdout.read_text()? == case.expected
+  }
+}
