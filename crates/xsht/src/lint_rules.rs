@@ -52,6 +52,12 @@ const EXPRESSION_RULES: &[ExpressionRule] = &[
     ExpressionRule { code: DiagnosticCode::LintPreferOptionalPostfix, enabled: always_enabled, apply: |linter, expr| linter.lint_optional_postfix(expr) },
     ExpressionRule { code: DiagnosticCode::LintIdenticalMatchArms, enabled: always_enabled, apply: lint_expression_adjacent_pattern_arms },
     ExpressionRule { code: DiagnosticCode::LintBooleanPatternTest, enabled: always_enabled, apply: |linter, expr| linter.lint_boolean_match(expr) },
+    ExpressionRule { code: DiagnosticCode::LintPatternConditional, enabled: always_enabled, apply: |linter, expr| linter.lint_pattern_conditional_expr(expr) },
+    ExpressionRule { code: DiagnosticCode::LintErrorFallbackBlock, enabled: always_enabled, apply: |linter, expr| linter.lint_error_fallback_block(expr) },
+    ExpressionRule { code: DiagnosticCode::LintRedundantPathParse, enabled: always_enabled, apply: |linter, expr| linter.lint_path_roundtrip(expr) },
+    ExpressionRule { code: DiagnosticCode::LintRedundantRequire, enabled: always_enabled, apply: |linter, expr| linter.lint_redundant_require(expr) },
+    ExpressionRule { code: DiagnosticCode::LintPreferKnownFieldAccess, enabled: always_enabled, apply: |linter, expr| linter.lint_known_field_access(expr) },
+    ExpressionRule { code: DiagnosticCode::LintInferredRequireTarget, enabled: always_enabled, apply: |linter, expr| linter.lint_inferred_require_target(expr) },
 ];
 
 fn lint_expression_adjacent_pattern_arms(linter: &mut Linter<'_>, expr: ExprId) {
@@ -1127,5 +1133,376 @@ impl<'a> Linter<'a> {
             }
         }
         self.diagnostics.push(diagnostic);
+    }
+
+    fn lint_pattern_conditional_expr(&mut self, expr: ExprId) {
+        let expression = self.arena.expr(expr);
+        let ArenaExprKind::Match { value, arms } = expression.kind else {
+            return;
+        };
+        let [selected, complement] = self.arena.match_expr_arms(arms) else {
+            return;
+        };
+        if matches!(self.arena.expr(selected.value).kind, ArenaExprKind::Bool(_))
+            && matches!(
+                self.arena.expr(complement.value).kind,
+                ArenaExprKind::Bool(_)
+            )
+        {
+            return;
+        }
+        if selected.guard.is_some()
+            || complement.guard.is_some()
+            || !self.pattern_condition_selected_binds(selected.pattern)
+            || !self.pattern_condition_complement(value, selected.pattern, complement.pattern)
+        {
+            return;
+        }
+        let span = expression.span;
+        let mut diagnostic = Diagnostic::new(
+            Severity::Warning,
+            "two-arm match can use a pattern conditional",
+        )
+        .with_code(DiagnosticCode::LintPatternConditional)
+        .with_label(Label::secondary(
+            span,
+            "bind the selected pattern with `if let`",
+        ));
+        if self
+            .source
+            .get(span.range())
+            .is_some_and(|source| !source.contains('#'))
+        {
+            let subject = self.source.get(self.arena.expr(value).span.range());
+            let pattern = self.source.get(
+                self.arena
+                    .span(self.arena.pattern(selected.pattern).span)
+                    .range(),
+            );
+            let branch = |value| {
+                self.source
+                    .get(self.arena.expr(value).span.range())
+                    .map(|text| {
+                        if matches!(self.arena.expr(value).kind, ArenaExprKind::ValueBlock(_)) {
+                            text.to_string()
+                        } else {
+                            format!("{{ {text} }}")
+                        }
+                    })
+            };
+            if let (Some(subject), Some(pattern), Some(yes), Some(no)) = (
+                subject,
+                pattern,
+                branch(selected.value),
+                branch(complement.value),
+            ) && let Some(replacement) = self.pattern_conditional_replacement(
+                span,
+                &format!("if let {pattern} = {subject} {yes} else {no}"),
+                true,
+            ) {
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
+                    span,
+                    "use a pattern conditional",
+                    replacement,
+                ));
+            }
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
+    fn lint_error_fallback_block(&mut self, expr: ExprId) {
+        let expression = self.arena.expr(expr);
+        let ArenaExprKind::Match { value, arms } = expression.kind else {
+            return;
+        };
+        let [first, second] = self.arena.match_expr_arms(arms) else {
+            return;
+        };
+        if first.guard.is_some() || second.guard.is_some() {
+            return;
+        }
+        let constructor = |pattern| match self.arena.pattern(pattern).kind {
+            ArenaPatternKind::Constructor {
+                name,
+                arg: Some(argument),
+            } => Some((name, argument)),
+            _ => None,
+        };
+        let (Some((first_name, first_arg)), Some((second_name, second_arg))) =
+            (constructor(first.pattern), constructor(second.pattern))
+        else {
+            return;
+        };
+        let (success, success_arg, handler, error_arg) =
+            if first_name == "Ok" && second_name == "Err" {
+                (first, first_arg, second, second_arg)
+            } else if first_name == "Err" && second_name == "Ok" {
+                (second, second_arg, first, first_arg)
+            } else {
+                return;
+            };
+        let ArenaPatternKind::Binding(success_name) = self.arena.pattern(success_arg).kind else {
+            return;
+        };
+        let identity = match self.arena.expr(success.value).kind {
+            ArenaExprKind::Ident(name) => name == success_name,
+            ArenaExprKind::ValueBlock(block) => {
+                let statements = self
+                    .arena
+                    .stmt_ids(self.arena.block(block).statements)
+                    .collect::<Vec<_>>();
+                matches!(statements.as_slice(), [stmt] if match self.arena.stmt(*stmt).kind {
+                    ArenaStmtKind::TailBareIdent(name) => name == success_name,
+                    ArenaStmtKind::Expr(value) => matches!(self.arena.expr(value).kind, ArenaExprKind::Ident(name) if name == success_name),
+                    _ => false,
+                })
+            }
+            _ => false,
+        };
+        if !identity {
+            return;
+        }
+        let error_name = match self.arena.pattern(error_arg).kind {
+            ArenaPatternKind::Binding(name)
+                if !self.tag_variants.contains(name.as_str().as_str()) =>
+            {
+                name.to_string()
+            }
+            ArenaPatternKind::Wildcard => "_".to_string(),
+            _ => return,
+        };
+        let Some(Type::Result(success_type, _)) = self.expr_types.get(&self.arena.expr(value).span)
+        else {
+            return;
+        };
+        if success_type.contains_any()
+            || **success_type == Type::Unknown
+            || self.expr_types.get(&expression.span) != Some(success_type.as_ref())
+        {
+            return;
+        }
+        let Some(original) = self.source.get(expression.span.range()) else {
+            return;
+        };
+        if original.contains('#') {
+            return;
+        }
+        let Some(subject) = self.source.get(self.arena.expr(value).span.range()) else {
+            return;
+        };
+        let Some(handler_source) = self.source.get(self.arena.expr(handler.value).span.range())
+        else {
+            return;
+        };
+        let line_indent = |offset: usize| {
+            self.source[..offset]
+                .rsplit('\n')
+                .next()
+                .unwrap_or("")
+                .chars()
+                .take_while(|character| *character == ' ')
+                .count()
+        };
+        let indent = line_indent(expression.span.start());
+        let handler = if matches!(
+            self.arena.expr(handler.value).kind,
+            ArenaExprKind::ValueBlock(_)
+        ) {
+            let Some(rest) = handler_source.strip_prefix('{') else {
+                return;
+            };
+            let removed_indent =
+                line_indent(self.arena.expr(handler.value).span.start()).saturating_sub(indent);
+            let mut lines = rest.split('\n');
+            let mut body = lines.next().unwrap_or("").to_string();
+            for line in lines {
+                body.push('\n');
+                let trim = line
+                    .bytes()
+                    .take(removed_indent)
+                    .take_while(|byte| *byte == b' ')
+                    .count();
+                body.push_str(&line[trim..]);
+            }
+            format!("{{ |{error_name}|{body}")
+        } else {
+            // Keep continuation lines intact: formatting may wrap an expression
+            // handler without changing its lazy fallback behavior.
+            format!(
+                "{{ |{error_name}|\n{}{handler_source}\n{}}}",
+                " ".repeat(indent + 2),
+                " ".repeat(indent)
+            )
+        };
+        let subject = match self.arena.expr(value).kind {
+            ArenaExprKind::Ident(_)
+            | ArenaExprKind::Call { .. }
+            | ArenaExprKind::Field { .. }
+            | ArenaExprKind::Index { .. }
+            | ArenaExprKind::Try(_) => subject.to_string(),
+            _ => format!("({subject})"),
+        };
+        let replacement = format!("{subject} ?? {handler}");
+        self.diagnostics.push(
+            Diagnostic::new(
+                Severity::Warning,
+                "identity success match can use an error fallback block",
+            )
+            .with_code(DiagnosticCode::LintErrorFallbackBlock)
+            .with_label(Label::secondary(
+                expression.span,
+                "retain the lazy error handler with `??`",
+            ))
+            .with_fix_hint(FixHint::replacement(
+                expression.span,
+                "use an error fallback block",
+                replacement,
+            )),
+        );
+    }
+
+    fn lint_path_roundtrip(&mut self, expr: ExprId) {
+        let expr_span = self.arena.expr(expr).span;
+        if !matches!(self.expr_types.get(&expr_span), Some(Type::Path)) {
+            return;
+        }
+        let Some((label_span, replacement)) = self.path_roundtrip_replacement(expr) else {
+            return;
+        };
+        self.push_path_roundtrip_diagnostic(expr_span, label_span, replacement);
+    }
+
+    fn lint_redundant_require(&mut self, expr: ExprId) {
+        let arena_expr = self.arena.expr(expr);
+        let ArenaExprKind::Try(inner) = arena_expr.kind else {
+            return;
+        };
+        let Some((label_span, replacement)) = self.require_replacement(inner) else {
+            return;
+        };
+        self.push_redundant_require_diagnostic(arena_expr.span, label_span, replacement);
+    }
+
+    fn lint_known_field_access(&mut self, expr: ExprId) {
+        let outer = self.arena.expr(expr);
+        let ArenaExprKind::Try(call) = outer.kind else {
+            return;
+        };
+        let expression = self.arena.expr(call);
+        let ArenaExprKind::Call { callee, args } = expression.kind else {
+            return;
+        };
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else {
+            return;
+        };
+        if name != "get" || !self.proven_materialized_record(base) {
+            return;
+        }
+        let [argument] = self.arena.call_args(args) else {
+            return;
+        };
+        let key = match argument.kind {
+            ArenaCallArgKind::Positional(key) => key,
+            ArenaCallArgKind::Named { name, value, .. } if name == "field" => value,
+            _ => return,
+        };
+        let ArenaExprKind::Str(key) = self.arena.expr(key).kind else {
+            return;
+        };
+        let field = self.arena.string_literal(key);
+        if !self.bare_field_label(field) {
+            return;
+        }
+        let Some(Type::Record(fields)) = self.expr_types.get(&self.arena.expr(base).span) else {
+            return;
+        };
+        if fields.contains_key(&Name::intern("get")) {
+            return;
+        }
+        let Some(expected) = fields.get(&Name::intern(field)) else {
+            return;
+        };
+        let Some(Type::Result(success, _)) = self.expr_types.get(&expression.span) else {
+            return;
+        };
+        if success.as_ref() != expected || self.expr_types.get(&outer.span) != Some(expected) {
+            return;
+        }
+        let span = self.expression_source_span(outer.span);
+        let receiver_span = self.expression_source_span(self.arena.expr(base).span);
+        let cst = self
+            .source_cst
+            .get()
+            .expect("expression span initializes CST");
+        if cst.contains_comment(span) {
+            return;
+        }
+        let receiver = &self.source[receiver_span.range()];
+        let receiver = if matches!(self.arena.expr(base).kind, ArenaExprKind::Record(_)) {
+            format!("({receiver})")
+        } else {
+            receiver.to_owned()
+        };
+        self.diagnostics.push(
+            Diagnostic::warning(
+                "a guaranteed field on an ordinary record can be selected directly",
+            )
+            .with_code(DiagnosticCode::LintPreferKnownFieldAccess)
+            .with_label(Label::secondary(
+                span,
+                "the selected value retains its exact checked type",
+            ))
+            .with_fix_hint(FixHint::replacement(
+                span,
+                "select the known record field",
+                format!("{receiver}.{field}"),
+            )),
+        );
+    }
+
+    fn lint_inferred_require_target(&mut self, expr: ExprId) {
+        let expression = self.arena.expr(expr);
+        let ArenaExprKind::Require {
+            schema: Some(schema),
+            ..
+        } = expression.kind
+        else {
+            return;
+        };
+        let Some(actual) = self.requirement_targets.get(&expression.span) else {
+            return;
+        };
+        let Some(expected) = self.requirement_expected_targets.get(&expression.span) else {
+            return;
+        };
+        if actual.ty != expected.ty || actual.context != expected.context {
+            return;
+        }
+        let span = self.arena.type_expr_span(schema);
+        // Only the schema token range is removed. Comments inside that range
+        // carry author intent and must survive a source rewrite.
+        if self
+            .source
+            .get(expression.span.range())
+            .is_none_or(|text| text.contains('#'))
+        {
+            return;
+        }
+        self.diagnostics.push(
+            Diagnostic::new(
+                Severity::Warning,
+                "schema target is supplied by the checked boundary",
+            )
+            .with_code(DiagnosticCode::LintInferredRequireTarget)
+            .with_label(Label::secondary(
+                span,
+                "the same concrete schema is independently known here",
+            ))
+            .with_fix_hint(FixHint::replacement(
+                span,
+                "infer the validation target",
+                String::new(),
+            )),
+        );
     }
 }

@@ -132,12 +132,6 @@ impl LintExprVisitor<'_, '_> {
         }
         if !self.suppress_expr_autofixes {
             rules::expression(self.linter, expr);
-            self.linter.lint_pattern_conditional_expr(expr);
-            self.linter.lint_error_fallback_block(expr);
-            self.linter.lint_path_roundtrip(expr);
-            self.linter.lint_redundant_require(expr);
-            self.linter.lint_known_field_access(expr);
-            self.linter.lint_inferred_require_target(expr);
             self.linter.lint_redundant_single_interpolation(expr);
             self.linter.lint_scalar_display_parse_roundtrip(expr);
             self.linter.lint_json_encode_decode_roundtrip(expr);
