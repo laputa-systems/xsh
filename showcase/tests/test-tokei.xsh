@@ -105,3 +105,18 @@ comment */
   assert "(Total)" in table
   assert "Total" in table
 }
+
+test test_tokei_json_encodes_stats_and_nested_blob_stats_exactly { |ctx|
+  let root = test.temp_dir(ctx, name: "tokei-json-stats")?
+  fp"{root}/README.md".write("""# Demo
+
+```toml
+name = "x"
+# config comment
+```
+""")
+
+  let output = run.text "xsh" "showcase/tokei.xsh" -- --json $root
+  assert "\"stats\":{\"blanks\":1,\"blobs\":{\"TOML\":{\"blanks\":0,\"blobs\":{},\"code\":1,\"comments\":1}},\"code\":0,\"comments\":3}" in output
+  assert "\"stats\":{\"blanks\":0,\"blobs\":{},\"code\":1,\"comments\":1}" in output
+}
