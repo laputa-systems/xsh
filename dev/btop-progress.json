@@ -6,7 +6,7 @@
     "commit": "6e39144aaf5a6bc01b9f795010b0914431067183"
   },
   "gate": "G3",
-  "last_green_commit": "60fe62b1",
+  "last_green_commit": "3bf96ebc",
   "audit": {
     "new_core_script": "New core/*.xsh applets are installed by the release script at dev/release.xsh:146-160; dev/tests/test-repository-contracts.xsh owns the required core script inventory and contract checks. No separate command registration is needed.",
     "launcher_argument_separator": "Use xsh SCRIPT -- ARGS for an applet and xsh -- SCRIPT ARGS for an explicit script; src/entrypoints/xsh.rs:90-120.",
