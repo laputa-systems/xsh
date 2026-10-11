@@ -52,8 +52,8 @@ use call_plan::ModuleCallPlan;
 mod indexed;
 mod lower;
 use indexed::full::{
-    BuildBoolRow, BuildExprRow, BuildIntRow, BuildStmtRow, FullBuilder, FullProgram,
-    LoweredPipelineStage,
+    BuildBoolRow, BuildExprRow, BuildIntRow, BuildPatternRow, BuildStmtRow, FullBuilder,
+    FullProgram, LoweredPipelineStage,
 };
 mod lowered_ops;
 use lowered_ops::lowered_value_from_runtime;
@@ -1371,82 +1371,6 @@ struct LoweredRunRedirection {
 enum LoweredFmtPart {
     Text(Arc<str>),
     Expr(BuildExprId, Span, Option<FormatSpec>),
-}
-
-#[derive(Clone, Debug)]
-enum BuildPatternRow {
-    Alias {
-        pattern: BuildPatternId,
-        slot: usize,
-    },
-    Alternation {
-        patterns: Vec<BuildPatternId>,
-    },
-    List {
-        elements: Vec<BuildPatternId>,
-        rest: Option<BuildPatternId>,
-    },
-    TagType {
-        type_name: Name,
-        variants: Vec<Name>,
-    },
-    RecordTest {
-        fields: Vec<(Name, BuildPatternId)>,
-    },
-    ResultTest {
-        ok: bool,
-        inner: BuildPatternId,
-    },
-    TagTest {
-        type_name: Name,
-        name: Name,
-        fields: Vec<BuildPatternId>,
-    },
-    ErrorTest {
-        family: Name,
-        variant: Name,
-        fields: Vec<(Name, BuildPatternId)>,
-    },
-    Wildcard,
-    // A text pattern: `segments` are the literal text around `holes`, one
-    // more than there are holes, and `kinds` says what each hole makes of
-    // the text it takes. Each hole is a wildcard or a binding.
-    Text {
-        holes: Vec<BuildPatternId>,
-        kinds: Vec<crate::sema::check::TextHoleKind>,
-        segments: Vec<Arc<str>>,
-    },
-    // `name => …`: always matches, binds the scrutinee to `slot`.
-    Bind {
-        slot: usize,
-    },
-    // `name is T => …` / `_ is T => …`: matches when the value's runtime type
-    // satisfies `ty`, binding `slot` when present.
-    Type {
-        ty: crate::sema::types::Type,
-        slot: Option<usize>,
-    },
-    Literal(LoweredValue),
-    ResultOk {
-        slot: Option<usize>,
-        unit_only: bool,
-    },
-    ResultErr {
-        slot: Option<usize>,
-        unit_only: bool,
-    },
-    // `is Facet => …`: matches when the error value carries `facet`.
-    // `result_wrapped` distinguishes `Err(is Facet)` (scrutinee is a Result)
-    // from a standalone `is Facet` (scrutinee is the error value itself).
-    Facet {
-        facet: Name,
-        result_wrapped: bool,
-    },
-    Tag {
-        type_name: Name,
-        name: Name,
-        slots: BuildPatternIdSlots,
-    },
 }
 
 /// The aggregation a `reduce-by --sum|--min|--max` applies to the per-key

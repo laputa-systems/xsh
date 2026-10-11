@@ -3,6 +3,7 @@ pub(in crate::runtime::eval) mod in_place;
 pub(in crate::runtime::eval) mod schema;
 
 use decode::{BorrowCodec, DecodeContext, PatternId};
+pub(in crate::runtime::eval) use schema::{BuildPatternRow, FullDriverTag};
 pub(in crate::runtime::eval) use schema::{
     BuildBoolRow, BuildExprRow, BuildIntRow, BuildStmtRow, FrameStrategy, FullTag,
 };
@@ -16,7 +17,7 @@ use crate::modules::RuntimeOp;
 use crate::modules::hash::HashAlgorithm;
 use crate::runtime::eval::{
     BuildBoolId, BuildExprId, BuildIntId, BuildPatternId,
-    BuildPatternIdSlots, BuildPatternRow, BuildScratch, BuildStmtId, BuildTopKind,
+    BuildPatternIdSlots, BuildScratch, BuildStmtId, BuildTopKind,
     BuildTopStmtId, BuildTopStmtRow, FunctionBuild, FunctionHeader, LoweredAssignPath,
     LoweredAssignStep, LoweredCallArg, LoweredCompQualifier, LoweredCompQualifiers,
     LoweredCompTarget, LoweredErrorExpr, LoweredFmtPart,
@@ -245,21 +246,6 @@ macro_rules! lowered_value_schema {
             }
         }
     };
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u8)]
-pub(in crate::runtime::eval) enum FullDriverTag {
-    Skip,
-    Use,
-    Let,
-    LetRecord,
-    Assign,
-    Discard,
-    Stmt,
-    Expr,
-    Defer,
-    SignalHook,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -9227,6 +9213,25 @@ pure selected() -> Str {
             std::array::from_fn::<_, 17, _>(|index| {
                 if index < 14 { index as u8 } else { index as u8 + 1 }
             }),
+        );
+    }
+
+    #[test]
+    fn driver_tags_keep_row_ordinals() {
+        assert_eq!(
+            [
+                FullDriverTag::Skip as u8,
+                FullDriverTag::Use as u8,
+                FullDriverTag::Let as u8,
+                FullDriverTag::LetRecord as u8,
+                FullDriverTag::Assign as u8,
+                FullDriverTag::Discard as u8,
+                FullDriverTag::Stmt as u8,
+                FullDriverTag::Expr as u8,
+                FullDriverTag::Defer as u8,
+                FullDriverTag::SignalHook as u8,
+            ],
+            std::array::from_fn::<_, 10, _>(|index| index as u8),
         );
     }
 

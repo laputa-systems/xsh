@@ -1,9 +1,9 @@
 use super::{
     Arc, AssignOp, BinaryOp, BorrowCodec, BuildBoolId, BuildExprId, BuildIntId, BuildPatternId,
-    BuildPatternIdSlots, BuildPatternRow, BuildStmtId, DecodeContext, DurationValue,
+    BuildPatternIdSlots, BuildStmtId, DecodeContext, DurationValue,
     EFFECT_CANCELLATION, EFFECT_CWD, EFFECT_DEFER,
     EFFECT_DYNAMIC_CALL, EFFECT_ENV, EFFECT_HOST, EFFECT_PROCESS, EFFECT_PROPAGATE, EFFECT_TRACE,
-    FloatValue, FullBuilder, FullCodec, FullCursor, FullDecoder, FullDriverTag, FullExecution,
+    FloatValue, FullBuilder, FullCodec, FullCursor, FullDecoder, FullExecution,
     FullPayload,
     FunctionName, FxHashMap, IrBuildError, IrVerifyError, LoweredAssignPath, LoweredCallArg,
     LoweredCompQualifiers, LoweredCompTarget, LoweredErrorExpr, LoweredFmtPart,
@@ -239,6 +239,7 @@ macro_rules! pattern_schema {
     (
         $enum_keyword:ident $tag_enum:ident {
             $(
+                $(#[$row_meta:meta])*
                 $variant:ident = $ordinal:literal
                 $({ $($field:ident: $field_ty:ty $(=> $verify_ty:ty)?),* $(,)? })?
                 $(($tuple_field:ident: $tuple_ty:ty))?
@@ -246,6 +247,16 @@ macro_rules! pattern_schema {
             ),* $(,)?
         }
     ) => {
+        #[derive(Clone, Debug)]
+        pub(in crate::runtime::eval) enum BuildPatternRow {
+            $(
+                $(#[$row_meta])*
+                $variant
+                $({ $($field: $field_ty,)* })?
+                $(($tuple_ty))?
+            ,)*
+        }
+
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
         #[repr(u8)]
         pub(in crate::runtime::eval) enum $tag_enum {
@@ -1301,9 +1312,12 @@ pattern_schema! {
             fields: Vec<(Name, BuildPatternId)> => Box<Vec<(Name, BuildPatternId)>>,
         } [Normal, None],
         Wildcard = 8 [Normal, None],
+        /// `name => …`: always matches, binds the scrutinee to `slot`.
         Bind = 9 {
             slot: usize,
         } [Normal, None],
+        /// `name is T => …` / `_ is T => …`: matches when the value's runtime type
+        /// satisfies `ty`, binding `slot` when present.
         Type = 10 {
             ty: Type,
             slot: Option<usize>,
@@ -1317,6 +1331,8 @@ pattern_schema! {
             slot: Option<usize>,
             unit_only: bool,
         } [Normal, None],
+        /// `is Facet => …` tests whether the error value carries `facet`.
+        /// `result_wrapped` distinguishes `Err(is Facet)` from standalone `is Facet`.
         Facet = 15 {
             facet: Name,
             result_wrapped: bool,
@@ -1326,6 +1342,8 @@ pattern_schema! {
             name: Name,
             slots: BuildPatternIdSlots,
         } [Normal, None],
+        /// The literal `segments` surround `holes`, one more segment than hole.
+        /// Each hole is a wildcard or binding, and `kinds` controls text conversion.
         Text = 17 {
             holes: Vec<BuildPatternId>,
             kinds: Vec<crate::sema::check::TextHoleKind>,
@@ -1674,11 +1692,20 @@ macro_rules! driver_verify_field {
 }
 
 macro_rules! driver_schema {
-    ($(
-        $variant:ident {
-            $($field:ident: $write_ty:ty => $read_ty:ty $([$policy:ident])?),* $(,)?
+    (
+        $tag_enum:ident;
+        $(
+            $variant:ident {
+                $($field:ident: $write_ty:ty => $read_ty:ty $([$policy:ident])?),* $(,)?
+            }
+        )*
+    ) => {
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        #[repr(u8)]
+        pub(in crate::runtime::eval) enum $tag_enum {
+            $($variant,)*
         }
-    )*) => {
+
         pub(in crate::runtime::eval) enum DriverPayloadRowRef<'a> {
             $($variant { $($field: &'a $write_ty),* },)*
         }
@@ -1754,6 +1781,7 @@ macro_rules! driver_schema {
 
 // These rows define payload order for encoding, borrowed execution, and verification.
 driver_schema! {
+    FullDriverTag;
     Skip {}
     Use {
         key: Arc<str> => Arc<str>,
