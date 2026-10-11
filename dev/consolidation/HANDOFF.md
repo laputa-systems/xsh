@@ -1,5 +1,56 @@
 # Consolidation restart handoff
 
+## Combined cursor/schema batch and lint integration — 2026-10-11
+
+Root's pinned optimized build at `fb813cc0` passes. The frozen matching pair
+and immutable source hashes are `joint-fb813-bin` / `joint-fb813-source.json`.
+All **56 normal files and 32 forced-frame files pass**, with exact commands,
+source/log/binary hashes and results in `joint-fb813-gates/manifest.json` and
+`joint-fb813-forced-gates/manifest.json` under the restart artifact directory.
+
+Accepted since `431677d2`: deferred cleanup allocation improvements
+`11ba983a` / `10034afd` as `bf342e30` / `1c2de715`; value schema `ead22bc2`
+as `097142c1`; pattern/driver schema `057e8a7c` as `de838125`; expression If
+cursor `24dbf636` as `05e8e41d`; aggregate cursors `0c58051e` / `da9c98c8`
+as `a1cf88d3` / `ab963186`; pipeline borrowed readers `09306f4c` as
+`3de9204c`; statement branches `9037fbc5` as `2798ea91`. `fb813cc0` deletes
+the callerless branch-descriptor pool after both If readers migrated. Import
+conflicts were resolved by retaining both reviewed cohorts, with no fallback
+restoration. `23a1d265` documents the shared wire authorities.
+
+The combined indexed-program Rust suite passes 116 tests and fails two:
+the height-bound fixture incorrectly uses PathFrom after that row became
+Scheduled, and a callable corruption expects a later generic type diagnostic
+instead of the earlier checked-slot mismatch. The failing log and exact harness
+hash are preserved as `joint-fb813-full-units.log` / `joint-fb813-lib-source.json`.
+`86d0cafc` keeps the callable corruption and updates its expected diagnostic;
+a separate lane is preserving the exact 128/129 height assertions using an
+operand instruction. These changes still need their green integration gate.
+
+W6's five commits are accepted as `9433adc2`, `cef6151e`, `dbbbbd04`,
+`0d447d2d`, and `da40b6b4`. The complete table/shared traversal/fact-demand
+slice passed its private compiler, Rust and native gates; independent static
+review found no defect in the requested scope. It preserves existing strict
+bundle diagnostic policies and fixes source-owned TryCapture facts and Tempdir
+diagnostics. This later tooling source is not qualified by fb813's frozen pair.
+
+The sequence cursor's first combined compiler probe shows common continuation
+growth from 208 to 232 bytes. Integration waits for its one-box assertion-chain
+follow-up and measured layout/allocation gates. Block-statement cursors and
+assignment/comprehension cursors are independent active lanes. Cross-program
+ownership now has meaningful private red/green evidence: 10,000 non-tail mutual
+runtime module callbacks overflow the old route under a 1 MiB stack and pass
+both new routes. Private module and streams suites pass; final source and
+performance review remain pending.
+
+W9's heavy index231 publication now matches all four profiles after the narrowly
+authorized Symbol-to-spelling rendering, preserving all raw captures, IDs,
+ordered vectors and diagnostics. Fresh-check CPU remains slower and is being
+attributed before restarting all 6,760 comparisons. The versioned observer has
+same-baseline proof; its current full scan and restoration of immutable legacy
+ratchet test bytes remain pending. No final structural or performance closure
+is claimed. ARM64 and macOS remain excluded by the owner's explicit scope.
+
 ## Owner platform scope and integration checkpoint — 2026-10-11
 
 The owner explicitly excluded ARM64 and macOS. Development and final platform
