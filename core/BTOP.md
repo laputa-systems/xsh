@@ -127,7 +127,7 @@ than 80 by 24 displays a safe size message.
 | Total, available, used memory and swap | `/proc/meminfo` | `sys_mem.parse`, then `btop_rates.used_bytes` | bytes, gauges | kB-to-byte conversion checked against the exact JSON integer bound |
 | Raw memory categories (free, buffers, cache, active/inactive, dirty/writeback) | `/proc/meminfo` | `sys_mem.parse` | bytes, gauges | Categories remain independent because their accounting overlaps |
 | Interface name, RX/TX totals and rates | `/proc/net/dev`, `/sys/class/net/[name]/ifindex` | `sys_net.collect`, `sys_net.selected_interface`, `btop_rates.counter_rate` | bytes and bytes/second; totals are counters | Bounded reads; rates require matching observed interface indices across samples |
-| PID, UID, command, CPU and RSS | `/proc/[pid]/stat`, `status`, `statm` | `sys_proc.collect`, `system_report_live.parse_proc_stat`, `btop_rates.process_percent` | identity, ticks and bytes | PID/start-time race is withheld; RSS page conversion is checked; cached UID expires after five seconds |
+| PID, PPID, thread count, UID, command, CPU and RSS | `/proc/[pid]/stat`, `status`, `statm` | `sys_proc.collect`, `system_report_live.parse_proc_stat`, `btop_rates.process_percent` | identity, counts, ticks and bytes | PID/start-time race is withheld; RSS page conversion is checked; cached UID expires after five seconds |
 
 The system-report and btop paths share the `/proc/meminfo` parser. Process
 `stat` parsing also reuses `system_report_live.parse_proc_stat`; it retains
@@ -142,6 +142,8 @@ Focused host release tests are kept with the implementation:
 - `core/tests/test-btop-model.xsh` and `core/tests/test-btop-replay.xsh` cover
   deterministic reduction, process ordering and lifetime, strict replay times,
   missing fields, and frozen raw fixture digests.
+- `core/tests/test-btop-process-tree.xsh` covers orphan, self-parent, cycle,
+  PID-reuse parent edges, deterministic adjacency, and descendant aggregation.
 - `core/tests/test-btop-render.xsh` covers field placement at 80 by 24 and
   120 by 40 and the below-minimum message.
 - `core/tests/test-btop-cli.xsh` covers unknown flags, bounded headless dumps,

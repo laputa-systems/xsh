@@ -16,8 +16,16 @@ proc write_proc_stat(root: FsRoot, aggregate: Str, cpu0: Str, cpu1: Str) [fs, er
   root.write(p"proc/loadavg", "0.10 0.20 0.30 1/100 42\n")
 }
 
-proc process_stat(pid: Int, start_ticks: Int, user_ticks: Int, system_ticks: Int, rss_pages: Int) -> Str {
-  f"{pid} (sample (worker)) S 1 {pid} {pid} 0 -1 4194560 100 0 0 0 {user_ticks} {system_ticks} 0 0 20 1 1 0 {start_ticks} 16777216 {rss_pages} 0 0 0 0 0 0 0 0 0 0 0 0 0 17 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n"
+proc process_stat(pid: Int, start_ticks: Int, user_ticks: Int, system_ticks: Int, rss_pages: Int, command: Str = "sample (worker)") -> Str {
+  f"{pid} ({command}) S 1 {pid} {pid} 0 -1 4194560 100 0 0 0 {user_ticks} {system_ticks} 0 0 20 1 1 0 {start_ticks} 16777216 {rss_pages} 0 0 0 0 0 0 0 0 0 0 0 0 0 17 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n"
+}
+
+pure observed_source(text: Str) -> src.SourceRead {
+  {
+    observation: {state: report.Observed, value: text, raw_bytes_base64: null},
+    errno: null,
+    error_kind: null,
+  }
 }
 
 proc write_process(root: FsRoot, pid: Int, start_ticks: Int, ticks: Int, rss_pages: Int) [fs, error] {
@@ -238,9 +246,54 @@ test test_btop_process_source_keeps_identity_uid_cpu_ticks_and_rss {
   assert sample.processes.len() == 1
   let item = sample.processes[0]
   assert item.pid == 42 and item.start_ticks == 1000
+  assert item.parent_pid == 1 and item.thread_count == 1
   assert item.command == "sample (worker)"
   assert item.uid == 1000 and item.cpu_ticks == 35
   assert item.rss_bytes == 67108864
+}
+
+test test_btop_process_stat_keeps_a_command_with_embedded_parentheses_and_spaces {
+  let root = fs.tempdir()?
+  defer root.close()
+  root.mkdir(p"proc", parents: true)
+  root.mkdir(p"proc/42", parents: true)
+  root.write(p"proc/42/stat", process_stat(42, 1000, 35, 0, 16384, command: "worker) with spaces (v2"))
+  root.write(p"proc/42/statm", "65536 16384 100 0 0 1 0\n")
+  root.write(p"proc/42/status", "Name:\tworker\nUid:\t1000\t1000\t1000\t1000\n")
+
+  let sample = processes.collect(root, page_size_bytes: 4096)
+  assert sample.processes.len() == 1
+  assert sample.processes[0].command == "worker) with spaces (v2"
+}
+
+test test_btop_process_read_tape_withholds_pid_reuse_and_disappearance {
+  let statm = observed_source("65536 16384 100 0 0 1 0\n")
+  let status = observed_source("Name:\tworker\nUid:\t1000\t1000\t1000\t1000\n")
+  let raced = processes.process_read_from_tape(
+    42,
+    4096,
+    {
+      before_stat: observed_source(process_stat(42, 1000, 35, 0, 16384)),
+      statm: statm,
+      status: status,
+      after_stat: observed_source(process_stat(42, 2000, 40, 0, 16384)),
+    },
+  )
+  assert raced.process == null
+  assert raced.issues[0].state == report.Raced
+
+  let disappeared = processes.process_read_from_tape(
+    42,
+    4096,
+    {
+      before_stat: observed_source(process_stat(42, 1000, 35, 0, 16384)),
+      statm: statm,
+      status: status,
+      after_stat: {observation: src.empty_text(report.Absent), errno: null, error_kind: null},
+    },
+  )
+  assert disappeared.process == null
+  assert disappeared.issues[0].state == report.Disappeared
 }
 
 test test_btop_process_source_exposes_a_reused_pid_as_a_new_identity {

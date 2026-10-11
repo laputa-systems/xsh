@@ -24,7 +24,9 @@ export type Observation = {
 ## Retains one process row and its interval percentage before terminal formatting.
 export type ProcessRow = {
   pid: Int,
+  parent_pid: Int,
   start_ticks: Int,
+  thread_count: Int?,
   uid: Int?,
   uid_state: MetadataState,
   command: Str,
@@ -311,7 +313,9 @@ export pure step_cached(current: Observation, previous: Observation?, metadata: 
     let uid = cached_uid(process_row, current, cache)
     let row: ProcessRow = {
       pid: process_row.pid,
+      parent_pid: process_row.parent_pid,
       start_ticks: process_row.start_ticks,
+      thread_count: process_row.thread_count,
       uid: uid.uid,
       uid_state: uid.state,
       command: process_row.command,

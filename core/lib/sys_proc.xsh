@@ -12,6 +12,7 @@ export type Process = {
   parent_pid: Int,
   start_ticks: Int,
   command: Str,
+  thread_count: Int?,
   uid: Int?,
   cpu_ticks: Int?,
   rss_bytes: Int?,
@@ -23,7 +24,15 @@ export type ProcessSource = {
   issues: List[src.Issue],
 }
 
-type ProcessRead = {process: Process?, issues: List[src.Issue]}
+## Holds one accepted process or the issues that withheld its identity.
+export type ProcessRead = {process: Process?, issues: List[src.Issue]}
+## Records the ordered rooted reads needed to verify one PID lifetime.
+export type ProcessReadTape = {
+  before_stat: src.SourceRead,
+  statm: src.SourceRead,
+  status: src.SourceRead,
+  after_stat: src.SourceRead,
+}
 type UidParse = {uid: Int?, issues: List[src.Issue]}
 type StatmParse = {rss_bytes: Int?, issues: List[src.Issue]}
 
@@ -105,6 +114,62 @@ pure parse_statm(source: src.SourceRead, page_size_bytes: Int, pid: Int) -> Stat
   {rss_bytes: resident, issues: []}
 }
 
+## Applies identity checks to the exact ordered reads used by one PID observation.
+export pure process_read_from_tape(pid: Int, page_size_bytes: Int, tape: ProcessReadTape) -> ProcessRead {
+  let before_source = tape.before_stat
+  if before_source.observation.state != .Observed or before_source.observation.value == null {
+    return {
+      process: null,
+      issues: [src.issue(f"processes.{pid}.stat", before_source.observation.state, before_source.error_kind, before_source.errno)],
+    }
+  }
+  let before = live.parse_proc_stat(before_source.observation.value)
+  if let Ok(stat) = before {
+    if stat.pid != pid {
+      return {process: null, issues: [src.issue(f"processes.{pid}.stat", report.Raced, "pid_directory_reused", null)]}
+    }
+
+    let statm = parse_statm(tape.statm, page_size_bytes, pid)
+    let status = parse_status_uid(tape.status, pid)
+    let after_source = tape.after_stat
+    if after_source.observation.state != .Observed or after_source.observation.value == null {
+      let state = if after_source.observation.state == .Absent { report.Disappeared } else { after_source.observation.state }
+      return {
+        process: null,
+        issues: [src.issue(f"processes.{pid}.stat", state, after_source.error_kind, after_source.errno)],
+      }
+    }
+    let after = live.parse_proc_stat(after_source.observation.value)
+    if let Ok(final_stat) = after {
+      if final_stat.pid != pid or final_stat.start_ticks != stat.start_ticks {
+        return {process: null, issues: [src.issue(f"processes.{pid}.stat", report.Raced, "process_identity_changed", null)]}
+      }
+
+      var issues = statm.issues.extend(status.issues)
+      if stat.cpu_ticks_state != null {
+        issues += [src.issue(f"processes.{pid}.cpu_ticks", stat.cpu_ticks_state ?? report.Malformed, "invalid_process_cpu_ticks", null)]
+      }
+      return {
+        process: {
+          pid: stat.pid,
+          parent_pid: stat.parent_pid,
+          start_ticks: stat.start_ticks,
+          command: stat.command,
+          thread_count: stat.thread_count,
+          uid: status.uid,
+          cpu_ticks: stat.cpu_ticks,
+          rss_bytes: statm.rss_bytes,
+        },
+        issues: issues,
+      }
+    } else {
+      return {process: null, issues: [src.issue(f"processes.{pid}.stat", report.Raced, "process_stat_changed", null)]}
+    }
+  } else {
+    return {process: null, issues: [src.issue(f"processes.{pid}.stat", report.Malformed, "invalid_process_stat", null)]}
+  }
+}
+
 proc process_read(root: FsRoot, directory: Path, pid: Int, page_size_bytes: Int) [fs, error] -> ProcessRead {
   let before_source = src.read_source_text(root, fp"{directory}/stat", max_bytes: 16384)
   if before_source.observation.state != .Observed or before_source.observation.value == null {
@@ -117,46 +182,17 @@ proc process_read(root: FsRoot, directory: Path, pid: Int, page_size_bytes: Int)
   if let Err(_) = before {
     return {process: null, issues: [src.issue(f"processes.{pid}.stat", report.Malformed, "invalid_process_stat", null)]}
   }
-  let stat = before?
-  if stat.pid != pid {
+  let before_stat = before?
+  if before_stat.pid != pid {
     return {process: null, issues: [src.issue(f"processes.{pid}.stat", report.Raced, "pid_directory_reused", null)]}
   }
 
-  let statm = parse_statm(src.read_source_text(root, fp"{directory}/statm", max_bytes: 4096), page_size_bytes, pid)
-  let status = parse_status_uid(src.read_source_text(root, fp"{directory}/status", max_bytes: 16384), pid)
-  let after_source = src.read_source_text(root, fp"{directory}/stat", max_bytes: 16384)
-  if after_source.observation.state != .Observed or after_source.observation.value == null {
-    let state = if after_source.observation.state == .Absent { report.Disappeared } else { after_source.observation.state }
-    return {
-      process: null,
-      issues: [src.issue(f"processes.{pid}.stat", state, after_source.error_kind, after_source.errno)],
-    }
-  }
-  let after = live.parse_proc_stat(after_source.observation.value)
-  if let Err(_) = after {
-    return {process: null, issues: [src.issue(f"processes.{pid}.stat", report.Raced, "process_stat_changed", null)]}
-  }
-  let final_stat = after?
-  if final_stat.pid != pid or final_stat.start_ticks != stat.start_ticks {
-    return {process: null, issues: [src.issue(f"processes.{pid}.stat", report.Raced, "process_identity_changed", null)]}
-  }
-
-  var issues = statm.issues.extend(status.issues)
-  if stat.cpu_ticks_state != null {
-    issues += [src.issue(f"processes.{pid}.cpu_ticks", stat.cpu_ticks_state ?? report.Malformed, "invalid_process_cpu_ticks", null)]
-  }
-  {
-    process: {
-      pid: stat.pid,
-      parent_pid: stat.parent_pid,
-      start_ticks: stat.start_ticks,
-      command: stat.command,
-      uid: status.uid,
-      cpu_ticks: stat.cpu_ticks,
-      rss_bytes: statm.rss_bytes,
-    },
-    issues: issues,
-  }
+  process_read_from_tape(pid, page_size_bytes, {
+    before_stat: before_source,
+    statm: src.read_source_text(root, fp"{directory}/statm", max_bytes: 4096),
+    status: src.read_source_text(root, fp"{directory}/status", max_bytes: 16384),
+    after_stat: src.read_source_text(root, fp"{directory}/stat", max_bytes: 16384),
+  })
 }
 
 ## Enumerates numeric PID directories and discards rows whose identity changed mid-read.
