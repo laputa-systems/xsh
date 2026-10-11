@@ -17,7 +17,7 @@ enum RuleOption { InferredPrivateEffects, EnvString, ItemShorthand, TempdirScope
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum RuleSetting { Always, AlwaysWithOptInAdvice, Configured(RuleOption), OptIn(RuleOption), DeadCode, Runless, NativeTestFile, Migration }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum CheckedFact { ExpressionTypes, FunctionReturns, FunctionEffects, StatementPositions, ResolvedBindings, ProvenNonNullFallbacks, RequirementTargets, MessagePayloadConstructors, DefinitelyExitingBlocks, StandardCallAndMembership, StandardCallIdentities, MembershipMigrations, PropagatingStatements, RedundantConditionPropagations, DiscardableBindings, UnvalidatedCommandVectors, RedundantVariantQualifiers, RecordRequireMigrations, CallableSignatures, ReturnProofProbe }
+enum CheckedFact { ExpressionTypes, FunctionReturns, FunctionEffects, StatementPositions, ResolvedBindings, ProvenNonNullFallbacks, RequirementTargets, MessagePayloadConstructors, DefinitelyExitingBlocks, StandardCallAndMembership, StandardCallIdentities, MembershipMigrations, PropagatingStatements, RedundantConditionPropagations, DiscardableBindings, UnvalidatedCommandVectors, RedundantVariantQualifiers, RecordRequireMigrations, CheckerDiagnostics, CallableSignatures, ReturnProofProbe }
 impl CheckedFact { fn needs_check_output(self) -> bool { !matches!(self, Self::ReturnProofProbe) } }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum RuleView { Source }
@@ -145,7 +145,7 @@ lint_rules! {
     LintBlockHeader: (RuleSetting::Migration, [], FixPolicy::Migration, None, None, None, []);
     LintBooleanGuard: (RuleSetting::Always, [ExpressionTypes, DefinitelyExitingBlocks], FixPolicy::ProducerProof, None, None, None, [RuleHook::StatementSequence(StatementSequenceHook::NegativeIfGuard)]);
     LintCommandValue: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::CommandArgument(CommandArgumentHook::CommandValue)]);
-    LintCompatibilityVocabulary: (RuleSetting::Migration, [], FixPolicy::Migration, None, None, None, []);
+    LintCompatibilityVocabulary: (RuleSetting::Migration, [CheckerDiagnostics], FixPolicy::Migration, None, None, None, []);
     LintCoreAssert: (RuleSetting::Always, [ExpressionTypes, StatementPositions], FixPolicy::ProducerProof, None, None, None, [RuleHook::Statement(StatementHook::CoreAssert), RuleHook::ExpressionGroup(ExpressionGroup::CallStyle)]);
     LintDeadCode: (RuleSetting::DeadCode, [], FixPolicy::NoFix, None, None, None, [RuleHook::BeforeStatement(BeforeStatementHook::DeadCode)]);
     LintDefaultParamType: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Parameter(run_default_parameter_annotation)]);
@@ -167,7 +167,7 @@ lint_rules! {
     LintPathDisplayEquality: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::PathMigrations)]);
     LintPathDisplaySink: (RuleSetting::Always, [ExpressionTypes], FixPolicy::NoFix, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::PathMigrations)]);
     LintPathTextQuery: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::PathMigrations)]);
-    LintPositionalErrorArguments: (RuleSetting::Migration, [], FixPolicy::Migration, None, None, None, []);
+    LintPositionalErrorArguments: (RuleSetting::Migration, [CheckerDiagnostics], FixPolicy::Migration, None, None, None, []);
     LintPreferBareFieldLabel: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Expression(run_quoted_field_labels)]);
     LintPreferCallableAlias: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Root(RootStage::CallableAlias, run_callable_alias_hook)]);
     LintPreferConst: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::Root(RootStage::PreparedConstants, run_prepared_constants_hook)]);
@@ -210,7 +210,7 @@ lint_rules! {
     LintPreferTryCapture: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Root(RootStage::TryCapture, run_try_capture_hook)]);
     LintPreferWriteLines: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::PathMigrations)]);
     LintPreferYieldDelegation: (RuleSetting::Always, [ExpressionTypes, FunctionReturns], FixPolicy::ProducerProof, None, None, None, [RuleHook::Loop(LoopHook::YieldDelegation)]);
-    LintPublicResultError: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, []);
+    LintPublicResultError: (RuleSetting::Always, [CheckerDiagnostics], FixPolicy::ProducerProof, None, None, None, []);
     LintRedundantBareReturn: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Function(FunctionHook::BareReturn)]);
     LintRedundantClose: (RuleSetting::Always, [ExpressionTypes, ResolvedBindings], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionAnalysis(ExpressionAnalysis::RedundantCloseUses), RuleHook::SequenceExit(SequenceExit::Root), RuleHook::SequenceExit(SequenceExit::Block)]);
     LintRedundantCommandFmt: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::CommandArgument(CommandArgumentHook::CommandFormat)]);
@@ -231,7 +231,7 @@ lint_rules! {
     LintRedundantStringInterpolation: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::ExpressionGroup(ExpressionGroup::SingleInterpolation)]);
     LintRedundantTailReturnBinding: (RuleSetting::Always, [], FixPolicy::ProducerProof, None, None, None, [RuleHook::Function(FunctionHook::TailReturnBinding)]);
     LintRedundantTailReturn: (RuleSetting::Always, [StatementPositions], FixPolicy::ProducerProof, None, None, None, [RuleHook::Function(FunctionHook::TailReturn)]);
-    LintRemovedRecordRequire: (RuleSetting::Migration, [RecordRequireMigrations], FixPolicy::Migration, None, None, None, []);
+    LintRemovedRecordRequire: (RuleSetting::Migration, [CheckerDiagnostics, RecordRequireMigrations], FixPolicy::Migration, None, None, None, []);
     LintRunStatus: (RuleSetting::Always, [StatementPositions], FixPolicy::ProducerProof, None, None, None, [RuleHook::RunCheck(RunCheck::SegmentChecks)]);
     LintRunless: (RuleSetting::Runless, [], FixPolicy::NoFix, None, None, None, [RuleHook::Run(run_runless_hook)]);
     LintShadowing: (RuleSetting::Always, [], FixPolicy::NoFix, None, None, None, [RuleHook::Binding(run_shadowing_hook)]);
@@ -610,7 +610,7 @@ impl RuleSetting {
             Self::DeadCode => options.dead_code,
             Self::Runless => options.runless,
             Self::NativeTestFile => options.native_test_file,
-            Self::Migration => false,
+            Self::Migration => named,
         }
     }
 }
@@ -629,16 +629,16 @@ fn enabled_rule_codes(selection: &RuleSelection) -> impl Iterator<Item = Diagnos
 }
 impl RuleSelection {
     pub(super) fn new(options: &LintOptions) -> Self {
+        let only = options.only.as_deref();
         let named = |code| {
-            options
-                .only
-                .as_deref()
-                .is_some_and(|only| only.contains(&code))
+            only.is_some_and(|only| only.contains(&code))
         };
         let enabled = LINT_RULES
             .iter()
             .filter(|rule| {
-                rule.setting.enabled_for_options(options, named(rule.code))
+                only.is_none_or(|codes| codes.contains(&rule.code))
+                    && !options.excluded_rules.contains(&rule.code)
+                    && rule.setting.enabled_for_options(options, named(rule.code))
                     && !(options.annotation_policy_writes_returns
                         && matches!(
                             rule.code,
@@ -1551,14 +1551,27 @@ mod tests {
         };
         let no_facts = selection(Some(vec![DiagnosticCode::LintRunless]), Vec::new());
         let checked = selection(Some(vec![DiagnosticCode::LintPreferListSplicing]), Vec::new());
+        let parser_alias = selection(Some(vec![DiagnosticCode::LintBlockHeader]), Vec::new());
         let excluded = selection(
             Some(vec![DiagnosticCode::LintPreferListSplicing]),
             vec![DiagnosticCode::LintPreferListSplicing],
         );
         assert!(!no_facts.requires_check_output());
+        assert!(parser_alias.enabled(DiagnosticCode::LintBlockHeader));
+        assert!(!parser_alias.requires_check_output());
         assert!(checked.requires_check_output());
         assert!(!excluded.requires_check_output());
         assert!(checked.enabled(DiagnosticCode::LintPreferListSplicing));
+        for code in [
+            DiagnosticCode::LintCompatibilityVocabulary,
+            DiagnosticCode::LintPositionalErrorArguments,
+            DiagnosticCode::LintPublicResultError,
+            DiagnosticCode::LintRemovedRecordRequire,
+        ] {
+            let checker_alias = selection(Some(vec![code]), Vec::new());
+            assert!(checker_alias.enabled(code), "{}", code.name());
+            assert!(checker_alias.requires_check_output(), "{}", code.name());
+        }
         assert!(!excluded.enabled(DiagnosticCode::LintPreferListSplicing));
 
         let annotation_policy = RuleSelection::new(&LintOptions {
