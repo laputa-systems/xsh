@@ -3,8 +3,8 @@ use super::{
     ArenaTypeExprTag, AstArena, BindingTargetId, BuildExprId, BuildExprRow, BuiltinTypeName,
     CompactDeclOutput, CompactLowerConstructProbe, CompactTypeDefInfo, ExprId, LoweredReturnKind,
     LoweredType, LoweredTypeCheck, Name, SlotScope, Span, Symbol, Type, TypeExprId, api_spec,
-    compact_checked_type_is_concrete, concrete_checked_fact, lowered_arena_type,
-    lowered_method_name, standard_record_type,
+    compact_checked_type_is_concrete, concrete_checked_fact, lowered_method_name,
+    standard_record_type,
 };
 
 /// The bounded type a declaration names, over the base its alias resolves
@@ -12,78 +12,6 @@ use super::{
 /// does not is left unbounded rather than given bounds it cannot have.
 fn compact_bounded_type(range: crate::sema::validated::IntRange, base: Type) -> Type {
     Type::bounded(range, base.clone()).unwrap_or(base)
-}
-
-pub(super) fn lowered_arena_type_inner(
-    arena: &AstArena,
-    ty: TypeExprId,
-    declarations: &CompactDeclOutput,
-    depth: usize,
-) -> Option<LoweredType> {
-    if depth > declarations.types.len() {
-        return None;
-    }
-    let index = ty.index();
-    let tag = arena.type_expr_tags[index];
-    let data = arena.type_expr_data[index];
-    match tag {
-        ArenaTypeExprTag::Applied => lowered_checked_type(
-            &declarations
-                .record_constructors
-                .resolve_type(arena, ty, None),
-        ),
-        ArenaTypeExprTag::Named => {
-            let name = Name::from_symbol(crate::symbol::Symbol::from_raw(data.lhs));
-            if let Some(lowered) = lowered_builtin_type_name(&name.as_str()) {
-                return Some(lowered);
-            }
-            if standard_record_type(&name.as_str()).is_some() {
-                return Some(LoweredType::Record);
-            }
-            if declarations.error_families_by_name.contains_key(&name) {
-                return Some(LoweredType::Error);
-            }
-            match declarations.types.get(&name) {
-                // A bounded integer is stored as its base.
-                Some(CompactTypeDefInfo::Alias(alias) | CompactTypeDefInfo::Bounded(alias, _)) => {
-                    lowered_arena_type_inner(arena, *alias, declarations, depth + 1)
-                }
-                Some(CompactTypeDefInfo::Record(_)) => Some(LoweredType::Record),
-                Some(CompactTypeDefInfo::Module(_)) => Some(LoweredType::Module),
-                Some(CompactTypeDefInfo::TagUnion) => Some(LoweredType::Tag),
-                None => Some(LoweredType::Record),
-            }
-        }
-        ArenaTypeExprTag::Qualified => {
-            let name = Name::from_symbol(crate::symbol::Symbol::from_raw(data.rhs));
-            match declarations.types.get(&name) {
-                // A bounded integer is stored as its base.
-                Some(CompactTypeDefInfo::Alias(alias) | CompactTypeDefInfo::Bounded(alias, _)) => {
-                    lowered_arena_type_inner(arena, *alias, declarations, depth + 1)
-                }
-                Some(CompactTypeDefInfo::Record(_)) => Some(LoweredType::Record),
-                Some(CompactTypeDefInfo::Module(_)) => Some(LoweredType::Module),
-                Some(CompactTypeDefInfo::TagUnion) => Some(LoweredType::Tag),
-                None => Some(LoweredType::Record),
-            }
-        }
-        // A validated type is stored as its base.
-        ArenaTypeExprTag::List | ArenaTypeExprTag::NonEmpty => Some(LoweredType::List),
-        ArenaTypeExprTag::Map => Some(LoweredType::Map),
-        ArenaTypeExprTag::Stream => Some(LoweredType::Stream),
-        ArenaTypeExprTag::Set => Some(LoweredType::Set),
-        ArenaTypeExprTag::Module => Some(LoweredType::Module),
-        ArenaTypeExprTag::Result => Some(LoweredType::Result),
-        // A union has no single runtime representation; its members keep
-        // their own.
-        ArenaTypeExprTag::Optional | ArenaTypeExprTag::Union => Some(LoweredType::Any),
-        // A typed callable is the dynamic handle of its kind at run time.
-        ArenaTypeExprTag::Callable => Some(if arena.callable_type_expr(ty).pure {
-            LoweredType::Pure
-        } else {
-            LoweredType::Proc
-        }),
-    }
 }
 
 pub(super) fn stream_item_type(ty: &Type) -> Option<&Type> {
@@ -530,7 +458,7 @@ pub(super) fn lowered_checked_type(ty: &Type) -> Option<LoweredType> {
         Type::Any | Type::Unknown | Type::Invalid => Some(LoweredType::Any),
         // A union value is stored as whichever member it is, so its slot
         // has no single storage kind.
-        Type::Union(_) => Some(LoweredType::Any),
+        Type::Optional(_) | Type::Union(_) => Some(LoweredType::Any),
         // A validated value is stored as a value of its base.
         Type::Validated(validated) => lowered_checked_type(validated.base()),
         _ => None,
@@ -697,35 +625,6 @@ pub(super) fn checked_fact_is_resolved(ty: &Type) -> bool {
             Type::Validated(validated) => checked_fact_is_resolved(validated.base()),
             _ => true,
         }
-}
-
-fn lowered_builtin_type_name(name: &str) -> Option<LoweredType> {
-    match BuiltinTypeName::parse(name)? {
-        BuiltinTypeName::Any | BuiltinTypeName::Unknown => Some(LoweredType::Any),
-        BuiltinTypeName::Unit => Some(LoweredType::Unit),
-        BuiltinTypeName::Int | BuiltinTypeName::UInt => Some(LoweredType::Int),
-        BuiltinTypeName::Float => Some(LoweredType::Float),
-        BuiltinTypeName::Duration => Some(LoweredType::Duration),
-        BuiltinTypeName::Bool => Some(LoweredType::Bool),
-        BuiltinTypeName::Str => Some(LoweredType::Str),
-        BuiltinTypeName::Bytes => Some(LoweredType::Bytes),
-        BuiltinTypeName::Digest => Some(LoweredType::Digest),
-        BuiltinTypeName::Regex => Some(LoweredType::Regex),
-        BuiltinTypeName::Status => Some(LoweredType::Status),
-        BuiltinTypeName::Path | BuiltinTypeName::RelPath => Some(LoweredType::Path),
-        BuiltinTypeName::Command => Some(LoweredType::Command),
-        BuiltinTypeName::ProcessHandle => Some(LoweredType::ProcessHandle),
-        BuiltinTypeName::NetJob => Some(LoweredType::NetJob),
-        BuiltinTypeName::FsRoot => Some(LoweredType::FsRoot),
-        BuiltinTypeName::FsLock => Some(LoweredType::FsLock),
-        BuiltinTypeName::Pure => Some(LoweredType::Pure),
-        BuiltinTypeName::Proc => Some(LoweredType::Proc),
-        BuiltinTypeName::Error | BuiltinTypeName::ProcessError => Some(LoweredType::Error),
-        BuiltinTypeName::Record => Some(LoweredType::Record),
-        BuiltinTypeName::Module => Some(LoweredType::Module),
-        BuiltinTypeName::Result => Some(LoweredType::Result),
-        BuiltinTypeName::Null | BuiltinTypeName::Map | BuiltinTypeName::EnvPathList => None,
-    }
 }
 
 pub(super) fn type_for_lowered_type(kind: LoweredType) -> Option<Type> {
@@ -982,25 +881,18 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 
     pub(super) fn lowered_return_kind(&self, ty: TypeExprId) -> Option<LoweredReturnKind> {
-        let tag = self.program.arena.type_expr_tags[ty.index()];
-        let data = self.program.arena.type_expr_data[ty.index()];
-        if tag == ArenaTypeExprTag::Result {
-            return Some(LoweredReturnKind::Result(lowered_arena_type(
-                &self.program.arena,
-                TypeExprId::from_index(data.lhs as usize),
-                self.declarations,
-            )?));
+        let ty = self
+            .bodies
+            .resolved_type_expressions
+            .annotations
+            .get(&(self.current_namespace, ty))?;
+        match ty.unvalidated() {
+            Type::Result(ok, _) => Some(LoweredReturnKind::Result(lowered_checked_type(ok)?)),
+            Type::Optional(inner) if matches!(inner.unvalidated(), Type::Result(_, _)) => {
+                Some(LoweredReturnKind::OptionalResult)
+            }
+            ty => Some(LoweredReturnKind::Plain(lowered_checked_type(ty)?)),
         }
-        if tag == ArenaTypeExprTag::Optional
-            && self.program.arena.type_expr_tags[data.lhs as usize] == ArenaTypeExprTag::Result
-        {
-            return Some(LoweredReturnKind::OptionalResult);
-        }
-        Some(LoweredReturnKind::Plain(lowered_arena_type(
-            &self.program.arena,
-            ty,
-            self.declarations,
-        )?))
     }
 
     pub(super) fn assign_target_checked_type(

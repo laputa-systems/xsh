@@ -226,7 +226,7 @@ use commands::{
 };
 
 use types::{
-    lowered_arena_type_inner, stream_item_type, compact_pattern_test_type,
+    stream_item_type, compact_pattern_test_type,
     compact_runtime_type_in_namespace, compact_type_check, lowered_type_needs_static_check,
     compact_type_expr_name, guard_bound_type, record_binding_types, simple_binding_target,
     is_discard_name, lowered_checked_type, type_for_lowered_type,
@@ -463,11 +463,16 @@ use super::{
 };
 
 pub(super) fn lowered_arena_type(
-    arena: &AstArena,
     ty: TypeExprId,
     declarations: &CompactDeclOutput,
+    namespace: Option<Name>,
 ) -> Option<LoweredType> {
-    lowered_arena_type_inner(arena, ty, declarations, 0)
+    declarations
+        .bodies
+        .resolved_type_expressions
+        .annotations
+        .get(&(namespace, ty))
+        .and_then(lowered_checked_type)
 }
 
 pub(super) fn probe_compact_lower_constructed_bodies(
@@ -2486,7 +2491,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             CompactFunctionBlocker::ParamType => {
                 for param in self.program.arena.params(def.params) {
-                    if lowered_arena_type(&self.program.arena, param.ty, self.declarations)
+                    if lowered_arena_type(param.ty, self.declarations, self.current_namespace)
                         .is_none()
                     {
                         let tag = self.program.arena.type_expr_tags[param.ty.index()];
@@ -2881,7 +2886,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     return CompactTopLevelBlocker::BindingTarget;
                 }
                 if ty.is_some_and(|ty| {
-                    lowered_arena_type(&self.program.arena, ty, self.declarations).is_none()
+                    lowered_arena_type(ty, self.declarations, self.current_namespace).is_none()
                 }) {
                     return CompactTopLevelBlocker::BindingType;
                 }
@@ -3069,7 +3074,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let (ty, validation) = match ty {
                     Some(ty) => {
                         let lowered =
-                            lowered_arena_type(&self.program.arena, ty, self.declarations)?;
+                            lowered_arena_type(ty, self.declarations, self.current_namespace)?;
                         (
                             Some(lowered),
                             compact_type_check(
@@ -3157,7 +3162,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let (ty, validation) = match ty {
                     Some(ty) => {
                         let lowered =
-                            lowered_arena_type(&self.program.arena, ty, self.declarations)?;
+                            lowered_arena_type(ty, self.declarations, self.current_namespace)?;
                         (
                             Some(lowered),
                             compact_type_check(
@@ -3580,7 +3585,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             #[cfg(debug_assertions)]
             self.note_annotation_drift(id, ty);
             return LoweredTopLevelBinding {
-                kind: lowered_arena_type(&self.program.arena, ty, self.declarations)
+                kind: lowered_arena_type(ty, self.declarations, self.current_namespace)
                     .unwrap_or(LoweredType::Any),
                 checked: Some(compact_runtime_type_in_namespace(
                     &self.program.arena,
@@ -3606,12 +3611,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
     }
 
-    /// Lowering interprets binding annotations itself; the checker publishes
-    /// its own reading of the same annotation as the binding type.
+    /// Compare the checker-fact storage kind with the full type lowering
+    /// derives for the same annotation and the checked binding type.
     #[cfg(debug_assertions)]
     fn note_annotation_drift(&self, id: StmtId, ty: TypeExprId) {
         let span = self.program.arena.stmt(id).span;
-        let kind = lowered_arena_type(&self.program.arena, ty, self.declarations);
+        let kind = lowered_arena_type(ty, self.declarations, self.current_namespace);
         let annotated = compact_runtime_type_in_namespace(
             &self.program.arena,
             ty,
@@ -3756,7 +3761,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     .cloned()
                     .or_else(|| self.lower_binding_checked_type(ty, value));
                 if let Some(ty) = ty
-                    && lowered_arena_type(&self.program.arena, ty, self.declarations).is_none()
+                    && lowered_arena_type(ty, self.declarations, self.current_namespace).is_none()
                     && !matches!(binding_ty, Some(ref ty) if !matches!(ty, Type::Unknown | Type::Invalid))
                 {
                     return None;
@@ -3852,7 +3857,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     }
                 }
                 if let Some(ty) = ty {
-                    lowered_arena_type(&self.program.arena, ty, self.declarations)?;
+                    lowered_arena_type(ty, self.declarations, self.current_namespace)?;
                 }
                 let value =
                     self.lower_run_binding_value(run, slots, current_function, item_slot)?;
@@ -5216,7 +5221,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             ArenaExprKind::Require { value, schema } => {
                 let (ty, name) = if let Some(schema) = schema {
-                    lowered_arena_type(&self.program.arena, schema, self.declarations)?;
+                    lowered_arena_type(schema, self.declarations, self.current_namespace)?;
                     (
                         compact_runtime_type_in_namespace(
                             &self.program.arena,
