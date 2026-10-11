@@ -6,7 +6,7 @@
     "commit": "6e39144aaf5a6bc01b9f795010b0914431067183"
   },
   "gate": "G3",
-  "last_green_commit": "fadabf2d",
+  "last_green_commit": "5e776181",
   "audit": {
     "new_core_script": "New core/*.xsh applets are installed by the release script at dev/release.xsh:146-160; dev/tests/test-repository-contracts.xsh owns the required core script inventory and contract checks. No separate command registration is needed.",
     "launcher_argument_separator": "Use xsh SCRIPT -- ARGS for an applet and xsh -- SCRIPT ARGS for an explicit script; src/entrypoints/xsh.rs:90-120.",
@@ -910,42 +910,53 @@
     {
       "id": "g3.proc.stat_parse",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_process_source_keeps_identity_uid_cpu_ticks_and_rss",
+        "core/tests/test-btop-sources.xsh::test_btop_process_stat_keeps_a_command_with_embedded_parentheses_and_spaces"
+      ],
+      "evidence": "Host release: the process reader preserves nested and embedded-parenthesis command names, parent PID, thread count, and resource counters; all 62 native btop tests passed in .work/btop-campaign/g3-process-core.log."
     },
     {
       "id": "g3.proc.identity_race",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sources.xsh::test_btop_process_read_tape_withholds_pid_reuse_and_disappearance"
+      ],
+      "evidence": "Host release: the ordered read tape proves that a changed start time or disappearance withholds all fields from that PID observation; all 62 native btop tests passed in .work/btop-campaign/g3-process-core.log."
     },
     {
       "id": "g3.proc.indexed_join",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-model.xsh::test_btop_model_ranks_equal_process_rates_by_pid_and_tracks_lifetimes"
+      ],
+      "evidence": "Host release: prior process observations are indexed once by PID and joined only when start ticks match; the process lifetime test proves disappearance and PID reuse start warming intervals. All 62 native btop tests passed in .work/btop-campaign/g3-process-core.log."
     },
     {
       "id": "g3.proc.adjacency",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-process-tree.xsh::test_btop_process_tree_repairs_orphan_self_parent_cycle_and_reused_parent_edges"
+      ],
+      "evidence": "Host release: one adjacency index handles missing parents, self-parenting, cycles, and a parent PID reused after the child started; input ordering does not change the repaired preorder. All 62 native btop tests passed in .work/btop-campaign/g3-process-core.log."
     },
     {
       "id": "g3.proc.tree_aggregation",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-process-tree.xsh::test_btop_process_tree_aggregates_descendants_once_and_withholds_incomplete_rates"
+      ],
+      "evidence": "Host release: descendant CPU and RSS are added once, while incomplete CPU input withholds the parent aggregate. All 62 native btop tests passed in .work/btop-campaign/g3-process-core.log."
     },
     {
       "id": "g3.proc.sort_modes",
@@ -1342,6 +1353,12 @@
       "name": "btop model dump: per-core CPU rows",
       "commit": "0d9aea4c",
       "summary": "Model and JSONL output now include cpu_cores with sparse logical CPU IDs and interval utilization states."
+    },
+    {
+      "kind": "data_format",
+      "name": "btop model dump: process ancestry metadata",
+      "commit": "5e776181",
+      "summary": "Model and JSONL output now include each process row's parent_pid and thread_count for process-tree derivation and sorting."
     }
   ],
   "limitations": [
@@ -1944,6 +1961,6 @@
     }
   ],
   "next": [
-    "G3 S3.5: finish process parsing, identity-race handling, indexed joins, parent/child aggregation, sorting, and local command-line display."
+    "G3 S3.5: implement pinned process sort modes and filtering, then read bounded command lines for local display without storing them in model or dump output."
   ]
 }
