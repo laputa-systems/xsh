@@ -373,4 +373,10 @@ test test_awk_matrix_lexical_forms { |ctx| check_matrix(ctx, ["lex_"]) }
 test test_awk_matrix_special_variables { |ctx| check_matrix(ctx, ["sv_"]) }
 test test_awk_matrix_declaration_and_newline_diagnostics { |ctx| check_matrix(ctx, ["diag_declname_", "diag_newline_in_"]) }
 test test_awk_matrix_rule_and_regexp_constant_diagnostics { |ctx| check_matrix(ctx, ["diag_rule_noaction_", "diag_regexconst_", "diag_string_end_"]) }
-test test_awk_matrix_source_end_diagnostics { |ctx| check_matrix(ctx, ["diag_source_end_"]) }
+test test_awk_matrix_source_end_diagnostics { |ctx| check_matrix(ctx, ["diag_source_end_", "file_syntax_"]) }
+test test_awk_matrix_untyped_variables { |ctx| check_matrix(ctx, ["typing_"]) }
+test test_awk_matrix_assignment_targets { |ctx| check_matrix(ctx, ["assign_", "field_assign_"]) }
+test test_awk_matrix_arithmetic_and_bit_functions { |ctx| check_matrix(ctx, ["arith_"]) }
+test test_awk_matrix_builtin_argument_counts { |ctx| check_matrix(ctx, ["arity_"]) }
+test test_awk_matrix_regexp_syntax_first_half { |ctx| check_matrix(ctx, ["regexp_syntax_0", "regexp_syntax_1"]) }
+test test_awk_matrix_regexp_syntax_second_half { |ctx| check_matrix(ctx, ["regexp_syntax_2", "regexp_syntax_3", "regexp_syntax_4", "regexp_syntax_5", "regexp_syntax_6", "regexp_syntax_7", "regexp_syntax_8", "regexp_syntax_9"]) }

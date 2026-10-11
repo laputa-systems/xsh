@@ -60,7 +60,8 @@ pure caret_error(piece: Piece, offset: Int, message: Str, reported_line_shift: I
   var end = start
   while end < source.len() and source.byte_at(end) != 10 { end += 1 }
   let text = source[start..end].utf8() ?? ""
-  let column = (source[start..at].utf8() ?? "").count_chars()
+  # GNU awk pads the caret by bytes, not characters.
+  let column = at - start
   let pad = [" " for _ in range(column)].join("")
   let reported = line + reported_line_shift
   f"{piece.label}:{reported}: {text}\nawk: {piece.label}:{reported}: {pad}^ {message}"
@@ -75,7 +76,7 @@ pure escaped(source: Bytes, start: Int, quote: Int) -> Result[Escaped] {
   while at < source.len() {
     let byte = source.byte_at(at) ?? 0
     at += 1
-    if byte == quote and quote >= 0 { return Ok({content: bytes.from_ints(out)?.utf8()?, at: at, notes: notes}) }
+    if byte == quote and quote >= 0 { return Ok({content: decode_lossy(bytes.from_ints(out)?)?, at: at, notes: notes}) }
     if byte == 10 and quote >= 0 { return Err(syntax_error("unterminated string")) }
     if byte != 92 { out += [byte]; continue }
     if at >= source.len() { out += [92]; continue }
@@ -105,7 +106,7 @@ pure escaped(source: Bytes, start: Int, quote: Int) -> Result[Escaped] {
       out += [next]
     }
   }
-  if quote < 0 { Ok({content: bytes.from_ints(out)?.utf8()?, at: at, notes: notes}) } else { Err(syntax_error("unterminated string")) }
+  if quote < 0 { Ok({content: decode_lossy(bytes.from_ints(out)?)?, at: at, notes: notes}) } else { Err(syntax_error("unterminated string")) }
 }
 
 # Reads a regular expression literal body: the text up to the closing slash,
@@ -126,6 +127,17 @@ pure regex_body(source: Bytes, start: Int) -> Result[Body] {
       continue
     }
     if bracket {
+      # A character class, equivalence class or collating element keeps its own closing bracket.
+      let kind = source.byte_at(at + 1) ?? 0
+      if byte == 91 and (kind == 58 or kind == 46 or kind == 61) {
+        var close = at + 2
+        while close + 1 < source.len() and source.byte_at(close) != 10 and ! (source.byte_at(close) == kind and source.byte_at(close + 1) == 93) { close += 1 }
+        if close + 1 < source.len() and source.byte_at(close) == kind and source.byte_at(close + 1) == 93 {
+          for index in range(at, close + 2) { out += [source.byte_at(index) ?? 0] }
+          at = close + 2
+          continue
+        }
+      }
       if byte == 93 { bracket = false }
       out += [byte]
       at += 1
@@ -173,12 +185,19 @@ pure lex(piece: Piece) -> Result[Lexed] {
           at = text.at
         }
         Err(_) => {
-          # A backslash ending the text continues the string over the newline
-          # GNU awk appends, which advances its line count.
+          # GNU awk names the line where the string was cut short, which is
+          # later than the opening quote when backslash-newline continued it;
+          # a backslash ending the text continues it over the newline appended.
           var stop = start + 1
-          while stop < source.len() and source.byte_at(stop) != 10 { stop += if source.byte_at(stop) == 92 { 2 } else { 1 } }
-          let continued = stop >= source.len() and source.byte_at(source.len() - 1) == 92
-          return Err(syntax_error(caret_error(piece, start, "unterminated string", if continued { 1 } else { 0 })))
+          var continued = 0
+          while stop < source.len() and source.byte_at(stop) != 10 {
+            if source.byte_at(stop) == 92 {
+              if source.byte_at(stop + 1) == 10 { continued += 1 }
+              stop += 2
+            } else { stop += 1 }
+          }
+          if stop >= source.len() and source.byte_at(source.len() - 1) == 92 { continued += 1 }
+          return Err(syntax_error(caret_error(piece, start, "unterminated string", continued)))
         }
       }
       starts += [start]
@@ -285,34 +304,27 @@ pure lookahead_line(p: Parser) -> Int {
 }
 pure label_of(p: Parser, index: Int) -> Str { f"{p.piece.label}:{p.lines.get(index) ?? 1}" }
 
-# The diagnostic for a token the grammar cannot accept. End of a program file
-# inside a rule has its own wording, as in gawk.
-pure unexpected(p: Parser) -> Error {
-  if peek(p) == TokEnd and p.piece.label != "cmd. line" {
-    let text = p.piece.text
-    let last = text.split("\n")
-    let lines = last.len()
-    var shown = last[lines - 1]
-    var line = lines
-    var column = 0
-    if text.ends_with("\n") { column = 0 } else { column = if shown.count_chars() > 0 { shown.count_chars() - 1 } else { 0 } }
-    let pad = [" " for _ in range(column)].join("")
-    return syntax_error(f"{p.piece.label}:{line}: (END OF FILE)\nawk: {p.piece.label}:{line}: {pad}^ source files / command-line arguments must contain complete functions or rules")
-  }
+# The diagnostic for a token the grammar cannot accept.
+pure unexpected(parser: Parser) -> Error {
+  # GNU awk lexes the "@" of its directives before it rejects it, so the
+  # error is found at the token after it.
+  let p = if is_at(parser, "@") { advance(parser) } else { parser }
   # GNU awk has already consumed the newline when it complains about it, so
   # it names the following line while showing the line that holds the newline.
   if is_at(p, "\n") { return syntax_error(caret_error(p.piece, token_start(p), "unexpected newline or end of string", 1)) }
-  if peek(p) == TokEnd { return syntax_error(end_of_command_error(p)) }
+  if peek(p) == TokEnd { return syntax_error(end_of_source_error(p)) }
   syntax_error(caret_error(p.piece, token_start(p), "syntax error"))
 }
-# An error at the end of command-line program text. GNU awk appends a newline
-# and parses it as a token of its own: where the grammar accepts that newline
-# the error is found one token later, on the last line; where it does not, the
-# newline itself is the culprit and the line after it is named. After
-# && || ? and : the lexer skips newlines itself and reports the end of the
-# source in its own words.
-pure end_of_command_error(p: Parser) -> Str {
+# An error at the end of the program text. GNU awk appends a newline to
+# command-line text and parses it as a token of its own: where the grammar
+# accepts that newline the error is found one token later, on the last line;
+# where it does not, the newline itself is the culprit and the line after it
+# is named. After && || ? and : the lexer skips newlines itself and reports
+# the end of the source in its own words, as it does for any program file
+# that ends inside a rule.
+pure end_of_source_error(p: Parser) -> Str {
   let label = p.piece.label
+  let in_file = label != "cmd. line"
   let rows = p.piece.text.split("\n")
   let trailing_newline = p.piece.text.ends_with("\n")
   let counted = if trailing_newline { rows.len() - 1 } else { rows.len() }
@@ -321,31 +333,33 @@ pure end_of_command_error(p: Parser) -> Str {
   if last < 0 { return caret_error(p.piece, token_start(p), "unexpected newline or end of string") }
   let previous = p.tokens[last]
   let symbol = spelling(previous)
+  let end_of_file = "source files / command-line arguments must contain complete functions or rules"
   if symbol in ["&&", "||", "?", ":"] {
     let line = rows.len() + 1 + (if trailing_newline { 0 } else { 1 })
     let before = bytes.from_text(p.piece.text)[0..p.starts[last]].utf8() ?? ""
     let pieces_before = before.split("\n")
-    let row_start = pieces_before[pieces_before.len() - 1]
-    let pad = [" " for _ in range(row_start.count_chars())].join("")
-    return f"{label}:{line}: (END OF FILE)\nawk: {label}:{line}: {pad}^ source files / command-line arguments must contain complete functions or rules"
+    let pad = [" " for _ in range(pieces_before[pieces_before.len() - 1].byte_len())].join("")
+    return f"{label}:{line}: (END OF FILE)\nawk: {label}:{line}: {pad}^ {end_of_file}"
   }
   var depth = 0
+  var pending_conditionals = 0
   for index in range(last + 1) {
     let text = spelling(p.tokens[index])
     if text in ["(", "["] { depth += 1 }
     if text in [")", "]"] { depth -= 1 }
-  }
-  let ends_operand = match previous { TokOp(op) => op in [")", "]", "++", "--"]; TokWord(word) => word != "in"; _ => true }
-  var pending_conditionals = 0
-  for index in range(last + 1) {
-    let text = spelling(p.tokens[index])
     if text == "?" { pending_conditionals += 1 }
     if text == ":" { pending_conditionals -= 1 }
   }
+  let ends_operand = match previous { TokOp(op) => op in [")", "]", "++", "--"]; TokWord(word) => word != "in"; _ => true }
   let absorbed = symbol in [",", ";", "{", "}"] or (depth <= 0 and pending_conditionals <= 0 and ends_operand)
   let line = if absorbed { counted } else { counted + 1 }
   let shown = rows[counted - 1]
-  let pad = [" " for _ in range(shown.count_chars())].join("")
+  if in_file {
+    let column = if trailing_newline or shown.byte_len() == 0 { 0 } else { shown.byte_len() - 1 }
+    let pad = [" " for _ in range(column)].join("")
+    return f"{label}:{line}: (END OF FILE)\nawk: {label}:{line}: {pad}^ {end_of_file}"
+  }
+  let pad = [" " for _ in range(shown.byte_len())].join("")
   f"{label}:{line}: {shown}\nawk: {label}:{line}: {pad}^ unexpected newline or end of string"
 }
 pure require(parser: Parser, content: Str) -> Result[Parser] {
@@ -383,6 +397,15 @@ const BUILTINS = ["length", "substr", "index", "split", "sub", "gsub", "match", 
 # extension functions are accepted as parameter names.
 const POSIX_BUILTINS = ["length", "substr", "index", "split", "sub", "gsub", "match", "sprintf", "sin", "cos", "atan2", "exp", "log", "sqrt", "int", "rand", "srand", "tolower", "toupper", "system", "close", "fflush"]
 const SPECIAL_VARIABLES = ["ARGC", "ARGIND", "ARGV", "BINMODE", "CONVFMT", "ENVIRON", "ERRNO", "FIELDWIDTHS", "FILENAME", "FNR", "FPAT", "FS", "IGNORECASE", "LINT", "NF", "NR", "OFMT", "OFS", "ORS", "PREC", "PROCINFO", "RLENGTH", "ROUNDMODE", "RS", "RSTART", "RT", "SUBSEP", "TEXTDOMAIN"]
+# The fewest and most arguments each built-in function accepts; sprintf and
+# the bitwise functions that take any number are not listed.
+const BUILTIN_ARITY: Map[List[Int]] = {
+  "length": [0, 1], "substr": [2, 3], "index": [2, 2], "split": [2, 4], "sub": [2, 3], "gsub": [2, 3], "match": [2, 3],
+  "sin": [1, 1], "cos": [1, 1], "atan2": [2, 2], "exp": [1, 1], "log": [1, 1], "sqrt": [1, 1], "int": [1, 1],
+  "rand": [0, 0], "srand": [0, 1], "tolower": [1, 1], "toupper": [1, 1], "system": [1, 1], "close": [1, 2], "fflush": [0, 1],
+  "lshift": [2, 2], "rshift": [2, 2], "compl": [1, 1], "strtonum": [1, 1], "systime": [0, 0], "strftime": [0, 3],
+  "mktime": [1, 2], "gensub": [3, 4], "asort": [1, 3], "asorti": [1, 3], "patsplit": [2, 4], "typeof": [1, 2], "isarray": [1, 1],
+}
 const KEYWORDS = ["BEGIN", "END", "function", "func", "if", "else", "while", "for", "do", "break", "continue", "next", "nextfile", "exit", "return", "delete", "in", "getline", "print", "printf"]
 
 # The tokens that can start an operand of an implicit concatenation.
@@ -420,6 +443,12 @@ pure word_term(parser: Parser, word: Str, tight: Bool) -> Result[Parsed[Int]] {
   if is_at(parser, "(") and (tight or word in BUILTINS) {
     let args = expression_list(advance(parser), ")")?
     var after = args.parser
+    if word in BUILTIN_ARITY {
+      let limits = BUILTIN_ARITY.get(word) ?? [0, 0]
+      if args.value.len() < limits[0] or args.value.len() > limits[1] {
+        return Err(syntax_error(caret_error(after.piece, after.starts[after.at - 1], f"{args.value.len()} is invalid as number of arguments for {word}")))
+      }
+    }
     if word not in BUILTINS {
       after.program.uses += [Use(name: word, site: label_here(parser), call: true, argc: args.value.len())]
       for index in range(args.value.len()) {
@@ -453,8 +482,46 @@ pure is_regex_literal(program: Program, id: Int) -> Bool {
   if id in program.grouped { return false }
   match program.expressions[id] { RegexLiteral(_) => true; _ => false }
 }
+# The value of an expression built only from numeric literals, which GNU awk
+# folds while parsing; null when it depends on anything else, including a
+# parenthesized operand. A division by zero is not folded.
+pure constant_value(program: Program, id: Int) -> Float? {
+  if id in program.grouped { return null }
+  match program.expressions[id] {
+    Number(n) => n
+    Unary(op, child) => {
+      let inner = constant_value(program, child)
+      if inner == null { return null }
+      if op == "-" { return 0.0 - (inner ?? 0.0) }
+      if op == "!" { return if (inner ?? 0.0) == 0.0 { 1.0 } else { 0.0 } }
+      null
+    }
+    Binary(op, left, right) => {
+      let a = constant_value(program, left)
+      let b = constant_value(program, right)
+      if a == null or b == null { return null }
+      let x = a ?? 0.0
+      let y = b ?? 0.0
+      if op == "+" { return x + y }
+      if op == "-" { return x - y }
+      if op == "*" { return x * y }
+      if op == "/" and y != 0.0 { return x / y }
+      if op == "^" { return x.pow(y) }
+      null
+    }
+    _ => null
+  }
+}
+# A parenthesized variable is a value, not a place to assign.
 pure lvalue(program: Program, id: Int) -> Bool {
+  if id in program.grouped { return false }
   match program.expressions[id] { Variable(_) => true; Field(_) => true; Index(_, _) => true; _ => false }
+}
+pure is_field_post_increment(program: Program, id: Int) -> Bool {
+  match program.expressions[id] {
+    Increment(target, _, true) => match program.expressions[target] { Field(_) => true; _ => false }
+    _ => false
+  }
 }
 # The optional variable after "getline"; without one the record becomes $0.
 pure getline_target(parser: Parser) -> Result[Parsed[Int?]] {
@@ -494,6 +561,7 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
     TokRegex(pattern) => {
       if let Err(failure) = check_regex(pattern) { return Err(syntax_error(f"{label_of(begin, begin.at)}: error: {failure.message}")) }
       first = expression_node(p, RegexLiteral(pattern))
+      for warning in regex_warnings(pattern) { first.parser.program.notes += [f"{label_of(begin, begin.at)}: warning: {warning}"] }
     }
     TokWord(word) => {
       if word == "getline" {
@@ -533,7 +601,9 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
           first = expression_node(array.parser, Member(keys, array.value))
         } else {
           first = {parser: require(after, ")")?, value: inner.value}
-          if is_regex_literal(first.parser.program, inner.value) { first.parser.program.grouped += [inner.value] }
+          if is_regex_literal(first.parser.program, inner.value) or lvalue(first.parser.program, inner.value) or constant_value(first.parser.program, inner.value) != null {
+            first.parser.program.grouped += [inner.value]
+          }
         }
         first.parser.printing = printing
       } else if op == "$" {
@@ -544,7 +614,11 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
         first = expression_node(child.parser, Unary(op, child.value))
       } else if op in ["++", "--"] {
         let child = expression(p, 13)?
-        if ! lvalue(child.parser.program, child.value) { return Err(unexpected(begin)) }
+        if ! lvalue(child.parser.program, child.value) {
+          # A prefix increment of a postfix one is rejected after both operators; of a non-place, at the operand.
+          let nested = match child.parser.program.expressions[child.value] { Increment(_, _, _) => true; _ => false }
+          return Err(unexpected(if nested { child.parser } else { p }))
+        }
         first = expression_node(child.parser, Increment(child.value, if op == "++" { 1.0 } else { -1.0 }, false))
       } else { return Err(unexpected(begin)) }
     }
@@ -594,9 +668,15 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
     let concat = known == 0 and starts_operand(p)
     let power = if concat { 8 } else { known }
     # An assignment whose target is already parsed binds to that target even as the right operand, as in $1==$1="x".
-    let assigns = power == 1 and lvalue(p.program, left)
+    let assigns = power == 1 and minimum <= 8 and lvalue(p.program, left)
     if power == 0 or (power < minimum and ! assigns) { break }
-    if power == 1 and ! lvalue(p.program, left) { return Err(unexpected(p)) }
+    if power == 1 and ! lvalue(p.program, left) {
+      if is_field_post_increment(p.program, left) {
+        let value = expression(skip_newlines_after(p, op), 1)?
+        return Err(syntax_error(caret_error(value.parser.piece, token_start(value.parser), "cannot assign a value to the result of a field post-increment expression")))
+      }
+      return Err(unexpected(p))
+    }
     if power == 7 {
       if relational { return Err(unexpected(p)) }
       relational = true
@@ -604,6 +684,10 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
     let operator = if concat { "concat" } else { op }
     let right = if concat { expression(p, 9)? } else { expression(skip_newlines_after(p, op), if power == 1 or power == 12 { power } else { power + 1 })? }
     var after_right = right.parser
+    if (op == "/" or op == "%") and ! concat and power != 1 and constant_value(after_right.program, right.value) == 0.0 {
+      let tail = if op == "%" { " in `%'" } else { "" }
+      after_right.errors += [f"{label_of(after_right, after_right.at - 1)}: error: division by zero attempted{tail}"]
+    }
     if (op == "~" or op == "!~") and is_regex_literal(after_right.program, left) {
       after_right.program.notes += [f"{label_of(after_right, after_right.at - 1)}: warning: regular expression on left of `~' or `!~' operator"]
     }
@@ -1239,6 +1323,36 @@ pure literal_char(character: Str, alphabet: Alphabet) -> Str {
 
 pure ere_error(message: Str) -> Error { AwkError.Syntax(message) }
 
+type ByteEscape = {value: Int, at: Int}
+# An octal (\ooo) or hexadecimal (\xhh) escape at chars[at] == "\\" and the
+# position after it; null for any other escape.
+pure escape_byte(chars: List[Str], at: Int) -> ByteEscape? {
+  if at + 1 >= chars.len() or chars[at] != "\\" { return null }
+  let next = chars[at + 1]
+  var cursor = at + 2
+  if next in ["0", "1", "2", "3", "4", "5", "6", "7"] {
+    var number = digit_value(next.byte_at(0) ?? 48)
+    var count = 1
+    while count < 3 and cursor < chars.len() and chars[cursor] in ["0", "1", "2", "3", "4", "5", "6", "7"] {
+      number = number * 8 + digit_value(chars[cursor].byte_at(0) ?? 48)
+      cursor += 1
+      count += 1
+    }
+    return {value: number % 256, at: cursor}
+  }
+  if next == "x" {
+    var number = 0
+    var count = 0
+    while count < 2 and cursor < chars.len() and chars[cursor].byte_len() == 1 and hex_digit(chars[cursor].byte_at(0) ?? 0) {
+      number = number * 16 + digit_value(chars[cursor].byte_at(0) ?? 48)
+      cursor += 1
+      count += 1
+    }
+    if count > 0 { return {value: number, at: cursor} }
+  }
+  null
+}
+
 # Translates one awk regular expression into the host's ERE dialect.
 pure rx_translate(pattern: Str, alphabet: Alphabet) -> Result[Str] {
   let chars = pattern.split("")
@@ -1250,6 +1364,22 @@ pure rx_translate(pattern: Str, alphabet: Alphabet) -> Result[Str] {
     let c = chars[at]
     if c == "\\" {
       if at + 1 >= chars.len() { return Err(ere_error("Trailing backslash")) }
+      # Escaped bytes of a multibyte character, or stray bytes, stand for the same characters as in the subject.
+      let first = escape_byte(chars, at)
+      if first != null and (first ?? {value: 0, at: 0}).value >= 128 {
+        var raw: List[Int] = [(first ?? {value: 0, at: 0}).value]
+        var cursor = (first ?? {value: 0, at: 0}).at
+        loop {
+          let more = escape_byte(chars, cursor)
+          if more == null or (more ?? {value: 0, at: 0}).value < 128 { break }
+          raw += [(more ?? {value: 0, at: 0}).value]
+          cursor = (more ?? {value: 0, at: 0}).at
+        }
+        for character in decode_lossy(bytes.from_ints(raw)?)?.split("") { out += [literal_char(character, alphabet)] }
+        at = cursor
+        operand_start = false
+        continue
+      }
       let next = chars[at + 1]
       at += 2
       operand_start = false
@@ -1274,7 +1404,11 @@ pure rx_translate(pattern: Str, alphabet: Alphabet) -> Result[Str] {
           count += 1
         }
         out += [if count == 0 { "x" } else { literal_char(shown_char(number), alphabet) }]
-      } else if next in ["<", ">", "y", "B", "`", "'"] {
+      } else if next == "`" {
+        out += ["^"]
+      } else if next == "'" {
+        out += ["$"]
+      } else if next in ["<", ">", "y", "B"] {
         return Err(unsupported(f"regular expression operator \\{next} (word boundaries) is not available"))
       } else if next in ["w", "W", "s", "S"] {
         out += ["\\" + next]
@@ -1304,7 +1438,13 @@ pure rx_translate(pattern: Str, alphabet: Alphabet) -> Result[Str] {
       continue
     }
     if c == ")" {
-      if depth == 0 { return Err(ere_error("Unmatched ) or \\)")) }
+      # An unmatched close parenthesis is an ordinary character.
+      if depth == 0 {
+        out += ["\\)"]
+        at += 1
+        operand_start = false
+        continue
+      }
       depth -= 1
       out += [")"]
       at += 1
@@ -1317,8 +1457,8 @@ pure rx_translate(pattern: Str, alphabet: Alphabet) -> Result[Str] {
       operand_start = true
       continue
     }
-    if c == "^" {
-      out += ["^"]
+    if c == "^" or c == "$" {
+      out += [c]
       at += 1
       # A repetition operator right after an anchor is literal in GNU syntax.
       operand_start = true
@@ -1372,6 +1512,8 @@ pure rx_bracket(chars: List[Str], start: Int, alphabet: Alphabet) -> Result[Brac
   var at = start + 1
   var negate = false
   if at < chars.len() and chars[at] == "^" { negate = true; at += 1 }
+  # A bracket with nothing after it is rejected before the matcher sees it.
+  if at >= chars.len() { return Err(ere_error("Invalid regular expression")) }
   var items: List[Str] = []
   var has_close = false
   var has_dash = false
@@ -1420,6 +1562,7 @@ pure rx_bracket(chars: List[Str], start: Int, alphabet: Alphabet) -> Result[Brac
         items += [bracket_char(current, alphabet) + "-" + bracket_char(high, alphabet)]
       }
       at = after
+      if at + 1 < chars.len() and chars[at] == "-" and chars[at + 1] != "]" { return Err(ere_error("Invalid range end")) }
       continue
     }
     if current == "]" { has_close = true } else if current == "-" { has_dash = true } else if current == "^" { has_caret = true } else { items += [bracket_char(current, alphabet)] }
@@ -1576,8 +1719,38 @@ pure rx_matches(pattern: Str, content: Str, ignore_case: Bool) -> Result[List[Ma
 pure check_regex(pattern: Str) -> Result[Unit] {
   match rx_matches(pattern, "", false) {
     Ok(_) => Ok()
-    Err(failure) => Err(syntax_error(f"{failure.message}: /{pattern}/"))
+    Err(failure) => Err(syntax_error(f"{regex_message(failure.message)}: /{pattern}/"))
   }
+}
+
+# The wording GNU awk gives for failures the host engine words differently.
+pure regex_message(message: Str) -> Str {
+  if message == "Unknown character class name" { return "Invalid character class name" }
+  if message == "Invalid character range" { return "Invalid range end" }
+  message
+}
+
+# A bracket expression written as [:name:] outside another bracket is
+# almost certainly a mistyped character class.
+pure regex_warnings(pattern: Str) -> List[Str] {
+  let chars = pattern.split("")
+  var found: List[Str] = []
+  var at = 0
+  while at < chars.len() {
+    if chars[at] == "\\" { at += 2; continue }
+    if chars[at] != "[" { at += 1; continue }
+    match rx_bracket(chars, at, NO_ALPHABET) {
+      Ok(bracket) => {
+        if bracket.at - at >= 4 and chars[at + 1] == ":" and chars[bracket.at - 2] == ":" {
+          let component = chars[at..bracket.at].join("")
+          found += [f"regexp component `{component}' should probably be `[{component}]'"]
+        }
+        at = bracket.at
+      }
+      Err(_) => { return found }
+    }
+  }
+  found
 }
 
 # The leftmost-longest match with its parenthesized groups (index 0 is the
@@ -1624,6 +1797,15 @@ pure incomplete_tail(data: Bytes) -> Int {
   0
 }
 type Chunk = {text: Str, tail: Bytes, lossy: Bool}
+# Whether text holds a character standing for an input byte that is not valid UTF-8.
+pure holds_mapped_bytes(text: Str) -> Bool {
+  if text.byte_len() == text.count_chars() { return false }
+  let encoded = bytes.from_text(text)
+  for index in range(encoded.len() - 2) {
+    if encoded.byte_at(index) == 244 and encoded.byte_at(index + 1) == 143 and (encoded.byte_at(index + 2) ?? 0) >= 190 { return true }
+  }
+  false
+}
 pure continuation(byte: Int) -> Bool { byte >= 128 and byte <= 191 }
 # Text holds only valid UTF-8, so each byte of input that is not part of a valid
 # sequence is kept as the private-use character U+10FF00 plus the byte (and
@@ -2285,6 +2467,13 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
               spots += [place.spot]
             } else { plain += [at] }
           }
+          Field(_) => {
+            if name in ["typeof", "isarray"] and at == 0 {
+              let place = compile_place(x, names, args[at])?
+              ops += place.ops
+              spots += [place.spot]
+            } else { plain += [at] }
+          }
           _ => { plain += [at] }
         }
       }
@@ -2570,7 +2759,7 @@ proc flush_writers(streams: Map[Writer], lossy: Bool) -> Result[Flushed] {
       writers[key].pending = ""
       match write_all(writer.fd, output_bytes(data, lossy)) {
         Ok(_) => {}
-        Err(failure) => { return Ok({writers: writers, failure: f"print to \"{writer.name}\" failed ({reason_of(failure)})"}) }
+        Err(failure) => { return Ok({writers: writers, failure: f"file flush of `{writer.name}' failed: {reason_of(failure)}"}) }
       }
     }
   }
@@ -2807,7 +2996,7 @@ proc advance_main(start: MainState, standard_input: Reader, operands: Table, cou
             continue
           }
         }
-        Err(failure) => { return Err(bare_fatal(f"cannot open file `{argument}' for reading: {reason_of(failure)}")) }
+        Err(failure) => { return Err(fatal_error(f"cannot open file `{argument}' for reading: {reason_of(failure)}")) }
       }
       match unix.open_fd(fp"{argument}") {
         Ok(fd) => {
@@ -2816,7 +3005,7 @@ proc advance_main(start: MainState, standard_input: Reader, operands: Table, cou
           state.active = true
           opened = true
         }
-        Err(failure) => { return Err(bare_fatal(f"cannot open file `{argument}' for reading: {reason_of(failure)}")) }
+        Err(failure) => { return Err(fatal_error(f"cannot open file `{argument}' for reading: {reason_of(failure)}")) }
       }
       break
     }
@@ -2849,7 +3038,12 @@ proc close_stream(open_readers: Map[Reader], open_writers: Map[Writer], target: 
     let writer = writers.get(key) ?? no_writer()
     writers = writers.remove(key)
     found = true
-    if writer.fd >= 0 and ! writer.pending.is_empty() { write_all(writer.fd, output_bytes(writer.pending, lossy))? }
+    if writer.fd >= 0 and ! writer.pending.is_empty() {
+      match write_all(writer.fd, output_bytes(writer.pending, lossy)) {
+        Ok(_) => {}
+        Err(failure) => { return Err(fatal_error(f"flush to \"{writer.name}\" failed: {reason_of(failure)}")) }
+      }
+    }
     if writer.fd >= 0 { unix.close_fd(writer.fd)? }
     code = 0
     if writer.command {
@@ -2880,7 +3074,12 @@ proc close_stream(open_readers: Map[Reader], open_writers: Map[Writer], target: 
 proc close_all(open_readers: Map[Reader], open_writers: Map[Writer], lossy: Bool) -> Result[Unit] {
   for key in open_writers.keys() {
     let writer = open_writers.get(key) ?? no_writer()
-    if writer.fd >= 0 and ! writer.pending.is_empty() { write_all(writer.fd, output_bytes(writer.pending, lossy))? }
+    if writer.fd >= 0 and ! writer.pending.is_empty() {
+      match write_all(writer.fd, output_bytes(writer.pending, lossy)) {
+        Ok(_) => {}
+        Err(failure) => { return Err(bare_fatal(f"flush to \"{writer.name}\" failed: {reason_of(failure)}")) }
+      }
+    }
     if writer.fd >= 0 { unix.close_fd(writer.fd)? }
     if writer.command {
       if let handle = writer.job { let _ = wait handle ? }
@@ -2899,7 +3098,7 @@ proc close_all(open_readers: Map[Reader], open_writers: Map[Writer], lossy: Bool
 pure dynamic_matches(pattern: Str, content: Str, ignore_case: Bool) -> Result[List[Match]] {
   match rx_matches(pattern, content, ignore_case) {
     Ok(hits) => Ok(hits)
-    Err(failure) => Err(error.failure(f"fatal: invalid regexp: {failure.message}: /{pattern}/"))
+    Err(failure) => Err(error.failure(f"fatal: invalid regexp: {regex_message(failure.message)}: /{pattern}/"))
   }
 }
 
@@ -2959,10 +3158,12 @@ pure strtonum(text: Str) -> Result[Float] {
   var body = plain
   if body.starts_with("-") { negative = true; body = body.byte_slice(1) } else if body.starts_with("+") { body = body.byte_slice(1) }
   var value = 0.0
-  if (body.starts_with("0x") or body.starts_with("0X")) and body.byte_len() > 2 {
+  # A sign takes the number out of the hexadecimal and octal notations.
+  let signed = plain != body
+  if ! signed and (body.starts_with("0x") or body.starts_with("0X")) and body.byte_len() > 2 {
     var at = 2
     while at < body.byte_len() and hex_digit(body.byte_at(at) ?? 0) { value = value * 16.0 + digit_value(body.byte_at(at) ?? 48).float(); at += 1 }
-  } else if body.starts_with("0") and body.byte_len() > 1 and octal_literal(body) {
+  } else if ! signed and body.starts_with("0") and body.byte_len() > 1 and octal_literal(body) {
     for at in range(body.byte_len()) { value = value * 8.0 + digit_value(body.byte_at(at) ?? 48).float() }
   } else {
     value = numeric_prefix(body)?
@@ -3021,14 +3222,26 @@ pure days_from_civil(year: Int, month: Int, day: Int) -> Int {
 }
 # mktime("YYYY MM DD HH MM SS [DST]"): out-of-range fields roll over; the
 # result is local time as seconds since the epoch, or -1 for malformed text.
-proc make_time(spec: Str) -> Result[Int] {
+# An optionally signed decimal integer; zero padding is allowed.
+pure leading_integer(word: Str) -> Int? {
+  let negative = word.starts_with("-")
+  let digits = if negative or word.starts_with("+") { word.byte_slice(1) } else { word }
+  if digits.is_empty() { return null }
+  var value = 0
+  for index in range(digits.byte_len()) {
+    let byte = digits.byte_at(index) ?? 0
+    if byte < 48 or byte > 57 { return null }
+    value = value * 10 + (byte - 48)
+  }
+  if negative { 0 - value } else { value }
+}
+proc make_time(spec: Str, utc: Bool) -> Result[Int] {
   var parts: List[Int] = []
   for word in spec.replace("\t", with: " ").replace("\n", with: " ").split(" ") {
     if word.is_empty() { continue }
-    match word.parse_int_decimal() {
-      Ok(number) => { parts += [number] }
-      Err(_) => { return Ok(-1) }
-    }
+    let number = leading_integer(word)
+    if number == null { return Ok(-1) }
+    parts += [number ?? 0]
   }
   if parts.len() < 6 { return Ok(-1) }
   var year = parts[0]
@@ -3038,6 +3251,7 @@ proc make_time(spec: Str) -> Result[Int] {
   if month < 0 { month += 12; year -= 1 }
   let days = days_from_civil(year, month + 1, 1) + parts[2] - 1
   let seconds = days * 86400 + parts[3] * 3600 + parts[4] * 60 + parts[5]
+  if utc { return Ok(seconds) }
   let calendar = time.to_calendar(seconds * 1000000000, true)?
   match time.from_calendar(calendar.year, calendar.month, calendar.day, calendar.hour, calendar.minute, calendar.second) {
     Ok(stamp) => Ok(stamp / 1000000000)
@@ -3099,21 +3313,32 @@ pure to_bit_operand(name: Str, position: Int, value: Float) -> Result[Float] {
   if value < 0.0 { return Err(fatal_error(f"{name}: argument {position} negative value {float_text(value, "%.6g") ?? ""} is not allowed")) }
   Ok(truncate(value))
 }
-pure bit_step(name: Str, a: Float, b: Float) -> Float {
-  var x = a
-  var y = b
-  var result = 0.0
+# and, or and xor over unsigned 64-bit operands. A value that does not fit is
+# taken as zero. The result is handed back as a double: when its set bits span
+# more than 53 positions GNU awk keeps only the low 53 bits.
+pure bit_fold(name: Str, operands: List[Float]) -> Float {
+  var rest = [if value >= 18446744073709551616.0 { 0.0 } else { value } for value in operands]
+  var kept = 0.0
+  var whole = 0.0
   var weight = 1.0
-  for _ in range(64) {
-    let bx = x - 2.0 * truncate(x / 2.0)
-    let by = y - 2.0 * truncate(y / 2.0)
-    let bit = if name == "and" { bx * by } else if name == "or" { if bx + by > 0.0 { 1.0 } else { 0.0 } } else { if bx != by { 1.0 } else { 0.0 } }
-    result += bit * weight
+  var lowest = -1
+  var highest = -1
+  for position in range(64) {
+    var combined = -1.0
+    for index in range(rest.len()) {
+      let bit = rest[index] - 2.0 * truncate(rest[index] / 2.0)
+      rest[index] = truncate(rest[index] / 2.0)
+      if combined < 0.0 { combined = bit } else if name == "and" { combined = combined * bit } else if name == "or" { combined = if combined + bit > 0.0 { 1.0 } else { 0.0 } } else { combined = if combined != bit { 1.0 } else { 0.0 } }
+    }
+    if combined > 0.0 {
+      whole += weight
+      if position < 53 { kept += weight }
+      if lowest < 0 { lowest = position }
+      highest = position
+    }
     weight *= 2.0
-    x = truncate(x / 2.0)
-    y = truncate(y / 2.0)
   }
-  result
+  if highest - lowest + 1 <= 53 { whole } else { kept }
 }
 pure arith(op: Str, a: Float, b: Float) -> Result[Float] {
   if op == "+" { return Ok(a + b) }
@@ -3181,8 +3406,12 @@ pure placed(labels: List[Str], site: Int, globals: Map[Scalar], out: Str, failur
 # nowhere (a constant). `used` is how many operands the target took off the
 # stack, and `current` its present value.
 type Target = {kind: Int, name: Str, slot: Int, key: Str, used: Int, current: Scalar}
-pure array_target(array: Str, name: Str, key: Str, used: Int, arrays: Map[Table], globals: Map[Scalar]) -> Result[Target] {
-  if array in globals { return Err(fatal_error(f"attempt to use scalar `{name}' as an array")) }
+# The failure for a scalar used as an array; a function parameter is named as one.
+pure scalar_as_array(name: Str, parameter: Bool) -> Error {
+  fatal_error(f"attempt to use scalar {if parameter { "parameter " } else { "" }}`{name}' as an array")
+}
+pure array_target(array: Str, name: Str, parameter: Bool, key: Str, used: Int, arrays: Map[Table], globals: Map[Scalar]) -> Result[Target] {
+  if array in globals { return Err(scalar_as_array(name, parameter)) }
   var current: Scalar = Empty
   if array in arrays { current = (arrays[array].cells.get(key) ?? no_cell()).value }
   Ok({kind: 5, name: array, slot: 0, key: key, used: used, current: current})
@@ -3192,9 +3421,15 @@ pure resolve_target(spot: Spot, stack: List[Scalar], top: Int, globals: Map[Scal
   let separator = plain_text(globals.get("SUBSEP") ?? Empty)?
   let conversion = plain_text(globals.get("CONVFMT") ?? Empty)?
   match spot {
-    SpotGlobal(name) => Ok({kind: 1, name: name, slot: 0, key: "", used: 0, current: globals.get(name) ?? Empty})
+    SpotGlobal(name) => {
+      if name in arrays { return Err(fatal_error(f"attempt to use array `{name}' in a scalar context")) }
+      Ok({kind: 1, name: name, slot: 0, key: "", used: 0, current: globals.get(name) ?? Empty})
+    }
     SpotNF => Ok({kind: 2, name: "NF", slot: 0, key: "", used: 0, current: globals.get("NF") ?? Empty})
-    SpotLocal(slot, name) => Ok({kind: 3, name: name, slot: slot, key: "", used: 0, current: slots[slot]})
+    SpotLocal(slot, name) => {
+      if aliases[slot] != "" and aliases[slot] in arrays { return Err(fatal_error(f"attempt to use array `{name} (from {aliases[slot]})' in a scalar context")) }
+      Ok({kind: 3, name: name, slot: slot, key: "", used: 0, current: slots[slot]})
+    }
     SpotField => {
       let index = integer(number(stack[top - 1])?)?
       if index < 0 or index > 10000000 { return Err(fatal_error(f"attempt to access field {index}")) }
@@ -3202,11 +3437,11 @@ pure resolve_target(spot: Spot, stack: List[Scalar], top: Int, globals: Map[Scal
       Ok({kind: 4, name: "", slot: index, key: "", used: 1, current: current})
     }
     SpotRecord => Ok({kind: 6, name: "", slot: 0, key: "", used: 0, current: Input(record, null)})
-    SpotIndexGlobal(name, count) => array_target(name, name, subscript_key(stack, top, count, separator, conversion)?, count, arrays, globals)
+    SpotIndexGlobal(name, count) => array_target(name, name, false, subscript_key(stack, top, count, separator, conversion)?, count, arrays, globals)
     SpotIndexLocal(slot, name, count) => {
       let array = aliases[slot]
-      if array == "" or slots[slot] != Empty { return Err(fatal_error(f"attempt to use scalar `{name}' as an array")) }
-      array_target(array, name, subscript_key(stack, top, count, separator, conversion)?, count, arrays, globals)
+      if array == "" or slots[slot] != Empty { return Err(scalar_as_array(name, true)) }
+      array_target(array, name, true, subscript_key(stack, top, count, separator, conversion)?, count, arrays, globals)
     }
     SpotNone => Ok({kind: 7, name: "", slot: 0, key: "", used: 0, current: Empty})
   }
@@ -3215,11 +3450,11 @@ pure resolve_target(spot: Spot, stack: List[Scalar], top: Int, globals: Map[Scal
 pure array_of(spot: Spot, slots: List[Scalar], aliases: List[Str], globals: Map[Scalar]) -> Result[Str] {
   match spot {
     SpotGlobal(name) => {
-      if name in globals { return Err(fatal_error(f"attempt to use scalar `{name}' as an array")) }
+      if name in globals { return Err(scalar_as_array(name, false)) }
       Ok(name)
     }
     SpotLocal(slot, name) => {
-      if aliases[slot] == "" or slots[slot] != Empty { return Err(fatal_error(f"attempt to use scalar `{name}' as an array")) }
+      if aliases[slot] == "" or slots[slot] != Empty { return Err(scalar_as_array(name, true)) }
       Ok(aliases[slot])
     }
     _ => Err(fatal_error("an array name is required"))
@@ -3262,9 +3497,11 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
     }
     arrays = arrays.set("ENVIRON", grown_table(environment, first_name))
   }
+  var assigned_mapped = false
   for item in assignments {
     let equals = item.find("=") ?? 0
     let decoded = escaped(bytes.from_text(item.byte_slice(equals + 1)), 0, -1)?
+    if holds_mapped_bytes(decoded.content) { assigned_mapped = true }
     for note in decoded.notes { warn_plain(note)? }
     globals[item.byte_slice(0, length: equals)] = input(decoded.content)?
   }
@@ -3280,9 +3517,13 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
   var writers: Map[Writer] = {}
   var stdin_reader = Reader(fd: 0, text: "", at: 0, done: false, tail: b"", pollable: false, lossy: false, job: null, name: "-", command: false)
   var out = ""
-  var lossy = false
+  var lossy = assigned_mapped
+  for expression in program.expressions {
+    match expression { Text(content) => { if holds_mapped_bytes(content) { lossy = true } }; _ => {} }
+  }
   var status = 0
   var site = 0
+  var located = false
   var pc = 0
   var phase = 0
   var main = MainState(reader: no_reader(), active: false, index: 1, opened: false, stdin_used: false, finished: false)
@@ -3310,13 +3551,16 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
         OpLoadGlobal(name) => {
           if name in globals { result = globals.get(name) ?? Empty } else {
             if name in arrays { Err(fatal_error(f"attempt to use array `{name}' in a scalar context"))? }
+            # Reading an untyped variable settles it as a scalar for good.
+            globals[name] = Empty
             result = Empty
           }
           produced = true
         }
         OpLoadLocal(slot, name) => {
           result = slots[slot]
-          if aliases[slot] != "" and aliases[slot] in arrays { Err(fatal_error(f"attempt to use array `{name}' in a scalar context"))? }
+          if aliases[slot] != "" and aliases[slot] in arrays { Err(fatal_error(f"attempt to use array `{name} (from {aliases[slot]})' in a scalar context"))? }
+          if aliases[slot] != "" and slots[slot] == Empty and ! (aliases[slot] in globals) { globals[aliases[slot]] = Empty }
           produced = true
         }
         OpLoadField => {
@@ -3329,7 +3573,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
         OpLoadIndexGlobal(name, count) => {
           let key = subscript_key(stack, sp, count, plain_text(globals.get("SUBSEP") ?? Empty)?, plain_text(globals.get("CONVFMT") ?? Empty)?)?
           sp -= count
-          if name in globals { Err(fatal_error(f"attempt to use scalar `{name}' as an array"))? }
+          if name in globals { Err(scalar_as_array(name, false))? }
           if name not in arrays { arrays[name] = empty_table() }
           let cell = arrays[name].cells.get(key) ?? no_cell()
           if cell.seq >= 0 { result = cell.value } else {
@@ -3345,7 +3589,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           let key = subscript_key(stack, sp, count, plain_text(globals.get("SUBSEP") ?? Empty)?, plain_text(globals.get("CONVFMT") ?? Empty)?)?
           sp -= count
           let array = aliases[slot]
-          if array == "" or slots[slot] != Empty { Err(fatal_error(f"attempt to use scalar `{name}' as an array"))? }
+          if array == "" or slots[slot] != Empty { Err(scalar_as_array(name, true))? }
           if array not in arrays { arrays[array] = empty_table() }
           let cell = arrays[array].cells.get(key) ?? no_cell()
           if cell.seq >= 0 { result = cell.value } else {
@@ -3544,13 +3788,14 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           if truth(stack[sp])? { result = Numeric(1.0); produced = true; pc += offset }
         }
         OpPop => { sp -= 1 }
-        OpSetSite(index) => { site = index }
+        OpSetSite(index) => { site = index; located = true }
         OpHalt => { break }
         OpRangeActive(index, offset) => { if ranges[index] { pc += offset } }
         OpSetRange(index, active) => { ranges[index] = active }
         OpMember(spot) => {
           let target = resolve_target(spot, stack, sp, globals, arrays, slots, aliases, fields, record)?
           sp -= target.used
+          if target.kind == 5 and target.name not in arrays { arrays[target.name] = empty_table() }
           result = Numeric(if target.kind == 5 and target.name in arrays and target.key in arrays[target.name].cells { 1.0 } else { 0.0 })
           produced = true
         }
@@ -3568,7 +3813,8 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
         }
         OpForInStart(spot) => {
           let array = array_of(spot, slots, aliases, globals)?
-          iterators += [Iteration(keys: if array in arrays { array_order(arrays[array]) } else { [] }, at: 0)]
+          if array not in arrays { arrays[array] = empty_table() }
+          iterators += [Iteration(keys: array_order(arrays[array]), at: 0)]
         }
         OpForInNext(offset, spot) => {
           let top = iterators.len() - 1
@@ -3577,7 +3823,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             iterators[top].at += 1
             match spot {
               SpotGlobal(name) => { pending = 1; pending_name = name }
-              SpotLocal(slot, name) => { pending = 3; pending_slot = slot }
+              SpotLocal(slot, name) => { pending = 3; pending_slot = slot; pending_name = name }
               SpotNF => { pending = 2 }
               _ => {}
             }
@@ -3681,6 +3927,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           for item in got.bindings {
             let equals = item.find("=") ?? 0
             let decoded = escaped(bytes.from_text(item.byte_slice(equals + 1)), 0, -1)?
+            if holds_mapped_bytes(decoded.content) { lossy = true }
             for note in decoded.notes { warn_plain(note)? }
             globals[item.byte_slice(0, length: equals)] = input(decoded.content)?
           }
@@ -3781,6 +4028,15 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
               }
             }
             writers[key].pending += text
+            # Plain files are written out in blocks, as stdio does, so a full disk is reported at the print that overflows the buffer.
+            if ! writers[key].command and writers[key].pending.byte_len() >= 4096 {
+              let held = writers[key]
+              writers[key].pending = ""
+              match write_all(held.fd, output_bytes(held.pending, lossy)) {
+                Ok(_) => {}
+                Err(failure) => { Err(fatal_error(f"print to \"{destination}\" failed: {reason_of(failure)}"))? }
+              }
+            }
           }
         }
         OpGetlineMain(spot) => {
@@ -3799,6 +4055,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           for item in got.bindings {
             let equals = item.find("=") ?? 0
             let decoded = escaped(bytes.from_text(item.byte_slice(equals + 1)), 0, -1)?
+            if holds_mapped_bytes(decoded.content) { lossy = true }
             for note in decoded.notes { warn_plain(note)? }
             globals[item.byte_slice(0, length: equals)] = input(decoded.content)?
           }
@@ -3970,6 +4227,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             result = Numeric(status_code(finished).float())
           } else if name == "close" {
             if count < 1 or count > 2 { Err(fatal_error("close: wrong number of arguments"))? }
+            if count == 2 and scalar_text(values[1], conversion)?.lower() not in ["to", "from"] { Err(fatal_error("close: second argument must be `to' or `from'"))? }
             let closed = close_stream(readers, writers, scalar_text(values[0], conversion)?, lossy)?
             readers = closed.readers
             writers = closed.writers
@@ -3991,8 +4249,10 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
                   found = true
                   let held = writers[key]
                   if held.fd >= 0 and ! held.pending.is_empty() {
-                    write_all(held.fd, output_bytes(held.pending, lossy))?
-                    writers[key].pending = ""
+                    match write_all(held.fd, output_bytes(held.pending, lossy)) {
+                      Ok(_) => { writers[key].pending = "" }
+                      Err(failure) => { Err(fatal_error(f"fflush: cannot flush file `{target}': {reason_of(failure)}"))? }
+                    }
                   }
                 }
               }
@@ -4008,22 +4268,41 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             }
           } else if name == "and" or name == "or" or name == "xor" {
             if count < 2 { Err(fatal_error(f"{name}: called with less than two arguments"))? }
-            var accumulator = to_bit_operand(name, 1, number(values[0])?)?
-            for at in range(1, count) { accumulator = bit_step(name, accumulator, to_bit_operand(name, at + 1, number(values[at])?)?) }
-            result = Numeric(accumulator)
+            var operands: List[Float] = []
+            for at in range(count) { operands += [to_bit_operand(name, at + 1, number(values[at])?)?] }
+            result = Numeric(bit_fold(name, operands))
           } else if name == "lshift" or name == "rshift" {
             if count != 2 { Err(fatal_error(f"{name}: wrong number of arguments"))? }
-            let a = to_bit_operand(name, 1, number(values[0])?)?
-            let b = to_bit_operand(name, 2, number(values[1])?)?
-            result = Numeric(if name == "lshift" { a * 2.0.pow(b) } else { truncate(a / 2.0.pow(b)) })
+            let a = number(values[0])?
+            let b = number(values[1])?
+            if a < 0.0 or b < 0.0 { Err(fatal_error(f"{name}({a.format_number("f", 6)?}, {b.format_number("f", 6)?}): negative values are not allowed"))? }
+            # Counts wrap at 64 and results at 2^64, as the machine shift does.
+            let width = arith("%", truncate(b), 64.0)?
+            let moved = if a >= 18446744073709551616.0 { 0.0 } else { truncate(a) }
+            result = Numeric(if name == "lshift" { arith("%", moved * 2.0.pow(width), 18446744073709551616.0)? } else { truncate(moved / 2.0.pow(width)) })
           } else if name == "compl" {
             if count != 1 { Err(fatal_error("compl: wrong number of arguments"))? }
-            result = Numeric(9007199254740991.0 - to_bit_operand(name, 1, number(values[0])?)?)
+            let value = number(values[0])?
+            if value < 0.0 { Err(fatal_error(f"compl({value.format_number("f", 6)?}): negative value is not allowed"))? }
+            # GNU awk complements in 64 bits and keeps the low 53 bits above the
+            # lowest set bit of the successor, so the width of the result varies.
+            var whole = truncate(value)
+            if whole >= 18446744073709551616.0 { whole = 0.0 }
+            if whole >= 9007199254740992.0 {
+              result = Numeric(9007199254740991.0 - arith("%", whole, 9007199254740992.0)?)
+            } else {
+              let successor = whole + 1.0
+              var rest = integer(successor)?
+              var zeros = 0
+              while rest % 2 == 0 and zeros < 63 { rest = rest / 2; zeros += 1 }
+              result = Numeric(2.0.pow((if 53 + zeros > 64 { 64 } else { 53 + zeros }).float()) - successor)
+            }
           } else if name == "strtonum" {
             if count != 1 { Err(fatal_error("strtonum: wrong number of arguments"))? }
             result = Numeric(strtonum(scalar_text(values[0], conversion)?)?)
           } else if name == "typeof" {
-            result = String(if count == 1 { type_name(values[0]) } else { "unknown" })
+            if count == 2 { Err(fatal_error("typeof: second argument is not an array"))? }
+            result = String(type_name(values[0]))
           } else if name == "isarray" {
             result = Numeric(0.0)
           } else if name == "systime" {
@@ -4037,11 +4316,14 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             if count >= 3 { utc = truth(values[2])? }
             result = String(time.format(stamp * 1000000000, format, utc)?)
           } else if name == "mktime" {
-            if count != 1 { Err(fatal_error("mktime: wrong number of arguments"))? }
-            result = Numeric(make_time(scalar_text(values[0], conversion)?)?.float())
+            result = Numeric(make_time(scalar_text(values[0], conversion)?, count == 2 and truth(values[1])?)?.float())
           } else if name == "gensub" {
             var target = record
             if count == 4 { target = scalar_text(values[3], conversion)? }
+            let how_text = scalar_text(values[2], conversion)?
+            if ! how_text.starts_with("g") and ! how_text.starts_with("G") and number(values[2])? < 1.0 {
+              write_all(2, bytes.from_text(f"awk: {labels[site]}: {context_text(globals)}warning: gensub: third argument `{how_text}' treated as 1\n"))?
+            }
             result = String(gensub(globals, scalar_text(values[0], conversion)?, scalar_text(values[1], conversion)?, values[2], target)?)
           } else {
             Err(fatal_error(f"function `{name}' not defined"))?
@@ -4056,11 +4338,19 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             var size = -1
             match spots[0] {
               SpotGlobal(variable) => {
-                if variable in arrays { size = arrays[variable].cells.len() } else { result = Numeric((scalar_text(globals.get(variable) ?? Empty, conversion)?).count_chars().float()) }
+                if variable in arrays { size = arrays[variable].cells.len() } else {
+                  # Measuring an untyped global makes it a scalar for good, as in GNU awk.
+                  if ! (variable in globals) { globals[variable] = Empty }
+                  result = Numeric((scalar_text(globals.get(variable) ?? Empty, conversion)?).count_chars().float())
+                }
               }
               SpotLocal(slot, variable) => {
                 if aliases[slot] != "" and slots[slot] == Empty {
-                  size = if aliases[slot] in arrays { arrays[aliases[slot]].cells.len() } else { 0 }
+                  if aliases[slot] in arrays { size = arrays[aliases[slot]].cells.len() } else {
+                    # Measuring an untyped parameter fixes the variable it was bound to as a scalar.
+                    if ! (aliases[slot] in globals) { globals[aliases[slot]] = Empty }
+                    size = 0
+                  }
                 } else { result = Numeric((scalar_text(slots[slot], conversion)?).count_chars().float()) }
               }
               _ => {}
@@ -4082,7 +4372,12 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
                 let target = resolve_target(spots[0], stack, sp, globals, arrays, slots, aliases, fields, record)?
                 sp -= target.used
                 let present = target.name in arrays and target.key in arrays[target.name].cells
-                kind = if present { type_name(target.current) } else { "unassigned" }
+                if target.kind == 4 or target.kind == 6 {
+                  kind = if target.kind == 4 and target.slot > fields.len() and target.slot > 0 { "unassigned" } else { type_name(target.current) }
+                } else {
+                  # A subscripted element nobody assigned has no type yet.
+                  kind = if present and target.current != Empty { type_name(target.current) } else { "untyped" }
+                }
               }
             }
             result = if name == "isarray" { Numeric(if is_array { 1.0 } else { 0.0 }) } else { String(kind) }
@@ -4185,9 +4480,18 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
               how = scalar_text(stack[sp - 1], conversion)?
               sp -= 1
             }
-            let source = array_of(spots[0], slots, aliases, globals)?
+            var source = ""
+            match array_of(spots[0], slots, aliases, globals) {
+              Ok(found) => { source = found }
+              Err(_) => { Err(fatal_error(f"{name}: first argument is not an array"))? }
+            }
             var destination = source
-            if spots.len() >= 2 { destination = array_of(spots[1], slots, aliases, globals)? }
+            if spots.len() >= 2 {
+              match array_of(spots[1], slots, aliases, globals) {
+                Ok(found) => { destination = found }
+                Err(_) => { Err(fatal_error(f"{name}: second argument is not an array"))? }
+              }
+            }
             var items: List[SortItem] = []
             if source in arrays {
               for subscript in arrays[source].cells.keys() {
@@ -4205,7 +4509,10 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             let base = sp - (if count >= 3 { 2 } else { 1 })
             let content = scalar_text(stack[base], conversion)?
             var pattern = plain_text(globals.get("FPAT") ?? Empty)?
-            if count >= 3 { pattern = scalar_text(stack[base + 1], conversion)? }
+            if count >= 3 {
+              pattern = scalar_text(stack[base + 1], conversion)?
+              if pattern.is_empty() { Err(fatal_error("patsplit: third argument must be non-null"))? }
+            }
             sp = base
             if pattern.is_empty() { pattern = "[^[:space:]]+" }
             let array = array_of(spots[0], slots, aliases, globals)?
@@ -4243,6 +4550,9 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           if pending_name in arrays { Err(fatal_error(f"attempt to use array `{pending_name}' in a scalar context"))? }
           globals[pending_name] = pending_value
         } else if pending == 3 {
+          if aliases[pending_slot] != "" and aliases[pending_slot] in arrays {
+            Err(fatal_error(f"attempt to use array `{pending_name} (from {aliases[pending_slot]})' in a scalar context"))?
+          }
           slots[pending_slot] = pending_value
         } else if pending == 5 {
           if pending_name not in arrays { arrays[pending_name] = empty_table() }
@@ -4297,7 +4607,8 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
   match outcome {
     Ok(value) => Ok(value)
     Err(AwkError.Plain {message}) => Err(AwkError.Plain(message: message, pending: out))
-    Err(failure) => Err(placed(labels, site, globals, out, failure))
+    # Before any statement has run there is no source position to name.
+    Err(failure) => if located { Err(placed(labels, site, globals, out, failure)) } else { Err(AwkError.Plain(message: failure.message, pending: out)) }
   }
 }
 
