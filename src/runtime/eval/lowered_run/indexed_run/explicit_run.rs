@@ -2772,7 +2772,7 @@ pub(super) enum ProducerStep {
 
 /// Reusable vectors for frame work and decoded operands.
 ///
-/// Calls and conditional branches repeatedly decode short lists into vectors.
+/// Calls repeatedly decode short argument lists into vectors.
 /// Bounded pools reuse their storage after evaluation, along with work stacks,
 /// slot scopes, and statement lists, the same way `lowered_slot_pool` does for
 /// slots.
@@ -2782,7 +2782,6 @@ pub(in crate::runtime::eval) struct FrameScratch {
     slot_scopes: Vec<Vec<u64>>,
     statements: Vec<Vec<u32>>,
     call_args: Vec<Vec<(u32, u32)>>,
-    if_branches: Vec<Vec<(u32, u32)>>,
     /// A frame's block scopes and their defer offsets, taken when the frame
     /// opens its first block.
     block_stacks: Vec<(Vec<u64>, Vec<usize>)>,
@@ -2835,18 +2834,6 @@ impl FrameScratch {
         }
         args.clear();
         self.call_args.push(args);
-    }
-
-    fn take_if_branches(&mut self) -> Vec<(u32, u32)> {
-        self.if_branches.pop().unwrap_or_default()
-    }
-
-    fn recycle_if_branches(&mut self, mut branches: Vec<(u32, u32)>) {
-        if branches.capacity() > 32 || self.if_branches.len() >= Self::POOL_CAP {
-            return;
-        }
-        branches.clear();
-        self.if_branches.push(branches);
     }
 
     /// Returns a statement list whose entries have all run.
