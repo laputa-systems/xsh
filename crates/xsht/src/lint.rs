@@ -534,6 +534,7 @@ pub struct Linter<'a> {
     diagnostics: Vec<Diagnostic>,
     checked_binding_uses: BTreeMap<BindingId, BTreeSet<ExprId>>,
     borrowed_root_receivers: BTreeMap<BindingId, BTreeSet<ExprId>>,
+    non_expression_binding_uses: BTreeMap<BindingId, Vec<Span>>,
     checked_function_returns: CheckedFact<BTreeMap<Span, Type>>,
     expr_types: CheckedFact<BTreeMap<Span, Type>>,
     proven_nonnull_fallback_receivers: CheckedFact<BTreeSet<Span>>,
@@ -810,6 +811,13 @@ impl<'a> Linter<'a> {
             diagnostics: Vec::new(),
             checked_binding_uses: BTreeMap::new(),
             borrowed_root_receivers: BTreeMap::new(),
+            non_expression_binding_uses: if resource_close_selected {
+                checked_output.as_deref().map_or_else(BTreeMap::new, |checked| {
+                    redundant_close::non_expression_binding_uses(&program.arena, checked)
+                })
+            } else {
+                BTreeMap::new()
+            },
             checked_function_returns: checked_fact!(
                 function_return_types,
                 checked_output.clone(),

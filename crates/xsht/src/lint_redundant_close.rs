@@ -7,6 +7,42 @@ use xsh::frontend::syntax::arena::{
     DeferTrigger, ExprId, StmtId,
 };
 
+use rustc_hash::FxHashSet;
+use std::collections::{BTreeMap, BTreeSet};
+
+/// Checker uses without an expression node still keep a root alive when they
+/// transfer it through a tail or a record shorthand.
+pub(super) fn non_expression_binding_uses(
+    arena: &AstArena,
+    checked: &CheckOutput,
+) -> BTreeMap<BindingId, Vec<Span>> {
+    let expression_sites: FxHashSet<_> = checked
+        .resolved_bindings
+        .expressions
+        .iter()
+        .filter_map(|(&expr, &binding_id)| {
+            let ArenaExprKind::Ident(name) = arena.expr(expr).kind else {
+                return None;
+            };
+            Some((arena.expr(expr).span, name, binding_id))
+        })
+        .collect();
+    let mut uses = BTreeMap::<BindingId, BTreeSet<Span>>::new();
+    for (&statement, &binding_id) in &checked.resolved_bindings.tails {
+        uses.entry(binding_id)
+            .or_default()
+            .insert(arena.stmt(statement).span);
+    }
+    for (&(span, name), &binding_id) in &checked.resolved_bindings.value_sites {
+        if !expression_sites.contains(&(span, name, binding_id)) {
+            uses.entry(binding_id).or_default().insert(span);
+        }
+    }
+    uses.into_iter()
+        .map(|(binding_id, spans)| (binding_id, spans.into_iter().collect()))
+        .collect()
+}
+
 /// Record checked local uses as the ordinary expression descent reaches them.
 pub(super) fn record_binding_use(linter: &mut super::Linter<'_>, expr: ExprId) {
     if !linter
@@ -254,6 +290,13 @@ fn uses_stay_borrowed(
     deferred_receiver: ExprId,
 ) -> bool {
     let arena = linter.arena;
+    if linter
+        .non_expression_binding_uses
+        .get(&binding_id)
+        .is_some_and(|spans| spans.iter().any(|&span| within(span, scope_span)))
+    {
+        return false;
+    }
     linter
         .checked_binding_uses
         .get(&binding_id)
@@ -314,6 +357,25 @@ mod tests {
             .into_iter()
             .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintRedundantClose))
             .collect()
+    }
+
+    fn checker_backed_redundant_closes(source: &str) -> Vec<Diagnostic> {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        Linter::lint(
+            &parsed.arena,
+            source,
+            LintOptions {
+                checked_output: Some(std::sync::Arc::new(checked)),
+                ..LintOptions::default()
+            },
+        )
+        .diagnostics
+        .into_iter()
+        .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintRedundantClose))
+        .collect()
     }
 
     #[test]
@@ -420,5 +482,17 @@ mod tests {
     fn a_shadowed_name_does_not_share_the_outer_binding_identity() {
         let source = "proc check(outer: Path, inner: Path) [fs, error] {\n  let root = fs.open_root(outer)?\n  defer root.close()\n  {\n    let root = fs.open_root(inner)?\n    defer root.close()\n  }\n}\n";
         assert_eq!(redundant_closes(source).len(), 2);
+    }
+
+    #[test]
+    fn a_bare_tail_binding_keeps_its_deferred_close() {
+        let source = "proc tail_root() [fs, error] -> Result[FsRoot] {\n  let root = fs.tempdir()?\n  defer root.close()?\n  root\n}\n";
+        assert!(checker_backed_redundant_closes(source).is_empty());
+    }
+
+    #[test]
+    fn record_shorthand_binding_keeps_its_deferred_close() {
+        let source = "type RootRecord = {root: FsRoot}\nproc tail_record() [fs, error] -> Result[RootRecord] {\n  let root = fs.tempdir()?\n  defer root.close()?\n  {root}\n}\n";
+        assert!(checker_backed_redundant_closes(source).is_empty());
     }
 }
