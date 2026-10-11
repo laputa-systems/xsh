@@ -11,11 +11,11 @@ use crate::source::{SourceMap, Span};
 use crate::symbol::{Name, QualifiedName, Symbol};
 use crate::syntax::arena::DeferTrigger;
 use crate::syntax::arena::{
-    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCallArg,
+    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCallArg, ArenaChild,
     ArenaCallArgKind, ArenaCommand, ArenaCommandArgKind, ArenaExprKind, ArenaExprOrRun,
     ArenaFmtPart, ArenaPatternKind, ArenaProgram, ArenaRecordFieldKind, ArenaSpawnTarget,
     ArenaStmtKind, ArenaStreamStage, ArenaTypeExprTag, ArenaWordPart, AstArena, BindingTargetId,
-    BlockId, ExprId, FunctionDefId, PatternId, StmtId, TypeExprId,
+    BlockId, ExprId, FunctionDefId, PatternId, StmtId, SugarView, TypeExprId,
 };
 use crate::syntax::node::{
     AssignOp, BinaryOp, CommandWordRefSegment, CoreCommand, RunKind, StreamStageKind, UnaryOp,
@@ -823,15 +823,28 @@ fn compact_collect_block_call_edges(
     }
 }
 
-fn compact_collect_expr_or_run_call_edges(
+fn compact_collect_arena_child_call_edges(
     program: &ArenaProgram,
-    value: ArenaExprOrRun,
+    child: ArenaChild,
     namespace: Option<Name>,
     index_of: &FxHashMap<LoweredFunctionKey, usize>,
     edges: &mut Vec<usize>,
 ) {
-    if let ArenaExprOrRun::Expr(expr) = value {
-        compact_collect_expr_call_edges(program, expr, namespace, index_of, edges);
+    match child {
+        ArenaChild::Stmt(stmt) => {
+            compact_collect_stmt_call_edges(program, stmt, namespace, index_of, edges);
+        }
+        ArenaChild::Expr(expr) => {
+            compact_collect_expr_call_edges(program, expr, namespace, index_of, edges);
+        }
+        ArenaChild::Block(block) => {
+            compact_collect_block_call_edges(program, block, namespace, index_of, edges);
+        }
+        ArenaChild::Pattern(_)
+        | ArenaChild::BindingTarget(_)
+        | ArenaChild::AssignTarget(_)
+        | ArenaChild::TypeExpr(_)
+        | ArenaChild::BuilderBlock(_) => {}
     }
 }
 
@@ -842,113 +855,65 @@ fn compact_collect_stmt_call_edges(
     index_of: &FxHashMap<LoweredFunctionKey, usize>,
     edges: &mut Vec<usize>,
 ) {
-    match program.arena.stmt(id).kind {
-        ArenaStmtKind::Export(inner)
-        | ArenaStmtKind::Sugar {
-            expansion: inner, ..
-        } => compact_collect_stmt_call_edges(program, inner, namespace, index_of, edges),
-        ArenaStmtKind::Let { initializer, .. }
-        | ArenaStmtKind::Const { initializer, .. }
-        | ArenaStmtKind::Var { initializer, .. }
-        | ArenaStmtKind::Defer(initializer, _)
-        | ArenaStmtKind::Yield(initializer) => {
-            compact_collect_expr_or_run_call_edges(
-                program,
-                initializer,
-                namespace,
-                index_of,
-                edges,
-            );
-        }
-        ArenaStmtKind::Assign { value, .. } => {
-            compact_collect_expr_or_run_call_edges(program, value, namespace, index_of, edges);
-        }
-        ArenaStmtKind::Return(Some(value)) => {
-            compact_collect_expr_or_run_call_edges(program, value, namespace, index_of, edges);
-        }
-        ArenaStmtKind::If {
-            branches,
-            else_block,
-        } => {
-            for branch in program.arena.if_branches(branches) {
-                compact_collect_expr_call_edges(
-                    program,
-                    branch.condition,
-                    namespace,
-                    index_of,
-                    edges,
-                );
-                compact_collect_block_call_edges(program, branch.block, namespace, index_of, edges);
-            }
-            if let Some(block) = else_block {
-                compact_collect_block_call_edges(program, block, namespace, index_of, edges);
-            }
-        }
-        ArenaStmtKind::While { condition, block } => {
-            compact_collect_expr_call_edges(program, condition, namespace, index_of, edges);
-            compact_collect_block_call_edges(program, block, namespace, index_of, edges);
-        }
-        ArenaStmtKind::For { iter, block, .. } => {
-            compact_collect_expr_call_edges(program, iter, namespace, index_of, edges);
-            compact_collect_block_call_edges(program, block, namespace, index_of, edges);
-        }
-        ArenaStmtKind::Loop { block } => {
-            compact_collect_block_call_edges(program, block, namespace, index_of, edges);
-        }
-        ArenaStmtKind::With {
-            bindings,
-            body,
-            else_block,
-        } => {
-            for binding in program.arena.with_bindings(bindings) {
-                compact_collect_expr_call_edges(
-                    program,
-                    binding.initializer,
-                    namespace,
-                    index_of,
-                    edges,
-                );
-            }
-            compact_collect_block_call_edges(program, body, namespace, index_of, edges);
-            compact_collect_block_call_edges(program, else_block, namespace, index_of, edges);
-        }
-        ArenaStmtKind::Guard {
-            initializer,
-            else_block,
-            ..
-        } => {
-            compact_collect_expr_or_run_call_edges(
-                program,
-                initializer,
-                namespace,
-                index_of,
-                edges,
-            );
-            compact_collect_block_call_edges(program, else_block, namespace, index_of, edges);
-        }
-        ArenaStmtKind::Assert { condition, message } => {
-            compact_collect_expr_call_edges(program, condition, namespace, index_of, edges);
-            if let Some(message) = message {
-                compact_collect_expr_call_edges(program, message, namespace, index_of, edges);
-            }
-        }
-        ArenaStmtKind::Break { value: Some(value) }
-        | ArenaStmtKind::Expr(value)
-        | ArenaStmtKind::Exit(value)
-        | ArenaStmtKind::YieldDelegate(value) => {
-            compact_collect_expr_call_edges(program, value, namespace, index_of, edges);
-        }
-        ArenaStmtKind::Match { value, arms } => {
-            compact_collect_expr_call_edges(program, value, namespace, index_of, edges);
-            for arm in program.arena.match_arms(arms) {
-                if let Some(guard) = arm.guard {
-                    compact_collect_expr_call_edges(program, guard, namespace, index_of, edges);
-                }
-                compact_collect_block_call_edges(program, arm.block, namespace, index_of, edges);
-            }
-        }
-        _ => {}
+    if !matches!(
+        program.arena.stmt(id).kind,
+        ArenaStmtKind::Export(_)
+            | ArenaStmtKind::Sugar { .. }
+            | ArenaStmtKind::Let { .. }
+            | ArenaStmtKind::Const { .. }
+            | ArenaStmtKind::Var { .. }
+            | ArenaStmtKind::Assign { .. }
+            | ArenaStmtKind::Defer(_, _)
+            | ArenaStmtKind::Yield(_)
+            | ArenaStmtKind::Return(Some(_))
+            | ArenaStmtKind::If { .. }
+            | ArenaStmtKind::While { .. }
+            | ArenaStmtKind::For { .. }
+            | ArenaStmtKind::Loop { .. }
+            | ArenaStmtKind::With { .. }
+            | ArenaStmtKind::Guard { .. }
+            | ArenaStmtKind::Assert { .. }
+            | ArenaStmtKind::Break { value: Some(_) }
+            | ArenaStmtKind::Exit(_)
+            | ArenaStmtKind::YieldDelegate(_)
+            | ArenaStmtKind::Match { .. }
+            | ArenaStmtKind::Expr(_)
+    ) {
+        return;
     }
+    if matches!(
+        program.arena.stmt(id).kind,
+        ArenaStmtKind::Let {
+            initializer: ArenaExprOrRun::Run(_),
+            ..
+        }
+        | ArenaStmtKind::Const {
+            initializer: ArenaExprOrRun::Run(_),
+            ..
+        }
+        | ArenaStmtKind::Var {
+            initializer: ArenaExprOrRun::Run(_),
+            ..
+        }
+        | ArenaStmtKind::Assign {
+            value: ArenaExprOrRun::Run(_),
+            ..
+        }
+        | ArenaStmtKind::Return(Some(ArenaExprOrRun::Run(_)))
+        | ArenaStmtKind::Yield(ArenaExprOrRun::Run(_))
+        | ArenaStmtKind::Defer(ArenaExprOrRun::Run(_), _)
+        | ArenaStmtKind::Guard {
+            initializer: ArenaExprOrRun::Run(_),
+            ..
+        }
+    ) {
+        return;
+    }
+    program
+        .arena
+        .for_each_stmt_child(id, SugarView::Core, |child| {
+            compact_collect_arena_child_call_edges(program, child, namespace, index_of, edges);
+        });
 }
 
 fn compact_collect_expr_call_edges(
@@ -958,198 +923,32 @@ fn compact_collect_expr_call_edges(
     index_of: &FxHashMap<LoweredFunctionKey, usize>,
     edges: &mut Vec<usize>,
 ) {
-    match program.arena.expr(id).kind {
-        ArenaExprKind::Call { callee, args } => {
-            if let ArenaExprKind::Ident(name) = program.arena.expr(callee).kind
-                && let Some(index) = index_of.get(&compact_function_key(namespace, name))
-            {
-                edges.push(*index);
-            }
-            compact_collect_expr_call_edges(program, callee, namespace, index_of, edges);
-            for arg in program.arena.call_args(args) {
-                match arg.kind {
-                    ArenaCallArgKind::Positional(expr)
-                    | ArenaCallArgKind::Splice { value: expr, .. }
-                    | ArenaCallArgKind::NamedSpread { value: expr, .. }
-                    | ArenaCallArgKind::Named { value: expr, .. } => {
-                        compact_collect_expr_call_edges(program, expr, namespace, index_of, edges);
-                    }
-                }
-            }
+    if let ArenaExprKind::Call { callee, .. } = program.arena.expr(id).kind {
+        if let ArenaExprKind::Ident(name) = program.arena.expr(callee).kind
+            && let Some(index) = index_of.get(&compact_function_key(namespace, name))
+        {
+            edges.push(*index);
         }
-        ArenaExprKind::List(items) => {
-            for item in program.arena.list_element_exprs(items) {
-                compact_collect_expr_call_edges(program, item, namespace, index_of, edges);
-            }
-        }
-        ArenaExprKind::Record(fields) => {
-            for field in program.arena.record_fields(fields) {
-                match field.kind {
-                    ArenaRecordFieldKind::Computed { key, value, .. } => {
-                        compact_collect_expr_call_edges(program, key, namespace, index_of, edges);
-                        compact_collect_expr_call_edges(program, value, namespace, index_of, edges);
-                    }
-                    ArenaRecordFieldKind::Path { value, .. }
-                    | ArenaRecordFieldKind::Named { value, .. }
-                    | ArenaRecordFieldKind::Spread { expr: value, .. } => {
-                        compact_collect_expr_call_edges(program, value, namespace, index_of, edges);
-                    }
-                    ArenaRecordFieldKind::Shorthand { .. } => {}
-                }
-            }
-        }
-        ArenaExprKind::If {
-            branches,
-            else_value,
-        } => {
-            for branch in program.arena.if_expr_branches(branches) {
-                compact_collect_expr_call_edges(
-                    program,
-                    branch.condition,
-                    namespace,
-                    index_of,
-                    edges,
-                );
-                compact_collect_expr_call_edges(program, branch.value, namespace, index_of, edges);
-            }
-            compact_collect_expr_call_edges(program, else_value, namespace, index_of, edges);
-        }
-        ArenaExprKind::Match { value, arms }
-        | ArenaExprKind::PatternTest { value, arms }
-        | ArenaExprKind::PatternCondition { value, arms } => {
-            compact_collect_expr_call_edges(program, value, namespace, index_of, edges);
-            for arm in program.arena.match_expr_arms(arms) {
-                if let Some(guard) = arm.guard {
-                    compact_collect_expr_call_edges(program, guard, namespace, index_of, edges);
-                }
-                compact_collect_expr_call_edges(program, arm.value, namespace, index_of, edges);
-            }
-        }
-        ArenaExprKind::Unary { expr, .. }
-        | ArenaExprKind::Try(expr)
-        | ArenaExprKind::Require { value: expr, .. }
-        | ArenaExprKind::Convert { value: expr, .. }
-        | ArenaExprKind::Field { base: expr, .. }
-        | ArenaExprKind::NullSafeField { base: expr, .. } => {
-            compact_collect_expr_call_edges(program, expr, namespace, index_of, edges);
-        }
-        ArenaExprKind::ValuePipelineCall { input, call, .. } => {
-            compact_collect_expr_call_edges(program, input, namespace, index_of, edges);
-            compact_collect_expr_call_edges(program, call, namespace, index_of, edges);
-        }
-        ArenaExprKind::ComparisonChain(pairs) => {
-            for pair in program.arena.comparison_chain_operands(pairs) {
-                compact_collect_expr_call_edges(program, pair, namespace, index_of, edges);
-            }
-        }
-        ArenaExprKind::Binary { left, right, .. }
-        | ArenaExprKind::Index {
-            base: left,
-            index: right,
-            ..
-        } => {
-            compact_collect_expr_call_edges(program, left, namespace, index_of, edges);
-            compact_collect_expr_call_edges(program, right, namespace, index_of, edges);
-        }
-        ArenaExprKind::Slice {
-            base, start, end, ..
-        } => {
-            compact_collect_expr_call_edges(program, base, namespace, index_of, edges);
-            if let Some(start) = start {
-                compact_collect_expr_call_edges(program, start, namespace, index_of, edges);
-            }
-            if let Some(end) = end {
-                compact_collect_expr_call_edges(program, end, namespace, index_of, edges);
-            }
-        }
-        ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
-            for part in program.arena.fmt_parts(parts) {
-                if let ArenaFmtPart::Expr(expr, _) = part {
-                    compact_collect_expr_call_edges(program, expr, namespace, index_of, edges);
-                }
-            }
-        }
-        ArenaExprKind::Set(items) => {
-            for item in program.arena.list_element_exprs(items) {
-                compact_collect_expr_call_edges(program, item, namespace, index_of, edges);
-            }
-        }
-        ArenaExprKind::ListComp { expr, qualifiers }
-        | ArenaExprKind::SetComp { expr, qualifiers } => {
-            for qualifier in program.arena.comp_qualifiers(qualifiers) {
-                compact_collect_expr_call_edges(
-                    program,
-                    qualifier.expr(),
-                    namespace,
-                    index_of,
-                    edges,
-                );
-            }
-            compact_collect_expr_call_edges(program, expr, namespace, index_of, edges);
-        }
-        ArenaExprKind::MapComp {
-            key,
-            value,
-            qualifiers,
-        } => {
-            for qualifier in program.arena.comp_qualifiers(qualifiers) {
-                compact_collect_expr_call_edges(
-                    program,
-                    qualifier.expr(),
-                    namespace,
-                    index_of,
-                    edges,
-                );
-            }
-            compact_collect_expr_call_edges(program, key, namespace, index_of, edges);
-            compact_collect_expr_call_edges(program, value, namespace, index_of, edges);
-        }
-        ArenaExprKind::ErrorContext { message, block }
-        | ArenaExprKind::ContextScope {
-            input: message,
-            block,
-            ..
-        } => {
-            compact_collect_expr_call_edges(program, message, namespace, index_of, edges);
-            compact_collect_block_call_edges(program, block, namespace, index_of, edges);
-        }
-        ArenaExprKind::Capture(block)
-        | ArenaExprKind::ValueBlock(block)
-        | ArenaExprKind::Loop { block }
-        | ArenaExprKind::Collect { block }
-        | ArenaExprKind::Retry { block, .. }
-        | ArenaExprKind::TempDirScope {
-            path: None, block, ..
-        } => {
-            compact_collect_block_call_edges(program, block, namespace, index_of, edges);
-        }
-        ArenaExprKind::TempDirScope {
-            path: Some(path),
-            block,
-            ..
-        } => {
-            compact_collect_expr_call_edges(program, path, namespace, index_of, edges);
-            compact_collect_block_call_edges(program, block, namespace, index_of, edges);
-        }
-        ArenaExprKind::BuilderCall { call, .. } => {
-            compact_collect_expr_call_edges(program, call, namespace, index_of, edges);
-        }
-        ArenaExprKind::ResourceScope {
-            bindings, block, ..
-        } => {
-            for binding in program.arena.with_bindings(bindings) {
-                compact_collect_expr_call_edges(
-                    program,
-                    binding.initializer,
-                    namespace,
-                    index_of,
-                    edges,
-                );
-            }
-            compact_collect_block_call_edges(program, block, namespace, index_of, edges);
-        }
-        _ => {}
     }
+    if matches!(
+        program.arena.expr(id).kind,
+        ArenaExprKind::Pipeline { .. }
+            | ArenaExprKind::StructuredPipeline { .. }
+            | ArenaExprKind::Run(_)
+            | ArenaExprKind::Spawn(_)
+            | ArenaExprKind::Wait(_)
+    ) {
+        return;
+    }
+    if let ArenaExprKind::BuilderCall { call, .. } = program.arena.expr(id).kind {
+        compact_collect_expr_call_edges(program, call, namespace, index_of, edges);
+        return;
+    }
+    program
+        .arena
+        .for_each_expr_child(id, |child| {
+            compact_collect_arena_child_call_edges(program, child, namespace, index_of, edges);
+        });
 }
 
 fn compact_tarjan_sccs(adjacency: Vec<Vec<usize>>) -> Vec<Vec<usize>> {
@@ -1953,7 +1752,30 @@ fn compact_module_exports_for_use(
             ArenaStmtKind::StreamDef(_)
             | ArenaStmtKind::TypeDef(_)
             | ArenaStmtKind::ErrorDef(_) => {}
-            _ => return None,
+            ArenaStmtKind::Use(_)
+            | ArenaStmtKind::Export(_)
+            | ArenaStmtKind::Assign { .. }
+            | ArenaStmtKind::CliMain(_)
+            | ArenaStmtKind::SignalHook(_)
+            | ArenaStmtKind::Return(_)
+            | ArenaStmtKind::Yield(_)
+            | ArenaStmtKind::YieldDelegate(_)
+            | ArenaStmtKind::Defer(..)
+            | ArenaStmtKind::If { .. }
+            | ArenaStmtKind::While { .. }
+            | ArenaStmtKind::For { .. }
+            | ArenaStmtKind::With { .. }
+            | ArenaStmtKind::Loop { .. }
+            | ArenaStmtKind::Guard { .. }
+            | ArenaStmtKind::Sugar { .. }
+            | ArenaStmtKind::Assert { .. }
+            | ArenaStmtKind::Break { .. }
+            | ArenaStmtKind::Continue
+            | ArenaStmtKind::Exit(_)
+            | ArenaStmtKind::Match { .. }
+            | ArenaStmtKind::Command(_)
+            | ArenaStmtKind::TailBareIdent(_)
+            | ArenaStmtKind::Expr(_) => return None,
         }
     }
     Some(exports)
@@ -2807,7 +2629,21 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ArenaStmtKind::Expr(_) | ArenaStmtKind::Exit(_) => CompactTopLevelBlocker::Expression,
             ArenaStmtKind::Defer(..) => CompactTopLevelBlocker::Defer,
             ArenaStmtKind::SignalHook(_) => CompactTopLevelBlocker::Other,
-            _ => CompactTopLevelBlocker::Other,
+            ArenaStmtKind::TypeDef(_)
+            | ArenaStmtKind::ErrorDef(_)
+            | ArenaStmtKind::ProcDef(_)
+            | ArenaStmtKind::CliMain(_)
+            | ArenaStmtKind::PureDef(_)
+            | ArenaStmtKind::StreamDef(_)
+            | ArenaStmtKind::Return(_)
+            | ArenaStmtKind::Yield(_)
+            | ArenaStmtKind::YieldDelegate(_)
+            | ArenaStmtKind::With { .. }
+            | ArenaStmtKind::Loop { .. }
+            | ArenaStmtKind::Guard { .. }
+            | ArenaStmtKind::Break { .. }
+            | ArenaStmtKind::Continue
+            | ArenaStmtKind::TailBareIdent(_) => CompactTopLevelBlocker::Other,
         }
     }
 
@@ -3283,7 +3119,18 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     slot_scope,
                 ))
             }
-            _ => None,
+            ArenaStmtKind::TypeDef(_)
+            | ArenaStmtKind::ErrorDef(_)
+            | ArenaStmtKind::ProcDef(_)
+            | ArenaStmtKind::CliMain(_)
+            | ArenaStmtKind::PureDef(_)
+            | ArenaStmtKind::StreamDef(_)
+            | ArenaStmtKind::Return(_)
+            | ArenaStmtKind::Yield(_)
+            | ArenaStmtKind::YieldDelegate(_)
+            | ArenaStmtKind::Break { .. }
+            | ArenaStmtKind::Continue
+            | ArenaStmtKind::TailBareIdent(_) => None,
         }
     }
 
@@ -4536,7 +4383,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     BuildStmtRow::Expr { value, span }
                 ))
             }
-            _ => None,
+            ArenaStmtKind::Use(_)
+            | ArenaStmtKind::Export(_)
+            | ArenaStmtKind::TypeDef(_)
+            | ArenaStmtKind::ErrorDef(_)
+            | ArenaStmtKind::ProcDef(_)
+            | ArenaStmtKind::CliMain(_)
+            | ArenaStmtKind::PureDef(_)
+            | ArenaStmtKind::StreamDef(_)
+            | ArenaStmtKind::SignalHook(_) => None,
         };
         if transfer_fact == Some(true) {
             let lowered = lowered?;
@@ -5890,6 +5745,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 slots.exit(saved);
                 lowered
             }
+            ArenaExprKind::Binary { .. } => None,
             ArenaExprKind::Retry {
                 schedule,
                 delays,
@@ -5946,7 +5802,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     span,
                 }
             )),
-            _ => None,
+            ArenaExprKind::Pipeline { .. } => None,
         };
         match lowered {
             Some(lowered) => {
@@ -6014,7 +5870,29 @@ fn construct_top_level_stmt_is_skippable(program: &ArenaProgram, id: StmtId) -> 
         | ArenaStmtKind::CliMain(_)
         | ArenaStmtKind::PureDef(_)
         | ArenaStmtKind::StreamDef(_) => true,
-        _ => false,
+        ArenaStmtKind::Const { .. }
+        | ArenaStmtKind::Let { .. }
+        | ArenaStmtKind::Var { .. }
+        | ArenaStmtKind::Assign { .. }
+        | ArenaStmtKind::SignalHook(_)
+        | ArenaStmtKind::Return(_)
+        | ArenaStmtKind::Yield(_)
+        | ArenaStmtKind::YieldDelegate(_)
+        | ArenaStmtKind::Defer(..)
+        | ArenaStmtKind::Expr(_)
+        | ArenaStmtKind::If { .. }
+        | ArenaStmtKind::While { .. }
+        | ArenaStmtKind::For { .. }
+        | ArenaStmtKind::With { .. }
+        | ArenaStmtKind::Loop { .. }
+        | ArenaStmtKind::Guard { .. }
+        | ArenaStmtKind::Assert { .. }
+        | ArenaStmtKind::Break { .. }
+        | ArenaStmtKind::Continue
+        | ArenaStmtKind::Exit(_)
+        | ArenaStmtKind::Match { .. }
+        | ArenaStmtKind::Command(_)
+        | ArenaStmtKind::TailBareIdent(_) => false,
     }
 }
 
