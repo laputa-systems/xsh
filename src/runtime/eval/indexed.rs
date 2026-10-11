@@ -165,14 +165,14 @@ pub(super) mod tests {
     // Corpus selection owns disk paths, including directory links that can
     // cycle and file links whose source must remain readable through the link.
     #[test]
-    fn corpus_walk_skips_directory_links_and_only_excludes_compat_work() {
+    fn corpus_walk_skips_directory_links_and_includes_nested_sources() {
         let fixture = tempfile::tempdir().expect("create corpus fixture");
         let root = fixture.path();
         let source_paths = [
             "core/nested/keep.xsh",
             "core/dev/compat/keep.xsh",
             "dev/build.xsh",
-            "dev/compat/unfinished.xsh",
+            "dev/compat/tool.xsh",
             "dev/compat-extra/keep.xsh",
         ];
         for relative in source_paths {
@@ -192,7 +192,6 @@ pub(super) mod tests {
         paths.sort();
         let mut expected: Vec<_> = source_paths
             .iter()
-            .filter(|path| **path != "dev/compat/unfinished.xsh")
             .map(|path| root.join(path))
             .collect();
         expected.push(file_link.clone());
@@ -224,16 +223,12 @@ pub(super) mod tests {
     }
 
     // Directory links are fixtures rather than source trees. File links keep
-    // their existing source spelling; unfinished compatibility work is omitted
-    // only at the repository's exact subtree.
+    // their existing source spelling.
     pub(in crate::runtime::eval) fn collect_xsh_paths(
-        root: &std::path::Path,
+        _root: &std::path::Path,
         path: &std::path::Path,
         paths: &mut Vec<std::path::PathBuf>,
     ) -> std::io::Result<()> {
-        if path.strip_prefix(root).is_ok_and(|relative| relative == std::path::Path::new("dev/compat")) {
-            return Ok(());
-        }
         let kind = std::fs::symlink_metadata(path)
             .map_err(|error| std::io::Error::new(error.kind(), format!("{}: {error}", path.display())))?
             .file_type();
@@ -250,7 +245,7 @@ pub(super) mod tests {
         for entry in entries {
             let entry = entry
                 .map_err(|error| std::io::Error::new(error.kind(), format!("{}: {error}", path.display())))?;
-            collect_xsh_paths(root, &entry.path(), paths)?;
+            collect_xsh_paths(_root, &entry.path(), paths)?;
         }
         Ok(())
     }

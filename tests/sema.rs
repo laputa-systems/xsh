@@ -26,10 +26,9 @@ fn repository_xsh_sources() -> Vec<PathBuf> {
                 .path()
                 .strip_prefix(root)
                 .expect("walked path is inside the repository");
-            let excluded = relative == Path::new("dev/compat")
-                || relative.components().any(|component| {
-                    matches!(component.as_os_str().to_str(), Some(".git" | ".work" | "target"))
-                });
+            let excluded = relative.components().any(|component| {
+                matches!(component.as_os_str().to_str(), Some(".git" | ".work" | "target"))
+            });
             !excluded
         })
         .filter_map(|entry| {

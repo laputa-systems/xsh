@@ -28,13 +28,11 @@ pub const MAX_CORPUS_BYTES: u64 = 32 << 10;
 pub const MUTANT_FILE: &str = "mutant.xsh";
 
 /// Every `.xsh` file of at most [`MAX_CORPUS_BYTES`] under the corpus
-/// directories of `root`, sorted. Directory symlinks are not traversed, and
-/// unfinished compatibility programs are excluded from random selection.
+/// directories of `root`, sorted. Directory symlinks are not traversed.
 pub fn corpus_files(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    let compatibility = root.join("dev/compat");
     for dir in CORPUS_DIRS {
-        collect(&root.join(dir), &compatibility, &mut files);
+        collect(&root.join(dir), &mut files);
     }
     files.retain(|path| {
         std::fs::metadata(path).is_ok_and(|metadata| metadata.len() <= MAX_CORPUS_BYTES)
@@ -43,10 +41,8 @@ pub fn corpus_files(root: &Path) -> Vec<PathBuf> {
     files
 }
 
-fn collect(dir: &Path, compatibility: &Path, out: &mut Vec<PathBuf>) {
-    if dir == compatibility
-        || dir.symlink_metadata().is_ok_and(|metadata| metadata.is_symlink())
-    {
+fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
+    if dir.symlink_metadata().is_ok_and(|metadata| metadata.is_symlink()) {
         return;
     }
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -55,7 +51,7 @@ fn collect(dir: &Path, compatibility: &Path, out: &mut Vec<PathBuf>) {
     for entry in entries.flatten() {
         let path = entry.path();
         if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-            collect(&path, compatibility, out);
+            collect(&path, out);
         } else if path.extension().is_some_and(|ext| ext == "xsh") && path.is_file() {
             out.push(path);
         }
@@ -414,7 +410,7 @@ mod tests {
     // A real host symlink is needed to reproduce traversal through an
     // ancestor, which a native source fixture cannot model in Rust's walker.
     #[test]
-    fn corpus_files_skip_directory_symlinks_and_compatibility_work_in_progress() {
+    fn corpus_files_skip_directory_symlinks_and_include_nested_sources() {
         let root = tempfile::tempdir().expect("corpus directory");
         let fixture = root.path().join("core/tests/data/grep/fx/dl/real");
         std::fs::create_dir_all(&fixture).expect("create symlink fixture");
@@ -423,14 +419,14 @@ mod tests {
         std::os::unix::fs::symlink("..", fixture.join("up")).expect("create ancestor symlink");
         std::os::unix::fs::symlink("core", root.path().join("examples"))
             .expect("create corpus directory symlink");
-        std::fs::create_dir_all(root.path().join("dev/compat/smoke"))
-            .expect("create compatibility directory");
-        std::fs::write(root.path().join("dev/compat/smoke/source.xsh"), "let value = 2\n")
-            .expect("write compatibility fixture");
+        let nested = root.path().join("dev/compat/smoke/source.xsh");
+        std::fs::create_dir_all(nested.parent().unwrap())
+            .expect("create nested development directory");
+        std::fs::write(&nested, "let value = 2\n").expect("write nested development fixture");
         let dev = root.path().join("dev/tool.xsh");
         std::fs::write(&dev, "let value = 3\n").expect("write development fixture");
         let alias = root.path().join("dev/alias.xsh");
         std::os::unix::fs::symlink("tool.xsh", &alias).expect("create source file symlink");
-        assert_eq!(corpus_files(root.path()), vec![core, alias, dev]);
+        assert_eq!(corpus_files(root.path()), vec![core, alias, nested, dev]);
     }
 }
