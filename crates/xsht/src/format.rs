@@ -1,4 +1,4 @@
-#![allow(clippy::single_call_fn, dead_code)]
+#![allow(clippy::single_call_fn)]
 
 use std::cell::RefCell;
 use std::fmt::Write as _;
@@ -80,7 +80,6 @@ struct PendingComment {
 enum Doc {
     Text(String),
     Line,
-    SoftLine,
     Indent(usize, Box<Doc>),
     Dedent(usize, Box<Doc>),
     Group {
@@ -104,10 +103,6 @@ impl Doc {
         }
     }
 
-    fn render(&self, line_width: usize, column: usize) -> String {
-        self.render_with_indent(line_width, column, 0)
-    }
-
     fn render_with_indent(&self, line_width: usize, column: usize, indent: usize) -> String {
         let mut renderer = DocRenderer {
             line_width,
@@ -123,7 +118,6 @@ impl Doc {
         match self {
             Self::Text(text) => (!text.contains('\n')).then(|| text.chars().count()),
             Self::Line => Some(1),
-            Self::SoftLine => Some(1),
             Self::Indent(_, doc) => doc.flat_width(),
             Self::Dedent(_, doc) => doc.flat_width(),
             Self::Concat(parts) => parts.iter().try_fold(0usize, |width, part| {
@@ -159,14 +153,6 @@ impl DocRenderer {
                 }
             }
             Doc::Line => match mode {
-                RenderMode::Flat => self.output.push(' '),
-                RenderMode::Broken => {
-                    self.output.push('\n');
-                    self.output.push_str(&"  ".repeat(self.indent));
-                    self.column = self.indent * 2;
-                }
-            },
-            Doc::SoftLine => match mode {
                 RenderMode::Flat => self.output.push(' '),
                 RenderMode::Broken => {
                     self.output.push('\n');
@@ -446,27 +432,6 @@ impl Formatter {
         }
 
         self.format_program_with_cst(source, &parsed.arena, parsed.cst.get())
-    }
-
-    pub fn format_program_with_source(
-        &self,
-        source_id: SourceId,
-        source: &str,
-        program: &ArenaProgram,
-    ) -> FormatOutput {
-        let (cst, diagnostics) = SyntaxTree::parse(source_id, source);
-        if !diagnostics.is_empty() {
-            return FormatOutput {
-                formatted: String::new(),
-                diagnostics,
-            };
-        }
-        let output = self.format_program_with_cst(source, program, &cst);
-        if output.formatted == source {
-            return output;
-        }
-        let original = Parser::parse_source_arena_only(source_id, source);
-        verify_formatted_output(source_id, source, &original, output)
     }
 
     /// Prints `source` with every sugar statement replaced by its expansion
@@ -5030,10 +4995,6 @@ impl<'a> Writer<'a> {
         let mut output = String::new();
         f(&mut writer, &mut output);
         output
-    }
-
-    fn stmt_preview(&self, stmt_id: StmtId, indent: usize) -> String {
-        self.render_inline(|writer, output| writer.write_stmt(stmt_id, indent, output))
     }
 
     fn text_value<'b>(&'b self, text: &'b ArenaText) -> &'b str {
