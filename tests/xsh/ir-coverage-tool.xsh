@@ -62,9 +62,6 @@ pub enum AssignOp {
 }
 """)
   fp"{root}/src/runtime/eval.rs".write_atomic("""
-pub enum LoweredPipelineStage {
-    Map,
-}
 pub enum LoweredType {
     Int,
 }
@@ -88,7 +85,12 @@ pattern_schema! {
     }
 }
 """)
-  fp"{root}/src/runtime/eval/indexed/full.rs".write_atomic("pub use schema::FullTag;\n")
+  fp"{root}/src/runtime/eval/indexed/full.rs".write_atomic("""
+pub use schema::FullTag;
+pipeline_stage_schema! {
+    Map unit {};
+}
+""")
   fp"{root}/core/sample.xsh".write_atomic("""
 pure identity(value: Int) -> Int { value }
 proc count() [] -> Int { 1 }
@@ -218,10 +220,6 @@ pub enum AssignOp {
 }
 """)
   fp"{root}/src/runtime/eval.rs".write_atomic("""
-enum LoweredPipelineStage {
-    Map,
-}
-
 enum LoweredType {
     Str,
 }
@@ -247,7 +245,15 @@ pattern_schema! {
     }
 }
 """)
-  fp"{root}/src/runtime/eval/indexed/full.rs".write_atomic("pub use schema::FullTag;\n")
+  fp"{root}/src/runtime/eval/indexed/full.rs".write_atomic("""
+pub use schema::FullTag;
+pipeline_stage_schema! {
+    Map unit {};
+    Take tuple {
+        value: i64,
+    };
+}
+""")
   # The scanned script holds block strings of its own, written here with
   # `'''` where it has three double quotes.
   let script = r"""
@@ -306,6 +312,7 @@ let value = helper("OK")
   let report = json.read(report_path)?.require(IRWireReport)?
   assert report.script.total == 6
   assert report.pattern_variants == 3
+  assert report.lowered_nodes.pipeline_stages == 2
   assert report.script.reasons[0].reason == "expr.pipeline"
   assert ! [found for found in report.script.groups if found.group == "expression" and found.total == 1].is_empty()
   for reason in report.script.reasons {
@@ -335,14 +342,15 @@ pub enum BinaryOp { Add }
 pub enum AssignOp { Set }
 """)
   fp"{root}/src/runtime/eval.rs".write_atomic("""
-enum LoweredPipelineStage { Map }
 enum LoweredType { Int }
 const LOWERED_METHOD_NAMES: &[&str] = &["len"];
 """)
   fp"{root}/src/runtime/eval/indexed/full/schema.rs".write_atomic(
     fp"{repo}/src/runtime/eval/indexed/full/schema.rs".read_text()?,
   )
-  fp"{root}/src/runtime/eval/indexed/full.rs".write_atomic("pub use schema::FullTag;\n")
+  fp"{root}/src/runtime/eval/indexed/full.rs".write_atomic(
+    fp"{repo}/src/runtime/eval/indexed/full.rs".read_text()?,
+  )
   let output_root = test.temp_dir(ctx, name: "ir-coverage-repo")?.resolve()?
   let report_path = fp"{output_root}/ir.json"
   let stdout_path = fp"{output_root}/stdout.txt"
@@ -360,7 +368,9 @@ const LOWERED_METHOD_NAMES: &[&str] = &["len"];
   let report = json.read(report_path)?.require(IRWireReport)?
   assert report.lowered_nodes.statements > 0
   assert report.lowered_nodes.expressions > 0
+  assert report.lowered_nodes.pipeline_stages == 46
   assert report.pattern_variants == 18
+  assert "pipeline stages: 46" in stdout_path.read_text()?
   assert "pattern variants: 18" in stdout_path.read_text()?
 }
 

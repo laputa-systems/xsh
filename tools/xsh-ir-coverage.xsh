@@ -152,6 +152,40 @@ pure instruction_schema_variants(source: Str) -> List[Str] {
   variants
 }
 
+pure pipeline_stage_schema_variants(source: Str) -> List[Str] {
+  var variants: List[Str] = []
+  var in_schema = false
+  var depth = 0
+
+  for raw in source.lines() {
+    let line = schema_code_line(raw).trim()
+
+    if ! in_schema {
+      if line == "pipeline_stage_schema! {" {
+        in_schema = true
+        depth = 1
+      }
+
+      continue
+    }
+
+    if depth == 1 {
+      let fields = line.fields()
+      let form = fields.get(1) ?? ""
+
+      if form in ["unit", "tuple", "struct"] {
+        variants += [fields.get(0) ?? ""]
+      }
+    }
+
+    depth += brace_delta(line)
+
+    return variants when depth <= 0
+  }
+
+  variants
+}
+
 pure list_intersection(left: List[Str], right: List[Str]) -> List[Str] {
   [item for item in left if item in right]
 }
@@ -1640,10 +1674,12 @@ let arena_path = fp"{root}/src/syntax/arena.rs"
 let node_path = fp"{root}/src/syntax/node.rs"
 let eval_path = fp"{root}/src/runtime/eval.rs"
 let indexed_schema_path = fp"{root}/src/runtime/eval/indexed/full/schema.rs"
+let indexed_full_path = fp"{root}/src/runtime/eval/indexed/full.rs"
 let arena_source = arena_path.read_text()?
 let node_source = node_path.read_text()?
 let eval_source = eval_path.read_text()?
 let indexed_source = indexed_schema_path.read_text()?
+let indexed_full_source = indexed_full_path.read_text()?
 let stmt_variants = enum_variants(arena_source, "ArenaStmtKind")
 let expr_variants = enum_variants(arena_source, "ArenaExprKind")
 let type_variants = enum_variants(arena_source, "ArenaTypeExprTag")
@@ -1664,7 +1700,7 @@ for variant in indexed_variants {
   }
 }
 
-let lowered_pipeline_stage_variants = enum_variants(eval_source, "LoweredPipelineStage")
+let pipeline_stage_variants = pipeline_stage_schema_variants(indexed_full_source)
 let lowered_type_variants = enum_variants(eval_source, "LoweredType")
 let lowered_methods = lowered_method_names(eval_source)
 
@@ -1739,7 +1775,7 @@ let report = CoverageReport(
   lowered_nodes: {
     statements: indexed_stmt_variants.len(),
     expressions: indexed_expr_variants.len(),
-    pipeline_stages: lowered_pipeline_stage_variants.len(),
+    pipeline_stages: pipeline_stage_variants.len(),
     types: lowered_type_variants.len(),
   },
   pattern_variants: pattern_variants.len(),

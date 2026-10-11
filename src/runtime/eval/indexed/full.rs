@@ -21,7 +21,7 @@ use crate::runtime::eval::{
     LoweredAssignStep, LoweredCallArg, LoweredCompQualifier, LoweredCompQualifiers,
     LoweredCompTarget, LoweredErrorExpr, LoweredErrorPatternFields, LoweredFmtPart,
     LoweredFunctionKey, LoweredFunctionKind, LoweredFunctionUnit, LoweredModuleExport,
-    LoweredModuleExportKind, LoweredPipelineStage, LoweredProcessCommandArgv,
+    LoweredModuleExportKind, LoweredProcessCommandArgv,
     LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredRecordUpdates, LoweredReturnKind,
     LoweredRunArg, LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment,
     LoweredRunRedirection, LoweredSpawnRun, LoweredStatsValue, LoweredStrPredicate,
@@ -6684,225 +6684,305 @@ impl FullCodec for ScanCheck {
 
 
 
-macro_rules! impl_stage_codec {
+macro_rules! pipeline_stage_schema {
     (
-        $(
-            $pattern:pat => $tag:ident {
-                $($field:ident : $field_ty:ty),* $(,)?
-            } => $construct:expr
-        ),* $(,)?
+        @build
+        [$stage_builder:ident]
+        [$stage_decoder:ident]
+        [$stage_payload:ident]
+        [$($variants:tt)*]
+        [$($tags:tt)*]
+        [$($encode_arms:tt)*]
+        [$($decode_arms:tt)*]
+        [$($verify_arms:tt)*]
+        ;
     ) => {
+        #[derive(Clone, Debug)]
+        pub(in crate::runtime::eval) enum LoweredPipelineStage {
+            $($variants)*
+        }
+
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
         #[repr(u8)]
         pub(in crate::runtime::eval) enum FullStageTag {
-            $(
-                $tag,
-            )*
+            $($tags)*
         }
 
         impl FullCodec for LoweredPipelineStage {
             fn encode(
                 &self,
-                builder: &mut FullBuilder,
+                $stage_builder: &mut FullBuilder,
                 output: &mut Vec<u32>,
             ) -> Result<(), IrBuildError> {
-                let (tag, payload) = match self {
-                    $(
-                        $pattern => {
-                            #[allow(unused_mut)]
-                            let mut payload = builder.take_payload();
-                            $(
-                                $field.encode(builder, &mut payload)?;
-                            )*
-                            (FullStageTag::$tag, payload)
-                        }
-                    ),*
+                let (tag, $stage_payload) = match self {
+                    $($encode_arms)*
                 };
-                let stage = builder.push_stage(tag, &payload);
-                builder.recycle_payload(payload);
+                let stage = $stage_builder.push_stage(tag, &$stage_payload);
+                $stage_builder.recycle_payload($stage_payload);
                 output.push(stage?);
                 Ok(())
             }
 
             fn decode(
-                decoder: &FullDecoder<'_>,
+                $stage_decoder: &FullDecoder<'_>,
                 input: &mut FullCursor<'_>,
             ) -> Result<Self, IrVerifyError> {
                 let index = input.raw()? as usize;
-                let tag = decoder
+                let tag = $stage_decoder
                     .store
                     .stages
                     .get(index)
                     .copied()
                     .ok_or_else(|| IrVerifyError::new("pipeline stage id is out of bounds"))?;
-                let data = decoder.store.stage_data[index];
-                let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
+                let data = $stage_decoder.store.stage_data[index];
+                let mut $stage_payload =
+                    FullCursor::new($stage_decoder.store.payload(data.range())?);
                 let stage = match tag {
-                    $(
-                        FullStageTag::$tag => {
-                            $(
-                                let $field = <$field_ty>::decode(decoder, &mut payload)?;
-                            )*
-                            $construct
-                        }
-                    ),*
+                    $($decode_arms)*
                 };
-                payload.finish()?;
+                $stage_payload.finish()?;
                 Ok(stage)
             }
 
             fn verify(
-                decoder: &FullDecoder<'_>,
+                $stage_decoder: &FullDecoder<'_>,
                 input: &mut FullCursor<'_>,
             ) -> Result<(), IrVerifyError> {
                 let index = input.raw()? as usize;
-                let tag = decoder
+                let tag = $stage_decoder
                     .store
                     .stages
                     .get(index)
                     .copied()
                     .ok_or_else(|| IrVerifyError::new("pipeline stage id is out of bounds"))?;
-                let data = decoder.store.stage_data[index];
-                let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
+                let data = $stage_decoder.store.stage_data[index];
+                let mut $stage_payload =
+                    FullCursor::new($stage_decoder.store.payload(data.range())?);
                 match tag {
-                    $(
-                        FullStageTag::$tag => {
-                            $(
-                                <$field_ty>::verify(decoder, &mut payload)?;
-                            )*
-                        }
-                    ),*
+                    $($verify_arms)*
                 }
-                payload.finish()
+                $stage_payload.finish()
             }
         }
     };
+    (
+        @build
+        [$stage_builder:ident]
+        [$stage_decoder:ident]
+        [$stage_payload:ident]
+        [$($variants:tt)*]
+        [$($tags:tt)*]
+        [$($encode_arms:tt)*]
+        [$($decode_arms:tt)*]
+        [$($verify_arms:tt)*]
+        ;
+        $variant:ident unit {};
+        $($rest:tt)*
+    ) => {
+        pipeline_stage_schema!(
+            @build
+            [$stage_builder]
+            [$stage_decoder]
+            [$stage_payload]
+            [$($variants)* $variant,]
+            [$($tags)* $variant,]
+            [$($encode_arms)*
+                LoweredPipelineStage::$variant => {
+                    #[allow(unused_mut)]
+                    let mut $stage_payload = $stage_builder.take_payload();
+                    (FullStageTag::$variant, $stage_payload)
+                },
+            ]
+            [$($decode_arms)*
+                FullStageTag::$variant => LoweredPipelineStage::$variant,
+            ]
+            [$($verify_arms)* FullStageTag::$variant => {},]
+            ;
+            $($rest)*
+        );
+    };
+    (
+        @build
+        [$stage_builder:ident]
+        [$stage_decoder:ident]
+        [$stage_payload:ident]
+        [$($variants:tt)*]
+        [$($tags:tt)*]
+        [$($encode_arms:tt)*]
+        [$($decode_arms:tt)*]
+        [$($verify_arms:tt)*]
+        ;
+        $variant:ident tuple { $($field:ident : $field_ty:ty),+ $(,)? };
+        $($rest:tt)*
+    ) => {
+        pipeline_stage_schema!(
+            @build
+            [$stage_builder]
+            [$stage_decoder]
+            [$stage_payload]
+            [$($variants)* $variant($($field_ty),*),]
+            [$($tags)* $variant,]
+            [$($encode_arms)*
+                LoweredPipelineStage::$variant($($field),*) => {
+                    #[allow(unused_mut)]
+                    let mut $stage_payload = $stage_builder.take_payload();
+                    $($field.encode($stage_builder, &mut $stage_payload)?;)*
+                    (FullStageTag::$variant, $stage_payload)
+                },
+            ]
+            [$($decode_arms)*
+                FullStageTag::$variant => {
+                    $(let $field = <$field_ty>::decode($stage_decoder, &mut $stage_payload)?;)*
+                    LoweredPipelineStage::$variant($($field),*)
+                },
+            ]
+            [$($verify_arms)*
+                FullStageTag::$variant => {
+                    $(<$field_ty>::verify($stage_decoder, &mut $stage_payload)?;)*
+                },
+            ]
+            ;
+            $($rest)*
+        );
+    };
+    (
+        @build
+        [$stage_builder:ident]
+        [$stage_decoder:ident]
+        [$stage_payload:ident]
+        [$($variants:tt)*]
+        [$($tags:tt)*]
+        [$($encode_arms:tt)*]
+        [$($decode_arms:tt)*]
+        [$($verify_arms:tt)*]
+        ;
+        $variant:ident struct { $($field:ident : $field_ty:ty),+ $(,)? };
+        $($rest:tt)*
+    ) => {
+        pipeline_stage_schema!(
+            @build
+            [$stage_builder]
+            [$stage_decoder]
+            [$stage_payload]
+            [$($variants)* $variant { $($field: $field_ty),* },]
+            [$($tags)* $variant,]
+            [$($encode_arms)*
+                LoweredPipelineStage::$variant { $($field),* } => {
+                    #[allow(unused_mut)]
+                    let mut $stage_payload = $stage_builder.take_payload();
+                    $($field.encode($stage_builder, &mut $stage_payload)?;)*
+                    (FullStageTag::$variant, $stage_payload)
+                },
+            ]
+            [$($decode_arms)*
+                FullStageTag::$variant => {
+                    $(let $field = <$field_ty>::decode($stage_decoder, &mut $stage_payload)?;)*
+                    LoweredPipelineStage::$variant { $($field),* }
+                },
+            ]
+            [$($verify_arms)*
+                FullStageTag::$variant => {
+                    $(<$field_ty>::verify($stage_decoder, &mut $stage_payload)?;)*
+                },
+            ]
+            ;
+            $($rest)*
+        );
+    };
+    (@context $stage_builder:ident $stage_decoder:ident $stage_payload:ident; $($schema:tt)*) => {
+        pipeline_stage_schema!(
+            @build
+            [$stage_builder]
+            [$stage_decoder]
+            [$stage_payload]
+            [] [] [] [] []
+            ;
+            $($schema)*
+        );
+    };
 }
 
-impl_stage_codec! {
-    LoweredPipelineStage::TextLines => TextLines {} => LoweredPipelineStage::TextLines,
-    LoweredPipelineStage::JsonLines => JsonLines {} => LoweredPipelineStage::JsonLines,
-    LoweredPipelineStage::Where { slot, predicate } => Where {
+pipeline_stage_schema! {
+    @context stage_builder stage_decoder stage_payload;
+    TextLines unit {};
+    JsonLines unit {};
+    Where struct {
         slot: usize,
         predicate: BuildExprId,
-    } => LoweredPipelineStage::Where { slot, predicate },
-    LoweredPipelineStage::WhereBlock { slot, body, value } => WhereBlock {
+    };
+    WhereBlock struct {
         slot: usize,
         body: Vec<BuildStmtId>,
         value: BuildExprId,
-    } => LoweredPipelineStage::WhereBlock { slot, body, value },
-    LoweredPipelineStage::Map { slot, value } => Map {
+    };
+    Map struct {
         slot: usize,
         value: BuildExprId,
-    } => LoweredPipelineStage::Map { slot, value },
-    LoweredPipelineStage::MapBlock { slot, body, value } => MapBlock {
-        slot: usize,
-        body: Vec<BuildStmtId>,
-        value: BuildExprId,
-    } => LoweredPipelineStage::MapBlock { slot, body, value },
-    LoweredPipelineStage::FlatMap { slot, value } => FlatMap {
-        slot: usize,
-        value: BuildExprId,
-    } => LoweredPipelineStage::FlatMap { slot, value },
-    LoweredPipelineStage::FlatMapBlock { slot, body, value } => FlatMapBlock {
+    };
+    MapBlock struct {
         slot: usize,
         body: Vec<BuildStmtId>,
         value: BuildExprId,
-    } => LoweredPipelineStage::FlatMapBlock { slot, body, value },
-    LoweredPipelineStage::BytesChunks { size } => BytesChunks {
+    };
+    FlatMap struct {
+        slot: usize,
+        value: BuildExprId,
+    };
+    FlatMapBlock struct {
+        slot: usize,
+        body: Vec<BuildStmtId>,
+        value: BuildExprId,
+    };
+    BytesChunks struct {
         size: BuildExprId,
-    } => LoweredPipelineStage::BytesChunks { size },
-    LoweredPipelineStage::BatchCount { count } => BatchCount {
+    };
+    BatchCount struct {
         count: BuildExprId,
-    } => LoweredPipelineStage::BatchCount { count },
-    LoweredPipelineStage::BatchMaxArgv { max_argv } => BatchMaxArgv {
+    };
+    BatchMaxArgv struct {
         max_argv: Option<BuildExprId>,
-    } => LoweredPipelineStage::BatchMaxArgv { max_argv },
-    LoweredPipelineStage::BatchMaxBytes { max_bytes } => BatchMaxBytes {
+    };
+    BatchMaxBytes struct {
         max_bytes: BuildExprId,
-    } => LoweredPipelineStage::BatchMaxBytes { max_bytes },
-    LoweredPipelineStage::BatchLimits { configuration } => BatchLimits {
+    };
+    BatchLimits struct {
         configuration: BuildExprId,
-    } => LoweredPipelineStage::BatchLimits { configuration },
-    LoweredPipelineStage::Shuffle { seed } => Shuffle {
+    };
+    Shuffle struct {
         seed: Option<BuildExprId>,
-    } => LoweredPipelineStage::Shuffle { seed },
-    LoweredPipelineStage::Fold {
-        acc_slot,
-        item_slot,
-        initial,
-        body,
-        value,
-    } => Fold {
+    };
+    Fold struct {
         acc_slot: usize,
         item_slot: usize,
         initial: BuildExprId,
         body: Vec<BuildStmtId>,
         value: BuildExprId,
-    } => LoweredPipelineStage::Fold {
-        acc_slot,
-        item_slot,
-        initial,
-        body,
-        value,
-    },
-    LoweredPipelineStage::ReduceBy {
-        item_slot,
-        body,
-        value,
-        op,
-        jobs,
-    } => ReduceBy {
+    };
+    ReduceBy struct {
         item_slot: usize,
         body: Vec<BuildStmtId>,
         value: BuildExprId,
         op: ReduceByOp,
         jobs: Option<BuildExprId>,
-    } => LoweredPipelineStage::ReduceBy {
-        item_slot,
-        body,
-        value,
-        op,
-        jobs,
-    },
-    LoweredPipelineStage::ReduceByConfigured { item_slot, body, value, configuration } => ReduceByConfigured {
+    };
+    ReduceByConfigured struct {
         item_slot: usize,
         body: Vec<BuildStmtId>,
         value: BuildExprId,
         configuration: BuildExprId,
-    } => LoweredPipelineStage::ReduceByConfigured { item_slot, body, value, configuration },
-    LoweredPipelineStage::ParMap { slot, jobs, value } => ParMap {
+    };
+    ParMap struct {
         slot: usize,
         jobs: Option<BuildExprId>,
         value: BuildExprId,
-    } => LoweredPipelineStage::ParMap { slot, jobs, value },
-    LoweredPipelineStage::ParMapBlock {
-        slot,
-        body,
-        jobs,
-        value,
-    } => ParMapBlock {
+    };
+    ParMapBlock struct {
         slot: usize,
         body: Vec<BuildStmtId>,
         jobs: Option<BuildExprId>,
         value: BuildExprId,
-    } => LoweredPipelineStage::ParMapBlock {
-        slot,
-        body,
-        jobs,
-        value,
-    },
-    LoweredPipelineStage::ParMapFlatMapReduceBy {
-        slot,
-        body,
-        jobs,
-        value,
-        flatten,
-        reduce_item_slot,
-        reduce_body,
-        reduce_value,
-        op,
-    } => ParMapFlatMapReduceBy {
+    };
+    ParMapFlatMapReduceBy struct {
         slot: usize,
         body: Option<Vec<BuildStmtId>>,
         jobs: Option<BuildExprId>,
@@ -6912,107 +6992,79 @@ impl_stage_codec! {
         reduce_body: Vec<BuildStmtId>,
         reduce_value: BuildExprId,
         op: ReduceByOp,
-    } => LoweredPipelineStage::ParMapFlatMapReduceBy {
-        slot,
-        body,
-        jobs,
-        value,
-        flatten,
-        reduce_item_slot,
-        reduce_body,
-        reduce_value,
-        op,
-    },
-    LoweredPipelineStage::Tee { slot, body } => Tee {
+    };
+    Tee struct {
         slot: usize,
         body: Vec<BuildStmtId>,
-    } => LoweredPipelineStage::Tee { slot, body },
-    LoweredPipelineStage::Each {
-        slot,
-        body,
-    } => Each {
+    };
+    Each struct {
         slot: usize,
         body: Vec<BuildStmtId>,
-    } => LoweredPipelineStage::Each {
-        slot,
-        body,
-    },
-    LoweredPipelineStage::TablePrint { columns } => TablePrint {
+    };
+    TablePrint struct {
         columns: Option<Vec<String>>,
-    } => LoweredPipelineStage::TablePrint { columns },
-    LoweredPipelineStage::TablePrintConfigured { columns } => TablePrintConfigured {
+    };
+    TablePrintConfigured struct {
         columns: BuildExprId,
-    } => LoweredPipelineStage::TablePrintConfigured { columns },
-    LoweredPipelineStage::Enumerate => Enumerate {} => LoweredPipelineStage::Enumerate,
-    LoweredPipelineStage::Zip { other } => Zip {
+    };
+    Enumerate unit {};
+    Zip struct {
         other: BuildExprId,
-    } => LoweredPipelineStage::Zip { other },
-    LoweredPipelineStage::Sort { descending } => Sort {
+    };
+    Sort struct {
         descending: Option<BuildExprId>,
-    } => LoweredPipelineStage::Sort { descending },
-    LoweredPipelineStage::SortBy {
-        slot,
-        key,
-        descending,
-    } => SortBy {
+    };
+    SortBy struct {
         slot: usize,
         key: BuildExprId,
         descending: Option<BuildExprId>,
-    } => LoweredPipelineStage::SortBy {
-        slot,
-        key,
-        descending,
-    },
-    LoweredPipelineStage::GroupBy { slot, key } => GroupBy {
+    };
+    GroupBy struct {
         slot: usize,
         key: BuildExprId,
-    } => LoweredPipelineStage::GroupBy { slot, key },
-    LoweredPipelineStage::CountBy { slot, key } => CountBy {
+    };
+    CountBy struct {
         slot: usize,
         key: BuildExprId,
-    } => LoweredPipelineStage::CountBy { slot, key },
-    LoweredPipelineStage::Any { slot, predicate } => Any {
+    };
+    Any struct {
         slot: usize,
         predicate: BuildExprId,
-    } => LoweredPipelineStage::Any { slot, predicate },
-    LoweredPipelineStage::AnyBlock { slot, body, value } => AnyBlock {
+    };
+    AnyBlock struct {
         slot: usize,
         body: Vec<BuildStmtId>,
         value: BuildExprId,
-    } => LoweredPipelineStage::AnyBlock { slot, body, value },
-    LoweredPipelineStage::All { slot, predicate } => All {
+    };
+    All struct {
         slot: usize,
         predicate: BuildExprId,
-    } => LoweredPipelineStage::All { slot, predicate },
-    LoweredPipelineStage::AllBlock { slot, body, value } => AllBlock {
+    };
+    AllBlock struct {
         slot: usize,
         body: Vec<BuildStmtId>,
         value: BuildExprId,
-    } => LoweredPipelineStage::AllBlock { slot, body, value },
-    LoweredPipelineStage::UniqueBy { slot, key } => UniqueBy {
+    };
+    UniqueBy struct {
         slot: usize,
         key: BuildExprId,
-    } => LoweredPipelineStage::UniqueBy { slot, key },
-    LoweredPipelineStage::Count => Count {} => LoweredPipelineStage::Count,
-    LoweredPipelineStage::Sum => Sum {} => LoweredPipelineStage::Sum,
-    LoweredPipelineStage::Collect => Collect {} => LoweredPipelineStage::Collect,
-    LoweredPipelineStage::First => First {} => LoweredPipelineStage::First,
-    LoweredPipelineStage::Last => Last {} => LoweredPipelineStage::Last,
-    LoweredPipelineStage::Min => Min {} => LoweredPipelineStage::Min,
-    LoweredPipelineStage::Max => Max {} => LoweredPipelineStage::Max,
-    LoweredPipelineStage::Take(value) => Take {
-        value: BuildExprId,
-    } => LoweredPipelineStage::Take(value),
-    LoweredPipelineStage::Drop(value) => Drop {
-        value: BuildExprId,
-    } => LoweredPipelineStage::Drop(value),
-    LoweredPipelineStage::Repeat { count } => Repeat {
+    };
+    Count unit {};
+    Sum unit {};
+    Collect unit {};
+    First unit {};
+    Last unit {};
+    Min unit {};
+    Max unit {};
+    Take tuple { value: BuildExprId };
+    Drop tuple { value: BuildExprId };
+    Repeat struct {
         count: BuildExprId,
-    } => LoweredPipelineStage::Repeat { count },
-    LoweredPipelineStage::Range { start, end } => Range {
+    };
+    Range struct {
         start: BuildExprId,
         end: BuildExprId,
-    } => LoweredPipelineStage::Range { start, end },
+    };
 }
 
 
