@@ -23,11 +23,11 @@ proc number(value: Str, what: Str, minimum: Int, maximum: Int) -> Int {
   }
 }
 
-proc check_style(style: Str) {
+proc check_style(style: Str, section: Str) {
   if style not in ["a", "t", "n"] and ! style.starts_with("p") {
-    gnu.usage_error(f"invalid numbering style: {gnu.quote_value(style)}")
+    gnu.usage_error(f"invalid {section} numbering style: {gnu.quote_value(style)}")
   }
-  if style.starts_with("p") { if let Err(failure) = regex.compile(style.byte_slice(1)) { gnu.error(f"invalid regular expression: {failure.message}"); exit 1 } }
+  if style.starts_with("p") { if let Err(_) = regex.compile(style.byte_slice(1)) { gnu.error("Invalid regular expression"); exit 1 } }
 }
 
 pure formatted(value: Int, width: Int, style: Str) -> Str {
@@ -68,14 +68,14 @@ proc main(...argv: List[Bytes]) {
   })?
   if opts.help { gnu.help("Usage: nl [OPTION]... [FILE]...\nNumber lines of files or standard input."); return }
   if opts.version { gnu.version("nl"); return }
-  check_style(opts.body); check_style(opts.header); check_style(opts.footer)
+  check_style(opts.body, "body"); check_style(opts.header, "header"); check_style(opts.footer, "footer")
   if opts.format not in ["ln", "rn", "rz"] { gnu.usage_error(f"invalid line numbering format: {gnu.quote_value(opts.format)}") }
   let width = number(opts.width, "line number field width", 1, 2147483647)
   let increment = number(opts.increment, "line number increment", -9223372036854775807 - 1, 9223372036854775807)
   let start = number(opts.start, "starting line number", -9223372036854775807 - 1, 9223372036854775807)
   let blanks = number(opts.blanks, "line number of blank lines", 0, 9223372036854775807)
   let delimiter_arg = text.argument_bytes(arguments, opts.delimiter)
-  let delimiter = if separator_width(delimiter_arg) == 1 { bytes.concat([delimiter_arg, b":"]) } else { delimiter_arg }
+  let delimiter = if delimiter_arg.len() == 1 { bytes.concat([delimiter_arg, b":"]) } else { delimiter_arg }
   let separator = text.argument_bytes(arguments, opts.separator)
   let separator_count = separator_width(separator)
   var lines: List[Bytes] = []

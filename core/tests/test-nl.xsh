@@ -62,3 +62,29 @@ test test_nl_matches_raw_section_delimiters { |ctx|
   assert byte_status.exited_with(0)
   assert byte_output.read_bytes()? == b"     1\ta\n\n       b\n"
 }
+
+test test_nl_treats_section_delimiters_as_bytes { |ctx|
+  let input = test.temp_file(ctx, name: "sections", contents: bytes.from_text("a\nä:ä:ä:\nä\nb"))?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/nl.xsh" -- "-dä" $input
+  assert output == "     1\ta\n     2\tä:ä:ä:\n\n       b\n"
+}
+
+test test_nl_names_invalid_numbering_sections { |ctx|
+  let error = test.temp_path(ctx, name: "error")
+  for section in ["header", "body", "footer"] {
+    let option = f"--{section}-numbering=invalid"
+    let status = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/nl.xsh" -- $option 2> $error
+    assert status.exited_with(1)
+    assert error.read_text()? == f"nl: invalid {section} numbering style: 'invalid'\nTry 'nl --help' for more information.\n"
+  }
+}
+
+test test_nl_reports_invalid_regular_expressions { |ctx|
+  let error = test.temp_path(ctx, name: "error")
+  for section in ["header", "body", "footer"] {
+    let option = f"--{section}-numbering=p["
+    let status = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/nl.xsh" -- $option 2> $error
+    assert status.exited_with(1)
+    assert error.read_text()? == "nl: Invalid regular expression\n"
+  }
+}
