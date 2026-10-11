@@ -160,6 +160,42 @@ test test_btop_model_does_not_mix_source_identities_or_invalid_intervals {
   assert invalid.cpu_percent.state == rates.Invalid
   assert invalid.network.rx_bytes_per_second.state == rates.Invalid
   assert invalid.processes[0].cpu_percent.state == rates.Invalid
+
+  let reversed_time = capture(bundle, p"frames/000001", "first-source", 999999999, 1)?
+  let reversed = model.step(reversed_time, before)
+  assert reversed.cpu_percent.state == rates.Invalid
+  assert reversed.network.rx_bytes_per_second.state == rates.Invalid
+  assert reversed.processes[0].cpu_percent.state == rates.Invalid
+}
+
+test test_btop_model_marks_missed_samples_as_gaps_and_ignores_uptime_jumps_for_rates {
+  let bundle = fs.tempdir()?
+  defer bundle.close()
+  fixture.write_b3_frame(bundle, "frames/000000", 0, default_processes())
+  fixture.write_b3_frame(
+    bundle,
+    "frames/000001",
+    1,
+    [{pid: 42, start_ticks: 1000, cpu_ticks: 35, rss_pages: 16384, uid: 1000}],
+  )
+  let before = capture(bundle, p"frames/000000", "clock", 1000000000, 0)?
+  let current = capture(bundle, p"frames/000001", "clock", 2000000000, 1)?
+  let shifted_uptime: model.Observation = {
+    ...current,
+    cpu: {...current.cpu, uptime: {state: report.Observed, seconds: 604800.0}},
+  }
+
+  let ordinary = model.step(current, before)
+  let after_uptime_jump = model.step(shifted_uptime, before)
+  assert after_uptime_jump.cpu_percent == ordinary.cpu_percent
+  assert after_uptime_jump.network.rx_bytes_per_second == ordinary.network.rx_bytes_per_second
+  assert after_uptime_jump.processes[0].cpu_percent == ordinary.processes[0].cpu_percent
+
+  let gap = model.step(current, before, gap: true)
+  assert gap.cpu_percent.state == rates.Gap and gap.cpu_percent.value == null
+  assert gap.cpu_cores[0].utilization.state == rates.Gap
+  assert gap.network.rx_bytes_per_second.state == rates.Gap
+  assert gap.processes[0].cpu_percent.state == rates.Gap
 }
 
 test test_btop_network_name_changes_and_replacement_start_new_counter_epochs {

@@ -3,6 +3,7 @@
 ##! Frame directories are derived from their manifest order, while timestamps,
 ##! page size, tick rate, and source identity come from the bundle manifest.
 use btop_model as model
+use btop_loop as scheduler
 use btop_source as source
 use btop_terminal as terminal
 
@@ -86,7 +87,15 @@ export pure models(observations: List[model.Observation]) -> List[model.Model] {
   var previous: model.Observation? = null
   var metadata = model.empty_metadata_cache(if observations.is_empty() { "" } else { observations[0].source_id })
   for current in observations {
-    let next = model.step_cached(current, previous, metadata)
+    let before = previous ?? current
+    let has_previous = previous != null
+    let elapsed_ns = if has_previous and before.at_ns >= 0 and current.at_ns > before.at_ns {
+      current.at_ns - before.at_ns
+    } else {
+      0
+    }
+    let gap = elapsed_ns >= scheduler.SAMPLE_INTERVAL_NS * 2
+    let next = model.step_cached(current, previous, metadata, gap: gap)
     frames += [next.value]
     metadata = next.metadata
     previous = current

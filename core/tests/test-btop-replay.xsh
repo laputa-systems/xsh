@@ -31,6 +31,21 @@ test test_btop_replay_is_deterministic_and_uses_the_shared_model {
   assert first[1].processes == second[1].processes
 }
 
+test test_btop_replay_marks_a_coalesced_pause_interval_as_a_gap {
+  let bundle = fs.tempdir()?
+  defer bundle.close()
+  fixture.write_b3_bundle(bundle, default_processes())
+  let manifest = bundle.read_text(p"manifest.json")?.replace("2000000000", with: "5000000000")
+  bundle.write(p"manifest.json", manifest)
+
+  let loaded = replay.load(bundle.host_path()?)?
+  let frames = replay.models(loaded.observations)
+  assert frames[1].cpu_percent.state == rates.Gap and frames[1].cpu_percent.value == null
+  assert frames[1].cpu_cores[0].utilization.state == rates.Gap
+  assert frames[1].network.rx_bytes_per_second.state == rates.Gap
+  assert frames[1].processes[0].cpu_percent.state == rates.Gap
+}
+
 test test_btop_b3_fixture_raw_sources_match_frozen_digests {
   let bundle = fs.tempdir()?
   defer bundle.close()

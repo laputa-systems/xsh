@@ -4,6 +4,8 @@
 ##! on the next due sample instead of triggering a catch-up burst.
 
 const MAX_TIME_NS = 9223372036854775807
+## Sets the absolute cadence for monitor counter samples.
+export const SAMPLE_INTERVAL_NS = 1000000000
 
 ## Holds one absolute deadline cadence.
 export type State = {interval_ns: Int, next_due_ns: Int}

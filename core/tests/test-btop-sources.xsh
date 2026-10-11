@@ -8,6 +8,7 @@ use core.lib.sys_net as network
 use core.lib.sys_proc as processes
 use core.lib.sys_source as src
 use core.lib.system_report as report
+use core.lib.system_report_live as system_live
 use core.lib.btop_ui as ui
 use core.tests.support.btop as fixture
 
@@ -257,6 +258,21 @@ test test_btop_process_source_keeps_identity_uid_cpu_ticks_and_rss {
   assert item.rss_bytes == 67108864
 }
 
+test test_btop_process_source_keeps_i64_start_identity_outside_report_json_v1 {
+  let root = fs.tempdir()?
+  defer root.close()
+  let maximum: Int = 9223372036854775807
+  let text = process_stat(42, maximum, 10, 0, 2)
+
+  assert system_live.parse_proc_stat(text) is Err(_)
+  let monitor_stat = system_live.parse_proc_stat_for_monitor(text)?
+  assert monitor_stat.start_ticks == maximum
+
+  write_process(root, 42, maximum, 10, 2)
+  let sample = processes.collect(root, page_size_bytes: 4096)
+  assert sample.processes[0].start_ticks == maximum
+}
+
 test test_btop_process_stat_keeps_a_command_with_embedded_parentheses_and_spaces {
   let root = fs.tempdir()?
   defer root.close()
@@ -399,6 +415,33 @@ test test_btop_rates_distinguish_warming_idle_reset_and_invalid_interval {
   assert rates.counter_rate(4, 5, elapsed_ns: 1000000000).state == rates.Reset
   assert rates.counter_rate(5, 4, elapsed_ns: 0).state == rates.Invalid
   assert rates.used_bytes(10, null).state == rates.Unavailable
+}
+
+test test_btop_counter_precision_preserves_small_deltas_at_large_bases {
+  let base = 9007199254740992
+  let previous_cpu: syscpu.CpuCounters = {fields: [base, 0, 0, base, 0, 0, 0, 0, 0, 0]}
+  let current_cpu: syscpu.CpuCounters = {fields: [base + 10, 0, 0, base + 10, 0, 0, 0, 0, 0, 0]}
+  assert rates.cpu_percent(current_cpu, previous_cpu).value == 50.0
+  assert rates.process_percent(base + 10, base, current_cpu, previous_cpu, 2).value == 50.0
+  assert rates.counter_rate(base + 100, base, elapsed_ns: 1000000000).value == 100.0
+
+  let maximum: Int = 9223372036854775807
+  assert rates.counter_rate(maximum, maximum - 10, elapsed_ns: 10).value == 1000000000.0
+  let at_limit = syscpu.parse_stat(observed_source(f"cpu {maximum} 0 0 0\n"))
+  assert at_limit.state == report.Observed
+  assert at_limit.aggregate?.fields == [maximum, 0, 0, 0]
+
+  let out_of_range = syscpu.parse_stat(observed_source("cpu 9223372036854775808 0 0 0\n"))
+  assert out_of_range.aggregate == null
+  assert out_of_range.issues[0].state == report.RangeFailure
+}
+
+test test_btop_counter_precision_withholds_aggregate_sum_overflow {
+  let half: Int = 4611686018427387903
+  let previous: syscpu.CpuCounters = {fields: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}
+  let current: syscpu.CpuCounters = {fields: [half, half, half, half, half, half, half, half, 0, 0]}
+  assert rates.cpu_percent(current, previous).state == rates.Invalid
+  assert rates.cpu_percent(current, current).state == rates.Invalid
 }
 
 test test_btop_cpu_usage_excludes_guest_time_and_corrects_iowait_regression {

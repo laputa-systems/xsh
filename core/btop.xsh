@@ -22,7 +22,6 @@ type Options = {
   operands: List[Str],
 }
 
-const SAMPLE_INTERVAL_NS = 1000000000
 const WAIT_SLICE_MS = 100
 
 type WaitResult = {quit: Bool, input: input.State, ui: ui.State, committed: surface.Committed}
@@ -162,7 +161,7 @@ proc dump_frames(frames: List[model.Model], model_path: Str?, screen_path: Str?,
   if let output_path = model_path {
     var lines: List[Str] = []
     for frame in frames {
-      lines += [json.encode(frame, pretty: false)?]
+      lines += [model.encode_wire_json(frame)?]
     }
     fp"{output_path}".write(bytes.from_text(lines.join("\n") + (if lines.is_empty() { "" } else { "\n" })))?
   }
@@ -229,7 +228,7 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
   var previous: model.Observation? = null
   var sampled = 0
   let first_started_ns = time.monotonic()?
-  let first = scheduler.first(first_started_ns, SAMPLE_INTERVAL_NS)?
+  let first = scheduler.first(first_started_ns, scheduler.SAMPLE_INTERVAL_NS)?
   var schedule = first.state
   let first_collection = collection_schedule.take_due(
     collection_schedule.initial(first_started_ns)?,
@@ -307,7 +306,7 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
       previous = observation
       observation = next_observation
       local_display = sysproc.collect_local_display(root, observation.processes.processes)
-      let next_model = model.step_cached(observation, previous, metadata_cache)
+      let next_model = model.step_cached(observation, previous, metadata_cache, gap: ticket.coalesced > 0)
       metadata_cache = next_model.metadata
       current = next_model.value
       view = ui.refresh(view, current, local_display)

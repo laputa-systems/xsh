@@ -132,7 +132,7 @@ pure memory_panel(source: memory.MemorySource) -> MemoryPanel {
   }
 }
 
-pure cpu_interval(current: Observation, previous: Observation?) -> rates.Rate {
+pure cpu_interval(current: Observation, previous: Observation?, gap: Bool) -> rates.Rate {
   if current.cpu.stat.aggregate == null {
     return rate(if current.cpu.stat.state == report.Observed { rates.Invalid } else { rates.Unavailable })
   }
@@ -149,6 +149,9 @@ pure cpu_interval(current: Observation, previous: Observation?) -> rates.Rate {
   if before.cpu.stat.aggregate == null {
     return rate(rates.Warming)
   }
+  if gap {
+    return rate(rates.Gap)
+  }
 
   rates.cpu_percent(current.cpu.stat.aggregate, before.cpu.stat.aggregate)
 }
@@ -158,6 +161,7 @@ pure interface_rate(
   current: network.NetworkInterface?,
   previous: Observation?,
   receive: Bool,
+  gap: Bool,
 ) -> rates.Rate {
   if current == null {
     return rate(rates.Unavailable)
@@ -176,6 +180,9 @@ pure interface_rate(
     let now = current
     if prior.name != now.name or prior.ifindex == null or now.ifindex == null or prior.ifindex != now.ifindex {
       return rate(rates.Warming)
+    }
+    if gap {
+      return rate(rates.Gap)
     }
 
     let now_bytes = if receive { now.rx_bytes } else { now.tx_bytes }
@@ -210,7 +217,13 @@ pure core_index(previous: Observation?) -> Map[Int, syscpu.CpuCounters] {
   rows
 }
 
-pure core_rate(current: Observation, previous: Observation?, prior_cores: Map[Int, syscpu.CpuCounters], core: syscpu.CpuCore) -> rates.Rate {
+pure core_rate(
+  current: Observation,
+  previous: Observation?,
+  prior_cores: Map[Int, syscpu.CpuCounters],
+  core: syscpu.CpuCore,
+  gap: Bool,
+) -> rates.Rate {
   if previous == null {
     return rate(rates.Warming)
   }
@@ -219,7 +232,7 @@ pure core_rate(current: Observation, previous: Observation?, prior_cores: Map[In
     return rate(rates.Invalid)
   }
   if let Ok(counters) = prior_cores.get(core.id) {
-    rates.cpu_percent(core.counters, counters)
+    if gap { rate(rates.Gap) } else { rates.cpu_percent(core.counters, counters) }
   } else {
     rate(rates.Warming)
   }
@@ -233,7 +246,13 @@ pure previous_process(index: Map[Int, processes.Process], current: processes.Pro
   }
 }
 
-pure process_rate(current: Observation, previous: Observation?, prior_rows: Map[Int, processes.Process], row: processes.Process) -> rates.Rate {
+pure process_rate(
+  current: Observation,
+  previous: Observation?,
+  prior_rows: Map[Int, processes.Process],
+  row: processes.Process,
+  gap: Bool,
+) -> rates.Rate {
   if row.cpu_ticks == null {
     return rate(rates.Unavailable)
   }
@@ -254,6 +273,9 @@ pure process_rate(current: Observation, previous: Observation?, prior_rows: Map[
   if let older = previous_process(prior_rows, row) {
     if older.cpu_ticks == null {
       return rate(rates.Warming)
+    }
+    if gap {
+      return rate(rates.Gap)
     }
 
     let core_count = current.cpu.stat.cores.len()
@@ -317,7 +339,12 @@ pure process_sort_key(row: ProcessRow) -> ProcessSortKey {
 }
 
 ## Applies one source observation and retains only current process metadata.
-export pure step_cached(current: Observation, previous: Observation?, metadata: MetadataCache) -> CachedStep {
+export pure step_cached(
+  current: Observation,
+  previous: Observation?,
+  metadata: MetadataCache,
+  gap: Bool = false,
+) -> CachedStep {
   let baseline = same_source_baseline(current, previous)
   let prior_rows = process_index(baseline)
   let prior_cores = core_index(baseline)
@@ -327,7 +354,7 @@ export pure step_cached(current: Observation, previous: Observation?, metadata: 
   var next_metadata: Map[Int, ProcessMetadata] = {}
   var core_rows: List[CoreUsage] = []
   for core in current.cpu.stat.cores {
-    core_rows += [{id: core.id, utilization: core_rate(current, baseline, prior_cores, core)}]
+    core_rows += [{id: core.id, utilization: core_rate(current, baseline, prior_cores, core, gap)}]
   }
   for process_row in current.processes.processes {
     let uid = cached_uid(process_row, current, cache)
@@ -339,7 +366,7 @@ export pure step_cached(current: Observation, previous: Observation?, metadata: 
       uid: uid.uid,
       uid_state: uid.state,
       command: process_row.command,
-      cpu_percent: process_rate(current, baseline, prior_rows, process_row),
+      cpu_percent: process_rate(current, baseline, prior_rows, process_row, gap),
       cpu_average_percent: process_average_rate(current, process_row),
       rss_bytes: process_row.rss_bytes,
     }
@@ -353,7 +380,7 @@ export pure step_cached(current: Observation, previous: Observation?, metadata: 
     value: {
       source_id: current.source_id,
       at_ns: current.at_ns,
-      cpu_percent: cpu_interval(current, baseline),
+      cpu_percent: cpu_interval(current, baseline, gap),
       cpu_cores: core_rows,
       telemetry: sensors.select(current.telemetry, current.cpu.stat.cores |> map .id),
       uptime: current.cpu.uptime,
@@ -365,8 +392,8 @@ export pure step_cached(current: Observation, previous: Observation?, metadata: 
         interface_name: if let chosen = selected { chosen.name } else { null },
         rx_bytes: if let chosen = selected { chosen.rx_bytes } else { null },
         tx_bytes: if let chosen = selected { chosen.tx_bytes } else { null },
-        rx_bytes_per_second: interface_rate(current, selected, baseline, true),
-        tx_bytes_per_second: interface_rate(current, selected, baseline, false),
+        rx_bytes_per_second: interface_rate(current, selected, baseline, true, gap),
+        tx_bytes_per_second: interface_rate(current, selected, baseline, false, gap),
       },
       process_state: current.processes.state,
       processes: process_rows |> sort-by { |row| process_sort_key(row) },
@@ -376,8 +403,57 @@ export pure step_cached(current: Observation, previous: Observation?, metadata: 
 }
 
 ## Applies one source observation to the shared previous frame, if one exists.
-export pure step(current: Observation, previous: Observation?) -> Model {
-  step_cached(current, previous, {source_id: current.source_id, by_pid: {}}).value
+export pure step(current: Observation, previous: Observation?, gap: Bool = false) -> Model {
+  step_cached(current, previous, {source_id: current.source_id, by_pid: {}}, gap).value
+}
+
+pure counter_wire_text(value: Int?) -> Str? {
+  if let counter = value { f"{counter}" } else { null }
+}
+
+pure process_wire(row: ProcessRow) -> Any {
+  {
+    pid: row.pid,
+    parent_pid: row.parent_pid,
+    start_ticks: f"{row.start_ticks}",
+    thread_count: row.thread_count,
+    uid: row.uid,
+    uid_state: row.uid_state,
+    command: row.command,
+    cpu_percent: row.cpu_percent,
+    cpu_average_percent: row.cpu_average_percent,
+    rss_bytes: row.rss_bytes,
+  }
+}
+
+pure network_wire(value: NetworkPanel) -> Any {
+  {
+    source_state: value.source_state,
+    interface_name: value.interface_name,
+    rx_bytes: counter_wire_text(value.rx_bytes),
+    tx_bytes: counter_wire_text(value.tx_bytes),
+    rx_bytes_per_second: value.rx_bytes_per_second,
+    tx_bytes_per_second: value.tx_bytes_per_second,
+  }
+}
+
+## Encodes raw counters as canonical decimal strings while keeping typed arithmetic in Int.
+export pure encode_wire_json(value: Model) -> Result[Str, Error] {
+  let wire: Any = {
+    source_id: value.source_id,
+    at_ns: value.at_ns,
+    cpu_percent: value.cpu_percent,
+    cpu_cores: value.cpu_cores,
+    telemetry: value.telemetry,
+    uptime: value.uptime,
+    load: value.load,
+    cpu_state: value.cpu_state,
+    memory: value.memory,
+    network: network_wire(value.network),
+    process_state: value.process_state,
+    processes: [process_wire(row) for row in value.processes],
+  }
+  json.encode(wire, pretty: false)
 }
 
 ## Starts a process metadata cache for one observation source.

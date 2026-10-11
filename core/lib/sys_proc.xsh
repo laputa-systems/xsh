@@ -87,7 +87,7 @@ pure stat_matches_process(source: src.SourceRead, process_row: Process) -> Bool 
   if source.observation.state != report.Observed or source.observation.value == null {
     return false
   }
-  if let Ok(stat) = live.parse_proc_stat(source.observation.value ?? "") {
+  if let Ok(stat) = live.parse_proc_stat_for_monitor(source.observation.value ?? "") {
     return stat.pid == process_row.pid and stat.start_ticks == process_row.start_ticks
   }
   false
@@ -211,7 +211,7 @@ export pure process_read_from_tape(pid: Int, page_size_bytes: Int, tape: Process
       issues: [src.issue(f"processes.{pid}.stat", before_source.observation.state, before_source.error_kind, before_source.errno)],
     }
   }
-  let before = live.parse_proc_stat(before_source.observation.value)
+  let before = live.parse_proc_stat_for_monitor(before_source.observation.value)
   if let Ok(stat) = before {
     if stat.pid != pid {
       return {process: null, issues: [src.issue(f"processes.{pid}.stat", report.Raced, "pid_directory_reused", null)]}
@@ -227,7 +227,7 @@ export pure process_read_from_tape(pid: Int, page_size_bytes: Int, tape: Process
         issues: [src.issue(f"processes.{pid}.stat", state, after_source.error_kind, after_source.errno)],
       }
     }
-    let after = live.parse_proc_stat(after_source.observation.value)
+    let after = live.parse_proc_stat_for_monitor(after_source.observation.value)
     if let Ok(final_stat) = after {
       if final_stat.pid != pid or final_stat.start_ticks != stat.start_ticks {
         return {process: null, issues: [src.issue(f"processes.{pid}.stat", report.Raced, "process_identity_changed", null)]}
@@ -266,7 +266,7 @@ proc process_read(root: FsRoot, directory: Path, pid: Int, page_size_bytes: Int)
       issues: [src.issue(f"processes.{pid}.stat", before_source.observation.state, before_source.error_kind, before_source.errno)],
     }
   }
-  let before = live.parse_proc_stat(before_source.observation.value)
+  let before = live.parse_proc_stat_for_monitor(before_source.observation.value)
   if let Err(_) = before {
     return {process: null, issues: [src.issue(f"processes.{pid}.stat", report.Malformed, "invalid_process_stat", null)]}
   }

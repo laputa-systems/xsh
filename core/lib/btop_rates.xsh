@@ -10,6 +10,7 @@ export enum RateState: Str {
   Observed = "observed",
   Reset = "reset",
   Invalid = "invalid",
+  Gap = "gap",
   Unavailable = "unavailable",
 }
 

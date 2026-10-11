@@ -59,9 +59,11 @@ Schema 1 bundles are rejected because they do not pin display capability inputs.
 ## Monitor behavior
 
 The live collector samples from a rooted view of `/proc` on one-second absolute
-monotonic deadlines. The first CPU, process, and network rates are shown as `warming`; an observed zero
-counter or rate stays distinct from an absent, malformed, reset, or unavailable
-source. CPU usage uses aggregate `/proc/stat` counters. Process CPU direct uses
+monotonic deadlines. Interval rates use those monotonic sample timestamps;
+wall-clock changes do not alter them. The first CPU, process, and network rates
+are shown as `warming`; an observed zero counter or rate stays distinct from an
+absent, malformed, reset, or unavailable source. CPU usage uses aggregate
+`/proc/stat` counters. Process CPU direct uses
 each process's `utime + stime` over the aggregate CPU interval; CPU lazy sorts by
 the process's lifetime-average CPU and promotes recent high-use processes. RSS
 uses resident pages times the injected page size. A process's start time is
@@ -77,6 +79,11 @@ gauge deadline. Missed deadlines coalesce into one new observation. When a UID r
 PID/start-time/command value remains visible for at most five seconds with a `~`
 marker; after that it is unavailable. A command change, source change, process
 exit, or PID reuse invalidates that cached UID.
+
+When a counter deadline is skipped, interval rates show `gap` for that sample
+and resume after the next complete interval. Model dumps encode network byte
+counters and process start ticks as canonical decimal strings; internal rate
+math keeps them as signed 64-bit integers.
 
 CPU rates use the first eight aggregate `/proc/stat` counters, subtract guest
 and guest-nice time to avoid double-counting them, and treat a decreasing
@@ -163,9 +170,10 @@ than 80 by 24 displays a safe size message.
 | Battery level, state, power, and time | `/sys/class/power_supply/*` type, present, status, capacity, energy/charge, voltage/current, and power | `system_report_live.collect_power`, `btop_sensors.battery` | percent, microwatts, microamp-hours, microvolts, gauge | Only present Battery/UPS devices; values remain absent or malformed when the source cannot support a result |
 
 The system-report and btop paths share the `/proc/meminfo`, sensor, frequency,
-power-supply, and process `stat` readers. The process parser retains `utime +
-stime` for btop without changing system-report JSON v1. Monitor battery fields
-remain private to `system_report_live` and do not widen system-report JSON.
+power-supply, and process `stat` readers. The monitor uses the shared process
+parser's i64 start-time policy and retains `utime + stime`; system-report JSON
+v1 keeps its existing exact-number bound. Monitor battery fields remain private
+to `system_report_live` and do not widen system-report JSON.
 
 ## Host release evidence
 
@@ -208,8 +216,8 @@ Focused host release tests are kept with the implementation:
   real delta with a fresh full frame and drive interactive sorting, filtering,
   selection, and resize.
 - The release PTY latency probe sent 100 sort events between replay frames 60
-  seconds apart. On Alpine x86_64 musl, input-to-present p95 was 1.089 ms and
-  p99 was 1.137 ms; replay sampling stayed on its separate recorded interval.
+  seconds apart. On Alpine x86_64 musl, input-to-present p95 was 1.841 ms and
+  p99 was 2.260 ms; replay sampling stayed on its separate recorded interval.
 - `rg -n -i btop src crates stdlib` found no monitor-specific native code.
 
 These tests establish host release behavior. Linux qualification is recorded

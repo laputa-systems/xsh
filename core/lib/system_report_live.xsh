@@ -720,8 +720,8 @@ pure proc_optional_number(raw: Str, positive: Bool = false) -> ProcOptionalNumbe
   {value: number, issue_state: null}
 }
 
-## Parses a process stat record while preserving the command's parentheses.
-export pure parse_proc_stat(text: Str) -> Result[ProcStat, Error] {
+# Parses a process stat record while preserving the command's parentheses.
+pure parse_proc_stat_with_policy(text: Str, allow_wide_start_ticks: Bool) -> Result[ProcStat, Error] {
   let pieces = text.trim().split(") ")
   if pieces.len() < 2 {
     return Err(proc_stat_error("process stat record has no command terminator"))
@@ -752,7 +752,8 @@ export pure parse_proc_stat(text: Str) -> Result[ProcStat, Error] {
 
   let parent_pid = parse_integer(fields[1]) ?? -1
   let start_ticks = parse_integer(fields[19]) ?? -1
-  if parent_pid < 0 or start_ticks < 0 or parent_pid > 9007199254740991 or start_ticks > 9007199254740991 {
+  if parent_pid < 0 or start_ticks < 0 or parent_pid > 9007199254740991 or
+      (! allow_wide_start_ticks and start_ticks > 9007199254740991) {
     return Err(proc_stat_error("process stat record has invalid parent or start identity"))
   }
 
@@ -807,6 +808,16 @@ export pure parse_proc_stat(text: Str) -> Result[ProcStat, Error] {
     resident_pages: resident_pages.value,
     field_issues: field_issues,
   })
+}
+
+## Parses process identities under the exact-number bound of system-report JSON v1.
+export pure parse_proc_stat(text: Str) -> Result[ProcStat, Error] {
+  parse_proc_stat_with_policy(text, false)
+}
+
+## Parses the same proc ABI with an i64 start-time counter for monitor identity.
+export pure parse_proc_stat_for_monitor(text: Str) -> Result[ProcStat, Error] {
+  parse_proc_stat_with_policy(text, true)
 }
 
 pure report_block_device(device: sys_block.BlockDevice, pci_indices: Map[Int]) -> report.BlockDevice {

@@ -66,6 +66,7 @@ pure rate_text(value: rates.Rate) -> Str {
     rates.Warming => "warming"
     rates.Reset => "reset"
     rates.Invalid => "invalid"
+    rates.Gap => "gap"
     else => "unavailable"
   }
 }
@@ -86,6 +87,7 @@ pure byte_rate_text(value: rates.Rate) -> Str {
     rates.Warming => "warming"
     rates.Reset => "reset"
     rates.Invalid => "invalid"
+    rates.Gap => "gap"
     else => "unavailable"
   }
 }
