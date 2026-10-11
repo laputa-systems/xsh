@@ -174,7 +174,7 @@ proc main(...argv: List[Bytes]) [process, env, io, fs, error] {
   let file_bytes = gnu.argument_bytes(file, prepared.raw)
   let file_name = display_name(file_bytes)
   if file != "" {
-    if file != "-" and (is_directory(file_bytes) ?? false) { gnu.error(f"expected file, got directory {gnu.quote_bytes(file_bytes)}"); exit 1 }
+    if file != "-" and (is_directory(file_bytes) ?? false) { gnu.error(f"{gnu.quote_bytes(file_bytes, always: false)}: read error: Is a directory"); exit 1 }
     match read_database(file_bytes) {
       Ok(data) => {
         match data.utf8() {
@@ -210,7 +210,7 @@ proc main(...argv: List[Bytes]) [process, env, io, fs, error] {
       continue
     }
     entries = true
-    if ! selected and ! (display and file == "") { continue }
+    if ! selected { continue }
     if key.lower() == "options" or key.lower() == "color" or key.lower() == "eightbit" { continue }
     let named = color_key(key)
     let code = if key.starts_with(".") { f"*{key}" } else if key.starts_with("*") { key } else { named }

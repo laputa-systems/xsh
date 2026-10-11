@@ -71,6 +71,11 @@ codec, numerical and byte operations. A native performance exception requires
 an XSH implementation and measurements that identify the smallest operation
 needing acceleration.
 
+`core/lib/date_dircolors.xsh::DATABASE` preserves the GNU coreutils 9.12
+built-in database, including its terminal filters and suffix order. Both shell
+assignments and `--print-ls-colors` apply the same `TERM` and `COLORTERM`
+selection; listing color codes does not enable unmatched sections.
+
 Module resolution has one owner. `loader::resolve_module_path_candidates`
 fixes the search order (beside the importing file, `XSH_MODULE_PATH`, project
 module roots), and `src/project.rs` finds a project's `xsht-config.ini` and
