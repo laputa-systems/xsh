@@ -173,3 +173,59 @@ test test_invalid_utf8_stops_parsing_and_import_loading_in_every_tool { |ctx|
     assert result.stdout == "", f"{tool}: {result.stdout}"
   }
 }
+
+test test_proc_main_argument_spread_is_checked_for_every_tool { |ctx|
+  let root = fixture(ctx, "main-argument-spread")?
+  fp"{root}/entry.xsh".write(r"""proc main(argv: List[Str]) {
+  print argv.len()
+}
+""")
+  expect_code(root, "compact.main-missing-spread")
+
+  for source in [
+    r"""proc main(...argv: List[Str]) {
+  print argv.len()
+}
+""",
+    r"""proc main(argv: List[Str] = []) {
+  print argv.len()
+}
+""",
+    r"""proc main(argv: List[Str]) {
+  print argv.len()
+}
+main(args)
+""",
+  ] {
+    fp"{root}/entry.xsh".write(source)
+    for tool in ["xsh", "check", "lint"] {
+      let result = run_tool(root, tool)?
+      assert result.status.exited_with(0), f"{tool}: {result.stderr}"
+      assert "compact.main-missing-spread" not in result.stderr, f"{tool}: {result.stderr}"
+    }
+  }
+
+  fp"{root}/entry.xsh".write(r"""proc main(argv: List[Str]) {
+  print argv.len()
+}
+main(@args)
+""")
+  expect_code(root, "compact.main-missing-spread")
+
+  fp"{root}/modules/worker.xsh".write(r"""##! Worker module.
+## Exported value.
+export const value = 1
+## Main entry.
+export proc main(argv: List[Str]) {
+  print argv.len()
+}
+""")
+fp"{root}/entry.xsh".write(r"""use worker
+print ${worker.value}
+""")
+  for tool in ["xsh", "check", "lint"] {
+    let result = run_tool(root, tool)?
+    assert result.status.exited_with(0), f"{tool}: {result.stderr}"
+    assert "compact.main-missing-spread" not in result.stderr, f"{tool}: {result.stderr}"
+  }
+}

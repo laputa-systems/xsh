@@ -9,7 +9,7 @@ pub(crate) use crate::sema::types::{CallableParamType, CallableType, ModuleExpor
 pub(crate) use crate::source::Span;
 use crate::source::{SourceId, SourceMap};
 pub(crate) use crate::symbol::{Name, QualifiedName};
-use crate::syntax::arena::{ArenaProgram, ArenaStmtKind, ArenaUserModule, StmtId, TypeExprId};
+use crate::syntax::arena::{ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaStmtKind, ArenaUserModule, StmtId, TypeExprId};
 pub(crate) use crate::syntax::node::{BinaryOp, CoreCommand, Effect, RunKind, UnaryOp};
 
 use callable_alias::CallableAlias;
@@ -1522,15 +1522,44 @@ impl Checker {
         // A signature CLI `main`, or a `proc main` that the last statement does
         // not call, runs after the top level and supplies the exit status, so
         // no statement does.
-        let main_runs_after = statements
+        let has_cli_main = statements
             .iter()
-            .any(|&stmt| matches!(program.arena.stmt(stmt).kind, ArenaStmtKind::CliMain(_)))
+            .any(|&stmt| matches!(program.arena.stmt(stmt).kind, ArenaStmtKind::CliMain(_)));
+        let main_runs_after = has_cli_main
             || statements
                 .iter()
                 .any(|&stmt| defines_proc_main(program, stmt))
                 && !statements
                     .last()
                     .is_some_and(|&stmt| calls_main(program, stmt));
+        let proc_main_auto_dispatch = !has_cli_main
+            && statements.iter().any(|&stmt| defines_proc_main(program, stmt))
+            && (!statements.last().is_some_and(|&stmt| calls_main(program, stmt))
+                || calls_main_with_implicit_spread_args(program, &statements, &self.resolved_bindings));
+        if self.options.interactive_commands.is_none() && proc_main_auto_dispatch {
+            let (span, has_unbindable_required_param) = {
+                let signature = self
+                    .procs
+                    .get(&Name::intern("main"))
+                    .expect("root proc main signature is collected before entry checking");
+                let span = signature
+                    .definition
+                    .expect("root proc main signature has a source definition");
+                let has_unbindable_required_param = signature.params.iter().any(|parameter| {
+                    !parameter.rest
+                        && !parameter.defaulted
+                        && !matches!(&parameter.ty, Type::Str | Type::Path)
+                });
+                (span, has_unbindable_required_param)
+            };
+            if has_unbindable_required_param {
+                self.error(
+                    span,
+                    "proc main must use the spread form `(...argv: List[Str])` to receive script arguments; a fixed parameter of this type cannot bind script arguments in the compact runtime",
+                    DiagnosticCode::CompactMainMissingSpread,
+                );
+            }
+        }
         if self.options.interactive_commands.is_none() && main_runs_after {
             if let Some(signature) = self.procs.get(&Name::intern("main")) {
                 let has_bytes = signature.params.iter().any(|parameter| {
@@ -1872,6 +1901,41 @@ fn calls_main(program: &ArenaProgram, stmt: crate::syntax::arena::StmtId) -> boo
     }
     matches!(program.arena.expr(expr).kind, ArenaExprKind::Call { callee, .. }
         if matches!(program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "main"))
+}
+
+fn calls_main_with_implicit_spread_args(
+    program: &ArenaProgram,
+    statements: &[StmtId],
+    resolved_bindings: &ResolvedBindings,
+) -> bool {
+    let Some((_, stmt)) = statements.iter().copied().enumerate().next_back() else {
+        return false;
+    };
+    let ArenaStmtKind::Expr(mut expr) = program.arena.stmt(stmt).kind else {
+        return false;
+    };
+    while let ArenaExprKind::Try(inner) = program.arena.expr(expr).kind {
+        expr = inner;
+    }
+    let ArenaExprKind::Call { callee, args } = program.arena.expr(expr).kind else {
+        return false;
+    };
+    if !matches!(program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == Name::intern("main")) {
+        return false;
+    }
+    let [argument] = program.arena.call_args(args) else {
+        return false;
+    };
+    let ArenaCallArgKind::Splice { value, .. } = &argument.kind else {
+        return false;
+    };
+    if !matches!(program.arena.expr(*value).kind, ArenaExprKind::Ident(name) if name == Name::intern("args")) {
+        return false;
+    }
+    let args_binding = resolved_bindings
+        .at(program.arena.expr(*value).span, Name::intern("args"))
+        .expect("implicit main argument splice has a resolved args binding");
+    args_binding == BindingId::args()
 }
 
 /// Only a single byte rest parameter opts an entry into raw OS arguments.
