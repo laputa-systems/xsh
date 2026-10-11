@@ -7568,18 +7568,18 @@ proc main() [env, error] -> Result[Unit] {
         });
     }
 
-    fn append_path_from_chain(program: &mut FullProgram, wrappers: usize) -> Vec<usize> {
+    fn append_string_addition_chain(program: &mut FullProgram, wrappers: usize) -> Vec<usize> {
         program.store.in_place.take();
         let function_index = program
             .store
             .functions
             .iter()
-            .position(|row| program.store.string(row.name).is_ok_and(|name| name == "make_path"))
-            .expect("path fixture function exists");
+            .position(|row| program.store.string(row.name).is_ok_and(|name| name == "make_text"))
+            .expect("string fixture function exists");
         let mut range = program
             .store
             .function_instruction_range(function_index)
-            .expect("path fixture function range exists");
+            .expect("string fixture function range exists");
         assert_eq!(function_index + 1, program.store.functions.len());
         assert_eq!(range.end, program.store.tags.len());
         let old_instruction_end = u32::try_from(program.store.tags.len()).expect("fixture fits");
@@ -7590,16 +7590,39 @@ proc main() [env, error] -> Result[Unit] {
             .all(|step| step.instruction_start == old_instruction_end));
         let template_index = range
             .clone()
-            .find(|instruction| program.store.tags[*instruction] == FullTag::ExprPathFrom)
-            .expect("path fixture contains a conversion");
+            .find(|instruction| program.store.tags[*instruction] == FullTag::ExprBinary)
+            .expect("string fixture contains an addition");
         let template_range = program.store.data[template_index]
             .range()
             .bounds(program.store.extra.len())
-            .expect("path conversion payload is in bounds");
+            .expect("binary payload is in bounds");
         let template = program.store.extra[template_range].to_vec();
+        let execution = schema_execution(&program.store);
+        let mut template_payload = FullCursor::new(&template);
+        let _op = BinaryOp::decode(&execution.decoder, &mut template_payload)
+            .expect("binary operation decodes");
+        let context = DecodeContext::new(&execution);
+        let left_offset = template_payload.index;
+        let _left = BuildExprId::borrow(context, &mut template_payload)
+            .expect("binary left operand belongs to the fixture function");
+        let right_offset = template_payload.index;
+        let right_template = BuildExprId::borrow(context, &mut template_payload)
+            .expect("binary right operand belongs to the fixture function")
+            .raw() as usize;
+        Span::decode(&execution.decoder, &mut template_payload)
+            .expect("binary source span decodes");
+        template_payload
+            .finish()
+            .expect("binary payload has no trailing fields");
+        assert_eq!(program.store.tags[right_template], FullTag::ExprStr);
+        let literal_range = program.store.data[right_template]
+            .range()
+            .bounds(program.store.extra.len())
+            .expect("string literal payload is in bounds");
+        let literal = program.store.extra[literal_range].to_vec();
         let return_index = range
             .find(|instruction| program.store.tags[*instruction] == FullTag::StmtReturn)
-            .expect("path fixture returns its conversion");
+            .expect("string fixture returns its addition");
         let return_payload = program.store.data[return_index]
             .range()
             .bounds(program.store.extra.len())
@@ -7607,14 +7630,27 @@ proc main() [env, error] -> Result[Unit] {
         let mut child = template_index as u32;
         let mut appended = Vec::with_capacity(wrappers);
         for _ in 0..wrappers {
+            let literal_index = program.store.tags.len();
+            let literal_start = u32::try_from(program.store.extra.len()).expect("literal fits");
+            let literal_len = u32::try_from(literal.len()).expect("literal payload fits");
+            program.store.extra.extend_from_slice(&literal);
+            program
+                .store
+                .data
+                .push(IrData::new(literal_start, literal_len));
+            program.store.tags.push(FullTag::ExprStr);
+            program.store.resource_transfers.push(false);
+
             let instruction = program.store.tags.len();
             let mut payload = template.clone();
-            payload[0] = child;
+            payload[left_offset] = child;
+            payload[right_offset] =
+                u32::try_from(literal_index).expect("literal instruction ID fits");
             let start = u32::try_from(program.store.extra.len()).expect("fixture payload fits");
             let len = u32::try_from(payload.len()).expect("fixture payload fits");
             program.store.extra.extend(payload);
             program.store.data.push(IrData::new(start, len));
-            program.store.tags.push(FullTag::ExprPathFrom);
+            program.store.tags.push(FullTag::ExprBinary);
             program.store.resource_transfers.push(false);
             appended.push(instruction);
             child = u32::try_from(instruction).expect("fixture instruction ID fits");
@@ -7818,9 +7854,9 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
     fn in_place_height_limit_marks_128_and_rejects_129_and_ancestors() {
         let mut program = fixture(
             "in-place-height.xsh",
-            "pure make_path() -> Path { return Path(\"x\") }",
+            "pure make_text(text: Str) -> Str { return text + \"x\" }",
         );
-        let appended = append_path_from_chain(&mut program, 128);
+        let appended = append_string_addition_chain(&mut program, 128);
         FullVerifier::verify(&program).unwrap();
         let marks = program.store.in_place.get().expect("verification installs marks");
         assert!(marks[appended[125]]);
