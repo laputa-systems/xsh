@@ -104,7 +104,7 @@ type Alias = {name: Str, target: Str}
 proc applet_script(s: Scene, util: Str) [fs, error] -> Result[Path, Error] {
   let script = fp"{s.ctx.core_dir}/{util}.xsh"
   return Ok(script) when script.exists()?
-  let registry = fp"{s.ctx.core_dir}/../dev/compat/aliases.json"
+  let registry = fp"{s.ctx.core_dir}/aliases.json"
   let aliases = json.get(json.decode(registry.read_text()?)?, ["aliases"])?.require(List[Alias])?
   for alias in aliases {
     if alias.name == util {
