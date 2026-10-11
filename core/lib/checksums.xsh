@@ -39,17 +39,6 @@ pure tagged_mode(argv: List[Str], cksum: Bool) -> Bool {
   tag
 }
 
-# Preserve GNU's option-argument forms while the shared parser requires the
-# equals-separated short form to be split into an option and its value.
-pure checksum_args(argv: List[Str]) -> List[Str] {
-  var result = []
-  var options = true
-  for arg in argv {
-    if arg == "--" { options = false; result += [arg] } else if options and arg.starts_with("-a=") { result += ["-a", arg.byte_slice(3)] } else if options and arg.starts_with("--algo=") { result += ["--algorithm", arg.byte_slice(7)] } else if options and arg.starts_with("-l=") { result += ["-l", arg.byte_slice(3)] } else { result += [arg] }
-  }
-  result
-}
-
 pure warning_mode(argv: List[Str]) -> Bool {
   var enabled = false
   for arg in argv {
@@ -101,7 +90,8 @@ proc cpu_feature_debug() [env, process, error] {
   for name in names {
     let enabled = name in features and ! feature_disabled(name, tunables)
     let message = if enabled { f"using {name} hardware support" } else { f"{name} support not detected" }
-    eprint $message
+    gnu.error(message)
+    if enabled { break }
   }
 }
 
@@ -562,7 +552,7 @@ proc verify_list(source: Str, opts: Options, algorithm: Str, length: Int, infer:
 
 ## Parse conventional checksum options, hash files or stdin, and verify lists.
 export proc execute(argv: List[Str], default_algorithm: Str, cksum = false) [fs, io, error, process, env] -> Unit {
-  let parsed = cli.applet(checksum_args(argv), {
+  let parsed = cli.applet(argv, {
     gnu: {status: 1},
     binary: {form: "-b --binary", default: false},
     text: {form: "-t --text", default: false},
@@ -601,12 +591,18 @@ export proc execute(argv: List[Str], default_algorithm: Str, cksum = false) [fs,
   }
   if opts.version { gnu.version(gnu.prog()); return }
   if opts.debug and !cksum { gnu.error("unrecognized option '--debug'"); exit 1 }
-  if opts.debug { cpu_feature_debug() }
   if !cksum and opts.algorithm != "" { gnu.usage_error("the --algorithm option is supported only by cksum") }
   if !cksum and (opts.untagged or opts.base64 or opts.raw) { gnu.usage_error("--untagged, --base64 and --raw are supported only by cksum") }
   let binary = binary_mode(argv)
   let tagged = tagged_mode(argv, cksum)
   var algorithm = if opts.algorithm == "" { default_algorithm } else { opts.algorithm }
+  if algorithm not in ["bsd", "sysv", "crc", "crc32b", "md5", "sha1", "sha224", "sha256", "sha384", "sha512", "sha2", "sha3", "blake2b", "sm3", "blake3", "shake128", "shake256"] {
+    gnu.error(f"invalid argument {gnu.quote(algorithm)} for '--algorithm'")
+    eprint "Valid arguments are:"
+    for name in ["bsd", "sysv", "crc", "crc32b", "md5", "sha1", "sha224", "sha256", "sha384", "sha512", "sha2", "sha3", "blake2b", "sm3"] { eprint f"  - '{name}'" }
+    gnu.try_help()
+    exit 1
+  }
   var length = opts.length.parse_int() ?? -1
   let length_given = has_length_option(argv)
   if algorithm == "sha2" or algorithm == "sha3" {
@@ -654,7 +650,6 @@ export proc execute(argv: List[Str], default_algorithm: Str, cksum = false) [fs,
     gnu.usage_error("--length is only supported with --algorithm blake2b, sha2, or sha3")
   }
   let is_numeric = algorithm == "crc" or algorithm == "bsd" or algorithm == "sysv" or algorithm == "crc32b"
-  if !is_numeric and algorithm != "blake2b" and algorithm != "sha2" and algorithm != "sha3" and algorithm != "blake3" and algorithm != "shake128" and algorithm != "shake256" and digest_length(algorithm) == 0 { gnu.usage_error(f"invalid argument {gnu.quote(algorithm)} for 'checksum algorithm'") }
   if !opts.check {
     for flag in [if opts.quiet { "quiet" } else { "" }, if opts.status { "status" } else { "" }, if opts.warn { "warn" } else { "" }, if opts.strict { "strict" } else { "" }] {
       if flag != "" { gnu.usage_error(f"the --{flag} option is meaningful only when verifying checksums") }
@@ -674,7 +669,8 @@ export proc execute(argv: List[Str], default_algorithm: Str, cksum = false) [fs,
   }
   let files = if opts.files.is_empty() { ["-"] } else { opts.files }
   if opts.raw and files.len() > 1 { gnu.usage_error("the --raw option is not supported with multiple files") }
-  if opts.raw and opts.base64 { gnu.usage_error("--base64 cannot be used with --raw") }
+  if opts.raw and opts.base64 { gnu.usage_error("--base64 and --raw are mutually exclusive") }
+  if opts.debug and algorithm == "crc" and !opts.check { cpu_feature_debug() }
   var failed = false
   for name in files {
     if opts.check {

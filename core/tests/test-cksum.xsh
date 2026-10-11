@@ -51,7 +51,7 @@ test test_cksum_digest_modes { |ctx|
 }
 
 test test_cksum_algorithm_equals_and_repeated_options { |ctx|
-  let result = invoke(ctx, ["-a=sha1", "--algo=sha256", "-a=md5"], b"abc")?
+  let result = invoke(ctx, ["-asha1", "--algo=sha256", "-amd5"], b"abc")?
   assert result.status == 0
   assert result.stdout == b"MD5 (-) = 900150983cd24fb0d6963f7d28e17f72\n"
   assert result.stderr == ""
@@ -72,15 +72,24 @@ test test_cksum_debug_reports_cpu_features_and_honors_tunables { |ctx|
   assert debug.stdout == normal.stdout
 
   let names = if info.machine.starts_with("x86") or (info.machine.starts_with("i") and info.machine.ends_with("86")) { ["avx512", "avx2", "pclmul"] } else if info.machine == "aarch64" { ["vmull"] } else { [] }
+  var expected = ""
   for name in names {
-    let expected = if name in features { f"using {name} hardware support\n" } else { f"{name} support not detected\n" }
-    assert expected in debug.stderr
+    let enabled = name in features
+    expected += if enabled { f"cksum: using {name} hardware support\n" } else { f"cksum: {name} support not detected\n" }
+    if enabled { break }
   }
+  assert debug.stderr == expected
 
-  if "avx2" in features {
-    let disabled = invoke_with_tunables(ctx, ["--debug"], b"test", "glibc.cpu.hwcaps=-AVX2")?
+  let crypto = invoke(ctx, ["--debug", "--algorithm=md5"], b"test")?
+  assert crypto.status == 0
+  assert crypto.stderr == ""
+
+  if "avx512" in features {
+    let disabled = invoke_with_tunables(ctx, ["--debug"], b"test", "glibc.cpu.hwcaps=-AVX512F")?
     assert disabled.status == 0
-    assert disabled.stderr.find("avx2 support not detected") != null
+    assert disabled.stderr.starts_with("cksum: avx512 support not detected\n")
+    let reset = invoke_with_tunables(ctx, ["--debug"], b"test", "glibc.cpu.hwcaps=-AVX512F:glibc.cpu.hwcaps=")?
+    assert reset.stderr == debug.stderr
   }
 }
 
@@ -305,7 +314,7 @@ test test_cksum_check_diagnostic_labels_and_algorithm_errors { |ctx|
 
   let conflict = invoke(ctx, ["--base64", "--raw"], b"")?
   assert conflict.status == 1
-  assert conflict.stderr.find("--base64 cannot be used with --raw") != null
+  assert conflict.stderr == "cksum: --base64 and --raw are mutually exclusive\nTry 'cksum --help' for more information.\n"
 }
 
 test test_cksum_default_check_rejects_untagged_digest_lines { |ctx|
@@ -350,4 +359,18 @@ test test_cksum_check_handles_non_utf8_names_and_comments { |ctx|
   assert output.find("FFF'$'\\377''DIR': FAILED open or read\n") != null
   assert checked.stderr.find("FFF'$'\\377''FFF': No such file or directory") != null
   assert checked.stderr.find("FFF'$'\\377''DIR': Is a directory") != null
+}
+
+
+test test_cksum_short_attached_equals_is_part_of_value { |ctx|
+  for algorithm in ["md5", "crc", "sha2", "blake2b"] {
+    let result = invoke(ctx, [f"-a={algorithm}"], b"abc")?
+    assert result.status == 1
+    assert result.stdout == b""
+    assert result.stderr.starts_with(f"cksum: invalid argument '={algorithm}' for '--algorithm'\nValid arguments are:\n")
+  }
+  let length = invoke(ctx, ["-a", "blake2b", "-l=8"], b"abc")?
+  assert length.status == 1
+  assert length.stdout == b""
+  assert length.stderr.find("invalid length: '=8'") != null
 }
