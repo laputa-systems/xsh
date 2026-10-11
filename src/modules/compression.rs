@@ -208,6 +208,7 @@ struct StdinReader;
 
 impl Read for StdinReader {
     fn read(&mut self, data: &mut [u8]) -> io::Result<usize> {
+        crate::startup_stdio::check(0)?;
         loop {
             match rustix::io::read(rustix::stdio::stdin(), &mut *data) {
                 Ok(count) => return Ok(count),
@@ -278,6 +279,7 @@ fn transform_io(request: TransformRequest<'_>, span: Span) -> io::Result<()> {
     } else if let Some(temp) = temp.as_mut() {
         Box::new(temp.as_file_mut())
     } else {
+        crate::startup_stdio::check(1)?;
         Box::new(io::stdout().lock())
     };
     let original_time = if request.decode {

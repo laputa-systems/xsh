@@ -4,6 +4,8 @@ use rustix::{fd::BorrowedFd, stdio};
 use std::io::{self, Write};
 
 pub(crate) fn read_secret(prompt: &str) -> io::Result<String> {
+    crate::startup_stdio::check(0)?;
+    crate::startup_stdio::check(1)?;
     let mut out = io::stdout().lock();
     write!(out, "{prompt}")?;
     out.flush()?;

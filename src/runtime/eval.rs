@@ -8229,6 +8229,8 @@ fn run_eval<R: Send>(f: impl FnOnce() -> R + Send) -> R {
         let f = work.lock().expect("evaluation work lock").take()
             .expect("evaluation work runs once");
         restore_parent_death_signal(parent_death_signal);
+        // Measure allocation traffic on the thread that executes the script;
+        // both calls are inert unless allocation counting is enabled.
         crate::mem_track::begin_stage();
         let result = f();
         crate::mem_track::record_eval_traffic(crate::mem_track::end_stage());
