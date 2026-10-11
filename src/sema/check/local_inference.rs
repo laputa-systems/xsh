@@ -427,7 +427,7 @@ impl Checker {
         span: Span,
         ordinary: Type,
     ) -> Type {
-        if self.current_return.is_none() {
+        if self.boundary.current_return.is_none() {
             return ordinary;
         }
         let Some(seed) = local_seed_kind(program, target, initializer, mutable) else {

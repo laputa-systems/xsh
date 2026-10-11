@@ -334,8 +334,7 @@ impl Checker {
         let saved_type_namespaces = self.type_namespaces.clone();
         let saved_error_families = self.error_families.clone();
         let saved_error_facets = self.error_facets.clone();
-        let saved_return = self.current_return.clone();
-        let saved_pure = self.in_pure;
+        let enclosing_boundary = self.enter_callable_boundary();
         let saved_exported = self.current_exported;
         let saved_module_depth = self.module_depth;
         let saved_namespace = self.current_namespace;
@@ -655,8 +654,7 @@ impl Checker {
         self.type_namespaces = saved_type_namespaces;
         self.error_families = saved_error_families;
         self.error_facets = saved_error_facets;
-        self.current_return = saved_return;
-        self.in_pure = saved_pure;
+        self.boundary = enclosing_boundary;
         self.current_exported = saved_exported;
         self.module_depth = saved_module_depth;
         self.current_namespace = saved_namespace;

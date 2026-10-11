@@ -460,7 +460,7 @@ impl Checker {
             self.error(span, "unknown method", DiagnosticCode::CheckUnknownMethod);
             return Type::Unknown;
         }
-        if self.in_pure {
+        if self.boundary.in_pure {
             self.error(
                 span,
                 "effectful method is not allowed in pure functions",
@@ -545,7 +545,7 @@ impl Checker {
         {
             self.expect_type(&conflict.expected, &conflict.actual, span);
         }
-        if self.in_pure && !method.sig.pure {
+        if self.boundary.in_pure && !method.sig.pure {
             self.error(
                 span,
                 "effectful method is not allowed in pure functions",

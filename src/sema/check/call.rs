@@ -279,7 +279,7 @@ impl Checker {
                     .method_call = true;
             }
             if !alias.pure {
-                if self.in_pure {
+                if self.boundary.in_pure {
                     self.error(
                         span,
                         "effectful proc is not allowed in pure functions",
@@ -344,7 +344,7 @@ impl Checker {
                 return Type::Unknown;
             }
             if let Some(sig) = self.procs.get(&name).cloned() {
-                if self.in_pure {
+                if self.boundary.in_pure {
                     self.error(
                         span,
                         "effectful proc is not allowed in pure functions",
@@ -365,7 +365,7 @@ impl Checker {
                 return sig.return_ty;
             }
             if let Some(sig) = self.streams.get(&name).cloned() {
-                if self.in_pure {
+                if self.boundary.in_pure {
                     self.error(
                         span,
                         "stream producer is not allowed in pure functions",
@@ -489,7 +489,7 @@ impl Checker {
                     return sig.return_ty;
                 }
                 if let Some(sig) = self.qualified_procs.get(&qualified).cloned() {
-                    if self.in_pure {
+                    if self.boundary.in_pure {
                         self.error(
                             span,
                             "effectful proc is not allowed in pure functions",
@@ -503,7 +503,7 @@ impl Checker {
                     return sig.return_ty;
                 }
                 if let Some(sig) = self.qualified_streams.get(&qualified).cloned() {
-                    if self.in_pure {
+                    if self.boundary.in_pure {
                         self.error(
                             span,
                             "stream producer is not allowed in pure functions",
@@ -729,13 +729,13 @@ impl Checker {
                         self.provisional_effects_read.set(true);
                     }
                     self.record_effect_contract(&sig.effects, &name.as_str());
-                    if self.in_pure {
+                    if self.boundary.in_pure {
                         self.error(
                             span,
                             "effectful proc is not allowed in pure functions",
                             DiagnosticCode::CheckPureEffect,
                         );
-                    } else if let Some(caller_effs) = self.current_effects.clone() {
+                    } else if let Some(caller_effs) = self.boundary.current_effects.clone() {
                         self.check_module_callable_effects(
                             &caller_effs,
                             &sig.effects,
@@ -1128,7 +1128,7 @@ impl Checker {
             self.current_namespace,
             span,
             expected_context,
-            self.expected_schema.as_ref(),
+            self.boundary.expected_schema.as_ref(),
             &mut self.type_constraints,
         ) {
             Ok(inference) => inference,
@@ -1265,9 +1265,9 @@ impl Checker {
                         .get(&crate::sema::constants::SchemaComponent::Field(name))
                 })
                 .cloned();
-            let previous = std::mem::replace(&mut self.expected_schema, context);
+            let previous = std::mem::replace(&mut self.boundary.expected_schema, context);
             let actual = self.check_call_arg_arena(arena, source, &arg.kind, field_type);
-            self.expected_schema = previous;
+            self.boundary.expected_schema = previous;
             if let Some(field_type) = field_type {
                 self.expect_type(field_type, &actual, call_arg_span_arena(arena, &arg.kind));
             }
@@ -1335,7 +1335,7 @@ impl Checker {
             "Ok" => {
                 let expected = expected_context.and_then(Type::result_ok);
                 let schema = self
-                    .expected_schema
+                    .boundary.expected_schema
                     .as_ref()
                     .and_then(|schema| {
                         schema
@@ -1343,11 +1343,11 @@ impl Checker {
                             .get(&crate::sema::constants::SchemaComponent::Success)
                     })
                     .cloned();
-                let previous = std::mem::replace(&mut self.expected_schema, schema);
+                let previous = std::mem::replace(&mut self.boundary.expected_schema, schema);
                 let ty = args.first().map_or(Type::Unit, |arg| {
                     self.check_call_arg_arena(arena, source, &arg.kind, expected)
                 });
-                self.expected_schema = previous;
+                self.boundary.expected_schema = previous;
                 let error = match expected_context {
                     Some(Type::Result(_, error)) => error.as_ref().clone(),
                     _ => Type::Error,
@@ -1360,12 +1360,12 @@ impl Checker {
                     Some(Type::Result(_, error)) => Some(error.as_ref()),
                     _ => None,
                 };
-                let previous = self.expected_schema.take();
+                let previous = self.boundary.expected_schema.take();
                 let types = args.iter().map(|arg| {
                     let outer = !matches!(arg.kind, ArenaCallArgKind::Named { name, .. } if name == "cause");
                     self.check_call_arg_arena(arena, source, &arg.kind, if outer { expected } else { None })
                 }).collect::<Vec<_>>();
-                self.expected_schema = previous;
+                self.boundary.expected_schema = previous;
                 let expanded = expand_named_arguments(arena, args, |expr| {
                     args.iter().zip(&types).find_map(|(arg, ty)| {
                         let value = match arg.kind {
@@ -1964,7 +1964,7 @@ impl Checker {
             self.expect_type(&conflict.expected, &conflict.actual, span);
         }
         let sig = &instance.signature;
-        if self.in_pure && !sig.pure {
+        if self.boundary.in_pure && !sig.pure {
             self.error(
                 span,
                 "effectful module API is not allowed in pure functions",

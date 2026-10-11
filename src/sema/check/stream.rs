@@ -642,9 +642,7 @@ impl Checker {
             );
         }
         self.push_deferred_capture_scope();
-        // A stage block is a callable: a `yield` in it is not one of an
-        // enclosing `collect` block.
-        let outer_collect = self.enter_callable_collect_scope();
+        let enclosing_boundary = self.enter_callback_boundary();
         let mut names = FxHashSet::default();
         for (index, param) in params.iter().take(max_params).enumerate() {
             if !names.insert(param.name) {
@@ -669,7 +667,7 @@ impl Checker {
                 arena.arena.span(block.span),
             );
         }
-        self.item_frames.push(if max_params > 1 {
+        self.boundary.item_frames.push(if max_params > 1 {
             super::ItemFrame::Named {
                 param: super::NamedItem::Accumulated,
                 stage: true,
@@ -699,8 +697,8 @@ impl Checker {
                 self.check_stmt_arena(arena, source, *stmt_id);
             }
         }
-        self.item_frames.pop();
-        self.leave_callable_collect_scope(outer_collect);
+        self.boundary.item_frames.pop();
+        self.leave_callback_boundary(enclosing_boundary);
         self.pop_scope();
         tail_ty
     }

@@ -681,8 +681,76 @@ pub(super) struct UserModuleSig {
     error_families: BTreeMap<Name, ErrorFamilyInfo>,
 }
 
+/// A producer accepts failures even in callbacks that cannot emit its items.
+/// Keeping its return contract distinct from its yield permission prevents a
+/// callback boundary from accidentally forbidding error propagation.
+#[derive(Clone, PartialEq)]
+enum ReturnContext {
+    Function(Type),
+    Producer,
+}
+
+impl ReturnContext {
+    fn ty(&self) -> &Type {
+        match self {
+            Self::Function(ty) => ty,
+            Self::Producer => &Type::Unit,
+        }
+    }
+
+    fn accepts_failure(&self) -> bool {
+        match self {
+            Self::Function(ty) => ty.is_result(),
+            Self::Producer => true,
+        }
+    }
+}
+
+/// State whose lifetime belongs to the body being checked. Crossing a callable
+/// boundary replaces and restores this value whole, so a producer's yields or
+/// an enclosing loop cannot become control targets in another body.
+#[derive(Clone, Default)]
+struct BoundaryContext {
+    current_return: Option<ReturnContext>,
+    current_yield: Option<Type>,
+    in_pure: bool,
+    current_effects: Option<Vec<Effect>>,
+    effect_owner: Option<EffectDeclarationId>,
+    return_schema: Option<super::constants::SchemaExpectation>,
+    expected_schema: Option<super::constants::SchemaExpectation>,
+    /// The `collect` expression a `yield` here appends to.
+    collect_scope: Option<collect::CollectScope>,
+    // Only propagation evaluated while initializing the current With reaches its handler.
+    with_initializer_errors: Option<Vec<Type>>,
+    error_boundary_errors: Vec<Vec<(Type, Span)>>,
+    retry_attempt_depth: usize,
+    /// `retry` attempts are a subset of the error boundaries.
+    retry_block_depth: usize,
+    /// A producer cannot suspend while its deadline remains open.
+    within_block_depth: usize,
+    loop_depth: usize,
+    block_depth: usize,
+    in_defer_block: bool,
+    in_signal_hook: bool,
+    item_frames: Vec<ItemFrame>,
+    context_scope_depths: Vec<usize>,
+    /// A statement-shaped scope consumes its body only in a value tail.
+    context_scope_tail_value: bool,
+    // The effects enclosing `without` regions exclude, outermost first.
+    excluded_effects: Vec<effect_bounds::ExcludedEffect>,
+    last_status_available: bool,
+    /// The direct function tail consumes a Result[Unit] as a statement and
+    /// propagates its failure rather than handing that failure back as data.
+    result_unit_function_tail: Option<crate::syntax::arena::StmtId>,
+    /// The next expression is a control position of a condition.
+    control_condition: bool,
+    /// Control positions extend through the operands of `!`, `and`, and `or`.
+    in_control_position: bool,
+}
+
 #[derive(Clone)]
 pub struct Checker {
+    boundary: BoundaryContext,
     local_inference: local_inference::LocalInference,
     pub(super) type_constraints: super::constraints::TypeConstraints,
     static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
@@ -693,8 +761,6 @@ pub struct Checker {
     argument_projection_contexts:
         FxHashMap<crate::syntax::arena::ExprId, (Type, crate::sema::constants::SchemaExpectation)>,
     record_constructors: RecordConstructors,
-    expected_schema: Option<super::constants::SchemaExpectation>,
-    return_schema: Option<super::constants::SchemaExpectation>,
     record_constructor_instances: BTreeMap<Span, super::constants::CheckedRecordConstructor>,
     requirement_targets: BTreeMap<Span, RequirementTarget>,
     requirement_expected_targets: BTreeMap<Span, RequirementTarget>,
@@ -710,9 +776,6 @@ pub struct Checker {
     dynamic_require_receivers: FxHashMap<Span, DynamicRequireReceiver>,
     current_namespace: Option<Name>,
     scopes: Vec<FxHashMap<Name, Binding>>,
-    context_scope_depths: Vec<usize>,
-    /// A statement-shaped scope consumes its body only in a value tail.
-    context_scope_tail_value: bool,
     procs: FxHashMap<Name, FunctionSig>,
     byte_script_arguments: bool,
     pures: FxHashMap<Name, FunctionSig>,
@@ -749,11 +812,6 @@ pub struct Checker {
     propagating_conditions: BTreeSet<Span>,
     redundant_condition_propagations: BTreeSet<Span>,
     unvalidated_command_vectors: BTreeMap<Span, Type>,
-    /// The next expression checked is in a control position of a condition.
-    control_condition: bool,
-    /// The expression being checked is in a control position of a condition,
-    /// so the operands of its `!`, `and`, or `or` are too.
-    in_control_position: bool,
     membership_migration_spans: BTreeSet<Span>,
     standard_call_spans: BTreeMap<Span, (String, String)>,
     statically_resolved_call_spans: BTreeSet<Span>,
@@ -770,8 +828,6 @@ pub struct Checker {
     error_constructors: BTreeMap<Span, CheckedErrorConstructor>,
     optional_binding_spans: BTreeSet<Span>,
     collect_yields: BTreeMap<Span, Span>,
-    /// The `collect` expression a `yield` here appends to.
-    collect_scope: Option<collect::CollectScope>,
     from_end_indexes: BTreeMap<Span, u32>,
     conversions: BTreeMap<Span, Conversion>,
     resource_scopes: BTreeMap<Span, Vec<crate::modules::ManagedResource>>,
@@ -787,15 +843,7 @@ pub struct Checker {
     inferred_propagations: Vec<(Type, Span)>,
     // A proc return probe records disagreeing completions instead of reporting them.
     return_conflicts: Option<Vec<(Type, Type, Span)>>,
-    // Only propagation evaluated while initializing the current With reaches its handler.
-    with_initializer_errors: Option<Vec<Type>>,
     inference_reachable: bool,
-    current_return: Option<Type>,
-    current_yield: Option<Type>,
-    in_pure: bool,
-    current_effects: Option<Vec<Effect>>,
-    // The effects enclosing `without` regions exclude, outermost first.
-    excluded_effects: Vec<effect_bounds::ExcludedEffect>,
     collecting_effects: bool,
     effect_graph: EffectGraph,
     effect_summaries: BTreeMap<EffectDeclarationId, EffectSummary>,
@@ -803,27 +851,7 @@ pub struct Checker {
     /// instead of recording a graph edge, so the probe must repeat until the
     /// summaries it read are the solved ones.
     provisional_effects_read: std::cell::Cell<bool>,
-    effect_owner: Option<EffectDeclarationId>,
-    last_status_available: bool,
-    item_frames: Vec<ItemFrame>,
-    loop_depth: usize,
-    block_depth: usize,
-    /// The last statement of the function body being checked, when that body
-    /// returns `Result[Unit]` or has its return inferred.
-    /// A `Result[Unit]` there is the function's result and a statement at
-    /// once: it propagates from that tail rather than being handed back as a
-    /// value, so its failure is reported from inside the function.
-    result_unit_function_tail: Option<crate::syntax::arena::StmtId>,
-    retry_attempt_depth: usize,
-    /// `retry` attempt blocks being checked (a subset of the error
-    /// boundaries counted by `retry_attempt_depth`).
-    retry_block_depth: usize,
-    /// How many `within` bodies enclose the code being checked.
-    within_block_depth: usize,
-    error_boundary_errors: Vec<Vec<(Type, Span)>>,
     module_depth: usize,
-    in_signal_hook: bool,
-    in_defer_block: bool,
     root_signal_hooks: FxHashMap<Name, Span>,
     current_exported: bool,
     /// The final top-level statement of the script, whose `Int` value is
@@ -844,6 +872,33 @@ pub struct Checker {
 }
 
 impl Checker {
+    fn enter_callable_boundary(&mut self) -> BoundaryContext {
+        std::mem::take(&mut self.boundary)
+    }
+
+    fn enter_callback_boundary(&mut self) -> BoundaryContext {
+        let mut callback = self.boundary.clone();
+        callback.current_yield = None;
+        callback.collect_scope = None;
+        callback.loop_depth = 0;
+        std::mem::replace(&mut self.boundary, callback)
+    }
+
+    fn leave_callback_boundary(&mut self, mut enclosing: BoundaryContext) {
+        // Callback failures still occur inside the lexical error boundary;
+        // its accumulated error types survive checking the callback body.
+        enclosing.error_boundary_errors = std::mem::take(&mut self.boundary.error_boundary_errors);
+        enclosing.with_initializer_errors = self.boundary.with_initializer_errors.take();
+        self.boundary = enclosing;
+    }
+
+    fn leave_cleanup_boundary(&mut self, mut enclosing: BoundaryContext) {
+        // Cleanup failures reach the lexical error boundary, but they are
+        // not failures of the initializer that registered the cleanup.
+        enclosing.error_boundary_errors = std::mem::take(&mut self.boundary.error_boundary_errors);
+        self.boundary = enclosing;
+    }
+
     pub(crate) fn prepare_regex_literals(program: &ArenaProgram) -> Vec<Diagnostic> {
         program
             .arena
@@ -1164,11 +1219,10 @@ impl Checker {
 
     pub(crate) fn new(options: CheckOptions) -> Self {
         let mut checker = Self {
+            boundary: BoundaryContext::default(),
             static_callable_aliases: BTreeMap::new(),
             typed_callable_calls: BTreeMap::new(),
             scopes: vec![FxHashMap::default()],
-            context_scope_depths: Vec::new(),
-            context_scope_tail_value: false,
             procs: FxHashMap::default(),
             byte_script_arguments: false,
             pures: FxHashMap::default(),
@@ -1183,8 +1237,6 @@ impl Checker {
             argument_projection_sources: FxHashMap::default(),
             argument_projection_contexts: FxHashMap::default(),
             record_constructors: RecordConstructors::default(),
-            expected_schema: None,
-            return_schema: None,
             record_constructor_instances: BTreeMap::new(),
             requirement_targets: BTreeMap::new(),
             requirement_expected_targets: BTreeMap::new(),
@@ -1219,8 +1271,6 @@ impl Checker {
             propagating_conditions: BTreeSet::new(),
             redundant_condition_propagations: BTreeSet::new(),
             unvalidated_command_vectors: BTreeMap::new(),
-            control_condition: false,
-            in_control_position: false,
             membership_migration_spans: BTreeSet::new(),
             standard_call_spans: BTreeMap::new(),
             statically_resolved_call_spans: BTreeSet::new(),
@@ -1237,7 +1287,6 @@ impl Checker {
             error_constructors: BTreeMap::new(),
             optional_binding_spans: BTreeSet::new(),
             collect_yields: BTreeMap::new(),
-            collect_scope: None,
             from_end_indexes: BTreeMap::new(),
             conversions: BTreeMap::new(),
             resource_scopes: BTreeMap::new(),
@@ -1251,30 +1300,12 @@ impl Checker {
             inferred_returns: None,
             inferred_propagations: Vec::new(),
             return_conflicts: None,
-            with_initializer_errors: None,
             inference_reachable: true,
-            current_return: None,
-            current_yield: None,
-            in_pure: false,
-            current_effects: None,
-            excluded_effects: Vec::new(),
             collecting_effects: false,
             effect_graph: EffectGraph::default(),
             effect_summaries: BTreeMap::new(),
             provisional_effects_read: std::cell::Cell::new(false),
-            effect_owner: None,
-            last_status_available: false,
-            item_frames: Vec::new(),
-            loop_depth: 0,
-            block_depth: 0,
-            result_unit_function_tail: None,
-            retry_attempt_depth: 0,
-            retry_block_depth: 0,
-            within_block_depth: 0,
-            error_boundary_errors: Vec::new(),
             module_depth: 0,
-            in_signal_hook: false,
-            in_defer_block: false,
             root_signal_hooks: FxHashMap::default(),
             current_exported: false,
             exit_status_statement: None,
@@ -1597,7 +1628,7 @@ impl Checker {
             }
             Some(callee_effs) => {
                 for eff in callee_effs {
-                    if *eff == Effect::Error && self.retry_attempt_depth > 0 {
+                    if *eff == Effect::Error && self.boundary.retry_attempt_depth > 0 {
                         continue;
                     }
                     if !Self::effects_covers(caller_effs, eff) {

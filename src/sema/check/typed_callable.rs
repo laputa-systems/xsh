@@ -220,7 +220,7 @@ impl Checker {
             effects: callable.sig.effects.clone(),
         };
         if !callable.pure {
-            if self.in_pure {
+            if self.boundary.in_pure {
                 self.error(
                     span,
                     "effectful proc is not allowed in pure functions",

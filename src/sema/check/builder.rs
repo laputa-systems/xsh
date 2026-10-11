@@ -152,16 +152,17 @@ impl Checker {
                         "tasks are not valid in this builder",
                         DiagnosticCode::CheckBuilderEntry,
                     );
-                    let previous_return = self.current_return.clone();
-                    self.current_return =
-                        Some(Type::Result(Box::new(Type::Unit), Box::new(Type::Error)));
+                    let enclosing_boundary = self.enter_callable_boundary();
+                    self.boundary.current_return = Some(super::ReturnContext::Function(
+                        Type::Result(Box::new(Type::Unit), Box::new(Type::Error)),
+                    ));
                     self.check_value_block_arena(
                         arena,
                         source,
                         *block,
                         &Type::Result(Box::new(Type::Unit), Box::new(Type::Error)),
                     );
-                    self.current_return = previous_return;
+                    self.boundary = enclosing_boundary;
                 }
                 ArenaBuilderEntryKind::Stmt(stmt_id) => {
                     if matches!(kind, BuilderKind::ProcessCommand) {

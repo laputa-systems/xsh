@@ -44,10 +44,10 @@ fn require_target_spelling(target: &Type) -> Option<String> {
 
 impl Checker {
     pub(super) fn check_propagation(&mut self, ty: &Type, span: Span) -> Type {
-        if self.retry_attempt_depth > 0 {
+        if self.boundary.retry_attempt_depth > 0 {
             return self.check_attempt_propagation(ty, span);
         }
-        if let Some(errors) = &mut self.with_initializer_errors
+        if let Some(errors) = &mut self.boundary.with_initializer_errors
             && let Some((_, error)) = result_types(ty)
         {
             errors.push(error.clone());
@@ -60,7 +60,7 @@ impl Checker {
             return Type::Any;
         }
         self.record_required_effect(Effect::Error);
-        if let Some(effs) = &self.current_effects
+        if let Some(effs) = &self.boundary.current_effects
             && !effs.contains(&Effect::Error)
         {
             self.error(
@@ -78,16 +78,15 @@ impl Checker {
             return Type::Unknown;
         };
         let allowed = self
-            .current_effects
+            .boundary.current_effects
             .as_ref()
             .is_some_and(|effects| effects.contains(&Effect::Error))
             || self
-                .current_return
+                .boundary.current_return
                 .as_ref()
-                .is_none_or(|return_ty| return_ty.is_result())
-            || self.current_yield.is_some();
-        let inferring =
-            self.inferred_returns.is_some() && self.current_return == Some(Type::Unknown);
+                .is_none_or(super::ReturnContext::accepts_failure);
+        let inferring = self.inferred_returns.is_some()
+            && self.boundary.current_return == Some(super::ReturnContext::Function(Type::Unknown));
         if inferring {
             self.inferred_propagations.push((err.clone(), span));
         }
@@ -98,7 +97,8 @@ impl Checker {
                 DiagnosticCode::CheckTryContext,
             );
         }
-        if let Some(Type::Result(_, return_err)) = &self.current_return
+        if let Some(super::ReturnContext::Function(Type::Result(_, return_err))) =
+            &self.boundary.current_return
             && !err.matches_expected(return_err)
         {
             self.diagnostics.push(
@@ -128,21 +128,21 @@ impl Checker {
             );
             return Type::Unknown;
         };
-        if let Some(errors) = self.error_boundary_errors.last_mut() {
+        if let Some(errors) = self.boundary.error_boundary_errors.last_mut() {
             errors.push((err, span));
         }
         ok
     }
 
     pub(super) fn begin_error_boundary(&mut self) {
-        self.retry_attempt_depth += 1;
-        self.error_boundary_errors.push(Vec::new());
+        self.boundary.retry_attempt_depth += 1;
+        self.boundary.error_boundary_errors.push(Vec::new());
     }
 
     pub(super) fn end_error_boundary(&mut self, expected: Option<&Type>) -> Type {
-        self.retry_attempt_depth -= 1;
+        self.boundary.retry_attempt_depth -= 1;
         let errors = self
-            .error_boundary_errors
+            .boundary.error_boundary_errors
             .pop()
             .expect("checked error boundary");
         let mut inferred = expected.cloned();
@@ -180,13 +180,13 @@ impl Checker {
         return_ty: &Type,
         span: Span,
     ) {
-        if self.retry_attempt_depth > 0
+        if self.boundary.retry_attempt_depth > 0
             && !return_ty.is_result()
             && !matches!(return_ty, Type::Stream(_))
             && effects
                 .as_ref()
                 .is_some_and(|effects| effects.contains(&Effect::Error))
-            && let Some(errors) = self.error_boundary_errors.last_mut()
+            && let Some(errors) = self.boundary.error_boundary_errors.last_mut()
         {
             errors.push((Type::Error, span));
         }
@@ -203,15 +203,17 @@ impl Checker {
         span: Span,
         message: &'static str,
     ) {
-        if !self.in_pure || self.current_yield.is_some() {
+        if !self.boundary.in_pure || self.boundary.current_yield.is_some() {
             return;
         }
-        if self.inferred_returns.is_some() && self.current_return == Some(Type::Unknown) {
+        if self.inferred_returns.is_some()
+            && self.boundary.current_return == Some(super::ReturnContext::Function(Type::Unknown))
+        {
             self.inferred_propagations.push((error.clone(), span));
         } else if self
-            .current_return
+            .boundary.current_return
             .as_ref()
-            .is_some_and(|return_ty| !return_ty.is_result())
+            .is_some_and(|context| !context.accepts_failure())
         {
             self.error(span, message, DiagnosticCode::CheckTryContext);
         }
@@ -250,11 +252,11 @@ impl Checker {
             return;
         };
         self.require_effect(Effect::Error, span, subject);
-        if self.retry_attempt_depth == 0 {
+        if self.boundary.retry_attempt_depth == 0 {
             self.require_pure_propagation_context(error, span, pure_context);
             return;
         }
-        if let Some(errors) = self.error_boundary_errors.last_mut() {
+        if let Some(errors) = self.boundary.error_boundary_errors.last_mut() {
             errors.push((error.as_ref().clone(), span));
         }
     }
@@ -448,19 +450,22 @@ impl Checker {
     /// Whether `?` on a `Result[_, Error]` checks here without a new
     /// diagnostic; mirrors the context rules of `check_propagation`.
     fn may_propagate_error(&self) -> bool {
-        if self.retry_attempt_depth > 0 {
+        if self.boundary.retry_attempt_depth > 0 {
             return true;
         }
-        let effects = self.current_effects.as_ref();
+        let effects = self.boundary.current_effects.as_ref();
         if effects.is_some_and(|effects| !effects.contains(&Effect::Error)) {
             return false;
         }
         let context = effects.is_some()
-            || self.current_return.as_ref().is_none_or(Type::is_result)
-            || self.current_yield.is_some()
-            || (self.inferred_returns.is_some() && self.current_return == Some(Type::Unknown));
-        let error_fits = match &self.current_return {
-            Some(Type::Result(_, error)) => Type::Error.matches_expected(error),
+            || self.boundary.current_return.as_ref()
+                .is_none_or(super::ReturnContext::accepts_failure)
+            || (self.inferred_returns.is_some()
+                && self.boundary.current_return == Some(super::ReturnContext::Function(Type::Unknown)));
+        let error_fits = match &self.boundary.current_return {
+            Some(super::ReturnContext::Function(Type::Result(_, error))) => {
+                Type::Error.matches_expected(error)
+            }
             _ => true,
         };
         context && error_fits

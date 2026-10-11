@@ -522,7 +522,7 @@ impl Checker {
                 }
                 self.define(
                     *name,
-                    if self.in_pure && mutable {
+                    if self.boundary.in_pure && mutable {
                         Binding::pure_local_var(ty.clone())
                     } else {
                         Binding::new(ty.clone(), mutable)
@@ -688,10 +688,10 @@ impl Checker {
     }
 
     pub(super) fn check_loop_control(&mut self, span: Span, is_break: bool) {
-        if self.loop_depth > 0 {
+        if self.boundary.loop_depth > 0 {
             return;
         }
-        if self.in_defer_block {
+        if self.boundary.in_defer_block {
             self.error(
                 span,
                 "loop control cannot leave a deferred cleanup block",
@@ -699,7 +699,7 @@ impl Checker {
             );
             return;
         }
-        let message = if !self.item_frames.iter().any(super::ItemFrame::is_stage) {
+        let message = if !self.boundary.item_frames.iter().any(super::ItemFrame::is_stage) {
             if is_break {
                 "`break` is valid only inside while or for loops"
             } else {
@@ -941,7 +941,7 @@ impl Checker {
                 | ArenaStmtKind::ProcDef(_)
                 | ArenaStmtKind::PureDef(_)
                 | ArenaStmtKind::StreamDef(_)
-        ) && (self.block_depth > 0 || self.current_return.is_some())
+        ) && (self.boundary.block_depth > 0 || self.boundary.current_return.is_some())
         {
             self.error(
                 stmt.span,
@@ -1077,7 +1077,7 @@ impl Checker {
                 self.check_defer_arena(arena, source, value, stmt.span);
             }
             ArenaStmtKind::Break { value } => {
-                if self.in_signal_hook {
+                if self.boundary.in_signal_hook {
                     self.error(
                         stmt.span,
                         "`break` is not allowed in signal hooks",
@@ -1090,7 +1090,7 @@ impl Checker {
                 }
             }
             ArenaStmtKind::Continue => {
-                if self.in_signal_hook {
+                if self.boundary.in_signal_hook {
                     self.error(
                         stmt.span,
                         "`continue` is not allowed in signal hooks",
@@ -1100,7 +1100,7 @@ impl Checker {
                 self.check_loop_control(stmt.span, false);
             }
             ArenaStmtKind::Assert { condition, message } => {
-                if self.retry_attempt_depth == 0 {
+                if self.boundary.retry_attempt_depth == 0 {
                     self.assertion_effect_spans.insert(stmt.span);
                 }
                 self.check_propagation(
@@ -1218,9 +1218,9 @@ impl Checker {
                 self.check_for_arena(arena, source, target, iter, block, stmt.span);
             }
             ArenaStmtKind::Loop { block } => {
-                self.loop_depth += 1;
+                self.boundary.loop_depth += 1;
                 self.check_block_arena(arena, source, block);
-                self.loop_depth -= 1;
+                self.boundary.loop_depth -= 1;
                 if !block_has_exit_point_arena(arena, block) {
                     self.error(
                         stmt.span,
@@ -1318,7 +1318,7 @@ impl Checker {
         condition: ExprId,
         code: DiagnosticCode,
     ) -> ConditionNarrowings {
-        self.control_condition = true;
+        self.boundary.control_condition = true;
         let condition_ty = self.check_expr_with_schema_arena(
             arena,
             source,
@@ -1326,7 +1326,7 @@ impl Checker {
             Some(&Type::Bool),
             None,
         );
-        self.control_condition = false;
+        self.boundary.control_condition = false;
         let condition_span = arena.arena.expr(condition).span;
         if condition_ty == Type::Any {
             self.expect_type(&Type::Bool, &condition_ty, condition_span);
@@ -1374,7 +1374,7 @@ impl Checker {
                 ArenaExprKind::Ident(name) => Some(name),
                 ArenaExprKind::Item
                     if matches!(
-                        self.item_frames.last(),
+                        self.boundary.item_frames.last(),
                         Some(super::ItemFrame::Implicit { .. })
                     ) =>
                 {
@@ -1761,9 +1761,9 @@ impl Checker {
         self.push_scope();
         self.apply_narrowings(&narrowings.when_true);
         self.bind_pattern_condition_arena(arena, source, condition);
-        self.loop_depth += 1;
+        self.boundary.loop_depth += 1;
         self.check_block_arena(arena, source, block);
-        self.loop_depth -= 1;
+        self.boundary.loop_depth -= 1;
         self.pop_scope();
     }
 
@@ -1801,9 +1801,9 @@ impl Checker {
             });
         self.push_scope();
         self.define_binding_target_arena(arena, target, &item_ty, false, span);
-        self.loop_depth += 1;
+        self.boundary.loop_depth += 1;
         self.check_block_arena(arena, source, block);
-        self.loop_depth -= 1;
+        self.boundary.loop_depth -= 1;
         self.pop_scope();
     }
 
@@ -1869,10 +1869,10 @@ impl Checker {
         self.push_scope();
         let mut error_ty = None;
         for binding in arena.arena.with_bindings(bindings) {
-            let previous_errors = self.with_initializer_errors.replace(Vec::new());
+            let previous_errors = self.boundary.with_initializer_errors.replace(Vec::new());
             let ty = self.check_expr_arena(arena, source, binding.initializer, None);
-            let mut errors = self.with_initializer_errors.take().unwrap_or_default();
-            self.with_initializer_errors = previous_errors;
+            let mut errors = self.boundary.with_initializer_errors.take().unwrap_or_default();
+            self.boundary.with_initializer_errors = previous_errors;
             if let Type::Result(_, error) = &ty {
                 errors.push((**error).clone());
             }
@@ -2150,7 +2150,7 @@ impl Checker {
     ) {
         let block = arena.arena.block(block_id);
         self.push_scope();
-        self.block_depth += 1;
+        self.boundary.block_depth += 1;
         let stmt_ids: Vec<StmtId> = arena
             .arena
             .stmt_ids(block.statements)
@@ -2197,7 +2197,7 @@ impl Checker {
                 DiagnosticCode::CheckMissingReturn,
             );
         }
-        self.block_depth -= 1;
+        self.boundary.block_depth -= 1;
         self.pop_scope();
     }
 
@@ -2238,7 +2238,7 @@ impl Checker {
                     DiagnosticCode::CheckTestExport,
                 );
             }
-            if self.block_depth != 0 || self.current_return.is_some() {
+            if self.boundary.block_depth != 0 || self.boundary.current_return.is_some() {
                 self.error(
                     body_span,
                     "test declarations must be top-level",
@@ -2255,23 +2255,12 @@ impl Checker {
         }
         let saved_capture_scopes = self.scopes.clone();
         self.collect_function_local_constraints(arena, source, def, pure);
-        let previous_errors = self.with_initializer_errors.take();
-        let previous_defer = std::mem::replace(&mut self.in_defer_block, false);
-        let previous_collect = self.enter_callable_collect_scope();
-        let previous_boundary_depth = std::mem::replace(&mut self.retry_attempt_depth, 0);
-        let previous_boundary_errors = std::mem::take(&mut self.error_boundary_errors);
-        let previous_context_scopes = std::mem::take(&mut self.context_scope_depths);
-        let previous_return = self.current_return.clone();
-        let previous_return_schema = self.return_schema.clone();
-        let previous_expected_schema = self.expected_schema.clone();
-        let previous_pure = self.in_pure;
-        let previous_effects = self.current_effects.clone();
-        let previous_effect_owner = self.effect_owner;
-        self.effect_owner = (!pure).then(|| self.effect_declaration_id(arena, def.body));
+        let enclosing_boundary = self.enter_callable_boundary();
+        self.boundary.effect_owner = (!pure).then(|| self.effect_declaration_id(arena, def.body));
         // A proc return probe infers only the top-level declaration it targets.
         let inferring = def.return_ty_defaulted
             && self.inferred_returns.is_some()
-            && (pure || previous_return.is_none());
+            && (pure || enclosing_boundary.current_return.is_none());
         let outer_inference = if inferring {
             None
         } else {
@@ -2291,17 +2280,17 @@ impl Checker {
             self.function_return_types
                 .insert(body_span, return_ty.clone());
         }
-        self.return_schema = (!inferring && inferred_proc_return.is_none())
+        self.boundary.return_schema = (!inferring && inferred_proc_return.is_none())
             .then(|| {
                 self.record_constructors
                     .annotation_expectation(&arena.arena, def.return_ty, self.current_namespace)
                     .ok()
             })
             .flatten();
-        self.expected_schema = self.return_schema.clone();
-        self.current_return = Some(return_ty.clone());
-        self.in_pure = pure;
-        self.current_effects = if pure {
+        self.boundary.expected_schema = self.boundary.return_schema.clone();
+        self.boundary.current_return = Some(super::ReturnContext::Function(return_ty.clone()));
+        self.boundary.in_pure = pure;
+        self.boundary.current_effects = if pure {
             None
         } else {
             self.effective_function_effects(arena, def)
@@ -2379,9 +2368,9 @@ impl Checker {
             .last()
             .map(|tail| arena.arena.core_stmt_id(tail));
         if inferring {
-            let enclosing_tail = std::mem::replace(&mut self.result_unit_function_tail, body_tail);
+            let enclosing_tail = std::mem::replace(&mut self.boundary.result_unit_function_tail, body_tail);
             let tail = self.check_tail_block_arena(arena, source, def.body, None);
-            self.result_unit_function_tail = enclosing_tail;
+            self.boundary.result_unit_function_tail = enclosing_tail;
             if tail != Type::Unknown {
                 self.inferred_returns
                     .as_mut()
@@ -2390,7 +2379,7 @@ impl Checker {
             }
         } else {
             let enclosing_tail = std::mem::replace(
-                &mut self.result_unit_function_tail,
+                &mut self.boundary.result_unit_function_tail,
                 body_tail.filter(|_| return_ty.is_result_unit()),
             );
             if def.test_declaration {
@@ -2401,7 +2390,7 @@ impl Checker {
             } else {
                 self.check_value_block_arena(arena, source, def.body, &return_ty);
             }
-            self.result_unit_function_tail = enclosing_tail;
+            self.boundary.result_unit_function_tail = enclosing_tail;
             // This body was checked against the return type its own tail
             // gave it. A bare call in place of a tail `let _ =` would be a
             // different tail and so a different return type; the inference
@@ -2426,18 +2415,7 @@ impl Checker {
             self.inferred_returns = outer_inference;
         }
         self.scopes = saved_capture_scopes;
-        self.current_return = previous_return;
-        self.return_schema = previous_return_schema;
-        self.expected_schema = previous_expected_schema;
-        self.in_pure = previous_pure;
-        self.current_effects = previous_effects;
-        self.effect_owner = previous_effect_owner;
-        self.in_defer_block = previous_defer;
-        self.leave_callable_collect_scope(previous_collect);
-        self.with_initializer_errors = previous_errors;
-        self.retry_attempt_depth = previous_boundary_depth;
-        self.error_boundary_errors = previous_boundary_errors;
-        self.context_scope_depths = previous_context_scopes;
+        self.boundary = enclosing_boundary;
     }
 
     pub(super) fn check_stream_function_arena(
@@ -2448,18 +2426,8 @@ impl Checker {
     ) {
         let saved_capture_scopes = self.scopes.clone();
         self.collect_stream_local_constraints(arena, source, def);
-        let previous_errors = self.with_initializer_errors.take();
-        let previous_defer = std::mem::replace(&mut self.in_defer_block, false);
-        let previous_collect = self.enter_callable_collect_scope();
-        let previous_boundary_depth = std::mem::replace(&mut self.retry_attempt_depth, 0);
-        let previous_boundary_errors = std::mem::take(&mut self.error_boundary_errors);
-        let previous_context_scopes = std::mem::take(&mut self.context_scope_depths);
-        let previous_return = self.current_return.clone();
-        let previous_yield = self.current_yield.clone();
-        let previous_pure = self.in_pure;
-        let previous_effects = self.current_effects.clone();
-        let previous_effect_owner = self.effect_owner;
-        self.effect_owner = Some(self.effect_declaration_id(arena, def.body));
+        let enclosing_boundary = self.enter_callable_boundary();
+        self.boundary.effect_owner = Some(self.effect_declaration_id(arena, def.body));
         let return_ty = self.type_from_arena(arena, def.return_ty);
         let item_ty = match return_ty {
             Type::Stream(item) => *item,
@@ -2473,10 +2441,10 @@ impl Checker {
                 Type::Unknown
             }
         };
-        self.current_return = Some(Type::Unit);
-        self.current_yield = Some(item_ty);
-        self.in_pure = false;
-        self.current_effects = def
+        self.boundary.current_return = Some(super::ReturnContext::Producer);
+        self.boundary.current_yield = Some(item_ty);
+        self.boundary.in_pure = false;
+        self.boundary.current_effects = def
             .effects
             .map(|effects| arena.arena.effects(effects).collect());
         self.push_deferred_capture_scope();
@@ -2540,17 +2508,7 @@ impl Checker {
         self.check_value_block_arena(arena, source, def.body, &Type::Unit);
         self.pop_scope();
         self.scopes = saved_capture_scopes;
-        self.current_return = previous_return;
-        self.current_yield = previous_yield;
-        self.in_pure = previous_pure;
-        self.current_effects = previous_effects;
-        self.effect_owner = previous_effect_owner;
-        self.in_defer_block = previous_defer;
-        self.leave_callable_collect_scope(previous_collect);
-        self.with_initializer_errors = previous_errors;
-        self.retry_attempt_depth = previous_boundary_depth;
-        self.error_boundary_errors = previous_boundary_errors;
-        self.context_scope_depths = previous_context_scopes;
+        self.boundary = enclosing_boundary;
     }
 
     pub(super) fn check_signal_hook_arena(
@@ -2580,7 +2538,7 @@ impl Checker {
                 "signal hooks are entry-script-only in v1",
                 DiagnosticCode::CheckSignalHookModule,
             );
-        } else if self.block_depth > 0 || self.current_return.is_some() {
+        } else if self.boundary.block_depth > 0 || self.boundary.current_return.is_some() {
             self.error(
                 span,
                 "signal hooks are allowed only at the entry script top level",
@@ -2637,23 +2595,17 @@ impl Checker {
 
         let saved_capture_scopes = self.scopes.clone();
         self.push_deferred_capture_scope();
-        let previous_return = self.current_return.clone();
-        let previous_pure = self.in_pure;
-        let previous_effects = self.current_effects.clone();
-        let previous_effect_owner = self.effect_owner.take();
-        let previous_in_signal_hook = self.in_signal_hook;
-        self.current_return = Some(Type::Result(Box::new(Type::Unit), Box::new(Type::Error)));
-        self.in_pure = false;
-        self.current_effects = Some(arena.arena.effects(hook.effects).collect());
-        self.in_signal_hook = true;
+        let enclosing_boundary = self.enter_callable_boundary();
+        self.boundary.current_return = Some(super::ReturnContext::Function(Type::Result(
+            Box::new(Type::Unit), Box::new(Type::Error),
+        )));
+        self.boundary.in_pure = false;
+        self.boundary.current_effects = Some(arena.arena.effects(hook.effects).collect());
+        self.boundary.in_signal_hook = true;
         let ty = self.check_tail_block_arena(arena, source, hook.body, None);
         self.pop_scope();
         self.scopes = saved_capture_scopes;
-        self.current_return = previous_return;
-        self.in_pure = previous_pure;
-        self.current_effects = previous_effects;
-        self.effect_owner = previous_effect_owner;
-        self.in_signal_hook = previous_in_signal_hook;
+        self.boundary = enclosing_boundary;
 
         match ty {
             Type::Unit | Type::Status | Type::Unknown | Type::Invalid => {}
@@ -2881,7 +2833,7 @@ impl Checker {
             self.report_undeclared_assignment(arena, source, target, op, value, span);
             return;
         };
-        if self.in_pure && !binding.pure_local_mutation {
+        if self.boundary.in_pure && !binding.pure_local_mutation {
             self.error(
                 span,
                 "pure functions can assign only to local `var` bindings declared inside the same pure function",
@@ -2906,7 +2858,7 @@ impl Checker {
             let actual = self.check_expr_or_run_arena(arena, source, value, Some(&target_ty));
             let value_span = expr_or_run_span_arena(arena, value);
             if !actual.can_escape_context_scope()
-                && self.context_scope_depths.last().is_some_and(|depth| {
+                && self.boundary.context_scope_depths.last().is_some_and(|depth| {
                     self.scopes
                         .iter()
                         .rposition(|scope| scope.contains_key(&name))
@@ -2948,7 +2900,7 @@ impl Checker {
             span,
             "environment assignment",
         );
-        if self.in_pure {
+        if self.boundary.in_pure {
             self.error(
                 span,
                 "environment assignment is not allowed in pure functions",
@@ -3112,28 +3064,28 @@ impl Checker {
     ) {
         // Scripts select an exit status with a final top-level `Int` or
         // `abort`; top-level code has no callable to return from.
-        if self.current_return.is_none() {
+        if self.boundary.current_return.is_none() {
             self.error(
                 span,
                 "`return` is valid only inside a callable body",
                 DiagnosticCode::CheckReturnOutsideCallable,
             );
         }
-        if self.in_defer_block {
+        if self.boundary.in_defer_block {
             self.error(
                 span,
                 "`return` cannot leave a deferred cleanup block",
                 DiagnosticCode::CheckDeferControlFlow,
             );
         }
-        if self.in_signal_hook {
+        if self.boundary.in_signal_hook {
             self.error(
                 span,
                 "`return` is not allowed in signal hooks",
                 DiagnosticCode::CheckSignalHook,
             );
         }
-        if self.current_yield.is_some() && value.is_some() {
+        if self.boundary.current_yield.is_some() && value.is_some() {
             let value_span = value.map_or(span, |v| expr_or_run_span_arena(arena, v));
             self.error(
                 value_span,
@@ -3141,7 +3093,7 @@ impl Checker {
                 DiagnosticCode::CheckStreamReturn,
             );
         }
-        if self.current_return.is_none() {
+        if self.boundary.current_return.is_none() {
             // There is no return type to hold the value to, so the value is
             // checked on its own and the misplaced `return` is the one report.
             if let Some(value) = value {
@@ -3149,7 +3101,8 @@ impl Checker {
             }
             return;
         }
-        let expected = self.current_return.clone().unwrap_or(Type::Unit);
+        let expected = self.boundary.current_return.as_ref()
+            .map_or(Type::Unit, |context| context.ty().clone());
         if value.is_none() && expected.is_result_unit() {
             return;
         }
@@ -3161,7 +3114,7 @@ impl Checker {
         };
         let actual = value
             .map(|value| {
-                let schema = self.return_schema.as_ref().map(|schema| {
+                let schema = self.boundary.return_schema.as_ref().map(|schema| {
                     if matches!(expected, Type::Result(_, _))
                         && !matches!(context, Some(Type::Result(_, _)))
                     {
@@ -3178,7 +3131,7 @@ impl Checker {
             })
             .unwrap_or(Type::Unit);
         let actual = self.resolve_local_tail_type(actual, Some(&expected), span);
-        if !self.context_scope_depths.is_empty() && !actual.can_escape_context_scope() {
+        if !self.boundary.context_scope_depths.is_empty() && !actual.can_escape_context_scope() {
             self.error(
                 span,
                 "a live producer or host handle cannot escape through a lexical return",
@@ -3203,7 +3156,7 @@ impl Checker {
         value: ExprId,
         span: Span,
     ) {
-        if self.in_defer_block {
+        if self.boundary.in_defer_block {
             self.error(
                 span,
                 "`yield` is not allowed in a deferred cleanup block",
@@ -3214,7 +3167,7 @@ impl Checker {
             return self.check_collect_yield_delegation_arena(arena, source, value, span);
         }
         self.reject_yield_in_retry(span);
-        let expected = self.current_yield.clone();
+        let expected = self.boundary.current_yield.clone();
         if expected.is_none() {
             self.error(
                 span,
@@ -3234,7 +3187,7 @@ impl Checker {
         let value_span = arena.arena.expr(value).span;
         match actual.into_unvalidated() {
             Type::List(item) | Type::Stream(item) => {
-                if !self.context_scope_depths.is_empty() && !item.can_escape_context_scope() {
+                if !self.boundary.context_scope_depths.is_empty() && !item.can_escape_context_scope() {
                     self.error(
                         value_span,
                         "a delegated live producer or host handle cannot escape a context",
@@ -3257,7 +3210,7 @@ impl Checker {
     /// A retry attempt runs outside its producer's frame, so a `yield` there
     /// used to check and then fail at runtime.
     fn reject_yield_in_retry(&mut self, span: Span) {
-        if self.retry_block_depth > 0 {
+        if self.boundary.retry_block_depth > 0 {
             self.error(
                 span,
                 "`yield` is not allowed inside a retry attempt",
@@ -3266,7 +3219,7 @@ impl Checker {
         }
         // A producer suspended inside the block would keep its deadline open
         // while its consumer runs.
-        if self.within_block_depth > 0 {
+        if self.boundary.within_block_depth > 0 {
             self.error(
                 span,
                 "`yield` is not allowed inside a `within` block",
@@ -3282,7 +3235,7 @@ impl Checker {
         value: ArenaExprOrRun,
         span: Span,
     ) {
-        if self.in_defer_block {
+        if self.boundary.in_defer_block {
             self.error(
                 span,
                 "`yield` is not allowed in a deferred cleanup block",
@@ -3293,7 +3246,7 @@ impl Checker {
             return self.check_collect_yield_arena(arena, source, value, span);
         }
         self.reject_yield_in_retry(span);
-        let expected = match self.current_yield.clone() {
+        let expected = match self.boundary.current_yield.clone() {
             Some(ty) => ty,
             None => {
                 self.error(
@@ -3315,7 +3268,7 @@ impl Checker {
             );
             return;
         }
-        if !self.context_scope_depths.is_empty() && !actual.can_escape_context_scope() {
+        if !self.boundary.context_scope_depths.is_empty() && !actual.can_escape_context_scope() {
             self.error(
                 value_span,
                 "a live producer or host handle cannot escape through yield",
@@ -3332,7 +3285,7 @@ impl Checker {
         value: ArenaExprOrRun,
         span: Span,
     ) {
-        if self.in_pure {
+        if self.boundary.in_pure {
             self.error(
                 span,
                 "`defer` is not allowed in pure functions",
@@ -3343,9 +3296,11 @@ impl Checker {
             && let ArenaExprKind::ValueBlock(block) = arena.arena.expr(expr).kind
         {
             let saved_capture_scopes = self.scopes.clone();
-            let previous_errors = self.with_initializer_errors.take();
-            let previous_defer = std::mem::replace(&mut self.in_defer_block, true);
-            let previous_loop = std::mem::replace(&mut self.loop_depth, 0);
+            let mut cleanup = self.boundary.clone();
+            cleanup.with_initializer_errors = None;
+            cleanup.in_defer_block = true;
+            cleanup.loop_depth = 0;
+            let enclosing_boundary = std::mem::replace(&mut self.boundary, cleanup);
             self.push_scope();
             // Cleanup reads mutable captures later, after current branch refinements may expire.
             let mut captures = FxHashMap::default();
@@ -3371,7 +3326,7 @@ impl Checker {
                 );
             }
             self.push_scope();
-            self.block_depth += 1;
+            self.boundary.block_depth += 1;
             for statement in arena.arena.stmt_ids(body.statements) {
                 let statement = arena.arena.core_stmt_id(statement);
                 self.check_non_tail_stmt_arena(arena, source, statement);
@@ -3388,13 +3343,11 @@ impl Checker {
                     }
                 }
             }
-            self.block_depth -= 1;
+            self.boundary.block_depth -= 1;
             self.pop_scope();
             self.pop_scope();
             self.scopes = saved_capture_scopes;
-            self.in_defer_block = previous_defer;
-            self.with_initializer_errors = previous_errors;
-            self.loop_depth = previous_loop;
+            self.leave_cleanup_boundary(enclosing_boundary);
             self.expr_types
                 .insert(arena.arena.expr(expr).span, Type::Unit);
             return;
@@ -3453,7 +3406,7 @@ impl Checker {
         block_id: BlockId,
     ) {
         let block = arena.arena.block(block_id);
-        self.block_depth += 1;
+        self.boundary.block_depth += 1;
         let previous_reachable = self.inference_reachable;
         for stmt_id in arena.arena.stmt_ids(block.statements) {
             self.check_stmt_arena(arena, source, stmt_id);
@@ -3474,7 +3427,7 @@ impl Checker {
             self.definitely_exiting_block_spans
                 .insert(arena.arena.span(block.span));
         }
-        self.block_depth -= 1;
+        self.boundary.block_depth -= 1;
     }
 
     // Only checked exits count. A call that can fail still has a success continuation.
@@ -3490,9 +3443,9 @@ impl Checker {
             ArenaStmtKind::Sugar { expansion, .. } => {
                 self.stmt_definitely_exits_arena(arena, expansion)
             }
-            ArenaStmtKind::Return(_) => self.current_return.is_some(),
+            ArenaStmtKind::Return(_) => self.boundary.current_return.is_some(),
             ArenaStmtKind::Exit(_) => true,
-            ArenaStmtKind::Break { .. } | ArenaStmtKind::Continue => self.loop_depth > 0,
+            ArenaStmtKind::Break { .. } | ArenaStmtKind::Continue => self.boundary.loop_depth > 0,
             ArenaStmtKind::Expr(expr) => self.expr_definitely_exits_arena(arena, expr),
             ArenaStmtKind::Let {
                 initializer: ArenaExprOrRun::Expr(expr),
@@ -3602,7 +3555,7 @@ impl Checker {
         expected: Option<&Type>,
     ) -> Type {
         let block = arena.arena.block(block_id);
-        self.block_depth += 1;
+        self.boundary.block_depth += 1;
         let stmt_ids: Vec<StmtId> = arena
             .arena
             .stmt_ids(block.statements)
@@ -3626,9 +3579,9 @@ impl Checker {
                         | ArenaStmtKind::Continue
                 );
             for &stmt_id in non_tail {
-                let previous_tail = std::mem::replace(&mut self.context_scope_tail_value, false);
+                let previous_tail = std::mem::replace(&mut self.boundary.context_scope_tail_value, false);
                 self.check_non_tail_stmt_arena(arena, source, stmt_id);
-                self.context_scope_tail_value = previous_tail;
+                self.boundary.context_scope_tail_value = previous_tail;
                 if self.inferred_returns.is_some()
                     && self.return_inference_stmt_returns(arena, stmt_id)
                 {
@@ -3661,7 +3614,7 @@ impl Checker {
         };
         let reachable = self.inference_reachable;
         self.inference_reachable = previous_reachable;
-        self.block_depth -= 1;
+        self.boundary.block_depth -= 1;
         let always_returns = if self.inferred_returns.is_some() {
             self.return_inference_block_returns(arena, block_id)
         } else {
@@ -3825,7 +3778,7 @@ impl Checker {
                 };
                 expected == Some(&Type::Unit)
                     || (expected.is_some_and(Type::is_result_unit)
-                        && self.result_unit_function_tail == Some(id)
+                        && self.boundary.result_unit_function_tail == Some(id)
                         && !tail_expr_uses_result_context_arena(arena, operand))
             }
             _ => false,
@@ -3843,7 +3796,7 @@ impl Checker {
                 && tail_stmt_uses_result_context_arena(arena, id))
         {
             if let ArenaStmtKind::Expr(expr_id) = stmt.kind {
-                let previous_tail = std::mem::replace(&mut self.context_scope_tail_value, false);
+                let previous_tail = std::mem::replace(&mut self.boundary.context_scope_tail_value, false);
                 // A statement's Unit result is produced by consuming its value;
                 // it must not constrain a Bool-producing call before Bool statement
                 // classification. Blocks and inferred schemas still need their
@@ -3851,7 +3804,7 @@ impl Checker {
                 let context = statement_tail_needs_value_context_arena(arena, expr_id)
                     .then(|| tail_expr_context_arena(arena, expr_id, expected))
                     .flatten();
-                let schema = self.expected_schema.as_ref().map(|schema| {
+                let schema = self.boundary.expected_schema.as_ref().map(|schema| {
                     if expected.is_some_and(Type::is_result)
                         && !context.as_ref().is_some_and(Type::is_result)
                     {
@@ -3871,7 +3824,7 @@ impl Checker {
                     context.as_ref(),
                     schema,
                 );
-                self.context_scope_tail_value = previous_tail;
+                self.boundary.context_scope_tail_value = previous_tail;
                 self.record_inert_expression_discard(arena, ArenaExprOrRun::Expr(expr_id));
                 if actual.is_result() {
                     if expected.is_some_and(Type::is_result_unit) {
@@ -3941,8 +3894,8 @@ impl Checker {
                     ArenaExprKind::ValueBlock(_) => expected.cloned(),
                     _ => tail_expr_context_arena(arena, expr_id, expected),
                 };
-                let previous = std::mem::replace(&mut self.context_scope_tail_value, true);
-                let schema = self.expected_schema.as_ref().map(|schema| {
+                let previous = std::mem::replace(&mut self.boundary.context_scope_tail_value, true);
+                let schema = self.boundary.expected_schema.as_ref().map(|schema| {
                     if matches!(expected, Some(Type::Result(_, _)))
                         && !matches!(ctx, Some(Type::Result(_, _)))
                     {
@@ -3962,7 +3915,7 @@ impl Checker {
                     ctx.as_ref(),
                     schema,
                 );
-                self.context_scope_tail_value = previous;
+                self.boundary.context_scope_tail_value = previous;
                 let ty = self.resolve_local_tail_type(ty, expected, stmt.span);
                 // An inferred return takes this tail's `Result[Unit]` as the
                 // function's result, which makes it the propagating tail of a
@@ -3970,7 +3923,7 @@ impl Checker {
                 // the value itself.
                 if expected.is_none()
                     && expr_ty_auto_propagates(&ty)
-                    && self.result_unit_function_tail == Some(id)
+                    && self.boundary.result_unit_function_tail == Some(id)
                     && !tail_stmt_uses_result_context_arena(arena, id)
                 {
                     self.statement_positions
@@ -3995,7 +3948,7 @@ impl Checker {
             }
             ArenaStmtKind::Command(command_id) => {
                 let command_stmt = arena.arena.command_stmt(command_id);
-                if self.in_pure {
+                if self.boundary.in_pure {
                     self.error(
                         stmt.span,
                         "commands are not allowed in pure functions",

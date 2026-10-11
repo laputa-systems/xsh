@@ -22,20 +22,9 @@ pub(super) struct CollectScope {
 }
 
 impl Checker {
-    /// Leaves the `collect` expression being checked, for a body whose yields
-    /// are its own: a function or a stage block. The caller hands the result
-    /// back to `leave_callable_collect_scope`.
-    pub(super) fn enter_callable_collect_scope(&mut self) -> Option<CollectScope> {
-        self.collect_scope.take()
-    }
-
-    pub(super) fn leave_callable_collect_scope(&mut self, outer: Option<CollectScope>) {
-        self.collect_scope = outer;
-    }
-
     /// Whether a `yield` here appends to a `collect` expression.
     pub(super) fn in_collect(&self) -> bool {
-        self.collect_scope.is_some()
+        self.boundary.collect_scope.is_some()
     }
 
     pub(super) fn check_collect_arena(
@@ -50,7 +39,7 @@ impl Checker {
             Some(Type::List(item)) => Some((**item).clone()),
             _ => None,
         };
-        let outer = self.collect_scope.replace(CollectScope {
+        let outer = self.boundary.collect_scope.replace(CollectScope {
             span,
             item: expected.clone().unwrap_or(Type::Unknown),
             expected,
@@ -58,10 +47,10 @@ impl Checker {
         });
         // Each attempt of an enclosing `retry` builds a list of its own, so
         // only a `retry` inside the block stands between a yield and its list.
-        let outer_retry = std::mem::replace(&mut self.retry_block_depth, 0);
+        let outer_retry = std::mem::replace(&mut self.boundary.retry_block_depth, 0);
         self.check_block_arena(arena, source, block);
-        self.retry_block_depth = outer_retry;
-        let scope = std::mem::replace(&mut self.collect_scope, outer)
+        self.boundary.retry_block_depth = outer_retry;
+        let scope = std::mem::replace(&mut self.boundary.collect_scope, outer)
             .expect("the collect scope entered above is still the current one");
         if !scope.yields && scope.expected.is_none() {
             self.error(
@@ -130,7 +119,7 @@ impl Checker {
     fn begin_collect_yield(&mut self, span: Span) -> Option<Type> {
         // A failed attempt would leave its items in the list and the next
         // attempt would add them again.
-        if self.retry_block_depth > 0 {
+        if self.boundary.retry_block_depth > 0 {
             self.error(
                 span,
                 "`yield` is not allowed inside a retry attempt",
@@ -138,7 +127,7 @@ impl Checker {
             );
         }
         let scope = self
-            .collect_scope
+            .boundary.collect_scope
             .as_mut()
             .expect("a collect yield is checked inside a collect expression");
         scope.yields = true;
@@ -148,7 +137,7 @@ impl Checker {
     }
 
     fn finish_collect_yield(&mut self, actual: Type, value_span: Span) {
-        if !self.context_scope_depths.is_empty() && !actual.can_escape_context_scope() {
+        if !self.boundary.context_scope_depths.is_empty() && !actual.can_escape_context_scope() {
             self.error(
                 value_span,
                 "a live producer or host handle cannot escape through yield",
@@ -156,7 +145,7 @@ impl Checker {
             );
         }
         let scope = self
-            .collect_scope
+            .boundary.collect_scope
             .as_ref()
             .expect("a collect yield is checked inside a collect expression");
         let (expected, item) = (scope.expected.clone(), scope.item.clone());
@@ -174,7 +163,7 @@ impl Checker {
                 }
             },
         };
-        if let Some(scope) = self.collect_scope.as_mut() {
+        if let Some(scope) = self.boundary.collect_scope.as_mut() {
             scope.item = item;
         }
     }

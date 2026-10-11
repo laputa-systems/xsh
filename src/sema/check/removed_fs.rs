@@ -164,10 +164,10 @@ impl Checker {
         expected: &Type,
     ) -> Type {
         let previous = self
-            .expected_schema
+            .boundary.expected_schema
             .replace(crate::sema::constants::SchemaExpectation::default());
         let actual = self.check_call_arg_arena(arena, source, arg, Some(expected));
-        self.expected_schema = previous;
+        self.boundary.expected_schema = previous;
         actual
     }
 

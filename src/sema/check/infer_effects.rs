@@ -373,20 +373,20 @@ impl Checker {
     pub(super) fn record_required_effect(&mut self, effect: Effect) {
         if self.collecting_effects {
             self.effect_graph
-                .require(self.effect_owner, effect, self.retry_attempt_depth > 0);
+                .require(self.boundary.effect_owner, effect, self.boundary.retry_attempt_depth > 0);
         }
     }
 
     pub(super) fn require_effect(&mut self, effect: Effect, span: Span, subject: &str) {
-        let captured = self.retry_attempt_depth > 0;
+        let captured = self.boundary.retry_attempt_depth > 0;
         if self.collecting_effects {
             self.effect_graph
-                .require(self.effect_owner, effect.clone(), captured);
+                .require(self.boundary.effect_owner, effect.clone(), captured);
         }
         if captured && effect == Effect::Error {
             return;
         }
-        if let Some(caller) = &self.current_effects
+        if let Some(caller) = &self.boundary.current_effects
             && !Self::effects_covers(caller, &effect)
         {
             self.error(
@@ -409,15 +409,15 @@ impl Checker {
                 && (sig.inferred_effects || sig.effects.is_some())
             {
                 self.effect_graph.call(
-                    self.effect_owner,
+                    self.boundary.effect_owner,
                     declaration,
-                    self.retry_attempt_depth > 0,
+                    self.boundary.retry_attempt_depth > 0,
                 );
             } else {
                 self.record_effect_contract(&sig.effects, name);
             }
         }
-        if let Some(caller) = self.current_effects.clone() {
+        if let Some(caller) = self.boundary.current_effects.clone() {
             if sig.effects.is_none() && sig.inferred_effects {
                 let mut chain = vec![name.to_string()];
                 if let Some(summary) = sig
@@ -454,21 +454,21 @@ impl Checker {
             Some(effects) => {
                 for effect in effects {
                     self.effect_graph.require(
-                        self.effect_owner,
+                        self.boundary.effect_owner,
                         effect.clone(),
-                        self.retry_attempt_depth > 0,
+                        self.boundary.retry_attempt_depth > 0,
                     );
                 }
             }
             None => self
                 .effect_graph
-                .unknown(self.effect_owner, name.to_string()),
+                .unknown(self.boundary.effect_owner, name.to_string()),
         }
     }
 
     pub(super) fn check_opaque_callable_effects(&mut self, name: &str, span: Span) {
         self.record_effect_contract(&None, name);
-        if let Some(caller) = self.current_effects.clone() {
+        if let Some(caller) = self.boundary.current_effects.clone() {
             self.check_callee_effects(&caller, &None, name, span);
         }
         self.check_callee_not_excluded(&None, &[], name, span);

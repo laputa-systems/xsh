@@ -244,7 +244,7 @@ impl Checker {
             self.reject_bool_statement(source, &Type::Bool, span);
             return;
         }
-        if self.in_pure {
+        if self.boundary.in_pure {
             self.error(
                 span,
                 "commands are not allowed in pure functions",
@@ -297,7 +297,7 @@ impl Checker {
             } => self.check_core_command_arena(arena, source, *name, *args, *env, *block, span),
             ArenaCommand::Run(run_id) => {
                 self.record_required_effect(Effect::Process);
-                if let Some(effs) = &self.current_effects
+                if let Some(effs) = &self.boundary.current_effects
                     && !Self::effects_covers(effs, &Effect::Process)
                 {
                     let run_span = arena.arena.span(arena.arena.run_form(*run_id).span);
@@ -341,7 +341,7 @@ impl Checker {
             return ty;
         }
         if self.procs.contains_key(&name) {
-            if self.in_pure {
+            if self.boundary.in_pure {
                 self.error(
                     span,
                     "commands are not allowed in pure functions",
@@ -388,7 +388,7 @@ impl Checker {
             for arg in arena.arena.command_args(args) {
                 self.check_command_arg_arena(arena, source, arg, None);
             }
-            self.last_status_available = true;
+            self.boundary.last_status_available = true;
             return Type::Int;
         }
         let interned = Name::intern(name);
@@ -501,7 +501,7 @@ impl Checker {
             );
             return Type::Unknown;
         }
-        if self.in_pure {
+        if self.boundary.in_pure {
             self.error(
                 span,
                 "effectful module API is not allowed in pure functions",
@@ -750,7 +750,7 @@ impl Checker {
                 DiagnosticCode::CheckPipelineCpumax,
             );
         }
-        self.last_status_available = true;
+        self.boundary.last_status_available = true;
 
         match segments[0].kind {
             RunKind::Plain | RunKind::Status => {

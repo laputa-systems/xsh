@@ -494,7 +494,8 @@ fn test_top_level_allowed(program: &ArenaProgram, id: StmtId) -> bool {
         | ArenaStmtKind::TypeDef(_)
         | ArenaStmtKind::ErrorDef(_)
         | ArenaStmtKind::ProcDef(_)
-        | ArenaStmtKind::PureDef(_) => true,
+        | ArenaStmtKind::PureDef(_)
+        | ArenaStmtKind::StreamDef(_) => true,
         ArenaStmtKind::Export(inner) => test_top_level_allowed(program, inner),
         _ => false,
     }

@@ -28,7 +28,7 @@ impl Checker {
         arena: &ArenaProgram,
         block: BlockId,
     ) -> usize {
-        let enclosing = self.excluded_effects.len();
+        let enclosing = self.boundary.excluded_effects.len();
         let Some(bound) = arena.arena.block_effect_bound(block) else {
             return enclosing;
         };
@@ -44,7 +44,7 @@ impl Checker {
                 );
                 continue;
             }
-            self.excluded_effects.push(ExcludedEffect {
+            self.boundary.excluded_effects.push(ExcludedEffect {
                 effect,
                 head: bound.head,
             });
@@ -53,14 +53,14 @@ impl Checker {
     }
 
     pub(super) fn leave_block_effect_bound(&mut self, enclosing: usize) {
-        self.excluded_effects.truncate(enclosing);
+        self.boundary.excluded_effects.truncate(enclosing);
     }
 
     /// The innermost enclosing bound that rules out `required`. `io` implies
     /// `fs`, `net`, `process`, and `env`, so excluding any of those excludes a
     /// requirement for `io`; excluding `io` excludes only `io` itself.
     fn excluding_bound(&self, required: &Effect) -> Option<ExcludedEffect> {
-        self.excluded_effects
+        self.boundary.excluded_effects
             .iter()
             .rev()
             .find(|excluded| {
@@ -77,7 +77,7 @@ impl Checker {
     /// Whether the proc's own clause already rejects `required` here, in
     /// which case that report stands and the local bound adds nothing.
     fn clause_rejects(&self, required: &Effect) -> bool {
-        self.current_effects
+        self.boundary.current_effects
             .as_ref()
             .is_some_and(|clause| !Self::effects_covers(clause, required))
     }
@@ -103,7 +103,7 @@ impl Checker {
         span: Span,
         subject: &str,
     ) {
-        if self.collecting_effects || self.in_pure || self.clause_rejects(required) {
+        if self.collecting_effects || self.boundary.in_pure || self.clause_rejects(required) {
             return;
         }
         let Some(excluded) = self.excluding_bound(required) else {
@@ -133,16 +133,16 @@ impl Checker {
         callee_name: &str,
         span: Span,
     ) {
-        if self.collecting_effects || self.in_pure {
+        if self.collecting_effects || self.boundary.in_pure {
             return;
         }
-        let Some(innermost) = self.excluded_effects.last().cloned() else {
+        let Some(innermost) = self.boundary.excluded_effects.last().cloned() else {
             return;
         };
         let Some(callee_effects) = callee_effects else {
             // A restricted caller has already been told the contract is
             // unknown; an unrestricted one hears it because of the bound.
-            if self.current_effects.is_some() {
+            if self.boundary.current_effects.is_some() {
                 return;
             }
             let denied = innermost.effect.as_str();

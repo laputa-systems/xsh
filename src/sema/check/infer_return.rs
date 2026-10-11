@@ -562,7 +562,7 @@ impl Checker {
         probe.inferred_propagations.clear();
         probe.return_conflicts = Some(Vec::new());
         probe.inference_reachable = true;
-        probe.current_return = None;
+        probe.boundary.current_return = None;
         // Recursive calls contribute no completion, as for inferred pures.
         if boundary == Some("recursive")
             && let Some(sig) = probe.procs.get_mut(&decl.name)

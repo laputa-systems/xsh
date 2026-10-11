@@ -57,11 +57,11 @@ impl Checker {
         let Some(arg) = args.get(index) else {
             return Type::Unknown;
         };
-        let previous = self.expected_schema.take();
-        self.expected_schema =
+        let previous = self.boundary.expected_schema.take();
+        self.boundary.expected_schema =
             expected.map(|_| crate::sema::constants::SchemaExpectation::default());
         let actual = self.check_call_arg_arena(arena, source, &arg.kind, expected);
-        self.expected_schema = previous;
+        self.boundary.expected_schema = previous;
         if let Some(expected) = expected {
             self.expect_type(expected, &actual, call_arg_span_arena(arena, &arg.kind));
         }
@@ -100,13 +100,13 @@ impl Checker {
             .enumerate()
             .map(|(index, arg)| {
                 let expected = common_module_overload_expected_arena(args, overloads, index);
-                let previous = self.expected_schema.take();
+                let previous = self.boundary.expected_schema.take();
                 if overloads.len() == 1 && expected.is_some() {
-                    self.expected_schema =
+                    self.boundary.expected_schema =
                         Some(crate::sema::constants::SchemaExpectation::default());
                 }
                 let actual = self.check_call_arg_arena(arena, source, &arg.kind, expected.as_ref());
-                self.expected_schema = previous;
+                self.boundary.expected_schema = previous;
                 actual
             })
             .collect::<Vec<_>>();
@@ -220,9 +220,9 @@ impl Checker {
         } else {
             parameter.schema_expectation.clone()
         };
-        let previous = std::mem::replace(&mut self.expected_schema, schema);
+        let previous = std::mem::replace(&mut self.boundary.expected_schema, schema);
         let actual = self.check_call_arg_arena(arena, source, arg, Some(expected));
-        self.expected_schema = previous;
+        self.boundary.expected_schema = previous;
         actual
     }
 
@@ -509,14 +509,14 @@ impl Checker {
                 .type_constraints
                 .resolve(&params[slot].ty)
                 .unwrap_or_else(|_| params[slot].ty.clone());
-            let previous_schema = self.expected_schema.clone();
-            self.expected_schema = schemas
+            let previous_schema = self.boundary.expected_schema.clone();
+            self.boundary.expected_schema = schemas
                 .get(slot)
                 .cloned()
                 .flatten()
                 .or_else(|| Some(crate::sema::constants::SchemaExpectation::default()));
             let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&expected));
-            self.expected_schema = previous_schema;
+            self.boundary.expected_schema = previous_schema;
             if expected == Type::Path && is_path_like_type(&actual) {
                 continue;
             }
