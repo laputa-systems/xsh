@@ -1267,6 +1267,8 @@ pure debug_key_text(line: Str, opts: SortOptions, spec: Str) -> Str {
     human_numeric_prefix(selected)
   } else if is_numeric_sort(key_opts) {
     numeric_prefix(selected)
+  } else if is_general_numeric_sort(key_opts) {
+    general_numeric_prefix(selected)
   } else {
     selected
   }
@@ -1306,7 +1308,9 @@ pure debug_sort_text(lines: List[Str], opts: SortOptions, has_key: Bool, key_fie
       for spec in opts.key {
         let key_opts = key_effective_options(spec, opts)
         let start = key_start_byte(line, sort_delimiter(opts), spec, key_opts)
-        let indentation = text.padding(non_nul_byte_count(bytes.from_text(line).slice(0, length: start)), " ")
+        let selected = key_field_value(line, sort_delimiter(opts), spec, key_opts)
+        let numeric_blanks = if is_month_sort(key_opts) or is_human_numeric_sort(key_opts) or is_numeric_sort(key_opts) or is_general_numeric_sort(key_opts) { leading_blank_count(selected) } else { 0 }
+        let indentation = text.padding(non_nul_byte_count(bytes.from_text(line).slice(0, length: start)) + numeric_blanks, " ")
         output += indentation + debug_key_annotation(line, opts, spec) + "\n"
       }
       if ! opts.stable and ! opts.unique { output += debug_annotation(line) + "\n" }
@@ -1837,34 +1841,40 @@ proc parse_buffer_size(value: Str) [fs, env, process, error] -> Int {
   var digits = start
   while digits < raw.len() and is_ascii_digit(raw.byte_at(digits) ?? 0) { digits += 1 }
   if digits == start {
-    gnu.error(f"invalid --buffer-size argument {gnu.quote(value)}")
+    gnu.error(f"invalid -S argument {gnu.quote(value)}")
     exit 2
   }
 
   let number_text = value.byte_slice(start, length: digits - start)
-  let number = match number_text.parse_int() {
-    Ok(number) => number
-    Err(_) => {
-      gnu.error(f"--buffer-size argument {gnu.quote(value)} too large")
+  let suffix = value.byte_slice(digits)
+  if suffix != "%" and suffix.find("%") != null {
+    gnu.error(f"invalid suffix in -S argument {gnu.quote(value)}")
+    exit 2
+  }
+  if suffix == "%" {
+    if let Err(_) = number_text.parse_uint() {
+      gnu.error(f"invalid suffix in -S argument {gnu.quote(value)}")
       exit 2
     }
   }
-  let suffix = value.byte_slice(digits)
-  if suffix != "%" and suffix.find("%") != null {
-    gnu.error(f"invalid --buffer-size argument {gnu.quote(value)}")
-    exit 2
+  let number = match number_text.parse_int() {
+    Ok(number) => number
+    Err(_) => {
+      gnu.error(f"-S argument {gnu.quote(value)} too large")
+      exit 2
+    }
   }
   if suffix == "%" {
     let memory = linux.meminfo()?
     if number > 100 {
-      gnu.error(f"--buffer-size argument {gnu.quote(value)} too large")
+      gnu.error(f"-S argument {gnu.quote(value)} too large")
       exit 2
     }
     return memory.total / 100 * number + memory.total % 100 * number / 100
   }
 
   let power = if suffix in ["", "b"] { 0 } else if suffix in ["k", "K"] { 1 } else if suffix == "M" { 2 } else if suffix == "G" { 3 } else if suffix == "T" { 4 } else if suffix == "P" { 5 } else if suffix == "E" { 6 } else if suffix == "Z" { 7 } else if suffix == "Y" { 8 } else {
-    gnu.error(f"invalid suffix in --buffer-size argument {gnu.quote(value)}")
+    gnu.error(f"invalid suffix in -S argument {gnu.quote(value)}")
     exit 2
   }
 
@@ -1872,13 +1882,13 @@ proc parse_buffer_size(value: Str) [fs, env, process, error] -> Int {
   var multiplier = 1
   for _ in range(power) {
     if multiplier > maximum / 1024 {
-      gnu.error(f"--buffer-size argument {gnu.quote(value)} too large")
+      gnu.error(f"-S argument {gnu.quote(value)} too large")
       exit 2
     }
     multiplier *= 1024
   }
   if number > maximum / multiplier {
-    gnu.error(f"--buffer-size argument {gnu.quote(value)} too large")
+    gnu.error(f"-S argument {gnu.quote(value)} too large")
     exit 2
   }
   number * multiplier
@@ -1886,20 +1896,24 @@ proc parse_buffer_size(value: Str) [fs, env, process, error] -> Int {
 
 ## Flush an intermediate merge chunk so failed output stops further input reads.
 proc write_sort_stdout(text: Str) [io, env, process] -> Unit {
-  gnu.write_text(text)
+  finish_sort_stdout(text, intermediate: true)
 }
 
-## Final output uses sort's named stdout diagnostic. A closed reader ends the
-## process with the SIGPIPE status and no diagnostic, as in the other output paths.
-proc finish_sort_stdout(text: Str) [io, env, process] -> Unit {
+## The runtime buffers stdout, so an intermediate chunk's flush still belongs
+## to the write phase; only the final flush uses the fflush diagnostic. A closed
+## reader ends the process with the SIGPIPE status and no diagnostic.
+proc finish_sort_stdout(text: Str, intermediate: Bool = false) [io, env, process] -> Unit {
   if let Err(failure) = io.write_stdout(text) {
     if gnu.errno(failure) == 32 { exit 141 }
     gnu.error(f"write failed: 'standard output': {gnu.strerror(failure)}")
+    gnu.error("write error")
     exit 2
   }
   if let Err(failure) = io.flush_stdout() {
     if gnu.errno(failure) == 32 { exit 141 }
-    gnu.error(f"write failed: 'standard output': {gnu.strerror(failure)}")
+    let action = if intermediate { "write failed" } else { "fflush failed" }
+    gnu.error(f"{action}: 'standard output': {gnu.strerror(failure)}")
+    gnu.error("write error")
     exit 2
   }
 }
@@ -2224,10 +2238,8 @@ proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int,
         gnu.error(f"{action}: {gnu.quote_maybe(output.display())}: {gnu.strerror(failure)}")
         exit 2
       }
-    } else if opts.zero_terminated {
-      write_sort_stdout(output_text)
     } else {
-      for line in lines { print $line }
+      finish_sort_stdout(output_text)
     }
     return
   }
@@ -2564,8 +2576,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       match fp"{list}".read_bytes() {
         Ok(data) => data
         Err(failure) => {
-          let action = if gnu.errno(failure) == 21 { "cannot read" } else { "open failed" }
-          gnu.error(f"{action}: {gnu.quote_maybe(list)}: {gnu.strerror(failure)}")
+          if gnu.errno(failure) == 21 {
+            gnu.error(f"cannot read file names from {gnu.quote(list)}")
+          } else {
+            gnu.error(f"open failed: {gnu.quote_maybe(list)}: {gnu.strerror(failure)}")
+          }
           exit 2
         }
       }

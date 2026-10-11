@@ -405,7 +405,7 @@ test test_sort_buffer_size_rejects_percent_after_suffix { |ctx|
     [ctx.xsh_bin.display(), "--", script.display(), "--buffer-size=0x123%"], root,
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 2
-  assert stderr.read_text()? == "sort: invalid --buffer-size argument '0x123%'\n"
+  assert stderr.read_text()? == "sort: invalid suffix in -S argument '0x123%'\n"
   assert stdout.read_bytes()?.is_empty()
 }
 
@@ -763,7 +763,7 @@ test test_sort_merge_reports_stdout_write_failure { |ctx|
     ["sh", "-c", "exec \"$@\" > /dev/full", "sort-full", ctx.xsh_bin.display(), "--", script.display(), "-m", first.display(), second.display()],
     root, {LC_ALL: "C"}, b"", stdout, stderr))?
   assert status.exit_code()? == 2, stderr.read_text()?
-  assert stderr.read_text()? == "sort: write failed: 'standard output': No space left on device\n"
+  assert stderr.read_text()? == "sort: fflush failed: 'standard output': No space left on device\nsort: write error\n"
   assert stdout.read_bytes()?.is_empty()
 }
 
@@ -1157,7 +1157,7 @@ test test_sort_reports_default_stdout_write_failure { |ctx|
     ["sh", "-c", "exec \"$@\" > /dev/full", "sort-full", ctx.xsh_bin.display(), "--", script.display()],
     root, {LC_ALL: "C"}, b"hello\n", stdout, stderr))?
   assert status.exit_code()? == 2, stderr.read_text()?
-  assert stderr.read_text()? == "sort: write failed: 'standard output': No space left on device\n"
+  assert stderr.read_text()? == "sort: fflush failed: 'standard output': No space left on device\nsort: write error\n"
   assert stdout.read_bytes()?.is_empty()
 }
 
@@ -1532,5 +1532,53 @@ test test_sort_unrecognized_long_option_is_a_gnu_usage_error { |ctx|
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert result.exit_code()? == 2
   assert stderr.read_text()? == "sort: unrecognized option '--misspelled'\nTry 'sort --help' for more information.\n"
+  assert stdout.read_bytes()?.is_empty()
+}
+
+test test_sort_debug_general_numeric_key_consumes_only_number { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-debug-general-key")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", fp"{ctx.core_dir}/sort.xsh".display(), "-s", "-k2g", "--debug"], root,
+    {LC_ALL: "C"}, b"a\t 1.2junk\n", stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == b"a> 1.2junk\n   ___\n"
+}
+
+test test_sort_buffer_size_and_file_list_diagnostics { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-operand-diagnostics")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  for case in [
+    {args: ["-S", "asd"], message: "invalid -S argument 'asd'"},
+    {args: ["-S", "100f"], message: "invalid suffix in -S argument '100f'"},
+    {args: ["-S", "340282366920938463463374607431768211455%"], message: "invalid suffix in -S argument '340282366920938463463374607431768211455%'"},
+    {args: ["-S", "1Y"], message: "-S argument '1Y' too large"},
+    {args: ["--files0-from", "."], message: "cannot read file names from '.'"},
+  ] {
+    let result = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display()] + case.args, root,
+      {LC_ALL: "C"}, b"", stdout, stderr))?
+    assert result.exit_code()? == 2
+    assert stderr.read_text()? == f"sort: {case.message}\n"
+    assert stdout.read_bytes()?.is_empty()
+  }
+}
+
+test test_sort_merge_reports_large_stdout_write_failure { |ctx|
+  if ! p"/dev/full".exists() { test.skip("requires /dev/full"); return }
+  let root = test.temp_dir(ctx, name: "sort-large-merge-write-failure")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let input = fp"{root}/input"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  input.write(text.padding(10000, "000000\n"))
+  let result = process.run(process.command_argv(p"/bin/sh",
+    ["sh", "-c", "exec \"$@\" > /dev/full", "sort-full", ctx.xsh_bin.display(), "--", script.display(), "-m", input.display()],
+    root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert result.exit_code()? == 2, stderr.read_text()?
+  assert stderr.read_text()? == "sort: write failed: 'standard output': No space left on device\nsort: write error\n"
   assert stdout.read_bytes()?.is_empty()
 }
