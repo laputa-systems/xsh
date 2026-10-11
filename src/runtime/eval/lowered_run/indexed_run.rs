@@ -64,6 +64,27 @@ use serial_pipeline::IndexedPipelineItems;
 
 use xsh_registry::stream_parameters::DEFAULT_PAR_MAP_WORKERS;
 
+/// Eager sequence materialization reports host capacity failures through XSH errors.
+fn indexed_allocation_error(kind: &str, span: Span) -> RuntimeError {
+    RuntimeError::host(
+        kind,
+        &std::io::Error::from_raw_os_error(libc::ENOMEM),
+    ).with_span(span)
+}
+
+fn indexed_range_values(start: i64, end: i64, span: Span) -> Result<Vec<LoweredValue>, RuntimeError> {
+    let count = usize::try_from(start.abs_diff(end))
+        .map_err(|_| indexed_allocation_error("range", span))?;
+    let mut values = Vec::new();
+    values.try_reserve_exact(count).map_err(|_| indexed_allocation_error("range", span))?;
+    if start <= end {
+        values.extend((start..end).map(LoweredValue::Int));
+    } else {
+        values.extend((end + 1..=start).rev().map(LoweredValue::Int));
+    }
+    Ok(values)
+}
+
 /// The executable of a run form and the arguments its target contributes
 /// after it. A spliced target, `run @argv`, is a whole command vector: its
 /// first element is the executable and the rest lead the arguments. An empty
@@ -4487,11 +4508,7 @@ impl Evaluator {
                     }
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                let values = if start <= end {
-                    (start..end).map(LoweredValue::Int).collect()
-                } else {
-                    (end + 1..=start).rev().map(LoweredValue::Int).collect()
-                };
+                let values = indexed_range_values(start, end, span)?;
                 ControlFlow::Continue(LoweredValue::List(values))
             }
             FullTag::ExprTag => {
@@ -6528,7 +6545,11 @@ impl Evaluator {
                                     } else {
                                         let items =
                                             self.lowered_pipeline_input_items(current, span)?;
-                                        let mut repeated = Vec::with_capacity(items.len() * count);
+                                        let capacity = items.len().checked_mul(count)
+                                            .ok_or_else(|| indexed_allocation_error("repeat", span))?;
+                                        let mut repeated = Vec::new();
+                                        repeated.try_reserve_exact(capacity)
+                                            .map_err(|_| indexed_allocation_error("repeat", span))?;
                                         for _ in 0..count {
                                             repeated.extend(items.iter().cloned());
                                         }
@@ -6575,11 +6596,7 @@ impl Evaluator {
                                             return Ok(ControlFlow::Break(value));
                                         }
                                     };
-                                    LoweredValue::List(if start <= end {
-                                        (start..end).map(LoweredValue::Int).collect()
-                                    } else {
-                                        (end + 1..=start).rev().map(LoweredValue::Int).collect()
-                                    })
+                                    LoweredValue::List(indexed_range_values(start, end, span)?)
                                 }
                             };
                             Ok(ControlFlow::Continue(value))

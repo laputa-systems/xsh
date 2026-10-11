@@ -2429,6 +2429,10 @@ statement is a `repeat` statement when it begins with the word `repeat` and,
 on the same line, its count is followed by the word `times` directly before
 `{`; neither word is reserved.
 
+Eager `range` and stream `repeat` materialization failures raise catchable
+`HostIo` errors carrying `errno: ENOMEM`, including capacity overflow.
+`bytes.zero` returns the same host failure in its `Err` result.
+
 `wait until condition within limit` tests a condition again and again until
 it holds, and fails when the limit passes first. It is sugar, defined by its
 expansion:
@@ -4532,7 +4536,10 @@ Contracts worth knowing without consulting the reference:
   the words of a `UnixTtyAttrs` by name; `unix.tty_mode(attrs, mode)` applies
   `stty`'s `raw`, `cooked`, `cbreak`, or `sane` to a copy that reaches the
   terminal only through `set_tty_attrs`. `unix.open_fd` and `close_fd`
-  give a bare descriptor for a device path, and `unix.open_pty` a
+  give a bare descriptor for a device path. `unix.seek_fd` defaults to an
+  absolute position; `whence: "current"` and `whence: "end"` accept signed
+  offsets relative to the descriptor's position or file length, with invalid
+  resulting positions rejected by the kernel. `unix.open_pty` gives a
   pseudo-terminal pair; descriptors are the script's to close. `unix.read_utmp`
   decodes a utmp or wtmp file (Linux only; a trailing partial record is
   ignored) and `unix.load_average` reads the system load.

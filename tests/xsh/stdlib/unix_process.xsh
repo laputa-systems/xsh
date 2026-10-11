@@ -277,6 +277,20 @@ test test_unix_seek_fd_uses_absolute_positions { |ctx|
   assert unix.seek_fd(reader, 0) is Err(is HostIo)
 }
 
+test test_unix_seek_fd_relative_and_end_positions { |ctx|
+  let file = test.temp_file(ctx, contents: b"abcdef")?
+  let fd = unix.open_fd(file)?
+  defer unix.close_fd(fd)
+  assert unix.seek_fd(fd, 3)? == 3
+  assert unix.seek_fd(fd, -2, whence: "current")? == 1
+  assert unix.read_fd(fd, 1)? == b"b"
+  assert unix.seek_fd(fd, -1, whence: "end")? == 5
+  assert unix.read_fd(fd, 1)? == b"f"
+  assert unix.seek_fd(fd, 0, whence: "current")? == 6
+  assert unix.seek_fd(fd, -7, whence: "end") is Err(is HostIo)
+  test.error_kind(unix.seek_fd(fd, 0, whence: "invalid"), "unix-seek-fd")
+}
+
 test test_unix_read_fd_preserves_byte_cursor_and_eof { |ctx|
   let file = test.temp_file(ctx, contents: b"\0\xffabc")?
   let result = test.run_script(ctx, r"""

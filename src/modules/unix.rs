@@ -1555,8 +1555,8 @@ fn fadvise_native(
     Err(RuntimeError::host("unix-fadvise", &io::Error::from_raw_os_error(libc::ENOSYS)).with_span(span))
 }
 
-pub(crate) fn seek_fd(fd: i64, offset: i64, span: Span) -> Result<Value, RuntimeError> {
-    match seek_fd_native(fd, offset, span) {
+pub(crate) fn seek_fd(fd: i64, offset: i64, whence: &str, span: Span) -> Result<Value, RuntimeError> {
+    match seek_fd_native(fd, offset, whence, span) {
         Ok(position) => Ok(Value::ok(Value::Int(position))),
         Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
     }
@@ -1666,18 +1666,26 @@ fn write_fd_native(fd: i64, data: &[u8], span: Span) -> Result<usize, RuntimeErr
     }
 }
 
-fn seek_fd_native(fd: i64, offset: i64, span: Span) -> Result<i64, RuntimeError> {
+fn seek_fd_native(fd: i64, offset: i64, whence: &str, span: Span) -> Result<i64, RuntimeError> {
     let kind = "unix-seek-fd";
     let fd = raw_fd_arg(fd, kind, span)?;
-    if offset < 0 {
-        return Err(RuntimeError::new(kind, "offset must be non-negative").with_span(span));
-    }
+    let from = match whence {
+        "start" if offset < 0 => {
+            return Err(RuntimeError::new(kind, "offset must be non-negative").with_span(span));
+        }
+        "start" => rfs::SeekFrom::Start(offset as u64),
+        "current" => rfs::SeekFrom::Current(offset),
+        "end" => rfs::SeekFrom::End(offset),
+        _ => return Err(RuntimeError::new(kind, "whence must be start, current, or end").with_span(span)),
+    };
     // SAFETY: the number is only addressed by value; the kernel rejects a
     // descriptor that is not open.
     let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
     loop {
-        match rfs::seek(borrowed, rfs::SeekFrom::Start(offset as u64)) {
-            Ok(position) => return Ok(position as i64),
+        match rfs::seek(borrowed, from) {
+            Ok(position) => return i64::try_from(position).map_err(|_| {
+                RuntimeError::host(kind, &io::Error::from_raw_os_error(libc::EOVERFLOW)).with_span(span)
+            }),
             Err(rio::Errno::INTR) => continue,
             Err(error) => {
                 return Err(RuntimeError::host(kind, &io::Error::from(error)).with_span(span));

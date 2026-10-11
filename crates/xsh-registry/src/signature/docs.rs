@@ -447,7 +447,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("bytes", "zero") => Some((
             "Allocates a zero-filled byte buffer.",
-            "The requested length controls allocation size; the result remains binary Bytes.",
+            "The requested length controls allocation size; allocation and capacity failures return HostIo with ENOMEM.",
             &["bytes", "allocation"],
         )),
         ("bytes", "from_ints") => Some((
@@ -1419,7 +1419,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         ("unix", "cpu_features") => Some(("Lists supported host CPU features used by hardware-accelerated utilities.", "Feature names are avx512 (AVX512F and AVX512BW together), avx2, avx, vpclmulqdq, pclmul and sse2 on x86; asimd and vmull on little-endian AArch64. Unsupported features are omitted. Android and other targets return an empty list.", &["unix", "cpu"])),
         ("unix", "read_fd") => Some(("Reads one bounded chunk from a descriptor.", "max_bytes must be positive. A single descriptor read returns short reads as they occur and empty bytes at EOF, without read-ahead; EINTR retries and host errors retain errno.", &["unix", "io"])),
         ("unix", "write_fd") => Some(("Writes one chunk to a descriptor.", "Returns the number of bytes written, which may be less than data.len(); callers must handle short writes. EINTR retries and host errors retain errno.", &["unix", "io"])),
-        ("unix", "seek_fd") => Some(("Moves a descriptor to an absolute byte offset.", "offset must be nonnegative and representable by the host. Only seekable descriptors succeed; EINTR retries and host errors retain errno.", &["unix", "io", "file"])),
+        ("unix", "seek_fd") => Some(("Moves a descriptor relative to its start, current position, or end.", "whence defaults to start; current and end permit negative offsets. The resulting position must be nonnegative and representable by Int. Only seekable descriptors succeed; EINTR retries and host errors retain errno.", &["unix", "io", "file"])),
         ("unix", "poll_fd") => Some((
             "Waits for descriptor readiness and reports terminal conditions.",
             "Requested events are readable and writable; returned events may also include error, hangup, and invalid. An empty request observes terminal conditions. Timeout defaults to zero, -1 waits indefinitely, and nonnegative millisecond deadlines survive interruptions.",

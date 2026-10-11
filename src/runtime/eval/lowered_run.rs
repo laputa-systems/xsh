@@ -8421,7 +8421,8 @@ impl Evaluator {
             RuntimeOp::UnixSeekFd => {
                 let fd = lowered_int_arg(values.first().cloned(), "unix.seek_fd", span)?;
                 let offset = lowered_int_arg(values.get(1).cloned(), "unix.seek_fd", span)?;
-                lowered_runtime_result(unix_module::seek_fd(fd, offset, span), span)?
+                let whence = lowered_str_arg_owned(values.get(2).cloned(), "start", "unix.seek_fd", span)?;
+                lowered_runtime_result(unix_module::seek_fd(fd, offset, &whence, span), span)?
             }
             RuntimeOp::UnixFadvise => {
                 let fd = lowered_int_arg(values.first().cloned(), "unix.fadvise", span)?;
