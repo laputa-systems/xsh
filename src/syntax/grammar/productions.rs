@@ -805,7 +805,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
         rule(
             Programs,
             "top_level_declaration",
-            alt([r("test_declaration"), r("cli_main")]),
+            alt([r("test_declaration"), r("cli_entry")]),
         ),
         // Keyword statements come from the parser's dispatch table.
         rule(
@@ -1102,11 +1102,13 @@ pub(super) fn rules() -> Vec<super::Rule> {
         ),
         rule(
             Declarations,
-            "cli_main",
+            "cli_entry",
             seq([
                 w("cli"),
-                w("main"),
-                star(ident()),
+                alt([
+                    seq([w("main"), star(ident())]),
+                    ident(),
+                ]),
                 signature(),
                 opt(r("effects")),
                 opt(returns()),

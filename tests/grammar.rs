@@ -435,6 +435,22 @@ fn context_scopes_cannot_supply_an_enclosing_scope_body() {
 }
 
 #[test]
+fn mutated_fuzz_cli_source_is_a_grammar_sentence() {
+    assert_parser_and_grammar_agree("cli p() { }\n", true);
+    assert_parser_and_grammar_agree("cli main() { }\n", true);
+    assert_parser_and_grammar_agree("cli main subcommand() { }\n", true);
+    let source = r#"use fuzz_paths
+cli p(duration: UInt) {
+  let messages = run.text cargo build --release -p xsh-fuzz --bin xsh-fuzz --message-format=json-render-diagnostics
+  let binary = fuzz_paths.built_binary(messages)?
+  let out = fuzz_paths.failure_dir(binary)?
+  run $message all --duration $duration --out $out
+}
+"#;
+    assert_parser_and_grammar_agree(source, true);
+}
+
+#[test]
 fn tempdir_cannot_steal_a_stream_stage_block() {
     assert_parser_and_grammar_agree(
         "let value = tempdir items at Thing |> each |> all { ; return }\n",
