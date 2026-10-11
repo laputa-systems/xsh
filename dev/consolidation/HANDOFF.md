@@ -1,5 +1,29 @@
 # Consolidation restart handoff
 
+## Retry boundary repair — 2026-10-11, `ae0c1a6f`
+
+Accepted `8b4cfefe` as `ae0c1a6f`: include Retry in the nearest expression-value
+boundary search. Existing failures reproduce before the one-line repair and
+pass afterward. The pinned private optimized build and focused suites pass:
+retry 24, wait-until 15, value-blocks 20, propagation 13, context-scopes 25,
+error-resource ownership 16, defers 17 and within 20. Forced loop-transfer and
+Bool-callback retry pass; broader forced retry still hits unmigrated ExprError.
+
+The repair lane and Root have identical tracked trees except this handoff.
+Exact binary hashes and that difference are recorded in
+`joint-retry-fixed-reuse.json`; the source-matched pair is copied to
+`joint-retry-fixed-bin`. This reuses verified compilation instead of repeating
+an identical build. Root's ordinary target directory still holds the earlier
+failing pair: use the explicitly frozen repaired pair for ad-hoc probes.
+No full final suite or performance pass is claimed.
+
+Independent lanes now own remaining Error/Fail/Abort, six process-execution
+forms, statement Str/Tag matches, and line/byte scanners. Driver typed readers,
+typed-callee verification, W9 records and lint transport remain separate.
+W9 diagnostic replay has a focused regression for entry/import ordering after
+moving cache state outside PreparedConstants; exact first-source publication
+parity must pass before another full paired run.
+
 ## Performance priority and runtime integration — 2026-10-11, `3a2f292a`
 
 The owner relaxed source budgets and prioritizes performance. Production and
