@@ -44,7 +44,48 @@ pub(super) fn list_update_argument_stable(arena: &AstArena, expr: ExprId) -> boo
         ArenaExprKind::List(items) | ArenaExprKind::Set(items) => arena
             .list_element_exprs(items)
             .all(|item| list_update_argument_stable(arena, item)),
-        _ => false,
+        ArenaExprKind::GlobStr(_)
+        | ArenaExprKind::FmtString(_)
+        | ArenaExprKind::PathFmtString(_)
+        | ArenaExprKind::Item
+        | ArenaExprKind::LastStatus
+        | ArenaExprKind::ListComp { .. }
+        | ArenaExprKind::MapComp { .. }
+        | ArenaExprKind::SetComp { .. }
+        | ArenaExprKind::Record(_)
+        | ArenaExprKind::If { .. }
+        | ArenaExprKind::Match { .. }
+        | ArenaExprKind::PatternTest { .. }
+        | ArenaExprKind::PatternCondition { .. }
+        | ArenaExprKind::Unary { .. }
+        | ArenaExprKind::ComparisonChain(_)
+        | ArenaExprKind::Binary { .. }
+        | ArenaExprKind::Call { .. }
+        | ArenaExprKind::ValuePipelineCall { .. }
+        | ArenaExprKind::Field { .. }
+        | ArenaExprKind::NullSafeField { .. }
+        | ArenaExprKind::Index { .. }
+        | ArenaExprKind::Slice { .. }
+        | ArenaExprKind::EnvString(_)
+        | ArenaExprKind::EnvPathList
+        | ArenaExprKind::Pipeline { .. }
+        | ArenaExprKind::StructuredPipeline { .. }
+        | ArenaExprKind::Run(_)
+        | ArenaExprKind::Spawn(_)
+        | ArenaExprKind::Wait(_)
+        | ArenaExprKind::BuilderCall { .. }
+        | ArenaExprKind::Try(_)
+        | ArenaExprKind::Capture(_)
+        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::Convert { .. }
+        | ArenaExprKind::Collect { .. }
+        | ArenaExprKind::Loop { .. }
+        | ArenaExprKind::Retry { .. }
+        | ArenaExprKind::ValueBlock(_)
+        | ArenaExprKind::ErrorContext { .. }
+        | ArenaExprKind::ContextScope { .. }
+        | ArenaExprKind::TempDirScope { .. }
+        | ArenaExprKind::ResourceScope { .. } => false,
     }
 }
 
@@ -720,7 +761,48 @@ pub(super) fn inert_constant_initializer(arena: &AstArena, value: ExprId) -> boo
                     _ => false,
                 })
         }
-        _ => false,
+        ArenaExprKind::GlobStr(_)
+        | ArenaExprKind::FmtString(_)
+        | ArenaExprKind::PathFmtString(_)
+        | ArenaExprKind::Ident(_)
+        | ArenaExprKind::Item
+        | ArenaExprKind::LastStatus
+        | ArenaExprKind::ListComp { .. }
+        | ArenaExprKind::MapComp { .. }
+        | ArenaExprKind::SetComp { .. }
+        | ArenaExprKind::If { .. }
+        | ArenaExprKind::Match { .. }
+        | ArenaExprKind::PatternTest { .. }
+        | ArenaExprKind::PatternCondition { .. }
+        | ArenaExprKind::Unary { .. }
+        | ArenaExprKind::ComparisonChain(_)
+        | ArenaExprKind::Binary { .. }
+        | ArenaExprKind::Call { .. }
+        | ArenaExprKind::ValuePipelineCall { .. }
+        | ArenaExprKind::Field { .. }
+        | ArenaExprKind::NullSafeField { .. }
+        | ArenaExprKind::Index { .. }
+        | ArenaExprKind::Slice { .. }
+        | ArenaExprKind::EnvString(_)
+        | ArenaExprKind::EnvPathList
+        | ArenaExprKind::Pipeline { .. }
+        | ArenaExprKind::StructuredPipeline { .. }
+        | ArenaExprKind::Run(_)
+        | ArenaExprKind::Spawn(_)
+        | ArenaExprKind::Wait(_)
+        | ArenaExprKind::BuilderCall { .. }
+        | ArenaExprKind::Try(_)
+        | ArenaExprKind::Capture(_)
+        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::Convert { .. }
+        | ArenaExprKind::Collect { .. }
+        | ArenaExprKind::Loop { .. }
+        | ArenaExprKind::Retry { .. }
+        | ArenaExprKind::ValueBlock(_)
+        | ArenaExprKind::ErrorContext { .. }
+        | ArenaExprKind::ContextScope { .. }
+        | ArenaExprKind::TempDirScope { .. }
+        | ArenaExprKind::ResourceScope { .. } => false,
     }
 }
 
@@ -745,7 +827,50 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::PathStr(_)
             | ArenaExprKind::Bytes(_)
             | ArenaExprKind::Regex(_) => true,
-            _ => false,
+            ArenaExprKind::FmtString(_)
+            | ArenaExprKind::PathFmtString(_)
+            | ArenaExprKind::GlobStr(_)
+            | ArenaExprKind::Item
+            | ArenaExprKind::LastStatus
+            | ArenaExprKind::List(_)
+            | ArenaExprKind::ListComp { .. }
+            | ArenaExprKind::MapComp { .. }
+            | ArenaExprKind::Set(_)
+            | ArenaExprKind::SetComp { .. }
+            | ArenaExprKind::Record(_)
+            | ArenaExprKind::If { .. }
+            | ArenaExprKind::Match { .. }
+            | ArenaExprKind::PatternTest { .. }
+            | ArenaExprKind::PatternCondition { .. }
+            | ArenaExprKind::Unary { .. }
+            | ArenaExprKind::ComparisonChain(_)
+            | ArenaExprKind::Binary { .. }
+            | ArenaExprKind::Call { .. }
+            | ArenaExprKind::ValuePipelineCall { .. }
+            | ArenaExprKind::Field { .. }
+            | ArenaExprKind::NullSafeField { .. }
+            | ArenaExprKind::Index { .. }
+            | ArenaExprKind::Slice { .. }
+            | ArenaExprKind::EnvString(_)
+            | ArenaExprKind::EnvPathList
+            | ArenaExprKind::Pipeline { .. }
+            | ArenaExprKind::StructuredPipeline { .. }
+            | ArenaExprKind::Run(_)
+            | ArenaExprKind::Spawn(_)
+            | ArenaExprKind::Wait(_)
+            | ArenaExprKind::BuilderCall { .. }
+            | ArenaExprKind::Try(_)
+            | ArenaExprKind::Capture(_)
+            | ArenaExprKind::Require { .. }
+            | ArenaExprKind::Convert { .. }
+            | ArenaExprKind::Collect { .. }
+            | ArenaExprKind::Loop { .. }
+            | ArenaExprKind::Retry { .. }
+            | ArenaExprKind::ValueBlock(_)
+            | ArenaExprKind::ErrorContext { .. }
+            | ArenaExprKind::ContextScope { .. }
+            | ArenaExprKind::TempDirScope { .. }
+            | ArenaExprKind::ResourceScope { .. } => false,
         }
     }
 

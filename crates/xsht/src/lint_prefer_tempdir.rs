@@ -497,7 +497,41 @@ pub(super) fn expr_owns_nothing(linter: &super::Linter<'_>, expr: ExprId) -> boo
             .expr_types
             .get(&arena.expr(expr).span)
             .is_some_and(is_plain_data),
-        _ => false,
+        ArenaExprKind::GlobStr(_)
+        | ArenaExprKind::Regex(_)
+        | ArenaExprKind::Item
+        | ArenaExprKind::LastStatus
+        | ArenaExprKind::ListComp { .. }
+        | ArenaExprKind::MapComp { .. }
+        | ArenaExprKind::Set(_)
+        | ArenaExprKind::SetComp { .. }
+        | ArenaExprKind::If { .. }
+        | ArenaExprKind::Match { .. }
+        | ArenaExprKind::PatternTest { .. }
+        | ArenaExprKind::PatternCondition { .. }
+        | ArenaExprKind::ComparisonChain(_)
+        | ArenaExprKind::ValuePipelineCall { .. }
+        | ArenaExprKind::NullSafeField { .. }
+        | ArenaExprKind::Slice { .. }
+        | ArenaExprKind::EnvString(_)
+        | ArenaExprKind::EnvPathList
+        | ArenaExprKind::Pipeline { .. }
+        | ArenaExprKind::StructuredPipeline { .. }
+        | ArenaExprKind::Run(_)
+        | ArenaExprKind::Spawn(_)
+        | ArenaExprKind::Wait(_)
+        | ArenaExprKind::BuilderCall { .. }
+        | ArenaExprKind::Capture(_)
+        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::Convert { .. }
+        | ArenaExprKind::Collect { .. }
+        | ArenaExprKind::Loop { .. }
+        | ArenaExprKind::Retry { .. }
+        | ArenaExprKind::ValueBlock(_)
+        | ArenaExprKind::ErrorContext { .. }
+        | ArenaExprKind::ContextScope { .. }
+        | ArenaExprKind::TempDirScope { .. }
+        | ArenaExprKind::ResourceScope { .. } => false,
     };
     inert
         && super::expr_child_exprs(arena, expr)

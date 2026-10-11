@@ -302,7 +302,30 @@ impl ExprPositions {
                 } => {
                     statement_values.insert(condition, None);
                 }
-                _ => {}
+                ArenaStmtKind::Use(_)
+                | ArenaStmtKind::Export(_)
+                | ArenaStmtKind::TypeDef(_)
+                | ArenaStmtKind::ErrorDef(_)
+                | ArenaStmtKind::ProcDef(_)
+                | ArenaStmtKind::CliMain(_)
+                | ArenaStmtKind::PureDef(_)
+                | ArenaStmtKind::StreamDef(_)
+                | ArenaStmtKind::SignalHook(_)
+                | ArenaStmtKind::YieldDelegate(_)
+                | ArenaStmtKind::If { .. }
+                | ArenaStmtKind::While { .. }
+                | ArenaStmtKind::For { .. }
+                | ArenaStmtKind::With { .. }
+                | ArenaStmtKind::Loop { .. }
+                | ArenaStmtKind::Break { .. }
+                | ArenaStmtKind::Continue
+                | ArenaStmtKind::Exit(_)
+                | ArenaStmtKind::Match { .. }
+                | ArenaStmtKind::Command(_)
+                | ArenaStmtKind::TailBareIdent(_)
+                | ArenaStmtKind::Return(None)
+                | ArenaStmtKind::Assert { message: Some(_), .. }
+                | ArenaStmtKind::Sugar { .. } => {}
             }
         }
         let mut groups: FxHashMap<ExprId, Span> = FxHashMap::default();

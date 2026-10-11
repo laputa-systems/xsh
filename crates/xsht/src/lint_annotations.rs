@@ -693,7 +693,36 @@ impl<'a> Linter<'a> {
                         self.expression_depends_on_expected_type(child, removing_annotation)
                     })
             }
-            _ => expr_child_exprs(self.arena, expr)
+            ArenaExprKind::Null
+            | ArenaExprKind::Bool(_)
+            | ArenaExprKind::Float(_)
+            | ArenaExprKind::Duration(_)
+            | ArenaExprKind::GlobStr(_)
+            | ArenaExprKind::FmtString(_)
+            | ArenaExprKind::Bytes(_)
+            | ArenaExprKind::Regex(_)
+            | ArenaExprKind::Ident(_)
+            | ArenaExprKind::Item
+            | ArenaExprKind::LastStatus
+            | ArenaExprKind::Set(_)
+            | ArenaExprKind::Unary { .. }
+            | ArenaExprKind::ComparisonChain(_)
+            | ArenaExprKind::Binary { .. }
+            | ArenaExprKind::ValuePipelineCall { .. }
+            | ArenaExprKind::Field { .. }
+            | ArenaExprKind::NullSafeField { .. }
+            | ArenaExprKind::Index { .. }
+            | ArenaExprKind::Slice { .. }
+            | ArenaExprKind::EnvString(_)
+            | ArenaExprKind::EnvPathList
+            | ArenaExprKind::Pipeline { .. }
+            | ArenaExprKind::StructuredPipeline { .. }
+            | ArenaExprKind::Run(_)
+            | ArenaExprKind::Spawn(_)
+            | ArenaExprKind::Wait(_)
+            | ArenaExprKind::BuilderCall { .. }
+            | ArenaExprKind::Try(_)
+            | ArenaExprKind::Convert { .. } => expr_child_exprs(self.arena, expr)
                 .into_iter()
                 .any(|child| self.expression_depends_on_expected_type(child, removing_annotation)),
         }

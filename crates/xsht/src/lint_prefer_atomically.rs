@@ -598,7 +598,25 @@ fn leaves_nothing_behind(linter: &super::Linter<'_>, stmt: StmtId) -> bool {
         | ArenaStmtKind::Break { .. }
         | ArenaStmtKind::Continue => true,
         ArenaStmtKind::Sugar { expansion, .. } => leaves_nothing_behind(linter, expansion),
-        _ => false,
+        ArenaStmtKind::Use(_)
+        | ArenaStmtKind::Export(_)
+        | ArenaStmtKind::TypeDef(_)
+        | ArenaStmtKind::ErrorDef(_)
+        | ArenaStmtKind::Const { .. }
+        | ArenaStmtKind::Let { .. }
+        | ArenaStmtKind::Var { .. }
+        | ArenaStmtKind::ProcDef(_)
+        | ArenaStmtKind::CliMain(_)
+        | ArenaStmtKind::PureDef(_)
+        | ArenaStmtKind::StreamDef(_)
+        | ArenaStmtKind::SignalHook(_)
+        | ArenaStmtKind::Yield(_)
+        | ArenaStmtKind::YieldDelegate(_)
+        | ArenaStmtKind::Defer(..)
+        | ArenaStmtKind::With { .. }
+        | ArenaStmtKind::Guard { .. }
+        | ArenaStmtKind::Exit(_)
+        | ArenaStmtKind::TailBareIdent(_) => false,
     }
 }
 
