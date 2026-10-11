@@ -188,7 +188,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Deref;
 use std::sync::Arc;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label, Severity};
-use xsh::frontend::check::Type;
+use xsh::frontend::check::{BindingId, Type};
 use xsh::frontend::source::Span;
 use xsh::frontend::symbols::{Name, Symbol};
 use xsh::frontend::syntax::arena::{
@@ -532,6 +532,8 @@ pub struct Linter<'a> {
     interactive_command_replacement: Option<fn(&str) -> Option<&'static str>>,
     scopes: Vec<FxHashMap<String, Binding>>,
     diagnostics: Vec<Diagnostic>,
+    checked_binding_uses: BTreeMap<BindingId, BTreeSet<ExprId>>,
+    borrowed_root_receivers: BTreeMap<BindingId, BTreeSet<ExprId>>,
     checked_function_returns: CheckedFact<BTreeMap<Span, Type>>,
     expr_types: CheckedFact<BTreeMap<Span, Type>>,
     proven_nonnull_fallback_receivers: CheckedFact<BTreeSet<Span>>,
@@ -806,6 +808,8 @@ impl<'a> Linter<'a> {
             interactive_command_replacement: options.interactive_command_replacement,
             scopes: vec![FxHashMap::default()],
             diagnostics: Vec::new(),
+            checked_binding_uses: BTreeMap::new(),
+            borrowed_root_receivers: BTreeMap::new(),
             checked_function_returns: checked_fact!(
                 function_return_types,
                 checked_output.clone(),
@@ -1299,8 +1303,11 @@ impl<'a> Linter<'a> {
         prefer_within::lint_repeated_timeouts(self, statements);
         prefer_collect::lint_built_lists(self, statements);
         prefer_wait_until::lint_polling_loops(self, statements);
-        redundant_close::lint_deferred_root_closes(self, statements);
+        let close_diagnostic_index = self.diagnostics.len();
         self.lint_statement_sequence(statements);
+        let close_diagnostics = redundant_close::lint_deferred_root_closes(self, statements);
+        self.diagnostics
+            .splice(close_diagnostic_index..close_diagnostic_index, close_diagnostics);
         self.lint_implicit_main(statements);
         self.lint_unused_types();
     }

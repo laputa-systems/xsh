@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label, Severity};
 use xsh::frontend::check::{BindingId, BindingKind, CheckOutput};
 use xsh::frontend::source::Span;
@@ -9,22 +7,61 @@ use xsh::frontend::syntax::arena::{
     DeferTrigger, ExprId, StmtId,
 };
 
-/// The scope releases a locally created root after its deferred actions.
-/// Removing the explicit defer is safe only when that close is the last
-/// registered cleanup and every other use remains a borrowed receiver.
-pub(super) fn lint_deferred_root_closes(linter: &mut super::Linter<'_>, stmts: &[StmtId]) {
-    let code = DiagnosticCode::LintRedundantClose;
-    if !linter.rule_selection.accepts(Some(code)) {
+/// Record checked local uses as the ordinary expression descent reaches them.
+pub(super) fn record_binding_use(linter: &mut super::Linter<'_>, expr: ExprId) {
+    if !linter
+        .rule_selection
+        .accepts(Some(DiagnosticCode::LintRedundantClose))
+    {
         return;
     }
     let Some(checked) = linter.checked_output.as_deref() else {
         return;
     };
-    let Some(&first) = stmts.first() else {
+    if let Some(&binding_id) = checked.resolved_bindings.expressions.get(&expr) {
+        linter
+            .checked_binding_uses
+            .entry(binding_id)
+            .or_default()
+            .insert(expr);
+    }
+    let ArenaExprKind::Call { callee, .. } = linter.arena.expr(expr).kind else {
         return;
     };
-    let Some(&last) = stmts.last() else {
+    let ArenaExprKind::Field { base, name } = linter.arena.expr(callee).kind else {
         return;
+    };
+    if !is_borrowed_root_method(name.as_str().as_str()) {
+        return;
+    }
+    if let Some(&binding_id) = checked.resolved_bindings.expressions.get(&base) {
+        linter
+            .borrowed_root_receivers
+            .entry(binding_id)
+            .or_default()
+            .insert(base);
+    }
+}
+
+/// The scope releases a locally created root after its deferred actions.
+/// Removing the explicit defer is safe only when that close is the last
+/// registered cleanup and every other use remains a borrowed receiver.
+pub(super) fn lint_deferred_root_closes(
+    linter: &mut super::Linter<'_>,
+    stmts: &[StmtId],
+) -> Vec<Diagnostic> {
+    let code = DiagnosticCode::LintRedundantClose;
+    if !linter.rule_selection.accepts(Some(code)) {
+        return Vec::new();
+    }
+    let Some(checked) = linter.checked_output.as_deref() else {
+        return Vec::new();
+    };
+    let Some(&first) = stmts.first() else {
+        return Vec::new();
+    };
+    let Some(&last) = stmts.last() else {
+        return Vec::new();
     };
     let arena = linter.arena;
     let scope_span = Span::new(
@@ -33,9 +70,10 @@ pub(super) fn lint_deferred_root_closes(linter: &mut super::Linter<'_>, stmts: &
         arena.stmt(last).span.end(),
     );
     if check_has_errors_in_source(checked, scope_span.source_id) {
-        return;
+        return Vec::new();
     }
 
+    let mut diagnostics = Vec::new();
     for (defer_index, &defer_stmt) in stmts.iter().enumerate() {
         let Some((name, receiver)) = deferred_close(arena, defer_stmt) else {
             continue;
@@ -56,8 +94,7 @@ pub(super) fn lint_deferred_root_closes(linter: &mut super::Linter<'_>, stmts: &
             continue;
         };
         if !uses_stay_borrowed(
-            arena,
-            checked,
+            linter,
             scope_span,
             binding_id,
             receiver,
@@ -67,7 +104,7 @@ pub(super) fn lint_deferred_root_closes(linter: &mut super::Linter<'_>, stmts: &
 
         let root_name = name.as_str();
         let span = arena.stmt(defer_stmt).span;
-        linter.diagnostics.push(
+        diagnostics.push(
             Diagnostic::new(
                 Severity::Warning,
                 format!("`{root_name}.close()` is redundant at scope exit"),
@@ -89,6 +126,7 @@ pub(super) fn lint_deferred_root_closes(linter: &mut super::Linter<'_>, stmts: &
             )),
         );
     }
+    diagnostics
 }
 
 fn check_has_errors_in_source(
@@ -210,38 +248,25 @@ fn initializes_local_root(
 }
 
 fn uses_stay_borrowed(
-    arena: &AstArena,
-    checked: &CheckOutput,
+    linter: &super::Linter<'_>,
     scope_span: Span,
     binding_id: BindingId,
     deferred_receiver: ExprId,
 ) -> bool {
-    let mut borrowed_receivers = BTreeSet::new();
-    for index in 0..arena.expr_tags.len() {
-        let call = ExprId::from_index(index);
-        let call_node = arena.expr(call);
-        if !within(call_node.span, scope_span) {
-            continue;
-        }
-        let ArenaExprKind::Call { callee, .. } = call_node.kind else {
-            continue;
-        };
-        let ArenaExprKind::Field { base, name } = arena.expr(callee).kind else {
-            continue;
-        };
-        if is_borrowed_root_method(name.as_str().as_str())
-            && checked.resolved_bindings.expressions.get(&base) == Some(&binding_id)
-        {
-            borrowed_receivers.insert(base);
-        }
-    }
-
-    checked.resolved_bindings.expressions.iter().all(|(expr, resolved)| {
-        if *resolved != binding_id || !within(arena.expr(*expr).span, scope_span) {
-            return true;
-        }
-        *expr == deferred_receiver || borrowed_receivers.contains(expr)
-    })
+    let arena = linter.arena;
+    linter
+        .checked_binding_uses
+        .get(&binding_id)
+        .into_iter()
+        .flatten()
+        .filter(|expr| within(arena.expr(**expr).span, scope_span))
+        .all(|expr| {
+            *expr == deferred_receiver
+                || linter
+                    .borrowed_root_receivers
+                    .get(&binding_id)
+                    .is_some_and(|receivers| receivers.contains(expr))
+        })
 }
 
 /// A later root call must not release the root or create another managed root.

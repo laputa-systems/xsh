@@ -53,6 +53,7 @@ impl LintExprVisitor<'_, '_> {
     }
 
     fn visit_expression(&mut self, expr: ExprId) {
+        redundant_close::record_binding_use(self.linter, expr);
         self.linter.stream_producers.observe_expr(self.linter.arena, expr);
         self.linter
             .fail_candidates
@@ -1594,8 +1595,11 @@ impl<'a> Linter<'a> {
         prefer_within::lint_repeated_timeouts(self, &stmts);
         prefer_collect::lint_built_lists(self, &stmts);
         prefer_wait_until::lint_polling_loops(self, &stmts);
-        redundant_close::lint_deferred_root_closes(self, &stmts);
+        let close_diagnostic_index = self.diagnostics.len();
         self.lint_statement_sequence(&stmts);
+        let close_diagnostics = redundant_close::lint_deferred_root_closes(self, &stmts);
+        self.diagnostics
+            .splice(close_diagnostic_index..close_diagnostic_index, close_diagnostics);
     }
 
     pub(super) fn lint_command_stmt(&mut self, stmt_id: CommandStmtId) {
