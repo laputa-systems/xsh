@@ -54,13 +54,14 @@ enum DelegatedSource {
 }
 
 impl DelegatedSource {
-    fn new(value: LoweredValue, span: Span) -> Result<Self, RuntimeError> {
+    fn new(evaluator: &Evaluator, value: LoweredValue, span: Span) -> Result<Self, RuntimeError> {
         match value {
             LoweredValue::List(items) => Ok(Self::List(DelegatedList::Owned(items.into_iter()))),
             LoweredValue::SharedList(items) => {
                 Ok(Self::List(DelegatedList::Shared { items, next: 0 }))
             }
             LoweredValue::Stream(mut value) => {
+                evaluator.validate_stream_owner(&value, span)?;
                 let prefix = std::mem::take(&mut value.items)
                     .into_iter()
                     .map(|item| item.value)
@@ -406,7 +407,7 @@ impl Evaluator {
                     self.call_stack.pop();
                     self.detach_owned_host_scopes(state.open_scopes().len());
                     producer.frame = Some(state);
-                    match DelegatedSource::new(value, span) {
+                    match DelegatedSource::new(self, value, span) {
                         Ok(source) => producer.delegated = Some(source),
                         Err(error) => {
                             let _ = self.cancel_script_producer(producer, span);
@@ -421,7 +422,7 @@ impl Evaluator {
                         // A body that returns a stream hands the rest of its output
                         // to that stream.
                         Ok(value @ LoweredValue::Stream(_)) => {
-                            producer.delegated = Some(DelegatedSource::new(value, span)?);
+                            producer.delegated = Some(DelegatedSource::new(self, value, span)?);
                         }
                         Ok(_) => return Ok(ScriptStreamStep::Finished),
                         Err(error) => return Err(error),

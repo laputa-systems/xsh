@@ -377,6 +377,46 @@ let _ = [1, 2] |> par-map(jobs: 2) { |_| parent |> collect() }
   assert "stream-owner" in output.stderr, output.stderr
 }
 
+test resource_worker_rejects_foreign_delegated_streams { |ctx|
+  let dir = test.temp_dir(ctx, name: "foreign-delegated-streams")?
+  fp"{dir}/entry".write("x")
+  for {source, args} in [
+    {
+      source: r"""
+stream numbers() -> Stream[Int] { yield 1 }
+stream relay(source: Stream[Int]) -> Stream[Int] { yield @source }
+assert (relay(numbers()) |> collect()) == [1]
+let parent = numbers()
+let results = [1, 2] |> par-map(jobs: 2) { |_| relay(parent) |> collect() } |> collect()
+assert results.len() == 2
+""",
+      args: [],
+    },
+    {
+      source: r"""
+stream relay(source: Stream[FsEntry]) -> Stream[FsEntry] { yield @source }
+let parent = fs.children(Path(args[0]), ordered: true)?
+let results = [1, 2] |> par-map(jobs: 2) { |_| relay(parent) |> collect() } |> collect()
+assert results.len() == 2
+""",
+      args: [dir],
+    },
+    {
+      source: r"""
+stream relay(source: Stream[FsEntry]) -> Stream[FsEntry] { yield @source }
+let parent = fs.walk(Path(args[0]))?
+let results = [1, 2] |> par-map(jobs: 2) { |_| relay(parent) |> collect() } |> collect()
+assert results.len() == 2
+""",
+      args: [dir],
+    },
+  ] {
+    let output = test.run_script(ctx, source, args)?
+    assert output.status == 3, output.stderr
+    assert "stream-owner" in output.stderr, output.stderr
+  }
+}
+
 test resource_worker_rejects_foreign_materialized_and_live_streams { |ctx|
   let dir = test.temp_dir(ctx, name: "foreign-streams")?
   fp"{dir}/entry".write("x")

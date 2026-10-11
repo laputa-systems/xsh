@@ -7,6 +7,26 @@ use crate::runtime::value::{
 use crate::source::Span;
 
 impl Evaluator {
+    /// A delegated producer exposes only its script state to the pull loop, so
+    /// match that state to a stream registration before crossing the boundary.
+    fn validate_delegated_script_owner(
+        &self,
+        child: &ScriptStreamState,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        if self.owned_streams.values().any(|owned| {
+            owned.script.as_ref().and_then(ScriptStreamState::upgrade)
+                .is_some_and(|state| state.same_as(child))
+        }) {
+            return Ok(());
+        }
+        Err(RuntimeError::new(
+            "stream-owner",
+            "delegated stream belongs to another evaluator",
+        )
+        .with_span(span))
+    }
+
     /// The next item of a stream.
     ///
     /// A script producer is a suspended body, so pulling one resumes it against
@@ -72,6 +92,19 @@ impl Evaluator {
                     scopes,
                     context,
                 }) => {
+                    if let Err(error) = self.validate_delegated_script_owner(&child, child_span) {
+                        for (_, _, count, context) in parents.iter().rev() {
+                            self.detach_owned_host_scopes(*count);
+                            if let Some(context) = context {
+                                self.swap_producer_context(context.clone());
+                            }
+                        }
+                        let _ = current
+                            .lock(child_span)
+                            .map(|mut producer| producer.delegated_finished());
+                        let _ = self.cancel_script_state(root, span);
+                        return Err(error);
+                    }
                     if !seen.insert(child.identity()) {
                         for (_, _, count, context) in parents.iter().rev() {
                             self.detach_owned_host_scopes(*count);
