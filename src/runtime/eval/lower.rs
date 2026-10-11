@@ -508,6 +508,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::IoStdinText
             | RuntimeOp::IoStdinLine
             | RuntimeOp::IoWriteStderr
+            | RuntimeOp::IoWriteStderrBytes
             | RuntimeOp::IoWriteStdout
             | RuntimeOp::IoWriteStdoutBytes
             | RuntimeOp::IniDecode

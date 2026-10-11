@@ -912,6 +912,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Use flush_stderr before reading an interactive response to make a prompt visible. Captured output remains in the evaluator's output sink.",
             &["io", "stderr", "utf8"],
         )),
+        ("io", "write_stderr_bytes") => Some((
+            "Buffers raw Bytes on standard error without a newline.",
+            "Preserves arbitrary byte values, including invalid UTF-8. Use flush_stderr to report host write failures; captured output remains in the evaluator's output sink.",
+            &["io", "stderr", "bytes"],
+        )),
         ("io", "flush_stderr") => Some((
             "Writes buffered standard error to the host and reports write failures.",
             "Captured output belongs to its output sink, so flushing succeeds without draining it. Host failures carry errno, including EBADF for a closed descriptor.",

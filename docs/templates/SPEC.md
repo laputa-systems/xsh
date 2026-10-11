@@ -3231,10 +3231,12 @@ keep program order even when stdout is a pipe or file.
 Script stdout and stderr are byte streams. Text APIs write UTF-8.
 `io.write_stdout(text)` writes without a newline, and
 `io.write_stdout_bytes(data)` writes bytes exactly, with no UTF-8 requirement.
-`io.write_stderr(text)` buffers UTF-8 stderr without a newline; use
-`io.flush_stderr()` before reading a response to make an interactive prompt
-visible. The flush reports host write errors with errno and leaves captured
-stderr in its output sink.
+`io.write_stderr(text)` buffers UTF-8 stderr without a newline, and
+`io.write_stderr_bytes(data)` buffers arbitrary bytes exactly without a newline.
+Both preserve output order in the same stderr sink. Use `io.flush_stderr()`
+before reading a response to make an interactive prompt visible. The flush
+reports host write errors with errno and leaves captured stderr in its output
+sink.
 
 `io.stdin_read(max_bytes)` reads at most a positive `max_bytes` into `Bytes`.
 It can return fewer bytes than requested and returns empty bytes at EOF.

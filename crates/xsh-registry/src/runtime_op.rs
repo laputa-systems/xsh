@@ -360,6 +360,7 @@ pub enum RuntimeOp {
     IoWriteStdoutBytes,
     IoFlushStdout,
     IoWriteStderr,
+    IoWriteStderrBytes,
     IoFlushStderr,
     JsonDecode,
     JsonEncode,

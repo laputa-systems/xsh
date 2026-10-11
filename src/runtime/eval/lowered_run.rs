@@ -6440,6 +6440,12 @@ impl Evaluator {
                 self.stderr.extend_from_slice(text.as_bytes());
                 lowered_result_ok(LoweredValue::Unit)
             }
+            RuntimeOp::IoWriteStderrBytes if values.len() == 1 => {
+                let value = values.pop().expect("checked value length");
+                let data = lowered_bytes_arg(&value, "io.write_stderr_bytes", span)?;
+                self.stderr.extend_from_slice(data);
+                lowered_result_ok(LoweredValue::Unit)
+            }
             RuntimeOp::IoFlushStderr if values.is_empty() => {
                 lowered_unit_result(self.flush_stderr_checked(span))
             }

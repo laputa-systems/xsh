@@ -592,6 +592,15 @@ fn io_module() -> ModuleSig {
             ),
         ),
         (
+            "write_stderr_bytes",
+            sig(
+                vec![param("data", Type::Bytes)],
+                result(Type::Unit),
+                false,
+                RuntimeOp::IoWriteStderrBytes,
+            ),
+        ),
+        (
             "flush_stderr",
             sig(Vec::new(), result(Type::Unit), false, RuntimeOp::IoFlushStderr),
         ),
