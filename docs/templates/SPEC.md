@@ -1129,6 +1129,8 @@ A failed `assert` produces `AssertionError.Failed(message: Str)`.
   passed to `spawn`, `process.run`, or `process.spawn`.
 - `NetJob` is a live network transfer from `net.start` (see 11.8).
 - `FsRoot` is an open directory capability; see the standard modules.
+- `FsLock` is an opaque filesystem lock capability returned by `fs.lock`
+  (see 10.4 and 11.8).
 - `Regex` and `Digest` are immutable values with methods.
 
 Handles are values that alias one live host resource; see 11.8 for ownership.
@@ -2789,8 +2791,10 @@ or exits with a nonzero status.
 
 A `tempdir` scope (10.4) removes its directory with a deferred action of this
 kind, registered before the body runs. A `with` resource scope (10.4)
-releases each resource with one, registered as the resource is bound; it is
-the scope for `let h = OPEN?` directly followed by `defer h.close()`.
+releases each bound resource after the body's defers and returns a release
+failure as its `Err`. Ordinary blocks also release owned `FsRoot` and `FsLock`
+capabilities after their defers (11.8); use `with` when code must observe a
+release failure. The `with` form groups a resource binding and its body.
 
 `atomically replace dest as name { ... }` publishes a file that something
 other than XSH writes (an archiver, a compiler, an image builder): the block
@@ -3376,11 +3380,12 @@ directory and environment between pulls.
 ```
 
 `tempdir NAME { ... }` runs its body with `NAME: Path` bound to a fresh, empty
-temporary directory at a path the runtime chooses. It is the scope that
-`let root = fs.tempdir()?`, `defer root.close()?`, and
-`let NAME = root.host_path()?` open over the rest of a block, without the
-handle: use that form when the code needs the `FsRoot`'s rooted operations or
-passes the handle on.
+temporary directory at a path the runtime chooses. Use it for path-scoped
+scratch space. When code needs rooted operations or must pass the capability
+on, keep the `FsRoot` returned by `fs.tempdir()` and obtain its path with
+`root.host_path()` when needed. The scope that owns the root closes it after
+its defers; call `root.close()` only for early release, or use `with` when the
+release failure must be reported.
 
 `tempdir NAME at PATH { ... }` runs its body with `NAME` bound to a directory
 at a path the program names:
@@ -3423,9 +3428,10 @@ name and then `{` or the word `at` follow on the same line; the path after
 `at` is a head expression like the source of a `for`, and the body takes no
 `|...|` parameters.
 
-Two lints lead to the scope. `lint.prefer-tempdir-scope` reports
-`let root = fs.tempdir()?` with its `defer root.close()?` where the handle is
-used only for its path, and `lint.prefer-tempdir` reports
+Two lints lead to the scope. `lint.prefer-tempdir-scope` reports the legacy
+form `let root = fs.tempdir()?` followed by `defer root.close()?` when the
+handle is used only for its path; scope ownership already closes the root
+after its defers. `lint.prefer-tempdir` reports
 `NAME.remove()`, `NAME.mkdir()`, and `defer NAME.remove()` in a row. Each
 offers the rewrite of the rest of the block into the scope's body only where that is the same
 program; in particular a last statement that is the block's value moves only

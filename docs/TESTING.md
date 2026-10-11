@@ -71,9 +71,10 @@ Run process and native suites with the optimized `verification` profile. It
 uses no LTO and 64 codegen units to shorten rebuilds. Debug `--lib` tests retain
 checks compiled only under debug assertions; release is reserved for final
 verification and performance measurements. `xsht` runs its sibling `xsh`.
-Linux development uses the native musl target inside `Dockerfile.test`; the
-final Linux gate uses `aarch64-unknown-linux-musl`. Set `TARGET` for direct
-commands, or use `cargo dev gate` to select target-correct commands:
+Development and final campaign verification use host-native
+`x86_64-unknown-linux-musl` inside `Dockerfile.test`; ARM64 and macOS are
+excluded from campaign acceptance. Set `TARGET` for direct commands, or use
+`cargo dev gate` to select target-correct commands:
 
 ```sh
 export TARGET=x86_64-unknown-linux-musl

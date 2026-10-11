@@ -8,6 +8,5 @@ proc save_image(tag: Str, image: Path) [fs, process, error] {
 }
 
 let root = fs.tempdir()?
-defer root.close()
 let image = fp"{root.host_path()?}/image.tar"
 print f"{image.exists()?}"

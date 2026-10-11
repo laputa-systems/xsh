@@ -1,5 +1,4 @@
 let scratch = fs.tempdir()?
-defer scratch.close()
 let log = fp"{scratch.host_path()?}/app.log"
 log.write("ok\nERROR disk full\nok\nERROR link down\n")
 

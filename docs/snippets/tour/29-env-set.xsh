@@ -15,7 +15,6 @@ let once = run.text STAGE=deploy printenv STAGE
 print f"one command saw {once.trim()}; the script still has {e"STAGE"?}"
 
 let scratch = fs.tempdir()?
-defer scratch.close()
 let tools = scratch.host_path()?
 let tool = fp"{tools}/hello-tool"
 tool.write("#!/bin/sh\necho \"hello from $STAGE\"\n", mode: 0o755)

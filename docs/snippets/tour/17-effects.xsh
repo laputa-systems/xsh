@@ -10,7 +10,6 @@ pure percent(part: Int, whole: Int) -> Int {
 # This script may touch files and run processes, and nothing else.
 proc main() [fs, process, error] {
   let scratch = fs.tempdir()?
-  defer scratch.close()
   let dir = scratch.host_path()?
   fp"{dir}/data".write("hello\n")
 

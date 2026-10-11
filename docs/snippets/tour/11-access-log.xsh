@@ -27,7 +27,6 @@ const sample = """
   """
 
 let scratch = fs.tempdir()?
-defer scratch.close()
 let log = fp"{scratch.host_path()?}/access.log"
 log.write(sample)
 

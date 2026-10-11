@@ -993,7 +993,7 @@ fn core_doc(item: &str) -> ReferenceDoc {
         ),
         "optional-postfix" => (
             "Guards Optional field, method, index, and slice operations.",
-            "?. and adjacent ?[ skip the whole operation on null, including arguments and bounds. Result receivers propagate one outer Result with ordinary error checks. Optional methods returning Result retain both layers; ?? removes only the checked outer Optional layer. Any supports its existing dynamic fields, but new method/index overloads require checked receiver information.",
+            "?. and adjacent ?[ skip the whole operation on null, including arguments and bounds. Result receivers propagate one outer Result with ordinary error checks. Optional methods returning Result retain both layers; ?? removes only the checked outer Optional layer. An Any receiver must be validated before field, index, slice, or method access, including guarded access.",
         ),
         "fallback" => (
             "Defines fallback expressions for recoverable values.",

@@ -317,12 +317,17 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("fs", "lock") => Some((
             "Acquires a filesystem lock and returns an opaque FsLock.",
-            "path and shared are readable metadata, while identity is hidden. Release the handle with fs.unlock or a managed with scope. Unlock fails after release or in a foreign evaluator; nonblocking acquisition reports contention as data.",
+            "path and shared are readable, immutable metadata, while identity is hidden. Its owning scope unlocks the handle after its defers; use fs.unlock for early release or a with scope when a release failure must be reported. Unlock fails after release or in a foreign evaluator; nonblocking acquisition reports contention as data.",
             &["filesystem", "locking", "ownership"],
         )),
-        ("fs", "tempdir" | "tempfile") => Some((
-            "Creates a temporary resource under XSH ownership.",
-            "Close or remove the returned resource with defer as soon as it is created.",
+        ("fs", "tempdir") => Some((
+            "Creates a temporary directory and returns its FsRoot.",
+            "The owning scope closes the root after its defers; use root.close() for early release or a with scope to report a release failure.",
+            &["filesystem", "temporary", "ownership"],
+        )),
+        ("fs", "tempfile") => Some((
+            "Creates a temporary file and returns a record with its FsRoot and path.",
+            "The root in the returned record is closed by its owning scope after its defers; use root.close() for early release or a with scope to report a release failure.",
             &["filesystem", "temporary", "ownership"],
         )),
         ("fs", "tempdir_in") => Some((
@@ -712,9 +717,14 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The target remains a lossless Path and is null on failure; state, errno, and error kind distinguish absence from denied or failed reads.",
             &["filesystem", "rooted", "symlink", "observation"],
         )),
+        ("fs", "root_symlink") => Some((
+            "Creates a symlink below a rooted filesystem capability.",
+            "Both `target:` and `path:` labels are required: the former gives link text, and the latter names the link below the root.",
+            &["filesystem", "rooted", "symlink", "mutation"],
+        )),
         (
             "fs",
-            "root_mkdir" | "root_remove" | "root_chmod" | "root_symlink" | "root_install_file",
+            "root_mkdir" | "root_remove" | "root_chmod" | "root_install_file",
         ) => Some((
             "Mutates a path below a rooted filesystem capability.",
             "Relative paths are validated against the root before the mutation and cannot address an outside destination.",
@@ -856,7 +866,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("fs", "unlock") => Some((
             "Releases an opaque filesystem lock handle.",
-            "Unlock consumes the handle and fails with fs-lock when it has already been released or belongs to another evaluator. A managed with scope releases its lock after the body's defers and exposes a failed release.",
+            "Unlock consumes the handle and fails with fs-lock when it has already been released or belongs to another evaluator. Its owning scope unlocks it after the body's defers; use with when the release failure must be returned.",
             &["filesystem", "locking", "ownership"],
         )),
         ("group", "current") => Some((

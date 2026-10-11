@@ -1,5 +1,4 @@
 let scratch = fs.tempdir()?
-defer scratch.close()
 
 scratch.mkdir(p"logs")
 scratch.write(p"logs/app.log", "ok\n")

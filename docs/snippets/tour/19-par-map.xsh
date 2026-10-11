@@ -1,5 +1,4 @@
 let scratch = fs.tempdir()?
-defer scratch.close()
 let root = scratch.host_path()?
 
 for file in [

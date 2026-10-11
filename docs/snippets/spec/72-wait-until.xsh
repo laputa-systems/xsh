@@ -9,7 +9,6 @@ proc await_lease(lease: Path, patience: Duration) [fs, time, error] {
 }
 
 let root = fs.tempdir()?
-defer root.close()
 let marker = fp"{root.host_path()?}/ready"
 marker.write("")
 await_socket(marker)

@@ -689,11 +689,10 @@ reverse order when the block exits for any reason: normal completion,
 {{.tour.defer.output}}
 ```
 
-`tempdir dir { ... }` is a `defer` you do not have to write. Spelled out, it
-is a handle to a private directory, its cleanup registered on the next line,
-and the path: `let scratch = fs.tempdir()?`, `defer scratch.close()?`,
-`let dir = scratch.host_path()?`. Write that form when you want the handle
-itself, whose rooted operations cannot leave the directory:
+`tempdir dir { ... }` is convenient when the code needs only a path. When it
+needs rooted operations or must pass a directory capability, `fs.tempdir()`
+returns an `FsRoot`; its owning scope closes it after its defers. Call
+`scratch.close()` only for early release:
 
 ```xsh
 {{.tour.tempdir_handle.source}}
