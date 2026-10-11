@@ -1169,13 +1169,13 @@ instruction_schema! {
             arms: FxHashMap<Arc<str>, Vec<BuildStmtId>>,
             fallback: Option<Vec<BuildStmtId>>,
             span: Span,
-        } => StmtStrMatch = 136 [0; Scheduled; LegacyRecursive];
+        } => StmtStrMatch = 136 [0; Scheduled; FrameControl];
         TagMatch {
             value: BuildExprId,
             arms: FxHashMap<Arc<str>, Vec<BuildStmtId>>,
             fallback: Option<Vec<BuildStmtId>>,
             span: Span,
-        } => StmtTagMatch = 137 [0; Scheduled; LegacyRecursive];
+        } => StmtTagMatch = 137 [0; Scheduled; FrameControl];
         For {
             slot: usize,
             iter: BuildExprId,
@@ -1556,6 +1556,8 @@ mod tests {
             FullTag::ExprPatternIf,
             FullTag::ExprStrMatch,
             FullTag::ExprTagMatch,
+            FullTag::StmtStrMatch,
+            FullTag::StmtTagMatch,
         ] {
             assert_eq!(tag.frame_strategy(), FrameStrategy::FrameControl, "{}", tag.name());
         }

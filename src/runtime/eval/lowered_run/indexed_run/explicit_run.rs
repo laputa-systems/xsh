@@ -143,6 +143,29 @@ fn indexed_str_tag_match_arm(
         .ok_or_else(|| lowered_match_no_arm(match_span))
 }
 
+fn indexed_str_tag_statement_match_arm(
+    view: StmtView<'_>,
+    key: Option<&str>,
+    span: Span,
+) -> Result<u32, RuntimeError> {
+    let (arms, fallback, match_span) = match view {
+        StmtView::StrMatch { arms, fallback, span, .. }
+        | StmtView::TagMatch { arms, fallback, span, .. } => (arms, fallback, span),
+        _ => unreachable!("string/tag statement match tag has a matching borrowed view"),
+    };
+    if let Some(key) = key {
+        for arm in arms {
+            let (candidate, body) = arm.map_err(|error| indexed_error(error, span))?;
+            if candidate == key {
+                return Ok(body.block_id());
+            }
+        }
+    }
+    fallback
+        .map(|body| body.block_id())
+        .ok_or_else(|| lowered_match_no_arm(match_span))
+}
+
 fn expr_pattern_if_view<'a>(
     execution: &FullExecution<'a>,
     instruction: u32,
@@ -1060,6 +1083,10 @@ enum FrameContinuation {
         else_body: Option<u32>,
         span: Span,
     },
+    StatementStrTagMatch {
+        instruction: u32,
+        span: Span,
+    },
     PatternIf {
         branches: Vec<(u32, u32, Vec<usize>)>,
         index: usize,
@@ -1294,6 +1321,7 @@ impl FrameContinuation {
             | C::BlockValue { .. }
             | C::Discard(_)
             | C::StatementIf { .. }
+            | C::StatementStrTagMatch { .. }
             | C::PatternIf { .. }
             | C::PatternWhile { .. }
             | C::ForItems { .. }
@@ -3912,6 +3940,25 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
                 Ok(())
             }
+            FullTag::StmtStrMatch | FullTag::StmtTagMatch => {
+                let view = StmtView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?;
+                let (value, match_span) = match view {
+                    StmtView::StrMatch { value, span, .. }
+                    | StmtView::TagMatch { value, span, .. } => (value.raw(), span),
+                    _ => unreachable!("string/tag statement match tag has a matching borrowed view"),
+                };
+                self.push_expr(
+                    index,
+                    value,
+                    match_span,
+                    FrameContinuation::StatementStrTagMatch {
+                        instruction,
+                        span: match_span,
+                    },
+                );
+                Ok(())
+            }
             FullTag::StmtLoop => {
                 let body = indexed_raw(&mut payload, span)?;
                 indexed_finish(payload, span)?;
@@ -6378,6 +6425,26 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             },
             FrameContinuation::MatchValue { arms, span } => match value {
                 FrameValue::Value(value) => self.select_match_arm(index, arms, 0, value, span)?,
+                FrameValue::Break(value) => {
+                    return self.complete_call(index, StmtFlow::Propagate(value));
+                }
+            },
+            FrameContinuation::StatementStrTagMatch { instruction, span } => match value {
+                FrameValue::Value(value) => {
+                    let (actual_tag, payload) = indexed_value(
+                        self.calls[index].execution.instruction_id(instruction),
+                        span,
+                    )?;
+                    let view = StmtView::decode(&self.calls[index].execution, actual_tag, payload)
+                        .map_err(|error| indexed_error(error, span))?;
+                    let key = if actual_tag == FullTag::StmtStrMatch {
+                        lowered_str_key(&value)
+                    } else {
+                        lowered_tag_key(&value)
+                    };
+                    let body = indexed_str_tag_statement_match_arm(view, key, span)?;
+                    self.push_statement_block(index, body, span)?;
+                }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }

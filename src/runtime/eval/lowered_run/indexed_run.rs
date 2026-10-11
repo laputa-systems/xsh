@@ -2546,39 +2546,6 @@ impl Evaluator {
     ) -> Result<StmtFlow, RuntimeError> {
         let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
         match tag {
-            FullTag::StmtStrMatch | FullTag::StmtTagMatch => {
-                let value = indexed_raw(&mut payload, call_span)?;
-                let arm_count = indexed_raw(&mut payload, call_span)? as usize;
-                let mut arms = Vec::with_capacity(arm_count);
-                for _ in 0..arm_count {
-                    arms.push((
-                        indexed_decode::<Arc<str>>(&mut payload, execution, call_span)?,
-                        indexed_raw(&mut payload, call_span)?,
-                    ));
-                }
-                let fallback = indexed_optional_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(StmtFlow::Return(value)),
-                };
-                let key = if tag == FullTag::StmtStrMatch {
-                    lowered_str_key(&value)
-                } else {
-                    lowered_tag_key(&value)
-                };
-                if let Some(key) = key
-                    && let Some((_, body)) =
-                        arms.iter().find(|(candidate, _)| candidate.as_ref() == key)
-                {
-                    return self.eval_indexed_statement_block(execution, *body, slots, call_span);
-                }
-                if let Some(body) = fallback {
-                    return self.eval_indexed_statement_block(execution, body, slots, call_span);
-                }
-                Err(lowered_match_no_arm(span))
-            }
             FullTag::StmtScanLines => {
                 let text_slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
                 let line_slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
