@@ -275,6 +275,10 @@ impl Analyzer<'_> {
                         if self.checker.statement_positions.get(&node.span).is_some_and(|position|
                             *position == super::StatementPosition::Value
                         ) => self.expr_may_hold(expr),
+                    ArenaStmtKind::TailBareIdent(_)
+                        if self.checker.statement_positions.get(&node.span).is_some_and(|position|
+                            *position == super::StatementPosition::Value
+                        ) => self.checker.expr_types.get(&node.span).map(Type::may_hold_resource),
                     _ => Some(false),
                 }
             }
@@ -516,6 +520,20 @@ mod tests {
             .expect("test function returns")
     }
 
+    fn function_body(program: &ArenaProgram, name: &str) -> BlockId {
+        program
+            .statement_ids()
+            .find_map(|stmt| match program.arena.stmt(stmt).kind {
+                ArenaStmtKind::ProcDef(function)
+                    if program.arena.function_def(function).name.as_str() == name =>
+                {
+                    Some(program.arena.function_def(function).body)
+                }
+                _ => None,
+            })
+            .expect("test function exists")
+    }
+
     fn assignment_stmt(program: &ArenaProgram, name: &str) -> StmtId {
         (0..program.arena.stmt_tags.len())
             .map(StmtId::from_index)
@@ -531,7 +549,7 @@ mod tests {
 
     #[test]
     fn transfer_facts_retain_resource_and_scalar_results_through_compaction() {
-        let source = "proc transfer() [fs, error] -> Result[FsRoot] { let root = fs.tempdir()?; return root }\nproc scalar() -> Int { return 0 }\n";
+        let source = "proc transfer() [fs, error] -> Result[FsRoot] { let root = fs.tempdir()?; return root }\nproc tail() [fs, error] -> Result[FsRoot] { let root = fs.tempdir()?; root }\nproc scalar() -> Int { return 0 }\n";
         let program = Parser::parse_source_arena_only(SourceId::new(0), source).arena;
         let checked = Checker::check_arena_with_options(
             &program,
@@ -544,12 +562,15 @@ mod tests {
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
         let resource_return = ResourceTransferSite::Return(return_stmt(&program, "transfer"));
+        let bare_tail = ResourceTransferSite::BlockValue(function_body(&program, "tail"));
         let scalar_return = ResourceTransferSite::Return(return_stmt(&program, "scalar"));
         assert_eq!(checked.resource_transfer(resource_return), Some(true));
+        assert_eq!(checked.resource_transfer(bare_tail), Some(true));
         assert_eq!(checked.resource_transfer(scalar_return), Some(false));
 
         let compact = Checker::compact_declarations(&program, checked);
         assert_eq!(compact.bodies.resource_transfer(resource_return), Some(true));
+        assert_eq!(compact.bodies.resource_transfer(bare_tail), Some(true));
         assert_eq!(compact.bodies.resource_transfer(scalar_return), Some(false));
     }
 

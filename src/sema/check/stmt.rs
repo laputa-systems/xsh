@@ -3944,13 +3944,15 @@ impl Checker {
                     None => self.check_tail_bare_ident_arena(arena, source, name, stmt.span),
                 };
                 let ty = self.resolve_local_tail_type(ty, expected, stmt.span);
-                if expected.is_some_and(|ty| *ty == Type::Unit || ty.is_result_unit())
+                let ty = if expected.is_some_and(|ty| *ty == Type::Unit || ty.is_result_unit())
                     && self.reject_bool_statement(source, &ty, stmt.span)
                 {
                     Type::Unit
                 } else {
                     ty
-                }
+                };
+                self.record_expr_type(stmt.span, ty.clone());
+                ty
             }
             ArenaStmtKind::Command(command_id) => {
                 let command_stmt = arena.arena.command_stmt(command_id);
