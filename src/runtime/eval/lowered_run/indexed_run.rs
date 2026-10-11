@@ -84,7 +84,9 @@ use calls::{
 };
 use operands::{
     indexed_error, indexed_value, indexed_decode, indexed_raw, indexed_string, indexed_finish,
-    indexed_optional_raw, decode_record_updates, decode_comparison_chain, decode_match_expr,
+    indexed_optional_raw, decode_record_updates, decode_comparison_chain,
+    decode_comparison_pair, comparison_pair_at, decode_match_expr, match_expr_arm_at,
+    record_update_at, ComparisonChainPosition, MatchExprPosition, RecordUpdatePosition,
     decode_module_call, decode_assign_path, decode_comp_qualifiers, decode_fmt,
 };
 
@@ -1567,13 +1569,16 @@ impl Evaluator {
         let mut payload = payload;
         let result = match tag {
             FullTag::ExprComparisonChain => {
-                let (first, pairs) = decode_comparison_chain(execution, &mut payload, call_span)?;
-                indexed_finish(payload, call_span)?;
+                let (first, mut pairs) =
+                    decode_comparison_chain(execution, tag, payload, call_span)?;
                 let mut left = match self.eval_indexed_expr(execution, first, slots, call_span)? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                for (op, right, span) in pairs {
+                for pair in pairs.by_ref() {
+                    let pair = pair.map_err(|error| indexed_error(error, call_span))?;
+                    let (op, _, right, span) =
+                        decode_comparison_pair(execution, pair, call_span)?;
                     let right = match self.eval_indexed_expr(execution, right, slots, span)? {
                         ControlFlow::Continue(value) => value,
                         ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
@@ -1652,17 +1657,20 @@ impl Evaluator {
                 ControlFlow::Continue(LoweredValue::Map(Arc::new(map)))
             }
             FullTag::ExprRecordUpdate => {
-                let base = indexed_raw(&mut payload, call_span)?;
-                let updates = decode_record_updates(execution, &mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
+                let (base, mut updates, span) =
+                    decode_record_updates(execution, tag, payload, call_span)?;
                 let base = match self.eval_indexed_expr(execution, base, slots, span)? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
                 let mut replacements = Vec::with_capacity(updates.len());
-                for (path, value, field_span) in updates {
-                    let value = match self.eval_indexed_expr(execution, value, slots, field_span)? {
+                for update in updates.by_ref() {
+                    let (path, value, field_span) =
+                        update.map_err(|error| indexed_error(error, span))?;
+                    let path = path
+                        .map(|name| name.map_err(|error| indexed_error(error, field_span)))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let value = match self.eval_indexed_expr(execution, value.raw(), slots, field_span)? {
                         ControlFlow::Continue(value) => value,
                         ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                     };

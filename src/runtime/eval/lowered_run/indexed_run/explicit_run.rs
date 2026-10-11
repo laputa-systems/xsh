@@ -20,7 +20,9 @@ use super::{
     assign_lowered_str_view,
     bind_lowered_comp_target, capture_checked_error, check_env_name,
     checked_indexed_assignment, comparison_link_holds, decode_assign_path, decode_comp_qualifiers,
-    decode_comparison_chain, decode_match_expr, decode_module_call, decode_record_updates,
+    comparison_pair_at, decode_comparison_chain, decode_match_expr, decode_module_call,
+    decode_record_updates, match_expr_arm_at, record_update_at,
+    ComparisonChainPosition, MatchExprPosition, RecordUpdatePosition,
     decode_fmt, finish_record_entries, indexed_assignment_operand, indexed_callable_identity,
     indexed_decode, indexed_error, indexed_finish, indexed_optional_raw, indexed_raw,
     indexed_string, indexed_value, lowered_binary_value, lowered_bytes_parts,
@@ -1507,13 +1509,16 @@ enum FrameContinuation {
     PrintArgument(FramePrintState),
     Discard(Span),
     ComparisonLeft {
-        pairs: Vec<(BinaryOp, u32, Span)>,
+        instruction: u32,
+        pairs: ComparisonChainPosition,
         next: Box<FrameContinuation>,
     },
     ComparisonRight {
+        instruction: u32,
+        pairs: ComparisonChainPosition,
+        op: BinaryOp,
         left: LoweredValue,
-        pairs: Vec<(BinaryOp, u32, Span)>,
-        position: usize,
+        span: Span,
         next: Box<FrameContinuation>,
     },
     Field {
@@ -1630,14 +1635,16 @@ enum FrameContinuation {
     },
     AssertionChainLeft {
         state: FrameAssertionState,
-        pairs: Vec<(BinaryOp, u32, Span)>,
-        position: usize,
+        instruction: u32,
+        pairs: ComparisonChainPosition,
     },
     AssertionChainRight {
         state: FrameAssertionState,
-        pairs: Vec<(BinaryOp, u32, Span)>,
-        position: usize,
+        instruction: u32,
+        pairs: ComparisonChainPosition,
+        op: BinaryOp,
         left: LoweredValue,
+        span: Span,
     },
     AssertionMessage {
         failure: super::AssertionFailure,
@@ -1726,14 +1733,16 @@ enum FrameContinuation {
         span: Span,
     },
     MatchExprValue {
-        arms: Vec<(u32, Option<u32>, u32)>,
+        instruction: u32,
+        arms: MatchExprPosition,
         span: Span,
         next: Box<FrameContinuation>,
     },
     MatchExprGuard {
-        arms: Vec<(u32, Option<u32>, u32)>,
-        index: usize,
+        instruction: u32,
+        arms: MatchExprPosition,
         value: LoweredValue,
+        body: u32,
         span: Span,
         next: Box<FrameContinuation>,
     },
@@ -1836,14 +1845,17 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     RecordUpdateBase {
-        updates: Vec<(Vec<Name>, u32, Span)>,
+        instruction: u32,
+        position: RecordUpdatePosition,
         span: Span,
         next: Box<FrameContinuation>,
     },
     RecordUpdateItems {
+        instruction: u32,
+        position: RecordUpdatePosition,
+        path: Vec<Name>,
+        field_span: Span,
         base: LoweredValue,
-        updates: Vec<(Vec<Name>, u32, Span)>,
-        index: usize,
         values: Vec<(Vec<Name>, LoweredValue, Span)>,
         span: Span,
         next: Box<FrameContinuation>,
@@ -5976,15 +5988,19 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
             }
             FullTag::ExprComparisonChain => {
-                let (first, pairs) =
-                    decode_comparison_chain(&self.calls[index].execution, &mut payload, span)?;
-                indexed_finish(payload, span)?;
+                let (first, pairs) = decode_comparison_chain(
+                    &self.calls[index].execution,
+                    tag,
+                    payload,
+                    span,
+                )?;
                 self.push_expr(
                     index,
                     first,
                     span,
                     FrameContinuation::ComparisonLeft {
-                        pairs,
+                        instruction,
+                        pairs: pairs.position(),
                         next: Box::new(next),
                     },
                 );
@@ -6033,15 +6049,19 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 )?;
             }
             FullTag::ExprMatch => {
-                let (value, decoded_arms, value_span) =
-                    decode_match_expr(&self.calls[index].execution, &mut payload, span)?;
-                indexed_finish(payload, span)?;
+                let (value, arms, value_span) = decode_match_expr(
+                    &self.calls[index].execution,
+                    tag,
+                    payload,
+                    span,
+                )?;
                 self.push_expr(
                     index,
                     value,
                     value_span,
                     FrameContinuation::MatchExprValue {
-                        arms: decoded_arms,
+                        instruction,
+                        arms: arms.position(),
                         span: value_span,
                         next: Box::new(next),
                     },
@@ -6151,18 +6171,19 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 )?;
             }
             FullTag::ExprRecordUpdate => {
-                let base = indexed_raw(&mut payload, span)?;
-                let updates =
-                    decode_record_updates(&self.calls[index].execution, &mut payload, span)?;
-                let update_span =
-                    indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
+                let (base, updates, update_span) = decode_record_updates(
+                    &self.calls[index].execution,
+                    tag,
+                    payload,
+                    span,
+                )?;
                 self.push_expr(
                     index,
                     base,
                     update_span,
                     FrameContinuation::RecordUpdateBase {
-                        updates,
+                        instruction,
+                        position: updates.position(),
                         span: update_span,
                         next: Box::new(next),
                     },
@@ -6656,18 +6677,18 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     } else if tag == FullTag::ExprComparisonChain {
                         let (first, pairs) = decode_comparison_chain(
                             &self.calls[index].execution,
-                            &mut payload,
+                            tag,
+                            payload,
                             state.span,
                         )?;
-                        indexed_finish(payload, state.span)?;
                         self.push_expr(
                             index,
                             first,
                             state.span,
                             FrameContinuation::AssertionChainLeft {
                                 state,
-                                pairs,
-                                position: 0,
+                                instruction,
+                                pairs: pairs.position(),
                             },
                         );
                         return Ok(());
@@ -7346,17 +7367,32 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::ComparisonLeft { pairs, next } => match value {
+            FrameContinuation::ComparisonLeft {
+                instruction,
+                pairs,
+                next,
+            } => match value {
                 FrameValue::Value(left) => {
-                    let (_, right, span) = pairs[0];
+                    let (op, right, span, pairs) = comparison_pair_at(
+                        &self.calls[index].execution,
+                        instruction,
+                        pairs,
+                        self.calls[index].call_span,
+                    )?
+                    .ok_or_else(|| {
+                        RuntimeError::new("indexed-ir", "comparison chain pair ended early")
+                            .with_span(self.calls[index].call_span)
+                    })?;
                     self.push_expr(
                         index,
                         right,
                         span,
                         FrameContinuation::ComparisonRight {
-                            left,
+                            instruction,
                             pairs,
-                            position: 0,
+                            op,
+                            left,
+                            span,
                             next,
                         },
                     );
@@ -7366,27 +7402,41 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
             },
             FrameContinuation::ComparisonRight {
-                left,
+                instruction,
                 pairs,
-                position,
+                op,
+                left,
+                span,
                 next,
             } => match value {
                 FrameValue::Value(right) => {
-                    let (op, _, span) = pairs[position];
                     let holds = comparison_link_holds(op, &left, &right, span)?;
-                    if !holds || position + 1 == pairs.len() {
+                    if !holds || pairs.is_exhausted() {
                         self.push_value(index, FrameValue::Value(LoweredValue::Bool(holds)), *next);
                     } else {
-                        let position = position + 1;
-                        let (_, operand, span) = pairs[position];
+                        let (op, operand, span, pairs) = comparison_pair_at(
+                            &self.calls[index].execution,
+                            instruction,
+                            pairs,
+                            self.calls[index].call_span,
+                        )?
+                        .ok_or_else(|| {
+                            RuntimeError::new(
+                                "indexed-ir",
+                                "comparison chain pair ended early",
+                            )
+                            .with_span(self.calls[index].call_span)
+                        })?;
                         self.push_expr(
                             index,
                             operand,
                             span,
                             FrameContinuation::ComparisonRight {
-                                left: right,
+                                instruction,
                                 pairs,
-                                position,
+                                op,
+                                left: right,
+                                span,
                                 next,
                             },
                         );
@@ -7807,20 +7857,31 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             },
             FrameContinuation::AssertionChainLeft {
                 state,
+                instruction,
                 pairs,
-                position,
             } => match value {
                 FrameValue::Value(left) => {
-                    let (_, right, span) = pairs[position];
+                    let (op, right, span, pairs) = comparison_pair_at(
+                        &self.calls[index].execution,
+                        instruction,
+                        pairs,
+                        state.span,
+                    )?
+                    .ok_or_else(|| {
+                        RuntimeError::new("indexed-ir", "comparison chain pair ended early")
+                            .with_span(state.span)
+                    })?;
                     self.push_expr(
                         index,
                         right,
                         span,
                         FrameContinuation::AssertionChainRight {
                             state,
+                            instruction,
                             pairs,
-                            position,
+                            op,
                             left,
+                            span,
                         },
                     );
                 }
@@ -7830,12 +7891,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             },
             FrameContinuation::AssertionChainRight {
                 mut state,
+                instruction,
                 pairs,
-                position,
+                op,
                 left,
+                span,
             } => match value {
                 FrameValue::Value(right) => {
-                    let (op, _, span) = pairs[position];
                     let passed = crate::runtime::eval::lowered_ops::lowered_assertion_comparison(
                         op, &left, &right, span,
                     )?;
@@ -7843,25 +7905,38 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         let mut failure = super::values::comparison_failure_text(
                             op, &left, &right, span,
                         );
-                        if position + 1 < pairs.len() {
+                        if !pairs.is_exhausted() {
                             failure.push_str(" (later operands skipped)");
                         }
                         state.passed = false;
                         state.reached = Some(failure);
                         state.failure = None;
                         self.calls[index].work.push(FrameWork::Assertion(state));
-                    } else if position + 1 < pairs.len() {
-                        let next_position = position + 1;
-                        let (_, next_right, next_span) = pairs[next_position];
+                    } else if !pairs.is_exhausted() {
+                        let (op, next_right, span, pairs) = comparison_pair_at(
+                            &self.calls[index].execution,
+                            instruction,
+                            pairs,
+                            state.span,
+                        )?
+                        .ok_or_else(|| {
+                            RuntimeError::new(
+                                "indexed-ir",
+                                "comparison chain pair ended early",
+                            )
+                            .with_span(state.span)
+                        })?;
                         self.push_expr(
                             index,
                             next_right,
-                            next_span,
+                            span,
                             FrameContinuation::AssertionChainRight {
                                 state,
+                                instruction,
                                 pairs,
-                                position: next_position,
+                                op,
                                 left: right,
+                                span,
                             },
                         );
                     } else {
@@ -8268,7 +8343,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
             },
             FrameContinuation::MatchExprValue {
-                arms, next, span, ..
+                instruction,
+                arms,
+                next,
+                span,
             } => match value {
                 FrameValue::Value(value) => {
                     // A `match` on an `Err` handles it: whatever an arm
@@ -8277,7 +8355,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     if matches!(value, LoweredValue::ResultErr(_)) {
                         self.evaluator.pending_traceback = None;
                     }
-                    self.select_expr_match_arm(index, arms, 0, value, span, *next)?;
+                    self.select_expr_match_arm(index, instruction, arms, value, span, *next)?;
                 }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
@@ -8308,20 +8386,21 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
             },
             FrameContinuation::MatchExprGuard {
+                instruction,
                 arms,
-                index: arm_index,
                 value: match_value,
+                body,
                 span,
                 next,
             } => match value {
                 FrameValue::Value(value) => {
                     if matches!(value, LoweredValue::Bool(true)) {
-                        self.push_expr(index, arms[arm_index].2, span, *next);
+                        self.push_expr(index, body, span, *next);
                     } else {
                         self.select_expr_match_arm(
                             index,
+                            instruction,
                             arms,
-                            arm_index + 1,
                             match_value,
                             span,
                             *next,
@@ -8679,20 +8758,28 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
             },
             FrameContinuation::RecordUpdateBase {
-                updates,
+                instruction,
+                position,
                 span,
                 next,
             } => match value {
                 FrameValue::Value(base) => {
-                    if let Some((_, instruction, field_span)) = updates.first() {
+                    if let Some((path, operand, field_span, position)) = record_update_at(
+                        &self.calls[index].execution,
+                        instruction,
+                        position,
+                        span,
+                    )? {
                         self.push_expr(
                             index,
-                            *instruction,
-                            *field_span,
+                            operand,
+                            field_span,
                             FrameContinuation::RecordUpdateItems {
+                                instruction,
+                                position,
+                                path,
+                                field_span,
                                 base,
-                                updates,
-                                index: 0,
                                 values: Vec::new(),
                                 span,
                                 next,
@@ -8707,25 +8794,33 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
             },
             FrameContinuation::RecordUpdateItems {
+                instruction,
+                position,
+                path,
+                field_span,
                 base,
-                updates,
-                index: item_index,
                 mut values,
                 span,
                 next,
             } => match value {
                 FrameValue::Value(value) => {
-                    let (path, _, field_span) = &updates[item_index];
-                    values.push((path.clone(), value, *field_span));
-                    if let Some((_, instruction, field_span)) = updates.get(item_index + 1) {
+                    values.push((path, value, field_span));
+                    if let Some((path, operand, field_span, position)) = record_update_at(
+                        &self.calls[index].execution,
+                        instruction,
+                        position,
+                        span,
+                    )? {
                         self.push_expr(
                             index,
-                            *instruction,
-                            *field_span,
+                            operand,
+                            field_span,
                             FrameContinuation::RecordUpdateItems {
+                                instruction,
+                                position,
+                                path,
+                                field_span,
                                 base,
-                                updates,
-                                index: item_index + 1,
                                 values,
                                 span,
                                 next,
@@ -11087,14 +11182,22 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn select_expr_match_arm(
         &mut self,
         index: usize,
-        arms: Vec<(u32, Option<u32>, u32)>,
-        start: usize,
+        instruction: u32,
+        mut arms: MatchExprPosition,
         value: LoweredValue,
         span: Span,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
-        for arm_index in start..arms.len() {
-            let (pattern, guard, body) = arms[arm_index];
+        loop {
+            let Some(((pattern, guard, body), position)) = match_expr_arm_at(
+                &self.calls[index].execution,
+                instruction,
+                arms,
+                span,
+            )? else {
+                return Err(lowered_match_no_arm(span));
+            };
+            arms = position;
             let matches = {
                 let call = &mut self.calls[index];
                 Evaluator::indexed_pattern_matches(
@@ -11114,9 +11217,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     guard,
                     span,
                     FrameContinuation::MatchExprGuard {
+                        instruction,
                         arms,
-                        index: arm_index,
                         value,
+                        body,
                         span,
                         next: Box::new(next),
                     },
@@ -11126,7 +11230,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             return Ok(());
         }
-        Err(lowered_match_no_arm(span))
     }
 
     fn continue_loop(&mut self, index: usize) -> Result<(), RuntimeError> {
