@@ -1,0 +1,36 @@
+FROM xsh-oracle-gnu-9.12 AS build
+
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Verify the locked archive independently of the prepared source's build artifacts.
+COPY busybox-1.36.1.tar.gz /busybox-1.36.1.tar.gz
+RUN echo 'ea5494846c51d946e5e801d1c099b438f683af8147e0be24ca4001073143110f  /busybox-1.36.1.tar.gz' | sha256sum -c -
+COPY source /source
+COPY required-applets /required-applets
+WORKDIR /source
+RUN make distclean \
+    && test "$(sed -n 's/^VERSION = //p' Makefile)" = 1 \
+    && test "$(sed -n 's/^PATCHLEVEL = //p' Makefile)" = 36 \
+    && test "$(sed -n 's/^SUBLEVEL = //p' Makefile)" = 1 \
+    && make defconfig
+# Modern Linux headers removed CBQ structures used by this release's tc.
+# tc is outside the frozen command surface; every frozen applet is checked below.
+RUN sed -i 's/^CONFIG_TC=y$/# CONFIG_TC is not set/' .config \
+    && make oldconfig </dev/null \
+    && make -j8 \
+    && ./busybox | head -1 | grep '^BusyBox v1.36.1 ' \
+    && ./busybox --list > /built-applets \
+    && while read -r applet; do grep -Fx "$applet" /built-applets || exit 1; done < /required-applets
+
+FROM xsh-oracle-gnu-9.12
+COPY --from=build /source/busybox /bin/busybox
+# Preserve corresponding source, build configuration, and upstream GPL notices.
+COPY --from=build /busybox-1.36.1.tar.gz /usr/share/busybox-oracle/busybox-1.36.1.tar.gz
+COPY --from=build /source/.config /usr/share/busybox-oracle/config
+COPY --from=build /source/LICENSE /usr/share/busybox-oracle/LICENSE
+COPY --from=build /required-applets /usr/share/busybox-oracle/required-applets
+RUN /bin/busybox | head -1 | grep '^BusyBox v1.36.1 ' \
+    && /bin/busybox --list > /built-applets \
+    && while read -r applet; do grep -Fx "$applet" /built-applets || exit 1; done < /usr/share/busybox-oracle/required-applets \
+    && rm /built-applets
