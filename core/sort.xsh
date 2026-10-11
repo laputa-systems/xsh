@@ -370,7 +370,7 @@ pure has_general_numeric_keys(opts: SortOptions) -> Bool {
 ## Parse once during input preparation, preserving the target's native long-double
 ## rounding and range. Keeping only requested strings bounds merge caches to the
 ## current records; a failed host conversion propagates before comparisons start.
-proc prepare_general_numeric_keys(lines: List[Str], opts: SortOptions) [error] -> SortOptions {
+proc prepare_general_numeric_keys(lines: List[Str], opts: SortOptions) [env, error] -> SortOptions {
   var specs: List[Str] = []
   for spec in opts.key {
     if is_general_numeric_sort(key_effective_options(spec, opts)) { specs += [spec] }
