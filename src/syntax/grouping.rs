@@ -331,6 +331,45 @@ fn binding_power(kind: &ArenaExprKind) -> u8 {
             ..
         })
         | ArenaExprKind::Wait(_) => PREFIX,
+        ArenaExprKind::Spawn(crate::syntax::arena::ArenaSpawnForm {
+            target: ArenaSpawnTarget::Run(_),
+            ..
+        })
+        | ArenaExprKind::Null
+        | ArenaExprKind::Bool(_)
+        | ArenaExprKind::Int(_)
+        | ArenaExprKind::Float(_)
+        | ArenaExprKind::Duration(_)
+        | ArenaExprKind::Str(_)
+        | ArenaExprKind::PathStr(_)
+        | ArenaExprKind::GlobStr(_)
+        | ArenaExprKind::FmtString(_)
+        | ArenaExprKind::PathFmtString(_)
+        | ArenaExprKind::Bytes(_)
+        | ArenaExprKind::Regex(_)
+        | ArenaExprKind::Ident(_)
+        | ArenaExprKind::Item
+        | ArenaExprKind::LastStatus
+        | ArenaExprKind::List(_)
+        | ArenaExprKind::ListComp { .. }
+        | ArenaExprKind::MapComp { .. }
+        | ArenaExprKind::Set(_)
+        | ArenaExprKind::SetComp { .. }
+        | ArenaExprKind::Record(_)
+        | ArenaExprKind::If { .. }
+        | ArenaExprKind::Match { .. }
+        | ArenaExprKind::EnvString(_)
+        | ArenaExprKind::EnvPathList
+        | ArenaExprKind::Run(_)
+        | ArenaExprKind::Capture(_)
+        | ArenaExprKind::Collect { .. }
+        | ArenaExprKind::Loop { .. }
+        | ArenaExprKind::Retry { .. }
+        | ArenaExprKind::ValueBlock(_)
+        | ArenaExprKind::ErrorContext { .. }
+        | ArenaExprKind::ContextScope { .. }
+        | ArenaExprKind::TempDirScope { .. }
+        | ArenaExprKind::ResourceScope { .. } => PRIMARY,
         ArenaExprKind::Call { .. }
         | ArenaExprKind::Field { .. }
         | ArenaExprKind::NullSafeField { .. }
@@ -339,7 +378,6 @@ fn binding_power(kind: &ArenaExprKind) -> u8 {
         | ArenaExprKind::Try(_)
         | ArenaExprKind::Require { .. }
         | ArenaExprKind::BuilderCall { .. } => POSTFIX,
-        _ => PRIMARY,
     }
 }
 
@@ -453,7 +491,45 @@ fn reads_inline(arena: &AstArena, expr: ExprId) -> bool {
             | ArenaExprKind::Slice { base, .. } => base,
             ArenaExprKind::Call { callee, .. } => callee,
             ArenaExprKind::Try(inner) => inner,
-            _ => return true,
+            ArenaExprKind::Null
+            | ArenaExprKind::Bool(_)
+            | ArenaExprKind::Int(_)
+            | ArenaExprKind::Float(_)
+            | ArenaExprKind::Duration(_)
+            | ArenaExprKind::Str(_)
+            | ArenaExprKind::PathStr(_)
+            | ArenaExprKind::GlobStr(_)
+            | ArenaExprKind::FmtString(_)
+            | ArenaExprKind::PathFmtString(_)
+            | ArenaExprKind::Bytes(_)
+            | ArenaExprKind::Regex(_)
+            | ArenaExprKind::Ident(_)
+            | ArenaExprKind::Item
+            | ArenaExprKind::LastStatus
+            | ArenaExprKind::List(_)
+            | ArenaExprKind::ListComp { .. }
+            | ArenaExprKind::If { .. }
+            | ArenaExprKind::Match { .. }
+            | ArenaExprKind::PatternTest { .. }
+            | ArenaExprKind::PatternCondition { .. }
+            | ArenaExprKind::Unary { .. }
+            | ArenaExprKind::ComparisonChain(_)
+            | ArenaExprKind::EnvString(_)
+            | ArenaExprKind::EnvPathList
+            | ArenaExprKind::Run(_)
+            | ArenaExprKind::Spawn(_)
+            | ArenaExprKind::Wait(_)
+            | ArenaExprKind::BuilderCall { .. }
+            | ArenaExprKind::Require { .. }
+            | ArenaExprKind::Convert { .. }
+            | ArenaExprKind::Capture(_)
+            | ArenaExprKind::Collect { .. }
+            | ArenaExprKind::Loop { .. }
+            | ArenaExprKind::Retry { .. }
+            | ArenaExprKind::ErrorContext { .. }
+            | ArenaExprKind::ContextScope { .. }
+            | ArenaExprKind::TempDirScope { .. }
+            | ArenaExprKind::ResourceScope { .. } => return true,
         };
     }
 }
@@ -1287,11 +1363,60 @@ pub fn for_each_child(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(Ex
         }
         // Command words are parsed at the run boundary, outside grouping's expression walk.
         ArenaExprKind::Run(_) => {}
-        _ => arena.for_each_expr_child(parent, |child| {
-            if let crate::syntax::arena::ArenaChild::Expr(child) = child {
-                visit(child);
-            }
-        }),
+        ArenaExprKind::Null
+        | ArenaExprKind::Bool(_)
+        | ArenaExprKind::Int(_)
+        | ArenaExprKind::Float(_)
+        | ArenaExprKind::Duration(_)
+        | ArenaExprKind::Str(_)
+        | ArenaExprKind::PathStr(_)
+        | ArenaExprKind::GlobStr(_)
+        | ArenaExprKind::FmtString(_)
+        | ArenaExprKind::PathFmtString(_)
+        | ArenaExprKind::Bytes(_)
+        | ArenaExprKind::Regex(_)
+        | ArenaExprKind::Ident(_)
+        | ArenaExprKind::Item
+        | ArenaExprKind::LastStatus
+        | ArenaExprKind::List(_)
+        | ArenaExprKind::ListComp { .. }
+        | ArenaExprKind::MapComp { .. }
+        | ArenaExprKind::Set(_)
+        | ArenaExprKind::SetComp { .. }
+        | ArenaExprKind::Record(_)
+        | ArenaExprKind::If { .. }
+        | ArenaExprKind::Match { .. }
+        | ArenaExprKind::Unary { .. }
+        | ArenaExprKind::ComparisonChain(_)
+        | ArenaExprKind::Binary { .. }
+        | ArenaExprKind::Call { .. }
+        | ArenaExprKind::ValuePipelineCall { .. }
+        | ArenaExprKind::Field { .. }
+        | ArenaExprKind::NullSafeField { .. }
+        | ArenaExprKind::Index { .. }
+        | ArenaExprKind::Slice { .. }
+        | ArenaExprKind::EnvString(_)
+        | ArenaExprKind::EnvPathList
+        | ArenaExprKind::Wait(_)
+        | ArenaExprKind::BuilderCall { .. }
+        | ArenaExprKind::Try(_)
+        | ArenaExprKind::Capture(_)
+        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::Convert { .. }
+        | ArenaExprKind::Collect { .. }
+        | ArenaExprKind::Loop { .. }
+        | ArenaExprKind::Retry { .. }
+        | ArenaExprKind::ValueBlock(_)
+        | ArenaExprKind::ErrorContext { .. }
+        | ArenaExprKind::ContextScope { .. }
+        | ArenaExprKind::TempDirScope { .. }
+        | ArenaExprKind::ResourceScope { .. } => {
+            arena.for_each_expr_child(parent, |child| {
+                if let crate::syntax::arena::ArenaChild::Expr(child) = child {
+                    visit(child);
+                }
+            });
+        }
     }
 }
 
