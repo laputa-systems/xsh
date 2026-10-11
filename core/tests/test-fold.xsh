@@ -56,3 +56,12 @@ test test_fold_zero_width_buffer_flush_preserves_columns { |ctx|
   assert output.status.exited_with(0)
   assert output.stdout == bytes.concat([b"a ", zeroes, b"bc\nde"])
 }
+
+
+test test_fold_zero_width_chunk_preserves_following_wrap { |ctx|
+  let zeroes = bytes.from_ints([0 for _ in range(65535)])?
+  let input = test.temp_file(ctx, name: "zero-width-chunk", contents: bytes.concat([b"a", zeroes, b"b\n"]))?
+  let output = run.capture --bytes LC_ALL=C.UTF-8 ${ctx.xsh_bin} fp"{ctx.core_dir}/fold.xsh" -- -w1 $input
+  assert output.status.exited_with(0)
+  assert output.stdout == bytes.concat([b"a", zeroes, b"\nb\n"])
+}

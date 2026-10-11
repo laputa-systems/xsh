@@ -4,7 +4,7 @@ use lib.text_a2 as text
 
 type Options = {width: Str, bytes: Bool, characters: Bool, spaces: Bool, help: Bool, version: Bool, paths: List[Str]}
 
-type FoldState = {held: Bytes, column: Int, at: Int, blank: Int}
+type FoldState = {held: Bytes, column: Int, at: Int, blank: Int, pending: Int}
 
 # Zero-width input must not grow the line buffer without bound. Flushing this
 # prefix preserves its column and gives the remaining bytes a fresh blank search.
@@ -19,30 +19,36 @@ proc fold_chunk(data: Bytes, opts: Options, width: Int, eof: Bool, byte_columns:
   var at = state.at
   var column = state.column
   var blank = state.blank
+  var pending = state.pending
   while at < data.len() {
     let byte = data.byte_at(at) ?? 0
     if byte == 10 {
-      gnu.write_bytes(data[start..at + 1]); start = at + 1; column = 0; blank = -1; at += 1; continue
+      gnu.write_bytes(data[start..at + 1]); start = at + 1; column = 0; blank = -1; pending = 0; at += 1; continue
     }
     let lead = data.byte_at(at) ?? 0
     let need = if lead >= 194 and lead <= 223 { 2 } else if lead >= 224 and lead <= 239 { 3 } else if lead >= 240 and lead <= 244 { 4 } else { 1 }
     break when ! eof and ! byte_columns and at + need > data.len()
     let unit = if byte_columns { {size: 1, width: if opts.bytes or byte >= 128 { 1 } else { text.character(data, at).width }} } else { text.character(data, at) }
     let next = advance(column, byte, opts.bytes, if opts.characters { 1 } else { unit.width })
-    if next > width and at > start {
+    if next > width and pending > 0 {
       let end = if opts.spaces and blank >= start { blank + 1 } else { at }
       gnu.write_bytes(data[start..end]); gnu.write_text("\n")
-      start = end; at = end; column = 0; blank = -1; continue
+      start = end; at = end; column = 0; blank = -1; pending = 0; continue
     }
-    if at - start + unit.size >= LINE_BUFFER_BYTES {
-      gnu.write_bytes(data[start..at]); start = at; blank = -1
+    if pending + unit.size >= LINE_BUFFER_BYTES {
+      gnu.write_bytes(data[start..at]); start = at; blank = -1; pending = 0
     }
     column = next
     if byte == 32 or byte == 9 or (! byte_columns and text.blank_size(data, at) > 0) { blank = at + unit.size - 1 }
     at += unit.size
+    pending += unit.size
   }
-  if eof { gnu.write_bytes(data[start..]); return {held: b"", column: 0, at: 0, blank: -1} }
-  {held: data[start..], column: column, at: at - start, blank: if blank >= start { blank - start } else { -1 }}
+  if eof { gnu.write_bytes(data[start..]); return {held: b"", column: 0, at: 0, blank: -1, pending: 0} }
+  # Only space wrapping can move an earlier blank to the next line. Without
+  # it, processed bytes are final; retain the logical buffer length and column
+  # while releasing their storage before the next read.
+  if ! opts.spaces { gnu.write_bytes(data[start..at]); start = at }
+  {held: data[start..], column: column, at: at - start, pending: pending, blank: if blank >= start { blank - start } else { -1 }}
 }
 
 proc main(...argv: List[Str]) {
@@ -65,7 +71,7 @@ proc main(...argv: List[Str]) {
   for name in if opts.paths.is_empty() { ["-"] } else { opts.paths } {
     guard let source = text.open_source(name) else { |failure| gnu.name_error(name, failure); failed = true; continue }
     defer text.close_source(source)?
-    var state: FoldState = {held: b"", column: 0, at: 0, blank: -1}
+    var state: FoldState = {held: b"", column: 0, at: 0, blank: -1, pending: 0}
     loop {
       guard let chunk = text.read_source(source) else { |failure|
         let _ = fold_chunk(state.held, opts, width, true, byte_columns, state)
