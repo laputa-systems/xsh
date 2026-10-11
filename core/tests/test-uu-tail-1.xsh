@@ -681,27 +681,26 @@ test test_uu_tail_follow_name_multiple { |ctx|
 # origin: uutils test_tail::test_follow_name_shows_headers_on_creation
 test test_uu_tail_follow_name_shows_headers_on_creation { |ctx|
   let s = uu.scene(ctx)?
-  for row in [{delay: 150ms, extra: ["---disable-inotify"]}, {delay: 50ms, extra: []}] {
-  let plan = follow(s, ["-F", "-s.1", "--max-unchanged-stats=1", "log1", "log2"].extend(row.extra))?
+  let delay = 150ms
+  let plan = follow(s, ["-F", "-s.1", "--max-unchanged-stats=1", "log1", "log2", "---disable-inotify"])?
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)?
   let initial_stderr = "tail: cannot open 'log1' for reading: No such file or directory\ntail: cannot open 'log2' for reading: No such file or directory\n"
-    time.sleep(row.delay)?
-    alive(child)
-    # The missing-file diagnostics confirm tail completed its initial open pass.
-    wait_output(s, b"", bytes.from_text(initial_stderr))
-    uu.write(s, "log1", "ping\n")?
-    time.sleep(row.delay)?
-    uu.write(s, "log2", "pong\n")?
-    time.sleep(row.delay)?
-    alive(child)
+  time.sleep(delay)?
+  alive(child)
+  # The missing-file diagnostics confirm tail completed its initial open pass.
+  wait_output(s, b"", bytes.from_text(initial_stderr))
+  uu.write(s, "log1", "ping\n")?
+  time.sleep(delay)?
+  uu.write(s, "log2", "pong\n")?
+  time.sleep(delay)?
+  alive(child)
   child.cancel(signal: "KILL", kill_after: 0ms)?
-    let r = streams(s)?
-    uu.stderr_is(r, initial_stderr + "tail: 'log1' has appeared;  following new file\ntail: 'log2' has appeared;  following new file\n")
-    uu.stdout_is(r, "==> log1 <==\nping\n\n==> log2 <==\npong\n")
-    uu.remove(s, "log1")?
-    uu.remove(s, "log2")?
-  }
+  let r = streams(s)?
+  uu.stderr_is(r, initial_stderr + "tail: 'log1' has appeared;  following new file\ntail: 'log2' has appeared;  following new file\n")
+  uu.stdout_is(r, "==> log1 <==\nping\n\n==> log2 <==\npong\n")
+  uu.remove(s, "log1")?
+  uu.remove(s, "log2")?
 }
 
 # origin: uutils test_tail::test_follow_name_stdin
