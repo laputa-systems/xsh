@@ -38,7 +38,7 @@ zero rows in 21 groups; a separate targeted pattern profile proves two more
 rows. Missing rows still require source-reachable tests or exact writer and
 caller closure. Passing stage tests did not hit the old indexed block decoder
 rows and are not coverage acceptance. Artifacts live under
-`.work/consolidation/coverage/profile-aggregate/`.
+`/home/josh/d/laputa-systems/xsh-consolidation-lanes/coverage-baseline/.work/consolidation/coverage/profile-aggregate/`.
 
 Private work remains unaccepted: the full lint table, source-owned lint proof
 transport, complete per-module records, typed-callee verifier follow-ups,
