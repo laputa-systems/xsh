@@ -103,15 +103,15 @@ beta
 {"name":"beta","size":1}
 """
   |> json.lines
-  |> sort-by .size.require(Int)?
+  |> sort-by json.get(., ["size"])?.require(Int)?
 
-  assert json_lines[0].name == "beta"
+  assert json.get(json_lines[0], ["name"])? == "beta"
 
   let json_stream = """{"ok":true}
 {"ok":false}
 """ |> json.stream
 
-  assert json_stream[1].ok == false
+  assert json.get(json_stream[1], ["ok"])? == false
 
   assert ([3, 1, 2, 2]
     |> where . > 1
@@ -2022,7 +2022,7 @@ test test_stream_adapters_bridge_text_bytes_and_json_lines {
 {"name":"b","size":2}
 """
   |> json.lines
-  |> sort-by .size.require(Int)?
+  |> sort-by json.get(., ["size"])?.require(Int)?
 
   let streamed = """{"name":"c","size":3}
 """ |> json.stream
@@ -2032,9 +2032,9 @@ test test_stream_adapters_bridge_text_bytes_and_json_lines {
   assert paths[1].name == "b.log"
   assert chunks[0] == b"ab"
   assert chunks[2] == b"e"
-  assert rows[1].name == "b"
-  assert rows[0].size == 1
-  assert streamed[0].name == "c"
+  assert json.get(rows[1], ["name"])? == "b"
+  assert json.get(rows[0], ["size"])? == 1
+  assert json.get(streamed[0], ["name"])? == "c"
   assert words[1] == "two"
 }
 

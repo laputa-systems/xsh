@@ -92,9 +92,9 @@ test test_net_module_with_mocks { |ctx|
   net.close_pool("stdlib-test")
   net.close_all_pools()
   assert test.calls(ctx, "net.request")[0].args.method == "GET"
-  assert test.calls(ctx, "net.request_many")[0].args.requests[0].method == "GET"
+  assert json.get(test.calls(ctx, "net.request_many")[0].args, ["requests", 0, "method"])? == "GET"
   assert test.calls(ctx, "net.download")[0].args.dest.require(Path)?.display() == "out"
-  assert test.calls(ctx, "net.download_many")[0].args.downloads[0].url == "https://example.test/file"
+  assert json.get(test.calls(ctx, "net.download_many")[0].args, ["downloads", 0, "url"])? == "https://example.test/file"
   assert test.calls(ctx, "net.upload")[0].args.source.require(Path)?.display() == "in"
 }
 

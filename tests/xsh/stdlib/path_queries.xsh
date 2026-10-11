@@ -44,14 +44,28 @@ test test_path_component_queries_keep_native_bytes {
   assert raw.starts_with(p"dir")
 }
 
-test test_path_component_queries_on_a_dynamic_receiver {
+test test_path_component_queries_on_a_validated_dynamic_receiver {
   let library: Any = /usr/lib/libz.so
-  assert library.starts_with(/usr).require(Bool)?
-  assert ! library.starts_with(/us).require(Bool)?
-  assert library.ends_with(p"lib/libz.so").require(Bool)?
-  assert ! library.ends_with(p"z.so").require(Bool)?
+  assert library.require(Path)?.starts_with(/usr)
+  assert ! library.require(Path)?.starts_with(/us)
+  assert library.require(Path)?.ends_with(p"lib/libz.so")
+  assert ! library.require(Path)?.ends_with(p"z.so")
   let text: Any = "/usr/lib"
-  assert text.starts_with("/us").require(Bool)?
+  assert text.require(Str)?.starts_with("/us")
+}
+
+test test_path_component_queries_on_a_dynamic_receiver { |ctx|
+  for source in [
+    "let library: Any = /usr/lib/libz.so\nassert library.starts_with(/usr)",
+    "let library: Any = /usr/lib/libz.so\nassert ! library.starts_with(/us)",
+    "let library: Any = /usr/lib/libz.so\nassert library.ends_with(p\"lib/libz.so\")",
+    "let library: Any = /usr/lib/libz.so\nassert ! library.ends_with(p\"z.so\")",
+    "let text: Any = \"/usr/lib\"\nassert text.starts_with(\"/us\")",
+  ] {
+    let checked = test.run_script(ctx, source)?
+    assert checked.status == 2, checked.stderr
+    assert "check.dynamic-boundary" in checked.stderr, checked.stderr
+  }
 }
 
 test test_path_starts_with_requires_a_path_argument { |ctx|

@@ -53,7 +53,7 @@ test test_json_read_write_lines_and_paths { |ctx|
   assert "{\"a\":1}" in json.encode_lines([{a: 1}, {a: 2}])?
   let json_path = fp"{root}/data.json"
   json.write(json_path, updated, pretty: false)
-  assert json.read(json_path)?["name"] == "pkg"
+  assert json.get(json.read(json_path)?, ["name"])? == "pkg"
   let lines_path = fp"{root}/lines.jsonl"
   json.write_lines(lines_path, [{a: 1}, {a: 2}])
   assert lines_path.read_text()?.count_lines() == 2
@@ -63,13 +63,13 @@ test test_json_read_write_lines_and_paths { |ctx|
 
 test test_json_decode_type_patterns_and_public_boundaries {
   let decoded = json.decode("{\"quote\":\"\\\"\",\"line\":\"a\\nb\",\"snow\":\"\\u2603\",\"music\":\"\\uD834\\uDD1E\"}")?
-  assert decoded.quote == "\""
+  assert json.get(decoded, ["quote"])? == "\""
 
-  assert decoded.line == """a
+  assert json.get(decoded, ["line"])? == """a
 b"""
 
-  assert decoded.snow == "☃"
-  assert decoded.music == "𝄞"
+  assert json.get(decoded, ["snow"])? == "☃"
+  assert json.get(decoded, ["music"])? == "𝄞"
   assert json.decode("1.25")?.require(Float)?.format(precision: 2) == "1.25"
   test.error_kind(json.decode("9223372036854775808"), "json")
   assert json_label(json.decode("1")?)? == "int 1.0"
@@ -86,8 +86,8 @@ b"""
 """ |> json.lines
 
   let encoded = json.encode({z: 1, a: 2, nested: {b: 1, a: 2}})?
-  assert rows[0].b == 2
-  assert rows[1].a == 1
+  assert json.get(rows[0], ["b"])? == 2
+  assert json.get(rows[1], ["a"])? == 1
   assert encoded == "{\"a\":2,\"nested\":{\"a\":2,\"b\":1},\"z\":1}"
   test.error_kind(json.decode("not json"), "json")
   let data = {path: p"src"}
@@ -144,8 +144,8 @@ pure rejection_message(outcome: Result[Any]) -> Result[Str] {
   match outcome {
     Ok(value) => {
       match value {
-        Ok(inner) => Ok(inner.message.require()?)
-        Err(failure) => Ok(failure.message.require()?)
+        Ok(inner) => Ok(json.get(inner, ["message"])?.require(Str)?)
+        Err(failure) => Ok(json.get(failure, ["message"])?.require(Str)?)
         else => Ok("no rejection")
       }
     }

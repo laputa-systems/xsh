@@ -385,7 +385,8 @@ test test_process_spawn_timeout_and_return_transfer {
   let first = process_handle_from_proc()?
   let first_status = wait first?
   let bundle = process_handle_from_record()?
-  let bundle_status = wait bundle.nested?
+  let nested: ProcessHandle = bundle.nested.require()?
+  let bundle_status = wait nested?
   let ok = process_handle_from_ok()?
   let ok_status = wait ok?
   let list = process_handle_from_list()?

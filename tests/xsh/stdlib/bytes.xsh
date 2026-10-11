@@ -135,5 +135,14 @@ test test_byte_at_reads_bytes_and_text_through_typed_receivers {
   assert text_byte_at("abc", 2) == 99
   assert text_byte_at("abc", 3) == null
   let dynamic: Any = data
-  assert dynamic.byte_at(1).require(Int)? == 255
+  assert dynamic.require(Bytes)?.byte_at(1) == 255
+}
+
+test test_byte_at_rejects_an_opaque_receiver { |ctx|
+  let checked = test.run_script(
+    ctx,
+    "let dynamic: Any = b\"a\\xffc\"\nassert dynamic.byte_at(1) == 255",
+  )?
+  assert checked.status == 2, checked.stderr
+  assert "check.dynamic-boundary" in checked.stderr, checked.stderr
 }
