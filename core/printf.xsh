@@ -21,8 +21,7 @@ type Rendered = {data: Bytes, stop: Bool, failed: Bool, prefix_flushed: Bool}
 type Pass = {data: Bytes, next_argument: Int, conversions: Int, stop: Bool, failed: Bool, prefix_flushed: Bool}
 type PrintfArgument = {data: Bytes, text: Str}
 type DecimalScan = {value: Int, next: Int}
-type IntegerParse = {value: Int, issue: Str?, warning: Str?}
-type FloatParse = {value: Float, issue: Str?}
+type IntegerParse = {value: Int, issue: Str?, warning: Bytes?}
 type PrintfOutput = {data: Bytes, failed: Bool, next_argument: Int, stopped: Bool}
 
 pure usage(applet_name: Str, summary: Str) -> Str {
@@ -137,11 +136,6 @@ pure digit_value(character: Str) -> Int? {
   value
 }
 
-pure ascii_digit(text: Str, at: Int) -> Bool {
-  let byte = text.byte_at(at) ?? 0
-  byte >= 48 and byte <= 57
-}
-
 pure utf8_width(lead: Int) -> Int {
   return 2 when lead >= 194 and lead <= 223
   return 3 when lead >= 224 and lead <= 239
@@ -149,20 +143,36 @@ pure utf8_width(lead: Int) -> Int {
   1
 }
 
-pure integer_prefix(text: Str, auto_base: Bool) -> Int {
-  integer_parse(text, auto_base).value
+pure numeric_operand(text: Str) -> Str {
+  var start = 0
+  while start < text.byte_len() and (text.byte_at(start) ?? 0) in [9, 10, 11, 12, 13, 32] { start += 1 }
+  text.byte_slice(start)
+}
+
+pure character_constant(data: Bytes, utf8: Bool) -> IntegerParse {
+  var at = 0
+  while at < data.len() and (data.byte_at(at) ?? 0) in [9, 10, 11, 12, 13, 32] { at += 1 }
+  at += 1
+  return {value: 0, issue: "expected a numeric value", warning: null} when at >= data.len()
+  let first = data.byte_at(at) ?? 0
+  var width = if utf8 { utf8_width(first) } else { 1 }
+  var value = first
+  if width > 1 and at + width <= data.len() {
+    if let Ok(character) = data[at..at + width].utf8() { value = codepoint_value(character) } else { width = 1 }
+  } else { width = 1 }
+  let rest = data[at + width..]
+  {value: value, issue: null, warning: if rest.len() == 0 { null } else { rest }}
+}
+
+pure argument_integer(argument: PrintfArgument, auto_base: Bool, utf8: Bool) -> IntegerParse {
+  let trimmed = numeric_operand(argument.text)
+  if trimmed.starts_with("'") or trimmed.starts_with("\"") {
+    character_constant(argument.data, utf8)
+  } else { integer_parse(argument.text, auto_base) }
 }
 
 pure integer_parse(text: Str, auto_base: Bool) -> IntegerParse {
-  var start = 0
-  while start < text.byte_len() and (text.byte_at(start) ?? 0) in [9, 10, 11, 12, 13, 32] { start += 1 }
-  let trimmed = text.byte_slice(start)
-  if trimmed.starts_with("'") or trimmed.starts_with("\"") {
-    let character = trimmed.byte_slice(1)
-    if character == "" { return {value: 0, issue: "expected a numeric value", warning: null} }
-    let rest = character.byte_slice(utf8_width(character.byte_at(0) ?? 0))
-    return {value: codepoint_value(character), issue: null, warning: if rest == "" { null } else { rest }}
-  }
+  let trimmed = numeric_operand(text)
   let sign = if trimmed.starts_with("-") { -1 } else { 1 }
   var body = if trimmed.starts_with("-") or trimmed.starts_with("+") { trimmed.byte_slice(1) } else { trimmed }
   var base = 10
@@ -207,96 +217,6 @@ pure integer_parse(text: Str, auto_base: Bool) -> IntegerParse {
 
   let tail = if found { body.byte_slice(at) } else { body }
   if ! found { {value: 0, issue: "expected a numeric value", warning: null} } else if overflow { {value: limit, issue: "Numerical result out of range", warning: null} } else if tail != "" { {value: value, issue: "value not completely converted", warning: null} } else { {value: value, issue: null, warning: null} }
-}
-
-pure float_parse(text: Str) -> FloatParse {
-  var start = 0
-  while start < text.byte_len() and (text.byte_at(start) ?? 0) in [9, 10, 11, 12, 13, 32] { start += 1 }
-  let trimmed = text.byte_slice(start)
-  if trimmed.starts_with("'") or trimmed.starts_with("\"") {
-    let character = trimmed.byte_slice(1)
-    if character == "" { return {value: 0.0, issue: "expected a numeric value"} }
-    let tail = character.byte_slice(utf8_width(character.byte_at(0) ?? 0))
-    return {value: codepoint_value(character).float(), issue: if tail == "" { null } else { "value not completely converted" }}
-  }
-  let sign_length = if trimmed.starts_with("+") or trimmed.starts_with("-") { 1 } else { 0 }
-  let body = trimmed.byte_slice(sign_length)
-  let lower = body.lower()
-  if lower.starts_with("0x") {
-    var at = 2
-    var whole = 0.0
-    var fraction = 0.0
-    var scale = 1.0
-    var digits = 0
-    while at < body.byte_len() {
-      let byte = body.byte_at(at) ?? 0
-      let digit = if byte < 128 { digit_value(body.byte_slice(at, length: 1)) } else { null }
-      if digit == null or (digit ?? 99) >= 16 { break }
-      whole = whole * 16.0 + (digit ?? 0).float()
-      at += 1
-      digits += 1
-    }
-    if at < body.byte_len() and body.byte_at(at) == 46 {
-      at += 1
-      while at < body.byte_len() {
-        let byte = body.byte_at(at) ?? 0
-        let digit = if byte < 128 { digit_value(body.byte_slice(at, length: 1)) } else { null }
-        if digit == null or (digit ?? 99) >= 16 { break }
-        scale = scale / 16.0
-        fraction += (digit ?? 0).float() * scale
-        at += 1
-        digits += 1
-      }
-    }
-    var exponent = 0
-    if digits > 0 and at < body.byte_len() and (body.byte_at(at) ?? 0) in [80, 112] {
-      let marker = at
-      at += 1
-      let exponent_sign = if at < body.byte_len() and body.byte_at(at) == 45 { -1 } else { 1 }
-      if at < body.byte_len() and (body.byte_at(at) ?? 0) in [43, 45] { at += 1 }
-      let exponent_start = at
-      while at < body.byte_len() and ascii_digit(body, at) { at += 1 }
-      if at == exponent_start { at = marker } else { exponent = integer_prefix(body.byte_slice(exponent_start, length: at - exponent_start), false) * exponent_sign }
-    }
-    let issue: Str? = if digits == 0 or body.byte_slice(at) != "" { "value not completely converted" } else { null }
-    let magnitude = (whole + fraction) * 2.0.pow(exponent.float())
-    return {value: if trimmed.starts_with("-") { -magnitude } else { magnitude }, issue: issue}
-  }
-  if lower.starts_with("inf") or lower.starts_with("nan") {
-    let end = if lower.starts_with("infinity") { sign_length + 8 } else { sign_length + 3 }
-    let value_text = trimmed.byte_slice(0, length: end)
-    let issue: Str? = if trimmed.byte_slice(end) == "" { null } else { "value not completely converted" }
-    return {value: value_text.parse_float() ?? 0.0, issue: issue}
-  }
-
-  var at = sign_length
-  var digits = 0
-  while at < trimmed.byte_len() and ascii_digit(trimmed, at) { at += 1; digits += 1 }
-  if at < trimmed.byte_len() and trimmed.byte_at(at) == 46 {
-    at += 1
-    while at < trimmed.byte_len() and ascii_digit(trimmed, at) { at += 1; digits += 1 }
-  }
-  if digits == 0 { return {value: 0.0, issue: "expected a numeric value"} }
-  if at < trimmed.byte_len() and (trimmed.byte_at(at) ?? 0) in [69, 101] {
-    let exponent_start = at
-    at += 1
-    if at < trimmed.byte_len() and (trimmed.byte_at(at) ?? 0) in [43, 45] { at += 1 }
-    let exponent_digits = at
-    while at < trimmed.byte_len() and ascii_digit(trimmed, at) { at += 1 }
-    if at == exponent_digits { at = exponent_start }
-  }
-  let value_text = trimmed.byte_slice(0, length: at)
-  let value = value_text.parse_float() ?? 0.0
-  let exponent_at = value_text.find("e") ?? value_text.find("E") ?? value_text.byte_len()
-  let mantissa = value_text.byte_slice(0, length: exponent_at)
-  var nonzero_mantissa = false
-  for index in range(mantissa.byte_len()) {
-    let digit = mantissa.byte_at(index) ?? 0
-    if digit >= 49 and digit <= 57 { nonzero_mantissa = true }
-  }
-  let out_of_range = value.format() in ["Infinity", "-Infinity"] or (value.abs() == 0.0 and nonzero_mantissa)
-  let issue: Str? = if trimmed.byte_slice(at) != "" { "value not completely converted" } else if out_of_range { "Numerical result out of range" } else { null }
-  {value: value, issue: issue}
 }
 
 pure codepoint_value(text: Str) -> Int {
@@ -454,82 +374,6 @@ pure codepoint_text(value: Int) -> Result[Str] {
   ""
 }
 
-pure float_is_nan(value: Float) -> Bool {
-  value.format() == "NaN"
-}
-
-pure float_is_infinite(value: Float) -> Bool {
-  value.format() in ["Infinity", "-Infinity"]
-}
-
-pure zero_text(count: Int) -> Str {
-  return "" when count <= 0
-  bytes.concat([b"0" for _ in range(count)]).utf8() ?? ""
-}
-
-pure increment_decimal(digits: Str) -> Str {
-  var out = ""
-  var carry = 1
-  var index = digits.byte_len() - 1
-  while index >= 0 {
-    let value = (digits.byte_at(index) ?? 48) - 48 + carry
-    carry = value / 10
-    out = f"{value % 10}{out}"
-    index -= 1
-  }
-  if carry > 0 { out = f"1{out}" }
-  out
-}
-
-# Formats a plain decimal literal from its own digits, rounding half to even.
-# A double holds about 17 significant digits, so beyond that precision the
-# binary value would show digits the literal never contained. Returns the
-# magnitude without a sign, or null for anything that is not a plain decimal
-# literal (hex, inf, nan, surrounding blanks), which keeps the binary path and
-# its diagnostics.
-pure exact_decimal_text(text: Str, places: Int) -> Str? {
-  return null when ! rx"^[+-]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][+-]?[0-9]+)?$".matches(text)
-  var unsigned = text
-  if unsigned.starts_with("-") or unsigned.starts_with("+") { unsigned = unsigned.byte_slice(1) }
-  var exponent = 0
-  let exponent_at = unsigned.find("e") ?? unsigned.find("E") ?? unsigned.byte_len()
-  if exponent_at < unsigned.byte_len() {
-    exponent = integer_prefix(unsigned.byte_slice(exponent_at + 1), false)
-    unsigned = unsigned.byte_slice(0, exponent_at)
-  }
-  return null when exponent > 100000 or exponent < -100000
-  let dot_at = unsigned.find(".")
-  let whole = if let at = dot_at { unsigned.byte_slice(0, at) } else { unsigned }
-  let fraction = if let at = dot_at { unsigned.byte_slice(at + 1) } else { "" }
-
-  var digits = f"{whole}{fraction}"
-  var point = whole.byte_len() + exponent
-  if point < 0 {
-    digits = f"{zero_text(-point)}{digits}"
-    point = 0
-  }
-  if point > digits.byte_len() { digits = f"{digits}{zero_text(point - digits.byte_len())}" }
-
-  var integer = digits.byte_slice(0, point)
-  if integer == "" { integer = "0" }
-  var kept_fraction = digits.byte_slice(point)
-  if kept_fraction.byte_len() > places {
-    let dropped = (kept_fraction.byte_at(places) ?? 48) - 48
-    let rest_nonzero = kept_fraction.byte_slice(places + 1).replace("0", with: "") != ""
-    let kept = f"{integer}{kept_fraction.byte_slice(0, places)}"
-    let last_odd = ((kept.byte_at(kept.byte_len() - 1) ?? 48) - 48) % 2 == 1
-    let round_up = dropped > 5 or (dropped == 5 and (rest_nonzero or last_odd))
-    let rounded = if round_up { increment_decimal(kept) } else { kept }
-    integer = rounded.byte_slice(0, rounded.byte_len() - places)
-    kept_fraction = rounded.byte_slice(rounded.byte_len() - places)
-  } else {
-    kept_fraction = f"{kept_fraction}{zero_text(places - kept_fraction.byte_len())}"
-  }
-
-  while integer.byte_len() > 1 and integer.starts_with("0") { integer = integer.byte_slice(1) }
-  f"{integer}{if places > 0 { "." + kept_fraction } else { "" }}"
-}
-
 proc utf8_locale() [env] -> Bool {
   var locale = ""
   for name in ["LC_ALL", "LC_CTYPE", "LANG"] {
@@ -540,7 +384,7 @@ proc utf8_locale() [env] -> Bool {
   lower.find("utf-8") != null or lower.find("utf8") != null
 }
 
-pure scan_escape(text: Bytes, slash: Int, zero_prefix: Bool = false, utf8: Bool = true) -> Result[Escape] {
+pure scan_escape(text: Bytes, slash: Int, zero_prefix: Bool, utf8: Bool) -> Result[Escape] {
   let next = slash + 1
   if next >= text.len() { return {data: bytes.from_text("\\"), next: next, stop: false, issue: null} }
   let code = text[next..next + 1].utf8() ?? ""
@@ -611,7 +455,7 @@ pure scan_escape(text: Bytes, slash: Int, zero_prefix: Bool = false, utf8: Bool 
   }
 }
 
-pure unescape_bytes(text: Bytes, utf8: Bool = true) -> Result[Escape] {
+pure unescape_bytes(text: Bytes, utf8: Bool) -> Result[Escape] {
   var output: List[Bytes] = []
   var at = 0
 
@@ -632,89 +476,85 @@ pure unescape_bytes(text: Bytes, utf8: Bool = true) -> Result[Escape] {
   {data: bytes.concat(output), next: at, stop: false, issue: null}
 }
 
-pure scientific(value: Float, precision: Int, upper: Bool) -> Str {
-  return if upper { "NAN" } else { "nan" } when float_is_nan(value)
-  return if upper { "INF" } else { "inf" } when float_is_infinite(value)
-  let negative = value < 0.0
-  var exponent = 0
-  var mantissa = value.abs()
-
-  if mantissa != 0.0 and mantissa == mantissa {
-    while mantissa >= 10.0 { mantissa = mantissa / 10.0; exponent += 1 }
-    while mantissa < 1.0 { mantissa = mantissa * 10.0; exponent -= 1 }
-  }
-
-  var digits = mantissa.format(precision)
-  if (digits.parse_float() ?? 0.0) >= 10.0 { digits = (mantissa / 10.0).format(precision); exponent += 1 }
-  let exponent_sign = if exponent < 0 { "-" } else { "+" }
-  let abs_exponent = if exponent < 0 { -exponent } else { exponent }
-  let exponent_digits = if abs_exponent < 10 { "0" + f"{abs_exponent}" } else { f"{abs_exponent}" }
-  f"{if negative { "-" } else { "" }}{digits}{if upper { "E" } else { "e" }}{exponent_sign}{exponent_digits}"
-}
-
-pure hex_float(value: Float, precision: Int?, upper: Bool) -> Str {
-  return if upper { "NAN" } else { "nan" } when float_is_nan(value)
-  return if upper { "INF" } else { "inf" } when float_is_infinite(value)
-  let negative = value < 0.0
-  let magnitude = value.abs()
-  if magnitude == 0.0 { return if upper { "0X0P+0" } else { "0x0p+0" } }
-  var exponent = 0
-  var mantissa = magnitude
-  while mantissa >= 16.0 { mantissa = mantissa / 16.0; exponent += 4 }
-  while mantissa < 1.0 { mantissa = mantissa * 16.0; exponent -= 4 }
-  let whole = mantissa.floor() ?? 0
-  var fraction = mantissa - whole.float()
-  let places = if let requested = precision { if requested > 1000 { 1000 } else if requested < 0 { 0 } else { requested } } else { 13 }
-  let alphabet = if upper { "0123456789ABCDEF" } else { "0123456789abcdef" }
-  var digits = ""
-  repeat places times {
-    fraction = fraction * 16.0
-    let digit = fraction.floor() ?? 0
-    digits += alphabet.byte_slice(digit, length: 1)
-    fraction -= digit.float()
-  }
-  if precision == null {
-    while digits.ends_with("0") { digits = digits.byte_slice(0, length: digits.byte_len() - 1) }
-  }
-  let body = f"{radix_text(whole, 16, upper)}{if digits == "" { "" } else { "." + digits }}"
-  f"{if negative { "-" } else { "" }}{if upper { "0X" } else { "0x" }}{body}{if upper { "P" } else { "p" }}{if exponent < 0 { "" } else { "+" }}{exponent}"
-}
-
-pure trim_fraction(text: Str) -> Str {
-  let exponent_at = text.find("e") ?? text.find("E") ?? text.byte_len()
-  let mantissa = text.byte_slice(0, length: exponent_at)
-  return text when ! ("." in mantissa)
-  var end = mantissa.byte_len()
-  while end > 0 and mantissa.byte_slice(end - 1, length: 1) == "0" { end -= 1 }
-  if end > 0 and mantissa.byte_slice(end - 1, length: 1) == "." { end -= 1 }
-  mantissa.byte_slice(0, length: end) + text.byte_slice(exponent_at)
-}
-
-pure float_conversion(value: Float, conversion: Str, precision: Int?) -> Str {
-  if float_is_nan(value) { return if conversion == conversion.upper() { "NAN" } else { "nan" } }
-  if float_is_infinite(value) { return if conversion == conversion.upper() { "INF" } else { "inf" } }
-  let requested = precision ?? 6
-  let count = if requested < 0 { 0 } else if requested > 1000 { 1000 } else { requested }
-
-  match conversion {
-    "f" | "F" => value.format(count)
-    "e" | "E" => scientific(value, count, conversion == "E")
-    "g" | "G" => {
-      let significant = if count == 0 { 1 } else { count }
-      var exponent = 0
-      var magnitude = value.abs()
-      if magnitude != 0.0 and magnitude == magnitude {
-        while magnitude >= 10.0 { magnitude = magnitude / 10.0; exponent += 1 }
-        while magnitude < 1.0 { magnitude = magnitude * 10.0; exponent -= 1 }
-      }
-      let text = if exponent < -4 or exponent >= significant { scientific(value, significant - 1, conversion == "G") } else { value.format(if significant - exponent - 1 < 0 { 0 } else { significant - exponent - 1 }) }
-      let clean = trim_fraction(text)
-      if conversion == "G" { clean.upper() } else { clean }
+# GNU exposes the high four bits of the x87 significand as the leading hex
+# digit. Shift exact native hex digits before rounding, so precision never
+# passes through the language's double value.
+pure hex_long_double(text: Str, precision: Int?, alternate: Bool) -> Str {
+  let negative = text.starts_with("-")
+  let magnitude = if negative { text.byte_slice(1) } else { text }
+  let upper = magnitude.starts_with("0X")
+  let lower = magnitude.lower()
+  return text when ! lower.starts_with("0x")
+  let marker = lower.find("p") ?? lower.byte_len()
+  let significand = lower.byte_slice(2, length: marker - 2)
+  let point = significand.find(".") ?? significand.byte_len()
+  var whole = digit_value(significand.byte_slice(0, length: 1)) ?? 0
+  var fraction = if point < significand.byte_len() { significand.byte_slice(point + 1) } else { "" }
+  var exponent = lower.byte_slice(marker + 1).parse_int() ?? 0
+  let alphabet = "0123456789abcdef"
+  if whole != 0 or fraction.replace("0", with: "") != "" {
+    var shifted = ""
+    var carry = 0
+    var at = fraction.byte_len() - 1
+    while at >= 0 {
+      let digit = (digit_value(fraction.byte_slice(at, length: 1)) ?? 0) * 8 + carry
+      shifted = alphabet.byte_slice(digit % 16, length: 1) + shifted
+      carry = digit / 16
+      at -= 1
     }
-    "a" => hex_float(value, precision, false)
-    "A" => hex_float(value, precision, true)
-    else => value.format(count)
+    whole = whole * 8 + carry
+    fraction = shifted
+    exponent -= 3
   }
+  # Subnormal x87 values share the minimum normal exponent in GNU output.
+  if exponent < -16385 {
+    var digits = alphabet.byte_slice(whole, length: 1) + fraction
+    repeat -16385 - exponent times {
+      var shifted = ""
+      var carry = 0
+      for at in range(digits.byte_len()) {
+        let digit = carry * 16 + (digit_value(digits.byte_slice(at, length: 1)) ?? 0)
+        shifted += alphabet.byte_slice(digit / 2, length: 1)
+        carry = digit % 2
+      }
+      if carry != 0 { shifted += "8" }
+      digits = shifted
+    }
+    whole = digit_value(digits.byte_slice(0, length: 1)) ?? 0
+    fraction = digits.byte_slice(1)
+    exponent = -16385
+  }
+  if let places = precision {
+    if places < fraction.byte_len() {
+      let discarded = digit_value(fraction.byte_slice(places, length: 1)) ?? 0
+      let rest = fraction.byte_slice(places + 1)
+      let last = if places == 0 { whole } else { digit_value(fraction.byte_slice(places - 1, length: 1)) ?? 0 }
+      var carry = if discarded > 8 or (discarded == 8 and (rest.replace("0", with: "") != "" or last % 2 == 1)) { 1 } else { 0 }
+      var rounded = ""
+      var at = places - 1
+      while at >= 0 {
+        let digit = (digit_value(fraction.byte_slice(at, length: 1)) ?? 0) + carry
+        rounded = alphabet.byte_slice(digit % 16, length: 1) + rounded
+        carry = digit / 16
+        at -= 1
+      }
+      whole += carry
+      fraction = rounded
+      if whole == 16 { whole = 1; exponent += 4 }
+    } else if places > fraction.byte_len() {
+      fraction += pad_text("", places - fraction.byte_len(), false, "0")
+    }
+  } else {
+    while fraction.ends_with("0") { fraction = fraction.byte_slice(0, length: fraction.byte_len() - 1) }
+  }
+  let body = f"0x{alphabet.byte_slice(whole, length: 1)}{if fraction != "" or alternate { "." + fraction } else { "" }}p{if exponent >= 0 { "+" } else { "" }}{exponent}"
+  (if negative { "-" } else { "" }) + (if upper { body.upper() } else { body })
+}
+
+proc character_warning(warning: Bytes) [process, env, io, error] {
+  return when env.get("POSIXLY_CORRECT") is Ok(_)
+  io.write_stderr_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: warning: "), warning, b": character(s) following character constant have been ignored\n"]))?
+  io.flush_stderr()?
 }
 
 proc shell_quote(data: Bytes) [env] -> Str {
@@ -765,37 +605,42 @@ proc conversion_text(spec: PrintfSpec, argument: PrintfArgument, width: Int, pre
   }
 
   if "fFeEgGaA".find(spec.conversion) != null {
-    let parsed = float_parse(argument.text)
-    if let issue = parsed.issue { gnu.error(f"{gnu.quote_value(argument.text)}: {issue}") }
-    let number = parsed.value
-    let requested_precision = precision ?? 6
-    let exact = if spec.conversion in ["f", "F"] and requested_precision > 17 and ! float_is_nan(number) and ! float_is_infinite(number) { exact_decimal_text(argument.text, requested_precision) } else { null }
-    let body = if let digits = exact {
-      digits
-    } else if spec.conversion in ["f", "F"] and requested_precision > 100 and ! float_is_nan(number) and ! float_is_infinite(number) {
-      number.format_number(spec.conversion, requested_precision)?
-    } else {
-      float_conversion(number, spec.conversion, precision)
+    let trimmed = numeric_operand(argument.text)
+    let quoted = trimmed.starts_with("'") or trimmed.starts_with("\"")
+    let character: IntegerParse = if quoted { character_constant(argument.data, utf8_locale()) } else { {value: 0, issue: null, warning: null} }
+    if quoted {
+      if let warning = character.warning { character_warning(warning) }
     }
-    let negative = number < 0.0 or (parsed.issue != "expected a numeric value" and argument.text.trim().starts_with("-"))
+    let source = if quoted { f"{character.value}" } else { argument.text }
+    let alternate = spec.flags.find("#") != null
+    let hexadecimal = spec.conversion in ["a", "A"]
+    let x87_hexadecimal = hexadecimal and numeric.long_double_precision() == 64
+    let parsed = numeric.format_long_double(source, spec.conversion, if x87_hexadecimal { null } else { precision }, alternate: alternate)?
+    let issue = if quoted { character.issue } else if parsed.consumed == 0 { "expected a numeric value" } else if parsed.range_error { "Numerical result out of range" } else if parsed.consumed < source.byte_len() { "value not completely converted" } else { null }
+    if let message = issue { gnu.error(f"{gnu.quote_value(argument.text)}: {message}") }
+    let body = if x87_hexadecimal { hex_long_double(parsed.text, precision, alternate) } else { parsed.text }
+    let negative = body.starts_with("-") or (body.lower() == "nan" and parsed.consumed > 0 and source.trim().starts_with("-"))
     let sign = if negative { "-" } else if spec.flags.find("+") != null { "+" } else if spec.flags.find(" ") != null { " " } else { "" }
     let unsigned_body = if body.starts_with("-") { body.byte_slice(1) } else { body }
     let raw = sign + unsigned_body
-    let float_fill = if spec.flags.find("0") != null and ! left and ! float_is_nan(number) and ! float_is_infinite(number) { "0" } else { " " }
+    let finite = ! (unsigned_body.lower() in ["inf", "nan"])
+    let float_fill = if spec.flags.find("0") != null and ! left and finite { "0" } else { " " }
+    let zero_prefix = sign + (if hexadecimal and finite { unsigned_body.byte_slice(0, length: 2) } else { "" })
+    let zero_body = if hexadecimal and finite { unsigned_body.byte_slice(2) } else { unsigned_body }
     let zero_padding = float_fill == "0" and field_width > raw.count_chars()
     let padding_count = field_width - raw.count_chars()
     if field_width > 1000000 {
-      write_field(previous_output, bytes.from_text(if zero_padding { sign } else { "" }), bytes.from_text(if zero_padding { unsigned_body } else { raw }), b"", padding_count, bytes.from_text(if zero_padding { "0" } else { " " }), left)
-      return {data: b"", stop: false, failed: parsed.issue != null, prefix_flushed: true}
+      write_field(previous_output, bytes.from_text(if zero_padding { zero_prefix } else { "" }), bytes.from_text(if zero_padding { zero_body } else { raw }), b"", padding_count, bytes.from_text(if zero_padding { "0" } else { " " }), left)
+      return {data: b"", stop: false, failed: issue != null, prefix_flushed: true}
     }
-    let padded = if float_fill == "0" and field_width > raw.count_chars() { sign + pad_text(raw.byte_slice(sign.byte_len()), field_width - sign.count_chars(), false, "0") } else { pad_text(raw, field_width, left, float_fill) }
-    return {data: bytes.from_text(padded), stop: false, failed: parsed.issue != null, prefix_flushed: false}
+    let padded = if float_fill == "0" and field_width > raw.count_chars() { zero_prefix + pad_text(zero_body, field_width - zero_prefix.count_chars(), false, "0") } else { pad_text(raw, field_width, left, float_fill) }
+    return {data: bytes.from_text(padded), stop: false, failed: issue != null, prefix_flushed: false}
   }
 
   let auto_base = spec.conversion != "d"
-  let parsed = integer_parse(argument.text, auto_base)
+  let parsed = argument_integer(argument, auto_base, utf8_locale())
   if let warning = parsed.warning {
-    if env.get("POSIXLY_CORRECT") is Err(_) { gnu.error(f"warning: {warning}: character(s) following character constant have been ignored") }
+    character_warning(warning)
   }
   if let issue = parsed.issue { gnu.error(f"{gnu.quote_value(argument.text)}: {issue}") }
   let number = parsed.value
@@ -845,7 +690,7 @@ proc render_pass(fmt: Bytes, values: List[PrintfArgument], first_argument: Int, 
   while at < fmt.len() {
     let byte = fmt.byte_at(at) ?? 0
     if byte == 92 {
-      let escaped = scan_escape(fmt, at, utf8: utf8_locale())?
+      let escaped = scan_escape(fmt, at, false, utf8_locale())?
       if let issue = escaped.issue {
         gnu.write_bytes(bytes.concat([prefix_data, bytes.concat(output)]))
         gnu.error(issue)
@@ -872,8 +717,9 @@ proc render_pass(fmt: Bytes, values: List[PrintfArgument], first_argument: Int, 
       var width = spec.width
       if spec.width_dynamic {
         let index = if spec.width_position == null { argument_index } else { indexed_argument(first_argument, spec.width_position ?? 0, values.len()) }
-        let width_text = if index < values.len() { values[index].text } else { "0" }
-        let parsed_width = integer_parse(width_text, true)
+        let width_argument: PrintfArgument = if index < values.len() { values[index] } else { printf_argument(b"0")? }
+        let width_text = width_argument.text
+        let parsed_width = argument_integer(width_argument, true, utf8_locale())
         if parsed_width.issue == "Numerical result out of range" {
           gnu.error(f"{gnu.quote_value(width_text)}: Numerical result out of range")
           failed = true
@@ -900,8 +746,9 @@ proc render_pass(fmt: Bytes, values: List[PrintfArgument], first_argument: Int, 
       var precision = spec.precision
       if spec.precision_dynamic {
         let index = if spec.precision_position == null { argument_index } else { indexed_argument(first_argument, spec.precision_position ?? 0, values.len()) }
-        let precision_argument = if index < values.len() { values[index].text } else { "-1" }
-        let parsed_precision = integer_parse(precision_argument, true)
+        let precision_value: PrintfArgument = if index < values.len() { values[index] } else { printf_argument(b"-1")? }
+        let precision_argument = precision_value.text
+        let parsed_precision = argument_integer(precision_value, true, utf8_locale())
         if parsed_precision.issue == "Numerical result out of range" {
           gnu.error(f"{gnu.quote_value(precision_argument)}: Numerical result out of range")
           failed = true

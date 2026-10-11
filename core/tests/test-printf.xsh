@@ -43,17 +43,17 @@ proc printf_run(ctx: TestContext, args: List[Str], posix: Bool = false) [fs, pro
   {status: status.exit_code()?, stdout: stdout.read_text()?, stderr: stderr.read_text()?}
 }
 
-type PrintfBytesResult = {status: Int, stdout: Bytes}
+type PrintfBytesResult = {status: Int, stdout: Bytes, stderr: Bytes}
 
-proc printf_bytes_run(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[PrintfBytesResult] {
+proc printf_bytes_run(ctx: TestContext, args: List[Str], locale = "C.UTF-8") [fs, process, error] -> Result[PrintfBytesResult] {
   let root = test.temp_dir(ctx, name: "printf-bytes")?
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/printf.xsh"
   let status = process.run(process.command_argv(ctx.xsh_bin,
     [ctx.xsh_bin.display(), "--", script.display()].extend(args), root,
-    {LC_ALL: "C.UTF-8"}, b"", stdout, stderr))?
-  {status: status.exit_code()?, stdout: stdout.read_bytes()?}
+    {LC_ALL: locale}, b"", stdout, stderr))?
+  {status: status.exit_code()?, stdout: stdout.read_bytes()?, stderr: stderr.read_bytes()?}
 }
 
 test test_printf_preserves_output_bytes { |ctx|
@@ -457,13 +457,13 @@ test test_printf_zero_precision_and_zero_integer { |ctx|
 
 test test_printf_hexadecimal_float_and_character_constant { |ctx|
   let output = printf_run(ctx, ["%a|%A|%i", ".875", ".875", "'a"])?
-  let float_character = printf_run(ctx, ["%f", "'á"])?
+  let float_character = printf_bytes_run(ctx, ["%f", "'á"])?
 
   assert output.status == 0, output.stderr
   assert output.stdout == "0xep-4|0XEP-4|97"
   assert output.stderr == ""
-  assert float_character.status == 0, float_character.stderr
-  assert float_character.stdout == "225.000000"
+  assert float_character.status == 0, float_character.stderr.utf8() ?? "invalid UTF-8 diagnostic"
+  assert float_character.stdout == b"225.000000"
 }
 
 test test_printf_reports_partial_numeric_conversion_after_output { |ctx|
@@ -516,7 +516,7 @@ test test_printf_escape_sequences_and_backslash_b { |ctx|
   assert expanded_octal.stdout == "\u{1}_"
 }
 
-test test_printf_exact_decimal_digits_beyond_double_precision { |ctx|
+test test_printf_long_double_rounding_beyond_double_precision { |ctx|
   let literal = printf_run(ctx, ["%.30f", "0.1"])?
   let negative = printf_run(ctx, ["%.20f", "-0.25"])?
   let rounded = printf_run(ctx, ["%.18f", "0.1234567890123456789012"])?
@@ -524,12 +524,12 @@ test test_printf_exact_decimal_digits_beyond_double_precision { |ctx|
   let tie_to_even_up = printf_run(ctx, ["%.18f", "0.1234567890123456775"])?
 
   assert literal.status == 0, literal.stderr
-  assert literal.stdout == "0.100000000000000000000000000000"
+  assert literal.stdout == "0.100000000000000000001355252716"
   assert negative.status == 0, negative.stderr
   assert negative.stdout == "-0.25000000000000000000"
   assert rounded.stdout == "0.123456789012345679"
-  assert tie_to_even.stdout == "0.123456789012345676"
-  assert tie_to_even_up.stdout == "0.123456789012345678"
+  assert tie_to_even.stdout == "0.123456789012345677"
+  assert tie_to_even_up.stdout == "0.123456789012345677"
   assert literal.stderr == "" and rounded.stderr == ""
 }
 
@@ -556,4 +556,28 @@ test test_printf_c_locale_unicode_escape_fallback { |ctx|
   let invalid = printf_run(ctx, ["\\U0000D8F9"])?
   assert invalid.status == 1
   assert invalid.stderr == "printf: invalid universal character name \\U0000d8f9\n"
+}
+
+test test_printf_c_locale_character_constant_preserves_warning_bytes { |ctx|
+  let integer = printf_bytes_run(ctx, ["%i", "'á"], "C")?
+  let number = printf_bytes_run(ctx, ["%f", "'á"], "C")?
+  let unicode = printf_bytes_run(ctx, ["%i", "'á"], "C.UTF-8")?
+  assert integer.status == 0 and number.status == 0 and unicode.status == 0
+  assert integer.stdout == b"195"
+  assert number.stdout == b"195.000000"
+  assert integer.stderr == b"printf: warning: \xa1: character(s) following character constant have been ignored\n"
+  assert number.stderr == integer.stderr
+  assert unicode.stdout == b"225" and unicode.stderr == b""
+}
+
+test test_printf_long_double_decimal_and_hex_rounding { |ctx|
+  let output = printf_run(ctx, ["%f|%a|%.1a|%.1a", "0.9999995", "1", ".999", "1.1"])?
+  assert output.status == 0, output.stderr
+  assert output.stdout == "0.999999|0x8p-3|0x1.0p+0|0x8.dp-3"
+}
+
+test test_printf_hexadecimal_long_double_ties_padding_and_subnormal { |ctx|
+  let output = printf_run(ctx, ["%015a|%.0a|%#.0a|%.2a|%.0a|%a", "1", ".999", "1", ".999", "1.0625", "0x1p-16445"])?
+  assert output.status == 0, output.stderr
+  assert output.stdout == "0x0000000008p-3|0x1p+0|0x8.p-3|0xf.fcp-4|0x8p-3|0x0.000000000000001p-16385"
 }
