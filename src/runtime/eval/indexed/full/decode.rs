@@ -10,7 +10,7 @@ use super::{
     Arc, AssignOp, BinaryOp, BuildBoolId, BuildExprId, BuildIntId, BuildPatternId, BuildStmtId,
     Cell, DurationValue, FloatValue, FormatSpec, FullCodec, FullCursor, FullDecoder,
     FullExecution, FullStore, FunctionName, HashAlgorithm, IrFunctionId,
-    IrVerifyError, LoweredFunctionKey, LoweredModuleExport, LoweredModuleExportKind,
+    IrVerifyError, LoweredFunctionKey, LoweredModuleExport,
     LoweredStrPredicate, LoweredTopLevelSlot, LoweredType, LoweredValue, Name,
     NameText, PathValue, PreparedConstantValue, QualifiedName, RedirectionKind, RegexValue,
     ReduceByOp, RunKind, RuntimeOp, Span, Type, TypeId,
@@ -248,44 +248,13 @@ macro_rules! type_field {
 }
 type_field!(Type, LoweredType);
 
-pub(in crate::runtime::eval) struct LoweredModuleExportView {
-    name: Name,
-    kind: LoweredModuleExportKind,
-    function_namespace: Option<Name>,
-}
-
-impl LoweredModuleExportView {
-    pub(in crate::runtime::eval) fn materialize(self) -> LoweredModuleExport {
-        LoweredModuleExport {
-            name: self.name,
-            kind: self.kind,
-            function_namespace: self.function_namespace,
-        }
-    }
-}
-
 impl BorrowCodec for LoweredModuleExport {
-    type View<'a> = LoweredModuleExportView;
+    type View<'a> = LoweredModuleExport;
 
     fn borrow<'a>(context: DecodeContext<'a>, input: &mut FullCursor<'a>)
     -> Result<Self::View<'a>, IrVerifyError> {
-        let name = Name::borrow(context, input)?;
-        let kind = match input.raw()? {
-            0 => LoweredModuleExportKind::Value,
-            1 => LoweredModuleExportKind::Pure,
-            2 => LoweredModuleExportKind::Proc,
-            _ => return Err(IrVerifyError::new("module export kind is invalid")),
-        };
-        let function_namespace = Option::<Name>::borrow(context, input)?;
-        Ok(LoweredModuleExportView { name, kind, function_namespace })
+        <Self as FullCodec>::decode(&context.decoder(), input)
     }
-}
-
-pub(in crate::runtime::eval) struct LoweredTopLevelSlotView<'a> {
-    name: Name,
-    slot: usize,
-    kind: TypeRef<'a>,
-    mutable: bool,
 }
 
 impl LoweredTopLevelSlotView<'_> {
@@ -296,20 +265,6 @@ impl LoweredTopLevelSlotView<'_> {
             kind: self.kind.materialize_lowered()?,
             callable_type: None,
             mutable: self.mutable,
-        })
-    }
-}
-
-impl BorrowCodec for LoweredTopLevelSlot {
-    type View<'a> = LoweredTopLevelSlotView<'a>;
-
-    fn borrow<'a>(context: DecodeContext<'a>, input: &mut FullCursor<'a>)
-    -> Result<Self::View<'a>, IrVerifyError> {
-        Ok(LoweredTopLevelSlotView {
-            name: Name::borrow(context, input)?,
-            slot: usize::borrow(context, input)?,
-            kind: LoweredType::borrow(context, input)?,
-            mutable: bool::borrow(context, input)?,
         })
     }
 }
@@ -635,6 +590,7 @@ wrapped_list!(super::LoweredCompQualifiers, Vec<super::LoweredCompQualifier>);
 
 macro_rules! struct_schema {
     ($ty:ident => $view:ident { $($field:ident: $field_ty:ty),* $(,)? }
+     $(with { $($omitted_field:ident: $omitted_value:expr),* $(,)? })?
      $(validate |$decoder:ident, $value:ident| $validation:block)?) => {
         pub(in crate::runtime::eval) struct $view<'a> {
             $(pub(in crate::runtime::eval) $field: <$field_ty as BorrowCodec>::View<'a>,)*
@@ -666,7 +622,10 @@ macro_rules! struct_schema {
             }
             fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>)
             -> Result<Self, IrVerifyError> {
-                let value = Self { $($field: <$field_ty>::decode(decoder, input)?,)* };
+                let value = Self {
+                    $($field: <$field_ty>::decode(decoder, input)?,)*
+                    $($($omitted_field: $omitted_value,)*)?
+                };
                 $(let $decoder = decoder; let $value = &value; $validation)?
                 Ok(value)
             }
@@ -762,6 +721,11 @@ macro_rules! enum_schema {
         }
     };
 }
+
+// Hook slot callability is checker metadata; the encoded row carries only these four fields.
+struct_schema!(LoweredTopLevelSlot => LoweredTopLevelSlotView {
+    name: Name, slot: usize, kind: LoweredType, mutable: bool,
+} with { callable_type: None });
 
 struct_schema!(LoweredRunArg => RunArgView {
     kind: LoweredRunArgKind, span: Span,

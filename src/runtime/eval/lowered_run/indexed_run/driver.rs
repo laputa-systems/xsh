@@ -169,8 +169,7 @@ impl Evaluator {
                     let mut record_fields = Vec::with_capacity(exports.len());
                     for export in exports {
                         let export = export
-                            .map_err(|error| indexed_error(error, call_span))?
-                            .materialize();
+                            .map_err(|error| indexed_error(error, call_span))?;
                         let value = match export.kind {
                             LoweredModuleExportKind::Value => self
                                 .lookup(export.name)

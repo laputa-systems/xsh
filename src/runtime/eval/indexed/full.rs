@@ -5604,27 +5604,6 @@ impl FullCodec for Arc<super::super::require::PreparedSchema> {
 
 
 
-impl FullCodec for LoweredTopLevelSlot {
-    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        self.name.encode(builder, output)?;
-        self.slot.encode(builder, output)?;
-        self.kind.encode(builder, output)?;
-        self.mutable.encode(builder, output)
-    }
-
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        Ok(Self {
-            name: Name::decode(decoder, input)?,
-            slot: usize::decode(decoder, input)?,
-            kind: LoweredType::decode(decoder, input)?,
-            callable_type: None, mutable: bool::decode(decoder, input)?,
-        })
-    }
-}
-
 impl FullCodec for LoweredModuleExport {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.name.encode(builder, output)?;
