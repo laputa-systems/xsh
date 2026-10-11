@@ -1,5 +1,57 @@
 # XSH Core Compatibility Campaign
 
+## Handoff (2026-10-11): expanded campaign closed
+
+State: all 125 commands of the expanded Linux surface are implemented (26 were
+missing), every one with native tests pinned to the real tool in a throwaway
+container. Verification at the closing commit:
+
+| Gate | Result |
+|---|---|
+| 3 uutils integration (image, UID 1000) | 5,655 pass, 16 fail, 282 excluded of 5,953 |
+| 4 GNU differential (719 tests) | 494 shared passes; 49 uutils-pass/XSH-fail, each classified in `dev/compat/gnu-blockers/*.json` (13 uutils-patched expectations, 3 environment, 33 XSH gaps) |
+| BusyBox | 639 pass, 50 fail, 74 skipped; no applet below its committed count |
+| 5 option surface | `check_gnu_help_surface.py` against GNU 9.11 over all 106 utilities; gaps closed |
+| 6, 9 ratchets | ignored options 0, direct kernel reads 0, libc hygiene passes |
+| 8 clean-image smoke | `dev/compat/smoke/run-smoke.sh`, built; its nine findings fixed |
+| 10 inventory | `parity.py --check` clean, 125/125 present |
+
+The 16 uutils failures: 8 `sort` and 1 `ls` locale tests (no glibc locale
+data on musl), 2 `logname` (no login session), 4 `stdbuf` (no shipped
+`libstdbuf`), 1 `env` (runtime exports `PWD`/`SHLVL`/phrase to children).
+The 33 Gate 4 XSH gaps are runtime facts: evaluation on one worker thread
+(invisible to `strace` without `-f`), a roughly 50 MB address-space floor,
+closed standard descriptors seen as `/dev/null`, POSIX `TZ` rules, and a few
+uutils-expectation conflicts.
+
+Differential audits against GNU diffutils, patch, grep, sed, gawk and findutils
+rewrote `diff`, `cmp`, `patch`, `grep`, `sed`, `awk`, `find` and `xargs` around
+recorded oracle corpora (`core/tests/data/`); they need no container at test
+time. Exclusions are 282; every one cites GNU evidence.
+
+Contract changes to be aware of: `fs.set_times` seconds form, `fs.copy_file`
+FICLONE errno, relative-path `fs.stat`, `unix.fadvise`,
+`process.command_argv same_group`, default SIGCHLD restored at startup,
+`process.affinity/scheduler/io_priority/rlimit(pid)`, `linux.privileges` and the
+capability setters, `linux.run_in_namespaces` and `linux.namespaces`, the
+`linux` socket, netlink and ioctl primitives, the SG_IO and NVMe transport,
+`env.entries`, `unix.id().supplementary`, `compression.transform` format
+`auto`, net `redirect_limit`, `effective_url`, `redirect_count` and the
+`NetError` family (followed redirects now rewrite POST to GET on 301/302/303),
+`linux.interfaces`/`routes` from netlink (namespace-aware), and
+`test.linux_fake` `storage_fixture` and `netlink_fixture`.
+
+Environment notes: the docker runners (`run-uutils-docker.sh`,
+`run-gnu-docker.sh`, `docker-xsht.sh`) and the reference-tool image
+(`oracle.sh`) are described above. Run image tests with a tmpfs `/tmp` (the
+recorded find corpus depends on tmpfs directory sizes); `docker-xsht.sh` does.
+
+Next, started automatically: the native port and harness retirement planned
+below. `dev/compat/port/` holds the freeze (`freeze.py`, `freeze.json`) and the
+origin-tag ratchet (`check_port.py`); `core/tests/support/uu.xsh` is the
+transcription helper; `core/tests/test-uu-basename.xsh` is the first
+transcribed file.
+
 ## Handoff (2026-10-10, second Claude Code session)
 
 Status: paused, incomplete. `master` is clean. The pinned uutils suite
