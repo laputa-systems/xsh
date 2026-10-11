@@ -2940,7 +2940,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     propagate,
                     state.span,
                 )?;
-                return self.push_process_flow(index, flow, next);
+                return self.push_process_flow(index, flow, state.span, next);
             }
 
             let mut operands = process_run_operands(
@@ -3169,7 +3169,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         )?,
                         ProcessExecutionMode::Pipeline { .. } => unreachable!(),
                     };
-                    return self.push_process_flow(index, flow, next);
+                    return self.push_process_flow(index, flow, state.span, next);
                 }
             }
         }
@@ -3233,9 +3233,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn push_process_flow(
         &mut self,
         index: usize,
-        flow: ControlFlow<LoweredValue, LoweredValue>,
+        mut flow: ControlFlow<LoweredValue, LoweredValue>,
+        span: Span,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
+        self.evaluator
+            .register_returned_lowered_streams(&mut flow, span)?;
         self.push_value(
             index,
             match flow {
@@ -6855,7 +6858,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     let flow = self
                         .evaluator
                         .eval_lowered_spawn_invocation(invocation, options, span)?;
-                    self.push_process_flow(index, flow, *next)?;
+                    self.push_process_flow(index, flow, span, *next)?;
                 }
                 FrameValue::Value(value) => {
                     return Err(RuntimeError::new(
