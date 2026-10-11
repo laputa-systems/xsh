@@ -1098,7 +1098,11 @@ impl<'a> Linter<'a> {
         linter
             .diagnostics
             .retain(|diagnostic| selection.accepts(diagnostic.code));
-        minimize_fix_grouping(program, source, &mut linter.diagnostics);
+        let source_id = view
+            .statement_ids()
+            .next()
+            .map(|statement| program.arena.stmt(statement).span.source_id);
+        minimize_fix_grouping(source_id, source, &mut linter.diagnostics);
         LintOutput {
             diagnostics: linter.diagnostics,
         }

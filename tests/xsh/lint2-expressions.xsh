@@ -168,6 +168,33 @@ proc assertions(dynamic: Any) [io, error] {
   assert fixed(file, "lint.core-assert")? == text
 }
 
+test test_core_assert_fix_preserves_complex_conditions_and_source_order { |ctx|
+  let source = r"""proc left() [io] -> Int { print "left"; 1 }
+proc right() [io] -> Int { print "right"; 1 }
+proc check() [io, error] {
+  test.eq(left() + 1, right() * 2, "equal")?
+  test.ok(left() > 0 and right() < 3, "bounded")?
+}
+check()?
+"""
+  let file = script(ctx, source)?
+  assert findings(file, "lint.core-assert")? == 2
+
+  let before = run.capture --text "xsht" trace $file
+  assert before.status.exited_with(0), before.stderr
+  assert before.stdout == "left\nright\nleft\nright\n", before.stdout
+
+  let text = fixed(file, "lint.core-assert")?
+  assert "assert left() + 1 == right() * 2, \"equal\"" in text, text
+  assert "assert left() > 0 and right() < 3, \"bounded\"" in text, text
+  assert_checked(file)
+  assert findings(file, "lint.core-assert")? == 0
+
+  let after = run.capture --text "xsht" trace $file
+  assert after.status.exited_with(0), after.stderr
+  assert after.stdout == before.stdout, text
+}
+
 test test_legacy_test_proc_migration_keeps_context_and_effects_and_converges { |ctx|
   let root = test_root_project(
     ctx,

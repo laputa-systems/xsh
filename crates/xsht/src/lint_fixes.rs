@@ -1,4 +1,5 @@
-use super::{ArenaFunctionDef, ArenaProgram, AstArena, Diagnostic, Span};
+use super::{ArenaFunctionDef, AstArena, Diagnostic, Span};
+use xsh::frontend::source::SourceId;
 
 /// Whether replacing `span` could drop a comment. Unlexable text counts as
 /// commented so callers stay conservative.
@@ -16,12 +17,12 @@ pub(super) fn span_may_contain_comment(source: &str, span: Span) -> bool {
 /// Fixes build replacements with conservative grouping; removes each pair
 /// that `check.redundant-parens` would reject where the fix lands, so applied
 /// fixes keep exactly the parentheses the parser needs.
-pub(super) fn minimize_fix_grouping(program: &ArenaProgram, source: &str, diagnostics: &mut [Diagnostic]) {
-    let Some(source_id) = program
-        .statement_ids()
-        .next()
-        .map(|id| program.arena.stmt(id).span.source_id)
-    else {
+pub(super) fn minimize_fix_grouping(
+    source_id: Option<SourceId>,
+    source: &str,
+    diagnostics: &mut [Diagnostic],
+) {
+    let Some(source_id) = source_id else {
         return;
     };
     // One fix's edits: the diagnostic, the hint, where it lands, and its text.
