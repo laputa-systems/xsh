@@ -20,7 +20,7 @@ use super::{
     indexed_decode, indexed_error, indexed_finish, indexed_optional_raw, indexed_raw,
     indexed_string, indexed_value, lowered_binary_value, lowered_bytes_parts,
     lowered_comp_iterable, lowered_condition_bool, lowered_err_with_cause, lowered_fallback_value,
-    lowered_map_literal_key, lowered_match_no_arm,
+    lowered_map_literal_key, lowered_match_no_arm, lowered_path_like_arg,
     lowered_result_err_value, lowered_result_ok, lowered_str_parts, lowered_value_from_runtime_any,
     push_lowered_display,
     resolve_assign_index,
@@ -29,10 +29,12 @@ use super::{LoweredMapCursor, LoweredScalarCursor};
 use crate::map_key::MapKey;
 use crate::runtime::eval::indexed::full::schema::{BoolView, IntView};
 use crate::runtime::eval::indexed::full::schema::StmtView;
-use crate::runtime::eval::indexed::full::decode::{RunArgKindView, RunArgView, RunEnvView};
-use super::context::StatementContextScopeEntry;
+use crate::runtime::eval::indexed::full::decode::{
+    ListPosition, RunArgKindView, RunArgView, RunEnvView,
+};
 use crate::runtime::eval::{
-    LoweredCompTarget, visit_retained_lowered_value, visit_retained_lowered_values,
+    BuildExprId, LoweredCompTarget, LoweredRunEnv, visit_retained_lowered_value,
+    visit_retained_lowered_values,
 };
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
 use crate::runtime::eval::lowered_run::validate_parameter_default;
@@ -59,27 +61,57 @@ fn indexed_run_arg(kind: RunArgKindView<'_>, span: Span) -> super::RunArg {
     super::RunArg { mode, value, span }
 }
 
-fn statement_env_value(
-    argument: &super::RunArg,
-    value: LoweredValue,
-) -> Result<Vec<u8>, RuntimeError> {
-    let value = value.into_value();
-    let is_path_list = matches!(
-        &value,
-        crate::runtime::value::Value::List(items)
-            if !items.is_empty() && items.iter().all(|item| matches!(item, crate::runtime::value::Value::Path(_)))
-    );
-    let value = if argument.mode == 0 || (argument.mode == 1 && is_path_list) {
-        super::super::super::value_to_env_bytes(value, argument.span)?
-    } else {
-        let items = Evaluator::run_arg_items(argument, value)?;
-        let [value]: [Vec<u8>; 1] = items.try_into().map_err(|_| {
-            RuntimeError::new("env-value", "environment values must be one value")
-                .with_span(argument.span)
-        })?;
-        value
+/// Reopens one borrowed statement-list row at its saved position.
+fn statement_print_argument(
+    execution: &FullExecution<'_>,
+    statement: u32,
+    position: ListPosition<BuildExprId>,
+    span: Span,
+) -> Result<(u32, ListPosition<BuildExprId>), RuntimeError> {
+    let (tag, payload) = execution
+        .instruction_id(statement)
+        .map_err(|error| indexed_error(error, span))?;
+    let StmtView::Print { mut args, .. } = StmtView::decode(execution, tag, payload)
+        .map_err(|error| indexed_error(error, span))?
+    else {
+        unreachable!("statement ID and borrowed print row agree")
     };
-    Ok(value)
+    args.resume(position)
+        .map_err(|error| indexed_error(error, span))?;
+    let argument = args
+        .next()
+        .transpose()
+        .map_err(|error| indexed_error(error, span))?
+        .ok_or_else(|| {
+            RuntimeError::new("indexed-ir", "print argument cursor ended early").with_span(span)
+        })?;
+    Ok((argument.raw(), args.position()))
+}
+
+fn statement_env_assignment<'a>(
+    execution: &FullExecution<'a>,
+    statement: u32,
+    position: ListPosition<LoweredRunEnv>,
+    span: Span,
+) -> Result<(RunEnvView<'a>, ListPosition<LoweredRunEnv>), RuntimeError> {
+    let (tag, payload) = execution
+        .instruction_id(statement)
+        .map_err(|error| indexed_error(error, span))?;
+    let StmtView::Env { mut env, .. } = StmtView::decode(execution, tag, payload)
+        .map_err(|error| indexed_error(error, span))?
+    else {
+        unreachable!("statement ID and borrowed environment row agree")
+    };
+    env.resume(position)
+        .map_err(|error| indexed_error(error, span))?;
+    let assignment = env
+        .next()
+        .transpose()
+        .map_err(|error| indexed_error(error, span))?
+        .ok_or_else(|| {
+            RuntimeError::new("indexed-ir", "environment cursor ended early").with_span(span)
+        })?;
+    Ok((assignment, env.position()))
 }
 
 #[cfg(test)]
@@ -628,8 +660,8 @@ struct AssignPathState {
 }
 
 struct FramePrintState {
-    args: Vec<u32>,
-    position: usize,
+    statement: u32,
+    position: ListPosition<BuildExprId>,
     stderr: bool,
     flush: bool,
     propagate_result: bool,
@@ -639,8 +671,8 @@ struct FramePrintState {
 }
 
 struct FrameEnvState {
-    assignments: Vec<(Vec<u8>, super::RunArg)>,
-    position: usize,
+    statement: u32,
+    position: ListPosition<LoweredRunEnv>,
     overlay: BTreeMap<Vec<u8>, Vec<u8>>,
     body: u32,
     span: Span,
@@ -698,10 +730,6 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     StatementScopeEnd,
-    CdTarget {
-        body: u32,
-        span: Span,
-    },
     EnvValue(FrameEnvState),
     PrintArgument(FramePrintState),
     Discard(Span),
@@ -1059,7 +1087,6 @@ impl FrameContinuation {
             | C::Yield { .. }
             | C::YieldDelegate { .. }
             | C::StatementScopeEnd
-            | C::CdTarget { .. }
             | C::EnvValue(_)
             | C::PrintArgument(_) => {}
             C::TypedBoolNot { next, .. }
@@ -1230,7 +1257,6 @@ enum ExpressionBoundaryPolicy {
     Context(crate::runtime::value::ErrorContext),
     Capture,
     Scope(super::ContextScopeRestore),
-    StatementScope(super::ContextScopeRestore),
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -1335,8 +1361,7 @@ impl FrameWork {
         matches!(
             self,
             Self::ExpressionBoundary {
-                policy: ExpressionBoundaryPolicy::Scope(_)
-                    | ExpressionBoundaryPolicy::StatementScope(_),
+                policy: ExpressionBoundaryPolicy::Scope(_),
                 ..
             }
         )
@@ -2178,8 +2203,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         ProducerStep::Finished(self.result.take().expect("indexed frame result"))
     }
 
-    fn step_print(&mut self, index: usize, state: FramePrintState) -> Result<(), RuntimeError> {
-        if let Some(instruction) = state.args.get(state.position).copied() {
+    fn step_print(&mut self, index: usize, mut state: FramePrintState) -> Result<(), RuntimeError> {
+        if !state.position.is_exhausted() {
+            let (instruction, position) = statement_print_argument(
+                &self.calls[index].execution,
+                state.statement,
+                state.position,
+                state.span,
+            )?;
+            state.position = position;
             self.push_expr(
                 index,
                 instruction,
@@ -2224,7 +2256,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     }
 
     fn step_env(&mut self, index: usize, state: FrameEnvState) -> Result<(), RuntimeError> {
-        if let Some((_, argument)) = state.assignments.get(state.position) {
+        if !state.position.is_exhausted() {
+            let (assignment, _) = statement_env_assignment(
+                &self.calls[index].execution,
+                state.statement,
+                state.position,
+                state.span,
+            )?;
+            let RunEnvView { value, .. } = assignment;
+            let RunArgView { kind, span, .. } = value;
+            let argument = indexed_run_arg(kind, span);
             let instruction = argument.value;
             let span = argument.span;
             self.push_expr(
@@ -2240,7 +2281,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             .evaluator
             .enter_indexed_env_scope(state.overlay);
         self.calls[index].work.push(FrameWork::ExpressionBoundary {
-            policy: ExpressionBoundaryPolicy::StatementScope(restore),
+            policy: ExpressionBoundaryPolicy::Scope(restore),
             next: FrameContinuation::StatementScopeEnd,
         });
         self.push_statement_block(index, state.body, state.span)
@@ -2445,8 +2486,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         }
                     }
                     FrameWork::ExpressionBoundary {
-                        policy: ExpressionBoundaryPolicy::Scope(restore)
-                            | ExpressionBoundaryPolicy::StatementScope(restore),
+                        policy: ExpressionBoundaryPolicy::Scope(restore),
                         ..
                     } => self.evaluator.restore_indexed_context_scope(restore),
                     _ => {}
@@ -2783,24 +2823,23 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     // this boundary opened and skip its continuation: feeding a
                     // placeholder value into body computation (selecting match
                     // arms, for one) can fail on a value the body never produced.
-                    if let ExpressionBoundaryPolicy::Scope(restore)
-                    | ExpressionBoundaryPolicy::StatementScope(restore) = policy
-                    {
+                    if let ExpressionBoundaryPolicy::Scope(restore) = policy {
                         self.evaluator.restore_indexed_context_scope(restore);
                     }
                     return Ok(());
                 }
+                let statement_scope = matches!(&next, FrameContinuation::StatementScopeEnd);
                 let value = match policy {
                     ExpressionBoundaryPolicy::Capture => {
                         LoweredValue::ResultOk(Box::new(LoweredValue::Unit))
                     }
                     ExpressionBoundaryPolicy::Scope(restore) => {
                         self.evaluator.restore_indexed_context_scope(restore);
-                        lowered_result_ok(LoweredValue::Unit)
-                    }
-                    ExpressionBoundaryPolicy::StatementScope(restore) => {
-                        self.evaluator.restore_indexed_context_scope(restore);
-                        LoweredValue::Unit
+                        if statement_scope {
+                            LoweredValue::Unit
+                        } else {
+                            lowered_result_ok(LoweredValue::Unit)
+                        }
                     }
                     _ => LoweredValue::Unit,
                 };
@@ -3021,14 +3060,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 else {
                     unreachable!("statement tag and borrowed row agree")
                 };
-                let args = args
-                    .into_iter()
-                    .map(|argument| {
-                        argument
-                            .map(|argument| argument.raw())
-                            .map_err(|error| indexed_error(error, span))
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
+                let position = args.position();
                 let argv = if self.evaluator.trace_enabled {
                     Vec::with_capacity(args.len())
                 } else {
@@ -3037,8 +3069,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.step_print(
                     index,
                     FramePrintState {
-                        args,
-                        position: 0,
+                        statement: instruction,
+                        position,
                         stderr,
                         flush,
                         propagate_result,
@@ -3059,9 +3091,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     index,
                     target.raw(),
                     span,
-                    FrameContinuation::CdTarget {
+                    FrameContinuation::ContextScopeEntry {
+                        kind: crate::syntax::arena::ContextScopeKind::Cwd,
                         body: body.block_id(),
                         span,
+                        next: Box::new(FrameContinuation::StatementScopeEnd),
                     },
                 );
                 Ok(())
@@ -3073,24 +3107,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 else {
                     unreachable!("statement tag and borrowed row agree")
                 };
-                let assignments = env
-                    .into_iter()
-                    .map(|assignment| {
-                        let RunEnvView { name, value, .. } =
-                            assignment.map_err(|error| indexed_error(error, span))?;
-                        let RunArgView { kind, span, .. } = value;
-                        check_env_name(&name.as_str(), span)?;
-                        Ok((
-                            name.as_str().as_bytes().to_vec(),
-                            indexed_run_arg(kind, span),
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, RuntimeError>>()?;
+                let position = env.position();
+                for assignment in env {
+                    let RunEnvView { name, .. } =
+                        assignment.map_err(|error| indexed_error(error, span))?;
+                    check_env_name(&name.as_str(), span)?;
+                }
                 self.step_env(
                     index,
                     FrameEnvState {
-                        assignments,
-                        position: 0,
+                        statement: instruction,
+                        position,
                         overlay: BTreeMap::new(),
                         body: body.block_id(),
                         span,
@@ -5115,33 +5142,22 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     self.complete_call(index, StmtFlow::Propagate(value))?
                 }
             },
-            FrameContinuation::CdTarget { body, span } => match value {
-                FrameValue::Value(value) => match self
-                    .evaluator
-                    .enter_indexed_statement_cwd_scope(value, span)?
-                {
-                    StatementContextScopeEntry::Entered(restore) => {
-                        self.calls[index].work.push(FrameWork::ExpressionBoundary {
-                            policy: ExpressionBoundaryPolicy::StatementScope(restore),
-                            next: FrameContinuation::StatementScopeEnd,
-                        });
-                        self.push_statement_block(index, body, span)?;
-                    }
-                    StatementContextScopeEntry::Propagate(value) => {
-                        self.complete_call(index, StmtFlow::Propagate(value))?
-                    }
-                },
-                FrameValue::Break(value) => {
-                    self.complete_call(index, StmtFlow::Propagate(value))?
-                }
-            },
             FrameContinuation::EnvValue(mut state) => match value {
                 FrameValue::Value(value) => {
-                    let (name, argument) = &state.assignments[state.position];
-                    let name = name.clone();
-                    let value = statement_env_value(argument, value)?;
-                    state.overlay.insert(name, value);
-                    state.position += 1;
+                    let (assignment, position) = statement_env_assignment(
+                        &self.calls[index].execution,
+                        state.statement,
+                        state.position,
+                        state.span,
+                    )?;
+                    let RunEnvView { name, value: run_arg, .. } = assignment;
+                    let RunArgView { kind, span, .. } = run_arg;
+                    let argument = indexed_run_arg(kind, span);
+                    let value = Evaluator::run_env_value(&argument, value.into_value())?;
+                    state
+                        .overlay
+                        .insert(name.as_str().as_bytes().to_vec(), value);
+                    state.position = position;
                     self.step_env(index, state)?;
                 }
                 FrameValue::Break(value) => {
@@ -5150,15 +5166,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             },
             FrameContinuation::PrintArgument(mut state) => match value {
                 FrameValue::Value(value) => {
-                    if state.position > 0 {
-                        state.line.push(' ');
-                    }
                     let start = state.line.len();
                     push_lowered_display(&mut state.line, &value, state.span)?;
                     if self.evaluator.trace_enabled {
                         state.argv.push(TraceArg::text(&state.line[start..]));
                     }
-                    state.position += 1;
+                    if !state.position.is_exhausted() {
+                        state.line.push(' ');
+                    }
                     self.step_print(index, state)?;
                 }
                 FrameValue::Break(value) => {
@@ -5171,23 +5186,33 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 span,
                 next,
             } => match value {
-                FrameValue::Value(value) => match self
-                    .evaluator
-                    .enter_indexed_context_scope(kind, value, span)
-                {
-                    Ok(restore) => {
-                        self.calls[index].work.push(FrameWork::ExpressionBoundary {
-                            policy: ExpressionBoundaryPolicy::Scope(restore),
-                            next: *next,
-                        });
-                        self.push_statement_block(index, body, span)?;
+                FrameValue::Value(value) => {
+                    let statement = matches!(next.as_ref(), FrameContinuation::StatementScopeEnd);
+                    let entry = if statement {
+                        let target = lowered_path_like_arg(value, "cd", span)?;
+                        self.evaluator.enter_indexed_cwd_scope(target, span)
+                    } else {
+                        self.evaluator.enter_indexed_context_scope(kind, value, span)
+                    };
+                    match entry {
+                        Ok(restore) => {
+                            self.calls[index].work.push(FrameWork::ExpressionBoundary {
+                                policy: ExpressionBoundaryPolicy::Scope(restore),
+                                next: *next,
+                            });
+                            self.push_statement_block(index, body, span)?;
+                        }
+                        Err(error) if statement => self.complete_call(
+                            index,
+                            StmtFlow::Propagate(lowered_result_err_value(error)),
+                        )?,
+                        Err(error) => self.push_value(
+                            index,
+                            FrameValue::Value(lowered_result_err_value(error)),
+                            *next,
+                        ),
                     }
-                    Err(error) => self.push_value(
-                        index,
-                        FrameValue::Value(lowered_result_err_value(error)),
-                        *next,
-                    ),
-                },
+                }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
@@ -8330,8 +8355,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     Ok(())
                 }
                 FrameWork::ExpressionBoundary {
-                    policy: ExpressionBoundaryPolicy::Scope(restore)
-                        | ExpressionBoundaryPolicy::StatementScope(restore),
+                    policy: ExpressionBoundaryPolicy::Scope(restore),
                     ..
                 } => {
                     context_scopes -= 1;
@@ -8404,8 +8428,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                                 }
                             }
                             FrameWork::ExpressionBoundary {
-                                policy: ExpressionBoundaryPolicy::Scope(restore)
-                                    | ExpressionBoundaryPolicy::StatementScope(restore),
+                                policy: ExpressionBoundaryPolicy::Scope(restore),
                                 ..
                             } => self.evaluator.restore_indexed_context_scope(restore),
                             _ => {}

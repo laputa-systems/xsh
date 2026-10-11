@@ -2,47 +2,25 @@ use super::{
     BTreeMap, ContextScopeRestore, ControlFlow, Duration, Evaluator, Flow, FullExecution,
     LoweredValue, PathValue, Propagation, RegisteredDefer, RuntimeError, Span, StmtFlow, TraceArg,
     TraceError, TraceKind, TracePayload, Traceback, Value, capture_checked_error, check_env_name, fs_module,
-    indexed_error, lowered_duration_arg, lowered_path_like_arg, lowered_result_err_value,
-    path_bytes,
+    indexed_error, lowered_duration_arg, lowered_path_like_arg, path_bytes,
     runtime_error_from_value,
 };
 
-pub(super) enum StatementContextScopeEntry {
-    Entered(ContextScopeRestore),
-    Propagate(LoweredValue),
-}
-
 impl Evaluator {
-    pub(super) fn enter_indexed_statement_cwd_scope(
-        &mut self,
-        value: LoweredValue,
-        span: Span,
-    ) -> Result<StatementContextScopeEntry, RuntimeError> {
-        let target = lowered_path_like_arg(value, "cd", span)?;
-        match self.enter_indexed_cwd_scope(target, span) {
-            Ok(restore) => Ok(StatementContextScopeEntry::Entered(restore)),
-            Err(error) => Ok(StatementContextScopeEntry::Propagate(
-                lowered_result_err_value(error),
-            )),
-        }
-    }
-
-    fn enter_indexed_cwd_scope(
+    pub(super) fn enter_indexed_cwd_scope(
         &mut self,
         target: PathValue,
         span: Span,
     ) -> Result<ContextScopeRestore, RuntimeError> {
         let previous = self.cwd.clone();
         let next = self.host_path(&target);
-        match fs_module::cd_target_is_dir(&next) {
-            Ok(true) => {}
-            Ok(false) => {
-                return Err(
-                    RuntimeError::new("cwd-not-directory", "cwd target is not a directory")
-                        .with_span(span),
-                );
-            }
-            Err(error) => return Err(RuntimeError::host("cwd", &error).with_span(span)),
+        if !fs_module::cd_target_is_dir(&next)
+            .map_err(|error| RuntimeError::host("cwd", &error).with_span(span))?
+        {
+            return Err(
+                RuntimeError::new("cwd-not-directory", "cwd target is not a directory")
+                    .with_span(span),
+            );
         }
         self.trace_enter(
             TraceKind::CwdEnter,
