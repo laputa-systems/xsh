@@ -1,5 +1,68 @@
 # Consolidation restart handoff
 
+## Borrowed JSON and indexed subtraction — 2026-10-11, `e708d1b5`
+
+Accepted binary retirement `b414d80a` as `29027228`: general ExprBinary
+evaluation reuses its existing frame handler, including in-place nodes, and
+the duplicate recursive handler/work stack is removed. The assertion-specific
+path remains. Its source-matched private optimized build and focused native
+gates pass 34 cases with one fixture skip; ten manual payload reads are removed.
+The three-file production deletion is 122 retained physical lines; its durable
+canonical per-file receipt is being finalized.
+
+Accepted indexed dead state `088911c7` as `3e6c8342`: callerless owned ID/tag
+inspection readers and the unused defer-presence metadata producer/reader chain
+are deleted. Canonical production reduction is 255 lines. Function metadata
+now retains only its live kind bit, and a focused corruption oracle rejects
+the retired bit. All instruction/stage rows and ordinals remain intact; defer
+execution is unchanged. The pinned all-feature compile/harness builds and six
+focused layout/header/function/corruption units pass. Blanket removal remains
+open.
+
+Accepted JSON `6c2bfe3c`, diagnostic repair `2ac50b9a` and test-only `31a3b88d`
+as `9fbd9249`, `b885a74e` and `10ad216f`. One borrowed projection and traversal
+serve tree/direct sinks; write paths avoid owned LoweredValue conversion.
+Compact RecordVec keys now sort as SPEC requires. Compact map encoding checks
+all keys before values; pretty encoding checks in traversal order. This also
+settles compact writes' former legacy precedence difference. Filesystem entry
+values are uniformly unsupported, with the public `Record` diagnostic rather
+than their internal storage name. Well-shaped wire tags missing a declared
+mapping entry share the specific diagnostic. No caller compatibility profiles
+remain. Independent review's public-name defect was reproduced before repair;
+exact-message parity covers both representations/formats. Native JSON 18,
+wire enum 11 and Tokei 2 cases pass, plus three serializer units. Tokei covers
+exact Stats/StatsBlob output. Canonical production delta is -165, while the
+physical-file delta is -63; do not confuse those counts. Durable scanner runner,
+snapshots and hashes are in the JSON lane receipt. Buffer/allocation performance
+is not measured; the no-owned-child/key-copy invariant is reviewed by inspection.
+
+The root combined optimized build is queued under
+`.work/consolidation/restart/joint-e708-build.log`; these private gates do not
+claim a combined final root pass. The latest exact whole-tree count remains
+the earlier checkpoint; additive accepted deltas are not a fresh scan.
+
+Private lint follow-up is sealed at `a280a307` (-11 production lines against
+`738203ba`), but cumulative W6 is still +1,233 excluding the identical selected-
+module prerequisite and is not accepted. Its 289 selected library units,
+focused native 17/10/10/14 and catalog gates pass. Five extra integration
+failures reproduce identically in the source-matched reference at `032cf2dc`
+with identical test hash `cd75083d...`: both runs pass 17 and fail five of 22.
+Reference evidence is `w6-reference-xsht-manifest.json`; the initial wrong
+root-package filter matched zero and is not a pass. Those failures remain open
+for final verification. The private table still needs root refresh, proof
+transport, source offsets and full end-state closure.
+
+FS/Path remains private at +137 after eliminating PathWrite's duplicated data
+conversion; its normal/forced focused oracles pass. Print/Cd/Env's sealed
+`b3b12fba` is not accepted because it reintroduced owned operand descriptors;
+a checked opaque cursor follow-up is required. Branch/host leaves are underway.
+Typed-callee native legal-expression coverage is still red despite focused
+corruption successes; synthetic wrapper/capture transport must be correct.
+W9 parity's full 1,690-source/four-option reference attempt timed out at 900s
+without a receipt and is not a pass. Sharded verification retains the entire
+input set and all four modes, with incremental receipts. No corpus reduction
+or final source/structural/platform/performance waiver is authorized.
+
 ## Additional upstream interactive update — 2026-10-11, `e553e259`
 
 Frozen master `76bc2de8` is merged cleanly in `ee6e12b2`. Its restored
