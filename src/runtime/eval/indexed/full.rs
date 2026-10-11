@@ -2514,7 +2514,7 @@ impl FullBuilder {
     }
 
     fn intern_lowered_type(&mut self, ty: LoweredType) -> Result<TypeId, IrBuildError> {
-        let ty = lowered_type_to_type(ty)?;
+        let ty = lowered_type_to_type(ty);
         self.semantic.intern_type(&mut self.store.semantic, &ty)
     }
 
@@ -2522,7 +2522,7 @@ impl FullBuilder {
         match kind {
             LoweredReturnKind::Plain(ty) => self.intern_lowered_type(ty),
             LoweredReturnKind::Result(ty) => {
-                let ok = lowered_type_to_type(ty)?;
+                let ok = lowered_type_to_type(ty);
                 self.semantic.intern_type(
                     &mut self.store.semantic,
                     &Type::Result(Box::new(ok), Box::new(Type::Error)),
@@ -2692,8 +2692,8 @@ fn instruction_effects(tags: &[FullTag]) -> u32 {
     tags.iter().fold(0, |effects, tag| effects | tag.effects())
 }
 
-fn lowered_type_to_type(ty: LoweredType) -> Result<Type, IrBuildError> {
-    Ok(match ty {
+pub(in crate::runtime::eval) fn lowered_type_to_type(ty: LoweredType) -> Type {
+    match ty {
         LoweredType::Any => Type::Any,
         LoweredType::Unit => Type::Unit,
         LoweredType::Int => Type::Int,
@@ -2722,7 +2722,7 @@ fn lowered_type_to_type(ty: LoweredType) -> Result<Type, IrBuildError> {
         LoweredType::Result => Type::Result(Box::new(Type::Any), Box::new(Type::Error)),
         LoweredType::Tag => Type::Tag(Name::intern("<tag>")),
         LoweredType::Set => Type::Set(Box::new(Type::Any)),
-    })
+    }
 }
 
 fn executable_type(ty: &Type) -> Type {
@@ -2802,8 +2802,8 @@ fn executable_callable_type(signature: &CallableType) -> CallableType {
     }
 }
 
-fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
-    Ok(match ty {
+pub(in crate::runtime::eval) fn lowered_type_for_type(ty: &Type) -> Option<LoweredType> {
+    Some(match ty {
         Type::Any | Type::Unknown => LoweredType::Any,
         Type::Unit => LoweredType::Unit,
         Type::Int | Type::UInt => LoweredType::Int,
@@ -2827,7 +2827,7 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
         Type::Proc => LoweredType::Proc,
         Type::Callable(callable) if callable.pure => LoweredType::Pure,
         Type::Callable(_) => LoweredType::Proc,
-        Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ErrorFacet(_) => {
+        Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => {
             LoweredType::Error
         }
         Type::ErasedRecord | Type::Record(_) => LoweredType::Record,
@@ -2838,17 +2838,33 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
         Type::Result(_, _) => LoweredType::Result,
         Type::Null | Type::Optional(_) | Type::Union(_) => LoweredType::Any,
         // A validated value is stored as a value of its base.
-        Type::Validated(validated) => lowered_type_from_type(validated.base())?,
+        Type::Validated(validated) => return lowered_type_for_type(validated.base()),
+        // Policy-only and transient types are handled by their narrow caller
+        // contracts rather than by the shared mapping.
         Type::BuiltinParameter(_)
         | Type::Inference(_)
         | Type::Invalid
         | Type::EnvPathList
-        | Type::ProcessError => {
-            return Err(IrVerifyError::new(
-                "semantic type has no lowered runtime equivalent",
-            ));
-        }
+        | Type::ErrorFacet(_)
+        | Type::ProcessError => return None,
     })
+}
+
+/// The verifier rejects checker recovery types but accepts error facets as Error.
+fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
+    match ty {
+        Type::ErrorFacet(_) => Ok(LoweredType::Error),
+        Type::BuiltinParameter(_)
+        | Type::Inference(_)
+        | Type::Invalid
+        | Type::EnvPathList
+        | Type::ProcessError => Err(IrVerifyError::new(
+            "semantic type has no lowered runtime equivalent",
+        )),
+        ty => lowered_type_for_type(ty).ok_or_else(|| {
+            IrVerifyError::new("semantic type has no lowered runtime equivalent")
+        }),
+    }
 }
 
 /// The hole kind an encoded index names.
@@ -5836,7 +5852,7 @@ impl FullCodec for Type {
 
 impl FullCodec for LoweredType {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        lowered_type_to_type(*self)?.encode(builder, output)
+        lowered_type_to_type(*self).encode(builder, output)
     }
 
     fn decode(
@@ -12720,5 +12736,140 @@ proc local() [env, error] -> Int {
                 error.message
             );
         });
+    }
+
+    #[test]
+    fn lowered_type_mappings_cover_every_storage_kind_and_policy_edge() {
+        let owner = crate::symbol::SymbolOwner::new();
+        let _owner = owner.enter();
+
+        let kinds = [
+            (LoweredType::Any, Type::Any),
+            (LoweredType::Unit, Type::Unit),
+            (LoweredType::Int, Type::Int),
+            (LoweredType::Float, Type::Float),
+            (LoweredType::Duration, Type::Duration),
+            (LoweredType::Bool, Type::Bool),
+            (LoweredType::Str, Type::Str),
+            (LoweredType::Bytes, Type::Bytes),
+            (LoweredType::Digest, Type::Digest),
+            (LoweredType::Regex, Type::Regex),
+            (LoweredType::Status, Type::Status),
+            (LoweredType::Path, Type::Path),
+            (LoweredType::Command, Type::Command),
+            (LoweredType::ProcessHandle, Type::ProcessHandle),
+            (LoweredType::NetJob, Type::NetJob),
+            (LoweredType::FsRoot, Type::FsRoot),
+            (LoweredType::FsLock, Type::FsLock),
+            (
+                LoweredType::Stream,
+                Type::Stream(Box::new(Type::Any)),
+            ),
+            (LoweredType::Pure, Type::Pure),
+            (LoweredType::Proc, Type::Proc),
+            (LoweredType::Error, Type::Error),
+            (LoweredType::Record, Type::ErasedRecord),
+            (LoweredType::Module, Type::DynamicModule),
+            (LoweredType::List, Type::List(Box::new(Type::Any))),
+            (
+                LoweredType::Map,
+                Type::Map(Box::new(Type::Str), Box::new(Type::Any)),
+            ),
+            (
+                LoweredType::Tag,
+                Type::Tag(Name::intern("<tag>")),
+            ),
+            (
+                LoweredType::Result,
+                Type::Result(Box::new(Type::Any), Box::new(Type::Error)),
+            ),
+            (LoweredType::Set, Type::Set(Box::new(Type::Any))),
+        ];
+
+        for (kind, ty) in kinds {
+            assert_eq!(lowered_type_to_type(kind), ty, "{kind:?}");
+            assert_eq!(lowered_type_for_type(&ty), Some(kind), "{kind:?}");
+        }
+
+        let callable = |pure| {
+            Type::Callable(Arc::new(crate::sema::types::TypedCallable {
+                pure,
+                sig: CallableType {
+                    params: Vec::new(),
+                    return_ty: Box::new(Type::Unit),
+                    effects: None,
+                },
+            }))
+        };
+        let module = Type::Module(Arc::new(crate::sema::types::ModuleType::exact(
+            std::collections::BTreeMap::new(),
+        )));
+        let variants = vec![
+            (Type::Unknown, LoweredType::Any),
+            (Type::UInt, LoweredType::Int),
+            (Type::Null, LoweredType::Any),
+            (Type::Optional(Box::new(Type::Int)), LoweredType::Any),
+            (
+                Type::Union(vec![Type::Int, Type::Str]),
+                LoweredType::Any,
+            ),
+            (
+                Type::ErrorFamily(Name::intern("IOError")),
+                LoweredType::Error,
+            ),
+            (
+                Type::ErrorVariant {
+                    family: Name::intern("IOError"),
+                    variant: Name::intern("NotFound"),
+                },
+                LoweredType::Error,
+            ),
+            (Type::Record(std::collections::BTreeMap::new()), LoweredType::Record),
+            (module, LoweredType::Module),
+            (callable(true), LoweredType::Pure),
+            (callable(false), LoweredType::Proc),
+            (Type::non_empty(Type::Int), LoweredType::List),
+        ];
+        for (ty, expected) in variants {
+            assert_eq!(lowered_type_for_type(&ty), Some(expected), "{ty:?}");
+            assert_eq!(lowered_type_from_type(&ty), Ok(expected), "{ty:?}");
+        }
+
+        let mut fields = std::collections::BTreeMap::new();
+        fields.insert(Name::intern("field"), Type::Int);
+        let nominal = Type::Validated(Box::new(
+            crate::sema::validated::ValidatedType::new(
+                crate::sema::validated::Validation::Nominal(Name::intern("Nominal")),
+                Type::Record(fields),
+            )
+            .unwrap(),
+        ));
+        assert_eq!(lowered_type_for_type(&nominal), Some(LoweredType::Record));
+        assert_eq!(lowered_type_from_type(&nominal), Ok(LoweredType::Record));
+
+        let mut constraints = crate::sema::constraints::TypeConstraints::default();
+        let inference = constraints.fresh(crate::source::Span::new(
+            crate::source::SourceId::new(0),
+            0,
+            0,
+        ));
+        let unsupported = [
+            Type::BuiltinParameter(crate::sema::types::BuiltinTypeParameter::Receiver),
+            inference,
+            Type::Invalid,
+            Type::EnvPathList,
+            Type::ProcessError,
+        ];
+        for ty in unsupported {
+            assert_eq!(lowered_type_for_type(&ty), None, "{ty:?}");
+            assert!(lowered_type_from_type(&ty).is_err(), "{ty:?}");
+        }
+        let facet = Type::ErrorFacet(Name::intern("Error"));
+        assert_eq!(lowered_type_for_type(&facet), None);
+        assert_eq!(lowered_type_from_type(&facet), Ok(LoweredType::Error));
+        assert_eq!(
+            lowered_type_from_type(&Type::Unknown),
+            Ok(LoweredType::Any)
+        );
     }
 }

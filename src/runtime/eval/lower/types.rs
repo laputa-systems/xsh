@@ -220,46 +220,13 @@ pub(super) fn is_discard_name(name: Name) -> bool {
     name == "_"
 }
 
+/// Checked lowering keeps recovery representations and leaves error facets verifier-only.
 pub(super) fn lowered_checked_type(ty: &Type) -> Option<LoweredType> {
     match ty {
-        Type::Unit => Some(LoweredType::Unit),
-        Type::Int | Type::UInt => Some(LoweredType::Int),
-        Type::Float => Some(LoweredType::Float),
-        Type::Duration => Some(LoweredType::Duration),
-        Type::Bool => Some(LoweredType::Bool),
-        Type::Str => Some(LoweredType::Str),
-        Type::Bytes => Some(LoweredType::Bytes),
-        Type::Digest => Some(LoweredType::Digest),
-        Type::Regex => Some(LoweredType::Regex),
-        Type::Status => Some(LoweredType::Status),
-        Type::Path => Some(LoweredType::Path),
-        Type::Command => Some(LoweredType::Command),
-        Type::ProcessHandle => Some(LoweredType::ProcessHandle),
-        Type::NetJob => Some(LoweredType::NetJob),
-        Type::FsRoot => Some(LoweredType::FsRoot),
-        Type::FsLock => Some(LoweredType::FsLock),
-        Type::Pure => Some(LoweredType::Pure),
-        Type::Proc => Some(LoweredType::Proc),
-        Type::Callable(callable) if callable.pure => Some(LoweredType::Pure),
-        Type::Callable(_) => Some(LoweredType::Proc),
-        Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ProcessError => {
-            Some(LoweredType::Error)
-        }
-        Type::ErasedRecord | Type::Record(_) => Some(LoweredType::Record),
-        Type::Module(_) | Type::DynamicModule => Some(LoweredType::Module),
-        Type::List(_) => Some(LoweredType::List),
-        Type::Stream(_) => Some(LoweredType::Stream),
-        Type::Set(_) => Some(LoweredType::Set),
-        Type::Map(_, _) => Some(LoweredType::Map),
-        Type::Tag(_) => Some(LoweredType::Tag),
-        Type::Result(_, _) => Some(LoweredType::Result),
-        Type::Any | Type::Unknown | Type::Invalid => Some(LoweredType::Any),
-        // A union value is stored as whichever member it is, so its slot
-        // has no single storage kind.
-        Type::Null | Type::Optional(_) | Type::Union(_) => Some(LoweredType::Any),
-        // A validated value is stored as a value of its base.
-        Type::Validated(validated) => lowered_checked_type(validated.base()),
-        _ => None,
+        Type::Invalid => Some(LoweredType::Any),
+        Type::ProcessError => Some(LoweredType::Error),
+        Type::ErrorFacet(_) => None,
+        _ => crate::runtime::eval::indexed::full::lowered_type_for_type(ty),
     }
 }
 
@@ -427,35 +394,45 @@ pub(super) fn checked_fact_is_resolved(ty: &Type) -> bool {
 
 pub(super) fn type_for_lowered_type(kind: LoweredType) -> Option<Type> {
     match kind {
-        LoweredType::Unit => Some(Type::Unit),
-        LoweredType::Int => Some(Type::Int),
-        LoweredType::Float => Some(Type::Float),
-        LoweredType::Duration => Some(Type::Duration),
-        LoweredType::Bool => Some(Type::Bool),
-        LoweredType::Str => Some(Type::Str),
-        LoweredType::Bytes => Some(Type::Bytes),
-        LoweredType::Digest => Some(Type::Digest),
-        LoweredType::Regex => Some(Type::Regex),
-        LoweredType::Status => Some(Type::Status),
-        LoweredType::Path => Some(Type::Path),
-        LoweredType::Command => Some(Type::Command),
-        LoweredType::ProcessHandle => Some(Type::ProcessHandle),
-        LoweredType::NetJob => Some(Type::NetJob),
-        LoweredType::FsRoot => Some(Type::FsRoot),
-        LoweredType::FsLock => Some(Type::FsLock),
-        LoweredType::Pure => Some(Type::Pure),
-        LoweredType::Proc => Some(Type::Proc),
-        LoweredType::Error => Some(Type::Error),
-        LoweredType::Record => Some(Type::ErasedRecord),
-        LoweredType::Module => Some(Type::DynamicModule),
-        LoweredType::List => Some(Type::List(Box::new(Type::Any))),
-        LoweredType::Stream => Some(Type::Stream(Box::new(Type::Any))),
-        LoweredType::Map => Some(Type::Map(Box::new(Type::Str), Box::new(Type::Any))),
-        // The element type is not part of the kind.
-        LoweredType::Set => None,
-        LoweredType::Tag => None,
-        LoweredType::Result => Some(Type::Result(Box::new(Type::Any), Box::new(Type::Error))),
-        LoweredType::Any => Some(Type::Any),
+        // Set elements and tag identities are not part of the kind.
+        LoweredType::Set | LoweredType::Tag => None,
+        kind => Some(crate::runtime::eval::indexed::full::lowered_type_to_type(kind)),
+    }
+}
+
+#[cfg(test)]
+mod mapping_tests {
+    use super::*;
+
+    #[test]
+    fn checked_type_mapping_keeps_its_recovery_policy() {
+        assert_eq!(lowered_checked_type(&Type::Invalid), Some(LoweredType::Any));
+        assert_eq!(
+            lowered_checked_type(&Type::ProcessError),
+            Some(LoweredType::Error)
+        );
+        assert_eq!(
+            lowered_checked_type(&Type::ErrorFacet(Name::intern("Error"))),
+            None
+        );
+        assert_eq!(
+            lowered_checked_type(&Type::non_empty(Type::Int)),
+            Some(LoweredType::List)
+        );
+        assert_eq!(
+            type_for_lowered_type(LoweredType::Set),
+            None,
+            "the kind does not retain the set element type"
+        );
+        assert_eq!(
+            type_for_lowered_type(LoweredType::Tag),
+            None,
+            "the kind does not retain tag identity"
+        );
+        assert_eq!(
+            type_for_lowered_type(LoweredType::Result),
+            Some(Type::Result(Box::new(Type::Any), Box::new(Type::Error)))
+        );
     }
 }
 
