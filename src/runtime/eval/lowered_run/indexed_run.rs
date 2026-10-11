@@ -1314,6 +1314,8 @@ pub(super) fn indexed_frame_apply_value(
                 unreachable!("exit status operand was converted before apply")
             };
             assert!(values.next().is_none(), "exit has one operand");
+            // A script's own exit always unwinds; only a forced harness
+            // cancellation skips cleanup.
             return Err(RuntimeError::abort(status, false).with_span(span));
         }
         ExprView::Fail { .. } => {

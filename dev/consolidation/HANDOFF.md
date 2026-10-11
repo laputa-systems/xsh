@@ -1,5 +1,30 @@
 # Consolidation restart handoff
 
+## Error and statement-match frame slices — 2026-10-11, `919f34c9`
+
+Accepted `3ecd88f5` as `23a127e9`: Error/Fail/Abort use typed borrowed shared
+apply and remove their recursive/manual readers. The structured error payload
+has only its live variant; retired tag-zero handling is not restored. Immediate
+operand conversion preserves validation-before-later-effects behavior. Private
+pinned build, two schema units, error-families 22, fail 19 and exit 14 cases pass;
+new forced child regressions pass. A forced resource probe stops earlier at
+unmigrated SpawnRun; its normal case passes. Canonical source receipt is pending.
+The useful exit-unwinds comment is restored with this checkpoint.
+
+Accepted `506903de` as `919f34c9`: statement Str/Tag matches consume borrowed
+arm lists on the active machine, with original block scopes/control flow.
+Canonical production delta is +34. Private pinned build, default match-else 9,
+string-patterns 13, forced exact string/tag cases and default/forced escaping
+resource oracle pass. Combined compilation/gates for these new slices remain
+pending, not covered by earlier retry/source-matched binaries.
+
+Scanner `896b1c59` and driver `113183fc` remain private pending codec follow-ups:
+new borrowed nested payload readers must share authoritative order with their
+existing FullCodec encoder/decoder. Scanner uses existing schema macros;
+driver scalar exports can reuse their allocation-free decoder, while hook slots
+need a precise checker-only field initialization clause. Do not drop eager
+corruption validation or duplicate driver-slot metadata while resolving these.
+
 ## Canonical documentation refresh — 2026-10-11, `2698cb7c`
 
 Accepted private `a61832d3` as `2698cb7c`, updating only SPEC source prose and
