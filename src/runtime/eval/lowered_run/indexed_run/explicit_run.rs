@@ -26,6 +26,64 @@ use crate::map_key::MapKey;
 use crate::runtime::eval::LoweredCompTarget;
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
 use crate::runtime::eval::lowered_run::validate_parameter_default;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+#[cfg(test)]
+mod tests {
+    use super::{Evaluator, LoweredFunctionKey, LoweredFunctionKind, Name, Ordering, Span};
+    use crate::runtime::value::Value;
+    use crate::source::SourceMap;
+    use crate::syntax::parser::Parser;
+
+    // Native scripts terminate on a runtime fault. Reusing that same evaluator
+    // after the fault is a host lifecycle that only the library caller can test.
+    #[test]
+    fn nested_machine_depth_is_restored_after_an_execution_error() {
+        crate::runtime::eval::run_eval(|| {
+            let source = r#"proc descend(n: Int) -> Int {
+  let values = [n] |> map { |item|
+    let next = item + 1
+    descend(next)
+  }
+  values[0]
+}
+pure increment(n: Int) -> Int { n + 1 }
+"#;
+            let mut sources = SourceMap::new();
+            let source_id = sources.add_file("nested-machine-depth.xsh", source);
+            let parsed = Parser::parse_source_arena_only(source_id, source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+            assert!(evaluator.prepare_compact_indexed_only(&parsed.arena, source_id).is_some());
+            let (descend, increment) = parsed.arena.symbol_owner().with_current(|| {
+                (Name::intern("descend"), Name::intern("increment"))
+            });
+            let span = Span::new(source_id, 0, 0);
+            let error = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(descend),
+                    LoweredFunctionKind::Proc,
+                    &[Value::Int(0)],
+                    span,
+                )
+                .expect("prepared recursive function")
+                .expect_err("nested machines have a bounded depth");
+            assert_eq!(error.kind, "stack-overflow");
+            assert_eq!(evaluator.frame_machine_depth.load(Ordering::Relaxed), 0);
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(increment),
+                    LoweredFunctionKind::Pure,
+                    &[Value::Int(41)],
+                    span,
+                )
+                .expect("prepared ordinary function")
+                .expect("the failed call leaves the evaluator reusable");
+            assert_eq!(result, Value::Int(42));
+            assert_eq!(evaluator.frame_machine_depth.load(Ordering::Relaxed), 0);
+        });
+    }
+}
 
 enum FrameValue {
     Value(LoweredValue),
@@ -621,6 +679,20 @@ impl std::ops::DerefMut for FrameSlots<'_> {
 /// how many are open.
 const MAX_CALL_DEPTH: usize = 100_000;
 
+// Each nested machine adds native stack frames; ordinary script calls stay
+// on the machine's heap stack and retain their separate call-depth limit.
+const MAX_FRAME_MACHINE_DEPTH: usize = 32;
+
+// Owning the counter leaves the evaluator available to the machine and
+// restores its depth even when execution fails or unwinds a panic.
+pub(super) struct FrameMachineGuard(Arc<AtomicUsize>);
+
+impl Drop for FrameMachineGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
 /// How many of the open calls a `stack-overflow` error names before the call
 /// that was refused.
 const STACK_OVERFLOW_PATH_CALLS: usize = 5;
@@ -692,6 +764,18 @@ fn context_boundaries(work: &[FrameWork]) -> usize {
 }
 
 impl Evaluator {
+    pub(super) fn enter_frame_machine(&self, span: Span) -> Result<FrameMachineGuard, RuntimeError> {
+        if self.frame_machine_depth.fetch_add(1, Ordering::Relaxed) >= MAX_FRAME_MACHINE_DEPTH {
+            self.frame_machine_depth.fetch_sub(1, Ordering::Relaxed);
+            return Err(RuntimeError::new(
+                "stack-overflow",
+                format!("more than {MAX_FRAME_MACHINE_DEPTH} frame machines are open"),
+            )
+            .with_span(span));
+        }
+        Ok(FrameMachineGuard(Arc::clone(&self.frame_machine_depth)))
+    }
+
     pub(super) fn indexed_frames_supported(
         &self,
         view: FullFunctionView<'_>,
@@ -712,6 +796,7 @@ impl Evaluator {
         values: &[LoweredValue],
         call_span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
+        let _machine = self.enter_frame_machine(call_span)?;
         let mut frames = ExplicitFrames::new(self, program);
         frames.push_call(function, kind, values.to_vec(), call_span, None)?;
         frames.run()
@@ -725,6 +810,7 @@ impl Evaluator {
         slots: Vec<LoweredValue>,
         call_span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
+        let _machine = self.enter_frame_machine(call_span)?;
         let mut frames = ExplicitFrames::new(self, program);
         frames.push_call_with_slots(function, kind, slots, call_span, None)?;
         frames.run()
@@ -831,6 +917,7 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         span: Span,
     ) -> Result<StmtFlow, RuntimeError> {
+        let _machine = self.enter_frame_machine(span)?;
         let Some(program) = self.indexed_program.clone() else {
             return Err(
                 RuntimeError::new("indexed-ir", "statement block has no indexed program")

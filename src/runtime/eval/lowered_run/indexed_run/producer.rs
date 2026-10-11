@@ -326,6 +326,7 @@ impl Evaluator {
             if producer.finished {
                 return Ok(ScriptStreamStep::Finished);
             }
+            let _machine = self.enter_frame_machine(span)?;
             let mut just_started = false;
             if !producer.started {
                 producer.started = true;
@@ -451,6 +452,11 @@ impl Evaluator {
         if producer.finished {
             return Ok(());
         }
+        let _machine = if producer.started {
+            Some(self.enter_frame_machine(span)?)
+        } else {
+            None
+        };
         producer.finished = true;
         if !producer.started {
             // The body never started, so it registered no defers and the call

@@ -3222,6 +3222,8 @@ pub struct Evaluator {
     signal_state: EvaluatorSignalState,
     /// Non-forced shutdown stops ordinary work but lets registered cleanup finish.
     cleanup_depth: usize,
+    /// Native machine activations share a depth across recursively entered work.
+    frame_machine_depth: Arc<std::sync::atomic::AtomicUsize>,
     /// The frame engine's reusable scratch vectors.
     frame_scratch: crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch,
     /// Set while a context-scoped frame lends its slots to the recursive
@@ -3492,6 +3494,7 @@ impl Evaluator {
             next_runtime_scope_id: 1,
             signal_state: EvaluatorSignalState::default(),
             cleanup_depth: 0,
+            frame_machine_depth: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             frame_scratch:
                 crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch::default(
                 ),
@@ -3730,6 +3733,7 @@ impl Evaluator {
             next_runtime_scope_id: shared.scopes.len() as u64,
             signal_state: EvaluatorSignalState::default(),
             cleanup_depth: 0,
+            frame_machine_depth: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             frame_scratch:
                 crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch::default(
                 ),
