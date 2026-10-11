@@ -1,7 +1,7 @@
 #!/usr/bin/env -S xsh --
 use consolidation_metrics as metrics
 
-type Options = {action: Str, root: Path, source: Str, xsht_source: Str, output: Path, audit: Str, baseline: Str, envelope: Str, input: Str}
+type Options = {action: Str, root: Path, source: Str, xsht_source: Str, output: Path, audit: Str, baseline: Str, envelope: Str, input: Str, review_evidence: Str}
 type Limit = {metric: Str, ceiling: Int, approval: Str, reason: Str, remove_when: Str}
 type Envelope = {start_commit: Str, limits: List[Limit]}
 type Metadata = {start_commit: Str}
@@ -60,7 +60,14 @@ proc execute(o: Options) [fs, error, io] -> Result[Unit] {
   }
   for rise in rises { print f"{rise.metric}: {rise.baseline} -> {rise.current}; ceiling {rise.ceiling}; approval {rise.approval}" }
   metrics.assert_not_risen(current, ceilings)?
-  if o.action == "final-close" and ! current.reviews.is_empty() { fail f"unmeasured semantic rows: {(current.reviews |> map .name |> collect).join(", ")}" }
+  if o.action == "final-close" {
+    metrics.assert_final_close(current, baseline)?
+    if o.review_evidence == "" { fail "final-close requires --review-evidence" }
+    let evidence = json.read(fp"{o.review_evidence}")?.require(metrics.ReviewEvidenceBundle)?
+    metrics.verify_review_evidence(current, evidence, o.root)?
+  } else if o.review_evidence != "" {
+    fail "--review-evidence is only valid with final-close"
+  }
 }
 
 let options: Options = cli.parse(args, {
@@ -68,6 +75,7 @@ let options: Options = cli.parse(args, {
   source: {form: "--source-root SOURCE", required: true}, xsht_source: {form: "--xsht-source-root SOURCE", required: true},
   output: {form: "--output PATH", kind: "Path", required: true}, audit: {form: "--audit PATH", default: ""},
   baseline: {form: "--baseline PATH", default: ""}, envelope: {form: "--envelope PATH", default: ""}, input: {form: "--input PATH", default: ""},
+  review_evidence: {form: "--review-evidence PATH", default: ""},
 })?
 match execute(options) {
   Ok(_) => {}

@@ -21,10 +21,32 @@ export type Evidence = {path: Str, line: Int, detail: Str}
 export type Metric = {name: Str, value: Int, evidence: List[Evidence]}
 ## A row requiring measured or reviewed evidence beyond lexical source inventories.
 export type Review = {name: Str, requirement: Str}
+## A hashed artifact and the method and result that support a human review claim.
+export type ReviewArtifact = {path: Str, sha256: Str, command: Str, method: Str, result: Str}
+## A canonical review row remains present until a reviewer attests its evidence.
+export type ReviewProof = {name: Str, status: Str, reviewer: Str, evidence: List[ReviewArtifact]}
+## A tracked product, test, or verifier path captured at the commit used for review.
+export type ReviewSource = {path: Str, oid: Str}
+## Versioned semantic evidence, separate from the measured source report.
+export type ReviewEvidenceBundle = {schema: Int, source_commit: Str, sources: List[ReviewSource], rows: List[ReviewProof]}
 ## Versioned report; semantic review rows cannot masquerade as measured structural metrics.
 export type Report = {schema: Int, sources: List[SourceCount], metrics: List[Metric], reviews: List[Review]}
 ## A lexically validated Rust file, including module edges and exact structural occurrences.
 export type SourceScan = {count: SourceCount, modules: List[RustModule], metrics: List[Metric]}
+
+const REVIEW_REQUIREMENTS: List[Review] = [
+  {name: "operand_behavior_differences", requirement: "Verified per-instruction behavior comparison and retained oracle tests; source arm counts cannot establish equivalence."},
+  {name: "duplicated_per_item_stages", requirement: "Reviewed stage execution ownership, backed by verified generated stage tables and pipeline differential probes."},
+  {name: "nested_machine_bounds", requirement: "Review each entry call and constructor for native-stack nesting and the accepted counter bound; lexical calls alone do not prove scheduling."},
+  {name: "instruction_fallback_arms", requirement: "Verified generated instruction dispatch inventory identifying recursive fallback routes."},
+  {name: "name_resolution_authorities", requirement: "Reviewed authority boundaries and feature-touch evidence; source definitions do not prove semantic authority."},
+  {name: "lint_recursive_descents", requirement: "Verified traversal inventory and rule probes identifying independent recursive descents."},
+  {name: "module_checks_per_pass", requirement: "Measured single lint-pass module-check counts with the shared-import fixture."},
+  {name: "whole_program_stage_copies", requirement: "Reviewed stage-lowering ownership and allocation probes; arbitrary clone calls are not a semantic count."},
+  {name: "open_defects", requirement: "Reviewed TODO defect dispositions with retained regression coverage and recorded reasons."},
+  {name: "timings", requirement: "Isolated repository lint and full gate wall-clock measurements; timings are evidence without a rise ratchet."},
+]
+const REVIEW_SOURCE_PATHS = ["src", "crates", "tests", "core", "examples", "showcase", "tools", "dev/tests", "dev/consolidation_metrics.xsh", "dev/consolidation/metrics.xsh"]
 
 pure ident_start(value: Str) -> Bool {
   value != "" and (value in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_" or value.byte_len() > 1)
@@ -792,18 +814,7 @@ export proc measure(root: Path, source_roots: List[Str]) [fs, error] -> Result[R
     }
   }
   let metrics = collect { for name in totals.keys() |> sort { yield {name: name, value: totals[name], evidence: occurrences[name]} } }
-  {schema: 1, sources: sources, metrics: metrics, reviews: [
-    {name: "operand_behavior_differences", requirement: "Verified per-instruction behavior comparison and retained oracle tests; source arm counts cannot establish equivalence."},
-    {name: "duplicated_per_item_stages", requirement: "Reviewed stage execution ownership, backed by verified generated stage tables and pipeline differential probes."},
-    {name: "nested_machine_bounds", requirement: "Review each entry call and constructor for native-stack nesting and the accepted counter bound; lexical calls alone do not prove scheduling."},
-    {name: "instruction_fallback_arms", requirement: "Verified generated instruction dispatch inventory identifying recursive fallback routes."},
-    {name: "name_resolution_authorities", requirement: "Reviewed authority boundaries and feature-touch evidence; source definitions do not prove semantic authority."},
-    {name: "lint_recursive_descents", requirement: "Verified traversal inventory and rule probes identifying independent recursive descents."},
-    {name: "module_checks_per_pass", requirement: "Measured single lint-pass module-check counts with the shared-import fixture."},
-    {name: "whole_program_stage_copies", requirement: "Reviewed stage-lowering ownership and allocation probes; arbitrary clone calls are not a semantic count."},
-    {name: "open_defects", requirement: "Reviewed TODO defect dispositions with retained regression coverage and recorded reasons."},
-    {name: "timings", requirement: "Isolated repository lint and full gate wall-clock measurements; timings are evidence without a rise ratchet."},
-  ]}
+  {schema: 1, sources: sources, metrics: metrics, reviews: REVIEW_REQUIREMENTS}
 }
 
 ## Fails on a structural rise or a changed metric schema; baseline files decode through Report.
@@ -817,5 +828,114 @@ export proc assert_not_risen(current: Report, baseline: Report) [error] -> Resul
     if old.len() != 1 { return Err(MetricError.Contract(detail: f"duplicate metric {row.name}")) }
     if row.value < 0 or old[0].value < 0 { return Err(MetricError.Contract(detail: f"negative metric {row.name}")) }
     if row.value > old[0].value { return Err(MetricError.Rise(name: row.name, before: old[0].value, after: row.value)) }
+  }
+}
+
+pure metric_value(report: Report, name: Str) -> Result[Int, Error] {
+  let rows = report.metrics |> where .name == name |> collect
+  if rows.len() != 1 { return Err(MetricError.Contract(detail: f"expected one {name} metric")) }
+  rows[0].value
+}
+
+## Final closure requires both measured production roots to shrink and every blanket scope to be gone.
+export proc assert_final_close(current: Report, baseline: Report) [error] -> Result[Unit, Error] {
+  assert_not_risen(current, baseline)?
+  for name in ["source_lines_src", "source_lines_xsht"] {
+    let now = metric_value(current, name)?
+    let before = metric_value(baseline, name)?
+    if now >= before { return Err(MetricError.Contract(detail: f"final close requires {name} below baseline: {before} -> {now}")) }
+  }
+  if metric_value(current, "blanket_dead_code_lines")? != 0 {
+    return Err(MetricError.Contract(detail: "final close requires zero blanket_dead_code_lines"))
+  }
+}
+
+pure valid_object_id(value: Str) -> Bool {
+  if value.byte_len() not in [40, 64] { return false }
+  for digit in value.split("") { if !(digit.lower() in "0123456789abcdef") { return false } }
+  true
+}
+
+proc git_output(root: Path, arguments: List[Str]) [process, error] -> Result[Str, Error] {
+  let argv = ["git", "-C", root.display(), @arguments]
+  let output = run.capture --text --timeout=30s @argv
+  let code = output.status.shell_code()?
+  if code != 0 { return Err(MetricError.Contract(detail: f"git {arguments.join(" ")} failed with {code}: {output.stderr.trim()}")) }
+  output.stdout.trim()
+}
+
+proc commit_source_oids(root: Path, commit: Str) [process, error] -> Result[List[ReviewSource], Error] {
+  collect {
+    for source_path in REVIEW_SOURCE_PATHS {
+      let oid = git_output(root, ["rev-parse", "--verify", f"{commit}:{source_path}"])?
+      yield {path: source_path, oid: oid}
+    }
+  }
+}
+
+proc verify_artifact(root: Path, artifact: ReviewArtifact) [fs, error] -> Result[Unit, Error] {
+  if artifact.path.trim() != artifact.path or artifact.path == "" or artifact.path.starts_with("/") or "\\" in artifact.path {
+    return Err(MetricError.Contract(detail: "review artifact path must be workspace-relative"))
+  }
+  for segment in artifact.path.split("/") {
+    if segment in ["", ".", ".."] { return Err(MetricError.Contract(detail: "review artifact path escapes or aliases the workspace")) }
+  }
+  if artifact.sha256.byte_len() != 64 { return Err(MetricError.Contract(detail: "review artifact SHA-256 must be 64 hexadecimal characters")) }
+  for digit in artifact.sha256.split("") { if !(digit.lower() in "0123456789abcdef") { return Err(MetricError.Contract(detail: "review artifact SHA-256 is not hexadecimal")) } }
+  if artifact.command.trim() == "" or artifact.method.trim() == "" or artifact.result.trim() != "verified" {
+    return Err(MetricError.Contract(detail: "review artifact needs a command, method, and verified reviewer result"))
+  }
+  let base = root.resolve()?
+  let resolved = fp"{base}/{artifact.path}".resolve()?
+  let _ = resolved.strip_prefix(base)?
+  if hash.sha256(resolved)?.hex().lower() != artifact.sha256.lower() {
+    return Err(MetricError.Contract(detail: f"review artifact hash mismatch: {artifact.path}"))
+  }
+}
+
+## Evidence stays separate from the fixed requirements; code and test trees bind it to reviewed behavior.
+export proc verify_review_evidence(current: Report, bundle: ReviewEvidenceBundle, root: Path) [fs, process, error] -> Result[Unit, Error] {
+  if bundle.schema != 1 { return Err(MetricError.Contract(detail: "unsupported review evidence schema")) }
+  let expected_names = REVIEW_REQUIREMENTS |> map .name |> sort
+  let current_names = current.reviews |> map .name |> sort
+  if current_names != expected_names { return Err(MetricError.Contract(detail: "current report does not contain the canonical review rows")) }
+  let proof_names = bundle.rows |> map .name |> sort
+  if bundle.rows.len() != expected_names.len() or proof_names != expected_names {
+    return Err(MetricError.Contract(detail: "review evidence must contain each canonical row exactly once"))
+  }
+  if ! valid_object_id(bundle.source_commit) { return Err(MetricError.Contract(detail: "review source_commit must be a full hexadecimal Git object ID")) }
+  let base = root.resolve()?
+  let head = git_output(base, ["rev-parse", "--verify", "HEAD"])?
+  let source_commit = git_output(base, ["rev-parse", "--verify", bundle.source_commit])?
+  if source_commit.lower() != bundle.source_commit.lower() or git_output(base, ["cat-file", "-t", source_commit])? != "commit" {
+    return Err(MetricError.Contract(detail: "review source_commit is not an existing Git commit"))
+  }
+  let ancestry = ["git", "-C", base.display(), "merge-base", "--is-ancestor", source_commit, head]
+  let ancestry_output = run.capture --text --timeout=30s @ancestry
+  if ancestry_output.status.shell_code()? != 0 {
+    return Err(MetricError.Contract(detail: "review source_commit is not in the current history"))
+  }
+  let dirty_paths = git_output(base, ["status", "--porcelain", "--untracked-files=all", "--", @REVIEW_SOURCE_PATHS])?
+  if dirty_paths != "" { return Err(MetricError.Contract(detail: "reviewed source or test trees have uncommitted changes")) }
+  let required_source_paths = REVIEW_SOURCE_PATHS |> sort
+  let recorded_source_paths = bundle.sources |> map .path |> sort
+  if recorded_source_paths != required_source_paths or bundle.sources.len() != required_source_paths.len() {
+    return Err(MetricError.Contract(detail: "review evidence has missing or duplicate source identities"))
+  }
+  let source_oids = commit_source_oids(base, source_commit)?
+  let current_oids = commit_source_oids(base, head)?
+  for source_path in REVIEW_SOURCE_PATHS {
+    let recorded = bundle.sources |> where .path == source_path |> collect
+    let from_commit = source_oids |> where .path == source_path |> collect
+    let current_source = current_oids |> where .path == source_path |> collect
+    if recorded.len() != 1 or from_commit.len() != 1 or current_source.len() != 1 or ! valid_object_id(recorded[0].oid) or recorded[0].oid.lower() != from_commit[0].oid.lower() or recorded[0].oid.lower() != current_source[0].oid.lower() {
+      return Err(MetricError.Contract(detail: f"review evidence is stale for source {source_path}"))
+    }
+  }
+  for row in bundle.rows {
+    if row.status != "human_verified" or row.reviewer.trim() == "" or row.evidence.is_empty() {
+      return Err(MetricError.Contract(detail: f"review row is not human-verified with evidence: {row.name}"))
+    }
+    for artifact in row.evidence { verify_artifact(base, artifact)? }
   }
 }
