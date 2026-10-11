@@ -1217,16 +1217,16 @@ instruction_schema! {
             flush: bool,
             propagate_result: bool,
             span: Span,
-        } => StmtPrint = 144 [EFFECT_HOST | EFFECT_TRACE; Scheduled; LegacyRecursive];
+        } => StmtPrint = 144 [EFFECT_HOST | EFFECT_TRACE; Scheduled; FrameControl];
         Cd {
             target: BuildExprId,
             body: Vec<BuildStmtId>,
             span: Span,
-        } => StmtCd = 145 [EFFECT_CWD | EFFECT_HOST | EFFECT_TRACE; Scheduled; LegacyRecursive];
+        } => StmtCd = 145 [EFFECT_CWD | EFFECT_HOST | EFFECT_TRACE; Scheduled; FrameControl];
         Env {
             env: Vec<LoweredRunEnv>,
             body: Vec<BuildStmtId>,
-        } => StmtEnv = 146 [EFFECT_ENV | EFFECT_HOST | EFFECT_TRACE; Scheduled; LegacyRecursive];
+        } => StmtEnv = 146 [EFFECT_ENV | EFFECT_HOST | EFFECT_TRACE; Scheduled; FrameControl];
         Run {
             value: BuildExprId,
             propagate_result: bool,

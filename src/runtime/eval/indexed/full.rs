@@ -7702,6 +7702,55 @@ run true
         });
     }
 
+    #[test]
+    fn statement_env_validates_all_names_before_evaluating_values() {
+        let source = r#"
+proc mark() -> Str { print "evaluated"; return "value" }
+proc main() [env, error] -> Result[Unit] {
+  env XSH_FRAME_VALID=${mark()} XSH_FRAME_LATE=${mark()} { print "body" }
+  return Ok()
+}
+"#;
+        let mut program = fixture("statement-env-name-order.xsh", source);
+        let statement = function_instruction_indices(&program, "main", FullTag::StmtEnv)[0];
+        let payload = program.store.payload(program.store.data[statement].range()).unwrap();
+        let env_block = IrBlockId::from_raw(payload[0]).unwrap();
+        let range = program.store.blocks[env_block.index()].instructions;
+        let second_name = program.symbol_owner().with_current(|| {
+            let mut execution = schema_execution(&program.store);
+            execution.decoder.owner = program.store.blocks[env_block.index()].owner;
+            let mut entries = FullCursor::new(program.store.payload(range).unwrap());
+            assert_eq!(entries.raw().unwrap(), 2);
+            LoweredRunEnv::decode(&execution.decoder, &mut entries).unwrap();
+            entries.index
+        });
+        let invalid_name = program
+            .symbol_owner()
+            .with_current(|| Name::intern("BAD=NAME"));
+        program.store.extra[range.start as usize + second_name] = invalid_name.symbol().raw();
+        assert!(FullVerifier::verify(&program).is_ok());
+
+        let program = Arc::new(program);
+        program.symbol_owner().with_current(|| {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            evaluator.force_frames = true;
+            let original_env = evaluator.env.snapshot_clone();
+            let error = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "main")),
+                    LoweredFunctionKind::Proc,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("main exists")
+                .expect_err("the corrupted later environment name is rejected");
+            assert_eq!(error.kind, "env-name");
+            assert!(evaluator.stdout.is_empty(), "no value or body expression ran");
+            assert_eq!(evaluator.env.snapshot_clone(), original_env);
+        });
+    }
+
     fn append_path_from_chain(program: &mut FullProgram, wrappers: usize) -> Vec<usize> {
         program.store.in_place.take();
         let function_index = program

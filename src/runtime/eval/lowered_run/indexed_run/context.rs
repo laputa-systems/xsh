@@ -1,12 +1,71 @@
 use super::{
     BTreeMap, ContextScopeRestore, ControlFlow, Duration, Evaluator, Flow, FullExecution,
-    LoweredValue, Propagation, RegisteredDefer, RuntimeError, Span, StmtFlow, TraceArg, TraceError,
-    TraceKind, TracePayload, Traceback, Value, capture_checked_error, check_env_name, fs_module,
-    indexed_error, lowered_duration_arg, lowered_path_like_arg, path_bytes,
+    LoweredValue, PathValue, Propagation, RegisteredDefer, RuntimeError, Span, StmtFlow, TraceArg,
+    TraceError, TraceKind, TracePayload, Traceback, Value, capture_checked_error, check_env_name, fs_module,
+    indexed_error, lowered_duration_arg, lowered_path_like_arg, lowered_result_err_value,
+    path_bytes,
     runtime_error_from_value,
 };
 
+pub(super) enum StatementContextScopeEntry {
+    Entered(ContextScopeRestore),
+    Propagate(LoweredValue),
+}
+
 impl Evaluator {
+    pub(super) fn enter_indexed_statement_cwd_scope(
+        &mut self,
+        value: LoweredValue,
+        span: Span,
+    ) -> Result<StatementContextScopeEntry, RuntimeError> {
+        let target = lowered_path_like_arg(value, "cd", span)?;
+        match self.enter_indexed_cwd_scope(target, span) {
+            Ok(restore) => Ok(StatementContextScopeEntry::Entered(restore)),
+            Err(error) => Ok(StatementContextScopeEntry::Propagate(
+                lowered_result_err_value(error),
+            )),
+        }
+    }
+
+    fn enter_indexed_cwd_scope(
+        &mut self,
+        target: PathValue,
+        span: Span,
+    ) -> Result<ContextScopeRestore, RuntimeError> {
+        let previous = self.cwd.clone();
+        let next = self.host_path(&target);
+        match fs_module::cd_target_is_dir(&next) {
+            Ok(true) => {}
+            Ok(false) => {
+                return Err(
+                    RuntimeError::new("cwd-not-directory", "cwd target is not a directory")
+                        .with_span(span),
+                );
+            }
+            Err(error) => return Err(RuntimeError::host("cwd", &error).with_span(span)),
+        }
+        self.trace_enter(
+            TraceKind::CwdEnter,
+            Some(span),
+            Some("cd"),
+            TracePayload::Cwd {
+                previous: TraceArg::bytes(path_bytes(&previous)),
+                current: TraceArg::bytes(path_bytes(&next)),
+            },
+        );
+        self.cwd = next;
+        Ok(ContextScopeRestore::Cwd { previous, span })
+    }
+
+    pub(super) fn enter_indexed_env_scope(
+        &mut self,
+        overlay: BTreeMap<Vec<u8>, Vec<u8>>,
+    ) -> ContextScopeRestore {
+        let previous = self.env.clone();
+        self.env.extend(overlay);
+        ContextScopeRestore::Env(previous)
+    }
+
     pub(super) fn enter_indexed_context_scope(
         &mut self,
         kind: crate::syntax::arena::ContextScopeKind,
@@ -16,30 +75,7 @@ impl Evaluator {
         match kind {
             crate::syntax::arena::ContextScopeKind::Cwd => {
                 let target = lowered_path_like_arg(value, "cd", span)?;
-                let previous = self.cwd.clone();
-                let next = self.host_path(&target);
-                match fs_module::cd_target_is_dir(&next) {
-                    Ok(true) => {}
-                    Ok(false) => {
-                        return Err(RuntimeError::new(
-                            "cwd-not-directory",
-                            "cwd target is not a directory",
-                        )
-                        .with_span(span));
-                    }
-                    Err(error) => return Err(RuntimeError::host("cwd", &error).with_span(span)),
-                }
-                self.trace_enter(
-                    TraceKind::CwdEnter,
-                    Some(span),
-                    Some("cd"),
-                    TracePayload::Cwd {
-                        previous: TraceArg::bytes(path_bytes(&previous)),
-                        current: TraceArg::bytes(path_bytes(&next)),
-                    },
-                );
-                self.cwd = next;
-                Ok(ContextScopeRestore::Cwd { previous, span })
+                self.enter_indexed_cwd_scope(target, span)
             }
             crate::syntax::arena::ContextScopeKind::Env => {
                 let fields = match value {
@@ -78,9 +114,7 @@ impl Evaluator {
                     let value = super::super::super::value_to_env_bytes(value.into_value(), span)?;
                     overlay.insert(name.into_bytes(), value);
                 }
-                let previous = self.env.clone();
-                self.env.extend(overlay);
-                Ok(ContextScopeRestore::Env(previous))
+                Ok(self.enter_indexed_env_scope(overlay))
             }
             crate::syntax::arena::ContextScopeKind::Within => {
                 let limit = lowered_duration_arg(Some(value), "within", span)?;
