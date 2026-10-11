@@ -26,7 +26,7 @@ macro_rules! instruction_schema {
                     $variant:ident
                     $(($($tuple_field:ident: $tuple_ty:ty),* $(,)?))?
                     $({$($(#[$field_attr:meta])* $field:ident: $field_ty:ty),* $(,)?})?
-                    => $tag:ident = $ordinal:literal [$effects:expr];
+                    => $tag:ident = $ordinal:literal [$effects:expr; $class:ident];
                 )*
             }
         )*
@@ -42,7 +42,19 @@ macro_rules! instruction_schema {
             $($kind,)*
         }
 
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        pub(in crate::runtime::eval) enum InPlaceClass {
+            Operands,
+            Scheduled,
+        }
+
         impl FullTag {
+            pub(in crate::runtime::eval) fn in_place_class(self) -> InPlaceClass {
+                match self {
+                    $($(Self::$tag => InPlaceClass::$class,)*)*
+                }
+            }
+
             pub(in crate::runtime::eval) fn field_cursor<'a>(
                 self, context: DecodeContext<'a>, mut input: FullCursor<'a>, name: &str,
             ) -> Result<FullCursor<'a>, IrVerifyError> {
@@ -224,302 +236,302 @@ macro_rules! instruction_schema {
 
 instruction_schema! {
     BuildIntRow => IntView [Int] {
-        Int(value: i64) => IntInt = 0 [0];
-        Slot(slot: usize) => IntSlot = 1 [0];
+        Int(value: i64) => IntInt = 0 [0; Operands];
+        Slot(slot: usize) => IntSlot = 1 [0; Operands];
         Binary {
             op: BinaryOp,
             left: BuildIntId,
             right: BuildIntId,
-        } => IntBinary = 2 [0];
+        } => IntBinary = 2 [0; Operands];
         StrByteLenSlot {
             slot: usize,
             span: Span,
-        } => IntStrByteLenSlot = 3 [0];
+        } => IntStrByteLenSlot = 3 [0; Operands];
         StrCountLinesSlot {
             slot: usize,
             span: Span,
-        } => IntStrCountLinesSlot = 4 [0];
+        } => IntStrCountLinesSlot = 4 [0; Operands];
         StrByteAtSlot {
             slot: usize,
             index: BuildIntId,
             default: Option<BuildIntId>,
             span: Span,
-        } => IntStrByteAtSlot = 5 [0];
+        } => IntStrByteAtSlot = 5 [0; Operands];
     }
     BuildBoolRow => BoolView [Bool] {
-        Bool(value: bool) => BoolBool = 6 [0];
-        Slot(slot: usize) => BoolSlot = 7 [0];
-        Not(value: BuildBoolId) => BoolNot = 8 [0];
-        And(left: BuildBoolId, right: BuildBoolId) => BoolAnd = 9 [0];
-        Or(left: BuildBoolId, right: BuildBoolId) => BoolOr = 10 [0];
+        Bool(value: bool) => BoolBool = 6 [0; Operands];
+        Slot(slot: usize) => BoolSlot = 7 [0; Operands];
+        Not(value: BuildBoolId) => BoolNot = 8 [0; Operands];
+        And(left: BuildBoolId, right: BuildBoolId) => BoolAnd = 9 [0; Operands];
+        Or(left: BuildBoolId, right: BuildBoolId) => BoolOr = 10 [0; Operands];
         IntCompare {
             op: BinaryOp,
             left: BuildIntId,
             right: BuildIntId,
-        } => BoolIntCompare = 11 [0];
+        } => BoolIntCompare = 11 [0; Operands];
         StrPredicateSlot {
             slot: usize,
             predicate: LoweredStrPredicate,
             needle: Arc<[u8]>,
             span: Span,
-        } => BoolStrPredicateSlot = 12 [0];
+        } => BoolStrPredicateSlot = 12 [0; Operands];
         ContainsSlot {
             slot: usize,
             needle: LoweredValue,
             span: Span,
-        } => BoolContainsSlot = 13 [0];
+        } => BoolContainsSlot = 13 [0; Operands];
         StrContainsSlot {
             slot: usize,
             needle: Arc<str>,
             span: Span,
-        } => BoolStrContainsSlot = 14 [0];
+        } => BoolStrContainsSlot = 14 [0; Operands];
         TrimEmptySlot {
             slot: usize,
             span: Span,
-        } => BoolTrimEmptySlot = 15 [0];
+        } => BoolTrimEmptySlot = 15 [0; Operands];
         TrimStrPredicateSlot {
             slot: usize,
             predicate: LoweredStrPredicate,
             needle: Arc<[u8]>,
             span: Span,
-        } => BoolTrimStrPredicateSlot = 16 [0];
+        } => BoolTrimStrPredicateSlot = 16 [0; Operands];
         LiteralCompareSlot {
             op: BinaryOp,
             slot: usize,
             value: LoweredValue,
-        } => BoolLiteralCompareSlot = 17 [0];
+        } => BoolLiteralCompareSlot = 17 [0; Operands];
     }
     BuildExprRow => ExprView [Expr] {
-        Null => ExprNull = 18 [0];
-        Unit => ExprUnit = 19 [0];
-        Int(value: i64) => ExprInt = 20 [0];
-        Float(value: FloatValue) => ExprFloat = 21 [0];
-        Duration(value: DurationValue) => ExprDuration = 22 [0];
-        Bool(value: bool) => ExprBool = 23 [0];
-        Str(value: Arc<str>) => ExprStr = 24 [0];
-        Bytes(value: Arc<[u8]>) => ExprBytes = 25 [0];
-        PreparedRegex(value: RegexValue) => ExprPreparedRegex = 26 [0];
-        PreparedConstant(value: PreparedConstantValue) => ExprPreparedConstant = 27 [0];
-        Path(value: PathValue) => ExprPath = 28 [0];
+        Null => ExprNull = 18 [0; Operands];
+        Unit => ExprUnit = 19 [0; Operands];
+        Int(value: i64) => ExprInt = 20 [0; Operands];
+        Float(value: FloatValue) => ExprFloat = 21 [0; Operands];
+        Duration(value: DurationValue) => ExprDuration = 22 [0; Operands];
+        Bool(value: bool) => ExprBool = 23 [0; Operands];
+        Str(value: Arc<str>) => ExprStr = 24 [0; Operands];
+        Bytes(value: Arc<[u8]>) => ExprBytes = 25 [0; Operands];
+        PreparedRegex(value: RegexValue) => ExprPreparedRegex = 26 [0; Operands];
+        PreparedConstant(value: PreparedConstantValue) => ExprPreparedConstant = 27 [0; Operands];
+        Path(value: PathValue) => ExprPath = 28 [0; Operands];
         FunctionRef {
             function: FunctionName,
             pure: bool,
-        } => ExprFunctionRef = 29 [0];
+        } => ExprFunctionRef = 29 [0; Operands];
         PathFrom {
             value: BuildExprId,
             span: Span,
-        } => ExprPathFrom = 30 [0];
-        Param(slot: usize) => ExprParam = 31 [0];
+        } => ExprPathFrom = 30 [0; Operands];
+        Param(slot: usize) => ExprParam = 31 [0; Operands];
         ComparisonChain {
             pairs: Vec<BuildExprId>,
             assertion: bool,
-        } => ExprComparisonChain = 32 [0];
+        } => ExprComparisonChain = 32 [0; Operands];
         Binary {
             op: BinaryOp,
             left: BuildExprId,
             right: BuildExprId,
             span: Span,
-        } => ExprBinary = 33 [0];
+        } => ExprBinary = 33 [0; Operands];
         IfExpr {
             branches: Vec<(BuildExprId, BuildExprId)>,
             else_value: BuildExprId,
             span: Span,
-        } => ExprIf = 34 [0];
+        } => ExprIf = 34 [0; Operands];
         PatternIf {
             branches: Vec<(BuildExprId, BuildExprId, Vec<usize>)>,
             else_value: BuildExprId,
             span: Span,
-        } => ExprPatternIf = 35 [0];
+        } => ExprPatternIf = 35 [0; Operands];
         MatchExpr {
             value: BuildExprId,
             arms: Vec<(BuildPatternId, Option<BuildExprId>, BuildExprId)>,
             span: Span,
-        } => ExprMatch = 36 [0];
+        } => ExprMatch = 36 [0; Operands];
         StrMatchExpr {
             value: BuildExprId,
             arms: FxHashMap<Arc<str>, BuildExprId>,
             fallback: Option<BuildExprId>,
             span: Span,
-        } => ExprStrMatch = 37 [0];
+        } => ExprStrMatch = 37 [0; Operands];
         TagMatchExpr {
             value: BuildExprId,
             arms: FxHashMap<Arc<str>, BuildExprId>,
             fallback: Option<BuildExprId>,
             span: Span,
-        } => ExprTagMatch = 38 [0];
+        } => ExprTagMatch = 38 [0; Operands];
         ResultFallback {
             left: BuildExprId,
             right: BuildExprId,
-        } => ExprResultFallback = 39 [0];
-        FmtString(parts: Vec<LoweredFmtPart>) => ExprFmtString = 40 [0];
+        } => ExprResultFallback = 39 [0; Operands];
+        FmtString(parts: Vec<LoweredFmtPart>) => ExprFmtString = 40 [0; Operands];
         PathFmtString {
             parts: Vec<LoweredFmtPart>,
             span: Span,
-        } => ExprPathFmtString = 41 [0];
+        } => ExprPathFmtString = 41 [0; Operands];
         // A `g"..."` glob literal. Expanded against the current cwd at eval time into
         // a `List[Path]` (mirrors the recursive evaluator's `eval_glob`).
         Glob {
             pattern: Arc<str>,
             span: Span,
-        } => ExprGlob = 42 [0];
+        } => ExprGlob = 42 [0; Operands];
         // The `$?` last-process-status expression. Reads the evaluator's tracked
         // `last_status` at eval time, erroring if no process has run yet.
         LastStatus {
             span: Span,
-        } => ExprLastStatus = 43 [0];
-        Record(entries: Vec<LoweredRecordEntry>) => ExprRecord = 44 [0];
+        } => ExprLastStatus = 43 [0; Operands];
+        Record(entries: Vec<LoweredRecordEntry>) => ExprRecord = 44 [0; Operands];
         // A missing key identifies a Map spread; keyed entries evaluate key before value.
-        MapLiteral(entries: Vec<(Option<BuildExprId>, BuildExprId, Span)>) => ExprMapLiteral = 45 [0];
+        MapLiteral(entries: Vec<(Option<BuildExprId>, BuildExprId, Span)>) => ExprMapLiteral = 45 [0; Operands];
         RecordUpdate {
             base: BuildExprId,
             updates: LoweredRecordUpdates,
             span: Span,
-        } => ExprRecordUpdate = 46 [0];
-        List(values: Vec<BuildExprId>) => ExprList = 47 [0];
+        } => ExprRecordUpdate = 46 [0; Operands];
+        List(values: Vec<BuildExprId>) => ExprList = 47 [0; Operands];
         // Each element records whether it splices, its value, and its source span.
-        ListBuild(values: Vec<(bool, BuildExprId, Span)>) => ExprListBuild = 48 [0];
+        ListBuild(values: Vec<(bool, BuildExprId, Span)>) => ExprListBuild = 48 [0; Operands];
         // The `map.empty()` builtin constructor (empty list literals already lower via `List`).
-        EmptyMap => ExprEmptyMap = 49 [0];
+        EmptyMap => ExprEmptyMap = 49 [0; Operands];
         // The `bytes.concat(<List[Bytes]>)` builtin constructor.
         BytesConcat {
             arg: BuildExprId,
             span: Span,
-        } => ExprBytesConcat = 50 [0];
+        } => ExprBytesConcat = 50 [0; Operands];
         Range {
             start: BuildExprId,
             end: BuildExprId,
             span: Span,
-        } => ExprRange = 51 [0];
+        } => ExprRange = 51 [0; Operands];
         Tag {
             type_name: Name,
             name: Arc<str>,
             fields: Vec<BuildExprId>,
             wire: Option<Arc<crate::sema::wire_enums::WireEnumMapping>>,
-        } => ExprTag = 52 [0];
+        } => ExprTag = 52 [0; Operands];
         ListComp {
             value: BuildExprId,
             qualifiers: LoweredCompQualifiers,
             span: Span,
-        } => ExprListComp = 53 [0];
+        } => ExprListComp = 53 [0; Scheduled];
         MapComp {
             key: BuildExprId,
             value: BuildExprId,
             qualifiers: LoweredCompQualifiers,
             span: Span,
-        } => ExprMapComp = 54 [0];
+        } => ExprMapComp = 54 [0; Scheduled];
         ListPipeline {
             input: BuildExprId,
             stages: Vec<LoweredPipelineStage>,
             span: Span,
-        } => ExprPipeline = 55 [0];
+        } => ExprPipeline = 55 [0; Scheduled];
         Field {
             base: BuildExprId,
             // Scratch rows preserve generated static text without allocation while
             // retaining an owned spelling for dynamic names.
             name: NameText,
             span: Span,
-        } => ExprField = 56 [0];
+        } => ExprField = 56 [0; Operands];
         Index {
             base: BuildExprId,
             index: BuildExprId,
             span: Span,
-        } => ExprIndex = 57 [0];
+        } => ExprIndex = 57 [0; Operands];
         /// `base[-distance]` over a list, where the checker saw the negative
         /// literal.
         IndexFromEnd {
             base: BuildExprId,
             distance: crate::runtime::eval::EndDistance,
             span: Span,
-        } => ExprIndexFromEnd = 58 [0];
+        } => ExprIndexFromEnd = 58 [0; Operands];
         Slice {
             base: BuildExprId,
             start: Option<BuildExprId>,
             end: Option<BuildExprId>,
             span: Span,
-        } => ExprSlice = 59 [0];
+        } => ExprSlice = 59 [0; Operands];
         Method {
             receiver: BuildExprId,
             name: NameText,
             args: Vec<BuildExprId>,
             span: Span,
-        } => ExprMethod = 60 [0];
+        } => ExprMethod = 60 [0; Scheduled];
         StrByteLen {
             receiver: BuildExprId,
             span: Span,
-        } => ExprStrByteLen = 61 [0];
+        } => ExprStrByteLen = 61 [0; Operands];
         StrByteAt {
             receiver: BuildExprId,
             index: BuildExprId,
             span: Span,
-        } => ExprStrByteAt = 62 [0];
+        } => ExprStrByteAt = 62 [0; Operands];
         StrPredicate {
             receiver: BuildExprId,
             predicate: LoweredStrPredicate,
             needle: BuildExprId,
             span: Span,
-        } => ExprStrPredicate = 63 [0];
+        } => ExprStrPredicate = 63 [0; Operands];
         RegexCompile {
             pattern: BuildExprId,
             span: Span,
-        } => ExprRegexCompile = 64 [0];
+        } => ExprRegexCompile = 64 [0; Operands];
         Require {
             value: BuildExprId,
             check: LoweredTypeCheck,
             span: Span,
-        } => ExprRequire = 65 [0];
+        } => ExprRequire = 65 [0; Operands];
         // Preserve a checked domain while retaining ordinary runtime failure semantics.
         CheckedValue {
             value: BuildExprId,
             check: LoweredTypeCheck,
             span: Span,
-        } => ExprCheckedValue = 66 [0];
+        } => ExprCheckedValue = 66 [0; Operands];
         // Boxed because captured and spawned runs are cold, unusually wide
         // payloads that would otherwise determine the size of every expression.
-        RunCapture(value: Box<LoweredRunCapture>) => ExprRunCapture = 67 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE];
+        RunCapture(value: Box<LoweredRunCapture>) => ExprRunCapture = 67 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled];
         RunPipeline {
             segments: Vec<LoweredRunPipelineSegment>,
             propagate: bool,
             span: Span,
-        } => ExprRunPipeline = 68 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE];
-        SpawnRun(value: Box<LoweredSpawnRun>) => ExprSpawnRun = 69 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE];
+        } => ExprRunPipeline = 68 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled];
+        SpawnRun(value: Box<LoweredSpawnRun>) => ExprSpawnRun = 69 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled];
         SpawnCommand {
             command: BuildExprId,
             span: Span,
-        } => ExprSpawnCommand = 70 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE];
+        } => ExprSpawnCommand = 70 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled];
         Wait {
             target: BuildExprId,
             span: Span,
-        } => ExprWait = 71 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE];
+        } => ExprWait = 71 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled];
         Capture {
             body: Vec<BuildStmtId>,
             span: Span,
-        } => ExprCapture = 72 [0];
+        } => ExprCapture = 72 [0; Scheduled];
         ValueBlock {
             body: Vec<BuildStmtId>,
             span: Span,
-        } => ExprValueBlock = 73 [0];
+        } => ExprValueBlock = 73 [0; Scheduled];
         ErrorContext {
             message: BuildExprId,
             body: Vec<BuildStmtId>,
             span: Span,
-        } => ExprErrorContext = 74 [0];
+        } => ExprErrorContext = 74 [0; Scheduled];
         ContextScope {
             kind: crate::syntax::arena::ContextScopeKind,
             input: BuildExprId,
             body: Vec<BuildStmtId>,
             span: Span,
-        } => ExprContextScope = 75 [EFFECT_CWD | EFFECT_ENV | EFFECT_HOST | EFFECT_TRACE];
+        } => ExprContextScope = 75 [EFFECT_CWD | EFFECT_ENV | EFFECT_HOST | EFFECT_TRACE; Scheduled];
         Loop {
             body: Vec<BuildStmtId>,
             span: Span,
-        } => ExprLoop = 76 [EFFECT_CANCELLATION];
+        } => ExprLoop = 76 [EFFECT_CANCELLATION; Scheduled];
         Retry {
             delays: Vec<BuildExprId>,
             pattern: Option<BuildPatternId>,
             body: Vec<BuildStmtId>,
             span: Span,
             schedule: crate::syntax::arena::RetrySchedule,
-        } => ExprRetry = 77 [0];
+        } => ExprRetry = 77 [0; Scheduled];
         FsFiles {
             root: BuildExprId,
             gitignore: Option<BuildExprId>,
@@ -528,7 +540,7 @@ instruction_schema! {
             exts: Option<BuildExprId>,
             result_wrapped: bool,
             span: Span,
-        } => ExprFsFiles = 78 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => ExprFsFiles = 78 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands];
         FsWalk {
             root: BuildExprId,
             gitignore: Option<BuildExprId>,
@@ -537,79 +549,79 @@ instruction_schema! {
             exts: Option<BuildExprId>,
             result_wrapped: bool,
             span: Span,
-        } => ExprFsWalk = 79 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => ExprFsWalk = 79 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands];
         FsList {
             op: RuntimeOp,
             path: BuildExprId,
             stat: Option<BuildExprId>,
             ordered: Option<BuildExprId>,
             span: Span,
-        } => ExprFsList = 80 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => ExprFsList = 80 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands];
         FsTempDir {
             span: Span,
-        } => ExprFsTempDir = 81 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => ExprFsTempDir = 81 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands];
         FsMkdir {
             path: BuildExprId,
             parents: Option<BuildExprId>,
             span: Span,
-        } => ExprFsMkdir = 82 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => ExprFsMkdir = 82 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands];
         FsRemove {
             path: BuildExprId,
             missing_ok: Option<BuildExprId>,
             span: Span,
-        } => ExprFsRemove = 83 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => ExprFsRemove = 83 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands];
         PathReadText {
             path: BuildExprId,
             span: Span,
-        } => ExprPathReadText = 84 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => ExprPathReadText = 84 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands];
         PathReadBytes {
             path: BuildExprId,
             span: Span,
-        } => ExprPathReadBytes = 85 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => ExprPathReadBytes = 85 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands];
         PathExists {
             path: BuildExprId,
             span: Span,
-        } => ExprPathExists = 86 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => ExprPathExists = 86 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands];
         PathExecutable {
             path: BuildExprId,
             span: Span,
-        } => ExprPathExecutable = 87 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => ExprPathExecutable = 87 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands];
         PathDu {
             path: BuildExprId,
             span: Span,
-        } => ExprPathDu = 88 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => ExprPathDu = 88 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands];
         PathMetadata {
             path: BuildExprId,
             span: Span,
-        } => ExprPathMetadata = 89 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => ExprPathMetadata = 89 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands];
         PathReadlink {
             path: BuildExprId,
             span: Span,
-        } => ExprPathReadlink = 90 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => ExprPathReadlink = 90 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands];
         PathResolve {
             path: BuildExprId,
             span: Span,
-        } => ExprPathResolve = 91 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => ExprPathResolve = 91 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands];
         PathWrite {
             path: BuildExprId,
             data: BuildExprId,
             atomic: bool,
             span: Span,
-        } => ExprPathWrite = 92 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => ExprPathWrite = 92 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands];
         PathMkdir {
             path: BuildExprId,
             parents: Option<BuildExprId>,
             span: Span,
-        } => ExprPathMkdir = 93 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => ExprPathMkdir = 93 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands];
         PathRemove {
             path: BuildExprId,
             missing_ok: Option<BuildExprId>,
             span: Span,
-        } => ExprPathRemove = 94 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => ExprPathRemove = 94 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands];
         JsonEncode {
             value: BuildExprId,
             span: Span,
-        } => ExprJsonEncode = 95 [0];
+        } => ExprJsonEncode = 95 [0; Operands];
         ArchiveTarCreate {
             path: BuildExprId,
             root: BuildExprId,
@@ -617,60 +629,60 @@ instruction_schema! {
             compression: Option<BuildExprId>,
             overwrite: Option<BuildExprId>,
             span: Span,
-        } => ExprArchiveTarCreate = 96 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => ExprArchiveTarCreate = 96 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled];
         ArchiveTarList {
             path: BuildExprId,
             span: Span,
-        } => ExprArchiveTarList = 97 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => ExprArchiveTarList = 97 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled];
         ArchiveTarExtract {
             path: BuildExprId,
             dest: BuildExprId,
             span: Span,
-        } => ExprArchiveTarExtract = 98 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => ExprArchiveTarExtract = 98 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled];
         ModuleCall {
             op: RuntimeOp,
             call_plan: Option<Arc<crate::runtime::eval::ModuleCallPlan>>,
             args: Vec<Option<BuildExprId>>,
             span: Span,
-        } => ExprModuleCall = 99 [EFFECT_HOST | EFFECT_TRACE];
+        } => ExprModuleCall = 99 [EFFECT_HOST | EFFECT_TRACE; Scheduled];
         // Boxed because this cold command-construction payload otherwise makes
         // every `BuildExprId` 16 bytes larger, including expression-heavy scripts.
-        ProcessCommandArgv(value: Box<LoweredProcessCommandArgv>) => ExprProcessCommandArgv = 100 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE];
+        ProcessCommandArgv(value: Box<LoweredProcessCommandArgv>) => ExprProcessCommandArgv = 100 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled];
         ProcessCommandBuilder {
             entries: Vec<LoweredProcessCommandBuilderEntry>,
             span: Span,
-        } => ExprProcessCommandBuilder = 101 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE];
+        } => ExprProcessCommandBuilder = 101 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled];
         Abort {
             status: BuildExprId,
             span: Span,
-        } => ExprAbort = 102 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => ExprAbort = 102 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled];
         Fail {
             message: BuildExprId,
             span: Span,
-        } => ExprFail = 103 [EFFECT_PROPAGATE | EFFECT_TRACE];
-        Ok(value: BuildExprId) => ExprOk = 104 [0];
+        } => ExprFail = 103 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands];
+        Ok(value: BuildExprId) => ExprOk = 104 [0; Operands];
         Err {
             value: BuildExprId,
             cause: Option<BuildExprId>,
-        } => ExprErr = 105 [0];
+        } => ExprErr = 105 [0; Operands];
         // Boxed: `LoweredErrorExpr::Structured` inlines two `String`s plus two
         // `Vec`s (~96 bytes) that would otherwise size every `BuildExprId` variant
         // for the sake of the comparatively rare structured-error-literal case.
-        Error(value: Box<LoweredErrorExpr>) => ExprError = 106 [0];
+        Error(value: Box<LoweredErrorExpr>) => ExprError = 106 [0; Operands];
         Try {
             value: BuildExprId,
             span: Span,
-        } => ExprTry = 107 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => ExprTry = 107 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands];
         Call {
             function: LoweredFunctionKey,
             args: Vec<LoweredCallArg>,
             span: Span,
-        } => ExprCall = 108 [EFFECT_TRACE];
+        } => ExprCall = 108 [EFFECT_TRACE; Scheduled];
         DirectPureCall {
             function: LoweredFunctionKey,
             args: Vec<LoweredCallArg>,
             span: Span,
-        } => ExprDirectPureCall = 109 [EFFECT_TRACE];
+        } => ExprDirectPureCall = 109 [EFFECT_TRACE; Scheduled];
         /// A call to an implementation a loading program published.
         ///
         /// Used only by a dynamically loaded module that links its standard-library
@@ -680,16 +692,16 @@ instruction_schema! {
             function: QualifiedName,
             args: Vec<LoweredCallArg>,
             span: Span,
-        } => ExprExternalCall = 110 [EFFECT_TRACE];
+        } => ExprExternalCall = 110 [EFFECT_TRACE; Scheduled];
         DynamicCall {
             callee: BuildExprId,
             args: Vec<LoweredCallArg>,
             span: Span,
-        } => ExprDynamicCall = 111 [EFFECT_DYNAMIC_CALL | EFFECT_TRACE];
+        } => ExprDynamicCall = 111 [EFFECT_DYNAMIC_CALL | EFFECT_TRACE; Scheduled];
         SelfCall {
             args: Vec<LoweredCallArg>,
             span: Span,
-        } => ExprSelfCall = 112 [EFFECT_TRACE];
+        } => ExprSelfCall = 112 [EFFECT_TRACE; Scheduled];
         /// A call through a value of a callable type. `signature` is the checked
         /// `Type::Callable` the arguments were bound against, and `pure` its
         /// kind; `args` supplies each of its parameters once, in order.
@@ -699,18 +711,18 @@ instruction_schema! {
             signature: Type,
             args: Vec<LoweredCallArg>,
             span: Span,
-        } => ExprTypedCall = 113 [EFFECT_DYNAMIC_CALL | EFFECT_TRACE];
+        } => ExprTypedCall = 113 [EFFECT_DYNAMIC_CALL | EFFECT_TRACE; Scheduled];
         /// What `Proc.call` returns for the call it wraps: the `Result` the proc
         /// returned, or `Ok` of any other value. A dynamic handle does not say
         /// what its proc returns, so the checker types the call `Result[Any]`
         /// and this makes every proc honor that.
-        ProcCallResult(value: BuildExprId) => ExprProcCallResult = 114 [0];
+        ProcCallResult(value: BuildExprId) => ExprProcCallResult = 114 [0; Scheduled];
     }
     BuildStmtRow => StmtView [Stmt] {
         Let {
             slot: usize,
             value: BuildExprId,
-        } => StmtLet = 115 [0];
+        } => StmtLet = 115 [0; Scheduled];
         /// `guard let slot = value else { |failure| ... }`: evaluate
         /// `value` (a `Result`); on `Ok`, bind its inner value to `slot` and
         /// continue; on `Err`, bind the error to `else_param_slot` (if present) and
@@ -726,7 +738,7 @@ instruction_schema! {
             else_body: Vec<BuildStmtId>,
             span: Span,
             optional: bool,
-        } => StmtGuard = 116 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => StmtGuard = 116 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled];
         With {
             bindings: Vec<(usize, BuildExprId)>,
             body: Vec<BuildStmtId>,
@@ -734,15 +746,15 @@ instruction_schema! {
             else_body: Vec<BuildStmtId>,
             captures: Vec<usize>,
             span: Span,
-        } => StmtWith = 117 [EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => StmtWith = 117 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled];
         LetInt {
             slot: usize,
             value: BuildIntId,
-        } => StmtLetInt = 118 [0];
+        } => StmtLetInt = 118 [0; Scheduled];
         LetBool {
             slot: usize,
             value: BuildBoolId,
-        } => StmtLetBool = 119 [0];
+        } => StmtLetBool = 119 [0; Scheduled];
         Assign {
             slot: usize,
             op: AssignOp,
@@ -750,21 +762,21 @@ instruction_schema! {
             // Validate the final replacement before offering storage to consuming operations.
             check: Option<LoweredTypeCheck>,
             span: Span,
-        } => StmtAssign = 120 [0];
+        } => StmtAssign = 120 [0; Scheduled];
         AssignField {
             slot: usize,
             field: Arc<str>,
             op: AssignOp,
             value: BuildExprId,
             span: Span,
-        } => StmtAssignField = 121 [0];
+        } => StmtAssignField = 121 [0; Scheduled];
         AssignFieldInt {
             slot: usize,
             field: Arc<str>,
             op: AssignOp,
             value: BuildIntId,
             span: Span,
-        } => StmtAssignFieldInt = 122 [0];
+        } => StmtAssignFieldInt = 122 [0; Scheduled];
         AssignPath {
             slot: usize,
             path: LoweredAssignPath,
@@ -772,123 +784,123 @@ instruction_schema! {
             value: BuildExprId,
             check: Option<LoweredTypeCheck>,
             span: Span,
-        } => StmtAssignPath = 123 [0];
+        } => StmtAssignPath = 123 [0; Scheduled];
         AssignInt {
             slot: usize,
             op: AssignOp,
             value: BuildIntId,
             span: Span,
-        } => StmtAssignInt = 124 [0];
+        } => StmtAssignInt = 124 [0; Scheduled];
         AssignBool {
             slot: usize,
             value: BuildBoolId,
-        } => StmtAssignBool = 125 [0];
+        } => StmtAssignBool = 125 [0; Scheduled];
         Value {
             value: BuildExprId,
-        } => StmtValue = 126 [0];
+        } => StmtValue = 126 [0; Scheduled];
         Assert {
             value: BuildExprId,
             message: Option<BuildExprId>,
             span: Span,
-        } => StmtAssert = 127 [0];
+        } => StmtAssert = 127 [0; Scheduled];
         Expr {
             value: BuildExprId,
             span: Span,
-        } => StmtExpr = 128 [0];
+        } => StmtExpr = 128 [0; Scheduled];
         If {
             branches: Vec<(BuildExprId, Vec<BuildStmtId>)>,
             else_body: Option<Vec<BuildStmtId>>,
-        } => StmtIf = 129 [0];
+        } => StmtIf = 129 [0; Scheduled];
         IfBool {
             branches: Vec<(BuildBoolId, Vec<BuildStmtId>)>,
             else_body: Option<Vec<BuildStmtId>>,
-        } => StmtIfBool = 130 [0];
+        } => StmtIfBool = 130 [0; Scheduled];
         While {
             condition: BuildExprId,
             body: Vec<BuildStmtId>,
-        } => StmtWhile = 131 [EFFECT_CANCELLATION];
+        } => StmtWhile = 131 [EFFECT_CANCELLATION; Scheduled];
         WhileBool {
             condition: BuildBoolId,
             body: Vec<BuildStmtId>,
-        } => StmtWhileBool = 132 [EFFECT_CANCELLATION];
+        } => StmtWhileBool = 132 [EFFECT_CANCELLATION; Scheduled];
         PatternIf {
             branches: Vec<(BuildExprId, Vec<BuildStmtId>, Vec<usize>)>,
             else_body: Option<Vec<BuildStmtId>>,
             span: Span,
-        } => StmtPatternIf = 133 [EFFECT_CANCELLATION];
+        } => StmtPatternIf = 133 [EFFECT_CANCELLATION; Scheduled];
         PatternWhile {
             condition: BuildExprId,
             body: Vec<BuildStmtId>,
             captures: Vec<usize>,
             span: Span,
-        } => StmtPatternWhile = 134 [EFFECT_CANCELLATION];
+        } => StmtPatternWhile = 134 [EFFECT_CANCELLATION; Scheduled];
         Match {
             value: BuildExprId,
             arms: Vec<(BuildPatternId, Option<BuildExprId>, Vec<BuildStmtId>)>,
             span: Span,
-        } => StmtMatch = 135 [0];
+        } => StmtMatch = 135 [0; Scheduled];
         StrMatch {
             value: BuildExprId,
             arms: FxHashMap<Arc<str>, Vec<BuildStmtId>>,
             fallback: Option<Vec<BuildStmtId>>,
             span: Span,
-        } => StmtStrMatch = 136 [0];
+        } => StmtStrMatch = 136 [0; Scheduled];
         TagMatch {
             value: BuildExprId,
             arms: FxHashMap<Arc<str>, Vec<BuildStmtId>>,
             fallback: Option<Vec<BuildStmtId>>,
             span: Span,
-        } => StmtTagMatch = 137 [0];
+        } => StmtTagMatch = 137 [0; Scheduled];
         For {
             slot: usize,
             iter: BuildExprId,
             body: Vec<BuildStmtId>,
             span: Span,
-        } => StmtFor = 138 [EFFECT_CANCELLATION];
+        } => StmtFor = 138 [EFFECT_CANCELLATION; Scheduled];
         // Select a recursive record target into independent local values.
         LetRecord {
             source: BuildExprId,
             target: LoweredCompTarget,
             span: Span,
-        } => StmtLetRecord = 139 [0];
+        } => StmtLetRecord = 139 [0; Scheduled];
         // Select the recursive record target anew for each iteration.
         ForRecord {
             target: LoweredCompTarget,
             iter: BuildExprId,
             body: Vec<BuildStmtId>,
             span: Span,
-        } => StmtForRecord = 140 [EFFECT_CANCELLATION];
+        } => StmtForRecord = 140 [EFFECT_CANCELLATION; Scheduled];
         ForStrLines {
             slot: usize,
             text: BuildExprId,
             body: Vec<BuildStmtId>,
             span: Span,
-        } => StmtForStrLines = 141 [EFFECT_CANCELLATION];
+        } => StmtForStrLines = 141 [EFFECT_CANCELLATION; Scheduled];
         ScanLines {
             text_slot: usize,
             line_slot: usize,
             checks: Vec<ScanCheck>,
             span: Span,
-        } => StmtScanLines = 142 [EFFECT_CANCELLATION];
+        } => StmtScanLines = 142 [EFFECT_CANCELLATION; Scheduled];
         ScanBytes {
             config: ScanBytes,
-        } => StmtScanBytes = 143 [EFFECT_CANCELLATION];
+        } => StmtScanBytes = 143 [EFFECT_CANCELLATION; Scheduled];
         Print {
             args: Vec<BuildExprId>,
             stderr: bool,
             flush: bool,
             propagate_result: bool,
             span: Span,
-        } => StmtPrint = 144 [EFFECT_HOST | EFFECT_TRACE];
+        } => StmtPrint = 144 [EFFECT_HOST | EFFECT_TRACE; Scheduled];
         Cd {
             target: BuildExprId,
             body: Vec<BuildStmtId>,
             span: Span,
-        } => StmtCd = 145 [EFFECT_CWD | EFFECT_HOST | EFFECT_TRACE];
+        } => StmtCd = 145 [EFFECT_CWD | EFFECT_HOST | EFFECT_TRACE; Scheduled];
         Env {
             env: Vec<LoweredRunEnv>,
             body: Vec<BuildStmtId>,
-        } => StmtEnv = 146 [EFFECT_ENV | EFFECT_HOST | EFFECT_TRACE];
+        } => StmtEnv = 146 [EFFECT_ENV | EFFECT_HOST | EFFECT_TRACE; Scheduled];
         Proc {
             // The registry identity is stable; resolve it once while lowering
             // instead of retaining two names and looking it up on every execution.
@@ -896,41 +908,144 @@ instruction_schema! {
             args: Vec<BuildExprId>,
             propagate_result: bool,
             span: Span,
-        } => StmtProc = 147 [EFFECT_HOST | EFFECT_TRACE];
+        } => StmtProc = 147 [EFFECT_HOST | EFFECT_TRACE; Scheduled];
         Run {
             value: BuildExprId,
             propagate_result: bool,
-        } => StmtRun = 148 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE];
+        } => StmtRun = 148 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled];
         Loop {
             body: Vec<BuildStmtId>,
-        } => StmtLoop = 149 [EFFECT_CANCELLATION];
+        } => StmtLoop = 149 [EFFECT_CANCELLATION; Scheduled];
         Return {
             value: BuildExprId,
-        } => StmtReturn = 150 [0];
+        } => StmtReturn = 150 [0; Scheduled];
         Yield {
             value: BuildExprId,
-        } => StmtYield = 151 [0];
+        } => StmtYield = 151 [0; Scheduled];
         YieldDelegate {
             value: BuildExprId,
             span: Span,
-        } => StmtYieldDelegate = 152 [0];
-        Break => StmtBreak = 153 [0];
+        } => StmtYieldDelegate = 152 [0; Scheduled];
+        Break => StmtBreak = 153 [0; Scheduled];
         BreakValue {
             value: BuildExprId,
-        } => StmtBreakValue = 154 [0];
-        Continue => StmtContinue = 155 [0];
+        } => StmtBreakValue = 154 [0; Scheduled];
+        Continue => StmtContinue = 155 [0; Scheduled];
         Defer {
             value: BuildExprId,
             /// Whether this is an `errdefer`: the action runs only when its scope
             /// leaves with an error.
             on_error: bool,
-        } => StmtDefer = 156 [EFFECT_DEFER | EFFECT_PROPAGATE | EFFECT_TRACE];
+        } => StmtDefer = 156 [EFFECT_DEFER | EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled];
         DefaultParameter {
             slot: usize,
             value: BuildExprId,
             kind: LoweredType,
             check: Option<LoweredTypeCheck>,
             span: Span,
-        } => StmtDefaultParameter = 157 [0];
+        } => StmtDefaultParameter = 157 [0; Scheduled];
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{INSTRUCTION_TAGS, InPlaceClass};
+
+    #[test]
+    fn instruction_classes_include_only_operations_that_never_run_script() {
+        let operands = r#"
+            IntInt
+            IntSlot
+            IntBinary
+            IntStrByteLenSlot
+            IntStrCountLinesSlot
+            IntStrByteAtSlot
+            BoolBool
+            BoolSlot
+            BoolNot
+            BoolAnd
+            BoolOr
+            BoolIntCompare
+            BoolStrPredicateSlot
+            BoolContainsSlot
+            BoolStrContainsSlot
+            BoolTrimEmptySlot
+            BoolTrimStrPredicateSlot
+            BoolLiteralCompareSlot
+            ExprNull
+            ExprUnit
+            ExprInt
+            ExprFloat
+            ExprDuration
+            ExprBool
+            ExprStr
+            ExprBytes
+            ExprPreparedRegex
+            ExprPreparedConstant
+            ExprPath
+            ExprFunctionRef
+            ExprPathFrom
+            ExprParam
+            ExprComparisonChain
+            ExprBinary
+            ExprIf
+            ExprPatternIf
+            ExprMatch
+            ExprStrMatch
+            ExprTagMatch
+            ExprResultFallback
+            ExprFmtString
+            ExprPathFmtString
+            ExprGlob
+            ExprLastStatus
+            ExprRecord
+            ExprMapLiteral
+            ExprRecordUpdate
+            ExprList
+            ExprListBuild
+            ExprEmptyMap
+            ExprBytesConcat
+            ExprRange
+            ExprTag
+            ExprField
+            ExprIndex
+            ExprIndexFromEnd
+            ExprSlice
+            ExprStrByteLen
+            ExprStrByteAt
+            ExprStrPredicate
+            ExprRegexCompile
+            ExprRequire
+            ExprCheckedValue
+            ExprFsFiles
+            ExprFsWalk
+            ExprFsList
+            ExprFsTempDir
+            ExprFsMkdir
+            ExprFsRemove
+            ExprPathReadText
+            ExprPathReadBytes
+            ExprPathExists
+            ExprPathExecutable
+            ExprPathDu
+            ExprPathMetadata
+            ExprPathReadlink
+            ExprPathResolve
+            ExprPathWrite
+            ExprPathMkdir
+            ExprPathRemove
+            ExprJsonEncode
+            ExprFail
+            ExprOk
+            ExprErr
+            ExprError
+            ExprTry
+        "#;
+        let names: Vec<_> = operands.split_whitespace().collect();
+        assert_eq!(names.len(), 86);
+        for tag in INSTRUCTION_TAGS {
+            let expected = if names.contains(&tag.name()) { InPlaceClass::Operands } else { InPlaceClass::Scheduled };
+            assert_eq!(tag.in_place_class(), expected, "{}", tag.name());
+        }
     }
 }
