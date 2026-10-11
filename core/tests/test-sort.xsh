@@ -974,10 +974,10 @@ test test_sort_stable_preserves_equal_primary_keys { |ctx|
   let script = fp"{ctx.core_dir}/sort.xsh"
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
-  let numeric_result = process.run(process.command_argv(ctx.xsh_bin,
+  let numeric = process.run(process.command_argv(ctx.xsh_bin,
     [ctx.xsh_bin.display(), "--", script.display(), "-ns"], root,
     {LC_ALL: "C"}, b"1\n01\n", stdout, stderr))?
-  assert numeric_result.exit_code()? == 0
+  assert numeric.exit_code()? == 0
   assert stdout.read_bytes()? == b"1\n01\n"
   assert stderr.read_bytes()?.is_empty()
 

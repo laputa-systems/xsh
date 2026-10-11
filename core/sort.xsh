@@ -387,7 +387,7 @@ proc prepare_general_numeric_keys(lines: List[Str], opts: SortOptions) [error] -
         if value in opts.general_numeric_keys {
           keys[value] = opts.general_numeric_keys[value]
         } else {
-          let parsed = numeric.parse_long_double(value)?
+          let parsed = system.parse_long_double(value)?
           let start = value.byte_len() - trim_leading_blanks(value).byte_len()
           let prefix = if parsed.consumed == 0 { "" } else { value.byte_slice(start, length: parsed.consumed - start) }
           keys[value] = {key: parsed.order_key, prefix: prefix}
