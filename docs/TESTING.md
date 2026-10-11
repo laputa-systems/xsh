@@ -303,7 +303,8 @@ settings, and treat single-run latency changes as inconclusive.
 Core applet host boundaries run with `cargo test --release --test core_compat_extra`.
 The `linux-priv-tests` feature enables the credential, device, and private mount
 namespace cases in the pinned Linux image; these require root and fail when a
-required capability is absent. The same tests accept
+required capability is absent. Their scratch tmpfs must use `nodev` so a
+block-device copy regression cannot open a host device. The same tests accept
 `XSH_CORE_COMPAT_REFERENCE_DIR=/usr/local/bin` to exercise the installed GNU
 9.12 tools with identical descriptor and fixture setup. Bound the container to
 1 GiB for the large virtual `dd` buffer case; its empty input must not commit

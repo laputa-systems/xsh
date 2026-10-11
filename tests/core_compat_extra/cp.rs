@@ -84,6 +84,15 @@ mod privileged {
     fn device(flag: &str, character: bool) {
         assert_eq!(unsafe { libc::geteuid() }, 0, "BLOCKED: device preservation requires root and CAP_MKNOD");
         let directory = tempfile::tempdir().unwrap();
+        // A block-copy regression must not open a real host device. The
+        // fixture mount forbids device access while retaining mknod metadata.
+        if !character {
+            let root = CString::new(directory.path().as_os_str().as_bytes()).unwrap();
+            let mut mount = unsafe { std::mem::zeroed::<libc::statvfs>() };
+            assert_eq!(unsafe { libc::statvfs(root.as_ptr(), &mut mount) }, 0);
+            assert!(mount.f_flag & libc::ST_NODEV != 0,
+                "BLOCKED: block-device copy fixtures require a nodev mount");
+        }
         let (source, target, kind, mode, major, minor) = if character {
             ("null", "null2", libc::S_IFCHR, 0o640, 1, 3)
         } else {
