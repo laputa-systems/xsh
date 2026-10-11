@@ -1,7 +1,6 @@
 use super::{
-    Arc, BLOCK_LIST, BinaryOp, FullExecution, FullPayload, FullTag, IndexedAssignStep,
-    IndexedCompQualifier, IndexedFmt, IndexedModuleCall, IrVerifyError, Name, RuntimeError,
-    RuntimeOp, Span,
+    Arc, BLOCK_LIST, BinaryOp, FullExecution, FullPayload, FullTag, IndexedFmt,
+    IndexedModuleCall, IrVerifyError, Name, RuntimeError, RuntimeOp, Span,
 };
 use crate::runtime::eval::LoweredFmtPart;
 use crate::runtime::eval::indexed::full::decode::ListView;
@@ -267,71 +266,6 @@ pub(super) fn decode_module_call<'a>(
         args,
         indexed_decode::<Span>(payload, execution, span)?,
     ))
-}
-
-pub(super) fn decode_assign_path<'a>(
-    execution: &FullExecution<'a>,
-    payload: &mut FullPayload<'a>,
-    span: Span,
-) -> Result<Vec<IndexedAssignStep>, RuntimeError> {
-    let (_, mut entries) = execution
-        .block(payload, BLOCK_LIST)
-        .map_err(|error| indexed_error(error, span))?;
-    let count = indexed_raw(&mut entries, span)?;
-    let mut path = Vec::with_capacity(count as usize);
-    for _ in 0..count {
-        path.push(match indexed_raw(&mut entries, span)? {
-            0 => IndexedAssignStep::Field(indexed_decode(&mut entries, execution, span)?),
-            1 => IndexedAssignStep::Index(indexed_raw(&mut entries, span)?),
-            _ => {
-                return Err(
-                    RuntimeError::new("indexed-ir", "invalid assignment path step").with_span(span),
-                );
-            }
-        });
-    }
-    indexed_finish(entries, span)?;
-    Ok(path)
-}
-
-pub(super) fn decode_comp_qualifiers<'a>(
-    execution: &FullExecution<'a>,
-    payload: &mut FullPayload<'a>,
-    span: Span,
-) -> Result<Vec<IndexedCompQualifier>, RuntimeError> {
-    let (_, mut entries) = execution
-        .block(payload, BLOCK_LIST)
-        .map_err(|error| indexed_error(error, span))?;
-    let count = indexed_raw(&mut entries, span)?;
-    let mut qualifiers = Vec::new();
-    for _ in 0..count {
-        qualifiers.push(match indexed_raw(&mut entries, span)? {
-            0 => IndexedCompQualifier::For {
-                target: indexed_decode(&mut entries, execution, span)?,
-                iter: indexed_raw(&mut entries, span)?,
-                span: indexed_decode(&mut entries, execution, span)?,
-            },
-            1 => IndexedCompQualifier::If {
-                condition: indexed_raw(&mut entries, span)?,
-                span: indexed_decode(&mut entries, execution, span)?,
-            },
-            _ => {
-                return Err(
-                    RuntimeError::new("indexed-ir", "invalid comprehension qualifier")
-                        .with_span(span),
-                );
-            }
-        });
-    }
-    indexed_finish(entries, span)?;
-    if !matches!(qualifiers.first(), Some(IndexedCompQualifier::For { .. })) {
-        return Err(RuntimeError::new(
-            "indexed-ir",
-            "comprehension qualifiers must start with for",
-        )
-        .with_span(span));
-    }
-    Ok(qualifiers)
 }
 
 /// Decode format parts through the expression row schema and keep their list borrowed.

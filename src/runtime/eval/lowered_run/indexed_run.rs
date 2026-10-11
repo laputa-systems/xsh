@@ -1,7 +1,7 @@
 use super::{
     Arc, AssignOp, BTreeMap, BinaryOp, Binding, CommandPlan, ControlFlow, Duration, DurationValue,
     Evaluator, FileRedirectionMode, Flow, FormatSpec, FunctionHeader, FunctionName,
-    LoweredCompTarget, LoweredFunctionKey, LoweredFunctionKind, LoweredMapCursor,
+    LoweredFunctionKey, LoweredFunctionKind, LoweredMapCursor,
     LoweredModuleExportKind, LoweredProjectedReduceState, LoweredReduceProjection,
     LoweredReturnKind, LoweredScalarCursor, LoweredStrPredicate,
     LoweredTagValue, LoweredType, LoweredValue, Name, PathValue, ProcessEnd, ProcessInvocation,
@@ -87,7 +87,7 @@ use operands::{
     indexed_optional_raw, decode_record_updates, decode_comparison_chain,
     decode_comparison_pair, comparison_pair_at, decode_match_expr, match_expr_arm_at,
     record_update_at, ComparisonChainPosition, MatchExprPosition, RecordUpdatePosition,
-    decode_module_call, decode_assign_path, decode_comp_qualifiers, decode_fmt,
+    decode_module_call, decode_fmt,
 };
 
 use process::run_target_and_leading_argv;
@@ -328,12 +328,6 @@ impl IndexedFmt {
 }
 
 #[derive(Clone)]
-enum IndexedAssignStep {
-    Field(Name),
-    Index(u32),
-}
-
-#[derive(Clone)]
 enum ContextScopeRestore {
     Cwd {
         previous: std::path::PathBuf,
@@ -344,27 +338,6 @@ enum ContextScopeRestore {
     Within {
         id: u64,
     },
-}
-
-#[derive(Clone)]
-enum IndexedCompQualifier {
-    For {
-        target: LoweredCompTarget,
-        iter: u32,
-        span: Span,
-    },
-    If {
-        condition: u32,
-        span: Span,
-    },
-}
-
-impl IndexedCompQualifier {
-    fn span(&self) -> Span {
-        match self {
-            Self::For { span, .. } | Self::If { span, .. } => *span,
-        }
-    }
 }
 
 fn is_eager_atom(tag: FullTag) -> bool {

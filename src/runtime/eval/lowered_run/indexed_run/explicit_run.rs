@@ -9,7 +9,7 @@ use super::{
     Evaluator,
     FormatSpec, FrameStrategy, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag,
     FunctionHeader,
-    IndexedAssignStep, IndexedCompQualifier, IndexedFmt, LoweredFunctionKey, LoweredFunctionKind,
+    IndexedFmt, LoweredFunctionKey, LoweredFunctionKind,
     LoweredReturnKind,
     LoweredStrPredicate, LoweredType,
     LoweredTypeCheck, LoweredValue, Name, RegisteredDefer, ResolvedAssignStep, RuntimeError, Span,
@@ -19,7 +19,7 @@ use super::{
     apply_indexed_assignment, apply_indexed_path_assignment, assign_lowered_bytes_view,
     assign_lowered_str_view,
     bind_lowered_comp_target, capture_checked_error, check_env_name,
-    checked_indexed_assignment, comparison_link_holds, decode_assign_path, decode_comp_qualifiers,
+    checked_indexed_assignment, comparison_link_holds,
     comparison_pair_at, decode_comparison_chain, decode_match_expr, decode_module_call,
     decode_record_updates, match_expr_arm_at, record_update_at,
     ComparisonChainPosition, MatchExprPosition, RecordUpdatePosition,
@@ -39,12 +39,13 @@ use crate::map_key::MapKey;
 use crate::runtime::eval::indexed::full::schema::{BoolView, ExprView, IntView};
 use crate::runtime::eval::indexed::full::schema::StmtView;
 use crate::runtime::eval::indexed::full::decode::{
-    FmtPartView, ListPosition, ListView, ProcessCommandBuilderEntryView, RecordEntryView,
-    RunArgKindView, RunArgView, RunEnvView, ScanConditionView,
+    AssignStepView, CompQualifierView, FmtPartView, ListPosition, ListView,
+    ProcessCommandBuilderEntryView, RecordEntryView, RunArgKindView, RunArgView, RunEnvView,
+    ScanConditionView,
 };
 use crate::runtime::eval::{
-    BuildBoolId, BuildExprId, BuildPatternId, BuildStmtId, LoweredCompTarget,
-    LoweredFmtPart, LoweredProcessCommandBuilderEntry,
+    BuildBoolId, BuildExprId, BuildPatternId, BuildStmtId, LoweredAssignStep,
+    LoweredCompQualifier, LoweredCompTarget, LoweredFmtPart, LoweredProcessCommandBuilderEntry,
     LoweredRecordEntry, LoweredRunArg, LoweredRunEnv, LoweredRunPipelineSegment,
     LoweredRunRedirection,
     visit_retained_lowered_value, visit_retained_lowered_values,
@@ -775,28 +776,34 @@ type CompStreams = Arc<std::sync::Mutex<Vec<Option<(StreamValue, Span)>>>>;
 enum CompIterator {
     Scalars {
         cursor: LoweredScalarCursor,
-        clause: usize,
+        active: CompIteratorState,
     },
     Map {
         cursor: LoweredMapCursor,
-        clause: usize,
+        active: CompIteratorState,
     },
     Items {
         items: std::vec::IntoIter<LoweredValue>,
-        clause: usize,
+        active: CompIteratorState,
     },
     Stream {
         stream: usize,
-        clause: usize,
+        active: CompIteratorState,
     },
+}
+
+struct CompIteratorState {
+    target: LoweredCompTarget,
+    span: Span,
+    next_qualifier: ListPosition<LoweredCompQualifier>,
 }
 
 struct ListCompState {
     map: bool,
     key: Option<u32>,
     value: u32,
-    qualifiers: Vec<IndexedCompQualifier>,
-    cursor: usize,
+    instruction: u32,
+    position: ListPosition<LoweredCompQualifier>,
     iterators: Vec<CompIterator>,
     streams: CompStreams,
     values: Vec<LoweredValue>,
@@ -1069,6 +1076,38 @@ fn indexed_fmt_parts_view_at<'a>(
     }
 }
 
+fn indexed_assign_path_view_at<'a>(
+    execution: &FullExecution<'a>,
+    statement: u32,
+    span: Span,
+) -> Result<ListView<'a, LoweredAssignStep>, RuntimeError> {
+    let (tag, payload) = indexed_value(execution.instruction_id(statement), span)?;
+    match StmtView::decode(execution, tag, payload)
+        .map_err(|error| indexed_error(error, span))?
+    {
+        StmtView::AssignPath { path, .. } => Ok(path),
+        _ => Err(RuntimeError::new("indexed-ir", "assignment path view is invalid")
+            .with_span(span)),
+    }
+}
+
+fn indexed_comp_qualifiers_view_at<'a>(
+    execution: &FullExecution<'a>,
+    instruction: u32,
+    span: Span,
+) -> Result<ListView<'a, LoweredCompQualifier>, RuntimeError> {
+    let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
+    match ExprView::decode(execution, tag, payload)
+        .map_err(|error| indexed_error(error, span))?
+    {
+        ExprView::ListComp { qualifiers, .. } | ExprView::MapComp { qualifiers, .. } => {
+            Ok(qualifiers)
+        }
+        _ => Err(RuntimeError::new("indexed-ir", "comprehension qualifier view is invalid")
+            .with_span(span)),
+    }
+}
+
 struct FrameAssertionState {
     condition: u32,
     message: Option<u32>,
@@ -1098,15 +1137,24 @@ impl FrameAssertionState {
 
 struct AssignPathState {
     slot: usize,
-    path: Vec<IndexedAssignStep>,
+    path: AssignPathCursor,
     selectors: Vec<ResolvedAssignStep>,
-    position: usize,
     op: AssignOp,
     value: u32,
     singleton: bool,
     check: Option<LoweredTypeCheck>,
     span: Span,
     transfers_resource: bool,
+}
+
+#[derive(Clone, Copy)]
+enum AssignPathCursor {
+    DirectField(Name),
+    Encoded {
+        statement: u32,
+        position: ListPosition<LoweredAssignStep>,
+    },
+    Exhausted,
 }
 
 struct FramePrintState {
@@ -1866,10 +1914,12 @@ enum FrameContinuation {
     },
     ListCompIter {
         state: Box<ListCompState>,
+        active: CompIteratorState,
         next: Box<FrameContinuation>,
     },
     ListCompCondition {
         state: Box<ListCompState>,
+        span: Span,
         next: Box<FrameContinuation>,
     },
     ListCompKey {
@@ -2040,8 +2090,8 @@ impl FrameContinuation {
                 );
                 next.visit_retained_values(visitor);
             }
-            C::ListCompIter { state, next }
-            | C::ListCompCondition { state, next }
+            C::ListCompIter { state, next, .. }
+            | C::ListCompCondition { state, next, .. }
             | C::ListCompKey { state, next }
             | C::ListCompValue { state, next, .. } => {
                 state.visit_retained_values(visitor);
@@ -5194,10 +5244,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 };
                 let (value, singleton) = indexed_assignment_operand(execution, value, op, value_span)?;
                 self.advance_assign_path(index, AssignPathState {
-                    slot, path: vec![IndexedAssignStep::Field(Name::intern(field))],
-                    selectors: Vec::new(), position: 0, op, value, singleton, check: None, span: value_span,
+                    slot,
+                    path: AssignPathCursor::DirectField(Name::intern(field)),
+                    selectors: Vec::new(),
+                    op,
+                    value,
+                    singleton,
+                    check: None,
+                    span: value_span,
                     transfers_resource,
-                });
+                })?;
                 Ok(())
             }
             FullTag::StmtAssignInt => {
@@ -5252,30 +5308,56 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             FullTag::StmtAssignPath => {
-                let slot = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                let path = decode_assign_path(&self.calls[index].execution, &mut payload, span)?;
-                let op = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                let value = indexed_raw(&mut payload, span)?;
-                let check = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
+                let view = StmtView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?;
+                let (slot, mut path, op, value, check, value_span) = match view {
+                    StmtView::AssignPath {
+                        slot,
+                        path,
+                        op,
+                        value,
+                        check,
+                        span,
+                    } => (slot, path, op, value.raw(), check, span),
+                    _ => unreachable!("assignment path tag has an assignment path view"),
+                };
+                path.preflight()
+                    .map_err(|error| indexed_error(error, value_span))?;
+                let position = path.position();
+                let check = check
+                    .map(|check| {
+                        Ok(LoweredTypeCheck {
+                            ty: check.ty.materialize()?,
+                            name: Arc::from(check.name),
+                            schema: check.schema.map(Arc::clone),
+                        })
+                    })
+                    .transpose()
+                    .map_err(|error| indexed_error(error, value_span))?;
                 let (value, singleton) =
-                    indexed_assignment_operand(&self.calls[index].execution, value, op, span)?;
+                    indexed_assignment_operand(
+                        &self.calls[index].execution,
+                        value,
+                        op,
+                        value_span,
+                    )?;
                 self.advance_assign_path(
                     index,
                     AssignPathState {
                         slot,
-                        path,
+                        path: AssignPathCursor::Encoded {
+                            statement: instruction,
+                            position,
+                        },
                         selectors: Vec::new(),
-                        position: 0,
                         op,
                         value,
                         singleton,
                         check,
-                        span,
+                        span: value_span,
                         transfers_resource,
                     },
-                );
+                )?;
                 Ok(())
             }
             FullTag::StmtExpr => {
@@ -6217,13 +6299,40 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 )?;
             }
             FullTag::ExprListComp | FullTag::ExprMapComp => {
-                let map = tag == FullTag::ExprMapComp;
-                let key = map.then(|| indexed_raw(&mut payload, span)).transpose()?;
-                let value = indexed_raw(&mut payload, span)?;
-                let qualifiers =
-                    decode_comp_qualifiers(&self.calls[index].execution, &mut payload, span)?;
-                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
+                let view = ExprView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?;
+                let (map, key, value, mut qualifiers, value_span) = match view {
+                    ExprView::ListComp {
+                        value,
+                        qualifiers,
+                        span,
+                    } => (false, None, value.raw(), qualifiers, span),
+                    ExprView::MapComp {
+                        key,
+                        value,
+                        qualifiers,
+                        span,
+                    } => (true, Some(key.raw()), value.raw(), qualifiers, span),
+                    _ => unreachable!("comprehension tag has a comprehension view"),
+                };
+                qualifiers
+                    .preflight()
+                    .map_err(|error| indexed_error(error, span))?;
+                let position = qualifiers.position();
+                let first = qualifiers
+                    .next()
+                    .transpose()
+                    .map_err(|error| indexed_error(error, span))?;
+                if !matches!(first, Some(CompQualifierView::For { .. })) {
+                    return Err(RuntimeError::new(
+                        "indexed-ir",
+                        "comprehension qualifiers must start with for",
+                    )
+                    .with_span(span));
+                }
+                qualifiers
+                    .resume(position)
+                    .map_err(|error| indexed_error(error, span))?;
                 let streams = Arc::new(std::sync::Mutex::new(Vec::new()));
                 self.calls[index]
                     .work
@@ -6232,15 +6341,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     map,
                     key,
                     value,
-                    qualifiers,
-                    cursor: 0,
+                    instruction,
+                    position,
                     iterators: Vec::new(),
                     streams,
                     values: Vec::new(),
                     map_values: BTreeMap::new(),
                     span: value_span,
                 };
-                self.step_comp_qualifier(index, state, next)?;
+                self.step_comp_qualifier(index, Box::new(state), Box::new(next))?;
             }
             FullTag::ExprFmtString | FullTag::ExprPathFmtString => {
                 let (mut parts, fmt) = decode_fmt(
@@ -7184,7 +7293,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     state
                         .selectors
                         .push(resolve_assign_index(value, state.span)?);
-                    self.advance_assign_path(index, state);
+                    self.advance_assign_path(index, state)?;
                 }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
@@ -8878,16 +8987,19 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::ListCompIter { mut state, next } => match value {
+            FrameContinuation::ListCompIter {
+                mut state,
+                active,
+                next,
+            } => match value {
                 FrameValue::Value(value) => {
-                    let iterable = lowered_comp_iterable(value, state.span)?;
-                    let clause = state.cursor;
+                    let iterable = lowered_comp_iterable(value, active.span)?;
                     let iterable = match LoweredScalarCursor::try_new(iterable) {
                         Ok(cursor) => {
                             state
                                 .iterators
-                                .push(CompIterator::Scalars { cursor, clause });
-                            return self.step_list_comp(index, *state, *next);
+                                .push(CompIterator::Scalars { cursor, active });
+                            return self.step_list_comp(index, state, next);
                         }
                         Err(iterable) => iterable,
                     };
@@ -8904,42 +9016,41 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             if slot == streams.len() {
                                 streams.push(None);
                             }
-                            streams[slot] = Some((*stream, state.qualifiers[clause].span()));
+                            streams[slot] = Some((*stream, active.span));
                             slot
                         };
                         state.iterators.push(CompIterator::Stream {
                             stream: stream_index,
-                            clause,
+                            active,
                         });
                     } else if let LoweredValue::Map(entries) = iterable {
                         state.iterators.push(CompIterator::Map {
                             cursor: LoweredMapCursor::new(entries),
-                            clause,
+                            active,
                         });
                     } else {
                         let items = self.evaluator.lowered_list_items(
                             iterable,
-                            state.qualifiers[clause].span(),
+                            active.span,
                             "comprehension expected List or Stream",
                         )?;
                         state.iterators.push(CompIterator::Items {
                             items: items.into_iter(),
-                            clause,
+                            active,
                         });
                     }
-                    self.step_list_comp(index, *state, *next)?;
+                    self.step_list_comp(index, state, next)?;
                 }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::ListCompCondition { mut state, next } => match value {
+            FrameContinuation::ListCompCondition { state, span, next } => match value {
                 FrameValue::Value(value) => {
-                    if lowered_condition_bool(value, state.qualifiers[state.cursor].span())? {
-                        state.cursor += 1;
-                        self.step_comp_qualifier(index, *state, *next)?;
+                    if lowered_condition_bool(value, span)? {
+                        self.step_comp_qualifier(index, state, next)?;
                     } else {
-                        self.step_list_comp(index, *state, *next)?;
+                        self.step_list_comp(index, state, next)?;
                     }
                 }
                 FrameValue::Break(value) => {
@@ -9029,7 +9140,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     } else {
                         state.values.push(value);
                     }
-                    self.step_list_comp(index, *state, *next)?;
+                    self.step_list_comp(index, state, next)?;
                 }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
@@ -9403,27 +9514,48 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn step_comp_qualifier(
         &mut self,
         index: usize,
-        state: ListCompState,
-        next: FrameContinuation,
+        mut state: Box<ListCompState>,
+        next: Box<FrameContinuation>,
     ) -> Result<(), RuntimeError> {
-        match state.qualifiers.get(state.cursor).cloned() {
-            Some(IndexedCompQualifier::For { iter, span, .. }) => self.push_expr(
+        let mut qualifiers = indexed_comp_qualifiers_view_at(
+            &self.calls[index].execution,
+            state.instruction,
+            state.span,
+        )?;
+        qualifiers
+            .resume(state.position)
+            .map_err(|error| indexed_error(error, state.span))?;
+        let qualifier = qualifiers
+            .next()
+            .transpose()
+            .map_err(|error| indexed_error(error, state.span))?;
+        state.position = qualifiers.position();
+        match qualifier {
+            Some(CompQualifierView::For { target, iter, span }) => {
+                let target = target
+                    .materialize()
+                    .map_err(|error| indexed_error(error, span))?;
+                let active = CompIteratorState {
+                    target,
+                    span,
+                    next_qualifier: state.position,
+                };
+                self.push_expr(
+                    index,
+                    iter.raw(),
+                    span,
+                    FrameContinuation::ListCompIter {
+                        state,
+                        active,
+                        next,
+                    },
+                );
+            }
+            Some(CompQualifierView::If { condition, span }) => self.push_expr(
                 index,
-                iter,
+                condition.raw(),
                 span,
-                FrameContinuation::ListCompIter {
-                    state: Box::new(state),
-                    next: Box::new(next),
-                },
-            ),
-            Some(IndexedCompQualifier::If { condition, span }) => self.push_expr(
-                index,
-                condition,
-                span,
-                FrameContinuation::ListCompCondition {
-                    state: Box::new(state),
-                    next: Box::new(next),
-                },
+                FrameContinuation::ListCompCondition { state, span, next },
             ),
             None => return self.push_list_comp_projection(index, state, next),
         }
@@ -9433,25 +9565,25 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn step_list_comp(
         &mut self,
         index: usize,
-        mut state: ListCompState,
-        next: FrameContinuation,
+        mut state: Box<ListCompState>,
+        next: Box<FrameContinuation>,
     ) -> Result<(), RuntimeError> {
-        while let Some(iterator) = state.iterators.last_mut() {
-            let (item, clause) = match iterator {
-                CompIterator::Items { items, clause } => (items.next(), *clause),
-                CompIterator::Map { cursor, clause } => (cursor.next(), *clause),
-                CompIterator::Scalars { cursor, clause } => {
+        while !state.iterators.is_empty() {
+            let item = match state.iterators.last_mut().expect("active comprehension iterator") {
+                CompIterator::Items { items, .. } => items.next(),
+                CompIterator::Map { cursor, .. } => cursor.next(),
+                CompIterator::Scalars { cursor, active } => {
                     self.evaluator
-                        .service_pending_signal(state.qualifiers[*clause].span())?;
+                        .service_pending_signal(active.span)?;
                     if self.evaluator.shutting_down() {
-                        (None, *clause)
+                        None
                     } else {
-                        (cursor.next(), *clause)
+                        cursor.next()
                     }
                 }
-                CompIterator::Stream { stream, clause } => {
+                CompIterator::Stream { stream, active } => {
                     self.evaluator
-                        .service_pending_signal(state.qualifiers[*clause].span())?;
+                        .service_pending_signal(active.span)?;
                     let mut streams = state
                         .streams
                         .lock()
@@ -9474,16 +9606,27 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     if item.is_none() {
                         streams[*stream] = None;
                     }
-                    (item, *clause)
+                    item
                 }
             };
             if let Some(item) = item {
-                let IndexedCompQualifier::For { target, span, .. } = &state.qualifiers[clause]
-                else {
-                    unreachable!("iterator belongs to for clause")
+                let active = match state
+                    .iterators
+                    .last()
+                    .expect("active comprehension iterator")
+                {
+                    CompIterator::Scalars { active, .. }
+                    | CompIterator::Map { active, .. }
+                    | CompIterator::Items { active, .. }
+                    | CompIterator::Stream { active, .. } => active,
                 };
-                bind_lowered_comp_target(target, item, &mut self.calls[index].slots, *span)?;
-                state.cursor = clause + 1;
+                bind_lowered_comp_target(
+                    &active.target,
+                    item,
+                    &mut self.calls[index].slots,
+                    active.span,
+                )?;
+                state.position = active.next_qualifier;
                 return self.step_comp_qualifier(index, state, next);
             }
             state.iterators.pop();
@@ -9502,15 +9645,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         } else {
             LoweredValue::List(state.values)
         };
-        self.push_value(index, FrameValue::Value(value), next);
+        self.push_value(index, FrameValue::Value(value), *next);
         Ok(())
     }
 
     fn push_list_comp_projection(
         &mut self,
         index: usize,
-        state: ListCompState,
-        next: FrameContinuation,
+        state: Box<ListCompState>,
+        next: Box<FrameContinuation>,
     ) -> Result<(), RuntimeError> {
         if state.map {
             self.push_expr(
@@ -9518,8 +9661,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 state.key.expect("map comprehension key"),
                 state.span,
                 FrameContinuation::ListCompKey {
-                    state: Box::new(state),
-                    next: Box::new(next),
+                    state,
+                    next,
                 },
             );
         } else {
@@ -9528,9 +9671,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 state.value,
                 state.span,
                 FrameContinuation::ListCompValue {
-                    state: Box::new(state),
+                    state,
                     key: None,
-                    next: Box::new(next),
+                    next,
                 },
             );
         }
@@ -11274,31 +11417,77 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         }
     }
 
-    fn advance_assign_path(&mut self, index: usize, mut state: AssignPathState) {
-        while state.position < state.path.len() {
-            let step = state.path[state.position].clone();
-            state.position += 1;
-            match step {
-                IndexedAssignStep::Field(name) => {
-                    state.selectors.push(ResolvedAssignStep::Field(name))
-                }
-                IndexedAssignStep::Index(expr) => {
-                    self.push_expr(
-                        index,
-                        expr,
-                        state.span,
-                        FrameContinuation::AssignSelector(state),
-                    );
-                    return;
-                }
+    fn advance_assign_path(
+        &mut self,
+        index: usize,
+        mut state: AssignPathState,
+    ) -> Result<(), RuntimeError> {
+        let next_selector = match state.path {
+            AssignPathCursor::DirectField(name) => {
+                state.path = AssignPathCursor::Exhausted;
+                state.selectors.push(ResolvedAssignStep::Field(name));
+                None
             }
+            AssignPathCursor::Encoded {
+                statement,
+                position,
+            } => {
+                let mut path = indexed_assign_path_view_at(
+                    &self.calls[index].execution,
+                    statement,
+                    state.span,
+                )?;
+                path.resume(position)
+                    .map_err(|error| indexed_error(error, state.span))?;
+                let mut next_selector = None;
+                loop {
+                    let step = path
+                        .next()
+                        .transpose()
+                        .map_err(|error| indexed_error(error, state.span))?;
+                    let position = path.position();
+                    match step {
+                        Some(AssignStepView::Field(name)) => {
+                            state.selectors.push(ResolvedAssignStep::Field(name));
+                            state.path = AssignPathCursor::Encoded {
+                                statement,
+                                position,
+                            };
+                        }
+                        Some(AssignStepView::Index(expr)) => {
+                            state.path = AssignPathCursor::Encoded {
+                                statement,
+                                position,
+                            };
+                            next_selector = Some(expr.raw());
+                            break;
+                        }
+                        None => {
+                            state.path = AssignPathCursor::Exhausted;
+                            break;
+                        }
+                    }
+                }
+                next_selector
+            }
+            AssignPathCursor::Exhausted => None,
+        };
+        if let Some(selector) = next_selector {
+            self.push_expr(
+                index,
+                selector,
+                state.span,
+                FrameContinuation::AssignSelector(state),
+            );
+        } else {
+            self.push_expr(
+                index,
+                state.value,
+                state.span,
+                FrameContinuation::AssignPath(state),
+            );
         }
-        self.push_expr(
-            index,
-            state.value,
-            state.span,
-            FrameContinuation::AssignPath(state),
-        );
+        Ok(())
     }
 
     fn push_expr(&mut self, index: usize, instruction: u32, span: Span, next: FrameContinuation) {
