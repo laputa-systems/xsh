@@ -3,7 +3,9 @@
 This is the fixed Linux monitor for the in-scope default behavior inventoried
 from btop v1.4.7. The collector, interval reducer, replay loader, terminal loop,
 process-list state, and renderer are XSH. It shows CPU, memory, network, and
-process panels using a bounded ASCII layout.
+process panels using a bounded ASCII layout. CPU temperature, frequency, and
+battery status appear as CPU-panel readings when their kernel sources are
+observed.
 
 ## Running the monitor
 
@@ -68,9 +70,10 @@ Model JSON rows include the lifetime-average CPU rate used by CPU lazy sorting.
 
 Collection classes use absolute deadlines: counters refresh each second, gauges
 every five seconds, blocking capacity reads every thirty seconds, and inventory
-is due at startup, after explicit invalidation, or after thirty seconds. The
-current live readers run with the counter pass. Missed deadlines coalesce into
-one new observation. When a UID read is unavailable, a same-source
+is due at startup, after explicit invalidation, or after thirty seconds. CPU,
+memory, network, and process counters run with the counter pass. Temperature,
+CPU frequency, and battery readings reuse their last observation until the next
+gauge deadline. Missed deadlines coalesce into one new observation. When a UID read is unavailable, a same-source
 PID/start-time/command value remains visible for at most five seconds with a `~`
 marker; after that it is unavailable. A command change, source change, process
 exit, or PID reuse invalidates that cached UID.
@@ -81,6 +84,21 @@ iowait counter as zero delta. Per-core rows keep sparse logical CPU IDs; a new
 or returned core starts warming, and a reset core has no rate until its next
 sample. Uptime and the three load averages remain observed only when their
 complete source values parse.
+
+CPU temperatures reuse the system-report hwmon and thermal-zone readers. The
+package channel prefers `Package id`, `Tdie`, or `SoC Temperature` labels, then
+a CPU-named sensor, then the first deterministic sensor; duplicate logical core
+labels yield one reading. Signed millidegrees and observed zero values are
+preserved, while malformed or missing channels stay unavailable. The default
+empty `cpu_core_map` maps sensor channels from `/proc/cpuinfo` physical core IDs;
+if topology is incomplete, SMT sibling or evenly spread logical-ID mapping is
+used. CPU frequency uses the first positive CPUFreq policy reading by default
+and falls back to the first `cpu MHz` value from `/proc/cpuinfo`; the reducer
+also supports the pinned
+range, lowest, highest, and average modes. Battery selection prefers a present
+Battery over a UPS, uses capacity or an energy/charge ratio, and derives status,
+power, and remaining time from the exported attributes. Battery and sensor
+readings follow the five-second gauge cadence.
 
 Memory shows total, available, and `total - available`; swap shows observed
 absence when both swap counters are absent. Network chooses the
@@ -140,10 +158,14 @@ than 80 by 24 displays a safe size message.
 | Interface name, RX/TX totals and rates | `/proc/net/dev`, `/sys/class/net/[name]/ifindex` | `sys_net.collect`, `sys_net.selected_interface`, `btop_rates.counter_rate` | bytes and bytes/second; totals are counters | Bounded reads; rates require matching observed interface indices across samples |
 | PID, PPID, thread count, UID, command, CPU and RSS | `/proc/[pid]/stat`, `status`, `statm` | `sys_proc.collect`, `system_report_live.parse_proc_stat`, `btop_rates.process_percent` | identity, counts, ticks and bytes | PID/start-time race is withheld; RSS page conversion is checked; cached UID expires after five seconds |
 | Process user label and local command line | `/proc/[pid]/cmdline`; UID resolved through the host account database | `sys_proc.collect_local_display` | display-only user name and argument text | 4096-byte bounded command line; stat identity checked before and after; no environment read or replay capture |
+| Package and core temperatures | `/sys/class/hwmon/*/temp*_input`, labels, and `/sys/class/thermal/thermal_zone*/temp` | `system_report_live.collect_sensors`, `btop_sensors.cpu_temperature`, `btop_sensors.core_mapping` | signed millidegrees Celsius, gauge | Existing rooted system-report parser; malformed or missing values are withheld; duplicate core IDs are collapsed deterministically |
+| CPU frequency | `/sys/devices/system/cpu/cpufreq/policy*/scaling_cur_freq`, then `/proc/cpuinfo` `cpu MHz` | `system_report_live.collect_frequency_policies`, `read_cpu_info`, `btop_sensors.frequency` | kHz source reduced to MHz, gauge | Positive readings only; pinned CPUFreq modes; bounded source reads |
+| Battery level, state, power, and time | `/sys/class/power_supply/*` type, present, status, capacity, energy/charge, voltage/current, and power | `system_report_live.collect_power`, `btop_sensors.battery` | percent, microwatts, microamp-hours, microvolts, gauge | Only present Battery/UPS devices; values remain absent or malformed when the source cannot support a result |
 
-The system-report and btop paths share the `/proc/meminfo` parser. Process
-`stat` parsing also reuses `system_report_live.parse_proc_stat`; it retains
-`utime + stime` for btop without changing system-report JSON v1.
+The system-report and btop paths share the `/proc/meminfo`, sensor, frequency,
+power-supply, and process `stat` readers. The process parser retains `utime +
+stime` for btop without changing system-report JSON v1. Monitor battery fields
+remain private to `system_report_live` and do not widen system-report JSON.
 
 ## Host release evidence
 
@@ -151,6 +173,10 @@ Focused host release tests are kept with the implementation:
 
 - `core/tests/test-btop-sources.xsh` covers raw readers, the B3 arithmetic
   literals, zero versus absent, truncation, process identity, and rate resets.
+- `core/tests/test-btop-sensors.xsh` covers signed and duplicate temperature
+  channels, thermal fallback, all pinned temperature and frequency modes,
+  battery selection and derived values, gauge-cache reuse, and visible CPU
+  panel output.
 - `core/tests/test-btop-model.xsh` and `core/tests/test-btop-replay.xsh` cover
   deterministic reduction, process lifetime rates, strict replay times,
   missing fields, and frozen raw fixture digests.
@@ -182,8 +208,8 @@ Focused host release tests are kept with the implementation:
   real delta with a fresh full frame and drive interactive sorting, filtering,
   selection, and resize.
 - The release PTY latency probe sent 100 sort events between replay frames 60
-  seconds apart. On Alpine x86_64 musl, input-to-present p95 was 1.032 ms and
-  p99 was 1.181 ms; replay sampling stayed on its separate recorded interval.
+  seconds apart. On Alpine x86_64 musl, input-to-present p95 was 1.089 ms and
+  p99 was 1.137 ms; replay sampling stayed on its separate recorded interval.
 - `rg -n -i btop src crates stdlib` found no monitor-specific native code.
 
 These tests establish host release behavior. Linux qualification is recorded
@@ -192,5 +218,7 @@ separately in `dev/btop-progress.json`.
 ## Current limits
 
 The renderer remains ASCII, has no graphs, and uses a fixed four-panel
-arrangement. Process actions, configuration, settings menus, GPUs, disks,
-sensors, and non-Linux live collectors are outside this monitor surface.
+arrangement. Battery behavior is fixture-tested only; live hardware battery
+behavior has not been verified. Process actions, configuration, settings menus,
+GPU and disk collection, and non-Linux live collectors are outside this monitor
+surface.

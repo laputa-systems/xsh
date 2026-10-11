@@ -7,14 +7,16 @@ use sys_cpu
 use sys_mem
 use sys_net
 use sys_proc
+use system_report_live as system_live
 
-## Reads the four monitor sources from one observation tree.
+## Reads counter sources and collects or reuses gauge telemetry from one tree.
 export proc capture(
   root: FsRoot,
   source_id: Str,
   at_ns: Int,
   page_size_bytes: Int,
   clock_ticks_per_second: Int,
+  cached_telemetry: system_live.MonitorSources? = null,
 ) [fs, error] -> Result[model.Observation, Error] {
   if at_ns < 0 or page_size_bytes <= 0 or clock_ticks_per_second <= 0 {
     return Err(error.failure("btop source metadata must be nonnegative and rates must be positive"))
@@ -29,5 +31,6 @@ export proc capture(
     memory: sys_mem.collect(root),
     network: sys_net.collect(root),
     processes: sys_proc.collect(root, page_size_bytes),
+    telemetry: if cached_telemetry == null { system_live.collect_monitor_sources(root) } else { cached_telemetry ?? system_live.collect_monitor_sources(root) },
   })
 }

@@ -237,13 +237,16 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
   )?
   var collection_state = first_collection.state
   var counters_due = false
+  var gauges_due = false
   for item in first_collection.due {
     if item.class == collection_schedule.Counters {
       counters_due = true
+    } else if item.class == collection_schedule.Gauges {
+      gauges_due = true
     }
   }
-  if ! counters_due {
-    return Err(error.failure("first monitor observation has no due counter sources"))
+  if ! counters_due or ! gauges_due {
+    return Err(error.failure("first monitor observation is missing due source classes"))
   }
   var observation = source.capture(
     root,
@@ -281,9 +284,12 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
       let collection_plan = collection_schedule.take_due(collection_state, ticket.started_ns)?
       collection_state = collection_plan.state
       var counters_due = false
+      var gauges_due = false
       for item in collection_plan.due {
         if item.class == collection_schedule.Counters {
           counters_due = true
+        } else if item.class == collection_schedule.Gauges {
+          gauges_due = true
         }
       }
       if ! counters_due {
@@ -295,6 +301,7 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
         ticket.started_ns,
         units.page_size_bytes,
         units.clock_ticks_per_second,
+        if gauges_due { null } else { observation.telemetry },
       )?
       let _ = scheduler.complete(ticket, time.monotonic()?)?
       previous = observation

@@ -4,6 +4,7 @@
 ##! writes them so a refresh never exposes a partially assembled screen.
 use btop_model as model
 use btop_rates as rates
+use btop_sensors as sensors
 use btop_surface as surface
 use btop_ui as ui
 use sys_proc as processes
@@ -136,6 +137,55 @@ pure load_text(value: syscpu.LoadAverage) -> Str {
     return state_text(value.state)
   }
   f"{value.values[0].format(precision: 2)} {value.values[1].format(precision: 2)} {value.values[2].format(precision: 2)}"
+}
+
+pure temperature_text(value: sensors.CpuTemperature) -> Str {
+  if value.package_millidegrees == null {
+    return f"Temperature {state_text(value.state)}"
+  }
+  let display = sensors.temperature_display(value.package_millidegrees ?? 0, "celsius")
+  if let temperature = display {
+    f"Temperature {temperature.value}{temperature.unit}"
+  } else {
+    f"Temperature {state_text(value.state)}"
+  }
+}
+
+pure core_temperature_text(value: sensors.CpuTemperature) -> Str {
+  if value.cores.is_empty() {
+    return "Core temperatures unavailable"
+  }
+  let readings: List[Str] = collect {
+    for core in value.cores {
+      let display = sensors.temperature_display(core.millidegrees, "celsius")
+      if let temperature = display {
+        yield f"C{core.id} {temperature.value}{temperature.unit}"
+      }
+    }
+  }
+  f"Cores {readings.join(" ")}"
+}
+
+pure frequency_text(value: sensors.CpuFrequency) -> Str {
+  if value.state != report.Observed {
+    return f"Frequency {state_text(value.state)}"
+  }
+  if value.minimum_mhz != null and value.maximum_mhz != null {
+    return f"Frequency {sensors.format_frequency_mhz(value.minimum_mhz ?? 0.0)} - {sensors.format_frequency_mhz(value.maximum_mhz ?? 0.0)}"
+  }
+  if let mhz = value.value_mhz {
+    return f"Frequency {sensors.format_frequency_mhz(mhz)}"
+  }
+  "Frequency unavailable"
+}
+
+pure battery_text(value: sensors.Battery) -> Str {
+  if value.state != report.Observed {
+    return f"Battery {state_text(value.state)}"
+  }
+  let percent = if value.capacity_percent == null { "?" } else { f"{value.capacity_percent ?? 0}%" }
+  let power = if value.power_watts == null { "" } else { f" {(value.power_watts ?? 0.0).format(precision: 2)} W" }
+  f"Battery {value.name ?? "?"} {percent} {value.status ?? "unknown"}{power}"
 }
 
 pure process_text(row: model.ProcessRow, local_display: List[processes.LocalProcessDisplay]) -> Str {
@@ -276,7 +326,15 @@ export pure render_view(
     left_width,
     top_height,
     "CPU",
-    [f"Usage {rate_text(value.cpu_percent)}", f"Uptime {uptime_text(value.uptime)}", f"Load {load_text(value.load)}"],
+    [
+      f"Usage {rate_text(value.cpu_percent)}",
+      f"Uptime {uptime_text(value.uptime)}",
+      f"Load {load_text(value.load)}",
+      temperature_text(value.telemetry.temperature),
+      core_temperature_text(value.telemetry.temperature),
+      frequency_text(value.telemetry.frequency),
+      battery_text(value.telemetry.battery),
+    ],
   )
   let memory_rows = panel(right_width, top_height, "Memory", memory_content(value))
   let network_rows = panel(left_width, bottom_height, "Network", network_content(value))

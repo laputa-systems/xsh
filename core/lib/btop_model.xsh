@@ -3,11 +3,13 @@
 ##! The model owns interval semantics and stable process ranking; neither the
 ##! renderer nor replay decides whether a counter represents a reset or rate.
 use btop_rates as rates
+use btop_sensors as sensors
 use sys_cpu as syscpu
 use sys_mem as memory
 use sys_net as network
 use sys_proc as processes
 use system_report as report
+use system_report_live as system_live
 
 ## Groups one timestamp with complete source results from a single rooted tree.
 export type Observation = {
@@ -19,6 +21,7 @@ export type Observation = {
   memory: memory.MemorySource,
   network: network.NetworkSource,
   processes: processes.ProcessSource,
+  telemetry: system_live.MonitorSources,
 }
 
 ## Retains one process row and its interval percentage before terminal formatting.
@@ -80,6 +83,7 @@ export type Model = {
   at_ns: Int,
   cpu_percent: rates.Rate,
   cpu_cores: List[CoreUsage],
+  telemetry: sensors.Telemetry,
   uptime: syscpu.Uptime,
   load: syscpu.LoadAverage,
   cpu_state: report.ObservationState,
@@ -351,6 +355,7 @@ export pure step_cached(current: Observation, previous: Observation?, metadata: 
       at_ns: current.at_ns,
       cpu_percent: cpu_interval(current, baseline),
       cpu_cores: core_rows,
+      telemetry: sensors.select(current.telemetry, current.cpu.stat.cores |> map .id),
       uptime: current.cpu.uptime,
       load: current.cpu.load,
       cpu_state: current.cpu.stat.state,

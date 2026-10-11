@@ -283,12 +283,14 @@ pure parse_list(value: Str?) -> List[Int] {
 
 type CpuInfo = {
   id: Int,
+  core_id: Int?,
   vendor: Str?,
   model: Str?,
   family: Str?,
   model_id: Str?,
   stepping: Str?,
   features: List[Str],
+  frequency_mhz: Float?,
 }
 
 type CpuInfoRead = {infos: List[CpuInfo], state: report.ObservationState, errno: Int?, error_kind: Str?}
@@ -296,12 +298,36 @@ type CpuInfoRead = {infos: List[CpuInfo], state: report.ObservationState, errno:
 pure empty_cpu_info(id: Int) -> CpuInfo {
   {
     id: id,
+    core_id: null,
     vendor: null,
     model: null,
     family: null,
     model_id: null,
     stepping: null,
     features: [],
+    frequency_mhz: null,
+  }
+}
+
+pure parse_cpu_frequency_mhz(value: Str) -> Float? {
+  return null when value == ""
+  var dot_seen = false
+  var digits = 0
+  for character in value {
+    if character == "." and ! dot_seen {
+      dot_seen = true
+      continue
+    }
+    if character < "0" or character > "9" {
+      return null
+    }
+    digits += 1
+  }
+  return null when digits == 0
+  if let Ok(frequency) = value.parse_float() {
+    if frequency > 0.0 { frequency } else { null }
+  } else {
+    null
   }
 }
 
@@ -338,12 +364,14 @@ proc read_cpu_info(root: FsRoot) [fs, error] -> CpuInfoRead {
 
       continue unless has_current
       match key {
+        "core id" => current = {...current, core_id: parse_integer(value)}
         "vendor_id" | "CPU implementer" => current = {...current, vendor: value}
         "model name" | "Processor" | "Hardware" => current = {...current, model: value}
         "cpu family" | "CPU architecture" => current = {...current, family: value}
         "model" | "CPU part" => current = {...current, model_id: value}
         "stepping" => current = {...current, stepping: value}
         "flags" | "Features" => current = {...current, features: parse_words(value)}
+        "cpu MHz" => current = {...current, frequency_mhz: parse_cpu_frequency_mhz(value)}
         else => {}
       }
     }
@@ -532,11 +560,46 @@ type SensorCollection = {
   issues: List[report.CollectionIssue],
 }
 
+## Retains the power attributes used by the monitor without widening report JSON.
+export type MonitorBattery = {
+  name: Str,
+  kind: Str?,
+  present: Bool?,
+  status: Str?,
+  online: Bool?,
+  capacity_percent: Int?,
+  energy_now_uwh: Int?,
+  energy_full_uwh: Int?,
+  charge_now_uah: Int?,
+  charge_full_uah: Int?,
+  power_now_uw: Int?,
+  current_now_ua: Int?,
+  voltage_now_uv: Int?,
+  time_to_empty_minutes: Int?,
+}
+
+## Maps Linux logical CPU IDs to physical core IDs read from procfs.
+export type CpuCoreIdentity = {logical_id: Int, core_id: Int}
+
 type PowerCollection = {
   status: report.SectionStatus,
   supplies: List[report.PowerSupply],
   cap_zones: List[report.PowerCapZone],
   issues: List[report.CollectionIssue],
+  monitor_batteries: List[MonitorBattery],
+}
+
+## Groups the existing system-report readers needed for monitor telemetry.
+export type MonitorSources = {
+  sensor_state: report.SectionState,
+  sensor_channels: List[report.SensorChannel],
+  thermal_zones: List[report.ThermalZone],
+  frequency_policies: List[report.CpuFreqPolicy],
+  cpuinfo_state: report.ObservationState,
+  cpuinfo_frequencies_mhz: List[Float],
+  cpu_core_identities: List[CpuCoreIdentity],
+  power_state: report.SectionState,
+  batteries: List[MonitorBattery],
 }
 
 type PowerCapSource = {path: Path, name: collectors.SourceRead}
@@ -1149,6 +1212,7 @@ proc collect_power(root: FsRoot) [fs, error] -> PowerCollection {
   let supply_listing = root.children(p"sys/class/power_supply", max_entries: 1024)?
   let cap_listing = root.children(p"sys/class/powercap", max_entries: 1024)?
   var supplies: List[report.PowerSupply] = []
+  var monitor_batteries: List[MonitorBattery] = []
   var cap_zones: List[report.PowerCapZone] = []
   var issues: List[report.CollectionIssue] = []
   if supply_listing.state != "complete" and supply_listing.state != "absent" {
@@ -1178,6 +1242,10 @@ proc collect_power(root: FsRoot) [fs, error] -> PowerCollection {
   for supply_path in supply_listing.children {
     let kind = read_value(root, fp"{supply_path}/type", max_bytes: 4096)
     let status = read_value(root, fp"{supply_path}/status", max_bytes: 4096)
+    let present = read_value(root, fp"{supply_path}/present", max_bytes: 4096)
+    let online_direct = read_value(root, fp"{supply_path}/online", max_bytes: 4096)
+    let online_ac0 = read_value(root, fp"{supply_path}/AC0/online", max_bytes: 4096)
+    let online_ac = read_value(root, fp"{supply_path}/AC/online", max_bytes: 4096)
     let health = read_value(root, fp"{supply_path}/health", max_bytes: 4096)
     let capacity = read_value(root, fp"{supply_path}/capacity", max_bytes: 4096)
     let energy_now = read_value(root, fp"{supply_path}/energy_now", max_bytes: 4096)
@@ -1186,6 +1254,8 @@ proc collect_power(root: FsRoot) [fs, error] -> PowerCollection {
     let charge_full = read_value(root, fp"{supply_path}/charge_full", max_bytes: 4096)
     let voltage = read_value(root, fp"{supply_path}/voltage_now", max_bytes: 4096)
     let current = read_value(root, fp"{supply_path}/current_now", max_bytes: 4096)
+    let power = read_value(root, fp"{supply_path}/power_now", max_bytes: 4096)
+    let time_to_empty = read_value(root, fp"{supply_path}/time_to_empty", max_bytes: 4096)
     let cycles = read_value(root, fp"{supply_path}/cycle_count", max_bytes: 4096)
     let capacity_number = collectors.bounded_number(capacity, true)
     let energy_now_number = collectors.bounded_number(energy_now, true)
@@ -1194,7 +1264,18 @@ proc collect_power(root: FsRoot) [fs, error] -> PowerCollection {
     let charge_full_number = collectors.bounded_number(charge_full, true)
     let voltage_number = collectors.bounded_number(voltage, true)
     let current_number = collectors.bounded_number(current, false)
+    let power_number = collectors.bounded_number(power, true)
+    let time_to_empty_number = collectors.bounded_number(time_to_empty, true)
     let cycles_number = collectors.bounded_number(cycles, true)
+    let present_number = collectors.bounded_number(present, true)
+    let online = if online_ac0.observation.state == report.Observed {
+      online_ac0
+    } else if online_ac.observation.state == report.Observed {
+      online_ac
+    } else {
+      online_direct
+    }
+    let online_number = collectors.bounded_number(online, true)
     let prefix = f"supplies.{supply_path.name()}"
     issues = append_text_issue(issues, "power", f"{prefix}.type", kind)
     issues = append_text_issue(issues, "power", f"{prefix}.status", status)
@@ -1230,6 +1311,28 @@ proc collect_power(root: FsRoot) [fs, error] -> PowerCollection {
         parent_device_class_index: null,
       },
     ]
+
+    let kind_text = observed_source_text(kind)
+    if kind_text == "Battery" or kind_text == "UPS" {
+      monitor_batteries += [
+        {
+          name: supply_path.name(),
+          kind: kind_text,
+          present: if present_number.value == 1 { true } else if present_number.value == 0 { false } else { null },
+          status: observed_source_text(status),
+          online: if online_number.value == 1 { true } else if online_number.value == 0 { false } else { null },
+          capacity_percent: capacity_value,
+          energy_now_uwh: energy_now_number.value,
+          energy_full_uwh: energy_full_number.value,
+          charge_now_uah: charge_now_number.value,
+          charge_full_uah: charge_full_number.value,
+          power_now_uw: power_number.value,
+          current_now_ua: current_number.value,
+          voltage_now_uv: voltage_number.value,
+          time_to_empty_minutes: time_to_empty_number.value,
+        },
+      ]
+    }
   }
 
   let cap_paths: List[PowerCapSource] = collect {
@@ -1370,6 +1473,40 @@ proc collect_power(root: FsRoot) [fs, error] -> PowerCollection {
     supplies: supplies,
     cap_zones: cap_zones,
     issues: issues,
+    monitor_batteries: monitor_batteries |> sort-by .name,
+  }
+}
+
+## Captures the existing Linux readers needed by btop without building a full report.
+export proc collect_monitor_sources(root: FsRoot) [fs, error] -> MonitorSources {
+  let sensors = collect_sensors(root, [], [])
+  let frequencies = collect_frequency_policies(root, [])
+  let power = collect_power(root)
+  let cpu_info = read_cpu_info(root)
+  let cpuinfo_frequencies: List[Float] = collect {
+    for info in cpu_info.infos {
+      if let frequency = info.frequency_mhz {
+        yield frequency
+      }
+    }
+  }
+  let cpu_core_identities: List[CpuCoreIdentity] = collect {
+    for info in cpu_info.infos {
+      if let core_id = info.core_id {
+        yield {logical_id: info.id, core_id: core_id}
+      }
+    }
+  }
+  {
+    sensor_state: sensors.status.state,
+    sensor_channels: sensors.channels,
+    thermal_zones: sensors.thermal_zones,
+    frequency_policies: frequencies.policies,
+    cpuinfo_state: cpu_info.state,
+    cpuinfo_frequencies_mhz: cpuinfo_frequencies,
+    cpu_core_identities: cpu_core_identities,
+    power_state: power.status.state,
+    batteries: power.monitor_batteries,
   }
 }
 

@@ -17,6 +17,9 @@ test test_btop_g1_screen_places_all_panel_values_at_80_by_24 {
   assert screen.lines.len() == 24
   assert "btop" in screen.lines[0]
   assert "Usage 40.0%" in screen.lines[3]
+  assert "Temperature absent" in screen.lines[6]
+  assert "Frequency absent" in screen.lines[8]
+  assert "Battery absent" in screen.lines[9]
   assert "Total 1.00 GiB" in (screen.lines[3].split("") |> drop(40).join(""))
   assert "Used 768.00 MiB" in (screen.lines[5].split("") |> drop(40).join(""))
   assert "Interface eth0" in screen.lines[14]
