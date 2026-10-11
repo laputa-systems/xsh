@@ -373,11 +373,7 @@ fn incompatible(value: JsonInput<'_>, span: Span) -> RuntimeError {
         JsonInput::Lowered(value) => ValueView::Lowered(value),
         JsonInput::Key(key) => ValueView::Key(key),
     };
-    let kind = match value {
-        JsonInput::Runtime(Value::FsEntry(_)) | JsonInput::Lowered(LoweredValue::FsEntry(_)) => "FsEntry",
-        _ => view.type_name(),
-    };
-    RuntimeError::new("json-compatible", format!("{kind} is not JSON-compatible; convert Path, Bytes, Status, Result, and errors explicitly")).with_span(span)
+    RuntimeError::new("json-compatible", format!("{} is not JSON-compatible; convert Path, Bytes, Status, Result, and errors explicitly", view.type_name())).with_span(span)
 }
 
 fn json_error(message: &str, span: Span) -> RuntimeError {
@@ -413,6 +409,27 @@ mod tests {
         for result in [encode_runtime(&runtime, true, span()), encode_lowered(&lowered, true, span())] {
             let error = result.expect_err("pretty maps visit keys and values in order");
             assert!(error.message.starts_with("Unit is not JSON-compatible"), "{}", error.message);
+        }
+    }
+
+    #[test]
+    fn filesystem_entries_use_the_public_record_compatibility_diagnostic() {
+        let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/runtime/value.rs");
+        let entry = crate::runtime::value::FsEntryValue::new(
+            source.clone(),
+            std::fs::metadata(source).expect("fixture metadata").file_type(),
+        );
+        let runtime = Value::FsEntry(entry.clone());
+        let lowered = LoweredValue::FsEntry(entry);
+        let expected = "Record is not JSON-compatible; convert Path, Bytes, Status, Result, and errors explicitly";
+
+        for result in [
+            encode_runtime(&runtime, false, span()),
+            encode_runtime(&runtime, true, span()),
+            encode_lowered(&lowered, false, span()),
+            encode_lowered(&lowered, true, span()),
+        ] {
+            assert_eq!(result.expect_err("filesystem entries are not JSON-compatible").message, expected);
         }
     }
 
