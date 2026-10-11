@@ -1197,7 +1197,24 @@ pub struct StreamValue {
     /// `LiveStream::next`, and a pull from anywhere that has no evaluator
     /// reports that instead of quietly reporting an empty stream.
     pub(crate) script: Option<ScriptStreamState>,
+    pub(crate) owner: Option<StreamOwner>,
 }
+
+/// Identity of the evaluator that owns a stream and the live resource row it
+/// registered. Clones retain this identity so they cannot be adopted elsewhere.
+#[derive(Clone, Debug)]
+pub(crate) struct StreamOwner {
+    pub(crate) id: u64,
+    pub(crate) evaluator: Arc<()>,
+}
+
+impl PartialEq for StreamOwner {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id && Arc::ptr_eq(&self.evaluator, &other.evaluator)
+    }
+}
+
+impl Eq for StreamOwner {}
 
 /// A pull either emits a value, ends, or asks the evaluator to pull a child.
 /// Child pulls are scheduled iteratively so delegation depth does not consume
@@ -1275,6 +1292,16 @@ impl ScriptStreamState {
         Arc::as_ptr(&self.producer) as usize
     }
 
+    pub(crate) fn downgrade(&self) -> Weak<Mutex<Box<dyn ScriptStream>>> {
+        Arc::downgrade(&self.producer)
+    }
+
+    pub(crate) fn upgrade(
+        producer: &Weak<Mutex<Box<dyn ScriptStream>>>,
+    ) -> Option<Self> {
+        producer.upgrade().map(|producer| Self { producer })
+    }
+
     pub(crate) fn same_as(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.producer, &other.producer)
     }
@@ -1319,6 +1346,7 @@ impl StreamValue {
             items,
             source: None,
             script: None,
+            owner: None,
         }
     }
 
@@ -1335,6 +1363,7 @@ impl StreamValue {
                 .collect(),
             source: None,
             script: None,
+            owner: None,
         }
     }
 
@@ -1344,12 +1373,17 @@ impl StreamValue {
             items: Vec::new(),
             source: None,
             script: Some(producer),
+            owner: None,
         }
     }
 
     /// Whether this stream is a script producer that has not been exhausted.
     pub(crate) fn script(&self) -> Option<&ScriptStreamState> {
         self.script.as_ref()
+    }
+
+    pub(crate) fn owner(&self) -> Option<&StreamOwner> {
+        self.owner.as_ref()
     }
 
     pub(crate) fn from_values_live(name: &'static str, values: Vec<Value>) -> Self {
@@ -1366,6 +1400,7 @@ impl StreamValue {
             items: Vec::new(),
             source: Some(StreamSource::new(name, source)),
             script: None,
+            owner: None,
         }
     }
 
@@ -1409,14 +1444,14 @@ impl LiveStream for ValuesStream {
 #[derive(Clone)]
 pub(crate) struct StreamSource {
     name: &'static str,
-    state: Arc<Mutex<Box<dyn LiveStream>>>,
+    state: Arc<Mutex<Option<Box<dyn LiveStream>>>>,
 }
 
 impl StreamSource {
     fn new(name: &'static str, source: impl LiveStream + 'static) -> Self {
         Self {
             name,
-            state: Arc::new(Mutex::new(Box::new(source))),
+            state: Arc::new(Mutex::new(Some(Box::new(source)))),
         }
     }
 
@@ -1428,7 +1463,22 @@ impl StreamSource {
             )
             .with_span(span)
         })?;
-        source.next(span)
+        source.as_mut().ok_or_else(|| {
+            RuntimeError::new("stream-canceled", format!("{} stream was canceled", self.name))
+                .with_span(span)
+        })?.next(span)
+    }
+
+    pub(crate) fn cancel(&self, span: Span) -> Result<(), RuntimeError> {
+        let source = self.state.lock().map_err(|_| {
+            RuntimeError::new(
+                "stream-state",
+                format!("{} stream state is poisoned", self.name),
+            )
+            .with_span(span)
+        })?.take();
+        drop(source);
+        Ok(())
     }
 }
 

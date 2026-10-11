@@ -16,6 +16,7 @@ impl Evaluator {
         stream: &mut StreamValue,
         span: Span,
     ) -> Result<Option<Value>, RuntimeError> {
+        self.validate_stream_owner(stream, span)?;
         if let Some(script) = stream.script() {
             return self.pull_script_state(script.clone(), span);
         }
@@ -33,8 +34,11 @@ impl Evaluator {
         stream: &mut StreamValue,
         span: Span,
     ) -> Result<(), RuntimeError> {
+        self.validate_stream_owner(stream, span)?;
         if let Some(script) = stream.script() {
             self.cancel_script_state(script.clone(), span)?;
+        } else if let Some(source) = stream.source.as_ref() {
+            source.cancel(span)?;
         }
         Ok(())
     }
@@ -242,6 +246,7 @@ impl Evaluator {
         mut stream: StreamValue,
         span: Span,
     ) -> Result<Vec<Value>, RuntimeError> {
+        self.validate_stream_owner(&stream, span)?;
         // Materialized prefix items come first, then the stream is drained to
         // exhaustion: a live source through `next_live`, a suspended producer by
         // resuming it against this evaluator.

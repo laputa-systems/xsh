@@ -597,11 +597,13 @@ impl Evaluator {
         self.sync_indexed_root_slots(slots, call_span)?;
         let result = self.eval_indexed_expr_inner(execution, instruction, slots, call_span);
         let publication = self.sync_indexed_root_slots(slots, call_span);
-        match (result, publication) {
+        let mut flow = match (result, publication) {
             (Err(error), _) => Err(error),
             (Ok(_), Err(error)) => Err(error),
             (Ok(flow), Ok(())) => Ok(flow),
-        }
+        }?;
+        self.register_returned_lowered_streams(&mut flow, call_span)?;
+        Ok(flow)
     }
 
     fn eval_indexed_module_call_values(
@@ -616,7 +618,9 @@ impl Evaluator {
         }
         let cli_descriptor = call_plan.and_then(ModuleCallPlan::cli_descriptor);
         if !self.trace_enabled {
-            return self.eval_lowered_module_call_values(op, values, span, cli_descriptor);
+            let mut result = self.eval_lowered_module_call_values(op, values, span, cli_descriptor)?;
+            self.register_returned_lowered_streams(&mut result, span)?;
+            return Ok(result);
         }
         let trace_name = crate::modules::signature::api_spec()
             .op_trace_name(op)
@@ -645,7 +649,9 @@ impl Evaluator {
             trace_name.as_deref(),
             TracePayload::None,
         );
-        result
+        let mut result = result?;
+        self.register_returned_lowered_streams(&mut result, span)?;
+        Ok(result)
     }
 
     fn eval_indexed_expr_inner(

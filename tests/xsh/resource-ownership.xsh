@@ -303,20 +303,97 @@ test resource_worker_rejects_foreign_capabilities_before_table_access { |ctx|
   assert parent_root.exists(p".")?
 }
 
-test resource_worker_rejects_foreign_stream_and_closes_worker_root {
+test resource_worker_teardown_closes_its_roots_and_owned_children {
   let parent = resource_producers.numbers()
   let results = [1, 2] |> par-map(jobs: 2) { |_|
     let root = fs.tempdir()?
+    let root_path = root.host_path()?
     let local = resource_producers.numbers()
-    let rejected = try { parent |> collect() }
-    assert rejected is Err(_)
+    let child = spawn run sleep 30 ?
     assert (local |> collect()) == [7]
-    root
+    {root, root_path, child}
   }
-  for root in results {
-    assert root.exists(p".") is Err(_), "a returned worker handle is not live in the caller"
+  for result in results {
+    assert ! result.root_path.exists()?, "worker teardown removes its temporary directory"
+    assert result.root.exists(p".") is Err(_), "a returned worker handle is not live in the caller"
+    assert ! (process.list()? |> any .pid == result.child.pid), "worker teardown stops and reaps its child"
+    assert result.child.cancel(signal: "TERM", kill_after: 0ms) is Err(_), "a returned worker child is not live in the caller"
   }
   assert (parent |> collect()) == [7]
+}
+
+test resource_worker_rejects_foreign_script_stream { |ctx|
+  let output = test.run_script(ctx, r"""
+use tests.fixtures.runtime.resource_producers as resource_producers
+let parent = resource_producers.numbers()
+let _ = [1, 2] |> par-map(jobs: 2) { |_| parent |> collect() }
+""")?
+  assert output.status == 3, output.stderr
+  assert "stream-owner" in output.stderr, output.stderr
+}
+
+test resource_worker_rejects_foreign_materialized_and_live_streams { |ctx|
+  let dir = test.temp_dir(ctx, name: "foreign-streams")?
+  fp"{dir}/entry".write("x")
+  for source in [
+    "let parent = fs.children(Path(args[0]), ordered: true)?\nlet _ = [1, 2] |> par-map(jobs: 2) { |_| parent |> collect() }\n",
+    "let parent = fs.walk(Path(args[0]))?\nlet _ = [1, 2] |> par-map(jobs: 2) { |_| parent |> collect() }\n",
+  ] {
+    let output = test.run_script(ctx, source, [dir])?
+    assert output.status == 3, output.stderr
+    assert "stream-owner" in output.stderr, output.stderr
+  }
+}
+
+test resource_worker_teardown_stops_its_owned_child {
+  var worker_pids: List[Int] = []
+  defer {
+    for pid in worker_pids {
+      let child_is_live = process.list()? |> any { |entry|
+        entry.pid == pid and entry.status != "Z"
+      }
+      if child_is_live {
+        let _ = process.kill(pid, signal: "KILL")
+      }
+    }
+  }
+  let children = [1, 2] |> par-map(jobs: 2) { |_|
+    let child = spawn run sleep 30 ?
+    child
+  }
+  for child in children {
+    let pid = child.pid
+    worker_pids += [pid]
+    assert ! (process.list()? |> any .pid == pid), "worker teardown stops and reaps its child"
+    assert child.cancel(signal: "TERM", kill_after: 0ms) is Err(_), "a returned worker handle is not live in the caller"
+  }
+}
+
+test resource_fused_worker_teardown_stops_its_owned_child {
+  var worker_pids: List[Int] = []
+  defer {
+    for pid in worker_pids {
+      let child_is_live = process.list()? |> any { |entry|
+        entry.pid == pid and entry.status != "Z"
+      }
+      if child_is_live {
+        let _ = process.kill(pid, signal: "KILL")
+      }
+    }
+  }
+  let grouped = [1, 2] |> par-map(jobs: 2) { |_|
+    let child = spawn run sleep 30 ?
+    [{key: f"{child.pid}", value: 1}]
+  } |> flat-map { |rows| rows } |> reduce-by(sum: true) { |row|
+    {key: row.key, value: row.value}
+  }
+  assert grouped.len() == 2
+  for key in grouped.keys() {
+    let pid = key.parse_int()?
+    worker_pids += [pid]
+    assert ! (process.list()? |> any .pid == pid), "fused worker teardown stops and reaps its child"
+    assert process.kill(pid, signal: "0") is Err(_), "fused worker PID is absent after teardown"
+  }
 }
 
 test resource_use_after_release_is_checked_for_exact_locals { |ctx|

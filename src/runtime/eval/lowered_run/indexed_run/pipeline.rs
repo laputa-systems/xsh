@@ -173,6 +173,9 @@ impl Evaluator {
                         // The stage waits for every worker, so the receiver
                         // is there. Were it gone, there would be no one to
                         // report to and nothing to do about it.
+                        if let Some(error) = worker.finish_owned_resources() {
+                            worker.report_cleanup_error(&error, span);
+                        }
                         let _ =
                             sender.send((chunk_index, results, std::mem::take(&mut worker.stderr)));
                     })
@@ -494,6 +497,9 @@ impl Evaluator {
                             abandoned.store(true, std::sync::atomic::Ordering::Relaxed);
                         }
                         let traceback = worker.pending_traceback.take();
+                        if let Some(error) = worker.finish_owned_resources() {
+                            worker.report_cleanup_error(&error, span);
+                        }
                         (
                             chunk_index,
                             result,

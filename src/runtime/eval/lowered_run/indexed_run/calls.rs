@@ -213,6 +213,12 @@ impl Evaluator {
         let program = Arc::clone(self.indexed_program.as_ref()?);
         let _symbols = program.symbol_owner().enter();
         self.call_indexed_direct_in_program(program, function, kind, args, omitted, call_span)
+            .map(|result| {
+                result.and_then(|mut value| {
+                    self.register_returned_runtime_streams(&mut value, call_span)?;
+                    Ok(value)
+                })
+            })
     }
 
     pub(super) fn call_indexed_direct_in_program(
@@ -360,7 +366,9 @@ impl Evaluator {
                     .with_span(call_span),
             );
         };
-        self.eval_indexed_call_at(&program, function, kind, index, values, call_span)
+        let mut value = self.eval_indexed_call_at(&program, function, kind, index, values, call_span)?;
+        self.register_returned_lowered_stream(&mut value, call_span)?;
+        Ok(value)
     }
 
     /// Runs a resolved callee: an ordinary body on the heap-backed frames, and

@@ -22,6 +22,9 @@ impl IndexedPipelineItems {
         current: LoweredValue,
         span: Span,
     ) -> Result<Self, RuntimeError> {
+        if let LoweredValue::Stream(stream) = &current {
+            evaluator.validate_stream_owner(stream, span)?;
+        }
         match current {
             LoweredValue::Stream(mut stream)
                 if stream.source.is_some() || stream.script().is_some() =>

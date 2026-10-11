@@ -46,6 +46,23 @@ test test_stream_producers_are_lazy_and_stop_where_the_consumer_stops { |ctx|
   assert fp"{dir}/closed-failing".exists()?
 }
 
+test test_process_stream_is_stopped_before_its_scope_defers { |ctx|
+  let pidfile = test.temp_path(ctx, name: "owned-process-stream-pid")
+  {
+    let owned = run.stream --text --accept=[0] sh -c "echo $$ > $1; exec sleep 30" sh $pidfile ?
+    for _ in range(100) {
+      if pidfile.exists()? { break }
+      time.sleep(10ms)
+    }
+    assert pidfile.exists()?, "the process stream must start its child before the owning scope exits"
+    let pid = pidfile.read_text()?.trim().parse_int()?
+    defer {
+      let kept = owned
+      assert process.kill(pid, signal: "0") is Err(_), "the stream process must be reaped before the owning scope's defer"
+    }
+  }
+}
+
 # The frame engine resolves a call with no arguments without walking an
 # argument list, so it has to make the same producer decision the argument
 # path makes. When it did not, the body ran with nowhere for `yield` to report

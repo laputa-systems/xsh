@@ -19,7 +19,7 @@ use xsh_registry::managed_resource::ResourceKind;
 use crate::runtime::value::{
     AbortSignal, CommandPlan, DigestValue, DurationValue, ErrorContext, FloatValue, FsLockValue, FsRootValue,
     FunctionName, NetJobValue, PathValue, ProcessHandleValue, RecordMap, RegexValue, ResultValue,
-    RuntimeError, StreamValue, Value,
+    RuntimeError, StreamOwner, StreamSource, StreamValue, Value,
 };
 use crate::sema::check::{Checker, CompactDeclOutput};
 use crate::sema::types::{CallableType, Type};
@@ -37,6 +37,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
+use std::ops::ControlFlow;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::PathBuf;
 
@@ -525,6 +526,12 @@ struct LiveProcessHandle {
     owner_scope: u64,
     child: ManagedChild,
     span: Span,
+}
+
+struct OwnedStream {
+    owner_scope: u64,
+    source: Option<StreamSource>,
+    script: Option<std::sync::Weak<std::sync::Mutex<Box<dyn crate::runtime::value::ScriptStream>>>>,
 }
 
 use net_job::LiveNetJob;
@@ -2502,6 +2509,8 @@ pub struct Evaluator {
     process_handles: BTreeMap<u64, LiveProcessHandle>,
     next_net_job_id: u64,
     net_jobs: BTreeMap<u64, LiveNetJob>,
+    next_stream_id: u64,
+    owned_streams: BTreeMap<u64, OwnedStream>,
     net_job_reserved_response_bytes: u64,
     network_wait_depth: u32,
     /// Set on the worker of a parallel stage: the evaluator that started the
@@ -2562,6 +2571,7 @@ impl Drop for Evaluator {
         // output. This fallback covers root-owned jobs in early returns and
         // worker evaluators, and it deliberately ignores cleanup diagnostics:
         // destructors must not panic or replace a primary evaluation result.
+        let _ = self.finish_owned_resources();
         let _ = self.cancel_net_jobs_for_signal(zero_span());
         self.net_agents.clear();
         if let Some(mut runtime) = self.net_runtime.take() {
@@ -2805,6 +2815,8 @@ impl Evaluator {
             process_handles: BTreeMap::new(),
             next_net_job_id: 1,
             net_jobs: BTreeMap::new(),
+            next_stream_id: 1,
+            owned_streams: BTreeMap::new(),
             net_job_reserved_response_bytes: 0,
             network_wait_depth: 0,
             stage_abandoned: None,
@@ -3038,6 +3050,8 @@ impl Evaluator {
             process_handles: BTreeMap::new(),
             next_net_job_id: 1,
             net_jobs: BTreeMap::new(),
+            next_stream_id: 1,
+            owned_streams: BTreeMap::new(),
             net_job_reserved_response_bytes: 0,
             network_wait_depth: 0,
             stage_abandoned: None,
@@ -4686,7 +4700,7 @@ impl Evaluator {
         {
             Ok(Flow::Continue(Value::Unit))
         } else {
-            let mut cleanup = self.cleanup_scope_process_handles(
+            let mut cleanup = self.cleanup_scope_owned_activities(
                 self.current_scope_id(),
                 Ok(Flow::Continue(Value::Unit)),
             );
@@ -4736,7 +4750,7 @@ impl Evaluator {
                 }
             }
             if !cleanup.as_ref().err().is_some_and(|error| error.abort.is_some_and(|signal| signal.force)) {
-                cleanup = self.cleanup_scope_process_handles(self.current_scope_id(), cleanup);
+                cleanup = self.cleanup_scope_owned_activities(self.current_scope_id(), cleanup);
                 if !self.signal_state.shutdown_force { self.release_owned_capabilities(self.current_scope_id()); }
             }
             if (traceback.is_some() || abort.is_some())
@@ -5626,6 +5640,46 @@ impl Evaluator {
         Some(live)
     }
 
+    fn take_owned_stream(&mut self, id: &u64) -> Option<OwnedStream> {
+        let live = self.owned_streams.remove(id)?;
+        self.forget_owned_resource(live.owner_scope, ResourceKind::Activity);
+        Some(live)
+    }
+
+    fn release_owned_streams(&mut self, scope_id: u64) -> Result<(), RuntimeError> {
+        if self.owned_resource_count(scope_id, ResourceKind::Activity) == 0 {
+            return Ok(());
+        }
+        let ids = self
+            .owned_streams
+            .iter()
+            .filter_map(|(id, stream)| (stream.owner_scope == scope_id).then_some(*id))
+            .collect::<Vec<_>>();
+        let mut first_error = None;
+        for id in ids {
+            let Some(stream) = self.take_owned_stream(&id) else {
+                continue;
+            };
+            if let Some(script) = stream
+                .script
+                .as_ref()
+                .and_then(crate::runtime::value::ScriptStreamState::upgrade)
+                && let Err(error) = self.cancel_script_state(script, zero_span())
+            {
+                first_error.get_or_insert(error);
+            }
+            if let Some(source) = stream.source
+                && let Err(error) = source.cancel(zero_span())
+            {
+                first_error.get_or_insert(error);
+            }
+        }
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
+    }
+
     fn release_owned_capabilities(&mut self, scope: u64) {
         if self.owned_resource_count(scope, ResourceKind::Capability) == 0 { return; }
         for index in (0..self.fs_capabilities.len()).rev() {
@@ -5645,10 +5699,13 @@ impl Evaluator {
         &mut self,
         scope_id: u64,
     ) -> Result<(), RuntimeError> {
-        if self.owned_resource_count(scope_id, ResourceKind::Activity) == 0 {
+        if self.signal_state.shutdown_force {
             return Ok(());
         }
-        let cleanup = self.cleanup_scope_process_handles(scope_id, Ok(Flow::Continue(Value::Unit)));
+        let cleanup = self.cleanup_scope_owned_activities(
+            scope_id,
+            Ok(Flow::Continue(Value::Unit)),
+        );
         match cleanup {
             Ok(Flow::Continue(_)) => Ok(()),
             Ok(_) => Err(RuntimeError::new(
@@ -5657,6 +5714,38 @@ impl Evaluator {
             )),
             Err(error) => Err(error),
         }
+    }
+
+    /// Close worker activities before its result becomes visible to the stage.
+    pub(super) fn finish_owned_resources(&mut self) -> Option<RuntimeError> {
+        let scopes = self.owned_scope_counts.keys().copied().collect::<Vec<_>>();
+        let mut first_error = None;
+        for scope in &scopes {
+            if let Err(error) = self.release_owned_host_resources(*scope)
+                && first_error.is_none()
+            {
+                first_error = Some(error);
+            }
+        }
+        for scope in scopes { self.release_owned_capabilities(scope); }
+        first_error
+    }
+
+    fn cleanup_scope_owned_activities(
+        &mut self,
+        scope_id: u64,
+        primary: Result<Flow, RuntimeError>,
+    ) -> Result<Flow, RuntimeError> {
+        if self.signal_state.shutdown_force {
+            return primary;
+        }
+        let primary_failed = matches!(&primary, Err(_) | Ok(Flow::Propagate(_)));
+        let primary = match (self.release_owned_streams(scope_id), primary) {
+            (Ok(()), primary) => primary,
+            (Err(_), primary) if primary_failed => primary,
+            (Err(error), _) => Err(error),
+        };
+        self.cleanup_scope_process_handles(scope_id, primary)
     }
 
     fn producer_context(&self) -> ScopedProducerContext {
@@ -5688,6 +5777,86 @@ impl Evaluator {
         };
         self.forget_owned_resource(owner, kind);
         self.register_owned_resource(target, kind);
+    }
+
+    fn transfer_owned_stream(&mut self, stream: &StreamValue, target: u64) {
+        let Some(owner) = stream.owner() else { return; };
+        if !Arc::ptr_eq(&owner.evaluator, &self.resource_owner) { return; }
+        let Some(owned) = self.owned_streams.get(&owner.id) else { return; };
+        let owner_scope = owned.owner_scope;
+        if owner_scope == target || !self.scope_descends_from(owner_scope, target) { return; }
+        self.owned_streams
+            .get_mut(&owner.id)
+            .expect("live stream owner checked")
+            .owner_scope = target;
+        self.forget_owned_resource(owner_scope, ResourceKind::Activity);
+        self.register_owned_resource(target, ResourceKind::Activity);
+    }
+
+    pub(super) fn register_returned_stream(&mut self, stream: &mut StreamValue, span: Span) -> Result<(), RuntimeError> {
+        if stream.owner.is_some() {
+            return Ok(());
+        }
+        let id = self.next_stream_id;
+        self.next_stream_id = id.checked_add(1).ok_or_else(|| {
+            RuntimeError::new("stream-owner", "stream owner identity space is exhausted")
+                .with_span(span)
+        })?;
+        let owner_scope = self.current_scope_id();
+        let source = stream.source.clone();
+        let script = stream.script().map(crate::runtime::value::ScriptStreamState::downgrade);
+        stream.owner = Some(StreamOwner { id, evaluator: Arc::clone(&self.resource_owner) });
+        self.owned_streams.insert(id, OwnedStream { owner_scope, source, script });
+        self.register_owned_resource(owner_scope, ResourceKind::Activity);
+        Ok(())
+    }
+
+    fn register_returned_lowered_streams(
+        &mut self,
+        flow: &mut ControlFlow<LoweredValue, LoweredValue>,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        let value = match flow {
+            ControlFlow::Continue(value) | ControlFlow::Break(value) => value,
+        };
+        self.register_returned_lowered_stream(value, span)
+    }
+
+    fn register_returned_lowered_stream(
+        &mut self,
+        value: &mut LoweredValue,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        match value {
+            LoweredValue::Stream(stream) => self.register_returned_stream(stream, span),
+            LoweredValue::ResultOk(value) => self.register_returned_lowered_stream(value, span),
+            _ => Ok(()),
+        }
+    }
+
+    pub(super) fn register_returned_runtime_streams(
+        &mut self,
+        value: &mut Value,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        match value {
+            Value::Stream(stream) => self.register_returned_stream(stream, span),
+            Value::Result(ResultValue::Ok(value)) => self.register_returned_runtime_streams(value, span),
+            _ => Ok(()),
+        }
+    }
+
+    pub(super) fn validate_stream_owner(&self, stream: &StreamValue, span: Span) -> Result<(), RuntimeError> {
+        let Some(owner) = stream.owner() else {
+            return Err(RuntimeError::new("stream-owner", "stream has no evaluator owner").with_span(span));
+        };
+        if !Arc::ptr_eq(&owner.evaluator, &self.resource_owner) {
+            return Err(RuntimeError::new("stream-owner", "stream belongs to another evaluator").with_span(span));
+        }
+        if !self.owned_streams.contains_key(&owner.id) {
+            return Err(RuntimeError::new("stream-owner", "stream owner is no longer active").with_span(span));
+        }
+        Ok(())
     }
 
     fn transfer_owned_capability(&mut self, id: i64, target: u64) {
@@ -5728,6 +5897,7 @@ impl Evaluator {
                 }
             }
             LoweredValue::Stream(stream) => {
+                self.transfer_owned_stream(stream, target_scope);
                 for item in &stream.items {
                     self.transfer_owned_host_resources_in_value(&item.value, target_scope);
                 }
@@ -5837,6 +6007,7 @@ impl Evaluator {
                 Value::FsLock(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
                     self.transfer_owned_capability(handle.id, target_scope);
                 }
+                Value::Stream(stream) => self.transfer_owned_stream(stream, target_scope),
                 _ => {}
             }
         }

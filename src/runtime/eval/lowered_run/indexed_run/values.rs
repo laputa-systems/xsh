@@ -266,7 +266,9 @@ impl Evaluator {
         span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
         if !self.trace_enabled {
-            return self.eval_lowered_method_dispatch(receiver, name, values, &span);
+            let mut result = self.eval_lowered_method_dispatch(receiver, name, values, &span)?;
+            self.register_returned_lowered_streams(&mut result, span)?;
+            return Ok(result);
         }
         let trace_name = format!("{}.{}", receiver.type_name(), name);
         self.trace_enter(
@@ -282,7 +284,9 @@ impl Evaluator {
             Some(&trace_name),
             TracePayload::None,
         );
-        result
+        let mut result = result?;
+        self.register_returned_lowered_streams(&mut result, span)?;
+        Ok(result)
     }
 
     pub(super) fn preserve_lexical_expression_flow<T>(
