@@ -3,7 +3,7 @@ use super::{
     Evaluator, FileRedirectionMode, Flow, FormatSpec, FunctionHeader, FunctionName,
     LoweredCompTarget, LoweredFunctionKey, LoweredFunctionKind, LoweredMapCursor,
     LoweredModuleExportKind, LoweredProjectedReduceState, LoweredReduceProjection,
-    LoweredRetryAttemptValue, LoweredReturnKind, LoweredScalarCursor, LoweredStrPredicate,
+    LoweredReturnKind, LoweredScalarCursor, LoweredStrPredicate,
     LoweredTagValue, LoweredType, LoweredValue, Name, PathValue, ProcessEnd, ProcessInvocation,
     ProcessRedirection, ProcessStatus, QualifiedName, RecordMap, RedirectionKind,
     RedirectionStream, ReduceByOp, RegexValue, RunError, RunKind, RuntimeError, RuntimeOp,
@@ -34,7 +34,7 @@ use super::{
     lowered_str_count_lines_value, lowered_str_key, lowered_str_list_arg, lowered_str_parts,
     lowered_str_predicate_text, lowered_str_predicate_value, lowered_str_value,
     lowered_str_view_value, lowered_table_print_value, lowered_tag_key,
-    lowered_trace_error_from_value, lowered_trim_is_empty_value, lowered_trim_str_predicate_value,
+    lowered_trim_is_empty_value, lowered_trim_str_predicate_value,
     lowered_type_name, lowered_value_argv_len, lowered_value_from_runtime,
     lowered_value_from_runtime_any,
     path_bytes, push_lowered_display, push_lowered_fmt_value, push_lowered_native_fmt_value,
@@ -1471,6 +1471,8 @@ impl Evaluator {
                         | FullTag::ExprLastStatus
                         | FullTag::ExprProcessCommandArgv
                         | FullTag::ExprProcessCommandBuilder
+                        | FullTag::ExprLoop
+                        | FullTag::ExprRetry
                 )
             })
             .map_err(|error| indexed_error(error, call_span))?;
@@ -1914,172 +1916,6 @@ impl Evaluator {
                     StmtFlow::None => ControlFlow::Continue(LoweredValue::Unit),
                     flow => self.preserve_lexical_expression_flow(flow),
                 }
-            }
-            FullTag::ExprLoop => {
-                let body = indexed_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                loop {
-                    self.service_pending_signal(span)?;
-                    if self.shutting_down() {
-                        break ControlFlow::Continue(LoweredValue::Unit);
-                    }
-                    match self.eval_indexed_statement_block(execution, body, slots, span)? {
-                        StmtFlow::None | StmtFlow::Continue => {}
-                        StmtFlow::Break(value) => {
-                            break ControlFlow::Continue(value.unwrap_or(LoweredValue::Unit));
-                        }
-                        flow @ (StmtFlow::Value(_)
-                        | StmtFlow::Return(_)
-                        | StmtFlow::Propagate(_)) => {
-                            self.pending_value_block_flow = Some(flow);
-                            break ControlFlow::Break(LoweredValue::Unit);
-                        }
-                    }
-                }
-            }
-            FullTag::ExprRetry => {
-                let (_, mut delays) = execution
-                    .block(&mut payload, BLOCK_LIST)
-                    .map_err(|error| indexed_error(error, call_span))?;
-                let delay_count = indexed_raw(&mut delays, call_span)? as usize;
-                let pattern = indexed_optional_raw(&mut payload, call_span)?;
-                let body = indexed_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                let schedule = indexed_decode::<crate::syntax::arena::RetrySchedule>(
-                    &mut payload,
-                    execution,
-                    call_span,
-                )?;
-                indexed_finish(payload, call_span)?;
-                let mut delay_values = Vec::with_capacity(delay_count);
-                for _ in 0..delay_count {
-                    let delay = indexed_raw(&mut delays, span)?;
-                    match self.eval_indexed_expr(execution, delay, slots, span)? {
-                        ControlFlow::Continue(LoweredValue::Duration(value)) => {
-                            delay_values.push(value);
-                        }
-                        ControlFlow::Continue(value) => {
-                            return Err(RuntimeError::new(
-                                "type-error",
-                                format!(
-                                    "retry delay expected Duration, found {}",
-                                    value.type_name()
-                                ),
-                            )
-                            .with_span(span));
-                        }
-                        ControlFlow::Break(value) => {
-                            return Ok(ControlFlow::Break(value));
-                        }
-                    }
-                }
-                indexed_finish(delays, span)?;
-                let mut schedule = match (schedule, delay_values.as_slice()) {
-                    (crate::syntax::arena::RetrySchedule::Delays, _) => {
-                        super::LoweredRetryDelays::Listed(delay_values)
-                    }
-                    (crate::syntax::arena::RetrySchedule::Backoff, [first, cap, limit]) => {
-                        super::LoweredRetryDelays::backoff(first.millis, cap.millis, limit.millis)
-                    }
-                    (crate::syntax::arena::RetrySchedule::Backoff, _) => {
-                        return Err(RuntimeError::new(
-                            "type-error",
-                            "retry backoff expected a first interval, a cap, and a limit",
-                        )
-                        .with_span(span));
-                    }
-                };
-                let max_attempts = schedule.max_attempts();
-                let mut final_error = None;
-                let mut final_traceback = None;
-                let mut pending_delay: Option<u64> = None;
-                for attempt_index in 0.. {
-                    if let Some(millis) = pending_delay.take() {
-                        self.sleep_lowered_retry_delay(&DurationValue { millis }, span)?;
-                        if self.shutting_down() {
-                            break;
-                        }
-                    }
-                    let attempt_flow =
-                        self.eval_indexed_error_boundary_block(execution, body, slots, span)?;
-                    if matches!(attempt_flow, StmtFlow::Continue | StmtFlow::Break(_)) {
-                        self.pending_value_block_flow = Some(attempt_flow);
-                        return Ok(ControlFlow::Break(LoweredValue::Unit));
-                    }
-                    match self.lowered_retry_attempt_value(attempt_flow) {
-                        LoweredRetryAttemptValue::Success(value) => {
-                            self.trace_lowered_retry_attempt(
-                                span,
-                                attempt_index + 1,
-                                max_attempts,
-                                None,
-                                None,
-                                None,
-                                Some(crate::trace::RetryStopReason::Success),
-                            );
-                            return Ok(ControlFlow::Continue(LoweredValue::ResultOk(Box::new(
-                                value,
-                            ))));
-                        }
-                        LoweredRetryAttemptValue::Failed { error, traceback } => {
-                            let selected = match pattern {
-                                Some(pattern) => Some(Self::indexed_pattern_match_pass(
-                                    execution,
-                                    pattern,
-                                    &LoweredValue::Error(Box::new(error.clone())),
-                                    slots,
-                                    span,
-                                    false,
-                                )?),
-                                None => None,
-                            };
-                            let next_delay = if selected == Some(false) {
-                                None
-                            } else {
-                                schedule.next_delay(attempt_index)
-                            };
-                            pending_delay = next_delay;
-                            let stop_reason = if selected == Some(false) {
-                                Some(crate::trace::RetryStopReason::Nonmatching)
-                            } else if next_delay.is_none() {
-                                Some(crate::trace::RetryStopReason::Exhausted)
-                            } else {
-                                None
-                            };
-                            self.trace_lowered_retry_attempt(
-                                span,
-                                attempt_index + 1,
-                                max_attempts,
-                                next_delay,
-                                Some(lowered_trace_error_from_value(&error)),
-                                selected,
-                                stop_reason,
-                            );
-                            final_error = Some(error);
-                            final_traceback = traceback;
-                            self.pending_traceback = None;
-                            if stop_reason.is_some() {
-                                break;
-                            }
-                        }
-                        LoweredRetryAttemptValue::ControlBreak => {
-                            return Ok(ControlFlow::Continue(LoweredValue::Unit));
-                        }
-                        LoweredRetryAttemptValue::Escape(value) => {
-                            self.pending_value_block_flow = Some(StmtFlow::Return(value));
-                            return Ok(ControlFlow::Break(LoweredValue::Unit));
-                        }
-                    }
-                }
-                let error = final_error.unwrap_or_else(|| {
-                    Value::Error(Box::new(RuntimeError::new(
-                        "retry",
-                        "retry block did not produce a value",
-                    )))
-                });
-                self.pending_traceback = final_traceback;
-                ControlFlow::Continue(LoweredValue::ResultErr(Box::new(error)))
             }
             FullTag::ExprModuleCall => {
                 let (op, call_plan, args, span) =

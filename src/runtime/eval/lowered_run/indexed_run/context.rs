@@ -1,7 +1,7 @@
 use super::{
     BTreeMap, ContextScopeRestore, ControlFlow, Duration, Evaluator, Flow, FullExecution,
     LoweredValue, PathValue, Propagation, RegisteredDefer, RuntimeError, Span, StmtFlow, TraceArg,
-    TraceError, TraceKind, TracePayload, Traceback, Value, capture_checked_error, check_env_name, fs_module,
+    TraceError, TraceKind, TracePayload, Traceback, Value, check_env_name, fs_module,
     indexed_error, lowered_duration_arg, lowered_path_like_arg, path_bytes,
     runtime_error_from_value,
 };
@@ -303,16 +303,4 @@ impl Evaluator {
         })
     }
 
-    pub(super) fn eval_indexed_error_boundary_block(
-        &mut self,
-        execution: &FullExecution<'_>,
-        block: u32,
-        slots: &mut [LoweredValue],
-        span: Span,
-    ) -> Result<StmtFlow, RuntimeError> {
-        match self.eval_indexed_statement_block(execution, block, slots, span) {
-            Err(error) => capture_checked_error(error).map(StmtFlow::Propagate),
-            result => result,
-        }
-    }
 }

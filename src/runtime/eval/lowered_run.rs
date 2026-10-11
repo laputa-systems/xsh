@@ -812,18 +812,6 @@ fn backoff_step(delay: u64, cap: u64) -> u64 {
     if delay > cap / 2 { cap } else { delay * 2 }
 }
 
-enum LoweredRetryAttemptValue {
-    Success(LoweredValue),
-    Failed {
-        error: Value,
-        traceback: Option<Traceback>,
-    },
-    ControlBreak,
-    /// An explicit `return` inside the retry body: escape the retry entirely and
-    /// return from the enclosing proc with this value.
-    Escape(LoweredValue),
-}
-
 fn lowered_trace_error_from_value(value: &Value) -> TraceError {
     TraceError::from_value(value)
 }
@@ -6843,41 +6831,6 @@ impl Evaluator {
                 "lowered propagation produced unsupported control flow",
             )
             .with_span(span)),
-        }
-    }
-
-    fn lowered_retry_attempt_value(&mut self, flow: StmtFlow) -> LoweredRetryAttemptValue {
-        match flow {
-            StmtFlow::None | StmtFlow::Continue => {
-                LoweredRetryAttemptValue::Success(LoweredValue::Unit)
-            }
-            StmtFlow::Value(LoweredValue::ResultOk(value)) => {
-                LoweredRetryAttemptValue::Success(*value)
-            }
-            StmtFlow::Value(LoweredValue::ResultErr(error)) => LoweredRetryAttemptValue::Failed {
-                error: *error,
-                traceback: self.pending_traceback.take(),
-            },
-            StmtFlow::Value(value) => LoweredRetryAttemptValue::Success(value),
-            StmtFlow::Break(Some(value)) => LoweredRetryAttemptValue::Success(value),
-            StmtFlow::Break(None) => LoweredRetryAttemptValue::ControlBreak,
-            // `?` failures inside the body propagate; the retry catches them and
-            // retries (or surfaces the final error once attempts are exhausted).
-            // The propagation value is a `ResultErr` wrapping the real error;
-            // unwrap it so the attempt trace and final error carry the actual
-            // error value rather than a `Result` wrapper.
-            StmtFlow::Propagate(value) => {
-                let error = match value {
-                    LoweredValue::ResultErr(error) => *error,
-                    other => other.into_value(),
-                };
-                LoweredRetryAttemptValue::Failed {
-                    error,
-                    traceback: self.pending_traceback.take(),
-                }
-            }
-            // An explicit `return` escapes the retry and returns from the proc.
-            StmtFlow::Return(value) => LoweredRetryAttemptValue::Escape(value),
         }
     }
 

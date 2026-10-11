@@ -3,6 +3,7 @@ use super::serial_pipeline::{
     IndexedStageStep,
     indexed_for_pipeline_input, indexed_value_pipeline_input,
 };
+use super::super::LoweredRetryDelays;
 use super::{
     Arc, AssignOp, BLOCK_LIST, BLOCK_STATEMENTS, BTreeMap, BinaryOp, CommandPlan, ControlFlow,
     Evaluator,
@@ -39,6 +40,8 @@ use crate::runtime::eval::{
 };
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
 use crate::runtime::eval::lowered_run::validate_parameter_default;
+use crate::runtime::value::{DurationValue, Value};
+use crate::trace::Traceback;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Forced-frame evaluation reports a tag whose only remaining route is recursive.
@@ -205,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn forced_frames_reject_a_recursive_only_expression() {
+    fn forced_frames_run_an_expression_loop() {
         crate::runtime::eval::run_eval(|| {
             let source = "proc recursive_only() -> Int { return loop { break 0 } }\n";
             let mut sources = SourceMap::new();
@@ -219,7 +222,7 @@ mod tests {
             let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
             assert!(evaluator.prepare_compact_indexed_only(&parsed.arena, source_id).is_some());
             evaluator.force_frames = true;
-            let error = evaluator
+            let value = evaluator
                 .call_indexed_direct(
                     LoweredFunctionKey::Name(function),
                     LoweredFunctionKind::Proc,
@@ -227,9 +230,8 @@ mod tests {
                     Span::new(source_id, 0, 0),
                 )
                 .expect("prepared recursive procedure")
-                .expect_err("forced frames reject a recursive-only instruction");
-            assert_eq!(error.kind, "frame-scheduler");
-            assert!(error.message.contains("ExprLoop"), "{}", error.message);
+                .expect("forced frames run expression loops");
+            assert!(matches!(value, Value::Int(0)));
         });
     }
 
@@ -646,6 +648,32 @@ fn visit_retained_runtime(
     visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
 ) {
     visitor(crate::runtime::eval::RetainedValueRef::Runtime(value));
+}
+
+struct RetryFrameState {
+    instruction: u32,
+    delay_position: ListPosition<BuildExprId>,
+    pattern: Option<u32>,
+    body: u32,
+    span: Span,
+    schedule_kind: crate::syntax::arena::RetrySchedule,
+    delay_values: Vec<DurationValue>,
+    delays: Option<LoweredRetryDelays>,
+    attempt_index: usize,
+    max_attempts: usize,
+    last_error: Option<Value>,
+    last_traceback: Option<Traceback>,
+}
+
+impl RetryFrameState {
+    fn visit_retained_values(
+        &self,
+        visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
+    ) {
+        if let Some(error) = &self.last_error {
+            visit_retained_runtime(error, visitor);
+        }
+    }
 }
 
 struct FmtState {
@@ -1103,6 +1131,7 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     BreakLoop { transfers_resource: bool },
+    RetryDelay(RetryFrameState, Box<FrameContinuation>),
     /// A `yield` statement's value: the frame suspends here and hands the value
     /// to whoever pulled the producer.
     Yield { transfers_resource: bool },
@@ -1279,6 +1308,10 @@ impl FrameContinuation {
             | C::EnvValue(_)
             | C::PrintArgument(_) => {}
             C::ExprPatternIf { next, .. } => next.visit_retained_values(visitor),
+            C::RetryDelay(state, next) => {
+                state.visit_retained_values(visitor);
+                next.visit_retained_values(visitor);
+            }
             C::TypedBoolNot { next, .. }
             | C::TypedIntByteAtIndex { next, .. }
             | C::TypedIntByteAtFallback { next, .. } => next.visit_retained_values(visitor),
@@ -1442,6 +1475,7 @@ fn with_initializer_handler(
             | FrameContinuation::ListCompCondition { next, .. }
             | FrameContinuation::ListCompKey { next, .. }
             | FrameContinuation::ListCompValue { next, .. }
+            | FrameContinuation::RetryDelay(_, next)
             | FrameContinuation::WrapErr { next, .. }
             | FrameContinuation::AttachErrCause { next, .. }
             | FrameContinuation::WrapOk(next)
@@ -1458,6 +1492,7 @@ enum ExpressionBoundaryPolicy {
     Value,
     Context(crate::runtime::value::ErrorContext),
     Capture,
+    Retry(RetryFrameState),
     Scope(super::ContextScopeRestore),
 }
 
@@ -1547,6 +1582,7 @@ enum FrameWork {
     Loop {
         body: u32,
         span: Span,
+        completion: Option<Box<FrameContinuation>>,
     },
     PatternWhile {
         condition: u32,
@@ -2166,7 +2202,13 @@ impl ProducerFrameState {
         for work in &self.work {
             match work {
                 FrameWork::ClearSlots(_) | FrameWork::GuardFailureEnd(_) => {}
-                FrameWork::ExpressionBoundary { next, .. } | FrameWork::Expr { next, .. } => {
+                FrameWork::ExpressionBoundary { policy, next } => {
+                    if let ExpressionBoundaryPolicy::Retry(state) = policy {
+                        state.visit_retained_values(visitor);
+                    }
+                    next.visit_retained_values(visitor);
+                }
+                FrameWork::Expr { next, .. } => {
                     next.visit_retained_values(visitor);
                 }
                 FrameWork::CompCleanup(streams) => {
@@ -2182,9 +2224,13 @@ impl ProducerFrameState {
                 FrameWork::Statements { .. }
                 | FrameWork::ForScalars { .. }
                 | FrameWork::While { .. }
-                | FrameWork::Loop { .. }
                 | FrameWork::PatternWhile { .. }
                 | FrameWork::FinishError => {}
+                FrameWork::Loop { completion, .. } => {
+                    if let Some(next) = completion {
+                        next.visit_retained_values(visitor);
+                    }
+                }
                 FrameWork::Assertion(state) => state.visit_retained_values(visitor),
                 FrameWork::Value { value, next } => {
                     match value {
@@ -2550,7 +2596,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             matches!(
                 work,
                 FrameWork::ExpressionBoundary {
-                    policy: ExpressionBoundaryPolicy::Capture,
+                    policy: ExpressionBoundaryPolicy::Capture
+                        | ExpressionBoundaryPolicy::Retry(_),
                     ..
                 }
             )
@@ -2652,6 +2699,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             let value = match policy {
                 ExpressionBoundaryPolicy::Scope(super::ContextScopeRestore::Within { id }) => {
                     lowered_result_err_value(self.evaluator.finish_within_timeout(id))
+                }
+                ExpressionBoundaryPolicy::Retry(state) => {
+                    return self.finish_retry_attempt(
+                        index,
+                        state,
+                        capture_checked_error(error)?,
+                        next,
+                    );
                 }
                 _ => capture_checked_error(error)?,
             };
@@ -3043,6 +3098,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             lowered_result_ok(LoweredValue::Unit)
                         }
                     }
+                    ExpressionBoundaryPolicy::Retry(state) => {
+                        return self.finish_retry_attempt(
+                            index,
+                            state,
+                            LoweredValue::Unit,
+                            next,
+                        );
+                    }
                     _ => LoweredValue::Unit,
                 };
                 self.push_value(index, FrameValue::Value(value), next);
@@ -3138,8 +3201,27 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 body,
                 span,
             } => self.step_while(index, condition, body, span),
-            FrameWork::Loop { body, span } => {
-                self.calls[index].work.push(FrameWork::Loop { body, span });
+            FrameWork::Loop {
+                body,
+                span,
+                completion,
+            } => {
+                if completion.is_some() {
+                    self.evaluator.service_pending_signal(span)?;
+                    if self.evaluator.shutting_down() {
+                        self.push_value(
+                            index,
+                            FrameValue::Value(LoweredValue::Unit),
+                            *completion.expect("expression loop has a continuation"),
+                        );
+                        return Ok(());
+                    }
+                }
+                self.calls[index].work.push(FrameWork::Loop {
+                    body,
+                    span,
+                    completion,
+                });
                 self.push_statement_block(index, body, span)
             }
             FrameWork::PatternWhile {
@@ -3831,7 +3913,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FullTag::StmtLoop => {
                 let body = indexed_raw(&mut payload, span)?;
                 indexed_finish(payload, span)?;
-                self.calls[index].work.push(FrameWork::Loop { body, span });
+                self.calls[index].work.push(FrameWork::Loop {
+                    body,
+                    span,
+                    completion: None,
+                });
                 Ok(())
             }
             FullTag::StmtBreak => {
@@ -4113,6 +4199,50 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     next,
                 });
                 self.push_statement_block(index, body, span)?;
+            }
+            FullTag::ExprLoop => {
+                let body = indexed_raw(&mut payload, span)?;
+                let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.calls[index].work.push(FrameWork::Loop {
+                    body,
+                    span,
+                    completion: Some(Box::new(next)),
+                });
+            }
+            FullTag::ExprRetry => {
+                let delays = payload
+                    .borrow::<Vec<BuildExprId>>(&self.calls[index].execution)
+                    .map_err(|error| indexed_error(error, span))?;
+                let delay_position = delays.position();
+                let delay_count = delays.len();
+                let pattern = indexed_optional_raw(&mut payload, span)?;
+                let body = indexed_raw(&mut payload, span)?;
+                let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                let schedule_kind = indexed_decode(
+                    &mut payload,
+                    &self.calls[index].execution,
+                    span,
+                )?;
+                indexed_finish(payload, span)?;
+                self.eval_retry_delay(
+                    index,
+                    RetryFrameState {
+                        instruction,
+                        delay_position,
+                        pattern,
+                        body,
+                        span,
+                        schedule_kind,
+                        delay_values: Vec::with_capacity(delay_count),
+                        delays: None,
+                        attempt_index: 0,
+                        max_attempts: 0,
+                        last_error: None,
+                        last_traceback: None,
+                    },
+                    Box::new(next),
+                )?;
             }
             FullTag::ExprCapture => {
                 let body = indexed_raw(&mut payload, span)?;
@@ -6335,6 +6465,25 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
+            FrameContinuation::RetryDelay(mut state, next) => match value {
+                FrameValue::Value(LoweredValue::Duration(delay)) => {
+                    state.delay_values.push(delay);
+                    self.eval_retry_delay(index, state, next)?;
+                }
+                FrameValue::Value(value) => {
+                    return Err(RuntimeError::new(
+                        "type-error",
+                        format!(
+                            "retry delay expected Duration, found {}",
+                            value.type_name()
+                        ),
+                    )
+                    .with_span(state.span));
+                }
+                FrameValue::Break(value) => {
+                    return self.complete_call(index, StmtFlow::Propagate(value));
+                }
+            },
             FrameContinuation::DynamicCallee {
                 args,
                 typed_pure,
@@ -7126,6 +7275,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.evaluator.restore_indexed_context_scope(restore);
                 lowered_result_ok(value)
             }
+            ExpressionBoundaryPolicy::Retry(state) => {
+                return self.finish_retry_attempt(index, state, value, next);
+            }
             _ => value,
         };
         self.push_value(index, FrameValue::Value(value), next);
@@ -7207,13 +7359,28 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.evaluator
                     .report_cleanup_error(&error, self.calls[index].call_span);
             }
-            let Some(FrameWork::ExpressionBoundary { next, .. }) = self.calls[index].work.pop()
+            let Some(FrameWork::ExpressionBoundary { policy, next }) =
+                self.calls[index].work.pop()
             else {
                 unreachable!()
             };
             let value = contexts
                 .into_iter()
                 .fold(value.clone(), contextualize_propagation);
+            if let ExpressionBoundaryPolicy::Retry(state) = policy {
+                let error = match value {
+                    LoweredValue::ResultErr(error) => *error,
+                    other => other.into_value(),
+                };
+                let traceback = self.evaluator.pending_traceback.take();
+                return self.fail_retry_attempt(
+                    index,
+                    state,
+                    error,
+                    traceback,
+                    Box::new(next),
+                );
+            }
             self.evaluator.pending_traceback = None;
             self.push_value(index, FrameValue::Value(value), next);
             return Ok(());
@@ -8049,6 +8216,200 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         Ok(())
     }
 
+    fn eval_retry_delay(
+        &mut self,
+        index: usize,
+        mut state: RetryFrameState,
+        next: Box<FrameContinuation>,
+    ) -> Result<(), RuntimeError> {
+        let (_, mut payload) = self.calls[index]
+            .execution
+            .instruction_id(state.instruction)
+            .map_err(|error| indexed_error(error, state.span))?;
+        let mut delays = payload
+            .borrow::<Vec<BuildExprId>>(&self.calls[index].execution)
+            .map_err(|error| indexed_error(error, state.span))?;
+        delays
+            .resume(state.delay_position)
+            .map_err(|error| indexed_error(error, state.span))?;
+        let delay = delays
+            .next()
+            .transpose()
+            .map_err(|error| indexed_error(error, state.span))?;
+        if let Some(delay) = delay {
+            state.delay_position = delays.position();
+            self.push_expr(
+                index,
+                delay.raw(),
+                state.span,
+                FrameContinuation::RetryDelay(state, next),
+            );
+            return Ok(());
+        }
+
+        let delay_values = std::mem::take(&mut state.delay_values);
+        state.delays = Some(match state.schedule_kind {
+            crate::syntax::arena::RetrySchedule::Delays => {
+                LoweredRetryDelays::Listed(delay_values)
+            }
+            crate::syntax::arena::RetrySchedule::Backoff => {
+                match delay_values.as_slice() {
+                    [first, cap, limit] => {
+                        LoweredRetryDelays::backoff(first.millis, cap.millis, limit.millis)
+                    }
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "type-error",
+                            "retry backoff expected a first interval, a cap, and a limit",
+                        )
+                        .with_span(state.span));
+                    }
+                }
+            }
+        });
+        state.max_attempts = state
+            .delays
+            .as_ref()
+            .expect("retry schedule was just built")
+            .max_attempts();
+        self.start_retry_attempt(index, state, next)
+    }
+
+    fn start_retry_attempt(
+        &mut self,
+        index: usize,
+        state: RetryFrameState,
+        next: Box<FrameContinuation>,
+    ) -> Result<(), RuntimeError> {
+        let body = state.body;
+        let span = state.span;
+        self.calls[index].work.push(FrameWork::ExpressionBoundary {
+            policy: ExpressionBoundaryPolicy::Retry(state),
+            next: *next,
+        });
+        self.push_statement_block(index, body, span)
+    }
+
+    fn finish_retry_attempt(
+        &mut self,
+        index: usize,
+        state: RetryFrameState,
+        value: LoweredValue,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        let traceback = self.evaluator.pending_traceback.take();
+        let value = match value {
+            LoweredValue::ResultOk(value) => *value,
+            LoweredValue::ResultErr(error) => {
+                return self.fail_retry_attempt(index, state, *error, traceback, Box::new(next));
+            }
+            value => value,
+        };
+        self.evaluator.trace_lowered_retry_attempt(
+            state.span,
+            state.attempt_index + 1,
+            state.max_attempts,
+            None,
+            None,
+            None,
+            Some(crate::trace::RetryStopReason::Success),
+        );
+        self.evaluator.pending_traceback = None;
+        self.push_value(
+            index,
+            FrameValue::Value(lowered_result_ok(value)),
+            next,
+        );
+        Ok(())
+    }
+
+    fn fail_retry_attempt(
+        &mut self,
+        index: usize,
+        mut state: RetryFrameState,
+        error: Value,
+        traceback: Option<Traceback>,
+        next: Box<FrameContinuation>,
+    ) -> Result<(), RuntimeError> {
+        let error_value = LoweredValue::Error(Box::new(error));
+        let selected = match state.pattern {
+            Some(pattern) => {
+                let call = &mut self.calls[index];
+                Some(Evaluator::indexed_pattern_match_pass(
+                    &call.execution,
+                    pattern,
+                    &error_value,
+                    &mut call.slots,
+                    state.span,
+                    false,
+                )?)
+            }
+            None => None,
+        };
+        let error = match error_value {
+            LoweredValue::Error(error) => *error,
+            _ => unreachable!("retry pattern matching wraps the attempt error"),
+        };
+        let next_delay = if selected == Some(false) {
+            None
+        } else {
+            state
+                .delays
+                .as_mut()
+                .expect("retry schedule was built before attempts")
+                .next_delay(state.attempt_index)
+        };
+        let stop_reason = if selected == Some(false) {
+            Some(crate::trace::RetryStopReason::Nonmatching)
+        } else if next_delay.is_none() {
+            Some(crate::trace::RetryStopReason::Exhausted)
+        } else {
+            None
+        };
+        self.evaluator.trace_lowered_retry_attempt(
+            state.span,
+            state.attempt_index + 1,
+            state.max_attempts,
+            next_delay,
+            Some(super::super::lowered_trace_error_from_value(&error)),
+            selected,
+            stop_reason,
+        );
+        state.last_error = Some(error);
+        state.last_traceback = traceback;
+        self.evaluator.pending_traceback = None;
+        let Some(millis) = next_delay else {
+            self.finish_retry_error(index, state, next);
+            return Ok(());
+        };
+        state.attempt_index += 1;
+        self.evaluator
+            .sleep_lowered_retry_delay(&DurationValue { millis }, state.span)?;
+        if self.evaluator.shutting_down() {
+            self.finish_retry_error(index, state, next);
+            return Ok(());
+        }
+        self.start_retry_attempt(index, state, next)
+    }
+
+    fn finish_retry_error(
+        &mut self,
+        index: usize,
+        mut state: RetryFrameState,
+        next: Box<FrameContinuation>,
+    ) {
+        let error = state
+            .last_error
+            .take()
+            .expect("retry exhaustion retains the final error");
+        self.evaluator.pending_traceback = state.last_traceback.take();
+        self.push_value(
+            index,
+            FrameValue::Value(LoweredValue::ResultErr(Box::new(error))),
+            *next,
+        );
+    }
+
     /// The innermost loop in the frame. A block frame without one hands the
     /// loop control back to the recursive evaluator that entered it.
     fn innermost_loop(&self, index: usize) -> Option<usize> {
@@ -8111,7 +8472,19 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             );
                     }
                 }
-                self.discard_work_from(index, loop_index)
+                let completion = match &mut self.calls[index].work[loop_index] {
+                    FrameWork::Loop { completion, .. } => completion.take(),
+                    _ => None,
+                };
+                if let Some(next) = completion {
+                    self.calls[index].work[loop_index] = FrameWork::Value {
+                        value: FrameValue::Value(value.unwrap_or(LoweredValue::Unit)),
+                        next: *next,
+                    };
+                    self.discard_work_from(index, loop_index + 1)
+                } else {
+                    self.discard_work_from(index, loop_index)
+                }
             }
             None if matches!(self.calls[index].owner, FrameOwner::Block { .. }) => {
                 if let Some(value) = value.as_ref() {

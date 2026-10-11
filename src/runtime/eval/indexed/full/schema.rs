@@ -862,14 +862,14 @@ instruction_schema! {
         Loop {
             body: Vec<BuildStmtId>,
             span: Span,
-        } => ExprLoop = 76 [EFFECT_CANCELLATION; Scheduled; LegacyRecursive];
+        } => ExprLoop = 76 [EFFECT_CANCELLATION; Scheduled; FrameControl];
         Retry {
             delays: Vec<BuildExprId>,
             pattern: Option<BuildPatternId>,
             body: Vec<BuildStmtId>,
             span: Span,
             schedule: crate::syntax::arena::RetrySchedule,
-        } => ExprRetry = 77 [0; Scheduled; LegacyRecursive];
+        } => ExprRetry = 77 [0; Scheduled; FrameControl];
         FsFiles {
             root: BuildExprId,
             gitignore: Option<BuildExprId>,
@@ -1542,7 +1542,11 @@ mod tests {
         );
         assert_eq!(
             FullTag::ExprLoop.frame_strategy(),
-            FrameStrategy::LegacyRecursive
+            FrameStrategy::FrameControl
+        );
+        assert_eq!(
+            FullTag::ExprRetry.frame_strategy(),
+            FrameStrategy::FrameControl
         );
         for tag in [
             FullTag::ExprPatternIf,
