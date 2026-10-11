@@ -497,40 +497,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<(LoweredErrorExpr, Vec<(BuildExprId, usize)>)> {
-        if let ArenaExprKind::Ident(name) = self.program.arena.expr(callee).kind
-            && name == Name::ERROR
-        {
-            let mut kind = None;
-            let mut message = None;
-            for (index, arg) in args.iter().enumerate() {
-                let (name, value) = match arg.kind {
-                    ArenaCallArgKind::Named { name, value, .. } => (Some(name), value),
-                    ArenaCallArgKind::Positional(value) => (None, value),
-                    ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => {
-                        return None;
-                    }
-                };
-                let ArenaExprKind::Str(text) = self.program.arena.expr(value).kind else {
-                    return None;
-                };
-                let text = self.program.arena.string_literal(text).to_string();
-                match name {
-                    Some(name) if name == "kind" => kind = Some(text),
-                    Some(name) if name == "message" => message = Some(text),
-                    None if index == 0 => kind = Some(text),
-                    None if index == 1 => message = Some(text),
-                    _ => {}
-                }
-            }
-            return Some((
-                LoweredErrorExpr::Simple {
-                    kind: kind.unwrap_or_default(),
-                    message: message.unwrap_or_default(),
-                },
-                Vec::new(),
-            ));
-        }
-
         let ArenaExprKind::Field {
             base,
             name: variant,

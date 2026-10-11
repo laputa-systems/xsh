@@ -8197,8 +8197,6 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
             ExprPathRemove
             ExprJsonEncode
             ExprArchiveTarCreate
-            ExprArchiveTarList
-            ExprArchiveTarExtract
             ExprModuleCall
             ExprProcessCommandArgv
             ExprProcessCommandBuilder
@@ -8247,7 +8245,6 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
             StmtPrint
             StmtCd
             StmtEnv
-            StmtProc
             StmtRun
             StmtLoop
             StmtReturn
@@ -8260,11 +8257,13 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
             StmtDefaultParameter
         "#;
         let names: Vec<_> = expected.split_whitespace().collect();
-        assert_eq!(schema::INSTRUCTION_TAGS.len(), 158);
-        for (ordinal, (tag, name)) in schema::INSTRUCTION_TAGS.iter().zip(names).enumerate() {
+        assert_eq!(schema::INSTRUCTION_TAGS.len(), 155);
+        let expected_ordinals = (0usize..158).filter(|ordinal| ![97, 98, 147].contains(ordinal));
+        for ((tag, name), ordinal) in schema::INSTRUCTION_TAGS.iter().zip(names).zip(expected_ordinals) {
             assert_eq!(*tag as usize, ordinal);
             assert_eq!(tag.name(), name);
         }
+        assert!(!schema::INSTRUCTION_TAGS.iter().any(|tag| [97, 98, 147].contains(&(*tag as usize))));
         fn previous_effects(tags: &[FullTag]) -> u32 {
             tags.iter().fold(0, |effects, tag| {
                 effects
@@ -8294,7 +8293,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
                         | FullTag::ExprSelfCall
                         | FullTag::ExprDirectPureCall
                         | FullTag::ExprExternalCall => EFFECT_TRACE,
-                        FullTag::ExprModuleCall | FullTag::StmtProc => EFFECT_HOST | EFFECT_TRACE,
+                        FullTag::ExprModuleCall => EFFECT_HOST | EFFECT_TRACE,
                         FullTag::StmtPrint => EFFECT_HOST | EFFECT_TRACE,
                         FullTag::ExprFsFiles
                         | FullTag::ExprFsWalk
@@ -8314,8 +8313,6 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
                         | FullTag::ExprPathMkdir
                         | FullTag::ExprPathRemove
                         | FullTag::ExprArchiveTarCreate
-                        | FullTag::ExprArchiveTarList
-                        | FullTag::ExprArchiveTarExtract
                         | FullTag::ExprTry
                         | FullTag::StmtGuard
                         | FullTag::StmtWith => EFFECT_PROPAGATE | EFFECT_TRACE,

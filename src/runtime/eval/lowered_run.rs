@@ -1946,31 +1946,6 @@ fn lowered_int_arg(
     }
 }
 
-fn lowered_parse_command_values(
-    values: Vec<LoweredValue>,
-    _span: Span,
-) -> Result<(Vec<LoweredValue>, FxHashMap<String, bool>), RuntimeError> {
-    let mut positionals = Vec::new();
-    let mut flags: FxHashMap<String, bool> = FxHashMap::default();
-    for value in values {
-        if let Some(flag) = lowered_flag_name(&value) {
-            flags.insert(flag, true);
-        } else {
-            positionals.push(value);
-        }
-    }
-    Ok((positionals, flags))
-}
-
-fn lowered_flag_name(value: &LoweredValue) -> Option<String> {
-    let text = lowered_str_value(value)?;
-    let flag = text.strip_prefix("--")?;
-    if flag.is_empty() || flag.contains('=') {
-        return None;
-    }
-    Some(flag.replace('-', "_"))
-}
-
 fn lowered_optional_int_arg(
     value: Option<&LoweredValue>,
     operation: &str,

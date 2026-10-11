@@ -999,15 +999,6 @@ instruction_schema! {
             overwrite: Option<BuildExprId>,
             span: Span,
         } => ExprArchiveTarCreate = 96 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; LegacyRecursive];
-        ArchiveTarList {
-            path: BuildExprId,
-            span: Span,
-        } => ExprArchiveTarList = 97 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; LegacyRecursive];
-        ArchiveTarExtract {
-            path: BuildExprId,
-            dest: BuildExprId,
-            span: Span,
-        } => ExprArchiveTarExtract = 98 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; LegacyRecursive];
         ModuleCall {
             op: RuntimeOp,
             call_plan: Option<Arc<crate::runtime::eval::ModuleCallPlan>>,
@@ -1270,14 +1261,6 @@ instruction_schema! {
             env: Vec<LoweredRunEnv>,
             body: Vec<BuildStmtId>,
         } => StmtEnv = 146 [EFFECT_ENV | EFFECT_HOST | EFFECT_TRACE; Scheduled; LegacyRecursive];
-        Proc {
-            // The registry identity is stable; resolve it once while lowering
-            // instead of retaining two names and looking it up on every execution.
-            op: RuntimeOp,
-            args: Vec<BuildExprId>,
-            propagate_result: bool,
-            span: Span,
-        } => StmtProc = 147 [EFFECT_HOST | EFFECT_TRACE; Scheduled; LegacyRecursive];
         Run {
             value: BuildExprId,
             propagate_result: bool,

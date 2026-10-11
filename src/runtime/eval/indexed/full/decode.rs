@@ -706,7 +706,6 @@ enum_schema!(LoweredProcessCommandBuilderEntry => ProcessCommandBuilderEntryView
         span: Span } = 1;
 });
 enum_schema!(LoweredErrorExpr => ErrorExprView ["error expression tag is invalid"] {
-    Simple { kind: String, message: String } = 0;
     Structured { family: String, variant: String, fields: Vec<(Arc<str>, BuildExprId)>,
         facets: Vec<Name> } = 1;
 });

@@ -6200,7 +6200,6 @@ pub(super) fn lowered_body_can_return(scratch: &BuildScratch, statements: &[Buil
             | BuildStmtRow::Expr { .. }
             | BuildStmtRow::Run { .. }
             | BuildStmtRow::Print { .. }
-            | BuildStmtRow::Proc { .. }
             | BuildStmtRow::Loop { .. } => false,
         })
 }

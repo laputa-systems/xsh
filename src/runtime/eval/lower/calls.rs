@@ -1390,42 +1390,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             }
                         ));
                     }
-                    if module == "archive" && name == "tar_list" && positional.len() == 1 {
-                        return Some(push_build_row!(
-                            self,
-                            expr,
-                            BuildExprRow::ArchiveTarList {
-                                path: self.lower_expr(
-                                    positional[0],
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?,
-                                span,
-                            }
-                        ));
-                    }
-                    if module == "archive" && name == "tar_extract" && positional.len() == 2 {
-                        return Some(push_build_row!(
-                            self,
-                            expr,
-                            BuildExprRow::ArchiveTarExtract {
-                                path: self.lower_expr(
-                                    positional[0],
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?,
-                                dest: self.lower_expr(
-                                    positional[1],
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?,
-                                span,
-                            }
-                        ));
-                    }
                     if module == "hash"
                         && name == "verify_file"
                         && let Some(options) = lower_hash_verify_file_args(&args_vec)

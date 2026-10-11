@@ -1470,10 +1470,6 @@ struct ScanBytes {
 
 #[derive(Clone, Debug)]
 enum LoweredErrorExpr {
-    Simple {
-        kind: String,
-        message: String,
-    },
     Structured {
         family: String,
         variant: String,

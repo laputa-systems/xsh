@@ -8,11 +8,11 @@ use super::{
     ProcessRedirection, ProcessStatus, QualifiedName, RecordMap, RedirectionKind,
     RedirectionStream, ReduceByOp, RegexValue, RunError, RunKind, RuntimeError, RuntimeOp,
     ScanCondition, Span, SpawnOptions, StmtFlow, StreamValue, TraceArg, TraceError, TraceKind,
-    TracePayload, Traceback, TracebackFrame, TracebackFrameKind, Type, Value, api_spec,
+    TracePayload, Traceback, TracebackFrame, TracebackFrameKind, Type, Value,
     append_lowered_list_element, append_lowered_map_literal, assign_lowered_bytes_view,
     assign_lowered_str_view, bind_lowered_comp_target, btree_map, bytes_contains, bytes_module,
     check_env_name, checked_int_binary, compare_lowered_sort_keys, compound_assignment_value,
-    error_constructor, execute_run_with_policy, exit_status, fs_module, json_module,
+    error_constructor, execute_run_with_policy, exit_status, fs_module,
     lowered_assign_value, lowered_binary_value, lowered_bool_arg_or, lowered_bool_builder_field,
     lowered_bytes_or_str_owned, lowered_bytes_parts, lowered_bytes_value,
     lowered_command_plan_value, lowered_command_redirections, lowered_contains_value,
@@ -20,7 +20,7 @@ use super::{
     lowered_error_message, lowered_freeze_large_slot_list, lowered_index_from_end_value,
     lowered_index_value, lowered_inline_stats_field_value, lowered_inline_stats_to_record_vec,
     lowered_int_arg, lowered_map_literal_key, lowered_match_no_arm, lowered_nonnegative_count,
-    lowered_parse_command_values, lowered_path_arg, lowered_path_from_value, lowered_path_like_arg,
+    lowered_path_arg, lowered_path_from_value, lowered_path_like_arg,
     lowered_path_list_arg, lowered_path_method_value, lowered_pipeline_input,
     lowered_pipeline_item_count, lowered_pipeline_record_list, lowered_process_run_error,
     lowered_record_field_value, lowered_record_vec_append_or_replace_unsorted,
@@ -2038,55 +2038,6 @@ impl Evaluator {
                     span,
                 )))
             }
-            FullTag::ExprArchiveTarList => {
-                let path = indexed_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let path = match self.eval_indexed_expr(execution, path, slots, span)? {
-                    ControlFlow::Continue(value) => {
-                        lowered_path_arg(value, "archive.tar_list", span)?
-                    }
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                ControlFlow::Continue(
-                    match crate::modules::archive::tar_list(
-                        self.host_path(&path),
-                        "auto",
-                        Vec::new(),
-                        span,
-                    ) {
-                        Ok(stream) => lowered_result_ok(LoweredValue::Stream(Box::new(stream))),
-                        Err(error) => lowered_result_err_value(error),
-                    },
-                )
-            }
-            FullTag::ExprArchiveTarExtract => {
-                let path = indexed_raw(&mut payload, call_span)?;
-                let dest = indexed_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let path = match self.eval_indexed_expr(execution, path, slots, span)? {
-                    ControlFlow::Continue(value) => {
-                        lowered_path_arg(value, "archive.tar_extract", span)?
-                    }
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let dest = match self.eval_indexed_expr(execution, dest, slots, span)? {
-                    ControlFlow::Continue(value) => {
-                        lowered_path_arg(value, "archive.tar_extract", span)?
-                    }
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                ControlFlow::Continue(lowered_unit_result(crate::modules::archive::tar_extract(
-                    self.host_path(&path),
-                    self.host_path(&dest),
-                    0,
-                    "auto",
-                    false,
-                    Vec::new(),
-                    span,
-                )))
-            }
             FullTag::ExprModuleCall => {
                 let (op, call_plan, args, span) =
                     decode_module_call(execution, &mut payload, call_span)?;
@@ -2771,11 +2722,6 @@ impl Evaluator {
             }
             FullTag::ExprError => {
                 let error = match indexed_raw(&mut payload, call_span)? {
-                    0 => {
-                        let kind = indexed_decode::<String>(&mut payload, execution, call_span)?;
-                        let message = indexed_decode::<String>(&mut payload, execution, call_span)?;
-                        LoweredValue::Error(Box::new(error_constructor(kind, message)))
-                    }
                     1 => {
                         let family = indexed_decode::<String>(&mut payload, execution, call_span)
                             .map_err(|error| {
@@ -3387,102 +3333,6 @@ impl Evaluator {
                 let result = self.eval_indexed_statement_block(execution, body, slots, call_span);
                 self.env = previous;
                 result
-            }
-            FullTag::StmtProc => {
-                let op = indexed_decode::<RuntimeOp>(&mut payload, execution, call_span)?;
-                let (_, mut args) = execution
-                    .block(&mut payload, BLOCK_LIST)
-                    .map_err(|error| indexed_error(error, call_span))?;
-                let len = indexed_raw(&mut args, call_span)? as usize;
-                let propagate_result = indexed_decode::<bool>(&mut payload, execution, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let mut values = Vec::with_capacity(len);
-                for _ in 0..len {
-                    let arg = indexed_raw(&mut args, span)?;
-                    let value = match self.eval_indexed_expr(execution, arg, slots, call_span)? {
-                        ControlFlow::Continue(value) => value,
-                        ControlFlow::Break(value) => {
-                            return Ok(StmtFlow::Return(value));
-                        }
-                    };
-                    values.push(value);
-                }
-                indexed_finish(args, span)?;
-                let (positionals, flags) = lowered_parse_command_values(values, span)?;
-                let result = match op {
-                    RuntimeOp::JsonWrite => {
-                        if positionals.len() != 2 {
-                            return Err(RuntimeError::new(
-                                "arity",
-                                "json.write expected path and value",
-                            )
-                            .with_span(span));
-                        }
-                        let pretty = flags.get("pretty").copied().unwrap_or(false);
-                        let value = positionals
-                            .last()
-                            .cloned()
-                            .expect("checked length")
-                            .into_value();
-                        let path = lowered_path_arg(
-                            positionals.first().cloned().expect("checked length"),
-                            "json.write",
-                            span,
-                        )?;
-                        match json_module::encode_json(&value, pretty, span) {
-                            Ok(text) => lowered_unit_result(fs_module::write_path(
-                                self.host_path(&path),
-                                text.as_bytes(),
-                                span,
-                            )),
-                            Err(error) => lowered_result_err_value(error),
-                        }
-                    }
-                    _ => {
-                        let name = api_spec().op_trace_name(op).unwrap_or("unknown");
-                        return Err(RuntimeError::new(
-                            "unsupported-proc-command",
-                            format!(
-                                "proc command syntax for {name} is not yet supported in compact lowering"
-                            ),
-                        )
-                        .with_span(span));
-                    }
-                };
-                if propagate_result {
-                    match result {
-                        LoweredValue::ResultOk(_) => Ok(StmtFlow::None),
-                        LoweredValue::ResultErr(error) => {
-                            let kind = error.error_kind().unwrap_or("error").to_string();
-                            self.trace_leaf(
-                                TraceKind::ResultPropagate,
-                                Some(span),
-                                None,
-                                TracePayload::ResultPropagate {
-                                    error: TraceError::caused_from_value(&error),
-                                    error_kind: kind.clone(),
-                                },
-                            );
-                            let _traceback =
-                                self.pending_traceback.take().unwrap_or_else(|| Traceback {
-                                    failing_span: Some(span),
-                                    exe_path: self.exe_path.clone(),
-                                    operation_kind: "result.propagate".to_string(),
-                                    error: TraceError::from_propagated_value(&error),
-                                    frames: self.call_stack.clone(),
-                                });
-                            Ok(StmtFlow::Propagate(LoweredValue::ResultErr(error)))
-                        }
-                        other => Err(RuntimeError::new(
-                            "type-error",
-                            format!("`?` expected Result, found {}", other.type_name()),
-                        )
-                        .with_span(span)),
-                    }
-                } else {
-                    Ok(StmtFlow::None)
-                }
             }
             FullTag::StmtPrint => {
                 let (_, mut args) = execution
