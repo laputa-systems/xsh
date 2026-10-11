@@ -1,5 +1,57 @@
 # Consolidation restart handoff
 
+## Integrated typed readers and process frames — 2026-10-11, `0f2eb080`
+
+Accepted scanner `896b1c59` / `5834c235` as `1ef86555` / `43d58034`.
+ScanLines/ScanBytes retain synchronous optimized loops, borrowed input storage,
+signal cadence, and canonical nested codec declarations. Root's pinned optimized
+build at `43d58034` passed; all 34 focused files passed. The immutable pair and
+tracked-source manifest are `joint-43d-bin` / `joint-43d-source.json`; the exact
+commands, modes and hashes are in `joint-43d-gates/manifest.json` under the
+restart artifact directory. This evidence qualifies that revision only.
+
+Subsequent accepted slices require a new combined build and focused gates:
+
+- Driver `113183fc` / `aa29e8ba` as `c95e2a86` / `11b74a36`: one row schema,
+  eager borrowed-list corruption checks, 45 manual driver reads removed;
+  checker-only hook-slot metadata remains outside encoded fields. Private
+  compiler, driver, signal-hook, module and frontend gates pass.
+- Atoms `46736a99` as `1a927fad`: 22 manual reads removed, canonical source
+  delta -47; 49 focused normal/forced runs pass. The eager-tag partition is
+  explicitly remaining dispatch debt, not a completed structural gate.
+- Cache `c6f01b57` as `71cf8700`: same-program ordinary misses use the active
+  machine; hits retain early completion. Eight native cases pass in each mode,
+  including callback depth, resource transfer and trace lifecycle. Cross-program
+  callbacks and stream producers still need their owning execution boundary.
+- Process execution `16a73ee1` as `9bf36c70`: six expression rows and StmtRun
+  use typed frame operands; canonical production delta +468. Private pinned
+  build, schema units and focused process/timeout/trace/redirection gates pass.
+  Static independent review found no concrete defect; it is not runtime proof.
+- `0f2eb080` corrects ExprPipeline's strategy to its actual frame handler and
+  restores the empty-spliced-command invariant comment. ExprExternalCall is
+  the remaining true LegacyRecursive row.
+
+Compiler measurements compare e3b37fc6 to ae0c1a6f: FrameContinuation grows
+208 to 568 bytes, FrameWork 272 to 1,120, CallFrame 656 to 1,016 and boundary
+policy 64 to 552. The independent report retains exact revision/probe hashes.
+The private cold-state lane boxes command-builder and retry state once per
+expression and restores those earlier sizes at its 11b74a36 base. Allocation
+probes are still being finalized; this is not a throughput acceptance claim.
+Root's newer inline ProcessExecutionState needs its own follow-up measurement
+and fix. Defer cleanup state must also stay off the common frame layout.
+
+Remaining active lanes: typed-callee verifier-only import TypeId provenance
+(with no wire expansion), all-rule lint fact-demand audit and optimized gates,
+active-machine deferred cleanup, pipeline identity-preserving borrowed readers,
+and scalar statement views. Cross-program ownership planning must resolve
+FullExecution lifetimes without unsafe, leaks, or copied executable IR.
+W9's corrected ordered publication oracle remains red on record-constructor
+instance order after missing instances were recovered. Preserve all previous
+attempts; do not normalize away publication fields or vector order. Check-only
+CPU overhead on the heavy module probes still needs repair before the complete
+6,760-pair restart. Source budgets are advisory; these correctness, ownership,
+structural and performance requirements remain hard.
+
 ## Error and statement-match frame slices — 2026-10-11, `919f34c9`
 
 Accepted `3ecd88f5` as `23a127e9`: Error/Fail/Abort use typed borrowed shared
