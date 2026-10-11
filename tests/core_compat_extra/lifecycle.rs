@@ -115,3 +115,41 @@ fn test_sigchld_ignored_by_parent() {
     let output = Running::spawn(&mut outer).finish();
     assert_eq!(output.status.code(), Some(0), "{}", String::from_utf8_lossy(&output.stderr));
 }
+
+// origin: uutils test_shred::test_couldnt_rename
+#[cfg(target_os = "linux")]
+#[test]
+fn test_couldnt_rename() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut command = applet("shred", directory.path());
+    command.args(["-u", "/proc/self/mem"]);
+    // The pseudo-file names only this disposable applet's address space, never
+    // the runner or a fixture process. Its reported size is zero, so the
+    // original argv reaches removal without overwriting memory. Bound the
+    // address space and prevent privilege gains before entering the applet.
+    unsafe {
+        command.pre_exec(|| {
+            let limit = libc::rlimit { rlim_cur: 1024 * 1024 * 1024, rlim_max: 1024 * 1024 * 1024 };
+            if libc::setrlimit(libc::RLIMIT_AS, &limit) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if libc::geteuid() == 0 {
+                if libc::setgroups(0, std::ptr::null()) != 0
+                    || libc::setgid(65534) != 0 || libc::setuid(65534) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+            }
+            Ok(())
+        });
+    }
+    let output = Running::spawn(&mut command).finish();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert_eq!(output.stderr, b"shred: /proc/self/mem: failed to remove: Operation not permitted\n");
+}
