@@ -749,47 +749,6 @@ impl FullProgram {
         Ok((key, kind))
     }
 
-    fn pipeline_stage_tags(
-        &self,
-        instruction_range: std::ops::Range<usize>,
-    ) -> Result<Vec<FullStageTag>, IrVerifyError> {
-        let mut tags = Vec::new();
-        for instruction in instruction_range {
-            if self.store.tags[instruction] != FullTag::ExprPipeline {
-                continue;
-            }
-            let data = self.store.data[instruction];
-            let mut payload = FullCursor::new(self.store.payload(data.range())?);
-            payload.raw()?;
-            let block = IrBlockId::from_raw(payload.raw()?)
-                .ok_or_else(|| IrVerifyError::new("pipeline stage block id is invalid"))?;
-            let block = self
-                .store
-                .blocks
-                .get(block.index())
-                .copied()
-                .ok_or_else(|| IrVerifyError::new("pipeline stage block id is out of bounds"))?;
-            if block.flags & BLOCK_SEQUENCE_KIND_MASK != BLOCK_LIST {
-                return Err(IrVerifyError::new("pipeline stage block kind is invalid"));
-            }
-            let mut stages = FullCursor::new(self.store.payload(block.instructions)?);
-            let len = stages.raw()? as usize;
-            tags.reserve(len);
-            for _ in 0..len {
-                let index = stages.raw()? as usize;
-                tags.push(
-                    self.store
-                        .stages
-                        .get(index)
-                        .copied()
-                        .ok_or_else(|| IrVerifyError::new("pipeline stage id is out of bounds"))?,
-                );
-            }
-            stages.finish()?;
-        }
-        Ok(tags)
-    }
-
     pub(in crate::runtime::eval) fn driver_step_count(&self) -> Result<usize, IrVerifyError> {
         Ok(self.driver_root_steps()?.len())
     }
@@ -1113,20 +1072,6 @@ impl<'a> FullFunctionView<'a> {
             .ok_or_else(|| IrVerifyError::new("function definition span is missing"))
     }
 
-    pub(in crate::runtime::eval) fn instruction_tags(
-        &self,
-    ) -> Result<&'a [FullTag], IrVerifyError> {
-        let range = self.program.store.function_instruction_range(self.index)?;
-        Ok(&self.program.store.tags[range])
-    }
-
-    pub(in crate::runtime::eval) fn pipeline_stage_tags(
-        &self,
-    ) -> Result<Vec<FullStageTag>, IrVerifyError> {
-        self.program
-            .pipeline_stage_tags(self.program.store.function_instruction_range(self.index)?)
-    }
-
     /// The function's header, decoded once and retained with this program.
     ///
     /// The first call for a function decodes it and stores it in the program's
@@ -1285,10 +1230,6 @@ impl<'a> FullFunctionView<'a> {
     pub(in crate::runtime::eval) fn slot_count(&self) -> usize {
         self.program.store.functions[self.index].slot_count as usize
     }
-
-    pub(in crate::runtime::eval) fn has_defers(&self) -> bool {
-        self.program.store.function_metadata[self.index].flags & 2 != 0
-    }
 }
 
 impl<'a> FullDriverStepView<'a> {
@@ -1326,20 +1267,6 @@ impl<'a> FullDriverStepView<'a> {
                 verified: true,
             },
         })
-    }
-
-    pub(in crate::runtime::eval) fn instruction_tags(
-        &self,
-    ) -> Result<&'a [FullTag], IrVerifyError> {
-        let range = self.program.store.driver_instruction_range(self.index)?;
-        Ok(&self.program.store.tags[range])
-    }
-
-    pub(in crate::runtime::eval) fn pipeline_stage_tags(
-        &self,
-    ) -> Result<Vec<FullStageTag>, IrVerifyError> {
-        self.program
-            .pipeline_stage_tags(self.program.store.driver_instruction_range(self.index)?)
     }
 
     pub(in crate::runtime::eval) fn payload(&self) -> Result<FullPayload<'a>, IrVerifyError> {
@@ -1858,7 +1785,7 @@ impl FullBuilder {
                 flags: match unit.kind() {
                     LoweredFunctionKind::Pure => 0,
                     LoweredFunctionKind::Proc => 1,
-                } | u8::from(body.has_defers) << 1,
+                },
                 reserved: [0; 3],
             });
             self.function_definition_spans.push(unit.definition_span());
@@ -3194,120 +3121,11 @@ impl<'a> FullExecution<'a> {
         ))
     }
 
-    pub(in crate::runtime::eval) fn pattern_id(
-        &self,
-        raw: u32,
-    ) -> Result<(FullPatternTag, FullPayload<'a>), IrVerifyError> {
-        let index = raw as usize;
-        if self.decoder.verified {
-            let tag = unsafe { *self.decoder.store.patterns.get_unchecked(index) };
-            let data = unsafe { *self.decoder.store.pattern_data.get_unchecked(index) };
-            let words = unsafe { self.decoder.store.payload_unchecked(data.range()) };
-            return Ok((
-                tag,
-                FullPayload {
-                    store: self.decoder.store,
-                    cursor: FullCursor::verified(words),
-                },
-            ));
-        }
-        let tag = self
-            .decoder
-            .store
-            .patterns
-            .get(index)
-            .copied()
-            .ok_or_else(|| IrVerifyError::new("pattern id is out of bounds"))?;
-        let data = self.decoder.store.pattern_data[index];
-        Ok((
-            tag,
-            FullPayload {
-                store: self.decoder.store,
-                cursor: self
-                    .decoder
-                    .cursor(self.decoder.store.payload(data.range())?),
-            },
-        ))
-    }
-
-    #[inline(always)]
-    pub(in crate::runtime::eval) fn stage_id(
-        &self,
-        raw: u32,
-    ) -> Result<(FullStageTag, FullPayload<'a>), IrVerifyError> {
-        let index = raw as usize;
-        if self.decoder.verified {
-            let tag = unsafe { *self.decoder.store.stages.get_unchecked(index) };
-            let data = unsafe { *self.decoder.store.stage_data.get_unchecked(index) };
-            let words = unsafe { self.decoder.store.payload_unchecked(data.range()) };
-            return Ok((
-                tag,
-                FullPayload {
-                    store: self.decoder.store,
-                    cursor: FullCursor::verified(words),
-                },
-            ));
-        }
-        let tag = self
-            .decoder
-            .store
-            .stages
-            .get(index)
-            .copied()
-            .ok_or_else(|| IrVerifyError::new("pipeline stage id is out of bounds"))?;
-        let data = self.decoder.store.stage_data[index];
-        Ok((
-            tag,
-            FullPayload {
-                store: self.decoder.store,
-                cursor: self
-                    .decoder
-                    .cursor(self.decoder.store.payload(data.range())?),
-            },
-        ))
-    }
-
     pub(in crate::runtime::eval) fn stage_view(
         &self,
         raw: u32,
     ) -> Result<StageView<'a>, IrVerifyError> {
         StageView::decode(DecodeContext::new(self), raw)
-    }
-
-    pub(in crate::runtime::eval) fn value_id(
-        &self,
-        raw: u32,
-    ) -> Result<(FullValueTag, FullPayload<'a>), IrVerifyError> {
-        let index = raw as usize;
-        if self.decoder.verified {
-            let tag = unsafe { *self.decoder.store.values.get_unchecked(index) };
-            let data = unsafe { *self.decoder.store.value_data.get_unchecked(index) };
-            let words = unsafe { self.decoder.store.payload_unchecked(data.range()) };
-            return Ok((
-                tag,
-                FullPayload {
-                    store: self.decoder.store,
-                    cursor: FullCursor::verified(words),
-                },
-            ));
-        }
-        let tag = self
-            .decoder
-            .store
-            .values
-            .get(index)
-            .copied()
-            .ok_or_else(|| IrVerifyError::new("literal value id is out of bounds"))?;
-        let data = self.decoder.store.value_data[index];
-        Ok((
-            tag,
-            FullPayload {
-                store: self.decoder.store,
-                cursor: self
-                    .decoder
-                    .cursor(self.decoder.store.payload(data.range())?),
-            },
-        ))
     }
 
     #[inline(always)]
@@ -4453,7 +4271,7 @@ impl FullVerifier {
             if metadata.owner != IR_NONE {
                 store.string(metadata.owner)?;
             }
-            if metadata.flags & !0b11 != 0 {
+            if metadata.flags & !0b1 != 0 {
                 return Err(IrVerifyError::new("function metadata flags are invalid"));
             }
             let instructions = store.function_instruction_range(index)?;
@@ -7959,7 +7777,6 @@ run true
                 slot_count: 1,
                 callable_slot_types: vec![None],
                 body: vec![return_statement],
-                has_defers: false,
                 scratch,
             };
             let unit = LoweredFunctionUnit {
@@ -8931,6 +8748,30 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
         unslotted.headers.clear();
         let decoded = header(&unslotted);
         assert_eq!(decoded.params.len(), first.params.len());
+    }
+
+    #[test]
+    fn verifier_rejects_the_retired_function_defer_flag() {
+        let mut program = fixture("indexed-execution.xsh", INDEXED_EXECUTION);
+        assert!(program
+            .store
+            .function_metadata
+            .iter()
+            .any(|metadata| metadata.flags & 1 == 0));
+        assert!(program
+            .store
+            .function_metadata
+            .iter()
+            .any(|metadata| metadata.flags & 1 != 0));
+        FullVerifier::verify(&program).unwrap();
+
+        program.store.function_metadata[0].flags |= 1 << 1;
+        let error = FullVerifier::verify(&program).unwrap_err();
+        assert!(
+            error.message.contains("function metadata flags are invalid"),
+            "{}",
+            error.message
+        );
     }
 
     #[test]

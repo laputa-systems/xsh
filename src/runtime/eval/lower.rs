@@ -2450,10 +2450,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 return Err(CompactFunctionBlocker::NoReturn);
             }
         }
-        let has_defers = {
-            let scratch = self.scratch.borrow();
-            lowered_body_has_defers(&scratch, &body)
-        };
         let callable_slot_types = slots.callable_types_by_slot(params.len() + captures.len());
         Ok(FunctionBuild {
             params,
@@ -2485,7 +2481,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             slot_count: slots.count(),
             callable_slot_types,
             body,
-            has_defers,
             scratch: self.scratch.clone(),
         })
     }
@@ -6022,73 +6017,6 @@ pub(super) fn lowered_top_level(
         slots,
         slot_count,
     })
-}
-
-/// Recursively check whether a lowered statement body contains any `Defer`
-/// statements (including those nested inside `If` branches, `Retry` bodies, etc.).
-pub(super) fn lowered_body_has_defers(scratch: &BuildScratch, statements: &[BuildStmtId]) -> bool {
-    fn stmt_has_defers(scratch: &BuildScratch, stmt: &BuildStmtId) -> bool {
-        match &scratch.statements[stmt.index()] {
-            BuildStmtRow::Defer { .. } => true,
-            BuildStmtRow::If {
-                branches,
-                else_body,
-            } => {
-                branches
-                    .iter()
-                    .any(|(_, body)| lowered_body_has_defers(scratch, body))
-                    || else_body
-                        .as_ref()
-                        .is_some_and(|b| lowered_body_has_defers(scratch, b))
-            }
-            BuildStmtRow::IfBool {
-                branches,
-                else_body,
-            } => {
-                branches
-                    .iter()
-                    .any(|(_, body)| lowered_body_has_defers(scratch, body))
-                    || else_body
-                        .as_ref()
-                        .is_some_and(|b| lowered_body_has_defers(scratch, b))
-            }
-            BuildStmtRow::While { body, .. } | BuildStmtRow::WhileBool { body, .. } => {
-                lowered_body_has_defers(scratch, body)
-            }
-            BuildStmtRow::For { body, .. }
-            | BuildStmtRow::ForRecord { body, .. }
-            | BuildStmtRow::ForStrLines { body, .. } => lowered_body_has_defers(scratch, body),
-            BuildStmtRow::Match { arms, .. } => arms
-                .iter()
-                .any(|(_, _, body)| lowered_body_has_defers(scratch, body)),
-            BuildStmtRow::StrMatch { arms, fallback, .. } => {
-                arms.values()
-                    .any(|body| lowered_body_has_defers(scratch, body))
-                    || fallback
-                        .as_ref()
-                        .is_some_and(|b| lowered_body_has_defers(scratch, b))
-            }
-            BuildStmtRow::TagMatch { arms, fallback, .. } => {
-                arms.values()
-                    .any(|body| lowered_body_has_defers(scratch, body))
-                    || fallback
-                        .as_ref()
-                        .is_some_and(|b| lowered_body_has_defers(scratch, b))
-            }
-            BuildStmtRow::Guard { else_body, .. } => lowered_body_has_defers(scratch, else_body),
-            BuildStmtRow::With {
-                body, else_body, ..
-            } => {
-                lowered_body_has_defers(scratch, body)
-                    || lowered_body_has_defers(scratch, else_body)
-            }
-            BuildStmtRow::Cd { body, .. } | BuildStmtRow::Env { body, .. } => {
-                lowered_body_has_defers(scratch, body)
-            }
-            _ => false,
-        }
-    }
-    statements.iter().any(|stmt| stmt_has_defers(scratch, stmt))
 }
 
 /// without an `else` (or a non-exhaustive `match`) can fall through. So a body

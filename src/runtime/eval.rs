@@ -718,7 +718,6 @@ struct FunctionBuild {
     /// One exact callable type per local dense slot; `None` records no unique checked signature.
     callable_slot_types: Vec<Option<Type>>,
     body: Vec<BuildStmtId>,
-    has_defers: bool,
     scratch: Rc<RefCell<BuildScratch>>,
 }
 
