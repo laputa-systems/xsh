@@ -1,5 +1,25 @@
 # Consolidation restart handoff
 
+## Canonical documentation refresh — 2026-10-11, `2698cb7c`
+
+Accepted private `a61832d3` as `2698cb7c`, updating only SPEC source prose and
+architecture against integrated code/tests. It clarifies scope ownership and
+`process.spawn` reaping, flat-map's `check.flat-map` rejection of implicitly
+returned Result values, compact/pretty JSON sorting, declaration/type-expression
+facts and the current indexed stage/frame architecture. It explicitly retains
+unfinished LegacyRecursive coverage instead of claiming fallback closure.
+`git diff --check` passes. Generated documentation is intentionally pending;
+`make docs` and `make docs-check` run at final documentation verification.
+Their development path builds release tools, so it is deferred until final
+verification rather than triggering a release build during active frame work.
+
+The full corrected W9 run is still stopped while exact publication projection
+is repaired. Preserved check-only thread-CPU measurements on lspci/lsusb show
+roughly 50–65% candidate overhead; investigate repeated checking/preparation
+before restarting the long pair. These two probes are not an overall benchmark.
+Frame enum sizes and cold continuation state allocations have a separate
+compiler-measured review; no layout or speed conclusion is yet claimed.
+
 ## Retry boundary repair — 2026-10-11, `ae0c1a6f`
 
 Accepted `8b4cfefe` as `ae0c1a6f`: include Retry in the nearest expression-value
