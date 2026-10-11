@@ -40,6 +40,7 @@ test test_sys_block_collect_links_partitions_stacked_devices_and_pci_parent {
   let disk = "pci0000:00/0000:00:01.2/0000:01:00.0/nvme/nvme0/nvme0n1"
   add_device(root, "nvme0n1", disk, "259:0", "2048")
   add_device(root, "nvme0n1p2", f"{disk}/nvme0n1p2", "259:2", "1024", slaves: false)
+  root.write(fp"sys/devices/{disk}/diskseq", "17\n")
   root.write(fp"sys/devices/{disk}/nvme0n1p2/partition", "2\n")
   root.mkdir(fp"sys/devices/{disk}/device", parents: true)
   root.write(fp"sys/devices/{disk}/device/model", "Fixture NVMe\n")
@@ -62,6 +63,8 @@ test test_sys_block_collect_links_partitions_stacked_devices_and_pci_parent {
   let stacked = by_name.get("dm-0")?
   assert whole.kind == "disk" and part.kind == "partition" and stacked.kind == "virtual"
   assert whole.major == 259 and whole.minor == 0 and part.minor == 2
+  assert whole.disk_sequence == 17 and whole.disk_sequence_state == report.Observed
+  assert part.disk_sequence == 17 and part.disk_sequence_state == report.Observed
   assert whole.size_bytes == 1048576 and whole.logical_sector_bytes == 512 and whole.physical_sector_bytes == 4096
   assert whole.read_only == true and whole.rotational == false and whole.removable == false
   assert whole.active_scheduler == "none" and whole.available_schedulers == ["none", "mq-deadline"]
@@ -70,6 +73,7 @@ test test_sys_block_collect_links_partitions_stacked_devices_and_pci_parent {
   assert whole.firmware.value == "REV9", "firmware falls back to the legacy rev attribute"
   assert ([item.name for item in whole.io_counters] |> take(2)) == ["read_ios", "read_merges"]
   assert whole.io_counters.len() == 11
+  assert (whole.io_counters |> where .name == "in_flight")[0].value == 9
   assert part.parent_name == "nvme0n1"
   assert inventory.devices[part.parent_device_index ?? -1].name == "nvme0n1"
   assert part.holder_names == ["dm-0"]
@@ -81,6 +85,46 @@ test test_sys_block_collect_links_partitions_stacked_devices_and_pci_parent {
   let numbers = block.index_by_number(inventory.devices)
   assert inventory.devices[block.index_of_number(numbers, 259, 2) ?? -1].name == "nvme0n1p2"
   assert block.index_of_number(numbers, 8, 0) == null
+}
+
+test test_sys_block_collect_preserves_linux_stat_layouts_and_in_flight_gauge {
+  let root = fs.tempdir()?
+  defer root.close()
+  root.mkdir(p"sys/class/block", parents: true)
+  add_device(root, "sda", "virtual/block/sda", "8:0", "16")
+  let fields = [
+    "1 2 3 4 5 6 7 8 9 10 11",
+    "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15",
+    "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17",
+    "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18",
+  ]
+  let expected_counts = [11, 15, 17, 17]
+  for index in range(fields.len()) {
+    root.write(p"sys/devices/virtual/block/sda/stat", fields[index] + "\n")
+    let inventory = block.collect(root)
+    let device = inventory.devices[0]
+    assert device.io_counters.len() == expected_counts[index]
+    assert (device.io_counters |> where .name == "in_flight")[0].value == 9
+    if index == 3 {
+      assert (inventory.issues |> where .error_kind == "unknown_io_counter_fields").len() == 1
+    } else {
+      assert inventory.issues == []
+    }
+  }
+}
+
+test test_sys_block_collect_retains_i64_counters_and_reports_json_range_separately {
+  let root = fs.tempdir()?
+  defer root.close()
+  root.mkdir(p"sys/class/block", parents: true)
+  add_device(root, "sda", "virtual/block/sda", "8:0", "16")
+  root.write(p"sys/devices/virtual/block/sda/diskseq", "41\n")
+  root.write(p"sys/devices/virtual/block/sda/stat", "9223372036854775807 0 0 0 0 0 0 0 0 0 0\n")
+  let inventory = block.collect(root)
+  assert inventory.devices[0].disk_sequence == 41
+  assert inventory.devices[0].io_counters[0].value == 9223372036854775807
+  assert inventory.issues[0].state == report.RangeFailure
+  assert inventory.issues[0].error_kind == "io_counter_out_of_range"
 }
 
 test test_sys_block_collect_keeps_a_device_with_missing_or_invalid_fields {

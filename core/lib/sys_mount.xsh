@@ -36,6 +36,18 @@ export type MountTable = {
   issues: List[src.Issue],
 }
 
+## Carries one statvfs result captured with a replay frame rather than its tree.
+export type CapturedUsage = {
+  mount_id: Int,
+  major: Int,
+  minor: Int,
+  target: Str,
+  usage_state: report.ObservationState,
+  usage_total_bytes: Int?,
+  usage_used_bytes: Int?,
+  usage_available_bytes: Int?,
+}
+
 ## Decodes the octal escapes mountinfo applies to whitespace and backslashes.
 export pure decode_mount_field(value: Str) -> Str {
   value.replace("\\040", with: " ")
@@ -150,6 +162,66 @@ pure mount_usage_safe(index: MountUsageIndex, mount_id: Int) -> Bool {
   }
 
   false
+}
+
+pure mount_identity_key(mount_id: Int, major: Int, minor: Int, target: Str) -> Str {
+  f"{mount_id}:{major}:{minor}:{target}"
+}
+
+## Applies recorded capacity only when each value identifies one raw mount row.
+export pure apply_captured_usage(table: MountTable, captured: List[CapturedUsage]) -> Result[MountTable, Error] {
+  if captured.len() != table.mounts.len() {
+    return Err(error.failure("captured mount capacity count does not match the raw mount table"))
+  }
+
+  var captured_keys: Set[Str] = set.empty()
+  var captured_by_key: Map[CapturedUsage] = {}
+  for item in captured {
+    let key = mount_identity_key(item.mount_id, item.major, item.minor, item.target)
+    if key in captured_keys {
+      return Err(error.failure("captured mount capacity repeats a mount identity"))
+    }
+    captured_keys = captured_keys.add(key)
+    captured_by_key = captured_by_key.set(key, item)
+    var matched = false
+    for mount in table.mounts {
+      if key == mount_identity_key(mount.mount_id, mount.major, mount.minor, mount.target) {
+        matched = true
+      }
+    }
+    if ! matched {
+      return Err(error.failure("captured mount capacity does not match its raw mount identity"))
+    }
+
+    let any_value = item.usage_total_bytes != null or item.usage_used_bytes != null or item.usage_available_bytes != null
+    let all_values = item.usage_total_bytes != null and item.usage_used_bytes != null and item.usage_available_bytes != null
+    if item.usage_state == report.Observed {
+      if ! all_values or (item.usage_total_bytes ?? -1) < 0 or (item.usage_used_bytes ?? -1) < 0 or
+          (item.usage_available_bytes ?? -1) < 0 or
+          (item.usage_used_bytes ?? 0) > (item.usage_total_bytes ?? -1) or
+          (item.usage_available_bytes ?? 0) > (item.usage_total_bytes ?? -1) {
+        return Err(error.failure("observed captured mount capacity requires bounded byte values"))
+      }
+    } else if any_value {
+      return Err(error.failure("unobserved captured mount capacity cannot carry byte values"))
+    }
+  }
+
+  var mounts: List[MountEntry] = []
+  for mount in table.mounts {
+    let key = mount_identity_key(mount.mount_id, mount.major, mount.minor, mount.target)
+    let usage = captured_by_key.get(key)?
+    mounts += [
+      {
+        ...mount,
+        usage_state: usage.usage_state,
+        usage_total_bytes: usage.usage_total_bytes,
+        usage_used_bytes: usage.usage_used_bytes,
+        usage_available_bytes: usage.usage_available_bytes,
+      },
+    ]
+  }
+  Ok({...table, mounts: mounts})
 }
 
 ## Reads the mount table; `include_usage` also queries capacity for eligible local mounts.

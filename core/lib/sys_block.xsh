@@ -14,6 +14,9 @@ use system_report as report
 ## Keeps the active block scheduler with every scheduler offered by the device.
 export type BlockScheduler = {active: Str, available: List[Str]}
 
+## Keeps one Linux block statistic as a signed counter without the JSON-v1 bound.
+export type BlockCounter = {name: Str, value: Int, unit: Str}
+
 ## Describes one block device; indexes refer to the `devices` list of the same inventory.
 export type BlockDevice = {
   name: Str,
@@ -23,6 +26,8 @@ export type BlockDevice = {
   size_bytes: Int?,
   logical_sector_bytes: Int?,
   physical_sector_bytes: Int?,
+  disk_sequence: Int?,
+  disk_sequence_state: report.ObservationState,
   removable: Bool?,
   rotational: Bool?,
   read_only: Bool?,
@@ -40,7 +45,7 @@ export type BlockDevice = {
   read_ahead_kb: Int?,
   discard_granularity_bytes: Int?,
   discard_max_bytes: Int?,
-  io_counters: List[report.MemoryCounter],
+  io_counters: List[BlockCounter],
 }
 
 ## Retains block devices, the class listing state, and field-level issues.
@@ -160,6 +165,7 @@ export proc collect(root: FsRoot) [fs, error] -> BlockInventory {
     let removable = src.read_source_text(root, fp"{device_path}/removable", max_bytes: 4096)
     let rotational = src.read_source_text(root, fp"{device_path}/queue/rotational", max_bytes: 4096)
     let read_only = src.read_source_text(root, fp"{device_path}/ro", max_bytes: 4096)
+    let disk_sequence_source = src.read_source_text(root, fp"{device_path}/diskseq", max_bytes: 4096)
     let model = src.read_source_text(root, fp"{device_path}/device/model", max_bytes: 4096)
     let firmware = src.read_source_text(root, fp"{device_path}/device/firmware_rev", max_bytes: 4096)
     let fallback_firmware = if firmware.observation.state == .Absent {
@@ -220,6 +226,12 @@ export proc collect(root: FsRoot) [fs, error] -> BlockInventory {
     let read_ahead_number = src.bounded_number(read_ahead, true)
     let discard_granularity_number = src.bounded_number(discard_granularity, true)
     let discard_max_number = src.bounded_number(discard_max, true)
+    let disk_sequence_text = src.observed_text(disk_sequence_source)
+    let disk_sequence = src.parse_integer(disk_sequence_text)
+    var disk_sequence_state = disk_sequence_source.observation.state
+    if disk_sequence_state == report.Observed and (disk_sequence == null or (disk_sequence ?? 0) <= 0) {
+      disk_sequence_state = if src.decimal_digits(disk_sequence_text ?? "") { report.RangeFailure } else { report.Malformed }
+    }
     for field_number in [
       {
         field: "logical_sector_bytes",
@@ -282,7 +294,7 @@ export proc collect(root: FsRoot) [fs, error] -> BlockInventory {
       issues += [src.issue(f"devices.{name}.stat", report.Malformed, "invalid_io_counter_count", null)]
     }
 
-    var io_counters: List[report.MemoryCounter] = []
+    var io_counters: List[BlockCounter] = []
     let counter_names = [
       "read_ios",
       "read_merges",
@@ -323,11 +335,23 @@ export proc collect(root: FsRoot) [fs, error] -> BlockInventory {
     ]
     var counter_index = 0
     while stat_field_count_valid and counter_index < stats_values.len() and counter_index < counter_names.len() {
-      let counter_value = src.parse_integer(stats_values[counter_index]) ?? -1
-      if counter_value >= 0 and counter_value <= 9007199254740991 {
+      let counter_text = stats_values[counter_index]
+      let parsed_counter = src.parse_integer(counter_text)
+      let counter_value = parsed_counter ?? -1
+      if counter_value >= 0 {
         io_counters += [{name: counter_names[counter_index], value: counter_value, unit: counter_units[counter_index]}]
+        if counter_value > 9007199254740991 {
+          issues += [
+            src.issue(
+              f"devices.{name}.stat.{counter_names[counter_index]}",
+              report.RangeFailure,
+              "io_counter_out_of_range",
+              null,
+            ),
+          ]
+        }
       } else {
-        let out_of_range = src.decimal_digits(stats_values[counter_index])
+        let out_of_range = src.decimal_digits(counter_text)
         let state = if out_of_range { report.RangeFailure } else { report.Malformed }
         let error_kind = if out_of_range { "io_counter_out_of_range" } else { "invalid_io_counter" }
         issues += [src.issue(f"devices.{name}.stat.{counter_names[counter_index]}", state, error_kind, null)]
@@ -448,6 +472,8 @@ export proc collect(root: FsRoot) [fs, error] -> BlockInventory {
         size_bytes: sector_bytes,
         logical_sector_bytes: logical_number.value,
         physical_sector_bytes: physical_number.value,
+        disk_sequence: if disk_sequence != null and (disk_sequence ?? 0) > 0 { disk_sequence } else { null },
+        disk_sequence_state: disk_sequence_state,
         removable: if (removable_number.value ?? -1) in [
           0,
           1,
@@ -522,10 +548,25 @@ export proc collect(root: FsRoot) [fs, error] -> BlockInventory {
       }
     }
 
+    let parent_device_index = block_name_index(block_indices_by_name, candidate.parent_name)
+    let inherited_disk_sequence = if candidate.disk_sequence == null and candidate.kind == "partition" and
+        parent_device_index != null {
+      candidates[parent_device_index ?? -1].disk_sequence
+    } else {
+      candidate.disk_sequence
+    }
+    let inherited_disk_sequence_state = if candidate.disk_sequence == null and candidate.kind == "partition" and
+        parent_device_index != null {
+      candidates[parent_device_index ?? -1].disk_sequence_state
+    } else {
+      candidate.disk_sequence_state
+    }
     linked_devices += [
       {
         ...candidate,
-        parent_device_index: block_name_index(block_indices_by_name, candidate.parent_name),
+        parent_device_index: parent_device_index,
+        disk_sequence: inherited_disk_sequence,
+        disk_sequence_state: inherited_disk_sequence_state,
         holder_indices: holders,
         slave_indices: slaves,
       },

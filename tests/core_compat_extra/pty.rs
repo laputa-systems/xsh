@@ -186,9 +186,10 @@ fn write_btop_bundle(root: &Path, frames: &[([u64; 4], u64, u64, u64)]) {
     fs::write(
         root.join("manifest.json"),
         format!(
-            "{{\"schema\":2,\"page_size_bytes\":4096,\"clock_ticks_per_second\":100,\"source_id\":\"pty-fixture\",\"display\":{{\"term\":\"xterm-256color\",\"colorterm\":\"\",\"no_color\":false,\"lc_all\":\"C.UTF-8\",\"lc_ctype\":\"\",\"lang\":\"\",\"rows\":24,\"cols\":80}},\"frames\":[{frame_metadata}]}}\n"
+            "{{\"schema\":3,\"page_size_bytes\":4096,\"clock_ticks_per_second\":100,\"source_id\":\"pty-fixture\",\"display\":{{\"term\":\"xterm-256color\",\"colorterm\":\"\",\"no_color\":false,\"lc_all\":\"C.UTF-8\",\"lc_ctype\":\"\",\"lang\":\"\",\"rows\":24,\"cols\":80}},\"frames\":[{frame_metadata}]}}\n"
         ),
     ).unwrap();
+    fs::write(root.join("observations.jsonl"), "").unwrap();
 }
 
 fn btop_applet(directory: &Path, bundle: &Path, frame_limit: usize) -> Command {

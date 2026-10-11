@@ -31,6 +31,44 @@ test test_btop_replay_is_deterministic_and_uses_the_shared_model {
   assert first[1].processes == second[1].processes
 }
 
+test test_btop_replay_uses_recorded_mount_capacity_without_querying_the_snapshot_filesystem {
+  let bundle = fs.tempdir()?
+  defer bundle.close()
+  fixture.write_b3_bundle(bundle, default_processes())
+  for frame in [0, 1] {
+    bundle.mkdir(fp"frames/{frame}/proc/self", parents: true)
+    bundle.write(
+      fp"frames/{frame}/proc/self/mountinfo",
+      "1 0 8:0 / /mnt/fake rw - ext4 /dev/sda rw\n",
+    )
+  }
+  bundle.write(
+    p"observations.jsonl",
+    """{"frame_index":0,"at_ns":1000000000,"sequence":0,"mount_id":1,"major":8,"minor":0,"target":"/mnt/fake","usage_state":"observed","usage_total_bytes":"123456","usage_used_bytes":"23456","usage_available_bytes":"80000"}
+{"frame_index":1,"at_ns":2000000000,"sequence":0,"mount_id":1,"major":8,"minor":0,"target":"/mnt/fake","usage_state":"observed","usage_total_bytes":"234567","usage_used_bytes":"34567","usage_available_bytes":"90000"}
+""",
+  )
+
+  let loaded = replay.load(bundle.host_path()?)?
+  let frames = replay.models(loaded.observations)
+  assert loaded.observations[0].storage.mounts.mounts[0].usage_total_bytes == 123456
+  assert loaded.observations[1].storage.mounts.mounts[0].usage_total_bytes == 234567
+  assert frames[0].storage.devices[0].capacity_state == report.Observed
+  assert frames[0].storage.devices[0].total_bytes == 123456
+  assert frames[1].storage.devices[0].total_bytes == 234567
+}
+
+test test_btop_replay_rejects_duplicate_or_misordered_captured_mount_results {
+  let bundle = fs.tempdir()?
+  defer bundle.close()
+  fixture.write_b3_bundle(bundle, default_processes())
+  bundle.mkdir(p"frames/0/proc/self", parents: true)
+  bundle.write(p"frames/0/proc/self/mountinfo", "1 0 8:0 / /mnt/fake rw - ext4 /dev/sda rw\n")
+  let row = "{\"frame_index\":0,\"at_ns\":1000000000,\"sequence\":0,\"mount_id\":1,\"major\":8,\"minor\":0,\"target\":\"/mnt/fake\",\"usage_state\":\"not_requested\",\"usage_total_bytes\":null,\"usage_used_bytes\":null,\"usage_available_bytes\":null}\n"
+  bundle.write(p"observations.jsonl", row + row)
+  test.error_kind(replay.load(bundle.host_path()?), "validation")
+}
+
 test test_btop_replay_marks_a_coalesced_pause_interval_as_a_gap {
   let bundle = fs.tempdir()?
   defer bundle.close()
@@ -84,8 +122,17 @@ test test_btop_replay_rejects_nonincreasing_frame_times {
   fixture.write_b3_bundle(bundle, default_processes())
   bundle.write(
     p"manifest.json",
-    """{"schema":2,"page_size_bytes":4096,"clock_ticks_per_second":100,"source_id":"bad-time","display":{"term":"xterm","colorterm":"","no_color":false,"lc_all":"C.UTF-8","lc_ctype":"","lang":"","rows":24,"cols":80},"frames":[{"at_ns":2000000000},{"at_ns":2000000000}]}\n""",
+    """{"schema":3,"page_size_bytes":4096,"clock_ticks_per_second":100,"source_id":"bad-time","display":{"term":"xterm","colorterm":"","no_color":false,"lc_all":"C.UTF-8","lc_ctype":"","lang":"","rows":24,"cols":80},"frames":[{"at_ns":2000000000},{"at_ns":2000000000}]}\n""",
   )
+  test.error_kind(replay.load(bundle.host_path()?), "validation")
+}
+
+test test_btop_replay_rejects_schema_two_without_captured_mount_capacity {
+  let bundle = fs.tempdir()?
+  defer bundle.close()
+  fixture.write_b3_bundle(bundle, default_processes())
+  let manifest = bundle.read_text(p"manifest.json")?.replace("\"schema\":3", with: "\"schema\":2")
+  bundle.write(p"manifest.json", manifest)
   test.error_kind(replay.load(bundle.host_path()?), "validation")
 }
 

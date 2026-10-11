@@ -3,6 +3,7 @@
 ##! The model owns interval semantics and stable process ranking; neither the
 ##! renderer nor replay decides whether a counter represents a reset or rate.
 use btop_rates as rates
+use btop_disks as disks
 use btop_sensors as sensors
 use sys_cpu as syscpu
 use sys_mem as memory
@@ -22,6 +23,7 @@ export type Observation = {
   network: network.NetworkSource,
   processes: processes.ProcessSource,
   telemetry: system_live.MonitorSources,
+  storage: disks.Source,
 }
 
 ## Retains one process row and its interval percentage before terminal formatting.
@@ -91,6 +93,7 @@ export type Model = {
   network: NetworkPanel,
   process_state: report.ObservationState,
   processes: List[ProcessRow],
+  storage: disks.Panel,
 }
 
 ## Returns the display model and the next bounded metadata cache together.
@@ -349,6 +352,8 @@ export pure step_cached(
   let prior_rows = process_index(baseline)
   let prior_cores = core_index(baseline)
   let cache = if metadata.source_id == current.source_id { metadata } else { {source_id: current.source_id, by_pid: {}} }
+  let storage_previous: disks.Source? = if let before = baseline { before.storage } else { null }
+  let storage_previous_at: Int? = if let before = baseline { before.at_ns } else { null }
   let selected = observed_interface(current.network)
   var process_rows: List[ProcessRow] = []
   var next_metadata: Map[Int, ProcessMetadata] = {}
@@ -397,6 +402,7 @@ export pure step_cached(
       },
       process_state: current.processes.state,
       processes: process_rows |> sort-by { |row| process_sort_key(row) },
+      storage: disks.step(current.storage, storage_previous, current.at_ns, storage_previous_at, gap),
     },
     metadata: {source_id: current.source_id, by_pid: next_metadata},
   }
@@ -437,6 +443,39 @@ pure network_wire(value: NetworkPanel) -> Any {
   }
 }
 
+pure disk_wire(value: disks.Device) -> Any {
+  {
+    identity: value.identity,
+    identity_state: value.identity_state,
+    name: value.name,
+    major: value.major,
+    minor: value.minor,
+    mount_targets: value.mount_targets,
+    filesystem: value.filesystem,
+    capacity_state: value.capacity_state,
+    capacity_age_ns: value.capacity_age_ns,
+    total_bytes: counter_wire_text(value.total_bytes),
+    used_bytes: counter_wire_text(value.used_bytes),
+    available_bytes: counter_wire_text(value.available_bytes),
+    read_sectors: counter_wire_text(value.read_sectors),
+    read_state: value.read_state,
+    read_bytes_per_second: value.read_bytes_per_second,
+    write_sectors: counter_wire_text(value.write_sectors),
+    write_state: value.write_state,
+    write_bytes_per_second: value.write_bytes_per_second,
+    in_flight: value.in_flight,
+    in_flight_state: value.in_flight_state,
+  }
+}
+
+pure storage_wire(value: disks.Panel) -> Any {
+  {
+    block_state: value.block_state,
+    mount_state: value.mount_state,
+    devices: [disk_wire(device) for device in value.devices],
+  }
+}
+
 ## Encodes raw counters as canonical decimal strings while keeping typed arithmetic in Int.
 export pure encode_wire_json(value: Model) -> Result[Str, Error] {
   let wire: Any = {
@@ -452,6 +491,7 @@ export pure encode_wire_json(value: Model) -> Result[Str, Error] {
     network: network_wire(value.network),
     process_state: value.process_state,
     processes: [process_wire(row) for row in value.processes],
+    storage: storage_wire(value.storage),
   }
   json.encode(wire, pretty: false)
 }

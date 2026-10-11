@@ -33,13 +33,16 @@ minimum-size state, and rendered lines; their diagnostic canvas is 80 by 24.
 Live process command lines are added only to the interactive display; they do
 not enter model or screen dumps or replay observations.
 
-The replay bundle uses manifest schema 2 and contains recorded terminal inputs
-as well as rooted source frames:
+The replay bundle uses manifest schema 3 and contains recorded terminal inputs,
+rooted source frames, and mount-capacity results captured beside their frame:
 
 ```text
 BUNDLE/
   manifest.json
+  observations.jsonl
   frames/0/proc/{stat,uptime,loadavg,meminfo,net/dev}
+  frames/0/proc/self/mountinfo
+  frames/0/sys/class/block/...
   frames/1/proc/{stat,uptime,loadavg,meminfo,net/dev}
   frames/N/proc/...
 ```
@@ -52,9 +55,15 @@ nonempty `frames` array whose records each contain `at_ns`. `display` contains
 Frame timestamps must be nonnegative and strictly increasing. For each index,
 the collector reads that frame's rooted `proc` tree; missing fields remain
 unavailable and never fall back to the live host. Process directories can be
-added below each `proc` directory. Replay timestamps, source identity, and
-display inputs are explicit because filesystem contents do not encode them.
-Schema 1 bundles are rejected because they do not pin display capability inputs.
+added below each `proc` directory. `observations.jsonl` has one record for each
+valid `mountinfo` row, keyed by frame index, timestamp, sequence, mount ID,
+device number, and decoded target; it carries the captured capacity state and
+total, used, and user-available bytes as canonical decimal strings. Records are
+bounded and must match the raw mount identities exactly. Replay never runs
+`statvfs` on its snapshot tree.
+Replay timestamps, source identity, display inputs, and capacity results are
+explicit because filesystem contents do not encode them. Schemas 1 and 2 are
+rejected because they do not pin all non-file inputs.
 
 ## Monitor behavior
 
@@ -83,7 +92,8 @@ exit, or PID reuse invalidates that cached UID.
 When a counter deadline is skipped, interval rates show `gap` for that sample
 and resume after the next complete interval. Model dumps encode network byte
 counters and process start ticks as canonical decimal strings; internal rate
-math keeps them as signed 64-bit integers.
+math keeps them as signed 64-bit integers. Disk sector counters and mount
+capacity bytes use the same decimal-string wire form.
 
 CPU rates use the first eight aggregate `/proc/stat` counters, subtract guest
 and guest-nice time to avoid double-counting them, and treat a decreasing
@@ -113,6 +123,18 @@ name-sorted non-loopback interface, or loopback only when it is the only
 interface, and displays byte totals and interval rates in bytes per second
 with binary KiB/s and MiB/s labels. The network source's observed empty list
 remains distinct from a failed read.
+
+Block statistics refresh with the one-second counter sample. Read and write
+sector deltas use Linux's fixed 512-byte accounting sectors, independent of
+physical sector size; `in_flight` remains the current request-count gauge. A
+mounted device number resolves to one block row, and counters are never summed
+across a disk, its partitions, or stacked devices. Disk history uses the
+device's `diskseq` and major/minor pair; a partition inherits its containing
+disk's sequence. If that identity is unavailable, the row retains capacity
+but its I/O rates stay unavailable. Mount capacity refreshes every thirty
+seconds, keeps total, used, and user-available bytes separate, and comes from
+captured statvfs results during replay. The model carries `capacity_age_ns` so
+the disk panel can label values reused between those refreshes.
 
 If collection finishes after multiple deadlines, the monitor records the
 skipped intervals and starts one fresh sample instead of running a catch-up
@@ -168,12 +190,16 @@ than 80 by 24 displays a safe size message.
 | Package and core temperatures | `/sys/class/hwmon/*/temp*_input`, labels, and `/sys/class/thermal/thermal_zone*/temp` | `system_report_live.collect_sensors`, `btop_sensors.cpu_temperature`, `btop_sensors.core_mapping` | signed millidegrees Celsius, gauge | Existing rooted system-report parser; malformed or missing values are withheld; duplicate core IDs are collapsed deterministically |
 | CPU frequency | `/sys/devices/system/cpu/cpufreq/policy*/scaling_cur_freq`, then `/proc/cpuinfo` `cpu MHz` | `system_report_live.collect_frequency_policies`, `read_cpu_info`, `btop_sensors.frequency` | kHz source reduced to MHz, gauge | Positive readings only; pinned CPUFreq modes; bounded source reads |
 | Battery level, state, power, and time | `/sys/class/power_supply/*` type, present, status, capacity, energy/charge, voltage/current, and power | `system_report_live.collect_power`, `btop_sensors.battery` | percent, microwatts, microamp-hours, microvolts, gauge | Only present Battery/UPS devices; values remain absent or malformed when the source cannot support a result |
+| Disk reads/writes and in-flight requests | `/sys/class/block/*/stat` and `diskseq` | `sys_block.collect`, `btop_disks.step` | 512-byte accounting sectors; bytes/second; `in_flight` is a request-count gauge | Linux 11/15/17-field layouts; future fields are reported; history requires the disk sequence and device number; partitions inherit their parent disk sequence |
+| Mounted filesystem capacity | `/proc/self/mountinfo` and rooted filesystem statistics | `sys_mount.collect`, `sys_mount.apply_captured_usage`, `btop_disks.step` | total, used, and user-available bytes, gauges | Mount escapes are decoded; shadowed, duplicate-target, and remote filesystems are not queried; results refresh on the 30-second blocking schedule and replay uses captured results |
 
 The system-report and btop paths share the `/proc/meminfo`, sensor, frequency,
-power-supply, and process `stat` readers. The monitor uses the shared process
-parser's i64 start-time policy and retains `utime + stime`; system-report JSON
-v1 keeps its existing exact-number bound. Monitor battery fields remain private
-to `system_report_live` and do not widen system-report JSON.
+power-supply, block, mount, and process `stat` readers. Block counters retain
+signed i64 values for monitor rate math; system-report JSON v1 continues to
+withhold counters above its exact-number bound. The monitor uses the shared
+process parser's i64 start-time policy and retains `utime + stime` without
+changing system-report JSON. Monitor battery fields remain private to
+`system_report_live` and do not widen system-report JSON.
 
 ## Host release evidence
 
@@ -216,8 +242,8 @@ Focused host release tests are kept with the implementation:
   real delta with a fresh full frame and drive interactive sorting, filtering,
   selection, and resize.
 - The release PTY latency probe sent 100 sort events between replay frames 60
-  seconds apart. On Alpine x86_64 musl, input-to-present p95 was 1.841 ms and
-  p99 was 2.260 ms; replay sampling stayed on its separate recorded interval.
+  seconds apart. On Alpine x86_64 musl, input-to-present p95 was 1.150 ms and
+  p99 was 1.297 ms; replay sampling stayed on its separate recorded interval.
 - `rg -n -i btop src crates stdlib` found no monitor-specific native code.
 
 These tests establish host release behavior. Linux qualification is recorded

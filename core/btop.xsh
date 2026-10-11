@@ -237,14 +237,17 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
   var collection_state = first_collection.state
   var counters_due = false
   var gauges_due = false
+  var storage_due = false
   for item in first_collection.due {
     if item.class == collection_schedule.Counters {
       counters_due = true
     } else if item.class == collection_schedule.Gauges {
       gauges_due = true
+    } else if item.class == collection_schedule.Inventory or item.class == collection_schedule.Blocking {
+      storage_due = true
     }
   }
-  if ! counters_due or ! gauges_due {
+  if ! counters_due or ! gauges_due or ! storage_due {
     return Err(error.failure("first monitor observation is missing due source classes"))
   }
   var observation = source.capture(
@@ -254,6 +257,8 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
     units.page_size_bytes,
     units.clock_ticks_per_second,
   )?
+  var cached_mounts = observation.storage.mounts
+  var cached_mounts_at_ns = observation.storage.mounts_observed_at_ns
   let _ = scheduler.complete(first.ticket, time.monotonic()?)?
   var rows = session.capabilities.rows
   var cols = session.capabilities.cols
@@ -284,11 +289,14 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
       collection_state = collection_plan.state
       var counters_due = false
       var gauges_due = false
+      var storage_due = false
       for item in collection_plan.due {
         if item.class == collection_schedule.Counters {
           counters_due = true
         } else if item.class == collection_schedule.Gauges {
           gauges_due = true
+        } else if item.class == collection_schedule.Inventory or item.class == collection_schedule.Blocking {
+          storage_due = true
         }
       }
       if ! counters_due {
@@ -301,10 +309,14 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
         units.page_size_bytes,
         units.clock_ticks_per_second,
         if gauges_due { null } else { observation.telemetry },
+        cached_mounts: if storage_due { null } else { cached_mounts },
+        cached_mounts_at_ns: if storage_due { null } else { cached_mounts_at_ns },
       )?
       let _ = scheduler.complete(ticket, time.monotonic()?)?
       previous = observation
       observation = next_observation
+      cached_mounts = observation.storage.mounts
+      cached_mounts_at_ns = observation.storage.mounts_observed_at_ns
       local_display = sysproc.collect_local_display(root, observation.processes.processes)
       let next_model = model.step_cached(observation, previous, metadata_cache, gap: ticket.coalesced > 0)
       metadata_cache = next_model.metadata

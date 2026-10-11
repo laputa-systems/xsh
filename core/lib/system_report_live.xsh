@@ -843,7 +843,11 @@ pure report_block_device(device: sys_block.BlockDevice, pci_indices: Map[Int]) -
     read_ahead_kb: device.read_ahead_kb,
     discard_granularity_bytes: device.discard_granularity_bytes,
     discard_max_bytes: device.discard_max_bytes,
-    io_counters: device.io_counters,
+    io_counters: [
+      {name: counter.name, value: counter.value, unit: counter.unit}
+      for counter in device.io_counters
+      if counter.value <= 9007199254740991
+    ],
   }
 }
 
