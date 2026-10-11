@@ -309,7 +309,7 @@ proc write_path_chunk(dest: Path, offset: Int, data: Bytes, create: Bool) [fs, p
 # kernel reject pipes before any input record is consumed.
 proc prepare_stdout_seek(offset: Int) [process] -> Result[Int] {
   if offset == 0 { return Ok(0) }
-  unix.seek_fd(1, offset)
+  unix.seek_fd(1, offset, whence: "current")
 }
 
 proc seek_output_fifo(dest: Path, offset: Int, block_size: Int) [fs, process, error] -> Result[Unit] {

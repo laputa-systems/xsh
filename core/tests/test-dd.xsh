@@ -109,6 +109,17 @@ test test_dd_seek_bytes_on_stdout { |ctx|
   assert empty.stdout == b""
 }
 
+test test_dd_seek_bytes_on_stdout_uses_the_inherited_position { |ctx|
+  let root = test.temp_dir(ctx, name: "dd-seek-stdout-position")?
+  let out = fp"{root}/out"
+  let err = fp"{root}/err"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/dd.xsh".display(), "status=none", "seek=3", "oflag=seek_bytes"]
+  let plan = process.command_argv(p"/bin/sh", ["sh", "-c", "printf x; exec \"$@\"", "dd-seek-stdout-position"].extend(argv), root, {LC_ALL: "C"}, b"abc", out, err, timeout: 3s)
+  assert process.run(plan)?.exited_with(0), err.read_text()?
+  assert out.read_bytes()? == b"x\0\0\0abc"
+  assert err.read_text()? == ""
+}
+
 test test_dd_zero_count_seek_preserves_existing_stdout_bytes { |ctx|
   let root = test.temp_dir(ctx, name: "dd-seek-stdout")?
   let out = fp"{root}/out"
