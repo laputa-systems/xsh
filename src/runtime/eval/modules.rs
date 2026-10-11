@@ -312,6 +312,7 @@ pub(super) fn test_value_matches_type(value: &Value, ty: &Type) -> bool {
         Type::ProcessHandle => matches!(value, Value::ProcessHandle(_)),
         Type::NetJob => matches!(value, Value::NetJob(_)),
         Type::FsRoot => matches!(value, Value::FsRoot(_)),
+        Type::FsLock => matches!(value, Value::FsLock(_)),
         Type::Unit => matches!(value, Value::Unit),
         Type::Tag(name) => {
             matches!(value, Value::Tag { type_name, .. } if type_name == name)
@@ -678,6 +679,7 @@ pub(super) fn encode_cache_key_value(value: &Value) -> Result<String, &'static s
         Value::ProcessHandle(_) => return Err("ProcessHandle"),
         Value::NetJob(_) => return Err("NetJob"),
         Value::FsRoot(_) => return Err("FsRoot"),
+        Value::FsLock(_) => return Err("FsLock"),
         Value::Unit => return Err("Unit"),
     })
 }

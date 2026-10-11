@@ -803,7 +803,7 @@ test test_filesystem_package_policy_apis { |ctx|
   fs.chown(copied_tool, me)
   fs.chgrp(copied_tool, grp)
   let lock = fs.lock(fp"{root}/pm.lock")?
-  assert lock.id > 0
+  assert lock.path == fp"{root}/pm.lock"
   assert ! lock.shared
   fs.unlock(lock)
   let installed = fp"{root}/image/usr/bin/tool"

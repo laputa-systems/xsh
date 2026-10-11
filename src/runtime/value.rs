@@ -914,6 +914,7 @@ pub enum Value {
     ProcessHandle(Box<ProcessHandleValue>),
     NetJob(Box<NetJobValue>),
     FsRoot(FsRootValue),
+    FsLock(Box<FsLockValue>),
     Unit,
     Tag {
         type_name: Name,
@@ -969,6 +970,7 @@ impl Value {
             Self::ProcessHandle(_) => "ProcessHandle",
             Self::NetJob(_) => "NetJob",
             Self::FsRoot(_) => "FsRoot",
+            Self::FsLock(_) => "FsLock",
             Self::Unit => "Unit",
             Self::Tag { .. } => "Tag",
         }
@@ -1110,14 +1112,22 @@ pub enum CommandRedirectionMode {
     Append,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct ProcessHandleValue {
     pub id: u64,
+    pub(crate) owner: Arc<()>,
     pub pid: i64,
     pub command: Arc<str>,
     pub argv: Arc<[Arc<str>]>,
     pub detached: bool,
 }
+
+impl PartialEq for ProcessHandleValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id && Arc::ptr_eq(&self.owner, &other.owner)
+    }
+}
+impl Eq for ProcessHandleValue {}
 
 /// Opaque filesystem capability identity. Aliases share explicit close state;
 /// child roots retain their own open directory handle. The owner token prevents
@@ -1135,15 +1145,40 @@ impl PartialEq for FsRootValue {
 }
 impl Eq for FsRootValue {}
 
+/// Lock identity is evaluator-local. Metadata can be read without exposing
+/// the live table index or allowing records to forge a release capability.
+#[derive(Clone, Debug)]
+pub struct FsLockValue {
+    pub(crate) id: i64,
+    pub(crate) owner: Arc<()>,
+    pub(crate) path: PathValue,
+    pub(crate) shared: bool,
+}
+
+impl PartialEq for FsLockValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id && Arc::ptr_eq(&self.owner, &other.owner)
+    }
+}
+impl Eq for FsLockValue {}
+
 /// Opaque evaluator-owned network job identity.
 ///
 /// The evaluator's live-job registry owns the transport task, completion
 /// receiver, request metadata, and capacity reservation. Cloning the language
 /// value only creates another alias to this ID.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct NetJobValue {
     pub id: u64,
+    pub(crate) owner: Arc<()>,
 }
+
+impl PartialEq for NetJobValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id && Arc::ptr_eq(&self.owner, &other.owner)
+    }
+}
+impl Eq for NetJobValue {}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StreamValue {

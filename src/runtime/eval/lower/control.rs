@@ -1166,7 +1166,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     expr,
                     BuildExprRow::ModuleCall {
                         cli_plan: None,
-                        op: kind.release_op(),
+                        op: kind.release_op().expect("checker accepts only resources with a with release"),
                         args: vec![Some(value)],
                         span,
                     }

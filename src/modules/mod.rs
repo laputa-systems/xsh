@@ -34,6 +34,7 @@ pub use xsh_registry::ManagedResource;
 pub(crate) fn managed_resource_for(ty: &crate::sema::types::Type) -> Option<ManagedResource> {
     ManagedResource::ALL
         .into_iter()
+        .filter(|kind| kind.release_op().is_some())
         .find(|kind| signature::convert_type(&kind.resource_type()) == *ty)
 }
 
@@ -156,6 +157,7 @@ fn render_type(ty: &crate::sema::types::Type) -> String {
         Type::ProcessHandle => "ProcessHandle".to_string(),
         Type::NetJob => "NetJob".to_string(),
         Type::FsRoot => "FsRoot".to_string(),
+        Type::FsLock => "FsLock".to_string(),
         Type::Unit => "Unit".to_string(),
         Type::Tag(name) => name.to_string(),
         Type::Optional(inner) => format!("{}?", render_type(inner)),

@@ -4043,6 +4043,7 @@ enum ValueClass {
     EnvPathList,
     Module,
     Tag(Name),
+    FsLock,
 }
 
 /// `None` means any value may fit: `Any`, rigid type parameters, and types
@@ -4094,6 +4095,7 @@ fn value_classes(ty: &Type) -> Option<Vec<ValueClass>> {
         Type::ProcessHandle => ValueClass::ProcessHandle,
         Type::NetJob => ValueClass::NetJob,
         Type::FsRoot => ValueClass::FsRoot,
+        Type::FsLock => ValueClass::FsLock,
         Type::EnvPathList => ValueClass::EnvPathList,
         Type::Module(_) | Type::DynamicModule => ValueClass::Module,
         Type::Tag(name) => ValueClass::Tag(*name),

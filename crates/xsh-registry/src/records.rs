@@ -47,7 +47,6 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("FsRootFilesystemStats", fs_root_filesystem_stats_type()),
         ("FsStat", fs_stat_type()),
         ("FsStatvfs", fs_statvfs_type()),
-        ("FsLock", fs_lock_type()),
         ("FsMount", fs_mount_type()),
         ("FsRemoveManifestResult", fs_remove_manifest_result_type()),
         ("FsRootChildrenResult", fs_root_children_result_type()),
@@ -442,11 +441,14 @@ pub fn fs_copy_tree_result_type() -> Type {
 }
 
 pub fn fs_lock_type() -> Type {
-    Type::Record(name_type_map(vec![
-        ("id".to_string(), Type::Int),
+    Type::FsLock
+}
+
+pub fn fs_lock_fields() -> BTreeMap<String, Type> {
+    name_type_map(vec![
         ("path".to_string(), Type::Path),
         ("shared".to_string(), Type::Bool),
-    ]))
+    ])
 }
 
 pub fn fs_root_type() -> Type {

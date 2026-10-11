@@ -16,7 +16,7 @@ use crate::runtime::signal::{
     HookSignal, hook_signal_from_number, normalize_hook_signal, signal_rejection_message,
 };
 use crate::runtime::value::{
-    AbortSignal, CommandPlan, DigestValue, DurationValue, ErrorContext, FloatValue, FsRootValue,
+    AbortSignal, CommandPlan, DigestValue, DurationValue, ErrorContext, FloatValue, FsLockValue, FsRootValue,
     FunctionName, NetJobValue, PathValue, ProcessHandleValue, RecordMap, RegexValue, ResultValue,
     RuntimeError, StreamValue, Value,
 };
@@ -1056,6 +1056,7 @@ enum LoweredType {
     ProcessHandle,
     NetJob,
     FsRoot,
+    FsLock,
     Stream,
     Pure,
     Proc,
@@ -2428,6 +2429,7 @@ enum LoweredValue {
     ProcessHandle(Box<ProcessHandleValue>),
     NetJob(Box<NetJobValue>),
     FsRoot(FsRootValue),
+    FsLock(Box<FsLockValue>),
     Stream(Box<StreamValue>),
     Pure(FunctionName),
     Proc(FunctionName),
@@ -2739,6 +2741,7 @@ impl PartialEq for LoweredValue {
             (Self::ProcessHandle(left), Self::ProcessHandle(right)) => left == right,
             (Self::NetJob(left), Self::NetJob(right)) => left == right,
             (Self::FsRoot(left), Self::FsRoot(right)) => left == right,
+            (Self::FsLock(left), Self::FsLock(right)) => left == right,
             (Self::Stream(left), Self::Stream(right)) => left == right,
             (Self::Pure(left), Self::Pure(right)) => left == right,
             (Self::Proc(left), Self::Proc(right)) => left == right,
@@ -2814,6 +2817,7 @@ impl LoweredValue {
             Self::ProcessHandle(value) => Value::ProcessHandle(value),
             Self::NetJob(value) => Value::NetJob(value),
             Self::FsRoot(value) => Value::FsRoot(value),
+            Self::FsLock(value) => Value::FsLock(value),
             Self::Stream(value) => Value::Stream(value),
             Self::Pure(value) => Value::Pure(value),
             Self::Proc(value) => Value::Proc(value),
@@ -2895,6 +2899,7 @@ impl LoweredValue {
             Self::ProcessHandle(_) => "ProcessHandle",
             Self::NetJob(_) => "NetJob",
             Self::FsRoot(_) => "FsRoot",
+            Self::FsLock(_) => "FsLock",
             Self::Stream(_) => "Stream",
             Self::Pure(_) => "Pure",
             Self::Proc(_) => "Proc",
@@ -3191,7 +3196,7 @@ pub struct Evaluator {
     unix_next_pid: i64,
     fs_locks: Vec<Option<std::fs::File>>,
     fs_roots: Vec<Option<FsRootHandle>>,
-    fs_root_owner: Arc<()>,
+    resource_owner: Arc<()>,
     net_runtime: Option<NetRuntimeOwner>,
     net_agents: FxHashMap<NetAgentKey, NetAgent>,
     net_pool_options: FxHashMap<String, NetPoolOptions>,
@@ -3471,7 +3476,7 @@ impl Evaluator {
             unix_next_pid: 1000,
             fs_locks: Vec::new(),
             fs_roots: Vec::new(),
-            fs_root_owner: Arc::new(()),
+            resource_owner: Arc::new(()),
             net_runtime: None,
             net_agents: FxHashMap::default(),
             net_pool_options: FxHashMap::default(),
@@ -3703,7 +3708,7 @@ impl Evaluator {
             unix_next_pid: 1000,
             fs_locks: Vec::new(),
             fs_roots: Vec::new(),
-            fs_root_owner: Arc::new(()),
+            resource_owner: Arc::new(()),
             net_runtime: None,
             net_agents: FxHashMap::default(),
             net_pool_options: FxHashMap::default(),
@@ -6291,14 +6296,14 @@ impl Evaluator {
             return;
         }
         match value {
-            LoweredValue::ProcessHandle(handle) => {
+            LoweredValue::ProcessHandle(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
                 if let Some(live) = self.process_handles.get_mut(&handle.id)
                     && live.owner_scope == source_scope
                 {
                     live.owner_scope = target_scope;
                 }
             }
-            LoweredValue::NetJob(handle) => {
+            LoweredValue::NetJob(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
                 if let Some(live) = self.net_jobs.get_mut(&handle.id)
                     && live.owner_scope == source_scope
                 {
@@ -6410,14 +6415,14 @@ impl Evaluator {
         }
         for value in values {
             match value {
-                Value::ProcessHandle(handle) => {
+                Value::ProcessHandle(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
                     if let Some(live) = self.process_handles.get_mut(&handle.id)
                         && live.owner_scope == source_scope
                     {
                         live.owner_scope = target_scope;
                     }
                 }
-                Value::NetJob(handle) => {
+                Value::NetJob(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
                     if let Some(live) = self.net_jobs.get_mut(&handle.id)
                         && live.owner_scope == source_scope
                     {
@@ -7712,6 +7717,7 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
         Type::ProcessHandle => matches!(value, Value::ProcessHandle(_)),
         Type::NetJob => matches!(value, Value::NetJob(_)),
         Type::FsRoot => matches!(value, Value::FsRoot(_)),
+        Type::FsLock => matches!(value, Value::FsLock(_)),
         Type::Unit => matches!(value, Value::Unit),
         Type::Tag(name) => matches!(value, Value::Tag { type_name, .. } if type_name == name),
         Type::Optional(inner) => {
@@ -7861,6 +7867,7 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
         Type::ProcessHandle => matches!(value, LoweredValue::ProcessHandle(_)),
         Type::NetJob => matches!(value, LoweredValue::NetJob(_)),
         Type::FsRoot => matches!(value, LoweredValue::FsRoot(_)),
+        Type::FsLock => matches!(value, LoweredValue::FsLock(_)),
         Type::ProcessError => {
             matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::RunError(_)))
         }

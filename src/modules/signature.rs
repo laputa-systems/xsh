@@ -464,6 +464,7 @@ pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
         xsh_registry::types::Type::ProcessHandle => Type::ProcessHandle,
         xsh_registry::types::Type::NetJob => Type::NetJob,
         xsh_registry::types::Type::FsRoot => Type::FsRoot,
+        xsh_registry::types::Type::FsLock => Type::FsLock,
         xsh_registry::types::Type::Unit => Type::Unit,
         xsh_registry::types::Type::Optional(inner) => Type::Optional(Box::new(convert_type(inner))),
         xsh_registry::types::Type::Union(members) => {

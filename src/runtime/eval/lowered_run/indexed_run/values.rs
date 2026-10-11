@@ -633,6 +633,11 @@ impl Evaluator {
                 )),
                 _ => Err(RuntimeError::new("missing-field", name).with_span(span)),
             },
+            LoweredValue::FsLock(lock) => match name {
+                "path" => Ok(LoweredValue::Path(lock.path.clone())),
+                "shared" => Ok(LoweredValue::Bool(lock.shared)),
+                _ => Err(RuntimeError::new("missing-field", name).with_span(span)),
+            },
             LoweredValue::ProcessHandle(handle) => match name {
                 "pid" => Ok(LoweredValue::Int(handle.pid)),
                 "command" => Ok(LoweredValue::Str(handle.command.clone())),

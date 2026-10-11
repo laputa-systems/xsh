@@ -1634,7 +1634,7 @@ impl Evaluator {
                         self.fs_roots.push(Some(root));
                         lowered_result_ok(LoweredValue::FsRoot(super::super::FsRootValue {
                             id,
-                            owner: self.fs_root_owner.clone(),
+                            owner: self.resource_owner.clone(),
                         }))
                     }
                     Err(error) => lowered_result_err_value(error),

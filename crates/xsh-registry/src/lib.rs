@@ -47,6 +47,7 @@ pub const CORE_BUILTIN_SYMBOLS: &[&str] = &[
     "ProcessHandle",
     "NetJob",
     "FsRoot",
+    "FsLock",
     "RelPath",
     "Result",
 ];

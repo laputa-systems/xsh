@@ -1,55 +1,137 @@
-//! The built-in resource types a `with NAME = VALUE { ... }` scope manages.
+//! The ownership and consuming operations of built-in host resources.
 
 use crate::RuntimeOp;
-use crate::records::{fs_lock_type, fs_root_type};
 use crate::types::Type;
 
-/// A built-in type whose values hold a host resource that is released by one
-/// fallible operation. The checker accepts exactly these as the value of a
-/// managed `with` binding, and lowering reads the release operation from the
-/// kind the checker recorded.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum ManagedResource {
-    /// An `FsRoot`, from `fs.open_root`, `fs.tempdir`, `fs.tempdir_in`, or a rooted open.
-    FsRoot,
-    /// The lock record `fs.lock` returns.
-    FsLock,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ResourceKind {
+    Activity,
+    Capability,
+}
+
+/// Some process operations consume only the handles selected by their result.
+/// Waiting on a handle and draining a stream are language operations rather
+/// than registered module calls.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ResourceConsumption {
+    Wait,
+    Operation(RuntimeOp),
+    SelectedOperation(RuntimeOp),
+    Drain,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ResourceRepeat {
+    Error,
+    CancelIsIdempotent,
+    EmptyStream,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ResourceScopeRelease {
+    CancelAndReap,
+    CancelAndDrain,
+    CancelStream,
+    CloseRoot,
+    Unlock,
+}
+
+pub struct ResourceRule {
+    pub kind: ResourceKind,
+    pub consuming: &'static [ResourceConsumption],
+    pub repeat: ResourceRepeat,
+    pub scope_release: ResourceScopeRelease,
+    /// A `with` scope exposes fallible capability release. Scope ownership
+    /// applies to every row independently of support for that scope form.
+    pub with_release: Option<RuntimeOp>,
+}
+
+macro_rules! resource_table {
+    ($($name:ident => ($ty:expr, $rule:expr)),+ $(,)?) => {
+        #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+        pub enum ManagedResource { $($name),+ }
+
+        impl ManagedResource {
+            pub const ALL: [Self; resource_table!(@count $($name),+)] = [$(Self::$name),+];
+
+            pub fn resource_type(self) -> Type {
+                match self { $(Self::$name => $ty),+ }
+            }
+
+            pub const fn type_name(self) -> &'static str {
+                match self { $(Self::$name => stringify!($name)),+ }
+            }
+
+            pub const fn rule(self) -> ResourceRule {
+                match self { $(Self::$name => $rule),+ }
+            }
+        }
+    };
+    (@count $($name:ident),+) => { <[()]>::len(&[$(resource_table!(@one $name)),+]) };
+    (@one $name:ident) => { () };
+}
+
+resource_table! {
+    ProcessHandle => (Type::ProcessHandle, ResourceRule {
+        kind: ResourceKind::Activity,
+        consuming: &[
+            ResourceConsumption::Wait,
+            ResourceConsumption::Operation(RuntimeOp::ProcessHandleCancel),
+            ResourceConsumption::SelectedOperation(RuntimeOp::ProcessWaitAny),
+            ResourceConsumption::SelectedOperation(RuntimeOp::ProcessWaitReady),
+            ResourceConsumption::SelectedOperation(RuntimeOp::ProcessWaitTimeout),
+        ],
+        repeat: ResourceRepeat::CancelIsIdempotent,
+        scope_release: ResourceScopeRelease::CancelAndReap,
+        with_release: None,
+    }),
+    NetJob => (Type::NetJob, ResourceRule {
+        kind: ResourceKind::Activity,
+        consuming: &[
+            ResourceConsumption::Operation(RuntimeOp::NetJobWait),
+            ResourceConsumption::Operation(RuntimeOp::NetJobCancel),
+        ],
+        repeat: ResourceRepeat::Error,
+        scope_release: ResourceScopeRelease::CancelAndDrain,
+        with_release: None,
+    }),
+    Stream => (Type::Stream(Box::new(Type::Any)), ResourceRule {
+        kind: ResourceKind::Activity,
+        consuming: &[ResourceConsumption::Drain],
+        repeat: ResourceRepeat::EmptyStream,
+        scope_release: ResourceScopeRelease::CancelStream,
+        with_release: None,
+    }),
+    FsRoot => (Type::FsRoot, ResourceRule {
+        kind: ResourceKind::Capability,
+        consuming: &[ResourceConsumption::Operation(RuntimeOp::FsCloseRoot)],
+        repeat: ResourceRepeat::Error,
+        scope_release: ResourceScopeRelease::CloseRoot,
+        with_release: Some(RuntimeOp::FsCloseRootIfOpen),
+    }),
+    FsLock => (Type::FsLock, ResourceRule {
+        kind: ResourceKind::Capability,
+        consuming: &[ResourceConsumption::Operation(RuntimeOp::FsUnlock)],
+        repeat: ResourceRepeat::Error,
+        scope_release: ResourceScopeRelease::Unlock,
+        with_release: Some(RuntimeOp::FsUnlockIfHeld),
+    }),
 }
 
 impl ManagedResource {
-    pub const ALL: [Self; 2] = [Self::FsRoot, Self::FsLock];
-
-    /// The type of the values this kind manages.
-    pub fn resource_type(self) -> Type {
-        match self {
-            Self::FsRoot => fs_root_type(),
-            Self::FsLock => fs_lock_type(),
-        }
-    }
-
-    /// The kind that manages a value of `ty`, if the type is a resource.
     pub fn for_type(ty: &Type) -> Option<Self> {
-        Self::ALL
-            .into_iter()
-            .find(|kind| kind.resource_type() == *ty)
+        if matches!(ty, Type::Stream(_)) {
+            return Some(Self::Stream);
+        }
+        Self::ALL.into_iter().find(|kind| kind.resource_type() == *ty)
     }
 
-    /// The name diagnostics and documentation use for the type.
-    pub fn type_name(self) -> &'static str {
-        match self {
-            Self::FsRoot => "FsRoot",
-            Self::FsLock => "FsLock",
-        }
+    pub fn for_with_type(ty: &Type) -> Option<Self> {
+        Self::for_type(ty).filter(|kind| kind.rule().with_release.is_some())
     }
 
-    /// The operation the scope releases the value with. Unlike the method or
-    /// function a program calls, it succeeds on a value that was already
-    /// released, so a body may release its resource early.
-    pub fn release_op(self) -> RuntimeOp {
-        match self {
-            Self::FsRoot => RuntimeOp::FsCloseRootIfOpen,
-            Self::FsLock => RuntimeOp::FsUnlockIfHeld,
-        }
+    pub const fn release_op(self) -> Option<RuntimeOp> {
+        self.rule().with_release
     }
 }
 
@@ -58,26 +140,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn each_kind_is_found_from_its_own_type_only() {
-        assert_eq!(
-            ManagedResource::for_type(&Type::FsRoot),
-            Some(ManagedResource::FsRoot)
-        );
-        assert_eq!(
-            ManagedResource::for_type(&fs_lock_type()),
-            Some(ManagedResource::FsLock)
-        );
-        for ty in [
-            Type::Path,
-            Type::Unknown,
-            Type::Any,
-            Type::Record(Default::default()),
-        ] {
-            assert_eq!(ManagedResource::for_type(&ty), None, "{ty:?}");
-        }
+    fn each_resource_kind_has_one_rule_and_its_own_type() {
         for kind in ManagedResource::ALL {
-            assert_ne!(kind.release_op(), RuntimeOp::FsCloseRoot);
-            assert_ne!(kind.release_op(), RuntimeOp::FsUnlock);
+            assert_eq!(ManagedResource::for_type(&kind.resource_type()), Some(kind));
+            let rule = kind.rule();
+            assert!(!rule.consuming.is_empty());
+            assert_eq!(rule.with_release.is_some(), rule.kind == ResourceKind::Capability);
         }
+        assert_eq!(ManagedResource::for_type(&Type::Stream(Box::new(Type::Int))), Some(ManagedResource::Stream));
+        for ty in [Type::Path, Type::Unknown, Type::Any, Type::Record(Default::default())] {
+            assert_eq!(ManagedResource::for_type(&ty), None);
+        }
+    }
+
+    #[test]
+    fn with_accepts_only_the_two_fallible_capabilities() {
+        let accepted: Vec<_> = ManagedResource::ALL.into_iter()
+            .filter(|kind| kind.rule().with_release.is_some()).collect();
+        assert_eq!(accepted, [ManagedResource::FsRoot, ManagedResource::FsLock]);
+        assert_eq!(ManagedResource::for_with_type(&Type::FsLock), Some(ManagedResource::FsLock));
+        assert_eq!(ManagedResource::for_with_type(&Type::ProcessHandle), None);
+        assert_eq!(ManagedResource::FsRoot.release_op(), Some(RuntimeOp::FsCloseRootIfOpen));
+        assert_eq!(ManagedResource::FsLock.release_op(), Some(RuntimeOp::FsUnlockIfHeld));
     }
 }

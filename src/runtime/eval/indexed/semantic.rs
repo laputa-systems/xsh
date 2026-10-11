@@ -72,6 +72,7 @@ pub(super) enum TypeTag {
     // id and `rhs` the offset in `type_extra` of the bounds: the low and
     // then the high 32 bits of the lower bound, then of the upper bound.
     Bounded,
+    FsLock,
 }
 
 impl TypeTag {
@@ -102,6 +103,7 @@ impl TypeTag {
                 | Self::ProcessHandle
                 | Self::NetJob
                 | Self::FsRoot
+                | Self::FsLock
                 | Self::Unit
         )
     }
@@ -483,6 +485,7 @@ impl SemanticPools {
             TypeTag::ProcessHandle => Type::ProcessHandle,
             TypeTag::NetJob => Type::NetJob,
             TypeTag::FsRoot => Type::FsRoot,
+            TypeTag::FsLock => Type::FsLock,
             TypeTag::Unit => Type::Unit,
             TypeTag::Tag => Type::Tag(Name::from_symbol(Symbol::from_raw(data.lhs))),
             TypeTag::Optional => Type::Optional(Box::new(child(data.lhs)?)),
@@ -602,6 +605,7 @@ impl SemanticPools {
             TypeTag::ProcessHandle => Some("ProcessHandle"),
             TypeTag::NetJob => Some("NetJob"),
             TypeTag::FsRoot => Some("FsRoot"),
+            TypeTag::FsLock => Some("FsLock"),
             TypeTag::Unit => Some("Unit"),
             _ => None,
         };
@@ -1209,6 +1213,7 @@ impl SemanticPoolBuilder {
             Type::ProcessHandle => scalar(TypeTag::ProcessHandle),
             Type::NetJob => scalar(TypeTag::NetJob),
             Type::FsRoot => scalar(TypeTag::FsRoot),
+            Type::FsLock => scalar(TypeTag::FsLock),
             Type::Unit => scalar(TypeTag::Unit),
             Type::Tag(name) => named(TypeTag::Tag, *name),
             Type::Optional(inner) => self.unary(pools, TypeTag::Optional, inner)?,

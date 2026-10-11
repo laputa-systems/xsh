@@ -1714,7 +1714,10 @@ impl Checker {
     /// one included: the scope must know how to release what it binds.
     pub(crate) fn reject_unmanaged_resource(&mut self, ty: &Type, span: Span) {
         let known = crate::modules::ManagedResource::ALL
+            .into_iter()
+            .filter(|kind| kind.release_op().is_some())
             .map(|kind| format!("`{}`", kind.type_name()))
+            .collect::<Vec<_>>()
             .join(" and ");
         let message = format!(
             "`with` without `else` binds a resource it releases when the block ends, and `{ty}` is not one; the resource types are {known}"

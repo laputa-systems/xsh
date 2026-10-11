@@ -3056,6 +3056,7 @@ fn lowered_process_handle_list_arg(
     value: LoweredValue,
     operation: &str,
     span: Span,
+    owner: &Arc<()>,
 ) -> Result<Result<Vec<ProcessHandleValue>, RunError>, RuntimeError> {
     let LoweredValue::List(items) = value else {
         return Err(RuntimeError::new(
@@ -3081,6 +3082,9 @@ fn lowered_process_handle_list_arg(
             )
             .with_span(span)));
         };
+        if !Arc::ptr_eq(&handle.owner, owner) {
+            return Ok(Err(RunError::new("unknown", "process handle is no longer live").with_span(span)));
+        }
         handles.push(*handle);
     }
     Ok(Ok(handles))
@@ -4362,7 +4366,7 @@ impl Evaluator {
         self.fs_roots.push(Some(root));
         LoweredValue::FsRoot(super::FsRootValue {
             id,
-            owner: self.fs_root_owner.clone(),
+            owner: self.resource_owner.clone(),
         })
     }
 
@@ -5043,7 +5047,7 @@ impl Evaluator {
             RuntimeOp::FsCloseRoot | RuntimeOp::FsCloseRootIfOpen if values.len() == 1 => return self.eval_lowered_fs_close_root_values(op, values, span),
             RuntimeOp::FsRootPath if values.len() == 1 => {
                 let root = values.pop().expect("checked value length");
-                match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
+                match lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
                     .and_then(|dir| root_path_from_dir(dir, span))
                 {
                     Ok(path) => lowered_result_ok(LoweredValue::Path(path)),
@@ -5055,7 +5059,7 @@ impl Evaluator {
                     lowered_path_arg(values.pop().expect("checked value length"), "fs.root", span)?;
                 let root = values.pop().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
+                match lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_open_root(dir, &rel, span))
                 {
                     Ok(dir) => lowered_result_ok(self.push_lowered_fs_root(FsRootHandle::Dir(dir))),
@@ -5072,7 +5076,7 @@ impl Evaluator {
                 )?;
                 let root = values.first().cloned().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
+                match lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_children(dir, &rel, max_entries, span))
                 {
                     Ok(result) => lowered_result_ok(lowered_fs_root_children_result(result, span)?),
@@ -5087,7 +5091,7 @@ impl Evaluator {
                 )?;
                 let root = values.pop().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
+                match lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_read(dir, &rel, span))
                 {
                     Ok(bytes) => lowered_result_ok(LoweredValue::Bytes(bytes.into())),
@@ -5103,7 +5107,7 @@ impl Evaluator {
                 )?;
                 let root = values.first().cloned().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
+                match lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_filesystem_stats(dir, &rel, span))
                 {
                     Ok(result) => lowered_result_ok(lowered_fs_root_filesystem_stats(result)),
@@ -5122,7 +5126,7 @@ impl Evaluator {
                 )?;
                 let root = values.pop().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
+                match lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_exists(dir, &rel, span))
                 {
                     Ok(exists) => lowered_result_ok(LoweredValue::Bool(exists)),
@@ -5142,7 +5146,7 @@ impl Evaluator {
                 let root = values.first().cloned().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
                 lowered_unit_result(
-                    lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
+                    lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
                         .and_then(|dir| fs_module::rooted_mkdir(dir, &rel, mode, parents, span)),
                 )
             }
@@ -5157,7 +5161,7 @@ impl Evaluator {
                 let root = values.first().cloned().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
                 lowered_unit_result(
-                    lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
+                    lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
                         .and_then(|root| fs_module::rooted_remove(root, &rel, dir, span)),
                 )
             }
@@ -5169,7 +5173,7 @@ impl Evaluator {
                 )?;
                 let root = values.pop().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
+                match lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_readlink(dir, &rel, span))
                     .and_then(|path| {
                         path_value_from_pathbuf(path).map_err(|error| error.with_span(span))
@@ -5186,7 +5190,7 @@ impl Evaluator {
                 )?;
                 let root = values.pop().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
+                match lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_readlink_result(dir, &rel, span))
                 {
                     Ok(result) => lowered_result_ok(lowered_fs_root_readlink_result(result, span)?),
@@ -5204,7 +5208,7 @@ impl Evaluator {
                 let root = values.pop().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
                 lowered_unit_result(
-                    lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
+                    lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
                         .and_then(|dir| fs_module::rooted_chmod(dir, &rel, mode, span)),
                 )
             }
@@ -5579,17 +5583,18 @@ impl Evaluator {
                     Ok(file) => {
                         let id = self.fs_locks.len() as i64 + 1;
                         self.fs_locks.push(Some(file));
-                        lowered_result_ok(LoweredValue::Record(Arc::new(BTreeMap::from([
-                            (Arc::from("id"), LoweredValue::Int(id)),
-                            (Arc::from("path"), LoweredValue::Path(path)),
-                            (Arc::from("shared"), LoweredValue::Bool(shared)),
-                        ]))))
+                        lowered_result_ok(LoweredValue::FsLock(Box::new(super::FsLockValue {
+                            id,
+                            owner: self.resource_owner.clone(),
+                            path,
+                            shared,
+                        })))
                     }
                     Err(error) => lowered_result_err_value(error),
                 }
             }
             // As for a root: the scope's release accepts a lock the body
-            // already released, and still rejects a record that names no lock.
+            // already released, and still rejects a foreign evaluator's lock.
             RuntimeOp::FsUnlock | RuntimeOp::FsUnlockIfHeld if values.len() == 1 => return self.eval_lowered_fs_unlock_values(op, values, span),
             RuntimeOp::GroupCurrent if values.is_empty() => {
                 lowered_runtime_result(group_module::current(span), span)?
@@ -8192,6 +8197,11 @@ impl Evaluator {
             && name == "cancel"
             && values.len() <= 2
         {
+            if !Arc::ptr_eq(&handle.owner, &self.resource_owner) {
+                return Ok(ControlFlow::Continue(lowered_result_err_value(
+                    run_error_to_runtime(RunError::new("unknown", "process handle is no longer live"), *span),
+                )));
+            }
             // `cancel` has two optional args (signal: Str, kill_after:
             // Duration). A named call may skip the leading `signal`, so
             // the lowering compacts bound args and we dispatch by type

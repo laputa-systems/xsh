@@ -238,7 +238,7 @@ impl Evaluator {
             metrics.as_ref(),
             None,
         );
-        NetJobValue { id }
+        NetJobValue { id, owner: self.resource_owner.clone() }
     }
 
     pub(super) fn wait_net_job(
@@ -246,6 +246,9 @@ impl Evaluator {
         handle: NetJobValue,
         method_span: Span,
     ) -> Result<Value, RuntimeError> {
+        if !std::sync::Arc::ptr_eq(&self.resource_owner, &handle.owner) {
+            return Err(invalid_net_job_error(handle.id, method_span));
+        }
         let Some(live) = self.net_jobs.remove(&handle.id) else {
             return Err(invalid_net_job_error(handle.id, method_span));
         };
@@ -279,6 +282,9 @@ impl Evaluator {
     ) -> Result<(), RuntimeError> {
         #[cfg(not(feature = "net"))]
         let _ = method_span;
+        if !std::sync::Arc::ptr_eq(&self.resource_owner, &handle.owner) {
+            return Err(invalid_net_job_error(handle.id, method_span));
+        }
         let Some(live) = self.net_jobs.remove(&handle.id) else {
             return Err(invalid_net_job_error(handle.id, method_span));
         };
@@ -686,6 +692,36 @@ mod tests {
     use super::*;
     use crate::runtime::value::RecordMap;
     use crate::symbol::Name;
+
+    #[test]
+    fn foreign_job_wait_does_not_consume_a_matching_local_id() {
+        let span = Span::new(crate::source::SourceId::new(0), 0, 0);
+        let mut parent = Evaluator::new(Vec::new());
+        let mut worker = Evaluator::new(Vec::new());
+        let foreign = parent.net_job_value(NetJobTask::Completed(Ok(Value::Int(1))), span, 0);
+        let local = worker.net_job_value(NetJobTask::Completed(Ok(Value::Int(2))), span, 0);
+        assert_eq!(foreign.id, local.id);
+
+        let rejected = worker.wait_net_job(foreign.clone(), span);
+        assert_eq!(rejected.expect_err("foreign job must be rejected").kind, "net-job-not-live");
+        assert_eq!(worker.wait_net_job(local, span).expect("local job stays live"), Value::Int(2));
+        assert_eq!(parent.wait_net_job(foreign, span).expect("parent job stays live"), Value::Int(1));
+    }
+
+    #[test]
+    fn foreign_job_cancel_does_not_consume_a_matching_local_id() {
+        let span = Span::new(crate::source::SourceId::new(0), 0, 0);
+        let mut parent = Evaluator::new(Vec::new());
+        let mut worker = Evaluator::new(Vec::new());
+        let foreign = parent.net_job_value(NetJobTask::Completed(Ok(Value::Int(1))), span, 0);
+        let local = worker.net_job_value(NetJobTask::Completed(Ok(Value::Int(2))), span, 0);
+        assert_eq!(foreign.id, local.id);
+
+        let rejected = worker.cancel_net_job(foreign.clone(), span);
+        assert_eq!(rejected.expect_err("foreign job must be rejected").kind, "net-job-not-live");
+        assert_eq!(worker.wait_net_job(local, span).expect("local job stays live"), Value::Int(2));
+        assert_eq!(parent.wait_net_job(foreign, span).expect("parent job stays live"), Value::Int(1));
+    }
 
     #[test]
     fn runtime_snapshot_counts_completed_mock_jobs_without_starting_a_driver() {

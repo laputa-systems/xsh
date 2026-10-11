@@ -62,6 +62,7 @@ pub enum Type {
     ProcessHandle,
     NetJob,
     FsRoot,
+    FsLock,
     Unit,
     Tag(Name),
     Optional(Box<Type>),
@@ -740,6 +741,7 @@ impl Type {
             BuiltinTypeName::ProcessHandle => Self::ProcessHandle,
             BuiltinTypeName::NetJob => Self::NetJob,
             BuiltinTypeName::FsRoot => Self::FsRoot,
+            BuiltinTypeName::FsLock => Self::FsLock,
             BuiltinTypeName::Result => Self::Result(Box::new(Self::Unknown), Box::new(Self::Error)),
             BuiltinTypeName::Unit => Self::Unit,
             BuiltinTypeName::RelPath => Self::rel_path(),
@@ -774,6 +776,7 @@ impl Type {
             Self::ProcessHandle => Some(BuiltinTypeName::ProcessHandle),
             Self::NetJob => Some(BuiltinTypeName::NetJob),
             Self::FsRoot => Some(BuiltinTypeName::FsRoot),
+            Self::FsLock => Some(BuiltinTypeName::FsLock),
             Self::Result(_, _) => Some(BuiltinTypeName::Result),
             Self::Unit => Some(BuiltinTypeName::Unit),
             Self::BuiltinParameter(_)
@@ -1323,6 +1326,7 @@ impl Type {
             Self::ProcessHandle => Some("ProcessHandle".to_string()),
             Self::NetJob => Some("NetJob".to_string()),
             Self::FsRoot => Some("FsRoot".to_string()),
+            Self::FsLock => Some("FsLock".to_string()),
             Self::Tag(name) => Some(name.to_string()),
             Self::Optional(inner) => Some(format!("{}?", inner.annotation_source()?)),
             Self::Union(members) => Some(format!(
@@ -1405,6 +1409,7 @@ impl fmt::Display for Type {
             Self::ProcessHandle => write!(f, "ProcessHandle"),
             Self::NetJob => write!(f, "NetJob"),
             Self::FsRoot => write!(f, "FsRoot"),
+            Self::FsLock => write!(f, "FsLock"),
             Self::Unit => write!(f, "Unit"),
             Self::Tag(name) => {
                 // Imported enum identities include their declaring file, but

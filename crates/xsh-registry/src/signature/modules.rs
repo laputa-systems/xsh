@@ -4655,11 +4655,6 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
             "Values are a point-in-time host observation and must not be used as a reservation without a separate operation.",
             &["filesystem", "capacity", "record"],
         ),
-        "FsLock" => (
-            "Represents an owned filesystem lock.",
-            "The record carries release ownership; call fs.unlock exactly once or transfer the documented ownership.",
-            &["filesystem", "locking", "ownership"],
-        ),
         "FsMount" => (
             "Describes one mounted filesystem.",
             "Mount data is a host-global snapshot and does not grant permission to mutate the mount.",

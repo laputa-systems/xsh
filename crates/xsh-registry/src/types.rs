@@ -56,6 +56,7 @@ builtin_type_names!(
     (ProcessHandle, "ProcessHandle"),
     (NetJob, "NetJob"),
     (FsRoot, "FsRoot"),
+    (FsLock, "FsLock"),
     (RelPath, "RelPath"),
     (Result, "Result"),
 );
@@ -116,6 +117,7 @@ pub enum Type {
     ProcessHandle,
     NetJob,
     FsRoot,
+    FsLock,
     Unit,
     Optional(Box<Type>),
     /// A closed union of member types, in the order a dynamic value is

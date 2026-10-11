@@ -76,7 +76,7 @@ mod tests {
         let _symbols = symbols.enter();
         let mut payload = RuntimeError::new("inner", "payload");
         payload.payload =
-            RecordMap::from([("job".into(), Value::NetJob(Box::new(NetJobValue { id: 7 })))]);
+            RecordMap::from([("job".into(), Value::NetJob(Box::new(NetJobValue { id: 7, owner: std::sync::Arc::new(()) })))]);
         let process = Value::RunError(Box::new(RunError::from_status(ProcessStatus::exited(9))))
             .with_error_cause(Value::Error(Box::new(payload)))
             .unwrap();

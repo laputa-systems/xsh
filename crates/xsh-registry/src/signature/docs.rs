@@ -309,8 +309,8 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             &["path", "absolute", "cwd"],
         )),
         ("fs", "lock") => Some((
-            "Acquires a filesystem lock and returns an explicit lock record.",
-            "The returned lock must be released with fs.unlock; nonblocking acquisition reports contention as data.",
+            "Acquires a filesystem lock and returns an opaque FsLock.",
+            "path and shared are readable metadata, while identity is hidden. Release the handle with fs.unlock or a managed with scope. Unlock fails after release or in a foreign evaluator; nonblocking acquisition reports contention as data.",
             &["filesystem", "locking", "ownership"],
         )),
         ("fs", "tempdir" | "tempfile") => Some((
@@ -350,7 +350,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("process", "spawn") => Some((
             "Starts a typed command and returns an owned process handle record.",
-            "The handle has lexical cleanup ownership until wait, cancel, detach, or transfer changes that lifecycle.",
+            "The returned pid record does not carry lexical ownership. The child is released to the background reaper; use the spawn language form when a scope must own a ProcessHandle.",
             &["process", "ownership", "handle"],
         )),
         ("process", "wait") => Some((
@@ -595,13 +595,13 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             &["filesystem", "cwd", "state"],
         )),
         ("fs", "project_root") => Some((
-            "Finds the project root from a starting path.",
-            "Root discovery follows the repository markers implemented by the host helper and fails when no root is found.",
+            "Opens an application directory as an owned filesystem root.",
+            "The selected host application directory is created if necessary. Closing the root releases its descriptor without removing the application directory.",
             &["filesystem", "root", "discovery"],
         )),
         ("fs", "user_root") => Some((
-            "Returns the current user's filesystem root path.",
-            "The result follows host user configuration and is not a substitute for a caller-supplied security root.",
+            "Opens a configured user directory as an owned filesystem root.",
+            "An unavailable directory kind fails. Closing the root releases its descriptor without removing the user directory.",
             &["filesystem", "user", "path"],
         )),
         ("fs", "gitroot") => Some((
@@ -720,7 +720,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("fs", "close_root") => Some((
             "Closes an owned rooted filesystem capability.",
-            "After close, further operations on the root are invalid and ownership must not be reused.",
+            "Close fails with fs-root if the root was already closed or belongs to another evaluator. A temporary root removes its directory; directory-removal errors are not reported by close.",
             &["filesystem", "rooted", "ownership"],
         )),
         (
@@ -848,8 +848,8 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             &["filesystem", "durability"],
         )),
         ("fs", "unlock") => Some((
-            "Releases a filesystem lock record.",
-            "Unlock consumes the lock ownership; do not use the record after release.",
+            "Releases an opaque filesystem lock handle.",
+            "Unlock consumes the handle and fails with fs-lock when it has already been released or belongs to another evaluator. A managed with scope releases its lock after the body's defers and exposes a failed release.",
             &["filesystem", "locking", "ownership"],
         )),
         ("group", "current") => Some((
@@ -2387,7 +2387,7 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
         )),
         ("ProcessHandle", "cancel") => Some((
             "Requests cancellation of an owned process handle.",
-            "Cancellation changes handle lifecycle and process state; wait or detach remains the caller's responsibility.",
+            "Cancel signals, escalates, and reaps the owned child. It succeeds after a same-evaluator handle was waited for, cancelled, or released by its scope, but fails for a foreign evaluator's handle. An invalid signal remains an error.",
             &["process", "ownership", "cancellation"],
         )),
         ("NetJob", "wait") => Some((

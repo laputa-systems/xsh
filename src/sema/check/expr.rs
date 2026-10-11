@@ -1733,7 +1733,7 @@ impl Checker {
         }
         if matches!(
             expected,
-            Some(Type::Status | Type::ProcessHandle | Type::NetJob | Type::FsRoot)
+            Some(Type::Status | Type::ProcessHandle | Type::NetJob | Type::FsRoot | Type::FsLock)
         ) {
             for field in fields {
                 match &field.kind {
@@ -1757,6 +1757,10 @@ impl Checker {
                     "`ProcessHandle` is a runtime-only type and cannot be constructed with a record literal; obtain it from `spawn`",
                     DiagnosticCode::CheckTypeMismatch,
                 );
+                return Type::Unknown;
+            }
+            if matches!(expected, Some(Type::FsLock)) {
+                self.error(span, "`FsLock` is an opaque runtime capability and cannot be constructed with a record literal; obtain it from `fs.lock`", DiagnosticCode::CheckTypeMismatch);
                 return Type::Unknown;
             }
             if matches!(expected, Some(Type::FsRoot)) {
@@ -3228,6 +3232,8 @@ impl Checker {
                 "segments" => Some(Type::List(Box::new(Type::ErasedRecord))),
                 _ => None,
             },
+            Type::FsLock => xsh_registry::records::fs_lock_fields().get(name)
+                .map(crate::modules::signature::convert_type),
             Type::ProcessHandle => match name {
                 "pid" => Some(Type::Int),
                 "command" => Some(Type::Str),

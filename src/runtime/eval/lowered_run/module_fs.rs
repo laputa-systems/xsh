@@ -42,7 +42,7 @@ impl Evaluator {
             let root = values.pop().expect("checked value length");
             let closed_ok = op == RuntimeOp::FsCloseRootIfOpen;
 
-            match lowered_root_id(&root, &self.fs_root_owner, span)
+            match lowered_root_id(&root, &self.resource_owner, span)
                 .ok()
                 .and_then(|id| {
                     id.checked_sub(1)
@@ -85,7 +85,7 @@ impl Evaluator {
             )?;
             let root = values.first().cloned().expect("checked value length");
             let rel = pathbuf_from_path_value(&path);
-            match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
+            match lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
                 .and_then(|dir| fs_module::rooted_read_result(dir, &rel, max_bytes, span))
             {
                 Ok(result) => lowered_result_ok(lowered_fs_root_read_result(result)),
@@ -106,7 +106,7 @@ impl Evaluator {
             )?;
             let root = values.pop().expect("checked value length");
             let rel = pathbuf_from_path_value(&path);
-            match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
+            match lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
                 .and_then(|dir| fs_module::rooted_read(dir, &rel, span))
             {
                 Ok(bytes) => match String::from_utf8(bytes) {
@@ -146,7 +146,7 @@ impl Evaluator {
                 lowered_path_arg(values.pop().expect("checked value length"), operation, span)?;
             let root = values.pop().expect("checked value length");
             let rel = pathbuf_from_path_value(&path);
-            let result = lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
+            let result = lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
                 .and_then(|dir| {
                     if op == RuntimeOp::FsRootWriteAtomic {
                         fs_module::rooted_write_atomic(dir, &rel, &data, span)
@@ -170,7 +170,7 @@ impl Evaluator {
             )?;
             let root = values.pop().expect("checked value length");
             let rel = pathbuf_from_path_value(&path);
-            match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
+            match lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
                 .and_then(|dir| fs_module::rooted_metadata(dir, &rel, span))
             {
                 Ok(record) => match lowered_value_from_runtime_any(&record) {
@@ -210,7 +210,7 @@ impl Evaluator {
             let root = values.remove(0);
             let rel = pathbuf_from_path_value(&path);
             lowered_runtime_result(
-                lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
+                lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
                     .and_then(|dir| {
                         fs_module::rooted_stat(dir, &rel, follow_symlinks, span)
                     }),
@@ -242,7 +242,7 @@ impl Evaluator {
             let rel = pathbuf_from_path_value(&path);
             let target_rel = pathbuf_from_path_value(&target);
             lowered_unit_result(
-                lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span).and_then(
+                lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span).and_then(
                     |dir| {
                         fs_module::rooted_symlink(
                             dir,
@@ -291,8 +291,8 @@ impl Evaluator {
             let dest_rel = pathbuf_from_path_value(&dest);
             let source_rel = pathbuf_from_path_value(&source);
             let result = match (
-                lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &source_root, span),
-                lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &dest_root, span),
+                lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &source_root, span),
+                lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &dest_root, span),
             ) {
                 (Ok(source_dir), Ok(dest_dir)) => fs_module::rooted_install_file(
                     source_dir,
@@ -526,9 +526,15 @@ impl Evaluator {
         &mut self, op: RuntimeOp, mut values: NativeArgumentValues, span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
         let value = {
-            let lock = lowered_record_arg(values.pop(), "fs.unlock", span)?;
-            let id = record_int_field(&lock, "id", "fs-lock", span)?;
-            let Some(slot) = id
+            let Some(LoweredValue::FsLock(lock)) = values.pop() else {
+                return Err(RuntimeError::new("type-error", "fs.unlock expected FsLock").with_span(span));
+            };
+            if !std::sync::Arc::ptr_eq(&lock.owner, &self.resource_owner) {
+                return Ok(ControlFlow::Continue(lowered_result_err_value(
+                    RuntimeError::new("fs-lock", "lock handle is not active").with_span(span),
+                )));
+            }
+            let Some(slot) = lock.id
                 .checked_sub(1)
                 .and_then(|index| usize::try_from(index).ok())
                 .and_then(|index| self.fs_locks.get_mut(index))

@@ -2909,6 +2909,7 @@ fn lowered_type_to_type(ty: LoweredType) -> Result<Type, IrBuildError> {
         LoweredType::ProcessHandle => Type::ProcessHandle,
         LoweredType::NetJob => Type::NetJob,
         LoweredType::FsRoot => Type::FsRoot,
+        LoweredType::FsLock => Type::FsLock,
         LoweredType::Stream => Type::Stream(Box::new(Type::Any)),
         LoweredType::Pure => Type::Pure,
         LoweredType::Proc => Type::Proc,
@@ -3018,6 +3019,7 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
         Type::ProcessHandle => LoweredType::ProcessHandle,
         Type::NetJob => LoweredType::NetJob,
         Type::FsRoot => LoweredType::FsRoot,
+        Type::FsLock => LoweredType::FsLock,
         Type::Stream(_) => LoweredType::Stream,
         Type::Set(_) => LoweredType::Set,
         Type::Pure => LoweredType::Pure,
@@ -6139,6 +6141,7 @@ impl FullCodec for LoweredValue {
             | Self::ProcessHandle(_)
             | Self::NetJob(_)
             | Self::FsRoot(_)
+            | Self::FsLock(_)
             | Self::Stream(_)
             | Self::Pure(_)
             | Self::Proc(_)
@@ -13235,7 +13238,7 @@ proc checked() [process, error] {
         let mut leaf = RuntimeError::new("inner", "resource payload");
         leaf.payload = crate::runtime::value::RecordMap::from([(
             "job".into(),
-            Value::NetJob(Box::new(crate::runtime::value::NetJobValue { id: 7 })),
+            Value::NetJob(Box::new(crate::runtime::value::NetJobValue { id: 7, owner: Arc::new(()) })),
         )]);
         let mut chain = Value::Error(Box::new(leaf));
         for _ in 0..100_000 {

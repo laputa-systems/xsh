@@ -134,6 +134,7 @@ fn collect_type_symbols(ty: &Type, output: &mut BTreeSet<String>) {
         | Type::ProcessHandle
         | Type::NetJob
         | Type::FsRoot
+        | Type::FsLock
         | Type::RelPath
         | Type::Unit => {}
     }
@@ -309,6 +310,7 @@ mod tests {
             | Type::ProcessHandle
             | Type::NetJob
             | Type::FsRoot
+            | Type::FsLock
             | Type::RelPath
             | Type::Unit => {}
         }

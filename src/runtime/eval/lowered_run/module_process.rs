@@ -118,6 +118,7 @@ impl Evaluator {
             values.pop().expect("checked value length"),
             "process.wait_any",
             span,
+            &self.resource_owner,
         )? {
             Ok(handles) => handles,
             Err(error) => {
@@ -183,6 +184,7 @@ impl Evaluator {
             values.pop().expect("checked value length"),
             "process.wait_ready",
             span,
+            &self.resource_owner,
         )? {
             Ok(handles) => handles,
             Err(error) => {
