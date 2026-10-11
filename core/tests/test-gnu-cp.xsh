@@ -8,6 +8,20 @@ proc inode(s: uu.Scene, name: Str) [fs, error] -> Result[Int, Error] {
   Ok(fs.stat(uu.at(s, name))?.ino)
 }
 
+# The raw mode includes the file type, which matters when preserving FIFOs.
+proc full_mode(s: uu.Scene, name: Str) [fs, error] -> Result[Int, Error] {
+  Ok(fs.stat(uu.at(s, name))?.mode)
+}
+
+# Executable set-id positions compare as x; inactive set-id and sticky bits
+# remain observable along with the file type and ordinary permission bits.
+proc executable_mode(s: uu.Scene, name: Str) [fs, error] -> Result[Int, Error] {
+  var mode = fs.stat(uu.at(s, name))?.mode
+  if fs.setuid(mode) and fs.owner_executable(mode) { mode -= 0o4000 }
+  if fs.setgid(mode) and fs.group_executable(mode) { mode -= 0o2000 }
+  Ok(mode)
+}
+
 proc host(s: uu.Scene, args: List[Str]) [fs, process, error] -> Result[Bytes, Error] {
   let out = uu.at(s, ".host-out")
   let err = uu.at(s, ".host-err")
@@ -156,14 +170,24 @@ test test_gnu_cp_cp_mv_backup_log { |ctx|
       for option in ["none", "off", "numbered", "t", "existing", "nil", "simple", "never"] {
         let s = uu.scene(ctx)?
         for name in initial { uu.touch(s, name)? }
-        uu.succeeds(uu.invoke(s, util, [f"--backup={option}", "x", "y"], umask: 0o022)?)
+        let r = uu.invoke(s, util, [f"--backup={option}", "x", "y"], umask: 0o022)?
+        uu.succeeds(r)
+        uu.no_stdout(r)
         let has_destination = "y" in initial
         let numbered = option in ["numbered", "t"] or (option in ["existing", "nil"] and "y.~1~" in initial)
         let backing = has_destination and !(option in ["none", "off"])
+        var expected_names: List[Str] = []
         for name in ["x", "y", "y~", "y.~1~", "y.~2~"] {
           let expected = if name == "x" { util == "cp" } else if name == "y" { true } else if name == "y~" { name in initial or (backing and !numbered) } else if name == "y.~1~" { name in initial or (backing and numbered and !("y.~1~" in initial)) } else { backing and numbered and "y.~1~" in initial }
           assert uu.exists(s, name)? == expected, f"{util} {initial.join(" ")} {option}: {name}"
+          if expected { expected_names += [name] }
         }
+        var actual_names: List[Str] = []
+        for entry in fs.children(s.root)? {
+          if entry.name.starts_with("x") or entry.name.starts_with("y") { actual_names += [entry.name] }
+        }
+        let sorted_expected = expected_names |> sort() |> collect()
+        assert actual_names == sorted_expected, f"{util} {initial.join(" ")} {option}: backup inventory"
       }
     }
   }
@@ -217,7 +241,8 @@ test test_gnu_cp_dir_slash_log { |ctx|
   uu.touch(s, "dir1/file")?
   copied(s, ["-R", "dir1/", "dir2"])
   assert !uu.exists(s, "dir2/file")?
-  assert uu.exists(s, "dir2/dir1/file")? and uu.exists(s, "dir1/file")?
+  assert uu.read(s, "dir2/dir1/file")? == b""
+  assert uu.read(s, "dir1/file")? == b""
 }
 
 # origin: gnu cp/dir-vs-file.log
@@ -238,6 +263,7 @@ test test_gnu_cp_existing_perm_dir_log { |ctx|
   uu.set_mode(s, "dst/dir", 0o700)?
   copied(s, ["-r", "src/.", "dst/"], 0o002)
   assert uu.mode(s, "dst/dir")? == 0o700
+  assert fs.stat(uu.at(s, "dst/dir"))?.kind == "dir"
 }
 
 # origin: gnu cp/file-perm-race.log
@@ -245,11 +271,11 @@ test test_gnu_cp_file_perm_race_log { |ctx|
   let s = uu.scene(ctx)?
   uu.mkfifo(s, "fifo")?
   let r = wrapped(s, ["-p", "--copy-contents", "fifo", "fifo-copy"], r"""
-"$@" & worker=$!; trap 'kill "$worker" 2>/dev/null; wait "$worker" 2>/dev/null' EXIT; { until test -f fifo-copy; do printf 'foo\n'; done; stat -c %a fifo-copy > observed; printf 'foo\n'; } > fifo; wait "$worker"; result=$?; trap - EXIT; exit "$result"
+timeout 60 "$@" & worker=$!; trap 'kill "$worker" 2>/dev/null; wait "$worker" 2>/dev/null' EXIT; { until test -f fifo-copy; do printf 'foo\n'; done; stat -c %A fifo-copy > observed; printf 'foo\n'; } > fifo; wait "$worker"; result=$?; trap - EXIT; exit "$result"
 """, 0o022)?
   uu.succeeds(r)
-  let mode = (uu.read_text(s, "observed")?).trim().parse_int()?
-  assert mode % 100 == 0, f"destination exposed mode {mode} before preservation"
+  let mode = uu.read_text(s, "observed")?
+  assert regex.compile("^-...------")?.matches(mode), f"destination exposed mode {mode} before preservation"
 }
 
 # origin: gnu cp/into-self.log
@@ -343,6 +369,7 @@ test test_gnu_cp_link_preserve_log { |ctx|
   uu.set_mode(s, "a", 0o731)?
   copied(s, ["-a", "--no-preserve=mode", "a", "b"], 0o077)
   assert uu.mode(s, "b")? == 0o600
+  assert fs.stat(uu.at(s, "b"))?.kind == "file"
 }
 
 # origin: gnu cp/link-symlink.log
@@ -400,7 +427,8 @@ test test_gnu_cp_parent_perm_race_log { |ctx|
   uu.set_mode(s, "d", 0o2775)?
   for attr in ["mode", "ownership"] {
     uu.mkfifo(s, f"{attr}/fifo")?
-    let r = wrapped(s, [f"--preserve={attr}", "-R", "--copy-contents", "--parents", attr, "d"], f"\"$@\" & worker=$!; trap 'kill \"$worker\" 2>/dev/null; wait \"$worker\" 2>/dev/null' EXIT; timeout 10 sh -c 'ls -ld d/{attr} > {attr}/fifo' || exit 1; wait \"$worker\"; result=$?; trap - EXIT; exit \"$result\"", 0o002)?
+    uu.set_mode(s, f"{attr}/fifo", 0o664)?
+    let r = wrapped(s, [f"--preserve={attr}", "-R", "--copy-contents", "--parents", attr, "d"], f"timeout 10 \"$@\" & worker=$!; trap 'kill \"$worker\" 2>/dev/null; wait \"$worker\" 2>/dev/null' EXIT; timeout 10 sh -c 'ls -ld d/{attr} > {attr}/fifo' || exit 1; wait \"$worker\"; result=$?; trap - EXIT; exit \"$result\"", 0o002)?
     uu.succeeds(r)
     let observed = uu.read_text(s, f"d/{attr}/fifo")?
     let pattern = if attr == "ownership" { "^d...--[-S]--[-S]" } else { "^d....-..-.|^d..[-x].w[-x].-[-x]" }
@@ -418,8 +446,8 @@ test test_gnu_cp_parent_perm_log { |ctx|
   for dir in ["e/a", "e/a/b"] { uu.set_mode(s, dir, uu.mode(s, dir)? - 0o050)? }
   copied(s, ["-p", "--parent", "a/b/d/foo", "e"])
   for dir in ["a", "a/b", "a/b/d"] {
-    let source = uu.mode(s, dir)? % 0o1000
-    let destination = uu.mode(s, f"e/{dir}")? % 0o1000
+    let source = executable_mode(s, dir)?
+    let destination = executable_mode(s, f"e/{dir}")?
     assert source == destination
   }
 }
@@ -443,6 +471,7 @@ test test_gnu_cp_perm_log { |ctx|
               if command == "mv" { assert !uu.exists(s, "src")? }
               if command == "cp" { assert uu.file_exists(s, "src")? }
               let expected = if command != "cp" { 0o450 } else if existing { 0o600 + group_bits * 8 + other } else if mask == 0o031 { 0o440 } else if mask == 0o037 { 0o440 } else { 0o450 }
+              assert fs.stat(uu.at(s, "dest"))?.kind == "file"
               assert uu.mode(s, "dest")? == expected, f"{command} force={force} existing={existing} mask={mask} group={group_bits} other={other}"
               if !existing { break }
             }
@@ -487,28 +516,28 @@ test test_gnu_cp_preserve_mode_log { |ctx|
   for name in ["a", "b"] { uu.touch(s, name)?; uu.set_mode(s, name, 0o644)? }
   uu.set_mode(s, "b", 0o600)?
   copied(s, ["--no-preserve=mode", "b", "c"], 0o022)
-  assert uu.mode(s, "a")? == uu.mode(s, "c")?
+  assert full_mode(s, "a")? == full_mode(s, "c")?
   uu.set_mode(s, "c", 0o600)?
   copied(s, ["--no-preserve=mode", "a", "b"], 0o022)
-  assert uu.mode(s, "b")? == uu.mode(s, "c")?
+  assert full_mode(s, "b")? == full_mode(s, "c")?
   for name in ["d1", "d2"] { uu.mkdir(s, name)?; uu.set_mode(s, name, 0o755)? }
   uu.set_mode(s, "d2", 0o705)?
   copied(s, ["--no-preserve=mode", "-r", "d2", "d3"], 0o022)
-  assert uu.mode(s, "d1")? == uu.mode(s, "d3")?
+  assert full_mode(s, "d1")? == full_mode(s, "d3")?
   for name in ["a", "b"] { uu.remove(s, name)? }
   uu.touch(s, "a")?
   uu.set_mode(s, "a", 0o600)?
   copied(s, ["--no-preserve=mode", "--preserve=all", "a", "b"], 0o022)
-  assert uu.mode(s, "a")? == uu.mode(s, "b")?
+  assert full_mode(s, "a")? == full_mode(s, "b")?
   uu.mkfifo(s, "fifo")?
   copied(s, ["-a", "--no-preserve=mode", "fifo", "fifo_copy"], 0o022)
-  assert uu.mode(s, "fifo")? == uu.mode(s, "fifo_copy")?
+  assert full_mode(s, "fifo")? == full_mode(s, "fifo_copy")?
   for name in ["a", "b", "c"] { uu.remove(s, name)? }
   uu.touch(s, "a")?
   uu.set_mode(s, "a", 0o660)?
   copied(s, ["a", "b"], 0o022)
   copied(s, ["--preserve=ownership", "a", "c"], 0o022)
-  assert uu.mode(s, "b")? == uu.mode(s, "c")?
+  assert full_mode(s, "b")? == full_mode(s, "c")?
   for name in ["a", "b"] { uu.remove(s, name)? }
   uu.write(s, "a", "not-writable-dest\n")?
   uu.set_mode(s, "a", 0o644)?
@@ -593,6 +622,7 @@ test test_gnu_cp_reflink_perm_log { |ctx|
   uu.set_mode(s, "file", 0o777)?
   copied(s, ["--reflink=auto", "--preserve", "file", "copy"], 0o077)
   assert uu.mode(s, "copy")? == 0o777
+  assert fs.stat(uu.at(s, "copy"))?.kind == "file"
   assert fs.stat(uu.at(s, "copy"))?.mtime_ns <= fs.stat(uu.at(s, "file"))?.mtime_ns
   uu.write(s, "file2", "\n")?
   for option in ["auto", "always"] {
@@ -830,8 +860,11 @@ test test_gnu_cp_same_file_log { |ctx|
       uu.no_stdout(r)
       if r.status == 0 { uu.no_stderr(r) } else {
         let detail = if index in [9,10] { f"cannot create hard link '{matrix.destination}' to '{matrix.source}'" } else if index == 17 and matrix.source != "symlink" and matrix.destination != "foo" and matrix.destination != "hardlink" { f"cannot create symbolic link '{matrix.destination}' to '{matrix.source}'" } else { f"'{matrix.source}' and '{matrix.destination}' are the same file" }
-        let diagnostic = r.stderr.utf8()?.trim().split(":")[1].trim().replace("symbolic link", with: "symlink")
-        assert diagnostic == detail.replace("symbolic link", with: "symlink"), f"{matrix.source} {matrix.destination} {options[index]}: {diagnostic}"
+        let lines = r.stderr.utf8()?.split("\n")
+        assert lines.len() == 2 and lines[1] == "", "expected one newline-terminated diagnostic"
+        let diagnostic = lines[0].split(":")[1].replace("symbolic link", with: "symlink")
+        let expected_diagnostic = " " + detail.replace("symbolic link", with: "symlink")
+        assert diagnostic == expected_diagnostic, f"{matrix.source} {matrix.destination} {options[index]}: {diagnostic}"
       }
       let linked = index in matrix.linked
       assert uu.is_symlink(s, matrix.destination)? == linked
