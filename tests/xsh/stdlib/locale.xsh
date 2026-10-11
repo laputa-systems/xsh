@@ -3,8 +3,8 @@ test test_locale_c_metadata {
     let numeric = system.locale_numeric_info(name)?
     assert numeric.decimal_point == b"."
     assert numeric.thousands_separator == b""
-    let time = system.locale_time_info(name)?
-    assert time.abbreviated_months == [b"Jan", b"Feb", b"Mar", b"Apr", b"May", b"Jun", b"Jul", b"Aug", b"Sep", b"Oct", b"Nov", b"Dec"]
+    let time_metadata = system.locale_time_info(name)?
+    assert time_metadata.abbreviated_months == [b"Jan", b"Feb", b"Mar", b"Apr", b"May", b"Jun", b"Jul", b"Aug", b"Sep", b"Oct", b"Nov", b"Dec"]
   }
 }
 
