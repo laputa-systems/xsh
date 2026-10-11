@@ -4341,21 +4341,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             FullTag::StmtAssert => {
-                let condition = indexed_raw(&mut payload, span)?;
-                let message = match indexed_raw(&mut payload, span)? {
-                    0 => None,
-                    1 => Some(indexed_raw(&mut payload, span)?),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            "indexed-ir",
-                            "invalid assertion message option",
-                        )
-                        .with_span(span));
-                    }
+                let StmtView::Assert {
+                    value,
+                    message,
+                    span: assertion_span,
+                } = StmtView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("assert statement tag has an assertion view")
                 };
-                let assertion_span =
-                    indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
+                let condition = value.raw();
+                let message = message.map(|value| value.raw());
                 self.calls[index].work.push(FrameWork::Assertion(FrameAssertionState {
                     condition,
                     message,
@@ -4400,10 +4396,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             FullTag::StmtLet => {
-                let slot: usize = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                let value = indexed_raw(&mut payload, span)?;
-                indexed_finish(payload, span)?;
-                self.push_expr(index, value, span, FrameContinuation::Store(slot));
+                let StmtView::Let { slot, value } = StmtView::decode(
+                    &self.calls[index].execution,
+                    tag,
+                    payload,
+                )
+                .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("let statement tag has a let view")
+                };
+                self.push_expr(index, value.raw(), span, FrameContinuation::Store(slot));
                 Ok(())
             }
             FullTag::StmtLetRecord => {
@@ -4520,26 +4522,54 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
 
             FullTag::StmtLetInt => {
-                let slot: usize = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                let value = indexed_raw(&mut payload, span)?;
-                indexed_finish(payload, span)?;
-                self.push_expr(index, value, span, FrameContinuation::Store(slot));
+                let StmtView::LetInt { slot, value } = StmtView::decode(
+                    &self.calls[index].execution,
+                    tag,
+                    payload,
+                )
+                .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("integer let statement tag has an integer let view")
+                };
+                self.push_expr(index, value.raw(), span, FrameContinuation::Store(slot));
                 Ok(())
             }
             FullTag::StmtLetBool => {
-                let slot: usize = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                let value = indexed_raw(&mut payload, span)?;
-                indexed_finish(payload, span)?;
-                self.push_expr(index, value, span, FrameContinuation::Store(slot));
+                let StmtView::LetBool { slot, value } = StmtView::decode(
+                    &self.calls[index].execution,
+                    tag,
+                    payload,
+                )
+                .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("boolean let statement tag has a boolean let view")
+                };
+                self.push_expr(index, value.raw(), span, FrameContinuation::Store(slot));
                 Ok(())
             }
             FullTag::StmtAssign => {
-                let slot: usize = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                let op = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                let value = indexed_raw(&mut payload, span)?;
-                let check = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
+                let StmtView::Assign {
+                    slot,
+                    op,
+                    value,
+                    check,
+                    span: value_span,
+                } = StmtView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("assignment statement tag has an assignment view")
+                };
+                let check = check
+                    .map(|check| {
+                        Ok(LoweredTypeCheck {
+                            ty: check.ty.materialize()?,
+                            name: Arc::from(check.name),
+                            schema: check.schema.map(Arc::clone),
+                        })
+                    })
+                    .transpose()
+                    .map_err(|error| indexed_error(error, span))?;
+                let value = value.raw();
                 let (value, singleton) = indexed_assignment_operand(
                     &self.calls[index].execution,
                     value,
@@ -4563,29 +4593,47 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::StmtAssignField | FullTag::StmtAssignFieldInt => {
                 let execution = &self.calls[index].execution;
-                let slot = indexed_decode(&mut payload, execution, span)?;
-                let field: Arc<str> = indexed_decode(&mut payload, execution, span)?;
-                let op = indexed_decode(&mut payload, execution, span)?;
-                let value = indexed_raw(&mut payload, span)?;
-                let value_span = indexed_decode(&mut payload, execution, span)?;
-                indexed_finish(payload, span)?;
+                let view = StmtView::decode(execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?;
+                let (slot, field, op, value, value_span) = match view {
+                    StmtView::AssignField {
+                        slot,
+                        field,
+                        op,
+                        value,
+                        span,
+                    } => (slot, field, op, value.raw(), span),
+                    StmtView::AssignFieldInt {
+                        slot,
+                        field,
+                        op,
+                        value,
+                        span,
+                    } => (slot, field, op, value.raw(), span),
+                    _ => unreachable!("field assignment tag has a field assignment view"),
+                };
                 let (value, singleton) = indexed_assignment_operand(execution, value, op, value_span)?;
                 self.advance_assign_path(index, AssignPathState {
-                    slot, path: vec![IndexedAssignStep::Field(Name::intern(field.as_ref()))],
+                    slot, path: vec![IndexedAssignStep::Field(Name::intern(field))],
                     selectors: Vec::new(), position: 0, op, value, singleton, check: None, span: value_span,
                     transfers_resource,
                 });
                 Ok(())
             }
             FullTag::StmtAssignInt => {
-                let slot = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                let op = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                let value = indexed_raw(&mut payload, span)?;
-                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
+                let StmtView::AssignInt {
+                    slot,
+                    op,
+                    value,
+                    span: value_span,
+                } = StmtView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("integer assignment tag has an integer assignment view")
+                };
                 self.push_expr(
                     index,
-                    value,
+                    value.raw(),
                     value_span,
                     FrameContinuation::Assign {
                         slot,
@@ -4599,12 +4647,18 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             FullTag::StmtAssignBool => {
-                let slot = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                let value = indexed_raw(&mut payload, span)?;
-                indexed_finish(payload, span)?;
+                let StmtView::AssignBool { slot, value } = StmtView::decode(
+                    &self.calls[index].execution,
+                    tag,
+                    payload,
+                )
+                .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("boolean assignment tag has a boolean assignment view")
+                };
                 self.push_expr(
                     index,
-                    value,
+                    value.raw(),
                     span,
                     FrameContinuation::Assign {
                         slot,
@@ -4645,12 +4699,18 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             FullTag::StmtExpr => {
-                let value = indexed_raw(&mut payload, span)?;
-                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                indexed_finish(payload, span)?;
+                let StmtView::Expr { value, span: value_span } = StmtView::decode(
+                    &self.calls[index].execution,
+                    tag,
+                    payload,
+                )
+                .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("expression statement tag has an expression statement view")
+                };
                 self.push_expr(
                     index,
-                    value,
+                    value.raw(),
                     value_span,
                     FrameContinuation::Discard(value_span),
                 );
@@ -4874,47 +4934,70 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             FullTag::StmtBreak => {
-                indexed_finish(payload, span)?;
+                let StmtView::Break = StmtView::decode(
+                    &self.calls[index].execution,
+                    tag,
+                    payload,
+                )
+                .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("break statement tag has a break view")
+                };
                 self.break_loop(index, None, false)
             }
             FullTag::StmtBreakValue => {
-                let value = indexed_raw(&mut payload, span)?;
-                indexed_finish(payload, span)?;
+                let StmtView::BreakValue { value } = StmtView::decode(
+                    &self.calls[index].execution,
+                    tag,
+                    payload,
+                )
+                .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("break-value statement tag has a break-value view")
+                };
                 self.push_expr(
                     index,
-                    value,
+                    value.raw(),
                     span,
                     FrameContinuation::BreakLoop { transfers_resource },
                 );
                 Ok(())
             }
             FullTag::StmtContinue => {
-                indexed_finish(payload, span)?;
+                let StmtView::Continue = StmtView::decode(
+                    &self.calls[index].execution,
+                    tag,
+                    payload,
+                )
+                .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("continue statement tag has a continue view")
+                };
                 self.continue_loop(index)
             }
             FullTag::StmtYield | FullTag::StmtYieldDelegate => {
-                let value = indexed_raw(&mut payload, span)?;
-                let span = if tag == FullTag::StmtYieldDelegate {
-                    indexed_decode(&mut payload, &self.calls[index].execution, span)?
-                } else {
-                    span
+                let view = StmtView::decode(&self.calls[index].execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?;
+                let (value, yield_span, delegate) = match view {
+                    StmtView::Yield { value } => (value.raw(), span, false),
+                    StmtView::YieldDelegate { value, span } => (value.raw(), span, true),
+                    _ => unreachable!("yield statement tag has a yield view"),
                 };
-                indexed_finish(payload, span)?;
                 if !self.calls[index].producer {
                     return Err(
                         RuntimeError::new("control-flow", "yield outside stream producer")
-                            .with_span(span),
+                            .with_span(yield_span),
                     );
                 }
-                let continuation = if tag == FullTag::StmtYieldDelegate {
+                let continuation = if delegate {
                     FrameContinuation::YieldDelegate {
-                        span,
+                        span: yield_span,
                         transfers_resource,
                     }
                 } else {
                     FrameContinuation::Yield { transfers_resource }
                 };
-                self.push_expr(index, value, span, continuation);
+                self.push_expr(index, value, yield_span, continuation);
                 Ok(())
             }
             FullTag::StmtDefer => {
@@ -4928,22 +5011,36 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             FullTag::StmtValue => {
-                let value = indexed_raw(&mut payload, span)?;
-                indexed_finish(payload, span)?;
+                let StmtView::Value { value } = StmtView::decode(
+                    &self.calls[index].execution,
+                    tag,
+                    payload,
+                )
+                .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("value statement tag has a value view")
+                };
                 self.push_expr(
                     index,
-                    value,
+                    value.raw(),
                     span,
                     FrameContinuation::BlockValue { transfers_resource },
                 );
                 Ok(())
             }
             FullTag::StmtReturn => {
-                let value = indexed_raw(&mut payload, span)?;
-                indexed_finish(payload, span)?;
+                let StmtView::Return { value } = StmtView::decode(
+                    &self.calls[index].execution,
+                    tag,
+                    payload,
+                )
+                .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("return statement tag has a return view")
+                };
                 self.push_expr(
                     index,
-                    value,
+                    value.raw(),
                     span,
                     FrameContinuation::Return { transfers_resource },
                 );
