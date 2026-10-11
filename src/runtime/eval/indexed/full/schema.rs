@@ -98,7 +98,6 @@ macro_rules! pattern_verify_constraint {
     };
     (ListRest, $decoder:ident, $index:ident, $payload:ident) => {
         let mut rest_payload = $payload;
-        Vec::<BuildPatternId>::verify($decoder, &mut rest_payload)?;
         if bool::decode($decoder, &mut rest_payload)? {
             let rest = rest_payload.raw()? as usize;
             if !matches!(
@@ -136,6 +135,22 @@ macro_rules! pattern_verify_constraint {
 macro_rules! pattern_verify_row {
     ($variant:ident, Normal, $decoder:ident, $payload:ident, $index:ident, $semantic_payload:ident, $constraint:ident) => {
         pattern_verify_constraint!($constraint, $decoder, $index, $semantic_payload);
+    };
+    // Preserve the list-rest failure before verifying its child ID.
+    (
+        List,
+        Normal,
+        $decoder:ident,
+        $payload:ident,
+        $index:ident,
+        $semantic_payload:ident,
+        ListRest,
+        { elements: $elements_ty:ty, rest: $rest_ty:ty }
+    ) => {
+        <$elements_ty>::verify($decoder, &mut $payload)?;
+        let list_rest_payload = $payload;
+        pattern_verify_constraint!(ListRest, $decoder, $index, list_rest_payload);
+        <$rest_ty>::verify($decoder, &mut $payload)?;
     };
     ($variant:ident, Normal, $decoder:ident, $payload:ident, $index:ident, $semantic_payload:ident, $constraint:ident, { $($field:ident: $field_ty:ty $(=> $verify_ty:ty)?),* $(,)? }) => {
         pattern_verify_fields!($decoder, $payload, { $($field: $field_ty $(=> $verify_ty)?),* });
