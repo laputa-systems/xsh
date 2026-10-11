@@ -400,13 +400,32 @@ pub(super) fn redundant_capture_try<'a>(
     let end = propagation.span.end();
     let written = source.get(form.end()..end)?.strip_suffix('?')?;
     let positions = positions();
-    let context = positions.context(arena, source, expression);
+    let mut context = positions.context(arena, source, expression);
+    // A whole initializer dispatches a bare run form directly; the expression
+    // printer groups it because it only prints expressions, not initializers.
+    if context.lead == Some(Lead::Initializer) {
+        context.lead = None;
+    }
     if !needs_parens(arena, source, expression, context)
         && needs_parens(arena, source, operand, context)
     {
         return None;
     }
     let blank = |text: &str| text.trim_matches([' ', '\t']).is_empty();
+    if blank(written)
+        && !needs_parens(arena, source, operand, context)
+        && let Some(group) = positions.groups.get(&expression)
+        && source.get(group.start()..form.start())?.chars().all(|ch| ch == '(' || ch.is_whitespace())
+        && source.get(end..group.end())?.chars().all(|ch| ch == ')' || ch.is_whitespace())
+    {
+        let mut diagnostic = redundant_capture_diagnostic(Span::new(form.source_id, form.end(), end));
+        diagnostic.fix_hints = vec![FixHint::replacement(
+            *group,
+            "remove `?` and the parentheses",
+            source.get(form.range())?,
+        )];
+        return Some(diagnostic);
+    }
     if blank(written) {
         return Some(redundant_capture_diagnostic(Span::new(
             form.source_id,
@@ -750,13 +769,12 @@ pub(super) mod tests {
     }
 
     // A captured form has no `?`, a status form's `?` is its only
-    // propagation, a form that starts an initializer under its `?` is
-    // parenthesized there with or without it, and a guard after the `?`
+    // propagation, and a guard after the `?`
     // would become arguments without it.
     #[test]
     fn a_run_form_that_needs_its_propagation_keeps_it() {
         unflagged(
-            "proc work(ready: Bool) [process, error] -> Result[Int] {\n  let kept = try run.text echo hi\n  let status = run.status echo hi ?\n  let plain = run echo hi ?\n  let grouped = (run.text echo hi)?\n  var text = \"\"\n  text = run.text echo hi ? when ready\n  return Ok(text.byte_len()) when kept is Ok(_)\n  print $grouped ${status.success} ${plain.success}\n  1\n}\n",
+            "proc work(ready: Bool) [process, error] -> Result[Int] {\n  let kept = try run.text echo hi\n  let status = run.status echo hi ?\n  let plain = run echo hi ?\n  var text = \"\"\n  text = run.text echo hi ? when ready\n  return Ok(text.byte_len()) when kept is Ok(_)\n  print ${status.success} ${plain.success}\n  1\n}\n",
         );
     }
 
@@ -815,8 +833,6 @@ pub(super) mod tests {
             "let listed = [\n    run.text echo b ?\n  ]\n  print ${listed.len()}",
             "let first = (run.text echo a)? + \"!\"\n  print $first",
             "let first = (run.text echo a ?) + \"!\"\n  print $first",
-            "let whole = (run.text echo a ?)\n  print $whole",
-            "let whole = (run.text echo a)?\n  print $whole",
         ] {
             let source = run_body(&[layout]);
             let diagnostics = lint_layout(&source);
@@ -847,6 +863,14 @@ pub(super) mod tests {
                     "assert (ready) and ((\"d\") == (run.text echo d ?))",
                 ],
                 "assert ready and \"d\" == run.text echo d",
+            ),
+            (
+                &[
+                    "let whole = (run.text echo a ?)\n  print $whole",
+                    "let whole = (run.text echo a)?\n  print $whole",
+                    "let whole = ((run.text echo a ?))\n  print $whole",
+                ][..],
+                "let whole = run.text echo a\n  print $whole",
             ),
             (
                 &[

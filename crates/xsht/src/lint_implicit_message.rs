@@ -11,8 +11,8 @@
 //! constructed by name in a file this lint does not see, so its declaration
 //! is reported without a fix.
 //!
-//! A private one-variant family that `lint.prefer-fail` rewrites to `fail`
-//! is that rule's alone: it is about to be deleted, not respelled.
+//! A declaration deleted by a safe `lint.prefer-fail` fix needs no payload
+//! edit. Findings without a fix still permit message edits that retain the family.
 
 use rustc_hash::FxHashSet;
 use std::collections::BTreeMap;
@@ -46,11 +46,11 @@ pub(super) fn lint_implicit_messages(
         .iter()
         .filter(|(call, _)| call.source_id == source_id)
         .collect::<Vec<_>>();
-    // `lint.prefer-fail` labels the declaration or the constructor call it
-    // rewrites.
+    // Only an offered fix supersedes a message edit at the same site.
     let fail_sites = reported
         .iter()
-        .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferFail))
+        .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferFail)
+            && !diagnostic.fix_hints.is_empty())
         .filter_map(|diagnostic| diagnostic.labels.first().map(|label| label.span))
         .collect::<FxHashSet<_>>();
 
@@ -166,4 +166,46 @@ pub(super) fn lint_implicit_messages(
         }
     }
     diagnostics
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{LintOptions, Linter};
+    use xsh::diagnostic::DiagnosticCode;
+    use xsh::frontend::check::Checker;
+    use xsh::frontend::source::SourceId;
+    use xsh::frontend::syntax::parser::Parser;
+
+    #[test]
+    fn a_nominal_error_finding_keeps_safe_message_fixes_available() {
+        let source = "error E = Failed(message: Str)\n\nproc load() -> Result[Int] {\n  return Err(E.Failed(message: \"no\"))\n}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let found = Linter::lint(&parsed.arena, source, LintOptions {
+            message_payload_constructors: Some(checked.message_payload_constructors),
+            ..LintOptions::default()
+        }).diagnostics;
+        let nominal = found.iter().filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferFail)).collect::<Vec<_>>();
+        assert_eq!(nominal.len(), 1);
+        assert!(nominal[0].fix_hints.is_empty());
+        let messages = found.iter().filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferImplicitMessage)).collect::<Vec<_>>();
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages.iter().flat_map(|diagnostic| &diagnostic.fix_hints).count(), 1);
+    }
+
+    #[test]
+    fn a_deleted_unused_family_needs_no_payload_fix() {
+        let source = "error E = Failed(message: Str)\n\nprint \"done\"\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(parsed.diagnostics.is_empty() && checked.diagnostics.is_empty());
+        let found = Linter::lint(&parsed.arena, source, LintOptions {
+            message_payload_constructors: Some(checked.message_payload_constructors),
+            ..LintOptions::default()
+        }).diagnostics;
+        assert!(found.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferFail) && diagnostic.fix_hints.len() == 1));
+        assert!(found.iter().all(|diagnostic| diagnostic.code != Some(DiagnosticCode::LintPreferImplicitMessage)));
+    }
 }

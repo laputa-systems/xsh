@@ -1,29 +1,19 @@
-//! `lint.prefer-fail`: an error family with one variant that carries only a
-//! message, declared so a function has something to return, is what
-//! `fail MESSAGE` replaces.
+//! `lint.prefer-fail`: a message-only error family may be simplified manually
+//! to `fail MESSAGE` when its nominal identity is not part of the contract.
 //!
 //! A family that code matches on stays. The lint proves that nothing in the
 //! file does by counting: every place the source spells the family's name
-//! must be its declaration or a constructor call this module rewrites, and
+//! must be its declaration or a constructor call this module recognizes, and
 //! the variant must never be written in its leading-dot form, which names no
 //! family. A pattern, a type annotation, a string, or a comment that mentions
 //! the family therefore leaves it alone. An exported family can be matched in
 //! a file this lint does not see, so it is reported without a fix.
 //!
-//! The migration is two steps, and each leaves a program that checks. Each
-//! constructor becomes `fail MESSAGE` where it is the whole value of a
-//! `return Err(...)`, and `error.failure(MESSAGE)` anywhere else; once no
-//! constructor is left, the declaration is deleted. The deletion is never
-//! offered beside the rewrites: a fixer applies edits one by one and drops
-//! one that overlaps another rule's, so a deletion that counted on a rewrite
-//! could leave a constructor of a family that is gone. `xsht lint --fix`
-//! repeats until nothing changes, so one run does both steps.
-//! No edit removes a comment: a comment above the declaration stays, since it
-//! is as often a file header as a description, and a declaration with a
-//! comment inside or beside it stays for the author to delete.
-//! Callers see the same `Err` with the same message. What changes is the name an
-//! uncaught failure is reported under: `validation` instead of the family and
-//! variant.
+//! Replacing a nominal constructor with a string failure changes the family
+//! reported by an uncaught failure, even when callers only inspect its message.
+//! Such findings explain the manual choice and never offer a replacement.
+//! An unused declaration can be deleted independently of constructor rewrites;
+//! comments inside or beside it require deletion by hand.
 //!
 //! The lint also respells `return Err(.Variant(...))`, with or without a
 //! `cause:`, as the `fail .Variant(...)` that is defined to mean it.
@@ -50,7 +40,6 @@ struct Family {
 struct Constructor {
     family: usize,
     call: ExprId,
-    message: ExprId,
 }
 
 /// `Err(VALUE)` or `Err(VALUE, cause: CAUSE)`.
@@ -179,15 +168,14 @@ impl Candidates {
                 else {
                     return;
                 };
-                let message = match argument.kind {
-                    ArenaCallArgKind::Positional(value) => value,
-                    ArenaCallArgKind::Named { name, value, .. } if name == "message" => value,
-                    _ => return,
-                };
+                if !matches!(argument.kind, ArenaCallArgKind::Positional(_))
+                    && !matches!(argument.kind, ArenaCallArgKind::Named { name, .. } if name == "message")
+                {
+                    return;
+                }
                 self.constructors.push(Constructor {
                     family: index,
                     call: expr,
-                    message,
                 });
             }
             _ => {}
@@ -245,7 +233,7 @@ impl Candidates {
             }
             for constructor in constructors {
                 let call = arena.expr(constructor.call).span;
-                let mut diagnostic = Diagnostic::warning(format!(
+                let diagnostic = Diagnostic::warning(format!(
                     "`{qualified}` only carries a message; report it with `fail`"
                 ))
                 .with_code(DiagnosticCode::LintPreferFail)
@@ -254,11 +242,8 @@ impl Candidates {
                     format!("nothing in this file matches on `{name}`"),
                 ))
                 .with_note(format!(
-                    "an uncaught failure is then reported as `validation` instead of `{qualified}`"
+                    "rewrite this failure by hand only if changing its nominal error family is intended; `fail MESSAGE` reports `validation` instead of `{qualified}`"
                 ));
-                if let Some(fix) = self.rewrite(arena, source, constructor) {
-                    diagnostic = diagnostic.with_fix_hint(fix);
-                }
                 diagnostics.push(diagnostic);
             }
         }
@@ -330,46 +315,6 @@ impl Candidates {
         }
         (!source.get(kept_end..statement.end())?.contains('#') && is_fail_statement(&replacement))
             .then_some(replacement)
-    }
-
-    /// The edit that replaces one constructor: the whole `return Err(...)`
-    /// that holds it by `fail MESSAGE`, or the constructor alone by
-    /// `error.failure(MESSAGE)`.
-    fn rewrite(
-        &self,
-        arena: &AstArena,
-        source: &str,
-        constructor: &Constructor,
-    ) -> Option<FixHint> {
-        let call = arena.expr(constructor.call).span;
-        let message = arena.expr(constructor.message).span;
-        let text = written(source, message)?;
-        // A comment between the pieces would be dropped with them.
-        if source.get(call.start()..message.start())?.contains('#')
-            || source.get(message.end()..call.end())?.contains('#')
-        {
-            return None;
-        }
-        let returned = self
-            .err_calls
-            .iter()
-            .find(|err| err.value == constructor.call)
-            .and_then(|err| {
-                let statement = self.returned(arena, err)?;
-                let replacement =
-                    self.fail_text(arena, source, statement, err, constructor.message)?;
-                Some((statement, replacement))
-            });
-        Some(match returned {
-            Some((statement, replacement)) => {
-                FixHint::replacement(statement, "return the failure with `fail`", replacement)
-            }
-            None => FixHint::replacement(
-                call,
-                "build the error with `error.failure`",
-                format!("error.failure({text})"),
-            ),
-        })
     }
 }
 
@@ -595,39 +540,18 @@ mod tests {
     }
 
     #[test]
-    fn a_message_only_family_becomes_fail_and_then_goes() {
+    fn a_message_only_family_is_reported_without_changing_its_errors() {
         let source = "use system_report as report\n\nerror LoadError = Failed(message: Str)\n\nproc load(name: Str, ready: Bool) -> Result[Int] {\n  return Err(LoadError.Failed(\"not ready\")) unless ready\n  if name == \"\" {\n    return Err(LoadError.Failed(message: f\"no {name}\"))\n  }\n  let fallback = Err(LoadError.Failed(\"no fallback\"))\n  Ok(1) ?? fallback?\n}\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-        let first = Linter::lint(&parsed.arena, source, LintOptions::default())
+        let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default())
             .diagnostics
             .into_iter()
             .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferFail))
             .collect::<Vec<_>>();
-        // One report and one edit for each constructor, and none that
-        // touches the declaration while a constructor names it.
-        assert_eq!(first.len(), 3, "{first:?}");
-        assert!(
-            first
-                .iter()
-                .all(|diagnostic| diagnostic.fix_hints.len() == 1)
-        );
-        let rewritten = apply(&first, source);
-        assert_eq!(
-            rewritten,
-            "use system_report as report\n\nerror LoadError = Failed(message: Str)\n\nproc load(name: Str, ready: Bool) -> Result[Int] {\n  fail \"not ready\" unless ready\n  if name == \"\" {\n    fail f\"no {name}\"\n  }\n  let fallback = Err(error.failure(\"no fallback\"))\n  Ok(1) ?? fallback?\n}\n"
-        );
-        // With no constructor left, the declaration is the one report.
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &rewritten);
-        let second = Linter::lint(&parsed.arena, &rewritten, LintOptions::default())
-            .diagnostics
-            .into_iter()
-            .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferFail))
-            .collect::<Vec<_>>();
-        assert_eq!(second.len(), 1, "{second:?}");
-        assert_eq!(
-            apply(&second, &rewritten),
-            "use system_report as report\n\nproc load(name: Str, ready: Bool) -> Result[Int] {\n  fail \"not ready\" unless ready\n  if name == \"\" {\n    fail f\"no {name}\"\n  }\n  let fallback = Err(error.failure(\"no fallback\"))\n  Ok(1) ?? fallback?\n}\n"
-        );
+        assert_eq!(diagnostics.len(), 3, "{diagnostics:?}");
+        assert!(diagnostics.iter().all(|diagnostic| diagnostic.fix_hints.is_empty()));
+        assert!(diagnostics.iter().all(|diagnostic| diagnostic.notes.iter().any(|note| note.contains("nominal error family"))));
+        assert_eq!(apply(&diagnostics, source), source);
     }
 
     /// A fixer applies the edits of every rule together and drops one that
@@ -667,8 +591,10 @@ mod tests {
                 }
             }
             if kept.is_empty() {
-                // Every rule is satisfied, and the family went last.
-                assert!(!current.contains("AppError"), "{current}");
+                // Other rules may rewrite control flow while the nominal error stays.
+                assert!(current.contains("error AppError = Failed(message: Str)"), "{current}");
+                assert!(current.contains("AppError.Failed("), "{current}");
+                assert!(lint(&current).iter().all(|diagnostic| diagnostic.fix_hints.is_empty()));
                 return;
             }
             for (span, replacement) in kept.into_iter().rev() {
@@ -681,17 +607,13 @@ mod tests {
     #[test]
     fn a_family_at_the_start_or_beside_another_declaration_leaves_formatted_text() {
         let first = "error LoadError = Failed(message: Str)\n\nproc load() -> Result[Int] {\n  return Err(LoadError.Failed(\"no\"))\n}\n";
-        assert_eq!(
-            converged(first),
-            "proc load() -> Result[Int] {\n  fail \"no\"\n}\n"
-        );
+        assert_eq!(converged(first), first);
         let grouped = "error LoadError = Failed(message: Str)\nerror Kept = Missing(path: Path) | Busy\n\nproc load() -> Result[Int] {\n  return Err(LoadError.Failed(\"no\"))\n}\n\nprint ${Kept.Busy().message}\n";
-        let fixed = converged(grouped);
-        assert!(
-            fixed.starts_with("error Kept = Missing(path: Path) | Busy\n\nproc load() -> Result[Int] {\n  fail \"no\"\n}\n"),
-            "{fixed}"
-        );
-        assert!(lint(&fixed).is_empty());
+        assert_eq!(converged(grouped), grouped);
+        let unused = "error LoadError = Failed(message: Str)\n\nprint \"done\"\n";
+        assert_eq!(converged(unused), "print \"done\"\n");
+        let unused_grouped = "error LoadError = Failed(message: Str)\nerror Kept = Missing(path: Path) | Busy\n\nprint ${Kept.Busy().message}\n";
+        assert_eq!(converged(unused_grouped), "error Kept = Missing(path: Path) | Busy\n\nprint ${Kept.Busy().message}\n");
     }
 
     #[test]
@@ -728,37 +650,19 @@ mod tests {
     }
 
     #[test]
-    fn a_comment_inside_a_constructor_keeps_the_family_until_it_is_rewritten() {
+    fn commented_constructors_and_unused_declarations_keep_their_comments() {
         let source = "error LoadError = Failed(message: Str)\n\nproc load(ready: Bool) -> Result[Int] {\n  return Err(LoadError.Failed(\"not ready\")) unless ready\n  return Err(LoadError.Failed( # why\n    \"no\",\n  ))\n}\n";
         let diagnostics = lint(source);
         assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
-        let fixed = apply(&diagnostics, source);
-        // The declaration stays while a constructor still names it.
-        assert!(
-            fixed.starts_with("error LoadError = Failed(message: Str)\n"),
-            "{fixed}"
-        );
-        assert!(
-            fixed.contains("  fail \"not ready\" unless ready\n"),
-            "{fixed}"
-        );
-        assert!(fixed.contains("LoadError.Failed( # why"), "{fixed}");
+        assert!(diagnostics.iter().all(|diagnostic| diagnostic.fix_hints.is_empty()));
+        assert_eq!(apply(&diagnostics, source), source);
 
-        // A comment beside the declaration is one no edit may remove.
-        let beside = "error LoadError = Failed(message: Str) # legacy\n\nproc load() -> Result[Int] {\n  return Err(LoadError.Failed(\"no\"))\n}\n";
-        let fixed = converged(beside);
-        assert_eq!(
-            fixed,
-            "error LoadError = Failed(message: Str) # legacy\n\nproc load() -> Result[Int] {\n  fail \"no\"\n}\n"
-        );
-        let unused = lint(&fixed);
+        let beside = "error LoadError = Failed(message: Str) # legacy\n\nproc load() -> Result[Int] {\n  fail \"no\"\n}\n";
+        assert_eq!(converged(beside), beside);
+        let unused = lint(beside);
         assert_eq!(unused.len(), 1, "{unused:?}");
         assert!(unused[0].fix_hints.is_empty());
-        // The report says why, and what to do by hand.
-        assert_eq!(
-            unused[0].notes,
-            [KeptDeclaration::CommentBeside.hand_edit()]
-        );
+        assert_eq!(unused[0].notes, [KeptDeclaration::CommentBeside.hand_edit()]);
 
         let inside = "error LoadError {\n  # legacy\n  Failed(message: Str)\n}\n\nproc load() -> Result[Int] {\n  fail \"no\"\n}\n";
         let unused = lint(inside);
@@ -779,31 +683,18 @@ mod tests {
     #[test]
     fn a_comment_above_the_declaration_stays_where_it_is() {
         let source = "# Retries a command.\n# Usage: retry COMMAND\nerror RetryError = Failed(message: Str)\n\nproc attempt() -> Result[Int] {\n  return Err(RetryError.Failed(\"no\"))\n}\n";
-        assert_eq!(
-            converged(source),
-            "# Retries a command.\n# Usage: retry COMMAND\n\nproc attempt() -> Result[Int] {\n  fail \"no\"\n}\n"
-        );
+        assert_eq!(converged(source), source);
+        let unused = "# Retries a command.\n# Usage: retry COMMAND\nerror RetryError = Failed(message: Str)\n\nproc attempt() -> Result[Int] {\n  fail \"no\"\n}\n";
+        assert_eq!(converged(unused), "# Retries a command.\n# Usage: retry COMMAND\n\nproc attempt() -> Result[Int] {\n  fail \"no\"\n}\n");
     }
 
     #[test]
-    fn a_cause_becomes_because() {
+    fn nominal_errors_keep_their_causes() {
         let source = "error LoadError = Failed(message: Str)\n\nproc load(inner: Result[Int]) -> Result[Int] {\n  match inner {\n    Ok(value) => Ok(value)\n    Err(error) => return Err(LoadError.Failed(\"outer\"), cause: error)\n  }\n}\n\nproc wrap(inner: Result[Int]) -> Result[Int] {\n  match inner {\n    Ok(value) => Ok(value)\n    Err(error) => Err(LoadError.Failed(\"tail\"), cause: error)\n  }\n}\n";
         let diagnostics = lint(source);
         assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
-        let fixed = converged(source);
-        assert!(
-            fixed.contains("Err(error) => fail \"outer\" because error\n"),
-            "{fixed}"
-        );
-        // Not the value of a `return`: only the error changes. The fixed
-        // program still checks, because the call names the module even where
-        // `error` is the caught error.
-        assert!(
-            fixed.contains("Err(error) => Err(error.failure(\"tail\"), cause: error)\n"),
-            "{fixed}"
-        );
-        assert!(!fixed.contains("LoadError"), "{fixed}");
-        assert!(lint(&fixed).is_empty());
+        assert!(diagnostics.iter().all(|diagnostic| diagnostic.fix_hints.is_empty()));
+        assert_eq!(converged(source), source);
     }
 
     #[test]

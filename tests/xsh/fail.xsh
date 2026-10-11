@@ -125,7 +125,7 @@ test test_fmt_desugar_and_highlight_know_the_fail_statement { |ctx|
   assert "    return Err(error.failure(\"not ready\"))" in expanded.stdout, expanded.stdout
 }
 
-test test_prefer_fail_fix_keeps_the_messages_and_converges { |ctx|
+test test_prefer_fail_fix_preserves_the_nominal_family { |ctx|
   let source = r"""# Stages names.
 # Usage: stage NAME
 error StageError = Failed(message: Str)
@@ -153,23 +153,20 @@ for name in ["", "-v", "ok"] {
   let first = run.capture --text "xsht" lint --only lint.prefer-fail $candidate
   assert first.status.exited_with(1), first.stderr
   assert "`StageError.Failed` only carries a message; report it with `fail`" in first.stderr, first.stderr
-  # One report for each constructor; the declaration is reported once they
-  # are gone, and one `--fix` runs both steps.
+  # A message-only family still identifies the failure to callers and reports.
   assert first.stderr.split("warn[lint.prefer-fail]").len() == 3, first.stderr
   let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-fail $candidate
-  assert fixing.status.exited_with(0), fixing.stderr
+  assert fixing.status.exited_with(1), fixing.stderr
+  assert "help:" not in fixing.stderr, fixing.stderr
   let fixed = candidate.read_text()?
-  assert fixed.starts_with(
-    "# Stages names.\n# Usage: stage NAME\n\nconst prefix = \"-\"\n\nproc stage(name: Str) -> Result[Str] {\n  fail \"empty name\" when name == \"\"\n",
-  ), fixed
-  assert "    fail f\"{name} is an option\"\n" in fixed, fixed
-  assert "StageError" not in fixed, fixed
+  assert fixed == source, fixed
   let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
   let formatted = run.capture --text "xsht" fmt --check $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   let second = run.capture --text "xsht" lint --only lint.prefer-fail $candidate
-  assert second.status.exited_with(0), second.stderr
+  assert second.status.exited_with(1), second.stderr
+  assert second.stderr.split("warn[lint.prefer-fail]").len() == 3, second.stderr
 }
 
 test test_prefer_fail_leaves_a_matched_family_alone { |ctx|
@@ -311,8 +308,7 @@ test test_prefer_fail_respells_a_returned_leading_dot_error { |ctx|
 }
 
 # Every rule's fixes are applied together, and an edit that overlaps another
-# rule's is dropped for the round. Deleting the family must not count on a
-# rewrite that `lint.prefer-guard` displaced.
+# rule's is dropped for the round. Control-flow fixes preserve nominal errors.
 test test_every_rule_fixing_one_file_leaves_it_checking { |ctx|
   let source = r"""error AppError = Failed(message: Str)
 
@@ -350,8 +346,10 @@ match validate(["a", "", "c"]) {
   let checked = run.capture --text "xsht" check $candidate
   assert checked.status.exited_with(0), fixed + checked.stderr
   assert fixing.status.exited_with(0), fixing.stderr
-  assert "AppError" not in fixed, fixed
-  assert "  fail \"too many\" when argv.len() > 4\n" in fixed, fixed
+  assert "error AppError = Failed\n" in fixed, fixed
+  assert "AppError.Failed(\"too many\")" in fixed, fixed
+  let nominal = run.capture --text "xsht" lint --only lint.prefer-fail $candidate
+  assert nominal.status.exited_with(1), nominal.stderr
   let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
 }
@@ -368,15 +366,13 @@ print ${stage("ok")?}
 """
   let candidate = test.temp_file(ctx, name: "stage.xsh", contents: bytes.from_text(source))?
   let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-fail $candidate
-  # The constructor is rewritten and the family is left, with the one report
-  # that no fix answers.
-  assert fixing.status.exited_with(0), fixing.stderr
+  # Neither the nominal constructor nor the comment can be erased by a fix.
+  assert fixing.status.exited_with(1), fixing.stderr
   let fixed = candidate.read_text()?
-  assert fixed.starts_with("error StageError = Failed(message: Str) # legacy name\n"), fixed
-  assert "  fail \"empty name\" when name == \"\"\n" in fixed, fixed
+  assert fixed == source, fixed
   let left = run.capture --text "xsht" lint --only lint.prefer-fail $candidate
   assert left.status.exited_with(1), left.stderr
-  assert "error family `StageError` is never constructed" in left.stderr, left.stderr
-  assert "note: `--fix` leaves this declaration: it has a comment beside it, and a fix never removes a comment. Delete the declaration by hand, with the comment if it describes the family" in left.stderr, left.stderr
+  assert "`StageError.Failed` only carries a message" in left.stderr, left.stderr
+  assert "nominal error family" in left.stderr, left.stderr
   assert "help:" not in left.stderr, left.stderr
 }
