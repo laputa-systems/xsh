@@ -133,9 +133,9 @@ with evidence. Design-specified migrations remain authorized.
 4. No structural ratchet rose, and the item's functional and structural
    targets reached their stated values. Performance measurements are reported
    under the performance policy below.
-5. Net non-test Rust lines are within the item's budget. The default budget
-   is zero or negative: a lane that adds a path for an existing decision
-   deletes the old path in the same slice.
+5. Report exact non-test Rust and touched-line deltas. Source budgets are
+   advisory under the owner update; remove replaced decisions and assess
+   performance without using line count as a substitute.
 6. Generated documentation is fresh when a contract changed.
 
 A behavior-preserving item additionally changes nothing in
@@ -200,6 +200,18 @@ the item. Nothing is pushed.
 - **Close.** The report lists each workstream as closed or parked with its
   closing check, the start and end value of every ratchet, and each parked
   item with the decision it needs.
+
+## Owner update — source budgets, 2026-10-11
+
+The owner relaxed source budgets and made performance the priority. Per-item
+production-line and touched-line limits, temporary source ceilings, and final
+strict source shrink are now advisory measurements rather than acceptance
+blockers. Record exact source deltas and review volume; preserve original
+baseline artifacts. This supersedes older hard source-budget language below
+and in item grants. Structural end states, correctness, ownership contracts,
+documentation, platform gates and performance verification remain required.
+Remove genuine duplication and unused code; do not compress layout to improve
+counts. A passing source count is not performance evidence.
 
 ## Planning figures
 

@@ -42,3 +42,9 @@ After each accepted batch, record merged commits, gates, metric evidence,
 migrations of existing tests, and remaining items in the handoff log.
 Complete every workstream's observable and structural end state before
 claiming completion, and report any unresolved item candidly.
+
+The owner relaxed source budgets on 2026-10-11 and prioritizes performance.
+Treat production/touched-line caps and final strict source shrink as advisory,
+retain exact accounting and original baselines, and keep structural/correctness/
+ownership/platform/documentation/performance acceptance requirements. Do not
+block a reviewed functional slice solely on source growth or chase layout cuts.

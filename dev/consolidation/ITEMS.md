@@ -9,6 +9,12 @@ baseline. All six design drafts were approved on 2026-10-11.
 latest checkpoint and supersedes the older progress states below. Unfinished
 lane diffs and interrupted gates are preserved; the owner has resumed work.
 
+**Owner update, 2026-10-11:** source-line and touched-line budgets below are
+advisory estimates. Source growth, temporary ceilings, and final strict shrink
+no longer block acceptance; measured performance has priority. Report exact
+counts and preserve original baselines. Structural targets, correctness and
+final verification remain required.
+
 Every editing item has one exclusive source/test owner in its own worktree.
 The integrator owns shared registrations, facades, registry, documentation,
 development automation, and merges. Source changes are accepted only after
