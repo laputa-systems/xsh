@@ -879,14 +879,13 @@ fn binding_names(program: &ArenaProgram, target: BindingTargetId) -> Vec<Name> {
     while let Some(target) = work.pop() {
         match program.arena.binding_target(target).kind {
             ArenaBindingTargetKind::Name(name) => names.push(name),
-            ArenaBindingTargetKind::Record { fields, .. } => work.extend(
-                program
-                    .arena
-                    .destructure_fields(fields)
-                    .iter()
-                    .map(|field| field.target),
-            ),
+            ArenaBindingTargetKind::Record { .. } => {}
         }
+        program.arena.for_each_binding_target_child(target, |child| {
+            if let ArenaChild::BindingTarget(child) = child {
+                work.push(child);
+            }
+        });
     }
     names
 }
