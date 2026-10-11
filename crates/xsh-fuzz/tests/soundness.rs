@@ -28,6 +28,8 @@ fn sandbox() -> Sandbox {
     Sandbox::new(PathBuf::from(test_bin!("xsh-fuzz")))
 }
 
+// The sandbox reads the Rust caller's environment before XSH starts, so a host
+// subprocess must arrange and verify this process-launch boundary.
 #[test]
 fn sandbox_preserves_explicit_llvm_profile_destination_only() {
     const WORKER: &str = "XSH_FUZZ_PROFILE_ENV_TEST_WORKER";
@@ -91,6 +93,8 @@ fn sandbox_preserves_explicit_llvm_profile_destination_only() {
     assert!(output.status.success(), "{output:?}");
 }
 
+// The absence case needs an uninstrumented child to observe environment
+// isolation without LLVM attempting a default-file write at child exit.
 #[test]
 fn sandbox_without_profile_destination_clears_caller_environment() {
     const WORKER: &str = "XSH_FUZZ_CLEAR_ENV_TEST_WORKER";
