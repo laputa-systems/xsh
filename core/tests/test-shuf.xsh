@@ -68,7 +68,7 @@ test test_shuf_random_source_matches_gnu { |ctx|
   let exhausted = shuf_run(ctx, root, ["--random-source=short", "-r", "-i", "1-99"])?
   assert exhausted.status == 1
   assert exhausted.stdout == b"38\n30\n10\n26\n23\n61\n46\n99\n75\n43\n10\n89\n10\n44\n24\n59\n22\n51\n"
-  assert exhausted.stderr == "shuf: end of random source\n", exhausted.stderr
+  assert exhausted.stderr == "shuf: 'short': end of file\n", exhausted.stderr
 }
 
 test test_shuf_output_file_and_errors { |ctx|
@@ -90,70 +90,68 @@ test test_shuf_output_file_and_errors { |ctx|
   assert empty.stderr == "shuf: no lines to repeat\n", empty.stderr
 
   let both = shuf_run(ctx, root, ["-e", "0", "-i", "0-2"])?
-  assert "cannot be used with" in both.stderr, both.stderr
+  assert "cannot combine -e and -i options" in both.stderr, both.stderr
 
   let range = shuf_run(ctx, root, ["-i", "5-3"])?
-  assert "invalid value '5-3' for '--input-range <LO-HI>': start exceeds end" in range.stderr, range.stderr
+  assert "invalid input range: '5-3'" in range.stderr, range.stderr
 
   let count = shuf_run(ctx, root, ["-n", "a"])?
-  assert "invalid value 'a' for '--head-count <COUNT>': invalid digit found in string" in count.stderr, count.stderr
+  assert "invalid line count: 'a'" in count.stderr, count.stderr
 
   let extra = shuf_run(ctx, root, ["a", "b"])?
-  assert "unexpected argument 'b' found" in extra.stderr, extra.stderr
+  assert "extra operand 'b'" in extra.stderr, extra.stderr
 
   let seed = shuf_run(ctx, root, ["--random-seed=x"])?
   assert seed.status == 1
   assert seed.stderr.starts_with("shuf: option '--random-seed' is not supported"), seed.stderr
 }
 
-test test_shuf_argument_diagnostics_match_uutils { |ctx|
+test test_shuf_argument_diagnostics_match_gnu { |ctx|
   let root = test.temp_dir(ctx, name: "shuf-errors")?
 
   let ranges = shuf_run(ctx, root, ["-i", "2-9", "-i", "2-9"])?
   assert ranges.status == 1
-  assert "--input-range" in ranges.stderr, ranges.stderr
-  assert "cannot be used multiple times" in ranges.stderr, ranges.stderr
+  assert ranges.stderr == "shuf: multiple -i options specified\nTry 'shuf --help' for more information.\n", ranges.stderr
 
   let outputs = shuf_run(ctx, root, ["-o", "file_a", "-o", "file_b"])?
   assert outputs.status == 1
-  assert "--output" in outputs.stderr, outputs.stderr
-  assert "cannot be used multiple times" in outputs.stderr, outputs.stderr
+  assert outputs.stderr == "shuf: multiple output files specified\nTry 'shuf --help' for more information.\n", outputs.stderr
 
   let pair = shuf_run(ctx, root, ["file_a", "file_b"])?
   assert pair.status == 1
-  assert "unexpected argument 'file_b' found" in pair.stderr, pair.stderr
+  assert "extra operand 'file_b'" in pair.stderr, pair.stderr
 
   let triple = shuf_run(ctx, root, ["file_a", "file_b", "file_c"])?
   assert triple.status == 1
-  assert "unexpected argument 'file_b' found" in triple.stderr, triple.stderr
+  assert "extra operand 'file_b'" in triple.stderr, triple.stderr
 
   let echo_range = shuf_run(ctx, root, ["-e", "0", "-i", "0-2"])?
   assert echo_range.status == 1
-  assert "cannot be used with" in echo_range.stderr, echo_range.stderr
+  assert "cannot combine -e and -i options" in echo_range.stderr, echo_range.stderr
 
   let range_file = shuf_run(ctx, root, ["-i", "0-9", "file"])?
   assert range_file.status == 1
-  assert "cannot be used with" in range_file.stderr, range_file.stderr
+  assert "extra operand 'file'" in range_file.stderr, range_file.stderr
 
   let missing_dash = shuf_run(ctx, root, ["-i", "0"])?
   assert missing_dash.status == 1
-  assert "invalid value '0' for '--input-range <LO-HI>': missing '-'" in missing_dash.stderr, missing_dash.stderr
+  assert "invalid input range: '0'" in missing_dash.stderr, missing_dash.stderr
 
   let bad_start = shuf_run(ctx, root, ["-i", "a-9"])?
   assert bad_start.status == 1
-  assert "invalid value 'a-9' for '--input-range <LO-HI>': invalid digit found in string" in bad_start.stderr, bad_start.stderr
+  assert "invalid input range: 'a-9'" in bad_start.stderr, bad_start.stderr
 
   let bad_end = shuf_run(ctx, root, ["-i", "0-b"])?
   assert bad_end.status == 1
-  assert "invalid value '0-b' for '--input-range <LO-HI>': invalid digit found in string" in bad_end.stderr, bad_end.stderr
+  assert "invalid input range: '0-b'" in bad_end.stderr, bad_end.stderr
 
   let descending = shuf_run(ctx, root, ["-i", "5-3"])?
   assert descending.status == 1
-  assert "invalid value '5-3' for '--input-range <LO-HI>': start exceeds end" in descending.stderr, descending.stderr
+  assert "invalid input range: '5-3'" in descending.stderr, descending.stderr
 
   let count = shuf_run(ctx, root, ["-n", "a"])?
   assert count.status == 1
-  assert "invalid value 'a' for '--head-count <COUNT>': invalid digit found in string" in count.stderr, count.stderr
+  assert "invalid line count: 'a'" in count.stderr, count.stderr
 }
 
 test test_shuf_large_ranges { |ctx|
@@ -200,7 +198,7 @@ test test_shuf_large_ranges { |ctx|
 
   let descending = shuf_run(ctx, root, ["-n1", "-i", "18446744073709551615-18446744073709551614"])?
   assert descending.status == 1
-  assert "start exceeds end" in descending.stderr, descending.stderr
+  assert "invalid input range" in descending.stderr, descending.stderr
 }
 
 test test_shuf_invalid_utf8_operands_are_raw_bytes { |ctx|
