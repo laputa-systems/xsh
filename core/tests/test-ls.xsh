@@ -1,4 +1,5 @@
 use core.lib.acl
+use core.lib.capability
 
 type Ran = {status: Int, out: Bytes, text: Str, err: Str}
 
@@ -857,4 +858,39 @@ test test_ls_gnu_option_and_environment_regressions { |ctx|
   assert "unrecognized option '--lo'" in invalid.err, invalid.err
   let unsupported = ls_in(ctx, work, ["--long"])?
   assert unsupported.status == 2, unsupported.err
+}
+
+
+test test_ls_capability_colors_precede_executables_and_suffixes { |ctx|
+  let work = sandbox(ctx)?
+  let file = fp"{work}/cap.txt"
+  file.write("", mode: 0o755)
+  let payload = capability.encode(capability.parse("cap_net_bind_service=ep")?)?
+  let installed = fs.xattr_set(file, "security.capability", payload)
+  if let Err(failure) = installed {
+    if (failure.errno ?? -1) in [1, 13, 93, 95] { test.skip(f"file capability fixture unavailable: {failure.message}"); return }
+    test.fail(failure.message)
+  }
+  fp"{work}/plain.txt".write("", mode: 0o644)
+  let vars = {LC_ALL: "C", TZ: "UTC", LS_COLORS: "ca=30;41:ex=32:*.txt=31:su=35:sg=36"}
+  let result = ls_in(ctx, work, ["--color=always", "cap.txt", "plain.txt"], vars)?
+  assert result.status == 0, result.err
+  assert result.err == "", result.err
+  assert result.text == "\u{1b}[0m\u{1b}[30;41mcap.txt\u{1b}[0m\n\u{1b}[31mplain.txt\u{1b}[0m\n", result.text
+  let absent = ls_in(ctx, work, ["--color=always", "cap.txt"], {LC_ALL: "C", TZ: "UTC", LS_COLORS: "di=:no=30;41:ex=:*.txt=31;41"})?
+  assert "\u{1b}[31;41mcap.txt" in absent.text, absent.text
+  file.chmod(0o4755)
+  let setuid = ls_in(ctx, work, ["--color=always", "cap.txt"], vars)?
+  assert "\u{1b}[35mcap.txt" in setuid.text, setuid.text
+  file.chmod(0o2755)
+  let setgid = ls_in(ctx, work, ["--color=always", "cap.txt"], vars)?
+  assert "\u{1b}[36mcap.txt" in setgid.text, setgid.text
+  file.chmod(0o755)
+  let disabled = ls_in(ctx, work, ["--color=always", "cap.txt"], {LC_ALL: "C", TZ: "UTC", LS_COLORS: "ca=00:ex=32:*.txt=31"})?
+  assert "\u{1b}[32mcap.txt" in disabled.text, disabled.text
+  for text in ["cap_net_bind_service=i", ""] {
+    fs.xattr_set(file, "security.capability", capability.encode(capability.parse(text)?)?)?
+    let record = ls_in(ctx, work, ["--color=always", "cap.txt"], vars)?
+    assert "\u{1b}[30;41mcap.txt" in record.text, record.text
+  }
 }

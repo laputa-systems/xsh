@@ -1,6 +1,7 @@
 #!/bin/xsh
 use lib.gnu
 use lib.fs_misc
+use lib.capability
 
 const USAGE = """Usage: {prog} [OPTION]... [FILE]...
 List information about the FILEs (the current directory by default).
@@ -317,7 +318,6 @@ const DEFAULT_COLORS: Map[Str] = {
   st: "37;44",
   ow: "34;42",
   tw: "30;42",
-  ca: "30;41",
   cl: "\u{1b}[K",
 }
 
@@ -1487,6 +1487,7 @@ type File = {
   st: FsStat,
   kind: Str,
   acl: Bool,
+  has_capability: Bool,
   arg: Bool,
   q: Bytes,
   qw: Int,
@@ -1687,6 +1688,30 @@ proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, proces
     false
   }
 
+  var has_capability = false
+  # Capability attributes are optional color metadata. Missing, inaccessible,
+  # and unsupported attributes leave the ordinary file style in place.
+  # A valid empty capability set still has a libcap text representation.
+  if ctx.color and is_colored(ctx.colors, "ca") and kind == "file" {
+    match fs.xattr_get(target, "security.capability", follow_symlinks: true) {
+      Ok(payload) => {
+        match capability.decode(payload) {
+          Ok(_) => has_capability = true
+          Err(problem) => {
+            gnu.error(f"invalid file capabilities for {gnu.quote(display)}: {problem.message}")
+            failed = true
+          }
+        }
+      }
+      Err(problem) => {
+        if gnu.errno(problem) not in [1, 2, 13, 38, 61, 93, 95] {
+          gnu.cannot_access(display, problem)
+          failed = true
+        }
+      }
+    }
+  }
+
   let shown = quote_name(ctx, name, ctx.qs)
   let file: File = File(
     raw: name,
@@ -1696,6 +1721,7 @@ proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, proces
     st:,
     kind:,
     acl:,
+    has_capability:,
     arg:,
     q: shown.q,
     qw: shown.w,
@@ -2178,6 +2204,8 @@ pure color_for(ctx: Ctx, f: File, target: Bool) -> Str? {
       code = "su"
     } else if mode_has(mode, 1024) and is_colored(colors, "sg") {
       code = "sg"
+    } else if f.has_capability {
+      code = "ca"
     } else if mode.bit_and(73) != 0 and is_colored(colors, "ex") {
       code = "ex"
     } else if f.st.nlink > 1 and is_colored(colors, "mh") {
