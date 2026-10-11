@@ -2758,6 +2758,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 ControlFlow::Continue(value) => {
                     self.push_value(index, FrameValue::Value(value), next);
                 }
+                ControlFlow::Break(value)
+                    if matches!(&value, LoweredValue::ResultErr(_))
+                        && matches!(self.evaluator.pending_value_block_flow, None | Some(StmtFlow::Propagate(_)))
+                        && with_initializer_handler(&next).is_some() =>
+                {
+                    // In-place propagation must still reach the active With initializer handler.
+                    self.push_value(index, FrameValue::Break(value), next);
+                }
                 ControlFlow::Break(value) => self.complete_expression_escape(index, value)?,
             }
             return Ok(());
