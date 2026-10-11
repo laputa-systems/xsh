@@ -5864,7 +5864,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 FrameValue::Value(value) => match step {
                     ExprPatternIfStep::Condition => {
                         if lowered_condition_bool(value, span)? {
-                            let body = self.expr_pattern_if_branch_value(
+                            let (body, _) = self.expr_pattern_if_branch_step(
                                 index,
                                 instruction,
                                 position,
@@ -5884,7 +5884,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             );
                         } else {
                             self.close_pattern_scope(index)?;
-                            let position = self.advance_expr_pattern_if(
+                            let (_, position) = self.expr_pattern_if_branch_step(
                                 index,
                                 instruction,
                                 position,
@@ -8353,13 +8353,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         Ok(())
     }
 
-    fn expr_pattern_if_branch_value(
+    fn expr_pattern_if_branch_step(
         &self,
         index: usize,
         instruction: u32,
         position: ExprPatternIfPosition,
         span: Span,
-    ) -> Result<u32, RuntimeError> {
+    ) -> Result<(u32, ExprPatternIfPosition), RuntimeError> {
         let view = expr_pattern_if_view(&self.calls[index].execution, instruction, span)?;
         let super::ExprView::PatternIf { mut branches, .. } = view else {
             unreachable!("pattern-if instruction has a matching borrowed expression view");
@@ -8378,35 +8378,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 )
                 .with_span(span)
             })?;
-        Ok(value.raw())
-    }
-
-    fn advance_expr_pattern_if(
-        &self,
-        index: usize,
-        instruction: u32,
-        position: ExprPatternIfPosition,
-        span: Span,
-    ) -> Result<ExprPatternIfPosition, RuntimeError> {
-        let view = expr_pattern_if_view(&self.calls[index].execution, instruction, span)?;
-        let super::ExprView::PatternIf { mut branches, .. } = view else {
-            unreachable!("pattern-if instruction has a matching borrowed expression view");
-        };
-        branches
-            .resume(position)
-            .map_err(|error| indexed_error(error, span))?;
-        branches
-            .next()
-            .transpose()
-            .map_err(|error| indexed_error(error, span))?
-            .ok_or_else(|| {
-                RuntimeError::new(
-                    "indexed-ir",
-                    "indexed IR verification failed: pattern-if cursor is exhausted",
-                )
-                .with_span(span)
-            })?;
-        Ok(branches.position())
+        Ok((value.raw(), branches.position()))
     }
 
     fn start_pattern_branch(
