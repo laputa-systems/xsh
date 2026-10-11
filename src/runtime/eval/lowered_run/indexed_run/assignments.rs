@@ -1,6 +1,6 @@
 use super::{
-    Arc, AssignOp, BLOCK_LIST, FullExecution, FullTag, LoweredTypeCheck, LoweredValue, MapKey,
-    ResolvedAssignStep, RuntimeError, Span, indexed_error, indexed_finish, indexed_raw,
+    Arc, AssignOp, ExprView, FullExecution, FullTag, LoweredTypeCheck, LoweredValue, MapKey,
+    ResolvedAssignStep, RuntimeError, Span, indexed_error,
     indexed_value, lowered_assign_value, lowered_map_literal_key, lowered_record_field,
     lowered_record_field_value, ValueView, value_matches_static_type,
 };
@@ -14,16 +14,17 @@ pub(super) fn indexed_assignment_operand(
     span: Span,
 ) -> Result<(u32, bool), RuntimeError> {
     if op == AssignOp::Add {
-        let (tag, mut payload) = indexed_value(execution.instruction_id(value), span)?;
+        let (tag, payload) = indexed_value(execution.instruction_id(value), span)?;
         if tag == FullTag::ExprList {
-            let (_, mut items) = execution
-                .block(&mut payload, BLOCK_LIST)
-                .map_err(|error| indexed_error(error, span))?;
-            if indexed_raw(&mut items, span)? == 1 {
-                let item = indexed_raw(&mut items, span)?;
-                indexed_finish(items, span)?;
-                indexed_finish(payload, span)?;
-                return Ok((item, true));
+            let ExprView::List(mut items) = ExprView::decode(execution, tag, payload)
+                .map_err(|error| indexed_error(error, span))?
+            else {
+                unreachable!("list instruction tag has a list view")
+            };
+            if items.len() == 1 {
+                let item = items.next().expect("singleton list has one operand")
+                    .map_err(|error| indexed_error(error, span))?;
+                return Ok((item.raw(), true));
             }
         }
     }
