@@ -44,6 +44,12 @@ test test_fs_children_for_yields_precollected_entries { |ctx|
   assert names == ["first", "second"]
 }
 
+test test_fs_dirs_stream_is_owned_before_materialization { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-dirs-owner")?
+  fp"{root}/nested".mkdir()
+  assert fs.dirs(root)? |> any .name == "nested"
+}
+
 test test_fs_walk_dynamic_stat_flag_preserves_metadata_boundary { |ctx|
   let root = test.temp_dir(ctx, name: "fs-walk-dynamic-stat")?
   fp"{root}/file.txt".write("data")

@@ -4301,10 +4301,13 @@ impl Evaluator {
         result: Result<StreamValue, RuntimeError>,
         span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
-        let stream = match result {
+        let mut stream = match result {
             Ok(stream) => stream,
             Err(error) => return Ok(lowered_result_err_value(error)),
         };
+        // fs.dirs materializes this intermediate stream immediately, so stamp
+        // its evaluator owner before the generic consumer validates and drains it.
+        self.register_returned_stream(&mut stream, span)?;
         let values = self.collect_stream_values(stream, span)?;
         lowered_runtime_value(Value::ok(Value::List(values)), span)
     }
