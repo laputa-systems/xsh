@@ -26,7 +26,8 @@ fn preserve_root(operand: &str, nested: bool, bind_root: bool) {
     let mut command = Command::new("strace");
     // Following threads is necessary: the applet's filesystem work can occur
     // outside the main thread. Decoded descriptor paths identify root descent.
-    command.args(["-f", "-yy", "-e", "trace=getdents64", "--"])
+    // Tracer exit also kills tracees when the bounded process guard times out.
+    command.args(["--kill-on-exit", "-f", "-yy", "-e", "trace=getdents64", "--"])
         .arg(rm.get_program()).args(rm.get_args())
         .args([if bind_root { "-ri" } else { "-rf" }, "--preserve-root"])
         .arg(target).current_dir(directory.path())
