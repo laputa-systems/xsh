@@ -18,7 +18,6 @@ pub struct CompactDeclOutput {
     pub static_callable_aliases: BTreeMap<crate::source::Span, super::StaticCallableAlias>,
     pub local_binding_types: BTreeMap<crate::source::Span, Type>,
     pub record_constructors: super::RecordConstructors,
-    pub record_constructor_types: FxHashMap<ExprId, Type>,
     pub bodies: CompactBodyFacts,
     pub prepared_constants: crate::sema::constants::PreparedConstants,
     pub wire_enums: crate::sema::wire_enums::PreparedWireEnums,
@@ -140,7 +139,7 @@ impl CompactBodyFacts {
     fn collect(
         program: &ArenaProgram,
         checked: &super::CheckOutput,
-    ) -> (Self, FxHashMap<ExprId, Type>) {
+    ) -> Self {
         let arena = &program.arena;
         let mut facts = Self {
             resolved_type_expressions: super::ResolvedTypeExpressions {
@@ -154,7 +153,6 @@ impl CompactBodyFacts {
             resource_transfers: checked.resource_transfers.clone(),
             ..Self::default()
         };
-        let mut record_constructor_types = FxHashMap::default();
         facts.expr_types.reserve(checked.expr_types.len());
         for index in 0..arena.expr_tags.len() {
             let id = ExprId::from_index(index);
@@ -200,11 +198,6 @@ impl CompactBodyFacts {
             }
             if let Some(constructor) = checked.error_constructors.get(&span) {
                 facts.error_constructors.insert(id, constructor.clone());
-            }
-            if let ArenaExprKind::Call { callee, .. } = expression.kind
-                && let Some(fact) = checked.record_constructor_instances.get(&span)
-            {
-                record_constructor_types.insert(callee, fact.ty.clone());
             }
             if matches!(expression.kind, ArenaExprKind::PatternCondition { .. })
                 && checked.optional_binding_spans.contains(&span)
@@ -296,7 +289,7 @@ impl CompactBodyFacts {
                 }
             }
         }
-        (facts, record_constructor_types)
+        facts
     }
 }
 
@@ -333,10 +326,9 @@ impl Checker {
             "lowering needs facts for embedded implementation bodies"
         );
         program.symbol_owner().with_current(|| {
-            let (bodies, record_constructor_types) = CompactBodyFacts::collect(program, &checked);
+            let bodies = CompactBodyFacts::collect(program, &checked);
             let mut output = checked.checked_declarations.into_compact();
             output.bodies = bodies;
-            output.record_constructor_types = record_constructor_types;
             output.function_effect_facts = checked.function_effect_facts;
             output.stream_stage_types = checked.stream_stage_types;
             output.static_callable_aliases = checked.static_callable_aliases;

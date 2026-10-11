@@ -6698,6 +6698,59 @@ mod named_spread_tests {
     }
 }
 
+#[cfg(test)]
+mod checked_constructor_fact_tests {
+    #[test]
+    fn missing_constructor_call_type_fact_blocks_lowering() {
+        use crate::syntax::arena::ArenaExprKind;
+
+        let name = "missing-constructor-type.xsh";
+        let source = "type Box[T] = {value: T}\nlet made = Box(value: 7)\n";
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+            name,
+            crate::loader::entry_source_from_text(name, source.to_string()),
+            Vec::new(),
+        );
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = sources.files()[0].id();
+        let call = (0..parsed.arena.arena.expr_tags.len())
+            .map(crate::syntax::arena::ExprId::from_index)
+            .find(|&id| {
+                matches!(
+                    parsed.arena.arena.expr(id).kind,
+                    ArenaExprKind::Call { .. }
+                )
+            })
+            .expect("constructor call");
+        let statement = parsed.arena.statement_ids().last().expect("binding");
+        let statement_span = parsed.arena.arena.stmt(statement).span;
+        let mut declarations = crate::sema::check::Checker::check_compact_declarations(
+            &parsed.arena,
+            &sources,
+            source_id,
+        );
+        assert!(
+            declarations.diagnostics.is_empty(),
+            "{:?}",
+            declarations.diagnostics
+        );
+        assert!(declarations.bodies.expr_types.remove(&call).is_some());
+
+        let error = match super::super::FullBuilder::build_compact(
+            &parsed.arena,
+            &declarations,
+            source,
+            std::sync::Arc::new(sources),
+            source_id,
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("missing constructor call type fact must block lowering"),
+        };
+        assert_eq!(error.construct, "top_level_boundary_blocker");
+        assert_eq!(error.span, Some(statement_span));
+    }
+}
+
 #[cfg(all(test, debug_assertions))]
 mod drift_tests {
     /// Lower every repository program and the embedded standard library, and

@@ -1469,6 +1469,51 @@ fn dynamic_boundary_record_facts_agree_across_checked_representations() {
 }
 
 #[test]
+fn compact_constructor_call_types_keep_each_checked_instance() {
+    use xsh::frontend::check::{CheckOptions, Type};
+    use xsh::frontend::syntax::arena::ArenaExprKind;
+
+    let source = "type Box[T] = {value: T}\nlet number = Box(value: 7)\nlet text = Box(value: \"seven\")\nconst flag = Box(value: true)\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena_with_options(
+        &parsed.arena,
+        source,
+        CheckOptions {
+            embedded_bodies: true,
+            ..CheckOptions::default()
+        },
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = compact_check(&parsed.arena, source);
+    assert!(
+        declarations.diagnostics.is_empty(),
+        "{:?}",
+        declarations.diagnostics
+    );
+
+    let mut arguments = Vec::new();
+    for raw in 0..parsed.arena.arena.expr_tags.len() {
+        let expression = xsh::frontend::syntax::arena::ExprId::from_index(raw);
+        let node = parsed.arena.arena.expr(expression);
+        if !matches!(node.kind, ArenaExprKind::Call { .. }) {
+            continue;
+        }
+        let Some(instance) = checked.record_constructor_instances.get(&node.span) else {
+            continue;
+        };
+        assert_eq!(
+            declarations.bodies.expr_types.get(&expression),
+            Some(&instance.ty),
+            "{}",
+            &source[node.span.range()]
+        );
+        arguments.push(instance.instance.arguments[0].clone());
+    }
+    assert_eq!(arguments, vec![Type::Int, Type::Str, Type::Bool]);
+}
+
+#[test]
 fn yield_delegation_keeps_checked_stream_sources_in_full_and_compact_facts() {
     let source = "stream lines(file: Path) [fs, error] -> Stream[Str] { yield @file.lines()?; yield @[\"last\"] }\nstream batches() [] -> Stream[List[Int]] { yield @[[], [1]] }\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);

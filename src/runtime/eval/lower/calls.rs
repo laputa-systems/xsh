@@ -483,11 +483,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 .defaults(definition)
                 .cloned()
                 .unwrap_or_default();
-            let schema = self
-                .declarations
-                .record_constructor_types
-                .get(&callee)
-                .cloned()?;
+            // The call expression holds its inferred instance; the callee only identifies
+            // its schema.
+            let schema = self.bodies.expr_types.get(&id).cloned()?;
             let mut supplied = FxHashSet::default();
             let mut fields = Vec::new();
             for (index, arg) in args_vec.iter().enumerate() {

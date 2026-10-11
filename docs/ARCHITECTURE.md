@@ -159,7 +159,9 @@ registered call (`CheckedApiCall`), argument bindings for user calls and stages
 (`CheckedArguments`), statement positions, function return and effect facts,
 and prepared constants. `CompactBodyFacts` re-keys them by
 arena identity. Lowering, lint, and annotation all consume these facts instead
-of re-deriving them. A program is checked once: the runner, `xsht check`, and
+of re-deriving them. Each record constructor call keeps its instantiated type
+on that call's expression fact; the callee identifies the schema, not the
+generic instance. A program is checked once: the runner, `xsht check`, and
 `xsht test` check with `CheckOptions::embedded_bodies`, render that check's
 diagnostics, and pass its output to `Checker::compact_declarations`.
 `Checker::check_compact_declarations` runs the same check for programs prepared
