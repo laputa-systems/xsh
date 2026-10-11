@@ -456,7 +456,10 @@ pure size(paths: List[Path]) -> Result[Int] {
 show(rel_items())
 let rels: List[RelPath] = ["a", "b"]
 let dynamic: Pure = size
-print ${dynamic.call(rels)?.require(Int)?}
+match dynamic.call(rels) {
+  Ok(value) => print ${value.require(Int)?}
+  Err(error) => Err(error)?
+}
 """,
     status: 0,
   )?
