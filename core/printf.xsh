@@ -530,7 +530,17 @@ pure exact_decimal_text(text: Str, places: Int) -> Str? {
   f"{integer}{if places > 0 { "." + kept_fraction } else { "" }}"
 }
 
-pure scan_escape(text: Bytes, slash: Int, zero_prefix: Bool = false) -> Result[Escape] {
+proc utf8_locale() [env] -> Bool {
+  var locale = ""
+  for name in ["LC_ALL", "LC_CTYPE", "LANG"] {
+    let value = env.get_or(name, "") ?? ""
+    if value != "" { locale = value; break }
+  }
+  let lower = locale.lower()
+  lower.find("utf-8") != null or lower.find("utf8") != null
+}
+
+pure scan_escape(text: Bytes, slash: Int, zero_prefix: Bool = false, utf8: Bool = true) -> Result[Escape] {
   let next = slash + 1
   if next >= text.len() { return {data: bytes.from_text("\\"), next: next, stop: false, issue: null} }
   let code = text[next..next + 1].utf8() ?? ""
@@ -583,7 +593,6 @@ pure scan_escape(text: Bytes, slash: Int, zero_prefix: Bool = false) -> Result[E
         {data: b"", next: text.len(), stop: false, issue: "missing hexadecimal number in escape"}
       } else {
         let raw = text[start..end]
-        let raw_escape = text[slash..end].utf8() ?? ""
         var value = 0
         var valid = true
         for at in range(digits) {
@@ -592,9 +601,9 @@ pure scan_escape(text: Bytes, slash: Int, zero_prefix: Bool = false) -> Result[E
         }
         let invalid_scalar = value > 1114111 or (value >= 55296 and value <= 57343)
         if ! valid or invalid_scalar {
-          {data: b"", next: end, stop: false, issue: "invalid universal character name " + raw_escape}
+          {data: b"", next: end, stop: false, issue: "invalid universal character name " + "\\" + code + (raw.utf8() ?? "").lower()}
         } else {
-          {data: bytes.from_text(codepoint_text(value)?), next: end, stop: false, issue: null}
+          {data: bytes.from_text(if utf8 or value < 128 { codepoint_text(value)? } else { "\\" + (if value <= 65535 { "u" + pad_text(radix_text(value, 16, false), 4, false, "0") } else { "U" + pad_text(radix_text(value, 16, false), 8, false, "0") }) }), next: end, stop: false, issue: null}
         }
       }
     }
@@ -602,14 +611,14 @@ pure scan_escape(text: Bytes, slash: Int, zero_prefix: Bool = false) -> Result[E
   }
 }
 
-pure unescape_bytes(text: Bytes) -> Result[Escape] {
+pure unescape_bytes(text: Bytes, utf8: Bool = true) -> Result[Escape] {
   var output: List[Bytes] = []
   var at = 0
 
   while at < text.len() {
     let byte = text.byte_at(at) ?? 0
     if byte == 92 {
-      let escaped = scan_escape(text, at, true)?
+      let escaped = scan_escape(text, at, true, utf8)?
       if let issue = escaped.issue { return {data: bytes.concat(output), next: escaped.next, stop: false, issue: issue} }
       if escaped.stop { return {data: bytes.concat(output), next: escaped.next, stop: true, issue: null} }
       output += [escaped.data]
@@ -746,7 +755,7 @@ proc conversion_text(spec: PrintfSpec, argument: PrintfArgument, width: Int, pre
   }
 
   if spec.conversion == "b" {
-    let expanded = unescape_bytes(argument.data)?
+    let expanded = unescape_bytes(argument.data, utf8_locale())?
     if let issue = expanded.issue {
       gnu.write_bytes(previous_output)
       gnu.error(issue)
@@ -836,7 +845,7 @@ proc render_pass(fmt: Bytes, values: List[PrintfArgument], first_argument: Int, 
   while at < fmt.len() {
     let byte = fmt.byte_at(at) ?? 0
     if byte == 92 {
-      let escaped = scan_escape(fmt, at)?
+      let escaped = scan_escape(fmt, at, utf8: utf8_locale())?
       if let issue = escaped.issue {
         gnu.write_bytes(bytes.concat([prefix_data, bytes.concat(output)]))
         gnu.error(issue)

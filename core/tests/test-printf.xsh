@@ -496,7 +496,7 @@ test test_printf_reports_malformed_hex_and_unicode_escapes { |ctx|
   assert missing_unicode.stderr == "printf: missing hexadecimal number in escape\n"
   assert invalid_unicode.status == 1
   assert invalid_unicode.stdout == ""
-  assert invalid_unicode.stderr == "printf: invalid universal character name \\uD9D0\n"
+  assert invalid_unicode.stderr == "printf: invalid universal character name \\ud9d0\n"
   assert bad_backslash_argument.status == 1
   assert bad_backslash_argument.stdout == "prefix"
   assert bad_backslash_argument.stderr == "printf: missing hexadecimal number in escape\n"
@@ -547,4 +547,13 @@ test test_printf_integer_minimum_is_representable { |ctx|
   assert past_maximum.status == 1
   assert past_maximum.stdout == "9223372036854775807"
   assert past_maximum.stderr == "printf: '9223372036854775808': Numerical result out of range\n"
+}
+
+test test_printf_c_locale_unicode_escape_fallback { |ctx|
+  let escaped = printf_run(ctx, ["\\u0125|\\U00000125"])?
+  assert escaped.status == 0, escaped.stderr
+  assert escaped.stdout == "\\u0125|\\u0125"
+  let invalid = printf_run(ctx, ["\\U0000D8F9"])?
+  assert invalid.status == 1
+  assert invalid.stderr == "printf: invalid universal character name \\U0000d8f9\n"
 }
