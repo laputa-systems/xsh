@@ -47,6 +47,7 @@ type ScriptReport = {
 type CoverageReport = {
   rows: List[CoverageRow],
   lowered_nodes: LoweredNodeCounts,
+  pattern_variants: Int,
   lowered_methods: List[Str],
   corpus: CorpusReport,
   procs: ProcReport,
@@ -102,6 +103,44 @@ pure enum_variants(source: Str, enum_name: Str) -> List[Str] {
 
       if name != "" {
         variants += [name]
+      }
+    }
+
+    depth += brace_delta(line)
+
+    return variants when depth <= 0
+  }
+
+  variants
+}
+
+pure schema_code_line(line: Str) -> Str {
+  line.split("//", maxsplit: 1).get(0) ?? line
+}
+
+pure instruction_schema_variants(source: Str) -> List[Str] {
+  var variants: List[Str] = []
+  var in_schema = false
+  var depth = 0
+
+  for raw in source.lines() {
+    let line = schema_code_line(raw).trim()
+
+    if ! in_schema {
+      if line == "instruction_schema! {" {
+        in_schema = true
+        depth = 1
+      }
+
+      continue
+    }
+
+    if line.split("=>", maxsplit: 1).len() == 2 and line.ends_with(";") {
+      let right = line.split("=>", maxsplit: 1).get(1) ?? ""
+      let tag = (right.split("=", maxsplit: 1).get(0) ?? "").trim()
+
+      if tag != "" {
+        variants += [tag]
       }
     }
 
@@ -1497,6 +1536,7 @@ pure render_report(report: CoverageReport) -> Str {
   lines += [f"  expressions: {report.lowered_nodes.expressions}"]
   lines += [f"  pipeline stages: {report.lowered_nodes.pipeline_stages}"]
   lines += [f"  types: {report.lowered_nodes.types}"]
+  lines += [f"  pattern variants: {report.pattern_variants}"]
   lines += [""]
   lines += [f"lowered method whitelist: {report.lowered_methods.len()}"]
   lines += [f"  {report.lowered_methods.join(", ")}"]
@@ -1599,17 +1639,20 @@ let root = opts.root.resolve()?
 let arena_path = fp"{root}/src/syntax/arena.rs"
 let node_path = fp"{root}/src/syntax/node.rs"
 let eval_path = fp"{root}/src/runtime/eval.rs"
-let indexed_path = fp"{root}/src/runtime/eval/indexed/full.rs"
+let indexed_schema_path = fp"{root}/src/runtime/eval/indexed/full/schema.rs"
 let arena_source = arena_path.read_text()?
 let node_source = node_path.read_text()?
 let eval_source = eval_path.read_text()?
-let indexed_source = indexed_path.read_text()?
+let indexed_source = indexed_schema_path.read_text()?
 let stmt_variants = enum_variants(arena_source, "ArenaStmtKind")
 let expr_variants = enum_variants(arena_source, "ArenaExprKind")
 let type_variants = enum_variants(arena_source, "ArenaTypeExprTag")
 let binary_variants = enum_variants(node_source, "BinaryOp")
 let assign_variants = enum_variants(node_source, "AssignOp")
-let indexed_variants = enum_variants(indexed_source, "FullTag")
+let indexed_variants = instruction_schema_variants(indexed_source)
+let pattern_variants = enum_variants(indexed_source, "FullPatternTag")
+assert ! indexed_variants.is_empty(), "instruction_schema! has no readable rows"
+assert ! pattern_variants.is_empty(), "pattern_schema! has no readable FullPatternTag rows"
 var indexed_stmt_variants: List[Str] = []
 var indexed_expr_variants: List[Str] = []
 
@@ -1699,6 +1742,7 @@ let report = CoverageReport(
     pipeline_stages: lowered_pipeline_stage_variants.len(),
     types: lowered_type_variants.len(),
   },
+  pattern_variants: pattern_variants.len(),
   lowered_methods:,
   corpus: scan_corpus(root, lowered_methods)?,
   procs: scan_proc_corpus(root, lowered_methods)?,

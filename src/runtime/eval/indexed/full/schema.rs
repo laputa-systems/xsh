@@ -1,20 +1,288 @@
 use super::{
     Arc, AssignOp, BinaryOp, BorrowCodec, BuildBoolId, BuildExprId, BuildIntId, BuildPatternId,
-    BuildStmtId, DecodeContext, DurationValue, EFFECT_CANCELLATION, EFFECT_CWD, EFFECT_DEFER,
+    BuildPatternIdSlots, BuildPatternRow, BuildStmtId, DecodeContext, DurationValue,
+    EFFECT_CANCELLATION, EFFECT_CWD, EFFECT_DEFER,
     EFFECT_DYNAMIC_CALL, EFFECT_ENV, EFFECT_HOST, EFFECT_PROCESS, EFFECT_PROPAGATE, EFFECT_TRACE,
     FloatValue, FullBuilder, FullCodec, FullCursor, FullDecoder, FullExecution, FullPayload,
     FunctionName, FxHashMap, IrBuildError, IrVerifyError, LoweredAssignPath, LoweredCallArg,
-    LoweredCompQualifiers, LoweredCompTarget, LoweredErrorExpr, LoweredFmtPart,
+    LoweredCompQualifiers, LoweredCompTarget, LoweredErrorExpr, LoweredErrorPatternFields,
+    LoweredFmtPart,
     LoweredFunctionKey, LoweredPipelineStage, LoweredProcessCommandArgv,
     LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredRecordUpdates,
     LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment, LoweredSpawnRun,
     LoweredStrPredicate, LoweredType, LoweredTypeCheck, LoweredValue, Name, NameText, PathValue,
     PreparedConstantValue, QualifiedName, RegexValue, RuntimeOp, ScanBytes, ScanCheck, Span,
-    Type, verify_node_metadata,
+    Type, text_hole_kind, verify_node_metadata,
 };
 
 macro_rules! ignore_field {
     ($field:ident) => { _ };
+}
+
+macro_rules! pattern_encode_payload {
+    (Normal, $builder:ident, $payload:ident) => {};
+    (Normal, $builder:ident, $payload:ident, { $($field:ident),* $(,)? }) => {
+        $($field.encode($builder, &mut $payload)?;)*
+    };
+    (Normal, $builder:ident, $payload:ident, ($field:ident)) => {
+        $field.encode($builder, &mut $payload)?;
+    };
+    (Text, $builder:ident, $payload:ident, { $holes:ident, $kinds:ident, $segments:ident $(,)? }) => {
+            if $kinds.len() != $holes.len() || $segments.len() != $holes.len() + 1 {
+                return Err(IrBuildError::format(
+                    "full_ir_text_pattern",
+                    None,
+                    0,
+                    $builder.store.tags.len(),
+                ));
+            }
+            $holes.encode($builder, &mut $payload)?;
+            for kind in $kinds {
+                $payload.push(*kind as u32);
+            }
+            for segment in $segments {
+                segment.encode($builder, &mut $payload)?;
+            }
+    };
+}
+
+macro_rules! pattern_decode_row {
+    ($variant:ident, Normal, $decoder:ident, $payload:ident) => {
+        Self::$variant
+    };
+    ($variant:ident, Normal, $decoder:ident, $payload:ident, { $($field:ident: $field_ty:ty $(=> $verify_ty:ty)?),* $(,)? }) => {
+        Self::$variant {
+            $($field: <$field_ty>::decode($decoder, &mut $payload)?,)*
+        }
+    };
+    ($variant:ident, Normal, $decoder:ident, $payload:ident, ($field:ident: $field_ty:ty)) => {
+        Self::$variant(
+            <$field_ty>::decode($decoder, &mut $payload)?,
+        )
+    };
+    ($variant:ident, Text, $decoder:ident, $payload:ident, { $($fields:tt)* }) => {
+        {
+            let holes = Vec::<BuildPatternId>::decode($decoder, &mut $payload)?;
+            let mut kinds = Vec::with_capacity(holes.len());
+            for _ in 0..holes.len() {
+                kinds.push(text_hole_kind($payload.raw()?)?);
+            }
+            let mut segments = Vec::with_capacity(holes.len() + 1);
+            for _ in 0..=holes.len() {
+                segments.push(Arc::<str>::decode($decoder, &mut $payload)?);
+            }
+            Self::$variant { holes, kinds, segments }
+        }
+    };
+}
+
+macro_rules! pattern_verify_field {
+    ($decoder:ident, $payload:ident, $field_ty:ty) => {
+        <$field_ty>::verify($decoder, &mut $payload)?;
+    };
+    ($decoder:ident, $payload:ident, $field_ty:ty => $verify_ty:ty) => {
+        <$verify_ty>::verify($decoder, &mut $payload)?;
+    };
+}
+
+macro_rules! pattern_verify_fields {
+    ($decoder:ident, $payload:ident, { $($field:ident: $field_ty:ty $(=> $verify_ty:ty)?),* $(,)? }) => {
+        $(pattern_verify_field!($decoder, $payload, $field_ty $(=> $verify_ty)?);)*
+    };
+}
+
+macro_rules! pattern_verify_constraint {
+    (None, $decoder:ident, $index:ident, $payload:ident) => {};
+    (CaptureSlots, $decoder:ident, $index:ident, $payload:ident) => {
+        $decoder.pattern_capture_slots($index)?;
+    };
+    (ListRest, $decoder:ident, $index:ident, $payload:ident) => {
+        let mut rest_payload = $payload;
+        Vec::<BuildPatternId>::verify($decoder, &mut rest_payload)?;
+        if bool::decode($decoder, &mut rest_payload)? {
+            let rest = rest_payload.raw()? as usize;
+            if !matches!(
+                $decoder.store.patterns.get(rest),
+                Some(FullPatternTag::Wildcard | FullPatternTag::Bind)
+            ) {
+                return Err(IrVerifyError::new("list rest must be a wildcard or binding"));
+            }
+        }
+    };
+    (Alternation, $decoder:ident, $index:ident, $payload:ident) => {
+        let mut alternatives = $payload;
+        let mut children = $decoder.pattern_list_cursor(&mut alternatives)?;
+        let count = children.raw()? as usize;
+        if count < 2 {
+            return Err(IrVerifyError::new(
+                "alternative pattern requires at least two choices",
+            ));
+        }
+        let mut common = None;
+        for _ in 0..count {
+            let child = children.raw()? as usize;
+            let captures = $decoder.pattern_capture_slots(child)?;
+            if common.as_ref().is_some_and(|common| common != &captures) {
+                return Err(IrVerifyError::new(
+                    "pattern alternatives must publish identical capture slots",
+                ));
+            }
+            common = Some(captures);
+        }
+        children.finish()?;
+    };
+}
+
+macro_rules! pattern_verify_row {
+    ($variant:ident, Normal, $decoder:ident, $payload:ident, $index:ident, $semantic_payload:ident, $constraint:ident) => {
+        pattern_verify_constraint!($constraint, $decoder, $index, $semantic_payload);
+    };
+    ($variant:ident, Normal, $decoder:ident, $payload:ident, $index:ident, $semantic_payload:ident, $constraint:ident, { $($field:ident: $field_ty:ty $(=> $verify_ty:ty)?),* $(,)? }) => {
+        pattern_verify_fields!($decoder, $payload, { $($field: $field_ty $(=> $verify_ty)?),* });
+        pattern_verify_constraint!($constraint, $decoder, $index, $semantic_payload);
+    };
+    ($variant:ident, Normal, $decoder:ident, $payload:ident, $index:ident, $semantic_payload:ident, $constraint:ident, ($field:ident: $field_ty:ty)) => {
+        pattern_verify_field!($decoder, $payload, $field_ty);
+        pattern_verify_constraint!($constraint, $decoder, $index, $semantic_payload);
+    };
+    ($variant:ident, Text, $decoder:ident, $payload:ident, $index:ident, $semantic_payload:ident, $constraint:ident, { holes: $holes_ty:ty, kinds: $kinds_ty:ty, segments: $segments_ty:ty $(,)? }) => {
+        let mut children_payload = $semantic_payload;
+        Vec::<BuildPatternId>::verify($decoder, &mut $payload)?;
+        let mut children = $decoder.pattern_list_cursor(&mut children_payload)?;
+        let count = children.raw()? as usize;
+        for _ in 0..count {
+            let hole = children.raw()? as usize;
+            if !matches!(
+                $decoder.store.patterns.get(hole),
+                Some(FullPatternTag::Wildcard | FullPatternTag::Bind)
+            ) {
+                return Err(IrVerifyError::new(
+                    "text pattern hole must be a wildcard or binding",
+                ));
+            }
+        }
+        children.finish()?;
+        for _ in 0..count {
+            text_hole_kind($payload.raw()?)?;
+        }
+        for segment_index in 0..=count {
+            let segment = $decoder.store.string($payload.raw()?)?;
+            if segment.is_empty() && segment_index != 0 && segment_index != count {
+                return Err(IrVerifyError::new(
+                    "text pattern holes must be separated by text",
+                ));
+            }
+        }
+    };
+}
+
+macro_rules! pattern_schema {
+    (
+        $enum_keyword:ident $tag_enum:ident {
+            $(
+                $variant:ident = $ordinal:literal
+                $({ $($field:ident: $field_ty:ty $(=> $verify_ty:ty)?),* $(,)? })?
+                $(($tuple_field:ident: $tuple_ty:ty))?
+                [$mode:ident, $constraint:ident]
+            ),* $(,)?
+        }
+    ) => {
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        #[repr(u8)]
+        pub(in crate::runtime::eval) enum $tag_enum {
+            $($variant = $ordinal,)*
+        }
+
+        pub(in crate::runtime::eval) const PATTERN_TAGS: &[FullPatternTag] = &[
+            $(FullPatternTag::$variant,)*
+        ];
+
+        impl FullCodec for BuildPatternRow {
+            fn encode(
+                &self,
+                builder: &mut FullBuilder,
+                output: &mut Vec<u32>,
+            ) -> Result<(), IrBuildError> {
+                let row = self;
+                let mut payload = builder.take_payload();
+                let tag = match row {
+                    $(Self::$variant
+                        $( { $($field),* })?
+                        $(($tuple_field))?
+                        => {
+                            pattern_encode_payload!(
+                                $mode, builder, payload
+                                $(, { $($field),* })?
+                                $(, ($tuple_field))?
+                            );
+                            FullPatternTag::$variant
+                        },)*
+                };
+                let pattern = builder.push_pattern(tag, &payload);
+                builder.recycle_payload(payload);
+                output.push(pattern?);
+                Ok(())
+            }
+
+            fn decode(
+                decoder: &FullDecoder<'_>,
+                input: &mut FullCursor<'_>,
+            ) -> Result<Self, IrVerifyError> {
+                let index = input.raw()? as usize;
+                let tag = decoder
+                    .store
+                    .patterns
+                    .get(index)
+                    .copied()
+                    .ok_or_else(|| IrVerifyError::new("pattern id is out of bounds"))?;
+                let data = decoder.store.pattern_data[index];
+                let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
+                let pattern = match tag {
+                    $(FullPatternTag::$variant => pattern_decode_row!(
+                        $variant, $mode, decoder, payload
+                        $(, { $($field: $field_ty $(=> $verify_ty)?),* })?
+                        $(, ($tuple_field: $tuple_ty))?
+                    ),)*
+                };
+                payload.finish()?;
+                Ok(pattern)
+            }
+
+            fn verify(
+                decoder: &FullDecoder<'_>,
+                input: &mut FullCursor<'_>,
+            ) -> Result<(), IrVerifyError> {
+                let index = input.raw()? as usize;
+                let parent = decoder.pattern_ceiling.get();
+                if index >= parent {
+                    return Err(IrVerifyError::new("nested pattern must precede its parent"));
+                }
+                decoder.pattern_ceiling.set(index);
+                let tag = decoder
+                    .store
+                    .patterns
+                    .get(index)
+                    .copied()
+                    .ok_or_else(|| IrVerifyError::new("pattern id is out of bounds"))?;
+                let data = decoder.store.pattern_data[index];
+                let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
+                match tag {
+                    $(FullPatternTag::$variant => {
+                        let _semantic_payload = payload;
+                        pattern_verify_row!(
+                            $variant, $mode, decoder, payload, index, _semantic_payload,
+                            $constraint
+                            $(, { $($field: $field_ty $(=> $verify_ty)?),* })?
+                            $(, ($tuple_field: $tuple_ty))?
+                        );
+                    },)*
+                }
+                payload.finish()?;
+                decoder.pattern_ceiling.set(parent);
+                Ok(())
+            }
+        }
+    };
 }
 
 macro_rules! instruction_schema {
@@ -947,9 +1215,83 @@ instruction_schema! {
     }
 }
 
+pattern_schema! {
+    enum FullPatternTag {
+        Alias = 0 {
+            pattern: BuildPatternId,
+            slot: usize,
+        } [Normal, CaptureSlots],
+        Alternation = 1 {
+            patterns: Vec<BuildPatternId>,
+        } [Normal, Alternation],
+        List = 2 {
+            elements: Vec<BuildPatternId>,
+            rest: Option<BuildPatternId>,
+        } [Normal, ListRest],
+        TagType = 3 {
+            type_name: Name,
+            variants: Vec<Name>,
+        } [Normal, None],
+        RecordTest = 4 {
+            fields: Vec<(Name, BuildPatternId)> => Box<Vec<(Name, BuildPatternId)>>,
+        } [Normal, None],
+        ResultTest = 5 {
+            ok: bool,
+            inner: BuildPatternId,
+        } [Normal, None],
+        TagTest = 6 {
+            type_name: Name,
+            name: Name,
+            fields: Vec<BuildPatternId>,
+        } [Normal, None],
+        ErrorTest = 7 {
+            family: Name,
+            variant: Name,
+            fields: Vec<(Name, BuildPatternId)> => Box<Vec<(Name, BuildPatternId)>>,
+        } [Normal, None],
+        Wildcard = 8 [Normal, None],
+        Bind = 9 {
+            slot: usize,
+        } [Normal, None],
+        Type = 10 {
+            ty: Type,
+            slot: Option<usize>,
+        } [Normal, None],
+        Literal = 11 (value: LoweredValue) [Normal, None],
+        ResultOk = 12 {
+            slot: Option<usize>,
+            unit_only: bool,
+        } [Normal, None],
+        ResultErr = 13 {
+            slot: Option<usize>,
+            unit_only: bool,
+        } [Normal, None],
+        ErrorVariant = 14 {
+            family: Name,
+            variant: Name,
+            fields: Box<LoweredErrorPatternFields>,
+            result_wrapped: bool,
+        } [Normal, None],
+        Facet = 15 {
+            facet: Name,
+            result_wrapped: bool,
+        } [Normal, None],
+        Tag = 16 {
+            type_name: Name,
+            name: Name,
+            slots: BuildPatternIdSlots,
+        } [Normal, None],
+        Text = 17 {
+            holes: Vec<BuildPatternId>,
+            kinds: Vec<crate::sema::check::TextHoleKind>,
+            segments: Vec<Arc<str>>,
+        } [Text, None],
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{INSTRUCTION_TAGS, InPlaceClass};
+    use super::{FullPatternTag, INSTRUCTION_TAGS, InPlaceClass, PATTERN_TAGS};
 
     #[test]
     fn instruction_classes_include_only_operations_that_never_run_script() {
@@ -1047,5 +1389,14 @@ mod tests {
             let expected = if names.contains(&tag.name()) { InPlaceClass::Operands } else { InPlaceClass::Scheduled };
             assert_eq!(tag.in_place_class(), expected, "{}", tag.name());
         }
+    }
+
+    #[test]
+    fn pattern_schema_preserves_all_tag_ordinals() {
+        assert_eq!(PATTERN_TAGS.len(), 18);
+        for (ordinal, tag) in PATTERN_TAGS.iter().enumerate() {
+            assert_eq!(*tag as usize, ordinal);
+        }
+        assert_eq!(FullPatternTag::Text as u8, 17);
     }
 }

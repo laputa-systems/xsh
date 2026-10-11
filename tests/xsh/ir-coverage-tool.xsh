@@ -25,6 +25,7 @@ type IRLoweredCounts = {statements: Int, expressions: Int, pipeline_stages: Int,
 type IRWireReport = {
   rows: List[IRRow],
   lowered_nodes: IRLoweredCounts,
+  pattern_variants: Int,
   lowered_methods: List[Str],
   corpus: IRCorpusReport[IRPureScan],
   procs: IRCorpusReport[IRProcScan],
@@ -38,6 +39,7 @@ test test_ir_coverage_cli_retains_typed_report_and_scan_counts { |ctx|
   fp"{root}/src/sema".mkdir()
   fp"{root}/src/sema/records.rs".write_atomic("")
   fp"{root}/src/runtime/eval/indexed".mkdir()
+  fp"{root}/src/runtime/eval/indexed/full".mkdir()
   fp"{root}/core".mkdir()
   fp"{root}/src/syntax/arena.rs".write_atomic("""
 pub enum ArenaStmtKind {
@@ -70,12 +72,23 @@ const LOWERED_METHOD_NAMES: &[&str] = &[
     "len",
 ];
 """)
-  fp"{root}/src/runtime/eval/indexed/full.rs".write_atomic("""
-pub enum FullTag {
-    StmtLet,
-    ExprInt,
+  fp"{root}/src/runtime/eval/indexed/full/schema.rs".write_atomic("""
+instruction_schema! {
+    BuildStmtRow => StmtView [Stmt] {
+        Let => StmtLet = 0 [0; Operands];
+    }
+    BuildExprRow => ExprView [Expr] {
+        Int(value: i64) => ExprInt = 1 [0; Operands];
+    }
+}
+pattern_schema! {
+    enum FullPatternTag {
+        Wildcard = 0 [Normal, None],
+        Bind = 1 { slot: usize } [Normal, None],
+    }
 }
 """)
+  fp"{root}/src/runtime/eval/indexed/full.rs".write_atomic("pub use schema::FullTag;\n")
   fp"{root}/core/sample.xsh".write_atomic("""
 pure identity(value: Int) -> Int { value }
 proc count() [] -> Int { 1 }
@@ -101,6 +114,7 @@ let values = [1, 2] |> batch(count: 1)
   assert report.rows[0].total == 2
   assert report.rows[0].unsupported == ["Command"]
   assert report.lowered_nodes == {statements: 1, expressions: 1, pipeline_stages: 1, types: 1}
+  assert report.pattern_variants == 2
   assert report.lowered_methods == ["len"]
   assert report.corpus.total == 1
   assert report.corpus.lowerable == 1
@@ -128,6 +142,7 @@ test test_ir_coverage_scans_multiline_top_level_regions_once { |ctx|
   fp"{root}/src/sema".mkdir()
   fp"{root}/src/sema/records.rs".write_atomic("")
   fp"{root}/src/runtime/eval/indexed".mkdir()
+  fp"{root}/src/runtime/eval/indexed/full".mkdir()
   fp"{root}/src/syntax/arena.rs".write_atomic("""
 pub enum ArenaStmtKind {
     Let,
@@ -215,12 +230,24 @@ fn lowered_method_name(name: &str) -> bool {
     matches!(name, "lower" | "len")
 }
 """)
-  fp"{root}/src/runtime/eval/indexed/full.rs".write_atomic("""
-enum FullTag {
-    ExprStr,
-    StmtLet,
+  fp"{root}/src/runtime/eval/indexed/full/schema.rs".write_atomic("""
+instruction_schema! {
+    BuildExprRow => ExprView [Expr] {
+        Str(value: Arc<str>) => ExprStr = 0 [0; Operands];
+    }
+    BuildStmtRow => StmtView [Stmt] {
+        Let => StmtLet = 1 [0; Operands];
+    }
+}
+pattern_schema! {
+    enum FullPatternTag {
+        Wildcard = 0 [Normal, None],
+        Bind = 1 { slot: usize } [Normal, None],
+        Text = 2 { holes: Vec<Id> } [Text, None],
+    }
 }
 """)
+  fp"{root}/src/runtime/eval/indexed/full.rs".write_atomic("pub use schema::FullTag;\n")
   # The scanned script holds block strings of its own, written here with
   # `'''` where it has three double quotes.
   let script = r"""
@@ -278,6 +305,7 @@ let value = helper("OK")
   assert succeeded, diagnostic
   let report = json.read(report_path)?.require(IRWireReport)?
   assert report.script.total == 6
+  assert report.pattern_variants == 3
   assert report.script.reasons[0].reason == "expr.pipeline"
   assert ! [found for found in report.script.groups if found.group == "expression" and found.total == 1].is_empty()
   for reason in report.script.reasons {
@@ -287,6 +315,53 @@ let value = helper("OK")
   for reason in report.procs.reasons {
     assert reason.reason != "type.param.true"
   }
+}
+
+test test_ir_coverage_reads_the_repository_schema_source { |ctx|
+  let repo = fs.cwd()?
+  let root = test.temp_dir(ctx, name: "ir-coverage-source")?.resolve()?
+  fp"{root}/src/syntax".mkdir()
+  fp"{root}/src/sema".mkdir()
+  fp"{root}/src/sema/records.rs".write_atomic("")
+  fp"{root}/src/runtime/eval/indexed/full".mkdir()
+  fp"{root}/core".mkdir()
+  fp"{root}/src/syntax/arena.rs".write_atomic("""
+pub enum ArenaStmtKind { Let }
+pub enum ArenaExprKind { Int }
+pub enum ArenaTypeExprTag { Named }
+""")
+  fp"{root}/src/syntax/node.rs".write_atomic("""
+pub enum BinaryOp { Add }
+pub enum AssignOp { Set }
+""")
+  fp"{root}/src/runtime/eval.rs".write_atomic("""
+enum LoweredPipelineStage { Map }
+enum LoweredType { Int }
+const LOWERED_METHOD_NAMES: &[&str] = &["len"];
+""")
+  fp"{root}/src/runtime/eval/indexed/full/schema.rs".write_atomic(
+    fp"{repo}/src/runtime/eval/indexed/full/schema.rs".read_text()?,
+  )
+  fp"{root}/src/runtime/eval/indexed/full.rs".write_atomic("pub use schema::FullTag;\n")
+  let output_root = test.temp_dir(ctx, name: "ir-coverage-repo")?.resolve()?
+  let report_path = fp"{output_root}/ir.json"
+  let stdout_path = fp"{output_root}/stdout.txt"
+  let stderr_path = fp"{output_root}/stderr.txt"
+  let xsh = ctx.xsh_bin
+  let tool = fp"{repo}/tools/xsh-ir-coverage.xsh"
+  let command = process.command {
+    stdout = stdout_path
+    stderr = stderr_path
+    run $xsh $tool -- --root $root --json $report_path
+  }
+  let status = process.run(command)?
+  let diagnostic = stderr_path.read_text()?
+  assert status.exited_with(0), diagnostic
+  let report = json.read(report_path)?.require(IRWireReport)?
+  assert report.lowered_nodes.statements > 0
+  assert report.lowered_nodes.expressions > 0
+  assert report.pattern_variants == 18
+  assert "pattern variants: 18" in stdout_path.read_text()?
 }
 
 test test_ir_coverage_report_validation_rejects_incomplete_wire_data {
