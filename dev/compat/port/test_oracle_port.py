@@ -37,7 +37,7 @@ class OraclePortTests(unittest.TestCase):
         rewritten = (corpus / "core/tests/support/uu.xsh").read_text()
         self.assertEqual(rewritten.count('let executable = process.which(util)?'), 3)
         self.assertIn('let words = [executable].extend(args)', rewritten)
-        self.assertEqual(rewritten.count("process.command_argv(s.ctx.xsh_bin, argv,"), 3)
+        self.assertEqual(rewritten.count("process.command_argv(s.ctx.xsh_bin, argv,"), 6)
         # Everything after the launch sites, including byte assertions, is unchanged.
         assertions = self.helper.index("## Creates a directory and every missing parent")
         self.assertTrue(rewritten.endswith(self.helper[assertions:]))
@@ -47,6 +47,15 @@ class OraclePortTests(unittest.TestCase):
         self.assertEqual(rewritten.count('let executable = p"/bin/busybox"'), 3)
         self.assertEqual(rewritten.count('[executable.display(), util].extend(args)'), 2)
         self.assertIn('[executable, fp"{util}"].extend(args)', rewritten)
+
+    def test_native_separator_is_removed_only_from_interpreter_prefix(self):
+        for reference in ("gnu", "busybox"):
+            rewritten = oracle_port.rewrite_helper(self.helper, reference)
+            self.assertNotIn('script.display(), "--"', rewritten)
+            self.assertNotIn('script, p"--"', rewritten)
+            self.assertEqual(rewritten.count(".extend(args)"), self.helper.count(".extend(args)"))
+            self.assertIn("timeout: timeout", rewritten)
+            self.assertIn("export proc command(", rewritten)
 
     def test_changed_launch_shape_fails_before_running_oracle(self):
         with self.assertRaisesRegex(ValueError, "helper launch shape changed"):

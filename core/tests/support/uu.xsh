@@ -88,6 +88,36 @@ export proc exists(s: Scene, name: Str) [fs, error] -> Result[Bool, Error] {
   Ok(fp"{s.root}/{name}".exists()?)
 }
 
+## Creates an isolated applet command for callers that own spawning and waiting.
+## Parallel callers must supply distinct capture paths or explicitly shared append paths.
+## A zero timeout leaves the process unbounded; positive timeouts bound its lifetime.
+export proc command(
+  s: Scene,
+  util: Str,
+  args: List[Str],
+  stdin: Bytes = b"",
+  vars: Record = {},
+  stdout: Path? = null,
+  stderr: Path? = null,
+  stdout_append: Bool = false,
+  stderr_append: Bool = false,
+  timeout: Duration = 0ms,
+) [process, env, error] -> Result[Command, Error] {
+  let out = stdout ?? fp"{s.root}/.uu-stdout"
+  let err = stderr ?? fp"{s.root}/.uu-stderr"
+  let script = fp"{s.ctx.core_dir}/{util}.xsh"
+  let words = [s.ctx.xsh_bin.display(), script.display(), "--"].extend(args)
+  let launcher = fp"{s.ctx.core_dir}/tests/support/uu-launch.xsh"
+  let argv = [s.ctx.xsh_bin.display(), launcher.display(), json.encode(vars.keys())?].extend(words)
+  let plan = if timeout == 0ms {
+    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append)
+  } else {
+    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append, timeout: timeout)
+  }
+  Ok(plan)
+}
+
+
 ## Runs `util` with `args`, feeding `stdin`. `vars` overrides the isolated test environment.
 ## Explicit output paths belong to the caller and are neither captured nor removed.
 export proc invoke(
@@ -100,14 +130,9 @@ export proc invoke(
   stderr: Path? = null,
   stdout_append: Bool = false,
   stderr_append: Bool = false,
+  timeout: Duration = 0ms,
 ) [fs, process, env, error] -> Result[Ran, Error] {
-  let out = stdout ?? fp"{s.root}/.uu-stdout"
-  let err = stderr ?? fp"{s.root}/.uu-stderr"
-  let script = fp"{s.ctx.core_dir}/{util}.xsh"
-  let words = [s.ctx.xsh_bin.display(), script.display()].extend(args)
-  let launcher = fp"{s.ctx.core_dir}/tests/support/uu-launch.xsh"
-  let argv = [s.ctx.xsh_bin.display(), launcher.display(), json.encode(vars.keys())?].extend(words)
-  let plan = process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append)
+  let plan = command(s, util, args, stdin, vars, stdout, stderr, stdout_append, stderr_append, timeout)?
   finish(s, util, args, plan, stdout == null, stderr == null)
 }
 
@@ -135,13 +160,19 @@ export proc invoke_paths(
   args: List[Path],
   stdin: Bytes = b"",
   vars: Record = {},
+  timeout: Duration = 0ms,
 ) [fs, process, env, error] -> Result[Ran, Error] {
   let script = fp"{s.ctx.core_dir}/{util}.xsh"
-  let words = [s.ctx.xsh_bin, script].extend(args)
+  let words = [s.ctx.xsh_bin, script, p"--"].extend(args)
   let launcher = fp"{s.ctx.core_dir}/tests/support/uu-launch.xsh"
   let argv = [s.ctx.xsh_bin, launcher, Path(json.encode(vars.keys())?)].extend(words)
-  let plan = process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin,
-    fp"{s.root}/.uu-stdout", fp"{s.root}/.uu-stderr")
+  let out = fp"{s.root}/.uu-stdout"
+  let err = fp"{s.root}/.uu-stderr"
+  let plan = if timeout == 0ms {
+    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err)
+  } else {
+    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, timeout: timeout)
+  }
   finish(s, util, [word.display() for word in args], plan)
 }
 
@@ -157,15 +188,19 @@ export proc invoke_from_path(
   stderr: Path? = null,
   stdout_append: Bool = false,
   stderr_append: Bool = false,
+  timeout: Duration = 0ms,
 ) [fs, process, env, error] -> Result[Ran, Error] {
   let out = stdout ?? fp"{s.root}/.uu-stdout"
   let err = stderr ?? fp"{s.root}/.uu-stderr"
   let script = fp"{s.ctx.core_dir}/{util}.xsh"
-  let words = [s.ctx.xsh_bin.display(), script.display()].extend(args)
+  let words = [s.ctx.xsh_bin.display(), script.display(), "--"].extend(args)
   let launcher = fp"{s.ctx.core_dir}/tests/support/uu-launch.xsh"
   let argv = [s.ctx.xsh_bin.display(), launcher.display(), json.encode(vars.keys())?].extend(words)
-  let plan = process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin,
-    out, err, stdout_append, stderr_append)
+  let plan = if timeout == 0ms {
+    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append)
+  } else {
+    process.command_argv(s.ctx.xsh_bin, argv, s.root, vars, stdin, out, err, stdout_append, stderr_append, timeout: timeout)
+  }
   finish(s, util, args, plan, stdout == null, stderr == null)
 }
 

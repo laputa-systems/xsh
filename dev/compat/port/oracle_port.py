@@ -26,10 +26,10 @@ def rewrite_helper(source: str, reference: str) -> str:
     if reference not in ("gnu", "busybox"):
         raise ValueError(f"unknown reference: {reference}")
     script = '  let script = fp"{s.ctx.core_dir}/{util}.xsh"'
-    text_argv = '  let words = [s.ctx.xsh_bin.display(), script.display()].extend(args)'
-    path_argv = '  let words = [s.ctx.xsh_bin, script].extend(args)'
+    text_argv = '  let words = [s.ctx.xsh_bin.display(), script.display(), "--"].extend(args)'
+    path_argv = '  let words = [s.ctx.xsh_bin, script, p"--"].extend(args)'
     command = 'process.command_argv(s.ctx.xsh_bin, argv,'
-    for fragment, expected in ((script, 3), (text_argv, 2), (path_argv, 1), (command, 3)):
+    for fragment, expected in ((script, 3), (text_argv, 2), (path_argv, 1), (command, 6)):
         actual = source.count(fragment)
         if actual != expected:
             raise ValueError(f"uu helper launch shape changed: expected {expected} occurrences of {fragment!r}, got {actual}")

@@ -111,3 +111,42 @@ test test_uu_support_same_input_append_output { |ctx|
   uu.stderr_contains(r, "input file is output file")
   uu.file_is(s, "file", "content")
 }
+
+
+test test_uu_support_preserves_leading_double_dash { |ctx|
+  let s = uu.scene(ctx)?
+  uu.stdout_only(uu.invoke(s, "echo", ["--", "-n", "text"])?, "-- -n text\n")
+  uu.stdout_only(uu.invoke_paths(s, "echo", [p"--", p"-n", p"text"])?, "-- -n text\n")
+  uu.write(s, "input", "ignored")?
+  uu.stdout_only(uu.invoke_from_path(s, "echo", ["--", "-n", "text"], uu.at(s, "input"))?, "-- -n text\n")
+}
+
+
+test test_uu_support_timeout_bounds_every_launch_shape { |ctx|
+  let s = uu.scene(ctx)?
+  uu.write(s, "input", "")?
+  for result in [
+    uu.invoke(s, "sleep", ["1"], timeout: 50ms),
+    uu.invoke_paths(s, "sleep", [p"1"], timeout: 50ms),
+    uu.invoke_from_path(s, "sleep", ["1"], uu.at(s, "input"), timeout: 50ms),
+  ] {
+    assert result is Err(is Timeout), "applet must stop at its deadline"
+  }
+  uu.succeeds(uu.invoke(s, "sleep", ["0.01"])?)
+}
+
+test test_uu_support_command_preserves_parallel_input_and_append_output { |ctx|
+  let s = uu.scene(ctx)?
+  let output = uu.at(s, "output")
+  output.write("")?
+  var children: List[ProcessHandle] = []
+  for index in range(3) {
+    let plan = uu.command(s, "cat", [], stdin: bytes.from_text(f"child-{index}\n"),
+      stdout: output, stderr: uu.at(s, f"stderr-{index}"), stdout_append: true, timeout: 2s)?
+    children += [spawn plan?]
+  }
+  for child in children { assert (wait child?).exited_with(0) }
+  let lines = [line for line in output.read_text()?.split("\n") if line != ""] |> sort
+  assert lines == ["child-0", "child-1", "child-2"]
+  for index in range(3) { uu.file_is(s, f"stderr-{index}", "") }
+}
