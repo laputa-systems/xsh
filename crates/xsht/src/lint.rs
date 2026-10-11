@@ -188,7 +188,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Deref;
 use std::sync::Arc;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label, Severity};
-use xsh::frontend::check::{BindingId, CheckBundleView, CheckOptions, Type};
+use xsh::frontend::check::{BindingId, CheckBundleView, Type};
 use xsh::frontend::source::Span;
 use xsh::frontend::symbols::{Name, Symbol};
 use xsh::frontend::syntax::arena::{
@@ -342,7 +342,8 @@ pub struct LintOptions {
     pub prefer_text_pattern: bool,
     /// Opt in to `lint.prefer-rel-path`.
     pub prefer_rel_path: bool,
-    /// The immutable checked facts shared by every lint rule in a workspace.
+    /// The immutable baseline checked facts shared by lint rules in a workspace.
+    /// When absent, the linter does not synthesize this result for fact-based rules.
     pub checked_output: Option<std::sync::Arc<xsh::frontend::check::CheckOutput>>,
     /// The file and module roots a return-annotation proof loads imports
     /// with. Without them only a file with no user imports is provable.
@@ -693,14 +694,7 @@ impl<'a> Linter<'a> {
     }
 
     pub fn lint_view(view: &CheckBundleView<'a>, source: &'a str, options: LintOptions) -> LintOutput {
-        Self::lint_view_internal(view, source, options, true, || {
-            xsh::frontend::check::Checker::check_bundle_view_with_type_program(
-                view,
-                source,
-                CheckOptions::default(),
-                Arc::new(view.program().clone()),
-            )
-        })
+        Self::lint_view_internal(view, source, options, true)
     }
 
     pub fn lint_module_view(
@@ -708,31 +702,7 @@ impl<'a> Linter<'a> {
         source: &'a str,
         options: LintOptions,
     ) -> LintOutput {
-        Self::lint_view_internal(view, source, options, false, || {
-            xsh::frontend::check::Checker::check_bundle_view_with_type_program(
-                view,
-                source,
-                CheckOptions::default(),
-                Arc::new(view.program().clone()),
-            )
-        })
-    }
-
-    #[cfg(test)]
-    fn lint_internal_with_effect_check(
-        program: &'a ArenaProgram,
-        source: &'a str,
-        options: LintOptions,
-        include_reachability: bool,
-        check_effects: impl FnOnce() -> xsh::frontend::check::CheckOutput,
-    ) -> LintOutput {
-        let view = CheckBundleView::for_root(
-            program,
-            program.statements,
-            None,
-            program.source_text_source_id(),
-        );
-        Self::lint_view_internal(&view, source, options, include_reachability, check_effects)
+        Self::lint_view_internal(view, source, options, false)
     }
 
     fn lint_view_internal(
@@ -740,7 +710,6 @@ impl<'a> Linter<'a> {
         source: &'a str,
         options: LintOptions,
         include_reachability: bool,
-        check_effects: impl FnOnce() -> xsh::frontend::check::CheckOutput,
     ) -> LintOutput {
         let program = view.program();
         // Constructor facts intern qualified enum names after checking. Retain
@@ -753,21 +722,13 @@ impl<'a> Linter<'a> {
         // turned off.
         let named = |code: DiagnosticCode| only.as_deref().is_some_and(|only| only.contains(&code));
         let prefer_set_advice = options.prefer_set || named(DiagnosticCode::LintPreferSet);
-        #[cfg(test)]
-        let checked_effects_needed =
-            options.function_effect_facts.is_empty() && !options.function_effect_facts_checked;
-        #[cfg(not(test))]
-        let checked_effects_needed = true;
         let resource_close_selected = lint_code_selected(
             only.as_deref(),
             Some(DiagnosticCode::LintRedundantClose),
         ) && !options
             .excluded_rules
             .contains(&DiagnosticCode::LintRedundantClose);
-        let check_output_needed = resource_close_selected || checked_effects_needed;
-        let checked_output = options.checked_output.or_else(|| {
-            check_output_needed.then(|| std::sync::Arc::new(check_effects()))
-        });
+        let checked_output = options.checked_output;
         // A project whose `check --annotate` writes return annotations keeps
         // them, however their removal was asked for.
         let removes_returns = !options.annotation_policy_writes_returns;
@@ -6113,45 +6074,6 @@ fn leading_dot_continues_previous_line(source: &str, offset: usize) -> bool {
         source[..line_start].trim_end().chars().last(),
         None | Some('(' | '[' | '{' | ',')
     )
-}
-
-#[cfg(test)]
-mod effect_fact_tests {
-    use super::*;
-    use std::cell::Cell;
-    use xsh::frontend::check::Checker;
-    use xsh::frontend::source::SourceId;
-    use xsh::frontend::syntax::parser::Parser;
-
-    #[test]
-    fn checked_empty_effect_facts_avoid_duplicate_frontend_checking_when_resource_lint_is_unselected() {
-        let source = "print \"ready\"\n";
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-        assert!(parsed.diagnostics.is_empty());
-        for supplied in [false, true] {
-            let checks = Cell::new(0);
-            let output = Linter::lint_internal_with_effect_check(
-                &parsed.arena,
-                source,
-                LintOptions {
-                    function_effect_facts_checked: supplied,
-                    only: Some(vec![DiagnosticCode::LintPreferWithin]),
-                    ..LintOptions::default()
-                },
-                true,
-                || {
-                    checks.set(checks.get() + 1);
-                    Checker::check_arena(&parsed.arena, source)
-                },
-            );
-            assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-            assert_eq!(
-                checks.get(),
-                usize::from(!supplied),
-                "supplied checked facts: {supplied}"
-            );
-        }
-    }
 }
 
 #[cfg(test)]

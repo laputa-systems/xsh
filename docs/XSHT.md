@@ -118,6 +118,13 @@ its span and the replacement does not carry the same comments in the same
 order; the formatter keeps a comment with the match arm it precedes, so a
 later round finds it in the same place and declines again. A file whose fixes
 are all declined says so after its findings.
+
+Standalone `Linter::lint` and `Linter::lint_module` calls do not synthesize the
+shared baseline `CheckOutput`. `LintOptions.checked_output` supplies those facts
+explicitly; without it, rules that read the shared facts stay silent or withhold
+fixes. `xsht lint` checks the workspace once and passes the shared result to
+each lint run. Rule-specific rewrite proofs may still check a proposed candidate.
+
 A file with a check error is not linted, because its checked facts are
 incomplete; a check warning is reported beside the file's lint findings.
 

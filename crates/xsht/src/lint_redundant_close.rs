@@ -381,7 +381,7 @@ mod tests {
     #[test]
     fn a_locally_opened_root_closed_by_the_scope_gets_a_fix() {
         let source = "proc check(dir: Path) [fs, error] -> Result[Bool] {\n  let root = fs.open_root(dir)?\n  defer root.close()\n  root.exists(p\"data\")\n}\n";
-        let diagnostics = redundant_closes(source);
+        let diagnostics = checker_backed_redundant_closes(source);
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         assert_eq!(diagnostics[0].severity, xsh::diagnostic::Severity::Warning);
         assert_eq!(diagnostics[0].fix_hints.len(), 1);
@@ -389,54 +389,23 @@ mod tests {
     }
 
     #[test]
-    fn selected_rule_checks_bindings_even_when_effect_facts_are_precomputed() {
+    fn selected_rule_uses_explicit_checked_binding_facts() {
         let source = "proc check(dir: Path) [fs, error] -> Result[Bool] {\n  let root = fs.open_root(dir)?\n  defer root.close()\n  root.exists(p\".\")\n}\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, source);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         assert!(!checked.function_effect_facts.is_empty());
-
-        let function_effect_facts = checked.function_effect_facts.clone();
-        let options = || LintOptions {
-            only: Some(vec![DiagnosticCode::LintRedundantClose]),
-            function_effect_facts: function_effect_facts.clone(),
-            function_effect_facts_checked: true,
-            ..LintOptions::default()
-        };
-        let mut checker_calls = 0;
-        let discovered = Linter::lint_internal_with_effect_check(
-            &parsed.arena,
-            source,
-            options(),
-            true,
-            || {
-                checker_calls += 1;
-                xsh::frontend::check::Checker::check_arena(&parsed.arena, source)
-            },
-        );
-        assert_eq!(checker_calls, 1);
-        assert!(discovered.diagnostics.iter().any(|diagnostic| {
-            diagnostic.code == Some(DiagnosticCode::LintRedundantClose)
-        }));
-
-        let shared = std::sync::Arc::new(checked);
-        let mut duplicate_checker_calls = 0;
-        let reused = Linter::lint_internal_with_effect_check(
+        let linted = Linter::lint(
             &parsed.arena,
             source,
             LintOptions {
-                checked_output: Some(std::sync::Arc::clone(&shared)),
-                ..options()
-            },
-            true,
-            || {
-                duplicate_checker_calls += 1;
-                xsh::frontend::check::Checker::check_arena(&parsed.arena, source)
+                checked_output: Some(std::sync::Arc::new(checked)),
+                only: Some(vec![DiagnosticCode::LintRedundantClose]),
+                ..LintOptions::default()
             },
         );
-        assert_eq!(duplicate_checker_calls, 0);
-        assert!(reused.diagnostics.iter().any(|diagnostic| {
+        assert!(linted.diagnostics.iter().any(|diagnostic| {
             diagnostic.code == Some(DiagnosticCode::LintRedundantClose)
         }));
     }
@@ -481,7 +450,7 @@ mod tests {
     #[test]
     fn a_shadowed_name_does_not_share_the_outer_binding_identity() {
         let source = "proc check(outer: Path, inner: Path) [fs, error] {\n  let root = fs.open_root(outer)?\n  defer root.close()\n  {\n    let root = fs.open_root(inner)?\n    defer root.close()\n  }\n}\n";
-        assert_eq!(redundant_closes(source).len(), 2);
+        assert_eq!(checker_backed_redundant_closes(source).len(), 2);
     }
 
     #[test]

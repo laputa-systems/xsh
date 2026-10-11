@@ -165,6 +165,22 @@ proc parsed(value: Int) -> Result[Int] {
         .expect("expected redundant tail Ok diagnostic");
 
     assert!(diagnostic.fix_hints.is_empty());
+    let checked_diagnostics = Linter::lint(
+        &parsed.arena,
+        source,
+        LintOptions {
+            checked_output: Some(std::sync::Arc::new(checked)),
+            ..LintOptions::default()
+        },
+    )
+    .diagnostics;
+    let checked_diagnostic = checked_diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic.code.map(DiagnosticCode::name) == Some("lint.redundant-ok-tail")
+        })
+        .expect("checked output retains the redundant tail Ok finding");
+    assert!(!checked_diagnostic.fix_hints.is_empty());
 }
 
 #[test]
@@ -179,6 +195,20 @@ fn linter_named_argument_pun_requires_checked_identifier_resolution() {
             .any(|diagnostic| diagnostic.code.map(DiagnosticCode::name)
                 == Some("lint.prefer-named-argument-pun"))
     );
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let checked_diagnostics = Linter::lint(
+        &parsed.arena,
+        source,
+        LintOptions {
+            checked_output: Some(std::sync::Arc::new(checked)),
+            ..LintOptions::default()
+        },
+    )
+    .diagnostics;
+    assert!(checked_diagnostics.iter().any(|diagnostic| {
+        diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-named-argument-pun")
+    }));
 }
 
 #[test]
@@ -191,6 +221,20 @@ fn linter_prefer_slice_requires_checked_builtin_receiver() {
             |diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-slice")
         )
     );
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let checked_diagnostics = Linter::lint(
+        &parsed.arena,
+        source,
+        LintOptions {
+            checked_output: Some(std::sync::Arc::new(checked)),
+            ..LintOptions::default()
+        },
+    )
+    .diagnostics;
+    assert!(checked_diagnostics.iter().any(|diagnostic| {
+        diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-slice")
+    }));
 }
 
 #[test]
@@ -247,6 +291,25 @@ let value = loop {
         .map(|hint| (hint.span.unwrap(), hint.replacement.as_ref().unwrap()))
         .collect::<Vec<_>>();
     assert_eq!(edits.len(), 3);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let checked_diagnostics = Linter::lint(
+        &parsed.arena,
+        source,
+        LintOptions {
+            checked_output: Some(std::sync::Arc::new(checked)),
+            ..LintOptions::default()
+        },
+    )
+    .diagnostics;
+    let checked_guard_fixes = checked_diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-guard")
+        })
+        .flat_map(|diagnostic| diagnostic.fix_hints.iter())
+        .count();
+    assert_eq!(checked_guard_fixes, 2);
     edits.sort_by_key(|(span, _)| std::cmp::Reverse(span.start()));
     let mut fixed = source.to_string();
     for (span, replacement) in edits {
@@ -558,6 +621,20 @@ fn linter_named_argument_spread_requires_checked_record_facts() {
             .any(|diagnostic| diagnostic.code.map(DiagnosticCode::name)
                 == Some("lint.prefer-named-argument-spread"))
     );
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let checked_diagnostics = Linter::lint(
+        &parsed.arena,
+        source,
+        LintOptions {
+            checked_output: Some(std::sync::Arc::new(checked)),
+            ..LintOptions::default()
+        },
+    )
+    .diagnostics;
+    assert!(checked_diagnostics.iter().any(|diagnostic| {
+        diagnostic.code.map(DiagnosticCode::name) == Some("lint.prefer-named-argument-spread")
+    }));
 }
 
 fn private_effects_lints(source: &str, enabled: bool) -> Vec<Diagnostic> {
