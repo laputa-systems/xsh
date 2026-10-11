@@ -32,9 +32,13 @@ test test_btop_model_matches_the_independent_b3_monitor_oracle {
   let next = model.step(current, before)
 
   assert first.cpu_percent.state == rates.Warming
+  assert (first.cpu_cores |> map .utilization.state) == [rates.Warming, rates.Warming]
   assert first.network.rx_bytes_per_second.state == rates.Warming
   assert first.processes[0].cpu_percent.state == rates.Warming
   assert next.cpu_percent.value?.format(precision: 1) == "40.0"
+  assert (next.cpu_cores |> map .id) == [0, 1]
+  assert next.cpu_cores[0].utilization.value == 40.0
+  assert next.cpu_cores[1].utilization.value == 40.0
   assert next.processes[0].cpu_percent.value?.format(precision: 1) == "12.5"
   assert next.processes[0].rss_bytes == 67108864
   assert next.processes[0].uid == 1000
@@ -44,6 +48,51 @@ test test_btop_model_matches_the_independent_b3_monitor_oracle {
   assert next.network.tx_bytes_per_second.value == 2048.0
   assert next.memory.swap_total_state == report.Absent
   assert next.memory.swap_used_bytes.state == rates.Unavailable
+}
+
+test test_btop_model_tracks_sparse_cpu_ids_and_hotplug_without_inheriting_history {
+  let bundle = fs.tempdir()?
+  defer bundle.close()
+  fixture.write_b3_frame(bundle, "frames/000000", 0, default_processes())
+  fixture.write_b3_frame(bundle, "frames/000001", 1, default_processes())
+  fixture.write_b3_frame(bundle, "frames/000002", 1, default_processes())
+  fixture.write_b3_frame(bundle, "frames/000003", 1, default_processes())
+  bundle.write(
+    p"frames/000000/proc/stat",
+    "cpu 100 0 50 850 0 0 0 0 0 0\ncpu0 50 0 25 425 0 0 0 0 0 0\ncpu4 50 0 25 425 0 0 0 0 0 0\n",
+  )
+  bundle.write(
+    p"frames/000001/proc/stat",
+    "cpu 160 0 70 970 0 0 0 0 0 0\ncpu4 80 0 35 485 0 0 0 0 0 0\ncpu9 80 0 35 485 0 0 0 0 0 0\n",
+  )
+  bundle.write(
+    p"frames/000002/proc/stat",
+    "cpu 220 0 90 1090 0 0 0 0 0 0\ncpu0 30 0 15 455 0 0 0 0 0 0\ncpu4 110 0 45 545 0 0 0 0 0 0\ncpu9 110 0 45 545 0 0 0 0 0 0\n",
+  )
+  bundle.write(
+    p"frames/000003/proc/stat",
+    "cpu 280 0 110 1210 0 0 0 0 0 0\ncpu0 40 0 20 480 0 0 0 0 0 0\ncpu4 20 0 10 560 0 0 0 0 0 0\ncpu9 140 0 55 605 0 0 0 0 0 0\n",
+  )
+  let first = capture(bundle, p"frames/000000", "cpu-hotplug", 1000000000, 0)?
+  let second = capture(bundle, p"frames/000001", "cpu-hotplug", 2000000000, 1)?
+  let third = capture(bundle, p"frames/000002", "cpu-hotplug", 3000000000, 2)?
+  let fourth = capture(bundle, p"frames/000003", "cpu-hotplug", 4000000000, 3)?
+  let initial = model.step(first, null)
+  let hotplug = model.step(second, first)
+  assert (initial.cpu_cores |> map .id) == [0, 4]
+  assert (hotplug.cpu_cores |> map .id) == [4, 9]
+  assert hotplug.cpu_cores[0].utilization.state == rates.Observed
+  assert hotplug.cpu_cores[1].utilization.state == rates.Warming
+
+  let returned = model.step(third, second)
+  assert (returned.cpu_cores |> map .id) == [0, 4, 9]
+  assert returned.cpu_cores[0].utilization.state == rates.Warming
+  assert returned.cpu_cores[1].utilization.state == rates.Observed
+
+  let reset = model.step(fourth, third)
+  assert reset.cpu_percent.state == rates.Observed
+  assert reset.cpu_cores[0].utilization.state == rates.Observed
+  assert reset.cpu_cores[1].utilization.state == rates.Reset
 }
 
 test test_btop_model_ranks_equal_process_rates_by_pid_and_tracks_lifetimes {

@@ -58,6 +58,23 @@ test test_btop_cpu_source_withholds_a_truncated_stat_prefix {
   assert parsed.cores == []
 }
 
+test test_btop_cpu_source_marks_malformed_uptime_and_load_without_values {
+  let root = fs.tempdir()?
+  defer root.close()
+  write_proc_stat(
+    root,
+    "cpu 160 0 70 970 0 0 0 0 0 0",
+    "cpu0 80 0 35 485 0 0 0 0 0 0",
+    "cpu1 80 0 35 485 0 0 0 0 0 0",
+  )
+  root.write(p"proc/uptime", "25.50x 100.00\n")
+  root.write(p"proc/loadavg", "0.10 0.20 invalid 1/100 42\n")
+
+  let sample = syscpu.collect(root)
+  assert sample.uptime.state == report.Malformed and sample.uptime.seconds == null
+  assert sample.load.state == report.Malformed and sample.load.values == []
+}
+
 test test_btop_memory_source_distinguishes_absent_from_zero_counters {
   let root = fs.tempdir()?
   defer root.close()
@@ -202,4 +219,19 @@ test test_btop_rates_distinguish_warming_idle_reset_and_invalid_interval {
   assert rates.counter_rate(4, 5, elapsed_ns: 1000000000).state == rates.Reset
   assert rates.counter_rate(5, 4, elapsed_ns: 0).state == rates.Invalid
   assert rates.used_bytes(10, null).state == rates.Unavailable
+}
+
+test test_btop_cpu_usage_excludes_guest_time_and_corrects_iowait_regression {
+  let previous: syscpu.CpuCounters = {fields: [100, 20, 30, 200, 10, 10, 5, 5, 50, 10]}
+  let current: syscpu.CpuCounters = {fields: [200, 30, 40, 300, 20, 15, 10, 10, 150, 15]}
+  let usage = rates.cpu_percent(current, previous)
+  assert usage.state == rates.Observed
+  assert usage.value?.format(precision: 1) == "21.4"
+
+  let wait_before: syscpu.CpuCounters = {fields: [100, 0, 0, 50, 20, 0, 0, 0, 0, 0]}
+  let wait_after: syscpu.CpuCounters = {fields: [100, 0, 0, 100, 10, 0, 0, 0, 0, 0]}
+  assert rates.cpu_percent(wait_after, wait_before).value == 0.0
+
+  let reset: syscpu.CpuCounters = {fields: [90, 20, 30, 300, 20, 15, 10, 10, 150, 15]}
+  assert rates.cpu_percent(reset, previous).state == rates.Reset
 }

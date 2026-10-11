@@ -72,6 +72,13 @@ PID/start-time/command value remains visible for at most five seconds with a `~`
 marker; after that it is unavailable. A command change, source change, process
 exit, or PID reuse invalidates that cached UID.
 
+CPU rates use the first eight aggregate `/proc/stat` counters, subtract guest
+and guest-nice time to avoid double-counting them, and treat a decreasing
+iowait counter as zero delta. Per-core rows keep sparse logical CPU IDs; a new
+or returned core starts warming, and a reset core has no rate until its next
+sample. Uptime and the three load averages remain observed only when their
+complete source values parse.
+
 Memory shows total, available, and `total - available`; swap shows observed
 absence when both swap counters are absent. Network chooses the
 name-sorted non-loopback interface, or loopback only when it is the only
@@ -114,7 +121,7 @@ than 80 by 24 displays a safe size message.
 
 | Displayed field | Kernel input | Owner | Unit and kind | Bounds |
 |---|---|---|---|---|
-| Aggregate CPU usage | `/proc/stat` aggregate `cpu` row | `sys_cpu.parse_stat`, then `btop_rates.cpu_percent` | ticks, counter interval | Nonnegative signed 64-bit fields; incomplete source withheld |
+| Aggregate and per-core CPU usage | `/proc/stat` `cpu` and `cpuN` rows | `sys_cpu.parse_stat`, then `btop_rates.cpu_percent` | ticks, counter interval | Nonnegative signed 64-bit fields; sparse IDs retained; incomplete source withheld |
 | Uptime and load | `/proc/uptime`, `/proc/loadavg` | `sys_cpu.parse_uptime`, `sys_cpu.parse_loadavg` | seconds and load averages, gauges | Bounded reads; malformed values withheld |
 | Total, available, used memory and swap | `/proc/meminfo` | `sys_mem.parse`, then `btop_rates.used_bytes` | bytes, gauges | kB-to-byte conversion checked against signed 64-bit range |
 | Interface name, RX/TX totals and rates | `/proc/net/dev`, `/sys/class/net/[name]/ifindex` | `sys_net.collect`, `sys_net.selected_interface`, `btop_rates.counter_rate` | bytes and bytes/second; totals are counters | Bounded reads; rates require matching observed interface indices across samples |

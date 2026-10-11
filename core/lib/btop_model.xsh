@@ -32,6 +32,9 @@ export type ProcessRow = {
   rss_bytes: Int?,
 }
 
+## Retains one sparse Linux logical CPU identifier and interval utilization.
+export type CoreUsage = {id: Int, utilization: rates.Rate}
+
 ## Distinguishes current UID observations from a bounded stale reuse.
 export enum MetadataState: Str {
   Fresh = "fresh",
@@ -73,6 +76,7 @@ export type Model = {
   source_id: Str,
   at_ns: Int,
   cpu_percent: rates.Rate,
+  cpu_cores: List[CoreUsage],
   uptime: syscpu.Uptime,
   load: syscpu.LoadAverage,
   cpu_state: report.ObservationState,
@@ -189,6 +193,31 @@ pure process_index(previous: Observation?) -> Map[Int, processes.Process] {
   rows
 }
 
+pure core_index(previous: Observation?) -> Map[Int, syscpu.CpuCounters] {
+  var rows: Map[Int, syscpu.CpuCounters] = {}
+  if let before = previous {
+    for core in before.cpu.stat.cores {
+      rows = rows.set(core.id, core.counters)
+    }
+  }
+  rows
+}
+
+pure core_rate(current: Observation, previous: Observation?, prior_cores: Map[Int, syscpu.CpuCounters], core: syscpu.CpuCore) -> rates.Rate {
+  if previous == null {
+    return rate(rates.Warming)
+  }
+  let before = previous ?? current
+  if current.at_ns <= before.at_ns {
+    return rate(rates.Invalid)
+  }
+  if let Ok(counters) = prior_cores.get(core.id) {
+    rates.cpu_percent(core.counters, counters)
+  } else {
+    rate(rates.Warming)
+  }
+}
+
 pure previous_process(index: Map[Int, processes.Process], current: processes.Process) -> processes.Process? {
   if let Ok(row) = index.get(current.pid) {
     if row.start_ticks == current.start_ticks { row } else { null }
@@ -269,10 +298,15 @@ pure process_sort_key(row: ProcessRow) -> ProcessSortKey {
 export pure step_cached(current: Observation, previous: Observation?, metadata: MetadataCache) -> CachedStep {
   let baseline = same_source_baseline(current, previous)
   let prior_rows = process_index(baseline)
+  let prior_cores = core_index(baseline)
   let cache = if metadata.source_id == current.source_id { metadata } else { {source_id: current.source_id, by_pid: {}} }
   let selected = observed_interface(current.network)
   var process_rows: List[ProcessRow] = []
   var next_metadata: Map[Int, ProcessMetadata] = {}
+  var core_rows: List[CoreUsage] = []
+  for core in current.cpu.stat.cores {
+    core_rows += [{id: core.id, utilization: core_rate(current, baseline, prior_cores, core)}]
+  }
   for process_row in current.processes.processes {
     let uid = cached_uid(process_row, current, cache)
     let row: ProcessRow = {
@@ -295,6 +329,7 @@ export pure step_cached(current: Observation, previous: Observation?, metadata: 
       source_id: current.source_id,
       at_ns: current.at_ns,
       cpu_percent: cpu_interval(current, baseline),
+      cpu_cores: core_rows,
       uptime: current.cpu.uptime,
       load: current.cpu.load,
       cpu_state: current.cpu.stat.state,
