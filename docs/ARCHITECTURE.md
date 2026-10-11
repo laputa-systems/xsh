@@ -235,6 +235,12 @@ unsupported behavior becomes a diagnostic and never a runnable placeholder.
 slot bounds, IDs, locations, patterns, stages, and literal and semantic pools
 before a `FullProgram` exists. Runtime decoders rely on that contract.
 
+Instruction, pattern, driver, pipeline-stage, and literal-value schemas own
+their tag and wire-field declarations. Generated codecs share those declarations
+for encoding, decoding, and verification; runtime consumers use borrowed views.
+Literal-value verification retains the distinct StatsBlob string-key check and
+Set duplicate rejection. Pattern tags preserve the unused ordinal 14.
+
 Specialized `Path` calls use the receiver in `CheckedApiCall`, including
 null-safe calls. A shared method name alone cannot select a filesystem
 instruction: imported procedures may export those names with their own
