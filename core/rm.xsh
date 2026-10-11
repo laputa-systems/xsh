@@ -44,8 +44,7 @@ pure operand_label(raw: Bytes) -> Bytes {
   while end > 0 and raw.byte_at(end - 1) == 47 { end -= 1 }
   return b"/" when end == 0 and raw != b""
   let trimmed = raw[..end]
-  let base = search.basename_bytes(trimmed)
-  if end < raw.len() and (base == b"." or base == b"..") { bytes.concat([trimmed, b"/"]) } else { trimmed }
+  if end < raw.len() { bytes.concat([trimmed, b"/"]) } else { trimmed }
 }
 
 proc confirm(question: Str) [process, io, error] -> Bool {
@@ -59,12 +58,11 @@ pure file_kind(kind: Str, size: Int) -> Str {
   if kind == "file" { if size == 0 { "regular empty file" } else { "regular file" } } else if kind == "symlink" { "symbolic link" } else if kind == "dir" { "directory" } else if kind == "char" { "character special file" } else if kind == "block" { "block special file" } else if kind == "fifo" { "fifo" } else { kind }
 }
 
-# Flush before the next prompt. Return write failures so removal continues
+# Keep reports buffered until completion. Return write failures so removal continues
 # and the caller reports a broken output stream once after processing operands.
 proc report_removed(name: Bytes, directory: Bool) [process, env, io, error] -> Result[Unit] {
   let verb = if directory { "removed directory" } else { "removed" }
-  io.write_stdout(f"{verb} {gnu.quote_bytes(name)}\n")?
-  io.flush_stdout()
+  io.write_stdout(f"{verb} {gnu.quote_bytes(name)}\n")
 }
 
 proc report_progress(name: Bytes, opts: RmOptions) [process, env, io, error] -> Result[Unit] {
@@ -139,7 +137,7 @@ proc remove_target(target: Path, name: Bytes, opts: RmOptions, device: Int, inte
     var retained = false
     for child in entries {
       let base = search.basename_bytes(child.path.bytes())
-      let child_name = if name == b"/" { bytes.concat([b"/", base]) } else { bytes.concat([name, b"/", base]) }
+      let child_name = if name.ends_with(b"/") { bytes.concat([name, base]) } else { bytes.concat([name, b"/", base]) }
       let child_target = search.child(target, base)?
       let result = remove_target(child_target, child_name, opts, device, interactive, automatic, presume_input_tty)
       if ! result.ok { success = false }
@@ -315,6 +313,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     if ! result.ok { success = false }
     if let failure = result.write_error { if write_error == null { write_error = failure } }
   }
+  if let Err(failure) = io.flush_stdout() { if write_error == null { write_error = failure } }
   if let failure = write_error { gnu.write_failed(failure) }
   if ! success { exit 1 }
 }

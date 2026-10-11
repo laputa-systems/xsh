@@ -22,13 +22,13 @@ test test_sync_errors_continue_and_data_needs_files { |ctx|
 }
 
 
-test test_sync_data_fifo_reports_invalid_input { |ctx|
+test test_sync_data_fifo_reports_invalid_argument { |ctx|
   test.timeout(ctx, 2s)
   let root = test.temp_dir(ctx, name: "sync-fifo")?
   fs.mkfifo(fp"{root}/fifo", 0o600)
   let result = run_applet(ctx, root, ["--data", "fifo"])?
   assert result.status == 1
-  assert result.stderr == "sync: error syncing 'fifo': Invalid input\n", result.stderr
+  assert result.stderr == "sync: error syncing 'fifo': Invalid argument\n", result.stderr
 }
 
 test test_sync_reports_permission_denied_before_directory_sync { |ctx|

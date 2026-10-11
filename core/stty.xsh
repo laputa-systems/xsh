@@ -476,11 +476,11 @@ proc char_value(text: Str) [process, env] -> Int {
   integer_arg(text, 255)
 }
 
-# GNU `string_to_baud` on the supported speeds: blanks before the number,
+# GNU `string_to_baud`: blanks before the number,
 # a leading `+`, a trailing `.`, a fraction rounded to the nearest whole
-# speed (halves to even) and the names `exta` and `extb`. Returns the speed or
+# speed (halves to even) and the names `exta` and `extb`. Returns the number or
 # -1.
-pure baud_value(text: Str, speeds: List[Int]) -> Int {
+pure baud_value(text: Str) -> Int {
   return 19200 when text == "exta"
   return 38400 when text == "extb"
 
@@ -501,7 +501,7 @@ pure baud_value(text: Str, speeds: List[Int]) -> Int {
 
   var value = whole.parse_int_decimal() ?? -1
 
-  return -1 when value < 0 or value > 4294967295
+  return -1 when value < 0 or value >= 4294967295
 
   if let [_, fraction] = parts {
     return -1 when fraction == "" or ! rx"^[0-9]+$".matches(fraction)
@@ -520,7 +520,7 @@ pure baud_value(text: Str, speeds: List[Int]) -> Int {
     }
   }
 
-  if value in speeds { value } else { -1 }
+  value
 }
 
 # The speed a `termios` baud code names: codes 0 to 15 and then the extended
@@ -944,8 +944,8 @@ proc invalid_argument(arg: Str) [process, env] {
   gnu.usage_error(f"invalid argument {gnu.quote_value(arg)}")
 }
 
-# Check every setting before the terminal is touched, as GNU's first pass
-# does, and return the typed list the apply pass walks.
+# Check setting names and immediate arguments before touching the terminal.
+# Window sizes are parsed only in the apply pass, after reading its attributes.
 proc check_settings(table: UnixTtyTable, texts: List[Str]) [process, env, error] -> List[Setting] {
   var at = 0
 
@@ -978,7 +978,7 @@ proc check_settings(table: UnixTtyTable, texts: List[Str]) [process, env, error]
         needs_argument(arg, texts, at)
         at += 1
 
-        let speed = baud_value(texts[at], table.speeds)
+        let speed = baud_value(texts[at])
 
         if speed < 0 {
           gnu.usage_error(f"invalid {word} {gnu.quote_value(texts[at])}")
@@ -989,27 +989,31 @@ proc check_settings(table: UnixTtyTable, texts: List[Str]) [process, env, error]
         needs_argument(arg, texts, at)
         at += 1
 
-        let size = integer_arg(texts[at], 4294967295)
-
         yield {
           kind: if word == "rows" { "rows" } else { "cols" },
           name: word,
           reversed: false,
           text: texts[at],
-          number: size % 65536,
+          number: 0,
         }
       } else if ! reversed and word == "line" {
         needs_argument(arg, texts, at)
         at += 1
-        yield {kind: "line", name: word, reversed: false, text: texts[at], number: integer_arg(texts[at], 255)}
+        let value = integer_arg(texts[at], 9223372036854775807)
+        # A line byte wraps with a warning in each pass; overflow does not
+        # prevent opening the device or applying the remaining settings.
+        if value > 255 {
+          gnu.error(f"invalid line discipline {gnu.quote_value(texts[at])}: {OVERFLOW_TEXT}")
+        }
+        yield {kind: "line", name: word, reversed: false, text: texts[at], number: value}
       } else if ! reversed and (word == "size" or word == "speed") {
         yield {kind: word, name: word, reversed: false, text: "", number: 0}
       } else if word in COMBOS_PLAIN or word in COMBOS_NEGATABLE {
         yield {kind: "combo", name: word, reversed: reversed, text: "", number: 0}
       } else if ! reversed and parse_saved(arg) != null {
         yield {kind: "saved", name: "saved", reversed: false, text: arg, number: 0}
-      } else if baud_value(arg, table.speeds) >= 0 and ! reversed {
-        yield {kind: "both", name: "speed", reversed: false, text: arg, number: baud_value(arg, table.speeds)}
+      } else if baud_value(arg) >= 0 and ! reversed {
+        yield {kind: "both", name: "speed", reversed: false, text: arg, number: baud_value(arg)}
       } else {
         invalid_argument(arg)
       }
@@ -1240,14 +1244,23 @@ proc main(...argv: List[Str]) [process, env, error, io] {
 
         changed = true
       } else if setting.kind == "ispeed" {
+        if setting.number not in table.speeds {
+          gnu.usage_error(f"invalid ispeed {gnu.quote_value(setting.text)}")
+        }
         input_speed = setting.number
         changed = true
         speed_set = true
       } else if setting.kind == "ospeed" {
+        if setting.number not in table.speeds {
+          gnu.usage_error(f"invalid ospeed {gnu.quote_value(setting.text)}")
+        }
         output_speed = setting.number
         changed = true
         speed_set = true
       } else if setting.kind == "both" {
+        if setting.number not in table.speeds {
+          invalid_argument(setting.text)
+        }
         input_speed = setting.number
         output_speed = setting.number
         changed = true
@@ -1265,15 +1278,19 @@ proc main(...argv: List[Str]) [process, env, error, io] {
           }
         }
       } else if setting.kind == "line" {
-        attrs = {...attrs, line: setting.number}
+        if setting.number > 255 {
+          gnu.error(f"invalid line discipline {gnu.quote_value(setting.text)}: {OVERFLOW_TEXT}")
+        }
+        attrs = {...attrs, line: setting.number % 256}
         changed = true
       } else if setting.kind == "drain" {
         moment = if setting.reversed { "now" } else { "drain" }
       } else if setting.kind == "rows" or setting.kind == "cols" {
+        let number = integer_arg(setting.text, 2147483647) % 65536
         match unix.window_size(device.fd) {
           Ok(size) => {
-            let rows = if setting.kind == "rows" { setting.number } else { size.rows }
-            let cols = if setting.kind == "cols" { setting.number } else { size.cols }
+            let rows = if setting.kind == "rows" { number } else { size.rows }
+            let cols = if setting.kind == "cols" { number } else { size.cols }
 
             if let Err(failure) = unix.set_window_size(rows, cols, size.xpixel, size.ypixel, device.fd) {
               device_error(device, failure)

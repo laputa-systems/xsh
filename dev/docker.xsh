@@ -81,6 +81,9 @@ export pure internal_argv(
 ) -> List[Str] {
   # PID 1 must reap orphaned jobs after an interactive shell exits.
   var argv = ["docker", "run", "--rm", "--init", "--platform", selected_platform]
+  if operation == "test-linux-split" or operation == "test-linux-ci-split" {
+    argv += ["--cpus=0.01", "--memory=1g", "--memory-swap=1g"]
+  }
 
   if privileged {
     argv += ["--privileged"]

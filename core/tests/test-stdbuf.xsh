@@ -40,9 +40,33 @@ test stdbuf_reports_command_launch_failures_before_capability { |ctx|
 }
 
 test stdbuf_checks_option_contract_before_capability { |ctx|
-  assert "line buffering stdin is meaningless" in invoke(ctx, ["-iL", "true"])?.stderr
-  assert "invalid mode 'bad'" in invoke(ctx, ["-o", "bad", "true"])?.stderr
+  assert "line buffering standard input is meaningless" in invoke(ctx, ["-iL", "true"])?.stderr
+  assert "invalid -o argument 'bad'" in invoke(ctx, ["-o", "bad", "true"])?.stderr
   assert invoke(ctx, ["-o0"])?.status == 125
   assert invoke(ctx, ["true"])?.status == 125
   assert invoke(ctx, ["--help"])?.status == 0
+}
+
+test stdbuf_invalid_sizes_use_option_specific_gnu_diagnostics { |ctx|
+  for option in ["-i", "-o", "-e"] {
+    for mode in ["1024R", "1Y", "18446744073709551616", "16E"] {
+      let result = invoke(ctx, [option, mode, "true"])?
+      assert result.status == 125
+      assert result.stdout == ""
+      assert result.stderr == f"stdbuf: {option} argument '{mode}' too large\n", result.stderr
+    }
+    let suffix = invoke(ctx, [option, "6pq", "true"])?
+    assert suffix.status == 125
+    assert suffix.stderr == f"stdbuf: invalid suffix in {option} argument '6pq'\n", suffix.stderr
+  }
+}
+
+test stdbuf_accepts_gnu_size_suffixes_and_unsigned_limits { |ctx|
+  for mode in ["18446744073709551615", "15E", "0Y", "K", "1k", "1kiB", "+1K", " 1K"] {
+    let result = invoke(ctx, ["-o", mode, "true"])?
+    assert result.status == 125
+    assert "compatible preload library" in result.stderr, result.stderr
+  }
+  let result = invoke(ctx, ["-o", "+K", "true"])?
+  assert result.stderr == "stdbuf: invalid -o argument '+K'\n", result.stderr
 }

@@ -21,6 +21,7 @@ ambiguous; `xsh SCRIPT -- ARGS...` is also accepted.
 ";
 
 pub fn main() -> ExitCode {
+    clear_cancellation_request();
     let _signal_guard = match install_cancellation_signal_handlers() {
         Ok(guard) => guard,
         Err(error) => {
@@ -28,8 +29,6 @@ pub fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    clear_cancellation_request();
-
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
 
     if args.first().and_then(|word| word.to_str()) == Some("--startup") {

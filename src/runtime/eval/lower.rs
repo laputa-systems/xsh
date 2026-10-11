@@ -508,6 +508,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::IoStdinText
             | RuntimeOp::IoStdinLine
             | RuntimeOp::IoWriteStderr
+            | RuntimeOp::IoWriteStderrBytes
             | RuntimeOp::IoWriteStdout
             | RuntimeOp::IoWriteStdoutBytes
             | RuntimeOp::IniDecode
@@ -574,6 +575,11 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::UnixSeekFd
             | RuntimeOp::UnixFadvise
             | RuntimeOp::UnixCpuFeatures
+            | RuntimeOp::LocaleNumericInfo
+            | RuntimeOp::LocaleTimeInfo
+            | RuntimeOp::NumericParseLongDouble
+            | RuntimeOp::NumericFormatLongDouble
+            | RuntimeOp::NumericLongDoublePrecision
             | RuntimeOp::CompressionTransform
             | RuntimeOp::CompressionGzipName
             | RuntimeOp::LinuxModulePlan
@@ -10594,7 +10600,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         ));
                     }
                 }
-                if name == "read_text" && args_vec.is_empty() {
+                if name == "read_text"
+                    && args_vec.is_empty()
+                    && self.checked_path_method_arguments(id, &args_vec).is_some()
+                {
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -10604,7 +10613,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                if name == "read_bytes" && args_vec.is_empty() {
+                if name == "read_bytes"
+                    && args_vec.is_empty()
+                    && self.checked_path_method_arguments(id, &args_vec).is_some()
+                {
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -10614,7 +10626,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                if name == "exists" && args_vec.is_empty() {
+                if name == "exists"
+                    && args_vec.is_empty()
+                    && self.checked_path_method_arguments(id, &args_vec).is_some()
+                {
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -10624,7 +10639,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                if name == "executable" && args_vec.is_empty() {
+                if name == "executable"
+                    && args_vec.is_empty()
+                    && self.checked_path_method_arguments(id, &args_vec).is_some()
+                {
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -10634,7 +10652,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                if name == "du" && args_vec.is_empty() {
+                if name == "du"
+                    && args_vec.is_empty()
+                    && self.checked_path_method_arguments(id, &args_vec).is_some()
+                {
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -10644,7 +10665,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                if name == "metadata" && args_vec.is_empty() {
+                if name == "metadata"
+                    && args_vec.is_empty()
+                    && self.checked_path_method_arguments(id, &args_vec).is_some()
+                {
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -10654,7 +10678,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                if name == "readlink" && args_vec.is_empty() {
+                if name == "readlink"
+                    && args_vec.is_empty()
+                    && self.checked_path_method_arguments(id, &args_vec).is_some()
+                {
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -10664,7 +10691,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                if name == "resolve" && args_vec.is_empty() {
+                if name == "resolve"
+                    && args_vec.is_empty()
+                    && self.checked_path_method_arguments(id, &args_vec).is_some()
+                {
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -10724,9 +10754,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                if name == "write" || name == "write_atomic" {
-                    let options =
-                        lower_path_write_args(&self.checked_path_method_arguments(id, &args_vec)?)?;
+                if (name == "write" || name == "write_atomic")
+                    && let Some(checked) = self.checked_path_method_arguments(id, &args_vec)
+                {
+                    let options = lower_path_write_args(&checked)?;
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -10743,9 +10774,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                if name == "mkdir" {
-                    let options =
-                        lower_path_mkdir_args(&self.checked_path_method_arguments(id, &args_vec)?);
+                if name == "mkdir"
+                    && let Some(checked) = self.checked_path_method_arguments(id, &args_vec)
+                {
+                    let options = lower_path_mkdir_args(&checked);
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -11016,7 +11048,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     }
                 }
                 if !lowered_method_name(&name.as_str()) {
-                    if name == "read_text" && args_vec.is_empty() {
+                    if name == "read_text"
+                        && args_vec.is_empty()
+                        && self.checked_path_method_arguments(id, &args_vec).is_some()
+                    {
                         return Some(push_build_row!(
                             self,
                             expr,
@@ -11026,7 +11061,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             }
                         ));
                     }
-                    if name == "read_bytes" && args_vec.is_empty() {
+                    if name == "read_bytes"
+                        && args_vec.is_empty()
+                        && self.checked_path_method_arguments(id, &args_vec).is_some()
+                    {
                         return Some(push_build_row!(
                             self,
                             expr,
@@ -11252,7 +11290,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 Some(self.wrap_argument_bindings(value, bindings, span))
             }
             ArenaExprKind::NullSafeField { base, name } => {
-                if name == "read_text" && args_vec.is_empty() {
+                if name == "read_text"
+                    && args_vec.is_empty()
+                    && self.checked_path_method_arguments(id, &args_vec).is_some()
+                {
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -11267,7 +11308,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                if name == "read_bytes" && args_vec.is_empty() {
+                if name == "read_bytes"
+                    && args_vec.is_empty()
+                    && self.checked_path_method_arguments(id, &args_vec).is_some()
+                {
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -11282,7 +11326,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                if name == "exists" && args_vec.is_empty() {
+                if name == "exists"
+                    && args_vec.is_empty()
+                    && self.checked_path_method_arguments(id, &args_vec).is_some()
+                {
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -11297,7 +11344,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                if name == "executable" && args_vec.is_empty() {
+                if name == "executable"
+                    && args_vec.is_empty()
+                    && self.checked_path_method_arguments(id, &args_vec).is_some()
+                {
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -11312,7 +11362,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                if name == "du" && args_vec.is_empty() {
+                if name == "du"
+                    && args_vec.is_empty()
+                    && self.checked_path_method_arguments(id, &args_vec).is_some()
+                {
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -11327,7 +11380,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                if name == "metadata" && args_vec.is_empty() {
+                if name == "metadata"
+                    && args_vec.is_empty()
+                    && self.checked_path_method_arguments(id, &args_vec).is_some()
+                {
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -11342,7 +11398,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                if name == "readlink" && args_vec.is_empty() {
+                if name == "readlink"
+                    && args_vec.is_empty()
+                    && self.checked_path_method_arguments(id, &args_vec).is_some()
+                {
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -11357,7 +11416,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                if name == "resolve" && args_vec.is_empty() {
+                if name == "resolve"
+                    && args_vec.is_empty()
+                    && self.checked_path_method_arguments(id, &args_vec).is_some()
+                {
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -11427,9 +11489,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                if name == "write" || name == "write_atomic" {
-                    let options =
-                        lower_path_write_args(&self.checked_path_method_arguments(id, &args_vec)?)?;
+                if (name == "write" || name == "write_atomic")
+                    && let Some(checked) = self.checked_path_method_arguments(id, &args_vec)
+                {
+                    let options = lower_path_write_args(&checked)?;
                     return Some(push_build_row!(
                         self,
                         expr,
@@ -11451,9 +11514,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                if name == "mkdir" {
-                    let options =
-                        lower_path_mkdir_args(&self.checked_path_method_arguments(id, &args_vec)?);
+                if name == "mkdir"
+                    && let Some(checked) = self.checked_path_method_arguments(id, &args_vec)
+                {
+                    let options = lower_path_mkdir_args(&checked);
                     return Some(push_build_row!(
                         self,
                         expr,

@@ -298,27 +298,27 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   }
 
   if opts.range.len() > 1 {
-    gnu.error("the argument '--input-range <LO-HI>' cannot be used multiple times")
+    gnu.usage_error("multiple -i options specified")
     exit 1
   }
 
   if opts.output.len() > 1 {
-    gnu.error("the argument '--output <FILE>' cannot be used multiple times")
+    gnu.usage_error("multiple output files specified")
     exit 1
   }
 
   if opts.echo and ! opts.range.is_empty() {
-    gnu.error("the argument '-e' cannot be used with '--input-range <LO-HI>'")
+    gnu.usage_error("cannot combine -e and -i options")
     exit 1
   }
 
   if ! opts.range.is_empty() and ! opts.operands.is_empty() {
-    gnu.error(f"the argument {gnu.quote(opts.operands[0])} cannot be used with '--input-range <LO-HI>'")
+    gnu.usage_error(f"extra operand {gnu.quote(opts.operands[0])}")
     exit 1
   }
 
   if ! opts.echo and opts.range.is_empty() and opts.operands.len() > 1 {
-    gnu.error(f"unexpected argument {gnu.quote(opts.operands[1])} found")
+    gnu.usage_error(f"extra operand {gnu.quote(opts.operands[1])}")
     exit 1
   }
 
@@ -329,7 +329,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     let parsed = parse_count(text)
 
     if parsed == null {
-      gnu.error(f"invalid value {gnu.quote(text)} for '--head-count <COUNT>': invalid digit found in string")
+      gnu.error(f"invalid line count: {gnu.quote(text)}")
       exit 1
     }
 
@@ -349,7 +349,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     let cut = text.find("-") ?? -1
 
     if cut < 0 {
-      gnu.error(f"invalid value {gnu.quote(text)} for '--input-range <LO-HI>': missing '-'")
+      gnu.error(f"invalid input range: {gnu.quote(text)}")
       exit 1
     }
 
@@ -357,12 +357,12 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     let to = parse_count(text.byte_slice(cut + 1))
 
     if from == null or to == null {
-      gnu.error(f"invalid value {gnu.quote(text)} for '--input-range <LO-HI>': invalid digit found in string")
+      gnu.error(f"invalid input range: {gnu.quote(text)}")
       exit 1
     }
 
     if from - 1 > to {
-      gnu.error(f"invalid value {gnu.quote(text)} for '--input-range <LO-HI>': start exceeds end")
+      gnu.error(f"invalid input range: {gnu.quote(text)}")
       exit 1
     }
 
@@ -372,7 +372,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
 
       if wide_low != null and wide_high != null {
         if wide_less(wide_high, wide_low) {
-          gnu.error(f"invalid value {gnu.quote(text)} for '--input-range <LO-HI>': start exceeds end")
+          gnu.error(f"invalid input range: {gnu.quote(text)}")
           exit 1
         }
 
@@ -424,7 +424,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   if head == 0 {
     if output != "-" {
       if let Err(failure) = fp"{output}".write(b"") {
-        gnu.error(f"failed to open {gnu.quote(output)} for writing: {gnu.strerror(failure)}")
+        gnu.name_error(output, failure)
         exit 1
       }
     }
@@ -504,7 +504,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     }
 
     if failed {
-      gnu.error("end of random source")
+      gnu.error(f"{gnu.quote(opts.source ?? device_path.display())}: end of file")
       exit 1
     }
 
@@ -516,7 +516,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       if gnu.errno(failure) == 28 {
         gnu.error(f"write error: {gnu.strerror(failure)}")
       } else {
-        gnu.error(f"failed to open {gnu.quote(output)} for writing: {gnu.strerror(failure)}")
+        gnu.name_error(output, failure)
       }
 
       exit 1
@@ -704,7 +704,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   # A permutation is written only once complete; repeated output goes out as
   # it is drawn.
   if failed and ! opts.repeat {
-    gnu.error("end of random source")
+    gnu.error(f"{gnu.quote(opts.source ?? device_path.display())}: end of file")
     exit 1
   }
 
@@ -714,14 +714,14 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     if gnu.errno(failure) == 28 {
       gnu.error(f"write error: {gnu.strerror(failure)}")
     } else {
-      gnu.error(f"failed to open {gnu.quote(output)} for writing: {gnu.strerror(failure)}")
+      gnu.name_error(output, failure)
     }
 
     exit 1
   }
 
   if failed {
-    gnu.error("end of random source")
+    gnu.error(f"{gnu.quote(opts.source ?? device_path.display())}: end of file")
     exit 1
   }
 

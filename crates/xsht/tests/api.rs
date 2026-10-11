@@ -29,13 +29,13 @@ fn fs_root_registry_holds_native_receiver_operations_and_retains_factories() {
         .find(|entry| entry.receiver == xsh_registry::signature::MethodReceiver::FsRoot)
         .unwrap()
         .methods;
-    assert_eq!(methods.len(), 18);
+    assert_eq!(methods.len(), 19);
     assert_eq!(
         methods
             .iter()
             .map(|method| method.overloads.len())
             .sum::<usize>(),
-        20
+        21
     );
     for name in [
         "open_root",

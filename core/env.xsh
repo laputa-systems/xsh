@@ -4,6 +4,7 @@ use lib.gnu
 const USAGE = """Usage: env [OPTION]... [-] [NAME=VALUE]... [COMMAND [ARG]...]
 Set each NAME to VALUE in the environment and run COMMAND.
 
+Mandatory arguments to long options are mandatory for short options too.
 Options:
   -a, --argv0=ARG        pass ARG as the zeroth argument of COMMAND
   -i, --ignore-environment  start with an empty environment
@@ -167,11 +168,15 @@ pure byte_prefix(arg: Bytes, prefix: Bytes) -> Bool {
   arg.len() >= prefix.len() and arg[0..prefix.len()] == prefix
 }
 
+# Newline output uses shell escaping so each entry occupies one line;
+# NUL output is the byte-preserving interchange form.
 proc print_environment(environment: Map[Str, Bytes], null_delimited: Bool) [process, env, error, io] {
   let ending = if null_delimited { b"\0" } else { b"\n" }
   for name in environment.keys() {
     let value = environment.get(name) ?? b""
-    gnu.write_bytes(bytes.concat([bytes.from_text(name), b"=", value, ending]))
+    let name_output = if null_delimited { bytes.from_text(name) } else { bytes.from_text(gnu.quote_bytes(bytes.from_text(name), always: false)) }
+    let value_output = if null_delimited or value == b"" { value } else { bytes.from_text(gnu.quote_bytes(value, always: false)) }
+    gnu.write_bytes(bytes.concat([name_output, b"=", value_output, ending]))
   }
 }
 
@@ -442,9 +447,7 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
       continue
     }
 
-    # The `--split-string STRING` form also arrives as one word when a shebang
-    # line passes everything after the interpreter as a single argument.
-    if raw_word == b"--split-string" or byte_prefix(raw_word, b"--split-string=") or byte_prefix(raw_word, b"--split-string ") {
+    if raw_word == b"--split-string" or byte_prefix(raw_word, b"--split-string=") {
       var source = b""
       var consumed = 1
       if raw_word == b"--split-string" {
@@ -486,6 +489,12 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
       block_options += [{action: "block", names}]
       option_index += 1
       continue
+    }
+
+    if byte_prefix(raw_word, b"--") {
+      gnu.error(f"unrecognized option '{raw_word.utf8()?}'")
+      io.write_stderr(f"Try '{gnu.phrase()} --help' for more information.\n")
+      exit 125
     }
 
     if raw_word.byte_at(0) == 45 and raw_word.len() > 1 {

@@ -27,6 +27,37 @@ fn xsh_reports_non_utf8_script_argument_without_panicking() {
     );
 }
 
+// Captured script output is text in native tests; the host stderr boundary
+// must preserve NUL and invalid UTF-8 bytes across explicit and final flushes.
+#[test]
+fn xsh_write_stderr_bytes_preserves_raw_bytes_and_output_order() {
+    let root = tempfile::tempdir().expect("create raw stderr script directory");
+    let script = root.path().join("stderr.xsh");
+    fs::write(
+        &script,
+        r#"io.write_stderr("prefix:")?
+io.write_stderr_bytes(b"\0\xa1\xff")?
+io.write_stderr_bytes(bytes.zero(131072)?)?
+io.flush_stderr()?
+io.write_stderr_bytes(b"")?
+io.write_stderr_bytes(b"tail\xa1")?
+io.write_stderr("suffix")?
+"#,
+    )
+    .expect("write raw stderr script");
+    let output = Command::new(release_bin!("xsh"))
+        .arg(&script)
+        .output()
+        .expect("run raw stderr script");
+
+    assert_eq!(output.status.code(), Some(0), "{:?}", output.stderr);
+    assert!(output.stdout.is_empty());
+    let mut expected = b"prefix:\0\xa1\xff".to_vec();
+    expected.extend(std::iter::repeat_n(0, 131072));
+    expected.extend_from_slice(b"tail\xa1suffix");
+    assert_eq!(output.stderr, expected);
+}
+
 // The host argv and stdout protocols preserve invalid UTF-8 and empty words.
 #[test]
 fn xsh_byte_main_receives_exact_os_arguments() {

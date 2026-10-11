@@ -370,7 +370,6 @@ test test_test_parenthesized_string_comparison { |ctx|
     ["(", "foo", "!=", "bar", ")"],
     ["(", "contained\nnewline", "=", "contained\nnewline", ")"],
     ["(", "(", "=", "(", ")"],
-    ["(", "(", "!=", ")", ")"],
     ["(", "!", "=", "!", ")"],
     ["(", "=", "=", "=", ")"],
   ] {
@@ -436,5 +435,14 @@ test test_test_help_and_version_are_plain_strings { |ctx|
     let result = applet_run(ctx, [word])?
     assert result.status == 0
     assert result.stdout == "" and result.stderr == ""
+  }
+}
+
+test test_test_parenthesized_right_parenthesis_is_syntax_error { |ctx|
+  for args in [["(", "(", "!=", ")", ")"], ["!", "(", "(", "!=", ")", ")"]] {
+    let result = applet_run(ctx, args)?
+    assert result.status == 2
+    assert result.stdout == ""
+    assert result.stderr == "test: missing argument after ')'\n"
   }
 }

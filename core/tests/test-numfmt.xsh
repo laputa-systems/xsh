@@ -92,7 +92,7 @@ test test_numfmt_fields_and_delimiters { |ctx|
   assert numfmt_text(ctx, ["-d,", "--to=iec"], "123456")? == "121K"
   assert numfmt_text(ctx, ["-d|", "--to=si", "--padding=5", "--field=-"], "1000|2000")? == " 1.0k| 2.0k"
   assert numfmt_text(ctx, ["-d|", "--to=si"], "             1000|   2000")? == "1.0k|   2000", "unselected fields keep their blanks"
-  assert numfmt_text(ctx, ["--field", "2", "1\u{3000}2"])? == "1 2\n", "a multibyte blank separator is normalized to a space"
+  assert numfmt_text(ctx, ["--field", "2", "1\u{3000}2"])? == "1\u{3000}2\n", "C locale separators are single-byte blanks"
   assert numfmt_text(ctx, ["--header=2", "--from=si"], "a\nb\n1K\n2K")? == "a\nb\n1000\n2000"
   assert numfmt_text(ctx, ["--header", "--from=si"], "head\n1K")? == "head\n1000"
   assert numfmt_text(ctx, ["-z", "--to=si"], "1000\02000\0")? == "1.0k\02.0k\0"
@@ -109,7 +109,7 @@ test test_numfmt_format { |ctx|
   assert numfmt_text(ctx, ["--format=%.4f", "--to=si", "9991239123"])? == "9.9913G\n"
   assert numfmt_text(ctx, ["--to=iec", "--format=%.5f", "1500"])? == "1.46500K\n", "iec stops rounding at three decimals"
   assert numfmt_text(ctx, ["--to=si", "--format=%.5f", "1234567"])? == "1.23457M\n"
-  assert numfmt_text(ctx, ["--suffix=€", "--format=%10.2f", "692"])? == "   692.00€\n"
+  assert numfmt_text(ctx, ["--suffix=€", "--format=%10.2f", "692"])? == "692.00€\n"
   assert numfmt_text(ctx, ["--format=%.18f", "0"])? == "0.000000000000000000\n"
 
   let large = numfmt_run(ctx, ["--format=%5.1f", "1000000000000000000"])?
@@ -123,7 +123,6 @@ test test_numfmt_format_errors { |ctx|
     {format: "hello%", message: "format 'hello%' ends in %"},
     {format: "%f %f", message: "format '%f %f' has too many % directives"},
     {format: "%d", message: "invalid format '%d', directive must be %[0]['][-][N][.][N]f"},
-    {format: "%18446744073709551616f", message: "invalid format '%18446744073709551616f' (width overflow)"},
     {format: "%.-1f", message: "invalid precision in format '%.-1f'"},
     {format: "a\nb%f%", message: "format 'a\\nb%f%' has too many % directives"},
   ] {
@@ -191,13 +190,16 @@ test test_numfmt_option_errors_are_gnu_usage_errors { |ctx|
     {args: ["--delimiter", "sad"], message: "the delimiter must be a single character"},
     {args: ["--to=auto", "100"], message: "invalid argument 'auto' for '--to'"},
     {args: ["--from=xyz", "100"], message: "invalid argument 'xyz' for '--from'"},
-    {args: ["--field=0", "1"], message: "range '0' was invalid: fields and positions are numbered from 1"},
     {args: ["--field", "-", "--field", "1-", "--to=si", "10"], message: "multiple field specifications"},
   ] {
     let result = numfmt_run(ctx, case.args)?
     assert result.status == 1, case.args.join(" ")
     assert result.stderr == f"numfmt: {case.message}\n", result.stderr
   }
+
+  let field = numfmt_run(ctx, ["--field=0", "1"])?
+  assert field.status == 1
+  assert field.stderr == "numfmt: fields are numbered from 1\nTry 'numfmt --help' for more information.\n"
 
   let round = numfmt_run(ctx, ["--round=sideways", "1"])?
   assert round.status == 1
@@ -237,4 +239,19 @@ test test_numfmt_help_and_version { |ctx|
 
   let version = numfmt_run(ctx, ["--version"])?
   assert version.stdout.starts_with("numfmt")
+}
+
+test test_numfmt_gnu_format_limits_and_c_byte_width { |ctx|
+  assert numfmt_text(ctx, ["--field=2", "1\u{3000}2"])? == "1\u{3000}2\n"
+  assert numfmt_text(ctx, ["--suffix=€", "--format=%10.2f", "692"])? == "692.00€\n"
+  assert numfmt_text(ctx, ["--format=%18446744073709551616f"])? == ""
+  let zero = numfmt_run(ctx, ["--format=%.40f", "0"])?
+  assert zero.status == 2
+  assert zero.stderr == "numfmt: value/precision too large to be printed: '0/40' (consider using --to)\n"
+  let fraction = numfmt_run(ctx, ["--format=%.65536f", "1.5"])?
+  assert fraction.status == 2
+  assert fraction.stderr == "numfmt: value/precision too large to be printed: '1.5/65536' (consider using --to)\n"
+  let scaled = numfmt_text(ctx, ["--to=si", "--format=%.65536f", "1000000"])?
+  assert scaled.byte_len() == 65540
+  assert scaled.starts_with("1.000000") and scaled.ends_with("0M\n")
 }

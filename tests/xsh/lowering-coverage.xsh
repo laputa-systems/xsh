@@ -84,6 +84,33 @@ nested()
 """
 }
 
+test test_imported_procedures_can_share_path_method_names { |ctx|
+  let root = test.temp_dir(ctx, name: "lowering-path-names")?
+  for name in [
+    "write", "write_atomic", "mkdir", "remove", "chmod", "read_text",
+    "read_bytes", "exists", "executable", "du", "metadata", "readlink", "resolve",
+  ] {
+    fp"{root}/helper.xsh".write(f"""##! Imported procedure with a shared method name.
+
+## Returns the supplied value.
+export proc {name}(value: Str = "default") -> Str {{ value }}
+""")
+    let output = test.expect(
+      ctx,
+      f"""use helper
+print helper.{name}()
+proc nested() {{
+  print helper.{name}(value: "named")
+}}
+nested()
+""",
+      status: 0,
+      env: {XSH_MODULE_PATH: root},
+    )?
+    assert output.stdout == "default\nnamed\n", f"{name}: {output.stdout}"
+  }
+}
+
 test test_top_level_guard_bindings_publish_success_values { |ctx|
   let output = test.expect(
     ctx,

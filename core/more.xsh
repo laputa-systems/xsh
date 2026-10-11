@@ -1,8 +1,9 @@
 #!/bin/xsh
 use lib.gnu
 
-const USAGE = """Usage: more [OPTIONS] FILE...
+const USAGE = """Usage: more [OPTIONS] [FILE]...
 Display the contents of a text file
+With no FILE, read standard input until EOF.
 
   -d, --silent       display help instead of ringing the bell when an illegal key is pressed
   -f, --logical      count logical lines, rather than screen lines
@@ -50,7 +51,7 @@ type Geometry = {rows: Int, cols: Int, interactive: Bool}
 
 # One file or the standard input: its display name, a name for the prompt,
 # and its lines as raw bytes.
-type Source = {label: Str, lines: List[Bytes], size: Int}
+type Source = {label: Str, lines: List[Bytes], size: Int, data: Bytes}
 
 # What the user asked for after a screen: quit everything or go on.
 type Outcome = {quit: Bool}
@@ -293,7 +294,7 @@ proc page(
 
     let eof = screen.next >= source.lines.len()
 
-    if eof and last and opts.exit_on_eof {
+    if eof and last and (opts.exit_on_eof or screen.next - top < capacity) {
       flush_output()
       return {quit: true}
     }
@@ -361,9 +362,16 @@ proc page(
   {quit: false}
 }
 
-# Everything printed straight through (no terminal to page on): the from-line
-# and pattern choose the start, -s squeezes, a header names each of several files.
-proc dump(opts: MoreOptions, source: Source, show_header: Bool) [process, env, io] {
+# With no controlling terminal, concatenate sources. Display transformations
+# remain available when explicitly requested.
+proc dump(opts: MoreOptions, source: Source) [process, env, io] {
+  # Without a display transformation, preserve every byte, including an
+  # incomplete final line; redirected output is concatenation, without banners.
+  if opts.from_line == null and opts.pattern == null and ! opts.squeeze and ! opts.plain {
+    gnu.write_bytes(source.data)
+    return
+  }
+
   let from_line = count_option(opts.from_line, "--from-line")
   var top = if from_line > 0 { from_line - 1 } else { 0 }
 
@@ -375,14 +383,15 @@ proc dump(opts: MoreOptions, source: Source, show_header: Bool) [process, env, i
     }
   }
 
-  if show_header {
-    gnu.write_text(f"::::::::::::::\n{source.label}\n::::::::::::::\n")
-  }
-
   # -c and -p only repaint a terminal; a pipe gets the text alone.
   let plain = {...opts, clean_print: false, print_over: false}
   let screen = build_screen(plain, source.lines, top, source.lines.len() + 1, 80)
-  gnu.write_bytes(screen.text)
+  let data = if ! source.data.is_empty() and source.data.byte_at(source.data.len() - 1) != 10 and ! screen.text.is_empty() {
+    screen.text.slice(0, screen.text.len() - 1)
+  } else {
+    screen.text
+  }
+  gnu.write_bytes(data)
 }
 
 # The name shown in headers and prompts: the text of a UTF-8 name, or its quoted escapes.
@@ -393,7 +402,7 @@ proc display_name(name: Bytes) [env] -> Str {
 proc load(name: Bytes) [fs, process, env, error, io] -> Source? {
   if name == b"-" {
     let data = io.stdin_bytes()?
-    return {label: ":", lines: data.lines(), size: data.len()}
+    return {label: ":", lines: data.lines(), size: data.len(), data: data}
   }
 
   let file = Path.parse_bytes(name)?
@@ -401,20 +410,20 @@ proc load(name: Bytes) [fs, process, env, error, io] -> Source? {
   match fs.stat(file) {
     Ok(info) => {
       if info.kind == "dir" {
-        gnu.error(f"{gnu.quote_bytes(name)} is a directory.")
+        gnu.error("read error: Is a directory")
         return null
       }
     }
     Err(failure) => {
-      gnu.error(f"cannot open {gnu.quote_bytes(name)}: {gnu.strerror(failure)}")
+      io.write_stderr_bytes(bytes.concat([b"more: can't open '", name, bytes.from_text(f"': {gnu.strerror(failure)}\n")]))?
       return null
     }
   }
 
   match file.read_bytes() {
-    Ok(data) => {label: display_name(name), lines: data.lines(), size: data.len()}
+    Ok(data) => {label: display_name(name), lines: data.lines(), size: data.len(), data: data}
     Err(failure) => {
-      gnu.error(f"cannot open {gnu.quote_bytes(name)}: {gnu.strerror(failure)}")
+      io.write_stderr_bytes(bytes.concat([b"more: can't open '", name, bytes.from_text(f"': {gnu.strerror(failure)}\n")]))?
       null
     }
   }
@@ -462,19 +471,27 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let names: List[Bytes] = if opts.files.is_empty() { [b"-"] } else { [gnu.argument_bytes(file, prepared.raw) for file in opts.files] }
   let stdin_terminal = unix.isatty(0)
 
-  if opts.files.is_empty() and stdin_terminal {
-    gnu.usage_error("bad usage")
-  }
-
   # Paging needs a terminal to show screens on and commands to read from; a
   # pipe on standard input has neither a way to ask for more (no unbuffered
   # reads yet), so its text is printed in full.
   let geometry = window()
-  let paging = unix.isatty(1) and stdin_terminal
+  # A pair of terminal descriptors alone does not provide command input:
+  # only an accessible controlling terminal enables paging.
+  let terminal = unix.open_fd(p"/dev/tty")
+  let has_terminal = if let Ok(fd) = terminal {
+    unix.close_fd(fd)?
+    true
+  } else {
+    false
+  }
+  let paging = unix.isatty(1) and stdin_terminal and has_terminal
   let several = names.len() > 1
+
+  var failed = false
 
   for index in range(names.len()) {
     guard let source = load(names[index]) else {
+      failed = true
       continue
     }
 
@@ -484,9 +501,11 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
 
       break when outcome.quit
     } else {
-      dump(opts, source, several)
+      dump(opts, source)
     }
   }
 
   flush_output()
+
+  if failed { exit 1 }
 }

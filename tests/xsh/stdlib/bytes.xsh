@@ -137,3 +137,14 @@ test test_byte_at_reads_bytes_and_text_through_typed_receivers {
   let dynamic: Any = data
   assert dynamic.byte_at(1).require(Int)? == 255
 }
+
+test test_bytes_zero_allocation_failure_retains_errno {
+  let failed = bytes.zero(9223372036854775807)
+  assert failed is Err(is HostIo)
+  match failed {
+    Err(error) => assert error.errno == 12
+    Ok(_) => test.fail("unaddressable byte buffer succeeded")
+  }
+  assert bytes.zero(0)? == b""
+  assert bytes.zero(2)? == b"\0\0"
+}

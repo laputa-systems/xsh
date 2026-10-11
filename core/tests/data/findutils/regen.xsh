@@ -3,7 +3,7 @@
 ##! Run from the repository root with a container runtime available:
 ##!   xsh core/tests/data/findutils/regen.xsh -- find|xargs
 ##! It builds the fixture tree, runs every case under the reference
-##! implementation through dev/compat/oracle.sh, and rewrites the JSON that the
+##! implementation through dev/reference/oracle.sh, and rewrites the JSON that the
 ##! applet tests compare against. The container is only an author-time oracle;
 ##! the tests need none.
 use core.lib.findutils_fixture as fixture
@@ -81,7 +81,7 @@ proc main(program: Str) {
       script += [f"run {c.name} '{c.flags}' {program} {words.join(" ")}"]
     }
     fp"{root}/driver.sh".write(script.join("\n") + "\n")?
-    let oracle = fp"{fs.cwd()?}/dev/compat/oracle.sh"
+    let oracle = fp"{fs.cwd()?}/dev/reference/oracle.sh"
     let status = run.status $oracle --mount $root --rw -- sh /fixture/driver.sh
     assert status.exited_with(0)
     fixture.restore(root)?

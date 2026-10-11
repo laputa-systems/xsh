@@ -33,11 +33,6 @@ pure permission_text(mode: Int) -> Str {
   text
 }
 
-proc usage_error(message: Str) -> Unit {
-  gnu.error(f"{message}\nUsage: mv [OPTION]... [-T] SOURCE DEST\nFor more information, try '--help'.")
-  exit 1
-}
-
 pure basename_path(value: Path) -> Result[Path] {
   var raw = value.bytes()
   while raw.len() > 1 and raw.byte_at(raw.len() - 1) == 47 { raw = raw[..raw.len() - 1] }
@@ -51,9 +46,9 @@ pure child_path(parent: Path, child: Path) -> Path {
   if raw.byte_at(raw.len() - 1) == 47 { fp"{parent}{child}" } else { fp"{parent}/{child}" }
 }
 
-pure same_entry_display(value: Path) -> Str {
+pure same_entry_display(value: Path, destination: Bool = false) -> Str {
   let shown = value.display()
-  if shown == "./" { "." } else { shown }
+  if shown == "./" { if destination { "./." } else { "." } } else { shown }
 }
 
 proc preserve_move_metadata(source: Path, target: Path, metadata: MoveMetadata) -> Result[Unit] {
@@ -115,26 +110,33 @@ proc copy_move_node(source: Path, target: Path, copies: List[FileIdentity]) -> R
   copies
 }
 
-proc remove_move_tree(entry_path: Path) -> Result[Unit] {
+proc remove_move_tree(entry_path: Path, verbose: Bool = false) -> Result[Unit] {
   let metadata = fs.stat(entry_path)?
   if metadata.kind == "dir" {
     for entry in fs.children(entry_path)? {
       let name = basename_path(entry.path)?
-      remove_move_tree(child_path(entry_path, name))?
+      remove_move_tree(child_path(entry_path, name), verbose)?
     }
-    return entry_path.remove_dir()
+    entry_path.remove_dir()?
+    if verbose { print f"removed directory {gnu.quote(entry_path.display())}" }
+    return Ok()
   }
-  entry_path.remove()
+  entry_path.remove()?
+  if verbose { print f"removed {gnu.quote(entry_path.display())}" }
+  Ok()
 }
 
-proc report_move_children(source: Path, target: Path) -> Result[Unit] {
-  for entry in fs.children(source)? {
-    let name = basename_path(entry.path)?
-    let source_child = child_path(source, name)
-    let target_child = child_path(target, name)
-    print f"{gnu.quote(source_child.display())} -> {gnu.quote(target_child.display())}"
-    if fs.stat(source_child)?.kind == "dir" { report_move_children(source_child, target_child)? }
+proc report_move_copy(source: Path, target: Path) -> Result[Unit] {
+  if fs.stat(source)?.kind == "dir" {
+    print f"created directory {gnu.quote(target.display())}"
+    for entry in fs.children(source)? {
+      let name = basename_path(entry.path)?
+      report_move_copy(child_path(source, name), child_path(target, name))?
+    }
+  } else {
+    print f"copied {gnu.quote(source.display())} -> {gnu.quote(target.display())}"
   }
+  Ok()
 }
 
 proc copy_across_devices(source: Path, target: Path, policy: Str, verbose: Bool,
@@ -182,8 +184,8 @@ proc copy_across_devices(source: Path, target: Path, policy: Str, verbose: Bool,
     published_copies += [{dev: entry.dev, ino: entry.ino, path: published_path}]
   }
   staged_dir.remove_dir()?
-  if verbose and fs.stat(source)?.kind == "dir" { report_move_children(source, target)? }
-  remove_move_tree(source)?
+  if verbose { report_move_copy(source, target)? }
+  remove_move_tree(source, verbose)?
   {outcome: Moved, copies: published_copies}
 }
 
@@ -205,14 +207,14 @@ proc move_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
     if metadata.kind == "symlink" and dest_meta.kind != "symlink" and backup in ["none", "off"] {
       if let Ok(followed) = fs.stat(source, follow_symlinks: true) {
         if followed.dev == dest_meta.dev and followed.ino == dest_meta.ino {
-          gnu.error(f"{gnu.quote(same_entry_display(source))} and {gnu.quote(same_entry_display(target))} are the same file")
+          gnu.error(f"{gnu.quote(same_entry_display(source))} and {gnu.quote(same_entry_display(target, destination: true))} are the same file")
           return {outcome: Failed, copies}
         }
       }
     }
     if metadata.dev == dest_meta.dev and metadata.ino == dest_meta.ino and
       (backup in ["none", "off"] or files.same_entry(source, target)?) {
-      gnu.error(f"{gnu.quote(same_entry_display(source))} and {gnu.quote(same_entry_display(target))} are the same file")
+      gnu.error(f"{gnu.quote(same_entry_display(source))} and {gnu.quote(same_entry_display(target, destination: true))} are the same file")
       return {outcome: Failed, copies}
     }
     if policy == "skip" or opts.update == "none" {
@@ -240,7 +242,7 @@ proc move_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
       return {outcome: Failed, copies}
     }
     if metadata.kind != "dir" and dest_meta.kind == "dir" {
-      gnu.error(f"cannot overwrite directory {gnu.quote(target.display())} with non-directory")
+      gnu.error(f"cannot overwrite directory {gnu.quote(target.display())} with non-directory {gnu.quote(source.display())}")
       return {outcome: Failed, copies}
     }
   }
@@ -299,9 +301,9 @@ proc move_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
         if moving_source != source { moving_source.rename(to: source, overwrite: true) }
         return {outcome: result.outcome, copies: result.copies}
       }
-      if opts.verbose or opts.debug {
+      if opts.debug and ! opts.verbose {
         let tail = if saved != null { f" (backup: {gnu.quote(saved.display())})" } else { "" }
-        if opts.verbose { print f"{gnu.quote(source.display())} -> {gnu.quote(target.display())}{tail}" } else { print f"renamed {gnu.quote(source.display())} -> {gnu.quote(target.display())}{tail}" }
+        print f"renamed {gnu.quote(source.display())} -> {gnu.quote(target.display())}{tail}"
       }
       return {outcome: Moved, copies: result.copies}
     }
@@ -345,14 +347,16 @@ proc main(...argv: List[Str]) {
   if opts.help { gnu.help("Usage: mv [OPTION]... SOURCE... DEST\nRename SOURCE to DEST, or move SOURCE(s) to DIRECTORY."); return }
   if opts.version { gnu.version("mv"); return }
   if opts.operands.is_empty() {
-    usage_error("error: the following required arguments were not provided:\n  <files>...")
+    gnu.usage_error("missing file operand")
   }
   if opts.target == null and opts.operands.len() == 1 {
-    usage_error("requires at least 2 values, but only 1 was provided")
+    gnu.usage_error(f"missing destination file operand after {gnu.quote(opts.operands[0])}")
   }
   if opts.target != null and opts.no_target_directory {
-    gnu.usage_error("--target-directory cannot be used with --no-target-directory")
+    gnu.error("cannot combine --target-directory (-t) and --no-target-directory (-T)")
+    exit 1
   }
+  if opts.no_target_directory and opts.operands.len() > 2 { gnu.usage_error(f"extra operand {gnu.quote(opts.operands[2])}") }
   if opts.update != null and opts.update not in ["all", "none", "none-fail", "older"] { gnu.usage_error(f"invalid argument {gnu.quote(opts.update)} for 'update'") }
   let dest = if opts.target != null { fp"{opts.target}" } else { fp"{opts.operands[-1]}" }
   let sources = if opts.target != null { opts.operands } else { opts.operands |> take(opts.operands.len() - 1) }
@@ -369,22 +373,22 @@ proc main(...argv: List[Str]) {
   # With -T the destination is a name to rename onto, so a trailing slash on an existing directory is not an error.
   if dest.display().ends_with("/") and ! is_dir and ! opts.no_target_directory {
     match fs.stat(dest, follow_symlinks: true) {
-      Ok(_) => { gnu.error(f"failed to access {gnu.quote(dest.display())}: Not a directory"); exit 1 }
+      Ok(_) => { gnu.error(f"cannot stat {gnu.quote(dest.display())}: Not a directory"); exit 1 }
       Err(failure) => {
-        if gnu.errno(failure) == 20 { gnu.error(f"failed to access {gnu.quote(dest.display())}: {gnu.strerror(failure)}"); exit 1 }
+        if gnu.errno(failure) == 20 { gnu.error(f"cannot stat {gnu.quote(dest.display())}: {gnu.strerror(failure)}"); exit 1 }
       }
     }
   }
   if (sources.len() > 1 or opts.target != null) and ! is_dir {
-    let kind = if opts.target != null or opts.exchange { "target directory" } else { "target" }
+    let kind = if opts.target != null { "target directory" } else { "target" }
     gnu.error(f"{kind} {gnu.quote(dest.display())}: Not a directory")
     exit 1
   }
   opts.update = files.update(argv)?
   let policy = files.overwrite(argv, "default")?
   let backup = opts.backup ?? (if opts.simple_backup or opts.suffix != null { env.get_or("VERSION_CONTROL", "existing") ?? "existing" } else { "none" })
-  if backup not in ["none", "off"] and (policy == "skip" or (opts.update != null and opts.update in ["none", "none-fail"])) {
-    gnu.usage_error("cannot combine --backup with -n/--no-clobber or --update=none-fail")
+  if backup not in ["none", "off"] and (opts.exchange or policy == "skip" or (opts.update != null and opts.update in ["none", "none-fail"])) {
+    gnu.usage_error("cannot combine --backup with --exchange, -n, or --update=none-fail")
   }
   files.validate_backup(backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")
   # Labelling the destination is not implemented, so --context is only accepted
@@ -425,6 +429,8 @@ proc main(...argv: List[Str]) {
         }
         if gnu.errno(failure) in [2, 20] and source_missing {
           gnu.cannot("stat", text, failure)
+        } else if opts.exchange {
+          gnu.error(f"cannot exchange {gnu.quote(text)} and {gnu.quote(target.display())}: {gnu.strerror(failure)}")
         } else {
           gnu.error(f"cannot move {gnu.quote(text)} to {gnu.quote(target.display())}: {gnu.strerror(failure)}")
         }

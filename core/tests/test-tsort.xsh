@@ -10,20 +10,21 @@ proc tsort_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs, 
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
 }
 
-test test_tsort_help_version_aliases { |ctx|
+test test_tsort_help_version_and_invalid_short_flags { |ctx|
   let root = test.temp_dir(ctx, name: "tsort-options")?
   let help = tsort_run(ctx, root, ["--help"])?
-  let short_help = tsort_run(ctx, root, ["-h"])?
   let version = tsort_run(ctx, root, ["--version"])?
-  let short_version = tsort_run(ctx, root, ["-V"])?
 
   assert help.status == 0
   assert help.stdout.utf8()?.starts_with("Usage: tsort")
-  assert short_help.status == 0
-  assert short_help.stdout == help.stdout
   assert version.status == 0
-  assert short_version.status == 0
-  assert short_version.stdout == version.stdout
+
+  for flag in ["h", "V"] {
+    let result = tsort_run(ctx, root, ["-" + flag])?
+    assert result.status == 1
+    assert result.stdout == b""
+    assert result.stderr == f"tsort: invalid option -- '{flag}'\nTry 'tsort --help' for more information.\n"
+  }
 }
 
 test test_tsort_orders_by_dependency_then_name { |ctx|

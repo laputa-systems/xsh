@@ -119,7 +119,7 @@ test test_ln_no_dereference_does_not_imply_force { |ctx|
   assert dest.read_text()? == "old"
 }
 
-test test_ln_verbose_reports_backup_after_the_link { |ctx|
+test test_ln_verbose_reports_backup_before_the_link { |ctx|
   let root = test.temp_dir(ctx)?
   let source = fp"{root}/source"
   let dest = fp"{root}/dest"
@@ -131,7 +131,7 @@ test test_ln_verbose_reports_backup_after_the_link { |ctx|
   dest.remove()
   dest.write("old")
   let backed_up = run.text ${ctx.xsh_bin} $script -- -s -v -b $source $dest
-  assert backed_up == f"'{dest}' -> '{source}' (backup: '{dest}~')\n"
+  assert backed_up == f"'{dest}~' ~ '{dest}' -> '{source}'\n"
 }
 
 test test_ln_preserves_non_utf8_source_and_destination_names { |ctx|
@@ -618,5 +618,19 @@ test test_ln_symbolic_same_file_only_for_the_same_entry { |ctx|
     assert refused.stderr == "ln: './a' and 'a' are the same file\n", refused.stderr
     assert fs.stat(p"a")?.kind == "file"
     assert p"a".read_text()? == "data"
+  }
+}
+
+test test_ln_verbose_backup_precedes_link_mapping { |ctx|
+  let root = test.temp_dir(ctx)?
+  let script = fp"{ctx.core_dir}/ln.xsh"
+  cd root {
+    p"source".write("new")
+    p"target".write("old")
+    let result = run.capture --text ${ctx.xsh_bin} $script -- -svb source target
+    assert result.status.exited_with(0)
+    assert result.stdout == "'target~' ~ 'target' -> 'source'\n", result.stdout
+    assert p"target~".read_text()? == "old"
+    assert p"target".readlink()? == p"source"
   }
 }

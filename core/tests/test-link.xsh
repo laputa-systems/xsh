@@ -10,13 +10,14 @@ test test_link { |ctx|
 
 test test_link_rejects_operand_counts_with_usage { |ctx|
   let script = fp"{ctx.core_dir}/link.xsh"
-  let missing = run.capture --text ${ctx.xsh_bin} $script -- p"source"
+  let empty = run.capture --text ${ctx.xsh_bin} $script --
+  assert empty.status.exited_with(1)
+  assert empty.stderr == "link: missing operand\nTry 'link --help' for more information.\n"
+  let missing = env ({LC_ALL: "C"}) { run.capture --text ${ctx.xsh_bin} $script -- p"source" }?
   assert missing.status.exited_with(1)
-  assert "2 values required" in missing.stderr
-  assert "Usage: link FILE1 FILE2" in missing.stderr
+  assert missing.stderr == "link: missing operand after 'source'\nTry 'link --help' for more information.\n"
 
-  let extra = run.capture --text ${ctx.xsh_bin} $script -- p"source" p"first" p"extra"
+  let extra = env ({LC_ALL: "C"}) { run.capture --text ${ctx.xsh_bin} $script -- p"source" p"first" p"extra" }?
   assert extra.status.exited_with(1)
-  assert "2 values required" in extra.stderr
-  assert "Usage: link FILE1 FILE2" in extra.stderr
+  assert extra.stderr == "link: extra operand 'extra'\nTry 'link --help' for more information.\n"
 }

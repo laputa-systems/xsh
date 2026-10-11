@@ -96,16 +96,38 @@ test test_shred_non_utf8_path { |ctx|
   assert target.read_bytes()? == b"\0\0\0\0\0\0"
 }
 
-test test_shred_size_diagnostics_locate_invalid_units { |ctx|
+test test_shred_invalid_sizes_use_plain_diagnostics { |ctx|
   let root = test.temp_dir(ctx, name: "shred-size-diagnostic")?
   fp"{root}/wipe_me".write("keep")
-  let unknown_unit = run_applet(ctx, root, ["-s", "4vv", "wipe_me"], diagnostics: "always")?
-  assert unknown_unit.status == 1
-  assert "shred:1:11" in unknown_unit.stderr, unknown_unit.stderr
-  assert "not a known unit" in unknown_unit.stderr, unknown_unit.stderr
-  let no_number = run_applet(ctx, root, ["--size=vv", "wipe_me"], diagnostics: "always")?
-  assert no_number.status == 1
-  assert "shred:1:14" in no_number.stderr, no_number.stderr
-  assert !("not a known unit" in no_number.stderr), no_number.stderr
+  for size in ["4vv", "vv"] {
+    let result = run_applet(ctx, root, ["-s", size, "wipe_me"], diagnostics: "always")?
+    assert result.status == 1
+    assert result.stderr == f"shred: invalid file size: '{size}'\n", result.stderr
+  }
   assert fp"{root}/wipe_me".read_text()? == "keep"
+}
+
+test test_shred_random_source_wipes_short_file_before_padding { |ctx|
+  let root = test.temp_dir(ctx, name: "shred-short-source")?
+  let source = bytes.from_ints([i % 251 for i in range(16384)])?
+  fp"{root}/source".write(source)
+  let target = fp"{root}/file"
+  target.write("a")
+  let result = run_applet(ctx, root, ["-vn3", "--random-source=source", "file"])?
+  assert result.status == 0, result.stderr
+  let block = fs.stat(target)?.blksize
+  assert target.read_bytes()? == source[block * 2 + 3..block * 3 + 3]
+  assert result.stderr == "shred: file: pass 1/3 (random)...\nshred: file: pass 2/3 (random)...\nshred: file: pass 3/3 (random)...\n"
+}
+
+test test_shred_remove_reports_unlink_permission_failure { |ctx|
+  let root = test.temp_dir(ctx, name: "shred-remove-permission")?
+  let directory = fp"{root}/dir"
+  directory.mkdir()
+  fp"{directory}/file".write("")
+  directory.chmod(0o555)
+  defer directory.chmod(0o755)
+  let result = run_applet(ctx, root, ["-uv", "dir/file"])?
+  assert result.status == 1
+  assert result.stderr == "shred: dir/file: removing\nshred: dir/file: failed to remove: Permission denied\n", result.stderr
 }

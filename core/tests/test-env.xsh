@@ -35,11 +35,12 @@ test test_env_split_string_as_single_shebang_arg_runs_command { |ctx|
   assert output.trim() == "split"
 }
 
-test test_env_long_split_string_as_single_word_runs_command { |ctx|
-  let script = fp"{ctx.core_dir}/printenv.xsh"
-  let command = f"--split-string XSH_MODULE_PATH=long {ctx.xsh_bin} {script} -- XSH_MODULE_PATH"
-  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/env.xsh" -- $command
-  assert output.trim() == "long"
+test test_env_long_split_string_requires_separate_or_equals_argument { |ctx|
+  let result = env_run(ctx, ["--split-string echo long"])?
+
+  assert result.status == 125
+  assert result.stdout == ""
+  assert result.stderr == "env: unrecognized option '--split-string echo long'\nTry 'env --help' for more information.\n"
 }
 
 test test_env_uses_direct_xsh_shebang { |ctx|
@@ -265,6 +266,7 @@ test test_env_help_lists_options { |ctx|
 
   assert result.status == 0, result.stderr
   assert "Options:" in result.stdout
+  assert "Mandatory arguments to long options are mandatory for short options too." in result.stdout
   assert "--unset" in result.stdout
   assert "--ignore-signal" in result.stdout
 }
@@ -363,11 +365,24 @@ test test_env_passes_non_utf8_values_through_unchanged { |ctx|
   let argv = [ctx.xsh_bin.display(), "--", fp"{ctx.core_dir}/env.xsh".display()]
   let listed = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", PATH: "/bin:/usr/bin", RAW_VALUE: raw}, b"", stdout, fp"{root}/stderr")
   assert process.run(listed)?.exit_code()? == 0
-  assert b"RAW_VALUE=a\x80b" in stdout.read_bytes()?.lines()
+  assert b"RAW_VALUE='a'$'\\200''b'" in stdout.read_bytes()?.lines()
+  let null_listed = process.command_argv(ctx.xsh_bin, argv.extend(["-0"]), root, {LC_ALL: "C", PATH: "/bin:/usr/bin", RAW_VALUE: raw}, b"", stdout, fp"{root}/stderr")
+  assert process.run(null_listed)?.exit_code()? == 0
+  assert b"RAW_VALUE=a\x80b\0" in stdout.read_bytes()?
 
   # The same bytes reach a command's environment.
   let probe = [ctx.xsh_bin.display(), "--", fp"{ctx.core_dir}/env.xsh".display(), ctx.xsh_bin.display(), "--", fp"{ctx.core_dir}/printenv.xsh".display(), "RAW_VALUE"]
   let passed = process.command_argv(ctx.xsh_bin, probe, root, {LC_ALL: "C", PATH: "/bin:/usr/bin", RAW_VALUE: raw}, b"", stdout, fp"{root}/stderr")
   assert process.run(passed)?.exit_code()? == 0
   assert stdout.read_bytes()? == b"a\x80b\n"
+}
+
+test test_env_quotes_values_for_lines_and_preserves_them_for_null_output { |ctx|
+  let lines = env_run(ctx, ["-i", "SPACE=hello world", "NEWLINE=a\nb", "EMPTY="])?
+  assert lines.status == 0, lines.stderr
+  assert lines.stdout == "EMPTY=\nNEWLINE='a'$'\\n''b'\nSPACE='hello world'\n", lines.stdout
+
+  let raw = env_run(ctx, ["-i", "-0", "SPACE=hello world", "NEWLINE=a\nb", "EMPTY="])?
+  assert raw.status == 0, raw.stderr
+  assert raw.stdout == "EMPTY=\0NEWLINE=a\nb\0SPACE=hello world\0", raw.stdout
 }

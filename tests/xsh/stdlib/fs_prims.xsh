@@ -474,6 +474,7 @@ test test_copy_file_copies_bytes_with_the_source_mode_and_reports_the_method { |
 
   let copied = fs.copy_file(source, dest)?
   assert ! copied.destination_replaced
+  assert copied.reflink_error == null
   assert copied.bytes == 11
   assert copied.hole_bytes == 0
   assert copied.method == "copy_file_range" or copied.method == "read_write"
@@ -599,9 +600,15 @@ test test_copy_file_reflink_clones_or_fails_with_an_errno { |ctx|
   let always = fs.copy_file(source, strict, reflink: "always")
   if let Ok(cloned) = always {
     assert cloned.method == "clone"
+    assert cloned.reflink_error == null and cloned.offload_error == null
     assert strict.read_text()? == "reflink me"
   } else if let Err(failure) = always {
     assert failure.errno != null
+    if system.uname()?.sysname == "Linux" {
+      assert fallback.reflink_error?.errno == failure.errno
+    } else {
+      assert fallback.reflink_error == null
+    }
     assert ! strict.exists()?
     test.skip("the filesystem cannot clone files")
   }
@@ -631,6 +638,11 @@ test test_copy_file_reads_zero_size_virtual_files_until_eof { |ctx|
   for sparse in ["auto", "always", "never"] {
     let dest = fp"{root}/{sparse}"
     let report = fs.copy_file(source, dest, sparse: sparse, reflink: "auto")?
+    if sparse == "always" {
+      assert report.offload_error == null
+    } else {
+      assert report.offload_error?.errno == 18
+    }
     assert report.bytes == expected.len()
     assert dest.read_bytes()? == expected
     assert report.method == "read_write"
@@ -827,4 +839,44 @@ test test_copy_file_force_replaces_only_proven_final_symlink_loops { |ctx|
   }
   assert ancestor.readlink()? == p"ancestor"
   assert source.read_text()? == "copied"
+}
+
+test test_copy_file_reports_cross_device_fallback_without_replacing_or_losing_bytes { |ctx|
+  if system.uname()?.sysname != "Linux" or ! p"/dev/shm".exists()? {
+    test.skip("cross-device fallback requires Linux tmpfs")
+    return
+  }
+  let root = test.temp_dir(ctx, name: "copy-cross-device")?
+  let remote = fs.tempdir_in(/dev/shm)?
+  defer remote.close()
+  let remote_path = remote.host_path()?
+  if fs.stat(root)?.dev == fs.stat(remote_path)?.dev {
+    test.skip("test root and tmpfs share a device")
+    return
+  }
+  let source = fp"{root}/source"
+  let dest = fp"{remote_path}/dest"
+  source.write("cross-device payload")
+  dest.write("old destination with a longer tail")
+  let before = fs.stat(dest)?
+
+  let copied = fs.copy_file(source, dest, reflink: "auto", sparse: "never")?
+  assert copied.reflink_error?.errno == 18
+  assert copied.offload_error?.errno == 18
+  assert copied.method == "read_write"
+  assert copied.bytes == 20 and copied.hole_bytes == 0
+  assert ! copied.destination_replaced
+  assert fs.stat(dest)?.ino == before.ino
+  assert source.read_text()? == "cross-device payload"
+  assert dest.read_bytes()? == source.read_bytes()?
+
+  let strict = fp"{remote_path}/strict"
+  let refused = fs.copy_file(source, strict, reflink: "always")
+  assert refused is Err(_)
+  if let Err(failure) = refused { assert failure.errno == copied.reflink_error?.errno }
+  assert ! strict.exists()?
+
+  let streamed = fs.copy_file(source, fp"{remote_path}/streamed", sparse: "always", reflink: "never")?
+  assert streamed.reflink_error == null and streamed.offload_error == null
+  assert fp"{remote_path}/streamed".read_bytes()? == source.read_bytes()?
 }

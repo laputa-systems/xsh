@@ -112,11 +112,10 @@ pure float_rounding_limit(value: Float, format: Str) -> Float {
 
 pure float_text(value: Float, format: Str) -> Result[Str] {
   let display = f"{value}"
-  return Ok("NaN") when display == "NaN"
   return Ok("inf") when display == "Infinity"
   return Ok("-inf") when display == "-Infinity"
   if format in ["binary16", "bfloat16"] {
-    return Ok(normalized_float(value.format_number("g", 8)?))
+    return value.format_number("g", 8)
   }
   let narrow = format == "binary32"
   let maximum = if narrow { 9 } else { 17 }
@@ -143,6 +142,11 @@ pure item(data: Bytes, fmt: Format, big: Bool) -> Result[Str] {
   let byte = data.byte_at(0) ?? 0
   if fmt.kind == "f" {
     let value = bytes.unpack_float(data, 0, fmt.float_format, if big { "big" } else { "little" })?
+    # Float display discards a NaN's sign; recover it from the source encoding.
+    if f"{value}" == "NaN" {
+      let lead = data.byte_at(if big { 0 } else { data.len() - 1 }) ?? 0
+      return Ok(if lead >= 128 { "-nan" } else { "nan" })
+    }
     return float_text(value, fmt.float_format)
   }
   if fmt.kind == "a" {
@@ -185,7 +189,9 @@ pure item(data: Bytes, fmt: Format, big: Bool) -> Result[Str] {
 pure address(offset: Int, base: Str, label: Int?, origin: Int) -> Str {
   let text = if base == "n" { "" } else { number(offset, if base == "x" { 16 } else if base == "d" { 10 } else { 8 }, if base == "x" { 6 } else { 7 }) }
   if let value = label {
-    return text + (if text == "" { "" } else { " " }) + "(" + number(value + offset - origin, 8, 7) + ")"
+    # With addresses suppressed, GNU prints the input offset in parentheses.
+    let pseudo = if base == "n" { offset } else { value + offset - origin }
+    return text + (if text == "" { "" } else { " " }) + "(" + number(pseudo, if base == "x" { 16 } else if base == "d" { 10 } else { 8 }, if base == "x" { 6 } else { 7 }) + ")"
   }
   text
 }
@@ -334,11 +340,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   }
   if ! operands.is_empty() and legacy_offset_overflow(operands[-1]) {
-    gnu.error(f"{operands[-1]}: Result not representable")
+    gnu.error(f"{operands[-1]}: Numerical result out of range")
     exit 1
   }
   if opts.address == "none" { opts = {...opts, address: "n"} }
-  if opts.address == "" { gnu.error("Radix cannot be empty, and must be one of [o, d, x, n]"); exit 1 }
+  if opts.address == "" { gnu.error("invalid output address radix '\0'; it must be one character from [doxn]"); exit 1 }
   if ! (opts.address in ["d", "o", "x", "n"]) { gnu.usage_error(f"invalid argument {gnu.quote(opts.address)} for 'address radix'") }
   let big = opts.endian != "" and "big".starts_with(opts.endian)
   if ! big and ! (opts.endian != "" and "little".starts_with(opts.endian)) { gnu.usage_error(f"invalid argument {gnu.quote(opts.endian)} for 'endian'") }
@@ -370,7 +376,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     if arg.starts_with("-w") and ! arg.starts_with("--") { width_option = "-w" }
     if arg == "--width" or arg.starts_with("--width=") { width_option = "--width" }
   }
-  let parsed_width = tio.parse_count(opts.width)
+  let parsed_width = if rx"^[0-9]+$".matches(opts.width) { tio.parse_count(opts.width) } else { null }
   guard let width_value = parsed_width else {
     let parts = rx"^([0-9]*)(.*)$".captures(opts.width)
     let message = if parts[1] != "" and parts[2] != "" { f"invalid suffix in {width_option} argument {gnu.quote(opts.width)}" } else { f"invalid {width_option} argument {gnu.quote(opts.width)}" }
@@ -482,7 +488,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       previous = block
       for index in range(selected.len()) {
         let fmt = selected[index]
-        var line = if index == 0 { address(skip + offset, opts.address, label, skip) } else { spaces(address(skip + offset, opts.address, label, skip).byte_len()) }
+        var line = if index == 0 { address(skip + offset, opts.address, label, skip) } else { spaces(if opts.address == "x" { 6 } else if opts.address != "n" or label != null { 7 } else { 0 }) }
         let fields = width / fmt.size
         let pad = block_width - fmt.chars * fields
         var printed = 0

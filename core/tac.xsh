@@ -29,19 +29,63 @@ type RegexText = {text: Str, source_offsets: List[Int]}
 type RawArgument = {marker: Str, value: Bytes}
 type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
 
+# Keep the option prefix visible when a separator is attached to its option.
+# Short options before `s` must be flags because `s` consumes the rest.
+pure separator_offset(argument: Bytes) -> Int {
+  if argument.len() < 2 or argument.byte_at(0) != 45 { return 0 }
+
+  if argument.byte_at(1) == 45 {
+    for at in range(2, argument.len()) {
+      if argument.byte_at(at) == 61 {
+        if let Ok(_) = argument[0..at].utf8() { return at + 1 }
+        return 0
+      }
+    }
+    return 0
+  }
+
+  for at in range(1, argument.len()) {
+    let option = argument.byte_at(at) ?? -1
+    if option == 115 { return at + 1 }
+    return 0 when option not in [98, 114]
+  }
+
+  0
+}
+
 # Keep raw operands and separator bytes while the option parser sees safe text markers.
 pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
   var text: List[Str] = []
   var raw: List[RawArgument] = []
+  var options = true
+  var separator_next = false
 
   for index in range(argv.len()) {
     let argument = argv[index]
+    let offset = if options and ! separator_next { separator_offset(argument) } else { 0 }
     match argument.utf8() {
       Ok(value) => text += [value]
       Err(_) => {
         let marker = f"\0tac-raw-argument-{index}\0"
-        text += [marker]
-        raw += [{marker: marker, value: argument}]
+        if offset > 0 {
+          text += [f"{argument[0..offset].utf8() ?? ""}{marker}"]
+          raw += [{marker: marker, value: argument[offset..]}]
+        } else {
+          text += [marker]
+          raw += [{marker: marker, value: argument}]
+        }
+      }
+    }
+
+    if separator_next {
+      separator_next = false
+    } else if options {
+      let value = argument.utf8() ?? ""
+      if value == "--" {
+        options = false
+      } else {
+        separator_next = (offset > 0 and offset == argument.len() and argument.byte_at(1) != 45) or
+          (value.starts_with("--") and value.byte_len() > 2 and "--separator".starts_with(value))
       }
     }
   }

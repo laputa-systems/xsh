@@ -46,9 +46,17 @@ test test_stat_dash_uses_standard_input { |ctx|
 
 pure stat_hex(value: Int) -> Str {
   let digits = "0123456789abcdef"
-  var rest = value
+  var rest = if value < 0 { -(value + 1) } else { value }
   var output = ""
 
+  if value < 0 {
+    for _ in range(16) {
+      let index = 15 - rest % 16
+      output = f"{digits[index..index + 1]}{output}"
+      rest /= 16
+    }
+    return output
+  }
   loop {
     let index = rest % 16
     output = f"{digits[index..index + 1]}{output}"
@@ -57,6 +65,15 @@ pure stat_hex(value: Int) -> Str {
   }
 
   output
+}
+
+# The two native fsid words are printed in array order, rather than scalar order.
+pure stat_filesystem_id(value: Int) -> Str {
+  var scalar = stat_hex(value)
+  while scalar.byte_len() < 16 { scalar = f"0{scalar}" }
+  var words = scalar.byte_slice(8, length: 8) + scalar.byte_slice(0, length: 8)
+  while words.byte_len() > 1 and words.starts_with("0") { words = words.byte_slice(1) }
+  words
 }
 
 test test_stat_formats_complete_device_metadata { |ctx|
@@ -115,7 +132,7 @@ test test_stat_mount_point_quoted_name_and_filesystem_format { |ctx|
   let stats = fs.statvfs(target)?
   let filesystem = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- -f -c "%b %c %i %l %n %s %S %t %T" $target
   assert filesystem.status.exited_with(0), filesystem.stderr
-  assert filesystem.stdout == f"{stats.blocks} {stats.files} {stat_hex(stats.fsid)} {stats.name_max} {target} {stats.block_size} {stats.fragment_size} {stat_hex(stats.type_magic ?? 0)} {mount.fstype}\n"
+  assert filesystem.stdout == f"{stats.blocks} {stats.files} {stat_filesystem_id(stats.fsid)} {stats.name_max} {target} {stats.block_size} {stats.fragment_size} {stat_hex(stats.type_magic ?? 0)} {mount.fstype}\n"
 }
 
 test test_stat_terse_default_output_and_missing_operand_status { |ctx|
@@ -308,4 +325,47 @@ test test_stat_quoting_style_is_checked_only_for_quoting_directives { |ctx|
   let quoted = run.capture --text LC_ALL=C QUOTING_STYLE=bogus ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- -c "%N" $file
   assert quoted.status.exited_with(0), quoted.stderr
   assert quoted.stderr == f"stat: ignoring invalid value of environment variable QUOTING_STYLE: 'bogus'\n", quoted.stderr
+}
+
+test test_stat_formats_device_kind_and_alternate_octal { |ctx|
+  let result = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- -c "%a|%#a|%#06a|%.5a|%A|%F" p"/dev/null"
+  assert result.status.exited_with(0), result.stderr
+  assert result.stdout == "666|0666|000666|00666|crw-rw-rw-|character special file\n", result.stdout
+  let file = test.temp_file(ctx, name: "stat-special-mode", contents: b"text")?
+  file.chmod(0o4751)
+  let special = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- -c "%a|%A" $file
+  assert special.stdout == "4751|-rwsr-x--x\n", special.stdout
+  file.chmod(0o1)
+  let sparse = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- -c "%a|%#a" $file
+  assert sparse.stdout == "1|01\n", sparse.stdout
+}
+
+test test_stat_combined_flags_and_unknown_directives { |ctx|
+  let result = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- "--printf=123%-# 15q\\r\\\"\\\\\\a\\b\\x1B\\f\\x0B%+020.23m\\x12\\167\\132\\112\\n" p"/"
+  assert result.status.exited_with(0), result.stderr
+  assert bytes.from_text(result.stdout) == b"123?\r\"\\\x07\x08\x1b\x0c\x0b                   /\x12wZJ\n", result.stdout
+  assert result.stderr == ""
+}
+
+test test_stat_reports_missing_operand_and_escaped_quote_style { |ctx|
+  let missing = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" --
+  assert missing.status.exited_with(1), missing.stderr
+  assert missing.stderr == "stat: missing operand\nTry 'stat --help' for more information.\n", missing.stderr
+  let quoted = run.capture --text LC_ALL=C QUOTING_STYLE="soufflé" ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- -c "%N" p"/"
+  assert quoted.status.exited_with(0), quoted.stderr
+  assert quoted.stderr == "stat: ignoring invalid value of environment variable QUOTING_STYLE: 'souffl\\303\\251'\n", quoted.stderr
+}
+
+
+test test_stat_terse_formats_use_complete_metadata_layouts { |ctx|
+  let target = p"/dev/null"
+  let meta = fs.stat(target)?
+  let expected = f"{target} {meta.size} {meta.blocks_512} {stat_hex(meta.mode)} {meta.uid} {meta.gid} {stat_hex(meta.dev)} {meta.ino} {meta.nlink} {stat_hex(fs.dev_major(meta.rdev))} {stat_hex(fs.dev_minor(meta.rdev))} {meta.atime_ns / 1000000000} {meta.mtime_ns / 1000000000} {meta.ctime_ns / 1000000000} {(meta.birth_ns ?? 0) / 1000000000} {meta.blksize}\n"
+  let normal = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- -t $target
+  assert normal.status.exited_with(0), normal.stderr
+  assert normal.stdout == expected, normal.stdout
+  let stats = fs.statvfs(p"/proc")?
+  let filesystem = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- -f -t p"/proc"
+  assert filesystem.status.exited_with(0), filesystem.stderr
+  assert filesystem.stdout == f"/proc {stat_filesystem_id(stats.fsid)} {stats.name_max} {stat_hex(stats.type_magic ?? 0)} {stats.block_size} {stats.fragment_size} {stats.blocks} {stats.blocks_free} {stats.blocks_available} {stats.files} {stats.files_free}\n", filesystem.stdout
 }

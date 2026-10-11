@@ -15,8 +15,9 @@ before the affected item starts, or it is parked under the rules in
 
 1. This campaign starts Setup from a recorded commit with green consolidation
    gates. Completion of compatibility correctness work (parity, the native
-   port, and harness retirement) is not a prerequisite. Record its current
-   evidence and unfinished work alongside the consolidation baseline.
+   port, frozen-origin accounting, and harness retirement) is not a
+   prerequisite. Record its current evidence and unfinished work alongside
+   the consolidation baseline.
 2. Approved workstreams run on the `consolidation` branch. Compatibility
    correctness work may continue on a separate branch and worktree. Changes
    between campaigns are integrated explicitly at batch boundaries, with
@@ -52,10 +53,9 @@ tests this plan adopts as its own:
 
 ## Rules
 
-Lane ownership, briefs, and review follow the compatibility campaign unless
-a rule below says otherwise. This campaign defines its own model policy,
-integration branch, scheduling, and gates; verification follows
-`docs/TESTING.md`.
+This campaign's lane process, roles, and review are defined by the rules
+below. It sets its own model policy, integration branch, scheduling, and
+gates; verification follows `docs/TESTING.md`.
 
 **Roles and models.** One coordinating session, on its own model, is the
 integrator and the only one that merges. `xsh-lane` and `xsh-routine` name

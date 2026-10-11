@@ -62,10 +62,12 @@ fn invalid(message: impl Into<String>, span: Span) -> RuntimeError {
 
 fn fd_arg(args: &Args<'_>, index: usize, default: i64) -> Result<i32, RuntimeError> {
     let fd = args.int_or(index, default)?;
-    i32::try_from(fd)
+    let fd = i32::try_from(fd)
         .ok()
         .filter(|fd| *fd >= 0)
-        .ok_or_else(|| invalid("fd must be a non-negative descriptor number", args.span()))
+        .ok_or_else(|| invalid("fd must be a non-negative descriptor number", args.span()))?;
+    crate::startup_stdio::check(fd).map_err(|error| host_error("unix-fd", error, args.span()))?;
+    Ok(fd)
 }
 
 /// Borrows a descriptor the caller names by number. The kernel validates it on
@@ -82,7 +84,7 @@ fn isatty(args: &Args<'_>) -> Result<Value, RuntimeError> {
         i32::try_from(fd)
             .ok()
             .filter(|fd| *fd >= 0)
-            .is_some_and(|fd| termios::isatty(borrow(fd))),
+            .is_some_and(|fd| crate::startup_stdio::check(fd).is_ok() && termios::isatty(borrow(fd))),
     ))
 }
 

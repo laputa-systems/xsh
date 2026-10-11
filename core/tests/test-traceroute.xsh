@@ -268,12 +268,21 @@ test test_traceroute_applies_source_tos_ttl_and_port { |ctx|
 
 test test_traceroute_gateway_adds_a_source_route { |ctx|
   let ran = traceroute(ctx, ["-n", "-q1", "-m1", "-w", "0.2", "-g", "127.0.0.1", "127.0.0.1"])?
+
+  if ran.status != 0 {
+    assert ran.stderr == "\nsetsockopt IP_OPTIONS: Operation not permitted\n", ran.stderr
+    test.skip("IPv4 source-route IP_OPTIONS requires CAP_NET_RAW")
+    return
+  }
+
   assert ran.status == 0, ran.stderr
   assert ran.stdout.lines()[0] == "traceroute to 127.0.0.1 (127.0.0.1), 1 hops max, 72 byte packets"
 
   let two = traceroute(ctx, ["-n", "-q1", "-m1", "-w", "0.2", "--gateway=127.0.0.1,127.0.0.1", "-g", "127.0.0.1", "127.0.0.1"])?
   assert two.stdout.lines()[0] == "traceroute to 127.0.0.1 (127.0.0.1), 1 hops max, 80 byte packets"
+}
 
+test test_traceroute_gateway_option_validation { |ctx|
   let nine = traceroute(ctx, ["-n", "-g", "127.0.0.1,127.0.0.1,127.0.0.1,127.0.0.1,127.0.0.1,127.0.0.1,127.0.0.1,127.0.0.1,127.0.0.1", "127.0.0.1"])?
   assert nine.status == 2
   assert nine.stderr == "Too many gateways specified (maximum 8 for IPv4)\n", nine.stderr

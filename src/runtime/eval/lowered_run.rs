@@ -4100,6 +4100,8 @@ impl Evaluator {
         operation: &str,
         span: Span,
     ) -> Result<usize, RuntimeError> {
+        crate::startup_stdio::check(0)
+            .map_err(|error| RuntimeError::host(operation, &error).with_span(span))?;
         let stdin = rustix::stdio::stdin();
         let timeout = revent::Timespec::try_from(WAIT_POLL).expect("WAIT_POLL fits Timespec");
         loop {
@@ -4219,6 +4221,8 @@ impl Evaluator {
             return Ok(());
         }
         let bytes = std::mem::take(&mut self.stdout);
+        crate::startup_stdio::check(1)
+            .map_err(|error| RuntimeError::host("io-flush-stdout", &error).with_span(span))?;
         let mut offset = 0;
         while offset < bytes.len() {
             // A raw write, not `std::io::stdout`, which reports a closed
@@ -4249,6 +4253,8 @@ impl Evaluator {
             return Ok(());
         }
         let bytes = std::mem::take(&mut self.stderr);
+        crate::startup_stdio::check(2)
+            .map_err(|error| RuntimeError::host("io-flush-stderr", &error).with_span(span))?;
         let mut offset = 0;
         while offset < bytes.len() {
             match rustix::io::write(rustix::stdio::stderr(), &bytes[offset..]) {
@@ -5271,9 +5277,11 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsRootChildren if values.len() == 2 || values.len() == 3 => {
+            RuntimeOp::FsRootChildren if (2..=4).contains(&values.len()) => {
                 let max_entries =
                     lowered_int_arg_or(values.get(2).cloned(), 65_536, "fs.root_children", span)?;
+                let ordered =
+                    lowered_bool_arg_or(values.get(3).cloned(), true, "fs.root_children", span)?;
                 let path = lowered_path_arg(
                     values.get(1).cloned().expect("checked value length"),
                     "fs.root_children",
@@ -5282,7 +5290,7 @@ impl Evaluator {
                 let root = values.first().cloned().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
                 match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
-                    .and_then(|dir| fs_module::rooted_children(dir, &rel, max_entries, span))
+                    .and_then(|dir| fs_module::rooted_children(dir, &rel, max_entries, ordered, span))
                 {
                     Ok(result) => lowered_result_ok(lowered_fs_root_children_result(result, span)?),
                     Err(error) => lowered_result_err_value(error),
@@ -6218,6 +6226,9 @@ impl Evaluator {
                 lowered_runtime_result(hash_module::named_digest_file(&algorithm, length, &self.host_path(&path), span).map(Value::digest), span)?
             }
             RuntimeOp::HashDigestStdin if (1..=2).contains(&values.len()) => {
+                if let Err(error) = crate::startup_stdio::check(0) {
+                    return Ok(ControlFlow::Continue(lowered_result_err_value(RuntimeError::host("hash-digest-stdin", &error).with_span(span))));
+                }
                 let algorithm = lowered_str_arg_owned(values.get(0).cloned(), "", "hash.digest_stdin", span)?;
                 let length = lowered_int_arg_or(values.get(1).cloned(), 0, "hash.digest_stdin", span)?;
                 lowered_runtime_result(hash_module::named_digest_reader(&algorithm, length, &mut std::io::stdin().lock(), span).map(Value::digest), span)?
@@ -6228,6 +6239,9 @@ impl Evaluator {
                 lowered_runtime_result(hash_module::checksum_file(&algorithm, &self.host_path(&path), span), span)?
             }
             RuntimeOp::HashChecksumStdin if values.len() == 1 => {
+                if let Err(error) = crate::startup_stdio::check(0) {
+                    return Ok(ControlFlow::Continue(lowered_result_err_value(RuntimeError::host("hash-checksum-stdin", &error).with_span(span))));
+                }
                 let algorithm = lowered_str_arg_owned(values.get(0).cloned(), "", "hash.checksum_stdin", span)?;
                 lowered_runtime_result(hash_module::checksum_reader(&algorithm, &mut std::io::stdin().lock(), span), span)?
             }
@@ -6436,6 +6450,12 @@ impl Evaluator {
             RuntimeOp::IoWriteStderr if values.len() == 1 => {
                 let text = lowered_str_arg_owned(values.pop(), "", "io.write_stderr", span)?;
                 self.stderr.extend_from_slice(text.as_bytes());
+                lowered_result_ok(LoweredValue::Unit)
+            }
+            RuntimeOp::IoWriteStderrBytes if values.len() == 1 => {
+                let value = values.pop().expect("checked value length");
+                let data = lowered_bytes_arg(&value, "io.write_stderr_bytes", span)?;
+                self.stderr.extend_from_slice(data);
                 lowered_result_ok(LoweredValue::Unit)
             }
             RuntimeOp::IoFlushStderr if values.is_empty() => {
@@ -8401,7 +8421,8 @@ impl Evaluator {
             RuntimeOp::UnixSeekFd => {
                 let fd = lowered_int_arg(values.first().cloned(), "unix.seek_fd", span)?;
                 let offset = lowered_int_arg(values.get(1).cloned(), "unix.seek_fd", span)?;
-                lowered_runtime_result(unix_module::seek_fd(fd, offset, span), span)?
+                let whence = lowered_str_arg_owned(values.get(2).cloned(), "start", "unix.seek_fd", span)?;
+                lowered_runtime_result(unix_module::seek_fd(fd, offset, &whence, span), span)?
             }
             RuntimeOp::UnixFadvise => {
                 let fd = lowered_int_arg(values.first().cloned(), "unix.fadvise", span)?;
@@ -8422,6 +8443,31 @@ impl Evaluator {
                     Ok(found) => lowered_result_ok(lowered_runtime_value(found, span)?),
                     Err(error) => lowered_result_err_value(error),
                 }
+            }
+            RuntimeOp::LocaleNumericInfo | RuntimeOp::LocaleTimeInfo => {
+                let api = if op == RuntimeOp::LocaleNumericInfo { "system.locale_numeric_info" } else { "system.locale_time_info" };
+                let name = lowered_str_arg_owned(values.first().cloned(), "", api, span)?;
+                let result = if op == RuntimeOp::LocaleNumericInfo {
+                    crate::modules::locale::numeric_info(&name, span)
+                } else {
+                    crate::modules::locale::time_info(&name, span)
+                };
+                lowered_runtime_result(result, span)?
+            }
+            RuntimeOp::NumericLongDoublePrecision => LoweredValue::Int(crate::modules::numeric::precision()),
+            RuntimeOp::NumericParseLongDouble => {
+                let text = lowered_str_arg_owned(values.first().cloned(), "", "system.parse_long_double", span)?;
+                lowered_runtime_result(crate::modules::numeric::parse(&text, span), span)?
+            }
+            RuntimeOp::NumericFormatLongDouble => {
+                let text = lowered_str_arg_owned(values.first().cloned(), "", "system.format_long_double", span)?;
+                let conversion = lowered_str_arg_owned(values.get(1).cloned(), "", "system.format_long_double", span)?;
+                let precision = match values.get(2) {
+                    None | Some(LoweredValue::Null) => None,
+                    _ => Some(lowered_int_arg(values.get(2).cloned(), "system.format_long_double", span)?),
+                };
+                let alternate = lowered_bool_arg_or(values.get(3).cloned(), false, "system.format_long_double", span)?;
+                lowered_runtime_result(crate::modules::numeric::format(&text, &conversion, precision, alternate, span), span)?
             }
             RuntimeOp::CompressionTransform => {
                 let source = match values.first().cloned() { None | Some(LoweredValue::Null) => None, Some(value) => Some(lowered_path_arg(value, "compression.transform", span)?) };
@@ -9505,7 +9551,9 @@ impl Evaluator {
                     return Ok(Value::ok(Value::Unit));
                 }
                 self.flush_shared_stdio();
-                unix_module::exec_env(&invocation, argv0.as_deref(), &block_signals, span)
+                let cwd = (plan.cwd.is_some() || super::PROCESS_CWD.get() != Some(&self.cwd))
+                    .then_some(invocation.cwd.as_path());
+                unix_module::exec_env(&invocation, cwd, argv0.as_deref(), &block_signals, span)
             }
             RuntimeOp::UnixExec => {
                 let plan = lowered_command_arg(
@@ -9516,7 +9564,9 @@ impl Evaluator {
                 let invocation = self.invocation_from_command_plan(&plan, span)?;
                 // Buffered output would otherwise die with the replaced image.
                 self.flush_shared_stdio();
-                unix_module::exec(&invocation, span)
+                let cwd = (plan.cwd.is_some() || super::PROCESS_CWD.get() != Some(&self.cwd))
+                    .then_some(invocation.cwd.as_path());
+                unix_module::exec(&invocation, cwd, span)
             }
             RuntimeOp::UnixSetHostname => {
                 let hostname =

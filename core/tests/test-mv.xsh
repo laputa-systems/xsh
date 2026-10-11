@@ -118,7 +118,7 @@ test test_mv_same_entry_fails_and_retains_source { |ctx|
 test test_mv_dot_directory_same_file_diagnostic_preserves_operand_spelling { |ctx|
   let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/mv.xsh" -- p"." p"."
   assert result.status.exited_with(1)
-  assert result.stderr == "mv: '.' and '.' are the same file\n"
+  assert result.stderr == "mv: '.' and './.' are the same file\n"
 }
 
 test test_mv_backup_preserves_source_link_named_like_backup { |ctx|
@@ -207,19 +207,20 @@ test test_mv_cross_device_directory_preserves_links_and_fifo { |ctx|
   assert f"'{source}/first' -> " in output
   assert f"'{source}/dangling' -> " in output
   assert f"'{source}/fifo' -> " in output
+  assert f"created directory '{destination}'\n" in output
+  assert f"copied '{source}/first' -> '{destination}/first'\n" in output
+  assert f"removed directory '{source}'\n" in output
 }
 
 test test_mv_operand_errors_include_usage { |ctx|
   let script = fp"{ctx.core_dir}/mv.xsh"
   let missing = run.capture --text ${ctx.xsh_bin} $script -- -t p"."
   assert missing.status.exited_with(1)
-  assert "error: the following required arguments were not provided:" in missing.stderr
-  assert "<files>..." in missing.stderr
-  assert "Usage: mv [OPTION]... [-T] SOURCE DEST" in missing.stderr
+  assert missing.stderr == "mv: missing file operand\nTry 'mv --help' for more information.\n"
 
   let one = run.capture --text ${ctx.xsh_bin} $script -- p"only"
   assert one.status.exited_with(1)
-  assert "requires at least 2 values, but only 1 was provided" in one.stderr
+  assert one.stderr == "mv: missing destination file operand after 'only'\nTry 'mv --help' for more information.\n"
 }
 
 test test_mv_backup_conflicts_with_no_clobber_and_update_none { |ctx|
@@ -227,7 +228,7 @@ test test_mv_backup_conflicts_with_no_clobber_and_update_none { |ctx|
   for flag in ["--no-clobber", "--update=none", "--update=none-fail"] {
     let result = run.capture --text ${ctx.xsh_bin} $script -- --backup $flag p"source" p"target"
     assert result.status.exited_with(1)
-    assert "cannot combine --backup with -n/--no-clobber or --update=none-fail" in result.stderr
+    assert "cannot combine --backup with --exchange, -n, or --update=none-fail" in result.stderr
   }
 }
 
@@ -241,7 +242,7 @@ test test_mv_slash_operand_diagnostics_name_the_unreachable_path { |ctx|
   let target_slash = fp"{target}/"
   let destination = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/mv.xsh" -- $source $target_slash
   assert destination.status.exited_with(1)
-  assert f"failed to access '{target}/': Not a directory" in destination.stderr
+  assert f"cannot stat '{target}/': Not a directory" in destination.stderr
   assert source.read_text()? == "source"
 
   let source_slash = fp"{source}/"
@@ -359,4 +360,35 @@ test test_mv_cross_device_unremovable_target_reports_inter_device_failure { |ctx
   assert result.stderr == f"mv: inter-device move failed: '{source}' to '{destination}'; unable to remove target: Permission denied\n", result.stderr
   assert destination.read_text()? == "old"
   assert source.read_text()? == "new"
+}
+
+type MoveDiagnostic = {args: List[Str], expected: Str}
+
+test test_mv_operand_and_option_diagnostics { |ctx|
+  let root = test.temp_dir(ctx)?
+  let script = fp"{ctx.core_dir}/mv.xsh"
+  cd root {
+    p"a".write("keep")
+    p"b".write("old")
+    p"dir".mkdir()
+    let cases: List[MoveDiagnostic] = [
+      {args: [], expected: "missing file operand\nTry 'mv --help' for more information."},
+      {args: ["a"], expected: "missing destination file operand after 'a'\nTry 'mv --help' for more information."},
+      {args: ["-T", "a", "b", "c"], expected: "extra operand 'c'\nTry 'mv --help' for more information."},
+      {args: ["-T", "-t", "dir", "a", "b"], expected: "cannot combine --target-directory (-t) and --no-target-directory (-T)"},
+      {args: ["--backup", "--exchange", "a", "b"], expected: "cannot combine --backup with --exchange, -n, or --update=none-fail\nTry 'mv --help' for more information."},
+      {args: ["a", "b/"], expected: "cannot stat 'b/': Not a directory"},
+      {args: ["-T", "a", "dir"], expected: "cannot overwrite directory 'dir' with non-directory 'a'"},
+    ]
+    for item in cases {
+      let out = fp"{root}/stdout"
+      let err = fp"{root}/stderr"
+      let command = process.command_argv(ctx.xsh_bin,
+        [ctx.xsh_bin.display(), script.display()].extend(item.args), root, {LC_ALL: "C"}, b"", out, err)
+      assert process.run(command)?.exited_with(1)
+      assert err.read_text()? == f"mv: {item.expected}\n", err.read_text()?
+    }
+    assert p"a".read_text()? == "keep"
+    assert p"b".read_text()? == "old"
+  }
 }

@@ -50,21 +50,6 @@ proc mode_error(argv: List[Str], mode: Str) [env, process, error] {
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
-  # Keep supported long-option abbreviations while matching unknown-option diagnostics.
-  var option_at = 0
-  while option_at < argv.len() {
-    let arg = argv[option_at]
-    break when arg == "--"
-    if arg.starts_with("--") {
-      let option_name = arg.split("=")[0]
-      var recognized = false
-      for option in ["--mode", "--help", "--version", "--context"] {
-        if option.starts_with(arg) or (option in ["--mode", "--context"] and option.starts_with(option_name)) { recognized = true }
-      }
-      if ! recognized { gnu.error(f"unexpected argument {gnu.quote(arg)} found"); exit 1 }
-    }
-    option_at += 1
-  }
   let opts: Options = cli.applet(argv, {
     gnu: {status: 1},
     mode: {form: "-m --mode MODE"},
@@ -93,13 +78,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let count = if kind == "fifo" { 2 } else { 4 }
   if args.len() < count {
     gnu.error(f"missing operand after {gnu.quote(args[-1])}")
-    eprint "Special files require major and minor device numbers."
+    if args.len() == 2 { eprint "Special files require major and minor device numbers." }
     gnu.try_help()
     exit 1
   }
   if args.len() > count {
     gnu.error(f"extra operand {gnu.quote(args[count])}")
-    if kind == "fifo" { eprint "Fifos do not have major and minor device numbers." }
+    if kind == "fifo" and args.len() == 4 { eprint "Fifos do not have major and minor device numbers." }
     gnu.try_help()
     exit 1
   }
@@ -108,8 +93,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if kind != "fifo" {
     let a = args[2].parse_int()
     let b = args[3].parse_int()
-    if a is Err(_) or ((a ?? -1) < 0 or (a ?? -1) > 4294967295) { gnu.error(f"invalid value {gnu.quote(args[2])}"); exit 1 }
-    if b is Err(_) or ((b ?? -1) < 0 or (b ?? -1) > 4294967295) { gnu.error(f"invalid value {gnu.quote(args[3])}"); exit 1 }
+    if a is Err(_) or ((a ?? -1) < 0 or (a ?? -1) > 4294967295) { gnu.error(f"invalid major device number {gnu.quote(args[2])}"); exit 1 }
+    if b is Err(_) or ((b ?? -1) < 0 or (b ?? -1) > 4294967295) { gnu.error(f"invalid minor device number {gnu.quote(args[3])}"); exit 1 }
     major = a?
     minor = b?
   }

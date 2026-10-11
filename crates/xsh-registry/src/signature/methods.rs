@@ -1114,6 +1114,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     vec![
                         param("path", Type::Path),
                         default_param("max_entries", Type::Int),
+                        default_param("ordered", Type::Bool),
                     ],
                     result(fs_root_children_result_type()),
                     false,

@@ -69,7 +69,7 @@ test test_install_failed_directory_chown_clears_inherited_setgid { |ctx|
   let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -d -m 4755 -o root $dir
   assert result.status.exited_with(1)
   assert dir.is_dir()?
-  assert fs.stat(dir)?.mode.bit_and(0o6000) == 0
+  assert fs.stat(dir)?.mode.bit_and(0o7777) == 0o700
 }
 
 test test_install_compare_preserves_inode_and_backup_keeps_previous { |ctx|
@@ -222,28 +222,28 @@ test test_install_compare_and_strip_reports_mutual_exclusion { |ctx|
   source.write("payload")
   let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -C --strip --strip-program=echo $source $target
   assert result.status.exited_with(1)
-  assert "Options --compare and --strip are mutually exclusive" in result.stderr
+  assert result.stderr == "install: options --compare (-C) and --strip are mutually exclusive\nTry 'install --help' for more information.\n"
 }
 
-test test_install_invalid_octal_mode_names_bad_digit { |ctx|
+test test_install_invalid_octal_mode_names_invalid_mode { |ctx|
   let root = test.temp_dir(ctx)?
   let source = fp"{root}/source"
   source.write("payload")
   let target = fp"{root}/target"
   let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -m 999 $source $target
   assert result.status.exited_with(1)
-  assert "Invalid mode string: invalid digit found in string" in result.stderr
+  assert result.stderr == "install: invalid mode '999'\n"
   assert ! target.exists()?
 }
 
-test test_install_invalid_symbolic_mode_names_bad_operator { |ctx|
+test test_install_invalid_symbolic_mode_names_invalid_mode { |ctx|
   let root = test.temp_dir(ctx)?
   let source = fp"{root}/source"
   source.write("payload")
   let target = fp"{root}/target"
   let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -m "u+rw?x" $source $target
   assert result.status.exited_with(1)
-  assert "invalid operator" in result.stderr
+  assert result.stderr == "install: invalid mode 'u+rw?x'\n"
   assert ! target.exists()?
 }
 
@@ -315,8 +315,7 @@ test test_install_missing_target_directory_value_has_usage_error { |ctx|
   source.write("payload")
   let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -T $source -t
   assert result.status.exited_with(1)
-  assert "a value is required for '--target-directory <DIRECTORY>' but none was supplied" in result.stderr
-  assert "For more information, try '--help'" in result.stderr
+  assert result.stderr == "install: option requires an argument -- 't'\nTry 'install --help' for more information.\n"
 }
 
 test test_install_parents_reports_long_component_as_directory_creation { |ctx|
@@ -352,7 +351,7 @@ test test_install_strip_failure_does_not_publish { |ctx|
   let target = fp"{root}/target"
   let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -s --strip-program $strip $source $target
   assert result.status.exited_with(1)
-  assert "strip program failed" in result.stderr
+  assert "strip process terminated abnormally" in result.stderr
   assert ! target.exists()?
   assert source.read_text()? == "payload"
 }
@@ -365,7 +364,7 @@ test test_install_missing_strip_program_reports_lookup_failure { |ctx|
   let target = fp"{root}/target"
   let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -s --strip-program $strip $source $target
   assert result.status.exited_with(1)
-  assert "strip program failed: No such file or directory" in result.stderr
+  assert result.stderr == f"install: cannot run strip program '{strip}': No such file or directory\n"
   assert ! target.exists()?
 }
 
@@ -404,17 +403,19 @@ test test_install_no_target_directory_rejects_multiple_sources { |ctx|
   let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -T $first $second $dest
   assert result.status.exited_with(1)
   assert "extra operand" in result.stderr
-  assert "[OPTION]... [FILE]..." in result.stderr
+  assert "Try 'install --help' for more information." in result.stderr
   assert first.exists()? and second.exists()?
 }
 
-test test_install_unprivileged_skips_requested_owner { |ctx|
+test test_install_rejects_unprivileged_extension { |ctx|
   let root = test.temp_dir(ctx)?
   let source = fp"{root}/source"
   let target = fp"{root}/target"
   source.write("payload")
-  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -U --owner=123 $source $target
-  assert fs.stat(target)?.uid == user.current()?.uid
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -U --owner=123 $source $target
+  assert result.status.exited_with(1)
+  assert result.stderr == "install: invalid option -- 'U'\nTry 'install --help' for more information.\n"
+  assert ! target.exists()?
 }
 
 test test_install_backup_failure_sets_failure_status { |ctx|
@@ -438,7 +439,7 @@ test test_install_target_and_no_target_directory_are_mutually_exclusive { |ctx|
   source.write("payload")
   let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -T -t $root $source
   assert result.status.exited_with(1)
-  assert "Options --target-directory and --no-target-directory are mutually exclusive" in result.stderr
+  assert result.stderr == "install: cannot combine --target-directory (-t) and --no-target-directory (-T)\n"
 }
 
 test test_install_context_flags_are_silent_without_selinux { |ctx|
@@ -519,4 +520,43 @@ test test_install_help_before_context_suppresses_warning { |ctx|
   assert result.status.exited_with(0)
   assert "Usage: install" in result.stdout
   assert result.stderr == ""
+}
+
+test test_install_preserves_timestamps_from_before_source_read { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  let target = fp"{root}/target"
+  source.write("payload")
+  fs.set_times(source, atime_ns: 1230000000, mtime_ns: 4560000000)
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -p $source $target
+  let installed = fs.stat(target)?
+  assert installed.atime_ns == 1230000000
+  assert installed.mtime_ns == 4560000000
+}
+
+test test_install_does_not_trim_attached_mode_whitespace { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  let target = fp"{root}/target"
+  source.write("payload")
+  for mode in ["-m 0333", "--mode=755 "] {
+    let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- $mode $source $target
+    assert result.status.exited_with(1)
+    assert "invalid mode" in result.stderr
+    assert ! target.exists()?
+  }
+}
+
+test test_install_failed_file_chown_publishes_safe_permissions { |ctx|
+  if user.current()?.uid == 0 { test.skip("requires an unprivileged test process"); return }
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  let target = fp"{root}/target"
+  source.write("new")
+  target.write("old")
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -m 4755 -o root $source $target
+  assert result.status.exited_with(1)
+  assert result.stderr == f"install: cannot change ownership of '{target}': Operation not permitted\n"
+  assert target.read_text()? == "new"
+  assert fs.stat(target)?.mode.bit_and(0o7777) == 0o600
 }

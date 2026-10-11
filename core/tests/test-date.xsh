@@ -55,15 +55,11 @@ test test_date_debug_diagnostics { |ctx|
   let output = run.capture --text ${ctx.xsh_bin} $script -- -u --debug -d "2005-01-01" +%Y
   assert output.status.exited_with(0)
   assert output.stdout == "2005\n"
-  assert "date: input string: 2005-01-01" in output.stderr
-  assert "date: parsed date part: (Y-M-D) 2005-01-01" in output.stderr
-  assert "date: parsed time part:" in output.stderr
-  assert "date: input timezone:" in output.stderr
-  assert "date: warning: using midnight" in output.stderr
+  assert output.stderr == "date: parsed date part: (Y-M-D) 2005-01-01\ndate: input timezone: TZ=\"UTC0\" environment value or -u\ndate: warning: using midnight as starting time: 00:00:00\ndate: starting date/time: '(Y-M-D) 2005-01-01 00:00:00'\ndate: '(Y-M-D) 2005-01-01 00:00:00' = 1104537600 epoch-seconds\ndate: timezone: Universal Time\ndate: final: 1104537600.000000000 (epoch-seconds)\ndate: final: (Y-M-D) 2005-01-01 00:00:00 (UTC)\ndate: final: (Y-M-D) 2005-01-01 00:00:00 (UTC+00)\ndate: output format: '%Y'\n"
 
   let quiet = run.capture --text ${ctx.xsh_bin} $script -- -u --debug +%Y
   assert quiet.status.exited_with(0)
-  assert quiet.stderr == ""
+  assert quiet.stderr == "date: output format: '%Y'\n"
 }
 
 test test_date_debug_file_inputs { |ctx|
@@ -71,17 +67,17 @@ test test_date_debug_file_inputs { |ctx|
   let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/date.xsh" -- --debug -f $target +%Y
   assert result.status.exited_with(0)
   assert result.stdout == "2005\n2006\n"
-  assert "date: input string: 2005-01-01" in result.stderr
-  assert "date: input string: 2006-02-02" in result.stderr
+  assert "date: starting date/time: '(Y-M-D) 2005-01-01 00:00:00'" in result.stderr
+  assert "date: starting date/time: '(Y-M-D) 2006-02-02 00:00:00'" in result.stderr
 }
 
-test test_date_unknown_options_use_unexpected_argument { |ctx|
+test test_date_unknown_options_use_getopt_diagnostics { |ctx|
   let script = fp"{ctx.core_dir}/date.xsh"
-  for option in ["--fB", "-w"] {
-    let result = run.capture --text ${ctx.xsh_bin} $script -- $option
+  for item in [{option: "--fB", message: "unrecognized option '--fB'"}, {option: "-w", message: "invalid option -- 'w'"}] {
+    let result = run.capture --text ${ctx.xsh_bin} $script -- ${item.option}
     assert result.status.exited_with(1)
     assert result.stdout == ""
-    assert f"unexpected argument '{option}'" in result.stderr
+    assert result.stderr == f"date: {item.message}\nTry 'date --help' for more information.\n"
   }
 }
 
@@ -223,7 +219,7 @@ test test_date_non_utf8_operands_are_octal_escaped { |ctx|
   let lacking: List[Union[Str, Path]] = ["-d", "2031-07-23", Path.parse_bytes(b"%Y\xd8")?]
   let lacking_result = date_raw_run(ctx, lacking)?
   assert lacking_result.status == 1
-  assert lacking_result.stderr.starts_with("date: the argument %Y\\330 lacks a leading '+';\n"), lacking_result.stderr
+  assert lacking_result.stderr.starts_with("date: the argument '%Y\\330' lacks a leading '+';\n"), lacking_result.stderr
 }
 
 test test_date_format_passes_non_utf8_bytes_through { |ctx|
@@ -294,7 +290,7 @@ test test_date_shifted_years_format_each_field { |ctx|
 test test_date_locale_names_follow_locale_table { |ctx|
   let script = fp"{ctx.core_dir}/date.xsh"
   let names = run.text env LC_ALL=fr_FR.UTF-8 TZ=UTC0 ${ctx.xsh_bin} $script -- -d 2026-01-26 "+%A %a %B %b"
-  assert names == "lundi lun. janvier janv\n"
+  assert names == "lundi lun. janvier janv.\n"
   let german = run.text env LC_ALL=de_DE.UTF-8 TZ=UTC0 ${ctx.xsh_bin} $script -- -d 2026-06-15 +%B
   assert german == "Juni\n"
   let japanese = run.text env LC_ALL=ja_JP.UTF-8 TZ=UTC0 ${ctx.xsh_bin} $script -- -d 2026-01-24 +%A
@@ -339,4 +335,44 @@ test test_date_clock_with_zone_offset_and_signed_day_counts { |ctx|
   assert day_before == f"{two_days_ago.trim()} 12:00\n", day_before
   let earlier = run.text ${ctx.xsh_bin} $script -- -u -d "12:00 today" "+%F %R"
   assert earlier.ends_with(" 12:00\n"), earlier
+}
+
+test test_date_directory_file_is_read_error { |ctx|
+  let output = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/date.xsh" -- -f /
+  assert output.status.exited_with(1)
+  assert output.stderr == "date: /: read error: Is a directory\n"
+}
+
+test test_date_empty_timezone_uses_universal_name { |ctx|
+  let script = fp"{ctx.core_dir}/date.xsh"
+  let output = run.text env LC_ALL=C TZ="" ${ctx.xsh_bin} $script -- -d "@0" +%Z
+  assert output == "Universal\n"
+  let utc = run.text env LC_ALL=C TZ="" ${ctx.xsh_bin} $script -- -u -d "@0" +%Z
+  assert utc == "UTC\n"
+}
+
+test test_date_thai_month_names { |ctx|
+  let output = run.text env LC_ALL=th_TH.UTF-8 TZ=UTC0 ${ctx.xsh_bin} fp"{ctx.core_dir}/date.xsh" -- -d 2026-01-01 "+%Y %B %b"
+  assert output == "2569 มกราคม ม.ค.\n"
+}
+
+test test_date_australian_abbreviations_are_invalid { |ctx|
+  for zone in ["AWST", "ACST", "ACDT", "AEST", "AEDT"] {
+    let input = f"2021-03-20 14:53:01 {zone}"
+    let output = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/date.xsh" -- -d $input
+    assert output.status.exited_with(1)
+    assert output.stderr == f"date: invalid date '{input}'\n"
+  }
+}
+
+test test_date_zone_names_in_comments_are_ignored { |ctx|
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/date.xsh" -- -u -d "2021-03-20 (AWST (ACST))" +%F
+  assert output == "2021-03-20\n"
+}
+
+test test_date_debug_epoch_trace { |ctx|
+  let output = run.capture --text env LC_ALL=C TZ=UTC ${ctx.xsh_bin} fp"{ctx.core_dir}/date.xsh" -- --debug -d "@-22" +%s
+  assert output.status.exited_with(0)
+  assert output.stdout == "-22\n"
+  assert output.stderr == "date: parsed number of seconds part: number of seconds: -22\ndate: input timezone: '@timespec' - always UTC\ndate: timezone: TZ=\"UTC\" environment value\ndate: final: -22.000000000 (epoch-seconds)\ndate: final: (Y-M-D) 1969-12-31 23:59:38 (UTC)\ndate: final: (Y-M-D) 1969-12-31 23:59:38 (UTC+00)\ndate: output format: '%s'\n"
 }

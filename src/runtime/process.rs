@@ -130,6 +130,9 @@ pub fn initialize_interactive_process_group() -> io::Result<Option<InteractivePr
     }))
 }
 
+/// Clears prior signal state before the owner starts an independent cancellation epoch.
+/// Call this before installing handlers or preparing a new run, never after a
+/// handler may have recorded a signal for the active run.
 pub fn clear_cancellation_request() {
     PRIMARY_SIGNAL.store(0, Ordering::SeqCst);
     ESCALATION_SIGNAL.store(0, Ordering::SeqCst);
@@ -975,6 +978,9 @@ fn start_pipeline(
             stdout,
             stderr_stdio,
             group_config,
+            (if index == 0 { 1 } else { 0 })
+                | (if last && !capture_stdout { 2 } else { 0 })
+                | (if stderr.is_none() { 4 } else { 0 }),
         )?;
         match command.spawn() {
             Ok(mut child) => {
@@ -1226,6 +1232,7 @@ fn run_capture_stdio(
         Stdio::piped(),
         stderr,
         ProcessGroupConfig::NewRoot,
+        1 | if capture_stderr { 0 } else { 4 },
     )?
     .spawn()
     .map_err(map_spawn_error)?;
@@ -2174,6 +2181,7 @@ fn command_with_stdio(
     stdout: Stdio,
     stderr: Stdio,
     group: ProcessGroupConfig,
+    inherited: u8,
 ) -> Result<Command, RunError> {
     let mut command = Command::new(executable);
     command
@@ -2192,6 +2200,7 @@ fn command_with_stdio(
         command.env(os_string_from_bytes(name), os_string_from_bytes(value));
     }
     configure_process_group(&mut command, group);
+    inherit_standard_streams(&mut command, inherited, &invocation.redirections);
     apply_redirections(&mut command, &invocation.redirections)?;
     if let Some(entry) = &invocation.namespaces {
         crate::runtime::namespace::prepare(entry, &mut command)?;
@@ -2221,6 +2230,16 @@ fn command_with_managed_stdio(
         command.env(os_string_from_bytes(name), os_string_from_bytes(value));
     }
     configure_managed_child(&mut command, options);
+    let mut inherited = (if options.stdin == ManagedStdio::Inherit { 1 } else { 0 })
+        | (if options.stdout == ManagedStdio::Inherit { 2 } else { 0 })
+        | (if options.stderr == ManagedStdio::Inherit { 4 } else { 0 });
+    if !options.apply_redirections && invocation.redirections.iter()
+        .any(|item| matches!(item, ProcessRedirection::Input { .. }))
+    {
+        inherited &= !1;
+    }
+    inherit_standard_streams(&mut command, inherited,
+        if options.apply_redirections { &invocation.redirections } else { &[] });
     if options.apply_redirections {
         apply_redirections(&mut command, &invocation.redirections)?;
     } else if invocation
@@ -2471,6 +2490,22 @@ pub(crate) fn validate_input_sources(redirections: &[ProcessRedirection]) -> Res
     Ok(())
 }
 
+pub(crate) fn inherit_standard_streams(
+    command: &mut Command,
+    mut inherited: u8,
+    redirections: &[ProcessRedirection],
+) {
+    for redirection in redirections {
+        let stream = match redirection {
+            ProcessRedirection::Input { .. } => RedirectionStream::Stdin,
+            ProcessRedirection::File { stream, .. } | ProcessRedirection::Dup { stream, .. } => *stream,
+            ProcessRedirection::ChildDup { .. } => break,
+        };
+        inherited &= !(1 << stream_fd(stream));
+    }
+    crate::startup_stdio::inherit(command, inherited);
+}
+
 pub(crate) fn apply_redirections(
     command: &mut Command,
     redirections: &[ProcessRedirection],
@@ -2502,6 +2537,7 @@ pub(crate) fn apply_redirections(
                         "fd duplication target must be non-negative",
                     ));
                 }
+                crate::startup_stdio::check(*fd).map_err(map_redirection_error)?;
                 let borrowed = unsafe { BorrowedFd::borrow_raw(*fd) };
                 let owned = rio::fcntl_dupfd_cloexec(borrowed, 0)
                     .map_err(|error| map_redirection_error(error.into()))?;
@@ -2680,6 +2716,7 @@ fn duplicate_fd(fd: i32) -> Result<Stdio, RunError> {
             "fd duplication target must be non-negative",
         ));
     }
+    crate::startup_stdio::check(fd).map_err(map_redirection_error)?;
     let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
     let duplicated = rio::fcntl_dupfd_cloexec(borrowed, 0)
         .map_err(|error| map_redirection_error(error.into()))?;

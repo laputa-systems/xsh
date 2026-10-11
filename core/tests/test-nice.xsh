@@ -110,7 +110,7 @@ test test_nice_adjustment_without_a_command_is_a_usage_error { |ctx|
   for args in [["-n", "19"], ["-5"], ["--adjustment=1"]] {
     let result = nice_run(ctx, args)?
     assert result.status == 125, args.join(" ")
-    assert result.stderr == "nice: A command must be given with an adjustment.\nTry 'nice --help' for more information.\n", result.stderr
+    assert result.stderr == "nice: a command must be given with an adjustment\nTry 'nice --help' for more information.\n", result.stderr
   }
 }
 
@@ -177,7 +177,7 @@ test test_nice_refused_change_warns_and_still_runs_the_command { |ctx|
   let result = nice_run(ctx, ["-n", "-20", "echo", "ran"])?
   assert result.status == 0
   assert result.stdout == "ran\n"
-  assert result.stderr == "nice: warning: setpriority: Permission denied\n", result.stderr
+  assert result.stderr == "nice: cannot set niceness: Permission denied\n", result.stderr
 }
 
 test test_nice_help_and_version_go_to_stdout { |ctx|

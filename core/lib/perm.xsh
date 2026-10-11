@@ -156,23 +156,21 @@ export proc gid(raw: Str) [fs, error] -> Result[Int, Error] {
   group.lookup(raw)?.gid
 }
 
-## Parse a chgrp --from filter: a group name or ID, where a leading colon forces an ID.
-export proc group_filter(raw: Str) [fs, error] -> Result[Owner, Error] {
-  let resolved = gid(if raw.starts_with(":") { raw.byte_slice(1) } else { raw })
-  return Err(PermError.Invalid("invalid user")) when resolved is Err(_)
-  {uid: null, gid: resolved?}
-}
-
 ## Parse owner and optional group; a trailing colon selects the login group.
 export proc owner(raw: Str, group_only = false) [fs, error, process] -> Result[Owner, Error] {
   if group_only {
     if raw == "" { return {uid: null, gid: null} }
-    return {uid: null, gid: gid(if raw.starts_with(":") { raw.byte_slice(1) } else { raw })?}
+    return {uid: null, gid: gid(raw)?}
   }
-  var spec = raw
+  let spec = raw
   if ! (":" in raw) and "." in raw and user.lookup(raw) is Err(_) {
-    gnu.error("warning: '.' should be ':'")
-    spec = raw.replace(".", with: ":")
+    let separator = raw.split(".")[0].byte_len()
+    let legacy = f"{raw.byte_slice(0, separator)}:{raw.byte_slice(separator + 1)}"
+    if let Ok(parsed) = owner(legacy) {
+      gnu.error("warning: '.' should be ':'")
+      return parsed
+    }
+    return Err(PermError.Invalid("invalid user"))
   }
   let parts = spec.split(":")
   return Err(PermError.Invalid("invalid group")) when parts.len() > 2
@@ -204,7 +202,35 @@ proc owner_label(ids: Owner, group_only: Bool) [fs, error] -> Str {
   if group_only { group_name } else if ids.gid != null { f"{user_name}:{group_name}" } else { user_name }
 }
 
-proc change_owner(target: Path, ids: Owner, filter: Owner?, opts: Options, group_only: Bool) [fs, error, process, env, io] -> Bool {
+type OwnerNames = {user: Str?, group: Str?}
+
+# GNU retains account operand spelling, but resolves numeric operands separately
+# from account names when choosing ownership versus group verbose messages.
+proc requested_names(raw: Str, ids: Owner, group_only: Bool) [fs, error] -> OwnerNames {
+  if group_only {
+    if let id = ids.gid { return {user: null, group: if ! raw.starts_with("+") and group.lookup(raw) is Ok(_) { raw } else { f"{id}" }} }
+    return {user: null, group: null}
+  }
+  let spec = if ! (":" in raw) and "." in raw and user.lookup(raw) is Err(_) { raw.replace(".", with: ":") } else { raw }
+  let parts = spec.split(":")
+  var user_name: Str? = null
+  var group_name: Str? = null
+  if parts[0] != "" and ! parts[0].starts_with("+") and user.lookup(parts[0]) is Ok(_) { user_name = parts[0] }
+  if parts.len() == 2 and ids.gid != null {
+    if parts[1] == "" { group_name = owner_label({uid: null, gid: ids.gid}, true) } else if ! parts[1].starts_with("+") and group.lookup(parts[1]) is Ok(_) { group_name = parts[1] }
+  }
+  if user_name == null and group_name != null { user_name = "" }
+  if user_name == null { if let id = ids.uid { user_name = f"{id}" } }
+  if group_name == null { if let id = ids.gid { group_name = f"{id}" } }
+  {user: user_name, group: group_name}
+}
+
+pure names_label(names: OwnerNames) -> Str {
+  if let username = names.user { if let groupname = names.group { return f"{username}:{groupname}" }; return username }
+  names.group ?? ""
+}
+
+proc change_owner(target: Path, ids: Owner, filter: Owner?, opts: Options, names: OwnerNames) [fs, error, process, env, io] -> Bool {
   let name = f"{target}"
   let before = fs.stat(target, follow_symlinks: opts.dereference)
   if let Err(failure) = before {
@@ -214,8 +240,8 @@ proc change_owner(target: Path, ids: Owner, filter: Owner?, opts: Options, group
       if opts.dereference and fs.stat(target, follow_symlinks: false) is Ok(_) { gnu.cannot("dereference", name, failure) } else { gnu.cannot_access(name, failure) }
     }
     if opts.verbosity == "verbose" {
-      let noun = if group_only and ids.gid != null { "group" } else { "ownership" }
-      gnu.write_text(f"failed to change {noun} of {gnu.quote(name)} to {owner_label(ids, group_only)}\n")
+      let noun = if names.user != null { "ownership" } else if names.group != null { "group" } else { "ownership" }
+      gnu.write_text(f"failed to change {noun} of {gnu.quote(name)} to {names_label(names)}\n")
     }
     return false
   }
@@ -223,20 +249,20 @@ proc change_owner(target: Path, ids: Owner, filter: Owner?, opts: Options, group
   if let required = filter {
     if (required.uid != null and required.uid != meta.uid) or (required.gid != null and required.gid != meta.gid) {
       if opts.verbosity == "verbose" {
-        let noun = if group_only and ids.gid != null { "group" } else { "ownership" }
-        let retained: Owner = {uid: if group_only { null } else { meta.uid }, gid: if ids.gid != null { meta.gid } else { null }}
-        gnu.write_text(f"{noun} of {gnu.quote(name)} retained as {owner_label(retained, group_only or ids.uid == null)}\n")
+        let noun = if names.user != null { "ownership" } else if names.group != null { "group" } else { "ownership" }
+        let retained: Owner = {uid: if names.user == null { null } else { meta.uid }, gid: if ids.gid != null { meta.gid } else { null }}
+        gnu.write_text(f"{noun} of {gnu.quote(name)} retained as {owner_label(retained, names.user == null)}\n")
       }
       return true
     }
   }
-  let old: Owner = {uid: if group_only { null } else { meta.uid }, gid: if ids.gid != null { meta.gid } else { null }}
+  let old: Owner = {uid: if names.user == null { null } else { meta.uid }, gid: if ids.gid != null { meta.gid } else { null }}
   let changed = (ids.uid != null and ids.uid != meta.uid) or (ids.gid != null and ids.gid != meta.gid)
-  let noun = if group_only and ids.gid != null { "group" } else { "ownership" }
+  let noun = if names.user != null { "ownership" } else if names.group != null { "group" } else { "ownership" }
   let result = fs.set_owner(target, uid: ids.uid, gid: ids.gid, follow_symlinks: opts.dereference)
   if let Err(failure) = result {
-    if ! opts.quiet { gnu.error(f"changing {noun} of {gnu.quote(name)}: {gnu.strerror(failure)}") }
-    if opts.verbosity == "verbose" { eprint f"failed to change {noun} of {gnu.quote(name)} from {owner_label(old, group_only or ids.uid == null)} to {owner_label(ids, group_only)}" }
+    if ! opts.quiet { gnu.error(f"changing {if ids.uid != null { "ownership" } else { "group" }} of {gnu.quote(name)}: {gnu.strerror(failure)}") }
+    if opts.verbosity == "verbose" { gnu.write_text(f"failed to change {noun} of {gnu.quote(name)} from {owner_label(old, names.user == null)} to {names_label(names)}\n") }
     return false
   }
   if opts.verbosity == "verbose" and ids.uid == null and ids.gid == null {
@@ -244,31 +270,31 @@ proc change_owner(target: Path, ids: Owner, filter: Owner?, opts: Options, group
     return true
   }
   if opts.verbosity == "verbose" or (opts.verbosity == "changes" and changed) {
-    let text = if changed { f"changed {noun} of {gnu.quote(name)} from {owner_label(old, group_only or ids.uid == null)} to {owner_label(ids, group_only)}" } else { f"{noun} of {gnu.quote(name)} retained as {owner_label(old, group_only or ids.uid == null)}" }
+    let text = if changed { f"changed {noun} of {gnu.quote(name)} from {owner_label(old, names.user == null)} to {names_label(names)}" } else { f"{noun} of {gnu.quote(name)} retained as {owner_label(old, names.user == null)}" }
     gnu.write_text(f"{text}\n")
   }
   true
 }
 
 # Track ancestors by inode, so following directory links cannot recurse forever.
-proc owner_tree(target: Path, ids: Owner, filter: Owner?, opts: Options, group_only: Bool, top: Bool, ancestors: List[Str]) [fs, error, process, env, io] -> Bool {
+proc owner_tree(target: Path, ids: Owner, filter: Owner?, opts: Options, names: OwnerNames, top: Bool, ancestors: List[Str]) [fs, error, process, env, io] -> Bool {
   var success = true
   let follow = opts.traversal == "L" or (top and opts.traversal == "H")
   if let Ok(meta) = fs.stat(target, follow_symlinks: follow) {
     if opts.recursive and meta.kind == "dir" {
       let key = f"{meta.dev}:{meta.ino}"
-      if key in ancestors { return change_owner(target, ids, filter, opts, group_only) }
+      if key in ancestors { return change_owner(target, ids, filter, opts, names) }
       if opts.preserve_root {
         let root = fs.stat(p"/", follow_symlinks: true)?
         if root.dev == meta.dev and root.ino == meta.ino { refuse_root(target); return false }
       }
       match fs.children(target) {
-        Ok(children) => for child in children { if ! owner_tree(child_path(target, child.path)?, ids, filter, opts, group_only, false, ancestors + [key]) { success = false } }
+        Ok(children) => for child in children { if ! owner_tree(child_path(target, child.path)?, ids, filter, opts, names, false, ancestors + [key]) { success = false } }
         Err(failure) => { if ! opts.quiet { gnu.cannot("read directory", f"{target}", failure) }; success = false }
       }
     }
   }
-  if ! change_owner(target, ids, filter, opts, group_only) { success = false }
+  if ! change_owner(target, ids, filter, opts, names) { success = false }
   success
 }
 
@@ -286,10 +312,14 @@ export proc ownership(argv: List[Bytes], group_only = false) [fs, error, process
   if opts.reference == null and opts.operands.len() < 2 { missing_operand_after_bytes(opts.operands[0]) }
   var ids: Owner = {uid: null, gid: null}
   var targets = opts.operands
+  var names: OwnerNames = {user: null, group: null}
   if let reference = opts.reference {
     let reference_path = Path.parse_bytes(reference)?
     match fs.stat(reference_path, follow_symlinks: true) {
-      Ok(meta) => ids = {uid: if group_only { null } else { meta.uid }, gid: meta.gid}
+      Ok(meta) => {
+        ids = {uid: if group_only { null } else { meta.uid }, gid: meta.gid}
+        names = {user: if group_only { null } else { owner_label({uid: meta.uid, gid: null}, false) }, group: owner_label({uid: null, gid: meta.gid}, true)}
+      }
       Err(failure) => { gnu.error(f"failed to get attributes of {gnu.quote_bytes(reference)}: {gnu.strerror(failure)}"); exit 1 }
     }
   } else {
@@ -304,6 +334,7 @@ export proc ownership(argv: List[Bytes], group_only = false) [fs, error, process
       Ok(parsed) => ids = parsed
       Err(failure) => { gnu.error(f"{if group_only { "invalid group" } else { failure.message }}: {gnu.quote(owner_spec)}"); exit 1 }
     }
+    names = requested_names(owner_spec, ids, group_only)
     targets = opts.operands[1..]
     if targets.is_empty() { missing_operand_after_bytes(raw_owner) }
   }
@@ -315,14 +346,14 @@ export proc ownership(argv: List[Bytes], group_only = false) [fs, error, process
       gnu.error(f"invalid owner filter: {gnu.quote_bytes(spec)}")
       exit 1
     }
-    let parsed_filter = if group_only { group_filter(owner_filter) } else { owner(owner_filter) }
+    let parsed_filter = owner(owner_filter)
     match parsed_filter {
       Ok(parsed) => filter = parsed
       Err(failure) => { gnu.error(f"{failure.message}: {gnu.quote(owner_filter)}"); exit 1 }
     }
   }
   var success = true
-  for target in targets { if ! owner_tree(Path.parse_bytes(target)?, ids, filter, opts, group_only, true, []) { success = false } }
+  for target in targets { if ! owner_tree(Path.parse_bytes(target)?, ids, filter, opts, names, true, []) { success = false } }
   if let Err(failure) = io.flush_stdout() { gnu.write_failed(failure) }
   if ! success { exit 1 }
 }

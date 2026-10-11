@@ -24,7 +24,13 @@ export proc rust(ctx: context.Context) [fs, process, env, error, io] -> Result[U
         "ambient_fs_policy",
         "--test",
         "symbol_plateau",
+        "--test",
+        "core_compat_boundaries",
+        "--test",
+        "core_compat_extra",
         "--",
+        "--skip",
+        "split::",
         "-Zunstable-options",
         "--report-time",
       ],
@@ -83,11 +89,10 @@ export proc xsh(ctx: context.Context) [fs, process, env, error, io] -> Result[Un
 
 ## Runs privileged Linux developer tests through a direct Docker-to-XSH command.
 export proc linux_test(ctx: context.Context, ci: Bool) [process, env, error, io] -> Result[Unit, Error] {
-  if ci {
-    docker.run_internal(ctx, "test-linux-ci", true, [])
-  } else {
-    docker.run_internal(ctx, "test-linux", true, [])
-  }
+  let operation = if ci { "test-linux-ci" } else { "test-linux" }
+  let split_operation = if ci { "test-linux-ci-split" } else { "test-linux-split" }
+  docker.run_internal(ctx, operation, true, [])
+  docker.run_internal(ctx, split_operation, true, [])
 }
 
 ## Runs the selected Darwin CI test contract directly on macOS.

@@ -117,7 +117,15 @@ pub(crate) fn zero(length: i64, span: Span) -> Result<Vec<u8>, RuntimeError> {
     if length < 0 {
         return Err(RuntimeError::new("bytes-zero", "length cannot be negative").with_span(span));
     }
-    Ok(vec![0_u8; length as usize])
+    let length = usize::try_from(length).map_err(|_| {
+        RuntimeError::host("bytes-zero", &std::io::Error::from_raw_os_error(libc::ENOMEM)).with_span(span)
+    })?;
+    let mut bytes = Vec::new();
+    bytes.try_reserve_exact(length).map_err(|_| {
+        RuntimeError::host("bytes-zero", &std::io::Error::from_raw_os_error(libc::ENOMEM)).with_span(span)
+    })?;
+    bytes.resize(length, 0);
+    Ok(bytes)
 }
 
 pub(crate) fn from_ints(values: Vec<i64>, span: Span) -> Result<Vec<u8>, RuntimeError> {
