@@ -6,7 +6,7 @@ use super::{
     LoweredReturnKind, LoweredScalarCursor, LoweredStrPredicate,
     LoweredTagValue, LoweredType, LoweredValue, Name, PathValue, ProcessEnd, ProcessInvocation,
     ProcessRedirection, ProcessStatus, QualifiedName, RecordMap, RedirectionKind,
-    RedirectionStream, ReduceByOp, RegexValue, RunError, RunKind, RuntimeError, RuntimeOp,
+    RedirectionStream, ReduceByOp, RunError, RunKind, RuntimeError, RuntimeOp,
     Span, SpawnOptions, StmtFlow, StreamValue, TraceArg, TraceError, TraceKind,
     TracePayload, Traceback, TracebackFrame, TracebackFrameKind, Type, Value,
     append_lowered_list_element, append_lowered_map_literal, assign_lowered_bytes_view,
@@ -599,75 +599,28 @@ fn is_eager_atom(tag: FullTag) -> bool {
 fn indexed_eager_atom_value<'a>(
     execution: &FullExecution<'a>,
     tag: FullTag,
-    mut payload: FullPayload<'a>,
+    payload: FullPayload<'a>,
     slots: &mut [LoweredValue],
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
-    let value = match tag {
-        FullTag::ExprNull => {
-            indexed_finish(payload, span)?;
-            LoweredValue::Null
-        }
-        FullTag::ExprUnit => {
-            indexed_finish(payload, span)?;
-            LoweredValue::Unit
-        }
-        FullTag::ExprInt => {
-            let value = indexed_decode::<i64>(&mut payload, execution, span)?;
-            indexed_finish(payload, span)?;
-            LoweredValue::Int(value)
-        }
-        FullTag::ExprFloat => {
-            let value = indexed_decode::<crate::runtime::value::FloatValue>(
-                &mut payload,
-                execution,
-                span,
-            )?;
-            indexed_finish(payload, span)?;
-            LoweredValue::Float(value)
-        }
-        FullTag::ExprDuration => {
-            let value = indexed_decode::<DurationValue>(&mut payload, execution, span)?;
-            indexed_finish(payload, span)?;
-            LoweredValue::Duration(value)
-        }
-        FullTag::ExprBool => {
-            let value = indexed_decode::<bool>(&mut payload, execution, span)?;
-            indexed_finish(payload, span)?;
-            LoweredValue::Bool(value)
-        }
-        FullTag::ExprStr => {
-            let value = indexed_decode::<Arc<str>>(&mut payload, execution, span)?;
-            indexed_finish(payload, span)?;
-            LoweredValue::Str(value)
-        }
-        FullTag::ExprBytes => {
-            let value = indexed_decode::<Arc<[u8]>>(&mut payload, execution, span)?;
-            indexed_finish(payload, span)?;
-            LoweredValue::Bytes(value)
-        }
-        FullTag::ExprPreparedRegex => {
-            let value = indexed_decode::<RegexValue>(&mut payload, execution, span)?;
-            indexed_finish(payload, span)?;
-            LoweredValue::Regex(Box::new(value))
-        }
-        FullTag::ExprPreparedConstant => {
-            let value = indexed_decode::<crate::runtime::eval::PreparedConstantValue>(
-                &mut payload,
-                execution,
-                span,
-            )?;
-            indexed_finish(payload, span)?;
-            value.0
-        }
-        FullTag::ExprPath => {
-            let value = indexed_decode::<PathValue>(&mut payload, execution, span)?;
-            indexed_finish(payload, span)?;
-            LoweredValue::Path(value)
-        }
-        FullTag::ExprParam => {
-            let slot = indexed_decode::<usize>(&mut payload, execution, span)?;
-            indexed_finish(payload, span)?;
+    let view = ExprView::decode(execution, tag, payload)
+        .map_err(|error| indexed_error(error, span))?;
+    let value = match view {
+        ExprView::Null => LoweredValue::Null,
+        ExprView::Unit => LoweredValue::Unit,
+        ExprView::Int(value) => LoweredValue::Int(value),
+        ExprView::Float(value) => LoweredValue::Float(value),
+        ExprView::Duration(value) => LoweredValue::Duration(value),
+        ExprView::Bool(value) => LoweredValue::Bool(value),
+        ExprView::Str(value) => LoweredValue::Str(Arc::from(value)),
+        ExprView::Bytes(value) => LoweredValue::Bytes(Arc::from(value)),
+        ExprView::PreparedRegex(value) => LoweredValue::Regex(Box::new(value.clone())),
+        ExprView::PreparedConstant(value) => value.0.clone(),
+        ExprView::Path(value) => LoweredValue::Path(
+            PathValue::new(value.to_vec())
+                .map_err(|error| indexed_error(IrVerifyError { message: error.message }, span))?,
+        ),
+        ExprView::Param(slot) => {
             lowered_freeze_large_slot_list(&mut slots[slot]);
             slots[slot].clone()
         }
