@@ -18,6 +18,10 @@ move/link/install publication, `lib/fs_misc.xsh` for path and size policy,
 `lib/text_a2.xsh` for byte records and display columns, `lib/bytes_enc*.xsh` for
 binary encodings and conversion, `lib/checksums.xsh` for checksum formats and
 verification, and `lib/proc_launch.xsh` for executable lookup and exit status.
+`base32`, `base64`, and `basenc` preserve a decoded prefix before reporting
+invalid input, use GNU option-argument diagnostics, and report stdout failures
+with the `write error:` prefix.
+
 
 An applet never spells a `/proc` or `/sys` path itself
 (`dev/compat/check_kernel_reads.py` fails the build when one does); it asks the

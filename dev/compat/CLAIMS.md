@@ -97,3 +97,22 @@ The active Luna pilot-review and compiler-investigation turns were interrupted;
 `oracle_runner` and `imported_method_fix` continue their remaining work on the
 new model. The latter owns `src/runtime/eval/lower.rs` and focused native
 regressions for imported procedures sharing names with path methods.
+
+The pilot closed at `988afd52`: arch 3/3, cat 53/53 and tr 166/166
+frozen IDs mapped. The combined native pilot/helper suite passed 219 tests;
+12 retained Rust I/O boundary tests passed against XSH and GNU. One cat ID
+is an upstream `std::io::copy` mock, not applet behavior. Its scope reason is
+recorded rather than inventing applet coverage. The five new pilot worktrees
+were removed after their commits were integrated; old Claude worktrees remain
+untouched. GNU source defines two tr warnings with a newline and tab; the
+applet and native assertions were corrected together. GNU's enormous first
+repeat-set case exceeded the reference timeout; its native test remains and
+passes. Worktrees and build artifacts stay on disk. Test containers have a
+1 GiB memory limit and 256 MiB tmpfs scratch.
+
+The next disk-only uutils wave owns b2sum, base32, base64, basename, basenc,
+comm, cut, dircolors, dirname, echo, expand, factor, false, fmt, groups, head,
+hostid, hostname, id, join, link, mkdir, mkfifo, mktemp, nice, nproc, paste,
+pathchk, printenv, pwd, readlink, and realpath in separate sibling lane
+worktrees under `../xsh-codex-compat-lanes`. All lanes use Sol medium.
+The original checkout and upstream sources are read-only.

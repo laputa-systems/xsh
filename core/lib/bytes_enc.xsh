@@ -202,13 +202,6 @@ pure wrap(text: Str, width: Int) -> Str {
   lines.join("\n") + "\n"
 }
 
-pure has_padding(data: Bytes) -> Bool {
-  for position in range(data.len()) {
-    if data.byte_at(position) == 61 { return true }
-  }
-  false
-}
-
 # Operands stay bytes until they are opened, so a file name that is not UTF-8
 # reaches the filesystem unchanged. Stdin is the only operand that is not a path.
 proc read_operand(name: Bytes) [fs, error, io] -> Result[Bytes, Error] {
@@ -229,20 +222,11 @@ proc report_name_error(name: Bytes, failure: Error) [process, env] {
 export proc execute(raw_argv: List[Bytes], default_kind: Str) [fs, process, env, error, io] {
   let prepared = gnu.prepare_arguments(raw_argv)
   let argv = prepared.text
-  var options = true
-  for position in range(argv.len()) {
-    let arg = argv[position]
-    if options and position == argv.len() - 1 and arg in ["-w", "--wrap"] {
-      gnu.error("error: a value is required for '--wrap <COLS>' but none was supplied\nFor more information, try '--help'.")
-      exit 1
-    }
-    if arg == "--" { options = false }
-  }
   # Encoding selectors use ordered argv rather than Boolean fields: GNU
   # permits multiple selectors and the last one chooses the encoding.
   var kind = default_kind
   var args: List[Str] = []
-  options = true
+  var options = true
   let selectors = ["--base64", "--base64url", "--base32", "--base32hex", "--base16", "--base2msbf", "--base2lsbf", "--z85", "--base58"]
   for arg in argv {
     if arg == "--" { options = false }
@@ -287,21 +271,14 @@ export proc execute(raw_argv: List[Bytes], default_kind: Str) [fs, process, env,
   }
   if opts.decode {
     let result = decode(data, kind, opts.ignore)?
-    if ! result.valid and default_kind == "base64" and has_padding(data) {
-      gnu.error("error: invalid input")
-      exit 1
-    }
     gnu.write_bytes(result.data)
-    if ! result.valid { gnu.error("error: invalid input"); exit 1 }
+    if ! result.valid { gnu.error("invalid input"); exit 1 }
   } else {
     guard let encoded = encode(data, kind) else { |failure|
-      gnu.error(f"error: {failure.message}")
+      gnu.error(failure.message)
       exit 1
     }
     let text = wrap(encoded, width)
-    if default_kind == "" {
-      if let Err(failure) = io.write_stdout(text) { gnu.error(gnu.strerror(failure)); exit 1 }
-      if let Err(failure) = io.flush_stdout() { gnu.error(gnu.strerror(failure)); exit 1 }
-    } else { gnu.write_text(text) }
+    gnu.write_text(text)
   }
 }

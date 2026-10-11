@@ -28,14 +28,15 @@ test test_base32_wrap_and_invalid_prefix { |ctx|
   let bad = invoke(ctx, ["-d"], b"MZXW6===!")?
   assert bad.status == 1
   assert bad.stdout == b"foo"
-  assert bad.stderr == "base32: error: invalid input\n"
+  assert bad.stderr == "base32: invalid input\n"
 }
 
-test test_base32_wrap_without_value_uses_cli_error { |ctx|
+test test_base32_wrap_without_value_uses_gnu_error { |ctx|
   for option in ["-w", "--wrap"] {
     let bad = invoke(ctx, [option])?
     assert bad.status == 1
-    assert bad.stderr == "base32: error: a value is required for '--wrap <COLS>' but none was supplied\nFor more information, try '--help'.\n"
+    let diagnostic = if option == "-w" { "option requires an argument -- 'w'" } else { "option '--wrap' requires an argument" }
+    assert bad.stderr == f"base32: {diagnostic}\nTry 'base32 --help' for more information.\n"
   }
 }
 
