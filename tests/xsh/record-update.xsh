@@ -156,7 +156,7 @@ let updated = {...config, ...extra, build.jobs: 8}
       source: """let dynamic: Any = config
 let updated = {...dynamic, build.jobs: 8}
 """,
-      code: "check.record-update-shape",
+      code: "check.dynamic-boundary",
     },
     {
       source: """let updated = {...config, build.workers: 8}
@@ -219,7 +219,7 @@ test test_record_update_rejects_nested_contract_violations { |ctx|
     },
     {
       source: "pure update(base: Any) -> Any { return {...base, a.b: 1} }\n",
-      code: "check.record-update-shape",
+      code: "check.dynamic-boundary",
     },
     {
       source: "let base = {a: {b: 1}}\nlet value = {...base, a.missing: 2}\n",

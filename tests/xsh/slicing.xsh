@@ -133,7 +133,7 @@ test test_slice_brackets_preserve_distinct_offset_count_errors { |ctx|
   assert equivalent_success, equivalent_message
 }
 
-test test_slice_dynamic_bounds_require_validation_and_receivers_keep_runtime_errors { |ctx|
+test test_slice_dynamic_bounds_and_receivers_require_validation { |ctx|
   let bound_error = test.run_script(
     ctx,
     """let bound: Any = true
@@ -161,8 +161,9 @@ let part = "é"[..bound]
 let part = receiver[..]
 """,
   )?
-  assert receiver_error.success == false
-  assert "cannot slice Int" in receiver_error.stderr
+  assert receiver_error.status == 2, f"{receiver_error.stdout}{receiver_error.stderr}"
+  assert receiver_error.stdout == "", receiver_error.stdout
+  assert "err[check.dynamic-boundary]" in receiver_error.stderr, receiver_error.stderr
 }
 
 test test_slice_rejects_colon_inclusive_stride_and_range_values { |ctx|

@@ -227,7 +227,7 @@ proc main(destination: Path) [fs, error] {
 let packet = Packet(state: Ready, history: [Empty, Ready])
 json.write(destination, packet, pretty: true)?
 let raw = json.read(destination)?
-match raw.state { text is Str => print $text; _ => print "incorrectly converted" }
+match json.get(raw, ["state"])? { text is Str => print $text; _ => print "incorrectly converted" }
 let restored = raw.require(Packet)?
 print (restored == packet)
 print json.encode(restored)?
