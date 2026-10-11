@@ -134,8 +134,13 @@ a rule that looks for a spelling walks operands, and an analysis of meaning
 expression-level form would use the same shape on `ArenaExprKind` when the
 first one is scheduled.
 
-**Checking.** `Checker` owns lexical scopes, signatures, imports, return and
-purity context, and stream item context. Focused rules live beside it:
+**Checking.** `Checker` owns lexical scopes, signatures, and imports.
+`BoundaryContext` groups callable, purity, return, stream-item, yield, collect,
+loop, and expected-type state. Callable, module, hook, stage, recovery, and
+cleanup checks save and restore the whole context. Stage callbacks clear outer
+yield, collect, and loop targets. `ReturnContext::Producer` preserves failure
+propagation independently of permission to yield; deferred code keeps its
+captured item context. Focused rules live beside it:
 `src/sema/constraints.rs::TypeConstraints` (bounded monomorphic inference),
 `src/sema/check/infer_return.rs` (private return inference),
 `src/sema/check/infer_effects.rs` (effect inference over the whole module bundle),

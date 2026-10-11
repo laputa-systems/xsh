@@ -746,7 +746,7 @@ impl<'a> Linter<'a> {
         linter
             .diagnostics
             .extend(fail_candidates.finish(&program.arena, source));
-        // After `lint.prefer-fail`, whose families this rule leaves alone.
+        // Offered declaration deletions suppress overlapping payload fixes.
         if let Some(constructors) = &message_payload_constructors {
             let implicit_messages = lint_implicit_message::lint_implicit_messages(
                 program,

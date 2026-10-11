@@ -1,6 +1,6 @@
-//! The lowered-IR evaluator: the `eval_lowered_*` methods, split out of
-//! `eval.rs` as a separate `impl Evaluator` block. Registry/bridge methods
-//! (`refresh_lowered_pures`, `call_lowered_pure`) stay in the parent.
+//! Shared value/type adapters and native module-operation dispatch for the
+//! indexed runtime. Domain implementations live in private child modules;
+//! `indexed_run` owns expression and statement scheduling.
 
 use super::LoweredTypeCheck;
 use crate::diagnostic::DiagnosticCode;

@@ -63,6 +63,12 @@ Every diagnostic from loading, parsing, checking, linting, or evaluation
 carries a source span when one exists, and human and machine output render the
 same diagnostic value.
 
+Human source excerpts and their marker columns occupy at most 160 Unicode
+scalar values, including indentation and clipping ellipses. The window stays
+near the label; an ellipsis marks omitted source or an extended marker.
+Diagnostic messages, absolute line/column locations, machine spans, and fix
+spans retain their full values. Plain and colored output use the same window.
+
 A source file may nest constructs at most 128 levels deep, counting every
 expression, statement, block, pattern, and type that encloses a piece of
 source, each operand of a prefix or binary operator, and each `.name`, call,
@@ -904,6 +910,9 @@ over an enum covers every variant or ends in a catch-all
 (`check.non-exhaustive-match`, 6.8); a value `match` names the uncovered
 variants in its `check.match-value-exhaustive` error instead.
 `type Alias = Level` aliases the same nominal type.
+Diagnostics display an imported enum's declaration name, including inside
+container types. Declarations from different modules remain distinct nominal
+types even when those displayed names are equal.
 
 A Str-backed enum gives each payload-free variant a unique constant wire
 string:
@@ -1859,10 +1868,11 @@ item, and `yield @list` appends every item of a `List`, in the order the
 yields run; the value is a new `List[T]` when the block reaches its end. A
 `yield` belongs to the nearest `collect` whose block holds it, through any
 `if`, `match`, loop, bare block, `try`, or scope in between, and through a
-postfix `when` or `unless`. A function, a stage block, and a nested `collect`
-have their own yields: in a stage block inside the block a `yield` is not the
-`collect`'s (`check.yield` outside a producer). Inside a `stream` producer,
-the yields of a `collect` block append to its list and emit nothing.
+postfix `when` or `unless`. A function or stage callback ends the enclosing
+collect or producer's yield authority. A callback cannot yield to the producer
+or collect around it (`check.yield`); a nested `collect` creates its own yield
+target. Inside a `stream` producer, the yields of a `collect` block append to
+its list and emit nothing.
 
 `T` is the item type of the expected type when the context states a
 `List[T]`, and otherwise the common type of the yields, found as a list
@@ -2376,8 +2386,9 @@ the list or a slice of it when the body never reads the counter;
 `lint.prefer-for-index` rewrites it where the two are the same program.
 
 `loop { ... }` repeats until `break`; `break value` makes the loop an
-expression with that value. `break` and `continue` target the nearest loop and
-are not allowed inside stream stage blocks.
+expression with that value. `break` and `continue` target the nearest loop in
+the same callable or stage callback. A stage callback cannot break or continue
+an enclosing loop; loops created inside its own block remain valid targets.
 
 `repeat count times { ... }` runs its block once per item of `range(count)`.
 It is sugar, defined by its expansion:
@@ -2570,12 +2581,13 @@ accepts a postfix guard (`fail "no input" unless ready`). The message is a
 must return a `Result` whose error type is `Error`, as `Result[T]` is; in any
 other function, and at the top level of a script
 (`check.return-outside-callable`), the diagnostics are those of the `return`.
-Use `fail` for a
-failure that callers report and do not branch on, and a declared family for
-one they match: `lint.prefer-fail` rewrites the constructors of a private
-family that has one message-only variant and that nothing in its file names
-in a pattern or a type, and then deletes the family. An uncaught failure is
-reported as `validation` where it was reported under the family's name.
+Use `fail` for a failure that callers report and do not branch on, and a
+declared family for one they match. `lint.prefer-fail` reports private
+message-only families as candidates for an intentional source migration;
+it does not replace their constructors with plain errors or delete a family
+that remains in use. Such a replacement changes the nominal error, uncaught
+diagnostic, and runtime matching behavior. Its safe leading-dot return fixes
+preserve the declared family and variant.
 
 A function that declares an error family fails with one of its variants,
 written in the leading-dot form (5.5): `fail .Offline()` means exactly
@@ -2996,6 +3008,12 @@ and not on the native stack, and a call costs the same however many are
 open. Recursion over data stays far below the limit; write a loop where a
 list is long enough to reach it.
 
+Native adapters that enter another execution machine are bounded separately:
+at most 32 machines may be open on one evaluator. Entering another fails with
+`stack-overflow`. Unwinding restores the bound, so the evaluator remains usable
+after the failure. This bound applies to callbacks, producers, and deferred
+calls that enter a machine; the heap-call limit remains 100000.
+
 A function declared `Result[T, E]?` returns `null`, an `Ok`, or an `Err` as
 the value it is: an `Err` it returns is data for the caller, bound by a plain
 `let` like any other value, and not a failure of the call.
@@ -3109,7 +3127,7 @@ A proc may declare an effect clause between its parameters and its return type:
 | Effect | Covers |
 |---|---|
 | `fs` | filesystem APIs (`fs`, `archive`, `diff`, `patch`, `user`, `group`, `module`, path I/O methods) |
-| `net` | `net` and `dns` |
+| `net` | `net`, `dns`, and the socket operations listed below |
 | `process` | `run`, `spawn`, `wait`, handle cancellation, effectful `process` APIs, `unix`, `linux`, `applet` |
 | `env` | `env`, `cd`, `system` |
 | `time` | `time` APIs and delayed `retry` |
@@ -3120,6 +3138,18 @@ A clause, including `[]`, is a checked upper bound: the body and every callee
 must stay within it, or the checker reports `check.effect-violation` with the
 call chain. `print` and `eprint` need no effect. Pure functions satisfy any
 bound.
+
+These calls require both `process` and `net`: `linux.socket`, `connect`,
+`bind`, `listen`, `accept`, `sendto`, `recvfrom`, `dhcp_socket`, `dhcp_send`,
+`dhcp_recv`, `dhcp_send_release`, `link_up`, `link_down`, `inet_addr_add`,
+`inet_addr_del`, `inet_route_add`, `inet_route_del`, and `unix.read_fd`,
+`write_fd`, `notify_ready`. The private configuration helpers create
+`AF_INET` sockets. A runtime family or raw descriptor cannot prove that
+communication stays local, so generic socket and descriptor calls need both
+effects even when a particular caller uses a local descriptor. Dedicated
+netlink operations remain `process` only. Closing a descriptor and querying
+its metadata retain their existing effects. These are static checker claims;
+no runtime sandbox is added.
 
 A proc or stream without a clause, exported or not, has its effects inferred
 from its body and callees (recursion included), and callers, including
@@ -3430,6 +3460,12 @@ value however the body ends.
 |---|---|---|
 | `FsRoot` | `fs.open_root`, `fs.tempdir`, `FsRoot.open_root` | `root.close()` |
 | `FsLock` | `fs.lock` | `fs.unlock(lock)` |
+
+`FsLock` is an opaque handle. Its `path` and `shared` fields are readable and
+immutable; it has no public identifier, cannot be constructed from a record,
+and is not JSON-compatible. Resource handles belong to the evaluator that
+created them. Using a foreign evaluator's handle fails before looking up or
+consuming any local resource, even if their internal identifiers coincide.
 
 Any other type is a check error (`check.with-resource`) that names these, and
 that includes `Any`, an unresolved type, and a `Result` that was not

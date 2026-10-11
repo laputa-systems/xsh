@@ -229,8 +229,11 @@ use types::{
     lowered_arena_type_inner, stream_item_type, compact_pattern_test_type,
     compact_runtime_type_in_namespace, compact_type_check, lowered_type_needs_static_check,
     compact_type_expr_name, guard_bound_type, record_binding_types, simple_binding_target,
-    is_discard_name, lowered_checked_type, checked_fact_is_resolved, type_for_lowered_type,
+    is_discard_name, lowered_checked_type, type_for_lowered_type,
 };
+
+#[cfg(debug_assertions)]
+use types::checked_fact_is_resolved;
 
 use values::{
     lower_const_param_default,
