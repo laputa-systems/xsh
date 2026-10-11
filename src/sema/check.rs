@@ -26,6 +26,8 @@ mod call;
 #[path = "check/callable_alias.rs"]
 mod callable_alias;
 mod collect;
+mod scopecheck;
+pub use scopecheck::{BindingDeclaration, BindingId, BindingKind, ResolvedBindings};
 #[path = "check/command.rs"]
 mod command;
 #[path = "check/compact.rs"]
@@ -142,6 +144,7 @@ pub struct CheckedStreamStage {
 
 #[derive(Clone, Debug, Default)]
 pub struct CheckOutput {
+    pub resolved_bindings: Arc<ResolvedBindings>,
     pub static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
     pub local_binding_types: BTreeMap<Span, Type>,
     pub prepared_constants: super::constants::PreparedConstants,
@@ -379,6 +382,7 @@ pub enum AnnotationFactKind {
 
 #[derive(Clone, Debug)]
 pub(super) struct Binding {
+    id: Option<BindingId>,
     static_namespace: bool,
     callable_alias: Option<CallableAlias>,
     ty: Type,
@@ -393,6 +397,7 @@ pub(super) struct Binding {
 impl Binding {
     fn new(ty: Type, mutable: bool) -> Self {
         Self {
+            id: None,
             callable_alias: None,
             static_namespace: false,
             ty,
@@ -407,6 +412,7 @@ impl Binding {
 
     fn pure_local_var(ty: Type) -> Self {
         Self {
+            id: None,
             callable_alias: None,
             static_namespace: false,
             ty,
@@ -750,6 +756,7 @@ struct BoundaryContext {
 
 #[derive(Clone)]
 pub struct Checker {
+    resolved_bindings: Arc<ResolvedBindings>,
     boundary: BoundaryContext,
     local_inference: local_inference::LocalInference,
     pub(super) type_constraints: super::constraints::TypeConstraints,
@@ -976,6 +983,7 @@ impl Checker {
                 static_callable_aliases: checker.static_callable_aliases,
                 typed_callable_calls: checker.typed_callable_calls,
                 local_binding_types: checker.local_inference.checked_bindings,
+                resolved_bindings: checker.resolved_bindings,
                 prepared_constants: checker.prepared_constants,
                 proven_nonnull_fallback_receivers: checker.proven_nonnull_fallback_receivers,
                 diagnostics: checker.diagnostics,
@@ -1168,6 +1176,7 @@ impl Checker {
                 static_callable_aliases: checker.static_callable_aliases,
                 typed_callable_calls: checker.typed_callable_calls,
                 local_binding_types: checker.local_inference.checked_bindings,
+                resolved_bindings: checker.resolved_bindings,
                 prepared_constants: checker.prepared_constants,
                 proven_nonnull_fallback_receivers: checker.proven_nonnull_fallback_receivers,
                 diagnostics: checker.diagnostics,
@@ -1242,6 +1251,7 @@ impl Checker {
             requirement_expected_targets: BTreeMap::new(),
             constructor_group_depth: 0,
             pending_record_constructors: Vec::new(),
+            resolved_bindings: Arc::default(),
             prepared_constants: super::constants::PreparedConstants::default(),
             wire_enums: crate::sema::wire_enums::PreparedWireEnums::default(),
             condition_proofs: FxHashMap::default(),
@@ -1407,6 +1417,7 @@ impl Checker {
         source: &str,
         type_program: Arc<crate::syntax::arena::ArenaProgram>,
     ) {
+        self.resolved_bindings = Arc::new(ResolvedBindings::collect(program));
         self.prepare_effect_declarations(program, None);
         self.prepare_local_inference(program);
         self.diagnostics
@@ -1419,7 +1430,9 @@ impl Checker {
         }
         self.record_constructors = RecordConstructors::collect(program);
         self.prepared_constants =
-            super::constants::PreparedConstants::collect(program, &self.record_constructors);
+            super::constants::PreparedConstants::collect(
+                program, &self.record_constructors, &self.resolved_bindings,
+            );
         self.diagnostics
             .extend(self.prepared_constants.diagnostics.clone());
         self.record_constructors
@@ -1650,12 +1663,21 @@ impl Checker {
         self.scopes.iter().rev().find_map(|scope| scope.get(&name))
     }
 
-    fn define(&mut self, name: Name, binding: Binding, span: Span) {
+    fn lookup_value_binding(&self, name: Name, span: Span) -> Option<&Binding> {
+        let id = self.resolved_bindings.at(span, name)?;
+        self.scopes.iter().rev().find_map(|scope| {
+            scope.get(&name).filter(|binding| binding.id == Some(id))
+        })
+    }
+
+    fn define(&mut self, name: Name, mut binding: Binding, span: Span) {
+        binding.id = self.resolved_bindings.declaration_sites.get(&(span, name)).copied();
         self.check_standard_module_shadow(&name.as_str(), span);
         self.current_scope_mut().insert(name, binding);
     }
 
-    fn define_builtin_value(&mut self, name: &str, binding: Binding) {
+    fn define_builtin_value(&mut self, name: &str, mut binding: Binding) {
+        if name == "args" { binding.id = Some(BindingId::args()); }
         self.current_scope_mut().insert(Name::intern(name), binding);
     }
 

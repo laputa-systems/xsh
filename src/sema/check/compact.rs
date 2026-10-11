@@ -82,6 +82,7 @@ pub struct CompactFunctionSig {
 /// checker's published facts, so lowering never re-checks a body.
 #[derive(Clone, Debug, Default)]
 pub struct CompactBodyFacts {
+    pub resolved_bindings: std::sync::Arc<super::ResolvedBindings>,
     pub expr_types: FxHashMap<ExprId, Type>,
     pub projections: FxHashSet<ExprId>,
     /// Optional receivers whose checked presence proof makes their fallback unreachable.
@@ -138,6 +139,7 @@ impl CompactBodyFacts {
     ) -> (Self, FxHashMap<ExprId, Type>) {
         let arena = &program.arena;
         let mut facts = Self {
+            resolved_bindings: checked.resolved_bindings.clone(),
             argument_bindings: checked.argument_bindings.clone(),
             ..Self::default()
         };
@@ -341,6 +343,7 @@ impl Checker {
             output.prepared_constants = crate::sema::constants::PreparedConstants::collect(
                 program,
                 &output.record_constructors,
+                &output.bodies.resolved_bindings,
             );
             collector
                 .diagnostics

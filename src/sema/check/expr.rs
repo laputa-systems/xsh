@@ -73,7 +73,9 @@ impl Checker {
     ) -> Option<super::super::constants::SchemaExpectation> {
         use super::super::constants::{SchemaComponent, SchemaExpectation};
         match arena.arena.expr(expression).kind {
-            ArenaExprKind::Ident(name) => self.lookup(name)?.schema_expectation.clone(),
+            ArenaExprKind::Ident(name) => self
+                .lookup_value_binding(name, arena.arena.expr(expression).span)?
+                .schema_expectation.clone(),
             ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } => {
                 self.schema_expectation_for_expr(arena, base)?
                     .value_context()
@@ -147,7 +149,7 @@ impl Checker {
             );
             return Type::Invalid;
         }
-        if let Some(binding) = self.lookup(name) {
+        if let Some(binding) = self.lookup_value_binding(name, span) {
             let alias = binding.callable_alias.clone();
             let ty = self
                 .type_constraints
@@ -3659,6 +3661,7 @@ mod arena_tests {
 
         program.symbol_owner().with_current(|| {
             let mut native = Checker::new(CheckOptions::default());
+            native.resolved_bindings = std::sync::Arc::new(super::super::ResolvedBindings::collect(&program));
             let _ = native.check_expr_arena(&program, source, id, None);
         });
     }
@@ -3676,6 +3679,7 @@ mod arena_tests {
 
         program.symbol_owner().with_current(|| {
             let mut native = Checker::new(CheckOptions::default());
+            native.resolved_bindings = std::sync::Arc::new(super::super::ResolvedBindings::collect(&program));
             for &id in &stmt_ids {
                 native.check_stmt_arena(&program, source, id);
             }

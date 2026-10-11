@@ -356,7 +356,7 @@ impl Checker {
                 span,
             );
         }
-        if let Some(binding) = self.lookup(name) {
+        if let Some(binding) = self.lookup_value_binding(name, span) {
             return binding.ty.clone();
         }
         if self

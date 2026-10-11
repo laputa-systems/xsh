@@ -1808,6 +1808,7 @@ pub struct PreparedConstants {
     pub origins: FxHashMap<ExprId, ExprId>,
     pub tail_bindings: BTreeMap<crate::source::Span, ExprId>,
     pub global_bindings: FxHashMap<(Option<Name>, Name), ExprId>,
+    pub binding_values: FxHashMap<crate::sema::check::BindingId, ExprId>,
     pub diagnostics: Vec<crate::diagnostic::Diagnostic>,
     pub(crate) cli_wire_enums: crate::sema::wire_enums::PreparedWireEnums,
     pub(crate) cli_command_plans: Arc<
@@ -1834,221 +1835,10 @@ pub struct PreparedConstants {
     >,
 }
 
-#[derive(Default)]
-struct ConstantScope {
-    parent: Option<usize>,
-    namespace: Option<Name>,
-    bindings: FxHashMap<Name, Option<StmtId>>,
-}
-
-/// Scope containment is resolved in batches: a start-position sweep inserts
-/// blocks into an end-position prefix index. Each prefix retains the shortest
-/// two distinct lengths so a block's parent excludes all equal-span blocks.
-struct ConstantScopeIndex {
-    blocks: Vec<(usize, crate::source::Span)>,
-    #[cfg(test)]
-    visits: std::cell::Cell<usize>,
-}
-
-impl ConstantScopeIndex {
-    fn new(mut blocks: Vec<(usize, crate::source::Span)>) -> Self {
-        blocks.sort_unstable_by_key(|(index, span)| {
-            (span.source_id, span.start(), span.end(), *index)
-        });
-        Self {
-            blocks,
-            #[cfg(test)]
-            visits: std::cell::Cell::new(0),
-        }
-    }
-
-    fn scopes(&self, queries: &[(crate::source::Span, bool)]) -> Vec<Option<usize>> {
-        let mut order = (0..queries.len()).collect::<Vec<_>>();
-        order
-            .sort_unstable_by_key(|index| (queries[*index].0.source_id, queries[*index].0.start()));
-        let mut scopes = vec![None; queries.len()];
-        let mut source = None;
-        let mut ends = Vec::new();
-        let mut prefixes = Vec::new();
-        let mut next_block = 0;
-        let mut block_end = 0;
-        for query_index in order {
-            let (query, strict) = queries[query_index];
-            if source != Some(query.source_id) {
-                source = Some(query.source_id);
-                next_block = self
-                    .blocks
-                    .partition_point(|(_, span)| span.source_id < query.source_id);
-                block_end = self
-                    .blocks
-                    .partition_point(|(_, span)| span.source_id <= query.source_id);
-                ends.clear();
-                ends.extend(
-                    self.blocks[next_block..block_end]
-                        .iter()
-                        .map(|(_, span)| span.end()),
-                );
-                ends.sort_unstable();
-                ends.dedup();
-                prefixes.clear();
-                prefixes.resize(ends.len() + 1, ConstantScopeCandidates::default());
-            }
-            while next_block < block_end && self.blocks[next_block].1.start() <= query.start() {
-                let (block, span) = self.blocks[next_block];
-                let mut position =
-                    ends.len() - ends.binary_search(&span.end()).expect("indexed block end");
-                while position < prefixes.len() {
-                    #[cfg(test)]
-                    self.visits.set(self.visits.get() + 1);
-                    prefixes[position].insert((span.end() - span.start(), block));
-                    position += position.isolate_lowest_one();
-                }
-                next_block += 1;
-            }
-            let mut position = ends.len() - ends.partition_point(|end| *end < query.end());
-            let mut candidates = ConstantScopeCandidates::default();
-            while position > 0 {
-                #[cfg(test)]
-                self.visits.set(self.visits.get() + 1);
-                for candidate in prefixes[position].shortest.into_iter().flatten() {
-                    candidates.insert(candidate);
-                }
-                position &= position - 1;
-            }
-            scopes[query_index] = candidates
-                .shortest
-                .into_iter()
-                .flatten()
-                .find(|(length, _)| !strict || *length > query.end() - query.start())
-                .map(|(_, block)| block);
-        }
-        scopes
-    }
-}
-
-#[derive(Clone, Copy, Default)]
-struct ConstantScopeCandidates {
-    shortest: [Option<(usize, usize)>; 2],
-}
-
-impl ConstantScopeCandidates {
-    fn insert(&mut self, candidate: (usize, usize)) {
-        match self.shortest[0] {
-            None => self.shortest[0] = Some(candidate),
-            Some(first) if candidate.0 == first.0 => self.shortest[0] = Some(first.min(candidate)),
-            Some(first) if candidate < first => {
-                self.shortest[1] = Some(first);
-                self.shortest[0] = Some(candidate);
-            }
-            _ => {
-                self.shortest[1] =
-                    Some(self.shortest[1].map_or(candidate, |second| second.min(candidate)))
-            }
-        }
-    }
-}
-
 #[cfg(test)]
-mod constant_scope_index_tests {
+mod prepared_constant_tests {
     use super::*;
-    use crate::source::{SourceId, Span};
-
-    #[test]
-    fn constant_scope_index_bounds_workspace_lookup_work() {
-        let blocks = (0..512)
-            .map(|index| {
-                (
-                    index,
-                    Span::new(SourceId::new(index % 8), index * 10, index * 10 + 9),
-                )
-            })
-            .collect();
-        let index = ConstantScopeIndex::new(blocks);
-        let queries = (0..1024)
-            .map(|query| {
-                let block = query % 512;
-                (
-                    Span::new(SourceId::new(block % 8), block * 10 + 1, block * 10 + 8),
-                    false,
-                )
-            })
-            .collect::<Vec<_>>();
-        let scopes = index.scopes(&queries);
-        for (query, scope) in scopes.into_iter().enumerate() {
-            assert_eq!(scope, Some(query % 512));
-        }
-        assert!(
-            index.visits.get() <= (512 + 1024) * 10 * 4,
-            "{} block visits",
-            index.visits.get()
-        );
-    }
-
-    #[test]
-    fn constant_scope_index_preserves_containment_identity_and_strict_parents() {
-        let mut blocks = Vec::new();
-        for source in 0..3 {
-            for start in 0..=12 {
-                for end in start..=12 {
-                    blocks.push((blocks.len(), Span::new(SourceId::new(source), start, end)));
-                }
-            }
-        }
-        for span in [
-            Span::new(SourceId::new(0), 0, 12),
-            Span::new(SourceId::new(1), 4, 8),
-        ] {
-            blocks.push((blocks.len(), span));
-        }
-        blocks.reverse();
-        let index = ConstantScopeIndex::new(blocks.clone());
-        let mut queries = Vec::new();
-        for source in 0..4 {
-            for start in 0..=14 {
-                for end in start..=14 {
-                    for strict in [false, true] {
-                        queries.push((Span::new(SourceId::new(source), start, end), strict));
-                    }
-                }
-            }
-        }
-        let actual = index.scopes(&queries);
-        for ((query, strict), actual) in queries.into_iter().zip(actual) {
-            let expected = blocks
-                .iter()
-                .filter(|(_, span)| {
-                    span.source_id == query.source_id
-                        && span.start() <= query.start()
-                        && span.end() >= query.end()
-                        && (!strict || span.start() < query.start() || span.end() > query.end())
-                })
-                .min_by_key(|(block, span)| (span.end() - span.start(), *block))
-                .map(|(block, _)| *block);
-            assert_eq!(actual, expected, "{query:?}, strict parent: {strict}");
-        }
-    }
-
-    #[test]
-    fn constant_scope_index_bounds_nested_lookup_work() {
-        let blocks = (0..512)
-            .map(|index| (index, Span::new(SourceId::new(0), index, 2048 - index)))
-            .collect();
-        let index = ConstantScopeIndex::new(blocks);
-        let queries = (0..1024)
-            .map(|_| (Span::new(SourceId::new(0), 512, 1536), false))
-            .collect::<Vec<_>>();
-        assert!(
-            index
-                .scopes(&queries)
-                .into_iter()
-                .all(|scope| scope == Some(511))
-        );
-        assert!(
-            index.visits.get() <= (512 + 1024) * 10 * 4,
-            "{} block visits",
-            index.visits.get()
-        );
-    }
+    use crate::source::SourceId;
 
     #[test]
     fn prepared_constants_keep_only_configured_workspace_sources() {
@@ -2068,7 +1858,8 @@ mod constant_scope_index_tests {
             let program = builder.finish_with_statements(root.statements);
             program.symbol_owner().with_current(|| {
                 let constructors = RecordConstructors::collect(&program);
-                let prepared = PreparedConstants::collect(&program, &constructors);
+                let bindings = crate::sema::check::ResolvedBindings::collect(&program);
+                let prepared = PreparedConstants::collect(&program, &constructors, &bindings);
                 assert!(
                     prepared.diagnostics.is_empty(),
                     "{:?}",
@@ -2106,7 +1897,8 @@ mod constant_scope_index_tests {
         assert!(parsed.diagnostics.is_empty());
         parsed.arena.symbol_owner().with_current(|| {
             let constructors = RecordConstructors::collect(&parsed.arena);
-            let prepared = PreparedConstants::collect(&parsed.arena, &constructors);
+            let bindings = crate::sema::check::ResolvedBindings::collect(&parsed.arena);
+            let prepared = PreparedConstants::collect(&parsed.arena, &constructors, &bindings);
             assert_eq!(prepared.diagnostics.len(), 1);
             assert_eq!(
                 prepared.diagnostics[0].code,
@@ -2119,9 +1911,7 @@ mod constant_scope_index_tests {
 struct ConstantPreparation<'a> {
     program: &'a ArenaProgram,
     constructors: &'a RecordConstructors,
-    scopes: Vec<ConstantScope>,
-    statement_scopes: FxHashMap<StmtId, usize>,
-    module_scopes: FxHashMap<Name, usize>,
+    bindings: &'a crate::sema::check::ResolvedBindings,
     active: FxHashSet<StmtId>,
     prepared: PreparedConstants,
     steps: usize,
@@ -2341,268 +2131,68 @@ impl PreparedConstants {
         constant_size_within_limit(&value).then_some(value)
     }
 
-    pub fn collect(program: &ArenaProgram, constructors: &RecordConstructors) -> Self {
-        use crate::syntax::arena::{BlockId, FunctionDefId};
+    pub fn collect(
+        program: &ArenaProgram,
+        constructors: &RecordConstructors,
+        bindings: &crate::sema::check::ResolvedBindings,
+    ) -> Self {
         let arena = &program.arena;
-        let active_sources = program
-            .statement_ids()
-            .chain(
-                program
-                    .modules
-                    .iter()
-                    .flat_map(|module| program.module_statements(module)),
-            )
-            .map(|id| arena.stmt(id).span.source_id)
-            .collect::<FxHashSet<_>>();
-        let statements = (0..arena.stmt_tags.len())
-            .map(StmtId::from_index)
-            .filter(|id| active_sources.contains(&arena.stmt(*id).span.source_id))
-            .collect::<Vec<_>>();
-        if !statements
-            .iter()
-            .any(|id| matches!(arena.stmt(*id).kind, ArenaStmtKind::Const { .. }))
-        {
-            return Self::default();
-        }
-        let block_count = arena.blocks.len();
-        let blocks = arena
-            .blocks
-            .iter()
-            .enumerate()
-            .map(|(index, block)| (index, arena.span(block.span)))
-            .filter(|(_, span)| active_sources.contains(&span.source_id))
-            .collect::<Vec<_>>();
-        let references = (0..arena.expr_tags.len())
-            .map(ExprId::from_index)
-            .filter_map(|id| {
-                let expression = arena.expr(id);
-                (active_sources.contains(&expression.span.source_id)
-                    && matches!(
-                        expression.kind,
-                        ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. }
-                    ))
-                .then_some((id, expression.span))
-            })
-            .collect::<Vec<_>>();
-        let queries = blocks
-            .iter()
-            .map(|(_, span)| (*span, true))
-            .chain(statements.iter().map(|id| (arena.stmt(*id).span, false)))
-            .chain(references.iter().map(|(_, span)| (*span, false)))
-            .collect::<Vec<_>>();
-        let resolved_scopes = ConstantScopeIndex::new(blocks.clone()).scopes(&queries);
-        let main_scope = block_count;
+        let mut statements = bindings.declarations.values().filter_map(|declaration| {
+            if let crate::sema::check::BindingKind::Constant(statement) = declaration.kind {
+                Some(statement)
+            } else { None }
+        }).collect::<Vec<_>>();
+        statements.sort_unstable();
+        statements.dedup();
+        if statements.is_empty() { return Self::default(); }
         let mut preparation = ConstantPreparation {
-            program,
-            constructors,
-            scopes: (0..block_count + 1)
-                .map(|_| ConstantScope::default())
-                .collect(),
-            statement_scopes: FxHashMap::default(),
-            module_scopes: FxHashMap::default(),
-            active: FxHashSet::default(),
-            prepared: Self::default(),
-            steps: 0,
+            program, constructors, bindings,
+            active: FxHashSet::default(), prepared: Self::default(), steps: 0,
             type_constraints: crate::sema::constraints::TypeConstraints::default(),
-            expected_schema: None,
-            constructor_group_depth: 0,
-            pending_constructors: Vec::new(),
+            expected_schema: None, constructor_group_depth: 0, pending_constructors: Vec::new(),
         };
-        let mut sources = FxHashMap::default();
-        for module in &program.modules {
-            let scope = preparation.scopes.len();
-            preparation.scopes.push(ConstantScope {
-                namespace: Some(module.name),
-                ..ConstantScope::default()
-            });
-            preparation.module_scopes.insert(module.name, scope);
-            for statement in program.module_statements(module) {
-                sources.insert(arena.stmt(statement).span.source_id, scope);
-            }
-        }
-        for (query, &(index, span)) in blocks.iter().enumerate() {
-            let parent = resolved_scopes[query]
-                .unwrap_or_else(|| sources.get(&span.source_id).copied().unwrap_or(main_scope));
-            preparation.scopes[index].parent = Some(parent);
-            preparation.scopes[index].namespace = sources
-                .get(&span.source_id)
-                .and_then(|scope| preparation.scopes[*scope].namespace);
-            for param in arena.block_params(arena.block(BlockId::from_index(index)).params) {
-                preparation.scopes[index].bindings.insert(param.name, None);
-            }
-        }
-        for index in 0..arena.function_defs.len() {
-            let function = arena.function_def(FunctionDefId::from_index(index));
-            if !active_sources.contains(&arena.span(arena.block(function.body).span).source_id) {
-                continue;
-            }
-            for param in arena.params(function.params) {
-                preparation.scopes[function.body.index()]
-                    .bindings
-                    .insert(param.name, None);
-            }
-        }
-        for (query, &id) in statements.iter().enumerate() {
-            let statement = arena.stmt(id);
-            let scope = resolved_scopes[blocks.len() + query].unwrap_or_else(|| {
-                sources
-                    .get(&statement.span.source_id)
-                    .copied()
-                    .unwrap_or(main_scope)
-            });
-            preparation.statement_scopes.insert(id, scope);
-            match statement.kind {
-                ArenaStmtKind::Const { target, .. }
-                | ArenaStmtKind::Let { target, .. }
-                | ArenaStmtKind::Var { target, .. } => {
-                    if let ArenaBindingTargetKind::Name(name) = arena.binding_target(target).kind {
-                        let declaration =
-                            matches!(statement.kind, ArenaStmtKind::Const { .. }).then_some(id);
-                        preparation.scopes[scope].bindings.insert(name, declaration);
-                    }
-                }
-                _ => {}
-            }
-        }
-        for &id in &statements {
-            let scope = preparation.statement_scopes[&id];
-            match arena.stmt(id).kind {
-                ArenaStmtKind::Let { target, .. }
-                | ArenaStmtKind::Var { target, .. }
-                | ArenaStmtKind::Guard { target, .. } => {
-                    for name in constant_runtime_target_names(arena, target) {
-                        preparation.scopes[scope].bindings.insert(name, None);
-                    }
-                }
-                ArenaStmtKind::For { target, block, .. } => {
-                    for name in constant_runtime_target_names(arena, target) {
-                        preparation.scopes[block.index()]
-                            .bindings
-                            .insert(name, None);
-                    }
-                }
-                ArenaStmtKind::With { bindings, body, .. } => {
-                    for binding in arena.with_bindings(bindings) {
-                        preparation.scopes[body.index()]
-                            .bindings
-                            .insert(binding.name, None);
-                    }
-                }
-                _ => {}
-            }
-        }
-        // A resource scope binds its names for its body, as a `with ... else`
-        // statement does. Tags are read first: the arena holds every module.
-        for (index, tag) in arena.expr_tags.iter().enumerate() {
-            if !matches!(
-                tag,
-                crate::syntax::arena::ArenaExprTag::ResourceScope
-                    | crate::syntax::arena::ArenaExprTag::ResourceStatementScope
-            ) {
-                continue;
-            }
-            let ArenaExprKind::ResourceScope {
-                bindings, block, ..
-            } = arena.expr(ExprId::from_index(index)).kind
-            else {
-                continue;
-            };
-            if !active_sources.contains(&arena.span(arena.block(block).span).source_id) {
-                continue;
-            }
-            for binding in arena.with_bindings(bindings) {
-                preparation.scopes[block.index()]
-                    .bindings
-                    .insert(binding.name, None);
-            }
-        }
-        for arm in &arena.match_arms {
-            if !active_sources.contains(&arena.span(arena.block(arm.block).span).source_id) {
-                continue;
-            }
-            for name in constant_pattern_names(arena, arm.pattern) {
-                preparation.scopes[arm.block.index()]
-                    .bindings
-                    .insert(name, None);
-            }
-        }
-        for &id in &statements {
-            if matches!(arena.stmt(id).kind, ArenaStmtKind::Const { .. }) {
-                preparation.steps = 0;
-                if let Err((span, message)) = preparation.declaration(id, 0) {
-                    preparation.prepared.diagnostics.push(
-                        crate::diagnostic::Diagnostic::error(message)
-                            .with_code(DiagnosticCode::CheckConst)
-                            .with_label(crate::diagnostic::Label::primary(
-                                span,
-                                "constant preparation failed",
-                            )),
-                    );
-                }
-            }
-        }
-        for (query, &(id, span)) in references.iter().enumerate() {
-            let scope = resolved_scopes[blocks.len() + statements.len() + query]
-                .unwrap_or_else(|| sources.get(&span.source_id).copied().unwrap_or(main_scope));
+        for statement in statements {
             preparation.steps = 0;
-            if let Ok(value) = preparation.expression(id, scope, None, 0) {
-                preparation
-                    .prepared
-                    .types
-                    .entry(id)
-                    .or_insert_with(|| value.value_type());
+            if let Err((span, message)) = preparation.declaration(statement, 0) {
+                preparation.prepared.diagnostics.push(
+                    crate::diagnostic::Diagnostic::error(message)
+                        .with_code(DiagnosticCode::CheckConst)
+                        .with_label(crate::diagnostic::Label::primary(span, "constant preparation failed")),
+                );
+            }
+        }
+        let mut references = bindings.expression_namespaces.keys().copied().filter(|&id| {
+            matches!(arena.expr(id).kind, ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. })
+        }).collect::<Vec<_>>();
+        references.sort_unstable();
+        for id in references {
+            preparation.steps = 0;
+            if let Ok(value) = preparation.expression(id, bindings.expression_namespaces[&id], None, 0) {
+                preparation.prepared.types.entry(id).or_insert_with(|| value.value_type());
                 preparation.prepared.values.insert(id, value);
             }
         }
-        for &id in &statements {
-            let statement = arena.stmt(id);
-            let ArenaStmtKind::TailBareIdent(name) = statement.kind else {
-                continue;
-            };
-            let mut current = Some(preparation.statement_scopes[&id]);
-            while let Some(scope) = current {
-                if let Some(binding) = preparation.scopes[scope].bindings.get(&name) {
-                    if let Some(declaration) = binding
-                        && let ArenaStmtKind::Const {
-                            initializer: ArenaExprOrRun::Expr(expr),
-                            ..
-                        } = arena.stmt(*declaration).kind
-                        && preparation.prepared.values.contains_key(&expr)
-                    {
-                        preparation
-                            .prepared
-                            .tail_bindings
-                            .insert(statement.span, expr);
-                    }
-                    break;
-                }
-                current = preparation.scopes[scope].parent;
+        for (&statement, &binding) in &bindings.tails {
+            if let Some(declaration) = bindings.constant(binding)
+                && let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(expr), .. } = arena.stmt(declaration).kind
+                && preparation.prepared.values.contains_key(&expr)
+            {
+                preparation.prepared.tail_bindings.insert(arena.stmt(statement).span, expr);
             }
         }
-        for scope in block_count..preparation.scopes.len() {
-            for (name, binding) in &preparation.scopes[scope].bindings {
-                if let Some(declaration) = binding
-                    && let ArenaStmtKind::Const {
-                        initializer: ArenaExprOrRun::Expr(expr),
-                        ..
-                    } = arena.stmt(*declaration).kind
-                {
-                    preparation
-                        .prepared
-                        .global_bindings
-                        .insert((preparation.scopes[scope].namespace, *name), expr);
+        for (&id, declaration) in &bindings.declarations {
+            if let Some(statement) = bindings.constant(id)
+                && let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(expr), .. } = arena.stmt(statement).kind
+            {
+                preparation.prepared.binding_values.insert(id, expr);
+                if declaration.global {
+                    preparation.prepared.global_bindings.insert((declaration.namespace, declaration.name), expr);
                 }
             }
         }
-        preparation.prepared.cli_wire_enums =
-            crate::sema::wire_enums::PreparedWireEnums::prepare(program, |expr| {
-                preparation.prepared.analyze_expression(arena, expr)
-            })
-            .0;
-        preparation
-            .prepared
-            .types
-            .retain(|_, ty| !ty.contains_inference());
+        preparation.prepared.cli_wire_enums = crate::sema::wire_enums::PreparedWireEnums::prepare(program,
+            |expr| preparation.prepared.analyze_expression(arena, expr)).0;
+        preparation.prepared.types.retain(|_, ty| !ty.contains_inference());
         preparation.prepared
     }
 }
@@ -2717,11 +2307,12 @@ impl ConstantPreparation<'_> {
     fn tag_constructor(
         &self,
         callee: ExprId,
-        scope: usize,
+        namespace: Option<Name>,
     ) -> Option<(Name, Name, Vec<TypeExprId>)> {
         let arena = &self.program.arena;
         let (namespace, name, qualified) = match arena.expr(callee).kind {
-            ArenaExprKind::Ident(name) => (self.scopes[scope].namespace, name, false),
+            ArenaExprKind::Ident(_) if self.bindings.expressions.contains_key(&callee) => return None,
+            ArenaExprKind::Ident(name) => (namespace, name, false),
             ArenaExprKind::Field { base, name } => {
                 let ArenaExprKind::Ident(alias) = arena.expr(base).kind else {
                     return None;
@@ -2731,7 +2322,7 @@ impl ConstantPreparation<'_> {
                         *self
                             .constructors
                             .imports
-                            .get(&(self.scopes[scope].namespace, alias))?,
+                            .get(&(namespace, alias))?,
                     ),
                     name,
                     true,
@@ -2788,17 +2379,17 @@ impl ConstantPreparation<'_> {
         if !self.active.insert(id) {
             return Err((statement.span, "constant dependency cycle".into()));
         }
-        let scope = self.statement_scopes[&id];
+        let namespace = self.bindings.expression_namespaces[&expr];
         let expected = ty.map(|ty| {
             self.constructors
-                .resolve_type(&self.program.arena, ty, self.scopes[scope].namespace)
+                .resolve_type(&self.program.arena, ty, namespace)
         });
         let schema = ty.and_then(|ty| {
             self.constructors
-                .annotation_expectation(&self.program.arena, ty, self.scopes[scope].namespace)
+                .annotation_expectation(&self.program.arena, ty, namespace)
                 .ok()
         });
-        let result = self.expression_with_schema(expr, scope, expected.as_ref(), schema, depth + 1);
+        let result = self.expression_with_schema(expr, namespace, expected.as_ref(), schema, depth + 1);
         self.active.remove(&id);
         let value = result?;
         if expected
@@ -2845,37 +2436,47 @@ impl ConstantPreparation<'_> {
 
     fn reference(
         &mut self,
-        scope: usize,
-        name: Name,
+        binding: Option<crate::sema::check::BindingId>,
         span: crate::source::Span,
         depth: usize,
     ) -> Result<LiteralConstant, (crate::source::Span, String)> {
-        let mut current = Some(scope);
-        while let Some(scope) = current {
-            if let Some(binding) = self.scopes[scope].bindings.get(&name).copied() {
-                return match binding {
-                    Some(id) => self.declaration(id, depth + 1),
-                    None => Err((span, "const cannot reference a runtime binding".into())),
-                };
+        let Some(binding) = binding else {
+            return Err((span, "const reference must resolve to a const declaration".into()));
+        };
+        let Some(statement) = self.bindings.constant(binding) else {
+            return Err((span, "const cannot reference a runtime binding".into()));
+        };
+        self.declaration(statement, depth + 1)
+    }
+
+    fn expression_reference(
+        &mut self,
+        id: ExprId,
+        depth: usize,
+    ) -> Result<LiteralConstant, (crate::source::Span, String)> {
+        let arena = &self.program.arena;
+        let binding = self.bindings.expressions.get(&id).copied();
+        let value = self.reference(binding, arena.expr(id).span, depth)?;
+        let statement = self.bindings.constant(binding.expect("reference succeeded")).expect("constant reference");
+        if let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(initializer), .. } = arena.stmt(statement).kind {
+            if let Some(ty) = self.prepared.types.get(&initializer).cloned() {
+                self.prepared.types.insert(id, ty);
             }
-            current = self.scopes[scope].parent;
+            self.prepared.origins.insert(id, self.prepared.origins.get(&initializer).copied().unwrap_or(initializer));
         }
-        Err((
-            span,
-            "const reference must resolve to a const declaration".into(),
-        ))
+        Ok(value)
     }
 
     fn expression_with_schema(
         &mut self,
         id: ExprId,
-        scope: usize,
+        namespace: Option<Name>,
         expected: Option<&Type>,
         schema: Option<SchemaExpectation>,
         depth: usize,
     ) -> Result<LiteralConstant, (crate::source::Span, String)> {
         let previous = std::mem::replace(&mut self.expected_schema, schema);
-        let result = self.expression(id, scope, expected, depth);
+        let result = self.expression(id, namespace, expected, depth);
         self.expected_schema = previous;
         result
     }
@@ -2883,7 +2484,7 @@ impl ConstantPreparation<'_> {
     fn expression(
         &mut self,
         id: ExprId,
-        scope: usize,
+        namespace: Option<Name>,
         expected: Option<&Type>,
         depth: usize,
     ) -> Result<LiteralConstant, (crate::source::Span, String)> {
@@ -2894,7 +2495,7 @@ impl ConstantPreparation<'_> {
             self.expected_schema = None;
         }
         let resolved = expected.and_then(|ty| self.type_constraints.resolve(ty).ok());
-        let result = self.expression_inner(id, scope, resolved.as_ref().or(expected), depth);
+        let result = self.expression_inner(id, namespace, resolved.as_ref().or(expected), depth);
         self.expected_schema = previous_schema;
         if result.is_err() {
             self.constructor_group_depth = group_depth;
@@ -2925,7 +2526,7 @@ impl ConstantPreparation<'_> {
     fn expression_inner(
         &mut self,
         id: ExprId,
-        scope: usize,
+        namespace: Option<Name>,
         expected: Option<&Type>,
         depth: usize,
     ) -> Result<LiteralConstant, (crate::source::Span, String)> {
@@ -2943,8 +2544,8 @@ impl ConstantPreparation<'_> {
             return Err((expr.span, "constant preparation limit exceeded".into()));
         }
         let value = match expr.kind {
-            ArenaExprKind::Ident(name) => {
-                if let Some((family, variant, fields)) = self.tag_constructor(id, scope) {
+            ArenaExprKind::Ident(_) => {
+                if let Some((family, variant, fields)) = self.tag_constructor(id, namespace) {
                     if !fields.is_empty() {
                         return Err(failure());
                     }
@@ -2954,32 +2555,7 @@ impl ConstantPreparation<'_> {
                         fields: Arc::new(Vec::new()),
                     }
                 } else {
-                    let value = self.reference(scope, name, expr.span, depth)?;
-                    let mut current = Some(scope);
-                    while let Some(scope) = current {
-                        if let Some(Some(declaration)) = self.scopes[scope].bindings.get(&name) {
-                            if let ArenaStmtKind::Const {
-                                initializer: ArenaExprOrRun::Expr(initializer),
-                                ..
-                            } = arena.stmt(*declaration).kind
-                            {
-                                if let Some(ty) = self.prepared.types.get(&initializer).cloned() {
-                                    self.prepared.types.insert(id, ty);
-                                }
-                                self.prepared.origins.insert(
-                                    id,
-                                    self.prepared
-                                        .origins
-                                        .get(&initializer)
-                                        .copied()
-                                        .unwrap_or(initializer),
-                                );
-                            }
-                            break;
-                        }
-                        current = self.scopes[scope].parent;
-                    }
-                    value
+                    self.expression_reference(id, depth)?
                 }
             }
             ArenaExprKind::Field { base, .. }
@@ -2998,26 +2574,11 @@ impl ConstantPreparation<'_> {
                 }
             }
             ArenaExprKind::Field { base, name } => {
-                let module_reference = if let ArenaExprKind::Ident(alias) = arena.expr(base).kind {
-                    let mut current = Some(scope);
-                    let mut lexical = false;
-                    while let Some(scope) = current {
-                        if self.scopes[scope].bindings.contains_key(&alias) {
-                            lexical = true;
-                            break;
-                        }
-                        current = self.scopes[scope].parent;
-                    }
-                    !lexical
-                        && self
-                            .constructors
-                            .imports
-                            .contains_key(&(self.scopes[scope].namespace, alias))
-                } else {
-                    false
-                };
+                let module_reference = self.bindings.expressions.get(&base)
+                    .is_some_and(|binding| matches!(self.bindings.declarations[binding].kind,
+                        crate::sema::check::BindingKind::Module(_)));
                 if module_reference {
-                    if let Some((family, variant, fields)) = self.tag_constructor(id, scope) {
+                    if let Some((family, variant, fields)) = self.tag_constructor(id, namespace) {
                         if !fields.is_empty() {
                             return Err(failure());
                         }
@@ -3027,48 +2588,13 @@ impl ConstantPreparation<'_> {
                             fields: Arc::new(Vec::new()),
                         });
                     }
-                    let ArenaExprKind::Ident(alias) = arena.expr(base).kind else {
-                        return Err(failure());
-                    };
-                    let owner = self
-                        .constructors
-                        .imports
-                        .get(&(self.scopes[scope].namespace, alias))
-                        .copied()
-                        .ok_or_else(failure)?;
-                    let module_scope = self.module_scopes[&owner];
-                    let declaration = self.scopes[module_scope]
-                        .bindings
-                        .get(&name)
-                        .copied()
-                        .flatten()
-                        .ok_or_else(failure)?;
-                    let exported = self.program.module_statements(self.program.modules.iter().find(|module| module.name == owner).unwrap())
-                    .any(|stmt| matches!(arena.stmt(stmt).kind, ArenaStmtKind::Export(inner) if inner == declaration));
-                    if !exported {
+                    let binding = self.bindings.expressions.get(&id).copied().ok_or_else(failure)?;
+                    if !self.bindings.declarations[&binding].exported {
                         return Err((expr.span, "constant is private to its module".into()));
                     }
-                    let value = self.declaration(declaration, depth + 1)?;
-                    if let ArenaStmtKind::Const {
-                        initializer: ArenaExprOrRun::Expr(initializer),
-                        ..
-                    } = arena.stmt(declaration).kind
-                    {
-                        if let Some(ty) = self.prepared.types.get(&initializer).cloned() {
-                            self.prepared.types.insert(id, ty);
-                        }
-                        self.prepared.origins.insert(
-                            id,
-                            self.prepared
-                                .origins
-                                .get(&initializer)
-                                .copied()
-                                .unwrap_or(initializer),
-                        );
-                    }
-                    value
+                    self.expression_reference(id, depth)?
                 } else {
-                    let value = self.expression(base, scope, None, depth + 1)?;
+                    let value = self.expression(base, namespace, None, depth + 1)?;
                     let source_type = self
                         .prepared
                         .types
@@ -3086,7 +2612,7 @@ impl ConstantPreparation<'_> {
                 }
             }
             ArenaExprKind::Unary { op, expr: child } => {
-                let child = self.expression(child, scope, None, depth + 1)?;
+                let child = self.expression(child, namespace, None, depth + 1)?;
                 match (op, child) {
                     (UnaryOp::Not, LiteralConstant::Bool(value)) => LiteralConstant::Bool(!value),
                     (UnaryOp::Neg, LiteralConstant::Int(value)) => {
@@ -3100,9 +2626,9 @@ impl ConstantPreparation<'_> {
             }
             ArenaExprKind::Binary { op, left, right } => {
                 let (left_id, right_id) = (left, right);
-                let left = self.expression(left, scope, None, depth + 1)?;
+                let left = self.expression(left, namespace, None, depth + 1)?;
                 // Both operands must belong to the subset; short circuiting cannot admit runtime dependencies.
-                let right = self.expression(right, scope, None, depth + 1)?;
+                let right = self.expression(right, namespace, None, depth + 1)?;
                 if matches!(
                     op,
                     crate::syntax::node::BinaryOp::Eq | crate::syntax::node::BinaryOp::Ne
@@ -3155,7 +2681,7 @@ impl ConstantPreparation<'_> {
                 for item in arena.list_elements(items) {
                     if item.splice_span.is_some() {
                         let LiteralConstant::List(items) =
-                            self.expression(item.value, scope, list_expected, depth + 1)?
+                            self.expression(item.value, namespace, list_expected, depth + 1)?
                         else {
                             return Err(failure());
                         };
@@ -3173,7 +2699,7 @@ impl ConstantPreparation<'_> {
                             .cloned();
                         values.push(self.expression_with_schema(
                             item.value,
-                            scope,
+                            namespace,
                             item_ty,
                             schema,
                             depth + 1,
@@ -3201,7 +2727,7 @@ impl ConstantPreparation<'_> {
                     if item.splice_span.is_some() {
                         return Err(failure());
                     }
-                    let value = self.expression(item.value, scope, element_ty, depth + 1)?;
+                    let value = self.expression(item.value, namespace, element_ty, depth + 1)?;
                     elements.insert(value.map_key().ok_or_else(failure)?);
                 }
                 LiteralConstant::Set(Arc::new(elements))
@@ -3220,7 +2746,7 @@ impl ConstantPreparation<'_> {
                     let ArenaRecordFieldKind::Shorthand { name, .. } = field.kind else {
                         return Err(failure());
                     };
-                    let value = self.reference(scope, name, expr.span, depth + 1)?;
+                    let value = self.reference(self.bindings.at(expr.span, name), expr.span, depth + 1)?;
                     elements.insert(value.map_key().ok_or_else(failure)?);
                 }
                 LiteralConstant::Set(Arc::new(elements))
@@ -3244,7 +2770,7 @@ impl ConstantPreparation<'_> {
                         ArenaRecordFieldKind::Path { .. } => return Err(failure()),
                         ArenaRecordFieldKind::Computed { key, value, .. } => {
                             let key = self
-                                .expression(key, scope, key_context, depth + 1)?
+                                .expression(key, namespace, key_context, depth + 1)?
                                 .map_key()
                                 .ok_or_else(failure)?;
                             (None, key, value)
@@ -3253,7 +2779,7 @@ impl ConstantPreparation<'_> {
                             (Some(name), MapKey::from(name.as_str().as_str()), value)
                         }
                         ArenaRecordFieldKind::Shorthand { name, .. } => {
-                            let value = self.reference(scope, name, expr.span, depth + 1)?;
+                            let value = self.reference(self.bindings.at(expr.span, name), expr.span, depth + 1)?;
                             if map {
                                 map_values.insert(MapKey::from(name.as_str().as_str()), value);
                             } else if values.insert(name, value).is_some() {
@@ -3262,7 +2788,7 @@ impl ConstantPreparation<'_> {
                             continue;
                         }
                         ArenaRecordFieldKind::Spread { expr: child, .. } => {
-                            match self.expression(child, scope, expected, depth + 1)? {
+                            match self.expression(child, namespace, expected, depth + 1)? {
                                 LiteralConstant::Record(entries) if !map => values.extend(
                                     entries.iter().map(|(key, value)| (*key, value.clone())),
                                 ),
@@ -3298,7 +2824,7 @@ impl ConstantPreparation<'_> {
                         .cloned();
                     let value_expr = value;
                     let value =
-                        self.expression_with_schema(value, scope, child_ty, schema, depth + 1)?;
+                        self.expression_with_schema(value, namespace, child_ty, schema, depth + 1)?;
                     if map {
                         if map_values.is_empty() {
                             first_map_value = Some(value_expr);
@@ -3355,7 +2881,7 @@ impl ConstantPreparation<'_> {
             ArenaExprKind::Call { callee, args } => {
                 if let Some((family, variant, fields)) = self
                     .inferred_tag_constructor(callee, expected)
-                    .or_else(|| self.tag_constructor(callee, scope))
+                    .or_else(|| self.tag_constructor(callee, namespace))
                 {
                     let args = arena.call_args(args);
                     if args.len() != fields.len() {
@@ -3369,9 +2895,9 @@ impl ConstantPreparation<'_> {
                         let ty = self.constructors.resolve_type(
                             arena,
                             field,
-                            self.scopes[scope].namespace,
+                            namespace,
                         );
-                        let value = self.expression(value, scope, Some(&ty), depth + 1)?;
+                        let value = self.expression(value, namespace, Some(&ty), depth + 1)?;
                         if !constant_matches_type(&value, &ty) {
                             return Err(failure());
                         }
@@ -3385,14 +2911,14 @@ impl ConstantPreparation<'_> {
                 }
                 let definition = self
                     .constructors
-                    .resolve_call(arena, callee, self.scopes[scope].namespace)
+                    .resolve_call(arena, callee, namespace)
                     .ok_or_else(failure)?;
                 let inference = self
                     .constructors
                     .begin_constructor_inference(
                         arena,
                         callee,
-                        self.scopes[scope].namespace,
+                        namespace,
                         expr.span,
                         expected,
                         self.expected_schema.as_ref(),
@@ -3408,10 +2934,7 @@ impl ConstantPreparation<'_> {
                     .defaults(definition)
                     .cloned()
                     .unwrap_or_default();
-                let owner = self.constructors.namespace(definition);
-                let default_scope = owner
-                    .and_then(|owner| self.module_scopes.get(&owner).copied())
-                    .unwrap_or(self.program.arena.blocks.len());
+                let default_namespace = self.constructors.namespace(definition);
                 if let ArenaTypeDefBody::RecordSchema(fields) = arena.type_def(definition).body {
                     for field in arena.schema_fields(fields) {
                         if let Some(default) = field.default
@@ -3420,7 +2943,7 @@ impl ConstantPreparation<'_> {
                         {
                             entry.insert(self.expression(
                                 default,
-                                default_scope,
+                                default_namespace,
                                 field_types.get(&field.name),
                                 depth + 1,
                             )?);
@@ -3456,7 +2979,7 @@ impl ConstantPreparation<'_> {
                                 name,
                                 self.expression_with_schema(
                                     value,
-                                    scope,
+                                    namespace,
                                     Some(ty),
                                     schema,
                                     depth + 1,
@@ -3464,7 +2987,7 @@ impl ConstantPreparation<'_> {
                             );
                         }
                         (None, &ArenaCallArgKind::NamedSpread { value, .. }) => {
-                            let prepared = self.expression(value, scope, None, depth + 1)?;
+                            let prepared = self.expression(value, namespace, None, depth + 1)?;
                             let visible = self
                                 .prepared
                                 .types
@@ -3910,57 +3433,6 @@ fn constant_size_within_limit(value: &LiteralConstant) -> bool {
         }
     }
     true
-}
-
-fn constant_runtime_target_names(
-    arena: &AstArena,
-    target: crate::syntax::arena::BindingTargetId,
-) -> Vec<Name> {
-    let mut names = Vec::new();
-    let mut pending = vec![target];
-    while let Some(target) = pending.pop() {
-        match arena.binding_target(target).kind {
-            ArenaBindingTargetKind::Name(name) => names.push(name),
-            ArenaBindingTargetKind::Record { fields, .. } => pending.extend(
-                arena
-                    .destructure_fields(fields)
-                    .iter()
-                    .map(|field| field.target),
-            ),
-        }
-    }
-    names
-}
-
-fn constant_pattern_names(arena: &AstArena, pattern: crate::syntax::arena::PatternId) -> Vec<Name> {
-    use crate::syntax::arena::ArenaPatternKind as P;
-    let mut names = Vec::new();
-    let mut pending = vec![pattern];
-    while let Some(pattern) = pending.pop() {
-        match arena.pattern(pattern).kind {
-            P::Binding(name) | P::TestName { name, .. } => names.push(name),
-            P::Type {
-                binding: Some(name),
-                ..
-            } => names.push(name),
-            P::Record { fields, .. } | P::ErrorVariant { fields, .. } => pending.extend(
-                arena
-                    .pattern_fields(fields)
-                    .iter()
-                    .map(|field| field.pattern),
-            ),
-            P::List { elements, rest } => {
-                pending.extend(arena.pattern_ids(elements));
-                pending.extend(rest);
-            }
-            P::Alternation(patterns) | P::Tuple(patterns) => {
-                pending.extend(arena.pattern_ids(patterns))
-            }
-            P::Constructor { arg, .. } => pending.extend(arg),
-            _ => {}
-        }
-    }
-    names
 }
 
 fn constant_values_equal(left: &LiteralConstant, right: &LiteralConstant) -> bool {
