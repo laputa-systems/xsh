@@ -1,5 +1,12 @@
 use support.uu as uu
 
+test test_uu_support_standalone_usage_name { |ctx|
+  let s = uu.scene(ctx)?
+  let r = uu.invoke(s, "basename", [])?
+  uu.fails_with_code(r, 1)
+  uu.stderr_only(r, "basename: missing operand\nTry 'basename --help' for more information.\n")
+}
+
 test test_uu_support_directory_stdin { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke_from_path(s, "tr", ["1", "1"], s.root)?

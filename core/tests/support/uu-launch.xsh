@@ -10,5 +10,6 @@ proc main(...words: List[Bytes]) [env, process, fs, error] {
     }
   }
   let argv = [Path.parse_bytes(word)? for word in words[1..]]
-  unix.exec_env(process.command_argv(argv[0], argv), environment)?
+  # A standalone command is invoked by its name even when resolved to an absolute executable path.
+  unix.exec_env(process.command_argv(argv[0], argv), environment, argv0: argv[0].basename())?
 }
