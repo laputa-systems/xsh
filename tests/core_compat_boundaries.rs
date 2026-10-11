@@ -8,6 +8,7 @@ use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
+use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::Path;
 use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
@@ -40,6 +41,18 @@ impl Running {
     }
 
     fn finish(mut self) -> Output {
+        // Drain both streams during the wait: a finite result can exceed the
+        // pipe capacity, and must not block the child before it can exit.
+        let stdout_reader = self.0.stdout.take().map(|mut pipe| std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            pipe.read_to_end(&mut bytes).expect("read stdout");
+            bytes
+        }));
+        let stderr_reader = self.0.stderr.take().map(|mut pipe| std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            pipe.read_to_end(&mut bytes).expect("read stderr");
+            bytes
+        }));
         let deadline = Instant::now() + TIMEOUT;
         let status = loop {
             if let Some(status) = self.0.try_wait().expect("poll applet") {
@@ -48,14 +61,8 @@ impl Running {
             assert!(Instant::now() < deadline, "applet did not exit within {TIMEOUT:?}");
             std::thread::sleep(Duration::from_millis(5));
         };
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
-        if let Some(mut pipe) = self.0.stdout.take() {
-            pipe.read_to_end(&mut stdout).expect("read stdout");
-        }
-        if let Some(mut pipe) = self.0.stderr.take() {
-            pipe.read_to_end(&mut stderr).expect("read stderr");
-        }
+        let stdout = stdout_reader.map(|reader| reader.join().expect("join stdout reader")).unwrap_or_default();
+        let stderr = stderr_reader.map(|reader| reader.join().expect("join stderr reader")).unwrap_or_default();
         Output { status, stdout, stderr }
     }
 
@@ -292,4 +299,197 @@ fn test_stdin_is_socket() {
     let output = Running::spawn(&mut command).finish();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(output.stdout, b";;");
+}
+
+fn boundary_directory() -> tempfile::TempDir {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/core-compat-boundaries");
+    std::fs::create_dir_all(&root).unwrap();
+    tempfile::tempdir_in(root).unwrap()
+}
+
+// A clone shares the child's open file description, so reading the clone after
+// exit observes the actual stdin offset rather than a newly opened file.
+fn head_shared_stdin(args: &[&str], input: &[u8], expected: &[u8], remainder: &[u8]) {
+    let directory = boundary_directory();
+    let path = directory.path().join("input");
+    std::fs::write(&path, input).unwrap();
+    let stdin = File::open(path).unwrap();
+    let mut shadow = stdin.try_clone().unwrap();
+    let mut command = applet("head", directory.path());
+    command.args(args).stdin(stdin);
+    let output = Running::spawn(&mut command).finish();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.stdout, expected);
+    assert!(output.stderr.is_empty());
+    let mut remaining = Vec::new();
+    assert_eq!(shadow.read_to_end(&mut remaining).unwrap(), remainder.len());
+    assert_eq!(remaining, remainder);
+}
+
+fn sequence_bytes(first: usize, last: usize) -> Vec<u8> {
+    (first..=last).map(|number| format!("{number}\n")).collect::<String>().into_bytes()
+}
+
+// origin: uutils test_head::test_validate_stdin_offset_lines
+#[cfg(target_os = "linux")]
+#[test]
+fn test_validate_stdin_offset_lines() {
+    head_shared_stdin(&["-n", "1"], b"a\nb\nc\n", b"a\n", b"b\nc\n");
+    head_shared_stdin(&["-n", "-1"], b"a\nb\nc\n", b"a\nb\n", b"c\n");
+    head_shared_stdin(&["-n", "-19000"], &sequence_bytes(1, 20000),
+        &sequence_bytes(1, 1000), &sequence_bytes(1001, 20000));
+}
+
+// origin: uutils test_head::test_validate_stdin_offset_bytes
+#[cfg(target_os = "linux")]
+#[test]
+fn test_validate_stdin_offset_bytes() {
+    head_shared_stdin(&["-c", "2"], b"abc\ndef\n", b"ab", b"c\ndef\n");
+    head_shared_stdin(&["-c", "-3"], b"abc\ndef\n", b"abc\nd", b"ef\n");
+    head_shared_stdin(&["-c", "-0"], b"abc\ndef\n", b"abc\ndef\n", b"");
+    let remainder = sequence_bytes(19001, 20000);
+    let count = format!("-{}", remainder.len());
+    head_shared_stdin(&["-c", &count], &sequence_bytes(1, 20000),
+        &sequence_bytes(1, 19000), &remainder);
+}
+
+// origin: uutils test_expand::test_large_tab_stop_without_tabs_does_not_allocate
+#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+#[test]
+fn test_large_tab_stop_without_tabs_does_not_allocate() {
+    let directory = boundary_directory();
+    let mut command = applet("expand", directory.path());
+    command.arg("--tabs=267672676527678256");
+    unsafe {
+        command.pre_exec(|| {
+            let limit = libc::rlimit { rlim_cur: 200 * 1024 * 1024, rlim_max: 200 * 1024 * 1024 };
+            if libc::setrlimit(libc::RLIMIT_AS, &limit) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let output = pipe_input(command, b"hello\n".to_vec());
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.stdout, b"hello\n");
+}
+
+// origin: uutils test_paste::test_dev_zero_closed_pipe
+#[cfg(target_os = "linux")]
+#[test]
+fn test_dev_zero_closed_pipe() {
+    let directory = boundary_directory();
+    let (reader, writer) = std::io::pipe().unwrap();
+    drop(reader);
+    let mut command = applet("paste", directory.path());
+    command.arg("/dev/zero").stdout(writer);
+    assert_silent_failure(Running::spawn(&mut command).finish());
+}
+
+// origin: uutils test_comm::test_comm_anonymous_pipes
+#[cfg(target_os = "linux")]
+#[test]
+fn test_comm_anonymous_pipes() {
+    let directory = boundary_directory();
+    let (reader1, mut writer1) = std::io::pipe().unwrap();
+    let (reader2, mut writer2) = std::io::pipe().unwrap();
+    let content = (0..1500).map(|number| format!("{number:05}\n")).collect::<String>();
+    let content2 = format!("{content}99999\n");
+    // Pipe capacity may be smaller than the fixture. Producers run concurrently
+    // with the child, and dropping the readers unblocks them on a child failure.
+    let producer1 = std::thread::spawn(move || writer1.write_all(content.as_bytes()));
+    let producer2 = std::thread::spawn(move || writer2.write_all(content2.as_bytes()));
+    let path1 = format!("/proc/{}/fd/{}", std::process::id(), reader1.as_raw_fd());
+    let path2 = format!("/proc/{}/fd/{}", std::process::id(), reader2.as_raw_fd());
+    let mut command = applet("comm", directory.path());
+    command.args(["-13", &path1, &path2]);
+    let output = Running::spawn(&mut command).finish();
+    drop((reader1, reader2));
+    producer1.join().unwrap().unwrap();
+    producer2.join().unwrap().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.stdout, b"99999\n");
+}
+
+// origin: uutils test_pwd::test_deleted_dir
+#[test]
+fn test_deleted_dir() {
+    let directory = boundary_directory();
+    let removed = directory.path().join("foo");
+    std::fs::create_dir(&removed).unwrap();
+    let removed_bytes = std::ffi::CString::new(std::os::unix::ffi::OsStrExt::as_bytes(removed.as_os_str())).unwrap();
+    let mut command = applet("pwd", &removed);
+    unsafe {
+        command.pre_exec(move || {
+            if libc::rmdir(removed_bytes.as_ptr()) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let output = Running::spawn(&mut command).finish();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert_eq!(output.stderr, b"pwd: couldn't find directory entry in '..' with matching i-node\n");
+}
+
+fn mkfifo_with_umask(mode: Option<&str>, mask: libc::mode_t, expected: u32) {
+    let directory = boundary_directory();
+    let mut command = applet("mkfifo", directory.path());
+    if let Some(mode) = mode { command.args(["-m", mode]); }
+    command.arg("fifo_test");
+    unsafe {
+        command.pre_exec(move || {
+            libc::umask(mask);
+            Ok(())
+        });
+    }
+    let output = Running::spawn(&mut command).finish();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let metadata = std::fs::metadata(directory.path().join("fifo_test")).unwrap();
+    assert!(metadata.file_type().is_fifo());
+    assert_eq!(metadata.permissions().mode() & 0o7777, expected);
+}
+
+// origin: uutils test_mkfifo::test_create_fifo_with_mode_and_umask
+#[test]
+fn test_uu_mkfifo_create_fifo_with_mode_and_umask() {
+    for (mode, mask, expected) in [
+        ("734", 0o077, 0o734),
+        ("706", 0o777, 0o706),
+        ("a=rwx", 0o022, 0o777),
+        ("a=rx", 0o022, 0o555),
+        ("a=r", 0o022, 0o444),
+        ("=rwx", 0o022, 0o755),
+        ("u+w", 0o022, 0o666),
+        ("u-w", 0o022, 0o466),
+        ("u+x", 0o022, 0o766),
+        ("u-r,g-w,o+x", 0o022, 0o247),
+        ("a=rwx,o-w", 0o022, 0o775),
+        ("=rwx,o-w", 0o022, 0o755),
+        ("ug+rw,o+r", 0o022, 0o666),
+        ("u=rwx,g=rx,o=", 0o022, 0o750),
+    ] {
+        mkfifo_with_umask(Some(mode), mask, expected);
+    }
+}
+
+// origin: uutils test_mkfifo::test_create_fifo_with_umask
+#[test]
+fn test_uu_mkfifo_create_fifo_with_umask() {
+    mkfifo_with_umask(None, 0o022, 0o644);
+    mkfifo_with_umask(None, 0o777, 0o000);
+}
+
+// origin: uutils test_mkfifo::diagnostics::test_plain_message_when_stderr_is_a_pipe
+#[test]
+fn test_uu_mkfifo_diagnostics_plain_message_when_stderr_is_a_pipe() {
+    let directory = boundary_directory();
+    let mut command = applet("mkfifo", directory.path());
+    command.args(["-m", "+rw?", "some_pipe"]);
+    let output = Running::spawn(&mut command).finish();
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.starts_with("mkfifo: "), "{stderr}");
+    assert!(!stderr.contains(":1:"), "{stderr}");
 }
