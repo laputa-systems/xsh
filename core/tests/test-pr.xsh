@@ -9,9 +9,9 @@ test test_pr_headerless_numbering { |ctx|
 test test_pr_across_and_partial_columns { |ctx|
   let input = test.temp_file(ctx, name: "lines", contents: b"a\nb\nc\n")?
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -a -2 -s: $input
-  assert output == "a                                  :b                                  \nc                                  \n"
+  assert output == "a:b\nc\n"
   let compact_columns = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -W3 -t2 $input
-  assert compact_columns == "a\tc\nb\n"
+  assert compact_columns == "a c\nb\n"
 }
 
 test test_pr_pages_with_literal_date_format { |ctx|
@@ -36,15 +36,15 @@ test test_pr_number_field_clips_digits_and_counted_columns_align { |ctx|
   let digits = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -n:1 -N10 $input
   assert digits == "0:a\n1:b\n2:c\n3:d\n"
   let columns = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -2 -n:1 -w20 $input
-  assert columns == "1:a      \t3:c      \n2:b      \t4:d      \n"
+  assert columns == "1:a\t  3:c\n2:b\t  4:d\n"
 }
 
 test test_pr_numbered_offset_and_joined_columns { |ctx|
   let input = test.temp_file(ctx, name: "lines", contents: b"a\nb\nc\nd\n")?
   let offset = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -2 -n -o7 -w20 $input
-  assert offset == "           1\ta\t           3\tc\n           2\tb\t           4\td\n"
+  assert offset == "       \t   1   a     3\t c\n       \t   2   b     4\t d\n"
   let joined = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -2 -J $input
-  assert joined == "ac\nbd\n"
+  assert joined == "a\tc\nb\td\n"
 }
 
 test test_pr_rejects_across_merge_and_warns_for_unavailable_page { |ctx|
@@ -96,8 +96,7 @@ test test_pr_merge_numbering_reserves_one_page_prefix { |ctx|
   let first = test.temp_file(ctx, name: "first", contents: b"a\n")?
   let second = test.temp_file(ctx, name: "second", contents: b"b\n")?
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -m -n -w20 $first $second
-  var expected = "    1\ta\tb        \n"
-  for _ in range(65) { expected += "         \t         \n" }
+  let expected = "    1\ta     b\n"
   assert output == expected
 }
 
@@ -105,8 +104,7 @@ test test_pr_merge_preserves_positions_after_a_file_ends { |ctx|
   let first = test.temp_file(ctx, name: "first", contents: b"a\nb\n")?
   let second = test.temp_file(ctx, name: "second", contents: b"x  \n")?
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -m -n -w20 $first $second
-  var expected = "    1\ta\tx        \n    2\tb\t         \n"
-  for _ in range(64) { expected += "         \t         \n" }
+  let expected = "    1\ta     x\n    2\tb     \n"
   assert output == expected
 }
 
@@ -149,7 +147,7 @@ test test_pr_invalid_indent_uses_gnu_wording { |ctx|
   let error = test.temp_path(ctx, name: "error")
   let status = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- --indent=-5 2> $error
   assert status.exited_with(1)
-  assert error.read_text()? == "pr: '-o MARGIN' invalid line offset: '-5'\n"
+  assert error.read_text()? == "pr: '-o MARGIN' invalid line offset: '-5': Value too large for defined data type\n"
 }
 
 test test_pr_rejects_input_column_overflow_before_expanding_tabs { |ctx|
@@ -175,16 +173,16 @@ test test_pr_zero_page_dimensions_report_range_error { |ctx|
   assert error.read_text()? == "pr: '-W PAGE_WIDTH' invalid number of characters: '0': Result not representable\n"
 }
 
-test test_pr_columns_pad_every_cell_and_separate_with_tab { |ctx|
+test test_pr_columns_align_and_omit_trailing_padding { |ctx|
   let input = test.temp_file(ctx, name: "lines", contents: b"a\nb\nc\n")?
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -2 -w 20 $input
-  assert output == "a        \tc        \nb        \n"
+  assert output == "a\t  c\nb\n"
 }
 
-test test_pr_offset_indents_every_column { |ctx|
+test test_pr_offset_indents_the_row { |ctx|
   let input = test.temp_file(ctx, name: "lines", contents: b"a\nb\n")?
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -o 2 -2 -w 20 $input
-  assert output == "  a        \t  b        \n"
+  assert output == "  a\t    b\n"
 }
 
 test test_pr_malformed_page_numbers_name_the_pages_argument { |ctx|
@@ -198,12 +196,12 @@ test test_pr_malformed_page_numbers_name_the_pages_argument { |ctx|
   }
 }
 
-test test_pr_quiet_suppresses_invalid_page_range_message { |ctx|
+test test_pr_quiet_preserves_invalid_page_range_message { |ctx|
   let input = test.temp_file(ctx, name: "lines", contents: b"a\n")?
   let error = test.temp_path(ctx, name: "error")
   let status = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- --pages=20:5 -r $input 2> $error
   assert status.exited_with(1)
-  assert error.read_text()? == ""
+  assert error.read_text()? == "pr: invalid page range '20:5'\n"
 }
 
 test test_pr_expand_tab_overflow_message_has_no_overflow_note { |ctx|
@@ -220,4 +218,21 @@ test test_pr_posix_date_format_needs_posixly_correct_and_posix_time { |ctx|
   assert rx"^[A-Z][a-z]{2} [ 0-9][0-9] [0-9]{2}:[0-9]{2} [0-9]{4} .*Page 1$".matches(posix.lines()[2])
   let plain = run.text env LC_TIME=POSIX ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- $input
   assert rx"^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} .*Page 1$".matches(plain.lines()[2])
+}
+
+test test_pr_gnu_column_alignment_and_separated_optional_operand { |ctx|
+  let input = test.temp_file(ctx, name: "lines", contents: b"a\nb\nc\n")?
+  let columns = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -2 -w20 $input
+  assert columns == "a\t  c\nb\n"
+  let error = test.temp_path(ctx, name: "error")
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -n 70000 2> $error
+  assert status.exited_with(1)
+  assert error.read_text()? == "pr: 70000: No such file or directory\n"
+}
+
+test test_pr_merge_flushes_alignment_at_an_empty_middle_column { |ctx|
+  let first = test.temp_file(ctx, name: "first", contents: b"12\n12\n")?
+  let second = test.temp_file(ctx, name: "second", contents: b"x\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -m -n -w72 $first $second $first
+  assert output == "    1\t12\t\t     x\t\t\t  12\n    2\t12\t\t     \t\t\t  12\n"
 }
