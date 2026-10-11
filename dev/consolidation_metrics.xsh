@@ -656,7 +656,7 @@ pure contains_token(lexed: Lexed, start: Int, end: Int, value: Str) -> Bool {
   false
 }
 
-proc lowering_function_region(source_path: Str, lexed: Lexed, keyword: Int) [error] -> Result[FunctionRegion] {
+proc function_region_for_parameters(source_path: Str, lexed: Lexed, keyword: Int, required_parameters: List[Str], required_return: Str) [error] -> Result[FunctionRegion] {
   let name = (lexed.tokens.get(keyword + 1) ?? end_token).text
   if ! ident_start(first(name)) { return {name: "", params_start: -1, params_end: -1, body_start: -1, body_end: -1} }
   var params_start = keyword + 2
@@ -677,7 +677,14 @@ proc lowering_function_region(source_path: Str, lexed: Lexed, keyword: Int) [err
     return {name: "", params_start: -1, params_end: -1, body_start: -1, body_end: -1}
   }
   let params_end = lexed.mates[f"{params_start}"]
-  if ! contains_token(lexed, params_start + 1, params_end, "TypeExprId") {
+  var has_required_parameter = false
+  for required_parameter in required_parameters {
+    if contains_token(lexed, params_start + 1, params_end, required_parameter) {
+      has_required_parameter = true
+      break
+    }
+  }
+  if ! has_required_parameter {
     return {name: "", params_start: -1, params_end: -1, body_start: -1, body_end: -1}
   }
   var body_start = params_end + 1
@@ -701,7 +708,10 @@ proc lowering_function_region(source_path: Str, lexed: Lexed, keyword: Int) [err
     if value in ["(", "["] { body_start = lexed.mates[f"{body_start}"] + 1 } else { body_start += 1 }
   }
   if body_start >= lexed.tokens.len() or lexed.tokens[body_start].text != "{" {
-    invalid(source_path, lexed.tokens[keyword].line, "cannot locate TypeExpr function body")?
+    invalid(source_path, lexed.tokens[keyword].line, "cannot locate conversion function body")?
+  }
+  if required_return != "" and ! contains_token(lexed, params_end + 1, body_start, required_return) {
+    return {name: "", params_start: -1, params_end: -1, body_start: -1, body_end: -1}
   }
   {name: name, params_start: params_start + 1, params_end: params_end, body_start: body_start + 1, body_end: lexed.mates[f"{body_start}"]}
 }
@@ -725,7 +735,7 @@ pure constructs_semantic_type(lexed: Lexed, region: FunctionRegion) -> Bool {
   false
 }
 
-pure type_expr_return_contains(lexed: Lexed, region: FunctionRegion, value: Str) -> Bool {
+pure function_return_contains(lexed: Lexed, region: FunctionRegion, value: Str) -> Bool {
   var cursor = region.params_end + 1
   let signature_end = region.body_start - 1
   while cursor + 1 < signature_end {
@@ -737,6 +747,51 @@ pure type_expr_return_contains(lexed: Lexed, region: FunctionRegion, value: Str)
   false
 }
 
+pure qualified_variant_count(lexed: Lexed, region: FunctionRegion, type_name: Str) -> Int {
+  var variants: List[Str] = []
+  var cursor = region.body_start
+  while cursor + 2 < region.body_end {
+    if lexed.tokens[cursor].text == type_name and lexed.tokens[cursor + 1].text == ":" and lexed.tokens[cursor + 2].text == ":" {
+      let variant = (lexed.tokens.get(cursor + 3) ?? end_token).text
+      if variant != "" and ! (variant in variants) { variants += [variant] }
+    }
+    cursor += 1
+  }
+  variants.len()
+}
+
+proc type_storage_mapping_evidence(source_path: Str, lexed: Lexed, spans: List[Span]) [error] -> Result[List[Evidence]] {
+  if ! source_path.starts_with("src/runtime/eval/") { return [] }
+  if ! contains_token(lexed, 0, lexed.tokens.len(), "Type") or ! contains_token(lexed, 0, lexed.tokens.len(), "LoweredType") or ! contains_token(lexed, 0, lexed.tokens.len(), "match") { return [] }
+  var found: List[Evidence] = []
+  var cursor = 0
+  while cursor < lexed.tokens.len() {
+    let item = lexed.tokens[cursor]
+    if ! item.literal and item.text == "fn" and ! inside(item, spans) {
+      let region = function_region_for_parameters(source_path, lexed, cursor, ["Type", "LoweredType"], "")?
+      if region.body_start >= 0 {
+        let takes_type = contains_token(lexed, region.params_start, region.params_end, "Type")
+        let takes_lowered_type = contains_token(lexed, region.params_start, region.params_end, "LoweredType")
+        let maps_type_to_lowered = takes_type and ! takes_lowered_type and function_return_contains(lexed, region, "LoweredType")
+        let maps_lowered_to_type = takes_lowered_type and ! takes_type and function_return_contains(lexed, region, "Type")
+        if (maps_type_to_lowered or maps_lowered_to_type) and contains_token(lexed, region.body_start, region.body_end, "match") {
+          let source_type = if maps_type_to_lowered { "Type" } else { "LoweredType" }
+          let target_type = if maps_type_to_lowered { "LoweredType" } else { "Type" }
+          let source_variants = qualified_variant_count(lexed, region, source_type)
+          let target_variants = qualified_variant_count(lexed, region, target_type)
+          if source_variants >= 8 and target_variants >= 8 {
+            found += [evidence(source_path, item, region.name)]
+          } else if source_variants >= 8 or target_variants >= 8 {
+            invalid(source_path, item.line, "unclassified Type/LoweredType conversion body")?
+          }
+        }
+      }
+    }
+    cursor += 1
+  }
+  found
+}
+
 # Count semantic walks over type-expression tags, not wrappers or name rendering.
 proc lowering_type_resolver_evidence(source_path: Str, lexed: Lexed, spans: List[Span]) [error] -> Result[List[Evidence]] {
   if source_path != "src/runtime/eval/lower.rs" and ! source_path.starts_with("src/runtime/eval/lower/") { return [] }
@@ -745,14 +800,14 @@ proc lowering_type_resolver_evidence(source_path: Str, lexed: Lexed, spans: List
   while cursor < lexed.tokens.len() {
     let item = lexed.tokens[cursor]
     if ! item.literal and item.text == "fn" and ! inside(item, spans) {
-      let region = lowering_function_region(source_path, lexed, cursor)?
+      let region = function_region_for_parameters(source_path, lexed, cursor, ["TypeExprId"], "")?
       if region.body_start >= 0 {
         let type_dispatch = contains_token(lexed, region.body_start, region.body_end, "ArenaTypeExprTag")
         let recursive = recursive_type_expr_call(lexed, region)
         if type_dispatch {
-          let returns_string = type_expr_return_contains(lexed, region, "String")
+          let returns_string = function_return_contains(lexed, region, "String")
           if ! returns_string {
-            let returns_semantic_type = type_expr_return_contains(lexed, region, "Type") or type_expr_return_contains(lexed, region, "LoweredType")
+            let returns_semantic_type = function_return_contains(lexed, region, "Type") or function_return_contains(lexed, region, "LoweredType")
             let constructs_type = constructs_semantic_type(lexed, region)
             if constructs_type {
               found += [evidence(source_path, item, region.name)]
@@ -778,7 +833,7 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
   var stages: List[Evidence] = []
   var wildcards: List[Evidence] = []
   var predicates: List[Evidence] = []
-  var mappings: List[Evidence] = []
+  let mappings = type_storage_mapping_evidence(source_path, lexed, spans)?
   let resolvers = lowering_type_resolver_evidence(source_path, lexed, spans)?
   var factories: List[Evidence] = []
   var instruction_schema_calls = 0
@@ -822,7 +877,6 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
       if name == "fn" {
         let definition = (lexed.tokens.get(cursor + 1) ?? end_token).text
         if definition in ["value_matches_static_type", "lowered_value_matches_static_type", "test_value_matches_type"] { predicates += [evidence(source_path, item, definition)] }
-        if definition in ["lowered_checked_type", "type_for_lowered_type", "lowered_type_to_type", "lowered_type_from_type"] { mappings += [evidence(source_path, item, definition)] }
       }
       if name == "enum" and (lexed.tokens.get(cursor + 2) ?? end_token).text == "{" {
         let definition = (lexed.tokens.get(cursor + 1) ?? end_token).text

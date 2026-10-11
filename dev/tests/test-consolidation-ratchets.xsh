@@ -164,6 +164,24 @@ test test_instruction_schema_unknown_and_malformed_layouts_fail_loudly {
   assert "no supported table invocation" in rejection("macro_rules! instruction_schema { () => {}; }")
 }
 
+test test_type_storage_mapping_metric_recognizes_both_direct_directions {
+  let source = "fn map_type_to_kind(ty: &Type) -> Result<LoweredType, Error> { match ty { Type::Unit => Ok(LoweredType::Unit), Type::Int => Ok(LoweredType::Int), Type::Bool => Ok(LoweredType::Bool), Type::Str => Ok(LoweredType::Str), Type::Bytes => Ok(LoweredType::Bytes), Type::Path => Ok(LoweredType::Path), Type::Command => Ok(LoweredType::Command), Type::Duration => Ok(LoweredType::Duration), } }\nfn map_kind_to_type(kind: LoweredType) -> Option<Type> { match kind { LoweredType::Unit => Some(Type::Unit), LoweredType::Int => Some(Type::Int), LoweredType::Bool => Some(Type::Bool), LoweredType::Str => Some(Type::Str), LoweredType::Bytes => Some(Type::Bytes), LoweredType::Path => Some(Type::Path), LoweredType::Command => Some(Type::Command), LoweredType::Duration => Some(Type::Duration), } }\n"
+  let mappings = metrics.scan_file("src/runtime/eval/lower/types.rs", source)?.metrics |> where .name == "type_storage_mapping_definitions" |> collect
+  assert mappings[0].value == 2
+  assert mappings[0].evidence[0].detail == "map_type_to_kind"
+  assert mappings[0].evidence[1].detail == "map_kind_to_type"
+}
+
+test test_type_storage_mapping_metric_excludes_delegating_and_partial_wrappers {
+  let source = "fn lowered_checked_type(ty: &Type) -> Option<LoweredType> { match ty { Type::Validated(_) => None, _ => map_type_to_kind(ty).ok() } }\nfn type_for_lowered_type(kind: LoweredType) -> Option<Type> { match kind { LoweredType::Set | LoweredType::Tag => None, _ => map_kind_to_type(kind) } }\nfn project_one_checked_case(ty: &Type) -> Option<LoweredType> { match ty { Type::Int => Some(LoweredType::Int), _ => None } }\n"
+  assert value(metrics.scan_file("src/runtime/eval/lower/types.rs", source)?, "type_storage_mapping_definitions") == 0
+}
+
+test test_type_storage_mapping_metric_rejects_unclassified_large_conversions {
+  let source = "fn map_semantic_type(ty: &Type) -> Result<LoweredType, Error> { match ty { Type::Unit => map_unit(ty), Type::Int => map_int(ty), Type::Bool => map_bool(ty), Type::Str => map_str(ty), Type::Bytes => map_bytes(ty), Type::Path => map_path(ty), Type::Command => map_command(ty), Type::Duration => map_duration(ty), } }\n"
+  assert "unclassified Type/LoweredType conversion body" in rejection_at("src/runtime/eval/lower/types.rs", source)
+}
+
 test test_lowering_type_resolver_metric_recognizes_recursive_semantic_walkers {
   let source = "fn resolve_runtime_type(arena: &AstArena, ty: TypeExprId) -> Option<LoweredType> {\n let index = ty.index();\n let data = arena.type_expr_data[index];\n match arena.type_expr_tags[index] {\n ArenaTypeExprTag::List => Some(LoweredType::List),\n ArenaTypeExprTag::Named => resolve_runtime_type(arena, TypeExprId::from_index(data.lhs as usize)),\n }\n}\n"
   let scan = metrics.scan_file("src/runtime/eval/lower/types.rs", source)?

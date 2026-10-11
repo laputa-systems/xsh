@@ -384,6 +384,10 @@ plus a corpus test exist to catch lowering disagreeing with the checker.
 Four functions map between `Type` and `LoweredType`, and the two reverse
 mappings disagree on `Set` and `Tag`.
 
+For the mapping count, a definition owns a full match-based conversion table
+for one direction. Entry guards and functions that delegate to a table are
+not counted as mappings.
+
 **End state.** One type test, written once over a view both representations
 provide. The checker publishes the resolved type of every type expression as
 a fact and lowering reads it, so lowering resolves none and the drift
