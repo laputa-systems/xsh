@@ -40,10 +40,42 @@ test test_unix_descriptor_arguments_validate_before_opening { |ctx|
   test.error_kind(unix.redirect_fd(1, unopened, append: true), "unix-redirect-fd")
   test.error_kind(unix.redirect_fd(1, unopened, write: true, mode: -1), "unix-redirect-fd")
   test.error_kind(unix.redirect_fd(1, unopened, write: true, mode: 4096), "unix-redirect-fd")
+  test.error_kind(unix.redirect_fd(1, unopened, exact_create_mode: true), "unix-redirect-fd")
   assert ! unopened.exists()?
   test.error_kind(unix.dup_fd(-1, 1), "unix-dup-fd")
   test.error_kind(unix.dup_fd(1, 2147483648), "unix-dup-fd")
   assert unix.dup_fd(2147483647, 2147483647) is Err(is HostIo)
+}
+
+test test_unix_duplicate_fd_shares_offset_and_owns_its_descriptor { |ctx|
+  let file = test.temp_file(ctx, contents: b"abcdef")?
+  let source = unix.open_fd(file)?
+  defer unix.close_fd(source)
+  let saved = unix.duplicate_fd(source, min_fd: 100)?
+  assert saved >= 100 and saved != source
+  assert unix.read_fd(source, 2)? == b"ab"
+  assert unix.read_fd(saved, 2)? == b"cd"
+  unix.close_fd(saved)?
+  assert unix.read_fd(source, 2)? == b"ef"
+  assert unix.read_fd(saved, 1) is Err(is HostIo)
+  test.error_kind(unix.duplicate_fd(-1), "unix-duplicate-fd")
+  test.error_kind(unix.duplicate_fd(2147483648), "unix-duplicate-fd")
+  test.error_kind(unix.duplicate_fd(source, min_fd: -1), "unix-duplicate-fd")
+  test.error_kind(unix.duplicate_fd(source, min_fd: 2147483648), "unix-duplicate-fd")
+  assert unix.duplicate_fd(2147483647) is Err(is HostIo)
+}
+
+test test_unix_redirect_exact_create_mode_preserves_existing_permissions { |ctx|
+  let root = test.temp_dir(ctx)?
+  let log = fp"{root}/log"
+  log.write("prefix")
+  log.chmod(0o640)
+  let result = test.expect(ctx, r"""unix.redirect_fd(1, Path(args[0]), write: true, append: true, mode: 0o600, exact_create_mode: true)?
+print "suffix"
+""", status: 0, args: [log])?
+  assert result.stdout == ""
+  assert log.read_text()? == "prefixsuffix\n"
+  assert log.metadata()?.mode % 512 == 0o640
 }
 
 test test_unix_redirect_append_private_mode_and_dup_survive_exec { |ctx|

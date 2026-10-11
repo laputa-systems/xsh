@@ -1621,12 +1621,17 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("unix", "redirect_fd") => Some((
             "Replaces a current process descriptor with an opened path.",
-            "fd must be in 0..2147483647. Read mode never creates a file; write creates and truncates, or appends when append is true. append requires write. mode defaults to 438 (0666), must be in 0..4095, and is filtered by the process umask only on creation. The descriptor survives exec; write-only stdin refuses reads. This mutates process state beyond the current scope.",
+            "fd must be in 0..2147483647. Read mode never creates a file; write creates and truncates, or appends when append is true. append requires write. mode defaults to 438 (0666), must be in 0..4095, and is filtered by the process umask only on creation. exact_create_mode requires write and sets a newly created file to mode independently of umask; existing file permissions stay unchanged, and a concurrent removal while reopening fails with a host error. The descriptor survives exec; write-only stdin refuses reads. This mutates process state beyond the current scope.",
             &["unix", "descriptor", "process"],
         )),
         ("unix", "dup_fd") => Some((
             "Duplicates a current process descriptor onto another descriptor.",
             "source and target must be in 0..2147483647. Replaces target, shares the open file offset and clears close-on-exec even when source equals target. Invalid or closed descriptors remain host errors.",
+            &["unix", "descriptor", "process"],
+        )),
+        ("unix", "duplicate_fd") => Some((
+            "Saves a current process descriptor as a new close-on-exec descriptor.",
+            "source and min_fd must be in 0..2147483647. Returns the lowest available descriptor at or above min_fd (default 3), sharing the open file offset. The caller owns the returned descriptor and closes it with unix.close_fd; it is automatically closed by exec. Invalid or closed sources remain host errors.",
             &["unix", "descriptor", "process"],
         )),
         ("unix", "set_uid" | "set_gid") => Some((

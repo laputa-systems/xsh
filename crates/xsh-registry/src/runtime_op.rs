@@ -458,6 +458,7 @@ pub enum RuntimeOp {
     UnixExecEnv,
     UnixRedirectFd,
     UnixDupFd,
+    UnixDuplicateFd,
     UnixSetUid,
     UnixSetGid,
     UnixSetGroups,

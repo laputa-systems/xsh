@@ -4486,7 +4486,12 @@ Contracts worth knowing without consulting the reference:
   `process.wait_any` that returns `null`, consuming nothing, once `limit`
   passes with no child finished.
 - `unix.redirect_fd` and `unix.dup_fd` replace explicit descriptors. Buffered
-  output is flushed before its descriptor is replaced. `unix.exec` honors
+  output is flushed before its descriptor is replaced. `unix.redirect_fd`
+  with `exact_create_mode: true` applies the requested mode independently of
+  umask only to exclusively created files; existing permissions are preserved,
+  and a concurrent removal during reopen fails with a host error.
+  `unix.duplicate_fd` saves a descriptor in a new caller-owned descriptor that
+  shares its offset and closes automatically on exec. `unix.exec` honors
   ordered file and byte-input redirections; replacement preserves descriptor
   and signal state. With no command-plan `cwd` or active `cd` scope,
   `unix.exec` and `unix.exec_env` inherit the kernel's held working directory

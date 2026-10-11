@@ -3122,7 +3122,7 @@ fn unix_module() -> ModuleSig {
             sig(
                 vec![param("fd", Type::Int), param("path", Type::Path),
                     default_param("write", Type::Bool), default_param("append", Type::Bool),
-                    default_param("mode", Type::Int)],
+                    default_param("mode", Type::Int), default_param("exact_create_mode", Type::Bool)],
                 result(Type::Unit), false, RuntimeOp::UnixRedirectFd,
             ),
         ),
@@ -3130,6 +3130,11 @@ fn unix_module() -> ModuleSig {
             "dup_fd",
             sig(vec![param("source", Type::Int), param("target", Type::Int)],
                 result(Type::Unit), false, RuntimeOp::UnixDupFd),
+        ),
+        (
+            "duplicate_fd",
+            sig(vec![param("source", Type::Int), default_param("min_fd", Type::Int)],
+                result(Type::Int), false, RuntimeOp::UnixDuplicateFd),
         ),
         ("poll_fd", sig(vec![param("fd", Type::Int), param("events", Type::List(Box::new(Type::Str))), default_param("timeout_ms", Type::Int)], result(Type::List(Box::new(Type::Str))), false, RuntimeOp::UnixPollFd)),
         (
