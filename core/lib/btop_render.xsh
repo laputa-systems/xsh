@@ -138,7 +138,13 @@ pure load_text(value: syscpu.LoadAverage) -> Str {
 }
 
 pure process_text(row: model.ProcessRow) -> Str {
-  let uid = if row.uid == null { "?" } else { f"{row.uid ?? 0}" }
+  let uid = if row.uid == null {
+    "?"
+  } else if row.uid_state == model.Stale {
+    f"~{row.uid ?? 0}"
+  } else {
+    f"{row.uid ?? 0}"
+  }
   f"{row.pid} {uid} {rate_text(row.cpu_percent)} {bytes_text(row.rss_bytes)} {row.command}"
 }
 

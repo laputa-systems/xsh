@@ -4,6 +4,7 @@ use core.lib.btop_input as input
 use core.lib.btop_model as model
 use core.lib.btop_replay as replay
 use core.lib.btop_render as renderer
+use core.lib.btop_schedule as collection_schedule
 use core.lib.btop_source as source
 use core.lib.btop_surface as surface
 use core.lib.btop_terminal as terminal
@@ -216,6 +217,20 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
   let first_started_ns = time.monotonic()?
   let first = scheduler.first(first_started_ns, SAMPLE_INTERVAL_NS)?
   var schedule = first.state
+  let first_collection = collection_schedule.take_due(
+    collection_schedule.initial(first_started_ns)?,
+    first_started_ns,
+  )?
+  var collection_state = first_collection.state
+  var counters_due = false
+  for item in first_collection.due {
+    if item.class == collection_schedule.Counters {
+      counters_due = true
+    }
+  }
+  if ! counters_due {
+    return Err(error.failure("first monitor observation has no due counter sources"))
+  }
   var observation = source.capture(
     root,
     "live:/",
@@ -227,7 +242,9 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
   var rows = session.capabilities.rows
   var cols = session.capabilities.cols
   var decoder = input.initial()
-  var current = model.step(observation, previous)
+  let first_model = model.step_cached(observation, previous, model.empty_metadata_cache("live:/"))
+  var metadata_cache = first_model.metadata
+  var current = first_model.value
   var view = ui.initial(current, renderer.process_capacity(rows))
   var committed = surface.initial()
   while true {
@@ -246,6 +263,17 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
     let due = scheduler.take_due(schedule, time.monotonic()?)?
     schedule = due.state
     if let ticket = due.ticket {
+      let collection_plan = collection_schedule.take_due(collection_state, ticket.started_ns)?
+      collection_state = collection_plan.state
+      var counters_due = false
+      for item in collection_plan.due {
+        if item.class == collection_schedule.Counters {
+          counters_due = true
+        }
+      }
+      if ! counters_due {
+        return Err(error.failure("sample deadline expired without due counter sources"))
+      }
       let next_observation = source.capture(
         root,
         "live:/",
@@ -256,7 +284,9 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit
       let _ = scheduler.complete(ticket, time.monotonic()?)?
       previous = observation
       observation = next_observation
-      current = model.step(observation, previous)
+      let next_model = model.step_cached(observation, previous, metadata_cache)
+      metadata_cache = next_model.metadata
+      current = next_model.value
       view = ui.refresh(view, current)
     } else {
       return Err(error.failure("sample deadline expired without a due ticket"))

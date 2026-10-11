@@ -627,26 +627,32 @@
     {
       "id": "g3.sched.class",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-schedule.xsh::test_btop_schedule_starts_all_classes_and_uses_fixed_periods"
+      ],
+      "evidence": "Host release: source-class schedule and UID metadata cache tests passed in .work/btop-campaign/g3-btop-regression.log (49/49 btop tests); focused model tests passed in .work/btop-campaign/g3-model-tests.log (5/5), and schedule tests in .work/btop-campaign/g3-schedule-tests.log (4/4)."
     },
     {
       "id": "g3.cache.ttl",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-model.xsh::test_btop_process_uid_cache_expires_and_invalidates_on_exec_or_credentials"
+      ],
+      "evidence": "Host release: source-class schedule and UID metadata cache tests passed in .work/btop-campaign/g3-btop-regression.log (49/49 btop tests); focused model tests passed in .work/btop-campaign/g3-model-tests.log (5/5), and schedule tests in .work/btop-campaign/g3-schedule-tests.log (4/4)."
     },
     {
       "id": "g3.cache.invalidation",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-model.xsh::test_btop_process_uid_cache_expires_and_invalidates_on_exec_or_credentials"
+      ],
+      "evidence": "Host release: source-class schedule and UID metadata cache tests passed in .work/btop-campaign/g3-btop-regression.log (49/49 btop tests); focused model tests passed in .work/btop-campaign/g3-model-tests.log (5/5), and schedule tests in .work/btop-campaign/g3-schedule-tests.log (4/4)."
     },
     {
       "id": "g3.cache.eviction",
@@ -1505,6 +1511,26 @@
         "command": "rg -n -i btop src crates stdlib",
         "status": "no matches"
       }
+    },
+    "g3_s3_1": {
+      "host_only": true,
+      "native_monitor_tests": {
+        "passed": 49,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-btop-regression.log"
+      },
+      "model_tests": {
+        "passed": 5,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-model-tests.log"
+      },
+      "schedule_tests": {
+        "passed": 4,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-schedule-tests.log"
+      },
+      "uid_cache_ttl_ns": 5000000000,
+      "uid_cache_bound": "only identities in the current process inventory survive one model step; source, command, start time, and observation age gate reuse"
     }
   },
   "defaults": [
@@ -1846,6 +1872,6 @@
     }
   ],
   "next": [
-    "G3 S3.1: implement and fixture-test scheduling classes, cache TTL and invalidation, and eviction of exited process identities and stale device epochs."
+    "G3 S3.1: finish identity-cache eviction across network device epochs; then continue with CPU accounting, reset, load, uptime, topology, and frequency fixtures."
   ]
 }

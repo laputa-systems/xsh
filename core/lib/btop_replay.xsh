@@ -84,8 +84,11 @@ export proc load(bundle_path: Path) [fs, error] -> Result[Bundle, Error] {
 export pure models(observations: List[model.Observation]) -> List[model.Model] {
   var frames: List[model.Model] = []
   var previous: model.Observation? = null
+  var metadata = model.empty_metadata_cache(if observations.is_empty() { "" } else { observations[0].source_id })
   for current in observations {
-    frames += [model.step(current, previous)]
+    let next = model.step_cached(current, previous, metadata)
+    frames += [next.value]
+    metadata = next.metadata
     previous = current
   }
   frames

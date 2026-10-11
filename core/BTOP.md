@@ -63,6 +63,15 @@ pages times the injected page size. Rows sort by descending observed CPU, then
 ascending PID, with non-observed rates after observed rates. A process's start
 time is part of its identity, so a reused PID has no inherited rate.
 
+Collection classes use absolute deadlines: counters refresh each second, gauges
+every five seconds, blocking capacity reads every thirty seconds, and inventory
+is due at startup, after explicit invalidation, or after thirty seconds. The
+current live readers run with the counter pass. Missed deadlines coalesce into
+one new observation. When a UID read is unavailable, a same-source
+PID/start-time/command value remains visible for at most five seconds with a `~`
+marker; after that it is unavailable. A command change, source change, process
+exit, or PID reuse invalidates that cached UID.
+
 Memory shows total, available, and `total - available`; swap shows observed
 absence when both swap counters are absent. Network chooses the
 name-sorted non-loopback interface, or loopback only when it is the only
@@ -109,7 +118,7 @@ than 80 by 24 displays a safe size message.
 | Uptime and load | `/proc/uptime`, `/proc/loadavg` | `sys_cpu.parse_uptime`, `sys_cpu.parse_loadavg` | seconds and load averages, gauges | Bounded reads; malformed values withheld |
 | Total, available, used memory and swap | `/proc/meminfo` | `sys_mem.parse`, then `btop_rates.used_bytes` | bytes, gauges | kB-to-byte conversion checked against signed 64-bit range |
 | Interface name, RX/TX totals and rates | `/proc/net/dev` | `sys_net.parse`, `sys_net.selected_interface`, `btop_rates.counter_rate` | bytes and bytes/second; totals are counters | Bounded read; nonnegative signed 64-bit counters |
-| PID, UID, command, CPU and RSS | `/proc/[pid]/stat`, `status`, `statm` | `sys_proc.collect`, `system_report_live.parse_proc_stat`, `btop_rates.process_percent` | identity, ticks and bytes | PID/start-time race is withheld; RSS page conversion is checked |
+| PID, UID, command, CPU and RSS | `/proc/[pid]/stat`, `status`, `statm` | `sys_proc.collect`, `system_report_live.parse_proc_stat`, `btop_rates.process_percent` | identity, ticks and bytes | PID/start-time race is withheld; RSS page conversion is checked; cached UID expires after five seconds |
 
 The system-report and btop paths share the `/proc/meminfo` parser. Process
 `stat` parsing also reuses `system_report_live.parse_proc_stat`; it retains
@@ -134,6 +143,9 @@ Focused host release tests are kept with the implementation:
   semantic terminal model.
 - `core/tests/test-btop-loop.xsh` and `test-btop-ui.xsh` cover absolute sample
   deadlines, coalesced work, identity selection, sorting, filtering, and resize.
+- `core/tests/test-btop-schedule.xsh` covers source-class deadlines,
+  invalidation, coalescing, and checked monotonic bounds. The model tests cover
+  UID expiry, exec and credential changes, PID reuse, exit eviction, and churn.
 - `core/tests/test-btop-input.xsh`, `test-btop-terminal.xsh`, and
   `test-btop-surface.xsh` cover chunked input, capability detection, terminal
   ownership, geometry, cell-safe widgets, and delta recovery.

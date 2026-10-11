@@ -1,5 +1,7 @@
 use core.lib.btop_model as model
 use core.lib.btop_source as source
+use core.lib.btop_render as renderer
+use core.lib.btop_ui as ui
 use core.tests.support.btop as fixture
 use core.lib.btop_rates as rates
 use core.lib.system_report as report
@@ -109,4 +111,100 @@ test test_btop_model_does_not_mix_source_identities_or_invalid_intervals {
   assert invalid.cpu_percent.state == rates.Invalid
   assert invalid.network.rx_bytes_per_second.state == rates.Invalid
   assert invalid.processes[0].cpu_percent.state == rates.Invalid
+}
+
+test test_btop_process_uid_cache_expires_and_invalidates_on_exec_or_credentials {
+  let bundle = fs.tempdir()?
+  defer bundle.close()
+  fixture.write_b3_frame(bundle, "frames/000000", 0, default_processes())
+  fixture.write_b3_frame(bundle, "frames/000001", 1, default_processes())
+  let first = capture(bundle, p"frames/000000", "uid-cache", 1000000000, 0)?
+  let second = capture(bundle, p"frames/000001", "uid-cache", 2000000000, 1)?
+  let seeded = model.step_cached(first, null, model.empty_metadata_cache("uid-cache"))
+  assert seeded.metadata.by_pid.len() == 1
+  assert seeded.value.processes[0].uid_state == model.Fresh
+
+  let missing_uid: model.Observation = {
+    ...second,
+    processes: {
+      ...second.processes,
+      processes: [{...second.processes.processes[0], uid: null}],
+    },
+  }
+  let stale = model.step_cached(missing_uid, first, seeded.metadata)
+  assert stale.value.processes[0].uid == 1000
+  assert stale.value.processes[0].uid_state == model.Stale
+  assert stale.metadata.by_pid.len() == 1
+  let stale_screen = renderer.render_view(stale.value, ui.initial(stale.value, 1), 80, 24)
+  assert (stale_screen.lines |> join("\n")).find("~1000") != null
+
+  let expired_input: model.Observation = {...missing_uid, at_ns: 6000000000}
+  let expired = model.step_cached(expired_input, missing_uid, stale.metadata)
+  assert expired.value.processes[0].uid == null
+  assert expired.value.processes[0].uid_state == model.Unavailable
+  assert expired.metadata.by_pid.len() == 0
+
+  let changed_command: model.Observation = {
+    ...missing_uid,
+    at_ns: 3000000000,
+    processes: {
+      ...missing_uid.processes,
+      processes: [{...missing_uid.processes.processes[0], command: "exec-worker"}],
+    },
+  }
+  let after_exec = model.step_cached(changed_command, missing_uid, seeded.metadata)
+  assert after_exec.value.processes[0].uid == null
+  assert after_exec.value.processes[0].uid_state == model.Unavailable
+  assert after_exec.metadata.by_pid.len() == 0
+
+  let changed_credentials: model.Observation = {
+    ...second,
+    at_ns: 3000000000,
+    processes: {
+      ...second.processes,
+      processes: [{...second.processes.processes[0], uid: 2000}],
+    },
+  }
+  let refreshed = model.step_cached(changed_credentials, first, seeded.metadata)
+  assert refreshed.value.processes[0].uid == 2000
+  assert refreshed.value.processes[0].uid_state == model.Fresh
+}
+
+test test_btop_process_uid_cache_evicts_exits_and_pid_reuse {
+  let bundle = fs.tempdir()?
+  defer bundle.close()
+  fixture.write_b3_frame(bundle, "frames/000000", 0, default_processes())
+  fixture.write_b3_frame(bundle, "frames/000001", 1, default_processes())
+  let first = capture(bundle, p"frames/000000", "uid-churn", 1000000000, 0)?
+  let seeded = model.step_cached(first, null, model.empty_metadata_cache("uid-churn"))
+
+  let reused: model.Observation = {
+    ...first,
+    at_ns: 2000000000,
+    processes: {
+      ...first.processes,
+      processes: [{...first.processes.processes[0], start_ticks: 9000, uid: null}],
+    },
+  }
+  let reused_step = model.step_cached(reused, first, seeded.metadata)
+  assert reused_step.value.processes[0].uid == null
+  assert reused_step.value.processes[0].uid_state == model.Unavailable
+  assert reused_step.metadata.by_pid.len() == 0
+
+  let exited: model.Observation = {...first, at_ns: 3000000000, processes: {...first.processes, processes: []}}
+  let exited_step = model.step_cached(exited, first, seeded.metadata)
+  assert exited_step.value.processes == []
+  assert exited_step.metadata.by_pid.len() == 0
+
+  var churn_cache = model.empty_metadata_cache("uid-churn")
+  var churn_previous: model.Observation? = null
+  for index in range(40) {
+    let row = {pid: 100 + index, start_ticks: 1000 + index, cpu_ticks: index, rss_pages: 1, uid: 1000}
+    fixture.write_b3_frame(bundle, f"frames/churn-{index}", 0, [row])
+    let current = capture(bundle, fp"frames/churn-{index}", "uid-churn", 4000000000 + index * 1000000000, index)?
+    let next = model.step_cached(current, churn_previous, churn_cache)
+    assert next.metadata.by_pid.len() <= 1
+    churn_cache = next.metadata
+    churn_previous = current
+  }
 }

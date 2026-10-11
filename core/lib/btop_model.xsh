@@ -26,10 +26,23 @@ export type ProcessRow = {
   pid: Int,
   start_ticks: Int,
   uid: Int?,
+  uid_state: MetadataState,
   command: Str,
   cpu_percent: rates.Rate,
   rss_bytes: Int?,
 }
+
+## Distinguishes current UID observations from a bounded stale reuse.
+export enum MetadataState: Str {
+  Fresh = "fresh",
+  Stale = "stale",
+  Unavailable = "unavailable",
+}
+
+## Retains one process UID only while its identity and command remain stable.
+export type ProcessMetadata = {start_ticks: Int, command: Str, uid: Int, observed_at_ns: Int}
+## Bounds metadata reuse to one source session and the current process inventory.
+export type MetadataCache = {source_id: Str, by_pid: Map[Int, ProcessMetadata]}
 
 ## Keeps values and source states distinct for the memory panel.
 export type MemoryPanel = {
@@ -68,6 +81,9 @@ export type Model = {
   process_state: report.ObservationState,
   processes: List[ProcessRow],
 }
+
+## Returns the display model and the next bounded metadata cache together.
+export type CachedStep = {value: Model, metadata: MetadataCache}
 
 pure rate(state: rates.RateState) -> rates.Rate {
   {state: state, value: null}
@@ -159,17 +175,29 @@ pure interface_rate(
   rate(rates.Warming)
 }
 
-pure previous_process(previous: Observation, current: processes.Process) -> processes.Process? {
-  let rows = previous.processes.processes
-    |> where .pid == current.pid and .start_ticks == current.start_ticks
-  if rows.is_empty() {
-    return null
-  }
+const PROCESS_METADATA_TTL_NS = 5000000000
+type UidResult = {uid: Int?, state: MetadataState, entry: ProcessMetadata?}
+type ProcessSortKey = {available: Int, negative_rate_tenths: Int, pid: Int}
 
-  rows[0]
+pure process_index(previous: Observation?) -> Map[Int, processes.Process] {
+  var rows: Map[Int, processes.Process] = {}
+  if let before = previous {
+    for row in before.processes.processes {
+      rows = rows.set(row.pid, row)
+    }
+  }
+  rows
 }
 
-pure process_rate(current: Observation, previous: Observation?, row: processes.Process) -> rates.Rate {
+pure previous_process(index: Map[Int, processes.Process], current: processes.Process) -> processes.Process? {
+  if let Ok(row) = index.get(current.pid) {
+    if row.start_ticks == current.start_ticks { row } else { null }
+  } else {
+    null
+  }
+}
+
+pure process_rate(current: Observation, previous: Observation?, prior_rows: Map[Int, processes.Process], row: processes.Process) -> rates.Rate {
   if row.cpu_ticks == null {
     return rate(rates.Unavailable)
   }
@@ -187,7 +215,7 @@ pure process_rate(current: Observation, previous: Observation?, row: processes.P
     return rate(rates.Warming)
   }
 
-  if let older = previous_process(before, row) {
+  if let older = previous_process(prior_rows, row) {
     if older.cpu_ticks == null {
       return rate(rates.Warming)
     }
@@ -205,73 +233,93 @@ pure process_rate(current: Observation, previous: Observation?, row: processes.P
   rate(rates.Warming)
 }
 
-pure before(left: ProcessRow, right: ProcessRow) -> Bool {
-  if left.cpu_percent.state == rates.Observed and right.cpu_percent.state != rates.Observed {
-    return true
+pure cached_uid(row: processes.Process, current: Observation, cache: MetadataCache) -> UidResult {
+  if let uid = row.uid {
+    let entry = {start_ticks: row.start_ticks, command: row.command, uid: uid, observed_at_ns: current.at_ns}
+    return {uid: uid, state: .Fresh, entry: entry}
   }
-  if left.cpu_percent.state != rates.Observed and right.cpu_percent.state == rates.Observed {
-    return false
-  }
-  if left.cpu_percent.state == rates.Observed and right.cpu_percent.state == rates.Observed {
-    let left_value = left.cpu_percent.value ?? 0.0
-    let right_value = right.cpu_percent.value ?? 0.0
-    if left_value != right_value {
-      return left_value > right_value
+
+  if cache.source_id == current.source_id {
+    if let Ok(prior) = cache.by_pid.get(row.pid) {
+      let age = current.at_ns - prior.observed_at_ns
+      if prior.start_ticks == row.start_ticks and prior.command == row.command and
+          age >= 0 and age < PROCESS_METADATA_TTL_NS {
+        return {uid: prior.uid, state: .Stale, entry: prior}
+      }
     }
   }
-  left.pid < right.pid
+  {uid: null, state: .Unavailable, entry: null}
 }
 
-pure insert_process(rows: List[ProcessRow], row: ProcessRow) -> List[ProcessRow] {
-  var result: List[ProcessRow] = []
-  var inserted = false
-  for current in rows {
-    if ! inserted and before(row, current) {
-      result += [row]
-      inserted = true
+pure process_sort_key(row: ProcessRow) -> ProcessSortKey {
+  let observed = row.cpu_percent.state == rates.Observed and row.cpu_percent.value != null
+  let negative_rate_tenths = if observed {
+    if let Ok(tenth) = ((row.cpu_percent.value ?? 0.0) * 10.0).round() { -tenth } else { 0 }
+  } else {
+    0
+  }
+  {
+    available: if observed { 0 } else { 1 },
+    negative_rate_tenths: negative_rate_tenths,
+    pid: row.pid,
+  }
+}
+
+## Applies one source observation and retains only current process metadata.
+export pure step_cached(current: Observation, previous: Observation?, metadata: MetadataCache) -> CachedStep {
+  let baseline = same_source_baseline(current, previous)
+  let prior_rows = process_index(baseline)
+  let cache = if metadata.source_id == current.source_id { metadata } else { {source_id: current.source_id, by_pid: {}} }
+  let selected = observed_interface(current.network)
+  var process_rows: List[ProcessRow] = []
+  var next_metadata: Map[Int, ProcessMetadata] = {}
+  for process_row in current.processes.processes {
+    let uid = cached_uid(process_row, current, cache)
+    let row: ProcessRow = {
+      pid: process_row.pid,
+      start_ticks: process_row.start_ticks,
+      uid: uid.uid,
+      uid_state: uid.state,
+      command: process_row.command,
+      cpu_percent: process_rate(current, baseline, prior_rows, process_row),
+      rss_bytes: process_row.rss_bytes,
     }
-    result += [current]
+    process_rows += [row]
+    if let entry = uid.entry {
+      next_metadata = next_metadata.set(process_row.pid, entry)
+    }
   }
-  if ! inserted {
-    result += [row]
+
+  {
+    value: {
+      source_id: current.source_id,
+      at_ns: current.at_ns,
+      cpu_percent: cpu_interval(current, baseline),
+      uptime: current.cpu.uptime,
+      load: current.cpu.load,
+      cpu_state: current.cpu.stat.state,
+      memory: memory_panel(current.memory),
+      network: {
+        source_state: current.network.state,
+        interface_name: if let chosen = selected { chosen.name } else { null },
+        rx_bytes: if let chosen = selected { chosen.rx_bytes } else { null },
+        tx_bytes: if let chosen = selected { chosen.tx_bytes } else { null },
+        rx_bytes_per_second: interface_rate(current, selected, baseline, true),
+        tx_bytes_per_second: interface_rate(current, selected, baseline, false),
+      },
+      process_state: current.processes.state,
+      processes: process_rows |> sort-by { |row| process_sort_key(row) },
+    },
+    metadata: {source_id: current.source_id, by_pid: next_metadata},
   }
-  result
 }
 
 ## Applies one source observation to the shared previous frame, if one exists.
 export pure step(current: Observation, previous: Observation?) -> Model {
-  let baseline = same_source_baseline(current, previous)
-  let selected = observed_interface(current.network)
-  var process_rows: List[ProcessRow] = []
-  for process_row in current.processes.processes {
-    let row: ProcessRow = {
-      pid: process_row.pid,
-      start_ticks: process_row.start_ticks,
-      uid: process_row.uid,
-      command: process_row.command,
-      cpu_percent: process_rate(current, baseline, process_row),
-      rss_bytes: process_row.rss_bytes,
-    }
-    process_rows = insert_process(process_rows, row)
-  }
+  step_cached(current, previous, {source_id: current.source_id, by_pid: {}}).value
+}
 
-  {
-    source_id: current.source_id,
-    at_ns: current.at_ns,
-    cpu_percent: cpu_interval(current, baseline),
-    uptime: current.cpu.uptime,
-    load: current.cpu.load,
-    cpu_state: current.cpu.stat.state,
-    memory: memory_panel(current.memory),
-    network: {
-      source_state: current.network.state,
-      interface_name: if let chosen = selected { chosen.name } else { null },
-      rx_bytes: if let chosen = selected { chosen.rx_bytes } else { null },
-      tx_bytes: if let chosen = selected { chosen.tx_bytes } else { null },
-      rx_bytes_per_second: interface_rate(current, selected, baseline, true),
-      tx_bytes_per_second: interface_rate(current, selected, baseline, false),
-    },
-    process_state: current.processes.state,
-    processes: process_rows,
-  }
+## Starts a process metadata cache for one observation source.
+export pure empty_metadata_cache(source_id: Str) -> MetadataCache {
+  {source_id: source_id, by_pid: {}}
 }
