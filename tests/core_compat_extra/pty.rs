@@ -175,8 +175,22 @@ fn env_terminal_written_input_eot() {
 #[test]
 fn env_sigpipe_after_reader_closes() {
     let directory = tempfile::tempdir().unwrap();
+    // Both images need the same producer's EPIPE exit policy. A bounded shell
+    // fixture emits the original sequence and exits 1 when a write fails;
+    // inherited default SIGPIPE still terminates it before that error path.
+    fs::write(directory.path().join("seq"), br#"#!/bin/sh
+[ "$#" -eq 2 ] && [ "$1" = 1 ] && [ "$2" = 1000000 ] || exit 2
+value=$1
+while [ "$value" -le "$2" ]; do
+  printf '%s\n' "$value" || exit 1
+  value=$((value + 1))
+done
+"#).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(directory.path().join("seq"), fs::Permissions::from_mode(0o755)).unwrap();
     let exits: Vec<i32> = [false, true].into_iter().map(|ignore| {
         let mut command = applet("env", directory.path());
+        command.env("PATH", format!("{}:/bin:/usr/bin", directory.path().display()));
         if ignore { command.arg("--ignore-signal=PIPE"); }
         command.args(["seq", "1", "1000000"]).stderr(Stdio::null());
         // Rust ignores SIGPIPE in its own process; restore the normal inherited
@@ -195,7 +209,7 @@ fn env_sigpipe_after_reader_closes() {
     }).collect();
     assert_ne!(exits[1], 141);
     assert_eq!(exits[0], 141);
-    assert!(exits[1] == 0 || exits[1] == 1);
+    assert!(exits[1] == 0 || exits[1] == 1, "producer exit statuses: {exits:?}");
 }
 
 // origin: uutils test_dd::diagnostics::test_plain_message_at_a_terminal_when_asked_for
