@@ -99,14 +99,42 @@ proc usage_failure(prefix: Str) [io] -> Unit {
   exit 1
 }
 
+# GNU awk looks program files up on AWKPATH and retries each name with ".awk"
+# appended; a name with a slash is taken as it stands.
+proc find_program(name: Str) [fs, env] -> Str? {
+  var candidates: List[Str] = []
+  if "/" in name { candidates = [name, f"{name}.awk"] } else {
+    let search = env.get("AWKPATH") ?? ".:/usr/local/share/awk"
+    for directory in search.split(":") {
+      let base = if directory.is_empty() { "." } else { directory }
+      candidates += [f"{base}/{name}", f"{base}/{name}.awk"]
+    }
+  }
+  for candidate in candidates {
+    match fs.stat(fp"{candidate}", follow_symlinks: true) {
+      Ok(info) => { if info.kind == "file" { return candidate } }
+      Err(_) => {}
+    }
+  }
+  null
+}
+
+# A program file read from disk, and where it was found.
+type Loaded = {source: Source, found: Str}
+
 # Source text of -f, -i and -E program files; "-" is standard input.
-proc read_program(name: Str, kind: Str) [fs, io, error] -> Source {
+proc read_program(name: Str, kind: Str) [fs, io, env, error] -> Loaded {
   if name == "-" {
     let text = io.stdin_text() ?? ""
-    return {label: "-", text: text}
+    return {source: {label: "-", text: text}, found: "-"}
   }
-  match fp"{name}".read_text() {
-    Ok(text) => { return {label: name, text: text} }
+  let found = find_program(name)
+  if found == null {
+    eprint f"awk: fatal: cannot open {kind} `{name}' for reading: No such file or directory"
+    exit 2
+  }
+  match fp"{found ?? name}".read_text() {
+    Ok(text) => { return {source: {label: name, text: text}, found: found ?? name} }
     Err(failure) => {
       var reason = failure.message
       let cut = reason.find(" (os error")
@@ -123,6 +151,65 @@ proc read_program(name: Str, kind: Str) [fs, io, error] -> Source {
   }
 }
 
+# The operand of a `@directive "name"` line, or null when the line is not one.
+pure directive_operand(line: Str, directive: Str) -> Str? {
+  let trimmed = line.trim()
+  if ! trimmed.starts_with(directive) { return null }
+  let rest = trimmed.byte_slice(directive.byte_len())
+  if rest.is_empty() or ! (rest.starts_with(" ") or rest.starts_with("\t")) { return null }
+  let quoted = rest.trim()
+  if quoted.byte_len() < 2 or ! quoted.starts_with("\"") or ! quoted.ends_with("\"") { return null }
+  let name = quoted.byte_slice(1, length: quoted.byte_len() - 2)
+  if "\"" in name { return null }
+  name
+}
+
+pure newlines(count: Int) -> Str { ["\n" for _ in range(count)].join("") }
+
+type Expansion = {sources: List[Source], included: List[Str]}
+
+# Replaces every `@include "file"` line of a program text by the file's text,
+# keeping the line numbers of the text after it; a file already included is
+# skipped, and `@load` names a library this implementation cannot provide.
+proc expand_includes(source: Source, seen: List[Str]) [fs, io, env, error] -> Expansion {
+  let lines = source.text.split("\n")
+  var sources: List[Source] = []
+  var included = seen
+  var chunk_start = 0
+  var label_here = source.label
+  for index in range(lines.len()) {
+    let library = directive_operand(lines[index], "@load")
+    if library != null {
+      eprint f"awk: {source.label}:{index + 1}: error: cannot open shared library `{library ?? ""}' for reading: No such file or directory"
+      exit 1
+    }
+    let wanted = directive_operand(lines[index], "@include")
+    if wanted == null { continue }
+    let name = wanted ?? ""
+    let found = find_program(name)
+    if found == null {
+      eprint f"awk: {source.label}:{index + 1}: error: cannot open source file `{name}' for reading: No such file or directory"
+      exit 1
+    }
+    let before = lines[chunk_start..index].join("\n")
+    if ! before.trim().is_empty() { sources += [{label: label_here, text: newlines(chunk_start) + before + "\n"}] }
+    chunk_start = index + 1
+    # Once a command-line program has included a file, GNU awk names the
+    # whole program text, not "cmd. line", in the messages for what follows.
+    if source.label == "cmd. line" { label_here = source.text }
+    if (found ?? name) in included { continue }
+    included += [found ?? name]
+    let loaded = read_program(name, "source file")
+    let inner = expand_includes(loaded.source, included)
+    sources += inner.sources
+    included = inner.included
+  }
+  if chunk_start == 0 { return {sources: [source], included: included} }
+  let rest = lines[chunk_start..].join("\n")
+  if ! rest.trim().is_empty() { sources += [{label: label_here, text: newlines(chunk_start) + rest}] }
+  {sources: sources, included: included}
+}
+
 # One option occurrence: its canonical long name and value (null when it takes
 # none).
 type Given = {name: Str, value: Str?}
@@ -132,6 +219,8 @@ proc main(...args: List[Str]) [fs, process, env, error, io, time] {
   var index = 0
   var program_given = false
   var seen: List[Given] = []
+  var include_found: List[Str] = []
+  var program_found: List[Str] = []
   while index < args.len() {
     let argument = args[index]
     if argument == "--" { index += 1; break }
@@ -182,16 +271,27 @@ proc main(...args: List[Str]) [fs, process, env, error, io, time] {
     let option = entry.name
     let given = entry.value ?? ""
     if option == "version" { settings.version = true } else if option == "help" { settings.help = true } else if option == "source" {
-      settings.pieces += [{label: "cmd. line", text: given}]
+      let expanded = expand_includes({label: "cmd. line", text: given}, include_found)
+      settings.pieces += expanded.sources
+      include_found = expanded.included
       program_given = true
-    } else if option == "file" {
-      settings.pieces += [read_program(given, "source file")]
+    } else if option == "file" or option == "exec" {
+      let loaded = read_program(given, "source file")
+      if loaded.found in include_found { eprint f"awk: fatal: cannot include `{given}' and use it as a program file"; exit 2 }
+      program_found += [loaded.found]
+      let expanded = expand_includes(loaded.source, include_found)
+      settings.pieces += expanded.sources
+      include_found = expanded.included
       program_given = true
     } else if option == "include" {
-      settings.pieces += [read_program(given, "source file")]
-    } else if option == "exec" {
-      settings.pieces += [read_program(given, "source file")]
-      program_given = true
+      let loaded = read_program(given, "source file")
+      if loaded.found in program_found { eprint f"awk: fatal: cannot include `{given}' and use it as a program file"; exit 2 }
+      if loaded.found not in include_found {
+        include_found += [loaded.found]
+        let expanded = expand_includes(loaded.source, include_found)
+        settings.pieces += expanded.sources
+        include_found = expanded.included
+      }
     } else if option == "load" {
       eprint f"awk: fatal: cannot open shared library `{given}' for reading: No such file or directory"
       exit 2
@@ -225,7 +325,9 @@ proc main(...args: List[Str]) [fs, process, env, error, io, time] {
   }
   if ! program_given {
     if index >= args.len() { usage_failure("") }
-    settings.pieces += [{label: "cmd. line", text: args[index]}]
+    let expanded = expand_includes({label: "cmd. line", text: args[index]}, include_found)
+    settings.pieces += expanded.sources
+    include_found = expanded.included
     index += 1
   }
   let operands = args[index..]

@@ -825,6 +825,7 @@ pure statement_inner(parser: Parser) -> Result[Parsed[Int]] {
     after.loops -= 1
     return Ok(statement_node(after, For(initial.value, condition.value, step.value, body.value)))
   }
+  if word == "switch" and spelling(peek_at(p, 1)) == "(" { return Err(unsupported("switch statements")) }
   if word == "next" or word == "nextfile" {
     var after = advance(p)
     if p.context in ["BEGIN", "END"] { after = advance(add_error(p, f"`{word}' used in {p.context} action")) }
@@ -902,6 +903,9 @@ pure parse_piece(program: Program, piece: Piece, sandbox: Bool) -> Result[Parsed
       p = skip_newlines(advance(p))
       p.errors += [f"{p.piece.label}:{lookahead_line(p)}: each rule must have a pattern or an action part"]
       continue
+    }
+    if word in ["BEGINFILE", "ENDFILE"] and spelling(peek_at(p, 1)) == "{" {
+      return Err(unsupported(f"{word} rules"))
     }
     if word in ["function", "func"] {
       let function_name = name(advance(p))?
@@ -2913,6 +2917,105 @@ pure split_fields(content: Str, separator: Str, regex_mode: Bool, ignore_case: B
   }
   Ok(fields + [input(content.byte_slice(start))?])
 }
+# How records are cut into fields: by FS (0), FIELDWIDTHS (1) or FPAT (2),
+# whichever of the three variables was assigned last.
+pure mode_after(name: Str, current: Int) -> Int {
+  if name == "FS" { return 0 }
+  if name == "FIELDWIDTHS" { return 1 }
+  if name == "FPAT" { return 2 }
+  current
+}
+# The mode after variable `name` takes `value`; FIELDWIDTHS is checked when
+# assigned.
+pure field_mode_after(name: Str, value: Scalar, current: Int) -> Result[Int] {
+  if name == "FIELDWIDTHS" {
+    let _ = parse_field_widths(plain_text(value)?)?
+    return Ok(1)
+  }
+  if name == "FPAT" {
+    let _ = dynamic_matches(plain_text(value)?, "", false)?
+    return Ok(2)
+  }
+  Ok(mode_after(name, current))
+}
+# One FIELDWIDTHS designator: characters to skip, then the width (-1 for the rest).
+type FieldWidth = {skip: Int, width: Int}
+pure invalid_field_widths(index: Int, near: Str) -> Error {
+  fatal_error(f"invalid FIELDWIDTHS value, for field {index}, near `{near}'")
+}
+pure parse_field_widths(spec: Str) -> Result[List[FieldWidth]] {
+  var widths: List[FieldWidth] = []
+  let size = spec.byte_len()
+  var at = 0
+  var index = 0
+  loop {
+    while at < size and (spec.byte_at(at) ?? 0) in [32, 9, 10] { at += 1 }
+    if at >= size { break }
+    index += 1
+    var skip = 0
+    var begin = at
+    var digits = 0
+    var value = 0
+    while at < size and (spec.byte_at(at) ?? 0) >= 48 and (spec.byte_at(at) ?? 0) <= 57 {
+      value = value * 10 + ((spec.byte_at(at) ?? 48) - 48)
+      at += 1
+      digits += 1
+    }
+    if digits > 0 and at < size and spec.byte_at(at) == 58 {
+      skip = value
+      at += 1
+      begin = at
+      value = 0
+      digits = 0
+      while at < size and (spec.byte_at(at) ?? 0) >= 48 and (spec.byte_at(at) ?? 0) <= 57 {
+        value = value * 10 + ((spec.byte_at(at) ?? 48) - 48)
+        at += 1
+        digits += 1
+      }
+    }
+    if digits == 0 and at < size and spec.byte_at(at) == 42 {
+      at += 1
+      while at < size and (spec.byte_at(at) ?? 0) in [32, 9, 10] { at += 1 }
+      if at < size { return Err(fatal_error("`*' must be the last designator in FIELDWIDTHS")) }
+      widths += [{skip: skip, width: -1}]
+      break
+    }
+    if digits == 0 or value <= 0 or (at < size and ! ((spec.byte_at(at) ?? 0) in [32, 9, 10])) {
+      return Err(invalid_field_widths(index, spec.byte_slice(begin)))
+    }
+    widths += [{skip: skip, width: value}]
+  }
+  Ok(widths)
+}
+# The fields of a record cut at fixed character positions.
+pure cut_fields(record: Str, widths: List[FieldWidth]) -> Result[List[Scalar]] {
+  let characters = record.split("")
+  var fields: List[Scalar] = []
+  var at = 0
+  for designator in widths {
+    at += designator.skip
+    if at >= characters.len() { break }
+    let available = characters.len() - at
+    let take = if designator.width < 0 or designator.width > available { available } else { designator.width }
+    fields += [input(characters[at..at + take].join(""))?]
+    at += take
+  }
+  Ok(fields)
+}
+# The fields of a record as the text its FPAT pattern matches; an empty match
+# is a field unless it directly follows the match before it.
+# FPAT is matched without case folding even when IGNORECASE is set.
+pure pattern_fields(record: Str, pattern: Str) -> Result[List[Scalar]] {
+  if record.is_empty() { return Ok([]) }
+  var fields: List[Scalar] = []
+  var previous_end = -1
+  for hit in dynamic_matches(pattern, record, false)? {
+    if hit.start == hit.end and previous_end == hit.start { continue }
+    fields += [input(record.byte_slice(hit.start, length: hit.end - hit.start))?]
+    previous_end = hit.end
+  }
+  Ok(fields)
+}
 # The fields and the separator texts between them, for split's fourth argument.
 type Split = {fields: List[Str], separators: List[Str]}
 pure split_with_separators(content: Str, separator: Str, regex_mode: Bool, ignore_case: Bool) -> Result[Split] {
@@ -2950,7 +3053,7 @@ pure joined_fields(fields: List[Scalar], separator: Str, conversion: Str) -> Res
 
 
 type MainState = {reader: Reader, active: Bool, index: Int, opened: Bool, stdin_used: Bool, finished: Bool}
-type Advanced = {state: MainState, stdin: Reader, record: Str?, terminator: Str, filename: Str?, bindings: List[Str], failed: Bool}
+type Advanced = {state: MainState, stdin: Reader, record: Str?, terminator: Str, filename: Str?, bindings: List[Str], argind: Int}
 
 # The next record of the main input, opening files named by ARGV on demand.
 # ARGV and ARGC are consulted live, so the program can edit the operand list.
@@ -2959,15 +3062,16 @@ proc advance_main(start: MainState, standard_input: Reader, operands: Table, cou
   var stdin = standard_input
   var bindings: List[Str] = []
   var filename: Str? = null
+  var argind = 0
   loop {
-    if state.finished { return Ok({state: state, stdin: stdin, record: null, terminator: "", filename: filename, bindings: bindings, failed: false}) }
+    if state.finished { return Ok({state: state, stdin: stdin, record: null, terminator: "", filename: filename, bindings: bindings, argind: argind}) }
     if state.active {
       let uses_stdin = state.reader.fd == 0
       let current = if uses_stdin { stdin } else { state.reader }
       let got = read_record(current, separator, ignore_case)?
       if uses_stdin { stdin = got.reader }
       state.reader = got.reader
-      if got.record != null { return Ok({state: state, stdin: stdin, record: got.record, terminator: got.terminator, filename: filename, bindings: bindings, failed: false}) }
+      if got.record != null { return Ok({state: state, stdin: stdin, record: got.record, terminator: got.terminator, filename: filename, bindings: bindings, argind: argind}) }
       if got.reader.fd > 0 { unix.close_fd(got.reader.fd)? }
       state.active = false
       continue
@@ -2982,6 +3086,7 @@ proc advance_main(start: MainState, standard_input: Reader, operands: Table, cou
       if argument.is_empty() { continue }
       if assignment_operand(argument) { bindings += [argument]; continue }
       state.opened = true
+      argind = index
       if argument == "-" or argument == "/dev/stdin" {
         filename = argument
         state.reader = stdin
@@ -3020,7 +3125,7 @@ proc advance_main(start: MainState, standard_input: Reader, operands: Table, cou
     }
     state.finished = true
   }
-  Ok({state: state, stdin: stdin, record: null, terminator: "", filename: filename, bindings: bindings, failed: false})
+  Ok({state: state, stdin: stdin, record: null, terminator: "", filename: filename, bindings: bindings, argind: argind})
 }
 
 
@@ -3352,7 +3457,7 @@ pure arith(op: Str, a: Float, b: Float) -> Result[Float] {
   }
   Err(unsupported(f"operator {op}"))
 }
-pure compare(left: Scalar, right: Scalar, conversion: Str) -> Result[Int] {
+pure compare(left: Scalar, right: Scalar, conversion: Str, fold: Bool) -> Result[Int] {
   if numeric(left) and numeric(right) {
     # Negative zero equals zero in awk although it orders before it here.
     var a = number(left)?
@@ -3361,8 +3466,9 @@ pure compare(left: Scalar, right: Scalar, conversion: Str) -> Result[Int] {
     if b == -0.0 { b = 0.0 }
     return Ok(if a < b { -1 } else if a > b { 1 } else { 0 })
   }
-  let a = scalar_text(left, conversion)?
-  let b = scalar_text(right, conversion)?
+  var a = scalar_text(left, conversion)?
+  var b = scalar_text(right, conversion)?
+  if fold { a = lower_text(a); b = lower_text(b) }
   Ok(if a < b { -1 } else if a > b { 1 } else { 0 })
 }
 
@@ -3378,14 +3484,20 @@ pure context_text(globals: Map[Scalar]) -> Str {
 }
 # Relational operators on numbers where NaN is unordered; op is 0 for <, 1 for
 # <=, 2 for ==, 3 for !=, 4 for >, 5 for >=.
-pure relation(op: Int, left: Scalar, right: Scalar, conversion: Str) -> Result[Bool] {
+pure relation(op: Int, left: Scalar, right: Scalar, conversion: Str, fold: Bool) -> Result[Bool] {
   if numeric(left) and numeric(right) {
     let x = number(left)?
     let y = number(right)?
     if is_nan(x) or is_nan(y) { return Ok(op == 3) }
   }
-  let order = compare(left, right, conversion)?
+  let order = compare(left, right, conversion, fold)?
   Ok(if op == 0 { order < 0 } else if op == 1 { order <= 0 } else if op == 2 { order == 0 } else if op == 3 { order != 0 } else if op == 4 { order > 0 } else { order >= 0 })
+}
+# The fields of a record under the current field-splitting variable.
+pure record_fields(record: Str, globals: Map[Scalar], mode: Int) -> Result[List[Scalar]] {
+  if mode == 1 { return cut_fields(record, parse_field_widths(plain_text(globals.get("FIELDWIDTHS") ?? Empty)?)?) }
+  if mode == 2 { return pattern_fields(record, plain_text(globals.get("FPAT") ?? Empty)?) }
+  split_fields(record, field_separator(globals)?, false, fold_case(globals))
 }
 # Subscripts on the stack joined with SUBSEP.
 pure subscript_key(stack: List[Scalar], top: Int, count: Int, separator: Str, conversion: Str) -> Result[Str] {
@@ -3480,7 +3592,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
   let labels = linked.labels
   let entries = linked.entries
   let functions = program.functions
-  var globals: Map[Scalar] = {"FS": String(" "), "OFS": String(" "), "RS": String("\n"), "RT": String(""), "ORS": String("\n"), "SUBSEP": String("\u{1c}"), "OFMT": String("%.6g"), "CONVFMT": String("%.6g"), "NR": Numeric(0.0), "FNR": Numeric(0.0), "NF": Numeric(0.0), "RSTART": Numeric(0.0), "RLENGTH": Numeric(0.0), "FILENAME": String("")}
+  var globals: Map[Scalar] = {"FS": String(" "), "OFS": String(" "), "RS": String("\n"), "RT": String(""), "ORS": String("\n"), "SUBSEP": String("\u{1c}"), "OFMT": String("%.6g"), "CONVFMT": String("%.6g"), "NR": Numeric(0.0), "FNR": Numeric(0.0), "NF": Numeric(0.0), "RSTART": Numeric(0.0), "RLENGTH": Numeric(0.0), "FILENAME": String(""), "ARGIND": Numeric(0.0), "BINMODE": Numeric(0.0), "LINT": Numeric(0.0), "TEXTDOMAIN": String("messages"), "IGNORECASE": Numeric(0.0), "FPAT": String("[^[:space:]]+"), "FIELDWIDTHS": String(""), "ERRNO": String(""), "PREC": Numeric(53.0), "ROUNDMODE": String("N")}
   var arrays: Map[Table] = {}
   var operand_cells: Map[Cell] = {"0": Cell(value: String("awk"), seq: 0)}
   for at in range(arguments.len()) { operand_cells = operand_cells.set(f"{at + 1}", Cell(value: input(arguments[at])?, seq: at + 1)) }
@@ -3498,10 +3610,12 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
     arrays = arrays.set("ENVIRON", grown_table(environment, first_name))
   }
   var assigned_mapped = false
+  var field_mode = 0
   for item in assignments {
     let equals = item.find("=") ?? 0
     let decoded = escaped(bytes.from_text(item.byte_slice(equals + 1)), 0, -1)?
     if holds_mapped_bytes(decoded.content) { assigned_mapped = true }
+    field_mode = field_mode_after(item.byte_slice(0, length: equals), input(decoded.content)?, field_mode)?
     for note in decoded.notes { warn_plain(note)? }
     globals[item.byte_slice(0, length: equals)] = input(decoded.content)?
   }
@@ -3668,12 +3782,12 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           result = String(a + b)
           produced = true
         }
-        OpLess => { result = Numeric(if relation(0, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?)? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
-        OpLessEqual => { result = Numeric(if relation(1, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?)? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
-        OpEqual => { result = Numeric(if relation(2, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?)? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
-        OpNotEqual => { result = Numeric(if relation(3, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?)? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
-        OpGreater => { result = Numeric(if relation(4, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?)? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
-        OpGreaterEqual => { result = Numeric(if relation(5, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?)? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpLess => { result = Numeric(if relation(0, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpLessEqual => { result = Numeric(if relation(1, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpEqual => { result = Numeric(if relation(2, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpNotEqual => { result = Numeric(if relation(3, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpGreater => { result = Numeric(if relation(4, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
+        OpGreaterEqual => { result = Numeric(if relation(5, stack[sp - 2], stack[sp - 1], plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? { 1.0 } else { 0.0 }); sp -= 2; produced = true }
         OpMatch => {
           let conversion = plain_text(globals.get("CONVFMT") ?? Empty)?
           let pattern = scalar_text(stack[sp - 1], conversion)?
@@ -3748,17 +3862,18 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
               match right {
                 Numeric(b) => {
                   holds = if code == 0 { a < b } else if code == 1 { a <= b } else if code == 2 { a == b } else if code == 3 { a != b } else if code == 4 { a > b } else { a >= b }
-                  if a == -0.0 or b == -0.0 { holds = relation(code, left, right, "%.6g")? }
+                  if a == -0.0 or b == -0.0 { holds = relation(code, left, right, "%.6g", false)? }
                 }
-                _ => { holds = relation(code, left, right, plain_text(globals.get("CONVFMT") ?? Empty)?)? }
+                _ => { holds = relation(code, left, right, plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? }
               }
             }
-            _ => { holds = relation(code, left, right, plain_text(globals.get("CONVFMT") ?? Empty)?)? }
+            _ => { holds = relation(code, left, right, plain_text(globals.get("CONVFMT") ?? Empty)?, fold_case(globals))? }
           }
           if ! holds { pc += offset }
         }
         OpStoreGlobal(name) => {
           if name in arrays { Err(fatal_error(f"attempt to use array `{name}' in a scalar context"))? }
+          field_mode = field_mode_after(name, stack[sp - 1], field_mode)?
           globals[name] = stack[sp - 1]
           sp -= 1
         }
@@ -3922,6 +4037,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           if got.state.reader.lossy or got.stdin.lossy { lossy = true }
           if got.filename != null {
             globals["FILENAME"] = String(got.filename ?? "")
+            globals["ARGIND"] = Numeric(got.argind.float())
             globals["FNR"] = Numeric(0.0)
           }
           for item in got.bindings {
@@ -3929,6 +4045,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             let decoded = escaped(bytes.from_text(item.byte_slice(equals + 1)), 0, -1)?
             if holds_mapped_bytes(decoded.content) { lossy = true }
             for note in decoded.notes { warn_plain(note)? }
+            field_mode = field_mode_after(item.byte_slice(0, length: equals), input(decoded.content)?, field_mode)?
             globals[item.byte_slice(0, length: equals)] = input(decoded.content)?
           }
           if got.record == null { pc += offset } else {
@@ -4050,6 +4167,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           if got.state.reader.lossy or got.stdin.lossy { lossy = true }
           if got.filename != null {
             globals["FILENAME"] = String(got.filename ?? "")
+            globals["ARGIND"] = Numeric(got.argind.float())
             globals["FNR"] = Numeric(0.0)
           }
           for item in got.bindings {
@@ -4057,6 +4175,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             let decoded = escaped(bytes.from_text(item.byte_slice(equals + 1)), 0, -1)?
             if holds_mapped_bytes(decoded.content) { lossy = true }
             for note in decoded.notes { warn_plain(note)? }
+            field_mode = field_mode_after(item.byte_slice(0, length: equals), input(decoded.content)?, field_mode)?
             globals[item.byte_slice(0, length: equals)] = input(decoded.content)?
           }
           if got.record == null { result = Numeric(0.0) } else {
@@ -4170,8 +4289,10 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             result = String(pieces[first..end].join(""))
           } else if name == "index" {
             if count != 2 { Err(fatal_error("index: wrong number of arguments"))? }
-            let content = scalar_text(values[0], conversion)?
-            let found = content.find(scalar_text(values[1], conversion)?)
+            var content = scalar_text(values[0], conversion)?
+            var wanted = scalar_text(values[1], conversion)?
+            if fold_case(globals) { content = lower_text(content); wanted = lower_text(wanted) }
+            let found = content.find(wanted)
             result = Numeric(if found == null { 0.0 } else { (content.byte_slice(0, length: found ?? 0).count_chars() + 1).float() })
           } else if name == "tolower" or name == "toupper" {
             if count != 1 { Err(fatal_error(f"{name}: wrong number of arguments"))? }
@@ -4520,8 +4641,11 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
             var separator_cells: Map[Cell] = {}
             var matched = 0
             var cursor = 0
-            for hit in dynamic_matches(pattern, content, ignore_case)? {
-              if hit.end == hit.start { continue }
+            var previous_end = -1
+            for hit in dynamic_matches(pattern, if content.is_empty() { "" } else { content }, ignore_case)? {
+              if content.is_empty() { break }
+              if hit.end == hit.start and previous_end == hit.start { continue }
+              previous_end = hit.end
               matched += 1
               separator_cells = separator_cells.set(f"{matched - 1}", Cell(value: String(content.byte_slice(cursor, length: hit.start - cursor)), seq: matched))
               cells = cells.set(f"{matched}", Cell(value: input(content.byte_slice(hit.start, length: hit.end - hit.start))?, seq: matched))
@@ -4548,6 +4672,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
       if pending != 0 {
         if pending == 1 {
           if pending_name in arrays { Err(fatal_error(f"attempt to use array `{pending_name}' in a scalar context"))? }
+          field_mode = field_mode_after(pending_name, pending_value, field_mode)?
           globals[pending_name] = pending_value
         } else if pending == 3 {
           if aliases[pending_slot] != "" and aliases[pending_slot] in arrays {
@@ -4584,7 +4709,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           if pending_slot < 0 or pending_slot > 10000000 { Err(fatal_error(f"attempt to access field {pending_slot}"))? }
           if pending_slot == 0 {
             record = scalar_text(pending_value, plain_text(globals.get("CONVFMT") ?? Empty)?)?
-            fields = split_fields(record, field_separator(globals)?, false, fold_case(globals))?
+            fields = record_fields(record, globals, field_mode)?
             globals["NF"] = Numeric(fields.len().float())
           } else {
             while fields.len() < pending_slot { fields += [Input("", null)] }
@@ -4594,7 +4719,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
           }
         } else if pending == 6 {
           record = scalar_text(pending_value, plain_text(globals.get("CONVFMT") ?? Empty)?)?
-          fields = split_fields(record, field_separator(globals)?, false, fold_case(globals))?
+          fields = record_fields(record, globals, field_mode)?
           globals["NF"] = Numeric(fields.len().float())
         }
       }

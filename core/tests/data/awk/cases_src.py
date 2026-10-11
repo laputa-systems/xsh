@@ -1882,6 +1882,135 @@ for _index, _text in enumerate([
     R(f"file_syntax_{_index + 1:02d}", ["-f", "prog.awk"], stdin="", files={"prog.awk": _text})
 
 
+# Program files, @include and the -i option.
+LIB_DOUBLE = "function f(x) { return x * 2 }\n"
+LIB_PRINT = 'BEGIN { print "lib" }\n'
+R("include_basic", ["@include \"lib.awk\"\nBEGIN { print f(4) }"], files={"lib.awk": LIB_DOUBLE})
+R("include_suffix_added", ["@include \"lib\"\nBEGIN { print f(4) }"], files={"lib.awk": LIB_DOUBLE})
+R("include_missing", ["@include \"nolib\"\nBEGIN { print 1 }"])
+R("include_missing_second_line", ["BEGIN { print 1 }\n@include \"nolib\"\n"])
+R("include_twice_once", ["@include \"lib.awk\"\n@include \"lib.awk\"\nBEGIN { print f(4) }"], files={"lib.awk": LIB_DOUBLE})
+R("include_cycle", ["@include \"a.awk\"\nBEGIN { print fa(), fb() }"],
+  files={"a.awk": '@include "b.awk"\nfunction fa() { return "a" }\n', "b.awk": '@include "a.awk"\nfunction fb() { return "b" }\n'})
+R("include_error_in_file", ["@include \"lib.awk\"\nBEGIN { print f(4) }"], files={"lib.awk": "function f(x) { return x * 2\n"})
+R("include_between_rules", ["BEGIN { print \"main\" }\n@include \"lib.awk\"\nBEGIN { print \"end\" }"], files={"lib.awk": LIB_PRINT})
+R("include_indented", ["   @include   \"lib.awk\"   \nBEGIN { print \"end\" }"], files={"lib.awk": LIB_PRINT})
+R("include_subdirectory", ["@include \"d/lib.awk\"\nBEGIN { print 2 }"], files={"d/lib.awk": LIB_PRINT}, dirs=["d"])
+R("include_inside_action", ["BEGIN { @include \"lib.awk\" }"], files={"lib.awk": LIB_PRINT})
+R("include_line_numbers_after", ["@include \"lib.awk\"\n\nBEGIN { print 1 / 0 }"], files={"lib.awk": LIB_DOUBLE})
+R("include_runtime_error_in_file", ["@include \"lib.awk\""], files={"lib.awk": "BEGIN { print 1 / 0 }\n"})
+R("include_load_missing_library", ["@load \"nosuch\"\nBEGIN { print 1 }"])
+R("option_i_file", ["-i", "lib.awk", "BEGIN { print 2 }"], files={"lib.awk": LIB_PRINT})
+R("option_i_long", ["--include=lib.awk", "BEGIN { print 2 }"], files={"lib.awk": LIB_PRINT})
+R("option_i_suffix_added", ["-i", "lib", "BEGIN { print 2 }"], files={"lib.awk": LIB_PRINT})
+R("option_i_missing", ["-i", "nolib", "BEGIN { print 2 }"])
+R("option_i_twice_once", ["-i", "lib", "-i", "lib", "BEGIN { }"], files={"lib.awk": LIB_PRINT})
+R("option_f_suffix_added", ["-f", "lib"], files={"lib.awk": LIB_PRINT})
+R("option_f_twice_runs_twice", ["-f", "lib", "-f", "lib"], files={"lib.awk": LIB_PRINT})
+R("option_f_and_i_conflict", ["-f", "lib", "-i", "lib"], files={"lib.awk": LIB_PRINT})
+R("option_i_and_f_conflict", ["-i", "lib", "-f", "lib"], files={"lib.awk": LIB_PRINT})
+R("option_f_includes", ["-f", "p.awk"], files={"lib.awk": LIB_PRINT, "p.awk": '@include "lib.awk"\nBEGIN { print "p" }\n'})
+R("option_f_error_label_without_suffix", ["-f", "lib"], files={"lib.awk": "BEGIN { print 1 / 0 }\n"})
+R("option_f_error_label_dot_slash", ["-f", "./lib"], files={"lib.awk": "BEGIN { print 1 / 0 }\n"})
+R("option_e_program_file", ["-E", "lib", "x"], files={"lib.awk": LIB_PRINT})
+R("option_awkpath", ["-f", "lib"], files={"d/lib.awk": LIB_PRINT}, dirs=["d"], env={"AWKPATH": "d"})
+R("option_awkpath_missing", ["-f", "lib"], files={"d/other.awk": LIB_PRINT}, dirs=["d"], env={"AWKPATH": "d"})
+
+
+# Field-splitting variables, IGNORECASE comparisons and the GNU variables.
+_gnu_cases = [
+    (['BEGIN { FIELDWIDTHS = "2 3 1" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'abcdefgh\n'),
+    (['BEGIN { FIELDWIDTHS = "2 3 1" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'a\n'),
+    (['BEGIN { FIELDWIDTHS = "2 3 1" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'abc\n'),
+    (['BEGIN { FIELDWIDTHS = "2 3 1" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'abcdef\n'),
+    (['BEGIN { FIELDWIDTHS = "0 3" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'abcdef\n'),
+    (['BEGIN { FIELDWIDTHS = "2 -1" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'abcdef\n'),
+    (['BEGIN { FIELDWIDTHS = "a" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'abc\n'),
+    (['BEGIN { FIELDWIDTHS = "3:2 4" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'abcdefghijk\n'),
+    (['BEGIN { FIELDWIDTHS = "*" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'abcdef\n'),
+    (['BEGIN { FIELDWIDTHS = "2 * 3" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'abcdef\n'),
+    (['BEGIN { FIELDWIDTHS = "2 *" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'abcdef\n'),
+    (['BEGIN { FIELDWIDTHS = "2 *" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'ab\n'),
+    (['BEGIN { FIELDWIDTHS = "" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'abc\n'),
+    (['BEGIN { FIELDWIDTHS = "2 3" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], '\n'),
+    (['BEGIN { FIELDWIDTHS = "1 1 1 1" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'é日本語x\n'),
+    (['BEGIN { FIELDWIDTHS = "2.5 2" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'abcdef\n'),
+    (['BEGIN { FIELDWIDTHS = "2 3 " } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'abcdef\n'),
+    (['BEGIN { FIELDWIDTHS = "  2   3" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'abcdef\n'),
+    (['BEGIN { FIELDWIDTHS = "1:2" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'abcd\n'),
+    (['BEGIN { FIELDWIDTHS = "1:2:3" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'abcd\n'),
+    (['BEGIN { FIELDWIDTHS = ":2" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'abcd\n'),
+    (['BEGIN { FIELDWIDTHS = "1:*" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'abcd\n'),
+    (['BEGIN { FIELDWIDTHS = "2 2" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'ab\ncd\n\nef\n'),
+    (['BEGIN { FIELDWIDTHS = "3" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'a b c\n'),
+    (['BEGIN { FIELDWIDTHS = "2 3"; FS = ","; $0 = "ab,cdef"; print NF, $1 }'], ''),
+    (['BEGIN { FS = ","; FIELDWIDTHS = "2 3"; $0 = "ab,cdef"; print NF, $1 }'], ''),
+    (['BEGIN { FPAT = "[a-z]+"; FIELDWIDTHS = "2 3"; $0 = "ab,cdef"; print NF, $1; FS = ","; $0 = "ab,cdef"; print NF, $1; FPAT = "[a-z]"; $0 = "ab,cdef"; print NF, $1 }'], ''),
+    (['-v', 'FIELDWIDTHS=1 1', '{ print NF, $2 }'], 'abc\n'),
+    (['BEGIN { FIELDWIDTHS = "2 2" } { $0 = "wxyz"; print NF, $2; FPAT = "x"; $0 = "wxyz"; print NF; FIELDWIDTHS = "1"; $0 = "wxyz"; print NF }'], 'abcd\n'),
+    (['BEGIN { FIELDWIDTHS = "2 3"; n = split("abcdefg", a); print n, a[1] }'], ''),
+    (['BEGIN { FIELDWIDTHS = "2 3"; $0 = "abcdef"; $2 = "X"; print; print NF; NF = 1; print }'], ''),
+    (['BEGIN { FIELDWIDTHS = "2 3" } { print $0; $1 = $1; print; print NF }'], 'abcdefg\n'),
+    (['BEGIN { FIELDWIDTHS = "2 3" } END { print $1, NF }'], 'abcdefg\n'),
+    (['BEGIN { FIELDWIDTHS = "1 1"; getline; print $2, NF }'], 'xyz\n'),
+    (['BEGIN { FIELDWIDTHS = "1 1"; getline line < "/dev/stdin"; print line }'], 'xyz\n'),
+    (['BEGIN { RS = ""; FIELDWIDTHS = "2 2" } { print NF; print $1 "|" $2 }'], 'ab\ncd\n\nef\n'),
+    (['BEGIN { FPAT = "([^,]*)|(\\"[^\\"]*\\")" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'a,b,c\n'),
+    (['BEGIN { FPAT = "[^,]*" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print ""; n = patsplit($0, p, "[^,]*", s); printf "patsplit %d:", n; for (i = 1; i <= n; i++) printf "[%s|%s]", p[i], s[i-1]; print "" }'], 'a,b,c\n'),
+    (['BEGIN { FPAT = "([^,]*)|(\\"[^\\"]*\\")" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], ',a,,b,\n'),
+    (['BEGIN { FPAT = "[^,]*" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print ""; n = patsplit($0, p, "[^,]*", s); printf "patsplit %d:", n; for (i = 1; i <= n; i++) printf "[%s|%s]", p[i], s[i-1]; print "" }'], ',a,,b,\n'),
+    (['BEGIN { FPAT = "([^,]*)|(\\"[^\\"]*\\")" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'a,,b\n'),
+    (['BEGIN { FPAT = "[^,]*" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print ""; n = patsplit($0, p, "[^,]*", s); printf "patsplit %d:", n; for (i = 1; i <= n; i++) printf "[%s|%s]", p[i], s[i-1]; print "" }'], 'a,,b\n'),
+    (['BEGIN { FPAT = "([^,]*)|(\\"[^\\"]*\\")" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], ',\n'),
+    (['BEGIN { FPAT = "[^,]*" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print ""; n = patsplit($0, p, "[^,]*", s); printf "patsplit %d:", n; for (i = 1; i <= n; i++) printf "[%s|%s]", p[i], s[i-1]; print "" }'], ',\n'),
+    (['BEGIN { FPAT = "([^,]*)|(\\"[^\\"]*\\")" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], ',,\n'),
+    (['BEGIN { FPAT = "[^,]*" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print ""; n = patsplit($0, p, "[^,]*", s); printf "patsplit %d:", n; for (i = 1; i <= n; i++) printf "[%s|%s]", p[i], s[i-1]; print "" }'], ',,\n'),
+    (['BEGIN { FPAT = "([^,]*)|(\\"[^\\"]*\\")" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], '\n'),
+    (['BEGIN { FPAT = "[^,]*" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print ""; n = patsplit($0, p, "[^,]*", s); printf "patsplit %d:", n; for (i = 1; i <= n; i++) printf "[%s|%s]", p[i], s[i-1]; print "" }'], '\n'),
+    (['BEGIN { FPAT = "([^,]*)|(\\"[^\\"]*\\")" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'abc\n'),
+    (['BEGIN { FPAT = "[^,]*" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print ""; n = patsplit($0, p, "[^,]*", s); printf "patsplit %d:", n; for (i = 1; i <= n; i++) printf "[%s|%s]", p[i], s[i-1]; print "" }'], 'abc\n'),
+    (['BEGIN { FPAT = "([^,]*)|(\\"[^\\"]*\\")" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], '"x,y",z\n'),
+    (['BEGIN { FPAT = "[^,]*" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print ""; n = patsplit($0, p, "[^,]*", s); printf "patsplit %d:", n; for (i = 1; i <= n; i++) printf "[%s|%s]", p[i], s[i-1]; print "" }'], '"x,y",z\n'),
+    (['BEGIN { FPAT = "([^,]*)|(\\"[^\\"]*\\")" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'a,"b,c",\n'),
+    (['BEGIN { FPAT = "[^,]*" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print ""; n = patsplit($0, p, "[^,]*", s); printf "patsplit %d:", n; for (i = 1; i <= n; i++) printf "[%s|%s]", p[i], s[i-1]; print "" }'], 'a,"b,c",\n'),
+    (['BEGIN { FPAT = "([^,]*)|(\\"[^\\"]*\\")" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'a b  c\n'),
+    (['BEGIN { FPAT = "[^,]*" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print ""; n = patsplit($0, p, "[^,]*", s); printf "patsplit %d:", n; for (i = 1; i <= n; i++) printf "[%s|%s]", p[i], s[i-1]; print "" }'], 'a b  c\n'),
+    (['BEGIN { FPAT = "[a-z]+" } { print NF, $1, $2, $3 }'], 'abc,def;ghi\n'),
+    (['BEGIN { FPAT = "[0-9]*" } { printf "%d:", NF; for (i = 1; i <= NF; i++) printf "[%s]", $i; print "" }'], 'ab12cd\n'),
+    (['BEGIN { FPAT = "" } { print NF }'], 'ab\n'),
+    (['BEGIN { FPAT = "(" } { print NF }'], 'ab\n'),
+    (['BEGIN { FPAT = "[a-z]+"; IGNORECASE = 1 } { print NF }'], 'aBc DeF\n'),
+    (['BEGIN { FPAT = "[0-9]+" } { $2 = "X"; print; print NF }'], 'a1b22c333\n'),
+    (['BEGIN { FPAT = "[0-9]+"; OFS = "-" } { $1 = $1; print }'], 'a1b22c333\n'),
+    (['BEGIN { IGNORECASE = 1 } { print ($1 == "HELLO"), ($1 < "hello"), ($1 > "HELLO"), ($1 != "hello"), index($0, "WORLD"), match($0, /BAR/) }'], 'Hello World\nfoo BAR baz\n'),
+    (['BEGIN { IGNORECASE = 1; print "A" == "a", "A" < "b", "Z" > "a", "é" == "É", "abc" ~ "B" }'], ''),
+    (['BEGIN { IGNORECASE = 1; print ("a" < "B"), ("B" < "a"), ("a" <= "A"), ("a" >= "A") }'], ''),
+    (['BEGIN { IGNORECASE = 1; print (10 == 10.0), ("10" == 10), ("abc" == "ABC") }'], ''),
+    (['BEGIN { IGNORECASE = 1; x = "Hello"; print (x == "hello") ? "yes" : "no" }'], ''),
+    (['BEGIN { IGNORECASE = 1; if ("ABC" == "abc") print "eq"; else print "ne" }'], ''),
+    (['BEGIN { IGNORECASE = 0; print "A" == "a"; IGNORECASE = 1; print "A" == "a"; IGNORECASE = "0"; print "A" == "a"; IGNORECASE = ""; print "A" == "a"; IGNORECASE = "x"; print "A" == "a" }'], ''),
+    (['BEGIN { IGNORECASE = 1; a["Key"]; print ("key" in a); n = split("aXbxc", p, "x"); print n; print toupper("é") }'], ''),
+    (['BEGIN { IGNORECASE = 1; print index("ÀBC", "àb"), length("ÀBC") }'], ''),
+    (['BEGIN { IGNORECASE = 1 } $1 == "x" { print "m" }'], 'X\nx\ny\n'),
+    (['BEGIN { IGNORECASE = 1 } $0 == "x" { print "m" }'], 'X\nx\ny\n'),
+    (['BEGIN { IGNORECASE = 1 } /x/ { print "m" } $1 ~ "X" { print "n" }'], 'X\nx\ny\n'),
+    (['BEGIN { IGNORECASE = 1 } { print ($1 < $2) }'], 'a B\nB a\nA a\n'),
+    (['BEGIN { IGNORECASE = 1 } { print ($1 < $2) }'], '10 9\n9 10\n'),
+    (['BEGIN { printf "[%s][%s][%s][%s][%s][%s][%s][%s][%s][%s]\\n", BINMODE, LINT, TEXTDOMAIN, IGNORECASE, FPAT, FIELDWIDTHS, ERRNO, PREC, ROUNDMODE, ARGIND; print typeof(BINMODE), typeof(IGNORECASE), typeof(ERRNO), typeof(FPAT), typeof(PREC), typeof(RT), typeof(FILENAME), typeof(NF) }'], ''),
+    (['BEGIN { print ARGIND } { print ARGIND, FILENAME } END { print ARGIND }'], 'a\n'),
+    (['{ print ARGIND, FILENAME, FNR }', '/dev/stdin', '/dev/stdin'], ''),
+    (['{ print ARGIND, FILENAME }', '-'], 'x\n'),
+    (['{ print ARGIND }', 'v=1', '-', 'w=2'], 'x\n'),
+    (['END { print ARGIND, FILENAME }', '/dev/null', '/dev/null'], 'x\n'),
+    (['BEGIN { ARGIND = 5; print ARGIND }'], ''),
+    (['BEGIN { getline; print ARGIND, FILENAME }'], 'q\n'),
+    (['BEGIN { print IGNORECASE; IGNORECASE = "yes"; print IGNORECASE, "A" == "a" }'], ''),
+    (['BEGIN { print length(FPAT), FPAT }'], ''),
+]
+for _index, (_args, _stdin) in enumerate(_gnu_cases):
+    R(f"gnu_{_index + 1:03d}", _args, stdin=_stdin)
+
+
 # Known deviations from the oracle. A deviation either records what this
 # implementation prints instead (`xsh`) or names a channel that is not
 # compared (`loose`); each carries the reason.

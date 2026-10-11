@@ -308,9 +308,9 @@ pure expected_bytes(case: MatrixCase, channel: Str) -> Result[Bytes] {
 
 proc run_case(ctx: TestContext, case: MatrixCase, index: Int) [fs, process, env, error] -> Result[Observed] {
   let root = test.temp_dir(ctx, name: f"awk-case-{index}")?
+  for name in case.dirs { fp"{root}/{name}".mkdir()? }
   for pair in case.files { fp"{root}/{pair[0]}".write(pair[1])? }
   for pair in case.files_b64 { fp"{root}/{pair[0]}".write(pair[1].base64_decode()?)? }
-  for name in case.dirs { fp"{root}/{name}".mkdir()? }
   for pair in case.links { fp"{root}/{pair[0]}".symlink(to: fp"{pair[1]}")? }
   for pair in case.modes { fp"{root}/{pair[0]}".chmod(pair[1].parse_int_decimal()?)? }
   let stdin = if case.stdin_b64.is_empty() { bytes.from_text(case.stdin) } else { case.stdin_b64.base64_decode()? }
@@ -380,3 +380,5 @@ test test_awk_matrix_arithmetic_and_bit_functions { |ctx| check_matrix(ctx, ["ar
 test test_awk_matrix_builtin_argument_counts { |ctx| check_matrix(ctx, ["arity_"]) }
 test test_awk_matrix_regexp_syntax_first_half { |ctx| check_matrix(ctx, ["regexp_syntax_0", "regexp_syntax_1"]) }
 test test_awk_matrix_regexp_syntax_second_half { |ctx| check_matrix(ctx, ["regexp_syntax_2", "regexp_syntax_3", "regexp_syntax_4", "regexp_syntax_5", "regexp_syntax_6", "regexp_syntax_7", "regexp_syntax_8", "regexp_syntax_9"]) }
+test test_awk_matrix_gnu_variables_and_field_modes { |ctx| check_matrix(ctx, ["gnu_"]) }
+test test_awk_matrix_program_files_and_includes { |ctx| check_matrix(ctx, ["include_", "option_"]) }
