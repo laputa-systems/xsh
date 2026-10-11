@@ -5,8 +5,8 @@
     "tag": "v1.4.7",
     "commit": "6e39144aaf5a6bc01b9f795010b0914431067183"
   },
-  "gate": "G3",
-  "last_green_commit": "b0096fa6",
+  "gate": "G4a",
+  "last_green_commit": "68e03fae",
   "audit": {
     "new_core_script": "New core/*.xsh applets are installed by the release script at dev/release.xsh:146-160; dev/tests/test-repository-contracts.xsh owns the required core script inventory and contract checks. No separate command registration is needed.",
     "launcher_argument_separator": "Use xsh SCRIPT -- ARGS for an applet and xsh -- SCRIPT ARGS for an explicit script; src/entrypoints/xsh.rs:90-120.",
@@ -1169,10 +1169,12 @@
     {
       "id": "g3.proc.scaling",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-performance.xsh::test_btop_process_join_scales_from_one_thousand_to_two_thousand"
+      ],
+      "evidence": "Host release, deterministic seed 424242, five measured repeats: median indexed join was 9.342 ms at 1,000 processes and 18.945 ms at 2,000, ratio 2.03x (within the <=3x hard gate). Full native btop suite passed 98/98 in .work/btop-campaign/g3-gate-btop-final2.log."
     },
     {
       "id": "g3.cache.churn_bounded",
@@ -1181,17 +1183,20 @@
       "status": "passed",
       "tests": [
         "core/tests/test-btop-model.xsh::test_btop_process_uid_cache_evicts_exits_and_pid_reuse",
-        "core/tests/test-btop-model.xsh::test_btop_network_name_changes_and_replacement_start_new_counter_epochs"
+        "core/tests/test-btop-model.xsh::test_btop_network_name_changes_and_replacement_start_new_counter_epochs",
+        "core/tests/test-btop-performance.xsh::test_btop_process_and_device_identity_churn_stays_bounded_and_warms_new_epochs"
       ],
-      "evidence": "Host release: .work/btop-campaign/g3-btop-regression.log passed 51/51 native btop tests. Network counter history is accepted only when both interface name and positive sysfs ifindex match; PID metadata is retained only for live current identities."
+      "evidence": "Host release: eight cycles replace 256 process identities and 64 disk identities; the process metadata map remains bounded at 256, disk rows at 64, and replacement identities start warming without inheriting history. Existing tests also prove exit/PID-reuse eviction and network ifindex epoch checks. Full native btop suite passed 98/98 in .work/btop-campaign/g3-gate-btop-final2.log."
     },
     {
       "id": "g3.source.degradation",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-performance.xsh::test_btop_optional_source_loss_keeps_process_view_and_labels_unavailable_fields"
+      ],
+      "evidence": "Host release raw-source replay removes meminfo and net/dev while retaining the process view; memory, network, storage, temperature, frequency, and battery loss remain explicitly unavailable or absent in the rendered view. Full native btop suite passed 98/98 in .work/btop-campaign/g3-gate-btop-final2.log."
     },
     {
       "id": "g4.graph.braille_default",
@@ -1488,7 +1493,8 @@
   "limitations": [
     "G0 host evidence is host-only because the pinned ARM64 Docker lane failed before the test suite started; its failing test set is empty because no tests ran.",
     "The G0 lane attempt did not record wall-clock duration to suite start; no duration is inferred from the log.",
-    "No live battery hardware was available; battery and sensor behavior is fixture-tested only."
+    "No live battery hardware was available; battery and sensor behavior is fixture-tested only.",
+    "The B8 preloaded 1,000-process model/render/diff target was missed on Alpine x86_64 musl release: p95 2.886 s and p99 2.979 s at 120x40, versus the 50 ms p95 target. The measured profile is in .work/btop-campaign/g3-gate-btop-final2.log; absolute timings are runner-specific."
   ],
   "measurements": {
     "coverage_sha256": "b43040859dfa851f8f484714381a08e48cf3da65361d95e2f634790eb7f4f02f",
@@ -1884,6 +1890,85 @@
         "failed": 0,
         "log": ".work/btop-campaign/g3-s38-system-report-collect-final.log"
       }
+    },
+    "g3_gate": {
+      "host_only": true,
+      "native_monitor_tests": {
+        "passed": 98,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-gate-btop-final2.log"
+      },
+      "process_join_scaling": {
+        "seed": 424242,
+        "repeats": 5,
+        "median_1000_ns": 9341898,
+        "median_2000_ns": 18944810,
+        "ratio": 2.03,
+        "target_ratio_max": 3.0
+      },
+      "model_render_diff": {
+        "seed": 424242,
+        "runner": "Alpine x86_64 musl release",
+        "processes": 1000,
+        "size": "120x40",
+        "samples": 20,
+        "p95_ns": 2885940832,
+        "p99_ns": 2979375024,
+        "target_p95_ns": 50000000,
+        "log": ".work/btop-campaign/g3-gate-btop-final2.log"
+      },
+      "process_device_churn": {
+        "cycles": 8,
+        "processes_per_cycle": 256,
+        "devices_per_cycle": 64,
+        "log": ".work/btop-campaign/g3-gate-btop-final2.log"
+      },
+      "optional_source_degradation": {
+        "log": ".work/btop-campaign/g3-gate-btop-final2.log"
+      },
+      "xsh_check": {
+        "files": 6,
+        "log": ".work/btop-campaign/g3-gate-check-final.log"
+      },
+      "system_report_tests": {
+        "passed": 133,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-gate-system-report-final.log"
+      },
+      "system_report_check_tests": {
+        "passed": 224,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-gate-system-report-check-final.log"
+      },
+      "system_report_collect_tests": {
+        "passed": 7,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-gate-system-report-collect-final.log"
+      },
+      "sys_mount_tests": {
+        "passed": 7,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-mount-shared-test.log"
+      },
+      "procps_tests": {
+        "passed": 39,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-top-final.log"
+      },
+      "repository_contract_tests": {
+        "passed": 5,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-gate-repo-contracts-final.log"
+      },
+      "pty_tests": {
+        "passed": 10,
+        "failed": 0,
+        "command": "core_compat_extra btop_ --test-threads=1",
+        "input_to_present_latency_ms": {"p95": 1.277, "p99": 1.376},
+        "log": ".work/btop-campaign/g3-gate-pty-final.log"
+      },
+      "duplicate_parser_audit": "Clean: mountinfo parsing is owned by sys_mount.collect; system-report cgroup paths consume the shared mount table projection. Meminfo, block, and process stat parsing also use their shared sys_* readers/policies.",
+      "report_json_v1": "System-report JSON v1 and existing top behavior remain green in their host release suites."
     }
   },
   "defaults": [
@@ -2225,6 +2310,6 @@
     }
   ],
   "next": [
-    "G3 remaining deliverables: seeded 1,000-to-2,000 process scaling (median ratio <= 3x), bounded process/device churn, and optional-source degradation; then G4a panels and visual behavior."
+    "G4a graph engine: braille default, dot mapping, time columns, inversion, zero, gaps, spike-safe autoscale, retained history independent of viewport, and resize without invented samples."
   ]
 }
