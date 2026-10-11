@@ -1,0 +1,1971 @@
+{
+  "upstream_version": "btop v1.4.7",
+  "source_scope": "Pinned upstream source only: CLI parser/help, config descriptors and typed maps, input/help bindings, menu implementations/options categories, shared data structures and draw/collection declarations.",
+  "denominator_method": "One row per CLI behavior, public config key, user action binding, menu surface/category, or data family. Flags with identical semantics are grouped; -v is separate from -V/--version because its output differs.",
+  "total_rows": 265,
+  "excluded_internal_config_entry_count": 21,
+  "excluded_internal_config_entries": [
+    {
+      "item": "detailed_pid",
+      "upstream_ref": "src/btop_config.cpp:Config::ints[detailed_pid]@367",
+      "reason": "Runtime PID for the open process detail view."
+    },
+    {
+      "item": "follow_process",
+      "upstream_ref": "src/btop_config.cpp:Config::bools[follow_process]@349",
+      "reason": "Runtime toggle for following a process."
+    },
+    {
+      "item": "followed_pid",
+      "upstream_ref": "src/btop_config.cpp:Config::ints[followed_pid]@370",
+      "reason": "Runtime PID for follow mode."
+    },
+    {
+      "item": "lowcolor",
+      "upstream_ref": "src/btop_config.cpp:Config::bools[lowcolor]@341",
+      "reason": "Runtime color-capability result from terminal detection or CLI override."
+    },
+    {
+      "item": "pause_proc_list",
+      "upstream_ref": "src/btop_config.cpp:Config::bools[pause_proc_list]@345",
+      "reason": "Runtime pause state for process collection."
+    },
+    {
+      "item": "proc_banner_shown",
+      "upstream_ref": "src/btop_config.cpp:Config::bools[proc_banner_shown]@347",
+      "reason": "Runtime flag for the process-list banner."
+    },
+    {
+      "item": "proc_command",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[proc_command]@281",
+      "reason": "Transient process command text for filtering; absent from public descriptors and not persisted."
+    },
+    {
+      "item": "proc_filter",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[proc_filter]@280",
+      "reason": "Transient initial/interactive process filter; absent from public descriptors and not persisted as a config key."
+    },
+    {
+      "item": "proc_filtering",
+      "upstream_ref": "src/btop_config.cpp:Config::bools[proc_filtering]@343",
+      "reason": "Runtime toggle indicating the process filter editor is active."
+    },
+    {
+      "item": "proc_followed",
+      "upstream_ref": "src/btop_config.cpp:Config::ints[proc_followed]@375",
+      "reason": "Runtime selected row saved for follow behavior."
+    },
+    {
+      "item": "proc_last_selected",
+      "upstream_ref": "src/btop_config.cpp:Config::ints[proc_last_selected]@374",
+      "reason": "Runtime row saved while opening the detail view."
+    },
+    {
+      "item": "proc_selected",
+      "upstream_ref": "src/btop_config.cpp:Config::ints[proc_selected]@373",
+      "reason": "Runtime selected row in the process list."
+    },
+    {
+      "item": "proc_start",
+      "upstream_ref": "src/btop_config.cpp:Config::ints[proc_start]@372",
+      "reason": "Runtime process-list scroll/start position."
+    },
+    {
+      "item": "restore_detailed_pid",
+      "upstream_ref": "src/btop_config.cpp:Config::ints[restore_detailed_pid]@368",
+      "reason": "Runtime PID used to restore the detail-view selection."
+    },
+    {
+      "item": "selected_depth",
+      "upstream_ref": "src/btop_config.cpp:Config::ints[selected_depth]@371",
+      "reason": "Runtime process-tree selection depth."
+    },
+    {
+      "item": "selected_name",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[selected_name]@282",
+      "reason": "Runtime cache of the selected process name, not a user setting."
+    },
+    {
+      "item": "selected_pid",
+      "upstream_ref": "src/btop_config.cpp:Config::ints[selected_pid]@369",
+      "reason": "Runtime PID for the current process selection."
+    },
+    {
+      "item": "should_selection_return_to_followed",
+      "upstream_ref": "src/btop_config.cpp:Config::bools[should_selection_return_to_followed]@351",
+      "reason": "Runtime selection restoration flag."
+    },
+    {
+      "item": "show_detailed",
+      "upstream_ref": "src/btop_config.cpp:Config::bools[show_detailed]@342",
+      "reason": "Runtime toggle for the detailed process view."
+    },
+    {
+      "item": "tty_mode",
+      "upstream_ref": "src/btop_config.cpp:Config::bools[tty_mode]@338",
+      "reason": "Runtime terminal mode derived from terminal detection and CLI/config behavior."
+    },
+    {
+      "item": "update_following",
+      "upstream_ref": "src/btop_config.cpp:Config::bools[update_following]@350",
+      "reason": "Runtime refresh request for the followed process."
+    }
+  ],
+  "rows": [
+    {
+      "item": "-c, --config <file>",
+      "class": "cli_option",
+      "upstream_ref": "src/btop_cli.cpp:Cli::parse@107",
+      "gate": "out_of_scope",
+      "note": "Out of scope: the product accepts no CLI options; only B2 harness flags exist."
+    },
+    {
+      "item": "-d, --debug",
+      "class": "cli_option",
+      "upstream_ref": "src/btop_cli.cpp:Cli::parse@78",
+      "gate": "out_of_scope",
+      "note": "Out of scope: the product accepts no CLI options; only B2 harness flags exist."
+    },
+    {
+      "item": "-f, --filter <filter>",
+      "class": "cli_option",
+      "upstream_ref": "src/btop_cli.cpp:Cli::parse@125",
+      "gate": "out_of_scope",
+      "note": "Out of scope: the product accepts no CLI options; only B2 harness flags exist."
+    },
+    {
+      "item": "--force-utf",
+      "class": "cli_option",
+      "upstream_ref": "src/btop_cli.cpp:Cli::parse@82",
+      "gate": "out_of_scope",
+      "note": "Out of scope: the product accepts no CLI options; only B2 harness flags exist."
+    },
+    {
+      "item": "-l, --low-color",
+      "class": "cli_option",
+      "upstream_ref": "src/btop_cli.cpp:Cli::parse@86",
+      "gate": "out_of_scope",
+      "note": "Out of scope: the product accepts no CLI options; only B2 harness flags exist."
+    },
+    {
+      "item": "-p, --preset <id>",
+      "class": "cli_option",
+      "upstream_ref": "src/btop_cli.cpp:Cli::parse@136",
+      "gate": "out_of_scope",
+      "note": "Out of scope: the product accepts no CLI options; only B2 harness flags exist."
+    },
+    {
+      "item": "-t, --tty",
+      "class": "cli_option",
+      "upstream_ref": "src/btop_cli.cpp:Cli::parse@90",
+      "gate": "out_of_scope",
+      "note": "Out of scope: the product accepts no CLI options; only B2 harness flags exist."
+    },
+    {
+      "item": "--themes-dir <dir>",
+      "class": "cli_option",
+      "upstream_ref": "src/btop_cli.cpp:Cli::parse@156",
+      "gate": "out_of_scope",
+      "note": "Out of scope: the product accepts no CLI options; only B2 harness flags exist."
+    },
+    {
+      "item": "--no-tty",
+      "class": "cli_option",
+      "upstream_ref": "src/btop_cli.cpp:Cli::parse@98",
+      "gate": "out_of_scope",
+      "note": "Out of scope: the product accepts no CLI options; only B2 harness flags exist."
+    },
+    {
+      "item": "-u, --update <ms>",
+      "class": "cli_option",
+      "upstream_ref": "src/btop_cli.cpp:Cli::parse@174",
+      "gate": "out_of_scope",
+      "note": "Out of scope: the product accepts no CLI options; only B2 harness flags exist."
+    },
+    {
+      "item": "--default-config",
+      "class": "cli_option",
+      "upstream_ref": "src/btop_cli.cpp:Cli::parse@60",
+      "gate": "out_of_scope",
+      "note": "Out of scope: the product accepts no CLI options; only B2 harness flags exist."
+    },
+    {
+      "item": "-h, --help",
+      "class": "cli_option",
+      "upstream_ref": "src/btop_cli.cpp:Cli::parse@63",
+      "gate": "out_of_scope",
+      "note": "Out of scope: the product accepts no CLI options; only B2 harness flags exist."
+    },
+    {
+      "item": "-v",
+      "class": "cli_option",
+      "upstream_ref": "src/btop_cli.cpp:Cli::parse@68",
+      "gate": "out_of_scope",
+      "note": "Out of scope: the product accepts no CLI options; only B2 harness flags exist."
+    },
+    {
+      "item": "-V, --version",
+      "class": "cli_option",
+      "upstream_ref": "src/btop_cli.cpp:Cli::parse@72",
+      "gate": "out_of_scope",
+      "note": "Out of scope: the product accepts no CLI options; only B2 harness flags exist."
+    },
+    {
+      "item": "color_theme",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[color_theme]@58",
+      "gate": "out_of_scope",
+      "note": "Out of scope: Theme selection and config options are out of scope; the default palette is inventoried separately as a fixed G4a surface."
+    },
+    {
+      "item": "theme_background",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[theme_background]@61",
+      "gate": "out_of_scope",
+      "note": "Out of scope: Theme configuration is out of scope."
+    },
+    {
+      "item": "truecolor",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[truecolor]@63",
+      "gate": "out_of_scope",
+      "note": "Out of scope: the upstream config override is excluded; in-scope color-depth detection comes from terminal capabilities."
+    },
+    {
+      "item": "force_tty",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[force_tty]@65",
+      "gate": "out_of_scope",
+      "note": "Out of scope: CLI/config terminal-mode override is out of scope."
+    },
+    {
+      "item": "disable_presets",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[disable_presets]@68",
+      "gate": "out_of_scope",
+      "note": "Out of scope: Preset configuration is out of scope."
+    },
+    {
+      "item": "presets",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[presets]@74",
+      "gate": "out_of_scope",
+      "note": "Out of scope: Preset layout selection and configuration are out of scope."
+    },
+    {
+      "item": "vim_keys",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[vim_keys]@79",
+      "gate": "out_of_scope",
+      "note": "Out of scope: Vim key bindings are out of scope."
+    },
+    {
+      "item": "disable_mouse",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[disable_mouse]@82",
+      "gate": "out_of_scope",
+      "note": "Out of scope: Mouse bindings are out of scope."
+    },
+    {
+      "item": "rounded_corners",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[rounded_corners]@83",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Rou"
+    },
+    {
+      "item": "terminal_sync",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[terminal_sync]@85",
+      "gate": "G2",
+      "note": "In-scope fixed default for G2; config reading and options UI are out of scope. Upstream describes: Use termi"
+    },
+    {
+      "item": "graph_symbol",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[graph_symbol]@87",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Default symbols to use for graph creatio"
+    },
+    {
+      "item": "graph_symbol_cpu",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[graph_symbol_cpu]@93",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Graph symbol to use for graphs i"
+    },
+    {
+      "item": "graph_symbol_gpu",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[graph_symbol_gpu]@95",
+      "gate": "deferred",
+      "note": "Deferred: GPU graph selection belongs to the deferred GPU panel and telemetry work."
+    },
+    {
+      "item": "graph_symbol_mem",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[graph_symbol_mem]@97",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Graph symbol to use for graphs i"
+    },
+    {
+      "item": "graph_symbol_net",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[graph_symbol_net]@99",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Graph symbol to use for graphs i"
+    },
+    {
+      "item": "graph_symbol_proc",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[graph_symbol_proc]@101",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Graph symbol to use for graphs i"
+    },
+    {
+      "item": "shown_boxes",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[shown_boxes]@103",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Ma"
+    },
+    {
+      "item": "update_ms",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[update_ms]@105",
+      "gate": "G1",
+      "note": "In-scope fixed default for G1; config reading and options UI are out of scope. Upstream describes: Update time i"
+    },
+    {
+      "item": "proc_sorting",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[proc_sorting]@107",
+      "gate": "G2",
+      "note": "In-scope fixed default for G2; config reading and options UI are out of scope. Upstream describes: Processes sorti"
+    },
+    {
+      "item": "proc_reversed",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[proc_reversed]@110",
+      "gate": "G2",
+      "note": "In-scope fixed default for G2; config reading and options UI are out of scope. Upstream describes: Reverse sorti"
+    },
+    {
+      "item": "proc_tree",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[proc_tree]@112",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Show processes as a tree."
+    },
+    {
+      "item": "proc_colors",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[proc_colors]@114",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Use the cpu graph colors i"
+    },
+    {
+      "item": "proc_gradient",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[proc_gradient]@116",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Use a darke"
+    },
+    {
+      "item": "proc_per_core",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[proc_per_core]@118",
+      "gate": "G3",
+      "note": "In-scope fixed default for G3; config reading and options UI are out of scope. Upstream describes: If process cpu usage should be of the core it's ru"
+    },
+    {
+      "item": "proc_mem_bytes",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[proc_mem_bytes]@120",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Show process memory as bytes i"
+    },
+    {
+      "item": "proc_cpu_graphs",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[proc_cpu_graphs]@122",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Show cpu graph for each process."
+    },
+    {
+      "item": "proc_info_smaps",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[proc_info_smaps]@124",
+      "gate": "deferred",
+      "note": "Deferred: extended smaps collection is not part of the in-scope base process data."
+    },
+    {
+      "item": "proc_left",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[proc_left]@126",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Show proc box o"
+    },
+    {
+      "item": "proc_filter_kernel",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[proc_filter_kernel]@128",
+      "gate": "deferred",
+      "note": "Deferred: kernel-process filtering is an unsupported process-list extension."
+    },
+    {
+      "item": "proc_follow_detailed",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[proc_follow_detailed]@130",
+      "gate": "deferred",
+      "note": "Deferred: detailed-view follow behavior belongs to the deferred process detail view."
+    },
+    {
+      "item": "proc_aggregate",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[proc_aggregate]@132",
+      "gate": "G3",
+      "note": "In-scope fixed default for G3; config reading and options UI are out of scope. Upstream describes: I"
+    },
+    {
+      "item": "keep_dead_proc_usage",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[keep_dead_proc_usage]@134",
+      "gate": "deferred",
+      "note": "Deferred: retaining resource usage for paused dead processes is outside the in-scope base process list."
+    },
+    {
+      "item": "cpu_graph_upper",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[cpu_graph_upper]@136",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Sets the CPU stat show"
+    },
+    {
+      "item": "cpu_graph_lower",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[cpu_graph_lower]@139",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Sets the CPU stat show"
+    },
+    {
+      "item": "show_gpu_info",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[show_gpu_info]@142",
+      "gate": "deferred",
+      "note": "Deferred: GPU telemetry in the CPU panel is not an in-scope data family."
+    },
+    {
+      "item": "cpu_invert_lower",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[cpu_invert_lower]@144",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Toggles if the lower CPU graph should be i"
+    },
+    {
+      "item": "cpu_single_graph",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[cpu_single_graph]@146",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Set to True to completely disable the lower CPU graph."
+    },
+    {
+      "item": "cpu_bottom",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[cpu_bottom]@148",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Show cpu box at bottom of scree"
+    },
+    {
+      "item": "show_uptime",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[show_uptime]@150",
+      "gate": "G1",
+      "note": "In-scope fixed default for G1; config reading and options UI are out of scope. Upstream describes: Shows the system uptime i"
+    },
+    {
+      "item": "show_cpu_watts",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[show_cpu_watts]@152",
+      "gate": "deferred",
+      "note": "Deferred: CPU package wattage is an optional hardware metric outside the in-scope CPU data."
+    },
+    {
+      "item": "check_temp",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[check_temp]@154",
+      "gate": "G3",
+      "note": "In-scope fixed default for G3; config reading and options UI are out of scope. Upstream describes: Show cpu temperature."
+    },
+    {
+      "item": "cpu_sensor",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[cpu_sensor]@156",
+      "gate": "G3",
+      "note": "In-scope fixed default for G3; config reading and options UI are out of scope. Upstream describes: Which se"
+    },
+    {
+      "item": "show_coretemp",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[show_coretemp]@158",
+      "gate": "G3",
+      "note": "In-scope fixed default for G3; config reading and options UI are out of scope. Upstream describes: Show temperatures for cpu cores also if check_temp is True a"
+    },
+    {
+      "item": "cpu_core_map",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[cpu_core_map]@160",
+      "gate": "G3",
+      "note": "In-scope fixed default for G3; config reading and options UI are out of scope. Upstream describes: Set a custom mappi"
+    },
+    {
+      "item": "temp_scale",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[temp_scale]@165",
+      "gate": "G3",
+      "note": "In-scope fixed default for G3; config reading and options UI are out of scope. Upstream describes: Which temperature scale to use, available values:"
+    },
+    {
+      "item": "base_10_sizes",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[base_10_sizes]@167",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Use base 10 for bits/bytes sizes, KB = 1000 i"
+    },
+    {
+      "item": "show_cpu_freq",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[show_cpu_freq]@169",
+      "gate": "G3",
+      "note": "In-scope fixed default for G3; config reading and options UI are out of scope. Upstream describes: Show CPU freque"
+    },
+    {
+      "item": "freq_mode",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[freq_mode]@171",
+      "gate": "G3",
+      "note": "In-scope fixed default for G3; config reading and options UI are out of scope. Upstream describes: How to calculate CPU freque Linux-specific."
+    },
+    {
+      "item": "clock_format",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[clock_format]@173",
+      "gate": "G3",
+      "note": "In-scope fixed default for G3; config reading and options UI are out of scope. Upstream describes: Draw a clock at top of scree"
+    },
+    {
+      "item": "background_update",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[background_update]@176",
+      "gate": "out_of_scope",
+      "note": "Out of scope: Background updates behind menus are out of scope because menus are out of scope."
+    },
+    {
+      "item": "custom_cpu_name",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[custom_cpu_name]@178",
+      "gate": "deferred",
+      "note": "Deferred: custom CPU naming is an optional display feature outside the fixed CPU panel contract."
+    },
+    {
+      "item": "disks_filter",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[disks_filter]@180",
+      "gate": "G3",
+      "note": "In-scope fixed default for G3; config reading and options UI are out of scope. Upstream describes: Optio"
+    },
+    {
+      "item": "mem_graphs",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[mem_graphs]@183",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Show graphs i"
+    },
+    {
+      "item": "mem_below_net",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[mem_below_net]@185",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Show mem box below"
+    },
+    {
+      "item": "zfs_arc_cached",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[zfs_arc_cached]@187",
+      "gate": "deferred",
+      "note": "Deferred: ZFS ARC memory accounting is an optional platform-specific memory category."
+    },
+    {
+      "item": "show_swap",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[show_swap]@189",
+      "gate": "G1",
+      "note": "In-scope fixed default for G1; config reading and options UI are out of scope. Upstream describes: If swap memory should be show"
+    },
+    {
+      "item": "swap_disk",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[swap_disk]@191",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Show swap as a disk, ig"
+    },
+    {
+      "item": "show_disks",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[show_disks]@193",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: If mem box should be split to also show disks i"
+    },
+    {
+      "item": "only_physical",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[only_physical]@195",
+      "gate": "G3",
+      "note": "In-scope fixed default for G3; config reading and options UI are out of scope. Upstream describes: Filter out"
+    },
+    {
+      "item": "use_fstab",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[use_fstab]@197",
+      "gate": "G3",
+      "note": "In-scope fixed default for G3; config reading and options UI are out of scope. Upstream describes: Read disks list from /etc/fstab. This also disables o"
+    },
+    {
+      "item": "zfs_hide_datasets",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[zfs_hide_datasets]@199",
+      "gate": "deferred",
+      "note": "Deferred: ZFS dataset and pool handling is an optional filesystem feature."
+    },
+    {
+      "item": "disk_free_priv",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[disk_free_priv]@201",
+      "gate": "deferred",
+      "note": "Deferred: privileged-user free-space reporting is outside the in-scope disk reader contract."
+    },
+    {
+      "item": "show_io_stat",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[show_io_stat]@203",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Toggles if io activity % (disk busy time) should be show"
+    },
+    {
+      "item": "io_mode",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[io_mode]@205",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Toggles io mode for disks, showi"
+    },
+    {
+      "item": "io_graph_combined",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[io_graph_combined]@207",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Set to True to show combi"
+    },
+    {
+      "item": "io_graph_speeds",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[io_graph_speeds]@209",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Set the top speed for the io graphs i"
+    },
+    {
+      "item": "swap_upload_download",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[swap_upload_download]@212",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Swap the positio"
+    },
+    {
+      "item": "net_download",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[net_download]@214",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Set fixed values for"
+    },
+    {
+      "item": "net_upload",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[net_upload]@216",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Set a fixed upload scale for network graphs."
+    },
+    {
+      "item": "net_auto",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[net_auto]@218",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Use"
+    },
+    {
+      "item": "net_sync",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[net_sync]@220",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Sy"
+    },
+    {
+      "item": "net_iface",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[net_iface]@222",
+      "gate": "G1",
+      "note": "In-scope fixed default for G1; config reading and options UI are out of scope. Upstream describes: Starts with the Network I"
+    },
+    {
+      "item": "base_10_bitrate",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[base_10_bitrate]@224",
+      "gate": "G4a",
+      "note": "In-scope fixed default for G4a; config reading and options UI are out of scope. Upstream describes: Public option in the config file and options menu."
+    },
+    {
+      "item": "show_battery",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[show_battery]@226",
+      "gate": "G3",
+      "note": "In-scope fixed default for G3; config reading and options UI are out of scope. Upstream describes: Show battery stats i"
+    },
+    {
+      "item": "selected_battery",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[selected_battery]@228",
+      "gate": "G3",
+      "note": "In-scope fixed default for G3; config reading and options UI are out of scope. Upstream describes: Which battery to use if multiple are prese"
+    },
+    {
+      "item": "show_battery_watts",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[show_battery_watts]@230",
+      "gate": "G3",
+      "note": "In-scope fixed default for G3; config reading and options UI are out of scope. Upstream describes: Show power stats of battery"
+    },
+    {
+      "item": "log_level",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[log_level]@232",
+      "gate": "out_of_scope",
+      "note": "Out of scope: Configurable logging is outside A5."
+    },
+    {
+      "item": "save_config_on_exit",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[save_config_on_exit]@234",
+      "gate": "out_of_scope",
+      "note": "Out of scope: Config persistence is out of scope."
+    },
+    {
+      "item": "nvml_measure_pcie_speeds",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[nvml_measure_pcie_speeds]@237",
+      "gate": "deferred",
+      "note": "Deferred: vendor-specific GPU PCIe throughput is outside the in-scope data families."
+    },
+    {
+      "item": "rsmi_measure_pcie_speeds",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[rsmi_measure_pcie_speeds]@239",
+      "gate": "deferred",
+      "note": "Deferred: vendor-specific GPU PCIe throughput is outside the in-scope data families."
+    },
+    {
+      "item": "gpu_mirror_graph",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[gpu_mirror_graph]@241",
+      "gate": "deferred",
+      "note": "Deferred: GPU graph presentation belongs to the deferred GPU panel."
+    },
+    {
+      "item": "shown_gpus",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[shown_gpus]@242",
+      "gate": "deferred",
+      "note": "Deferred: selecting GPU vendors belongs to the deferred GPU panel."
+    },
+    {
+      "item": "custom_gpu_name0",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[custom_gpu_name0]@243",
+      "gate": "deferred",
+      "note": "Deferred: custom GPU naming belongs to the deferred GPU panel."
+    },
+    {
+      "item": "custom_gpu_name1",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[custom_gpu_name1]@244",
+      "gate": "deferred",
+      "note": "Deferred: custom GPU naming belongs to the deferred GPU panel."
+    },
+    {
+      "item": "custom_gpu_name2",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[custom_gpu_name2]@245",
+      "gate": "deferred",
+      "note": "Deferred: custom GPU naming belongs to the deferred GPU panel."
+    },
+    {
+      "item": "custom_gpu_name3",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[custom_gpu_name3]@246",
+      "gate": "deferred",
+      "note": "Deferred: custom GPU naming belongs to the deferred GPU panel."
+    },
+    {
+      "item": "custom_gpu_name4",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[custom_gpu_name4]@247",
+      "gate": "deferred",
+      "note": "Deferred: custom GPU naming belongs to the deferred GPU panel."
+    },
+    {
+      "item": "custom_gpu_name5",
+      "class": "config_key",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[custom_gpu_name5]@248",
+      "gate": "deferred",
+      "note": "Deferred: custom GPU naming belongs to the deferred GPU panel."
+    },
+    {
+      "item": "Main menu",
+      "class": "menu",
+      "upstream_ref": "src/btop_menu.cpp:Menu::mainMenu@1202-1279",
+      "gate": "deferred",
+      "note": "Deferred: the general application menu is outside the fixed default interaction contract; its options and help destinations remain explicitly out of scope."
+    },
+    {
+      "item": "Help menu",
+      "class": "menu",
+      "upstream_ref": "src/btop_menu.cpp:Menu::helpMenu@1675-1726; src/btop_menu.cpp:help_text@171-218",
+      "gate": "out_of_scope",
+      "note": "Out of scope: A2 explicitly excludes help and settings/options menus."
+    },
+    {
+      "item": "Options menu shell",
+      "class": "menu",
+      "upstream_ref": "src/btop_menu.cpp:Menu::optionsMenu@1281-1673",
+      "gate": "out_of_scope",
+      "note": "Out of scope: A2 explicitly excludes help and settings/options menus."
+    },
+    {
+      "item": "Options: General",
+      "class": "menu",
+      "upstream_ref": "src/btop_menu.cpp:categories[0]@221-408",
+      "gate": "out_of_scope",
+      "note": "Out of scope: A2 explicitly excludes help and settings/options menus."
+    },
+    {
+      "item": "Options: CPU",
+      "class": "menu",
+      "upstream_ref": "src/btop_menu.cpp:categories[1]@409-573",
+      "gate": "out_of_scope",
+      "note": "Out of scope: A2 explicitly excludes help and settings/options menus."
+    },
+    {
+      "item": "Options: GPU",
+      "class": "menu",
+      "upstream_ref": "src/btop_menu.cpp:categories[2]@574-631",
+      "gate": "out_of_scope",
+      "note": "Out of scope: A2 explicitly excludes help and settings/options menus."
+    },
+    {
+      "item": "Options: Memory",
+      "class": "menu",
+      "upstream_ref": "src/btop_menu.cpp:categories[3]@633-745",
+      "gate": "out_of_scope",
+      "note": "Out of scope: A2 explicitly excludes help and settings/options menus."
+    },
+    {
+      "item": "Options: Network",
+      "class": "menu",
+      "upstream_ref": "src/btop_menu.cpp:categories[4]@746-803",
+      "gate": "out_of_scope",
+      "note": "Out of scope: A2 explicitly excludes help and settings/options menus."
+    },
+    {
+      "item": "Options: Processes",
+      "class": "menu",
+      "upstream_ref": "src/btop_menu.cpp:categories[5]@804-889",
+      "gate": "out_of_scope",
+      "note": "Out of scope: A2 explicitly excludes help and settings/options menus."
+    },
+    {
+      "item": "Signal chooser",
+      "class": "menu",
+      "upstream_ref": "src/btop_menu.cpp:Menu::signalChoose@984-1098",
+      "gate": "deferred",
+      "note": "Deferred: process signal and priority dialogs are outside the in-scope read-only process interaction."
+    },
+    {
+      "item": "Signal confirmation",
+      "class": "menu",
+      "upstream_ref": "src/btop_menu.cpp:Menu::signalSend@1122-1168; src/btop_menu.cpp:Menu::msgBox@916-939",
+      "gate": "deferred",
+      "note": "Deferred: process signal and priority dialogs are outside the in-scope read-only process interaction."
+    },
+    {
+      "item": "Signal result dialog",
+      "class": "menu",
+      "upstream_ref": "src/btop_menu.cpp:Menu::signalReturn@1170-1200",
+      "gate": "deferred",
+      "note": "Deferred: process signal and priority dialogs are outside the in-scope read-only process interaction."
+    },
+    {
+      "item": "Renice dialog",
+      "class": "menu",
+      "upstream_ref": "src/btop_menu.cpp:Menu::reniceMenu@1728-1821",
+      "gate": "deferred",
+      "note": "Deferred: process signal and priority dialogs are outside the in-scope read-only process interaction."
+    },
+    {
+      "item": "Terminal-size error dialog",
+      "class": "menu",
+      "upstream_ref": "src/btop_menu.cpp:Menu::sizeError@1100-1120; src/btop_menu.cpp:Menu::process@1851-1859",
+      "gate": "G2",
+      "note": "In scope: terminal resize handling reports an unusably small surface."
+    },
+    {
+      "item": "Escape, m — toggle main menu",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@174; src/btop_input.cpp:Input::process@227-230",
+      "gate": "deferred",
+      "note": "Deferred: the general application menu is outside the fixed default interaction contract."
+    },
+    {
+      "item": "p — next preset",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@175; src/btop_input.cpp:Input::process@262-284",
+      "gate": "out_of_scope",
+      "note": "Out of scope: menu/help/preset interaction is not delivered."
+    },
+    {
+      "item": "Shift+p — previous preset",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@175; src/btop_input.cpp:Input::process@262-284",
+      "gate": "out_of_scope",
+      "note": "Out of scope: menu/help/preset interaction is not delivered."
+    },
+    {
+      "item": "1 — toggle CPU panel",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@177; src/btop_input.cpp:Input::process@239-260",
+      "gate": "out_of_scope",
+      "note": "Out of scope: panel toggling/layout controls are not in the delivered panel contract."
+    },
+    {
+      "item": "2 — toggle memory panel",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@178; src/btop_input.cpp:Input::process@239-260",
+      "gate": "out_of_scope",
+      "note": "Out of scope: panel toggling/layout controls are not in the delivered panel contract."
+    },
+    {
+      "item": "3 — toggle network panel",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@179; src/btop_input.cpp:Input::process@239-260",
+      "gate": "out_of_scope",
+      "note": "Out of scope: panel toggling/layout controls are not in the delivered panel contract."
+    },
+    {
+      "item": "4 — toggle process panel",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@180; src/btop_input.cpp:Input::process@239-260",
+      "gate": "out_of_scope",
+      "note": "Out of scope: panel toggling/layout controls are not in the delivered panel contract."
+    },
+    {
+      "item": "5 — toggle GPU panel",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@181; src/btop_input.cpp:Input::process@239-260",
+      "gate": "out_of_scope",
+      "note": "Out of scope: panel toggling/layout controls are not in the delivered panel contract."
+    },
+    {
+      "item": "d — toggle disk view",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@182; src/btop_input.cpp:Input::process@578-582",
+      "gate": "G4a",
+      "note": "Toggle the in-scope disk panel within the memory surface."
+    },
+    {
+      "item": "F2, o — open options",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@183; src/btop_input.cpp:Input::process@235-237",
+      "gate": "out_of_scope",
+      "note": "Out of scope: menu/help/preset interaction is not delivered."
+    },
+    {
+      "item": "F1, ?, h — open help",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@184; src/btop_input.cpp:Input::process@231-234",
+      "gate": "out_of_scope",
+      "note": "Out of scope: menu/help/preset interaction is not delivered. h is remapped to Shift+h if vim_keys is enabled."
+    },
+    {
+      "item": "Ctrl+z — suspend",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@185; src/btop.cpp:_signal_handler@265-325",
+      "gate": "deferred",
+      "note": "Deferred: process suspension, detail views, pause, signaling, and priority mutation are outside the in-scope interaction contract."
+    },
+    {
+      "item": "Ctrl+r — reload config",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@186; src/btop_input.cpp:Input::process@285-287",
+      "gate": "out_of_scope",
+      "note": "Out of scope: config reload is not delivered."
+    },
+    {
+      "item": "q — quit normally",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@187; src/btop_input.cpp:Input::process@224-226",
+      "gate": "G2",
+      "note": "Exit the interactive terminal session."
+    },
+    {
+      "item": "Ctrl+c — terminate by SIGINT",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@187; src/btop.cpp:_signal_handler@294-304",
+      "gate": "G2",
+      "note": "Handle terminal interrupt and restore/terminate the session."
+    },
+    {
+      "item": "+ — increase update interval",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@188; src/btop_input.cpp:Input::process@545-552",
+      "gate": "G1",
+      "note": "Increase sampling interval by 100 ms (accelerates by 1000 ms on repeated presses)."
+    },
+    {
+      "item": "- — decrease update interval",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@188; src/btop_input.cpp:Input::process@553-559",
+      "gate": "G1",
+      "note": "Decrease sampling interval by 100 ms (accelerates by 1000 ms on repeated presses)."
+    },
+    {
+      "item": "Up — select previous process",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@189; src/btop_shared.hpp:Proc::selection@437-439",
+      "gate": "G2",
+      "note": "Move selection toward the preceding process row."
+    },
+    {
+      "item": "Down — select next process",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@189; src/btop_shared.hpp:Proc::selection@437-439",
+      "gate": "G2",
+      "note": "Move selection toward the following process row."
+    },
+    {
+      "item": "Enter — open/close process details",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@190; src/btop_input.cpp:Input::process@461-489",
+      "gate": "deferred",
+      "note": "Deferred: process suspension, detail views, pause, signaling, and priority mutation are outside the in-scope interaction contract."
+    },
+    {
+      "item": "Space — expand/collapse selected tree node",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@191; src/btop_input.cpp:Input::process@491-499",
+      "gate": "G4a",
+      "note": "Toggle the selected process-tree node."
+    },
+    {
+      "item": "C — expand/collapse selected children",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@192; src/btop_input.cpp:Input::process@491-499",
+      "gate": "G4a",
+      "note": "Toggle the selected process and its children."
+    },
+    {
+      "item": "Page Up — previous process page",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@193; src/btop_shared.hpp:Proc::selection@437-439",
+      "gate": "G2",
+      "note": "Move process selection back by one page."
+    },
+    {
+      "item": "Page Down — next process page",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@193; src/btop_shared.hpp:Proc::selection@437-439",
+      "gate": "G2",
+      "note": "Move process selection forward by one page."
+    },
+    {
+      "item": "Home — first process page",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@194; src/btop_shared.hpp:Proc::selection@437-439",
+      "gate": "G2",
+      "note": "Jump to the first process page."
+    },
+    {
+      "item": "End — last process page",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@194; src/btop_shared.hpp:Proc::selection@437-439",
+      "gate": "G2",
+      "note": "Jump to the last process page."
+    },
+    {
+      "item": "Left — previous sort column",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@195; src/btop_input.cpp:Input::process@325-331",
+      "gate": "G2",
+      "note": "Select the prior process sort field."
+    },
+    {
+      "item": "Right — next sort column",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@195; src/btop_input.cpp:Input::process@333-339",
+      "gate": "G2",
+      "note": "Select the next process sort field."
+    },
+    {
+      "item": "b — previous network interface",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@196; src/btop_input.cpp:Input::process@597-604",
+      "gate": "G1",
+      "note": "Select the preceding interface for RX/TX rates."
+    },
+    {
+      "item": "n — next network interface",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@196; src/btop_input.cpp:Input::process@597-610",
+      "gate": "G1",
+      "note": "Select the following interface for RX/TX rates."
+    },
+    {
+      "item": "i — toggle disk I/O mode",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@197; src/btop_input.cpp:Input::process@575-577",
+      "gate": "G4a",
+      "note": "Toggle the disk panel I/O presentation."
+    },
+    {
+      "item": "z — reset network totals",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@198; src/btop_input.cpp:Input::process@619-631",
+      "gate": "G3",
+      "note": "Toggle the selected interface traffic-total offset."
+    },
+    {
+      "item": "a — toggle network autoscaling",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@199; src/btop_input.cpp:Input::process@615-618",
+      "gate": "G4a",
+      "note": "Toggle automatic network graph scaling."
+    },
+    {
+      "item": "y — toggle synchronized network scales",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@200; src/btop_input.cpp:Input::process@611-614",
+      "gate": "G4a",
+      "note": "Synchronize or separate download and upload graph scales."
+    },
+    {
+      "item": "f, / — open process filter",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@201; src/btop_input.cpp:Input::process@341-345",
+      "gate": "G2",
+      "note": "Enter the process filter editor; both keys start the same action."
+    },
+    {
+      "item": "F — follow selected process",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@202; src/btop_input.cpp:Input::process@359-379",
+      "gate": "G2",
+      "note": "Follow the selected process in the read-only list."
+    },
+    {
+      "item": "u — pause process list",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@203; src/btop_input.cpp:Input::process@356-358",
+      "gate": "deferred",
+      "note": "Deferred: process suspension, detail views, pause, signaling, and priority mutation are outside the in-scope interaction contract."
+    },
+    {
+      "item": "Delete — clear process filter",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@204; src/btop_input.cpp:Input::process@390-391",
+      "gate": "G2",
+      "note": "Clear the active process filter."
+    },
+    {
+      "item": "c — toggle per-core process CPU usage",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@205; src/btop_input.cpp:Input::process@384-385",
+      "gate": "G3",
+      "note": "Change process CPU normalization to per-core usage."
+    },
+    {
+      "item": "r — reverse process sorting",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@206; src/btop_input.cpp:Input::process@380-383",
+      "gate": "G2",
+      "note": "Reverse process sort order."
+    },
+    {
+      "item": "e — toggle process tree view",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@207; src/btop_input.cpp:Input::process@346-350",
+      "gate": "G4a",
+      "note": "Switch between flat rows and process-tree UI."
+    },
+    {
+      "item": "E — collapse/expand all process tree rows",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@208; src/btop_input.cpp:Input::process@351-355",
+      "gate": "G4a",
+      "note": "Collapse or expand all tree rows."
+    },
+    {
+      "item": "% — toggle process memory units",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@209; src/btop_input.cpp:Input::process@387-389",
+      "gate": "G4a",
+      "note": "Switch process memory display between bytes and percent."
+    },
+    {
+      "item": "Selected process: + — expand tree node",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@210; src/btop_input.cpp:Input::process@491-499",
+      "gate": "G4a",
+      "note": "Expand the selected process-tree node."
+    },
+    {
+      "item": "Selected process: - — collapse tree node",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@210; src/btop_input.cpp:Input::process@491-499",
+      "gate": "G4a",
+      "note": "Collapse the selected process-tree node."
+    },
+    {
+      "item": "t — send SIGTERM to selected process",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@211; src/btop_input.cpp:Input::process@502-506",
+      "gate": "deferred",
+      "note": "Deferred: process suspension, detail views, pause, signaling, and priority mutation are outside the in-scope interaction contract."
+    },
+    {
+      "item": "k — send SIGKILL to selected process",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@212; src/btop_input.cpp:Input::process@502-506",
+      "gate": "deferred",
+      "note": "Deferred: process suspension, detail views, pause, signaling, and priority mutation are outside the in-scope interaction contract."
+    },
+    {
+      "item": "s — choose process signal",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@213; src/btop_input.cpp:Input::process@508-512",
+      "gate": "deferred",
+      "note": "Deferred: process suspension, detail views, pause, signaling, and priority mutation are outside the in-scope interaction contract."
+    },
+    {
+      "item": "N — set selected process nice value",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:help_text@214; src/btop_input.cpp:Input::process@514-519",
+      "gate": "deferred",
+      "note": "Deferred: process suspension, detail views, pause, signaling, and priority mutation are outside the in-scope interaction contract."
+    },
+    {
+      "item": "Vim key h — previous sort field",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[vim_keys]@79-80; src/btop_input.cpp:Input::process@219-220,325-529",
+      "gate": "out_of_scope",
+      "note": "Out of scope: vim key bindings are not delivered."
+    },
+    {
+      "item": "Vim key j — next process row",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[vim_keys]@79-80; src/btop_input.cpp:Input::process@219-220,325-529",
+      "gate": "out_of_scope",
+      "note": "Out of scope: vim key bindings are not delivered."
+    },
+    {
+      "item": "Vim key k — previous process row",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[vim_keys]@79-80; src/btop_input.cpp:Input::process@219-220,325-529",
+      "gate": "out_of_scope",
+      "note": "Out of scope: vim key bindings are not delivered."
+    },
+    {
+      "item": "Vim key l — next sort field",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[vim_keys]@79-80; src/btop_input.cpp:Input::process@219-220,325-529",
+      "gate": "out_of_scope",
+      "note": "Out of scope: vim key bindings are not delivered."
+    },
+    {
+      "item": "Vim key g — first process page",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[vim_keys]@79-80; src/btop_input.cpp:Input::process@219-220,325-529",
+      "gate": "out_of_scope",
+      "note": "Out of scope: vim key bindings are not delivered."
+    },
+    {
+      "item": "Vim key G — last process page",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[vim_keys]@79-80; src/btop_input.cpp:Input::process@219-220,325-529",
+      "gate": "out_of_scope",
+      "note": "Out of scope: vim key bindings are not delivered."
+    },
+    {
+      "item": "Vim key H — help action replacing h",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[vim_keys]@79-80; src/btop_input.cpp:Input::process@219-220,325-529",
+      "gate": "out_of_scope",
+      "note": "Out of scope: vim key bindings are not delivered."
+    },
+    {
+      "item": "Vim key K — kill action replacing k",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_config.cpp:Config::descriptions[vim_keys]@79-80; src/btop_input.cpp:Input::process@219-220,325-529",
+      "gate": "out_of_scope",
+      "note": "Out of scope: vim key bindings are not delivered."
+    },
+    {
+      "item": "Main menu: Enter/Space — activate selected item",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::mainMenu@1237-1250",
+      "gate": "deferred",
+      "note": "Deferred: the general application menu is outside the fixed default interaction contract."
+    },
+    {
+      "item": "Main menu: Down/Tab/j — next item",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::mainMenu@1252-1253",
+      "gate": "deferred",
+      "note": "Deferred: the general application menu is outside the fixed default interaction contract."
+    },
+    {
+      "item": "Main menu: Up/Shift+Tab/k — previous item",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::mainMenu@1255-1256",
+      "gate": "deferred",
+      "note": "Deferred: the general application menu is outside the fixed default interaction contract."
+    },
+    {
+      "item": "Options: Down/scroll-down/j — next option",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::optionsMenu@1423-1430",
+      "gate": "out_of_scope",
+      "note": "Out of scope: menu/help/preset interaction is not delivered."
+    },
+    {
+      "item": "Options: Up/scroll-up/k — previous option",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::optionsMenu@1430-1438",
+      "gate": "out_of_scope",
+      "note": "Out of scope: menu/help/preset interaction is not delivered."
+    },
+    {
+      "item": "Options: Page Down — next option page",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::optionsMenu@1438-1443",
+      "gate": "out_of_scope",
+      "note": "Out of scope: menu/help/preset interaction is not delivered."
+    },
+    {
+      "item": "Options: Page Up — previous option page",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::optionsMenu@1443-1448",
+      "gate": "out_of_scope",
+      "note": "Out of scope: menu/help/preset interaction is not delivered."
+    },
+    {
+      "item": "Options: Tab — next category",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::optionsMenu@1448-1452",
+      "gate": "out_of_scope",
+      "note": "Out of scope: menu/help/preset interaction is not delivered."
+    },
+    {
+      "item": "Options: Shift+Tab — previous category",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::optionsMenu@1452-1457",
+      "gate": "out_of_scope",
+      "note": "Out of scope: menu/help/preset interaction is not delivered."
+    },
+    {
+      "item": "Options: digits 1–6 — choose category",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::optionsMenu@1457-1465",
+      "gate": "out_of_scope",
+      "note": "Out of scope: menu/help/preset interaction is not delivered."
+    },
+    {
+      "item": "Options: Enter — browse/edit selected value",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::optionsMenu@1368-1398",
+      "gate": "out_of_scope",
+      "note": "Out of scope: menu/help/preset interaction is not delivered."
+    },
+    {
+      "item": "Options: Left/h — previous value",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::optionsMenu@1465-1518",
+      "gate": "out_of_scope",
+      "note": "Out of scope: menu/help/preset interaction is not delivered."
+    },
+    {
+      "item": "Options: Right/l — next value",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::optionsMenu@1465-1518",
+      "gate": "out_of_scope",
+      "note": "Out of scope: menu/help/preset interaction is not delivered."
+    },
+    {
+      "item": "Options: Escape — cancel string edit",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::optionsMenu@1363-1368",
+      "gate": "out_of_scope",
+      "note": "Out of scope: menu/help/preset interaction is not delivered."
+    },
+    {
+      "item": "Help: Escape/q/h/Backspace/Space/Enter — close",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::helpMenu@1694-1695",
+      "gate": "out_of_scope",
+      "note": "Out of scope: menu/help/preset interaction is not delivered."
+    },
+    {
+      "item": "Help: Down/j/Page Down/Tab — next page",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::helpMenu@1697-1699",
+      "gate": "out_of_scope",
+      "note": "Out of scope: menu/help/preset interaction is not delivered."
+    },
+    {
+      "item": "Help: Up/k/Page Up/Shift+Tab — previous page",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::helpMenu@1700-1702",
+      "gate": "out_of_scope",
+      "note": "Out of scope: menu/help/preset interaction is not delivered."
+    },
+    {
+      "item": "Signal chooser: digits/backspace — edit signal number",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::signalChoose@1027-1032",
+      "gate": "deferred",
+      "note": "Deferred: process signal and priority mutation are outside the in-scope read-only process interaction."
+    },
+    {
+      "item": "Signal chooser: Up — previous signal row",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::signalChoose@1033-1041",
+      "gate": "deferred",
+      "note": "Deferred: process signal and priority mutation are outside the in-scope read-only process interaction."
+    },
+    {
+      "item": "Signal chooser: Down — next signal row",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::signalChoose@1042-1052",
+      "gate": "deferred",
+      "note": "Deferred: process signal and priority mutation are outside the in-scope read-only process interaction."
+    },
+    {
+      "item": "Signal chooser: Left — previous signal",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::signalChoose@1053-1056",
+      "gate": "deferred",
+      "note": "Deferred: process signal and priority mutation are outside the in-scope read-only process interaction."
+    },
+    {
+      "item": "Signal chooser: Right — next signal",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::signalChoose@1057-1060",
+      "gate": "deferred",
+      "note": "Deferred: process signal and priority mutation are outside the in-scope read-only process interaction."
+    },
+    {
+      "item": "Signal chooser: Enter/Space — send signal",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::signalChoose@1014-1025",
+      "gate": "deferred",
+      "note": "Deferred: process signal and priority mutation are outside the in-scope read-only process interaction."
+    },
+    {
+      "item": "Signal chooser: Escape/q — cancel",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::signalChoose@1005-1007",
+      "gate": "deferred",
+      "note": "Deferred: process signal and priority mutation are outside the in-scope read-only process interaction."
+    },
+    {
+      "item": "Signal confirmation: Enter/Space — confirm",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::signalSend@1142-1150",
+      "gate": "deferred",
+      "note": "Deferred: process signal and priority mutation are outside the in-scope read-only process interaction."
+    },
+    {
+      "item": "Signal confirmation: Escape — cancel",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::signalSend@1152-1155",
+      "gate": "deferred",
+      "note": "Deferred: process signal and priority mutation are outside the in-scope read-only process interaction."
+    },
+    {
+      "item": "Renice: Up/k — increase value",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::reniceMenu@1776-1779",
+      "gate": "deferred",
+      "note": "Deferred: process signal and priority mutation are outside the in-scope read-only process interaction."
+    },
+    {
+      "item": "Renice: Down/j — decrease value",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::reniceMenu@1780-1783",
+      "gate": "deferred",
+      "note": "Deferred: process signal and priority mutation are outside the in-scope read-only process interaction."
+    },
+    {
+      "item": "Renice: Left/h — decrease by five",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::reniceMenu@1784-1787",
+      "gate": "deferred",
+      "note": "Deferred: process signal and priority mutation are outside the in-scope read-only process interaction."
+    },
+    {
+      "item": "Renice: Right/l — increase by five",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::reniceMenu@1788-1791",
+      "gate": "deferred",
+      "note": "Deferred: process signal and priority mutation are outside the in-scope read-only process interaction."
+    },
+    {
+      "item": "Renice: digits/backspace — edit value",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::reniceMenu@1770-1775",
+      "gate": "deferred",
+      "note": "Deferred: process signal and priority mutation are outside the in-scope read-only process interaction."
+    },
+    {
+      "item": "Renice: Enter/Space — apply value",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::reniceMenu@1756-1768",
+      "gate": "deferred",
+      "note": "Deferred: process signal and priority mutation are outside the in-scope read-only process interaction."
+    },
+    {
+      "item": "Renice: Escape/q — cancel",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::reniceMenu@1753-1755",
+      "gate": "deferred",
+      "note": "Deferred: process signal and priority mutation are outside the in-scope read-only process interaction."
+    },
+    {
+      "item": "Mouse click — activate/select",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::get@131-180; src/btop_input.cpp:Input::process@393-452",
+      "gate": "out_of_scope",
+      "note": "Out of scope: mouse input is explicitly excluded by A2."
+    },
+    {
+      "item": "Mouse scroll up — previous item/row",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::get@131-180; src/btop_input.cpp:Input::process@452-453",
+      "gate": "out_of_scope",
+      "note": "Out of scope: mouse input is explicitly excluded by A2."
+    },
+    {
+      "item": "Mouse scroll down — next item/row",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::get@131-180; src/btop_input.cpp:Input::process@452-453",
+      "gate": "out_of_scope",
+      "note": "Out of scope: mouse input is explicitly excluded by A2."
+    },
+    {
+      "item": "Mouse drag — move process-list scrollbar",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::get@131-180; src/btop_input.cpp:Input::process@455-457",
+      "gate": "out_of_scope",
+      "note": "Out of scope: mouse input is explicitly excluded by A2."
+    },
+    {
+      "item": "Mouse release — stop scrollbar drag",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::process@288-289",
+      "gate": "out_of_scope",
+      "note": "Out of scope: mouse input is explicitly excluded by A2."
+    },
+    {
+      "item": "Terminal decode: Escape (ESC)",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@43-83",
+      "gate": "G2",
+      "note": "Normalize terminal sequence(s) ESC to the logical key."
+    },
+    {
+      "item": "Terminal decode: Ctrl+R (0x12)",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@43-83",
+      "gate": "G2",
+      "note": "Normalize terminal sequence(s) CTRL-R to the logical key."
+    },
+    {
+      "item": "Terminal decode: Enter (LF)",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@43-83",
+      "gate": "G2",
+      "note": "Normalize terminal sequence(s) LF to the logical key."
+    },
+    {
+      "item": "Terminal decode: Space",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@43-83",
+      "gate": "G2",
+      "note": "Normalize terminal sequence(s) space to the logical key."
+    },
+    {
+      "item": "Terminal decode: Backspace (DEL/BS)",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@43-83",
+      "gate": "G2",
+      "note": "Normalize terminal sequence(s) DEL, BS to the logical key."
+    },
+    {
+      "item": "Terminal decode: Up arrow ([A, OA)",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@43-83",
+      "gate": "G2",
+      "note": "Normalize terminal sequence(s) [A, OA to the logical key."
+    },
+    {
+      "item": "Terminal decode: Down arrow ([B, OB)",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@43-83",
+      "gate": "G2",
+      "note": "Normalize terminal sequence(s) [B, OB to the logical key."
+    },
+    {
+      "item": "Terminal decode: Left arrow ([D, OD)",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@43-83",
+      "gate": "G2",
+      "note": "Normalize terminal sequence(s) [D, OD to the logical key."
+    },
+    {
+      "item": "Terminal decode: Right arrow ([C, OC)",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@43-83",
+      "gate": "G2",
+      "note": "Normalize terminal sequence(s) [C, OC to the logical key."
+    },
+    {
+      "item": "Terminal decode: Insert ([2~, [4h)",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@43-83",
+      "gate": "G2",
+      "note": "Normalize terminal sequence(s) [2~, [4h to the logical key."
+    },
+    {
+      "item": "Terminal decode: Delete ([3~, [P)",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@43-83",
+      "gate": "G2",
+      "note": "Normalize terminal sequence(s) [3~, [P to the logical key."
+    },
+    {
+      "item": "Terminal decode: Home ([H, [1~)",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@43-83",
+      "gate": "G2",
+      "note": "Normalize terminal sequence(s) [H, [1~ to the logical key."
+    },
+    {
+      "item": "Terminal decode: End ([F, [4~)",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@43-83",
+      "gate": "G2",
+      "note": "Normalize terminal sequence(s) [F, [4~ to the logical key."
+    },
+    {
+      "item": "Terminal decode: Page Up ([5~)",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@43-83",
+      "gate": "G2",
+      "note": "Normalize terminal sequence(s) [5~ to the logical key."
+    },
+    {
+      "item": "Terminal decode: Page Down ([6~)",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@43-83",
+      "gate": "G2",
+      "note": "Normalize terminal sequence(s) [6~ to the logical key."
+    },
+    {
+      "item": "Terminal decode: Tab",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@43-83",
+      "gate": "G2",
+      "note": "Normalize terminal sequence(s) tab to the logical key."
+    },
+    {
+      "item": "Terminal decode: Shift+Tab ([Z)",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@43-83",
+      "gate": "G2",
+      "note": "Normalize terminal sequence(s) [Z to the logical key."
+    },
+    {
+      "item": "Terminal decode: F1",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@71-82",
+      "gate": "G2",
+      "note": "Normalize terminal sequence OP to F1."
+    },
+    {
+      "item": "Terminal decode: F2",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@71-82",
+      "gate": "G2",
+      "note": "Normalize terminal sequence OQ to F2."
+    },
+    {
+      "item": "Terminal decode: F3",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@71-82",
+      "gate": "G2",
+      "note": "Normalize terminal sequence OR to F3."
+    },
+    {
+      "item": "Terminal decode: F4",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@71-82",
+      "gate": "G2",
+      "note": "Normalize terminal sequence OS to F4."
+    },
+    {
+      "item": "Terminal decode: F5",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@71-82",
+      "gate": "G2",
+      "note": "Normalize terminal sequence [15~ to F5."
+    },
+    {
+      "item": "Terminal decode: F6",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@71-82",
+      "gate": "G2",
+      "note": "Normalize terminal sequence [17~ to F6."
+    },
+    {
+      "item": "Terminal decode: F7",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@71-82",
+      "gate": "G2",
+      "note": "Normalize terminal sequence [18~ to F7."
+    },
+    {
+      "item": "Terminal decode: F8",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@71-82",
+      "gate": "G2",
+      "note": "Normalize terminal sequence [19~ to F8."
+    },
+    {
+      "item": "Terminal decode: F9",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@71-82",
+      "gate": "G2",
+      "note": "Normalize terminal sequence [20~ to F9."
+    },
+    {
+      "item": "Terminal decode: F10",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@71-82",
+      "gate": "G2",
+      "note": "Normalize terminal sequence [21~ to F10."
+    },
+    {
+      "item": "Terminal decode: F11",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@71-82",
+      "gate": "G2",
+      "note": "Normalize terminal sequence [23~ to F11."
+    },
+    {
+      "item": "Terminal decode: F12",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@71-82",
+      "gate": "G2",
+      "note": "Normalize terminal sequence [24~ to F12."
+    },
+    {
+      "item": "Mouse event decoding",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_input.cpp:Input::get@131-180",
+      "gate": "out_of_scope",
+      "note": "Out of scope: mouse input is explicitly excluded by A2."
+    },
+    {
+      "class": "key_binding",
+      "item": "Main menu: Escape/q/m — close",
+      "upstream_ref": "src/btop_menu.cpp:Menu::mainMenu@1228-1230",
+      "gate": "deferred",
+      "note": "Deferred: closing the general application menu is part of the deferred menu surface."
+    },
+    {
+      "item": "Main menu: mouse click — close",
+      "class": "key_binding",
+      "upstream_ref": "src/btop_menu.cpp:Menu::mainMenu@1228-1230",
+      "gate": "out_of_scope",
+      "note": "Out of scope: mouse input is explicitly excluded by the product interaction contract."
+    },
+    {
+      "item": "Aggregate CPU, uptime, and load",
+      "class": "data_family",
+      "gate": "G1",
+      "upstream_ref": "src/btop_shared.hpp:Cpu::cpu_info@211-231; src/btop_draw.cpp:Cpu::draw@822-824",
+      "note": "Aggregate CPU utilization, load averages, uptime, and aggregate CPU state."
+    },
+    {
+      "item": "Memory and swap totals",
+      "class": "data_family",
+      "gate": "G1",
+      "upstream_ref": "src/btop_shared.hpp:Mem::mem_info@283-292",
+      "note": "Base memory and swap totals used by the dashboard."
+    },
+    {
+      "item": "Selected network interface RX/TX rates",
+      "class": "data_family",
+      "gate": "G1",
+      "upstream_ref": "src/btop_shared.hpp:Net::net_info@314-329; src/btop_input.cpp:Input::process@597-610",
+      "note": "Receive/transmit rates for the selected interface and sampled rate history."
+    },
+    {
+      "item": "Process stat/statm identities and base rows",
+      "class": "data_family",
+      "gate": "G1",
+      "upstream_ref": "src/btop_shared.hpp:Proc::proc_info@395-418; src/btop_shared.hpp:Proc::collect@434-441",
+      "note": "Base process rows and identity fields derived from process statistics and memory data."
+    },
+    {
+      "item": "Sampling rates and replay history",
+      "class": "data_family",
+      "gate": "G1",
+      "upstream_ref": "src/btop_shared.hpp:Cpu::cpu_info@211-231; src/btop_shared.hpp:Net::net_info@314-329",
+      "note": "Retained samples support current rates and replayable rate/graph history."
+    },
+    {
+      "item": "Terminal session, capabilities, and input decoding",
+      "class": "data_family",
+      "gate": "G2",
+      "upstream_ref": "src/btop_input.cpp:Input::Key_escapes@43-83; src/btop_tools.hpp:Term",
+      "note": "Reusable terminal behavior and normalized keyboard input."
+    },
+    {
+      "item": "Process-list scroll, sort, filter, selection, and resize",
+      "class": "data_family",
+      "gate": "G2",
+      "upstream_ref": "src/btop_shared.hpp:Proc::selection@437-439; src/btop_input.cpp:Input::process@325-529",
+      "note": "Read-only process-list navigation and selection behavior."
+    },
+    {
+      "item": "CPU per-core and hotplug telemetry",
+      "class": "data_family",
+      "gate": "G3",
+      "upstream_ref": "src/btop_shared.hpp:Cpu::cpu_info@211-231",
+      "note": "Per-core utilization and active CPU membership."
+    },
+    {
+      "item": "Memory categories",
+      "class": "data_family",
+      "gate": "G3",
+      "upstream_ref": "src/btop_shared.hpp:Mem::mem_names@262-263; src/btop_shared.hpp:Mem::mem_info@283-289",
+      "note": "Used, available, cached, and free categories beyond base totals."
+    },
+    {
+      "item": "Network identity and counter reset",
+      "class": "data_family",
+      "gate": "G3",
+      "upstream_ref": "src/btop_shared.hpp:Net::net_info@323-329; src/btop_input.cpp:Input::process@619-631",
+      "note": "Interface identity, IPv4/IPv6, connectivity, totals, and reset offsets."
+    },
+    {
+      "item": "Process parser joins, tree data, and command-line policy",
+      "class": "data_family",
+      "gate": "G3",
+      "upstream_ref": "src/btop_shared.hpp:Proc::proc_info@395-418; src/btop_shared.hpp:Proc::tree_proc@443-446",
+      "note": "Process metadata, parent/child relationships, and command-line identity policy."
+    },
+    {
+      "item": "CPU sensors and frequency",
+      "class": "data_family",
+      "gate": "G3",
+      "upstream_ref": "src/btop_shared.hpp:Cpu::cpu_info@225-230; src/btop_shared.hpp:Cpu::available_sensors@206-208",
+      "note": "CPU temperature sensors and reported frequency."
+    },
+    {
+      "item": "Battery and UPS telemetry",
+      "class": "data_family",
+      "gate": "G3",
+      "upstream_ref": "src/btop_shared.hpp:Cpu::current_bat@208; src/btop_shared.hpp:Cpu::get_battery@252-253",
+      "note": "Battery/UPS charge, status, remaining time, and power."
+    },
+    {
+      "item": "Counter and clock data",
+      "class": "data_family",
+      "gate": "G3",
+      "upstream_ref": "src/btop_draw.cpp:Draw::update_clock@306-365; src/btop_shared.hpp:Cpu::cpu_info@228-230",
+      "note": "Clock/counter values used for time display and telemetry timing."
+    },
+    {
+      "item": "Disk readers and mount capacity",
+      "class": "data_family",
+      "gate": "G3",
+      "upstream_ref": "src/btop_shared.hpp:Mem::disk_info@266-281; src/btop_shared.hpp:Mem::collect@297-301",
+      "note": "Device, filesystem, mount capacity, and used/free data from disk readers."
+    },
+    {
+      "item": "Graph engine, default panels, palette, and fixed appearance",
+      "class": "data_family",
+      "gate": "G4a",
+      "upstream_ref": "src/btop_draw.cpp:Draw::calcSizes; src/btop_theme.cpp:Theme::colors; src/btop_shared.hpp:Global",
+      "note": "Fixed dashboard panels, default color palette, graph marks, and non-configurable appearance."
+    },
+    {
+      "item": "Process-tree UI and in-scope process keys",
+      "class": "data_family",
+      "gate": "G4a",
+      "upstream_ref": "src/btop_input.cpp:Input::process@346-355,491-499; src/btop_shared.hpp:Proc::tree_proc@443-446",
+      "note": "Display and navigate process-tree rows."
+    },
+    {
+      "item": "Disk panel and disk I/O display",
+      "class": "data_family",
+      "gate": "G4a",
+      "upstream_ref": "src/btop_shared.hpp:Mem::disk_info@266-281; src/btop_shared.hpp:Mem::draw@300-301",
+      "note": "Render the in-scope disk panel and its capacity/I/O data."
+    },
+    {
+      "item": "GPU telemetry and vendor panels",
+      "class": "data_family",
+      "gate": "deferred",
+      "upstream_ref": "src/btop_shared.hpp:Gpu::gpu_info@147-178; src/btop_shared.hpp:Gpu::collect@192-196",
+      "note": "Deferred: this upstream data family is outside the G0–G4a scope."
+    },
+    {
+      "item": "Detailed process information view",
+      "class": "data_family",
+      "gate": "deferred",
+      "upstream_ref": "src/btop_shared.hpp:Proc::detail_container@420-429",
+      "note": "Deferred: this upstream data family is outside the G0–G4a scope."
+    },
+    {
+      "item": "CPU package wattage",
+      "class": "data_family",
+      "gate": "deferred",
+      "upstream_ref": "src/btop_shared.hpp:Cpu::cpu_info@228-230; src/btop_draw.cpp:Cpu::draw@856",
+      "note": "Deferred: this upstream data family is outside the G0–G4a scope."
+    },
+    {
+      "item": "Hostname and username clock substitutions",
+      "class": "data_family",
+      "gate": "deferred",
+      "upstream_ref": "src/btop_draw.cpp:Draw::update_clock@313-349",
+      "note": "Deferred: this upstream data family is outside the G0–G4a scope."
+    }
+  ]
+}

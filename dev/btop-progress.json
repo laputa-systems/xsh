@@ -1,0 +1,1553 @@
+{
+  "schema": 1,
+  "xsh_start_commit": "41835c6eb7969086445ac3954511910719a85f9e",
+  "upstream": {
+    "tag": "v1.4.7",
+    "commit": "6e39144aaf5a6bc01b9f795010b0914431067183"
+  },
+  "gate": "G1",
+  "last_green_commit": "41835c6eb7969086445ac3954511910719a85f9e",
+  "audit": {
+    "new_core_script": "New core/*.xsh applets are installed by the release script at dev/release.xsh:146-160; dev/tests/test-repository-contracts.xsh owns the required core script inventory and contract checks. No separate command registration is needed.",
+    "launcher_argument_separator": "Use xsh SCRIPT -- ARGS for an applet and xsh -- SCRIPT ARGS for an explicit script; src/entrypoints/xsh.rs:90-120.",
+    "stdlib_multi_file_modules": "No: the embedded standard library catalog maps each identity to one source file, src/stdlib.rs:40-92 and src/loader.rs:751-818. Dotted user modules resolve through module roots, src/loader.rs:982-1020.",
+    "pty_test_wiring": "tests/core_compat_extra.rs:13-34 includes tests/core_compat_extra/pty.rs; Cargo.toml:157-165 declares core_compat_extra. The new applet invocation should use xsh core/btop.xsh -- ARGS.",
+    "monotonic_clock": "No public monotonic clock exists. time.now is wall-clock only, crates/xsh-registry/src/signature/docs.rs:1528-1531; G1 needs the smallest registry-backed monotonic API."
+  },
+  "assertions": [
+    {
+      "id": "g0.coverage",
+      "gate": "G0",
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "dev/tests/test-btop-ledger.xsh::test_btop_ledger_and_coverage_are_current"
+      ],
+      "evidence": "Pinned CLI, public config, menu, key-binding, and data-family denominator frozen at 265 rows; class and gate counts are asserted, and the recorded SHA-256 pins the file."
+    },
+    {
+      "id": "g0.defaults",
+      "gate": "G0",
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "dev/tests/test-btop-ledger.xsh::test_btop_ledger_and_coverage_are_current"
+      ],
+      "evidence": "All 56 behavior- or appearance-affecting in-scope config defaults carry typed values, pinned source locations, and exactly one dependent assertion; ledger test checks coverage correspondence."
+    },
+    {
+      "id": "g0.baseline",
+      "gate": "G0",
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "tests/xsh/stdlib/tui.xsh::test_tui_helpers",
+        "core/tests/test-sys-source.xsh::test_sys_source_read_withholds_values_it_cannot_prove_complete",
+        "tests/xsh/system-report.xsh::test_system_report_json_round_trip_and_redaction",
+        "tests/xsh/system-report-collect.xsh::test_system_report_bounded_text_reader_withholds_truncated_prefix",
+        "dev/tests/test-system-report-check.xsh::test_system_report_coverage_manifest_contract",
+        "dev/tests/test-repository-contracts.xsh::test_command_inventory_matches_sources_and_pinned_scope"
+      ],
+      "evidence": "Host-only release baseline passed: TUI 10, sys collectors 25, system-report 133, collect 7, system-report check harness 224, repository contracts 5 (404 tests total). Logs are in .work/btop-campaign/."
+    },
+    {
+      "id": "g0.ledger",
+      "gate": "G0",
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "dev/tests/test-btop-ledger.xsh::test_btop_ledger_and_coverage_are_current"
+      ],
+      "evidence": "A6 ledger structure, assertion statuses, passed-test references, blocked-status relations, and frozen coverage digest pass the native ledger test."
+    },
+    {
+      "id": "g0.linux_baseline",
+      "gate": "G0",
+      "implemented": false,
+      "status": "blocked_external",
+      "tests": [],
+      "evidence": "The pinned arm64 Docker image built, but Docker could not start its cargo process on this x86_64 host: Exec format error. No suite tests ran; duration to suite start was not measured."
+    },
+    {
+      "id": "g1.cpu.aggregate",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.cpu.cold",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.cpu.idle_interval",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.proc.cpu_total",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.proc.cpu_per_core",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.proc.rss",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.proc.sort_ties",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.proc.lifetime",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.net.rates",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.net.unavailable",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.net.select",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.mem.used",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.mem.swap_absent_vs_zero",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.mem.malformed",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.src.zero_vs_absent",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.src.truncation_no_prefix",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.screen.80x24",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.screen.120x40",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.screen.too_small",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.cli.reject_unknown",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.replay.deterministic",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.replay.no_live_fallback",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.replay.headless_no_sleep",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.pty.update_resize_quit",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.pty.ctrl_c",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.noexec",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.regress.system_report",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g1.regress.top",
+      "gate": "G1",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.term.cleanup",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.term.nontty",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.caps.detect",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.loop.deadline",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.loop.coalesce",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.terminal.sync",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.input.split_points",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.input.multi_per_read",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.input.esc_timeout",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.input.malformed_utf8",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.input.bounded",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.input.paste_inert",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.text.width",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.text.hostile",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.surface.clip",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.surface.diff_equals_full",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.surface.partial_write_recovery",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.surface.unchanged_zero_bytes",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.surface.bottom_right",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.ui.select_identity",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.ui.sort_reverse",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.ui.filter",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.ui.resize",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.generic_app",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g2.no_native_btop",
+      "gate": "G2",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.sched.class",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.cache.ttl",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.cache.invalidation",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.cache.eviction",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.cpu.per_core",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.cpu.sparse_ids",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.cpu.hotplug",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.cpu.guest",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.cpu.iowait",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.cpu.reset",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.cpu.load",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.cpu.uptime",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.cpu.core_map",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.cpu.frequency",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.cpu.frequency_mode",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.mem.categories",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.mem.absent_available",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.mem.no_swap",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.mem.duplicates",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.mem.malformed",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.mem.large",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.net.selection",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.net.rename_epoch",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.net.replacement_epoch",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.net.reset",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.net.empty_set",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.net.namespace",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.net.units",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.proc.stat_parse",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.proc.identity_race",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.proc.indexed_join",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.proc.adjacency",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.proc.tree_aggregation",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.proc.sort_modes",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.proc.filter",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.proc.command_line_privacy",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.sensor.cpu_temp",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.sensor.core_temp",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.sensor.duplicates",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.sensor.missing",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.sensor.frequency",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.sensor.battery",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.sensor.cpu_select",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.sensor.temperature_units",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.counter.precision",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.clock.edge_cases",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.disk.block_io",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.disk.in_flight",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.disk.no_double_count",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.disk.mount_capacity",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.disk.escaped_paths",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.proc.scaling",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.cache.churn_bounded",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g3.source.degradation",
+      "gate": "G3",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g4.graph.braille_default",
+      "gate": "G4a",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g4.graph.dot_mapping",
+      "gate": "G4a",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g4.graph.time_columns",
+      "gate": "G4a",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g4.graph.inversion",
+      "gate": "G4a",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g4.graph.zero",
+      "gate": "G4a",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g4.graph.gaps",
+      "gate": "G4a",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g4.graph.autoscale_spikes",
+      "gate": "G4a",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g4.graph.retention",
+      "gate": "G4a",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g4.graph.resize",
+      "gate": "G4a",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g4.panel.defaults",
+      "gate": "G4a",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g4.panel.cpu_defaults",
+      "gate": "G4a",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g4.panel.memory_defaults",
+      "gate": "G4a",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g4.panel.network_defaults",
+      "gate": "G4a",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g4.color.mapping",
+      "gate": "G4a",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g4.color.no_color",
+      "gate": "G4a",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g4.proc.defaults",
+      "gate": "G4a",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g4.proc.sorting",
+      "gate": "G4a",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g4.proc.tree",
+      "gate": "G4a",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g4.proc.collapse_expand",
+      "gate": "G4a",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g4.proc.aggregation",
+      "gate": "G4a",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g4.keys.default_only",
+      "gate": "G4a",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g4.semantic_goldens",
+      "gate": "G4a",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    },
+    {
+      "id": "g4.disk.defaults",
+      "gate": "G4a",
+      "implemented": false,
+      "status": "not_run",
+      "tests": [],
+      "evidence": ""
+    }
+  ],
+  "blocked": [
+    {
+      "id": "g0.linux_baseline",
+      "kind": "external",
+      "reason": "The pinned Linux lane targets aarch64-unknown-linux-musl but this host is x86_64 and has no ARM64 binfmt handler; Docker returns Exec format error before tests start.",
+      "reproducer": "TARGET=aarch64-unknown-linux-musl cargo dev test linux",
+      "unblock_command": "Run the same pinned lane on an ARM64 host or on a host with the repository-required ARM64 binfmt support, then compare final failures with the baseline."
+    }
+  ],
+  "contract_changes": [],
+  "limitations": [
+    "G0 host evidence is host-only because the pinned ARM64 Docker lane failed before the test suite started; its failing test set is empty because no tests ran.",
+    "The G0 lane attempt did not record wall-clock duration to suite start; no duration is inferred from the log."
+  ],
+  "measurements": {
+    "coverage_sha256": "b43040859dfa851f8f484714381a08e48cf3da65361d95e2f634790eb7f4f02f",
+    "coverage_g0_sha256": "b43040859dfa851f8f484714381a08e48cf3da65361d95e2f634790eb7f4f02f",
+    "coverage_row_count": 265,
+    "coverage_class_counts": {
+      "cli_option": 14,
+      "config_key": 88,
+      "menu": 14,
+      "key_binding": 127,
+      "data_family": 22
+    },
+    "coverage_gate_counts": {
+      "G1": 13,
+      "G2": 49,
+      "G3": 26,
+      "G4a": 47,
+      "deferred": 58,
+      "out_of_scope": 72
+    },
+    "baseline": {
+      "kind": "host_only",
+      "build": {
+        "status": "passed",
+        "command": "LD_PRELOAD=/usr/lib/libjemalloc.so.2 TMPDIR=.work/tmp CARGO_TARGET_DIR=.work/btop-campaign/target cargo build --release -p xsh --bins -p xsht --bin xsht",
+        "log": ".work/btop-campaign/baseline-build.log"
+      },
+      "suites": [
+        {
+          "name": "tui",
+          "status": "passed",
+          "tests": 10,
+          "representative_test": "tests/xsh/stdlib/tui.xsh::test_tui_helpers",
+          "log": ".work/btop-campaign/baseline-tui.log"
+        },
+        {
+          "name": "sys collectors",
+          "status": "passed",
+          "tests": 25,
+          "representative_test": "core/tests/test-sys-source.xsh::test_sys_source_read_withholds_values_it_cannot_prove_complete",
+          "log": ".work/btop-campaign/baseline-sys.log"
+        },
+        {
+          "name": "system-report",
+          "status": "passed",
+          "tests": 133,
+          "representative_test": "tests/xsh/system-report.xsh::test_system_report_json_round_trip_and_redaction",
+          "log": ".work/btop-campaign/baseline-system-report.log"
+        },
+        {
+          "name": "system-report-collect",
+          "status": "passed",
+          "tests": 7,
+          "representative_test": "tests/xsh/system-report-collect.xsh::test_system_report_bounded_text_reader_withholds_truncated_prefix",
+          "log": ".work/btop-campaign/baseline-system-report-collect.log"
+        },
+        {
+          "name": "system-report check harness",
+          "status": "passed",
+          "tests": 224,
+          "representative_test": "dev/tests/test-system-report-check.xsh::test_system_report_coverage_manifest_contract",
+          "log": ".work/btop-campaign/baseline-system-report-check.log"
+        },
+        {
+          "name": "repository contracts",
+          "status": "passed",
+          "tests": 5,
+          "representative_test": "dev/tests/test-repository-contracts.xsh::test_command_inventory_matches_sources_and_pinned_scope",
+          "log": ".work/btop-campaign/baseline-repository-contracts.log"
+        }
+      ],
+      "total_tests": 404
+    },
+    "linux_lane": {
+      "status": "blocked_external",
+      "target": "aarch64-unknown-linux-musl",
+      "elapsed_seconds": null,
+      "suite_started": false,
+      "failing_tests": [],
+      "failure_stage": "Docker could not exec cargo: Exec format error",
+      "log": ".work/btop-campaign/linux-baseline.log"
+    },
+    "reference_build": {
+      "status": "not_attempted",
+      "optional": true
+    }
+  },
+  "defaults": [
+    {
+      "key": "rounded_corners",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[rounded_corners]@299",
+      "assertion": "g4.panel.defaults"
+    },
+    {
+      "key": "terminal_sync",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[terminal_sync]@357",
+      "assertion": "g2.terminal.sync"
+    },
+    {
+      "key": "graph_symbol",
+      "value": "braille",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[graph_symbol]@255",
+      "assertion": "g4.graph.braille_default"
+    },
+    {
+      "key": "graph_symbol_cpu",
+      "value": "default",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[graph_symbol_cpu]@258",
+      "assertion": "g4.graph.braille_default"
+    },
+    {
+      "key": "graph_symbol_mem",
+      "value": "default",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[graph_symbol_mem]@260",
+      "assertion": "g4.graph.braille_default"
+    },
+    {
+      "key": "graph_symbol_net",
+      "value": "default",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[graph_symbol_net]@261",
+      "assertion": "g4.graph.braille_default"
+    },
+    {
+      "key": "graph_symbol_proc",
+      "value": "default",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[graph_symbol_proc]@262",
+      "assertion": "g4.graph.braille_default"
+    },
+    {
+      "key": "shown_boxes",
+      "value": "cpu mem net proc",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[shown_boxes]@254",
+      "assertion": "g4.panel.defaults"
+    },
+    {
+      "key": "update_ms",
+      "value": 2000,
+      "upstream_ref": "src/btop_config.cpp:Config::ints[update_ms]@364",
+      "assertion": "g2.loop.deadline"
+    },
+    {
+      "key": "proc_sorting",
+      "value": "cpu lazy",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[proc_sorting]@263",
+      "assertion": "g4.proc.sorting"
+    },
+    {
+      "key": "proc_reversed",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[proc_reversed]@300",
+      "assertion": "g4.proc.sorting"
+    },
+    {
+      "key": "proc_tree",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[proc_tree]@301",
+      "assertion": "g4.proc.tree"
+    },
+    {
+      "key": "proc_colors",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[proc_colors]@302",
+      "assertion": "g4.proc.defaults"
+    },
+    {
+      "key": "proc_gradient",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[proc_gradient]@303",
+      "assertion": "g4.proc.defaults"
+    },
+    {
+      "key": "proc_per_core",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[proc_per_core]@304",
+      "assertion": "g4.proc.defaults"
+    },
+    {
+      "key": "proc_mem_bytes",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[proc_mem_bytes]@305",
+      "assertion": "g4.proc.defaults"
+    },
+    {
+      "key": "proc_cpu_graphs",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[proc_cpu_graphs]@306",
+      "assertion": "g4.proc.defaults"
+    },
+    {
+      "key": "proc_left",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[proc_left]@308",
+      "assertion": "g4.proc.defaults"
+    },
+    {
+      "key": "proc_aggregate",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[proc_aggregate]@344",
+      "assertion": "g4.proc.defaults"
+    },
+    {
+      "key": "cpu_graph_upper",
+      "value": "Auto",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[cpu_graph_upper]@264",
+      "assertion": "g4.panel.cpu_defaults"
+    },
+    {
+      "key": "cpu_graph_lower",
+      "value": "Auto",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[cpu_graph_lower]@265",
+      "assertion": "g4.panel.cpu_defaults"
+    },
+    {
+      "key": "cpu_invert_lower",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[cpu_invert_lower]@310",
+      "assertion": "g4.panel.cpu_defaults"
+    },
+    {
+      "key": "cpu_single_graph",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[cpu_single_graph]@311",
+      "assertion": "g4.panel.cpu_defaults"
+    },
+    {
+      "key": "cpu_bottom",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[cpu_bottom]@312",
+      "assertion": "g4.panel.cpu_defaults"
+    },
+    {
+      "key": "show_uptime",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[show_uptime]@313",
+      "assertion": "g4.panel.defaults"
+    },
+    {
+      "key": "check_temp",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[check_temp]@315",
+      "assertion": "g3.sensor.cpu_temp"
+    },
+    {
+      "key": "cpu_sensor",
+      "value": "Auto",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[cpu_sensor]@266",
+      "assertion": "g3.sensor.cpu_select"
+    },
+    {
+      "key": "show_coretemp",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[show_coretemp]@316",
+      "assertion": "g3.sensor.core_temp"
+    },
+    {
+      "key": "cpu_core_map",
+      "value": "",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[cpu_core_map]@268",
+      "assertion": "g3.cpu.core_map"
+    },
+    {
+      "key": "temp_scale",
+      "value": "celsius",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[temp_scale]@269",
+      "assertion": "g3.sensor.temperature_units"
+    },
+    {
+      "key": "base_10_sizes",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[base_10_sizes]@331",
+      "assertion": "g4.panel.defaults"
+    },
+    {
+      "key": "show_cpu_freq",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[show_cpu_freq]@317",
+      "assertion": "g3.cpu.frequency"
+    },
+    {
+      "key": "freq_mode",
+      "value": "first",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[freq_mode]@271",
+      "assertion": "g3.cpu.frequency_mode"
+    },
+    {
+      "key": "clock_format",
+      "value": "%X",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[clock_format]@273",
+      "assertion": "g4.panel.defaults"
+    },
+    {
+      "key": "disks_filter",
+      "value": "",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[disks_filter]@275",
+      "assertion": "g4.disk.defaults"
+    },
+    {
+      "key": "mem_graphs",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[mem_graphs]@319",
+      "assertion": "g4.panel.memory_defaults"
+    },
+    {
+      "key": "mem_below_net",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[mem_below_net]@320",
+      "assertion": "g4.panel.memory_defaults"
+    },
+    {
+      "key": "show_swap",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[show_swap]@322",
+      "assertion": "g4.panel.memory_defaults"
+    },
+    {
+      "key": "swap_disk",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[swap_disk]@323",
+      "assertion": "g4.disk.defaults"
+    },
+    {
+      "key": "show_disks",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[show_disks]@324",
+      "assertion": "g4.disk.defaults"
+    },
+    {
+      "key": "only_physical",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[only_physical]@325",
+      "assertion": "g4.disk.defaults"
+    },
+    {
+      "key": "use_fstab",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[use_fstab]@326",
+      "assertion": "g4.disk.defaults"
+    },
+    {
+      "key": "show_io_stat",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[show_io_stat]@328",
+      "assertion": "g4.disk.defaults"
+    },
+    {
+      "key": "io_mode",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[io_mode]@329",
+      "assertion": "g4.disk.defaults"
+    },
+    {
+      "key": "io_graph_combined",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[io_graph_combined]@332",
+      "assertion": "g4.disk.defaults"
+    },
+    {
+      "key": "io_graph_speeds",
+      "value": "",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[io_graph_speeds]@276",
+      "assertion": "g4.disk.defaults"
+    },
+    {
+      "key": "swap_upload_download",
+      "value": false,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[swap_upload_download]@330",
+      "assertion": "g4.panel.network_defaults"
+    },
+    {
+      "key": "net_download",
+      "value": 100,
+      "upstream_ref": "src/btop_config.cpp:Config::ints[net_download]@365",
+      "assertion": "g4.panel.network_defaults"
+    },
+    {
+      "key": "net_upload",
+      "value": 100,
+      "upstream_ref": "src/btop_config.cpp:Config::ints[net_upload]@366",
+      "assertion": "g4.panel.network_defaults"
+    },
+    {
+      "key": "net_auto",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[net_auto]@333",
+      "assertion": "g4.panel.network_defaults"
+    },
+    {
+      "key": "net_sync",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[net_sync]@334",
+      "assertion": "g4.panel.network_defaults"
+    },
+    {
+      "key": "net_iface",
+      "value": "",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[net_iface]@277",
+      "assertion": "g1.net.select"
+    },
+    {
+      "key": "base_10_bitrate",
+      "value": "Auto",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[base_10_bitrate]@278",
+      "assertion": "g3.net.units"
+    },
+    {
+      "key": "show_battery",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[show_battery]@335",
+      "assertion": "g3.sensor.battery"
+    },
+    {
+      "key": "selected_battery",
+      "value": "Auto",
+      "upstream_ref": "src/btop_config.cpp:Config::strings[selected_battery]@267",
+      "assertion": "g3.sensor.battery"
+    },
+    {
+      "key": "show_battery_watts",
+      "value": true,
+      "upstream_ref": "src/btop_config.cpp:Config::bools[show_battery_watts]@336",
+      "assertion": "g3.sensor.battery"
+    }
+  ],
+  "next": [
+    "G1: implement the small live and replay monitor on the serial critical path."
+  ]
+}
