@@ -4,8 +4,9 @@ use super::{
 };
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
-    ArenaBindingTargetKind, ArenaCompQualifier, ArenaExprKind, ArenaPatternKind, ArenaProgram,
-    ArenaRecordFieldKind, ArenaStmtKind, BindingTargetId, ExprId, FunctionDefId, PatternId, StmtId,
+    ArenaBindingTargetKind, ArenaChild, ArenaCompQualifier, ArenaExprKind, ArenaPatternKind,
+    ArenaProgram, ArenaRecordFieldKind, ArenaStmtKind, BindingTargetId, ExprId, FunctionDefId,
+    PatternId, StmtId,
 };
 
 struct ReturnDeclaration {
@@ -895,40 +896,32 @@ fn pattern_binding_names(program: &ArenaProgram, pattern: PatternId) -> Vec<Name
     let mut work = vec![pattern];
     while let Some(pattern) = work.pop() {
         match program.arena.pattern(pattern).kind {
-            ArenaPatternKind::Alias { pattern, name, .. } => {
+            ArenaPatternKind::Alias { name, .. } | ArenaPatternKind::Binding(name) => {
                 names.push(name);
-                work.push(pattern);
             }
-            ArenaPatternKind::Group(pattern) => work.push(pattern),
-            ArenaPatternKind::List { elements, rest } => {
-                work.extend(program.arena.pattern_ids(elements));
-                work.extend(rest);
+            ArenaPatternKind::Type { binding, .. } | ArenaPatternKind::TextHole { binding, .. } => {
+                if let Some(name) = binding {
+                    names.push(name);
+                }
             }
-            ArenaPatternKind::Binding(name)
-            | ArenaPatternKind::Type {
-                binding: Some(name),
-                ..
-            } => names.push(name),
-            ArenaPatternKind::Record { fields, .. }
-            | ArenaPatternKind::ErrorVariant { fields, .. } => work.extend(
-                program
-                    .arena
-                    .pattern_fields(fields)
-                    .iter()
-                    .map(|field| field.pattern),
-            ),
-            ArenaPatternKind::Constructor {
-                arg: Some(pattern), ..
-            } => work.push(pattern),
-            ArenaPatternKind::Tuple(patterns)
-            | ArenaPatternKind::Alternation(patterns)
-            | ArenaPatternKind::Text(patterns) => work.extend(program.arena.pattern_ids(patterns)),
-            ArenaPatternKind::TextHole {
-                binding: Some(name),
-                ..
-            } => names.push(name),
-            _ => {}
+            ArenaPatternKind::Group(_)
+            | ArenaPatternKind::Wildcard
+            | ArenaPatternKind::TestName { .. }
+            | ArenaPatternKind::Literal(_)
+            | ArenaPatternKind::Record { .. }
+            | ArenaPatternKind::List { .. }
+            | ArenaPatternKind::Alternation(_)
+            | ArenaPatternKind::Constructor { .. }
+            | ArenaPatternKind::ErrorVariant { .. }
+            | ArenaPatternKind::Facet(_)
+            | ArenaPatternKind::Tuple(_)
+            | ArenaPatternKind::Text(_) => {}
         }
+        program.arena.for_each_pattern_child(pattern, |child| {
+            if let ArenaChild::Pattern(child) = child {
+                work.push(child);
+            }
+        });
     }
     names
 }

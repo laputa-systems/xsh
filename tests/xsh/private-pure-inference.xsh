@@ -25,12 +25,23 @@ pure inferred_record(value: Int) {
   {value, label: "ready"}
 }
 
+pure inferred_text_pattern_alias(subject: Str) {
+  match subject {
+    f"{inferred_text_pattern_alias}" as whole => inferred_text_pattern_alias + whole
+    _ => ""
+  }
+}
+
 test test_private_pure_inference_values {
   assert inferred_forward(" Label ") == "label"
   assert inferred_bool(-1) == false
   assert inferred_returns(-2) == -1
   assert inferred_returns(2) == 3
   assert inferred_record(4).value == 4
+}
+
+test test_private_pure_inference_text_hole_capture_under_alias {
+  assert inferred_text_pattern_alias("ready") == "readyready"
 }
 
 test test_private_pure_inference_declaration_order { |ctx|
