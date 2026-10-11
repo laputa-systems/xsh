@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "fixtures_sha256": "575c949c539ec7dc8a968b783555214197329d44b30a781719f105553d02f502",
+  "base_images": {"amd64": "sha256:99e195582ba55dc427b1551022fbe56f8f344ed7838e971ecba86ce43a7733e9"},
+  "versions": {"bash": "5.3.9", "python": "3.14.8", "dash": "0.5.12", "nushell": "0.107.0", "ysh": "0.37.0", "elvish": "0.21.0"},
+  "sources": {
+    "dash": {"url": "https://deb.debian.org/debian/pool/main/d/dash/dash_0.5.12.orig.tar.gz", "sha256": "6a474ac46e8b0b32916c4c60df694c82058d3297d8b385b74508030ca4a8f28a"},
+    "oils": {"url": "https://www.oils.pub/download/oils-for-unix-0.37.0.tar.gz", "sha256": "f4d41d20a0523dbcfbd4ba231f82edf25b08d4965d65bc71fcb56666d6743000"},
+    "nushell": {
+      "amd64": {"url": "https://github.com/nushell/nushell/releases/download/0.107.0/nu-0.107.0-x86_64-unknown-linux-musl.tar.gz", "sha256": "dd369b7fedeed3add745bce2dc50e3fe71a7cb48f529456e8887d66f2cde585f"},
+      "arm64": {"url": "https://github.com/nushell/nushell/releases/download/0.107.0/nu-0.107.0-aarch64-unknown-linux-musl.tar.gz", "sha256": "6b1699ca3eb6f762f5fe9c401dda6a03611631bb19d707b9c45fa621e3bf2f36"}
+    },
+    "elvish": {
+      "amd64": {"url": "https://dl.elv.sh/linux-amd64/elvish-v0.21.0.tar.gz", "sha256": "d78f961addda5d1d3bdd0c1a70ad23ca77a308c27008fb8b9ec83777b58f7572"},
+      "arm64": {"url": "https://dl.elv.sh/linux-arm64/elvish-v0.21.0.tar.gz", "sha256": "5368c9dbdbcfe5565344ba73f0dbf87952b25a60d8e96de4347640c3a70437ee"}
+    }
+  },
+  "laputa": {"commit": "048592b0473bcee57b5dd0573297115ab78ef633", "sources": ["pm.xsh", "pm/proof.xsh", "packages/libcap/PKGBUILD.xsh", "pm/generation.xsh", "pm/remote.xsh"]}
+}
