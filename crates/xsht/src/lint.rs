@@ -512,10 +512,9 @@ struct Binding {
 
 pub struct Linter<'a> {
     arena: &'a AstArena,
-    /// The source's parenthesized expressions, and where every expression is
-    /// written, built when the first rule asks for an expression's context.
+    /// Parenthesis spans and propagation contexts accumulated by the source walk.
     paren_groups: &'a [(ExprId, Span)],
-    expr_positions: std::cell::OnceCell<lint_redundant_propagation::ExprPositions>,
+    expr_positions: Option<lint_redundant_propagation::ExprPositions>,
     record_constructors: xsh::frontend::check::RecordConstructors,
     checked_output: Option<std::sync::Arc<xsh::frontend::check::CheckOutput>>,
     return_proof: Option<ReturnProofContext>,
@@ -531,6 +530,10 @@ pub struct Linter<'a> {
     checked_binding_uses: BTreeMap<BindingId, BTreeSet<ExprId>>,
     borrowed_root_receivers: BTreeMap<BindingId, BTreeSet<ExprId>>,
     non_expression_binding_uses: BTreeMap<BindingId, Vec<Span>>,
+    tempdir_scope_functions: Vec<FunctionDefId>,
+    tempdir_scope_loops: Vec<StmtId>,
+    tempdir_scope_try_expressions: Vec<ExprId>,
+    tempdir_scope_identifiers: Vec<(Name, Span)>,
     checked_function_returns: CheckedFact<BTreeMap<Span, Type>>,
     expr_types: CheckedFact<BTreeMap<Span, Type>>,
     proven_nonnull_fallback_receivers: CheckedFact<BTreeSet<Span>>,
@@ -554,7 +557,13 @@ pub struct Linter<'a> {
     standard_call_spans: CheckedFact<BTreeMap<Span, (String, String)>>,
     statement_call_spans: BTreeMap<Span, Span>,
     whole_statement_call_spans: BTreeMap<Span, Span>,
-    whole_statement_values: std::sync::OnceLock<FxHashSet<ExprId>>,
+    whole_statement_values: FxHashSet<ExprId>,
+    defer_block_references: FxHashMap<Name, usize>,
+    name_reference_exprs: FxHashSet<ExprId>,
+    defer_block_proc_calls: FxHashSet<Name>,
+    linear_pipeline_identifier_uses: FxHashMap<Name, Vec<Span>>,
+    linear_pipeline_shorthand_fields: FxHashMap<Name, Vec<Span>>,
+    binding_initializer_types: FxHashMap<Span, Type>,
     guarded_statement_depth: usize,
     propagating_statements: CheckedFact<BTreeSet<Span>>,
     discardable_bindings: CheckedFact<BTreeSet<Span>>,
@@ -756,7 +765,7 @@ impl<'a> Linter<'a> {
             record_constructors: xsh::frontend::check::RecordConstructors::collect_view(view),
             arena: &program.arena,
             paren_groups: &program.paren_groups,
-            expr_positions: std::cell::OnceCell::new(),
+            expr_positions: None,
             duration_conversion_module_unshadowed: !view
                 .statement_ids()
                 .chain(view.modules().flat_map(|module| program.module_statements(module)))
@@ -791,6 +800,10 @@ impl<'a> Linter<'a> {
             } else {
                 BTreeMap::new()
             },
+            tempdir_scope_functions: Vec::new(),
+            tempdir_scope_loops: Vec::new(),
+            tempdir_scope_try_expressions: Vec::new(),
+            tempdir_scope_identifiers: Vec::new(),
             checked_function_returns: checked_fact!(
                 function_return_types,
                 checked_output.clone(),
@@ -864,7 +877,13 @@ impl<'a> Linter<'a> {
             ),
             statement_call_spans: BTreeMap::new(),
             whole_statement_call_spans: BTreeMap::new(),
-            whole_statement_values: std::sync::OnceLock::new(),
+            whole_statement_values: FxHashSet::default(),
+            defer_block_references: FxHashMap::default(),
+            name_reference_exprs: FxHashSet::default(),
+            defer_block_proc_calls: FxHashSet::default(),
+            linear_pipeline_identifier_uses: FxHashMap::default(),
+            linear_pipeline_shorthand_fields: FxHashMap::default(),
+            binding_initializer_types: FxHashMap::default(),
             guarded_statement_depth: 0,
             propagating_statements: checked_fact!(
                 propagating_statements,
@@ -1146,18 +1165,11 @@ impl<'a> Linter<'a> {
             }) {
                 continue;
             }
-            let references = (0..self.arena.expr_tags.len())
-                .filter(|&index| {
-                    matches!(
-                        self.arena.expr(ExprId::from_index(index)).kind,
-                        ArenaExprKind::Ident(name) if name == definition.name
-                    )
-                })
-                .count();
-            if references != 1 || (0..self.arena.stmt_tags.len()).any(|index| {
-                let ArenaStmtKind::Command(command) = self.arena.stmt(StmtId::from_index(index)).kind else { return false };
-                matches!(self.arena.command_stmt(command).command, ArenaCommand::Proc { name, .. } if name == definition.name)
-            }) { continue; }
+            if self.defer_block_references.get(&definition.name) != Some(&1)
+                || self.defer_block_proc_calls.contains(&definition.name)
+            {
+                continue;
+            }
             let deferred = statements.iter().find_map(|&id| {
                 let stmt = self.arena.stmt(id);
                 let ArenaStmtKind::Defer(ArenaExprOrRun::Expr(call), DeferTrigger::Exit) = stmt.kind else { return None };
@@ -1252,7 +1264,7 @@ impl<'a> Linter<'a> {
         self.lint_statement_sequence(statements);
         rules::sequence_exit(
             self,
-            rules::SequenceExit::Root,
+            rules::SequenceExitSite::Root,
             statements,
             close_diagnostic_index,
         );
@@ -6181,7 +6193,7 @@ mod nested_pipeline_index_tests {
     }
 
     #[test]
-    fn nested_pipeline_statement_membership_is_indexed_once() {
+    fn nested_pipeline_statement_membership_uses_the_regular_walk() {
         let mut source = "pure identity(value: Int) -> Int { value }\n".to_owned();
         for index in 0..64 {
             source.push_str(&format!("let selected_{index} = identity({index})\n"));
@@ -6206,7 +6218,7 @@ mod nested_pipeline_index_tests {
         assert_eq!(
             STATEMENTS.with(Cell::get),
             parsed.arena.arena.stmt_tags.len(),
-            "whole statement membership must require one scan for every eligible expression"
+            "the table hook should collect statement values during ordinary visitation"
         );
     }
 }

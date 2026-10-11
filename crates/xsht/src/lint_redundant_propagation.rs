@@ -260,74 +260,7 @@ pub(super) struct ExprPositions {
 
 impl ExprPositions {
     pub(super) fn new(arena: &AstArena, paren_groups: &[(ExprId, Span)]) -> Self {
-        let mut parents = vec![None; arena.expr_tags.len()];
-        for index in 0..arena.expr_tags.len() {
-            let parent = ExprId::from_index(index);
-            for_each_child(arena, parent, |child| parents[child.index()] = Some(parent));
-        }
-        let mut statement_values = FxHashMap::default();
-        for index in 0..arena.stmt_tags.len() {
-            match arena.stmt(StmtId::from_index(index)).kind {
-                ArenaStmtKind::Expr(value) => {
-                    statement_values.insert(
-                        value,
-                        Some(Lead::Statement {
-                            after_expression: false,
-                        }),
-                    );
-                }
-                ArenaStmtKind::Let {
-                    initializer: value, ..
-                }
-                | ArenaStmtKind::Var {
-                    initializer: value, ..
-                }
-                | ArenaStmtKind::Const {
-                    initializer: value, ..
-                }
-                | ArenaStmtKind::Guard {
-                    initializer: value, ..
-                }
-                | ArenaStmtKind::Assign { value, .. }
-                | ArenaStmtKind::Return(Some(value))
-                | ArenaStmtKind::Yield(value)
-                | ArenaStmtKind::Defer(value, _) => {
-                    if let ArenaExprOrRun::Expr(value) = value {
-                        statement_values.insert(value, Some(Lead::Initializer));
-                    }
-                }
-                ArenaStmtKind::Assert {
-                    condition,
-                    message: None,
-                } => {
-                    statement_values.insert(condition, None);
-                }
-                ArenaStmtKind::Use(_)
-                | ArenaStmtKind::Export(_)
-                | ArenaStmtKind::TypeDef(_)
-                | ArenaStmtKind::ErrorDef(_)
-                | ArenaStmtKind::ProcDef(_)
-                | ArenaStmtKind::CliMain(_)
-                | ArenaStmtKind::PureDef(_)
-                | ArenaStmtKind::StreamDef(_)
-                | ArenaStmtKind::SignalHook(_)
-                | ArenaStmtKind::YieldDelegate(_)
-                | ArenaStmtKind::If { .. }
-                | ArenaStmtKind::While { .. }
-                | ArenaStmtKind::For { .. }
-                | ArenaStmtKind::With { .. }
-                | ArenaStmtKind::Loop { .. }
-                | ArenaStmtKind::Break { .. }
-                | ArenaStmtKind::Continue
-                | ArenaStmtKind::Exit(_)
-                | ArenaStmtKind::Match { .. }
-                | ArenaStmtKind::Command(_)
-                | ArenaStmtKind::TailBareIdent(_)
-                | ArenaStmtKind::Return(None)
-                | ArenaStmtKind::Assert { message: Some(_), .. }
-                | ArenaStmtKind::Sugar { .. } => {}
-            }
-        }
+        let parents = vec![None; arena.expr_tags.len()];
         let mut groups: FxHashMap<ExprId, Span> = FxHashMap::default();
         for (expr, span) in paren_groups {
             let outermost = groups.entry(*expr).or_insert(*span);
@@ -337,8 +270,71 @@ impl ExprPositions {
         }
         Self {
             parents,
-            statement_values,
+            statement_values: FxHashMap::default(),
             groups,
+        }
+    }
+
+    /// Record the immediate edges before visiting children so parent context
+    /// is available when a child rule runs.
+    pub(super) fn observe_expression(&mut self, arena: &AstArena, parent: ExprId) {
+        for_each_child(arena, parent, |child| self.parents[child.index()] = Some(parent));
+    }
+
+    /// Keep statement position facts alongside expressions as the ordinary
+    /// statement walk reaches their owning statement.
+    pub(super) fn observe_statement(&mut self, arena: &AstArena, statement: StmtId) {
+        match arena.stmt(statement).kind {
+            ArenaStmtKind::Expr(value) => {
+                self.statement_values.insert(
+                    value,
+                    Some(Lead::Statement {
+                        after_expression: false,
+                    }),
+                );
+            }
+            ArenaStmtKind::Let { initializer, .. }
+            | ArenaStmtKind::Var { initializer, .. }
+            | ArenaStmtKind::Const { initializer, .. }
+            | ArenaStmtKind::Guard { initializer, .. }
+            | ArenaStmtKind::Assign { value: initializer, .. }
+            | ArenaStmtKind::Return(Some(initializer))
+            | ArenaStmtKind::Yield(initializer)
+            | ArenaStmtKind::Defer(initializer, _) => {
+                if let ArenaExprOrRun::Expr(value) = initializer {
+                    self.statement_values.insert(value, Some(Lead::Initializer));
+                }
+            }
+            ArenaStmtKind::Assert {
+                condition,
+                message: None,
+            } => {
+                self.statement_values.insert(condition, None);
+            }
+            ArenaStmtKind::Use(_)
+            | ArenaStmtKind::Export(_)
+            | ArenaStmtKind::TypeDef(_)
+            | ArenaStmtKind::ErrorDef(_)
+            | ArenaStmtKind::ProcDef(_)
+            | ArenaStmtKind::CliMain(_)
+            | ArenaStmtKind::PureDef(_)
+            | ArenaStmtKind::StreamDef(_)
+            | ArenaStmtKind::SignalHook(_)
+            | ArenaStmtKind::YieldDelegate(_)
+            | ArenaStmtKind::If { .. }
+            | ArenaStmtKind::While { .. }
+            | ArenaStmtKind::For { .. }
+            | ArenaStmtKind::With { .. }
+            | ArenaStmtKind::Loop { .. }
+            | ArenaStmtKind::Break { .. }
+            | ArenaStmtKind::Continue
+            | ArenaStmtKind::Exit(_)
+            | ArenaStmtKind::Match { .. }
+            | ArenaStmtKind::Command(_)
+            | ArenaStmtKind::TailBareIdent(_)
+            | ArenaStmtKind::Return(None)
+            | ArenaStmtKind::Assert { message: Some(_), .. }
+            | ArenaStmtKind::Sugar { .. } => {}
         }
     }
 
@@ -400,10 +396,10 @@ impl ExprPositions {
 /// parenthesized under its `?`, which is how the printer writes it at the
 /// start of an initializer. Where that `?` is redundant the parentheses go
 /// with it, since the form alone needs none there.
-pub(super) fn redundant_capture_try<'a>(
+pub(super) fn redundant_capture_try(
     arena: &AstArena,
     source: &str,
-    positions: impl FnOnce() -> &'a ExprPositions,
+    positions: &ExprPositions,
     expression: ExprId,
 ) -> Option<Diagnostic> {
     let propagation = arena.expr(expression);
@@ -422,7 +418,6 @@ pub(super) fn redundant_capture_try<'a>(
     }
     let end = propagation.span.end();
     let written = source.get(form.end()..end)?.strip_suffix('?')?;
-    let positions = positions();
     let mut context = positions.context(arena, source, expression);
     // A whole initializer dispatches a bare run form directly; the expression
     // printer groups it because it only prints expressions, not initializers.

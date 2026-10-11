@@ -762,9 +762,13 @@ impl<'a> Linter<'a> {
         rules::statement_sequence(self, stmts);
         let mut flow = FlowSummary::fallthrough();
         let mut reported_dead_region = false;
+        let collect_pair_hooks = rules::statement_pair_enabled(self);
+        let mut pair_insertion_points = Vec::new();
         for (index, &stmt) in stmts.iter().enumerate() {
             if index > 0 {
-                rules::statement_pair(self, stmts[index - 1], stmt, stmts);
+                if collect_pair_hooks {
+                    pair_insertion_points.push((stmts[index - 1], stmt, self.diagnostics.len()));
+                }
             }
             if rules::enabled(self, DiagnosticCode::LintDeadCode)
                 && !flow.fallthrough
@@ -777,6 +781,16 @@ impl<'a> Linter<'a> {
             if flow.fallthrough {
                 flow = flow.then(stmt_flow(self.arena, stmt));
             }
+        }
+        let mut inserted = 0;
+        for (previous, current, insertion_point) in pair_insertion_points {
+            let before = self.diagnostics.len();
+            rules::statement_pair(self, previous, current, stmts);
+            let findings = self.diagnostics.split_off(before);
+            let count = findings.len();
+            self.diagnostics
+                .splice(insertion_point + inserted..insertion_point + inserted, findings);
+            inserted += count;
         }
     }
 
@@ -1036,25 +1050,7 @@ impl<'a> Linter<'a> {
         let source_type = self
             .expr_types
             .get(&self.arena.expr(base).span)
-            .or_else(|| {
-                (0..self.arena.stmt_tags.len()).find_map(|index| {
-                    let statement = self.arena.stmt(StmtId::from_index(index));
-                    if statement.span != binding.span {
-                        return None;
-                    }
-                    match statement.kind {
-                        ArenaStmtKind::Let {
-                            initializer: ArenaExprOrRun::Expr(value),
-                            ..
-                        }
-                        | ArenaStmtKind::Const {
-                            initializer: ArenaExprOrRun::Expr(value),
-                            ..
-                        } => self.expr_types.get(&self.arena.expr(value).span),
-                        _ => None,
-                    }
-                })
-            });
+            .or_else(|| self.binding_initializer_types.get(&binding.span));
         if source_type != Some(&Type::Bytes) {
             return;
         }
@@ -2000,17 +1996,24 @@ impl<'a> Linter<'a> {
             return;
         };
         let end = self.arena.stmt(*last).span.end();
-        let references = (0..self.arena.expr_tags.len())
-            .filter(|raw| {
-                let expr = self.arena.expr(ExprId::from_index(*raw));
-                expr.span.source_id == first.span.source_id
-                    && expr.span.start() >= first.span.end()
-                    && expr.span.end() <= end
-                    && matches!(expr.kind, ArenaExprKind::Ident(candidate) if candidate == name)
-            })
+        let uses_in_range = |span: &&Span| {
+            span.source_id == first.span.source_id
+                && span.start() >= first.span.end()
+                && span.end() <= end
+        };
+        let references = self
+            .linear_pipeline_identifier_uses
+            .get(&name)
+            .into_iter()
+            .flatten()
+            .filter(uses_in_range)
             .count();
-        let shorthand = self.arena.record_fields.iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Shorthand { name: candidate, span }
-            if candidate == name && self.arena.span(span).source_id == first.span.source_id && self.arena.span(span).start() >= first.span.end() && self.arena.span(span).end() <= end));
+        let shorthand = self
+            .linear_pipeline_shorthand_fields
+            .get(&name)
+            .into_iter()
+            .flatten()
+            .any(|span| uses_in_range(&span));
         if references != 1 || shorthand {
             return;
         }

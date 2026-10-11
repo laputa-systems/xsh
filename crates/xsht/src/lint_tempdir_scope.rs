@@ -3,8 +3,8 @@ use xsh::frontend::check::{CheckBundleView, Checker, StatementPosition, Type};
 use xsh::frontend::source::Span;
 use xsh::frontend::symbols::Name;
 use xsh::frontend::syntax::arena::{
-    ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaExprTag, ArenaProgram,
-    ArenaStmtKind, ArenaStmtTag, DeferTrigger, ExprId, StmtId,
+    ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaProgram,
+    ArenaStmtKind, DeferTrigger, ExprId, FunctionDefId, StmtId,
 };
 use xsh::frontend::syntax::parser::Parser;
 
@@ -14,7 +14,14 @@ use xsh::frontend::syntax::parser::Parser;
 /// the rest of the block is exactly the body of `tempdir dir { ... }`: the
 /// body's defers and owned handles still finish before the directory is
 /// removed, and creation still fails the statement.
-pub(super) fn lint_tempdir_scopes(linter: &mut super::Linter<'_>, view: &CheckBundleView<'_>) {
+pub(super) fn lint_tempdir_scopes(
+    linter: &mut super::Linter<'_>,
+    view: &CheckBundleView<'_>,
+    function_candidates: &[FunctionDefId],
+    loop_candidates: &[StmtId],
+    try_expressions: &[ExprId],
+    identifiers: &[(Name, Span)],
+) {
     if !linter.source.contains("fs.tempdir()") {
         return;
     }
@@ -28,7 +35,10 @@ pub(super) fn lint_tempdir_scopes(linter: &mut super::Linter<'_>, view: &CheckBu
         return;
     };
     let mut lists = vec![(statements, true)];
-    for def in &arena.function_defs {
+    let mut functions = function_candidates.to_vec();
+    functions.sort_unstable_by_key(|definition| definition.index());
+    for definition in functions {
+        let def = arena.function_def(definition);
         let body = arena.span(arena.block(def.body).span);
         if body.source_id != source_id {
             continue;
@@ -48,20 +58,16 @@ pub(super) fn lint_tempdir_scopes(linter: &mut super::Linter<'_>, view: &CheckBu
             ));
         }
     }
-    for (index, tag) in arena.stmt_tags.iter().enumerate() {
-        if !matches!(
-            tag,
-            ArenaStmtTag::For | ArenaStmtTag::While | ArenaStmtTag::Loop
-        ) {
-            continue;
-        }
-        let statement = arena.stmt(StmtId::from_index(index));
-        if statement.span.source_id != source_id {
+    let mut loops = loop_candidates.to_vec();
+    loops.sort_unstable_by_key(|statement| statement.index());
+    for statement in loops {
+        let statement_node = arena.stmt(statement);
+        if statement_node.span.source_id != source_id {
             continue;
         }
         if let ArenaStmtKind::For { block, .. }
         | ArenaStmtKind::While { block, .. }
-        | ArenaStmtKind::Loop { block } = statement.kind
+        | ArenaStmtKind::Loop { block } = statement_node.kind
         {
             lists.push((
                 arena.stmt_ids(arena.block(block).statements).collect(),
@@ -78,7 +84,14 @@ pub(super) fn lint_tempdir_scopes(linter: &mut super::Linter<'_>, view: &CheckBu
     let mut found = Vec::new();
     for (statements, script) in &lists {
         for index in 0..statements.len() {
-            if let Some(site) = site(linter, statements, index, *script) {
+            if let Some(site) = site(
+                linter,
+                statements,
+                index,
+                *script,
+                try_expressions,
+                identifiers,
+            ) {
                 found.push(site);
             }
         }
@@ -123,6 +136,8 @@ fn site(
     statements: &[StmtId],
     index: usize,
     script: bool,
+    try_expressions: &[ExprId],
+    identifiers: &[(Name, Span)],
 ) -> Option<Site> {
     let arena = linter.arena;
     let ArenaStmtKind::Let {
@@ -185,16 +200,13 @@ fn site(
     if binder != root && spellings != 0 {
         return None;
     }
-    // Tags are read first: a workspace arena holds every module's rows.
     let path_reads = if spellings == 0 {
         Vec::new()
     } else {
-        arena
-            .expr_tags
+        try_expressions
             .iter()
-            .enumerate()
-            .filter(|(_, tag)| matches!(tag, ArenaExprTag::Try))
-            .map(|(index, _)| ExprId::from_index(index))
+            .copied()
+            .filter(|&expr| matches!(arena.expr(expr).kind, ArenaExprKind::Try(_)))
             .filter(|&expr| inside(arena.expr(expr).span) && path_read(arena, expr, root))
             .map(|expr| arena.expr(expr).span)
             .collect::<Vec<_>>()
@@ -254,19 +266,11 @@ fn site(
                 _ => None,
             })
             .collect::<Vec<_>>();
-        if arena
-            .expr_tags
-            .iter()
-            .enumerate()
-            .filter(|(_, tag)| matches!(tag, ArenaExprTag::Ident))
-            .map(|(index, _)| ExprId::from_index(index))
-            .any(|expr| {
-                let span = arena.expr(expr).span;
-                matches!(arena.expr(expr).kind, ArenaExprKind::Ident(name) if moved.contains(&name))
+        if identifiers.iter().any(|&(name, span)| {
+                moved.contains(&name)
                     && span.source_id == body.source_id
                     && !inside(span)
-            })
-        {
+            }) {
             return None;
         }
     }

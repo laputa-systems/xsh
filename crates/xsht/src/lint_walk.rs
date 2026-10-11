@@ -54,12 +54,12 @@ impl LintExprVisitor<'_, '_> {
         rules::expression_analysis(self.linter, expr);
         if !self.suppress_expr_autofixes {
             rules::expression(self.linter, expr);
-            rules::expression_group(self.linter, rules::ExpressionGroup::SingleInterpolation, expr);
+            rules::expression_group(self.linter, rules::ExpressionGroupSite::SingleInterpolation, expr);
             rules::expression_rule(self.linter, DiagnosticCode::LintRedundantDisplayParse, expr);
             rules::expression_rule(self.linter, DiagnosticCode::LintJsonRoundtrip, expr);
             rules::expression_rule(self.linter, DiagnosticCode::LintPreferInferredVariant, expr);
             rules::expression_rule(self.linter, DiagnosticCode::LintPreferPositionalConstructor, expr);
-            rules::expression_group(self.linter, rules::ExpressionGroup::PathMigrations, expr);
+            rules::expression_group(self.linter, rules::ExpressionGroupSite::PathMigrations, expr);
         }
         let arena_expr = self.linter.arena.expr(expr);
         match arena_expr.kind {
@@ -90,7 +90,7 @@ impl LintExprVisitor<'_, '_> {
                         .insert(name.as_str().to_string());
                 }
                 self.walk_expr(expr);
-                rules::expression_group(self.linter, rules::ExpressionGroup::CallStyle, expr);
+                rules::expression_group(self.linter, rules::ExpressionGroupSite::CallStyle, expr);
             }
             _ => self.walk_expr(expr),
         }
@@ -140,7 +140,7 @@ impl LintExprVisitor<'_, '_> {
                         if spec.is_none() {
                             rules::expression_site(
                                 self.linter,
-                                rules::ExpressionSiteHook::PathDisplay,
+                                rules::ExpressionSite::PathDisplay,
                                 e,
                                 PathDisplaySite::Interpolation,
                             );
@@ -343,6 +343,7 @@ impl LintExprVisitor<'_, '_> {
     }
 
     fn visit_record_field(&mut self, field: &ArenaRecordField) {
+        rules::record_field(self.linter, field);
         match field.kind {
             ArenaRecordFieldKind::Shorthand { name, .. } => {
                 self.linter.mark_used(name.as_str().as_str())
@@ -368,13 +369,8 @@ impl LintExprVisitor<'_, '_> {
     }
 
     fn visit_call_arg(&mut self, arg: &ArenaCallArg) {
-        if !self.suppress_expr_autofixes
-            && rules::call_argument_enabled(
-                self.linter,
-                rules::CallArgumentHook::NamedPun,
-            )
-        {
-            self.linter.lint_named_argument_pun(arg);
+        if !self.suppress_expr_autofixes {
+            rules::call_argument(self.linter, arg);
         }
         match arg.kind {
             ArenaCallArgKind::Positional(expr) | ArenaCallArgKind::Named { value: expr, .. } => {
@@ -444,7 +440,7 @@ impl LintExprVisitor<'_, '_> {
                     {
                         rules::expression_site(
                             self.linter,
-                            rules::ExpressionSiteHook::PathDisplay,
+                            rules::ExpressionSite::PathDisplay,
                             expr,
                             PathDisplaySite::Interpolation,
                         );
@@ -459,7 +455,7 @@ impl LintExprVisitor<'_, '_> {
             ArenaCommandArgKind::SpliceExpr(expr) => {
                 rules::expression_site(
                     self.linter,
-                    rules::ExpressionSiteHook::PathDisplay,
+                    rules::ExpressionSite::PathDisplay,
                     expr,
                     PathDisplaySite::Splice,
                 );
@@ -469,7 +465,7 @@ impl LintExprVisitor<'_, '_> {
                 let expr_span = self.linter.arena.expr(expr).span;
                 rules::expression_site(
                     self.linter,
-                    rules::ExpressionSiteHook::PathDisplay,
+                    rules::ExpressionSite::PathDisplay,
                     expr,
                     PathDisplaySite::CommandWord(arg_span),
                 );
@@ -871,11 +867,15 @@ impl<'a> Linter<'a> {
 
     pub(super) fn lint_stmt(&mut self, stmt_id: StmtId, exported: bool) {
         let stmt = self.arena.stmt(stmt_id);
-        rules::statement(self, stmt_id, rules::StatementHook::StreamProducerCandidates, exported);
-        rules::statement(self, stmt_id, rules::StatementHook::Propagation, exported);
-        rules::statement(self, stmt_id, rules::StatementHook::RedundantDiscard, exported);
-        rules::statement(self, stmt_id, rules::StatementHook::FailCandidates, exported);
-        rules::statement(self, stmt_id, rules::StatementHook::SetLikeBindings, exported);
+        rules::statement(self, stmt_id, rules::StatementSite::PropagationContext, exported);
+        rules::statement(self, stmt_id, rules::StatementSite::TempdirScopeCandidate, exported);
+        rules::statement(self, stmt_id, rules::StatementSite::StreamProducerCandidates, exported);
+        rules::statement(self, stmt_id, rules::StatementSite::WholeValuePipeline, exported);
+        rules::statement(self, stmt_id, rules::StatementSite::DeferBlockHelperCall, exported);
+        rules::statement(self, stmt_id, rules::StatementSite::Propagation, exported);
+        rules::statement(self, stmt_id, rules::StatementSite::RedundantDiscard, exported);
+        rules::statement(self, stmt_id, rules::StatementSite::FailCandidates, exported);
+        rules::statement(self, stmt_id, rules::StatementSite::SetLikeBindings, exported);
         match stmt.kind {
             ArenaStmtKind::Use(_) | ArenaStmtKind::TypeDef(_) | ArenaStmtKind::ErrorDef(_) => {}
             ArenaStmtKind::Export(inner) => self.lint_stmt(inner, true),
@@ -889,12 +889,12 @@ impl<'a> Linter<'a> {
                 ty,
                 initializer,
             } => {
-                rules::statement(self, stmt_id, rules::StatementHook::RecordConstructor, exported);
-                rules::statement(self, stmt_id, rules::StatementHook::EmptyMapInitializer, exported);
-                rules::statement(self, stmt_id, rules::StatementHook::SizeProductInitializer, exported);
+                rules::statement(self, stmt_id, rules::StatementSite::RecordConstructor, exported);
+                rules::statement(self, stmt_id, rules::StatementSite::EmptyMapInitializer, exported);
+                rules::statement(self, stmt_id, rules::StatementSite::SizeProductInitializer, exported);
                 if let Some(type_expr) = ty {
                     self.collect_type_expr_refs(type_expr);
-                    rules::statement(self, stmt_id, rules::StatementHook::NeedlessAnnotation, exported);
+                    rules::statement(self, stmt_id, rules::StatementSite::NeedlessAnnotation, exported);
                 }
                 self.lint_expr_or_run(&initializer);
                 let absence_lookup = match initializer {
@@ -910,7 +910,7 @@ impl<'a> Linter<'a> {
                     _ => None,
                 };
                 self.define_binding_target(target, stmt.span, true);
-                rules::statement(self, stmt_id, rules::StatementHook::ListAnyBindings, exported);
+                rules::statement(self, stmt_id, rules::StatementSite::ListAnyBindings, exported);
                 if let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind
                     && let Some(binding) = self
                         .scopes
@@ -928,16 +928,16 @@ impl<'a> Linter<'a> {
                 ty,
                 initializer,
             } => {
-                rules::statement(self, stmt_id, rules::StatementHook::RecordConstructor, exported);
-                rules::statement(self, stmt_id, rules::StatementHook::EmptyMapInitializer, exported);
-                rules::statement(self, stmt_id, rules::StatementHook::SizeProductInitializer, exported);
+                rules::statement(self, stmt_id, rules::StatementSite::RecordConstructor, exported);
+                rules::statement(self, stmt_id, rules::StatementSite::EmptyMapInitializer, exported);
+                rules::statement(self, stmt_id, rules::StatementSite::SizeProductInitializer, exported);
                 if let Some(type_expr) = ty {
                     self.collect_type_expr_refs(type_expr);
-                    rules::statement(self, stmt_id, rules::StatementHook::NeedlessAnnotation, exported);
+                    rules::statement(self, stmt_id, rules::StatementSite::NeedlessAnnotation, exported);
                 }
                 self.lint_expr_or_run(&initializer);
                 self.define_binding_target(target, stmt.span, true);
-                rules::statement(self, stmt_id, rules::StatementHook::ListAnyBindings, exported);
+                rules::statement(self, stmt_id, rules::StatementSite::ListAnyBindings, exported);
                 if let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind
                     && let Some(binding) = self
                         .scopes
@@ -949,9 +949,9 @@ impl<'a> Linter<'a> {
             }
             ArenaStmtKind::Assign { target, op, value } => {
                 if op == AssignOp::Set {
-                    rules::statement(self, stmt_id, rules::StatementHook::ListCompoundAssignment, exported);
+                    rules::statement(self, stmt_id, rules::StatementSite::ListCompoundAssignment, exported);
                 }
-                rules::statement(self, stmt_id, rules::StatementHook::ListAnyBindings, exported);
+                rules::statement(self, stmt_id, rules::StatementSite::ListAnyBindings, exported);
                 self.lint_assign_target(target);
                 self.lint_expr_or_run(&value);
             }
@@ -960,7 +960,7 @@ impl<'a> Linter<'a> {
                 let entrypoint = matches!(stmt.kind, ArenaStmtKind::CliMain(_))
                     || function.test_declaration
                     || (!exported && self.scopes.len() == 1 && function.name == "main");
-                rules::statement(self, stmt_id, rules::StatementHook::TypedCallableParameters, exported);
+                rules::statement(self, stmt_id, rules::StatementSite::TypedCallableParameters, exported);
                 if matches!(stmt.kind, ArenaStmtKind::ProcDef(_)) {
                     self.lint_propagating_function(def, false, |linter| {
                         linter.lint_proc_function(def, exported, entrypoint, stmt.span);
@@ -968,16 +968,16 @@ impl<'a> Linter<'a> {
                 } else {
                     self.lint_proc_function(def, exported, entrypoint, stmt.span);
                 }
-                rules::statement(self, stmt_id, rules::StatementHook::MissingEffects, exported);
+                rules::statement(self, stmt_id, rules::StatementSite::MissingEffects, exported);
             }
             ArenaStmtKind::PureDef(def) => {
-                rules::statement(self, stmt_id, rules::StatementHook::TypedCallableParameters, exported);
-                rules::statement(self, stmt_id, rules::StatementHook::InferredPureReturn, exported);
+                rules::statement(self, stmt_id, rules::StatementSite::TypedCallableParameters, exported);
+                rules::statement(self, stmt_id, rules::StatementSite::InferredPureReturn, exported);
                 self.lint_propagating_function(def, true, |linter| linter.lint_function(def));
             }
             ArenaStmtKind::StreamDef(def) => {
                 self.lint_proc_function(def, exported, false, stmt.span);
-                rules::statement(self, stmt_id, rules::StatementHook::MissingEffects, exported);
+                rules::statement(self, stmt_id, rules::StatementSite::MissingEffects, exported);
             }
             ArenaStmtKind::SignalHook(hook_id) => {
                 let body = self.arena.signal_hook(hook_id).body;
@@ -985,9 +985,9 @@ impl<'a> Linter<'a> {
             }
             ArenaStmtKind::Return(value) => {
                 if let Some(value) = value {
-                    rules::statement(self, stmt_id, rules::StatementHook::RedundantOkReturn, exported);
-                    rules::statement(self, stmt_id, rules::StatementHook::ReturnPathParse, exported);
-                    rules::statement(self, stmt_id, rules::StatementHook::ReturnRequire, exported);
+                    rules::statement(self, stmt_id, rules::StatementSite::RedundantOkReturn, exported);
+                    rules::statement(self, stmt_id, rules::StatementSite::ReturnPathParse, exported);
+                    rules::statement(self, stmt_id, rules::StatementSite::ReturnRequire, exported);
                     self.lint_expr_or_run(&value);
                 }
             }
@@ -1000,9 +1000,9 @@ impl<'a> Linter<'a> {
                 branches,
                 else_block,
             } => {
-                rules::statement(self, stmt_id, rules::StatementHook::ListPattern, exported);
-                rules::statement(self, stmt_id, rules::StatementHook::IfAsGuard, exported);
-                rules::statement(self, stmt_id, rules::StatementHook::LexicalBlock, exported);
+                rules::statement(self, stmt_id, rules::StatementSite::ListPattern, exported);
+                rules::statement(self, stmt_id, rules::StatementSite::IfAsGuard, exported);
+                rules::statement(self, stmt_id, rules::StatementSite::LexicalBlock, exported);
                 for branch in self.arena.if_branches(branches).to_vec() {
                     self.lint_pattern_condition_block(branch.condition, branch.block);
                 }
@@ -1053,7 +1053,7 @@ impl<'a> Linter<'a> {
                     rules::statement(
                         self,
                         stmt_id,
-                        rules::StatementHook::AtomicallyNeverReplaces,
+                        rules::StatementSite::AtomicallyNeverReplaces,
                         exported,
                     );
                 }
@@ -1112,11 +1112,11 @@ impl<'a> Linter<'a> {
                 }
             }
             ArenaStmtKind::Match { value, arms } => {
-                rules::statement(self, stmt_id, rules::StatementHook::AdjacentPatternArms, exported);
-                rules::statement(self, stmt_id, rules::StatementHook::CatchAllMatch, exported);
+                rules::statement(self, stmt_id, rules::StatementSite::AdjacentPatternArms, exported);
+                rules::statement(self, stmt_id, rules::StatementSite::CatchAllMatch, exported);
                 let old_regex_context = self.regex_recovery_context;
                 self.regex_recovery_context = true;
-                rules::statement(self, stmt_id, rules::StatementHook::PatternConditional, exported);
+                rules::statement(self, stmt_id, rules::StatementSite::PatternConditional, exported);
                 self.lint_expr(value);
                 for arm in self.arena.match_arms(arms).to_vec() {
                     self.push_scope();
@@ -1130,10 +1130,10 @@ impl<'a> Linter<'a> {
                     self.pop_scope();
                 }
                 self.regex_recovery_context = old_regex_context;
-                rules::statement(self, stmt_id, rules::StatementHook::StringlyMatch, exported);
+                rules::statement(self, stmt_id, rules::StatementSite::StringlyMatch, exported);
             }
             ArenaStmtKind::Command(command) => {
-                rules::statement(self, stmt_id, rules::StatementHook::InteractiveCommand, exported);
+                rules::statement(self, stmt_id, rules::StatementSite::InteractiveCommand, exported);
                 self.lint_command_stmt(command)
             }
             ArenaStmtKind::TailBareIdent(name) => {
@@ -1161,7 +1161,7 @@ impl<'a> Linter<'a> {
                         }
                     }
                 }
-                rules::statement(self, stmt_id, rules::StatementHook::CoreAssert, exported);
+                rules::statement(self, stmt_id, rules::StatementSite::CoreAssert, exported);
                 self.lint_expr(expr);
             }
             ArenaStmtKind::With {
@@ -1419,7 +1419,7 @@ impl<'a> Linter<'a> {
         self.lint_statement_sequence(&stmts);
         rules::sequence_exit(
             self,
-            rules::SequenceExit::Block,
+            rules::SequenceExitSite::Block,
             &stmts,
             close_diagnostic_index,
         );
@@ -1520,6 +1520,91 @@ impl<'a> Linter<'a> {
             suppress_expr_autofixes: false,
         }
         .visit_expr(expr);
+    }
+
+    pub(super) fn observe_expression_positions(&mut self, expression: ExprId) {
+        let arena = self.arena;
+        let paren_groups = self.paren_groups;
+        self.expr_positions
+            .get_or_insert_with(|| {
+                super::lint_redundant_propagation::ExprPositions::new(arena, paren_groups)
+            })
+            .observe_expression(arena, expression);
+    }
+
+    pub(super) fn observe_statement_positions(&mut self, statement: StmtId) {
+        let arena = self.arena;
+        let paren_groups = self.paren_groups;
+        self.expr_positions
+            .get_or_insert_with(|| {
+                super::lint_redundant_propagation::ExprPositions::new(arena, paren_groups)
+            })
+            .observe_statement(arena, statement);
+    }
+
+    pub(super) fn collect_tempdir_scope_candidates(&mut self, statement: StmtId) {
+        if !self.source.contains("fs.tempdir()") {
+            return;
+        }
+        match self.arena.stmt(statement).kind {
+            ArenaStmtKind::ProcDef(definition)
+            | ArenaStmtKind::CliMain(definition)
+            | ArenaStmtKind::PureDef(definition)
+            | ArenaStmtKind::StreamDef(definition) => {
+                self.tempdir_scope_functions.push(definition);
+            }
+            ArenaStmtKind::For { .. }
+            | ArenaStmtKind::While { .. }
+            | ArenaStmtKind::Loop { .. } => {
+                self.tempdir_scope_loops.push(statement);
+            }
+            _ => {}
+        }
+    }
+
+    pub(super) fn observe_name_reference(&mut self, expression: ExprId) {
+        let ArenaExprKind::Ident(name) = self.arena.expr(expression).kind else {
+            return;
+        };
+        if !self.name_reference_exprs.insert(expression) {
+            return;
+        }
+        if rules::enabled(self, DiagnosticCode::LintPreferDeferBlock) {
+            let count = self.defer_block_references.entry(name).or_default();
+            *count += 1;
+        }
+        if rules::enabled(self, DiagnosticCode::LintPreferValuePipeline) {
+            self.linear_pipeline_identifier_uses
+                .entry(name)
+                .or_default()
+                .push(self.arena.expr(expression).span);
+        }
+    }
+
+    pub(super) fn observe_pipeline_shorthand_field(&mut self, name: Name, span: Span) {
+        self.linear_pipeline_shorthand_fields
+            .entry(name)
+            .or_default()
+            .push(span);
+    }
+
+    pub(super) fn observe_binding_initializer_type(&mut self, statement: StmtId) {
+        let initializer = match self.arena.stmt(statement).kind {
+            ArenaStmtKind::Let {
+                initializer: ArenaExprOrRun::Expr(value),
+                ..
+            }
+            | ArenaStmtKind::Const {
+                initializer: ArenaExprOrRun::Expr(value),
+                ..
+            } => value,
+            _ => return,
+        };
+        let span = self.arena.expr(initializer).span;
+        if let Some(ty) = self.expr_types.get(&span) {
+            self.binding_initializer_types
+                .insert(self.arena.stmt(statement).span, ty.clone());
+        }
     }
 
     pub(super) fn lint_builder_block(&mut self, block: BuilderBlockId) {

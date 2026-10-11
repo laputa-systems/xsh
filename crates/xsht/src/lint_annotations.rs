@@ -249,7 +249,7 @@ impl<'a> Linter<'a> {
     ) {
         super::rules::procedure(
             self,
-            super::rules::ProcedureHook::InferredEffects,
+            super::rules::ProcedureSite::InferredEffects,
             def_id,
             exported,
             entrypoint,
@@ -260,7 +260,7 @@ impl<'a> Linter<'a> {
         }
         super::rules::procedure(
             self,
-            super::rules::ProcedureHook::RedundantResultUnit,
+            super::rules::ProcedureSite::RedundantResultUnit,
             def_id,
             exported,
             entrypoint,
