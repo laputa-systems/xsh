@@ -6,11 +6,14 @@ in `docs/ARCHITECTURE.md`.
 
 The consolidation batch also measures production source and structural ratchets
 with `dev/consolidation/metrics.xsh`. It writes the current report and every
-baseline rise to `.work/consolidation/current.json` and `rises.json`. Temporary
-ceilings are explicit in `dev/consolidation/envelope.json`, with approval, reason
-and removal condition for each metric. Missing or unknown limits fail. Final
-closure rejects that envelope, uses the unchanged starting baseline, and requires
-independently reviewed semantic evidence as well as mechanical counts.
+baseline rise to `.work/consolidation/current.json` and `rises.json`. Source totals and touched-line budgets are advisory, following the owner's
+performance priority; reports retain both source totals and every rise.
+Structural metrics remain bounded by the baseline. Envelope approvals annotate
+the audit without permitting structural rises. Missing or unknown limits fail.
+Final closure rejects the envelope, requires zero blanket dead-code scopes,
+and consumes independently reviewed semantic evidence. The original baseline
+and its historical provenance remain unchanged; current gates use the successor
+source-advisory provenance.
 
 ## Native tests first
 

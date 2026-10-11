@@ -1,5 +1,59 @@
 # Consolidation restart handoff
 
+## Performance priority and runtime integration — 2026-10-11, `3a2f292a`
+
+The owner relaxed source budgets and prioritizes performance. Production and
+physical-touch caps, temporary source ceilings and final strict shrink are now
+advisory reporting. Original scanners, baselines and provenance remain intact.
+Structural zeros, ownership, correctness, documentation, platform and measured
+performance gates remain required. This policy supersedes older source-budget
+blockers below. `39f75ea9` records the policy; `e3b37fc6` applies it to the CLI
+without removing source rows or raw rise audits. Its successor provenance keeps
+historical artifacts immutable. Focused policy 2, ratchet 38 and gate-plan 7
+native tests pass on the frozen optimized pair. Structural rises still fail.
+
+Accepted lint baseline-fact repair `b7ccfa01` (-21 canonical production lines),
+shared Env conversion `b48979cb` (+2), callerless helper deletion `01e7207c`
+(-46), and both statement-frame commits `766ac3b3`/`8b95a363`. Statements use
+borrowed list positions rather than copied future operands. Their complete
+cohort, including cursor and Env prerequisites once, is +225 canonical lines.
+Branch/host commits `14c7c367`/`29530987`/`a5e81ca2` add +190; filesystem
+`c12460e7`/`29a1dda4` adds +135. `328cf3a0` preserves branch leaf support in
+shared operand iteration and reconciles the surviving operand-class inventory.
+Private focused gates and independent reviews qualify those sealed slices.
+
+The combined `328cf3a0` build passes; 19 of 20 focused native files pass.
+Wire-enum Print propagation fails with the wrong return destination. The
+minimal regression and root-cause fix are accepted in `57deaf44`; its private
+normal and forced regression, 11 wire-enum and 13 normal propagation cases pass.
+The old combined binaries and immutable source hashes are frozen as
+`joint-328-bin`/`joint-328-source.json`; do not claim the old run was all green.
+
+Process-command construction `70a16f66` is integrated as `f35741ef`, and
+loop/retry `266ea41a` as `3a2f292a`, preserving statement/branch handlers in
+shared executor conflicts. Their source deltas are +335 and +158 respectively.
+Private pinned focused/native gates pass; whole forced exploratory sweeps still
+hit unrelated unmigrated handlers. Combined optimized compilation is running
+under `joint-process-loop-build.log`; combined gates and independent retry
+review are pending. No comparative performance result is claimed.
+
+The exact isolated `982bd755` whole-tree scan is 192,988 src / 49,714 xsht.
+The runtime reader batch replay is -222 canonical production lines and 3,361
+physical Rust touches excluding its separately counted cursor prerequisite.
+The earlier additive baseline was one line high; frozen canonical scans settle
+it. The concurrently edited c29 whole-tree scan is explicitly invalid.
+
+W9's old parity hashes sorted individual Debug lines and cannot prove fact
+associations or ordering. Corrected structural hashing preserves vectors,
+diagnostics and key/value associations. Its paired run has matching diagnostics
+but a publication difference from index zero: candidate PreparedConstants adds
+wire_diagnostics. The run is stopped with all partial receipts preserved;
+move replay cache state outside published output and prove exact first-source
+parity before restarting. Completed old shards are provisional only. Early
+candidate timings are slower; source-specific CPU profiling remains necessary.
+Typed-callee coverage currently passes 20 of 21 native cases; module-export slot
+proof remains open. Complete lint transport and typed driver readers are private.
+
 ## Display/cursor integration and combined gates — 2026-10-11, `982bd755`
 
 Accepted borrowed display `9225089c` as `d75d942e`: scalar output shares one
