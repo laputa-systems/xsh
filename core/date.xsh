@@ -2,8 +2,10 @@
 use lib.gnu
 use lib.date_parse
 
+error DateError = Invalid
+
 # GNU date treats a lone dash like an empty date expression, which means midnight today.
-proc parse_date(text: Str, utc: Bool) [time, error] -> Result[date_parse.Instant, Error] {
+proc parse_date(text: Str, utc: Bool, base: date_parse.Instant? = null) [time, error] -> Result[date_parse.Instant, Error] {
   var input = if text == "-" { "" } else { text }
   let words = input.replace("\t", with: " ").split(" ") |> where . != ""
   if words.len() >= 2 {
@@ -28,7 +30,14 @@ proc parse_date(text: Str, utc: Bool) [time, error] -> Result[date_parse.Instant
       input = f"{input.byte_slice(timezone_end + 2)} {offset}"
     }
   }
-  date_parse.parse_instant(input, utc:)
+  # These names are absent from GNU date's zone vocabulary; parenthesized comments are not tokens.
+  var zone_input = ""
+  var comment_depth = 0
+  for char in input {
+    if char == "(" { comment_depth += 1 } else if char == ")" and comment_depth > 0 { comment_depth -= 1 } else if comment_depth == 0 { zone_input = f"{zone_input}{char}" }
+  }
+  if rx"(?i)\b(AWST|ACST|ACDT|AEST|AEDT)\b".matches(zone_input) { return Err(DateError.Invalid(f"invalid date: {input}")) }
+  date_parse.parse_instant(input, utc:, base:)
 }
 
 # GNU date removes fractional trailing zeroes up to the requested precision, then pads after the digits.
@@ -88,7 +97,7 @@ pure utf8_char_width(raw: Bytes, at: Int) -> Int {
 # Each valid UTF-8 run is formatted as text. An undecodable byte is copied
 # unchanged, so a `%` before it prints literally and the byte is never read as a
 # conversion.
-proc format_date(instant: date_parse.Instant, format: Bytes, utc: Bool, style: DateStyle) [time, error, process] -> Result[Bytes] {
+proc format_date(instant: date_parse.Instant, format: Bytes, utc: Bool, style: DateStyle) [time, error, process, env] -> Result[Bytes] {
   var pieces: List[Bytes] = []
   var piece_start = 0
   var at = 0
@@ -107,19 +116,6 @@ proc format_date(instant: date_parse.Instant, format: Bytes, utc: Bool, style: D
   Ok(bytes.concat(pieces))
 }
 
-# Operands that are not UTF-8 print with octal escapes for every byte outside
-# printable ASCII, as GNU date shows them in diagnostics.
-pure display_bytes(raw: Bytes) -> Str {
-  if let Ok(text) = raw.utf8() { return text }
-
-  var out = ""
-  for at in range(raw.len()) {
-    let byte = raw.byte_at(at) ?? 0
-    out = if byte >= 32 and byte < 127 { f"{out}{raw[at..at + 1].utf8() ?? ""}" } else { f"{out}\\{byte / 64}{byte / 8 % 8}{byte % 8}" }
-  }
-  out
-}
-
 proc reject_extra_operand(raw: Bytes) [process, env] -> Unit {
   match raw.utf8() {
     Ok(text) => gnu.extra_operand(text)
@@ -135,7 +131,7 @@ pure name_set(language: Str) -> NameSet? {
   match language {
     "fr" => {
       months: ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"],
-      short_months: ["janv", "févr", "mars", "avr", "mai", "juin", "juil", "août", "sept", "oct", "nov", "déc"],
+      short_months: ["janv.", "févr.", "mars", "avr", "mai", "juin", "juil", "août", "sept", "oct", "nov", "déc."],
       weekdays: ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"],
       short_weekdays: ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."],
     }
@@ -168,6 +164,12 @@ pure name_set(language: Str) -> NameSet? {
       short_months: ["jan", "febr", "márc", "ápr", "máj", "jún", "júl", "aug", "szept", "okt", "nov", "dec"],
       weekdays: ["vasárnap", "hétfő", "kedd", "szerda", "csütörtök", "péntek", "szombat"],
       short_weekdays: ["V", "H", "K", "Sze", "Cs", "P", "Szo"],
+    }
+    "th" => {
+      months: ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"],
+      short_months: ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."],
+      weekdays: ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์"],
+      short_weekdays: ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."],
     }
     "ja" => {
       months: ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"],
@@ -272,7 +274,7 @@ pure needs_pieces(style: DateStyle, shift: Int) -> Bool {
 # One directive or literal run. Directives that depend on the year, the calendar
 # or the locale's names are computed here. The host formatter handles the rest,
 # applied to the native instant, which shares the true weekday, month and day.
-proc format_directive(instant: date_parse.Instant, spec: Str, utc: Bool, style: DateStyle) [time, error, process] -> Result[Str] {
+proc format_directive(instant: date_parse.Instant, spec: Str, utc: Bool, style: DateStyle) [time, error, process, env] -> Result[Str] {
   let native = time.format(date_parse.native_ns(instant)?, spec, utc:)?
   if (spec.byte_at(0) ?? 0) != 37 { return Ok(native) }
   let conversion = spec.byte_slice(spec.byte_len() - 1)
@@ -328,9 +330,10 @@ proc format_directive(instant: date_parse.Instant, spec: Str, utc: Bool, style: 
 }
 
 # The shared formatter enforces width and output limits before date adjusts %N padding.
-proc format_text(instant: date_parse.Instant, format: Str, utc: Bool, style: DateStyle) [time, error, process] -> Result[Str] {
+proc format_text(instant: date_parse.Instant, format: Str, utc: Bool, style: DateStyle) [time, error, process, env] -> Result[Str] {
   let formatted = time.format(date_parse.native_ns(instant)?, format, utc:)?
-  if ! needs_pieces(style, date_parse.shift_years(instant)?) and format.find("N") == null { return Ok(formatted) }
+  let empty_timezone = ! utc and env.get("TZ") is Ok("")
+  if ! empty_timezone and ! needs_pieces(style, date_parse.shift_years(instant)?) and format.find("N") == null { return Ok(formatted) }
   var output = ""
   var index = 0
   let length = format.byte_len()
@@ -373,7 +376,9 @@ proc format_text(instant: date_parse.Instant, format: Str, utc: Bool, style: Dat
     let spec_width = if first_byte < 128 { 1 } else if first_byte < 224 { 2 } else if first_byte < 240 { 3 } else { 4 }
     let end = index + spec_width
     let specifier = format.byte_slice(index, length: spec_width)
-    let piece = if specifier == "N" and colons == 0 {
+    let piece = if specifier == "Z" and empty_timezone and flags == "" and width_text == "" and modifier == "" and colons == 0 {
+      "Universal"
+    } else if specifier == "N" and colons == 0 {
       if modifier == "E" { format.byte_slice(start, length: end - start) } else { format_nanoseconds(instant, flags, width_text, utc:)? }
     } else {
       format_directive(instant, format.byte_slice(start, length: end - start), utc, style)?
@@ -384,8 +389,89 @@ proc format_text(instant: date_parse.Instant, format: Str, utc: Bool, style: Dat
   Ok(output)
 }
 
-pure has_explicit_time(input: Str) -> Bool {
-  input.starts_with("@") or rx"[0-9]{1,2}:[0-9]{2}".matches(input) or rx"^[A-Za-z][0-9]{1,2}$".matches(input) or rx"^[0-9]{3,4}[jJ]?$".matches(input)
+# Debug offsets omit minutes and seconds when both are zero.
+pure debug_offset(seconds: Int) -> Str {
+  let sign = if seconds < 0 { "-" } else { "+" }
+  let magnitude = if seconds < 0 { -seconds } else { seconds }
+  f"{sign}{magnitude / 3600:02}{if magnitude % 3600 == 0 { "" } else { f":{magnitude / 60 % 60:02}{if magnitude % 60 == 0 { "" } else { f":{magnitude % 60:02}" }}" }}"
+}
+
+# Parsing and tracing share one baseline, so relative values cannot cross a clock
+# tick between their starting value and the emitted instant.
+proc debug_date(text: Str, instant: date_parse.Instant, base: date_parse.Instant, utc: Bool) [time, env, error, process] -> Result[Unit] {
+  let style: DateStyle = {names: null, calendar: "gregorian"}
+  let timezone = if utc { "UTC0" } else { env.get_or("TZ", "") ?? "" }
+  let input_zone = if timezone == "UTC0" { "TZ=\"UTC0\" environment value or -u" } else if env.get("TZ") is Ok(_) { f"TZ=\"{timezone}\" environment value" } else { "system default" }
+  let final_zone = if timezone == "UTC0" { "Universal Time" } else if env.get("TZ") is Ok(_) { f"TZ=\"{timezone}\" environment value" } else { "system default" }
+  let input = text.trim()
+  if input.starts_with("@") {
+    gnu.error(f"parsed number of seconds part: number of seconds: {instant.seconds}{if instant.nanoseconds == 0 { "" } else { f".{instant.nanoseconds:09}" }}")
+    gnu.error("input timezone: '@timespec' - always UTC")
+  } else {
+    let relative = rx"^(.*?)([+-]?[0-9]+)\s+(years?|months?|fortnights?|weeks?|days?|hours?|minutes?|mins?|seconds?|secs?)(\s+ago)?$".captures(input.lower())
+    let prefix = if relative.is_empty() { input } else { relative[1].trim() }
+    let starting = if prefix == "" and ! relative.is_empty() { base } else { parse_date(prefix, utc:, base:)? }
+    var count = if relative.is_empty() { 0 } else { (if relative[2].starts_with("+") { relative[2].byte_slice(1) } else { relative[2] }).parse_int_decimal()? * (if relative[4] == "" { 1 } else { -1 }) }
+    var unit = if relative.is_empty() { "" } else { relative[3] }
+    if unit.ends_with("s") { unit = unit.byte_slice(0, length: unit.byte_len() - 1) }
+    if unit == "week" { unit = "day"; count *= 7 }
+    if unit == "fortnight" { unit = "day"; count *= 14 }
+    if unit == "min" { unit = "minute" }
+    if unit == "sec" { unit = "second" }
+    let iso = rx"^([0-9]{4,}-[0-9]{1,2}-[0-9]{1,2})(?:[ T](.*))?$".captures(prefix)
+    let clock = rx"([0-9]{1,2}:[0-9]{2}(?::[0-9]{2}(?:\.[0-9]+)?)?)".captures(prefix)
+    let military = rx"^([A-Za-z])([0-9]{1,2})$".captures(prefix)
+    let number = rx"^[0-9]{1,4}[jJ]?$".matches(prefix) or (prefix == "" and relative.is_empty())
+    var offset: Int? = null
+    var civil = starting
+    let zone = rx"^(.*\S)\s+([A-Za-z]+|[+-][0-9]{1,6}(?::[0-9]{2}){0,2})$".captures(prefix)
+    if ! zone.is_empty() and (! clock.is_empty() or ! iso.is_empty()) {
+      if let Ok(unzoned) = parse_date(zone[1], utc: true, base:) {
+        offset = unzoned.seconds - starting.seconds
+        civil = unzoned
+      }
+    } else if ! military.is_empty() {
+      let today = format_text(base, "%F", utc, style)?
+      civil = parse_date(f"{today} {military[2]}:00", utc: true, base:)?
+      offset = civil.seconds - starting.seconds
+    }
+    let civil_utc = utc or offset != null
+    let start_date = format_text(civil, "%F", utc: civil_utc, style)?
+    let start_time = format_text(civil, "%T", utc: civil_utc, style)?
+    let dated = ! iso.is_empty() or (rx"[0-9]{4}".matches(prefix) and ! number)
+    if dated { gnu.error(f"parsed date part: (Y-M-D) {start_date}") }
+    if ! clock.is_empty() { gnu.error(f"parsed time part: {start_time}") }
+    if ! military.is_empty() { gnu.error(f"parsed zone part: UTC{debug_offset(offset ?? 0)}") }
+    if number or ! military.is_empty() { gnu.error(f"parsed number part: {start_time}") }
+    if offset != null and military.is_empty() { gnu.error(f"parsed zone part: UTC{debug_offset(offset)}") }
+    if ! relative.is_empty() { gnu.error(f"parsed relative part: {if count < 0 { "" } else { "+" }}{count} {unit}(s)") }
+    gnu.error(f"input timezone: {if offset == null { input_zone } else { f"parsed date/time string ({debug_offset(offset)})" }}")
+    if ! clock.is_empty() or number or ! military.is_empty() {
+      gnu.error(f"using specified time as starting value: '{start_time}'")
+    } else if prefix == "" {
+      gnu.error(f"using current time as starting value: '{start_time}'")
+    } else {
+      gnu.error(f"warning: using midnight as starting time: {start_time}")
+    }
+    if ! dated { gnu.error(f"using current date as starting value: '(Y-M-D) {start_date}'") }
+    let adjusted_civil: date_parse.Instant = if offset == null { instant } else { {seconds: instant.seconds + offset, nanoseconds: instant.nanoseconds} }
+    let suffix = if offset == null { "" } else { f" TZ={debug_offset(offset)}" }
+    gnu.error(f"starting date/time: '(Y-M-D) {start_date} {start_time}{suffix}'")
+    if unit in ["year", "month", "day"] {
+      if unit == "day" and start_time != "12:00:00" { gnu.error("warning: when adding relative days, it is recommended to specify noon") }
+      if unit in ["year", "month"] { gnu.error("warning: when adding relative months/years, it is recommended to specify the 15th of the months") }
+      gnu.error(f"after date adjustment ({if unit == "year" { f"{if count < 0 { "" } else { "+" }}{count}" } else { "+0" }} years, {if unit == "month" { f"{if count < 0 { "" } else { "+" }}{count}" } else { "+0" }} months, {if unit == "day" { f"{if count < 0 { "" } else { "+" }}{count}" } else { "+0" }} days),")
+      gnu.error(f"    new date/time = '(Y-M-D) {format_text(adjusted_civil, "%F %T", utc: civil_utc, style)?}{suffix}'")
+    }
+    gnu.error(f"'(Y-M-D) {format_text(adjusted_civil, "%F %T", utc: civil_utc, style)?}{suffix}' = {instant.seconds} epoch-seconds")
+  }
+  gnu.error(f"timezone: {final_zone}")
+  gnu.error(f"final: {instant.seconds}.{instant.nanoseconds:09} (epoch-seconds)")
+  gnu.error(f"final: (Y-M-D) {format_text(instant, "%F %T", utc: true, style)?} (UTC)")
+  let zone_text = format_text(instant, "%z", utc, style)?
+  let zone_sign = if zone_text.starts_with("-") { -1 } else { 1 }
+  let zone_seconds = zone_sign * (((zone_text.byte_at(1) ?? 48) - 48) * 36000 + ((zone_text.byte_at(2) ?? 48) - 48) * 3600 + ((zone_text.byte_at(3) ?? 48) - 48) * 600 + ((zone_text.byte_at(4) ?? 48) - 48) * 60)
+  gnu.error(f"final: (Y-M-D) {format_text(instant, "%F %T", utc, style)?} (UTC{debug_offset(zone_seconds)})")
 }
 
 # Date-only inputs inherit midnight; epoch timestamps already identify a complete instant.
@@ -400,17 +486,11 @@ proc emit_date(raw: Bytes, format: Bytes, utc: Bool, debug: Bool, style: DateSty
       return false
     }
   }
-  match parse_date(text, utc:) {
+  let base = date_parse.instant_from_ns(time.now() * 1000000)
+  match parse_date(text, utc:, base:) {
     Ok(epoch) => {
-      if debug {
-        gnu.error(f"input string: {text}")
-        gnu.error(f"parsed date part: (Y-M-D) {format_text(epoch, "%F", utc, style)?}")
-        gnu.error(f"parsed time part: (H:M:S) {format_text(epoch, "%T", utc, style)?}")
-        gnu.error(f"input timezone: {format_text(epoch, "%Z", utc, style)?}")
-        if ! has_explicit_time(text) {
-          gnu.error("warning: using midnight")
-        }
-      }
+      if debug { if let Err(failure) = debug_date(text, epoch, base, utc) { gnu.error(failure.message); return false } }
+      if debug { gnu.error(f"output format: {gnu.quote_value_bytes(format)}") }
       match format_date(epoch, format, utc, style) {
         Ok(output) => { gnu.write_bytes(bytes.concat([output, b"\n"])); return true }
         Err(failure) => gnu.error(failure.message)
@@ -496,11 +576,11 @@ proc main(...raw: List[Bytes]) [time, process, env, io, fs, error] {
     if operand.byte_at(0) == 43 {
       if specified_format { reject_extra_operand(operand) }
       format = operand[1..operand.len()]; specified_format = true
-    } else if ! operands and arg.starts_with("-") and arg != "-" { gnu.usage_error(f"unexpected argument {gnu.quote(arg)}") } else {
+    } else if ! operands and arg.starts_with("-") and arg != "-" { gnu.usage_error(if arg.starts_with("--") { f"unrecognized option {gnu.quote(arg)}" } else { f"invalid option -- {gnu.quote(arg.byte_slice(1, length: 1))}" }) } else {
       # A format operand takes the place of the date, so a second non-format operand is extra.
       if date_operand or (specified_format and source == "") { reject_extra_operand(operand) }
       if source != "" {
-        gnu.error(f"the argument {display_bytes(operand)} lacks a leading '+';\nwhen using an option to specify date(s), any non-option\nargument must be a format string beginning with '+'")
+        gnu.usage_error(f"the argument {gnu.quote_value_bytes(operand)} lacks a leading '+';\nwhen using an option to specify date(s), any non-option\nargument must be a format string beginning with '+'")
         exit 1
       }
       source = "set"; date = operand; setting = true; date_operand = true
@@ -520,7 +600,7 @@ proc main(...raw: List[Bytes]) [time, process, env, io, fs, error] {
   }
   if source == "file" {
     let from_stdin = file == b"-"
-    if ! from_stdin and (Path.parse_bytes(file)?.is_dir() ?? false) { gnu.error(f"expected file, got directory {gnu.quote_bytes(file)}"); exit 1 }
+    if ! from_stdin and (Path.parse_bytes(file)?.is_dir() ?? false) { gnu.error(f"{gnu.quote_bytes(file, always: false)}: read error: Is a directory"); exit 1 }
     var contents = b""
     let read = if from_stdin { io.stdin_bytes() } else { Path.parse_bytes(file)?.read_bytes() }
     match read {
@@ -561,5 +641,6 @@ proc main(...raw: List[Bytes]) [time, process, env, io, fs, error] {
       Err(failure) => { gnu.error(f"invalid date {gnu.quote(text)}"); exit 1 }
     }
   }
+  if debug and source == "" { gnu.error(f"output format: {gnu.quote_value_bytes(format)}") }
   if ! emit_date(date, format, utc, debug and source == "date", style) { exit 1 }
 }
