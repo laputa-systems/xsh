@@ -443,7 +443,9 @@ impl Evaluator {
         producer.finished = true;
         if !producer.started {
             // The body never started, so it registered no defers and the call
-            // opened no scope.
+            // opened no scope. Drop the bound slots too: they can retain this
+            // stream, which would otherwise keep its own producer frame alive.
+            producer.frame.take();
             return Ok(());
         }
         let scopes = producer

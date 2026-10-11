@@ -7609,6 +7609,160 @@ mod capture_transfer_tests {
         assert!(!evaluator.owned_streams.contains_key(&owner_id));
     }
 
+    struct DropProbeStream {
+        drops: Arc<std::sync::atomic::AtomicUsize>,
+        captured: Arc<std::sync::Mutex<Option<StreamValue>>>,
+    }
+
+    impl Drop for DropProbeStream {
+        fn drop(&mut self) {
+            self.drops
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    impl ScriptStream for DropProbeStream {
+        fn finished(&self) -> bool {
+            false
+        }
+
+        fn poll(
+            &mut self,
+            _evaluator: &mut Evaluator,
+            _span: Span,
+        ) -> Result<ScriptStreamStep, RuntimeError> {
+            Ok(ScriptStreamStep::Finished)
+        }
+
+        fn validate_item(&self, _value: &Value, _span: Span) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn visit_retained_values(
+            &self,
+            visitor: &mut dyn for<'a> FnMut(RetainedValueRef<'a>),
+        ) {
+            if let Some(stream) = self.captured.lock().expect("test stream holder").as_ref() {
+                visitor(RetainedValueRef::Stream(stream));
+            }
+        }
+
+        fn delegated_finished(&mut self) {}
+
+        fn take_delegated(
+            &mut self,
+        ) -> (Option<ScriptStreamState>, Vec<u64>, Option<ScopedProducerContext>) {
+            (None, Vec::new(), None)
+        }
+
+        fn cancel(&mut self, _evaluator: &mut Evaluator, _span: Span) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+    }
+
+    fn producer_capture_evaluator() -> (Evaluator, LoweredFunctionKey, Span, u64) {
+        let source = String::from(
+            "stream hold_stream(source: Stream[Unit]) -> Stream[Int] { yield 1 }\n",
+        );
+        let mut sources = crate::source::SourceMap::new();
+        let source_id = sources.add_file("stream-capture-lifecycle.xsh", &source);
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(source_id, &source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let declarations = Checker::check_compact_declarations(&parsed.arena, &sources, source_id);
+        assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+        let function = parsed
+            .arena
+            .symbol_owner()
+            .with_current(|| Name::intern("hold_stream"));
+        let sources = Arc::new(sources);
+        let program = FullBuilder::build_compact(
+            &parsed.arena,
+            &declarations,
+            &source,
+            Arc::clone(&sources),
+            source_id,
+        )
+        .expect("stream function lowers");
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*sources).clone());
+        evaluator.install_compact_runtime_declarations(&declarations);
+        evaluator.indexed_program = Some(Arc::new(program));
+        let owner_scope = evaluator.enter_owned_host_scope();
+        (
+            evaluator,
+            LoweredFunctionKey::Name(function),
+            Span::new(source_id, 0, 0),
+            owner_scope,
+        )
+    }
+
+    fn stream_with_captured_drop_probe(
+        evaluator: &mut Evaluator,
+        function: LoweredFunctionKey,
+        span: Span,
+        drops: &Arc<std::sync::atomic::AtomicUsize>,
+    ) -> (StreamValue, ScriptStreamState) {
+        // The captured stream points back to its producer through this test cell.
+        let captured = Arc::new(std::sync::Mutex::new(None));
+        let source = StreamValue::from_script(ScriptStreamState::new(DropProbeStream {
+            drops: Arc::clone(drops),
+            captured: Arc::clone(&captured),
+        }));
+        let args = [Value::Stream(Box::new(source))];
+        let kind = [LoweredFunctionKind::Proc, LoweredFunctionKind::Pure]
+            .into_iter()
+            .find(|kind| {
+                evaluator
+                    .indexed_program
+                    .as_ref()
+                    .unwrap()
+                    .function_view(function, *kind)
+                    .unwrap()
+                    .is_some()
+            })
+            .expect("prepared stream function identity");
+        let value = evaluator
+            .call_indexed_direct(function, kind, &args, span)
+            .expect("prepared stream function")
+            .expect("stream producer call succeeds");
+        drop(args);
+        let Value::Stream(stream) = value else {
+            panic!("stream producer call returned {value:?}");
+        };
+        let state = stream.script().expect("script producer state").clone();
+        *captured.lock().expect("test stream holder") = Some((*stream).clone());
+        (*stream, state)
+    }
+
+    #[test]
+    fn unstarted_producer_drops_bound_captures_at_scope_exit() {
+        let (mut evaluator, function, span, owner_scope) = producer_capture_evaluator();
+        let drops = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (_stream, state) =
+            stream_with_captured_drop_probe(&mut evaluator, function, span, &drops);
+
+        assert_eq!(drops.load(std::sync::atomic::Ordering::SeqCst), 0);
+        evaluator.exit_owned_host_scope(owner_scope).unwrap();
+        assert!(state.lock(span).unwrap().finished());
+        assert_eq!(drops.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn started_producer_drops_bound_captures_when_cancelled() {
+        let (mut evaluator, function, span, owner_scope) = producer_capture_evaluator();
+        let drops = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (mut stream, state) =
+            stream_with_captured_drop_probe(&mut evaluator, function, span, &drops);
+
+        assert_eq!(
+            evaluator.stream_next(&mut stream, span).unwrap(),
+            Some(Value::Int(1))
+        );
+        assert_eq!(drops.load(std::sync::atomic::Ordering::SeqCst), 0);
+        evaluator.exit_owned_host_scope(owner_scope).unwrap();
+        assert!(state.lock(span).unwrap().finished());
+        assert_eq!(drops.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
     struct RetainedStreamProducer {
         retained: Option<StreamValue>,
         self_stream: Option<Arc<std::sync::Mutex<Option<StreamValue>>>>,
