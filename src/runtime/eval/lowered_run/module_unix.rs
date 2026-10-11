@@ -9,6 +9,415 @@ use super::{
 };
 use std::os::unix::fs::OpenOptionsExt;
 
+macro_rules! define_unix_call_authority {
+    (
+        fn eval_unix_call_value(
+            &mut $this:ident,
+            $op:ident: RuntimeOp,
+            $values:ident: NativeArgumentValues,
+            $span:ident: Span,
+        ) -> Result<Value, RuntimeError>;
+        unix_rows {
+            first_callable {
+                $(
+                    $(#[$first_attribute:meta])*
+                    $first_class:ident; $first_pattern:pat $(if $first_guard:expr)? => $first_body:expr $(,)?
+                )*
+            }
+            internal {
+                $(
+                    $(#[$internal_attribute:meta])*
+                    $internal_class:ident; $internal_pattern:pat $(if $internal_guard:expr)? => $internal_body:expr $(,)?
+                )*
+            }
+            callable {
+                $(
+                    $(#[$callable_attribute:meta])*
+                    $callable_class:ident; $callable_pattern:pat $(if $callable_guard:expr)? => $callable_body:expr $(,)?
+                )*
+            }
+            fallback {
+                $(
+                    $(#[$fallback_attribute:meta])*
+                    $fallback_class:ident; $fallback_pattern:pat $(if $fallback_guard:expr)? => $fallback_body:expr $(,)?
+                )*
+            }
+        }
+    ) => {
+        fn eval_unix_call_value(
+            &mut $this,
+            $op: RuntimeOp,
+            $values: NativeArgumentValues,
+            $span: Span,
+        ) -> Result<Value, RuntimeError> {
+            match $op {
+                $(
+                    $(#[$first_attribute])*
+                    $first_pattern $(if $first_guard)? => $first_body,
+                )*
+                $(
+                    $(#[$internal_attribute])*
+                    $internal_pattern $(if $internal_guard)? => $internal_body,
+                )*
+                $(
+                    $(#[$callable_attribute])*
+                    $callable_pattern $(if $callable_guard)? => $callable_body,
+                )*
+                $(
+                    $(#[$fallback_attribute])*
+                    $fallback_pattern $(if $fallback_guard)? => $fallback_body,
+                )*
+            }
+        }
+    };
+}
+
+macro_rules! with_unix_call_rows {
+    ($consumer:ident ! { $($args:tt)* } using $this:ident, $op:ident, $values:ident, $span:ident) => {
+        $consumer! {
+            $($args)*
+            unix_rows {
+                first_callable {
+            callable; RuntimeOp::UnixKillAll => {
+                let name =
+                    lowered_str_arg_owned($values.first().cloned(), "", "unix.kill_all", $span)?;
+                let signal =
+                    lowered_str_arg_owned($values.get(1).cloned(), "TERM", "unix.kill_all", $span)?;
+                unix_module::kill_all(&name, &signal, $span)
+            }
+                }
+                internal {
+            internal; RuntimeOp::UnixTty if $this.unix_fake_active() => {
+                let tty = $this.unix_fake_value("tty", "/dev/tty");
+                $this.unix_fake_log("tty", &[("tty", tty.clone())], $span)?;
+                Ok(Value::ok(Value::Str(tty.into())))
+            }
+            internal; RuntimeOp::UnixId if $this.unix_fake_active() => {
+                $this.unix_fake_log("id", &[], $span)?;
+                Ok(Value::ok(Value::Record(RecordMap::from([
+                    (Arc::from("uid"), Value::Int(0)),
+                    (Arc::from("euid"), Value::Int(0)),
+                    (Arc::from("gid"), Value::Int(0)),
+                    (Arc::from("egid"), Value::Int(0)),
+                    (
+                        Arc::from("groups"),
+                        Value::List(vec![Value::Record(RecordMap::from([
+                            (Arc::from("gid"), Value::Int(0)),
+                            (Arc::from("name"), Value::Str("root".into())),
+                        ]))]),
+                    ),
+                    (Arc::from("supplementary"), Value::List(vec![Value::Int(0)])),
+                ]))))
+            }
+            internal; RuntimeOp::UnixTtyAttrs if $this.unix_fake_active() => {
+                let fd = lowered_int_arg_or($values.first().cloned(), 0, "unix.tty_attrs", $span)?;
+                $this.unix_fake_log("tty_attrs", &[("fd", fd.to_string())], $span)?;
+                Ok(Value::ok(unix_fake_tty_attrs()))
+            }
+            internal; RuntimeOp::UnixSetTtyAttrs if $this.unix_fake_active() => {
+                let _attrs =
+                    lowered_record_arg($values.first().cloned(), "unix.set_tty_attrs", $span)?;
+                let fd = lowered_int_arg_or($values.get(1).cloned(), 0, "unix.set_tty_attrs", $span)?;
+                $this.unix_fake_log("set_tty_attrs", &[("fd", fd.to_string())], $span)?;
+                Ok(Value::ok(Value::Unit))
+            }
+            internal; RuntimeOp::UnixSetHostname if $this.unix_fake_active() => {
+                let hostname =
+                    lowered_str_arg_owned($values.first().cloned(), "", "unix.set_hostname", $span)?;
+                $this.unix_fake_log("set_hostname", &[("hostname", hostname.clone())], $span)?;
+                Ok(Value::ok(Value::Unit))
+            }
+            internal; RuntimeOp::UnixReapChildEvents
+            | RuntimeOp::UnixPid1Setup
+            | RuntimeOp::UnixWaitPid1Event
+            | RuntimeOp::UnixShutdownProcessGroups
+            | RuntimeOp::UnixSpawnProcessGroup
+            | RuntimeOp::UnixSpawnProcessGroupLog
+            | RuntimeOp::UnixSpawnLoggedProcessGroup
+            | RuntimeOp::UnixSpawnWithTty
+            | RuntimeOp::UnixNotifyReady
+            | RuntimeOp::UnixNotifyClose
+            | RuntimeOp::UnixKillProcessGroup
+            | RuntimeOp::UnixExec
+                if $this.unix_fake_active() =>
+            {
+                $this.eval_unix_fake_call($op, $values, $span)
+            }
+                }
+                callable {
+            callable; RuntimeOp::UnixReapChildEvents => unix_module::reap_child_events($span),
+            callable; RuntimeOp::UnixPid1Setup => {
+                let signals =
+                    lowered_str_list_arg($values.first().cloned(), "unix.pid1_setup", $span)?;
+                let subreaper =
+                    lowered_bool_arg_or($values.get(1).cloned(), true, "unix.pid1_setup", $span)?;
+                let allow_non_pid1 =
+                    lowered_bool_arg_or($values.get(2).cloned(), false, "unix.pid1_setup", $span)?;
+                unix_module::pid1_setup_native(&signals, subreaper, allow_non_pid1, $span)?;
+                Ok(Value::ok(Value::Unit))
+            }
+            callable; RuntimeOp::UnixWaitPid1Event => {
+                let deadline = match $values.first().cloned() {
+                    Some(value) => {
+                        let timeout =
+                            lowered_duration_arg(Some(value), "unix.wait_pid1_event", $span)?;
+                        Some(Instant::now() + Duration::from_millis(timeout.millis))
+                    }
+                    None => None,
+                };
+                let event = unix_module::wait_pid1_event_native(deadline, $span)?;
+                Ok(Value::ok(pid1_event_record(event)))
+            }
+            callable; RuntimeOp::UnixShutdownProcessGroups => {
+                let groups = lowered_int_list_arg(
+                    $values.first().cloned(),
+                    "unix.shutdown_process_groups",
+                    $span,
+                )?;
+                let term_timeout = lowered_duration_arg(
+                    $values.get(1).cloned(),
+                    "unix.shutdown_process_groups",
+                    $span,
+                )?;
+                let kill_timeout = match $values.get(2).cloned() {
+                    Some(value) => {
+                        lowered_duration_arg(Some(value), "unix.shutdown_process_groups", $span)?
+                            .millis
+                    }
+                    None => 0,
+                };
+                let shutdown = unix_module::shutdown_process_groups_native(
+                    &groups,
+                    Duration::from_millis(term_timeout.millis),
+                    Duration::from_millis(kill_timeout),
+                    $span,
+                )?;
+                Ok(Value::ok(pid1_shutdown_record(shutdown)))
+            }
+            callable; RuntimeOp::UnixSpawnProcessGroup => {
+                let plan = lowered_command_arg(
+                    unix_require_arg($values.first().cloned(), "unix.spawn_process_group", $span)?,
+                    "unix.spawn_process_group",
+                    $span,
+                )?;
+                let notify = lowered_bool_arg_or(
+                    $values.get(1).cloned(),
+                    false,
+                    "unix.spawn_process_group",
+                    $span,
+                )?;
+                let invocation = $this.invocation_from_command_plan(&plan, $span)?;
+                unix_module::spawn_process_group(&invocation, notify, $span)
+            }
+            callable; RuntimeOp::UnixNotifyReady => {
+                let fd = lowered_int_arg($values.first().cloned(), "unix.notify_ready", $span)?;
+                match unix_module::notify_ready_native(fd, $span) {
+                    Ok(ready) => Ok(Value::ok(Value::Bool(ready))),
+                    Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
+                }
+            }
+            callable; RuntimeOp::UnixNotifyClose => {
+                let fd = lowered_int_arg($values.first().cloned(), "unix.notify_close", $span)?;
+                match unix_module::notify_close_native(fd, $span) {
+                    Ok(()) => Ok(Value::ok(Value::Unit)),
+                    Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
+                }
+            }
+            callable; RuntimeOp::UnixSpawnProcessGroupLog => {
+                let plan = lowered_command_arg(
+                    unix_require_arg(
+                        $values.first().cloned(),
+                        "unix.spawn_process_group_log",
+                        $span,
+                    )?,
+                    "unix.spawn_process_group_log",
+                    $span,
+                )?;
+                let log = lowered_path_arg(
+                    unix_require_arg($values.get(1).cloned(), "unix.spawn_process_group_log", $span)?,
+                    "unix.spawn_process_group_log",
+                    $span,
+                )?;
+                let host_log = $this.host_path(&log);
+                if let Some(parent) = host_log.parent()
+                    && !parent.as_os_str().is_empty()
+                {
+                    std::fs::create_dir_all(parent).map_err(|error| {
+                        RuntimeError::host("unix-spawn-log", &error).with_span($span)
+                    })?;
+                }
+                let stdout = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .mode(0o600)
+                    .open(&host_log)
+                    .map_err(|error| {
+                        RuntimeError::host("unix-spawn-log", &error).with_span($span)
+                    })?;
+                let stderr = stdout.try_clone().map_err(|error| {
+                    RuntimeError::host("unix-spawn-log", &error).with_span($span)
+                })?;
+                let notify = lowered_bool_arg_or(
+                    $values.get(2).cloned(),
+                    false,
+                    "unix.spawn_process_group_log",
+                    $span,
+                )?;
+                let invocation = $this.invocation_from_command_plan(&plan, $span)?;
+                match unix_module::spawn_process_group_with_stdio_native(
+                    &invocation,
+                    stdout,
+                    stderr,
+                    notify,
+                    $span,
+                ) {
+                    Ok(child) => Ok(spawned_child_record(child)),
+                    Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
+                }
+            }
+            callable; RuntimeOp::UnixSpawnLoggedProcessGroup => {
+                let plan = lowered_command_arg(
+                    unix_require_arg(
+                        $values.first().cloned(),
+                        "unix.spawn_logged_process_group",
+                        $span,
+                    )?,
+                    "unix.spawn_logged_process_group",
+                    $span,
+                )?;
+                let logger_plan = lowered_command_arg(
+                    unix_require_arg(
+                        $values.get(1).cloned(),
+                        "unix.spawn_logged_process_group",
+                        $span,
+                    )?,
+                    "unix.spawn_logged_process_group",
+                    $span,
+                )?;
+                let invocation = $this.invocation_from_command_plan(&plan, $span)?;
+                let logger_invocation = $this.invocation_from_command_plan(&logger_plan, $span)?;
+                unix_module::spawn_logged_process_group(&invocation, &logger_invocation, $span)
+            }
+            callable; RuntimeOp::UnixSpawnWithTty => {
+                let plan = lowered_command_arg(
+                    unix_require_arg($values.first().cloned(), "unix.spawn_with_tty", $span)?,
+                    "unix.spawn_with_tty",
+                    $span,
+                )?;
+                let tty =
+                    lowered_str_arg_owned($values.get(1).cloned(), "", "unix.spawn_with_tty", $span)?;
+                let invocation = $this.invocation_from_command_plan(&plan, $span)?;
+                unix_module::spawn_with_tty(&invocation, &tty, $span)
+            }
+            callable; RuntimeOp::UnixKillProcessGroup => {
+                let pid =
+                    lowered_int_arg($values.first().cloned(), "unix.kill_process_group", $span)?;
+                let signal = lowered_str_arg_owned(
+                    $values.get(1).cloned(),
+                    "",
+                    "unix.kill_process_group",
+                    $span,
+                )?;
+                let signal = match process_module::signal_info(&signal, $span) {
+                    Ok(signal) => signal,
+                    Err(error) => return Ok(Value::err(Value::Error(Box::new(error)))),
+                };
+                unix_module::kill_process_group(pid, signal.number, $span)
+            }
+            callable; RuntimeOp::UnixExecEnv => {
+                let plan = lowered_command_arg(unix_require_arg($values.first().cloned(), "unix.exec_env", $span)?, "unix.exec_env", $span)?;
+                let mut invocation = $this.invocation_from_command_plan(&plan, $span)?;
+                let Some(LoweredValue::Map(environment)) = $values.get(1) else {
+                    return Err(RuntimeError::new("type-error", "unix.exec_env expected Map[Str, Str] or Map[Str, Bytes]").with_span($span));
+                };
+                let mut replacement = BTreeMap::new();
+                for (key, value) in environment.iter() {
+                    let Some(key) = key.as_str() else { return Err(RuntimeError::new("type-error", "unix.exec_env expected Str keys").with_span($span)); };
+                    let value: Vec<u8> = match value {
+                        LoweredValue::Str(value) => value.as_bytes().to_vec(),
+                        LoweredValue::Bytes(value) => value.to_vec(),
+                        LoweredValue::BytesView(value) => value.as_slice().to_vec(),
+                        _ => return Err(RuntimeError::new("type-error", "unix.exec_env expected Str or Bytes values").with_span($span)),
+                    };
+                    if key.is_empty() || key.as_bytes().contains(&0) || key.contains('=') || value.contains(&0) {
+                        return Ok(Value::err(Value::Error(Box::new(RuntimeError::new("unix-exec-env", "invalid environment key or value").with_span($span)))));
+                    }
+                    replacement.insert(key.as_bytes().to_vec(), value);
+                }
+                let argv0 = match $values.get(2).cloned() {
+                    None | Some(LoweredValue::Null) => None,
+                    Some(value) => Some(lowered_str_arg_owned(Some(value), "", "unix.exec_env", $span)?),
+                };
+                if argv0.as_ref().is_some_and(|value| value.as_bytes().contains(&0)) {
+                    return Ok(Value::err(Value::Error(Box::new(RuntimeError::new("unix-exec-env", "argv0 contains NUL").with_span($span)))));
+                }
+                let mut block_signals = Vec::new();
+                if let Some(names) = $values.get(3).cloned() {
+                    for name in lowered_str_list_arg(Some(names), "unix.exec_env", $span)? {
+                        match process_module::signal_info(&name, $span) {
+                            Ok(signal) if signal.number > 0 => block_signals.push(signal.number),
+                            Ok(_) => return Ok(Value::err(Value::Error(Box::new(RuntimeError::new("unix-exec-env", format!("cannot block signal {name}")).with_span($span))))),
+                            Err(error) => return Ok(Value::err(Value::Error(Box::new(error)))),
+                        }
+                    }
+                }
+                invocation.env = replacement;
+                invocation.env_overlay.clear();
+                if $this.unix_fake_active() {
+                    $this.unix_fake_log("exec_env", &[("command", String::from_utf8_lossy(&plan.target).into_owned()), ("argv", display_spawn_argv(&plan.target, &plan.argv)), ("argv0", argv0.unwrap_or_default())], $span)?;
+                    return Ok(Value::ok(Value::Unit));
+                }
+                $this.flush_shared_stdio();
+                let cwd = (plan.cwd.is_some() || super::super::PROCESS_CWD.get() != Some(&$this.cwd))
+                    .then_some(invocation.cwd.as_path());
+                unix_module::exec_env(&invocation, cwd, argv0.as_deref(), &block_signals, $span)
+            }
+            callable; RuntimeOp::UnixExec => {
+                let plan = lowered_command_arg(
+                    unix_require_arg($values.first().cloned(), "unix.exec", $span)?,
+                    "unix.exec",
+                    $span,
+                )?;
+                let invocation = $this.invocation_from_command_plan(&plan, $span)?;
+                // Buffered output would otherwise die with the replaced image.
+                $this.flush_shared_stdio();
+                let cwd = (plan.cwd.is_some() || super::super::PROCESS_CWD.get() != Some(&$this.cwd))
+                    .then_some(invocation.cwd.as_path());
+                unix_module::exec(&invocation, cwd, $span)
+            }
+            callable; RuntimeOp::UnixSetHostname => {
+                let hostname =
+                    lowered_str_arg_owned($values.first().cloned(), "", "unix.set_hostname", $span)?;
+                unix_module::set_hostname(&hostname, $span)
+            }
+            callable; RuntimeOp::UnixUptimeSeconds => unix_module::uptime_seconds($span),
+            callable; RuntimeOp::UnixTty => unix_module::tty($span),
+            callable; RuntimeOp::UnixId => unix_module::id($span),
+            callable; RuntimeOp::UnixTtyAttrs => {
+                let fd = lowered_int_arg_or($values.first().cloned(), 0, "unix.tty_attrs", $span)?;
+                unix_module::tty_attrs(fd, $span)
+            }
+            callable; RuntimeOp::UnixSetTtyAttrs => {
+                let attrs =
+                    lowered_record_arg($values.first().cloned(), "unix.set_tty_attrs", $span)?;
+                let fd = lowered_int_arg_or($values.get(1).cloned(), 0, "unix.set_tty_attrs", $span)?;
+                let when = lowered_str_arg_owned(
+                    $values.get(2).cloned(),
+                    "now",
+                    "unix.set_tty_attrs",
+                    $span,
+                )?;
+                unix_module::set_tty_attrs(&attrs, fd, &when, $span)
+            }
+                }
+                fallback {
+            fallback; _ => unreachable!("unix operation expected"),                }
+            }
+        }
+    };
+}
+pub(crate) use with_unix_call_rows;
+
 impl Evaluator {
     pub(super) fn eval_lowered_unix_call(
         &mut self,
@@ -26,342 +435,16 @@ impl Evaluator {
         })
     }
 
-    fn eval_unix_call_value(
-        &mut self,
-        op: RuntimeOp,
-        values: NativeArgumentValues,
-        span: Span,
-    ) -> Result<Value, RuntimeError> {
-        match op {
-            RuntimeOp::UnixKillAll => {
-                let name =
-                    lowered_str_arg_owned(values.first().cloned(), "", "unix.kill_all", span)?;
-                let signal =
-                    lowered_str_arg_owned(values.get(1).cloned(), "TERM", "unix.kill_all", span)?;
-                unix_module::kill_all(&name, &signal, span)
-            }
-            RuntimeOp::UnixTty if self.unix_fake_active() => {
-                let tty = self.unix_fake_value("tty", "/dev/tty");
-                self.unix_fake_log("tty", &[("tty", tty.clone())], span)?;
-                Ok(Value::ok(Value::Str(tty.into())))
-            }
-            RuntimeOp::UnixId if self.unix_fake_active() => {
-                self.unix_fake_log("id", &[], span)?;
-                Ok(Value::ok(Value::Record(RecordMap::from([
-                    (Arc::from("uid"), Value::Int(0)),
-                    (Arc::from("euid"), Value::Int(0)),
-                    (Arc::from("gid"), Value::Int(0)),
-                    (Arc::from("egid"), Value::Int(0)),
-                    (
-                        Arc::from("groups"),
-                        Value::List(vec![Value::Record(RecordMap::from([
-                            (Arc::from("gid"), Value::Int(0)),
-                            (Arc::from("name"), Value::Str("root".into())),
-                        ]))]),
-                    ),
-                    (Arc::from("supplementary"), Value::List(vec![Value::Int(0)])),
-                ]))))
-            }
-            RuntimeOp::UnixTtyAttrs if self.unix_fake_active() => {
-                let fd = lowered_int_arg_or(values.first().cloned(), 0, "unix.tty_attrs", span)?;
-                self.unix_fake_log("tty_attrs", &[("fd", fd.to_string())], span)?;
-                Ok(Value::ok(unix_fake_tty_attrs()))
-            }
-            RuntimeOp::UnixSetTtyAttrs if self.unix_fake_active() => {
-                let _attrs =
-                    lowered_record_arg(values.first().cloned(), "unix.set_tty_attrs", span)?;
-                let fd = lowered_int_arg_or(values.get(1).cloned(), 0, "unix.set_tty_attrs", span)?;
-                self.unix_fake_log("set_tty_attrs", &[("fd", fd.to_string())], span)?;
-                Ok(Value::ok(Value::Unit))
-            }
-            RuntimeOp::UnixSetHostname if self.unix_fake_active() => {
-                let hostname =
-                    lowered_str_arg_owned(values.first().cloned(), "", "unix.set_hostname", span)?;
-                self.unix_fake_log("set_hostname", &[("hostname", hostname.clone())], span)?;
-                Ok(Value::ok(Value::Unit))
-            }
-            RuntimeOp::UnixReapChildEvents
-            | RuntimeOp::UnixPid1Setup
-            | RuntimeOp::UnixWaitPid1Event
-            | RuntimeOp::UnixShutdownProcessGroups
-            | RuntimeOp::UnixSpawnProcessGroup
-            | RuntimeOp::UnixSpawnProcessGroupLog
-            | RuntimeOp::UnixSpawnLoggedProcessGroup
-            | RuntimeOp::UnixSpawnWithTty
-            | RuntimeOp::UnixNotifyReady
-            | RuntimeOp::UnixNotifyClose
-            | RuntimeOp::UnixKillProcessGroup
-            | RuntimeOp::UnixExec
-                if self.unix_fake_active() =>
-            {
-                self.eval_unix_fake_call(op, values, span)
-            }
-            RuntimeOp::UnixReapChildEvents => unix_module::reap_child_events(span),
-            RuntimeOp::UnixPid1Setup => {
-                let signals =
-                    lowered_str_list_arg(values.first().cloned(), "unix.pid1_setup", span)?;
-                let subreaper =
-                    lowered_bool_arg_or(values.get(1).cloned(), true, "unix.pid1_setup", span)?;
-                let allow_non_pid1 =
-                    lowered_bool_arg_or(values.get(2).cloned(), false, "unix.pid1_setup", span)?;
-                unix_module::pid1_setup_native(&signals, subreaper, allow_non_pid1, span)?;
-                Ok(Value::ok(Value::Unit))
-            }
-            RuntimeOp::UnixWaitPid1Event => {
-                let deadline = match values.first().cloned() {
-                    Some(value) => {
-                        let timeout =
-                            lowered_duration_arg(Some(value), "unix.wait_pid1_event", span)?;
-                        Some(Instant::now() + Duration::from_millis(timeout.millis))
-                    }
-                    None => None,
-                };
-                let event = unix_module::wait_pid1_event_native(deadline, span)?;
-                Ok(Value::ok(pid1_event_record(event)))
-            }
-            RuntimeOp::UnixShutdownProcessGroups => {
-                let groups = lowered_int_list_arg(
-                    values.first().cloned(),
-                    "unix.shutdown_process_groups",
-                    span,
-                )?;
-                let term_timeout = lowered_duration_arg(
-                    values.get(1).cloned(),
-                    "unix.shutdown_process_groups",
-                    span,
-                )?;
-                let kill_timeout = match values.get(2).cloned() {
-                    Some(value) => {
-                        lowered_duration_arg(Some(value), "unix.shutdown_process_groups", span)?
-                            .millis
-                    }
-                    None => 0,
-                };
-                let shutdown = unix_module::shutdown_process_groups_native(
-                    &groups,
-                    Duration::from_millis(term_timeout.millis),
-                    Duration::from_millis(kill_timeout),
-                    span,
-                )?;
-                Ok(Value::ok(pid1_shutdown_record(shutdown)))
-            }
-            RuntimeOp::UnixSpawnProcessGroup => {
-                let plan = lowered_command_arg(
-                    unix_require_arg(values.first().cloned(), "unix.spawn_process_group", span)?,
-                    "unix.spawn_process_group",
-                    span,
-                )?;
-                let notify = lowered_bool_arg_or(
-                    values.get(1).cloned(),
-                    false,
-                    "unix.spawn_process_group",
-                    span,
-                )?;
-                let invocation = self.invocation_from_command_plan(&plan, span)?;
-                unix_module::spawn_process_group(&invocation, notify, span)
-            }
-            RuntimeOp::UnixNotifyReady => {
-                let fd = lowered_int_arg(values.first().cloned(), "unix.notify_ready", span)?;
-                match unix_module::notify_ready_native(fd, span) {
-                    Ok(ready) => Ok(Value::ok(Value::Bool(ready))),
-                    Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
-                }
-            }
-            RuntimeOp::UnixNotifyClose => {
-                let fd = lowered_int_arg(values.first().cloned(), "unix.notify_close", span)?;
-                match unix_module::notify_close_native(fd, span) {
-                    Ok(()) => Ok(Value::ok(Value::Unit)),
-                    Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
-                }
-            }
-            RuntimeOp::UnixSpawnProcessGroupLog => {
-                let plan = lowered_command_arg(
-                    unix_require_arg(
-                        values.first().cloned(),
-                        "unix.spawn_process_group_log",
-                        span,
-                    )?,
-                    "unix.spawn_process_group_log",
-                    span,
-                )?;
-                let log = lowered_path_arg(
-                    unix_require_arg(values.get(1).cloned(), "unix.spawn_process_group_log", span)?,
-                    "unix.spawn_process_group_log",
-                    span,
-                )?;
-                let host_log = self.host_path(&log);
-                if let Some(parent) = host_log.parent()
-                    && !parent.as_os_str().is_empty()
-                {
-                    std::fs::create_dir_all(parent).map_err(|error| {
-                        RuntimeError::host("unix-spawn-log", &error).with_span(span)
-                    })?;
-                }
-                let stdout = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .mode(0o600)
-                    .open(&host_log)
-                    .map_err(|error| {
-                        RuntimeError::host("unix-spawn-log", &error).with_span(span)
-                    })?;
-                let stderr = stdout.try_clone().map_err(|error| {
-                    RuntimeError::host("unix-spawn-log", &error).with_span(span)
-                })?;
-                let notify = lowered_bool_arg_or(
-                    values.get(2).cloned(),
-                    false,
-                    "unix.spawn_process_group_log",
-                    span,
-                )?;
-                let invocation = self.invocation_from_command_plan(&plan, span)?;
-                match unix_module::spawn_process_group_with_stdio_native(
-                    &invocation,
-                    stdout,
-                    stderr,
-                    notify,
-                    span,
-                ) {
-                    Ok(child) => Ok(spawned_child_record(child)),
-                    Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
-                }
-            }
-            RuntimeOp::UnixSpawnLoggedProcessGroup => {
-                let plan = lowered_command_arg(
-                    unix_require_arg(
-                        values.first().cloned(),
-                        "unix.spawn_logged_process_group",
-                        span,
-                    )?,
-                    "unix.spawn_logged_process_group",
-                    span,
-                )?;
-                let logger_plan = lowered_command_arg(
-                    unix_require_arg(
-                        values.get(1).cloned(),
-                        "unix.spawn_logged_process_group",
-                        span,
-                    )?,
-                    "unix.spawn_logged_process_group",
-                    span,
-                )?;
-                let invocation = self.invocation_from_command_plan(&plan, span)?;
-                let logger_invocation = self.invocation_from_command_plan(&logger_plan, span)?;
-                unix_module::spawn_logged_process_group(&invocation, &logger_invocation, span)
-            }
-            RuntimeOp::UnixSpawnWithTty => {
-                let plan = lowered_command_arg(
-                    unix_require_arg(values.first().cloned(), "unix.spawn_with_tty", span)?,
-                    "unix.spawn_with_tty",
-                    span,
-                )?;
-                let tty =
-                    lowered_str_arg_owned(values.get(1).cloned(), "", "unix.spawn_with_tty", span)?;
-                let invocation = self.invocation_from_command_plan(&plan, span)?;
-                unix_module::spawn_with_tty(&invocation, &tty, span)
-            }
-            RuntimeOp::UnixKillProcessGroup => {
-                let pid =
-                    lowered_int_arg(values.first().cloned(), "unix.kill_process_group", span)?;
-                let signal = lowered_str_arg_owned(
-                    values.get(1).cloned(),
-                    "",
-                    "unix.kill_process_group",
-                    span,
-                )?;
-                let signal = match process_module::signal_info(&signal, span) {
-                    Ok(signal) => signal,
-                    Err(error) => return Ok(Value::err(Value::Error(Box::new(error)))),
-                };
-                unix_module::kill_process_group(pid, signal.number, span)
-            }
-            RuntimeOp::UnixExecEnv => {
-                let plan = lowered_command_arg(unix_require_arg(values.first().cloned(), "unix.exec_env", span)?, "unix.exec_env", span)?;
-                let mut invocation = self.invocation_from_command_plan(&plan, span)?;
-                let Some(LoweredValue::Map(environment)) = values.get(1) else {
-                    return Err(RuntimeError::new("type-error", "unix.exec_env expected Map[Str, Str] or Map[Str, Bytes]").with_span(span));
-                };
-                let mut replacement = BTreeMap::new();
-                for (key, value) in environment.iter() {
-                    let Some(key) = key.as_str() else { return Err(RuntimeError::new("type-error", "unix.exec_env expected Str keys").with_span(span)); };
-                    let value: Vec<u8> = match value {
-                        LoweredValue::Str(value) => value.as_bytes().to_vec(),
-                        LoweredValue::Bytes(value) => value.to_vec(),
-                        LoweredValue::BytesView(value) => value.as_slice().to_vec(),
-                        _ => return Err(RuntimeError::new("type-error", "unix.exec_env expected Str or Bytes values").with_span(span)),
-                    };
-                    if key.is_empty() || key.as_bytes().contains(&0) || key.contains('=') || value.contains(&0) {
-                        return Ok(Value::err(Value::Error(Box::new(RuntimeError::new("unix-exec-env", "invalid environment key or value").with_span(span)))));
-                    }
-                    replacement.insert(key.as_bytes().to_vec(), value);
-                }
-                let argv0 = match values.get(2).cloned() {
-                    None | Some(LoweredValue::Null) => None,
-                    Some(value) => Some(lowered_str_arg_owned(Some(value), "", "unix.exec_env", span)?),
-                };
-                if argv0.as_ref().is_some_and(|value| value.as_bytes().contains(&0)) {
-                    return Ok(Value::err(Value::Error(Box::new(RuntimeError::new("unix-exec-env", "argv0 contains NUL").with_span(span)))));
-                }
-                let mut block_signals = Vec::new();
-                if let Some(names) = values.get(3).cloned() {
-                    for name in lowered_str_list_arg(Some(names), "unix.exec_env", span)? {
-                        match process_module::signal_info(&name, span) {
-                            Ok(signal) if signal.number > 0 => block_signals.push(signal.number),
-                            Ok(_) => return Ok(Value::err(Value::Error(Box::new(RuntimeError::new("unix-exec-env", format!("cannot block signal {name}")).with_span(span))))),
-                            Err(error) => return Ok(Value::err(Value::Error(Box::new(error)))),
-                        }
-                    }
-                }
-                invocation.env = replacement;
-                invocation.env_overlay.clear();
-                if self.unix_fake_active() {
-                    self.unix_fake_log("exec_env", &[("command", String::from_utf8_lossy(&plan.target).into_owned()), ("argv", display_spawn_argv(&plan.target, &plan.argv)), ("argv0", argv0.unwrap_or_default())], span)?;
-                    return Ok(Value::ok(Value::Unit));
-                }
-                self.flush_shared_stdio();
-                let cwd = (plan.cwd.is_some() || super::super::PROCESS_CWD.get() != Some(&self.cwd))
-                    .then_some(invocation.cwd.as_path());
-                unix_module::exec_env(&invocation, cwd, argv0.as_deref(), &block_signals, span)
-            }
-            RuntimeOp::UnixExec => {
-                let plan = lowered_command_arg(
-                    unix_require_arg(values.first().cloned(), "unix.exec", span)?,
-                    "unix.exec",
-                    span,
-                )?;
-                let invocation = self.invocation_from_command_plan(&plan, span)?;
-                // Buffered output would otherwise die with the replaced image.
-                self.flush_shared_stdio();
-                let cwd = (plan.cwd.is_some() || super::super::PROCESS_CWD.get() != Some(&self.cwd))
-                    .then_some(invocation.cwd.as_path());
-                unix_module::exec(&invocation, cwd, span)
-            }
-            RuntimeOp::UnixSetHostname => {
-                let hostname =
-                    lowered_str_arg_owned(values.first().cloned(), "", "unix.set_hostname", span)?;
-                unix_module::set_hostname(&hostname, span)
-            }
-            RuntimeOp::UnixUptimeSeconds => unix_module::uptime_seconds(span),
-            RuntimeOp::UnixTty => unix_module::tty(span),
-            RuntimeOp::UnixId => unix_module::id(span),
-            RuntimeOp::UnixTtyAttrs => {
-                let fd = lowered_int_arg_or(values.first().cloned(), 0, "unix.tty_attrs", span)?;
-                unix_module::tty_attrs(fd, span)
-            }
-            RuntimeOp::UnixSetTtyAttrs => {
-                let attrs =
-                    lowered_record_arg(values.first().cloned(), "unix.set_tty_attrs", span)?;
-                let fd = lowered_int_arg_or(values.get(1).cloned(), 0, "unix.set_tty_attrs", span)?;
-                let when = lowered_str_arg_owned(
-                    values.get(2).cloned(),
-                    "now",
-                    "unix.set_tty_attrs",
-                    span,
-                )?;
-                unix_module::set_tty_attrs(&attrs, fd, &when, span)
-            }
-            _ => unreachable!("unix operation expected"),
+    with_unix_call_rows! {
+        define_unix_call_authority! {
+            fn eval_unix_call_value(
+                &mut self,
+                op: RuntimeOp,
+                values: NativeArgumentValues,
+                span: Span,
+            ) -> Result<Value, RuntimeError>;
         }
+        using self, op, values, span
     }
 
     fn eval_unix_fake_call(

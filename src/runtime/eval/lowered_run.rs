@@ -74,6 +74,8 @@ mod module_test;
 mod module_text;
 mod module_unix;
 mod module_utils;
+use module_linux::with_linux_call_rows;
+use module_unix::with_unix_call_rows;
 
 #[cfg(feature = "native-tests")]
 use super::display_value;
@@ -119,6 +121,153 @@ use super::{
 #[cfg(feature = "native-tests")]
 use super::{NativeTestRunKind, NativeTestRunRequest, TestMock};
 const LOWERED_SHARED_LIST_THRESHOLD: usize = 16;
+
+macro_rules! lowered_module_op_support_guard {
+    (callable; $op:expr) => {
+        true
+    };
+    (internal; $op:expr) => {
+        false
+    };
+    (fallback; $op:expr) => {
+        false
+    };
+}
+
+macro_rules! lowered_unix_route_pattern {
+    (
+        unix_rows {
+            first_callable {
+                $( $first_class:ident; $first_pattern:pat $(if $first_guard:expr)? => $first_body:expr $(,)? )*
+            }
+            internal { $($internal_rows:tt)* }
+            callable {
+                $( $callable_class:ident; $callable_pattern:pat $(if $callable_guard:expr)? => $callable_body:expr $(,)? )*
+            }
+            fallback { $($fallback_rows:tt)* }
+        }
+    ) => {
+        $($first_pattern)|* | $($callable_pattern)|*
+    };
+}
+
+macro_rules! lowered_linux_route_pattern {
+    (
+        linux_rows {
+            host_rows {
+                $( $host_class:ident; $host_pattern:pat $(if $host_guard:expr)? => $host_body:expr $(,)? )*
+            }
+            host_fallback { $($fallback_rows:tt)* }
+            fake_rows { $($fake_rows:tt)* }
+        }
+    ) => {
+        $($host_pattern)|*
+    };
+}
+
+// The same rows drive evaluation and lowering capability. Capability matching
+// ignores argument guards so malformed calls retain their evaluator errors.
+macro_rules! define_lowered_module_op_authority {
+    (
+        fn $eval_fn:ident(
+            &mut $this:ident,
+            $op:ident: RuntimeOp,
+            mut $values:ident: NativeArgumentValues,
+            $span:ident: Span,
+            $cli_plan:ident: Option<&crate::modules::cli::CliDescriptorPlan>,
+        ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError>;
+        prelude { $($prelude:tt)* }
+        pre_unix_rows {
+            $(
+                $(#[$pre_attribute:meta])*
+                $pre_class:ident; $pre_pattern:pat $(if $pre_guard:expr)? => $pre_body:expr $(,)?
+            )*
+        }
+        post_unix_rows {
+            $(
+                $(#[$post_attribute:meta])*
+                $post_class:ident; $post_pattern:pat $(if $post_guard:expr)? => $post_body:expr $(,)?
+            )*
+        }
+        tail_rows {
+            $(
+                $(#[$tail_attribute:meta])*
+                $tail_class:ident; $tail_pattern:pat $(if $tail_guard:expr)? => $tail_body:expr $(,)?
+            )*
+        }
+    ) => {
+        fn $eval_fn(
+            &mut $this,
+            $op: RuntimeOp,
+            mut $values: NativeArgumentValues,
+            $span: Span,
+            $cli_plan: Option<&crate::modules::cli::CliDescriptorPlan>,
+        ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+            $($prelude)*
+            let value = match $op {
+                $(
+                    $(#[$pre_attribute])*
+                    $pre_pattern $(if $pre_guard)? => $pre_body,
+                )*
+                with_unix_call_rows! {
+                    lowered_unix_route_pattern! {}
+                    using $this, $op, $values, $span
+                } => {
+                    $this.eval_lowered_unix_call($op, $values, $span)?
+                }
+                $(
+                    $(#[$post_attribute])*
+                    $post_pattern $(if $post_guard)? => $post_body,
+                )*
+                with_linux_call_rows! {
+                    lowered_linux_route_pattern! {}
+                    using $this, $op, $values, $span
+                } => {
+                    $this.eval_lowered_linux_call($op, $values, $span)?
+                }
+                $(
+                    $(#[$tail_attribute])*
+                    $tail_pattern $(if $tail_guard)? => $tail_body,
+                )*
+            };
+            Ok(ControlFlow::Continue(value))
+        }
+
+        pub(super) fn lowered_module_op_supported($op: RuntimeOp) -> bool {
+            if process_module::is_prim($op)
+                || unix_module::is_prim($op)
+                || linux_module::is_prim($op)
+                || linux_module::is_net_prim($op)
+                || linux_module::storage::handles($op)
+            {
+                return true;
+            }
+            match $op {
+                $(
+                    $(#[$pre_attribute])*
+                    $pre_pattern if lowered_module_op_support_guard!($pre_class; $op) => true,
+                )*
+                with_unix_call_rows! {
+                    lowered_unix_route_pattern! {}
+                    using $this, $op, $values, $span
+                } => true,
+                $(
+                    $(#[$post_attribute])*
+                    $post_pattern if lowered_module_op_support_guard!($post_class; $op) => true,
+                )*
+                with_linux_call_rows! {
+                    lowered_linux_route_pattern! {}
+                    using $this, $op, $values, $span
+                } => true,
+                $(
+                    $(#[$tail_attribute])*
+                    $tail_pattern if lowered_module_op_support_guard!($tail_class; $op) => true,
+                )*
+                _ => false,
+            }
+        }
+    };
+}
 
 #[cfg(feature = "native-tests")]
 impl Evaluator {
@@ -3982,28 +4131,31 @@ impl Evaluator {
         Ok(self.push_lowered_fs_root(FsRootHandle::Dir(root)))
     }
 
-    fn eval_lowered_module_call_values(
-        &mut self,
-        op: RuntimeOp,
-        mut values: NativeArgumentValues,
-        span: Span,
-        cli_plan: Option<&crate::modules::cli::CliDescriptorPlan>,
-    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
-        if process_module::is_prim(op)
-            || unix_module::is_prim(op)
-            || linux_module::is_prim(op)
-            || linux_module::is_net_prim(op)
-            || linux_module::storage::handles(op)
-        {
-            return Ok(ControlFlow::Continue(
-                self.eval_host_primitive(op, values, span)?,
-            ));
+    define_lowered_module_op_authority! {
+        fn eval_lowered_module_call_values(
+            &mut self,
+            op: RuntimeOp,
+            mut values: NativeArgumentValues,
+            span: Span,
+            cli_plan: Option<&crate::modules::cli::CliDescriptorPlan>,
+        ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError>;
+        prelude {
+            if process_module::is_prim(op)
+                || unix_module::is_prim(op)
+                || linux_module::is_prim(op)
+                || linux_module::is_net_prim(op)
+                || linux_module::storage::handles(op)
+            {
+                return Ok(ControlFlow::Continue(
+                    self.eval_host_primitive(op, values, span)?,
+                ));
+            }
         }
-        let value = match op {
-            RuntimeOp::CpuCount if values.is_empty() => {
+        pre_unix_rows {
+            callable; RuntimeOp::CpuCount if values.is_empty() => {
                 LoweredValue::Int(crate::modules::cpu::count())
             }
-            RuntimeOp::AppletHashPassword if values.len() == 2 => {
+            callable; RuntimeOp::AppletHashPassword if values.len() == 2 => {
                 let algorithm =
                     lowered_str_arg_owned(values.pop(), "", "applet.hash_password", span)?;
                 let password =
@@ -4015,16 +4167,16 @@ impl Evaluator {
                     ),
                 }
             }
-            RuntimeOp::AppletVerifyPassword if values.len() == 2 => {
+            callable; RuntimeOp::AppletVerifyPassword if values.len() == 2 => {
                 let hash = lowered_str_arg_owned(values.pop(), "", "applet.verify_password", span)?;
                 let password =
                     lowered_str_arg_owned(values.pop(), "", "applet.verify_password", span)?;
                 LoweredValue::Bool(auth_module::verify_password(&password, &hash))
             }
-            RuntimeOp::AppletCurrentEuid if values.is_empty() => {
+            callable; RuntimeOp::AppletCurrentEuid if values.is_empty() => {
                 LoweredValue::Int(rustix::process::geteuid().as_raw() as i64)
             }
-            RuntimeOp::AppletCurrentExe if values.is_empty() => match std::env::current_exe() {
+            callable; RuntimeOp::AppletCurrentExe if values.is_empty() => match std::env::current_exe() {
                 Ok(path) => match path_value_from_pathbuf(path) {
                     Ok(path) => lowered_result_ok(LoweredValue::Path(path)),
                     Err(error) => lowered_result_err_value(error.with_span(span)),
@@ -4033,7 +4185,7 @@ impl Evaluator {
                     RuntimeError::host("applet.current_exe", &error).with_span(span),
                 ),
             },
-            RuntimeOp::AppletLoginSession if values.len() == 3 => {
+            callable; RuntimeOp::AppletLoginSession if values.len() == 3 => {
                 let host = lowered_str_arg_owned(values.pop(), "", "applet.login_session", span)?;
                 let preserve_env =
                     lowered_bool_arg_or(values.pop(), false, "applet.login_session", span)?;
@@ -4047,8 +4199,8 @@ impl Evaluator {
                     ),
                 }
             }
-            RuntimeOp::AppletSuSession if values.len() == 6 => return self.eval_lowered_applet_su_session_values(values, span),
-            RuntimeOp::AppletSuloginSession if values.len() == 1 => {
+            callable; RuntimeOp::AppletSuSession if values.len() == 6 => return self.eval_lowered_applet_su_session_values(values, span),
+            callable; RuntimeOp::AppletSuloginSession if values.len() == 1 => {
                 let record = lowered_record_arg(values.pop(), "applet.sulogin_session", span)?;
                 let home = self.host_path(&record_path(&record, "home", span)?);
                 let user = lowered_session_user_record(record, home, span)?;
@@ -4059,7 +4211,7 @@ impl Evaluator {
                     ),
                 }
             }
-            RuntimeOp::AppletMdev if values.len() == 1 => {
+            callable; RuntimeOp::AppletMdev if values.len() == 1 => {
                 let argv = lowered_str_list_arg(values.pop(), "applet.mdev", span)?
                     .into_iter()
                     .map(OsString::from)
@@ -4079,8 +4231,8 @@ impl Evaluator {
                     )
                 }
             }
-            RuntimeOp::ArchiveCompress if (2..=5).contains(&values.len()) => return self.eval_lowered_archive_compress_values(values, span),
-            RuntimeOp::ArchiveDecompress if (2..=4).contains(&values.len()) => {
+            callable; RuntimeOp::ArchiveCompress if (2..=5).contains(&values.len()) => return self.eval_lowered_archive_compress_values(values, span),
+            callable; RuntimeOp::ArchiveDecompress if (2..=4).contains(&values.len()) => {
                 let overwrite =
                     lowered_bool_arg_or(values.get(3).cloned(), false, "archive.decompress", span)?;
                 let format = lowered_str_arg_owned(
@@ -4099,7 +4251,7 @@ impl Evaluator {
                     span,
                 ))
             }
-            RuntimeOp::ArchiveCpioCreate if values.len() == 3 || values.len() == 4 => {
+            callable; RuntimeOp::ArchiveCpioCreate if values.len() == 3 || values.len() == 4 => {
                 let overwrite = lowered_bool_arg_or(
                     values.get(3).cloned(),
                     false,
@@ -4117,7 +4269,7 @@ impl Evaluator {
                     span,
                 ))
             }
-            RuntimeOp::ArchiveCpioExtract if values.len() == 2 || values.len() == 3 => {
+            callable; RuntimeOp::ArchiveCpioExtract if values.len() == 2 || values.len() == 3 => {
                 let overwrite = lowered_bool_arg_or(
                     values.get(2).cloned(),
                     false,
@@ -4133,7 +4285,7 @@ impl Evaluator {
                     span,
                 ))
             }
-            RuntimeOp::ArchiveCpioList if values.len() == 1 => {
+            callable; RuntimeOp::ArchiveCpioList if values.len() == 1 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
                     "archive.cpio_list",
@@ -4144,7 +4296,7 @@ impl Evaluator {
                     span,
                 )?
             }
-            RuntimeOp::ArchiveDecompressBytes if values.len() == 1 || values.len() == 2 => {
+            callable; RuntimeOp::ArchiveDecompressBytes if values.len() == 1 || values.len() == 2 => {
                 let format = lowered_str_arg_owned(
                     values.get(1).cloned(),
                     "auto",
@@ -4158,9 +4310,9 @@ impl Evaluator {
                     span,
                 )?
             }
-            RuntimeOp::ArchiveTarCreate if (3..=5).contains(&values.len()) => return self.eval_lowered_archive_tar_create_values(values, span),
-            RuntimeOp::ArchiveTarExtract if (2..=6).contains(&values.len()) => return self.eval_lowered_archive_tar_extract_values(values, span),
-            RuntimeOp::ArchiveTarList if (1..=3).contains(&values.len()) => {
+            callable; RuntimeOp::ArchiveTarCreate if (3..=5).contains(&values.len()) => return self.eval_lowered_archive_tar_create_values(values, span),
+            callable; RuntimeOp::ArchiveTarExtract if (2..=6).contains(&values.len()) => return self.eval_lowered_archive_tar_extract_values(values, span),
+            callable; RuntimeOp::ArchiveTarList if (1..=3).contains(&values.len()) => {
                 let members = if values.get(2).is_some() {
                     lowered_path_list_arg(values.remove(2), "archive.tar_list", span)?
                 } else {
@@ -4178,7 +4330,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::ArchiveZipExtract if values.len() == 2 || values.len() == 3 => {
+            callable; RuntimeOp::ArchiveZipExtract if values.len() == 2 || values.len() == 3 => {
                 let overwrite = lowered_bool_arg_or(
                     values.get(2).cloned(),
                     false,
@@ -4194,7 +4346,7 @@ impl Evaluator {
                     span,
                 ))
             }
-            RuntimeOp::ArchiveZipList if values.len() == 1 => {
+            callable; RuntimeOp::ArchiveZipList if values.len() == 1 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
                     "archive.zip_list",
@@ -4205,7 +4357,7 @@ impl Evaluator {
                     span,
                 )?
             }
-            RuntimeOp::CliParse if values.len() == 2 || values.len() == 3 => {
+            callable; RuntimeOp::CliParse if values.len() == 2 || values.len() == 3 => {
                 let command = lowered_str_arg_owned(
                     values.get(2).cloned(),
                     &self.command_name,
@@ -4219,7 +4371,7 @@ impl Evaluator {
                     span,
                 )?
             }
-            RuntimeOp::CliApplet if values.len() == 2 || values.len() == 3 => {
+            callable; RuntimeOp::CliApplet if values.len() == 2 || values.len() == 3 => {
                 let command = lowered_str_arg_owned(
                     values.get(2).cloned(),
                     &self.command_name,
@@ -4233,7 +4385,7 @@ impl Evaluator {
                     span,
                 )?
             }
-            RuntimeOp::CliParseFull if (2..=4).contains(&values.len()) => {
+            callable; RuntimeOp::CliParseFull if (2..=4).contains(&values.len()) => {
                 let command = lowered_str_arg_owned(
                     values.get(3).cloned(),
                     &self.command_name,
@@ -4251,10 +4403,10 @@ impl Evaluator {
                     span,
                 )?
             }
-            RuntimeOp::CliCommands
+            callable; RuntimeOp::CliCommands
                 if values.len() == 2 || values.len() == 3 || values.len() == 4 =>
             return self.eval_lowered_cli_commands_values(values, span, cli_plan),
-            RuntimeOp::CliTokens if values.len() == 1 || values.len() == 2 => {
+            callable; RuntimeOp::CliTokens if values.len() == 1 || values.len() == 2 => {
                 let value_flags = match values.get(1).cloned() {
                     Some(value) => lowered_str_list_runtime_arg(value, "cli.tokens", span)?,
                     None => Vec::new(),
@@ -4265,13 +4417,13 @@ impl Evaluator {
                     span,
                 )?
             }
-            RuntimeOp::CliUsage if values.len() == 1 || values.len() == 2 => {
+            callable; RuntimeOp::CliUsage if values.len() == 1 || values.len() == 2 => {
                 let command =
                     lowered_str_arg_owned(values.get(1).cloned(), "command", "cli.usage", span)?;
                 let schema = lowered_record_runtime_arg(values.remove(0), "cli.usage", span)?;
                 lowered_runtime_value(cli_module::render_usage(schema, command, span)?, span)?
             }
-            RuntimeOp::DiffUnified if values.len() == 2 || values.len() == 3 => {
+            callable; RuntimeOp::DiffUnified if values.len() == 2 || values.len() == 3 => {
                 let context = match values.get(2).cloned() {
                     Some(value) => lowered_int_arg(Some(value), "diff.unified", span)?,
                     None => 3,
@@ -4288,7 +4440,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::ElfInspect if values.len() == 1 => {
+            callable; RuntimeOp::ElfInspect if values.len() == 1 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
                     "elf.inspect",
@@ -4299,9 +4451,9 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::DnsLookup if (1..=4).contains(&values.len()) => return self.eval_lowered_dns_lookup_values(values, span),
-            RuntimeOp::DnsResolveHost if values.len() == 1 || values.len() == 2 => return self.eval_lowered_dns_resolve_host_values(values, span),
-            RuntimeOp::DnsReverse if values.len() == 1 => {
+            callable; RuntimeOp::DnsLookup if (1..=4).contains(&values.len()) => return self.eval_lowered_dns_lookup_values(values, span),
+            callable; RuntimeOp::DnsResolveHost if values.len() == 1 || values.len() == 2 => return self.eval_lowered_dns_resolve_host_values(values, span),
+            callable; RuntimeOp::DnsReverse if values.len() == 1 => {
                 let addr = lowered_str_arg_owned(values.pop(), "", "dns.reverse", span)?;
                 let args = RecordMap::from([(Arc::from("addr"), Value::Str(addr.as_str().into()))]);
                 if let Some(value) = intercept_test_host_call(self, "dns.reverse", args, span) {
@@ -4310,7 +4462,7 @@ impl Evaluator {
                     lowered_runtime_list_result(dns_module::reverse(&addr, span), span)?
                 }
             }
-            RuntimeOp::DnsNameservers if values.is_empty() => {
+            callable; RuntimeOp::DnsNameservers if values.is_empty() => {
                 let args = RecordMap::default();
                 if let Some(value) = intercept_test_host_call(self, "dns.nameservers", args, span) {
                     lowered_runtime_value(value, span)?
@@ -4318,13 +4470,13 @@ impl Evaluator {
                     lowered_runtime_list_result(dns_module::nameservers(span), span)?
                 }
             }
-            RuntimeOp::FsCwd if values.is_empty() => {
+            callable; RuntimeOp::FsCwd if values.is_empty() => {
                 match path_value_from_pathbuf(self.cwd.clone()) {
                     Ok(path) => lowered_result_ok(LoweredValue::Path(path)),
                     Err(error) => lowered_result_err_value(error.with_span(span)),
                 }
             }
-            RuntimeOp::FsGitroot if values.is_empty() => {
+            callable; RuntimeOp::FsGitroot if values.is_empty() => {
                 match crate::modules::fs::gitroot(self.cwd.clone(), span).and_then(|path| {
                     path_value_from_pathbuf(path).map_err(|error| error.with_span(span))
                 }) {
@@ -4332,7 +4484,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsTempSibling if values.len() == 1 => {
+            callable; RuntimeOp::FsTempSibling if values.len() == 1 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
                     "fs.temp_sibling",
@@ -4352,7 +4504,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsDirs if (1..=4).contains(&values.len()) => {
+            callable; RuntimeOp::FsDirs if (1..=4).contains(&values.len()) => {
                 let hidden = lowered_bool_arg_or(values.get(3).cloned(), false, "fs.dirs", span)?;
                 let stat = lowered_bool_arg_or(values.get(2).cloned(), true, "fs.dirs", span)?;
                 let gitignore = lowered_bool_arg_or(values.get(1).cloned(), true, "fs.dirs", span)?;
@@ -4370,7 +4522,7 @@ impl Evaluator {
                     span,
                 )?
             }
-            RuntimeOp::FsChildren if (1..=3).contains(&values.len()) => {
+            callable; RuntimeOp::FsChildren if (1..=3).contains(&values.len()) => {
                 let operation = "fs.children";
                 let ordered = lowered_bool_arg_or(values.get(2).cloned(), true, operation, span)?;
                 let stat = lowered_bool_arg_or(values.get(1).cloned(), true, operation, span)?;
@@ -4380,7 +4532,7 @@ impl Evaluator {
                     span,
                 )?
             }
-            RuntimeOp::FsMetadata if values.len() == 1 => {
+            callable; RuntimeOp::FsMetadata if values.len() == 1 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
                     "fs.metadata",
@@ -4400,7 +4552,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsFilesystemStats if values.len() == 1 => {
+            callable; RuntimeOp::FsFilesystemStats if values.len() == 1 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
                     "fs.filesystem_stats",
@@ -4411,10 +4563,10 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsMounts if values.is_empty() => {
+            callable; RuntimeOp::FsMounts if values.is_empty() => {
                 lowered_runtime_stream_result(fs_module::mounts(span), span)?
             }
-            RuntimeOp::FsMountFor if values.len() == 1 => {
+            callable; RuntimeOp::FsMountFor if values.len() == 1 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
                     "fs.mount_for",
@@ -4425,7 +4577,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsReadText if values.len() == 1 => {
+            callable; RuntimeOp::FsReadText if values.len() == 1 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
                     "fs.read_text",
@@ -4436,7 +4588,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsWrite if values.len() == 2 => {
+            callable; RuntimeOp::FsWrite if values.len() == 2 => {
                 let data = lowered_bytes_or_str_owned(
                     values.pop().expect("checked value length"),
                     "fs.write",
@@ -4449,7 +4601,7 @@ impl Evaluator {
                 )?;
                 lowered_unit_result(fs_module::write_path(self.host_path(&path), &data, span))
             }
-            RuntimeOp::FsWrite if values.len() == 3 => {
+            callable; RuntimeOp::FsWrite if values.len() == 3 => {
                 let mode = lowered_int_arg(values.pop(), "fs.write", span)?;
                 let data = lowered_bytes_or_str_owned(
                     values.pop().expect("checked value length"),
@@ -4468,7 +4620,7 @@ impl Evaluator {
                     span,
                 ))
             }
-            RuntimeOp::FsWriteAtomic if values.len() == 2 => {
+            callable; RuntimeOp::FsWriteAtomic if values.len() == 2 => {
                 let data = lowered_bytes_or_str_owned(
                     values.pop().expect("checked value length"),
                     "fs.write_atomic",
@@ -4481,7 +4633,7 @@ impl Evaluator {
                 )?;
                 lowered_unit_result(fs_module::write_atomic(self.host_path(&path), &data, span))
             }
-            RuntimeOp::FsMkdir if values.len() == 1 || values.len() == 2 => {
+            callable; RuntimeOp::FsMkdir if values.len() == 1 || values.len() == 2 => {
                 let parents = lowered_bool_arg_or(values.get(1).cloned(), true, "fs.mkdir", span)?;
                 let path = lowered_path_arg(values.remove(0), "fs.mkdir", span)?;
                 lowered_unit_result(fs_module::mkdir_path(
@@ -4491,7 +4643,7 @@ impl Evaluator {
                     span,
                 ))
             }
-            RuntimeOp::FsRemove if values.len() == 1 || values.len() == 2 => {
+            callable; RuntimeOp::FsRemove if values.len() == 1 || values.len() == 2 => {
                 let missing_ok = lowered_bool_arg_or(
                     values.get(1).cloned(),
                     xsh_registry::signature::REMOVE_MISSING_OK_DEFAULT,
@@ -4505,7 +4657,7 @@ impl Evaluator {
                     span,
                 ))
             }
-            RuntimeOp::FsExists if values.len() == 1 => {
+            callable; RuntimeOp::FsExists if values.len() == 1 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
                     "fs.exists",
@@ -4516,7 +4668,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsIsDir | RuntimeOp::FsIsFile | RuntimeOp::FsIsSymlink
+            callable; RuntimeOp::FsIsDir | RuntimeOp::FsIsFile | RuntimeOp::FsIsSymlink
                 if values.len() == 1 =>
             {
                 let (operation, kind) = match op {
@@ -4531,36 +4683,36 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsExecutable if values.len() == 1 => return self.eval_lowered_fs_executable_values(values, span),
-            RuntimeOp::FsWorldWritable if values.len() == 1 => {
+            callable; RuntimeOp::FsExecutable if values.len() == 1 => return self.eval_lowered_fs_executable_values(values, span),
+            callable; RuntimeOp::FsWorldWritable if values.len() == 1 => {
                 let mode = lowered_int_arg(values.pop(), "fs.world_writable", span)?;
                 LoweredValue::Bool(fs_module::mode_world_writable(mode))
             }
-            RuntimeOp::FsSticky if values.len() == 1 => {
+            callable; RuntimeOp::FsSticky if values.len() == 1 => {
                 let mode = lowered_int_arg(values.pop(), "fs.sticky", span)?;
                 LoweredValue::Bool(fs_module::mode_sticky(mode))
             }
-            RuntimeOp::FsSetuid if values.len() == 1 => {
+            callable; RuntimeOp::FsSetuid if values.len() == 1 => {
                 let mode = lowered_int_arg(values.pop(), "fs.setuid", span)?;
                 LoweredValue::Bool(fs_module::mode_setuid(mode))
             }
-            RuntimeOp::FsSetgid if values.len() == 1 => {
+            callable; RuntimeOp::FsSetgid if values.len() == 1 => {
                 let mode = lowered_int_arg(values.pop(), "fs.setgid", span)?;
                 LoweredValue::Bool(fs_module::mode_setgid(mode))
             }
-            RuntimeOp::FsOwnerExecutable if values.len() == 1 => {
+            callable; RuntimeOp::FsOwnerExecutable if values.len() == 1 => {
                 let mode = lowered_int_arg(values.pop(), "fs.owner_executable", span)?;
                 LoweredValue::Bool(fs_module::mode_owner_executable(mode))
             }
-            RuntimeOp::FsGroupExecutable if values.len() == 1 => {
+            callable; RuntimeOp::FsGroupExecutable if values.len() == 1 => {
                 let mode = lowered_int_arg(values.pop(), "fs.group_executable", span)?;
                 LoweredValue::Bool(fs_module::mode_group_executable(mode))
             }
-            RuntimeOp::FsOtherExecutable if values.len() == 1 => {
+            callable; RuntimeOp::FsOtherExecutable if values.len() == 1 => {
                 let mode = lowered_int_arg(values.pop(), "fs.other_executable", span)?;
                 LoweredValue::Bool(fs_module::mode_other_executable(mode))
             }
-            RuntimeOp::FsOpenRoot if values.len() == 1 => {
+            callable; RuntimeOp::FsOpenRoot if values.len() == 1 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
                     "fs.open_root",
@@ -4574,8 +4726,8 @@ impl Evaluator {
             // The scope's release differs from the method only on a root that
             // is already closed, which it accepts: the body may have closed
             // it. A value that never was this evaluator's root still fails.
-            RuntimeOp::FsCloseRoot | RuntimeOp::FsCloseRootIfOpen if values.len() == 1 => return self.eval_lowered_fs_close_root_values(op, values, span),
-            RuntimeOp::FsRootPath if values.len() == 1 => {
+            callable; RuntimeOp::FsCloseRoot | RuntimeOp::FsCloseRootIfOpen if values.len() == 1 => return self.eval_lowered_fs_close_root_values(op, values, span),
+            callable; RuntimeOp::FsRootPath if values.len() == 1 => {
                 let root = values.pop().expect("checked value length");
                 match lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span)
                     .and_then(|dir| root_path_from_dir(dir, span))
@@ -4584,7 +4736,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsRootOpenRoot if values.len() == 2 => {
+            callable; RuntimeOp::FsRootOpenRoot if values.len() == 2 => {
                 let path =
                     lowered_path_arg(values.pop().expect("checked value length"), "fs.root", span)?;
                 let root = values.pop().expect("checked value length");
@@ -4596,7 +4748,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsRootChildren if (2..=4).contains(&values.len()) => {
+            callable; RuntimeOp::FsRootChildren if (2..=4).contains(&values.len()) => {
                 let max_entries =
                     lowered_int_arg_or(values.get(2).cloned(), 65_536, "fs.root_children", span)?;
                 let ordered =
@@ -4615,7 +4767,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsRootRead if values.len() == 2 => {
+            callable; RuntimeOp::FsRootRead if values.len() == 2 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
                     "fs.root_read",
@@ -4630,8 +4782,8 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsRootReadResult if values.len() == 2 || values.len() == 3 => return self.eval_lowered_fs_root_read_result_values(values, span),
-            RuntimeOp::FsRootFilesystemStats if values.len() == 2 => {
+            callable; RuntimeOp::FsRootReadResult if values.len() == 2 || values.len() == 3 => return self.eval_lowered_fs_root_read_result_values(values, span),
+            callable; RuntimeOp::FsRootFilesystemStats if values.len() == 2 => {
                 let path = lowered_path_arg(
                     values.get(1).cloned().expect("checked value length"),
                     "fs.root_filesystem_stats",
@@ -4646,11 +4798,11 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsRootReadText if values.len() == 2 => return self.eval_lowered_fs_root_read_text_values(values, span),
-            RuntimeOp::FsRootWrite | RuntimeOp::FsRootWriteAtomic if values.len() == 3 => return self.eval_lowered_fs_root_write_values(op, values, span),
-            RuntimeOp::FsRootMetadata if values.len() == 2 => return self.eval_lowered_fs_root_metadata_values(values, span),
-            RuntimeOp::FsRootStat if (2..=3).contains(&values.len()) => return self.eval_lowered_fs_root_stat_values(values, span),
-            RuntimeOp::FsRootExists if values.len() == 2 => {
+            callable; RuntimeOp::FsRootReadText if values.len() == 2 => return self.eval_lowered_fs_root_read_text_values(values, span),
+            callable; RuntimeOp::FsRootWrite | RuntimeOp::FsRootWriteAtomic if values.len() == 3 => return self.eval_lowered_fs_root_write_values(op, values, span),
+            callable; RuntimeOp::FsRootMetadata if values.len() == 2 => return self.eval_lowered_fs_root_metadata_values(values, span),
+            callable; RuntimeOp::FsRootStat if (2..=3).contains(&values.len()) => return self.eval_lowered_fs_root_stat_values(values, span),
+            callable; RuntimeOp::FsRootExists if values.len() == 2 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
                     "fs.root_exists",
@@ -4665,7 +4817,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsRootMkdir if (2..=4).contains(&values.len()) => {
+            callable; RuntimeOp::FsRootMkdir if (2..=4).contains(&values.len()) => {
                 let mode =
                     lowered_int_arg_or(values.get(2).cloned(), 0o777, "fs.root_mkdir", span)?;
                 let parents =
@@ -4682,7 +4834,7 @@ impl Evaluator {
                         .and_then(|dir| fs_module::rooted_mkdir(dir, &rel, mode, parents, span)),
                 )
             }
-            RuntimeOp::FsRootRemove if values.len() == 2 || values.len() == 3 => {
+            callable; RuntimeOp::FsRootRemove if values.len() == 2 || values.len() == 3 => {
                 let dir =
                     lowered_bool_arg_or(values.get(2).cloned(), false, "fs.root_remove", span)?;
                 let path = lowered_path_arg(
@@ -4697,7 +4849,7 @@ impl Evaluator {
                         .and_then(|root| fs_module::rooted_remove(root, &rel, dir, span)),
                 )
             }
-            RuntimeOp::FsRootReadlink if values.len() == 2 => {
+            callable; RuntimeOp::FsRootReadlink if values.len() == 2 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
                     "fs.root_readlink",
@@ -4714,7 +4866,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsRootReadlinkResult if values.len() == 2 => {
+            callable; RuntimeOp::FsRootReadlinkResult if values.len() == 2 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
                     "fs.root_readlink_result",
@@ -4729,8 +4881,8 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsRootSymlink if (3..=5).contains(&values.len()) => return self.eval_lowered_fs_root_symlink_values(values, span),
-            RuntimeOp::FsRootChmod if values.len() == 3 => {
+            callable; RuntimeOp::FsRootSymlink if (3..=5).contains(&values.len()) => return self.eval_lowered_fs_root_symlink_values(values, span),
+            callable; RuntimeOp::FsRootChmod if values.len() == 3 => {
                 let mode = lowered_int_arg(values.pop(), "fs.root_chmod", span)?;
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
@@ -4744,8 +4896,8 @@ impl Evaluator {
                         .and_then(|dir| fs_module::rooted_chmod(dir, &rel, mode, span)),
                 )
             }
-            RuntimeOp::FsRootInstallFile if (5..=7).contains(&values.len()) => return self.eval_lowered_fs_root_install_file_values(values, span),
-            RuntimeOp::FsCopy if values.len() == 2 || values.len() == 3 => {
+            callable; RuntimeOp::FsRootInstallFile if (5..=7).contains(&values.len()) => return self.eval_lowered_fs_root_install_file_values(values, span),
+            callable; RuntimeOp::FsCopy if values.len() == 2 || values.len() == 3 => {
                 let overwrite =
                     lowered_bool_arg_or(values.get(2).cloned(), false, "fs.copy", span)?;
                 let dest = lowered_path_arg(
@@ -4765,8 +4917,8 @@ impl Evaluator {
                     span,
                 ))
             }
-            RuntimeOp::FsCopyTree if (2..=5).contains(&values.len()) => return self.eval_lowered_fs_copy_tree_values(values, span),
-            RuntimeOp::FsRename if values.len() == 2 || values.len() == 3 => {
+            callable; RuntimeOp::FsCopyTree if (2..=5).contains(&values.len()) => return self.eval_lowered_fs_copy_tree_values(values, span),
+            callable; RuntimeOp::FsRename if values.len() == 2 || values.len() == 3 => {
                 let overwrite =
                     lowered_bool_arg_or(values.get(2).cloned(), false, "fs.rename", span)?;
                 let dest = lowered_path_arg(
@@ -4786,10 +4938,10 @@ impl Evaluator {
                     span,
                 ))
             }
-            RuntimeOp::FsRemoveManifest if (2..=4).contains(&values.len()) => return self.eval_lowered_fs_remove_manifest_values(values, span),
-            RuntimeOp::FsInstall if (3..=5).contains(&values.len()) => return self.eval_lowered_fs_install_values(values, span),
-            RuntimeOp::FsInstallAs if (5..=7).contains(&values.len()) => return self.eval_lowered_fs_install_as_values(values, span),
-            RuntimeOp::FsTruncate if values.len() == 2 => {
+            callable; RuntimeOp::FsRemoveManifest if (2..=4).contains(&values.len()) => return self.eval_lowered_fs_remove_manifest_values(values, span),
+            callable; RuntimeOp::FsInstall if (3..=5).contains(&values.len()) => return self.eval_lowered_fs_install_values(values, span),
+            callable; RuntimeOp::FsInstallAs if (5..=7).contains(&values.len()) => return self.eval_lowered_fs_install_as_values(values, span),
+            callable; RuntimeOp::FsTruncate if values.len() == 2 => {
                 let size = lowered_int_arg(values.pop(), "fs.truncate", span)?;
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
@@ -4798,7 +4950,7 @@ impl Evaluator {
                 )?;
                 lowered_unit_result(fs_module::truncate_path(self.host_path(&path), size, span))
             }
-            RuntimeOp::FsChmod if values.len() == 2 || values.len() == 3 => {
+            callable; RuntimeOp::FsChmod if values.len() == 2 || values.len() == 3 => {
                 let follow_symlinks =
                     lowered_bool_arg_or(values.get(2).cloned(), true, "Path.chmod", span)?;
                 let mode = lowered_int_arg(values.get(1).cloned(), "Path.chmod", span)?;
@@ -4814,7 +4966,7 @@ impl Evaluator {
                     span,
                 ))
             }
-            RuntimeOp::FsHardlink if values.len() == 2 => {
+            callable; RuntimeOp::FsHardlink if values.len() == 2 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
                     "fs.hardlink",
@@ -4831,7 +4983,7 @@ impl Evaluator {
                     span,
                 ))
             }
-            RuntimeOp::FsChown if values.len() == 2 || values.len() == 3 => {
+            callable; RuntimeOp::FsChown if values.len() == 2 || values.len() == 3 => {
                 let follow_symlinks =
                     lowered_bool_arg_or(values.get(2).cloned(), false, "fs.chown", span)?;
                 let owner = lowered_record_arg(values.get(1).cloned(), "fs.chown", span)?;
@@ -4848,7 +5000,7 @@ impl Evaluator {
                     span,
                 ))
             }
-            RuntimeOp::FsChgrp if values.len() == 2 || values.len() == 3 => {
+            callable; RuntimeOp::FsChgrp if values.len() == 2 || values.len() == 3 => {
                 let follow_symlinks =
                     lowered_bool_arg_or(values.get(2).cloned(), false, "fs.chgrp", span)?;
                 let group = lowered_record_arg(values.get(1).cloned(), "fs.chgrp", span)?;
@@ -4865,7 +5017,7 @@ impl Evaluator {
                     span,
                 ))
             }
-            RuntimeOp::FsMkfifo if values.len() == 2 => {
+            callable; RuntimeOp::FsMkfifo if values.len() == 2 => {
                 let mode = lowered_int_arg(values.pop(), "fs.mkfifo", span)?;
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
@@ -4874,12 +5026,12 @@ impl Evaluator {
                 )?;
                 lowered_unit_result(fs_module::mkfifo_path(self.host_path(&path), mode, span))
             }
-            RuntimeOp::FsStat if (1..=2).contains(&values.len()) => {
+            callable; RuntimeOp::FsStat if (1..=2).contains(&values.len()) => {
                 let follow = lowered_bool_arg_or(values.get(1).cloned(), false, "fs.stat", span)?;
                 let path = lowered_path_arg(values.remove(0), "fs.stat", span)?;
                 lowered_runtime_result(fs_module::stat(self.kernel_path(&path), follow, span), span)?
             }
-            RuntimeOp::FsSetOwner if (1..=4).contains(&values.len()) => {
+            callable; RuntimeOp::FsSetOwner if (1..=4).contains(&values.len()) => {
                 let follow =
                     lowered_bool_arg_or(values.get(3).cloned(), false, "fs.set_owner", span)?;
                 let gid = lowered_optional_int_arg(values.get(2), "fs.set_owner", span)?;
@@ -4893,8 +5045,8 @@ impl Evaluator {
                     span,
                 ))
             }
-            RuntimeOp::FsSetTimes if (1..=10).contains(&values.len()) => return self.eval_lowered_fs_set_times_values(values, span),
-            RuntimeOp::FsMknod if (3..=5).contains(&values.len()) => {
+            callable; RuntimeOp::FsSetTimes if (1..=10).contains(&values.len()) => return self.eval_lowered_fs_set_times_values(values, span),
+            callable; RuntimeOp::FsMknod if (3..=5).contains(&values.len()) => {
                 let operation = "fs.mknod";
                 let minor = lowered_int_arg_or(values.get(4).cloned(), 0, operation, span)?;
                 let major = lowered_int_arg_or(values.get(3).cloned(), 0, operation, span)?;
@@ -4910,20 +5062,20 @@ impl Evaluator {
                     span,
                 ))
             }
-            RuntimeOp::FsMakedev if values.len() == 2 => {
+            callable; RuntimeOp::FsMakedev if values.len() == 2 => {
                 let minor = lowered_int_arg(values.pop(), "fs.makedev", span)?;
                 let major = lowered_int_arg(values.pop(), "fs.makedev", span)?;
                 LoweredValue::Int(fs_module::makedev(major, minor))
             }
-            RuntimeOp::FsDevMajor if values.len() == 1 => {
+            callable; RuntimeOp::FsDevMajor if values.len() == 1 => {
                 let dev = lowered_int_arg(values.pop(), "fs.dev_major", span)?;
                 LoweredValue::Int(fs_module::dev_major(dev))
             }
-            RuntimeOp::FsDevMinor if values.len() == 1 => {
+            callable; RuntimeOp::FsDevMinor if values.len() == 1 => {
                 let dev = lowered_int_arg(values.pop(), "fs.dev_minor", span)?;
                 LoweredValue::Int(fs_module::dev_minor(dev))
             }
-            RuntimeOp::FsLink if (2..=3).contains(&values.len()) => {
+            callable; RuntimeOp::FsLink if (2..=3).contains(&values.len()) => {
                 let follow = lowered_bool_arg_or(values.get(2).cloned(), false, "fs.link", span)?;
                 let dest = lowered_path_arg(values.remove(1), "fs.link", span)?;
                 let source = lowered_path_arg(values.remove(0), "fs.link", span)?;
@@ -4934,17 +5086,17 @@ impl Evaluator {
                     span,
                 ))
             }
-            RuntimeOp::FsUmask if values.is_empty() => {
+            callable; RuntimeOp::FsUmask if values.is_empty() => {
                 lowered_result_ok(LoweredValue::Int(fs_module::umask()))
             }
-            RuntimeOp::FsStatvfs if values.len() == 1 => {
+            callable; RuntimeOp::FsStatvfs if values.len() == 1 => {
                 let path = lowered_path_arg(values.remove(0), "fs.statvfs", span)?;
                 lowered_runtime_result(
                     fs_module::statvfs_record(self.host_path(&path), span),
                     span,
                 )?
             }
-            RuntimeOp::FsRenameNoreplace if values.len() == 2 => {
+            callable; RuntimeOp::FsRenameNoreplace if values.len() == 2 => {
                 let dest = lowered_path_arg(values.remove(1), "fs.rename_noreplace", span)?;
                 let source = lowered_path_arg(values.remove(0), "fs.rename_noreplace", span)?;
                 lowered_unit_result(fs_module::rename_noreplace(
@@ -4953,12 +5105,12 @@ impl Evaluator {
                     span,
                 ))
             }
-            RuntimeOp::FsDataRanges if values.len() == 1 => {
+            callable; RuntimeOp::FsDataRanges if values.len() == 1 => {
                 let path = lowered_path_arg(values.remove(0), "fs.data_ranges", span)?;
                 lowered_runtime_result(fs_module::data_ranges(self.host_path(&path), span), span)?
             }
-            RuntimeOp::FsCopyFile if (2..=7).contains(&values.len()) => return self.eval_lowered_fs_copy_file_values(values, span),
-            RuntimeOp::FsFsync if values.len() == 1 => {
+            callable; RuntimeOp::FsCopyFile if (2..=7).contains(&values.len()) => return self.eval_lowered_fs_copy_file_values(values, span),
+            callable; RuntimeOp::FsFsync if values.len() == 1 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
                     "fs.fsync",
@@ -4966,7 +5118,7 @@ impl Evaluator {
                 )?;
                 lowered_unit_result(fs_module::fsync_path(self.host_path(&path), span))
             }
-            RuntimeOp::FsAccess if (1..=5).contains(&values.len()) => {
+            callable; RuntimeOp::FsAccess if (1..=5).contains(&values.len()) => {
                 let operation = "fs.access";
                 let read = lowered_bool_arg_or(values.get(1).cloned(), false, operation, span)?;
                 let write = lowered_bool_arg_or(values.get(2).cloned(), false, operation, span)?;
@@ -4975,18 +5127,18 @@ impl Evaluator {
                 let path = lowered_path_arg(values.remove(0), operation, span)?;
                 lowered_runtime_result(fs_module::access(self.host_path(&path), read, write, execute, follow, span).map(Value::Bool), span)?
             }
-            RuntimeOp::FsXattrList if (1..=2).contains(&values.len()) => {
+            callable; RuntimeOp::FsXattrList if (1..=2).contains(&values.len()) => {
                 let follow = lowered_bool_arg_or(values.get(1).cloned(), true, "fs.xattr_list", span)?;
                 let path = lowered_path_arg(values.remove(0), "fs.xattr_list", span)?;
                 lowered_runtime_result(fs_module::xattr_list(self.host_path(&path), follow, span), span)?
             }
-            RuntimeOp::FsXattrGet if (2..=3).contains(&values.len()) => {
+            callable; RuntimeOp::FsXattrGet if (2..=3).contains(&values.len()) => {
                 let follow = lowered_bool_arg_or(values.get(2).cloned(), true, "fs.xattr_get", span)?;
                 let name = lowered_str_arg_owned(values.get(1).cloned(), "", "fs.xattr_get", span)?;
                 let path = lowered_path_arg(values.remove(0), "fs.xattr_get", span)?;
                 lowered_runtime_result(fs_module::xattr_get(self.host_path(&path), &name, follow, span), span)?
             }
-            RuntimeOp::FsXattrSet if (3..=5).contains(&values.len()) => {
+            callable; RuntimeOp::FsXattrSet if (3..=5).contains(&values.len()) => {
                 let operation = "fs.xattr_set";
                 let follow = lowered_bool_arg_or(values.get(4).cloned(), true, operation, span)?;
                 let mode = lowered_str_arg_owned(values.get(3).cloned(), "upsert", operation, span)?;
@@ -4996,33 +5148,33 @@ impl Evaluator {
                 let path = lowered_path_arg(values.remove(0), operation, span)?;
                 lowered_unit_result(fs_module::xattr_set(self.host_path(&path), &name, data, &mode, follow, span))
             }
-            RuntimeOp::FsXattrRemove if (2..=3).contains(&values.len()) => {
+            callable; RuntimeOp::FsXattrRemove if (2..=3).contains(&values.len()) => {
                 let follow = lowered_bool_arg_or(values.get(2).cloned(), true, "fs.xattr_remove", span)?;
                 let name = lowered_str_arg_owned(values.get(1).cloned(), "", "fs.xattr_remove", span)?;
                 let path = lowered_path_arg(values.remove(0), "fs.xattr_remove", span)?;
                 lowered_unit_result(fs_module::xattr_remove(self.host_path(&path), &name, follow, span))
             }
-            RuntimeOp::FsSyncPath if (1..=2).contains(&values.len()) => {
+            callable; RuntimeOp::FsSyncPath if (1..=2).contains(&values.len()) => {
                 let mode = lowered_str_arg_owned(values.get(1).cloned(), "all", "fs.sync_path", span)?;
                 let path = lowered_path_arg(values.remove(0), "fs.sync_path", span)?;
                 lowered_unit_result(fs_module::sync_path(self.host_path(&path), &mode, span))
             }
-            RuntimeOp::FsRenameExchange if values.len() == 2 => {
+            callable; RuntimeOp::FsRenameExchange if values.len() == 2 => {
                 let dest = lowered_path_arg(values.remove(1), "fs.rename_exchange", span)?;
                 let source = lowered_path_arg(values.remove(0), "fs.rename_exchange", span)?;
                 lowered_unit_result(fs_module::rename_exchange(self.host_path(&source), self.host_path(&dest), span))
             }
-            RuntimeOp::FsPathLimits if values.len() == 1 => {
+            callable; RuntimeOp::FsPathLimits if values.len() == 1 => {
                 let path = lowered_path_arg(values.remove(0), "fs.path_limits", span)?;
                 lowered_runtime_result(fs_module::path_limits(self.host_path(&path), span), span)?
             }
-            RuntimeOp::FsSync if values.is_empty() => {
+            callable; RuntimeOp::FsSync if values.is_empty() => {
                 fs_module::sync_filesystems();
                 lowered_result_ok(LoweredValue::Unit)
             }
             // The method's receiver is the link, so its operands arrive in
             // the reverse of `fs.symlink(target, path)`.
-            RuntimeOp::FsSymlinkAt if values.len() == 2 => {
+            callable; RuntimeOp::FsSymlinkAt if values.len() == 2 => {
                 let target = lowered_path_arg(
                     values.pop().expect("checked value length"),
                     "Path.symlink",
@@ -5039,7 +5191,7 @@ impl Evaluator {
                     span,
                 ))
             }
-            RuntimeOp::FsSymlink if values.len() == 2 => {
+            callable; RuntimeOp::FsSymlink if values.len() == 2 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
                     "fs.symlink",
@@ -5056,19 +5208,19 @@ impl Evaluator {
                     span,
                 ))
             }
-            RuntimeOp::FsTempFile if values.is_empty() => {
+            callable; RuntimeOp::FsTempFile if values.is_empty() => {
                 match self.lowered_create_temp_file_root(span) {
                     Ok(record) => lowered_result_ok(record),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsTempDir if values.is_empty() => {
+            internal; RuntimeOp::FsTempDir if values.is_empty() => {
                 match new_temp_fs_root("fs-temp-dir", span) {
                     Ok(root) => lowered_result_ok(self.push_lowered_fs_root(root)),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsTempDirIn if values.len() == 1 => {
+            callable; RuntimeOp::FsTempDirIn if values.len() == 1 => {
                 let directory = lowered_path_arg(
                     values.remove(0),
                     "fs.tempdir_in",
@@ -5079,7 +5231,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsProjectRoot if values.len() == 4 => {
+            callable; RuntimeOp::FsProjectRoot if values.len() == 4 => {
                 let application =
                     lowered_str_arg_owned(values.get(3).cloned(), "", "fs.project_root", span)?;
                 let organization =
@@ -5099,14 +5251,14 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsUserRoot if values.len() == 1 => {
+            callable; RuntimeOp::FsUserRoot if values.len() == 1 => {
                 let kind = lowered_str_arg_owned(values.pop(), "", "fs.user_root", span)?;
                 match self.lowered_user_root(&kind, span) {
                     Ok(root) => lowered_result_ok(root),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsLock if (1..=3).contains(&values.len()) => {
+            callable; RuntimeOp::FsLock if (1..=3).contains(&values.len()) => {
                 let nonblocking =
                     lowered_bool_arg_or(values.get(2).cloned(), false, "fs.lock", span)?;
                 let shared = lowered_bool_arg_or(values.get(1).cloned(), false, "fs.lock", span)?;
@@ -5126,15 +5278,15 @@ impl Evaluator {
             }
             // As for a root: the scope's release accepts a lock the body
             // already released, and still rejects a foreign evaluator's lock.
-            RuntimeOp::FsUnlock | RuntimeOp::FsUnlockIfHeld if values.len() == 1 => return self.eval_lowered_fs_unlock_values(op, values, span),
-            RuntimeOp::GroupCurrent if values.is_empty() => {
+            callable; RuntimeOp::FsUnlock | RuntimeOp::FsUnlockIfHeld if values.len() == 1 => return self.eval_lowered_fs_unlock_values(op, values, span),
+            callable; RuntimeOp::GroupCurrent if values.is_empty() => {
                 lowered_runtime_result(group_module::current(span), span)?
             }
-            RuntimeOp::GroupLookup if values.len() == 1 => {
+            callable; RuntimeOp::GroupLookup if values.len() == 1 => {
                 let name = lowered_str_arg_owned(values.pop(), "", "group.lookup", span)?;
                 lowered_runtime_result(group_module::lookup(&name, span), span)?
             }
-            RuntimeOp::GroupByGid if values.len() == 1 => {
+            callable; RuntimeOp::GroupByGid if values.len() == 1 => {
                 let gid = lowered_int_arg(values.pop(), "group.by_gid", span)?;
                 lowered_runtime_result(
                     group_module::gid_from_i64(gid, span)
@@ -5142,7 +5294,7 @@ impl Evaluator {
                     span,
                 )?
             }
-            RuntimeOp::GroupAdd if values.len() == 1 || values.len() == 2 => {
+            callable; RuntimeOp::GroupAdd if values.len() == 1 || values.len() == 2 => {
                 let gid = match values.get(1).cloned() {
                     Some(value) => Some(lowered_int_arg(Some(value), "group.add", span)?),
                     None => None,
@@ -5150,17 +5302,17 @@ impl Evaluator {
                 let name = lowered_str_arg_owned(values.first().cloned(), "", "group.add", span)?;
                 lowered_runtime_result(group_module::add(&name, gid, span), span)?
             }
-            RuntimeOp::GroupRemove if values.len() == 1 => {
+            callable; RuntimeOp::GroupRemove if values.len() == 1 => {
                 let name = lowered_str_arg_owned(values.pop(), "", "group.remove", span)?;
                 lowered_runtime_result(group_module::remove(&name, span), span)?
             }
-            RuntimeOp::HashDigestFile if (2..=3).contains(&values.len()) => {
+            callable; RuntimeOp::HashDigestFile if (2..=3).contains(&values.len()) => {
                 let algorithm = lowered_str_arg_owned(values.get(1).cloned(), "", "hash.digest_file", span)?;
                 let length = lowered_int_arg_or(values.get(2).cloned(), 0, "hash.digest_file", span)?;
                 let path = lowered_path_arg(values.remove(0), "hash.digest_file", span)?;
                 lowered_runtime_result(hash_module::named_digest_file(&algorithm, length, &self.host_path(&path), span).map(Value::digest), span)?
             }
-            RuntimeOp::HashDigestStdin if (1..=2).contains(&values.len()) => {
+            callable; RuntimeOp::HashDigestStdin if (1..=2).contains(&values.len()) => {
                 if let Err(error) = crate::startup_stdio::check(0) {
                     return Ok(ControlFlow::Continue(lowered_result_err_value(RuntimeError::host("hash-digest-stdin", &error).with_span(span))));
                 }
@@ -5168,40 +5320,40 @@ impl Evaluator {
                 let length = lowered_int_arg_or(values.get(1).cloned(), 0, "hash.digest_stdin", span)?;
                 lowered_runtime_result(hash_module::named_digest_reader(&algorithm, length, &mut std::io::stdin().lock(), span).map(Value::digest), span)?
             }
-            RuntimeOp::HashChecksum if values.len() == 2 => {
+            callable; RuntimeOp::HashChecksum if values.len() == 2 => {
                 let algorithm = lowered_str_arg_owned(values.get(1).cloned(), "", "hash.checksum", span)?;
                 let path = lowered_path_arg(values.remove(0), "hash.checksum", span)?;
                 lowered_runtime_result(hash_module::checksum_file(&algorithm, &self.host_path(&path), span), span)?
             }
-            RuntimeOp::HashChecksumStdin if values.len() == 1 => {
+            callable; RuntimeOp::HashChecksumStdin if values.len() == 1 => {
                 if let Err(error) = crate::startup_stdio::check(0) {
                     return Ok(ControlFlow::Continue(lowered_result_err_value(RuntimeError::host("hash-checksum-stdin", &error).with_span(span))));
                 }
                 let algorithm = lowered_str_arg_owned(values.get(0).cloned(), "", "hash.checksum_stdin", span)?;
                 lowered_runtime_result(hash_module::checksum_reader(&algorithm, &mut std::io::stdin().lock(), span), span)?
             }
-            RuntimeOp::HashMd5
+            callable; RuntimeOp::HashMd5
             | RuntimeOp::HashSha1
             | RuntimeOp::HashSha256
             | RuntimeOp::HashSha512
                 if values.len() == 1 =>
             return self.eval_lowered_hash_md5_values(op, values, span),
-            RuntimeOp::HashCrc32 if values.len() == 1 => {
+            callable; RuntimeOp::HashCrc32 if values.len() == 1 => {
                 let value = values.pop().expect("checked value length");
                 let bytes = lowered_bytes_arg(&value, "hash.crc32", span)?;
                 LoweredValue::Int(hash_module::crc32(bytes))
             }
-            RuntimeOp::HashCrc32c if values.len() == 1 => {
+            callable; RuntimeOp::HashCrc32c if values.len() == 1 => {
                 let value = values.pop().expect("checked value length");
                 let bytes = lowered_bytes_arg(&value, "hash.crc32c", span)?;
                 LoweredValue::Int(hash_module::crc32c(bytes))
             }
             // Private bridges are reachable only from their declaring module.
-            RuntimeOp::BridgeTypeName if values.len() == 1 => {
+            internal; RuntimeOp::BridgeTypeName if values.len() == 1 => {
                 let name = values[0].type_name().to_string();
                 LoweredValue::Str(name.into())
             }
-            RuntimeOp::HashParseCheckLine if values.len() == 1 => {
+            callable; RuntimeOp::HashParseCheckLine if values.len() == 1 => {
                 let line = lowered_str_arg_owned(values.pop(), "", "hash.parse_check_line", span)?;
                 match hash_module::parse_check_line(&line, span) {
                     Ok(line) => {
@@ -5214,11 +5366,11 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::IniDecode if values.len() == 1 => {
+            callable; RuntimeOp::IniDecode if values.len() == 1 => {
                 let text = lowered_str_arg_owned(values.pop(), "", "ini.decode", span)?;
                 lowered_runtime_result(ini_module::decode(&text, span), span)?
             }
-            RuntimeOp::IniRead if values.len() == 1 => {
+            callable; RuntimeOp::IniRead if values.len() == 1 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
                     "ini.read",
@@ -5229,7 +5381,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::IniEncode if values.len() == 1 => {
+            callable; RuntimeOp::IniEncode if values.len() == 1 => {
                 let value = values.pop().expect("checked value length").into_value();
                 let Value::Record(record) = value else {
                     return Err(
@@ -5242,8 +5394,8 @@ impl Evaluator {
                     span,
                 )?
             }
-            RuntimeOp::IniWrite if values.len() == 2 || values.len() == 3 => return self.eval_lowered_ini_write_values(values, span),
-            RuntimeOp::IoStdinRead if values.len() == 1 => {
+            callable; RuntimeOp::IniWrite if values.len() == 2 || values.len() == 3 => return self.eval_lowered_ini_write_values(values, span),
+            callable; RuntimeOp::IoStdinRead if values.len() == 1 => {
                 let count = lowered_int_arg(values.pop(), "io.stdin_read", span)?;
                 let result: Result<LoweredValue, RuntimeError> = (|| {
                     let count = usize::try_from(count).ok().filter(|count| *count > 0)
@@ -5263,14 +5415,14 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::IoStdinBytes if values.is_empty() => {
+            callable; RuntimeOp::IoStdinBytes if values.is_empty() => {
                 match self.read_stdin_all("io.stdin_bytes", span) {
                     Ok(data) => lowered_result_ok(LoweredValue::Bytes(data.into())),
                     Err(error) if error.abort.is_some() => return Err(error),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::IoStdinText if values.is_empty() => {
+            callable; RuntimeOp::IoStdinText if values.is_empty() => {
                 let result = self.read_stdin_all("io.stdin_text", span).and_then(|data| {
                     String::from_utf8(data).map_err(|error| {
                         RuntimeError::host(
@@ -5286,7 +5438,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::IoStdinLine if values.is_empty() => {
+            callable; RuntimeOp::IoStdinLine if values.is_empty() => {
                 let result = self.read_stdin_line_bytes("io.stdin_line", span).and_then(|data| {
                     String::from_utf8(data).map_err(|error| {
                         RuntimeError::host(
@@ -5302,38 +5454,38 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::IoWriteStderr if values.len() == 1 => {
+            callable; RuntimeOp::IoWriteStderr if values.len() == 1 => {
                 let text = lowered_str_arg_owned(values.pop(), "", "io.write_stderr", span)?;
                 self.stderr.extend_from_slice(text.as_bytes());
                 lowered_result_ok(LoweredValue::Unit)
             }
-            RuntimeOp::IoWriteStderrBytes if values.len() == 1 => {
+            callable; RuntimeOp::IoWriteStderrBytes if values.len() == 1 => {
                 let value = values.pop().expect("checked value length");
                 let data = lowered_bytes_arg(&value, "io.write_stderr_bytes", span)?;
                 self.stderr.extend_from_slice(data);
                 lowered_result_ok(LoweredValue::Unit)
             }
-            RuntimeOp::IoFlushStderr if values.is_empty() => {
+            callable; RuntimeOp::IoFlushStderr if values.is_empty() => {
                 lowered_unit_result(self.flush_stderr_checked(span))
             }
-            RuntimeOp::IoWriteStdout if values.len() == 1 => {
+            callable; RuntimeOp::IoWriteStdout if values.len() == 1 => {
                 let text = lowered_str_arg_owned(values.pop(), "", "io.write_stdout", span)?;
                 self.stdout.extend_from_slice(text.as_bytes());
                 lowered_result_ok(LoweredValue::Unit)
             }
-            RuntimeOp::IoFlushStdout if values.is_empty() => {
+            callable; RuntimeOp::IoFlushStdout if values.is_empty() => {
                 lowered_unit_result(self.flush_stdout_checked(span))
             }
-            RuntimeOp::IoWriteStdoutBytes if values.len() == 1 => {
+            callable; RuntimeOp::IoWriteStdoutBytes if values.len() == 1 => {
                 let value = values.pop().expect("checked value length");
                 let data = lowered_bytes_arg(&value, "io.write_stdout_bytes", span)?;
                 self.stdout.extend_from_slice(data);
                 lowered_result_ok(LoweredValue::Unit)
             }
-            RuntimeOp::MapEmpty if values.is_empty() => {
+            callable; RuntimeOp::MapEmpty if values.is_empty() => {
                 LoweredValue::Map(Arc::new(BTreeMap::new()))
             }
-            RuntimeOp::TimeToCalendar => {
+            callable; RuntimeOp::TimeToCalendar => {
                 let epoch = lowered_int_arg(values.first().cloned(), "time.to_calendar", span)?;
                 let utc = lowered_bool_arg_or(values.get(1).cloned(), false, "time.to_calendar", span)?;
                 match crate::modules::time::to_calendar(epoch, utc) {
@@ -5351,13 +5503,13 @@ impl Evaluator {
                     Err(message) => lowered_result_err_value(RuntimeError::new("time-calendar", message).with_span(span)),
                 }
             }
-            RuntimeOp::TimeFormat if (2..=3).contains(&values.len()) => {
+            callable; RuntimeOp::TimeFormat if (2..=3).contains(&values.len()) => {
                 let epoch = lowered_int_arg(values.get(0).cloned(), "time.format", span)?;
                 let format = lowered_str_arg_owned(values.get(1).cloned(), "", "time.format", span)?;
                 let utc = lowered_bool_arg_or(values.get(2).cloned(), false, "time.format", span)?;
                 lowered_runtime_result(crate::modules::time::format(epoch, &format, utc).map(|text| Value::Str(text.into())).map_err(|message| RuntimeError::new("time-format", message).with_span(span)), span)?
             }
-            RuntimeOp::TimeFromCalendar if (3..=8).contains(&values.len()) => {
+            callable; RuntimeOp::TimeFromCalendar if (3..=8).contains(&values.len()) => {
                 let operation = "time.from_calendar";
                 let year = lowered_int_arg(values.get(0).cloned(), operation, span)?;
                 let month = lowered_int_arg(values.get(1).cloned(), operation, span)?;
@@ -5369,16 +5521,16 @@ impl Evaluator {
                 let normalize = lowered_bool_arg_or(values.get(7).cloned(), false, operation, span)?;
                 lowered_runtime_result(crate::modules::time::from_calendar(year, month, day, hour, minute, second, utc, normalize).map(Value::Int).map_err(|message| RuntimeError::new("time-calendar", message).with_span(span)), span)?
             }
-            RuntimeOp::TimeClockResolution if values.is_empty() => {
+            callable; RuntimeOp::TimeClockResolution if values.is_empty() => {
                 lowered_runtime_result(crate::modules::time::clock_resolution().map(Value::Int).map_err(|message| RuntimeError::new("time-resolution", message).with_span(span)), span)?
             }
-            RuntimeOp::TimeMonotonic if values.is_empty() => {
+            callable; RuntimeOp::TimeMonotonic if values.is_empty() => {
                 lowered_runtime_result(crate::modules::time::monotonic_ns().map(Value::Int).map_err(|message| RuntimeError::new("time-monotonic", message).with_span(span)), span)?
             }
-            RuntimeOp::TimeNow if values.is_empty() => {
+            callable; RuntimeOp::TimeNow if values.is_empty() => {
                 LoweredValue::Int(crate::modules::time::now_epoch_ms())
             }
-            RuntimeOp::TimeSleep if values.len() == 1 => {
+            callable; RuntimeOp::TimeSleep if values.len() == 1 => {
                 let duration = lowered_duration_arg(values.pop(), "time.sleep", span)?;
                 let deadline = std::time::Instant::now() + Duration::from_millis(duration.millis);
                 while std::time::Instant::now() < deadline {
@@ -5391,12 +5543,12 @@ impl Evaluator {
                 }
                 lowered_result_ok(LoweredValue::Unit)
             }
-            RuntimeOp::TimeMillis if values.len() == 1 => {
+            callable; RuntimeOp::TimeMillis if values.len() == 1 => {
                 let ms = lowered_int_arg(values.pop(), "time.millis", span)?;
                 let millis = if ms < 0 { 0 } else { ms as u64 };
                 LoweredValue::Duration(DurationValue { millis })
             }
-            RuntimeOp::TimeSeconds if values.len() == 1 => {
+            callable; RuntimeOp::TimeSeconds if values.len() == 1 => {
                 let seconds = lowered_int_arg(values.pop(), "time.seconds", span)?;
                 let millis = if seconds < 0 {
                     0
@@ -5405,36 +5557,36 @@ impl Evaluator {
                 };
                 LoweredValue::Duration(DurationValue { millis })
             }
-            RuntimeOp::TimeMeasure if values.len() == 1 || values.len() == 2 => return self.eval_lowered_time_measure_values(values, span),
-            RuntimeOp::TimeDurationCompact if values.len() == 1 => {
+            callable; RuntimeOp::TimeMeasure if values.len() == 1 || values.len() == 2 => return self.eval_lowered_time_measure_values(values, span),
+            callable; RuntimeOp::TimeDurationCompact if values.len() == 1 => {
                 let seconds = lowered_int_arg(values.pop(), "time.duration_compact", span)?;
                 LoweredValue::Str(crate::modules::time::duration_compact(seconds).into())
             }
-            RuntimeOp::BytesHuman if values.len() == 1 => {
+            callable; RuntimeOp::BytesHuman if values.len() == 1 => {
                 let size = lowered_int_arg(values.pop(), "bytes.human", span)?;
                 LoweredValue::Str(bytes_module::human(size).into())
             }
-            RuntimeOp::BytesCopy if (2..=7).contains(&values.len()) => return self.eval_lowered_bytes_copy_values(values, span),
-            RuntimeOp::BytesCopyFile if (2..=7).contains(&values.len()) => return self.eval_lowered_bytes_copy_file_values(values, span),
-            RuntimeOp::BytesZero if values.len() == 1 => {
+            callable; RuntimeOp::BytesCopy if (2..=7).contains(&values.len()) => return self.eval_lowered_bytes_copy_values(values, span),
+            callable; RuntimeOp::BytesCopyFile if (2..=7).contains(&values.len()) => return self.eval_lowered_bytes_copy_file_values(values, span),
+            callable; RuntimeOp::BytesZero if values.len() == 1 => {
                 let length = lowered_int_arg(values.pop(), "bytes.zero", span)?;
                 match bytes_module::zero(length, span) {
                     Ok(bytes) => lowered_result_ok(LoweredValue::Bytes(bytes.into())),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::BytesFromText if values.len() == 1 => {
+            callable; RuntimeOp::BytesFromText if values.len() == 1 => {
                 let text = lowered_str_arg_owned(values.pop(), "", "bytes.from_text", span)?;
                 LoweredValue::Bytes(bytes_module::from_text(&text).into())
             }
-            RuntimeOp::BytesFromInts if values.len() == 1 => {
+            callable; RuntimeOp::BytesFromInts if values.len() == 1 => {
                 let ints = lowered_int_list_arg(values.pop(), "bytes.from_ints", span)?;
                 match bytes_module::from_ints(ints, span) {
                     Ok(bytes) => lowered_result_ok(LoweredValue::Bytes(bytes.into())),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::BytesSqueeze if values.len() == 2 => {
+            callable; RuntimeOp::BytesSqueeze if values.len() == 2 => {
                 let byte = lowered_int_arg(values.get(1).cloned(), "bytes.squeeze", span)?;
                 let data = lowered_bytes_arg(
                     values.first().expect("checked value length"),
@@ -5446,7 +5598,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::BytesRepeatPrefixCount if values.len() == 2 => {
+            callable; RuntimeOp::BytesRepeatPrefixCount if values.len() == 2 => {
                 let pattern = lowered_bytes_arg(
                     values.get(1).expect("checked value length"),
                     "bytes.repeat_prefix_count",
@@ -5462,11 +5614,11 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::BytesConcat if values.len() == 1 => {
+            callable; RuntimeOp::BytesConcat if values.len() == 1 => {
                 let chunks = lowered_bytes_list_arg(values.pop(), "bytes.concat", span)?;
                 LoweredValue::Bytes(bytes_module::concat(chunks).into())
             }
-            RuntimeOp::BytesPackLe if values.len() == 2 => {
+            callable; RuntimeOp::BytesPackLe if values.len() == 2 => {
                 let width = lowered_int_arg(values.pop(), "bytes.pack_le", span)?;
                 let value = lowered_int_arg(values.pop(), "bytes.pack_le", span)?;
                 match bytes_module::pack_int_le(value, width, span) {
@@ -5474,7 +5626,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::BytesPackBe if values.len() == 2 => {
+            callable; RuntimeOp::BytesPackBe if values.len() == 2 => {
                 let width = lowered_int_arg(values.pop(), "bytes.pack_be", span)?;
                 let value = lowered_int_arg(values.pop(), "bytes.pack_be", span)?;
                 match bytes_module::pack_int_be(value, width, span) {
@@ -5482,7 +5634,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::BytesUnpackLe if values.len() == 2 || values.len() == 3 => {
+            callable; RuntimeOp::BytesUnpackLe if values.len() == 2 || values.len() == 3 => {
                 let offset = if values.len() == 3 {
                     lowered_int_arg(values.pop(), "bytes.unpack_le", span)?
                 } else {
@@ -5499,7 +5651,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::BytesUnpackBe if values.len() == 2 || values.len() == 3 => {
+            callable; RuntimeOp::BytesUnpackBe if values.len() == 2 || values.len() == 3 => {
                 let offset = if values.len() == 3 {
                     lowered_int_arg(values.pop(), "bytes.unpack_be", span)?
                 } else {
@@ -5516,7 +5668,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::BytesUnpackFloat if values.len() == 4 => {
+            callable; RuntimeOp::BytesUnpackFloat if values.len() == 4 => {
                 let data = lowered_bytes_arg(values.first().expect("checked value length"), "bytes.unpack_float", span)?;
                 let offset = lowered_int_arg(values.get(1).cloned(), "bytes.unpack_float", span)?;
                 let format = lowered_str_arg_owned(values.get(2).cloned(), "", "bytes.unpack_float", span)?;
@@ -5526,7 +5678,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::BytesResize => {
+            callable; RuntimeOp::BytesResize => {
                 let path = lowered_path_arg(unix_require_arg(values.first().cloned(), "bytes.resize", span)?, "bytes.resize", span)?;
                 let size = lowered_int_arg(values.get(1).cloned(), "bytes.resize", span)?;
                 let create = lowered_bool_arg_or(values.get(2).cloned(), false, "bytes.resize", span)?;
@@ -5536,7 +5688,7 @@ impl Evaluator {
                     Ok(()) => lowered_result_ok(LoweredValue::Unit), Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::BytesReadAt if (3..=4).contains(&values.len()) => {
+            callable; RuntimeOp::BytesReadAt if (3..=4).contains(&values.len()) => {
                 let regular = if values.len() == 4 { lowered_bool_arg_or(values.pop(), false, "bytes.read_at", span)? } else { false };
                 let length = lowered_int_arg(values.pop(), "bytes.read_at", span)?;
                 let offset = lowered_int_arg(values.pop(), "bytes.read_at", span)?;
@@ -5550,7 +5702,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::BytesWriteAt if (3..=5).contains(&values.len()) => {
+            callable; RuntimeOp::BytesWriteAt if (3..=5).contains(&values.len()) => {
                 let regular = lowered_bool_arg_or(values.get(4).cloned(), false, "bytes.write_at", span)?;
                 let create =
                     lowered_bool_arg_or(values.get(3).cloned(), false, "bytes.write_at", span)?;
@@ -5563,7 +5715,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::BytesZeroAt if (3..=5).contains(&values.len()) => {
+            callable; RuntimeOp::BytesZeroAt if (3..=5).contains(&values.len()) => {
                 let regular = lowered_bool_arg_or(values.get(4).cloned(), false, "bytes.zero_at", span)?;
                 let create =
                     lowered_bool_arg_or(values.get(3).cloned(), false, "bytes.zero_at", span)?;
@@ -5575,12 +5727,12 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::EnvGet if values.len() == 1 => return self.eval_lowered_env_get_values(values, span),
+            callable; RuntimeOp::EnvGet if values.len() == 1 => return self.eval_lowered_env_get_values(values, span),
             // `e"NAME" = value`: the parser admits only identifier names, and
             // the value converts like an `env (...)` overlay value. The change
             // lives in the evaluator environment, so the innermost enclosing
             // context scope undoes it and child processes inherit it.
-            RuntimeOp::EnvSet if values.len() == 2 => {
+            callable; RuntimeOp::EnvSet if values.len() == 2 => {
                 let value = values.pop().expect("checked value length");
                 let name = lowered_str_arg_owned(values.pop(), "", "env", span)?;
                 let value = value_to_env_bytes(value.into_value(), span)?;
@@ -5590,7 +5742,7 @@ impl Evaluator {
             // Read the scoped environment overlay at invocation time. Only an
             // unset name selects a fallback; invalid names and bytes keep
             // their original error kinds.
-            RuntimeOp::EnvGetOr if values.len() == 1 || values.len() == 2 => {
+            callable; RuntimeOp::EnvGetOr if values.len() == 1 || values.len() == 2 => {
                 let fallback =
                     lowered_str_arg_owned(values.get(1).cloned(), "", "env.get_or", span)?;
                 let key = match lowered_env_key_arg(values.first().cloned(), span)? {
@@ -5610,10 +5762,10 @@ impl Evaluator {
                     ),
                 }
             }
-            RuntimeOp::EnvBool if values.len() == 1 || values.len() == 2 => return self.eval_lowered_env_bool_values(values, span),
-            RuntimeOp::EnvPath if values.len() == 1 || values.len() == 2 => return self.eval_lowered_env_path_values(values, span),
-            RuntimeOp::EnvInt if values.len() == 1 || values.len() == 2 => return self.eval_lowered_env_int_values(values, span),
-            RuntimeOp::EnvEntries if values.is_empty() => {
+            callable; RuntimeOp::EnvBool if values.len() == 1 || values.len() == 2 => return self.eval_lowered_env_bool_values(values, span),
+            callable; RuntimeOp::EnvPath if values.len() == 1 || values.len() == 2 => return self.eval_lowered_env_path_values(values, span),
+            callable; RuntimeOp::EnvInt if values.len() == 1 || values.len() == 2 => return self.eval_lowered_env_int_values(values, span),
+            callable; RuntimeOp::EnvEntries if values.is_empty() => {
                 let items = self
                     .env
                     .snapshot()
@@ -5627,8 +5779,8 @@ impl Evaluator {
                     .collect();
                 lowered_result_ok(LoweredValue::List(items))
             }
-            RuntimeOp::EnvList if values.is_empty() => return self.eval_lowered_env_list_values(values, span),
-            RuntimeOp::EnvPathList if values.is_empty() => {
+            callable; RuntimeOp::EnvList if values.is_empty() => return self.eval_lowered_env_list_values(values, span),
+            callable; RuntimeOp::EnvPathList if values.is_empty() => {
                 let paths = self
                     .lowered_env_path_entries(span)?
                     .into_iter()
@@ -5636,22 +5788,22 @@ impl Evaluator {
                     .collect();
                 LoweredValue::List(paths)
             }
-            RuntimeOp::EnvPathList if values.len() == 1 => return self.eval_lowered_env_path_list_values(values, span),
-            RuntimeOp::EnvPathPrepend if values.len() == 1 => {
+            callable; RuntimeOp::EnvPathList if values.len() == 1 => return self.eval_lowered_env_path_list_values(values, span),
+            internal; RuntimeOp::EnvPathPrepend if values.len() == 1 => {
                 let path = lowered_path_arg(values.remove(0), "env.PATH.prepend", span)?;
                 let mut entries = self.lowered_env_path_entries(span)?;
                 entries.insert(0, path);
                 self.lowered_set_env_path_entries(&entries, span)?;
                 lowered_result_ok(LoweredValue::Unit)
             }
-            RuntimeOp::EnvPathAppend if values.len() == 1 => {
+            internal; RuntimeOp::EnvPathAppend if values.len() == 1 => {
                 let path = lowered_path_arg(values.remove(0), "env.PATH.append", span)?;
                 let mut entries = self.lowered_env_path_entries(span)?;
                 entries.push(path);
                 self.lowered_set_env_path_entries(&entries, span)?;
                 lowered_result_ok(LoweredValue::Unit)
             }
-            RuntimeOp::EnvPathPop if values.is_empty() => {
+            internal; RuntimeOp::EnvPathPop if values.is_empty() => {
                 let mut entries = self.lowered_env_path_entries(span)?;
                 let Some(path) = entries.pop() else {
                     return Ok(ControlFlow::Continue(lowered_result_err_value(
@@ -5661,8 +5813,8 @@ impl Evaluator {
                 self.lowered_set_env_path_entries(&entries, span)?;
                 lowered_result_ok(LoweredValue::Path(path))
             }
-            RuntimeOp::EnvPathEntries if values.len() == 1 => return self.eval_lowered_env_path_entries_values(values, span),
-            RuntimeOp::JsonDecode if values.len() == 1 => {
+            callable; RuntimeOp::EnvPathEntries if values.len() == 1 => return self.eval_lowered_env_path_entries_values(values, span),
+            callable; RuntimeOp::JsonDecode if values.len() == 1 => {
                 let Some(text) = lowered_str_value(&values[0]) else {
                     return Err(
                         RuntimeError::new("type-error", "json.decode expected Str").with_span(span)
@@ -5670,7 +5822,7 @@ impl Evaluator {
                 };
                 lowered_runtime_result(json_module::parse_json(text, span), span)?
             }
-            RuntimeOp::JsonEncode if values.len() == 1 || values.len() == 2 => {
+            callable; RuntimeOp::JsonEncode if values.len() == 1 || values.len() == 2 => {
                 let pretty =
                     lowered_bool_arg_or(values.get(1).cloned(), false, "json.encode", span)?;
                 match super::encode_lowered_json(&values[0], pretty, span) {
@@ -5678,7 +5830,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::JsonWrite if values.len() == 2 || values.len() == 3 => {
+            callable; RuntimeOp::JsonWrite if values.len() == 2 || values.len() == 3 => {
                 let pretty =
                     lowered_bool_arg_or(values.get(2).cloned(), false, "json.write", span)?;
                 let path = lowered_path_arg(values.remove(0), "json.write", span)?;
@@ -5691,7 +5843,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::JsonWriteLines if values.len() == 2 => {
+            callable; RuntimeOp::JsonWriteLines if values.len() == 2 => {
                 let path = lowered_path_arg(values.remove(0), "json.write_lines", span)?;
                 match super::encode_lowered_json_lines_for_write(&values[0], span) {
                     Ok(text) => lowered_unit_result(fs_module::write_path(
@@ -5702,7 +5854,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::JsonGet if values.len() == 2 || values.len() == 3 => {
+            callable; RuntimeOp::JsonGet if values.len() == 2 || values.len() == 3 => {
                 let value = values[0].clone().into_value();
                 let path = lowered_json_path_arg(&values[1], "json.get", span)?;
                 match values.get(2) {
@@ -5717,7 +5869,7 @@ impl Evaluator {
                     },
                 }
             }
-            RuntimeOp::JsonRead if values.len() == 1 => {
+            callable; RuntimeOp::JsonRead if values.len() == 1 => {
                 let LoweredValue::Path(path) = &values[0] else {
                     return Err(
                         RuntimeError::new("type-error", "json.read expected Path").with_span(span)
@@ -5731,12 +5883,12 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::JsonRemove if values.len() == 2 => {
+            callable; RuntimeOp::JsonRemove if values.len() == 2 => {
                 let value = values[0].clone().into_value();
                 let path = lowered_json_path_arg(&values[1], "json.remove", span)?;
                 lowered_runtime_result(json_module::json_path_remove(&value, &path, span), span)?
             }
-            RuntimeOp::JsonSet if values.len() == 3 => {
+            callable; RuntimeOp::JsonSet if values.len() == 3 => {
                 let value = values[0].clone().into_value();
                 let path = lowered_json_path_arg(&values[1], "json.set", span)?;
                 let replacement = values[2].clone().into_value();
@@ -5751,10 +5903,10 @@ impl Evaluator {
                     )?
                 }
             }
-            RuntimeOp::LinuxInterfaces if values.is_empty() => return self.eval_lowered_linux_interfaces_values(values, span),
-            RuntimeOp::LinuxRoutes if values.is_empty() => return self.eval_lowered_linux_routes_values(values, span),
-            RuntimeOp::LinuxNetworkDump if values.is_empty() => return self.eval_lowered_linux_network_dump_values(values, span),
-            RuntimeOp::LinuxLinkUp if values.len() == 1 => {
+            callable; RuntimeOp::LinuxInterfaces if values.is_empty() => return self.eval_lowered_linux_interfaces_values(values, span),
+            callable; RuntimeOp::LinuxRoutes if values.is_empty() => return self.eval_lowered_linux_routes_values(values, span),
+            callable; RuntimeOp::LinuxNetworkDump if values.is_empty() => return self.eval_lowered_linux_network_dump_values(values, span),
+            callable; RuntimeOp::LinuxLinkUp if values.len() == 1 => {
                 let interface = lowered_str_arg_owned(values.pop(), "", "linux.link_up", span)?;
                 if !self.linux_fake_active() {
                     lowered_runtime_result(linux_module::link_up(&interface, span), span)?
@@ -5763,7 +5915,7 @@ impl Evaluator {
                     lowered_result_ok(LoweredValue::Unit)
                 }
             }
-            RuntimeOp::LinuxLinkDown if values.len() == 1 => {
+            callable; RuntimeOp::LinuxLinkDown if values.len() == 1 => {
                 let interface = lowered_str_arg_owned(values.pop(), "", "linux.link_down", span)?;
                 if !self.linux_fake_active() {
                     lowered_runtime_result(linux_module::link_down(&interface, span), span)?
@@ -5772,8 +5924,8 @@ impl Evaluator {
                     lowered_result_ok(LoweredValue::Unit)
                 }
             }
-            RuntimeOp::LinuxSetIpv4Address if values.len() == 3 => return self.eval_lowered_linux_set_ipv4_address_values(values, span),
-            RuntimeOp::LinuxFlushIpv4Addresses if values.len() == 1 => {
+            callable; RuntimeOp::LinuxSetIpv4Address if values.len() == 3 => return self.eval_lowered_linux_set_ipv4_address_values(values, span),
+            callable; RuntimeOp::LinuxFlushIpv4Addresses if values.len() == 1 => {
                 let interface =
                     lowered_str_arg_owned(values.pop(), "", "linux.flush_ipv4_addresses", span)?;
                 if !self.linux_fake_active() {
@@ -5786,9 +5938,9 @@ impl Evaluator {
                     lowered_result_ok(LoweredValue::Unit)
                 }
             }
-            RuntimeOp::LinuxAddDefaultIpv4Route if values.len() == 1 || values.len() == 2 => return self.eval_lowered_linux_add_default_ipv4_route_values(values, span),
-            RuntimeOp::LinuxDelDefaultIpv4Route if values.len() == 2 => return self.eval_lowered_linux_del_default_ipv4_route_values(values, span),
-            RuntimeOp::LinuxDhcpSocket if values.len() == 1 => {
+            callable; RuntimeOp::LinuxAddDefaultIpv4Route if values.len() == 1 || values.len() == 2 => return self.eval_lowered_linux_add_default_ipv4_route_values(values, span),
+            callable; RuntimeOp::LinuxDelDefaultIpv4Route if values.len() == 2 => return self.eval_lowered_linux_del_default_ipv4_route_values(values, span),
+            callable; RuntimeOp::LinuxDhcpSocket if values.len() == 1 => {
                 let interface = lowered_str_arg_owned(values.pop(), "", "linux.dhcp_socket", span)?;
                 if !self.linux_fake_active() {
                     lowered_runtime_result(linux_module::dhcp_socket(&interface, span), span)?
@@ -5797,7 +5949,7 @@ impl Evaluator {
                     lowered_result_ok(LoweredValue::Int(-1))
                 }
             }
-            RuntimeOp::LinuxDhcpSend if values.len() == 2 => {
+            callable; RuntimeOp::LinuxDhcpSend if values.len() == 2 => {
                 let fd = lowered_int_arg(values.first().cloned(), "linux.dhcp_send", span)?;
                 let payload = lowered_bytes_arg(&values[1], "linux.dhcp_send", span)?;
                 if !self.linux_fake_active() {
@@ -5811,7 +5963,7 @@ impl Evaluator {
                     lowered_result_ok(LoweredValue::Unit)
                 }
             }
-            RuntimeOp::LinuxDhcpRecv if values.len() == 2 => {
+            callable; RuntimeOp::LinuxDhcpRecv if values.len() == 2 => {
                 let fd = lowered_int_arg(values.first().cloned(), "linux.dhcp_recv", span)?;
                 let timeout = lowered_int_arg(values.get(1).cloned(), "linux.dhcp_recv", span)?;
                 if !self.linux_fake_active() {
@@ -5821,7 +5973,7 @@ impl Evaluator {
                     lowered_result_ok(LoweredValue::Bytes(Vec::new().into()))
                 }
             }
-            RuntimeOp::LinuxDhcpClose if values.len() == 1 => {
+            callable; RuntimeOp::LinuxDhcpClose if values.len() == 1 => {
                 let fd = lowered_int_arg(values.pop(), "linux.dhcp_close", span)?;
                 if !self.linux_fake_active() {
                     lowered_runtime_result(linux_module::dhcp_close(fd, span), span)?
@@ -5830,19 +5982,19 @@ impl Evaluator {
                     lowered_result_ok(LoweredValue::Unit)
                 }
             }
-            RuntimeOp::LinuxDhcpSendRelease if values.len() == 3 => return self.eval_lowered_linux_dhcp_send_release_values(values, span),
-            RuntimeOp::MimeParse if values.len() == 1 => {
+            callable; RuntimeOp::LinuxDhcpSendRelease if values.len() == 3 => return self.eval_lowered_linux_dhcp_send_release_values(values, span),
+            callable; RuntimeOp::MimeParse if values.len() == 1 => {
                 let value = lowered_str_arg_owned(values.pop(), "", "mime.parse", span)?;
                 match mime_module::parse(&value, span) {
                     Ok(value) => lowered_runtime_value(Value::ok(value), span)?,
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::MimeLookupExt if values.len() == 1 => {
+            callable; RuntimeOp::MimeLookupExt if values.len() == 1 => {
                 let ext = lowered_str_arg_owned(values.pop(), "", "mime.lookup_ext", span)?;
                 lowered_runtime_value(mime_module::lookup_ext(&ext).unwrap_or(Value::Null), span)?
             }
-            RuntimeOp::MimeLookupPath if values.len() == 1 => {
+            callable; RuntimeOp::MimeLookupPath if values.len() == 1 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
                     "mime.lookup_path",
@@ -5853,24 +6005,24 @@ impl Evaluator {
                     span,
                 )?
             }
-            RuntimeOp::ModuleLoad if values.len() == 1 => return self.eval_lowered_module_load_values(values, span),
-            RuntimeOp::NetPool if values.len() <= 3 => return self.eval_lowered_net_pool_values(values, span),
-            RuntimeOp::NetClosePool if values.len() <= 1 => {
+            callable; RuntimeOp::ModuleLoad if values.len() == 1 => return self.eval_lowered_module_load_values(values, span),
+            callable; RuntimeOp::NetPool if values.len() <= 3 => return self.eval_lowered_net_pool_values(values, span),
+            callable; RuntimeOp::NetClosePool if values.len() <= 1 => {
                 let name = lowered_str_arg_owned(values.pop(), "default", "net.close_pool", span)?;
                 self.net_agents.retain(|key, _| key.pool != name);
                 lowered_result_ok(LoweredValue::Unit)
             }
-            RuntimeOp::NetCloseAllPools if values.is_empty() => {
+            callable; RuntimeOp::NetCloseAllPools if values.is_empty() => {
                 self.net_agents.clear();
                 lowered_result_ok(LoweredValue::Unit)
             }
-            RuntimeOp::NetStart if values.len() == 1 => return self.eval_lowered_net_start_values(values, span),
-            RuntimeOp::NetRequest if values.len() == 1 => return self.eval_lowered_net_request_values(values, span),
-            RuntimeOp::NetRequestMany if values.len() == 1 => return self.eval_lowered_net_request_many_values(values, span),
-            RuntimeOp::NetDownloadMany if values.len() == 1 => return self.eval_lowered_net_download_many_values(values, span),
-            RuntimeOp::NetDownload if values.len() == 1 => return self.eval_lowered_net_download_values(values, span),
-            RuntimeOp::NetUpload if values.len() == 1 => return self.eval_lowered_net_upload_values(values, span),
-            RuntimeOp::PathAbsolute if values.len() == 1 => {
+            callable; RuntimeOp::NetStart if values.len() == 1 => return self.eval_lowered_net_start_values(values, span),
+            callable; RuntimeOp::NetRequest if values.len() == 1 => return self.eval_lowered_net_request_values(values, span),
+            callable; RuntimeOp::NetRequestMany if values.len() == 1 => return self.eval_lowered_net_request_many_values(values, span),
+            callable; RuntimeOp::NetDownloadMany if values.len() == 1 => return self.eval_lowered_net_download_many_values(values, span),
+            callable; RuntimeOp::NetDownload if values.len() == 1 => return self.eval_lowered_net_download_values(values, span),
+            callable; RuntimeOp::NetUpload if values.len() == 1 => return self.eval_lowered_net_upload_values(values, span),
+            callable; RuntimeOp::PathAbsolute if values.len() == 1 => {
                 let LoweredValue::Path(path) = values.pop().expect("checked value length") else {
                     return Err(
                         RuntimeError::new("type-error", "Path.absolute expected Path")
@@ -5882,7 +6034,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error.with_span(span)),
                 }
             }
-            RuntimeOp::PathParseBytes if values.len() == 1 => {
+            callable; RuntimeOp::PathParseBytes if values.len() == 1 => {
                 let value = values.pop().expect("checked value length");
                 let bytes = lowered_bytes_arg(&value, "Path.parse_bytes", span)?;
                 match PathValue::new(bytes.to_vec()) {
@@ -5890,7 +6042,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error.with_span(span)),
                 }
             }
-            RuntimeOp::PatchApply
+            callable; RuntimeOp::PatchApply
                 if values.len() == 2 || values.len() == 3 || values.len() == 4 =>
             {
                 let overwrite =
@@ -5912,54 +6064,54 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::ProcessList if values.is_empty() => {
+            callable; RuntimeOp::ProcessList if values.is_empty() => {
                 lowered_runtime_stream_result(process_module::list_processes(span), span)?
             }
-            RuntimeOp::ProcessThreads if values.is_empty() || values.len() == 1 => {
+            callable; RuntimeOp::ProcessThreads if values.is_empty() || values.len() == 1 => {
                 let pid = match values.pop() {
                     Some(value) => Some(lowered_int_arg(Some(value), "process.threads", span)?),
                     None => None,
                 };
                 lowered_runtime_stream_result(process_module::list_threads(pid, span), span)?
             }
-            RuntimeOp::ProcessCurrentPid if values.is_empty() => {
+            callable; RuntimeOp::ProcessCurrentPid if values.is_empty() => {
                 lowered_result_ok(LoweredValue::Int(std::process::id() as i64))
             }
-            RuntimeOp::ProcessScriptPath if values.is_empty() => {
+            callable; RuntimeOp::ProcessScriptPath if values.is_empty() => {
                 match process_module::script_path(span) {
                     Ok(path) => lowered_result_ok(LoweredValue::Path(path)),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::ProcessStats if values.len() == 1 => {
+            callable; RuntimeOp::ProcessStats if values.len() == 1 => {
                 let pid = lowered_int_arg(values.pop(), "process.stats", span)?;
                 lowered_runtime_result(process_module::process_stats(pid, span), span)?
             }
-            RuntimeOp::ProcessWhich if values.len() == 1 => return self.eval_lowered_process_which_values(values, span),
-            RuntimeOp::ProcessPort if values.len() == 1 => {
+            callable; RuntimeOp::ProcessWhich if values.len() == 1 => return self.eval_lowered_process_which_values(values, span),
+            callable; RuntimeOp::ProcessPort if values.len() == 1 => {
                 let port = lowered_int_arg(values.pop(), "process.port", span)?;
                 lowered_runtime_stream_result(process_module::port_processes(port, span), span)?
             }
-            RuntimeOp::ProcessPorts if values.is_empty() => {
+            callable; RuntimeOp::ProcessPorts if values.is_empty() => {
                 lowered_runtime_stream_result(process_module::listening_port_processes(span), span)?
             }
-            RuntimeOp::ProcessPortsForPid if values.len() == 1 => {
+            callable; RuntimeOp::ProcessPortsForPid if values.len() == 1 => {
                 let pid = lowered_int_arg(values.pop(), "process.ports", span)?;
                 lowered_runtime_stream_result(process_module::pid_port_processes(pid, span), span)?
             }
-            RuntimeOp::ProcessSignal if values.len() == 1 => {
+            callable; RuntimeOp::ProcessSignal if values.len() == 1 => {
                 let signal = lowered_str_arg_owned(values.pop(), "", "process.signal", span)?;
                 lowered_runtime_result(
                     process_module::signal_info(&signal, span).map(process_module::signal_record),
                     span,
                 )?
             }
-            RuntimeOp::ProcessKill if values.len() == 1 || values.len() == 2 => {
+            callable; RuntimeOp::ProcessKill if values.len() == 1 || values.len() == 2 => {
                 let signal = lowered_str_arg_owned(values.pop(), "TERM", "process.kill", span)?;
                 let pid = lowered_int_arg(values.pop(), "process.kill", span)?;
                 lowered_module_result_value(self.process_kill(pid, &signal, span), span)?
             }
-            RuntimeOp::ProcessRun if values.len() == 1 => {
+            callable; RuntimeOp::ProcessRun if values.len() == 1 => {
                 let plan = lowered_command_arg(
                     values.pop().expect("checked value length"),
                     "process.run",
@@ -5968,7 +6120,7 @@ impl Evaluator {
                 let invocation = self.invocation_from_command_plan(&plan, span)?;
                 self.run_process_invocation(invocation, span)
             }
-            RuntimeOp::LinuxRunInNamespaces | RuntimeOp::LinuxNamespaces
+            callable; RuntimeOp::LinuxRunInNamespaces | RuntimeOp::LinuxNamespaces
                 if self.linux_fake_active() =>
             {
                 lowered_result_err_value(
@@ -5979,17 +6131,17 @@ impl Evaluator {
                     .with_span(span),
                 )
             }
-            RuntimeOp::LinuxRunInNamespaces => self.eval_run_in_namespaces(values, span)?,
-            RuntimeOp::LinuxNamespaces => {
+            callable; RuntimeOp::LinuxRunInNamespaces => self.eval_run_in_namespaces(values, span)?,
+            callable; RuntimeOp::LinuxNamespaces => {
                 let pid = lowered_optional_int_arg(values.get(0), "linux.namespaces", span)?;
                 lowered_runtime_result(linux_module::namespaces(pid, span), span)?
             }
-            RuntimeOp::ProcessSpawn if values.len() == 1 => return self.eval_lowered_process_spawn_values(values, span),
-            RuntimeOp::ProcessWaitAny | RuntimeOp::ProcessWaitTimeout
+            callable; RuntimeOp::ProcessSpawn if values.len() == 1 => return self.eval_lowered_process_spawn_values(values, span),
+            callable; RuntimeOp::ProcessWaitAny | RuntimeOp::ProcessWaitTimeout
                 if values.len() == 1 || values.len() == 2 =>
             return self.eval_lowered_process_wait_any_values(op, values, span),
-            RuntimeOp::ProcessWaitReady if values.len() == 1 => return self.eval_lowered_process_wait_ready_values(values, span),
-            RuntimeOp::RegexCompile if values.len() == 1 => {
+            callable; RuntimeOp::ProcessWaitReady if values.len() == 1 => return self.eval_lowered_process_wait_ready_values(values, span),
+            callable; RuntimeOp::RegexCompile if values.len() == 1 => {
                 let text = lowered_str_arg_owned(values.pop(), "", "regex.compile", span)?;
                 match regex_module::compile(&text, span) {
                     Ok(regex) => lowered_result_ok(LoweredValue::Regex(Box::new(RegexValue {
@@ -5999,7 +6151,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::RegexCapturesBytes => {
+            callable; RuntimeOp::RegexCapturesBytes => {
                 let pattern = lowered_str_arg_owned(values.first().cloned(), "", "regex.captures_bytes", span)?;
                 let input = lowered_bytes_arg_or_empty(values.get(1).cloned(), "regex.captures_bytes", span)?;
                 let offset = lowered_int_arg_or(values.get(2).cloned(), 0, "regex.captures_bytes", span)?;
@@ -6009,33 +6161,33 @@ impl Evaluator {
                     Ok(value) => lowered_result_ok(lowered_runtime_value(value, span)?), Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::UnixReadFd => {
+            callable; RuntimeOp::UnixReadFd => {
                 let fd = lowered_int_arg(values.first().cloned(), "unix.read_fd", span)?;
                 let max_bytes = lowered_int_arg(values.get(1).cloned(), "unix.read_fd", span)?;
                 lowered_runtime_result(unix_module::read_fd(fd, max_bytes, span), span)?
             }
-            RuntimeOp::UnixWriteFd => {
+            callable; RuntimeOp::UnixWriteFd => {
                 let fd = lowered_int_arg(values.first().cloned(), "unix.write_fd", span)?;
                 let data = lowered_bytes_arg(values.get(1).ok_or_else(|| RuntimeError::new("type-error", "unix.write_fd expected Bytes").with_span(span))?, "unix.write_fd", span)?;
                 lowered_runtime_result(unix_module::write_fd(fd, data, span), span)?
             }
-            RuntimeOp::UnixSeekFd => {
+            callable; RuntimeOp::UnixSeekFd => {
                 let fd = lowered_int_arg(values.first().cloned(), "unix.seek_fd", span)?;
                 let offset = lowered_int_arg(values.get(1).cloned(), "unix.seek_fd", span)?;
                 let whence = lowered_str_arg_owned(values.get(2).cloned(), "start", "unix.seek_fd", span)?;
                 lowered_runtime_result(unix_module::seek_fd(fd, offset, &whence, span), span)?
             }
-            RuntimeOp::UnixFadvise => {
+            callable; RuntimeOp::UnixFadvise => {
                 let fd = lowered_int_arg(values.first().cloned(), "unix.fadvise", span)?;
                 let offset = lowered_int_arg(values.get(1).cloned(), "unix.fadvise", span)?;
                 let length = lowered_int_arg(values.get(2).cloned(), "unix.fadvise", span)?;
                 let advice = lowered_str_arg_owned(values.get(3).cloned(), "", "unix.fadvise", span)?;
                 lowered_runtime_result(unix_module::fadvise(fd, offset, length, &advice, span), span)?
             }
-            RuntimeOp::UnixCpuFeatures if values.is_empty() => {
+            callable; RuntimeOp::UnixCpuFeatures if values.is_empty() => {
                 lowered_runtime_value(unix_module::cpu_features(), span)?
             }
-            RuntimeOp::RegexFindBytes if (2..=4).contains(&values.len()) => {
+            callable; RuntimeOp::RegexFindBytes if (2..=4).contains(&values.len()) => {
                 let pattern = lowered_str_arg_owned(values.first().cloned(), "", "regex.find_bytes", span)?;
                 let input = lowered_bytes_arg_or_empty(values.get(1).cloned(), "regex.find_bytes", span)?;
                 let extended = lowered_bool_arg_or(values.get(2).cloned(), false, "regex.find_bytes", span)?;
@@ -6045,7 +6197,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::LocaleNumericInfo | RuntimeOp::LocaleTimeInfo => {
+            callable; RuntimeOp::LocaleNumericInfo | RuntimeOp::LocaleTimeInfo => {
                 let api = if op == RuntimeOp::LocaleNumericInfo { "system.locale_numeric_info" } else { "system.locale_time_info" };
                 let name = lowered_str_arg_owned(values.first().cloned(), "", api, span)?;
                 let result = if op == RuntimeOp::LocaleNumericInfo {
@@ -6055,12 +6207,12 @@ impl Evaluator {
                 };
                 lowered_runtime_result(result, span)?
             }
-            RuntimeOp::NumericLongDoublePrecision => LoweredValue::Int(crate::modules::numeric::precision()),
-            RuntimeOp::NumericParseLongDouble => {
+            callable; RuntimeOp::NumericLongDoublePrecision => LoweredValue::Int(crate::modules::numeric::precision()),
+            callable; RuntimeOp::NumericParseLongDouble => {
                 let text = lowered_str_arg_owned(values.first().cloned(), "", "system.parse_long_double", span)?;
                 lowered_runtime_result(crate::modules::numeric::parse(&text, span), span)?
             }
-            RuntimeOp::NumericFormatLongDouble => {
+            callable; RuntimeOp::NumericFormatLongDouble => {
                 let text = lowered_str_arg_owned(values.first().cloned(), "", "system.format_long_double", span)?;
                 let conversion = lowered_str_arg_owned(values.get(1).cloned(), "", "system.format_long_double", span)?;
                 let precision = match values.get(2) {
@@ -6070,7 +6222,7 @@ impl Evaluator {
                 let alternate = lowered_bool_arg_or(values.get(3).cloned(), false, "system.format_long_double", span)?;
                 lowered_runtime_result(crate::modules::numeric::format(&text, &conversion, precision, alternate, span), span)?
             }
-            RuntimeOp::CompressionTransform => {
+            callable; RuntimeOp::CompressionTransform => {
                 let source = match values.first().cloned() { None | Some(LoweredValue::Null) => None, Some(value) => Some(lowered_path_arg(value, "compression.transform", span)?) };
                 let destination = match values.get(1).cloned() { None | Some(LoweredValue::Null) => None, Some(value) => Some(lowered_path_arg(value, "compression.transform", span)?) };
                 let source = source.as_ref().map(|path| self.host_path(path));
@@ -6090,21 +6242,21 @@ impl Evaluator {
                     Ok(()) => lowered_result_ok(LoweredValue::Unit), Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::CompressionGzipName => {
+            callable; RuntimeOp::CompressionGzipName => {
                 let source = lowered_path_arg(unix_require_arg(values.first().cloned(), "compression.gzip_name", span)?, "compression.gzip_name", span)?;
                 match crate::modules::compression::gzip_name(&self.host_path(&source), span) {
                     Ok(path) => lowered_result_ok(match path { Some(path) => lowered_runtime_value(Value::Path(path_value_from_pathbuf(path)?), span)?, None => LoweredValue::Null }),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::LinuxSample => {
+            callable; RuntimeOp::LinuxSample => {
                 let root = match values.first().cloned() { None | Some(LoweredValue::Null) => None, Some(value) => Some(lowered_path_arg(value, "linux.sample", span)?) };
                 let root = root.as_ref().map(|path| self.host_path(path));
                 match linux_module::sampling::sample(root.as_deref(), span) {
                     Ok(value) => lowered_result_ok(lowered_runtime_value(value, span)?), Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::UnixPollFd if (2..=3).contains(&values.len()) => {
+            callable; RuntimeOp::UnixPollFd if (2..=3).contains(&values.len()) => {
                 let fd = lowered_int_arg(values.first().cloned(), "unix.poll_fd", span)?;
                 let events = lowered_str_list_arg(values.get(1).cloned(), "unix.poll_fd", span)?;
                 let timeout = lowered_int_arg_or(values.get(2).cloned(), 0, "unix.poll_fd", span)?;
@@ -6112,10 +6264,10 @@ impl Evaluator {
             }
             // Lowering builds both from the checked call; these are what a
             // call that reaches the module operation itself evaluates to.
-            RuntimeOp::SetEmpty if values.is_empty() => {
+            callable; RuntimeOp::SetEmpty if values.is_empty() => {
                 LoweredValue::Set(Arc::new(std::collections::BTreeSet::new()))
             }
-            RuntimeOp::SetFrom if values.len() == 1 => match values.pop() {
+            callable; RuntimeOp::SetFrom if values.len() == 1 => match values.pop() {
                 Some(LoweredValue::List(items)) => {
                     super::set::lowered_set_from_items(&items, span)?
                 }
@@ -6128,32 +6280,32 @@ impl Evaluator {
                     );
                 }
             },
-            RuntimeOp::ShlexQuote if values.len() == 1 => {
+            callable; RuntimeOp::ShlexQuote if values.len() == 1 => {
                 let text = lowered_str_arg_owned(values.pop(), "", "shlex.quote", span)?;
                 LoweredValue::Str(shlex::quote(&text).into())
             }
-            RuntimeOp::ShlexJoin if values.len() == 1 => {
+            callable; RuntimeOp::ShlexJoin if values.len() == 1 => {
                 let argv = lowered_str_list_arg(values.pop(), "shlex.join", span)?;
                 LoweredValue::Str(shlex::join(&argv).into())
             }
-            RuntimeOp::SystemHostname if values.is_empty() => lowered_runtime_result(
+            callable; RuntimeOp::SystemHostname if values.is_empty() => lowered_runtime_result(
                 system::hostname(span).map(|hostname| Value::Str(hostname.into())),
                 span,
             )?,
-            RuntimeOp::SystemUname if values.is_empty() => {
+            callable; RuntimeOp::SystemUname if values.is_empty() => {
                 lowered_runtime_result(system::uname(span), span)?
             }
-            RuntimeOp::SystemMemory if values.is_empty() => {
+            callable; RuntimeOp::SystemMemory if values.is_empty() => {
                 lowered_runtime_result(system::memory(span), span)?
             }
-            RuntimeOp::SystemExecutionUnits if values.is_empty() => {
+            callable; RuntimeOp::SystemExecutionUnits if values.is_empty() => {
                 lowered_runtime_result(system::execution_units(span), span)?
             }
-            RuntimeOp::SystemOsRelease if values.is_empty() => {
+            callable; RuntimeOp::SystemOsRelease if values.is_empty() => {
                 lowered_runtime_result(system::os_release(span), span)?
             }
             #[cfg(feature = "native-tests")]
-            RuntimeOp::TestOk if values.len() == 1 || values.len() == 2 => {
+            callable; RuntimeOp::TestOk if values.len() == 1 || values.len() == 2 => {
                 let message = lowered_str_arg_owned(
                     values.get(1).cloned(),
                     "condition was false",
@@ -6172,7 +6324,7 @@ impl Evaluator {
                 }
             }
             #[cfg(feature = "native-tests")]
-            RuntimeOp::TestEq if values.len() == 2 || values.len() == 3 => {
+            callable; RuntimeOp::TestEq if values.len() == 2 || values.len() == 3 => {
                 let left = values[0].clone().into_value();
                 let right = values[1].clone().into_value();
                 let message = lowered_str_arg_owned(values.get(2).cloned(), "", "test.eq", span)?;
@@ -6192,7 +6344,7 @@ impl Evaluator {
                 }
             }
             #[cfg(feature = "native-tests")]
-            RuntimeOp::TestNe if values.len() == 2 || values.len() == 3 => {
+            callable; RuntimeOp::TestNe if values.len() == 2 || values.len() == 3 => {
                 let left = values[0].clone().into_value();
                 let right = values[1].clone().into_value();
                 let message = lowered_str_arg_owned(values.get(2).cloned(), "", "test.ne", span)?;
@@ -6208,15 +6360,15 @@ impl Evaluator {
                 }
             }
             #[cfg(feature = "native-tests")]
-            RuntimeOp::TestErrorKind if values.len() == 2 || values.len() == 3 => return self.eval_lowered_test_error_kind_values(values, span),
+            callable; RuntimeOp::TestErrorKind if values.len() == 2 || values.len() == 3 => return self.eval_lowered_test_error_kind_values(values, span),
             #[cfg(feature = "native-tests")]
-            RuntimeOp::TestFail if values.is_empty() || values.len() == 1 => {
+            callable; RuntimeOp::TestFail if values.is_empty() || values.len() == 1 => {
                 let message =
                     lowered_str_arg_owned(values.pop(), "test failed", "test.fail", span)?;
                 lowered_runtime_value(test_failure(message), span)?
             }
             #[cfg(feature = "native-tests")]
-            RuntimeOp::TestSkip if values.is_empty() || values.len() == 1 => {
+            callable; RuntimeOp::TestSkip if values.is_empty() || values.len() == 1 => {
                 let message =
                     lowered_str_arg_owned(values.pop(), "test skipped", "test.skip", span)?;
                 lowered_runtime_value(
@@ -6228,7 +6380,7 @@ impl Evaluator {
                 )?
             }
             #[cfg(feature = "native-tests")]
-            RuntimeOp::TestTimeout if values.len() == 2 => {
+            callable; RuntimeOp::TestTimeout if values.len() == 2 => {
                 let limit = lowered_duration_arg(values.pop(), "test.timeout", span)?;
                 lowered_record_arg(values.pop(), "test.timeout", span)?;
                 if let Some(cancellation) = &self.test_cancellation {
@@ -6237,14 +6389,14 @@ impl Evaluator {
                 LoweredValue::Unit
             }
             #[cfg(feature = "native-tests")]
-            RuntimeOp::TestTempPath if values.len() == 1 || values.len() == 2 => {
+            callable; RuntimeOp::TestTempPath if values.len() == 1 || values.len() == 2 => {
                 let ctx = lowered_record_arg(values.first().cloned(), "test.temp_path", span)?;
                 let name =
                     lowered_str_arg_owned(values.get(1).cloned(), "", "test.temp_path", span)?;
                 LoweredValue::Path(test_temp_path(self, &ctx, &name, span)?)
             }
             #[cfg(feature = "native-tests")]
-            RuntimeOp::TestTempDir if values.len() == 1 || values.len() == 2 => {
+            callable; RuntimeOp::TestTempDir if values.len() == 1 || values.len() == 2 => {
                 let ctx = lowered_record_arg(values.first().cloned(), "test.temp_dir", span)?;
                 let name =
                     lowered_str_arg_owned(values.get(1).cloned(), "", "test.temp_dir", span)?;
@@ -6255,7 +6407,7 @@ impl Evaluator {
                 }
             }
             #[cfg(feature = "native-tests")]
-            RuntimeOp::TestTempFile if (1..=3).contains(&values.len()) => {
+            callable; RuntimeOp::TestTempFile if (1..=3).contains(&values.len()) => {
                 let ctx = lowered_record_arg(values.first().cloned(), "test.temp_file", span)?;
                 let name =
                     lowered_str_arg_owned(values.get(1).cloned(), "", "test.temp_file", span)?;
@@ -6274,13 +6426,13 @@ impl Evaluator {
                 }
             }
             #[cfg(feature = "native-tests")]
-            RuntimeOp::TestMock if (4..=5).contains(&values.len()) => return self.eval_lowered_test_mock_values(op, values, span),
+            callable; RuntimeOp::TestMock if (4..=5).contains(&values.len()) => return self.eval_lowered_test_mock_values(op, values, span),
             #[cfg(feature = "native-tests")]
-            RuntimeOp::TestLinuxFake | RuntimeOp::TestUnixFake
+            callable; RuntimeOp::TestLinuxFake | RuntimeOp::TestUnixFake
                 if values.len() == 1 || values.len() == 2 =>
             return self.eval_lowered_test_linux_fake_values(op, values, span),
             #[cfg(feature = "native-tests")]
-            RuntimeOp::TestCalls if values.len() == 1 || values.len() == 2 => {
+            callable; RuntimeOp::TestCalls if values.len() == 1 || values.len() == 2 => {
                 let _ctx = lowered_record_arg(values.first().cloned(), "test.calls", span)?;
                 let op = lowered_str_arg_owned(values.get(1).cloned(), "", "test.calls", span)?;
                 let mut calls = Vec::new();
@@ -6298,53 +6450,53 @@ impl Evaluator {
                 LoweredValue::List(calls)
             }
             #[cfg(feature = "native-tests")]
-            RuntimeOp::TestRunScript if (2..=6).contains(&values.len()) => return self.eval_lowered_test_run_script_values(values, span),
+            callable; RuntimeOp::TestRunScript if (2..=6).contains(&values.len()) => return self.eval_lowered_test_run_script_values(values, span),
             #[cfg(feature = "native-tests")]
-            RuntimeOp::TestRunXsh if (2..=7).contains(&values.len()) => return self.eval_lowered_test_run_xsh_values(values, span),
+            callable; RuntimeOp::TestRunXsh if (2..=7).contains(&values.len()) => return self.eval_lowered_test_run_xsh_values(values, span),
             #[cfg(feature = "native-tests")]
-            RuntimeOp::TestRunXshtTrace if (2..=7).contains(&values.len()) => return self.eval_lowered_test_run_xsht_trace_values(values, span),
+            callable; RuntimeOp::TestRunXshtTrace if (2..=7).contains(&values.len()) => return self.eval_lowered_test_run_xsht_trace_values(values, span),
             #[cfg(feature = "native-tests")]
-            RuntimeOp::TestExpect if (3..=9).contains(&values.len()) => return self.eval_lowered_test_expect_values(values, span),
-            RuntimeOp::TuiLeftPad if values.len() == 2 => {
+            callable; RuntimeOp::TestExpect if (3..=9).contains(&values.len()) => return self.eval_lowered_test_expect_values(values, span),
+            callable; RuntimeOp::TuiLeftPad if values.len() == 2 => {
                 let width = lowered_int_arg(values.pop(), "tui.left_pad", span)?;
                 let text = lowered_str_arg_owned(values.pop(), "", "tui.left_pad", span)?;
                 LoweredValue::Str(tui::left_pad(&text, width).into())
             }
-            RuntimeOp::TuiRightPad if values.len() == 2 => {
+            callable; RuntimeOp::TuiRightPad if values.len() == 2 => {
                 let width = lowered_int_arg(values.pop(), "tui.right_pad", span)?;
                 let text = lowered_str_arg_owned(values.pop(), "", "tui.right_pad", span)?;
                 LoweredValue::Str(tui::right_pad(&text, width).into())
             }
-            RuntimeOp::TuiCellWidth if values.len() == 1 => {
+            callable; RuntimeOp::TuiCellWidth if values.len() == 1 => {
                 let text = lowered_str_arg_owned(values.pop(), "", "tui.cell_width", span)?;
                 LoweredValue::Int(tui::cell_width(&text))
             }
-            RuntimeOp::TuiCellClip if values.len() == 2 => {
+            callable; RuntimeOp::TuiCellClip if values.len() == 2 => {
                 let width = lowered_int_arg(values.pop(), "tui.cell_clip", span)?;
                 let text = lowered_str_arg_owned(values.pop(), "", "tui.cell_clip", span)?;
                 LoweredValue::Str(tui::cell_clip(&text, width).into())
             }
-            RuntimeOp::TuiCellSlice if values.len() == 3 => {
+            callable; RuntimeOp::TuiCellSlice if values.len() == 3 => {
                 let width = lowered_int_arg(values.pop(), "tui.cell_slice", span)?;
                 let start = lowered_int_arg(values.pop(), "tui.cell_slice", span)?;
                 let text = lowered_str_arg_owned(values.pop(), "", "tui.cell_slice", span)?;
                 LoweredValue::Str(tui::cell_slice(&text, start, width).into())
             }
-            RuntimeOp::TuiCellLeftPad if values.len() == 2 => {
+            callable; RuntimeOp::TuiCellLeftPad if values.len() == 2 => {
                 let width = lowered_int_arg(values.pop(), "tui.cell_left_pad", span)?;
                 let text = lowered_str_arg_owned(values.pop(), "", "tui.cell_left_pad", span)?;
                 LoweredValue::Str(tui::cell_left_pad(&text, width).into())
             }
-            RuntimeOp::TuiCellRightPad if values.len() == 2 => {
+            callable; RuntimeOp::TuiCellRightPad if values.len() == 2 => {
                 let width = lowered_int_arg(values.pop(), "tui.cell_right_pad", span)?;
                 let text = lowered_str_arg_owned(values.pop(), "", "tui.cell_right_pad", span)?;
                 LoweredValue::Str(tui::cell_right_pad(&text, width).into())
             }
-            RuntimeOp::TuiSafeSingleLine if values.len() == 1 => {
+            callable; RuntimeOp::TuiSafeSingleLine if values.len() == 1 => {
                 let text = lowered_str_arg_owned(values.pop(), "", "tui.safe_single_line", span)?;
                 LoweredValue::Str(tui::safe_single_line(&text).into())
             }
-            RuntimeOp::TuiReadSecret if values.len() == 1 => {
+            callable; RuntimeOp::TuiReadSecret if values.len() == 1 => {
                 let prompt = lowered_str_arg_owned(values.pop(), "", "tui.read_secret", span)?;
                 match tui::read_secret(&prompt) {
                     Ok(secret) => lowered_result_ok(LoweredValue::Str(secret.into())),
@@ -6353,39 +6505,21 @@ impl Evaluator {
                     ),
                 }
             }
-            RuntimeOp::UnixKillAll
-            | RuntimeOp::UnixUptimeSeconds
-            | RuntimeOp::UnixTty
-            | RuntimeOp::UnixId
-            | RuntimeOp::UnixTtyAttrs
-            | RuntimeOp::UnixSetTtyAttrs
-            | RuntimeOp::UnixSetHostname
-            | RuntimeOp::UnixReapChildEvents
-            | RuntimeOp::UnixPid1Setup
-            | RuntimeOp::UnixWaitPid1Event
-            | RuntimeOp::UnixShutdownProcessGroups
-            | RuntimeOp::UnixSpawnProcessGroup
-            | RuntimeOp::UnixSpawnProcessGroupLog
-            | RuntimeOp::UnixSpawnLoggedProcessGroup
-            | RuntimeOp::UnixSpawnWithTty
-            | RuntimeOp::UnixNotifyReady
-            | RuntimeOp::UnixNotifyClose
-            | RuntimeOp::UnixKillProcessGroup
-            | RuntimeOp::UnixExec
-            | RuntimeOp::UnixExecEnv => self.eval_lowered_unix_call(op, values, span)?,
-            RuntimeOp::UserCurrent if values.is_empty() => {
+        }
+        post_unix_rows {
+            callable; RuntimeOp::UserCurrent if values.is_empty() => {
                 lowered_runtime_result(user_module::current(span), span)?
             }
-            RuntimeOp::UserGroups if (1..=2).contains(&values.len()) => {
+            callable; RuntimeOp::UserGroups if (1..=2).contains(&values.len()) => {
                 let name = lowered_str_arg_owned(values.get(0).cloned(), "", "user.groups", span)?;
                 let gid = lowered_optional_int_arg(values.get(1), "user.groups", span)?;
                 lowered_runtime_result(user_module::groups(&name, gid, span), span)?
             }
-            RuntimeOp::UserLookup if values.len() == 1 => {
+            callable; RuntimeOp::UserLookup if values.len() == 1 => {
                 let name = lowered_str_arg_owned(values.pop(), "", "user.lookup", span)?;
                 lowered_runtime_result(user_module::lookup(&name, span), span)?
             }
-            RuntimeOp::UserByUid if values.len() == 1 => {
+            callable; RuntimeOp::UserByUid if values.len() == 1 => {
                 let uid = lowered_int_arg(values.pop(), "user.by_uid", span)?;
                 lowered_runtime_result(
                     user_module::uid_from_i64(uid, span)
@@ -6393,93 +6527,29 @@ impl Evaluator {
                     span,
                 )?
             }
-            RuntimeOp::UserAdd if (1..=6).contains(&values.len()) => return self.eval_lowered_user_add_values(values, span),
-            RuntimeOp::UserRemove if values.len() == 1 || values.len() == 2 => {
+            callable; RuntimeOp::UserAdd if (1..=6).contains(&values.len()) => return self.eval_lowered_user_add_values(values, span),
+            callable; RuntimeOp::UserRemove if values.len() == 1 || values.len() == 2 => {
                 let remove_home =
                     lowered_bool_arg_or(values.get(1).cloned(), false, "user.remove", span)?;
                 let name = lowered_str_arg_owned(values.first().cloned(), "", "user.remove", span)?;
                 lowered_runtime_result(user_module::remove(&name, remove_home, span), span)?
             }
-            RuntimeOp::ErrorFailure if values.len() == 1 => {
+            callable; RuntimeOp::ErrorFailure if values.len() == 1 => {
                 let message = lowered_str_arg_owned(values.pop(), "", "error.failure", span)?;
                 lowered_runtime_value(error_constructor("validation", message), span)?
             }
-            RuntimeOp::UtilsCache if values.len() == 1 || values.len() == 2 => return self.eval_lowered_utils_cache_values(values, span),
-            RuntimeOp::LinuxWriteDevice if values.len() == 2 => return self.eval_lowered_linux_write_device_values(values, span),
-            RuntimeOp::LinuxReadDevice if values.len() == 3 => return self.eval_lowered_linux_read_device_values(values, span),
-            RuntimeOp::LinuxBlkid
-            | RuntimeOp::LinuxBlockDevices
-            | RuntimeOp::LinuxChroot
-            | RuntimeOp::LinuxDepmod
-            | RuntimeOp::LinuxDmesg
-            | RuntimeOp::LinuxDiskUsage
-            | RuntimeOp::LinuxFileAttrs
-            | RuntimeOp::LinuxFileVersion
-            | RuntimeOp::LinuxFsck
-            | RuntimeOp::LinuxHalt
-            | RuntimeOp::LinuxHwclock
-            | RuntimeOp::LinuxInsmod
-            | RuntimeOp::LinuxIsMountpoint
-            | RuntimeOp::LinuxKillAll
-            | RuntimeOp::LinuxLoopAttach
-            | RuntimeOp::LinuxLoopDetach
-            | RuntimeOp::LinuxLoopList
-            | RuntimeOp::LinuxMemInfo
-            | RuntimeOp::LinuxMknod
-            | RuntimeOp::LinuxMkswap
-            | RuntimeOp::LinuxModinfo
-            | RuntimeOp::LinuxUmount
-            | RuntimeOp::LinuxBlockdevInfo
-            | RuntimeOp::LinuxBlockdevSetReadOnly
-            | RuntimeOp::LinuxBlockdevFlush
-            | RuntimeOp::LinuxBlockdevRereadPartitionTable
-            | RuntimeOp::LinuxFstrim
-            | RuntimeOp::LinuxFsfreeze
-            | RuntimeOp::LinuxModprobe
-            | RuntimeOp::LinuxModulePlan
-            | RuntimeOp::LinuxBlockSignatures
-            | RuntimeOp::LinuxWipeBlockSignatures
-            | RuntimeOp::LinuxFileProject
-            | RuntimeOp::LinuxSetFileProject
-            | RuntimeOp::LinuxModules
-            | RuntimeOp::LinuxMount
-            | RuntimeOp::LinuxMountAll
-            | RuntimeOp::LinuxOpenFiles
-            | RuntimeOp::LinuxPartitionTable
-            | RuntimeOp::LinuxPivotRoot
-            | RuntimeOp::LinuxPoweroff
-            | RuntimeOp::LinuxReboot
-            | RuntimeOp::LinuxRfkillBlock
-            | RuntimeOp::LinuxRfkillList
-            | RuntimeOp::LinuxRfkillUnblock
-            | RuntimeOp::LinuxRmmod
-            | RuntimeOp::LinuxRootDevice
-            | RuntimeOp::LinuxSetFileAttrs
-            | RuntimeOp::LinuxSetFileVersion
-            | RuntimeOp::LinuxSetHwclock
-            | RuntimeOp::LinuxSetSystemClock
-            | RuntimeOp::LinuxSwapon
-            | RuntimeOp::LinuxSwaponAll
-            | RuntimeOp::LinuxSwapoff
-            | RuntimeOp::LinuxSwapoffAll
-            | RuntimeOp::LinuxSwitchRoot
-            | RuntimeOp::LinuxSysctlGet
-            | RuntimeOp::LinuxSysctlLoadDirs
-            | RuntimeOp::LinuxSysctlSet
-            | RuntimeOp::LinuxUeventStream
-            | RuntimeOp::LinuxUmountAll
-            | RuntimeOp::LinuxWritePartitionTable => {
-                self.eval_lowered_linux_call(op, values, span)?
-            }
-            _ => {
+            callable; RuntimeOp::UtilsCache if values.len() == 1 || values.len() == 2 => return self.eval_lowered_utils_cache_values(values, span),
+            callable; RuntimeOp::LinuxWriteDevice if values.len() == 2 => return self.eval_lowered_linux_write_device_values(values, span),
+            callable; RuntimeOp::LinuxReadDevice if values.len() == 3 => return self.eval_lowered_linux_read_device_values(values, span),
+        }
+        tail_rows {
+            fallback; _ => {
                 return Err(RuntimeError::new(
                     "unsupported-call",
                     "unsupported lowered module call",
                 )
                 .with_span(span));
-            }
-        };
-        Ok(ControlFlow::Continue(value))
+            }        }
     }
 
     fn lowered_env_path_entries(&self, span: Span) -> Result<Vec<PathValue>, RuntimeError> {
@@ -8108,5 +8178,53 @@ mod scalar_cursor_tests {
         assert!(matches!(cursor.next(), Some(LoweredValue::Int(128))));
         assert!(matches!(cursor.next(), Some(LoweredValue::Int(255))));
         assert!(cursor.next().is_none());
+    }
+}
+
+#[cfg(test)]
+mod lowered_module_support_authority_tests {
+    use super::*;
+
+    #[test]
+    fn lowered_module_support_tracks_public_body_rows_and_excludes_internal_rows() {
+        for op in [
+            RuntimeOp::CpuCount,
+            RuntimeOp::ProcessWaitTimeout,
+            RuntimeOp::IoFlushStdout,
+            RuntimeOp::IoFlushStderr,
+            RuntimeOp::UnixKillAll,
+            RuntimeOp::UnixExecEnv,
+            RuntimeOp::LinuxRootDevice,
+            RuntimeOp::TimeMonotonic,
+            RuntimeOp::TuiCellWidth,
+            RuntimeOp::TuiCellClip,
+            RuntimeOp::TuiCellSlice,
+            RuntimeOp::TuiCellLeftPad,
+            RuntimeOp::TuiCellRightPad,
+            RuntimeOp::TuiSafeSingleLine,
+            RuntimeOp::TuiReadSecret,
+        ] {
+            assert!(
+                Evaluator::lowered_module_op_supported(op),
+                "expected lowered module support for {op:?}"
+            );
+        }
+
+        for op in [
+            RuntimeOp::FsTempDir,
+            RuntimeOp::BridgeTypeName,
+            RuntimeOp::EnvPathPrepend,
+            RuntimeOp::EnvPathAppend,
+            RuntimeOp::EnvPathPop,
+            RuntimeOp::JsonEncodeLines,
+        ] {
+            assert!(
+                !Evaluator::lowered_module_op_supported(op),
+                "unexpected lowered module support for {op:?}"
+            );
+        }
+
+        #[cfg(feature = "native-tests")]
+        assert!(Evaluator::lowered_module_op_supported(RuntimeOp::TestOk));
     }
 }
