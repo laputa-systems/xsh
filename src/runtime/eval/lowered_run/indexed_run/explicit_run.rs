@@ -8837,6 +8837,39 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             self.calls[index].work.push(FrameWork::Finish(flow));
             return Ok(());
         }
+        // A successful pure return may leave only the function's root statement
+        // list beneath it. Retire those unused statements synchronously; the
+        // normal finish path still transfers resources and writes back captures.
+        let can_finish_after_discarding_root_statements = matches!(
+            &flow,
+            StmtFlow::Value(_) | StmtFlow::Return(_)
+        ) && matches!(
+            self.calls[index].owner,
+            FrameOwner::Function(_, LoweredFunctionKind::Pure)
+        ) && self.calls[index].defers.is_empty()
+            && self.calls[index].block_scopes.is_empty()
+            && !self.calls[index].work.is_empty()
+            && self.calls[index].work.iter().all(|work| {
+                matches!(
+                    work,
+                    FrameWork::Statements {
+                        complete_call: true,
+                        scope_id: None,
+                        ..
+                    }
+                )
+            });
+        if can_finish_after_discarding_root_statements {
+            while let Some(work) = self.calls[index].work.pop() {
+                let FrameWork::Statements { statements, .. } = work else {
+                    unreachable!("synchronous pure return only retains root statements");
+                };
+                self.evaluator
+                    .frame_scratch
+                    .recycle_statements(statements);
+            }
+            return self.finish_call(index, flow);
+        }
         if let StmtFlow::Propagate(value) = &flow
             && let Some(boundary) = self.capture_boundary(index)
         {

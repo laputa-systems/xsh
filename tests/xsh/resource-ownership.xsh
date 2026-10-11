@@ -31,6 +31,11 @@ proc resource_return_tail_root() [fs, error] -> Result[FsRoot] {
   root
 }
 
+pure resource_return_early_root(root: FsRoot) -> FsRoot {
+  return root
+  root
+}
+
 proc resource_borrow_root(root: FsRoot) [fs, error] -> Result[Unit] {
   root.write(p"borrowed", "live")
 }
@@ -241,6 +246,10 @@ test resource_root_return_block_break_and_borrow_survive {
   defer returned.close()
   resource_borrow_root(returned)
   assert returned.read_text(p"borrowed")? == "live"
+
+  let early_returned = resource_return_early_root(fs.tempdir()?)
+  defer early_returned.close()
+  assert early_returned.exists(p".")?
 
   let bare_tail = resource_return_tail_root()?
   defer bare_tail.close()
