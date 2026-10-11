@@ -302,10 +302,7 @@ impl Checker {
         sources: &crate::source::SourceMap,
         entry_source_id: crate::source::SourceId,
     ) -> CompactDeclOutput {
-        // An entry check owns the `reveal_type` gate; a program prepared
-        // without one must not be rejected for it here.
         let options = super::CheckOptions {
-            reveal_types: true,
             embedded_bodies: true,
             ..super::CheckOptions::default()
         };

@@ -283,7 +283,9 @@ test test_failures_carry_the_kernel_errno {
   assert errno_of(linux.getsockname(99999)) == 9
   assert errno_of(linux.setsockopt_int(99999, c.SOL_SOCKET, c.SO_REUSEADDR, 1)) == 9
   assert errno_of(linux.accept(99999)) == 9
-  assert errno_of(linux.socket(9999, c.SOCK_STREAM)) == 97
+  # AF_UNSPEC reaches the kernel's unsupported-family error; a container
+  # syscall policy can reject out-of-range families before the kernel does.
+  assert errno_of(linux.socket(c.AF_UNSPEC, c.SOCK_STREAM)) == 97
   test.error_kind(linux.recvfrom(-1, 16), "invalid-argument")
 
   let datagram = loopback_udp()?
