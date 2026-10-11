@@ -6,7 +6,7 @@
     "commit": "6e39144aaf5a6bc01b9f795010b0914431067183"
   },
   "gate": "G3",
-  "last_green_commit": "30bfa289",
+  "last_green_commit": "b0096fa6",
   "audit": {
     "new_core_script": "New core/*.xsh applets are installed by the release script at dev/release.xsh:146-160; dev/tests/test-repository-contracts.xsh owns the required core script inventory and contract checks. No separate command registration is needed.",
     "launcher_argument_separator": "Use xsh SCRIPT -- ARGS for an applet and xsh -- SCRIPT ARGS for an explicit script; src/entrypoints/xsh.rs:90-120.",
@@ -1114,42 +1114,57 @@
     {
       "id": "g3.disk.block_io",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-disks.xsh::test_btop_disk_rates_use_512_byte_accounting_sectors_and_start_warming",
+        "core/tests/test-sys-block.xsh::test_sys_block_collect_preserves_linux_stat_layouts_and_in_flight_gauge"
+      ],
+      "evidence": "Block rates use measured time and fixed 512-byte sectors; first samples warm and reset/replacement, missing identity, gap, invalid interval, and overflow remain distinct. The block reader covers 11/15/17-field layouts and preserves i64 counters without widening system-report JSON v1."
     },
     {
       "id": "g3.disk.in_flight",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-disks.xsh::test_btop_disk_rates_use_512_byte_accounting_sectors_and_start_warming",
+        "core/tests/test-sys-block.xsh::test_sys_block_collect_preserves_linux_stat_layouts_and_in_flight_gauge"
+      ],
+      "evidence": "The current in_flight counter is retained as an observed request-count gauge, including zero; it is not differenced into a rate."
     },
     {
       "id": "g3.disk.no_double_count",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-disks.xsh::test_btop_disk_rows_use_only_the_mounted_stacked_device_counters"
+      ],
+      "evidence": "A mount on dm-0 produces one row using dm-0 counters; the underlying sda counters are not added."
     },
     {
       "id": "g3.disk.mount_capacity",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-disks.xsh::test_btop_model_carries_disk_rates_and_captured_capacity",
+        "core/tests/test-btop-replay.xsh::test_btop_replay_uses_recorded_mount_capacity_without_querying_the_snapshot_filesystem",
+        "core/tests/test-sys-mount.xsh::test_sys_mount_applies_capacity_only_to_the_exact_raw_mount_identity"
+      ],
+      "evidence": "Capacity records match every raw mount by frame time, sequence, mount ID, device number, and decoded target. Replay uses recorded values and never stats the bundle tree; the live cache carries its original timestamp."
     },
     {
       "id": "g3.disk.escaped_paths",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-sys-mount.xsh::test_sys_mount_decode_field_handles_the_four_kernel_escapes",
+        "core/tests/test-btop-disks.xsh::test_btop_disk_rates_use_512_byte_accounting_sectors_and_start_warming"
+      ],
+      "evidence": "Kernel mountinfo escapes decode to the mount target before grouping and replay identity matching; shared targets are preserved in deterministic order."
     },
     {
       "id": "g3.proc.scaling",
@@ -1450,6 +1465,24 @@
       "name": "btop process start identity precision",
       "commit": "30bfa289",
       "summary": "Monitor process identity accepts i64 start ticks through the shared proc-stat parser; system-report JSON v1 retains its existing exact-number bound."
+    },
+    {
+      "kind": "data_format",
+      "name": "btop replay bundle schema 3 captured mount capacity",
+      "commit": "b0096fa6",
+      "summary": "Replay schema 3 requires bounded observations.jsonl capacity records keyed to each frame and raw mount identity. Schemas 1 and 2 are rejected; replay never queries statvfs on its snapshot tree."
+    },
+    {
+      "kind": "data_format",
+      "name": "btop model dump: storage counters and capacity",
+      "commit": "b0096fa6",
+      "summary": "Disk sectors and mount capacity bytes use canonical decimal strings in model dumps so signed 64-bit values remain lossless."
+    },
+    {
+      "kind": "behavior",
+      "name": "btop storage observations and rates",
+      "commit": "b0096fa6",
+      "summary": "Block counters refresh on each one-second sample while mount capacity retains its thirty-second observation time. Disk history requires diskseq and the device number, uses 512-byte accounting sectors, treats in_flight as a gauge, and does not sum stacked layers."
     }
   ],
   "limitations": [
@@ -1792,6 +1825,65 @@
         "log": ".work/btop-campaign/g3-s37-pty-final.log"
       },
       "report_json_v1": "The exact-number bound for process start ticks is unchanged; the monitor policy accepts i64 identity values."
+    },
+    "g3_s3_8": {
+      "host_only": true,
+      "native_monitor_tests": {
+        "passed": 94,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-s38-btop-final.log"
+      },
+      "block_source_tests": {
+        "passed": 6,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-s38-sys-block-final.log"
+      },
+      "mount_source_tests": {
+        "passed": 6,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-s38-sys-mount-final.log"
+      },
+      "system_report_tests": {
+        "passed": 133,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-s38-system-report-final.log"
+      },
+      "system_report_check_tests": {
+        "passed": 224,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-s38-system-report-check-final.log"
+      },
+      "repository_contract_tests": {
+        "passed": 5,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-s38-repo-contracts-final.log"
+      },
+      "xsh_check": {
+        "files": 13,
+        "log": ".work/btop-campaign/g3-s38-check-final.log"
+      },
+      "pty_build": {
+        "command": "cargo test --release --test core_compat_extra --no-run",
+        "log": ".work/btop-campaign/g3-s38-pty-build.log"
+      },
+      "pty_tests": {
+        "passed": 10,
+        "failed": 0,
+        "command": "core_compat_extra btop_ --test-threads=1",
+        "log": ".work/btop-campaign/g3-s38-pty-final.log"
+      },
+      "input_to_present_latency": {
+        "runner": "Alpine x86_64 musl release, 80x24, 100 sort inputs, replay interval 60000 ms",
+        "p95_ms": 1.15,
+        "p99_ms": 1.297,
+        "log": ".work/btop-campaign/g3-s38-pty-latency.log"
+      },
+      "report_json_v1": "System-report JSON v1 projection and exact-number filtering remain unchanged; system-report and report-check suites both pass.",
+      "system_report_collect_tests": {
+        "passed": 7,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-s38-system-report-collect-final.log"
+      }
     }
   },
   "defaults": [
@@ -2133,6 +2225,6 @@
     }
   ],
   "next": [
-    "G3 S3.8: verify disk I/O counters, in-flight reads, stacked-device deduplication, and mount capacity."
+    "G3 remaining deliverables: seeded 1,000-to-2,000 process scaling (median ratio <= 3x), bounded process/device churn, and optional-source degradation; then G4a panels and visual behavior."
   ]
 }
