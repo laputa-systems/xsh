@@ -63,7 +63,6 @@ test test_storage_filesystem_type_filter_supports_exclusions {
 test test_storage_lsblk_rooted_json_preserves_partition_identity { |ctx|
   let dir = test.temp_dir(ctx, name: "lsblk-root")?
   let root = fs.open_root(dir)?
-  defer root.close()
   root.mkdir(p"sys/class/block", parents: true)
   for name in ["disk", "disk1"] {
     root.mkdir(fp"sys/devices/disk/{if name == "disk" { "" } else { "disk1/" }}queue", parents: true)
@@ -114,7 +113,6 @@ test test_storage_sfdisk_writes_conventional_named_ranges { |ctx|
 test test_storage_findmnt_rooted_json_filters_type_and_source { |ctx|
   let dir = test.temp_dir(ctx, name: "findmnt-root")?
   let root = fs.open_root(dir)?
-  defer root.close()
   root.mkdir(p"proc/self", parents: true)
   root.write(p"proc/self/mountinfo", "1 0 0:1 / / rw - rootfs rootfs rw\n2 1 8:1 / /owned/a\\040b rw - ext4 /dev/disk1 rw,errors=remount-ro\n3 1 0:3 / /proc rw - proc proc rw\n")
   let source = "use lib.storage\nproc main(...argv: List[Str]) { let root = fs.open_root(fp\"{argv[0]}\")?; defer root.close(); storage.findmnt_from_root(root, [\"-J\", \"-t\", \"ext4\", \"-S\", \"/dev/disk1\", \"-o\", \"TARGET,FSTYPE,MAJ:MIN\"]) }"

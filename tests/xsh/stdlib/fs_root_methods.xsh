@@ -30,7 +30,6 @@ test fs_tempdir_in_creates_a_private_child_and_removes_it_on_close { |ctx|
 
 test fs_root_methods_preserve_bounded_observations_and_raw_names {
   let root = fs.tempdir()?
-  defer root.close()
   let raw = b"raw-name" as Path
   root.write(raw, b"abc\0def")
   root.write_atomic(p"text", "atomic")
@@ -57,7 +56,6 @@ test fs_root_methods_preserve_bounded_observations_and_raw_names {
 
 test fs_root_methods_keep_mutation_defaults_and_symlink_confinement { |ctx|
   let root = fs.tempdir()?
-  defer root.close()
   root.mkdir(p"nested/child", parents: true)
   root.mkdir(p"restricted", mode: 0o700)
   assert root.metadata(p"restricted")?.mode % 512 == 0o700

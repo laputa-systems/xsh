@@ -162,7 +162,6 @@ proc list_gzip(names: List[Str], quiet: Bool, stored_names: Bool) [fs, io, error
   var total_uncompressed = 0
   var overhead = 0
   let scratch = fs.tempdir()?
-  defer scratch.close()
   let work = scratch.host_path()?
   for name in names {
     var file = fp"{name}"
@@ -628,7 +627,6 @@ proc write_concatenated(names: List[Str], output: Str, codec: Str, decode: Bool,
     return 1
   }
   let scratch = fs.tempdir()?
-  defer scratch.close()
   let part = fp"{scratch.host_path()?}/part"
   var joined: List[Bytes] = []
   var consumed: List[Str] = []
