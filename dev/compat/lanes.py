@@ -94,7 +94,7 @@ def brief(name: str, sha: str, root: str, targets: str, shared: str) -> str:
         if lane["utilities"]
         else lane["note"]
     )
-    return f"""Lane: {name}   Wave: {lane['wave']}   Agent: gpt-6-luna (xhigh reasoning effort)
+    return f"""Lane: {name}   Wave: {lane['wave']}   Agent: gpt-6.1-sol (medium reasoning effort)
 Worktree: {root}-lanes/{name} on branch lane/{name} (from master @ {sha})
 Read first: AGENTS.md, docs/user-tour.md, dev/compat/CAMPAIGN.md, dev/compat/LANES.md,
             core/README.md, core/lib/gnu.xsh, the cli GNU-mode section of docs/SPEC.md,
@@ -119,7 +119,7 @@ Verify: {shared}/xsht test core/tests/test-<util>.xsh for each owned utility;
         check_kernel_reads.py and check_exclusions.py.
 Budget: stop and report at twice the size the integrator states.
 Commit on lane/{name} when green (never push, merge, or rebase others).
-Every campaign subagent must use gpt-6-luna at xhigh reasoning effort, including routine work.
+Every campaign subagent must use gpt-6.1-sol at medium reasoning effort, including routine work.
 Do not delegate further unless the integrator explicitly assigns a nested scope.
 Report (<200 words): behavior changed, before/after counts, tests run, decisions, Requests:, blockers.
 """

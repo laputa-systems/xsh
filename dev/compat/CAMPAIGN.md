@@ -7,9 +7,10 @@ remains is the native port and the harness retirement ("Planned: native port and
 harness retirement" below). The owner stopped the Claude Code session at this
 point and asked for a Codex session to continue.
 
-**Model policy.** In a Codex session every subagent uses `gpt-6-luna` at
-`xhigh`, set explicitly on each spawn (`model: "gpt-6-luna"`,
-`reasoning_effort: "xhigh"`); no other model or effort. `LANES.md` has the
+**Model policy.** The owner changed the policy during the resumed Codex session:
+every new subagent uses `gpt-6.1-sol` at `medium`, set explicitly on each spawn
+(`model: "gpt-6.1-sol"`, `reasoning_effort: "medium"`). Luna work stopped when
+this instruction arrived; no further Luna agents are used. `LANES.md` has the
 brief template and ownership rules, which apply unchanged. The lane tooling is
 agent-neutral Python: `.claude/skills/xsh-compat-campaign/scripts/lane.py`
 (`new`, `gate`, `drop`, `plan`); `dev/compat/port/lanes.py` generates port lanes.
@@ -241,7 +242,7 @@ Rules:
 Standing instruction (owner, 2026-10-10): when the expanded-campaign gates close,
 continue automatically into this port and the harness retirement without waiting
 for another request. Claude Code sessions spawn lanes on Haiku 5.5 at high
-effort; a Codex session uses `gpt-6-luna` at `xhigh` (see `LANES.md`).
+effort; a Codex session uses `gpt-6.1-sol` at `medium` (see `LANES.md`).
 
 Order: freeze commit and manifest generator; one Haiku lane per utility
 (`core/tests/test-U.xsh`, gate = every mapped ID present and passing); GNU and
@@ -412,7 +413,7 @@ historical evidence only.
 - A diagnostic uutils slice for `printf`, `split`, and `tee` selected 320 tests:
   165 passed, 154 failed, and 1 was excluded. This is not a full-suite result;
   the report is scratch evidence under ignored `target/compat-resume-uutils`.
-- The resumed campaign uses only **`gpt-6-luna` at `xhigh`** for subagents.
+- The resumed campaign uses only **`gpt-6.1-sol` at `medium`** for subagents.
   The 16 assigned lanes had disjoint applet and test files and have completed
   their work. Their ownership record is in `CLAIMS.md`. XSH owns command
   behavior, with Rust limited to necessary reusable OS and byte boundaries.
@@ -1300,7 +1301,7 @@ dependency approval requests are unnecessary within this campaign.
 No accepted option may be silently ignored; denominators never shrink;
 reference utilities are test oracles, never runtime dependencies; applets
 use typed native APIs instead of parsing another command's text output.
-Every campaign subagent must use **`gpt-6-luna` at `xhigh`**, including routine
+Every campaign subagent must use **`gpt-6.1-sol` at `medium`**, including routine
 tasks. Pass both settings explicitly on every spawn. Follow current `AGENTS.md` and session
 instructions for tools, delegation, commit authorization, and publishing. Do not
 run formatters or autofixers, or push as part of this handoff refresh.

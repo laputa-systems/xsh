@@ -91,3 +91,9 @@ IDs, without copying GPL script text. No changes are pushed.
 The full native baseline runs first in `xsh-test`, UID 1000, tmpfs `/tmp`,
 with three jobs. Pilot arch, cat and tr ports precede the full transcription
 fan-out. Script lanes share the existing release binaries read-only.
+
+The owner subsequently switched all lanes to `gpt-6.1-sol` at `medium`.
+The active Luna pilot-review and compiler-investigation turns were interrupted;
+`oracle_runner` and `imported_method_fix` continue their remaining work on the
+new model. The latter owns `src/runtime/eval/lower.rs` and focused native
+regressions for imported procedures sharing names with path methods.
