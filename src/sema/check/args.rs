@@ -2,7 +2,8 @@
 
 use super::expr::is_path_like_type;
 use super::{
-    Checker, FunctionParamSig, FxHashSet, ModuleFnSig, Span, Type,
+    CheckedApiCall, CheckedCommandArgument, CheckedModuleCommand, Checker, FunctionParamSig,
+    FxHashSet, ModuleFnSig, Span, Type,
     command_arg_can_be_path_like_arena, command_bool_flag_name_arena,
 };
 use crate::diagnostic::DiagnosticCode;
@@ -617,15 +618,16 @@ impl Checker {
         arena: &ArenaProgram,
         source: &str,
         args: &[ArenaCommandArg],
-        sig: &ModuleFnSig,
+        sig: &'static ModuleFnSig,
         span: Span,
     ) {
         let mut positionals = Vec::new();
         let mut flags = FxHashSet::default();
-        for arg in args {
+        let mut bindings = vec![None; args.len()];
+        for (index, arg) in args.iter().enumerate() {
             if let Some(flag) = command_bool_flag_name_arena(arena, source, arg) {
                 let arg_span = arena.arena.span(arg.span);
-                let Some(param) = sig.params.iter().find(|param| param.name == flag) else {
+                let Some(slot) = sig.params.iter().position(|param| param.name == flag) else {
                     self.error(
                         arg_span,
                         "unknown module command flag",
@@ -633,6 +635,7 @@ impl Checker {
                     );
                     continue;
                 };
+                let param = &sig.params[slot];
                 if !(param.defaulted && param.ty == Type::Bool) {
                     self.error(
                         arg_span,
@@ -648,6 +651,7 @@ impl Checker {
                         DiagnosticCode::CheckModuleCommandFlag,
                     );
                 }
+                bindings[index] = Some((slot, CheckedCommandArgument::BooleanFlag));
                 continue;
             }
             if matches!(
@@ -663,7 +667,7 @@ impl Checker {
                 );
                 continue;
             }
-            positionals.push(arg);
+            positionals.push((index, arg));
         }
 
         let required = sig.params.iter().filter(|param| !param.defaulted).count();
@@ -678,15 +682,34 @@ impl Checker {
         let positional_params = sig
             .params
             .iter()
-            .filter(|param| !flags.contains(param.name))
+            .enumerate()
+            .filter(|(_, param)| !flags.contains(param.name))
             .collect::<Vec<_>>();
-        for (arg, param) in positionals.iter().zip(positional_params) {
+        for ((index, arg), (slot, param)) in positionals.iter().zip(positional_params) {
             let actual = self.check_command_arg_arena(arena, source, arg, Some(&param.ty));
+            bindings[*index] = Some((slot, match arg.kind {
+                crate::syntax::arena::ArenaCommandArgKind::Word(_) => {
+                    CheckedCommandArgument::Word(param.ty.clone())
+                }
+                _ => CheckedCommandArgument::Value,
+            }));
             if param.ty == Type::Path && command_arg_can_be_path_like_arena(arg, &actual) {
                 continue;
             }
             let arg_span = arena.arena.span(arg.span);
             self.expect_command_value_conversion(&param.ty, &actual, arg_span);
+        }
+        if let Some(bindings) = bindings.into_iter().collect::<Option<Vec<_>>>() {
+            let (argument_slots, arguments) = bindings.into_iter().unzip();
+            self.module_commands.insert(span, CheckedModuleCommand {
+                call: CheckedApiCall {
+                    receiver: None,
+                    sig,
+                    params: sig.params.iter().map(|param| param.ty.clone()).collect(),
+                    argument_slots,
+                },
+                arguments,
+            });
         }
     }
 }

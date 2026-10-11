@@ -12,7 +12,8 @@ pub mod check {
     };
     pub use crate::sema::check::{
         AnnotationFact, AnnotationFactKind, BindingDeclaration, BindingId, BindingKind,
-        CheckOptions, CheckOutput, CheckedProjection, ResolvedBindings,
+        CheckOptions, CheckOutput, CheckedCommandArgument, CheckedModuleCommand,
+        CheckedProjection, ResolvedBindings,
         CheckedStreamStage, Checker, CompactBodyFacts, CompactDeclOutput, CompactFunctionSig,
         CompactTypeDefInfo, Conversion, EffectDeclarationId, ErrorFamilyInfo, ErrorVariantInfo,
         FunctionEffectFact, MessagePayloadConstructor, ProjectionOperation, RecordRequireMigration,

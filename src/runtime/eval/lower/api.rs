@@ -734,7 +734,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         &self,
         call: &LoweredModuleCallArgs,
         args: &[ArenaCallArg],
-    ) -> Option<Arc<crate::modules::cli::CliDescriptorPlan>> {
+    ) -> Option<Arc<crate::runtime::eval::call_plan::ModuleCallPlan>> {
         if call.semantic_rule == crate::modules::signature::SemanticRule::CliCommands {
             let index = if call.args.len() == 2 { 1 } else { 2 };
             let commands = crate::sema::arguments::ArgumentValueSource::Expression(
@@ -750,7 +750,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 .declarations
                 .prepared_constants
                 .cli_commands_plan(&self.program.arena, commands, fallback)?
-                .ok();
+                .ok()
+                .map(|plan| Arc::new(super::super::ModuleCallPlan::SignatureCli(plan)));
         }
         if call.semantic_rule != crate::modules::signature::SemanticRule::CliDescriptor {
             return None;
@@ -760,5 +761,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .prepared_constants
             .cli_descriptor_plan(&self.program.arena, schema, call.op == RuntimeOp::CliApplet)?
             .ok()
+            .map(|plan| Arc::new(super::super::ModuleCallPlan::SignatureCli(plan)))
     }
 }

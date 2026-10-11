@@ -493,7 +493,6 @@ impl Checker {
         let command_overloads = overloads
             .iter()
             .filter(|&x| module_sig_is_command_callable(x))
-            .cloned()
             .collect::<Vec<_>>();
         if command_overloads.is_empty() {
             self.error(
@@ -512,7 +511,7 @@ impl Checker {
         }
         let command_args = arena.arena.command_args(args);
         let sig = choose_module_command_sig_arena(arena, source, command_args, &command_overloads)
-            .unwrap_or(&command_overloads[0]);
+            .unwrap_or(command_overloads[0]);
         self.check_module_command_args_arena(arena, source, command_args, sig, span);
         sig.return_ty.clone()
     }
@@ -1211,14 +1210,15 @@ pub(super) fn run_statement_asserts_success_by_default_arena(
 }
 
 #[allow(dead_code)]
-pub(super) fn choose_module_command_sig_arena<'a>(
+pub(super) fn choose_module_command_sig_arena(
     arena: &ArenaProgram,
     source: &str,
     args: &[ArenaCommandArg],
-    overloads: &'a [ModuleFnSig],
-) -> Option<&'a ModuleFnSig> {
+    overloads: &[&'static ModuleFnSig],
+) -> Option<&'static ModuleFnSig> {
     overloads
         .iter()
+        .copied()
         .find(|sig| module_command_shape_matches_arena(arena, source, args, sig))
 }
 

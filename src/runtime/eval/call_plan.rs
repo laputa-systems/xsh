@@ -77,7 +77,12 @@ impl ModuleCallPlan {
             }
             interpreted[slot] = true;
         }
+        let mut previous_word: Option<Span> = None;
         for conversion in &plan.word_conversions {
+            if previous_word.is_some_and(|previous| previous.source_id != conversion.span.source_id || previous.end() > conversion.span.start()) {
+                return Err("module command conversions do not follow source operand order".into());
+            }
+            previous_word = Some(conversion.span);
             let Some(param) = signature.params.get(conversion.slot) else { return Err("module command conversion slot is out of bounds".into()); };
             if !supplied[conversion.slot] || interpreted[conversion.slot]
                 || command_word_scalar(&param.ty).as_ref() != Some(&conversion.scalar)
@@ -114,8 +119,9 @@ impl ModuleCallPlan {
             let raw = super::lowered_ops::lowered_str_value(value).ok_or_else(|| {
                 RuntimeError::new("type-error", format!("command argument `{}` expects {:?}", plan.signature.params[conversion.slot].name, conversion.scalar)).with_span(conversion.span)
             })?;
-            let parsed = parse_scalar_word(raw, &conversion.scalar).map_err(|error| {
-                RuntimeError::new("type-error", format!("command argument `{}` expects {:?}, got `{raw}`: {}", plan.signature.params[conversion.slot].name, conversion.scalar, error.message)).with_span(conversion.span)
+            let parsed = parse_scalar_word(raw, &conversion.scalar).map_err(|mut error| {
+                error.message = format!("command argument `{}` {}", plan.signature.params[conversion.slot].name, error.message);
+                error.with_span(conversion.span)
             })?;
             *value = match parsed {
                 Value::Str(value) => LoweredValue::Str(value),

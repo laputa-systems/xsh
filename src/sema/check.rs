@@ -125,6 +125,21 @@ pub struct CheckedApiCall {
     pub argument_slots: Vec<usize>,
 }
 
+/// A command retains its selected API and source argument treatment; only
+/// literal boolean flags change into a value without evaluating an operand.
+#[derive(Clone, Debug)]
+pub struct CheckedModuleCommand {
+    pub call: CheckedApiCall,
+    pub arguments: Vec<CheckedCommandArgument>,
+}
+
+#[derive(Clone, Debug)]
+pub enum CheckedCommandArgument {
+    BooleanFlag,
+    Value,
+    Word(Type),
+}
+
 /// A user callable call's or structured stage's source argument entries bound
 /// to parameter slots. A stage's `callable_entry` is its named callable
 /// descriptor; its slots describe the remaining configuration entries.
@@ -192,6 +207,7 @@ pub struct CheckOutput {
     pub standard_call_spans: BTreeMap<Span, (String, String)>,
     pub statically_resolved_call_spans: BTreeSet<Span>,
     pub api_calls: BTreeMap<Span, CheckedApiCall>,
+    pub module_commands: BTreeMap<Span, CheckedModuleCommand>,
     /// Keyed by call expression or stage span.
     pub argument_bindings: BTreeMap<Span, CheckedArguments>,
     /// Ordinary blocks whose checked paths cannot reach their enclosing continuation.
@@ -823,6 +839,7 @@ pub struct Checker {
     standard_call_spans: BTreeMap<Span, (String, String)>,
     statically_resolved_call_spans: BTreeSet<Span>,
     api_calls: BTreeMap<Span, CheckedApiCall>,
+    module_commands: BTreeMap<Span, CheckedModuleCommand>,
     argument_bindings: BTreeMap<Span, CheckedArguments>,
     definitely_exiting_block_spans: BTreeSet<Span>,
     handler_input_types: BTreeMap<Span, Type>,
@@ -1011,6 +1028,7 @@ impl Checker {
                 standard_call_spans: checker.standard_call_spans,
                 statically_resolved_call_spans: checker.statically_resolved_call_spans,
                 api_calls: checker.api_calls,
+                module_commands: checker.module_commands,
                 argument_bindings: checker.argument_bindings,
                 definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
                 handler_input_types: checker.handler_input_types,
@@ -1204,6 +1222,7 @@ impl Checker {
                 standard_call_spans: checker.standard_call_spans,
                 statically_resolved_call_spans: checker.statically_resolved_call_spans,
                 api_calls: checker.api_calls,
+                module_commands: checker.module_commands,
                 argument_bindings: checker.argument_bindings,
                 definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
                 handler_input_types: checker.handler_input_types,
@@ -1285,6 +1304,7 @@ impl Checker {
             standard_call_spans: BTreeMap::new(),
             statically_resolved_call_spans: BTreeSet::new(),
             api_calls: BTreeMap::new(),
+            module_commands: BTreeMap::new(),
             argument_bindings: BTreeMap::new(),
             definitely_exiting_block_spans: BTreeSet::new(),
             handler_input_types: BTreeMap::new(),

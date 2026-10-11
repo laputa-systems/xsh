@@ -5156,7 +5156,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     span,
                 };
                 let path_from_bytes = |bytes| BuildExprRow::ModuleCall {
-                    cli_plan: None,
+                    call_plan: None,
                     op: RuntimeOp::PathParseBytes,
                     args: vec![Some(bytes)],
                     span,
@@ -5171,7 +5171,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         self,
                         expr,
                         BuildExprRow::ModuleCall {
-                            cli_plan: None,
+                            call_plan: None,
                             op: RuntimeOp::BytesFromText,
                             args: vec![Some(value)],
                             span,
@@ -6025,7 +6025,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     self,
                     expr,
                     BuildExprRow::ModuleCall {
-                        cli_plan: None,
+                        call_plan: None,
                         op: RuntimeOp::EnvGet,
                         args: vec![Some(name)],
                         span,
@@ -6036,7 +6036,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 self,
                 expr,
                 BuildExprRow::ModuleCall {
-                    cli_plan: None,
+                    call_plan: None,
                     op: RuntimeOp::EnvPathList,
                     args: Vec::new(),
                     span,

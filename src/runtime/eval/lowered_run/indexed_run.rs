@@ -51,7 +51,7 @@ use crate::runtime::eval::lower::{
 };
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
 use crate::runtime::eval::{
-    LoweredModuleExport, LoweredTopLevelSlot, LoweredTypeCheck, Propagation, ScanBytes, ScanCheck,
+    LoweredModuleExport, LoweredTopLevelSlot, LoweredTypeCheck, ModuleCallPlan, Propagation, ScanBytes, ScanCheck,
     process_handle,
 };
 use smallvec::SmallVec;
@@ -214,7 +214,7 @@ enum ProcessCommandEntry {
 
 type IndexedModuleCall = (
     RuntimeOp,
-    Option<Arc<crate::modules::cli::CliDescriptorPlan>>,
+    Option<Arc<crate::runtime::eval::call_plan::ModuleCallPlan>>,
     Vec<Option<u32>>,
     Span,
 );
@@ -606,12 +606,16 @@ impl Evaluator {
     fn eval_indexed_module_call_values(
         &mut self,
         op: RuntimeOp,
-        values: super::NativeArgumentValues,
+        mut values: super::NativeArgumentValues,
         span: Span,
-        cli_plan: Option<&crate::modules::cli::CliDescriptorPlan>,
+        call_plan: Option<&crate::runtime::eval::call_plan::ModuleCallPlan>,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        if let Some(plan) = call_plan {
+            plan.convert_command_words(&mut values.0)?;
+        }
+        let cli_descriptor = call_plan.and_then(ModuleCallPlan::cli_descriptor);
         if !self.trace_enabled {
-            return self.eval_lowered_module_call_values(op, values, span, cli_plan);
+            return self.eval_lowered_module_call_values(op, values, span, cli_descriptor);
         }
         let trace_name = crate::modules::signature::api_spec()
             .op_trace_name(op)
@@ -629,7 +633,7 @@ impl Evaluator {
             trace_name.as_deref(),
             TracePayload::None,
         );
-        let result = self.eval_lowered_module_call_values(op, values, span, cli_plan);
+        let result = self.eval_lowered_module_call_values(op, values, span, cli_descriptor);
         self.trace_exit(
             if rooted {
                 TraceKind::MethodResult
@@ -1949,7 +1953,7 @@ impl Evaluator {
                 )))
             }
             FullTag::ExprModuleCall => {
-                let (op, cli_plan, args, span) =
+                let (op, call_plan, args, span) =
                     decode_module_call(execution, &mut payload, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let mut values = Vec::with_capacity(args.len());
@@ -1964,7 +1968,7 @@ impl Evaluator {
                     }
                 }
                 let values = super::NativeArgumentValues::new(values);
-                return self.eval_indexed_module_call_values(op, values, span, cli_plan.as_deref());
+                return self.eval_indexed_module_call_values(op, values, span, call_plan.as_deref());
             }
             FullTag::ExprProcessCommandArgv => {
                 let target = indexed_raw(&mut payload, call_span)?;

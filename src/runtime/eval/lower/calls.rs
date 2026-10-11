@@ -113,7 +113,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             self,
             expr,
             BuildExprRow::ModuleCall {
-                cli_plan: None,
+                call_plan: None,
                 op: plan.sig.op,
                 args,
                 span
@@ -469,7 +469,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             let mut arguments = vec![Some(push_build_row!(self, expr, BuildExprRow::Param(receiver_slot)))];
             arguments.extend(order.into_iter().map(|argument| argument.map(|index| evaluated[index])));
-            let call = push_build_row!(self, expr, BuildExprRow::ModuleCall { cli_plan: None, op: plan.sig.op, args: arguments, span });
+            let call = push_build_row!(self, expr, BuildExprRow::ModuleCall { call_plan: None, op: plan.sig.op, args: arguments, span });
             return Some(self.wrap_argument_bindings(call, bindings, span));
         }
         if let Some(definition) = self.declarations.record_constructors.resolve_call(
@@ -696,7 +696,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             self,
                             expr,
                             BuildExprRow::ModuleCall {
-                                cli_plan: None,
+                                call_plan: None,
                                 op: RuntimeOp::ErrorFailure,
                                 args: vec![Some(message)],
                                 span,
@@ -717,7 +717,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             self,
                             expr,
                             BuildExprRow::ModuleCall {
-                                cli_plan: None,
+                                call_plan: None,
                                 op: RuntimeOp::PathParseBytes,
                                 args: vec![Some(bytes)],
                                 span,
@@ -1073,7 +1073,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             self,
                             expr,
                             BuildExprRow::ModuleCall {
-                                cli_plan: self.prepared_cli_plan(&module_call, &args_vec),
+                                call_plan: self.prepared_cli_plan(&module_call, &args_vec),
                                 op: module_call.op,
                                 args: self.lower_module_argument_values(
                                     &module_call.args,
@@ -1190,7 +1190,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         self,
                         expr,
                         BuildExprRow::ModuleCall {
-                            cli_plan: None,
+                            call_plan: None,
                             op: RuntimeOp::FsChmod,
                             args,
                             span,
@@ -1209,7 +1209,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         self,
                         expr,
                         BuildExprRow::ModuleCall {
-                            cli_plan: None,
+                            call_plan: None,
                             op: RuntimeOp::FsWrite,
                             args,
                             span,
@@ -1300,7 +1300,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         self,
                         expr,
                         BuildExprRow::ModuleCall {
-                            cli_plan: self.prepared_cli_plan(&module_call, &args_vec),
+                            call_plan: self.prepared_cli_plan(&module_call, &args_vec),
                             op: module_call.op,
                             args: self.lower_module_argument_values(
                                 &module_call.args,
@@ -1321,7 +1321,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             self,
                             expr,
                             BuildExprRow::ModuleCall {
-                                cli_plan: None,
+                                call_plan: None,
                                 op: RuntimeOp::PathParseBytes,
                                 args:
                                     self.lower_expr_ids(
@@ -1464,7 +1464,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             self,
                             expr,
                             BuildExprRow::ModuleCall {
-                                cli_plan: self.prepared_cli_plan(&module_call, &args_vec),
+                                call_plan: self.prepared_cli_plan(&module_call, &args_vec),
                                 op: module_call.op,
                                 args: self.lower_module_argument_values(
                                     &module_call.args,
@@ -1552,7 +1552,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             self,
                             expr,
                             BuildExprRow::ModuleCall {
-                                cli_plan: None,
+                                call_plan: None,
                                 op: call_args.op,
                                 args: lowered,
                                 span,
@@ -1583,7 +1583,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             self,
                             expr,
                             BuildExprRow::ModuleCall {
-                                cli_plan: None,
+                                call_plan: None,
                                 op,
                                 args,
                                 span,
@@ -1888,7 +1888,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         self,
                         expr,
                         BuildExprRow::ModuleCall {
-                            cli_plan: None,
+                            call_plan: None,
                             op: RuntimeOp::FsChmod,
                             args,
                             span,
@@ -1912,7 +1912,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         self,
                         expr,
                         BuildExprRow::ModuleCall {
-                            cli_plan: None,
+                            call_plan: None,
                             op: RuntimeOp::FsWrite,
                             args,
                             span,
@@ -2020,7 +2020,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         self,
                         expr,
                         BuildExprRow::ModuleCall {
-                            cli_plan: None,
+                            call_plan: None,
                             op,
                             args,
                             span,
@@ -2063,7 +2063,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             self,
                             expr,
                             BuildExprRow::ModuleCall {
-                                cli_plan: None,
+                                call_plan: None,
                                 op: call_args.op,
                                 args: lowered,
                                 span,
@@ -2265,7 +2265,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         self,
                         expr,
                         BuildExprRow::ModuleCall {
-                            cli_plan: None,
+                            call_plan: None,
                             op: RuntimeOp::EnvGet,
                             args: vec![Some(self.lower_expr(
                                 *value,
@@ -2328,7 +2328,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         self,
                         expr,
                         BuildExprRow::ModuleCall {
-                            cli_plan: None,
+                            call_plan: None,
                             op: bridge,
                             args: args.into_iter().map(Some).collect(),
                             span,

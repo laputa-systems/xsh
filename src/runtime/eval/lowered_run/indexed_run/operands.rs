@@ -143,14 +143,14 @@ pub(super) fn decode_match_expr<'a>(
     Ok((value, decoded, value_span))
 }
 
-/// A module call's operation, CLI plan, optional argument operands, and span.
+/// A module call's operation, prepared plan, optional argument operands, and span.
 pub(super) fn decode_module_call<'a>(
     execution: &FullExecution<'a>,
     payload: &mut FullPayload<'a>,
     span: Span,
 ) -> Result<IndexedModuleCall, RuntimeError> {
     let op = indexed_decode::<RuntimeOp>(payload, execution, span)?;
-    let cli_plan = indexed_decode::<Option<Arc<crate::modules::cli::CliDescriptorPlan>>>(
+    let call_plan = indexed_decode::<Option<Arc<crate::runtime::eval::call_plan::ModuleCallPlan>>>(
         payload, execution, span,
     )?;
     let (_, mut encoded) = execution
@@ -164,7 +164,7 @@ pub(super) fn decode_module_call<'a>(
     indexed_finish(encoded, span)?;
     Ok((
         op,
-        cli_plan,
+        call_plan,
         args,
         indexed_decode::<Span>(payload, execution, span)?,
     ))

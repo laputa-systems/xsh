@@ -229,7 +229,7 @@ enum FrameContinuation {
     },
     ModuleArguments {
         op: super::RuntimeOp,
-        cli_plan: Option<Arc<crate::modules::cli::CliDescriptorPlan>>,
+        call_plan: Option<Arc<crate::runtime::eval::call_plan::ModuleCallPlan>>,
         args: Vec<Option<u32>>,
         position: usize,
         values: Vec<Option<LoweredValue>>,
@@ -3329,13 +3329,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
             }
             FullTag::ExprModuleCall => {
-                let (op, cli_plan, args, value_span) =
+                let (op, call_plan, args, value_span) =
                     decode_module_call(&self.calls[index].execution, &mut payload, span)?;
                 indexed_finish(payload, span)?;
                 self.step_module_arguments(
                     index,
                     op,
-                    cli_plan,
+                    call_plan,
                     args,
                     0,
                     Vec::new(),
@@ -3454,7 +3454,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             },
             FrameContinuation::ModuleArguments {
                 op,
-                cli_plan,
+                call_plan,
                 args,
                 position,
                 mut values,
@@ -3466,7 +3466,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     self.step_module_arguments(
                         index,
                         op,
-                        cli_plan,
+                        call_plan,
                         args,
                         position + 1,
                         values,
@@ -5248,7 +5248,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         &mut self,
         index: usize,
         op: super::RuntimeOp,
-        cli_plan: Option<Arc<crate::modules::cli::CliDescriptorPlan>>,
+        call_plan: Option<Arc<crate::runtime::eval::call_plan::ModuleCallPlan>>,
         args: Vec<Option<u32>>,
         mut position: usize,
         mut values: Vec<Option<LoweredValue>>,
@@ -5263,7 +5263,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     span,
                     FrameContinuation::ModuleArguments {
                         op,
-                        cli_plan,
+                        call_plan,
                         args,
                         position,
                         values,
@@ -5280,7 +5280,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             op,
             super::super::NativeArgumentValues::new(values),
             span,
-            cli_plan.as_deref(),
+            call_plan.as_deref(),
         )?;
         self.push_value(
             index,

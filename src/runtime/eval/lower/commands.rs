@@ -5,7 +5,7 @@ use super::{
     CoreCommand, ExprId, LoweredFmtPart, LoweredProcessCommandBuilderEntry, LoweredRunArg,
     LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment,
     LoweredRunRedirection, LoweredSpawnRun, LoweredType, Name, Rc, RefCell, RunKind, RuntimeOp,
-    SlotScope, Span, StmtId, api_spec, build_expr, lower_literal_constant,
+    SlotScope, Span, StmtId, build_expr, lower_literal_constant,
     parse_command_word_reference, print_flush_arg,
 };
 
@@ -86,7 +86,7 @@ fn lower_env_command_word_reference(
                 Some(build_expr(
                     scratch,
                     BuildExprRow::ModuleCall {
-                        cli_plan: None,
+                        call_plan: None,
                         op: RuntimeOp::EnvPathList,
                         args: vec![Some(name)],
                         span,
@@ -97,7 +97,7 @@ fn lower_env_command_word_reference(
                 Some(build_expr(
                     scratch,
                     BuildExprRow::ModuleCall {
-                        cli_plan: None,
+                        call_plan: None,
                         op: RuntimeOp::EnvGet,
                         args: vec![Some(name)],
                         span,
@@ -118,7 +118,7 @@ fn lower_env_command_word_reference(
             Some(build_expr(
                 scratch,
                 BuildExprRow::ModuleCall {
-                    cli_plan: None,
+                    call_plan: None,
                     op,
                     args: vec![Some(name)],
                     span,
@@ -359,27 +359,55 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         item_slot: Option<usize>,
     ) -> Option<BuildStmtId> {
         let stmt = self.program.arena.command_stmt(id);
-        let ArenaCommand::Proc { name, args } = stmt.command else {
+        let ArenaCommand::Proc { args, .. } = stmt.command else {
             return None;
         };
-        let name_text = name.as_str();
-        let (module, api) = super::super::standard_module_command_name(name_text.as_str())?;
-        let op = api_spec().module_op(module, api)?;
+        let span = self.program.arena.span(stmt.span);
+        let checked = self.bodies.module_commands.get(&span)?.clone();
         let args = self.program.arena.command_args(args).to_vec();
-        let mut lowered = Vec::with_capacity(args.len());
-        for arg in &args {
-            lowered.push(self.lower_command_arg(arg, slots, current_function, item_slot)?);
+        if args.len() != checked.call.argument_slots.len() || args.len() != checked.arguments.len() {
+            return None;
         }
-        Some(push_build_row!(
-            self,
-            stmt,
-            BuildStmtRow::Proc {
-                op,
-                args: lowered,
-                propagate_result: stmt.propagate,
-                span: self.program.arena.span(stmt.span),
-            }
-        ))
+        let mut values = vec![None; checked.call.sig.params.len()];
+        let mut bindings = Vec::new();
+        let mut conversions = Vec::new();
+        let mut flags = Vec::new();
+        for ((arg, &slot), kind) in args.iter().zip(&checked.call.argument_slots).zip(&checked.arguments) {
+            let arg_span = self.program.arena.span(arg.span);
+            let value = if matches!(kind, crate::sema::check::CheckedCommandArgument::BooleanFlag) {
+                flags.push(slot);
+                push_build_row!(self, expr, BuildExprRow::Bool(true))
+            } else {
+                let value = self.lower_command_arg(arg, slots, current_function, item_slot)?;
+                let binding = slots.reserve("module command argument");
+                bindings.push((value, binding));
+                let value = push_build_row!(self, expr, BuildExprRow::Param(binding));
+                match kind {
+                    crate::sema::check::CheckedCommandArgument::Word(ty) => {
+                        if let Some(scalar) = super::super::call_plan::command_word_scalar(ty) {
+                            conversions.push(super::super::call_plan::CommandWordConversion { slot, scalar, span: arg_span });
+                        }
+                        value
+                    }
+                    _ => self.checked_unsigned_value(value, &checked.call.sig.params.get(slot)?.ty, arg_span),
+                }
+            };
+            if values.get_mut(slot)?.replace(value).is_some() { return None; }
+        }
+        let plan = super::super::call_plan::CommandArgumentsPlan {
+            signature: checked.call.sig,
+            supplied_slots: values.iter().map(Option::is_some).collect(),
+            word_conversions: conversions,
+            flag_slots: flags,
+        };
+        let call = push_build_row!(self, expr, BuildExprRow::ModuleCall {
+            op: checked.call.sig.op,
+            call_plan: Some(Arc::new(super::super::ModuleCallPlan::CommandArguments(plan))),
+            args: values,
+            span,
+        });
+        let call = self.wrap_argument_bindings(call, bindings, span);
+        Some(push_build_row!(self, stmt, BuildStmtRow::Expr { value: call, span }))
     }
 
     fn lower_command_arg(
@@ -966,7 +994,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         self,
                         expr,
                         BuildExprRow::ModuleCall {
-                            cli_plan: None,
+                            call_plan: None,
                             op: RuntimeOp::EnvPathList,
                             args: Vec::new(),
                             span,
@@ -978,7 +1006,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     self,
                     expr,
                     BuildExprRow::ModuleCall {
-                        cli_plan: None,
+                        call_plan: None,
                         op: RuntimeOp::EnvGet,
                         args: vec![Some(name)],
                         span,
@@ -1003,7 +1031,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             self,
                             expr,
                             BuildExprRow::ModuleCall {
-                                cli_plan: None,
+                                call_plan: None,
                                 op,
                                 args: vec![Some(arg)],
                                 span,
@@ -1185,7 +1213,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             self,
             expr,
             BuildExprRow::ModuleCall {
-                cli_plan: None,
+                call_plan: None,
                 op: RuntimeOp::EnvSet,
                 args: vec![Some(name), Some(value)],
                 span,

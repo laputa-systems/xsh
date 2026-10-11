@@ -94,6 +94,7 @@ pub struct CompactBodyFacts {
     /// Registered method and module function calls keyed by call expression;
     /// a stage callable's plan is keyed by its callee.
     pub api_calls: FxHashMap<ExprId, super::CheckedApiCall>,
+    pub module_commands: BTreeMap<Span, super::CheckedModuleCommand>,
     /// User callable calls and structured stages keyed by their source span.
     pub argument_bindings: BTreeMap<Span, super::CheckedArguments>,
     pub statement_positions: FxHashMap<StmtId, super::StatementPosition>,
@@ -141,6 +142,7 @@ impl CompactBodyFacts {
         let mut facts = Self {
             resolved_bindings: checked.resolved_bindings.clone(),
             argument_bindings: checked.argument_bindings.clone(),
+            module_commands: checked.module_commands.clone(),
             ..Self::default()
         };
         let mut record_constructor_types = FxHashMap::default();
