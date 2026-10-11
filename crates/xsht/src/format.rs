@@ -4413,7 +4413,7 @@ impl<'a> Writer<'a> {
             let mut output = String::new();
             self.write_call_arg_multiline(arg, &mut output);
             let output = if output.trim_start().contains("\"\"\"") {
-                output
+                self.multiline_inline_with_prefix(&output, &continuation)
             } else {
                 output.replace('\n', &format!("\n{continuation}"))
             };
@@ -4542,6 +4542,10 @@ impl<'a> Writer<'a> {
 
     fn write_multiline_inline(&self, inline: &str, output: &mut String) {
         let prefix = current_line_indent(output).to_string();
+        output.push_str(&self.multiline_inline_with_prefix(inline, &prefix));
+    }
+
+    fn multiline_inline_with_prefix(&self, inline: &str, prefix: &str) -> String {
         let tokens = Lexer::new(SourceId::new(0), inline).lex_compact();
         let literal_spans: Vec<_> = (0..tokens.token_table.len())
             .filter(|&index| {
@@ -4559,6 +4563,7 @@ impl<'a> Writer<'a> {
             })
             .filter_map(|index| tokens.token_table.span_at(index, SourceId::new(0), inline))
             .collect();
+        let mut output = String::with_capacity(inline.len());
         let mut offset = 0;
         for (index, line) in inline.split('\n').enumerate() {
             if index > 0 {
@@ -4569,12 +4574,13 @@ impl<'a> Writer<'a> {
                     .iter()
                     .any(|span| span.start() < offset && offset < span.end())
                 {
-                    output.push_str(&prefix);
+                    output.push_str(prefix);
                 }
             }
             output.push_str(line);
             offset += line.len() + 1;
         }
+        output
     }
 
     fn write_call_arg(
