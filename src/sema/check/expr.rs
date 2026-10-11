@@ -326,7 +326,12 @@ impl Checker {
     ) -> Type {
         match value {
             ArenaExprOrRun::Expr(id) => self.check_expr_arena(arena, source, id, expected),
-            ArenaExprOrRun::Run(run_id) => self.check_run_expr_arena(arena, source, run_id),
+            ArenaExprOrRun::Run(run_id) => {
+                let ty = self.check_run_expr_arena(arena, source, run_id);
+                let span = arena.arena.span(arena.arena.run_form(run_id).span);
+                self.expr_types.insert(span, ty.clone());
+                ty
+            }
         }
     }
 

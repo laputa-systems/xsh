@@ -607,4 +607,64 @@ mod tests {
         assert_eq!(compact.bodies.resource_transfer(local), Some(false));
         assert_eq!(compact.bodies.resource_transfer(outer), Some(true));
     }
+
+    #[test]
+    fn run_assignment_to_an_outer_binding_publishes_and_compacts_its_transfer_fact() {
+        let source = "proc inspect(repo: Path) [env, process, error] -> Result[Str] { var revision = \"\"; cd $repo { revision = run.text /bin/pwd ? }; revision = revision.trim(); revision }\nproc transfer_stream() [process, error] -> Result[Unit] { var output: Any = null; { output = run.stream --text /bin/pwd ? }; return Ok() }\n";
+        let program = Parser::parse_source_arena_only(SourceId::new(0), source).arena;
+        let checked = Checker::check_arena_with_options(
+            &program,
+            source,
+            super::super::CheckOptions {
+                embedded_bodies: true,
+                ..super::super::CheckOptions::default()
+            },
+        );
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+        let assignment = assignment_stmt(&program, "revision");
+        let site = ResourceTransferSite::Assignment(assignment);
+        let declaration = (0..program.arena.stmt_tags.len())
+            .map(StmtId::from_index)
+            .find(|&stmt| match program.arena.stmt(stmt).kind {
+                ArenaStmtKind::Var { target, .. } => matches!(
+                    program.arena.binding_target(target).kind,
+                    ArenaBindingTargetKind::Name(found) if found.as_str() == "revision"
+                ),
+                _ => false,
+            })
+            .expect("revision declaration exists");
+        let name = match program.arena.stmt(declaration).kind {
+            ArenaStmtKind::Var { target, .. } => match program.arena.binding_target(target).kind {
+                ArenaBindingTargetKind::Name(name) => name,
+                _ => unreachable!("revision declaration uses a name target"),
+            },
+            _ => unreachable!("revision declaration is a var"),
+        };
+        let assigned_binding = checked
+            .resolved_bindings
+            .at(program.arena.stmt(assignment).span, name);
+        let declared_binding = checked
+            .resolved_bindings
+            .declaration_sites
+            .get(&(program.arena.stmt(declaration).span, name))
+            .copied();
+        assert_eq!(assigned_binding, declared_binding);
+        assert_eq!(checked.resource_transfer(site), Some(false));
+        let run = match program.arena.stmt(assignment).kind {
+            ArenaStmtKind::Assign {
+                value: ArenaExprOrRun::Run(run),
+                ..
+            } => run,
+            _ => unreachable!("revision assignment uses a run form"),
+        };
+        let run_span = program.arena.span(program.arena.run_form(run).span);
+        assert_eq!(checked.expr_types.get(&run_span), Some(&Type::Str));
+        let stream = ResourceTransferSite::Assignment(assignment_stmt(&program, "output"));
+        assert_eq!(checked.resource_transfer(stream), Some(true));
+
+        let compact = Checker::compact_declarations(&program, checked);
+        assert_eq!(compact.bodies.resource_transfer(site), Some(false));
+        assert_eq!(compact.bodies.resource_transfer(stream), Some(true));
+    }
 }

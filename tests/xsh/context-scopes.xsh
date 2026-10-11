@@ -57,6 +57,25 @@ print "done"
 """
 }
 
+test test_scope_run_capture_assignment_to_outer_binding { |ctx|
+  let repo = test.temp_dir(ctx)?
+  let output = test.run_script(
+    ctx,
+    r"""proc inspect(repo: Path) [env, process, error] -> Result[Str] {
+  var revision = ""
+  cd $repo { revision = run.text /bin/pwd ? }
+  revision = revision.trim()
+  revision
+}
+let repo = Path(args[0])
+print ${inspect(repo)?}
+""",
+    [repo],
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == repo.display() + "\n", output.stdout
+}
+
 test test_env_value_scope_accepts_typed_overlays_and_restores {
   let original = env.get_or("XSH_VALUE_SCOPE", "absent")?
   let selected = env ({XSH_VALUE_SCOPE: "inner", XSH_SCOPE_NUMBER: 7}) {
