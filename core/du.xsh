@@ -8,13 +8,13 @@ type DuOptions = {
   depth: Str?, count_links: Bool, follow_all: Bool, follow_args: Bool, no_follow: Bool,
   separate: Bool, one_file_system: Bool, inodes: Bool, zero: Bool, threshold: Str?,
   excludes: List[Str], exclude_files: List[Str], files0: Str?,
-  time: Str?, time_style: Str?, verbose: Bool, help: Bool, version: Bool, targets: List[Str],
+  time: Str?, time_style: Str?, help: Bool, version: Bool, targets: List[Str],
 }
 type Policy = {
   all: Bool, total: Bool, apparent: Bool, count_links: Bool, follow_all: Bool,
   follow_args: Bool, separate: Bool, one_file_system: Bool, inodes: Bool,
   depth: Int, threshold: Int?, negative: Bool, units: disk.Units,
-  excludes: List[Regex], ending: Str, time: Str, time_style: Str, verbose: Bool,
+  excludes: List[Regex], ending: Str, time: Str, time_style: Str,
 }
 type Usage = {size: Int, accounted: Int, counted: Bool, links: Map[Bool], latest: Int, failed: Bool, directory: Bool}
 type EntryMetadata = {meta: FsStat, external_target: Path?}
@@ -81,6 +81,13 @@ pure threshold_location(argv: List[Str]) -> ValueLocation? {
   found
 }
 
+# Zero is an invalid block size even when its suffix is also unsupported.
+proc block_size_error(value: Str, option: Str) [env] -> Str {
+  if rx"^0+[bB]?$".matches(value) { f"invalid {option} argument {gnu.quote_value(value)}" } else {
+    disk.size_error(value, "block-size").replace("--block-size", with: option)
+  }
+}
+
 # Check explicit sizes before the shared unit selector emits an error without argv location.
 proc validate_block_sizes(argv: List[Str]) [env, process, error] {
   var index = 0
@@ -90,6 +97,7 @@ proc validate_block_sizes(argv: List[Str]) [env, process, error] {
     if raw == "--" or (posix and (raw == "-" or ! raw.starts_with("-"))) { break }
     var location: ValueLocation? = null
     var value = ""
+    let option = if raw.starts_with("--") { "--block-size" } else { "-B" }
     if raw.starts_with("--") {
       let equal = raw.find("=")
       let equal_at = equal ?? 0
@@ -117,9 +125,9 @@ proc validate_block_sizes(argv: List[Str]) [env, process, error] {
     if let found = location {
       if value not in ["human-readable", "si"] {
         if let size = disk.parse_size(value) {
-          if size <= 0 { report_size_error("du", argv, found, value, disk.size_error(value, "block-size")); exit 1 }
+          if size <= 0 { report_size_error("du", argv, found, value, block_size_error(value, option)); exit 1 }
         } else {
-          report_size_error("du", argv, found, value, disk.size_error(value, "block-size"))
+          report_size_error("du", argv, found, value, block_size_error(value, option))
           exit 1
         }
       }
@@ -161,7 +169,7 @@ pure glob_regex(pattern: Str) -> Str {
       }
 
       if close >= total {
-        out = f"{out}["
+        out = f"{out}\\["
       } else {
         var body = ""
         var inner = at
@@ -275,7 +283,6 @@ pure children_failure(errno: Int?, state: Str) -> Str {
 proc disk_usage(root: FsRoot, entry: Path, name: Str, policy: Policy, depth: Int, device: Int, links: Map[Bool], ancestors: List[Str]) [fs, process, env, io, time, error] -> Usage {
   for pattern in policy.excludes {
     if pattern.matches(name) {
-      if policy.verbose { gnu.write_text(f"{gnu.quote(name)} ignored\n") }
       return {size: 0, accounted: 0, counted: false, links: links, latest: 0, failed: false, directory: false}
     }
   }
@@ -303,7 +310,7 @@ proc disk_usage(root: FsRoot, entry: Path, name: Str, policy: Policy, depth: Int
     match opened {
       Ok(child_root) => {
         defer child_root.close()
-        match child_root.children(p".") {
+        match child_root.children(p".", ordered: false) {
           Ok(listing) => {
             for child in listing.children {
               let base = child.basename()
@@ -360,10 +367,6 @@ proc disk_usage_operand(target: Path, policy: Policy, links: Map[Bool]) [fs, pro
 }
 
 proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
-  if argv.len() > 0 and argv[-1] == "--threshold" {
-    gnu.error("error: a value is required for '--threshold <SIZE>' but none was supplied\nFor more information, try '--help'.")
-    exit 1
-  }
   let opts: DuOptions = cli.applet(argv, {
     gnu: {status: 1},
     summarize: {form: "-s --summarize", default: false}, all: {form: "-a --all", default: false}, total: {form: "-c --total", default: false},
@@ -376,7 +379,6 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
     no_follow: {form: "-P --no-dereference", default: false, conflicts: ["follow_all", "follow_args"]},
     separate: {form: "-S --separate-dirs", default: false}, one_file_system: {form: "-x --one-file-system", default: false},
     inodes: {form: "--inodes", default: false}, zero: {form: "-0 --null", default: false}, threshold: {form: "-t --threshold SIZE"},
-    verbose: {form: "-v --verbose", default: false},
     excludes: {form: "--exclude PATTERN", repeated: true}, exclude_files: {form: "-X --exclude-from FILE", repeated: true},
     files0: {form: "--files0-from FILE"}, time: {form: "--time[=WORD]", optional_default: "mtime"}, time_style: {form: "--time-style STYLE"},
     help: {form: "--help", default: false, stop: true}, version: {form: "--version", default: false, stop: true},
@@ -401,8 +403,9 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
   var threshold: Int? = null
   var negative = false
   if let raw = opts.threshold {
-    negative = raw.starts_with("-")
-    let unsigned = if raw.starts_with("-") or raw.starts_with("+") { raw.byte_slice(1) } else { raw }
+    let cleaned = rx"^[ \t\r\n\v\f]+".replace(raw, with: "")
+    negative = cleaned.starts_with("-")
+    let unsigned = if cleaned.starts_with("-") or cleaned.starts_with("+") { cleaned.byte_slice(1) } else { cleaned }
     threshold = disk.parse_size(unsigned)
     if threshold == null or (negative and threshold == 0) {
       let message = disk.size_error(unsigned, "threshold").replace(gnu.quote_value(unsigned), with: gnu.quote_value(raw))
@@ -421,8 +424,11 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
   for filename in opts.exclude_files {
     match fp"{filename}".read_text() {
       Ok(text) => { excludes = excludes.extend(text.lines().collect()) }
-      Err(failure) => { gnu.error(gnu.strerror(failure))
-        failed = true }
+      Err(failure) => {
+        gnu.error(f"{gnu.quote_maybe(filename)}: {gnu.strerror(failure)}")
+        gnu.try_help()
+        exit 1
+      }
     }
   }
   var patterns: List[Regex] = []
@@ -449,6 +455,11 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
       if style == "locale" { style = "long-iso" }
       while style.starts_with("posix-") { style = style.byte_slice(6) }
       if style.starts_with("+") { style = style.split("\n")[0] }
+    }
+    if style == "" {
+      gnu.error("ambiguous argument '' for 'time style'\nValid arguments are:\n  - full-iso\n  - long-iso\n  - iso\n  - +FORMAT (e.g., +%H:%M) for a 'date'-style format")
+      gnu.try_help()
+      exit 1
     }
     if style.starts_with("+") { style = style.byte_slice(1) } else if style == "long-iso" { style = "%Y-%m-%d %H:%M" } else if style == "full-iso" { style = "%Y-%m-%d %H:%M:%S.%N %z" } else if style == "iso" { style = "%Y-%m-%d" } else { gnu.usage_error(f"invalid argument {gnu.quote_value(style)} for 'time style'") }
   }
@@ -493,7 +504,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
     }
     targets = valid
   } else if targets.is_empty() { targets = ["."] }
-  let policy: Policy = {all: opts.all, total: opts.total, apparent: opts.apparent or opts.bytes, count_links: opts.count_links, follow_all: opts.follow_all, follow_args: opts.follow_args, separate: opts.separate, one_file_system: opts.one_file_system, inodes: opts.inodes, depth: depth, threshold: threshold, negative: negative, units: units, excludes: patterns, ending: if opts.zero { "\0" } else { "\n" }, time: time_field, time_style: style, verbose: opts.verbose}
+  let policy: Policy = {all: opts.all, total: opts.total, apparent: opts.apparent or opts.bytes, count_links: opts.count_links, follow_all: opts.follow_all, follow_args: opts.follow_args, separate: opts.separate, one_file_system: opts.one_file_system, inodes: opts.inodes, depth: depth, threshold: threshold, negative: negative, units: units, excludes: patterns, ending: if opts.zero { "\0" } else { "\n" }, time: time_field, time_style: style}
   var links: Map[Bool] = {}
   var total = 0
   var latest = 0

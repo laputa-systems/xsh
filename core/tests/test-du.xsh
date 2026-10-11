@@ -91,18 +91,17 @@ test test_du_depth_inode_exclusion_and_dereference_invariants { |ctx|
   assert followed.stdout == f"12\t{link}\n"
 }
 
-test test_du_repeated_options_verbose_exclusion_and_locale_decimal { |ctx|
+test test_du_repeated_options_exclusion_and_locale_decimal { |ctx|
   let root = test.temp_dir(ctx, name: "du-repeat")?
   let tree = fp"{root}/tree"
   tree.mkdir()
   fp"{tree}/keep".write("keep")
   fp"{tree}/skip".write("excluded")
-  let output = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/du.xsh" -- -s -A -A --verbose --exclude=skip $tree
+  let output = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/du.xsh" -- -s -A -A --exclude=skip $tree
   assert output.status.exited_with(0), output.stderr
   let lines = output.stdout.lines().collect()
-  assert lines.len() == 2
-  assert f"'{tree}/skip' ignored" in lines[0]
-  assert lines[1] == f"1\t{tree}"
+  assert lines.len() == 1
+  assert lines[0] == f"1\t{tree}"
 
   let file = fp"{root}/large"
   file.write("")
@@ -170,21 +169,21 @@ test test_du_null_filename_lists_human_sizes_and_logical_cycles { |ctx|
   assert cycle.stderr == ""
 }
 
-test test_du_missing_exclude_file_continues_operands { |ctx|
+test test_du_missing_exclude_file_stops_before_operands { |ctx|
   let root = test.temp_dir(ctx, name: "du-exclude-error")?
   let file = fp"{root}/file"
   file.write("data")
   let missing = fp"{root}/missing"
   let output = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/du.xsh" -- -b -X $missing $file
   assert output.status.exited_with(1)
-  assert output.stdout == f"4\t{file}\n"
-  assert output.stderr == "du: No such file or directory\n"
+  assert output.stdout == ""
+  assert output.stderr == f"du: {missing}: No such file or directory\nTry 'du --help' for more information.\n"
 }
 
 test test_du_size_errors_point_into_terminal_arguments { |ctx|
   let unknown = run_du_on_terminal(ctx, ["-B", "1fb"])?
   assert unknown.status == 1
-  assert unknown.stderr == """du: invalid suffix in --block-size argument '1fb'
+  assert unknown.stderr == """du: invalid suffix in -B argument '1fb'
    ╭─[ du:1:8 ]
    │
  1 │ du -B 1fb
@@ -361,4 +360,39 @@ test test_du_reports_unreadable_directories { |ctx|
     root, {LC_ALL: "C"}, b"", unreadable_out, unreadable_err))?
   assert unreadable_status.exited_with(1)
   assert unreadable_err.read_text()? == "du: cannot read directory 'subdir/links': Permission denied\n"
+}
+
+test test_du_gnu_threshold_and_literal_glob { |ctx|
+  let root = test.temp_dir(ctx, name: "du-gnu")?
+  let file = fp"{root}/a[ze"
+  file.write("abc")
+  let literal = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/du.xsh" -- -b --exclude="a[ze" $file
+  assert literal.status.exited_with(0), literal.stderr
+  assert literal.stdout == ""
+  let whitespace = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/du.xsh" -- -b --threshold="  -1K" $file
+  assert whitespace.status.exited_with(0), whitespace.stderr
+  assert whitespace.stdout == f"3\t{file}\n"
+  let missing = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/du.xsh" -- --threshold
+  assert missing.status.exited_with(1)
+  assert missing.stderr == "du: option '--threshold' requires an argument\nTry 'du --help' for more information.\n"
+  let empty_style = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/du.xsh" -- --time --time-style= $file
+  assert empty_style.status.exited_with(1)
+  assert empty_style.stderr.starts_with("du: ambiguous argument '' for 'time style'\nValid arguments are:\n")
+  for value in ["0b", "0B"] {
+    let bad = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/du.xsh" -- -B$value
+    assert bad.status.exited_with(1)
+    assert bad.stderr == f"du: invalid -B argument '{value}'\n"
+  }
+  let verbose = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/du.xsh" -- --verbose $file
+  assert verbose.status.exited_with(1)
+  assert verbose.stdout == ""
+}
+
+test test_du_visits_children_in_filesystem_order { |ctx|
+  let root = test.temp_dir(ctx, name: "du-readdir")?
+  for name in ["z", "a", "m"] { fp"{root}/{name}".write(name) }
+  let expected = [f"1\t{root}/{child.name}\n" for child in fs.children(root, ordered: false)?].join("") + f"3\t{root}\n"
+  let output = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/du.xsh" -- -ab $root
+  assert output.status.exited_with(0), output.stderr
+  assert output.stdout == expected
 }
