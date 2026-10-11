@@ -12,6 +12,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use xsh::execution::script::{RunOptions, run_script};
+use xsh::frontend::check::{CheckOptions, Checker};
 use xsh::frontend::load::{
     StdlibLinkage, entry_source_from_text, parse_load_entry_source_arena_only_with_linkage,
 };
@@ -49,6 +50,49 @@ fn prepared_module_count(name: &str, source: &str) -> usize {
     );
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     stdlib_preparation::parsed_modules()
+}
+
+// This profile comparison needs the loaded internal source and Checker outputs,
+// which the native XSH harness cannot select or inspect directly.
+#[test]
+fn prepared_script_diagnostics_do_not_depend_on_revealed_type_publication() {
+    let source = "reveal_type(json.encode_lines([1]))\n";
+    let entry = entry_source_from_text("reveal.xsh", source.to_string());
+    let entry_source_id = entry.source_id;
+    let (sources, parsed) = parse_load_entry_source_arena_only_with_linkage(
+        "reveal.xsh",
+        entry,
+        Vec::new(),
+        StdlibLinkage::Prepare,
+    );
+
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert!(
+        parsed
+            .arena
+            .modules
+            .iter()
+            .any(|module| module.internal && module.key == "<xsh-stdlib:json>"),
+        "the script-backed JSON implementation was not prepared"
+    );
+
+    let check = |options| {
+        parsed.arena.symbol_owner().with_current(|| {
+            Checker::check_arena_with_sources_and_options(
+                &parsed.arena,
+                &sources,
+                entry_source_id,
+                options,
+            )
+        })
+    };
+    let execution = check(CheckOptions::for_execution());
+    let check_cli = check(CheckOptions::for_check_cli());
+
+    assert!(execution.diagnostics.is_empty(), "{:?}", execution.diagnostics);
+    assert_eq!(execution.diagnostics, check_cli.diagnostics);
+    assert!(execution.reveal_types.is_empty());
+    assert_eq!(check_cli.reveal_types.len(), 1);
 }
 
 /// A static trivial program prepares zero embedded implementation

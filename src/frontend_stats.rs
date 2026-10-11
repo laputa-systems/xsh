@@ -150,6 +150,8 @@ fn measure_check_output(checked: Option<&CheckOutput>) -> (usize, usize) {
             + resolved_type_bytes.saturating_sub(size_of::<ResolvedTypeExpressions>())
             + annotation_bytes
             + callable_bytes
+            + checked.resource_transfers.capacity()
+                * size_of::<(crate::sema::check::ResourceTransferSite, bool)>()
             + measure_effect_facts(&checked.function_effect_facts),
     )
 }
@@ -387,6 +389,8 @@ fn measure_compact_declarations(declarations: &CompactDeclOutput) -> (usize, usi
         size_of::<CompactDeclOutput>()
             + constructor_bytes
                 .saturating_sub(size_of::<crate::sema::constants::RecordConstructors>())
+            + declarations.bodies.resource_transfers.capacity()
+                * size_of::<(crate::sema::check::ResourceTransferSite, bool)>()
             + measure_effect_facts(&declarations.function_effect_facts);
     let (resolved_type_count, resolved_type_bytes) =
         measure_resolved_type_expressions(&declarations.bodies.resolved_type_expressions);
@@ -1058,7 +1062,13 @@ fn json_string(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{CorpusFrontendStats, FileFrontendStats, measure_source};
+    use super::{
+        CorpusFrontendStats, FileFrontendStats, measure_check_output,
+        measure_compact_declarations, measure_source,
+    };
+    use crate::sema::check::{CheckOutput, CompactDeclOutput, ResourceTransferSite};
+    use crate::syntax::arena::StmtId;
+    use std::mem::size_of;
 
     const SOURCE: &str = "pure twice(value: Int) -> Int { return value * 2 }\nprint ${twice(3)}\n";
     const INDEXED_EXECUTION: &str =
@@ -1129,5 +1139,47 @@ mod tests {
         assert_eq!(builder_blocks.items, 0);
         assert_eq!(builder_blocks.files, 0);
         assert_eq!(builder_blocks.retained_bytes, 0);
+    }
+
+    #[test]
+    fn check_output_measurement_includes_resource_transfer_capacity() {
+        let empty = CheckOutput::default();
+        let (empty_types, empty_bytes) = measure_check_output(Some(&empty));
+
+        let mut populated = CheckOutput::default();
+        populated.resource_transfers.insert(
+            ResourceTransferSite::Return(StmtId::from_index(0)),
+            false,
+        );
+        let (populated_types, populated_bytes) = measure_check_output(Some(&populated));
+
+        assert_eq!(populated_types, empty_types);
+        assert_eq!(
+            populated_bytes,
+            empty_bytes
+                + populated.resource_transfers.capacity()
+                    * size_of::<(ResourceTransferSite, bool)>(),
+        );
+    }
+
+    #[test]
+    fn compact_declaration_measurement_includes_resource_transfer_capacity() {
+        let empty = CompactDeclOutput::default();
+        let (empty_types, empty_bytes) = measure_compact_declarations(&empty);
+
+        let mut populated = CompactDeclOutput::default();
+        populated.bodies.resource_transfers.insert(
+            ResourceTransferSite::Return(StmtId::from_index(0)),
+            false,
+        );
+        let (populated_types, populated_bytes) = measure_compact_declarations(&populated);
+
+        assert_eq!(populated_types, empty_types);
+        assert_eq!(
+            populated_bytes,
+            empty_bytes
+                + populated.bodies.resource_transfers.capacity()
+                    * size_of::<(ResourceTransferSite, bool)>(),
+        );
     }
 }
