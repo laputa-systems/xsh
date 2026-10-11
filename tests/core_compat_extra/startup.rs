@@ -1,4 +1,5 @@
 use super::*;
+use std::os::unix::fs::PermissionsExt;
 
 fn close_standard(command: &mut Command, fd: i32) {
     // SAFETY: the close runs only in the child after Cargo's pipe setup.
