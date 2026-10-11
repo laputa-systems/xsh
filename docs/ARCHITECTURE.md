@@ -560,6 +560,15 @@ never becomes native stack depth; child cleanup runs before parent cleanup.
 Stages that need a complete input (`sort`, `collect`, `batch`) keep an explicit
 materialization boundary, and `par-map` keeps its worker boundary.
 
+`core/sort.xsh` retains each sort record as its original `Bytes`, with a valid
+UTF-8 view only when decoding succeeds. Record boundaries and key/range offsets
+stay byte-based, and in-memory sorting, spill runs, merge readers, and output
+carry the original bytes so malformed UTF-8 survives unchanged. Native Linux
+sort uses bytewise collation: numeric conventions and month names can come from
+locale metadata, but the runtime has no libc `strcoll` binding for
+`LC_COLLATE`. GNU non-C collation therefore remains outside the native sort
+contract.
+
 **Errors and traces.** `RuntimeError` carries immutable typed causes
 (`src/runtime/value/error_cause.rs`); traces snapshot them into a bounded flat
 sequence (`src/trace/error_causes.rs`). `TraceEvent` and `TracePayload`

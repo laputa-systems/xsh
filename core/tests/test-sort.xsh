@@ -904,6 +904,21 @@ test test_sort_numeric_key_character_offset { |ctx|
   assert stderr.read_bytes()?.is_empty()
 }
 
+test test_sort_numeric_key_offsets_match_gnu_in_utf8_locale { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-numeric-key-utf8-locale-offset")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  for args in [["-n", "-k1.2"], ["-n", "-k1.2,1.3"]] {
+    let result = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display()].extend(args), root,
+      {LC_ALL: "C.UTF-8"}, bytes.from_text("é10\né2\n"), stdout, stderr))?
+    assert result.exit_code()? == 0, stderr.read_text()?
+    assert stdout.read_bytes()? == bytes.from_text("é10\né2\n")
+    assert stderr.read_bytes()?.is_empty()
+  }
+}
+
 test test_sort_numeric_key_offset_can_start_inside_utf8 { |ctx|
   let root = test.temp_dir(ctx, name: "sort-numeric-key-utf8-offset")?
   let script = fp"{ctx.core_dir}/sort.xsh"
@@ -1660,6 +1675,11 @@ test test_sort_locale_numeric_decimal_point_and_category_precedence { |ctx|
     assert period.exit_code()? == 0, stderr.read_text()?
     assert stdout.read_bytes()? == b"1.9\n1.10\n"
   }
+  let key_only = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-k1n"], root,
+    {LC_ALL: "", LC_NUMERIC: "fr_FR.UTF-8", LANG: "C"}, b"-1,9\n-1,1\n", stdout, stderr))?
+  assert key_only.exit_code()? == 0, stderr.read_text()?
+  assert stdout.read_bytes()? == b"-1,9\n-1,1\n"
 }
 
 test test_sort_locale_month_abbreviations { |ctx|
@@ -1734,4 +1754,142 @@ test test_sort_debug_locale_uses_terminal_columns { |ctx|
     assert result.exit_code()? == 0, stderr.read_text()?
     assert stdout.read_text()? == case.expected
   }
+}
+
+test test_sort_single_byte_locale_key_offset_counts_raw_bytes { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-single-byte-key-offset")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let separator = bytes.from_ints([160])?
+  let input = bytes.concat([separator, b"2\n", separator, b"1\n"])
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-n", "-k1.2"], root,
+    {LC_ALL: "sv_SE"}, input, stdout, stderr))?
+  assert result.exit_code()? == 0, stderr.read_text()?
+  assert stdout.read_bytes()? == bytes.concat([separator, b"1\n", separator, b"2\n"])
+}
+
+test test_sort_invalid_utf8_stdin_and_zero_terminated_roundtrip { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-invalid-utf8-stdin")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let high = bytes.from_ints([160])?
+  let first = bytes.concat([b"a", high, b"x"])
+  let second = bytes.concat([b"z", high, b"x"])
+  for case in [
+    {args: [], input: bytes.concat([second, b"\n", first, b"\n"]), expected: bytes.concat([first, b"\n", second, b"\n"])},
+    {args: ["-z"], input: bytes.concat([second, b"\0", first, b"\0"]), expected: bytes.concat([first, b"\0", second, b"\0"])},
+  ] {
+    let result = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display()].extend(case.args), root,
+      {LC_ALL: "C"}, case.input, stdout, stderr))?
+    assert result.exit_code()? == 0, stderr.read_text()?
+    assert stdout.read_bytes()? == case.expected
+  }
+}
+
+test test_sort_stable_byte_order_distinguishes_invalid_and_valid_utf8 { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-byte-identity")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let invalid = bytes.from_ints([160])?
+  let valid = bytes.from_ints([194, 160])?
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-s"], root,
+    {LC_ALL: "C.UTF-8"}, bytes.concat([valid, b"\n", invalid, b"\n"]), stdout, stderr))?
+  assert result.exit_code()? == 0, stderr.read_text()?
+  assert stdout.read_bytes()? == bytes.concat([invalid, b"\n", valid, b"\n"])
+}
+
+test test_sort_numeric_last_resort_compares_original_bytes { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-numeric-invalid-tie")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let invalid = bytes.from_ints([255])?
+  let input = bytes.concat([b"1", invalid, b"\n1z\n"])
+  for case in [
+    {args: ["-n"], expected: bytes.concat([b"1z\n1", invalid, b"\n"])},
+    {args: ["-nr"], expected: bytes.concat([b"1", invalid, b"\n1z\n"])},
+  ] {
+    let result = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display()].extend(case.args), root,
+      {LC_ALL: "C"}, input, stdout, stderr))?
+    assert result.exit_code()? == 0, stderr.read_text()?
+    assert stdout.read_bytes()? == case.expected
+  }
+}
+
+test test_sort_check_reports_invalid_record_bytes_verbatim { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-check-invalid-record")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let high = bytes.from_ints([255, 10, 128, 10])?
+  let source = fp"{root}/input"
+  source.write(high)?
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-c", "-s", source.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert result.exit_code()? == 1
+  assert stderr.read_bytes()? == bytes.concat([
+    bytes.from_text(f"sort: {source.display()}:2: disorder: "),
+    bytes.from_ints([128])?,
+    b"\n",
+  ])
+  assert stdout.read_bytes()?.is_empty()
+}
+
+test test_sort_debug_preserves_invalid_record_bytes { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-debug-invalid-record")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let high = bytes.from_ints([255])?
+  let input = bytes.concat([b"a\n", high, b"\n"])
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "--debug"], root,
+    {LC_ALL: "C"}, input, stdout, stderr))?
+  assert result.exit_code()? == 0, stderr.read_text()?
+  assert stdout.read_bytes()? == bytes.concat([b"a\n_\n", high, b"\n_\n"])
+}
+
+test test_sort_invalid_utf8_spill_and_merge_roundtrip { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-invalid-utf8-external")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let high = bytes.from_ints([160])?
+  let tail = bytes.from_text(["x" for _ in range(128)].join(""))
+  let first = bytes.concat([b"a", high, tail])
+  let second = bytes.concat([b"z", high, tail])
+  var input: List[Bytes] = []
+  var expected: List[Bytes] = []
+  for _ in range(260) {
+    input += [second, b"\n", first, b"\n"]
+  }
+  for _ in range(260) { expected += [first, b"\n"] }
+  for _ in range(260) { expected += [second, b"\n"] }
+  let source = fp"{root}/source"
+  source.write(bytes.concat(input))?
+  let spilled = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-S", "1K", source.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert spilled.exit_code()? == 0, stderr.read_text()?
+  assert stdout.read_bytes()? == bytes.concat(expected)
+
+  let left = fp"{root}/left"
+  let right = fp"{root}/right"
+  left.write(bytes.concat([first, b"\n", second, b"\n"]))?
+  let third = bytes.concat([b"b", high, tail])
+  let fourth = bytes.concat([b"y", high, tail])
+  right.write(bytes.concat([third, b"\n", fourth, b"\n"]))?
+  let merged = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-m", left.display(), right.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert merged.exit_code()? == 0, stderr.read_text()?
+  assert stdout.read_bytes()? == bytes.concat([first, b"\n", third, b"\n", fourth, b"\n", second, b"\n"])
 }
