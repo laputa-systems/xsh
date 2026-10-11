@@ -506,12 +506,17 @@ outcomes; the evaluator decides whether to set `$?`, wrap `Ok`, propagate `Err`,
 or build a traceback. Cancellation policy returns `Forward`/`Escalate` decisions
 rather than throwing from the wait loop.
 
-**Lexical cleanup is ownership.** A live non-detached handle is canceled and
-reaped when its owning scope exits unless it moved into a surviving value;
-cleanup runs before user defers observe the completed scope. `NetJob`, stream
-producers, and `par-map` workers follow the same rule. `cd`/`env` value scopes
-select evaluator state without touching process-global cwd or environment and
-restore it only after scope cleanup.
+**Lexical cleanup is ownership.** A live resource belongs to its creating
+scope until a value carrying it enters an enclosing scope. Transfers follow
+scope ancestry, so a resource created in any nested scope moves directly to
+the receiving scope and survives intermediate exits. A scope first stops its
+owned activities before user defers run; activities created by a defer are
+stopped as the scope finishes. Roots and locks remain usable during defers and
+are released afterwards, newest first. Automatic capability cleanup drops
+release errors; explicit `close` and `unlock` calls retain their `Result`, and
+a `with` scope can return a release failure. `cd`/`env` value scopes select
+evaluator state without touching process-global cwd or environment and restore
+it only after scope cleanup.
 
 **Fork safety.** Once networking starts, XSH is multithreaded before it forks.
 Post-fork child setup does only descriptor setup, signal reset, group/session

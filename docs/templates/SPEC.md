@@ -2716,7 +2716,8 @@ the `Err` that function returns, from any of its blocks, so its caller matches
 or propagates it like any other; in any other function it is a failure of the
 call, which `try` captures. A deferred block cannot `return`, `yield`, `break`, or `continue`
 out of its body. Owned process handles and network jobs are cleaned up before
-the block's defers run (11.8).
+the block's defers run; roots and locks still owned by the block are released
+after its defers (11.8).
 
 `errdefer action` or `errdefer { ... }` registers cleanup that runs only when
 control leaves the enclosing block with an error:
@@ -3481,12 +3482,13 @@ propagated:
 ```
 
 There is no protocol a program can implement; the checker knows the resource
-types and how each is released. Of the other built-in handles, a
-`ProcessHandle`, a `NetJob`, and an open stream are already released by the
-block that owns them (11.8) and have no fallible release to state; the HTTP
-pools of `net.pool` are closed by name, not through a value; and the staged
-socket functions of the `linux` and `unix` modules are sequences, not one
-value with one release.
+types and how each is released. A `ProcessHandle`, a `NetJob`, and an open
+stream are released by the block that owns them (11.8). An ordinary block also
+releases its owned `FsRoot` and `FsLock` after the block's defers. Use `with`
+when a capability release must be reported as the scope's `Err`. The HTTP
+pools of `net.pool` are closed by name, not through a value; the staged socket
+functions of the `linux` and `unix` modules are sequences, not one value with
+one release.
 
 `NAME` is immutable and in scope for the body only (`_` binds nothing). The
 value is an ordinary expression: a failure in it, such as the `?` of
@@ -3524,10 +3526,9 @@ primary and the release failure is reported as a cleanup failure, exactly
 as a failing `defer` is while another failure propagates.
 
 A body may release its resource early, by `root.close()` or
-`fs.unlock(lock)`. Neither operation can be repeated (a second `close` or
-`unlock` fails with "handle is not active"), so the scope's own release
-accepts a value that is already released and does nothing. It still fails
-for a value that never named a live resource.
+`fs.unlock(lock)`. An explicit repeated release fails with "handle is not
+active". The scope's release skips a capability already released, and still
+fails for a value that never named a live resource.
 
 The value may leave the scope, as the tail or through an assignment, but it
 names a released resource afterwards. The scope needs the `fs` effect and is
@@ -3831,22 +3832,35 @@ strings.
 
 ### 11.8 Ownership of live resources
 
-Process handles, network jobs (`NetJob`), and open streams are owned by the
-lexical scope that created them. Returning a value that contains one, storing
-it into an outer binding, or breaking it out of a loop transfers ownership
-outward. When a scope exits, its owned non-detached handles are cancelled and
-reaped and its owned network jobs are cancelled and drained, before the scope's
-defers run. Detached handles are released to a background reaper instead. A
-`NetJob` is consumed by its first `wait()` or `cancel()`, and either one fails
-on a consumed job (`net-job-not-live`): only a process handle's `cancel` is
-idempotent. `process.kill(pid)` names a pid, not an owned handle, and fails
-with `process-missing` once the child is reaped. These are process and transfer fan-out, not an async runtime: there
-are no futures, callbacks, channels, `await`, or wait-any.
+The lexical scope that creates a live resource owns it. This applies to
+`ProcessHandle`, `NetJob`, open streams, `FsRoot`, and `FsLock`. When a value
+containing a resource becomes part of a value in an enclosing scope, ownership
+moves to that receiving scope: this happens for a returned or block value, a
+`break` value, an assignment to an outer binding, or a yielded value. A
+resource created in any nested scope inside the receiving scope moves with the
+value, so an intermediate scope does not release a resource that remains
+reachable from an outer value. Passing a handle as an argument lends it; it
+does not transfer ownership.
 
-An `FsRoot` and an `fs.lock` lock are not owned this way: nothing releases
-one when its block ends, and it stays open until it is closed or the script
-ends. Bind it with a `with` scope (10.4), or register its release with
-`defer` (8.7).
+Scope exit has two phases around its deferred actions. First, the scope stops
+its owned activities: non-detached process handles are cancelled and reaped,
+detached handles are released to a background reaper, and network jobs are
+cancelled and drained. Then the scope's `defer` actions run. After them, the
+scope closes its still-owned roots and unlocks its still-owned locks, newest
+first; closing a temporary root also removes its directory. A defer can use
+these capabilities and can release them early. An explicit `root.close()` or
+`fs.unlock(lock)` returns an error for an already released capability, while
+scope cleanup skips a capability released earlier.
+Ordinary block cleanup drops capability-release errors. A `with` resource
+scope (10.4) reports a release failure as its `Err` when the body reaches its
+end. Activities created by a defer are stopped as the scope finishes.
+
+A `NetJob` is consumed by its first `wait()` or `cancel()`, and either one
+fails on a consumed job (`net-job-not-live`): only a process handle's `cancel`
+is idempotent. `process.kill(pid)` names a pid, not an owned handle, and fails
+with `process-missing` once the child is reaped. These are process and transfer
+fan-out, not an async runtime: there are no futures, callbacks, channels,
+or `await`. `process.wait_any` waits for one of the supplied process handles.
 
 ### 11.9 Command plans and builder blocks
 
