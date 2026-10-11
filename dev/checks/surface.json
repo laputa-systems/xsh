@@ -1,5 +1,5 @@
 {
-  "comment": "Commands in the expanded campaign scope beyond the uutils coreutils set (dev/coreutils-parity.json owns that denominator). Integrator-owned; entries are only ever added: `reference` is a test/oracle dependency, never a runtime one, and parity.py fails if the count drops below the denominator pinned in upstream.lock.json. `optional` marks commands CAMPAIGN.md scopes as 'if cheap/worthwhile'; they still count.",
+  "comment": "Expanded command inventory beyond the pinned coreutils feature set. Entries may be added; the inventory check fails when the command count falls below the pinned denominator. Reference tools supply test expectations and are never runtime dependencies. Optional commands still count.",
   "commands": [
     {
       "command": "lscpu",

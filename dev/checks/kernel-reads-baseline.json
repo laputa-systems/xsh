@@ -1,4 +1,4 @@
 {
-  "comment": "Applets that still read /proc or /sys directly instead of through a typed domain API (applet -> literal count). Shrink-only; integrator-owned.",
+  "comment": "Legacy applets with direct kernel path literals, by applet and literal count. The check rejects new readers, increased counts and stale baseline entries.",
   "applets": {}
 }

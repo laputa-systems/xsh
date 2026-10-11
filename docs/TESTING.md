@@ -114,10 +114,18 @@ implementation and native test fields against its pinned upstream denominator.
 The metadata assertions live under `dev/checks/` and `core/tests/origins/`;
 they require Python 3 but no upstream checkout or suite runner results.
 
+The native compatibility origins are retained in `core/tests/origins/freeze.json`.
+`python3 core/tests/origins/check_origins.py --strict` verifies each frozen ID
+has one native test or an explained boundary exception, without upstream
+checkouts or reference tools. Optional fixture regeneration and compression
+reference comparisons use `dev/reference/oracle.sh`; ordinary native tests read
+the committed fixture bytes. Release packaging reads `core/aliases.json`, which
+also supplies alias names to native command tests.
+
 | Command | Runs |
 |---|---|
-| `cargo dev check` | release product build, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, release `xsht check`, `xsht fmt --check`, and `xsht lint`, the compatibility ratchets, `check-docs` (with release binaries), `git diff --check` |
-| `make check` (`cargo dev check lint`) | release `xsht lint` on the repository with no diagnostics within a 15 s budget (`crates/xsht/tests/lint_performance.rs`), the compatibility ratchets, then `check-docs` with release binaries |
+| `cargo dev check` | release product build, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, release `xsht check`, `xsht fmt --check`, and `xsht lint`, the command repository contracts, `check-docs` (with release binaries), `git diff --check` |
+| `make check` (`cargo dev check lint`) | release `xsht lint` on the repository with no diagnostics within a 15 s budget (`crates/xsht/tests/lint_performance.rs`), the command repository contracts, then `check-docs` with release binaries |
 | `make test` (`cargo dev test`) | the root integration targets with `cargo test --release`, then the unit tests with debug `cargo test --lib` |
 | `cargo dev test xsh` | build release `xsh` and `xsht`, then the native suite through `target/release/xsht test` |
 | `make fuzz` | `xsh-fuzz all` for 120 s on release (`FUZZ_DURATION` overrides); not part of `make check` |
@@ -291,11 +299,3 @@ settings, and treat single-run latency changes as inconclusive.
 - `xsht runtime-stats --json REPORT SCRIPT` reports construction, controller,
   and `par-map` worker allocation; pair memory claims with a host RSS check.
   It and `xsht frontend-stats` are not listed in `xsht --help`.
-
-The native compatibility origins are retained in `core/tests/origins/freeze.json`.
-`python3 core/tests/origins/check_origins.py --strict` verifies each frozen ID
-has one native test or an explained boundary exception, without upstream
-checkouts or reference tools. Optional fixture regeneration and compression
-reference comparisons use `dev/reference/oracle.sh`; ordinary native tests read
-the committed fixture bytes. Release packaging reads `core/aliases.json`, which
-also supplies alias names to native command tests.
