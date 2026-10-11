@@ -6,7 +6,7 @@
     "commit": "6e39144aaf5a6bc01b9f795010b0914431067183"
   },
   "gate": "G3",
-  "last_green_commit": "90a1007d",
+  "last_green_commit": "ee073975",
   "audit": {
     "new_core_script": "New core/*.xsh applets are installed by the release script at dev/release.xsh:146-160; dev/tests/test-repository-contracts.xsh owns the required core script inventory and contract checks. No separate command registration is needed.",
     "launcher_argument_separator": "Use xsh SCRIPT -- ARGS for an applet and xsh -- SCRIPT ARGS for an explicit script; src/entrypoints/xsh.rs:90-120.",
@@ -751,26 +751,33 @@
     {
       "id": "g3.cpu.core_map",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sensors.xsh::test_btop_cpu_core_map_uses_physical_ids_for_sparse_logical_cpu_numbers",
+        "core/tests/test-btop-sensors.xsh::test_btop_cpu_core_map_bounds_large_physical_ids_without_overflow"
+      ],
+      "evidence": "Host release fixtures map sparse logical CPUs through physical core IDs and remain bounded for an extreme signed-integer core ID. The complete 79-test btop native suite passed in .work/btop-campaign/g3-s36-btop-final.log."
     },
     {
       "id": "g3.cpu.frequency",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sensors.xsh::test_btop_frequency_modes_reduce_policy_values_and_cpuinfo_fallback"
+      ],
+      "evidence": "Host release fixtures retain the first positive CPUFreq policy value in MHz and fall back to the first valid cpu MHz observation. The complete 79-test btop native suite passed in .work/btop-campaign/g3-s36-btop-final.log."
     },
     {
       "id": "g3.cpu.frequency_mode",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sensors.xsh::test_btop_frequency_modes_reduce_policy_values_and_cpuinfo_fallback"
+      ],
+      "evidence": "Host release fixtures cover first, range, lowest, highest, and average frequency reducers. The complete 79-test btop native suite passed in .work/btop-campaign/g3-s36-btop-final.log."
     },
     {
       "id": "g3.mem.categories",
@@ -996,66 +1003,87 @@
     {
       "id": "g3.sensor.cpu_temp",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sensors.xsh::test_btop_sensor_selects_signed_package_and_deduplicates_core_channels",
+        "core/tests/test-btop-sensors.xsh::test_btop_sensor_uses_thermal_zone_when_hwmon_has_no_cpu_channel"
+      ],
+      "evidence": "Host release fixtures preserve signed package temperatures and select a thermal-zone fallback when no CPU-labeled hwmon channel exists. The complete 79-test btop native suite passed in .work/btop-campaign/g3-s36-btop-final.log."
     },
     {
       "id": "g3.sensor.core_temp",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sensors.xsh::test_btop_sensor_selects_signed_package_and_deduplicates_core_channels",
+        "core/tests/test-btop-sensors.xsh::test_btop_cpu_core_map_uses_physical_ids_for_sparse_logical_cpu_numbers"
+      ],
+      "evidence": "Host release fixtures map core channels to logical CPUs and preserve observed core values. The complete 79-test btop native suite passed in .work/btop-campaign/g3-s36-btop-final.log."
     },
     {
       "id": "g3.sensor.duplicates",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sensors.xsh::test_btop_sensor_selects_signed_package_and_deduplicates_core_channels"
+      ],
+      "evidence": "Duplicate Core 0 channels collapse deterministically to one observed logical-core reading. The complete 79-test btop native suite passed in .work/btop-campaign/g3-s36-btop-final.log."
     },
     {
       "id": "g3.sensor.missing",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sensors.xsh::test_btop_sensor_keeps_zero_and_withholds_malformed_or_missing_readings"
+      ],
+      "evidence": "Observed zero is retained; malformed or missing temperature channels produce no fabricated reading. The complete 79-test btop native suite passed in .work/btop-campaign/g3-s36-btop-final.log."
     },
     {
       "id": "g3.sensor.frequency",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sensors.xsh::test_btop_frequency_modes_reduce_policy_values_and_cpuinfo_fallback"
+      ],
+      "evidence": "CPU frequency is visible from the selected policy or the valid cpuinfo fallback, with all reducer modes fixture-tested. The complete 79-test btop native suite passed in .work/btop-campaign/g3-s36-btop-final.log."
     },
     {
       "id": "g3.sensor.battery",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sensors.xsh::test_btop_battery_selects_present_battery_and_derives_level_power_and_time",
+        "core/tests/test-btop-sensors.xsh::test_btop_battery_absent_and_unreadable_states_do_not_invent_a_level",
+        "core/tests/test-btop-sensors.xsh::test_btop_battery_uses_ac_online_and_charge_current_fallbacks"
+      ],
+      "evidence": "Host release fixtures cover present-battery selection, absent and unreadable states, capacity/energy/charge derivation, online status, watts, and remaining time; live battery hardware was unavailable. The complete 79-test btop native suite passed in .work/btop-campaign/g3-s36-btop-final.log."
     },
     {
       "id": "g3.sensor.cpu_select",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sensors.xsh::test_btop_sensor_selects_signed_package_and_deduplicates_core_channels",
+        "core/tests/test-btop-sensors.xsh::test_btop_sensor_uses_thermal_zone_when_hwmon_has_no_cpu_channel"
+      ],
+      "evidence": "The default auto selection prefers Package id/Tdie/SoC labels, then CPU-named channels, and uses deterministic thermal fallback. The complete 79-test btop native suite passed in .work/btop-campaign/g3-s36-btop-final.log."
     },
     {
       "id": "g3.sensor.temperature_units",
       "gate": "G3",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-sensors.xsh::test_btop_temperature_display_matches_all_pinned_scales_for_signed_input"
+      ],
+      "evidence": "Host release literals verify signed Celsius, Fahrenheit, Kelvin, and Rankine conversion with the pinned Celsius default. The complete 79-test btop native suite passed in .work/btop-campaign/g3-s36-btop-final.log."
     },
     {
       "id": "g3.counter.precision",
@@ -1382,11 +1410,24 @@
       "name": "btop process view sort and local text",
       "commit": "90a1007d",
       "summary": "The view now starts in CPU-lazy order and cycles all eight pinned sort modes. Live rows resolve the USER label and show an identity-checked bounded command line without reading environ or adding that text to captured observations or dumps."
+    },
+    {
+      "kind": "data_format",
+      "name": "btop model dump: observed CPU telemetry",
+      "commit": "ee073975",
+      "summary": "Model and JSONL output now carry observed CPU package/core temperatures, frequency, and battery status, power, and remaining-time fields while preserving unavailable states."
+    },
+    {
+      "kind": "behavior",
+      "name": "btop CPU telemetry panel",
+      "commit": "ee073975",
+      "summary": "The CPU panel shows observed package/core temperature, frequency, and battery readings from existing rooted system-report readers; live gauge observations refresh on the five-second schedule."
     }
   ],
   "limitations": [
     "G0 host evidence is host-only because the pinned ARM64 Docker lane failed before the test suite started; its failing test set is empty because no tests ran.",
-    "The G0 lane attempt did not record wall-clock duration to suite start; no duration is inferred from the log."
+    "The G0 lane attempt did not record wall-clock duration to suite start; no duration is inferred from the log.",
+    "No live battery hardware was available; battery and sensor behavior is fixture-tested only."
   ],
   "measurements": {
     "coverage_sha256": "b43040859dfa851f8f484714381a08e48cf3da65361d95e2f634790eb7f4f02f",
@@ -1643,6 +1684,50 @@
         "network_device_epochs": 40,
         "old_rate_history_reused": false
       }
+    },
+    "g3_s3_6": {
+      "host_only": true,
+      "native_monitor_tests": {
+        "passed": 79,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-s36-btop-final.log"
+      },
+      "sys_collector_tests": {
+        "passed": 25,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-s36-sys-final.log"
+      },
+      "system_report_tests": {
+        "passed": 133,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-s36-system-report-final.log"
+      },
+      "system_report_collect_tests": {
+        "passed": 7,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-s36-system-report-collect-final.log"
+      },
+      "system_report_check_tests": {
+        "passed": 224,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-s36-system-report-check-final.log"
+      },
+      "repository_contract_tests": {
+        "passed": 5,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-s36-repo-contracts-final.log"
+      },
+      "pty_tests": {
+        "passed": 10,
+        "failed": 0,
+        "log": ".work/btop-campaign/g3-s36-pty-final.log"
+      },
+      "input_to_present_latency": {
+        "runner": "Alpine x86_64 musl release, 80x24, 100 sort inputs, replay interval 60000 ms",
+        "p95_ms": 1.089,
+        "p99_ms": 1.137
+      },
+      "battery_live_hardware": "Not verified; battery selection and derived readings are fixture-tested only."
     }
   },
   "defaults": [
@@ -1984,6 +2069,6 @@
     }
   ],
   "next": [
-    "G3 S3.6: implement observed-only CPU temperatures, core channels, frequency and battery states with fixture evidence."
+    "G3 S3.7: verify i64 counter precision and monotonic clock edge behavior."
   ]
 }
