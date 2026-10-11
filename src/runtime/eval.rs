@@ -1602,6 +1602,22 @@ pub(crate) enum RetainedValueRef<'a> {
     Stream(&'a StreamValue),
 }
 
+pub(in crate::runtime::eval) fn visit_retained_lowered_value(
+    value: &LoweredValue,
+    visitor: &mut dyn for<'a> FnMut(RetainedValueRef<'a>),
+) {
+    visitor(RetainedValueRef::Lowered(RetainedLoweredValue::new(value)));
+}
+
+pub(in crate::runtime::eval) fn visit_retained_lowered_values<'value>(
+    values: impl IntoIterator<Item = &'value LoweredValue>,
+    visitor: &mut dyn for<'retained> FnMut(RetainedValueRef<'retained>),
+) {
+    for value in values {
+        visit_retained_lowered_value(value, visitor);
+    }
+}
+
 #[derive(Clone, Debug)]
 enum LoweredValue {
     // This private marker survives argument binding only until callee entry.
@@ -5473,10 +5489,7 @@ impl Evaluator {
     pub(super) fn exit_owned_host_scope(&mut self, scope_id: u64) -> Result<(), RuntimeError> {
         debug_assert_eq!(self.current_scope_id(), scope_id);
         let cleanup = self.release_owned_host_resources(scope_id);
-        if !self.signal_state.shutdown_force
-            && self.pending_stream_captures.is_empty()
-            && self.pending_stream_capture_error.is_none()
-        {
+        if !self.signal_state.shutdown_force {
             self.release_owned_capabilities(scope_id);
         }
         self.scope_ids.pop();
@@ -5618,9 +5631,7 @@ impl Evaluator {
                 first_error = Some(error);
             }
         }
-        if self.pending_stream_captures.is_empty() && self.pending_stream_capture_error.is_none() {
-            for scope in scopes { self.release_owned_capabilities(scope); }
-        }
+        for scope in scopes { self.release_owned_capabilities(scope); }
         first_error
     }
 
@@ -5633,18 +5644,23 @@ impl Evaluator {
             return primary;
         }
         let primary_failed = matches!(&primary, Err(_) | Ok(Flow::Propagate(_)));
-        if let Err(error) = self.flush_pending_stream_captures() {
-            return if primary_failed { primary } else { Err(error) };
-        }
+        let primary = match self.flush_pending_stream_captures() {
+            Ok(()) => primary,
+            Err(_) if primary_failed => primary,
+            Err(error) => Err(error),
+        };
+        let primary_failed = matches!(&primary, Err(_) | Ok(Flow::Propagate(_)));
         let primary = match (self.release_owned_streams(scope_id), primary) {
             (Ok(()), primary) => primary,
             (Err(_), primary) if primary_failed => primary,
             (Err(error), _) => Err(error),
         };
         let primary_failed = matches!(&primary, Err(_) | Ok(Flow::Propagate(_)));
-        if let Err(error) = self.flush_pending_stream_captures() {
-            return if primary_failed { primary } else { Err(error) };
-        }
+        let primary = match self.flush_pending_stream_captures() {
+            Ok(()) => primary,
+            Err(_) if primary_failed => primary,
+            Err(error) => Err(error),
+        };
         self.cleanup_scope_process_handles(scope_id, primary)
     }
 
@@ -5818,12 +5834,11 @@ impl Evaluator {
 
     fn collect_stream_resources(&self, stream: &StreamValue, worklist: &mut ResourceTransferWorklist) {
         if let Some(owner) = stream.owner() {
-            if !Arc::ptr_eq(&owner.evaluator, &self.resource_owner)
-                || !self.owned_streams.contains_key(&owner.id)
+            if Arc::ptr_eq(&owner.evaluator, &self.resource_owner)
+                && self.owned_streams.contains_key(&owner.id)
             {
-                return;
+                worklist.streams.push(StreamTransfer { owner: owner.clone(), revisit: false });
             }
-            worklist.streams.push(StreamTransfer { owner: owner.clone(), revisit: false });
         }
         for item in &stream.items {
             self.collect_runtime_resources(&item.value, worklist);
@@ -7541,9 +7556,13 @@ mod capture_transfer_tests {
     struct RetainedStreamProducer {
         retained: Option<StreamValue>,
         self_stream: Option<Arc<std::sync::Mutex<Option<StreamValue>>>>,
+        retained_value: Option<Value>,
+        poll_error: bool,
         transfer_target: Option<u64>,
         expected_retained_scope: Option<u64>,
         expected_pending: Option<usize>,
+        expected_cancel_pending: Option<usize>,
+        expected_capability_scope: Option<(usize, u64)>,
     }
 
     impl ScriptStream for RetainedStreamProducer {
@@ -7570,6 +7589,9 @@ mod capture_transfer_tests {
                     assert_eq!(evaluator.pending_stream_captures.len(), expected_pending);
                 }
             }
+            if self.poll_error {
+                return Err(RuntimeError::new("test-producer", "producer poll failed"));
+            }
             Ok(ScriptStreamStep::Yielded(Value::Unit))
         }
 
@@ -7583,6 +7605,9 @@ mod capture_transfer_tests {
         ) {
             if let Some(stream) = &self.retained {
                 visitor(RetainedValueRef::Stream(stream));
+            }
+            if let Some(value) = &self.retained_value {
+                visitor(RetainedValueRef::Runtime(value));
             }
             if let Some(self_stream) = &self.self_stream {
                 let stream = self_stream.lock().expect("test stream holder");
@@ -7600,23 +7625,51 @@ mod capture_transfer_tests {
             (None, Vec::new(), None)
         }
 
-        fn cancel(&mut self, _evaluator: &mut Evaluator, _span: Span) -> Result<(), RuntimeError> {
+        fn cancel(&mut self, evaluator: &mut Evaluator, _span: Span) -> Result<(), RuntimeError> {
+            if let Some(expected_pending) = self.expected_cancel_pending {
+                assert_eq!(evaluator.pending_stream_captures.len(), expected_pending);
+            }
+            if let Some((capability_index, expected_scope)) = self.expected_capability_scope {
+                assert_eq!(
+                    evaluator.fs_capabilities[capability_index]
+                        .as_ref()
+                        .expect("captured capability remains live")
+                        .owner_scope,
+                    expected_scope
+                );
+            }
             Ok(())
         }
     }
 
     #[test]
-    fn active_producer_capture_transfer_flushes_after_its_pull() {
+    fn active_capture_busy_flushes_before_error_cancellation() {
         let mut evaluator = Evaluator::new(Vec::new());
         let root_scope = evaluator.current_scope_id();
         let child_scope = evaluator.enter_owned_host_scope();
+        let temp_root = tempfile::tempdir().unwrap();
+        let root = Root::open(temp_root.path()).unwrap();
+        let root_id = evaluator.push_fs_capability(FsCapability::Root(Box::new(
+            FsRootHandle::TempDir {
+                root,
+                _temp: temp_root,
+            },
+        )));
+        let root_value = Value::FsRoot(FsRootValue {
+            id: root_id,
+            owner: Arc::clone(&evaluator.resource_owner),
+        });
 
         let inner_state = ScriptStreamState::new(RetainedStreamProducer {
             retained: None,
             self_stream: None,
+            retained_value: Some(root_value),
+            poll_error: false,
             transfer_target: None,
             expected_retained_scope: None,
             expected_pending: None,
+            expected_cancel_pending: None,
+            expected_capability_scope: None,
         });
         let mut inner = StreamValue::from_script(inner_state);
         evaluator.register_returned_stream(&mut inner, zero_span()).unwrap();
@@ -7626,21 +7679,30 @@ mod capture_transfer_tests {
         let outer_state = ScriptStreamState::new(RetainedStreamProducer {
             retained: Some(inner),
             self_stream: Some(Arc::clone(&self_stream)),
+            retained_value: None,
+            poll_error: true,
             transfer_target: Some(root_scope),
             expected_retained_scope: Some(child_scope),
             expected_pending: Some(1),
+            expected_cancel_pending: Some(0),
+            expected_capability_scope: Some((0, root_scope)),
         });
         let mut outer = StreamValue::from_script(outer_state.clone());
         evaluator.register_returned_stream(&mut outer, zero_span()).unwrap();
         let outer_id = outer.owner().expect("registered stream owner").id;
         *self_stream.lock().expect("test stream holder") = Some(outer.clone());
 
-        assert_eq!(evaluator.stream_next(&mut outer, zero_span()).unwrap(), Some(Value::Unit));
+        assert_eq!(
+            evaluator.stream_next(&mut outer, zero_span()).unwrap_err().kind,
+            "test-producer"
+        );
         assert_eq!(evaluator.owned_streams[&outer_id].owner_scope, root_scope);
         assert!(evaluator.pending_stream_captures.is_empty());
         assert_eq!(evaluator.owned_streams[&inner_id].owner_scope, root_scope);
+        assert_eq!(evaluator.fs_capabilities[0].as_ref().unwrap().owner_scope, root_scope);
         *self_stream.lock().expect("test stream holder") = None;
         evaluator.exit_owned_host_scope(child_scope).unwrap();
+        assert!(!evaluator.owned_scope_parents.contains_key(&child_scope));
     }
 
     #[test]
@@ -7651,9 +7713,13 @@ mod capture_transfer_tests {
         let outer_state = ScriptStreamState::new(RetainedStreamProducer {
             retained: None,
             self_stream: Some(Arc::clone(&self_stream)),
+            retained_value: None,
+            poll_error: false,
             transfer_target: Some(root_scope),
             expected_retained_scope: None,
             expected_pending: Some(0),
+            expected_cancel_pending: None,
+            expected_capability_scope: None,
         });
         let mut outer = StreamValue::from_script(outer_state);
         evaluator.register_returned_stream(&mut outer, zero_span()).unwrap();
@@ -7662,9 +7728,13 @@ mod capture_transfer_tests {
         let inner_state = ScriptStreamState::new(RetainedStreamProducer {
             retained: Some(outer.clone()),
             self_stream: None,
+            retained_value: None,
+            poll_error: false,
             transfer_target: None,
             expected_retained_scope: None,
             expected_pending: None,
+            expected_cancel_pending: None,
+            expected_capability_scope: None,
         });
         let mut inner = StreamValue::from_script(inner_state);
         evaluator.register_returned_stream(&mut inner, zero_span()).unwrap();
@@ -7676,5 +7746,182 @@ mod capture_transfer_tests {
         assert!(evaluator.pending_stream_captures.is_empty());
         *self_stream.lock().expect("test stream holder") = None;
         evaluator.exit_owned_host_scope(child_scope).unwrap();
+    }
+
+    #[test]
+    fn inactive_stream_owner_does_not_hide_local_prefix_resources() {
+        fn temp_root_value(evaluator: &mut Evaluator) -> (usize, Value) {
+            let temp = tempfile::tempdir().unwrap();
+            let root = Root::open(temp.path()).unwrap();
+            let id = evaluator.push_fs_capability(FsCapability::Root(Box::new(
+                FsRootHandle::TempDir { root, _temp: temp },
+            )));
+            let value = Value::FsRoot(FsRootValue {
+                id,
+                owner: Arc::clone(&evaluator.resource_owner),
+            });
+            ((id - 1) as usize, value)
+        }
+
+        let mut evaluator = Evaluator::new(Vec::new());
+        let root_scope = evaluator.current_scope_id();
+        let child_scope = evaluator.enter_owned_host_scope();
+        let (foreign_capability, foreign_prefix) = temp_root_value(&mut evaluator);
+        let (foreign_capture_capability, foreign_capture) = temp_root_value(&mut evaluator);
+        let (missing_capability, missing_prefix) = temp_root_value(&mut evaluator);
+
+        let mut foreign_evaluator = Evaluator::new(Vec::new());
+        let foreign_state = ScriptStreamState::new(RetainedStreamProducer {
+            retained: None,
+            self_stream: None,
+            retained_value: Some(foreign_capture),
+            poll_error: false,
+            transfer_target: None,
+            expected_retained_scope: None,
+            expected_pending: None,
+            expected_cancel_pending: None,
+            expected_capability_scope: None,
+        });
+        let mut foreign_stream = StreamValue::from_script(foreign_state);
+        foreign_stream.items.push(crate::runtime::value::StreamItem {
+            value: foreign_prefix,
+            index: 0,
+            source_span: None,
+        });
+        foreign_evaluator
+            .register_returned_stream(&mut foreign_stream, zero_span())
+            .unwrap();
+        let foreign_owner = foreign_stream.owner().unwrap().clone();
+        let foreign_scope = foreign_evaluator.owned_streams[&foreign_owner.id].owner_scope;
+        evaluator.transfer_owned_host_resources_in_stream(&foreign_stream, root_scope);
+        assert_eq!(
+            evaluator.fs_capabilities[foreign_capability]
+                .as_ref()
+                .unwrap()
+                .owner_scope,
+            root_scope
+        );
+        assert_eq!(foreign_evaluator.owned_streams[&foreign_owner.id].owner_scope, foreign_scope);
+        assert_eq!(
+            evaluator.fs_capabilities[foreign_capture_capability]
+                .as_ref()
+                .unwrap()
+                .owner_scope,
+            child_scope
+        );
+
+        let mut missing_stream = StreamValue::from_values(vec![missing_prefix]);
+        missing_stream.owner = Some(crate::runtime::value::StreamOwner {
+            id: u64::MAX,
+            evaluator: Arc::clone(&evaluator.resource_owner),
+        });
+        evaluator.transfer_owned_host_resources_in_stream(&missing_stream, root_scope);
+        assert_eq!(
+            evaluator.fs_capabilities[missing_capability]
+                .as_ref()
+                .unwrap()
+                .owner_scope,
+            root_scope
+        );
+        assert_eq!(missing_stream.owner().unwrap().id, u64::MAX);
+        assert_eq!(evaluator.current_scope_id(), child_scope);
+        evaluator.exit_owned_host_scope(child_scope).unwrap();
+    }
+
+    #[test]
+    fn busy_capture_cleanup_closes_scope_and_releases_capabilities() {
+        let mut evaluator = Evaluator::new(Vec::new());
+        let root_scope = evaluator.current_scope_id();
+        let child_scope = evaluator.enter_owned_host_scope();
+        let temp = tempfile::tempdir().unwrap();
+        let root = Root::open(temp.path()).unwrap();
+        let root_id = evaluator.push_fs_capability(FsCapability::Root(Box::new(
+            FsRootHandle::TempDir {
+                root,
+                _temp: temp,
+            },
+        )));
+        let retained_root = Value::FsRoot(FsRootValue {
+            id: root_id,
+            owner: Arc::clone(&evaluator.resource_owner),
+        });
+        let mut stream = StreamValue::from_script(ScriptStreamState::new(
+            RetainedStreamProducer {
+                retained: None,
+                self_stream: None,
+                retained_value: Some(retained_root),
+                poll_error: false,
+                transfer_target: None,
+                expected_retained_scope: None,
+                expected_pending: None,
+                expected_cancel_pending: None,
+                expected_capability_scope: None,
+            },
+        ));
+        evaluator.register_returned_stream(&mut stream, zero_span()).unwrap();
+        let owner_id = stream.owner().unwrap().id;
+        let state = stream.script().unwrap().clone();
+        let guard = state.lock(zero_span()).unwrap();
+        evaluator.transfer_owned_host_resources_in_stream(&stream, root_scope);
+        assert_eq!(evaluator.pending_stream_captures.len(), 1);
+
+        let error = evaluator
+            .exit_owned_host_scope(child_scope)
+            .expect_err("an active capture cannot be reconciled during scope exit");
+
+        assert_eq!(error.kind, "stream-capture-active");
+        assert_eq!(evaluator.current_scope_id(), root_scope);
+        assert!(!evaluator.owned_scope_parents.contains_key(&child_scope));
+        assert!(evaluator.fs_capabilities[0].is_none());
+        assert_eq!(evaluator.owned_streams[&owner_id].owner_scope, root_scope);
+        drop(guard);
+        assert!(evaluator.finish_owned_resources().is_none());
+        assert!(!evaluator.owned_streams.contains_key(&owner_id));
+    }
+
+    #[test]
+    fn poisoned_capture_visit_fails_scope_exit_without_leaking_scope_resources() {
+        let mut evaluator = Evaluator::new(Vec::new());
+        let root_scope = evaluator.current_scope_id();
+        let child_scope = evaluator.enter_owned_host_scope();
+        let temp = tempfile::tempdir().unwrap();
+        let root = Root::open(temp.path()).unwrap();
+        let root_id = evaluator.push_fs_capability(FsCapability::Root(Box::new(
+            FsRootHandle::TempDir { root, _temp: temp },
+        )));
+        let root_value = Value::FsRoot(FsRootValue {
+            id: root_id,
+            owner: Arc::clone(&evaluator.resource_owner),
+        });
+        let state = ScriptStreamState::new(RetainedStreamProducer {
+            retained: None,
+            self_stream: None,
+            retained_value: Some(root_value),
+            poll_error: false,
+            transfer_target: None,
+            expected_retained_scope: None,
+            expected_pending: None,
+            expected_cancel_pending: None,
+            expected_capability_scope: None,
+        });
+        let poisoned = state.clone();
+        assert!(std::thread::spawn(move || {
+            let _guard = poisoned.lock(zero_span()).unwrap();
+            panic!("poison producer state for cleanup regression");
+        })
+        .join()
+        .is_err());
+        let mut stream = StreamValue::from_script(state);
+        evaluator.register_returned_stream(&mut stream, zero_span()).unwrap();
+
+        evaluator.transfer_owned_host_resources_in_stream(&stream, root_scope);
+        let error = evaluator
+            .exit_owned_host_scope(child_scope)
+            .expect_err("a poisoned capture visit must fail cleanup");
+        assert_eq!(error.kind, "stream-state");
+        assert_eq!(evaluator.current_scope_id(), root_scope);
+        assert!(!evaluator.owned_scope_parents.contains_key(&child_scope));
+        assert!(evaluator.fs_capabilities[0].is_none());
+        assert!(!evaluator.owned_scope_counts.contains_key(&child_scope));
     }
 }

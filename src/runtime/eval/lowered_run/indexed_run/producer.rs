@@ -151,18 +151,14 @@ impl crate::runtime::value::ScriptStream for ScriptProducer {
         if let Some(source) = &self.delegated {
             match source {
                 DelegatedSource::List(DelegatedList::Owned(items)) => {
-                    for value in items.as_slice() {
-                        visitor(crate::runtime::eval::RetainedValueRef::Lowered(
-                            crate::runtime::eval::RetainedLoweredValue::new(value),
-                        ));
-                    }
+                    crate::runtime::eval::visit_retained_lowered_values(
+                        items.as_slice(), visitor,
+                    );
                 }
                 DelegatedSource::List(DelegatedList::Shared { items, next }) => {
-                    for value in &items[*next..] {
-                        visitor(crate::runtime::eval::RetainedValueRef::Lowered(
-                            crate::runtime::eval::RetainedLoweredValue::new(value),
-                        ));
-                    }
+                    crate::runtime::eval::visit_retained_lowered_values(
+                        &items[*next..], visitor,
+                    );
                 }
                 DelegatedSource::Stream { value, prefix, .. } => {
                     visitor(crate::runtime::eval::RetainedValueRef::Stream(value));

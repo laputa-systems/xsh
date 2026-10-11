@@ -3843,6 +3843,13 @@ impl LoweredMapCursor {
         self.previous = Some(key.clone());
         Some(entry)
     }
+
+    fn visit_retained_values(
+        &self,
+        visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
+    ) {
+        crate::runtime::eval::visit_retained_lowered_values(self.entries.values(), visitor);
+    }
 }
 
 fn bind_lowered_comp_target(

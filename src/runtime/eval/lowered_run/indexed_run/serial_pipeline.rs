@@ -83,6 +83,23 @@ impl IndexedPipelineItems {
         }
         result
     }
+
+    fn visit_retained_values(
+        &self,
+        visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
+    ) {
+        match self {
+            Self::Materialized(items) => {
+                crate::runtime::eval::visit_retained_lowered_values(items.as_slice(), visitor);
+            }
+            Self::Live { stream, prefix } => {
+                visitor(crate::runtime::eval::RetainedValueRef::Stream(stream));
+                for item in prefix.as_slice() {
+                    visitor(crate::runtime::eval::RetainedValueRef::Runtime(&item.value));
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -274,6 +291,20 @@ impl IndexedSerialPipeline {
             span,
             call_span,
         }))
+    }
+
+    pub(super) fn visit_retained_values(
+        &self,
+        visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
+    ) {
+        self.items.visit_retained_values(visitor);
+        crate::runtime::eval::visit_retained_lowered_values(
+            self.pending.iter().map(|(_, value)| value),
+            visitor,
+        );
+        if let Some(value) = &self.outcome {
+            crate::runtime::eval::visit_retained_lowered_value(value, visitor);
+        }
     }
 
     pub(super) fn next(

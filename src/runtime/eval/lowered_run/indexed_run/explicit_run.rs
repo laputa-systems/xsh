@@ -24,7 +24,9 @@ use super::{
 };
 use super::{LoweredMapCursor, LoweredScalarCursor};
 use crate::map_key::MapKey;
-use crate::runtime::eval::LoweredCompTarget;
+use crate::runtime::eval::{
+    LoweredCompTarget, visit_retained_lowered_value, visit_retained_lowered_values,
+};
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
 use crate::runtime::eval::lowered_run::validate_parameter_default;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -43,8 +45,8 @@ fn frame_strategy_error(tag: FullTag, span: Span) -> RuntimeError {
 
 #[cfg(test)]
 mod tests {
-    use super::{Evaluator, LoweredFunctionKey, LoweredFunctionKind, Name, Ordering, Span};
-    use crate::runtime::value::Value;
+    use super::*;
+    use crate::runtime::value::{ScriptStream, ScriptStreamState, ScriptStreamStep, Value};
     use crate::source::SourceMap;
     use crate::syntax::parser::Parser;
 
@@ -74,6 +76,100 @@ mod tests {
                 .expect_err("forced frames reject a recursive-only instruction");
             assert_eq!(error.kind, "frame-scheduler");
             assert!(error.message.contains("ExprLoop"), "{}", error.message);
+        });
+    }
+
+    struct RetainedFrameStream(ProducerFrameState);
+
+    impl ScriptStream for RetainedFrameStream {
+        fn finished(&self) -> bool { false }
+
+        fn poll(
+            &mut self,
+            _evaluator: &mut Evaluator,
+            _span: Span,
+        ) -> Result<ScriptStreamStep, RuntimeError> {
+            Ok(ScriptStreamStep::Finished)
+        }
+
+        fn validate_item(&self, _value: &Value, _span: Span) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn visit_retained_values(
+            &self,
+            visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
+        ) {
+            self.0.visit_retained_values(visitor);
+        }
+
+        fn delegated_finished(&mut self) {}
+
+        fn take_delegated(
+            &mut self,
+        ) -> (
+            Option<ScriptStreamState>,
+            Vec<u64>,
+            Option<crate::runtime::eval::ScopedProducerContext>,
+        ) {
+            (None, Vec::new(), None)
+        }
+
+        fn cancel(&mut self, _evaluator: &mut Evaluator, _span: Span) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn continuation_retained_root_transfers_with_its_producer() {
+        crate::runtime::eval::run_eval(|| {
+            let mut evaluator = Evaluator::new(Vec::new());
+            let root_scope = evaluator.current_scope_id();
+            let child_scope = evaluator.enter_owned_host_scope();
+            let temp = tempfile::tempdir().unwrap();
+            let root = xsh_root::Root::open(temp.path()).unwrap();
+            let root_id = evaluator.push_fs_capability(crate::runtime::eval::FsCapability::Root(
+                Box::new(super::super::super::FsRootHandle::TempDir {
+                    root,
+                    _temp: temp,
+                }),
+            ));
+            let mut sources = SourceMap::new();
+            let source_id = sources.add_file("retained-frame.xsh", "");
+            let span = Span::new(source_id, 0, 0);
+            let retained_root = LoweredValue::FsRoot(crate::runtime::value::FsRootValue {
+                id: root_id,
+                owner: Arc::clone(&evaluator.resource_owner),
+            });
+            let frame = ProducerFrameState {
+                work: vec![FrameWork::Expr {
+                    instruction: 0,
+                    span,
+                    next: FrameContinuation::BinaryRight {
+                        op: BinaryOp::Add,
+                        left: retained_root,
+                        span,
+                        next: Box::new(FrameContinuation::Discard(span)),
+                    },
+                }],
+                slots: Vec::new(),
+                slot_scopes: Vec::new(),
+                defers: Vec::new(),
+                block_scopes: Vec::new(),
+                block_defer_offsets: Vec::new(),
+                scope_id: child_scope,
+            };
+            let state = ScriptStreamState::new(RetainedFrameStream(frame));
+            let mut stream = StreamValue::from_script(state);
+            evaluator.register_returned_stream(&mut stream, span).unwrap();
+
+            evaluator.transfer_owned_host_resources_in_stream(&stream, root_scope);
+
+            assert_eq!(
+                evaluator.fs_capabilities[0].as_ref().unwrap().owner_scope,
+                root_scope
+            );
+            evaluator.exit_owned_host_scope(child_scope).unwrap();
         });
     }
 
@@ -168,6 +264,41 @@ struct ListCompState {
     values: Vec<LoweredValue>,
     map_values: BTreeMap<MapKey, LoweredValue>,
     span: Span,
+}
+
+impl ListCompState {
+    fn visit_retained_values(
+        &self,
+        visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
+    ) {
+        for iterator in &self.iterators {
+            match iterator {
+                CompIterator::Scalars { .. } | CompIterator::Stream { .. } => {}
+                CompIterator::Map { cursor, .. } => cursor.visit_retained_values(visitor),
+                CompIterator::Items { items, .. } => {
+                    visit_retained_lowered_values(items.as_slice(), visitor);
+                }
+            }
+        }
+        for stream in self
+            .streams
+            .lock()
+            .expect("comprehension stream state poisoned")
+            .iter()
+            .flatten()
+        {
+            visitor(crate::runtime::eval::RetainedValueRef::Stream(&stream.0));
+        }
+        visit_retained_lowered_values(&self.values, visitor);
+        visit_retained_lowered_values(self.map_values.values(), visitor);
+    }
+}
+
+fn visit_retained_runtime(
+    value: &crate::runtime::value::Value,
+    visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
+) {
+    visitor(crate::runtime::eval::RetainedValueRef::Runtime(value));
 }
 
 struct FmtState {
@@ -502,6 +633,119 @@ enum FrameContinuation {
         key: Option<MapKey>,
         next: Box<FrameContinuation>,
     },
+}
+
+impl FrameContinuation {
+    fn visit_retained_values(
+        &self,
+        visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
+    ) {
+        use FrameContinuation as C;
+        match self {
+            C::WithBinding { .. }
+            | C::GuardInput { .. }
+            | C::Store(_)
+            | C::StoreTarget { .. }
+            | C::ParameterDefault { .. }
+            | C::Assign { .. }
+            | C::AssignSelector(_)
+            | C::AssignPath(_)
+            | C::Return { .. }
+            | C::BlockValue { .. }
+            | C::Discard(_)
+            | C::StatementIf { .. }
+            | C::PatternIf { .. }
+            | C::PatternWhile { .. }
+            | C::ForItems { .. }
+            | C::ForPipelineInput { .. }
+            | C::ForStrLines { .. }
+            | C::While { .. }
+            | C::MatchValue { .. }
+            | C::BreakLoop { .. }
+            | C::Yield { .. }
+            | C::YieldDelegate { .. } => {}
+            C::ErrorContextEntry { next, .. }
+            | C::ContextScopeEntry { next, .. }
+            | C::ComparisonLeft { next, .. }
+            | C::Field { next, .. }
+            | C::IndexBase { next, .. }
+            | C::IndexFromEnd { next, .. }
+            | C::BinaryLeft { next, .. }
+            | C::BoolBinaryRight { next, .. }
+            | C::If { next, .. }
+            | C::MatchExprValue { next, .. }
+            | C::DynamicCallee { next, .. }
+            | C::WrapOk(next)
+            | C::ProcCallResult(next)
+            | C::WrapErr { next, .. }
+            | C::Try { next, .. }
+            | C::CheckedValue { next, .. }
+            | C::Require { next, .. }
+            | C::MethodReceiver { next, .. }
+            | C::FmtValue { next, .. }
+            | C::ResultFallback { next, .. }
+            | C::RecordUpdateBase { next, .. } => next.visit_retained_values(visitor),
+            C::ComparisonRight { left, next, .. } | C::BinaryRight { left, next, .. } => {
+                visit_retained_lowered_value(left, visitor);
+                next.visit_retained_values(visitor);
+            }
+            C::IndexValue { base, next, .. } => {
+                visit_retained_lowered_value(base, visitor);
+                next.visit_retained_values(visitor);
+            }
+            C::ModuleArguments { values, next, .. } => {
+                visit_retained_lowered_values(values.iter().flatten(), visitor);
+                next.visit_retained_values(visitor);
+            }
+            C::MatchGuard { value, .. } => visit_retained_lowered_value(value, visitor),
+            C::MatchExprGuard { value, next, .. } => {
+                visit_retained_lowered_value(value, visitor);
+                next.visit_retained_values(visitor);
+            }
+            C::DynamicArguments { callee, values, next, .. } => {
+                visit_retained_lowered_value(callee, visitor);
+                visit_retained_lowered_values(values, visitor);
+                next.visit_retained_values(visitor);
+            }
+            C::CallArguments { values, next, .. } => {
+                visit_retained_lowered_values(values, visitor);
+                next.visit_retained_values(visitor);
+            }
+            C::AttachErrCause { error, next, .. } => {
+                visit_retained_runtime(error, visitor);
+                next.visit_retained_values(visitor);
+            }
+            C::MethodArg { receiver, values, next, .. } => {
+                visit_retained_lowered_value(receiver, visitor);
+                visit_retained_lowered_values(values, visitor);
+                next.visit_retained_values(visitor);
+            }
+            C::ListItems { values, next, .. } => {
+                visit_retained_lowered_values(values, visitor);
+                next.visit_retained_values(visitor);
+            }
+            C::MapLiteralItems { fields, next, .. } => {
+                visit_retained_lowered_values(fields.values(), visitor);
+                next.visit_retained_values(visitor);
+            }
+            C::RecordUpdateItems { base, values, next, .. } => {
+                visit_retained_lowered_value(base, visitor);
+                visit_retained_lowered_values(values.iter().map(|(_, value, _)| value), visitor);
+                next.visit_retained_values(visitor);
+            }
+            C::RecordItems { fields, next, .. } => {
+                visit_retained_lowered_values(fields.iter().map(|(_, value)| value), visitor);
+                next.visit_retained_values(visitor);
+            }
+            C::ListCompIter { state, next }
+            | C::ListCompCondition { state, next }
+            | C::ListCompKey { state, next }
+            | C::ListCompValue { state, next, .. } => {
+                state.visit_retained_values(visitor);
+                next.visit_retained_values(visitor);
+            }
+        }
+    }
 }
 
 // Propagated initializer errors stop compound evaluation at the existing With
@@ -1268,40 +1512,65 @@ impl ProducerFrameState {
 
     pub(super) fn owned_scope_id(&self) -> u64 { self.scope_id }
 
+    /// Visit every value retained between pulls so escaping producers keep
+    /// ownership of resources in both slots and unfinished work.
     pub(super) fn visit_retained_values(
         &self,
         visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
     ) {
         for slot in &self.slots {
-            visitor(crate::runtime::eval::RetainedValueRef::Lowered(
-                crate::runtime::eval::RetainedLoweredValue::new(slot),
-            ));
+            visit_retained_lowered_value(slot, visitor);
         }
         for work in &self.work {
             match work {
-                FrameWork::Value { value, .. } => match value {
-                    FrameValue::Value(value) | FrameValue::Break(value) => {
-                        visitor(crate::runtime::eval::RetainedValueRef::Lowered(
-                            crate::runtime::eval::RetainedLoweredValue::new(value),
-                        ));
+                FrameWork::ClearSlots(_) | FrameWork::GuardFailureEnd(_) => {}
+                FrameWork::ExpressionBoundary { next, .. } | FrameWork::Expr { next, .. } => {
+                    next.visit_retained_values(visitor);
+                }
+                FrameWork::CompCleanup(streams) => {
+                    for stream in streams
+                        .lock()
+                        .expect("comprehension stream state poisoned")
+                        .iter()
+                        .flatten()
+                    {
+                        visitor(crate::runtime::eval::RetainedValueRef::Stream(&stream.0));
                     }
-                },
+                }
+                FrameWork::Statements { .. }
+                | FrameWork::ForScalars { .. }
+                | FrameWork::While { .. }
+                | FrameWork::Loop { .. }
+                | FrameWork::PatternWhile { .. }
+                | FrameWork::FinishError => {}
+                FrameWork::Value { value, next } => {
+                    match value {
+                        FrameValue::Value(value) | FrameValue::Break(value) => {
+                            visit_retained_lowered_value(value, visitor);
+                        }
+                    }
+                    next.visit_retained_values(visitor);
+                }
+                FrameWork::ForMap { cursor, .. } => cursor.visit_retained_values(visitor),
                 FrameWork::ForItems { items, .. } => {
-                    for value in items {
-                        visitor(crate::runtime::eval::RetainedValueRef::Lowered(
-                            crate::runtime::eval::RetainedLoweredValue::new(value),
-                        ));
-                    }
+                    visit_retained_lowered_values(items, visitor);
                 }
                 FrameWork::ForStream { stream, .. } => {
                     visitor(crate::runtime::eval::RetainedValueRef::Stream(stream));
                 }
-                FrameWork::ForStrLines { text, .. } => {
-                    visitor(crate::runtime::eval::RetainedValueRef::Lowered(
-                        crate::runtime::eval::RetainedLoweredValue::new(text),
-                    ));
+                FrameWork::ForPipeline { pipeline, .. } => {
+                    pipeline.visit_retained_values(visitor);
                 }
-                _ => {}
+                FrameWork::ForStrLines { text, .. } => {
+                    visit_retained_lowered_value(text, visitor);
+                }
+                FrameWork::Finish(flow) => match flow {
+                    StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
+                        visit_retained_lowered_value(value, visitor);
+                    }
+                    StmtFlow::Break(Some(value)) => visit_retained_lowered_value(value, visitor),
+                    StmtFlow::None | StmtFlow::Break(None) | StmtFlow::Continue => {}
+                }
             }
         }
     }

@@ -96,6 +96,11 @@ impl Evaluator {
             let step = current
                 .lock(current_span)
                 .and_then(|mut producer| producer.poll(self, current_span));
+            let step = match (step, self.flush_pending_stream_captures()) {
+                (Err(error), _) => Err(error),
+                (Ok(_), Err(error)) => Err(error),
+                (Ok(step), Ok(())) => Ok(step),
+            };
             match step {
                 Ok(ScriptStreamStep::Delegate {
                     child,
