@@ -52,6 +52,7 @@ Resumed bounded slices have separate worktrees and disjoint shared-file hunks:
 | W2 next operand apply cohort | nine operand rows and shared operand continuation; preserve observable order | +350 lexical / 1,600 interim; final deletion offsets required |
 | W2 statement frames | Print/Cd/Env on the active machine with per-operand conversion and balanced scope restoration | +200 lexical / 1,800 interim; remove replaced readers and recursive handlers; final W2 shrink required |
 | W2 binary recursive retirement | reuse the existing FrameControl binary handler and delete its duplicate recursive reader/helper; preserve assertion-specific reporting | net < 0 / 350 touched; isolated binary hunks, no new schema or machine factory |
+| W2 branch and host leaves | PatternIf, specialized Str/Tag expression matches, Glob and LastStatus use the active frame machine and borrowed views | net <= 0 / 2,000 touched; remove replaced recursive handlers, preserve branch scopes and current diagnostics |
 | Indexed dead state | callerless owned ID/tag inspection readers and unconsumed defer-presence metadata chain | net < 0 / 500 touched; preserve all tag rows and live function-kind validation |
 | W1 stable live wire ordinals | preserve surviving tag numbers after three proven-dead row deletions | net <= 0 / 250 touched; no decoder fallback |
 | W1 decoder gap tests | isolated native stage and pattern scenarios plus exact frozen counter proof | zero production / 500 test touched per owner; unreachable arms need writer/caller closure |
