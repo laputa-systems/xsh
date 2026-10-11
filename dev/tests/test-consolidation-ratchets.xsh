@@ -1,4 +1,4 @@
-use consolidation_metrics as metrics
+use consolidation_metrics_current as metrics
 
 type AuditRise = {metric: Str, baseline: Int, current: Int, ceiling: Int, approval: Str, reason: Str, remove_when: Str}
 
@@ -49,11 +49,16 @@ proc install_blanket_baseline(root: Path, original: metrics.Report, corrected: m
   fp"{root}/dev/consolidation".mkdir()
   fp"{root}/dev/tests".mkdir()
   fp"{root}/dev/consolidation_metrics.xsh".write("scanner fixture\n")
+  fp"{root}/dev/consolidation_metrics_current.xsh".write("current scanner fixture\n")
   fp"{root}/dev/tests/test-consolidation-ratchets.xsh".write("ratchet fixture\n")
   let original_path = fp"{root}/dev/consolidation/baseline.json"
   let corrected_path = fp"{root}/dev/consolidation/baseline-blanket-scope.json"
+  let diagnostic_path = fp"{root}/dev/consolidation/blanket-metric-start-diagnostic.json"
+  let item_inventory_path = fp"{root}/dev/consolidation/item-allowances-start.json"
   json.write(original_path, original)
   json.write(corrected_path, corrected)
+  json.write(diagnostic_path, corrected)
+  json.write(item_inventory_path, {schema: 1, entries: []})
   let original_hash = hash.sha256(original_path)?.hex().lower()
   let corrected_hash = hash.sha256(corrected_path)?.hex().lower()
   let source_manifest_hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -76,6 +81,36 @@ proc install_blanket_baseline(root: Path, original: metrics.Report, corrected: m
   }
   let provenance_path = fp"{root}/dev/consolidation/blanket-metric-provenance.json"
   json.write(provenance_path, provenance)
+  let metric_values = collect { for row in corrected.metrics { yield {name: row.name, value: row.value} } }
+  json.write(fp"{root}/dev/consolidation/metric-observer-successor.json", {
+    schema: 1,
+    original_scanner_path: "dev/consolidation_metrics.xsh",
+    original_scanner_sha256: provenance.scanner_sha256,
+    successor_scanner_path: "dev/consolidation_metrics_current.xsh",
+    successor_scanner_sha256: hash.sha256(fp"{root}/dev/consolidation_metrics_current.xsh")?.hex().lower(),
+    original_baseline_path: "dev/consolidation/baseline.json",
+    original_baseline_sha256: original_hash,
+    corrected_baseline_path: "dev/consolidation/baseline-blanket-scope.json",
+    corrected_baseline_sha256: corrected_hash,
+    metadata_sha256: hash.sha256(fp"{root}/dev/consolidation/baseline-metadata.json")?.hex().lower(),
+    historical_provenance_sha256: hash.sha256(provenance_path)?.hex().lower(),
+    baseline_provenance_sha256: hash.sha256(provenance_path)?.hex().lower(),
+    historical_ratchet_tests_sha256: provenance.ratchet_tests_sha256,
+    current_ratchet_tests_sha256: provenance.ratchet_tests_sha256,
+    start_commit: provenance.start_commit,
+    source_manifest_sha256: provenance.source_manifest_sha256,
+    same_baseline: {
+      report_path: "dev/consolidation/blanket-metric-start-diagnostic.json",
+      report_sha256: hash.sha256(diagnostic_path)?.hex().lower(),
+      legacy_report_sha256: hash.sha256(diagnostic_path)?.hex().lower(),
+      successor_report_sha256: hash.sha256(diagnostic_path)?.hex().lower(),
+      metric_values: metric_values,
+      source_count: corrected.sources.len(),
+      item_inventory_path: "dev/consolidation/item-allowances-start.json",
+      item_inventory_sha256: hash.sha256(item_inventory_path)?.hex().lower(),
+      item_inventory_entries: 0,
+    },
+  })
   provenance_path
 }
 
@@ -455,7 +490,7 @@ test test_corrected_blanket_baseline_requires_provenance_and_changes_only_its_me
 type ReviewFixture = {root: Path, commit: Str, sources: List[metrics.ReviewSource], artifact: metrics.ReviewArtifact}
 
 const review_directory_paths = ["src", "crates", "tests", "core", "examples", "showcase", "tools", "dev/tests"]
-const review_source_paths = [@review_directory_paths, "dev/consolidation_metrics.xsh", "dev/consolidation/metrics.xsh"]
+const review_source_paths = [@review_directory_paths, "dev/consolidation_metrics.xsh", "dev/consolidation_metrics_current.xsh", "dev/consolidation/metrics.xsh"]
 
 proc git_output(root: Path, arguments: List[Str]) [process, error] -> Str {
   let argv = ["git", "-C", root.display(), @arguments]
@@ -475,6 +510,7 @@ proc review_fixture(ctx: TestContext) [fs, process, error] -> Result[ReviewFixtu
   fp"{root}/crates/xsht/src/lib.rs".write("// xsht fixture\n")
   fp"{root}/dev/consolidation".mkdir()
   fp"{root}/dev/consolidation_metrics.xsh".write("# metrics fixture\n")
+  fp"{root}/dev/consolidation_metrics_current.xsh".write("# current metrics fixture\n")
   fp"{root}/dev/consolidation/metrics.xsh".write("# driver fixture\n")
   fp"{root}/.work".mkdir()
   fp"{root}/.work/proofs".mkdir()

@@ -1,5 +1,5 @@
 #!/usr/bin/env -S xsh --
-use consolidation_metrics as metrics
+use consolidation_metrics_current as metrics
 
 type Options = {action: Str, root: Path, source: Str, xsht_source: Str, output: Path, audit: Str, baseline: Str, baseline_provenance: Str, envelope: Str, input: Str, item_inventory: Str, review_evidence: Str}
 type Limit = {metric: Str, ceiling: Int, approval: Str, reason: Str, remove_when: Str}

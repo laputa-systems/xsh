@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "original_scanner_path": "dev/consolidation_metrics.xsh",
+  "original_scanner_sha256": "da2c3e70cf6cc08e79ff7eba3ce5ebaf05848203cd7f21797150141155f35e79",
+  "successor_scanner_path": "dev/consolidation_metrics_current.xsh",
+  "successor_scanner_sha256": "926ce871f3c1d69340de3555979645fd7b491be7dd87c9eaa6439b2c92c50748",
+  "original_baseline_path": "dev/consolidation/baseline.json",
+  "original_baseline_sha256": "be63588c6888fb7907d5f1054ee4b1559559eb70d784fd7ae15797826d06dbd6",
+  "corrected_baseline_path": "dev/consolidation/baseline-blanket-scope.json",
+  "corrected_baseline_sha256": "34dd9d979c2cfb348a29e46c640d999f957a17b2d97cdae10bba8d654ffc463b",
+  "metadata_sha256": "796a9e85f84bf78496271a6098d185410aa3dab25c9301092bfb941b7055d1a8",
+  "historical_provenance_sha256": "0e78586a803abaa519b4677e2662ef09016fdec9eef85549dec39602a258633a",
+  "baseline_provenance_sha256": "af20ea9de439e7cd7dc8c7190078a4797b3ba77f59bd35dfdb04cf9d6c2941d8",
+  "historical_ratchet_tests_sha256": "03476ced9d86706c4da0ffac8f909bd4e3ca568c25a8f593e8646265493ca147",
+  "current_ratchet_tests_sha256": "b80a707499f98fca7d1f37e4cae678c3bee4f0d4f3d8a331f57bc6fb0c412051",
+  "start_commit": "5e66b6b896a47d0c692739135d51200b007a2a67",
+  "source_manifest_sha256": "035fa1d95aae1668635441709ff81cbe38fb91cc9f7f8d59156f534d9f8ca0a2",
+  "same_baseline": {
+    "report_path": "dev/consolidation/blanket-metric-start-diagnostic.json",
+    "report_sha256": "322ea03664f2478abb57362fbd0bda714715ff3020dd6316f827f2b441e891d3",
+    "legacy_report_sha256": "322ea03664f2478abb57362fbd0bda714715ff3020dd6316f827f2b441e891d3",
+    "successor_report_sha256": "322ea03664f2478abb57362fbd0bda714715ff3020dd6316f827f2b441e891d3",
+    "metric_values": [
+      {"name": "blanket_dead_code_lines", "value": 47061},
+      {"name": "instruction_variants", "value": 158},
+      {"name": "lowering_type_resolver_definitions", "value": 2},
+      {"name": "manual_payload_calls", "value": 923},
+      {"name": "nested_machine_factory_calls", "value": 5},
+      {"name": "optional_raw_calls", "value": 43},
+      {"name": "pattern_variants", "value": 18},
+      {"name": "source_lines_src", "value": 189274},
+      {"name": "source_lines_xsht", "value": 49968},
+      {"name": "stage_variants", "value": 46},
+      {"name": "static_type_predicate_definitions", "value": 3},
+      {"name": "type_storage_mapping_definitions", "value": 4},
+      {"name": "wide_arena_wildcards", "value": 57}
+    ],
+    "source_count": 306,
+    "item_inventory_path": "dev/consolidation/item-allowances-start.json",
+    "item_inventory_sha256": "269f793535e0bee19aabeb96b721314d4f2852db12b73e254ba9a283e7c75c26",
+    "item_inventory_entries": 45
+  }
+}

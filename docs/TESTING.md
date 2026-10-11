@@ -4,16 +4,22 @@ Choose the narrowest useful command first, then run the broader gate for the
 area touched. This file owns the gate commands; architecture and invariants are
 in `docs/ARCHITECTURE.md`.
 
-The consolidation batch also measures production source and structural ratchets
-with `dev/consolidation/metrics.xsh`. It writes the current report and every
-baseline rise to `.work/consolidation/current.json` and `rises.json`. Source totals and touched-line budgets are advisory, following the owner's
-performance priority; reports retain both source totals and every rise.
-Structural metrics remain bounded by the baseline. Envelope approvals annotate
-the audit without permitting structural rises. Missing or unknown limits fail.
-Final closure rejects the envelope, requires zero blanket dead-code scopes,
-and consumes independently reviewed semantic evidence. The original baseline
-and its historical provenance remain unchanged; current gates use the successor
-source-advisory provenance.
+The consolidation batch measures production source and structural ratchets with
+`dev/consolidation/metrics.xsh`, which imports the versioned observer
+`dev/consolidation_metrics_current.xsh`. It writes the current report and every
+baseline rise to `.work/consolidation/current.json` and `rises.json`. The
+observer counts generated pattern rows from `pattern_schema!` and retains a
+handwritten `BuildPatternRow` fallback for the frozen start source. The current
+observer is included in final review source identities. The original
+`dev/consolidation_metrics.xsh` scanner, baselines, and their historical
+provenance stay byte-preserved; `metric-observer-successor.json` binds both
+scanner hashes and records the exact same-baseline metric and source inventory
+proof. Source totals and touched-line budgets are advisory, following the
+owner's performance priority; reports retain both source totals and every
+rise. Structural metrics remain bounded by the baseline. Envelope approvals
+annotate the audit without permitting structural rises. Missing or unknown
+limits fail. Final closure rejects the envelope, requires zero blanket
+dead-code scopes, and consumes independently reviewed semantic evidence.
 
 ## Native tests first
 
