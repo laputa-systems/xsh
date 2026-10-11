@@ -129,8 +129,8 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     prepared.text,
     {
       gnu: {status: 1},
-      help: {form: "-h --help", default: false, stop: true},
-      version: {form: "-V --version", default: false, stop: true},
+      help: {form: "--help", default: false, stop: true},
+      version: {form: "--version", default: false, stop: true},
       warn: {form: "-w", default: false},
       files: {form: "...FILE"},
     },
