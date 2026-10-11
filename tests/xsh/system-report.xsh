@@ -190,7 +190,7 @@ test test_system_report_class_parent_retains_independent_fallback_and_link_failu
   assert directory.state == .Observed
   assert directory.target == null
 
-  root.symlink(../../devices/pci0000:00/0000:03:00.0/drm/card1, p"sys/class/drm/card1")
+  root.symlink(target: ../../devices/pci0000:00/0000:03:00.0/drm/card1, path: p"sys/class/drm/card1")
   let fallback = collector.class_parent_target(root, p"sys/class/drm/card1")
   assert fallback.state == .Observed
   assert collector.usb_parent_address(fallback.target.require()?) == "0000:03:00.0"
@@ -280,8 +280,8 @@ test test_system_report_device_classes_keep_sound_and_input_without_drm {
     """fixture keyboard
 """,
   )
-  root.symlink(../../../devices/virtual/sound/card0, p"sys/class/sound/card0/device")
-  root.symlink(../../../devices/virtual/input/input0, p"sys/class/input/input0/device")
+  root.symlink(target: ../../../devices/virtual/sound/card0, path: p"sys/class/sound/card0/device")
+  root.symlink(target: ../../../devices/virtual/input/input0, path: p"sys/class/input/input0/device")
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "devices", true)?
@@ -347,7 +347,7 @@ test test_system_report_usb_controller_link_distinguishes_directories_disappeara
   assert directory.state == .Observed
   assert directory.address == null
 
-  root.symlink(../../../devices/pci0000:00/0000:04:00.4/usb4/4-2, p"sys/bus/usb/devices/4-2")
+  root.symlink(target: ../../../devices/pci0000:00/0000:04:00.4/usb4/4-2, path: p"sys/bus/usb/devices/4-2")
   let linked = collector.usb_controller_address(root, p"sys/bus/usb/devices/4-2")
   assert linked.state == .Observed
   assert linked.address == "0000:04:00.4"
@@ -371,7 +371,7 @@ test test_system_report_driver_link_distinguishes_unbound_and_unreadable_devices
   assert unbound.observation.state == .Absent
   assert unbound.observation.value == null
 
-  root.symlink(p"example-driver", p"sys/devices/example/driver")
+  root.symlink(target: p"example-driver", path: p"sys/devices/example/driver")
   let bound = collector.optional_driver_name(root, p"sys/devices/example/driver")
   assert bound.observation.state == .Observed
   assert bound.observation.value == "example-driver"
@@ -412,7 +412,7 @@ test test_system_report_network_device_links_keep_absence_separate_from_failures
   assert absent.issues == []
   assert absent.links[0].parent_pci_function_index == null
 
-  root.symlink(../../../devices/pci0000:00/0001:02:03.0, p"sys/class/net/eth0/device")
+  root.symlink(target: ../../../devices/pci0000:00/0001:02:03.0, path: p"sys/class/net/eth0/device")
   let linked = collector.link_network_device_sources(root, source, snapshot.pci.functions, [])
   assert linked.status.state == .Complete
   assert linked.links[0].parent_pci_function_index == 1
@@ -471,10 +471,10 @@ test test_system_report_identity_uses_vendor_os_release_only_when_local_file_is_
   defer root.close()
   root.mkdir(p"usr/lib", parents: true)
   root.mkdir(p"proc/self/ns", parents: true)
-  root.symlink(p"uts:[1001]", p"proc/self/ns/uts")
-  root.symlink(p"ipc:[1002]", p"proc/self/ns/ipc")
-  root.symlink(p"user:[1003]", p"proc/self/ns/user")
-  root.symlink(p"time:[1004]", p"proc/self/ns/time")
+  root.symlink(target: p"uts:[1001]", path: p"proc/self/ns/uts")
+  root.symlink(target: p"ipc:[1002]", path: p"proc/self/ns/ipc")
+  root.symlink(target: p"user:[1003]", path: p"proc/self/ns/user")
+  root.symlink(target: p"time:[1004]", path: p"proc/self/ns/time")
   root.write(
     p"usr/lib/os-release",
     """ID=vendor
@@ -912,7 +912,7 @@ test test_system_report_scope_keeps_all_process_visible_namespace_identities {
       target: "time:[108]",
     },
   ] {
-    root.symlink(fp"{namespace.target}", fp"proc/self/ns/{namespace.name}")
+    root.symlink(target: fp"{namespace.target}", path: fp"proc/self/ns/{namespace.name}")
   }
 
   root.write(
@@ -1855,8 +1855,8 @@ test test_system_report_pci_collection_links_a_child_to_its_bridge {
   let child_path = p"sys/devices/pci0001:02/0001:02:01.0/0001:02:03.0"
   root.mkdir(child_path, parents: true)
   root.mkdir(p"sys/bus/pci/devices", parents: true)
-  root.symlink(../../../devices/pci0001:02/0001:02:01.0, p"sys/bus/pci/devices/0001:02:01.0")
-  root.symlink(../../../devices/pci0001:02/0001:02:01.0/0001:02:03.0, p"sys/bus/pci/devices/0001:02:03.0")
+  root.symlink(target: ../../../devices/pci0001:02/0001:02:01.0, path: p"sys/bus/pci/devices/0001:02:01.0")
+  root.symlink(target: ../../../devices/pci0001:02/0001:02:01.0/0001:02:03.0, path: p"sys/bus/pci/devices/0001:02:03.0")
   for device_path in [parent_path, child_path] {
     root.write(
       fp"{device_path}/vendor",
@@ -1974,8 +1974,8 @@ test test_system_report_pci_multifunction_keeps_optional_link_sources_distinct {
     )
   }
 
-  root.symlink(../../../devices/pci0000:01/0000:01:02.0, p"sys/bus/pci/devices/0000:01:02.0")
-  root.symlink(../../../devices/pci0000:01/0000:01:02.1, p"sys/bus/pci/devices/0000:01:02.1")
+  root.symlink(target: ../../../devices/pci0000:01/0000:01:02.0, path: p"sys/bus/pci/devices/0000:01:02.0")
+  root.symlink(target: ../../../devices/pci0000:01/0000:01:02.1, path: p"sys/bus/pci/devices/0000:01:02.1")
   root.write(
     fp"{first_path}/current_link_speed",
     """8.0 GT/s PCIe
@@ -3331,7 +3331,7 @@ test test_system_report_cpu_present_symlinks_cannot_cycle_or_escape_the_source_r
   outside.write(p"present", "0")
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
 
-  root.symlink(p"present", p"sys/devices/system/cpu/present")
+  root.symlink(target: p"present", path: p"sys/devices/system/cpu/present")
   let cycled = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
   assert cycled.cpu.present == []
   assert ! cycled.cpu.status.enumeration_succeeded
@@ -3339,7 +3339,7 @@ test test_system_report_cpu_present_symlinks_cannot_cycle_or_escape_the_source_r
 
   root.remove(p"sys/devices/system/cpu/present")
   let outside_path = outside.host_path()?
-  root.symlink(fp"{outside_path}/present", p"sys/devices/system/cpu/present")
+  root.symlink(target: fp"{outside_path}/present", path: p"sys/devices/system/cpu/present")
   let escaped = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
   assert escaped.cpu.present == []
   assert ! escaped.cpu.status.enumeration_succeeded
@@ -3414,7 +3414,7 @@ test test_system_report_cpu_vulnerability_read_failures_keep_named_issues {
     """Mitigation: fixture policy
 """,
   )
-  root.symlink(p"missing", p"sys/devices/system/cpu/vulnerabilities/spectre_v1")
+  root.symlink(target: p"missing", path: p"sys/devices/system/cpu/vulnerabilities/spectre_v1")
   var oversized = "x"
   while oversized.count_chars() <= 16384 {
     oversized = f"{oversized}{oversized}"
@@ -4708,8 +4708,8 @@ test test_system_report_storage_links_block_devices_to_pci_controllers {
 """,
   )
   assert root.children(p"sys/bus/pci/devices")?.children.len() == 1
-  root.symlink(../../devices/pci0001:02/0001:02:03.0/block/nvme0n1, p"sys/class/block/nvme0n1")
-  root.symlink(../../nvme0, p"sys/devices/pci0001:02/0001:02:03.0/block/nvme0n1/device")
+  root.symlink(target: ../../devices/pci0001:02/0001:02:03.0/block/nvme0n1, path: p"sys/class/block/nvme0n1")
+  root.symlink(target: ../../nvme0, path: p"sys/devices/pci0001:02/0001:02:03.0/block/nvme0n1/device")
   root.write(
     p"sys/devices/pci0001:02/0001:02:03.0/block/nvme0n1/dev",
     """259:0
@@ -5160,8 +5160,8 @@ test test_system_report_storage_links_layered_block_devices_by_identity {
     """253:0
 """,
   )
-  root.symlink(../../dm-0, p"sys/class/block/sda/holders/dm-0")
-  root.symlink(../../sda, p"sys/class/block/dm-0/slaves/sda")
+  root.symlink(target: ../../dm-0, path: p"sys/class/block/sda/holders/dm-0")
+  root.symlink(target: ../../sda, path: p"sys/class/block/dm-0/slaves/sda")
   root.mkdir(p"proc/self", parents: true)
   root.write(p"proc/self/mountinfo", "")
 
@@ -5198,7 +5198,7 @@ test test_system_report_storage_keeps_sparse_partition_numbers_and_parent_links 
     """1024
 """,
   )
-  root.symlink(../../devices/pci0000:00/0000:00:01.0/block/sda, p"sys/class/block/sda")
+  root.symlink(target: ../../devices/pci0000:00/0000:00:01.0/block/sda, path: p"sys/class/block/sda")
   for number in [1, 3] {
     let name = f"sda{number}"
     let partition_path = fp"{disk_path}/{name}"
@@ -5218,7 +5218,7 @@ test test_system_report_storage_keeps_sparse_partition_numbers_and_parent_links 
       """128
 """,
     )
-    root.symlink(fp"../../devices/pci0000:00/0000:00:01.0/block/sda/{name}", fp"sys/class/block/{name}")
+    root.symlink(target: fp"../../devices/pci0000:00/0000:00:01.0/block/sda/{name}", path: fp"sys/class/block/{name}")
   }
 
   root.mkdir(p"proc/self", parents: true)
@@ -6274,7 +6274,7 @@ test test_system_report_hwmon_identity_separates_duplicate_chip_names {
   let pci_path = p"sys/devices/pci0000:00/0000:00:1f.3"
   root.mkdir(pci_path, parents: true)
   root.mkdir(p"sys/bus/pci/devices", parents: true)
-  root.symlink(../../../devices/pci0000:00/0000:00:1f.3, p"sys/bus/pci/devices/0000:00:1f.3")
+  root.symlink(target: ../../../devices/pci0000:00/0000:00:1f.3, path: p"sys/bus/pci/devices/0000:00:1f.3")
   for field in [
     {
       name: "vendor",
@@ -6310,7 +6310,7 @@ test test_system_report_hwmon_identity_separates_duplicate_chip_names {
     root.write(fp"{pci_path}/{field.name}", field.value)
   }
 
-  root.symlink(../../../devices/pci0000:00/0000:00:1f.3, p"sys/class/hwmon/hwmon0/device")
+  root.symlink(target: ../../../devices/pci0000:00/0000:00:1f.3, path: p"sys/class/hwmon/hwmon0/device")
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   let snapshot = collector.collect_from_root(root, "fixture-arch", 4096, 100, "sensors", true)?
@@ -6475,7 +6475,7 @@ test test_system_report_sensor_and_power_sources_keep_raw_units_and_partial_attr
     """core-0
 """,
   )
-  root.symlink(p"intel-rapl:0/intel-rapl:0:0", p"sys/class/powercap/intel-rapl:0:0")
+  root.symlink(target: p"intel-rapl:0/intel-rapl:0:0", path: p"sys/class/powercap/intel-rapl:0:0")
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let no_thermal = collector.collect_from_root(root, "fixture-arch", 4096, 100, "sensors", true)?

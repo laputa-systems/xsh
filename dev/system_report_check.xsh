@@ -4768,7 +4768,7 @@ export proc capture_power_supply_bundle(
       }
 
       if entry.class_target != null {
-        bundle.symlink(fp"{entry.class_target}", fp"sys/class/power_supply/{entry.name}")
+        bundle.symlink(target: fp"{entry.class_target}", path: fp"sys/class/power_supply/{entry.name}")
       }
     }
   }
@@ -5366,7 +5366,7 @@ export proc capture_powercap_bundle(
 
     for zone in layout.zones {
       if zone.class_target != null {
-        bundle.symlink(fp"{zone.class_target}", fp"sys/class/powercap/{zone.entry_name}")
+        bundle.symlink(target: fp"{zone.class_target}", path: fp"sys/class/powercap/{zone.entry_name}")
       }
     }
   }
@@ -6367,11 +6367,11 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
       }
 
       if chip.device_target != null {
-        bundle.symlink(fp"{chip.device_target}", fp"{chip.storage_path}/device")
+        bundle.symlink(target: fp"{chip.device_target}", path: fp"{chip.storage_path}/device")
       }
 
       if chip.class_target != null {
-        bundle.symlink(fp"{chip.class_target}", fp"sys/class/hwmon/{chip.name}")
+        bundle.symlink(target: fp"{chip.class_target}", path: fp"sys/class/hwmon/{chip.name}")
       }
     }
   }
@@ -8100,7 +8100,7 @@ export proc capture_cpu_topology_bundle(
   }
 
   for link in layout.node_links {
-    bundle.symlink(fp"{link.target}", fp"sys/devices/system/cpu/cpu{link.cpu_id}/{link.name}")
+    bundle.symlink(target: fp"{link.target}", path: fp"sys/devices/system/cpu/cpu{link.cpu_id}/{link.name}")
   }
 
   var sources: List[CpuTopologySourceObservation] = []
@@ -11401,14 +11401,14 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
     for function in layout.functions {
       bundle.mkdir(fp"{function.storage_path}", mode: 0o700, parents: true)
       if function.driver_target != null {
-        bundle.symlink(fp"{function.driver_target}", fp"{function.storage_path}/driver")
+        bundle.symlink(target: fp"{function.driver_target}", path: fp"{function.storage_path}/driver")
       }
 
       if function.iommu_target != null {
-        bundle.symlink(fp"{function.iommu_target}", fp"{function.storage_path}/iommu_group")
+        bundle.symlink(target: fp"{function.iommu_target}", path: fp"{function.storage_path}/iommu_group")
       }
 
-      bundle.symlink(fp"{function.class_target}", fp"sys/bus/pci/devices/{function.address}")
+      bundle.symlink(target: fp"{function.class_target}", path: fp"sys/bus/pci/devices/{function.address}")
     }
   }
 
@@ -11738,10 +11738,10 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
 
     for entry in layout.entries {
       if entry.driver_target != null {
-        bundle.symlink(fp"{entry.driver_target}", fp"{entry.storage_path}/driver")
+        bundle.symlink(target: fp"{entry.driver_target}", path: fp"{entry.storage_path}/driver")
       }
 
-      bundle.symlink(fp"{entry.class_target}", fp"sys/bus/usb/devices/{entry.name}")
+      bundle.symlink(target: fp"{entry.class_target}", path: fp"sys/bus/usb/devices/{entry.name}")
     }
   }
 
@@ -15043,13 +15043,13 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
           if link.target == null {
             bundle.mkdir(destination, mode: 0o700)
           } else {
-            bundle.symlink(fp"{link.target}", destination)
+            bundle.symlink(target: fp"{link.target}", path: destination)
           }
         }
       }
 
       if entry.class_target != null {
-        bundle.symlink(fp"{entry.class_target}", fp"sys/class/block/{entry.name}")
+        bundle.symlink(target: fp"{entry.class_target}", path: fp"sys/class/block/{entry.name}")
       }
     }
   }

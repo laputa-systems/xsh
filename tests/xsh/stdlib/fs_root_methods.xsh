@@ -64,13 +64,13 @@ test fs_root_methods_keep_mutation_defaults_and_symlink_confinement { |ctx|
   root.write(p"nested/data", "data")
   root.chmod(p"nested/data", 0o600)
   assert root.metadata(p"nested/data")?.mode % 512 == 0o600
-  root.symlink(p"data", p"nested/link")
+  root.symlink(target: p"data", path: p"nested/link")
   assert root.readlink(p"nested/link")? == p"data"
   assert root.readlink_result(p"nested/link")?.state == "observed"
   assert root.read_text(p"nested/link")? == "data"
   assert root.readlink_result(p"missing")?.state == "absent"
   let outside = test.temp_path(ctx, name: "root-outside")
-  root.symlink(outside, p"escape")
+  root.symlink(target: outside, path: p"escape")
   test.error_kind(root.read_text(p"escape"), "fs-root-read")
   root.remove(p"nested/link")
   assert ! root.exists(p"nested/link")?

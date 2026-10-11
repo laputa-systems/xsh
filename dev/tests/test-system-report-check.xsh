@@ -873,7 +873,7 @@ test test_system_report_usb_interface_rooted_reference_reads_driver_active_class
     """01
 """,
   )
-  root.symlink(../../drivers/usbhid, fp"{interface_path}/driver")
+  root.symlink(target: ../../drivers/usbhid, path: fp"{interface_path}/driver")
   let rows = report_checks.read_usb_interface_reference(root)?
   assert rows.len() == 1
   assert rows[0].driver == {value: "usbhid", complete: true}
@@ -1011,7 +1011,7 @@ test test_system_report_power_supply_bundle_replays_raw_attributes_and_rejects_t
   let battery = p"sys/devices/platform/example/power_supply/BAT0"
   source.mkdir(battery, parents: true)
   source.mkdir(p"sys/class/power_supply", parents: true)
-  source.symlink(../../devices/platform/example/power_supply/BAT0, p"sys/class/power_supply/BAT0")
+  source.symlink(target: ../../devices/platform/example/power_supply/BAT0, path: p"sys/class/power_supply/BAT0")
   for item in [
     {
       name: "type",
@@ -1128,7 +1128,7 @@ test test_system_report_power_supply_bundle_rejects_escaping_class_link {
   let bundle = fs.tempdir()?
   defer bundle.close()
   source.mkdir(p"sys/class/power_supply", parents: true)
-  source.symlink(../../devices/../rogue/BAT0, p"sys/class/power_supply/BAT0")
+  source.symlink(target: ../../devices/../rogue/BAT0, path: p"sys/class/power_supply/BAT0")
   test.error_kind(
     report_checks.capture_power_supply_bundle(source, bundle, "synthetic_fixture"),
     "SystemReportCheckError.Invalid",
@@ -1303,7 +1303,7 @@ test test_system_report_powercap_rooted_reference_keeps_zone_parent_and_sparse_c
     """core-0
 """,
   )
-  root.symlink(p"intel-rapl:0/intel-rapl:0:0", p"sys/class/powercap/intel-rapl:0:0")
+  root.symlink(target: p"intel-rapl:0/intel-rapl:0:0", path: p"sys/class/powercap/intel-rapl:0:0")
   let zones = report_checks.read_powercap_reference(root)?
   assert zones.len() == 2
   let package_zone = zones
@@ -1361,10 +1361,10 @@ test test_system_report_powercap_capture_replays_nested_zones_and_rejects_tamper
     """core-0
 """,
   )
-  source.symlink(../../devices/virtual/powercap/intel-rapl/intel-rapl:0, p"sys/class/powercap/intel-rapl:0")
+  source.symlink(target: ../../devices/virtual/powercap/intel-rapl/intel-rapl:0, path: p"sys/class/powercap/intel-rapl:0")
   source.symlink(
-    ../../devices/virtual/powercap/intel-rapl/intel-rapl:0/intel-rapl:0:0,
-    p"sys/class/powercap/intel-rapl:0:0",
+    target: ../../devices/virtual/powercap/intel-rapl/intel-rapl:0/intel-rapl:0:0,
+    path: p"sys/class/powercap/intel-rapl:0:0",
   )
   report_checks.capture_powercap_bundle(source, bundle, "synthetic_fixture")
   let metadata = bundle.read_text(p"capture.json")?
@@ -1399,7 +1399,7 @@ test test_system_report_powercap_capture_preserves_absence_and_rejects_unrelated
 """,
   )
   source.mkdir(p"sys/class/powercap", parents: true)
-  source.symlink(../../devices/virtual/powercap/../rogue, p"sys/class/powercap/rogue")
+  source.symlink(target: ../../devices/virtual/powercap/../rogue, path: p"sys/class/powercap/rogue")
   let second_bundle = fs.tempdir()?
   defer second_bundle.close()
   test.error_kind(
@@ -1416,7 +1416,7 @@ test test_system_report_pci_capture_replays_raw_identity_links_and_rejects_tampe
   let device = p"sys/devices/pci0000:00/0000:00:1f.0"
   source.mkdir(device, parents: true)
   source.mkdir(p"sys/bus/pci/devices", parents: true)
-  source.symlink(../../../devices/pci0000:00/0000:00:1f.0, p"sys/bus/pci/devices/0000:00:1f.0")
+  source.symlink(target: ../../../devices/pci0000:00/0000:00:1f.0, path: p"sys/bus/pci/devices/0000:00:1f.0")
   for item in [
     {
       name: "vendor",
@@ -1477,8 +1477,8 @@ test test_system_report_pci_capture_replays_raw_identity_links_and_rejects_tampe
     source.write(fp"{device}/{item.name}", item.value)
   }
 
-  source.symlink(../../../bus/pci/drivers/example, fp"{device}/driver")
-  source.symlink(../../../kernel/iommu_groups/7, fp"{device}/iommu_group")
+  source.symlink(target: ../../../bus/pci/drivers/example, path: fp"{device}/driver")
+  source.symlink(target: ../../../kernel/iommu_groups/7, path: fp"{device}/iommu_group")
   report_checks.capture_pci_bundle(source, bundle, "synthetic_fixture")
   let replay = report_checks.replay_pci_bundle(bundle)?
   assert replay.identity.exact_static
@@ -1508,7 +1508,7 @@ test test_system_report_hwmon_capture_replays_raw_channels_and_rejects_tampering
   let chip = p"sys/devices/platform/example/hwmon/hwmon3"
   source.mkdir(chip, parents: true)
   source.mkdir(p"sys/class/hwmon", parents: true)
-  source.symlink(../../devices/platform/example/hwmon/hwmon3, p"sys/class/hwmon/hwmon3")
+  source.symlink(target: ../../devices/platform/example/hwmon/hwmon3, path: p"sys/class/hwmon/hwmon3")
   source.write(
     fp"{chip}/name",
     """example
@@ -1565,14 +1565,14 @@ test test_system_report_hwmon_capture_rejects_escaping_class_link {
   let bundle = fs.tempdir()?
   defer bundle.close()
   source.mkdir(p"sys/class/hwmon", parents: true)
-  source.symlink(../../devices/../rogue/hwmon3, p"sys/class/hwmon/hwmon3")
+  source.symlink(target: ../../devices/../rogue/hwmon3, path: p"sys/class/hwmon/hwmon3")
   test.error_kind(
     report_checks.capture_hwmon_bundle(source, bundle, "synthetic_fixture"),
     "SystemReportCheckError.Invalid",
   )
   source.remove(p"sys/class/hwmon/hwmon3")
   source.mkdir(p"sys/class/hwmon/hwmon3")
-  source.symlink(../../../etc, p"sys/class/hwmon/hwmon3/device")
+  source.symlink(target: ../../../etc, path: p"sys/class/hwmon/hwmon3/device")
   test.error_kind(
     report_checks.capture_hwmon_bundle(source, bundle, "synthetic_fixture"),
     "SystemReportCheckError.Invalid",
@@ -1614,11 +1614,11 @@ test test_system_report_block_bundle_replays_sparse_partition_and_layered_edges 
     source.mkdir(fp"{device}/slaves", parents: true)
   }
 
-  source.symlink(../../devices/pci0000:00/0000:00:01.0/block/sda, p"sys/class/block/sda")
-  source.symlink(../../devices/pci0000:00/0000:00:01.0/block/sda/sda3, p"sys/class/block/sda3")
-  source.symlink(../../devices/virtual/block/dm-0, p"sys/class/block/dm-0")
-  source.symlink(../../../../../virtual/block/dm-0, fp"{disk}/holders/dm-0")
-  source.symlink(../../../../pci0000:00/0000:00:01.0/block/sda, fp"{stacked}/slaves/sda")
+  source.symlink(target: ../../devices/pci0000:00/0000:00:01.0/block/sda, path: p"sys/class/block/sda")
+  source.symlink(target: ../../devices/pci0000:00/0000:00:01.0/block/sda/sda3, path: p"sys/class/block/sda3")
+  source.symlink(target: ../../devices/virtual/block/dm-0, path: p"sys/class/block/dm-0")
+  source.symlink(target: ../../../../../virtual/block/dm-0, path: fp"{disk}/holders/dm-0")
+  source.symlink(target: ../../../../pci0000:00/0000:00:01.0/block/sda, path: fp"{stacked}/slaves/sda")
   for item in [
     {
       device: disk,
@@ -1728,7 +1728,7 @@ test test_system_report_block_bundle_replays_sparse_partition_and_layered_edges 
   test.error_kind(report_checks.validate_block_bundle(bundle), "SystemReportCheckError.Invalid")
   bundle.remove(fp"{partition}/queue/logical_block_size")
   bundle.remove(fp"{disk}/holders/dm-0")
-  bundle.symlink(../../dm-1, fp"{disk}/holders/dm-0")
+  bundle.symlink(target: ../../dm-1, path: fp"{disk}/holders/dm-0")
   test.error_kind(report_checks.validate_block_bundle(bundle), "SystemReportCheckError.Invalid")
 }
 
@@ -1738,7 +1738,7 @@ test test_system_report_block_bundle_rejects_escaping_class_link {
   let bundle = fs.tempdir()?
   defer bundle.close()
   source.mkdir(p"sys/class/block", parents: true)
-  source.symlink(../../devices/../rogue/sda, p"sys/class/block/sda")
+  source.symlink(target: ../../devices/../rogue/sda, path: p"sys/class/block/sda")
   test.error_kind(
     report_checks.capture_block_bundle(source, bundle, "synthetic_fixture"),
     "SystemReportCheckError.Invalid",
@@ -1754,13 +1754,13 @@ test test_system_report_block_bundle_rejects_misdirected_layer_link {
   source.mkdir(p"sys/class/block/sda/slaves")
   source.mkdir(p"sys/class/block/dm-0/holders", parents: true)
   source.mkdir(p"sys/class/block/dm-0/slaves")
-  source.symlink(../../dm-1, p"sys/class/block/sda/holders/dm-0")
+  source.symlink(target: ../../dm-1, path: p"sys/class/block/sda/holders/dm-0")
   test.error_kind(
     report_checks.capture_block_bundle(source, bundle, "synthetic_fixture"),
     "SystemReportCheckError.Invalid",
   )
   source.remove(p"sys/class/block/sda/holders/dm-0")
-  source.symlink(../../rogue/dm-0, p"sys/class/block/sda/holders/dm-0")
+  source.symlink(target: ../../rogue/dm-0, path: p"sys/class/block/sda/holders/dm-0")
   test.error_kind(
     report_checks.capture_block_bundle(source, bundle, "synthetic_fixture"),
     "SystemReportCheckError.Invalid",
@@ -1837,7 +1837,7 @@ test test_system_report_pci_capture_rejects_bus_link_outside_devices_tree {
   let bundle = fs.tempdir()?
   defer bundle.close()
   source.mkdir(p"sys/bus/pci/devices", parents: true)
-  source.symlink(../../../devices/../rogue/0000:00:1f.0, p"sys/bus/pci/devices/0000:00:1f.0")
+  source.symlink(target: ../../../devices/../rogue/0000:00:1f.0, path: p"sys/bus/pci/devices/0000:00:1f.0")
   test.error_kind(
     report_checks.capture_pci_bundle(source, bundle, "synthetic_fixture"),
     "SystemReportCheckError.Invalid",
@@ -1852,7 +1852,7 @@ test test_system_report_pci_capture_keeps_unavailable_pcie_links_unscored { |ctx
   let device = p"sys/devices/pci0000:00/0000:00:1f.0"
   source.mkdir(device, parents: true)
   source.mkdir(p"sys/bus/pci/devices", parents: true)
-  source.symlink(../../../devices/pci0000:00/0000:00:1f.0, p"sys/bus/pci/devices/0000:00:1f.0")
+  source.symlink(target: ../../../devices/pci0000:00/0000:00:1f.0, path: p"sys/bus/pci/devices/0000:00:1f.0")
   for item in [
     {
       name: "vendor",
@@ -1917,9 +1917,9 @@ test test_system_report_usb_capture_replays_raw_devices_interfaces_and_rejects_t
   source.mkdir(root_interface)
   source.mkdir(p"sys/bus/usb/devices", parents: true)
   source.mkdir(fp"{device}/power", parents: true)
-  source.symlink(../../../devices/pci0000:00/0000:00:14.0/usb1, p"sys/bus/usb/devices/usb1")
-  source.symlink(../../../devices/pci0000:00/0000:00:14.0/usb1/usb1:1.0, p"sys/bus/usb/devices/usb1:1.0")
-  source.symlink(../../../devices/pci0000:00/0000:00:14.0/usb1/1-0:1.0, p"sys/bus/usb/devices/1-0:1.0")
+  source.symlink(target: ../../../devices/pci0000:00/0000:00:14.0/usb1, path: p"sys/bus/usb/devices/usb1")
+  source.symlink(target: ../../../devices/pci0000:00/0000:00:14.0/usb1/usb1:1.0, path: p"sys/bus/usb/devices/usb1:1.0")
+  source.symlink(target: ../../../devices/pci0000:00/0000:00:14.0/usb1/1-0:1.0, path: p"sys/bus/usb/devices/1-0:1.0")
   for item in [
     {
       name: "busnum",
@@ -2016,7 +2016,7 @@ test test_system_report_usb_capture_replays_raw_devices_interfaces_and_rejects_t
     """0
 """,
   )
-  source.symlink(../../../bus/usb/drivers/hub, fp"{interface}/driver")
+  source.symlink(target: ../../../bus/usb/drivers/hub, path: fp"{interface}/driver")
   report_checks.capture_usb_bundle(source, bundle, "synthetic_fixture")
   let replay = report_checks.replay_usb_bundle(bundle)?
   assert replay.topology.exact
@@ -2044,7 +2044,7 @@ test test_system_report_usb_capture_rejects_bus_link_outside_devices_tree {
   let bundle = fs.tempdir()?
   defer bundle.close()
   source.mkdir(p"sys/bus/usb/devices", parents: true)
-  source.symlink(../../../devices/../rogue/usb1, p"sys/bus/usb/devices/usb1")
+  source.symlink(target: ../../../devices/../rogue/usb1, path: p"sys/bus/usb/devices/usb1")
   test.error_kind(
     report_checks.capture_usb_bundle(source, bundle, "synthetic_fixture"),
     "SystemReportCheckError.Invalid",
@@ -2059,7 +2059,7 @@ test test_system_report_usb_capture_keeps_unavailable_power_and_interfaces_unsco
   let device = p"sys/devices/pci0000:00/0000:00:14.0/usb1"
   source.mkdir(device, parents: true)
   source.mkdir(p"sys/bus/usb/devices", parents: true)
-  source.symlink(../../../devices/pci0000:00/0000:00:14.0/usb1, p"sys/bus/usb/devices/usb1")
+  source.symlink(target: ../../../devices/pci0000:00/0000:00:14.0/usb1, path: p"sys/bus/usb/devices/usb1")
   source.write(
     fp"{device}/idVendor",
     """1d6b
@@ -2998,7 +2998,7 @@ test test_system_report_cpu_topology_capture_replays_raw_siblings_and_nodes {
       source.write(fp"{cpu_path}/topology/{item.name}", item.value)
     }
 
-    source.symlink(../../node/node0, fp"{cpu_path}/node0")
+    source.symlink(target: ../../node/node0, path: fp"{cpu_path}/node0")
   }
 
   report_checks.capture_cpu_topology_bundle(source, bundle, "synthetic_fixture")
@@ -3052,7 +3052,7 @@ test test_system_report_cpu_topology_capture_rejects_escaping_numa_link {
     source.write(fp"{cpu_root}/{item.name}", item.value)
   }
 
-  source.symlink(../../node/../rogue, fp"{cpu_root}/cpu0/node0")
+  source.symlink(target: ../../node/../rogue, path: fp"{cpu_root}/cpu0/node0")
   test.error_kind(
     report_checks.capture_cpu_topology_bundle(source, bundle, "synthetic_fixture"),
     "SystemReportCheckError.Invalid",
@@ -7627,10 +7627,10 @@ test test_system_report_pci_binding_rooted_reference_reads_links_and_unknown_num
   let child = p"sys/devices/pci0001:02/0001:02:01.0/0001:03:00.0"
   root.mkdir(child, parents: true)
   root.mkdir(p"sys/bus/pci/devices", parents: true)
-  root.symlink(../../../devices/pci0001:02/0001:02:01.0, p"sys/bus/pci/devices/0001:02:01.0")
-  root.symlink(../../../devices/pci0001:02/0001:02:01.0/0001:03:00.0, p"sys/bus/pci/devices/0001:03:00.0")
-  root.symlink(../../../../bus/pci/drivers/pcieport, fp"{bridge}/driver")
-  root.symlink(../../../../kernel/iommu_groups/42, fp"{bridge}/iommu_group")
+  root.symlink(target: ../../../devices/pci0001:02/0001:02:01.0, path: p"sys/bus/pci/devices/0001:02:01.0")
+  root.symlink(target: ../../../devices/pci0001:02/0001:02:01.0/0001:03:00.0, path: p"sys/bus/pci/devices/0001:03:00.0")
+  root.symlink(target: ../../../../bus/pci/drivers/pcieport, path: fp"{bridge}/driver")
+  root.symlink(target: ../../../../kernel/iommu_groups/42, path: fp"{bridge}/iommu_group")
   root.write(
     fp"{bridge}/numa_node",
     """0

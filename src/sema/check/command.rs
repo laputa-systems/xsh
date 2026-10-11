@@ -131,6 +131,7 @@ impl Checker {
             },
             Type::Any => Type::Any,
             Type::Unknown => Type::Unknown,
+            Type::Optional(inner) => self.optional_field_error(&inner, name, span),
             _ => {
                 self.error(
                     span,
@@ -150,6 +151,7 @@ impl Checker {
             Type::List(item) => *item,
             Type::Any => Type::Any,
             Type::Record(_) | Type::Unknown => Type::Unknown,
+            Type::Optional(inner) => self.optional_index_error(&inner, span),
             _ => {
                 self.error(
                     span,

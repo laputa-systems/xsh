@@ -31,7 +31,7 @@ proc add_device(root: FsRoot, name: Str, location: Str, vendor: Str, product: St
     root.write(fp"sys/devices/{location}/{item.file}", f"{item.value}\n")
   }
 
-  root.symlink(fp"../../../devices/{location}", fp"sys/bus/usb/devices/{name}")
+  root.symlink(target: fp"../../../devices/{location}", path: fp"sys/bus/usb/devices/{name}")
 }
 
 test test_sys_usb_descriptor_stream_keeps_framing_and_unknown_payloads {
@@ -80,8 +80,8 @@ test test_sys_usb_collect_links_hub_children_controller_and_interfaces {
   let interface_path = f"{controller}/usb1/1-1/1-1.2/1-1.2:1.0"
   root.mkdir(fp"sys/devices/{interface_path}", parents: true)
   root.write(fp"sys/devices/{interface_path}/bAlternateSetting", "0\n")
-  root.symlink(../../../../../../../../../bus/usb/drivers/usbhid, fp"sys/devices/{interface_path}/driver")
-  root.symlink(fp"../../../devices/{interface_path}", p"sys/bus/usb/devices/1-1.2:1.0")
+  root.symlink(target: ../../../../../../../../../bus/usb/drivers/usbhid, path: fp"sys/devices/{interface_path}/driver")
+  root.symlink(target: fp"../../../devices/{interface_path}", path: p"sys/bus/usb/devices/1-1.2:1.0")
   root.write(fp"sys/devices/{controller}/usb1/1-1/1-1.2/descriptors", hid_descriptors())
 
   let inventory = usb.collect(root)
@@ -157,7 +157,7 @@ test test_sys_usb_controller_address_distinguishes_links_directories_and_absence
   defer root.close()
   root.mkdir(p"sys/devices/pci0000:00/0000:00:14.0/usb1", parents: true)
   root.mkdir(p"sys/bus/usb/devices", parents: true)
-  root.symlink(../../../devices/pci0000:00/0000:00:14.0/usb1, p"sys/bus/usb/devices/usb1")
+  root.symlink(target: ../../../devices/pci0000:00/0000:00:14.0/usb1, path: p"sys/bus/usb/devices/usb1")
   root.mkdir(p"sys/bus/usb/devices/plain")
 
   let linked = usb.controller_address(root, p"sys/bus/usb/devices/usb1")

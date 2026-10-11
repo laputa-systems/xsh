@@ -65,7 +65,7 @@ proc build_tree(ctx: TestContext) [fs, error] -> Result[Path] {
 
   for item in TREE_LINKS {
     ensure_directory(root, fp"{item.path}".dirname())?
-    root.symlink(fp"{item.target}", fp"{item.path}")?
+    root.symlink(target: fp"{item.target}", path: fp"{item.path}")?
   }
 
   ensure_directory(root, p"sys/bus/pci/drivers/ahci")?

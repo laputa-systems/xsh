@@ -103,7 +103,7 @@ mod tests {
 
     #[test]
     fn a_plain_path_handed_to_a_root_is_reported_without_a_fix() {
-        let source = "proc stage(root: FsRoot, file: Path, link: Path) [fs, error] {\n  root.write(file, \"x\")\n  root.mkdir(fp\"{file}/sub\", parents: true)\n  root.symlink(link, file)\n  print root.exists(path: file.parent())?\n}\n";
+        let source = "proc stage(root: FsRoot, file: Path, link: Path) [fs, error] {\n  root.write(file, \"x\")\n  root.mkdir(fp\"{file}/sub\", parents: true)\n  root.symlink(target: link, path: file)\n  print root.exists(path: file.parent())?\n}\n";
         let diagnostics = lint(source);
         assert_eq!(diagnostics.len(), 4, "{diagnostics:?}");
         let reported = diagnostics
@@ -127,7 +127,7 @@ mod tests {
     // root are none of the rule's business.
     #[test]
     fn a_rel_path_a_literal_and_an_unrooted_path_are_left_alone() {
-        let source = "proc stage(root: FsRoot, rel: RelPath, target: Path, file: Path) [fs, error] {\n  root.write(rel, \"x\")\n  root.mkdir(rel.parent(), parents: true)\n  root.write(\"etc/motd\", \"x\")\n  root.write(p\"etc/issue\", \"x\")\n  root.symlink(target, rel)\n  root.write(fp\"{rel}/more\", \"x\")\n  file.write(\"x\")\n  root.close()\n}\n";
+        let source = "proc stage(root: FsRoot, rel: RelPath, target: Path, file: Path) [fs, error] {\n  root.write(rel, \"x\")\n  root.mkdir(rel.parent(), parents: true)\n  root.write(\"etc/motd\", \"x\")\n  root.write(p\"etc/issue\", \"x\")\n  root.symlink(target: target, path: rel)\n  root.write(fp\"{rel}/more\", \"x\")\n  file.write(\"x\")\n  root.close()\n}\n";
         let diagnostics = lint(source);
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         assert_eq!(

@@ -72,7 +72,7 @@ test test_storage_lsblk_rooted_json_preserves_partition_identity { |ctx|
     root.write(fp"{at}/size", if name == "disk" { "100\n" } else { "50\n" })
     root.write(fp"{at}/ro", "0\n")
     root.write(fp"{at}/removable", "0\n")
-    root.symlink(fp"../../devices/disk/{if name == "disk" { "" } else { "disk1" }}", fp"sys/class/block/{name}")
+    root.symlink(target: fp"../../devices/disk/{if name == "disk" { "" } else { "disk1" }}", path: fp"sys/class/block/{name}")
   }
   root.write(p"sys/devices/disk/disk1/partition", "1\n")
   root.mkdir(p"proc/self", parents: true)

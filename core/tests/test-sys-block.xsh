@@ -17,7 +17,7 @@ proc add_device(root: FsRoot, name: Str, device_path: Str, number: Str, sectors:
   root.write(fp"sys/devices/{device_path}/queue/rotational", "0\n")
   root.write(fp"sys/devices/{device_path}/removable", "0\n")
   root.write(fp"sys/devices/{device_path}/ro", "1\n")
-  root.symlink(fp"../../devices/{device_path}", fp"sys/class/block/{name}")
+  root.symlink(target: fp"../../devices/{device_path}", path: fp"sys/class/block/{name}")
 }
 
 test test_sys_block_scheduler_parser_requires_exactly_one_selected_choice {
@@ -47,8 +47,8 @@ test test_sys_block_collect_links_partitions_stacked_devices_and_pci_parent {
   root.write(fp"sys/devices/{disk}/queue/scheduler", "[none] mq-deadline\n")
   root.write(fp"sys/devices/{disk}/stat", "1 2 3 4 5 6 7 8 9 10 11\n")
   add_device(root, "dm-0", "virtual/block/dm-0", "253:0", "512")
-  root.symlink(../../../../../../../../virtual/block/dm-0, fp"sys/devices/{disk}/nvme0n1p2/holders/dm-0")
-  root.symlink(fp"../../../../{disk}/nvme0n1p2", p"sys/devices/virtual/block/dm-0/slaves/nvme0n1p2")
+  root.symlink(target: ../../../../../../../../virtual/block/dm-0, path: fp"sys/devices/{disk}/nvme0n1p2/holders/dm-0")
+  root.symlink(target: fp"../../../../{disk}/nvme0n1p2", path: p"sys/devices/virtual/block/dm-0/slaves/nvme0n1p2")
 
   let inventory = block.collect(root)
   assert inventory.listing_state == "complete"

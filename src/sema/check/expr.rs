@@ -3211,6 +3211,7 @@ impl Checker {
             // used to type as Unknown, which let it reach any concrete use.
             Type::Any => Type::Any,
             Type::Unknown => Type::Unknown,
+            Type::Optional(inner) => self.optional_field_error(&inner, &name.as_str(), span),
             _ => {
                 self.error(
                     span,
@@ -3220,6 +3221,30 @@ impl Checker {
                 Type::Unknown
             }
         }
+    }
+
+    pub(super) fn optional_field_error(&mut self, inner: &Type, name: &str, span: Span) -> Type {
+        self.diagnostics.push(
+            Diagnostic::error(format!("field `{name}` needs a present value, found {inner}?"))
+                .with_code(DiagnosticCode::CheckFieldAccess)
+                .with_label(Label::primary(
+                    span,
+                    format!("use `?.{name}` or test for null before reading a {inner} field"),
+                )),
+        );
+        Type::Unknown
+    }
+
+    pub(super) fn optional_index_error(&mut self, inner: &Type, span: Span) -> Type {
+        self.diagnostics.push(
+            Diagnostic::error(format!("indexing needs a present value, found {inner}?"))
+                .with_code(DiagnosticCode::CheckIndexType)
+                .with_label(Label::primary(
+                    span,
+                    format!("use `?[...]` or test for null before indexing {inner}"),
+                )),
+        );
+        Type::Unknown
     }
 
     /// Fields of runtime values whose field set is fixed. `None` when the
@@ -3556,6 +3581,7 @@ impl Checker {
                 self.check_expr_arena(arena, source, index, None);
                 Type::Unknown
             }
+            Type::Optional(inner) => self.optional_index_error(&inner, span),
             _ => {
                 self.error(
                     span,

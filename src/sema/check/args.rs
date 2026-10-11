@@ -490,10 +490,9 @@ impl Checker {
                 continue;
             }
             let label = sig.params[slot].name;
-            self.diagnostics.push(
-                crate::diagnostic::Diagnostic::error(format!(
-                    "this argument is passed by position; it takes the label `{label}`"
-                ))
+            let mut diagnostic = crate::diagnostic::Diagnostic::error(format!(
+                "this argument is passed by position; it takes the label `{label}`"
+            ))
                 .with_code(DiagnosticCode::CheckNamedArg)
                 .with_label(crate::diagnostic::Label::primary(
                     value.span,
@@ -501,8 +500,23 @@ impl Checker {
                 ))
                 .with_note(format!(
                     "`{label}:` says which operand this is, so two operands of one type cannot be swapped unnoticed"
-                )),
-            );
+                ));
+            if let crate::sema::arguments::ArgumentValueSource::Expression(expression) = value.value {
+                // Grouping spans are separate from expression spans. Insert
+                // the label before the outer group, never inside parentheses.
+                let start = arena.paren_groups.iter()
+                    .filter(|(candidate, group)| *candidate == expression
+                        && group.source_id == value.span.source_id
+                        && span.start() <= group.start() && group.end() <= span.end())
+                    .map(|(_, group)| group.start())
+                    .min().unwrap_or(value.span.start());
+                diagnostic = diagnostic.with_fix_hint(crate::diagnostic::FixHint::replacement(
+                    Span::new(value.span.source_id, start, start),
+                    format!("pass `{label}` by name"),
+                    format!("{label}: "),
+                ));
+            }
+            self.diagnostics.push(diagnostic);
         }
         for (arg, slot) in args.iter().zip(binding.argument_slots) {
             let expected = self
@@ -824,4 +838,42 @@ fn is_argv_word_list_argument(actual: &Type) -> bool {
         }
     }
     matches!(actual, Type::List(item) if word(item))
+}
+
+#[cfg(test)]
+mod required_label_tests {
+    use super::Checker;
+    use crate::diagnostic::DiagnosticCode;
+    use crate::source::SourceId;
+    use crate::syntax::parser::Parser;
+
+    // Exact edit ranges are checker facts, which human CLI output cannot expose.
+    #[test]
+    fn label_fix_inserts_before_grouping_and_preserves_operand_text() {
+        for operand in [r#"p"destination""#, r#"(p"destination")"#, r#"((p"destination"))"#] {
+            let source = format!("p\"α-source\".copy({operand})\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            let diagnostic = checked.diagnostics.iter()
+                .find(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckNamedArg))
+                .expect("required label diagnostic");
+            let [hint] = diagnostic.fix_hints.as_slice() else {
+                panic!("expected one label edit: {diagnostic:?}");
+            };
+            let span = hint.span.expect("label edit span");
+            let start = source.find(operand).expect("operand in source");
+            assert_eq!((span.start(), span.end()), (start, start));
+            assert_eq!(hint.replacement.as_deref(), Some("to: "));
+            let mut fixed = source.clone();
+            fixed.replace_range(span.range(), hint.replacement.as_deref().unwrap());
+            assert_eq!(fixed, source.replacen(operand, &format!("to: {operand}"), 1));
+            let reparsed = Parser::parse_source_arena_only(SourceId::new(0), &fixed);
+            assert!(reparsed.diagnostics.is_empty(), "{:?}", reparsed.diagnostics);
+            let rechecked = Checker::check_arena(&reparsed.arena, &fixed);
+            assert!(!rechecked.diagnostics.iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckNamedArg)),
+                "{:?}", rechecked.diagnostics);
+        }
+    }
 }

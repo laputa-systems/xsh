@@ -364,7 +364,7 @@ test test_fs_root_operations_reject_traversal { |ctx|
   assert root.metadata(p"nested/data.txt")?.kind == "file"
   let nested_root = root.open_root(p"nested")?
   assert nested_root.read_text(p"data.txt")? == "atomic"
-  root.symlink(p"data.txt", p"nested/internal-link")
+  root.symlink(target: p"data.txt", path: p"nested/internal-link")
   assert root.readlink(p"nested/internal-link")?.display() == "data.txt"
   assert root.read_text(p"nested/internal-link")? == "atomic"
   assert root.read_text(p"nested/../nested/data.txt")? == "atomic"
@@ -388,7 +388,7 @@ test test_fs_root_operations_reject_traversal { |ctx|
   let escaped_path = root.children(../outside)?
   assert ! escaped_path.enumeration_succeeded
   test.error_kind(root.read_text(../secret.txt), "fs-root-read")
-  test.error_kind(root.symlink(p"target", ../escape), "fs-root-symlink")
+  test.error_kind(root.symlink(target: p"target", path: ../escape), "fs-root-symlink")
   test.error_kind(root.write_atomic(p"missing/parent.txt", "x"), "fs-root-write")
   test.error_kind(fs.root_install_file(source_root, ../secret.txt, root, p"escape.txt", 0o600), "fs-root-install")
   root.remove(p"nested/data.txt")
@@ -403,7 +403,7 @@ test test_fs_root_stat_preserves_metadata_and_symlink_policy { |ctx|
   let root = fs.open_root(root_dir)?
   root.mkdir(p"nested")
   root.write(p"nested/data.txt", "rooted")
-  root.symlink(p"data.txt", p"nested/link")
+  root.symlink(target: p"data.txt", path: p"nested/link")
 
   let file = root.stat(p"nested/data.txt")?
   assert file.kind == "file"
@@ -474,7 +474,7 @@ test test_fs_root_symlink_preserves_default_parents_with_named_overwrite { |ctx|
   let root_dir = test.temp_dir(ctx, name: "root-symlink-overwrite-defaults")?
   let root = fs.open_root(root_dir)?
   let overwrite = false
-  root.symlink(p"target", p"nested/link", overwrite:)
+  root.symlink(target: p"target", path: p"nested/link", overwrite:)
   assert root.readlink(p"nested/link")?.display() == "target"
   root.close()
 }
