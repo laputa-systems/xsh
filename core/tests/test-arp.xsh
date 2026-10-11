@@ -63,7 +63,7 @@ proc session(ctx: TestContext, commands: List[List[Str]]) [fs, process, error] -
   ]
   let source = f"""use lib.nettools_fixture as fixture
 
-proc main(...argv: List[Str]) [fs, process, io, error] {{
+proc main(...argv: List[Str]) [fs, process, net, io, error] {{
 {setup.join("\n")}
   fixture.run_commands(argv)
 }}

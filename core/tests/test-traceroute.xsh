@@ -20,7 +20,7 @@ proc traceroute(ctx: TestContext, args: List[Str]) [fs, process, time, error] ->
   Ok({status: status.exit_code()?, stdout: out.read_text()?, stderr: err.read_text()?, elapsed_ms: elapsed})
 }
 
-proc open_udp(family: Str, address: Str, port: Int) [process, error] -> Result[Int] {
+proc open_udp(family: Str, address: Str, port: Int) [process, net, error] -> Result[Int] {
   let c = linux.net_constants()
   let fd = linux.socket(if family == "inet6" { c.AF_INET6 } else { c.AF_INET }, c.SOCK_DGRAM)?
 
@@ -34,7 +34,7 @@ proc local_port(fd: Int) [process, error] -> Result[Int] {
 }
 
 # The datagrams waiting on `fd` after a trace finished, in arrival order.
-proc drain(fd: Int) [process, error] -> Result[List[Bytes]] {
+proc drain(fd: Int) [process, net, error] -> Result[List[Bytes]] {
   let c = linux.net_constants()
   var found: List[Bytes] = []
 

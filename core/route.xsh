@@ -149,7 +149,7 @@ pure raw_attribute(kind: Int, data: Bytes) -> Bytes {
   bytes.concat([bytes.pack_le(length, 2) ?? b"", bytes.pack_le(kind, 2) ?? b"", data, bytes.zero(padding) ?? b""])
 }
 
-proc device_index(name: Str, label: Str) [process, env, error] -> Int {
+proc device_index(name: Str, label: Str) [process, net, env, error] -> Int {
   let c = linux.net_constants()
   let socket = linux.socket(c.AF_INET, c.SOCK_DGRAM)?
   defer unix.close_fd(socket)
@@ -167,7 +167,7 @@ proc device_index(name: Str, label: Str) [process, env, error] -> Int {
 # Sends one route-netlink request built from a parsed modify request. The
 # kernel applies the same validation the ioctl path would, so its errno
 # decides the message.
-proc send_route(request: Request) [fs, process, env, error] {
+proc send_route(request: Request) [fs, process, net, env, error] {
   let c = linux.net_constants()
   let label = if request.add { "SIOCADDRT" } else { "SIOCDELRT" }
   let inet6 = request.family == "inet6"

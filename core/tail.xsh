@@ -279,7 +279,7 @@ proc prepare(source: tio.Source, spec: Spec, zero: Bool) [fs, error, io] -> Resu
 
 # Poll a FIFO with O_NONBLOCK so timeout and --pid can run while no writer has
 # connected or while a writer is silent.
-proc followed_fifo_data(fifo: Path, spec: Spec, zero: Bool, pid: Int, interval: Duration) [fs, process, time, error] -> Result[Bytes] {
+proc followed_fifo_data(fifo: Path, spec: Spec, zero: Bool, pid: Int, interval: Duration) [fs, process, net, time, error] -> Result[Bytes] {
   let fd = unix.open_fd(fifo, nonblock: true)?
   var chunks: List[Bytes] = []
 

@@ -37,7 +37,7 @@ proc ss(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[Ran, E
   run_ss(ctx, args, "", "")
 }
 
-proc stream_pair(family: Int, kind: Str, address: Str, backlog: Int) [process, error] -> Result[List[Int], Error] {
+proc stream_pair(family: Int, kind: Str, address: Str, backlog: Int) [process, net, error] -> Result[List[Int], Error] {
   let c = linux.net_constants()
   let listener = linux.socket(family, c.SOCK_STREAM)?
   linux.bind(listener, {family: kind, address: address, port: 0})?
@@ -50,7 +50,7 @@ proc stream_pair(family: Int, kind: Str, address: Str, backlog: Int) [process, e
 
 # Builds the scene: an IPv4 listener with one connection holding 100 unread
 # bytes, an IPv6 listener with a connection, and a connected UDP pair.
-proc build_scene() [process, error] -> Result[Scene, Error] {
+proc build_scene() [process, net, error] -> Result[Scene, Error] {
   let c = linux.net_constants()
   let four = stream_pair(c.AF_INET, "inet", "127.0.0.1", 4)?
   let _ = unix.write_fd(four[1], bytes.zero(100)?)?

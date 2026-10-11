@@ -702,7 +702,7 @@ proc close_filter_pipes(pipes: List[FilterPipe?]) [process, error] {
 }
 
 # Pipe writes report EAGAIN as 11 on Linux and 35 on Darwin and BSD.
-proc write_filter_pipe(pipe: FilterPipe, data: Bytes) [process, error] -> Result[FilterPipe] {
+proc write_filter_pipe(pipe: FilterPipe, data: Bytes) [process, net, error] -> Result[FilterPipe] {
   return Ok(pipe) when ! pipe.open or data.is_empty()
 
   var offset = 0

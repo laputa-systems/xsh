@@ -117,7 +117,7 @@ proc arp_request(address: Bytes, hw_family: Int, mac: Bytes, flags: Int, mask: B
 
 # SIOCSARP for one host. `hardware` is an address text, or with -D an
 # interface name whose hardware address is copied.
-proc set_entry(options: Options, host: Str, hardware: Str, words: List[Str]) [fs, process, env, error] {
+proc set_entry(options: Options, host: Str, hardware: Str, words: List[Str]) [fs, process, net, env, error] {
   let c = linux.net_constants()
   let address = resolve(host)
   var mac = b""
@@ -182,7 +182,7 @@ proc set_entry(options: Options, host: Str, hardware: Str, words: List[Str]) [fs
 
 # SIOCDARP: first without the proxy flag, then with it, as the legacy tool
 # does, so that `arp -d HOST` removes either kind of entry.
-proc delete_entry(options: Options, host: Str, words: List[Str]) [fs, process, env, error] {
+proc delete_entry(options: Options, host: Str, words: List[Str]) [fs, process, net, env, error] {
   let c = linux.net_constants()
   var proxy = false
   for word in words {
@@ -267,7 +267,7 @@ proc show(options: Options) [fs, process, env, io, error] {
   }
 }
 
-proc load_file(options: Options, file: Str) [fs, process, env, error] {
+proc load_file(options: Options, file: Str) [fs, process, net, env, error] {
   let text = fp"{file}".read_text() ?? { |_|
     eprint f"arp: cannot open etherfile {file} !"
     exit 255

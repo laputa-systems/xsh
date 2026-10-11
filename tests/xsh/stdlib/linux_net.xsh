@@ -10,7 +10,7 @@ pure errno_of(result: Result[Any, Error]) -> Int {
   }
 }
 
-proc loopback_udp() [process, error] -> Result[Int, Error] {
+proc loopback_udp() [process, net, error] -> Result[Int, Error] {
   let c = linux.net_constants()
   let fd = linux.socket(c.AF_INET, c.SOCK_DGRAM)?
   linux.bind(fd, {family: "inet", address: "127.0.0.1", port: 0})?

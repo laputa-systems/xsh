@@ -272,7 +272,7 @@ pure human_size(size: Int, base: Int, binary: Bool) -> Str {
 type WriteOutcome = {written: Int, failure: Str?}
 type Copied = {complete: Int, partial: Int, written: Int, failure: Str?, discard_failed: Bool}
 
-proc write_fd_all(fd: Int, data: Bytes) [process] -> WriteOutcome {
+proc write_fd_all(fd: Int, data: Bytes) [process, net] -> WriteOutcome {
   var offset = 0
   while offset < data.len() {
     guard let written = unix.write_fd(fd, data[offset..]) else { |failure|
@@ -291,7 +291,7 @@ pure all_zero(data: Bytes) -> Bool {
   true
 }
 
-proc write_output_chunk(fd: Int, data: Bytes, offset: Int, sparse: Bool) [error, process] -> Result[WriteOutcome] {
+proc write_output_chunk(fd: Int, data: Bytes, offset: Int, sparse: Bool) [error, process, net] -> Result[WriteOutcome] {
   if sparse and all_zero(data) { return Ok({written: data.len(), failure: null}) }
   if sparse { let _ = unix.seek_fd(fd, offset)? }
   Ok(write_fd_all(fd, data))
@@ -317,7 +317,7 @@ proc prepare_stdout_seek(offset: Int) [error, io, env, process] {
   }
 }
 
-proc seek_output_fifo(dest: Path, offset: Int, block_size: Int) [fs, process, error] -> Result[Unit] {
+proc seek_output_fifo(dest: Path, offset: Int, block_size: Int) [fs, process, net, error] -> Result[Unit] {
   let fd = unix.open_fd(dest, nonblock: false)?
   var discarded = 0
   while discarded < offset {

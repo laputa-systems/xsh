@@ -106,7 +106,7 @@ proc interface_ioctl(fd: Int, label: Str, request: Int, name: Str, tail: Bytes) 
 # Parses a hardware address of exactly six hexadecimal octets.
 # Adds or deletes one IPv6 address; the ifreq ioctls only add, so both go
 # through route netlink. Returns the status for the applet.
-proc change_inet6(name: Str, word: Str, add: Bool) [fs, process, env, error] -> Int {
+proc change_inet6(name: Str, word: Str, add: Bool) [fs, process, net, env, error] -> Int {
   let c = linux.net_constants()
   var text = word
   var prefix = 128
@@ -158,7 +158,7 @@ proc change_inet6(name: Str, word: Str, add: Bool) [fs, process, env, error] -> 
 # Applies the words after the interface name in order, as net-tools does, and
 # returns the accumulated status: 1 for a failed request, -1 when the flags of
 # the interface cannot be read.
-proc configure(name_in: Str, words: List[Str]) [fs, process, env, error] -> Int {
+proc configure(name_in: Str, words: List[Str]) [fs, process, net, env, error] -> Int {
   let c = linux.net_constants()
   let fd = linux.socket(c.AF_INET, c.SOCK_DGRAM)?
   defer unix.close_fd(fd)

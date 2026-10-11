@@ -16,7 +16,7 @@ proc ping6(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[Ran
 
 # Skips the test unless this user can send ICMPv6 echo over a datagram socket
 # on ::1.
-proc need_ipv6_echo() [process, error] -> Result[Unit] {
+proc need_ipv6_echo() [process, net, error] -> Result[Unit] {
   let c = linux.net_constants()
   match linux.socket(c.AF_INET6, c.SOCK_DGRAM, c.IPPROTO_ICMPV6) {
     Err(failure) => {
