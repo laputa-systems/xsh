@@ -2911,9 +2911,7 @@ impl<'a> FullPayload<'a> {
         execution: &FullExecution<'a>,
     ) -> Result<T::View<'a>, IrVerifyError> {
         self.check_store(execution)?;
-        let view = T::borrow(DecodeContext::new(execution), &mut self.cursor)?;
-        self.cursor.finish()?;
-        Ok(view)
+        T::borrow(DecodeContext::new(execution), &mut self.cursor)
     }
 
     #[inline(always)]
@@ -3114,6 +3112,7 @@ impl<'a> FullExecution<'a> {
         input: &mut FullPayload<'a>,
         expected_flags: u8,
     ) -> Result<(IrBlockId, FullPayload<'a>), IrVerifyError> {
+        input.check_store(self)?;
         let (id, block) = self.decoder.block(&mut input.cursor, expected_flags)?;
         Ok((id, FullPayload { store: self.decoder.store, cursor: block }))
     }
@@ -7993,11 +7992,13 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
 
         let mut payload = FullPayload {
             store: execution.decoder.store,
-            cursor: FullCursor::new(&[2, 37]),
+            cursor: FullCursor::new(&[2, 37, 99]),
         };
         let decode::CallArgView::Default(slot) = payload.borrow::<LoweredCallArg>(&execution).unwrap()
             else { panic!("borrowed call argument") };
         assert_eq!(slot, 37);
+        assert_eq!(payload.raw().unwrap(), 99);
+        payload.finish().unwrap();
     }
 
     #[test]
@@ -8021,6 +8022,26 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
         };
         assert!(error.message.contains("text pattern hole kind is out of range"));
 
+        let mut trailing = builder.store.clone();
+        let text_index = roots[17] as usize;
+        let text_data = trailing.pattern_data[text_index];
+        let mut text_payload = trailing.payload(text_data.range()).unwrap().to_vec();
+        text_payload.push(0);
+        let start = u32::try_from(trailing.extra.len()).unwrap();
+        trailing.extra.extend_from_slice(&text_payload);
+        trailing.pattern_data[text_index] = IrData {
+            lhs: start,
+            rhs: u32::try_from(text_payload.len()).unwrap(),
+        };
+        let trailing_execution = schema_execution(&trailing);
+        let trailing_id = BuildPatternId::borrow(DecodeContext::new(&trailing_execution),
+            &mut FullCursor::new(&roots[17..])).unwrap();
+        let error = match trailing_execution.pattern_view(trailing_id) {
+            Err(error) => error,
+            Ok(_) => panic!("trailing pattern row word was accepted"),
+        };
+        assert!(error.message.contains("full IR payload has trailing words"));
+
         let other_store = FullStore::default();
         let other_execution = schema_execution(&other_store);
         let error = match other_execution.pattern_view(text_id) {
@@ -8028,6 +8049,17 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
             Ok(_) => panic!("foreign pattern identity was accepted"),
         };
         assert!(error.message.contains("another program"));
+
+        let mut foreign_block_payload = FullPayload {
+            store: execution.decoder.store,
+            cursor: FullCursor::new(&[0]),
+        };
+        let error = match other_execution.block(&mut foreign_block_payload, 0) {
+            Err(error) => error,
+            Ok(_) => panic!("foreign block payload was accepted"),
+        };
+        assert!(error.message.contains("another program"));
+        assert_eq!(foreign_block_payload.raw().unwrap(), 0);
 
         let mut payload = FullPayload {
             store: execution.decoder.store,
