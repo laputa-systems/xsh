@@ -207,6 +207,27 @@ impl Evaluator {
         }
     }
 
+    pub(super) fn run_env_value(arg: &RunArg, value: Value) -> Result<Vec<u8>, RuntimeError> {
+        // A `$name` word is one value too, so its nonempty path list is a
+        // search path; every other list keeps the word rule that accepts
+        // exactly one item, because an empty list does not say what it is.
+        let is_path_list = matches!(
+            &value,
+            Value::List(items)
+                if !items.is_empty() && items.iter().all(|item| matches!(item, Value::Path(_)))
+        );
+        if arg.mode == 0 || (arg.mode == 1 && is_path_list) {
+            super::super::super::value_to_env_bytes(value, arg.span)
+        } else {
+            let items = Self::run_arg_items(arg, value)?;
+            let [value]: [Vec<u8>; 1] = items.try_into().map_err(|_| {
+                RuntimeError::new("env-value", "environment values must be one value")
+                    .with_span(arg.span)
+            })?;
+            Ok(value)
+        }
+    }
+
     pub(super) fn eval_indexed_run_env(
         &mut self,
         execution: &FullExecution<'_>,
@@ -221,26 +242,7 @@ impl Evaluator {
                 ControlFlow::Continue(value) => value.into_value(),
                 ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
             };
-            // An expression value converts as any environment value does. A
-            // `$name` word is one value too, so its list is a search path
-            // when it holds paths; every other list keeps the word rule that
-            // accepts exactly one item, because an empty list does not say
-            // what it is a list of.
-            let is_path_list = matches!(
-                &value,
-                Value::List(items)
-                    if !items.is_empty() && items.iter().all(|item| matches!(item, Value::Path(_)))
-            );
-            let value = if arg.mode == 0 || (arg.mode == 1 && is_path_list) {
-                super::super::super::value_to_env_bytes(value, arg.span)?
-            } else {
-                let items = Self::run_arg_items(arg, value)?;
-                let [value]: [Vec<u8>; 1] = items.try_into().map_err(|_| {
-                    RuntimeError::new("env-value", "environment values must be one value")
-                        .with_span(arg.span)
-                })?;
-                value
-            };
+            let value = Self::run_env_value(arg, value)?;
             overlay.insert(assignment.name.as_str().as_bytes().to_vec(), value);
         }
         Ok(ControlFlow::Continue(overlay))
