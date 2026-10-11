@@ -583,7 +583,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 ) {
                     return Some(env_call);
                 }
-                let runtime_module = !matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(module) if slots.resolve(module).is_none());
+                let runtime_module = !matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(_) if self.source_slot(base, slots).is_none());
                 if runtime_module
                     && let Some(Type::Module(exports)) = self.checked_expr_type(base)
                     && let Some(
@@ -2277,14 +2277,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                if slots.resolve(name).is_some() && current_function != Some(name) {
+                if self.expression_binding(callee).is_some() {
                     let args =
                         self.lower_call_args(&args_vec, slots, current_function, item_slot)?;
                     return Some(push_build_row!(
                         self,
                         expr,
                         BuildExprRow::DynamicCall {
-                            callee: self.lower_bare_ident(name, slots)?,
+                            callee: self.lower_bare_ident(callee, name, slots)?,
                             args,
                             span,
                         }

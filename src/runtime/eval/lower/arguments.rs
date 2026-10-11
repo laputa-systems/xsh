@@ -197,7 +197,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 .and_then(|key| compact_error_family_info(self.declarations, key))
                 .is_some()
                 || matches!(self.checked_expr_type(base), Some(Type::ErrorFamily(_)))
-                || matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(module) if slots.resolve(module).is_none() && matches!(self.checked_expr_type(base), Some(Type::Module(_))))
+                || matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(_) if self.source_slot(base, slots).is_none() && matches!(self.checked_expr_type(base), Some(Type::Module(_))))
                 || matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "Path" || api_spec().module(&module.as_str()).is_some() || self.declarations.error_families_by_name.contains_key(&module))
                 || self
                     .declarations

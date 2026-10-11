@@ -339,7 +339,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         expr,
                         BuildExprRow::Str(Arc::from(name.as_str().as_str()))
                     )),
-                    push_build_row!(self, expr, BuildExprRow::Param(slots.resolve(name)?)),
+                    self.lower_bare_ident_at(self.program.arena.span(span), name, slots)?,
                     self.program.arena.span(span),
                 ),
                 ArenaRecordFieldKind::Spread { expr, span } => (
@@ -397,7 +397,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     ),
                     ArenaRecordFieldKind::Shorthand { name, span } => (
                         vec![name],
-                        self.lower_bare_ident(name, slots)?,
+                        self.lower_bare_ident_at(self.program.arena.span(span), name, slots)?,
                         self.program.arena.span(span),
                     ),
                     ArenaRecordFieldKind::Spread { .. } | ArenaRecordFieldKind::Computed { .. } => {
@@ -427,10 +427,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         self.lower_expr(value, slots, current_function, item_slot)?,
                     ));
                 }
-                ArenaRecordFieldKind::Shorthand { name, .. } => {
+                ArenaRecordFieldKind::Shorthand { name, span } => {
                     lowered.push(LoweredRecordEntry::Field(
                         name,
-                        push_build_row!(self, expr, BuildExprRow::Param(slots.resolve(name)?)),
+                        self.lower_bare_ident_at(self.program.arena.span(span), name, slots)?,
                     ));
                 }
                 ArenaRecordFieldKind::Spread { expr, .. } => {
@@ -715,11 +715,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 if is_discard_name(name) {
                     return Some(LoweredCompTarget::Discard);
                 }
-                if slots.is_declared_here(name) {
-                    return None;
-                }
                 Some(LoweredCompTarget::Slot(
-                    slots.declare_with_type(name, ty.cloned()),
+                    slots.declare_source(self.bodies.resolved_bindings.target(id)?, name, ty.cloned()),
                 ))
             }
             ArenaBindingTargetKind::Record { fields, .. } => {
@@ -744,6 +741,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     pub(super) fn lower_assign_path(
         &mut self,
         target: crate::syntax::arena::AssignTargetId,
+        span: Span,
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
@@ -752,14 +750,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ArenaAssignTargetKind::Name(_) => Some(Vec::new()),
             ArenaAssignTargetKind::Env(_) => None,
             ArenaAssignTargetKind::Field { base, name } => {
-                let mut path = self.lower_assign_path(base, slots, current_function, item_slot)?;
+                let mut path = self.lower_assign_path(base, span, slots, current_function, item_slot)?;
                 path.push(LoweredAssignStep::Field(name));
                 Some(path)
             }
             ArenaAssignTargetKind::Index { base, index } => {
-                let mut path = self.lower_assign_path(base, slots, current_function, item_slot)?;
+                let mut path = self.lower_assign_path(base, span, slots, current_function, item_slot)?;
                 let lowered = self.lower_expr(index, slots, current_function, item_slot)?;
-                let lowered = if matches!(self.assign_target_checked_type(base, slots), Some(Type::Map(key, _)) if *key == Type::UInt)
+                let lowered = if matches!(self.assign_target_checked_type(base, span, slots), Some(Type::Map(key, _)) if *key == Type::UInt)
                 {
                     self.require_uint_key(lowered, self.program.arena.expr(index).span)
                 } else {

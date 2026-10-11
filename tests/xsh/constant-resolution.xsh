@@ -120,3 +120,22 @@ assert count == 4
   )?
   assert output.success, output.stderr
 }
+
+# Command splices have a source identity even though they have no expression row.
+test test_command_splices_keep_each_checked_binding { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""proc emit(words = ["parameter"]) { run printf "%s\n" @words }
+const words = ["constant"]
+run printf "%s\n" @words
+if true {
+  let words = ["runtime"]
+  run printf "%s\n" @words
+}
+run printf "%s\n" @words
+emit()
+""",
+    status: 0,
+  )?
+  assert output.stdout == "constant\nruntime\nconstant\nparameter\n"
+}

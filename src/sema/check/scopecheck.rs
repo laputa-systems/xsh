@@ -1,6 +1,6 @@
 use super::{FxHashMap, FxHashSet, Name, Span};
 use crate::syntax::arena::{
-    ArenaBindingTargetKind, ArenaChild, ArenaCompQualifier, ArenaExprKind, ArenaPatternKind,
+    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaChild, ArenaCompQualifier, ArenaExprKind, ArenaPatternKind,
     ArenaProgram, ArenaRange, ArenaRecordFieldKind, ArenaStmtKind, ArenaTypeDefBody, BindingTargetId, BlockId,
     ExprId, FunctionDefId, PatternId, SpanId, StmtId, SugarView, UseStmtId,
 };
@@ -55,7 +55,7 @@ pub struct ResolvedBindings {
 }
 
 impl BindingId {
-    pub(super) fn args() -> Self { Self(BindingOrigin::Args) }
+    pub(crate) fn args() -> Self { Self(BindingOrigin::Args) }
 }
 
 impl ResolvedBindings {
@@ -81,6 +81,12 @@ impl ResolvedBindings {
         resolver.namespace = None;
         resolver.file(program.statement_ids().collect());
         resolver.facts
+    }
+
+    /// Only physical targets that lexical checking declared have identities.
+    pub fn target(&self, target: BindingTargetId) -> Option<BindingId> {
+        let id = BindingId(BindingOrigin::Target(target));
+        self.declarations.contains_key(&id).then_some(id)
     }
 
     pub fn at(&self, span: Span, name: Name) -> Option<BindingId> {
@@ -282,6 +288,22 @@ impl ScopeChecker<'_> {
         let node = self.program.arena.stmt(statement);
         match node.kind {
             ArenaStmtKind::Const { .. } => self.stmt_children(statement),
+            ArenaStmtKind::Assign { mut target, .. } => {
+                loop {
+                    match self.program.arena.assign_target(target).kind {
+                        ArenaAssignTargetKind::Name(name) => {
+                            if let Some(id) = self.lookup(name) {
+                                self.facts.value_sites.insert((node.span, name), id);
+                            }
+                            break;
+                        }
+                        ArenaAssignTargetKind::Field { base, .. }
+                        | ArenaAssignTargetKind::Index { base, .. } => target = base,
+                        ArenaAssignTargetKind::Env(_) => break,
+                    }
+                }
+                self.stmt_children(statement);
+            }
             ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Var { target, .. }
             | ArenaStmtKind::Guard { target, .. } => {
                 self.stmt_children(statement);

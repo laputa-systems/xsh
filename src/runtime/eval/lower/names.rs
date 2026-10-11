@@ -1,5 +1,5 @@
 use super::{
-    Arc, ArenaStmtKind, BuildExprId, BuildExprRow, CompactFunctionIndex,
+    Arc, ArenaStmtKind, BindingId, BuildExprId, BuildExprRow, CompactFunctionIndex,
     CompactLowerConstructProbe, LoweredFunctionKey, LoweredType, Name, QualifiedName, Rc,
     SlotScope, Span, StmtId, lower_command_word_reference, lower_literal_constant,
 };
@@ -198,50 +198,35 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         })
     }
 
+    pub(super) fn declaration_binding(&self, span: Span, name: Name) -> Option<BindingId> {
+        self.bodies.resolved_bindings.declaration_sites.get(&(span, name)).copied()
+    }
+
+    pub(super) fn declare_source_at(&self, span: Span, name: Name, ty: Option<super::Type>, slots: &mut SlotScope) -> Option<usize> {
+        Some(slots.declare_source(self.declaration_binding(span, name)?, name, ty))
+    }
+
+    pub(super) fn expression_binding(&self, expression: super::ExprId) -> Option<BindingId> {
+        self.bodies.resolved_bindings.expressions.get(&expression).copied()
+    }
+
+    pub(super) fn source_slot(&self, expression: super::ExprId, slots: &SlotScope) -> Option<usize> {
+        slots.resolve_binding(self.expression_binding(expression)?)
+    }
+
     pub(super) fn lower_bare_ident_stmt(
         &self,
         statement: StmtId,
         name: Name,
         slots: &SlotScope,
     ) -> Option<BuildExprId> {
-        let prepared = &self.declarations.prepared_constants;
-        if let Some(origin) = prepared
-            .tail_bindings
-            .get(&self.program.arena.stmt(statement).span)
-        {
-            let cached = self
-                .scratch
-                .borrow()
-                .prepared_constants
-                .get(origin)
-                .cloned();
-            let value = if let Some(value) = cached {
-                value
-            } else {
-                let value = lower_literal_constant(
-                    prepared.values.get(origin)?,
-                    Some(&self.declarations.wire_enums),
-                )?;
-                self.scratch
-                    .borrow_mut()
-                    .prepared_constants
-                    .insert(*origin, value.clone());
-                value
-            };
-            return Some(push_build_row!(
-                self,
-                expr,
-                BuildExprRow::PreparedConstant(super::super::PreparedConstantValue(value))
-            ));
-        }
-        self.lower_bare_ident(name, slots)
+        self.lower_named_binding(self.bodies.resolved_bindings.tails.get(&statement).copied(), name, slots)
     }
 
-    // `@name` in a command splices a local or, like a `$name` word, a module
-    // constant; a constant is not a slot, so it resolves through the
-    // prepared constants the way command-word references do.
+    // Command splices and word references consume the same checked source
+    // binding as expressions; prepared constants do not require a slot.
     pub(super) fn lower_splice_name(&self, name: Name, span: Span, slots: &SlotScope) -> Option<BuildExprId> {
-        self.lower_bare_ident(name, slots).or_else(|| {
+        self.lower_named_binding(self.bodies.resolved_bindings.at(span, name), name, slots).or_else(|| {
             lower_command_word_reference(
                 name.as_str().as_str(),
                 slots,
@@ -249,55 +234,74 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 &self.scratch,
                 &self.declarations.prepared_constants,
                 &self.declarations.wire_enums,
-                self.current_namespace,
+                &self.bodies.resolved_bindings,
             )
         })
     }
 
-    pub(super) fn lower_bare_ident(&self, name: Name, slots: &SlotScope) -> Option<BuildExprId> {
-        slots
-            .resolve(name)
-            .map(|slot| push_build_row!(self, expr, BuildExprRow::Param(slot)))
-            .or_else(|| {
-                if let Some(key) = self.compact_unqualified_function_key(name) {
-                    // Function bodies lower with every function as an in-flight
-                    // candidate, which `pure_contains` counts as pure; the
-                    // definition decides, so a proc alias called in a body
-                    // resolves as a proc instead of failing at runtime.
-                    let pure = self.function_index().definition(key).map_or_else(
-                        || {
-                            self.functions
-                                .is_none_or(|functions| functions.pure_contains(key))
-                        },
-                        |function| function.pure,
-                    );
-                    return Some(push_build_row!(
-                        self,
-                        expr,
-                        BuildExprRow::FunctionRef {
-                            function: match key {
-                                LoweredFunctionKey::Name(name) => name.into(),
-                                LoweredFunctionKey::Qualified(name) => name.into(),
-                            },
-                            pure,
-                        }
-                    ));
+    pub(super) fn lower_bare_ident(&self, expression: super::ExprId, name: Name, slots: &SlotScope) -> Option<BuildExprId> {
+        self.lower_named_binding(self.expression_binding(expression), name, slots)
+    }
+
+    pub(super) fn lower_bare_ident_at(&self, span: Span, name: Name, slots: &SlotScope) -> Option<BuildExprId> {
+        self.lower_named_binding(self.bodies.resolved_bindings.at(span, name), name, slots)
+    }
+
+    fn lower_named_binding(&self, binding: Option<BindingId>, name: Name, slots: &SlotScope) -> Option<BuildExprId> {
+        if let Some(binding) = binding {
+            let prepared = &self.declarations.prepared_constants;
+            if let Some(initializer) = prepared.binding_values.get(&binding) {
+                let origin = prepared.origins.get(initializer).copied().unwrap_or(*initializer);
+                let cached = self.scratch.borrow().prepared_constants.get(&origin).cloned();
+                let value = if let Some(value) = cached {
+                    value
+                } else {
+                    let value = lower_literal_constant(prepared.values.get(initializer)?, Some(&self.declarations.wire_enums))?;
+                    self.scratch.borrow_mut().prepared_constants.insert(origin, value.clone());
+                    value
+                };
+                return Some(push_build_row!(self, expr, BuildExprRow::PreparedConstant(super::super::PreparedConstantValue(value))));
+            }
+            return Some(push_build_row!(self, expr, BuildExprRow::Param(slots.resolve_binding(binding)?)));
+        }
+        if let Some(key) = self.compact_unqualified_function_key(name) {
+            // Function bodies lower with every function as an in-flight
+            // candidate, which `pure_contains` counts as pure; the
+            // definition decides, so a proc alias called in a body
+            // resolves as a proc instead of failing at runtime.
+            let pure = self.function_index().definition(key).map_or_else(
+                || {
+                    self.functions
+                        .is_none_or(|functions| functions.pure_contains(key))
+                },
+                |function| function.pure,
+            );
+            return Some(push_build_row!(
+                self,
+                expr,
+                BuildExprRow::FunctionRef {
+                    function: match key {
+                        LoweredFunctionKey::Name(name) => name.into(),
+                        LoweredFunctionKey::Qualified(name) => name.into(),
+                    },
+                    pure,
                 }
-                if self.compact_tag_variant_arity(name) != Some(0) {
-                    return None;
+            ));
+        }
+        if self.compact_tag_variant_arity(name) != Some(0) {
+            return None;
+        }
+        Some({
+            push_build_row!(
+                self,
+                expr,
+                BuildExprRow::Tag {
+                    type_name: self.compact_tag_type_name(name)?,
+                    wire: self.compact_tag_wire(name),
+                    name: Arc::<str>::from(name.as_str().as_str()),
+                    fields: Default::default(),
                 }
-                Some({
-                    push_build_row!(
-                        self,
-                        expr,
-                        BuildExprRow::Tag {
-                            type_name: self.compact_tag_type_name(name)?,
-                            wire: self.compact_tag_wire(name),
-                            name: Arc::<str>::from(name.as_str().as_str()),
-                            fields: Default::default(),
-                        }
-                    )
-                })
-            })
+            )
+        })
     }
 }

@@ -2630,7 +2630,7 @@ test test_stream_stages_are_trace_observable { |ctx|
     ctx,
     """
 let rows = [{name: "b", size: 2}, {name: "a", size: 1}]
-(rows) |> sort-by { |row| row.size } |> table.print(columns: ["name", "size"])
+rows |> sort-by { |row| row.size } |> table.print(columns: ["name", "size"])
 """,
     ["--trace", "--raw"],
   )?

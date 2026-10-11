@@ -788,7 +788,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         arg_count: usize,
         slots: &SlotScope,
     ) -> bool {
-        if let ArenaExprKind::Ident(binding) = self.program.arena.expr(base).kind
+        if let Some(binding) = self.expression_binding(base)
             && let Some(ty) = slots.binding_type(binding)
         {
             // A slot declared as a union holds one member wherever a method
@@ -827,7 +827,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             // says which. Without it the call is not lowered.
             return !matches!(
                 self.program.arena.expr(base).kind,
-                ArenaExprKind::Ident(binding) if slots.resolve(binding).is_some()
+                ArenaExprKind::Ident(_) if self.source_slot(base, slots).is_some()
             );
         };
         self.lowered_method_supported_for_type(&ty, name, arg_count)
@@ -898,19 +898,20 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     pub(super) fn assign_target_checked_type(
         &self,
         id: crate::syntax::arena::AssignTargetId,
+        span: Span,
         slots: &SlotScope,
     ) -> Option<Type> {
         match self.program.arena.assign_target(id).kind {
-            ArenaAssignTargetKind::Name(name) => slots.binding_type(name).cloned(),
+            ArenaAssignTargetKind::Name(name) => slots.binding_type(self.bodies.resolved_bindings.at(span, name)?).cloned(),
             ArenaAssignTargetKind::Field { base, name } => {
-                match self.assign_target_checked_type(base, slots)? {
+                match self.assign_target_checked_type(base, span, slots)? {
                     Type::Record(fields) => fields.get(&name).cloned(),
                     _ => None,
                 }
             }
             ArenaAssignTargetKind::Index { base, .. } => {
                 match self
-                    .assign_target_checked_type(base, slots)?
+                    .assign_target_checked_type(base, span, slots)?
                     .into_unvalidated()
                 {
                     Type::List(item) | Type::Map(_, item) => Some(*item),

@@ -3,7 +3,7 @@
 use crate::modules::{ModuleFnSig, RuntimeOp, api_spec};
 use crate::runtime::value::{DurationValue, PathValue, RecordMap, RegexValue, RuntimeError, Value};
 use crate::sema::check::{
-    CheckedApiCall, CompactBodyFacts, CompactDeclOutput, CompactTypeDefInfo, Conversion,
+    BindingId, CheckedApiCall, CompactBodyFacts, CompactDeclOutput, CompactTypeDefInfo, Conversion,
 };
 use crate::sema::records::standard_record_type;
 use crate::sema::types::{CallableParamType, ModuleExportType, Type};
@@ -37,14 +37,13 @@ use super::{
     lowered_record_vec_get_mut, lowered_record_vec_insert,
 };
 
-/// Name -> dense slot-index map used while lowering a function or top-level
-/// region. Slots are allocated densely and never reused; `high_water` is the
-/// runtime slot-array size, so retired names do not need synthetic keys.
+/// Checked source bindings map to dense runtime slots. Names describe the
+/// runtime layout; only declaration identities select a source value.
+/// Slots are never reused, so the high-water total sizes the runtime array.
 #[derive(Clone, Default)]
 pub(super) struct SlotScope {
-    pattern_slots: Option<FxHashMap<Name, usize>>,
-    // Slots declared for pattern captures; slots are never reused.
-    pattern_capture_slots: FxHashSet<usize>,
+    bindings: FxHashMap<BindingId, usize>,
+    types: FxHashMap<BindingId, Type>,
     indices: FxHashMap<Name, usize>,
     // Guarded receivers and explicit pipeline inputs bind once before their
     // selected operation; exact expression IDs reuse that retained value.
@@ -57,22 +56,15 @@ pub(super) struct SlotScope {
     /// failure is placed at the call, as the bare form's is.
     deferred_propagation: Option<ExprId>,
     bound_call_entries: FxHashSet<ExprId>,
-    types: FxHashMap<Name, Type>,
-    captures: FxHashSet<Name>,
-    // (name, previous slot) for each block-local declaration, so `exit` can
-    // restore a shadowed outer binding (or drop a freshly-introduced one).
-    declared: Vec<(Name, Option<usize>, Option<Type>, bool)>,
-    // Index into `declared` where the innermost scope began: what follows
-    // belongs to the scope being lowered now, and anything older is an
-    // enclosing scope this one may shadow.
-    level_start: usize,
+    collect_slots: FxHashMap<ExprId, usize>,
+    // Layout entries restore the enclosing runtime names when a block ends.
+    declared: Vec<(Name, Option<usize>)>,
     high_water: usize,
 }
 
-/// Snapshot of a `SlotScope` taken on entering a nested block (see `enter`/`exit`).
+/// Runtime layout snapshot on entering a nested block.
 pub(super) struct SlotSnapshot {
     declared_len: usize,
-    level_start: usize,
     high_water: usize,
 }
 
@@ -241,114 +233,46 @@ use values::{
 
 
 impl SlotScope {
-    /// Build a scope from ordered binding names (function params, top-level slots).
-    pub(super) fn from_names<I: IntoIterator<Item = Name>>(names: I) -> Self {
-        let indices = names
-            .into_iter()
-            .enumerate()
-            .map(|(slot, name)| (name, slot))
-            .collect::<FxHashMap<_, _>>();
-        let high_water = indices.len();
-        Self {
-            indices,
-            pattern_slots: None,
-            pattern_capture_slots: FxHashSet::default(),
-            postfix_receivers: FxHashMap::default(),
-            guarded_postfixes: FxHashSet::default(),
-            propagated_condition: None,
-            deferred_propagation: None,
-            bound_call_entries: FxHashSet::default(),
-            types: FxHashMap::default(),
-            captures: FxHashSet::default(),
-            declared: Vec::new(),
-            level_start: 0,
-            high_water,
-        }
-    }
-
     /// High-water slot total: the size the runtime slot array must have.
     pub(super) fn count(&self) -> usize {
         self.high_water
     }
 
-    pub(super) fn resolve(&self, name: Name) -> Option<usize> {
-        self.indices.get(&name).copied()
+    pub(super) fn resolve_binding(&self, binding: BindingId) -> Option<usize> {
+        self.bindings.get(&binding).copied()
     }
 
-    pub(super) fn is_bound(&self, name: Name) -> bool {
-        self.indices.contains_key(&name)
+    fn binding_type(&self, binding: BindingId) -> Option<&Type> {
+        self.types.get(&binding)
     }
 
-    fn is_bound_non_capture(&self, name: Name) -> bool {
-        self.is_bound(name) && !self.captures.contains(&name)
-    }
-
-    fn can_bind_pattern(&self, name: Name) -> bool {
-        // Retired sibling-arm captures may be reused. A capture may shadow an
-        // outer name or a declaration of this scope, which resolves again when
-        // the capture retires, but not another live capture.
-        self.pattern_slots
-            .as_ref()
-            .is_some_and(|slots| slots.contains_key(&name))
-            || !self.is_bound_non_capture(name)
-            || !self.is_declared_here(name)
-            || self
-                .resolve(name)
-                .is_some_and(|slot| !self.pattern_capture_slots.contains(&slot))
-    }
-
-    fn declare_pattern_binding(&mut self, name: Name) -> usize {
-        self.pattern_slots
-            .as_ref()
-            .and_then(|slots| slots.get(&name))
-            .copied()
-            .unwrap_or_else(|| self.declare_pattern_capture(name))
-    }
-
-    fn declare_pattern_capture(&mut self, name: Name) -> usize {
-        let slot = self.declare(name);
-        self.pattern_capture_slots.insert(slot);
-        slot
-    }
-
-    /// Whether the innermost scope already declared `name`.
-    fn is_declared_here(&self, name: Name) -> bool {
-        self.declared[self.level_start..]
-            .iter()
-            .any(|(declared, ..)| *declared == name)
-    }
-
-    fn binding_type(&self, name: Name) -> Option<&Type> {
-        self.types.get(&name)
-    }
-
-    /// Allocate the next dense slot and bind `name` to it.
-    pub(super) fn declare(&mut self, name: Name) -> usize {
-        self.declare_with_type(name, None)
-    }
-
-    fn declare_with_type(&mut self, name: Name, ty: Option<Type>) -> usize {
-        let slot = self.high_water;
-        self.high_water += 1;
+    /// A physical declaration owns one slot, including the shared captures
+    /// of pattern alternatives. Its spelling only records the runtime layout.
+    pub(super) fn declare_source(&mut self, binding: BindingId, name: Name, ty: Option<Type>) -> usize {
+        if let Some(slot) = self.resolve_binding(binding) {
+            if let Some(ty) = ty {
+                self.types.insert(binding, ty);
+            }
+            return slot;
+        }
+        let slot = self.reserve("source binding");
         let previous = self.indices.insert(name, slot);
-        let previous_capture = self.captures.remove(&name);
-        let previous_ty = match ty {
-            Some(ty) => self.types.insert(name, ty),
-            None => self.types.remove(&name),
-        };
-        self.declared
-            .push((name, previous, previous_ty, previous_capture));
+        self.declared.push((name, previous));
+        self.bindings.insert(binding, slot);
+        if let Some(ty) = ty {
+            self.types.insert(binding, ty);
+        }
         slot
     }
 
-    fn declare_capture(&mut self, name: Name) -> usize {
-        // A captured top-level binding is visible to the function but was not
-        // declared in its body, so a local declaration may shadow it.
-        let slot = self.high_water;
-        self.high_water += 1;
+    /// Parameters and captured globals already have their runtime positions.
+    pub(super) fn bind_source_at(&mut self, binding: BindingId, name: Name, slot: usize, ty: Option<Type>) {
+        self.bindings.insert(binding, slot);
         self.indices.insert(name, slot);
-        self.captures.insert(name);
-        slot
+        if let Some(ty) = ty {
+            self.types.insert(binding, ty);
+        }
+        self.high_water = self.high_water.max(slot + 1);
     }
 
     /// Allocate the next dense slot without binding a source-visible name.
@@ -358,93 +282,46 @@ impl SlotScope {
         slot
     }
 
-    /// Drop `name` from resolution while keeping its slot reserved by `high_water`.
-    ///
-    /// A retired pattern capture also leaves the scope's declarations, so a
-    /// later `let` of the same name is not mistaken for a redeclaration, and
-    /// any binding it shadowed resolves again.
+    /// A retired capture restores its enclosing layout entry; its source
+    /// identity remains unique and its slot remains allocated.
     pub(super) fn retire(&mut self, name: Name, slot: usize, _tag: &str) {
-        let position = self
-            .declared
-            .iter()
-            .rposition(|(declared, ..)| *declared == name);
-        match position {
-            Some(position)
-                if position >= self.level_start && self.indices.get(&name) == Some(&slot) =>
-            {
-                let (_, previous, previous_ty, previous_capture) = self.declared.remove(position);
-                match previous {
-                    Some(previous) => self.indices.insert(name, previous),
-                    None => self.indices.remove(&name),
-                };
-                match previous_ty {
-                    Some(ty) => self.types.insert(name, ty),
-                    None => self.types.remove(&name),
-                };
-                if previous_capture {
-                    self.captures.insert(name);
-                }
-            }
-            _ => {
-                self.indices.remove(&name);
-            }
+        if let Some(position) = self.declared.iter().rposition(|(declared, _)| *declared == name)
+            && self.indices.get(&name) == Some(&slot)
+        {
+            let (_, previous) = self.declared.remove(position);
+            match previous {
+                Some(previous) => self.indices.insert(name, previous),
+                None => self.indices.remove(&name),
+            };
         }
     }
 
-    /// Snapshot bindings on entering a nested block scope.
-    ///
-    /// The snapshot restores the state `enter` observed; the scope it opens
-    /// owns every declaration made from here until `exit`.
+    /// Source identities already distinguish nested declarations. The snapshot
+    /// restores only names used to publish the top-level runtime layout.
     pub(super) fn enter(&mut self) -> SlotSnapshot {
-        let snapshot = SlotSnapshot {
+        SlotSnapshot {
             declared_len: self.declared.len(),
-            level_start: self.level_start,
             high_water: self.high_water,
-        };
-        self.level_start = self.declared.len();
-        snapshot
+        }
     }
 
-    /// Restore name resolution to the block-entry snapshot, dropping block-local
-    /// bindings while keeping every slot index allocated inside the block.
-    /// A block-local declaration that shadowed an outer binding restores the
-    /// outer slot; a freshly-introduced one is dropped.
     pub(super) fn exit(&mut self, snapshot: SlotSnapshot) {
-        self.level_start = snapshot.level_start;
-        for (name, previous, previous_ty, previous_capture) in
-            self.declared[snapshot.declared_len..].iter().rev()
-        {
+        for (name, previous) in self.declared[snapshot.declared_len..].iter().rev() {
             match previous {
-                Some(slot) => {
-                    self.indices.insert(*name, *slot);
-                }
-                None => {
-                    self.indices.remove(name);
-                }
-            }
-            match previous_ty {
-                Some(ty) => {
-                    self.types.insert(*name, ty.clone());
-                }
-                None => {
-                    self.types.remove(name);
-                }
-            }
-            if *previous_capture {
-                self.captures.insert(*name);
-            } else {
-                self.captures.remove(name);
-            }
+                Some(slot) => self.indices.insert(*name, *slot),
+                None => self.indices.remove(name),
+            };
         }
         self.declared.truncate(snapshot.declared_len);
         self.high_water = self.high_water.max(snapshot.high_water);
     }
 
-    /// Consume the scope, yielding `(name, slot)` entries (top-level slot metadata).
+    /// Consume the scope, yielding runtime layout entries.
     pub(super) fn into_entries(self) -> impl Iterator<Item = (Name, usize)> {
         self.indices.into_iter()
     }
 }
+
 use super::{
     BuildBoolId, BuildBoolRow, BuildExprId, BuildExprRow, BuildIntId, BuildIntRow, BuildPatternId,
     BuildPatternIdSlots, BuildPatternRow, BuildScratch, BuildStmtId, BuildStmtRow, BuildTopKind,
@@ -1682,13 +1559,6 @@ fn compact_expr_kind_index(kind: ArenaExprKind) -> usize {
     }
 }
 
-/// The local that holds the list of one `collect` expression. No identifier
-/// can spell it, and each expression has its own, so a nested `collect`
-/// neither sees nor shadows the list around it.
-fn collect_local(collect: ExprId) -> Name {
-    Name::intern(&format!("%collect{}", collect.index()))
-}
-
 fn compact_expr_kind_label(kind: ArenaExprKind) -> &'static str {
     match kind {
         ArenaExprKind::Null => "null",
@@ -2260,31 +2130,23 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 
     fn append_immutable_top_level_captures(&self, slots: &mut SlotScope) -> LoweredTopLevelSlots {
-        let mut bindings = self
-            .top_level_known
-            .iter()
-            .filter(|(name, binding)| {
-                binding.slot
-                    && slots.resolve(**name).is_none()
-                    && !self
-                        .declarations
-                        .prepared_constants
-                        .global_bindings
-                        .contains_key(&(self.current_namespace, **name))
+        let mut bindings = self.bodies.resolved_bindings.declarations.iter()
+            .filter(|(id, declaration)| {
+                (**id == BindingId::args() || (declaration.global && declaration.namespace == self.current_namespace))
+                    && slots.resolve_binding(**id).is_none()
+                    && !self.declarations.prepared_constants.binding_values.contains_key(id)
             })
-            .map(|(name, binding)| (*name, binding.kind, binding.mutable))
+            .filter_map(|(&id, declaration)| {
+                let binding = self.top_level_known.get(&declaration.name)?;
+                binding.slot.then_some((id, declaration.name, binding.kind, binding.mutable))
+            })
             .collect::<Vec<_>>();
-        bindings.sort_unstable_by_key(|(name, _, _)| *name);
-
+        bindings.sort_unstable_by_key(|(_, name, _, _)| *name);
         let mut captures: LoweredTopLevelSlots = Default::default();
-        for (name, kind, mutable) in bindings {
-            let slot = slots.declare_capture(name);
-            captures.push(LoweredTopLevelSlot {
-                name,
-                slot,
-                kind,
-                mutable,
-            });
+        for (binding, name, kind, mutable) in bindings {
+            let slot = slots.reserve("captured global");
+            slots.bind_source_at(binding, name, slot, None);
+            captures.push(LoweredTopLevelSlot { name, slot, kind, mutable });
         }
         captures
     }
@@ -2653,7 +2515,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         // The check is removed — it was an early indexed-lowering safety measure that is no longer needed.
         // Parameter slots exist at entry, but their names are hidden while
         // lowering defaults so every default resolves in the outer environment.
-        let mut slots = SlotScope::from_names([]);
+        let mut slots = SlotScope::default();
         for _ in &params {
             slots.reserve("parameter");
         }
@@ -2677,9 +2539,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ));
         }
         for (slot, (name, ty)) in params.iter().copied().zip(checked_params).enumerate() {
-            slots.indices.insert(name, slot);
-            slots.types.insert(name, ty);
-            slots.captures.remove(&name);
+            let parameter = &self.program.arena.params(def.params)[slot];
+            let binding = self.declaration_binding(self.program.arena.span(parameter.span), name)
+                .ok_or(CompactFunctionBlocker::ParamType)?;
+            slots.bind_source_at(binding, name, slot, Some(ty));
         }
         let mut body = self
             .lower_tail_block(def.body, &mut slots, Some(def.name), None)
@@ -3013,7 +2876,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 if let ArenaBindingTargetKind::Record { .. } =
                     self.program.arena.binding_target(target).kind
                 {
-                    let mut slots = top_level_slots(known);
+                    let mut slots = top_level_slots(known, &self.bodies.resolved_bindings, self.current_namespace);
                     let checked = self.top_level_binding_checked_type(ty, value);
                     let source = self.lower_binding_expr_value(
                         ty,
@@ -3055,7 +2918,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
                 let target = simple_binding_target(self.program, target)?;
                 if is_discard_name(target) {
-                    let mut slots = top_level_slots(known);
+                    let mut slots = top_level_slots(known, &self.bodies.resolved_bindings, self.current_namespace);
                     let value = self.lower_expr(value, &mut slots, None, None)?;
                     return Some(lowered_top_level(
                         &self.scratch,
@@ -3088,7 +2951,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     }
                     None => (None, None),
                 };
-                let mut slots = top_level_slots(known);
+                let mut slots = top_level_slots(known, &self.bodies.resolved_bindings, self.current_namespace);
                 let checked = self.lower_binding_checked_type(annotation, value);
                 let value = if self.is_empty_record_in_map_context(value, annotation) {
                     push_build_row!(self, expr, BuildExprRow::EmptyMap)
@@ -3144,7 +3007,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             } => {
                 let target = simple_binding_target(self.program, target)?;
                 if is_discard_name(target) {
-                    let mut slots = top_level_slots(known);
+                    let mut slots = top_level_slots(known, &self.bodies.resolved_bindings, self.current_namespace);
                     let value = self.lower_run_binding_value(run, &mut slots, None, None)?;
                     return Some(lowered_top_level(
                         &self.scratch,
@@ -3176,7 +3039,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     }
                     None => (None, None),
                 };
-                let mut slots = top_level_slots(known);
+                let mut slots = top_level_slots(known, &self.bodies.resolved_bindings, self.current_namespace);
                 let value = self.lower_run_binding_value(run, &mut slots, None, None)?;
                 Some(lowered_top_level(
                     &self.scratch,
@@ -3208,7 +3071,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     {
                         return None;
                     }
-                    let mut slots = top_level_slots(known);
+                    let mut slots = top_level_slots(known, &self.bodies.resolved_bindings, self.current_namespace);
                     let lowered = self.lower_stmt_with_blocker_guard(id, &mut slots, None, None)?;
                     return Some(lowered_top_level(
                         &self.scratch,
@@ -3223,7 +3086,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         .as_ref()
                         .is_some_and(Type::has_unsigned_constraint)
                 }) {
-                    let mut slots = top_level_slots(known);
+                    let mut slots = top_level_slots(known, &self.bodies.resolved_bindings, self.current_namespace);
                     let lowered = self.lower_stmt_with_blocker_guard(id, &mut slots, None, None)?;
                     return Some(lowered_top_level(
                         &self.scratch,
@@ -3232,7 +3095,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         slots,
                     ));
                 }
-                let mut slots = top_level_slots(known);
+                let mut slots = top_level_slots(known, &self.bodies.resolved_bindings, self.current_namespace);
                 let value = match value {
                     ArenaExprOrRun::Expr(expr) => self.lower_expr(expr, &mut slots, None, None)?,
                     ArenaExprOrRun::Run(run) => {
@@ -3254,7 +3117,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ArenaStmtKind::Guard { .. } => {
                 // The success bindings outlive the statement, so the guard is
                 // the source of a binding step that publishes its new slots.
-                let mut slots = top_level_slots(known);
+                let mut slots = top_level_slots(known, &self.bodies.resolved_bindings, self.current_namespace);
                 let outer = slots.indices.clone();
                 let span = self.program.arena.stmt(id).span;
                 let guard = self.lower_stmt_with_blocker_guard(id, &mut slots, None, None)?;
@@ -3292,7 +3155,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             | ArenaStmtKind::Match { .. }
             | ArenaStmtKind::Loop { .. }
             | ArenaStmtKind::With { .. } => {
-                let mut slots = top_level_slots(known);
+                let mut slots = top_level_slots(known, &self.bodies.resolved_bindings, self.current_namespace);
                 let lowered = self.lower_stmt_with_blocker_guard(id, &mut slots, None, None)?;
                 Some(lowered_top_level(
                     &self.scratch,
@@ -3302,7 +3165,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 ))
             }
             ArenaStmtKind::Command(command) => {
-                let mut slots = top_level_slots(known);
+                let mut slots = top_level_slots(known, &self.bodies.resolved_bindings, self.current_namespace);
                 let lowered = self
                     .lower_print_stmt(command, &mut slots, None, None)
                     .or_else(|| self.lower_cd_stmt(command, &mut slots, None, None))
@@ -3317,20 +3180,20 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 ))
             }
             ArenaStmtKind::Expr(value) => {
-                let mut slots = top_level_slots(known);
+                let mut slots = top_level_slots(known, &self.bodies.resolved_bindings, self.current_namespace);
                 let value = self.lower_expr(value, &mut slots, None, None)?;
                 let kind = BuildTopKind::Expr(value);
                 Some(lowered_top_level(&self.scratch, kind, known, slots))
             }
             ArenaStmtKind::Exit(status) => {
-                let mut slots = top_level_slots(known);
+                let mut slots = top_level_slots(known, &self.bodies.resolved_bindings, self.current_namespace);
                 let span = self.program.arena.stmt(id).span;
                 let value = self.lower_exit(status, span, &mut slots, None, None)?;
                 let kind = BuildTopKind::Expr(value);
                 Some(lowered_top_level(&self.scratch, kind, known, slots))
             }
             ArenaStmtKind::Defer(ArenaExprOrRun::Expr(value), trigger) => {
-                let mut slots = top_level_slots(known);
+                let mut slots = top_level_slots(known, &self.bodies.resolved_bindings, self.current_namespace);
                 let value = self.lower_deferred_expr(value, &mut slots, None, None)?;
                 Some(lowered_top_level(
                     &self.scratch,
@@ -3344,7 +3207,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 ))
             }
             ArenaStmtKind::Defer(ArenaExprOrRun::Run(run), trigger) => {
-                let mut slots = top_level_slots(known);
+                let mut slots = top_level_slots(known, &self.bodies.resolved_bindings, self.current_namespace);
                 let value = self.lower_run_binding_value(run, &mut slots, None, None)?;
                 Some(lowered_top_level(
                     &self.scratch,
@@ -3359,13 +3222,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             ArenaStmtKind::SignalHook(hook_id) => {
                 let hook = self.program.arena.signal_hook(hook_id);
-                let mut slot_scope = top_level_slots(known);
+                let mut slot_scope = top_level_slots(known, &self.bodies.resolved_bindings, self.current_namespace);
                 let body = self.lower_block(hook.body, &mut slot_scope, None, None)?;
                 let slot_count = slot_scope.count();
                 let hook_slots: Vec<LoweredTopLevelSlot> = known
                     .iter()
                     .filter_map(|(&name, binding)| {
-                        slot_scope.resolve(name).map(|slot| LoweredTopLevelSlot {
+                        slot_scope.indices.get(&name).copied().map(|slot| LoweredTopLevelSlot {
                             name,
                             slot,
                             kind: binding.kind,
@@ -3731,25 +3594,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                // A declaration may shadow a binding an enclosing scope made:
-                // the inner scope resolves the new slot and the outer binding
-                // comes back when it ends. Only a name this same scope already
-                // declared is refused, which the checker reports before
-                // lowering ever runs.
-                if slots.is_declared_here(name) {
-                    {
-                        self.record_lower_stmt_blocker(id);
-                        self.output.constructed_statements += 1;
-                        return Some(push_build_row!(
-                            self,
-                            stmt,
-                            BuildStmtRow::Expr {
-                                value: push_build_row!(self, expr, BuildExprRow::Unit),
-                                span: self.program.arena.stmt(id).span,
-                            }
-                        ));
-                    }
-                }
                 #[cfg(debug_assertions)]
                 if let Some(ty) = ty {
                     self.note_annotation_drift(id, ty);
@@ -3780,7 +3624,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     )?
                 };
                 let binding_is_int = matches!(binding_ty, Some(Type::Int));
-                let slot = slots.declare_with_type(name, binding_ty);
+                let slot = slots.declare_source(self.bodies.resolved_bindings.target(target)?, name, binding_ty);
                 if binding_is_int
                     && let Some(value) = self.lower_int_expr_candidate(&value)
                     && !self.lowered_int_expr_needs_type_context(&value)
@@ -3837,25 +3681,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         }
                     ));
                 }
-                // A declaration may shadow a binding an enclosing scope made:
-                // the inner scope resolves the new slot and the outer binding
-                // comes back when it ends. Only a name this same scope already
-                // declared is refused, which the checker reports before
-                // lowering ever runs.
-                if slots.is_declared_here(name) {
-                    {
-                        self.record_lower_stmt_blocker(id);
-                        self.output.constructed_statements += 1;
-                        return Some(push_build_row!(
-                            self,
-                            stmt,
-                            BuildStmtRow::Expr {
-                                value: push_build_row!(self, expr, BuildExprRow::Unit),
-                                span: self.program.arena.stmt(id).span,
-                            }
-                        ));
-                    }
-                }
                 if let Some(ty) = ty {
                     lowered_arena_type(ty, self.declarations, self.current_namespace)?;
                 }
@@ -3876,7 +3701,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             .get(&self.program.arena.stmt(id).span)
                             .cloned()
                     });
-                let slot = slots.declare_with_type(name, binding_ty);
+                let slot = slots.declare_source(self.bodies.resolved_bindings.target(target)?, name, binding_ty);
                 Some(push_build_row!(
                     self,
                     stmt,
@@ -3891,31 +3716,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             ArenaStmtKind::Assign { target, op, value } => {
                 let root_name = self.assign_target_root_name(target)?;
-                let slot = if let Some(slot) = slots.resolve(root_name) {
-                    slot
-                } else if op == AssignOp::Set
-                    && matches!(
-                        self.program.arena.assign_target(target).kind,
-                        ArenaAssignTargetKind::Name(_)
-                    )
-                {
-                    slots.declare(root_name)
-                } else {
-                    {
-                        self.record_lower_stmt_blocker(id);
-                        self.output.constructed_statements += 1;
-                        return Some(push_build_row!(
-                            self,
-                            stmt,
-                            BuildStmtRow::Expr {
-                                value: push_build_row!(self, expr, BuildExprRow::Unit),
-                                span: self.program.arena.stmt(id).span,
-                            }
-                        ));
-                    }
-                };
+                let binding = self.bodies.resolved_bindings.at(self.program.arena.stmt(id).span, root_name)?;
+                let slot = slots.resolve_binding(binding)?;
                 let check = self
-                    .assign_target_checked_type(target, slots)
+                    .assign_target_checked_type(target, self.program.arena.stmt(id).span, slots)
                     .filter(Type::has_unsigned_constraint)
                     .map(|ty| LoweredTypeCheck {
                         name: Arc::from(ty.to_string()),
@@ -3952,7 +3756,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         ),
                         _ => {
                             let path =
-                                self.lower_assign_path(target, slots, current_function, item_slot)?;
+                                self.lower_assign_path(target, self.program.arena.stmt(id).span, slots, current_function, item_slot)?;
                             push_build_row!(
                                 self,
                                 stmt,
@@ -4054,7 +3858,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     }
                     _ => {
                         let path =
-                            self.lower_assign_path(target, slots, current_function, item_slot)?;
+                            self.lower_assign_path(target, self.program.arena.stmt(id).span, slots, current_function, item_slot)?;
                         Some(push_build_row!(
                             self,
                             stmt,
@@ -4267,7 +4071,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 // The loop variable is declared in the loop's own scope, so it may
                 // shadow an outer binding; `exit` restores the outer slot.
                 let saved = slots.enter();
-                let slot = slots.declare_with_type(name, item_ty);
+                let slot = if name.as_str() == "_" {
+                    slots.reserve("for discard")
+                } else {
+                    slots.declare_source(self.bodies.resolved_bindings.target(target)?, name, item_ty)
+                };
                 let body =
                     self.lower_block_in_current_scope(block, slots, current_function, Some(slot))?;
                 slots.exit(saved);
@@ -4425,7 +4233,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         let slot = if binding.name.as_str() == "_" {
                             slots.reserve("with discard")
                         } else {
-                            slots.declare_with_type(binding.name, ty)
+                            self.declare_source_at(self.program.arena.span(binding.span), binding.name, ty, slots)?
                         };
                         captures.push(slot);
                         lowered_bindings.push((slot, value));
@@ -4442,13 +4250,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     .cloned()
                     .or(error_ty);
                 let saved = slots.enter();
-                let else_param_slot = self
-                    .program
-                    .arena
-                    .block_params(self.program.arena.block(else_block).params)
-                    .first()
+                let else_param_slot = if let Some(param) = self.program.arena
+                    .block_params(self.program.arena.block(else_block).params).first()
                     .filter(|param| param.name.as_str() != "_")
-                    .map(|param| slots.declare_with_type(param.name, error_ty));
+                {
+                    Some(self.declare_source_at(self.program.arena.span(param.span), param.name, error_ty, slots)?)
+                } else { None };
                 captures.extend(else_param_slot);
                 let else_body = self.lower_block_in_current_scope(
                     else_block,
@@ -4497,22 +4304,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 // The else block runs in its own scope with the error param
                 // bound; the success binding lives in the enclosing scope.
                 let saved = slots.enter();
-                let else_param_slot = self
-                    .program
-                    .arena
-                    .block_params(self.program.arena.block(else_block).params)
-                    .first()
-                    // A null optional carries no error to bind.
+                // A null optional carries no error to bind.
+                let else_param_slot = if let Some(param) = self.program.arena
+                    .block_params(self.program.arena.block(else_block).params).first()
                     .filter(|param| !optional && param.name.as_str() != "_")
-                    .map(|param| {
-                        slots.declare_with_type(
-                            param.name,
-                            checked.as_ref().and_then(|ty| match ty {
-                                Type::Result(_, error) => Some((**error).clone()),
-                                _ => None,
-                            }),
-                        )
+                {
+                    let error_ty = checked.as_ref().and_then(|ty| match ty {
+                        Type::Result(_, error) => Some((**error).clone()),
+                        _ => None,
                     });
+                    Some(self.declare_source_at(self.program.arena.span(param.span), param.name, error_ty, slots)?)
+                } else { None };
                 let else_body = self.lower_block_in_current_scope(
                     else_block,
                     slots,
@@ -4917,7 +4719,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 expr,
                 BuildExprRow::Bytes(self.program.arena.bytes_literal(value).clone(),)
             )),
-            ArenaExprKind::Ident(name) => self.lower_bare_ident(name, slots),
+            ArenaExprKind::Ident(name) => self.lower_bare_ident(id, name, slots),
             ArenaExprKind::Item => {
                 item_slot.map(|slot| push_build_row!(self, expr, BuildExprRow::Param(slot)))
             }
@@ -4998,10 +4800,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             {
                 let mut lowered = Vec::new();
                 for field in self.program.arena.record_fields(fields).to_vec() {
-                    let ArenaRecordFieldKind::Shorthand { name, .. } = field.kind else {
+                    let ArenaRecordFieldKind::Shorthand { name, span } = field.kind else {
                         return None;
                     };
-                    lowered.push(self.lower_bare_ident(name, slots)?);
+                    lowered.push(self.lower_bare_ident_at(self.program.arena.span(span), name, slots)?);
                 }
                 Some(self.list_as_set(lowered, span))
             }
@@ -5399,7 +5201,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     let saved = slots.enter();
                     let (error_slot, handler_item_slot) = match parameter {
                         Some(parameter) => (
-                            slots.declare_with_type(parameter, Some(*error_ty)),
+                            self.declare_source_at(
+                                self.program.arena.span(self.program.arena.block_params(self.program.arena.block(block).params)[0].span),
+                                parameter, Some(*error_ty), slots)?,
                             item_slot,
                         ),
                         None => {
@@ -5969,7 +5773,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             // body's yields append to that local (`lower_collect_yield`).
             ArenaExprKind::Collect { block } => {
                 let saved = slots.enter();
-                let slot = slots.declare(collect_local(id));
+                let slot = slots.reserve("collect list");
+                slots.collect_slots.insert(id, slot);
                 let lowered = (|| {
                     let empty = push_build_row!(self, expr, BuildExprRow::List(Vec::new()));
                     let bind =
@@ -6192,23 +5997,26 @@ fn top_level_known_with_runtime_bindings() -> FxHashMap<Name, LoweredTopLevelBin
     known
 }
 
-pub(super) fn top_level_slots(known: &FxHashMap<Name, LoweredTopLevelBinding>) -> SlotScope {
-    let mut names = known
-        .iter()
-        .filter_map(|(name, binding)| binding.slot.then_some(*name))
-        .collect::<Vec<_>>();
+pub(super) fn top_level_slots(
+    known: &FxHashMap<Name, LoweredTopLevelBinding>,
+    bindings: &crate::sema::check::ResolvedBindings,
+    namespace: Option<Name>,
+) -> SlotScope {
+    let mut names = known.iter().filter_map(|(name, binding)| binding.slot.then_some(*name)).collect::<Vec<_>>();
     names.sort_unstable();
-    let mut slots = SlotScope::from_names(names.iter().copied());
+    let mut slots = SlotScope::default();
     for name in names {
-        let Some(binding) = known.get(&name) else {
+        let slot = slots.reserve("top-level layout");
+        slots.indices.insert(name, slot);
+    }
+    for (&id, declaration) in &bindings.declarations {
+        if id != BindingId::args() && (!declaration.global || declaration.namespace != namespace) {
             continue;
-        };
-        if let Some(ty) = binding
-            .checked
-            .clone()
-            .or_else(|| type_for_lowered_type(binding.kind))
-        {
-            slots.types.insert(name, ty);
+        }
+        if let Some(&slot) = slots.indices.get(&declaration.name) {
+            let binding = &known[&declaration.name];
+            let ty = binding.checked.clone().or_else(|| type_for_lowered_type(binding.kind));
+            slots.bind_source_at(id, declaration.name, slot, ty);
         }
     }
     slots

@@ -151,8 +151,9 @@ impl TypeExprId {
 #[cfg(test)]
 mod layout_tests {
     use super::{
-        ArenaColdVec, ArenaExprData, ArenaExprTag, ArenaStmtData, ArenaStmtTag, ArenaTypeExprData,
-        ArenaTypeExprTag, ExprId, PatternId, StmtId, TypeExprId, vec_capacity_bytes,
+        ArenaByteSpan, ArenaColdVec, ArenaExprData, ArenaExprTag, ArenaStmtData, ArenaStmtTag,
+        ArenaText, ArenaTextSource, ArenaTypeExprData, ArenaTypeExprTag, AstArena, ExprId,
+        PatternId, SourceId, StmtId, TypeExprId, vec_capacity_bytes,
     };
     use std::mem::size_of;
 
@@ -181,6 +182,23 @@ mod layout_tests {
             vec_capacity_bytes(&values),
             size_of::<Vec<u32>>() + values.capacity() * size_of::<u32>()
         );
+    }
+
+    #[test]
+    fn source_text_lookup_requires_the_matching_source_identity() {
+        let source_id = SourceId::new(1);
+        let text = ArenaText::Source(ArenaTextSource {
+            bytes: ArenaByteSpan { start: 2, len: 3 },
+            source_id,
+        });
+        let arena = AstArena::default();
+
+        assert_eq!(arena.text_value_for_source(&text, source_id, "--src--"), Some("src"));
+        assert_eq!(
+            arena.text_value_for_source(&text, SourceId::new(0), "--src--"),
+            None,
+        );
+        assert_eq!(arena.text_value(&text, "--src--"), None);
     }
 }
 
@@ -6313,6 +6331,23 @@ impl AstArena {
                 let span = text_source.bytes.to_span(text_source.source_id);
                 source.get(span.start()..span.end())
             }
+            ArenaText::Cooked(value) => Some(value.as_ref()),
+        }
+    }
+
+    pub(crate) fn text_value_for_source<'a>(
+        &self,
+        text: &'a ArenaText,
+        source_id: SourceId,
+        source: &'a str,
+    ) -> Option<&'a str> {
+        match text {
+            ArenaText::Source(text_source) if text_source.source_id == source_id => {
+                let start = text_source.bytes.start as usize;
+                let end = start.checked_add(text_source.bytes.len as usize)?;
+                source.get(start..end)
+            }
+            ArenaText::Source(_) => None,
             ArenaText::Cooked(value) => Some(value.as_ref()),
         }
     }

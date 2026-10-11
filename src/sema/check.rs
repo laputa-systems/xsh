@@ -781,6 +781,7 @@ pub struct Checker {
     checked_declarations: CheckedDeclarations,
     resolved_type_expressions: ResolvedTypeExpressions,
     resolved_bindings: Arc<ResolvedBindings>,
+    resolved_command_sites: FxHashMap<(Span, Name), BindingId>,
     boundary: BoundaryContext,
     local_inference: local_inference::LocalInference,
     pub(super) type_constraints: super::constraints::TypeConstraints,
@@ -1069,6 +1070,7 @@ impl Checker {
                 type_program,
                 sources,
             );
+            checker.publish_command_binding_sites();
             let callable_effects = checker.callable_effects();
             let checked_declarations = checker.take_checked_declarations();
             CheckOutput {
@@ -1200,6 +1202,7 @@ impl Checker {
             constructor_group_depth: 0,
             pending_record_constructors: Vec::new(),
             resolved_bindings: Arc::default(),
+            resolved_command_sites: FxHashMap::default(),
             prepared_constants: super::constants::PreparedConstants::default(),
             wire_enums: crate::sema::wire_enums::PreparedWireEnums::default(),
             condition_proofs: FxHashMap::default(),
@@ -1360,6 +1363,7 @@ impl Checker {
         type_program: Arc<crate::syntax::arena::ArenaProgram>,
         sources: Option<&SourceMap>,
     ) {
+        self.resolved_command_sites.clear();
         self.resolved_bindings = Arc::new(ResolvedBindings::collect(program));
         self.prepare_effect_declarations(program, None);
         self.prepare_local_inference(program);
@@ -1609,8 +1613,18 @@ impl Checker {
         self.scopes.iter().rev().find_map(|scope| scope.get(&name))
     }
 
+    // Probe checkers share immutable lexical facts. Command names need source
+    // text, so their selected identities accumulate locally and publish once.
+    fn publish_command_binding_sites(&mut self) {
+        let sites = std::mem::take(&mut self.resolved_command_sites);
+        if !sites.is_empty() {
+            Arc::make_mut(&mut self.resolved_bindings).value_sites.extend(sites);
+        }
+    }
+
     fn lookup_value_binding(&self, name: Name, span: Span) -> Option<&Binding> {
-        let id = self.resolved_bindings.at(span, name)?;
+        let id = self.resolved_command_sites.get(&(span, name)).copied()
+            .or_else(|| self.resolved_bindings.at(span, name))?;
         self.scopes.iter().rev().find_map(|scope| {
             scope.get(&name).filter(|binding| binding.id == Some(id))
         })

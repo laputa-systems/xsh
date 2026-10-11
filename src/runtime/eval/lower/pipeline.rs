@@ -595,26 +595,36 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .block_params(self.program.arena.block(block).params);
         let acc_slot = match params {
             [] => slots.reserve("pipeline.acc"),
-            [acc] | [acc, _] => {
-                if slots.is_declared_here(acc.name) {
+            [acc] | [acc, _] => match self.declare_source_at(
+                self.program.arena.span(acc.span),
+                acc.name,
+                acc_ty,
+                slots,
+            ) {
+                Some(slot) => slot,
+                None => {
                     slots.exit(saved);
                     return None;
                 }
-                slots.declare_with_type(acc.name, acc_ty)
-            }
+            },
             _ => {
                 slots.exit(saved);
                 return None;
             }
         };
         let item_slot = match params {
-            [_, item] => {
-                if slots.is_declared_here(item.name) {
+            [_, item] => match self.declare_source_at(
+                self.program.arena.span(item.span),
+                item.name,
+                item_ty.cloned(),
+                slots,
+            ) {
+                Some(slot) => slot,
+                None => {
                     slots.exit(saved);
                     return None;
                 }
-                slots.declare_with_type(item.name, item_ty.cloned())
-            }
+            },
             _ => slots.reserve("pipeline.item"),
         };
         let body = Vec::new();
@@ -720,14 +730,124 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         match params {
             [] => Some((slots.reserve("pipeline.item"), None)),
             [param] => {
-                // Retirement restores any outer slot and its checked type after
-                // the callback, so this temporary binding may shadow a local.
+                // The callback's source parameter keeps its checked identity;
+                // its spelling only describes the temporary runtime layout.
                 Some((
-                    slots.declare_with_type(param.name, item_ty.cloned()),
+                    self.declare_source_at(
+                        self.program.arena.span(param.span),
+                        param.name,
+                        item_ty.cloned(),
+                        slots,
+                    )?,
                     Some(param.name),
                 ))
             }
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn failed_fold_restores_layout(missing_parameter: usize) {
+        let source = "let result = [1, 2] |> fold(0) { |acc, item| acc + item }\n";
+        let entry_source = crate::loader::entry_source_from_text("pipeline-fold-binding.xsh", source.to_string());
+        let source_id = entry_source.source_id;
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+            "pipeline-fold-binding.xsh",
+            entry_source,
+            Vec::new(),
+        );
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let mut declarations = crate::sema::check::Checker::check_compact_declarations(
+            &parsed.arena,
+            &sources,
+            source_id,
+        );
+        assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+        let stage = parsed
+            .arena
+            .statement_ids()
+            .find_map(|statement| {
+                let crate::syntax::arena::ArenaStmtKind::Let {
+                    initializer: crate::syntax::arena::ArenaExprOrRun::Expr(expression),
+                    ..
+                } = parsed.arena.arena.stmt(statement).kind else {
+                    return None;
+                };
+                let stage = match parsed.arena.arena.expr(expression).kind {
+                    crate::syntax::arena::ArenaExprKind::Pipeline { stages, .. } => parsed
+                        .arena
+                        .arena
+                        .pipe_stages(stages)
+                        .iter()
+                        .find_map(|stage| match &stage.kind {
+                            crate::syntax::arena::ArenaPipeStageKind::Stream(stage)
+                                if stage.kind == StreamStageKind::Fold => Some(stage.clone()),
+                            _ => None,
+                        }),
+                    crate::syntax::arena::ArenaExprKind::StructuredPipeline { stages, .. } => parsed
+                        .arena
+                        .arena
+                        .stream_stages(stages)
+                        .iter()
+                        .find(|stage| stage.kind == StreamStageKind::Fold)
+                        .cloned(),
+                    _ => return None,
+                };
+                stage
+            })
+            .expect("the fixture contains a fold stage");
+        let block = stage.block.expect("fold carries its callback block");
+        let params = parsed
+            .arena
+            .arena
+            .block_params(parsed.arena.arena.block(block).params);
+        let param = params
+            .get(missing_parameter)
+            .expect("the requested fold parameter exists");
+        let outer_name = params[0].name;
+        let removed = std::sync::Arc::make_mut(&mut declarations.bodies.resolved_bindings)
+            .declaration_sites
+            .remove(&(parsed.arena.arena.span(param.span), param.name));
+        assert!(removed.is_some(), "the checker published the parameter binding");
+
+        let mut probe = CompactLowerConstructProbe {
+            program: &parsed.arena,
+            declarations: &declarations,
+            bodies: &declarations.bodies,
+            source,
+            sources: Some(&sources),
+            current_namespace: None,
+            functions: None,
+            top_level_known: crate::runtime::eval::lower::FxHashMap::default(),
+            output: super::super::CompactLowerConstructProbeOutput::default(),
+            last_blocker_detail: None,
+            stdlib_linkage: super::super::StdlibLowerLinkage::Local,
+            function_defs: std::rc::Rc::new(std::cell::RefCell::new(None)),
+            scratch: std::rc::Rc::new(std::cell::RefCell::new(super::super::BuildScratch::default())),
+            spread_programs: std::rc::Rc::default(),
+        };
+        let mut slots = SlotScope::default();
+        let outer_binding = crate::sema::check::BindingId::args();
+        slots.bind_source_at(outer_binding, outer_name, 0, Some(Type::Str));
+        let outer_layout = slots.indices.clone();
+        let declared_before = slots.declared.len();
+        let initial = super::super::build_expr(&probe.scratch, BuildExprRow::Unit);
+
+        assert!(probe
+            .lower_pipeline_stage_fold(&stage, &mut slots, None, None, initial, Some(Type::Int))
+            .is_none());
+        assert_eq!(slots.indices, outer_layout);
+        assert_eq!(slots.declared.len(), declared_before);
+        assert_eq!(slots.binding_type(outer_binding), Some(&Type::Str));
+    }
+
+    #[test]
+    fn missing_fold_parameter_binding_restores_outer_layout() {
+        failed_fold_restores_layout(0);
+        failed_fold_restores_layout(1);
     }
 }

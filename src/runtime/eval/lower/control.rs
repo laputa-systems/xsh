@@ -2,7 +2,7 @@ use super::{
     ArenaCommand, ArenaExprKind, ArenaStmtKind, AssignOp, BlockId, BuildExprId, BuildExprRow,
     BuildPatternRow, BuildStmtId, BuildStmtRow, CompactLowerConstructProbe, ExprId, FxHashMap,
     LoweredValue, Name, RuntimeOp, SlotScope, Span, StmtId, Type, cleanup_lowered_pattern_slots,
-    collect_local, lowered_arena_run_capture_type,
+     lowered_arena_run_capture_type,
 };
 
 impl<'p> CompactLowerConstructProbe<'p, '_> {
@@ -177,7 +177,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         slots: &SlotScope,
     ) -> Option<BuildStmtId> {
         let collect = *self.bodies.collect_yields.get(&id)?;
-        let slot = slots.resolve(collect_local(collect))?;
+        let slot = *slots.collect_slots.get(&collect)?;
         Some(push_build_row!(
             self,
             stmt,
@@ -1050,7 +1050,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         .block_params(self.program.arena.block(block).params)
                     {
                         [param] if param.name.as_str() != "_" => {
-                            slots.declare_with_type(param.name, Some(Type::Path))
+                            self.declare_source_at(self.program.arena.span(param.span), param.name, Some(Type::Path), slots)?
                         }
                         _ => slots.reserve("tempdir.path"),
                     };
@@ -1213,7 +1213,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let slot = if binding.name.as_str() == "_" {
                     slots.reserve("with.resource")
                 } else {
-                    slots.declare_with_type(binding.name, ty)
+                    self.declare_source_at(self.program.arena.span(binding.span), binding.name, ty, slots)?
                 };
                 body.push(push_build_row!(
                     self,
@@ -1395,7 +1395,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 .block_params(self.program.arena.block(block).params)
             {
                 [param] if param.name.as_str() != "_" => {
-                    slots.declare_with_type(param.name, Some(Type::Path))
+                    self.declare_source_at(self.program.arena.span(param.span), param.name, Some(Type::Path), slots)?
                 }
                 _ => slots.reserve("tempdir.path"),
             };

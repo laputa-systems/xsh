@@ -2,7 +2,7 @@ type Captured = {status: Status, stdout: Str, stderr: Str}
 
 # A module whose first doc comment is attached to no export, which draws
 # `check.orphan-doc-comment` once however many scripts import it.
-const orphan_doc_helper = "##! Helper module.\n## This comment is not attached to an export.\nlet value = 1\n\n## Exports a value.\nexport let exported: Int = value\n"
+const orphan_doc_helper = "##! Helper module.\n## Exports a value.\nexport const exported = 1\n\n## This comment is not attached to an export.\n"
 
 const unused_local = """proc main() {
   let unused = 1
@@ -211,7 +211,7 @@ test test_lint_discovery_applies_the_nearest_config_of_each_file { |ctx|
 }
 
 test test_lint_fix_deduplicates_diagnostics_from_imported_modules { |ctx|
-  let entry = "use helper\nprint helper.exported\n"
+  let entry = "use helper\nprint $helper.exported\n"
   let root = project(ctx, {"helper.xsh": orphan_doc_helper, "first.xsh": entry, "second.xsh": entry})?
   let fixed = xsht(root, ["lint", "--fix", "first.xsh", "second.xsh"])?
   assert fixed.status.exited_with(2), fixed.stderr
@@ -219,7 +219,7 @@ test test_lint_fix_deduplicates_diagnostics_from_imported_modules { |ctx|
 }
 
 test test_lint_directory_uses_import_graph_roots { |ctx|
-  let root = project(ctx, {"helper.xsh": orphan_doc_helper, "main.xsh": "use helper\nprint helper.exported\n"})?
+  let root = project(ctx, {"helper.xsh": orphan_doc_helper, "main.xsh": "use helper\nprint $helper.exported\n"})?
   let linted = xsht(root, ["lint", "."])?
   assert linted.status.exited_with(2), linted.stderr
   # The imported module is linted through its entry root, once.
@@ -405,7 +405,7 @@ test test_lint_entry_reachability_sees_imported_module_callables { |ctx|
     ctx,
     {
       "helper.xsh": "##! Helper module.\n## Exports a value.\nexport let value = 1\n\npure unused() -> Int {\n  return 1\n}\n",
-      "main.xsh": "use helper\nprint helper.value\n",
+      "main.xsh": "use helper\nprint $helper.value\n",
     },
   )?
   let linted = xsht(root, ["lint", "."])?
@@ -465,7 +465,7 @@ test test_formatting_preserves_identical_match_arm_lints { |ctx|
 test test_lint_discovery_reports_imported_module_diagnostics_without_writing_sources { |ctx|
   let sources: Map[Str, Str] = {
     "xsht-config.ini": "module_path = .\n",
-    "main.xsh": "use helper\nprint helper.value\n",
+    "main.xsh": "use helper\nprint $helper.value\n",
     "helper.xsh": "##! Helper module.\n## Exports a value.\nexport let value = 1\n\npure unused() -> Int {\n  return 1\n}\n",
   }
   let root = project(ctx, sources)?

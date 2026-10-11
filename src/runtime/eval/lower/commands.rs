@@ -16,15 +16,11 @@ pub(super) fn lower_command_word_reference(
     scratch: &Rc<RefCell<BuildScratch>>,
     constants: &crate::sema::constants::PreparedConstants,
     wire_enums: &crate::sema::wire_enums::PreparedWireEnums,
-    namespace: Option<Name>,
+    bindings: &crate::sema::check::ResolvedBindings,
 ) -> Option<BuildExprId> {
     let (root, segments) = parse_command_word_reference(text)?;
-    let mut value = if let Some(slot) = slots.resolve(Name::intern(root)) {
-        build_expr(scratch, BuildExprRow::Param(slot))
-    } else if let Some(initializer) = constants
-        .global_bindings
-        .get(&(namespace, Name::intern(root)))
-    {
+    let binding = bindings.at(span, Name::intern(root));
+    let mut value = if let Some(initializer) = binding.and_then(|binding| constants.binding_values.get(&binding)) {
         let origin = constants
             .origins
             .get(initializer)
@@ -46,6 +42,8 @@ pub(super) fn lower_command_word_reference(
             scratch,
             BuildExprRow::PreparedConstant(super::super::PreparedConstantValue(value)),
         )
+    } else if let Some(binding) = binding {
+        build_expr(scratch, BuildExprRow::Param(slots.resolve_binding(binding)?))
     } else if root == "env" && !segments.is_empty() {
         return lower_env_command_word_reference(&segments, span, scratch);
     } else {
@@ -433,7 +431,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         &self.scratch,
                         &self.declarations.prepared_constants,
                         &self.declarations.wire_enums,
-                        self.current_namespace,
+                        &self.bodies.resolved_bindings,
                     ) {
                         return Some(value);
                     }
@@ -861,7 +859,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let parts = self.program.arena.word_parts(*parts).collect::<Vec<_>>();
             if let [ArenaWordPart::Bare(text)] = parts.as_slice() {
                 let text = self.bare_text_value_in_span(text, span)?;
-                if let Some(slot) = slots.resolve(Name::intern(text)) {
+                if let Some(slot) = self.bodies.resolved_bindings.at(span, Name::intern(text))
+                    .and_then(|binding| slots.resolve_binding(binding))
+                {
                     return Some(LoweredRunArg {
                         kind: LoweredRunArgKind::Single(push_build_row!(
                             self,

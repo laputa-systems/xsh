@@ -91,9 +91,20 @@ pub(super) fn valid_env_name(name: &str) -> bool {
 
 #[allow(dead_code)]
 impl Checker {
+    // Command names have no expression row. Record the checker's selected
+    // identity locally so constraint probes keep sharing immutable facts.
+    fn record_command_binding_site(&mut self, name: Name, span: Span) {
+        let id = self.lookup(name).and_then(|binding| binding.id);
+        if let Some(id) = id {
+            self.resolved_command_sites.insert((span, name), id);
+        }
+    }
+
     pub(super) fn check_command_word_reference(&mut self, text: &str, span: Span) -> Option<Type> {
         let (root, segments) = parse_command_word_reference(text)?;
-        let mut ty = self.lookup(Name::intern(root))?.ty.clone();
+        let name = Name::intern(root);
+        let mut ty = self.lookup(name)?.ty.clone();
+        self.record_command_binding_site(name, span);
         for segment in segments {
             ty = match segment {
                 CommandWordRefSegment::Field(name) => {
@@ -335,7 +346,8 @@ impl Checker {
             return Type::Invalid;
         }
 
-        if let Some(expr) = self.prepared_constants.tail_bindings.get(&span)
+        if let Some(expr) = self.resolved_bindings.at(span, name)
+            .and_then(|binding| self.prepared_constants.binding_values.get(&binding))
             && let Some(ty) = self.prepared_constants.types.get(expr)
         {
             let ty = ty.clone();
@@ -539,8 +551,9 @@ impl Checker {
                             self.check_command_arg_arena_print_tail(arena, source, arg);
                             continue;
                         }
-                        let word_text = word_parts_text_arena(arena, source, &word_list);
                         let arg_span = arena.arena.span(arg.span);
+                        let word_text =
+                            word_parts_text_arena(arena, arg_span.source_id, source, &word_list);
                         if word_text.is_empty() {
                             self.check_command_arg_arena_print_tail(arena, source, arg);
                             continue;
@@ -1049,8 +1062,19 @@ impl Checker {
         match &arg.kind {
             ArenaCommandArgKind::Word(parts) => {
                 let word_list: Vec<ArenaWordPart> = arena.arena.word_parts(*parts).collect();
+                if let Some(text) =
+                    bare_command_word_parts_arena(arena, arg_span.source_id, source, &word_list)
+                    && let Some((root, _)) = parse_command_word_reference(&text)
+                {
+                    self.record_command_binding_site(Name::intern(root), arg_span);
+                }
                 if let Some(expected) = expected
-                    && let Some(text) = bare_command_word_parts_arena(arena, source, &word_list)
+                    && let Some(text) = bare_command_word_parts_arena(
+                        arena,
+                        arg_span.source_id,
+                        source,
+                        &word_list,
+                    )
                     && let Some(ty) = self.check_command_word_reference(&text, arg_span)
                 {
                     self.expect_command_value_conversion(expected, &ty, arg_span);
@@ -1113,7 +1137,9 @@ impl Checker {
             // An unresolved splice name used to type as Unknown and fail
             // preparation; resolve it like any other name.
             ArenaCommandArgKind::SpliceName(name) => {
-                self.lookup_expr_ident(*name, arena.arena.span(arg.span))
+                let span = arena.arena.span(arg.span);
+                self.record_command_binding_site(*name, span);
+                self.lookup_expr_ident(*name, span)
             }
             ArenaCommandArgKind::SpliceExpr(expr_id) => {
                 self.check_expr_arena(arena, source, *expr_id, None)
@@ -1175,6 +1201,7 @@ impl Checker {
             }
             ArenaCommandArgKind::SpliceName(name) => {
                 let arg_span = arena.arena.span(arg.span);
+                self.record_command_binding_site(*name, arg_span);
                 let ty = self.lookup_expr_ident(*name, arg_span);
                 self.check_external_splice_type(&ty, arg_span);
             }
@@ -1310,12 +1337,18 @@ pub(super) fn literal_command_word_text_arena(
         return None;
     };
     let word_list: Vec<ArenaWordPart> = arena.arena.word_parts(*parts).collect();
-    literal_command_word_parts_arena(arena, source, &word_list)
+    literal_command_word_parts_arena(
+        arena,
+        arena.arena.span(arg.span).source_id,
+        source,
+        &word_list,
+    )
 }
 
 #[allow(dead_code)]
 pub(super) fn literal_command_word_parts_arena(
     arena: &ArenaProgram,
+    source_id: crate::source::SourceId,
     source: &str,
     parts: &[ArenaWordPart],
 ) -> Option<String> {
@@ -1323,7 +1356,7 @@ pub(super) fn literal_command_word_parts_arena(
     for part in parts {
         match part {
             ArenaWordPart::Bare(value) | ArenaWordPart::Quoted(value) => {
-                text.push_str(arena.arena.text_value(value, source)?);
+                text.push_str(arena.arena.text_value_for_source(value, source_id, source)?);
             }
             ArenaWordPart::Interpolation(_) | ArenaWordPart::Shorthand(_) => return None,
         }
@@ -1334,21 +1367,27 @@ pub(super) fn literal_command_word_parts_arena(
 #[allow(dead_code)]
 pub(super) fn bare_command_word_parts_arena(
     arena: &ArenaProgram,
+    source_id: crate::source::SourceId,
     source: &str,
     parts: &[ArenaWordPart],
 ) -> Option<String> {
     let [ArenaWordPart::Bare(value)] = parts else {
         return None;
     };
-    Some(arena.arena.text_value(value, source)?.to_string())
+    Some(arena.arena.text_value_for_source(value, source_id, source)?.to_string())
 }
 
 #[allow(dead_code)]
-fn word_parts_text_arena(arena: &ArenaProgram, source: &str, parts: &[ArenaWordPart]) -> String {
+fn word_parts_text_arena(
+    arena: &ArenaProgram,
+    source_id: crate::source::SourceId,
+    source: &str,
+    parts: &[ArenaWordPart],
+) -> String {
     let mut text = String::new();
     for part in parts {
         if let ArenaWordPart::Bare(value) = part
-            && let Some(resolved) = arena.arena.text_value(value, source)
+            && let Some(resolved) = arena.arena.text_value_for_source(value, source_id, source)
         {
             text.push_str(resolved);
         }
