@@ -863,7 +863,7 @@ type Locale = {utf8: Bool, collate_c: Bool}
 
 # A computed value, or the message of the error that computing it raised.
 # Errors travel with the values so that a branch `|` or `&` never evaluates
-# cannot fail, and so a syntax error anywhere outranks every evaluation error.
+# cannot fail. Evaluated errors are reported as soon as an operand completes.
 type Outcome = {value: Bytes, error: Str}
 
 proc locale_variable(category: Str) [env] -> Str {
@@ -1122,6 +1122,8 @@ proc syntax_error(message: Str) [process, env] -> Unit {
 # parentheses, pending binary operators (`weights` is the precedence), and
 # prefix functions (`weights` counts the operands collected). The stacks only
 # grow: `otop` and `vtop` mark the live part, and entries above are reused.
+# Each operator saves its evaluation context; only a needed branch reports
+# errors when reduced, before any following syntax error.
 # Every user-function call copies the script arguments, so the hot cases (small
 # integer arithmetic, `length`, parentheses) are handled inline.
 proc evaluate(args: List[Bytes], here: Locale) [process, env] -> Outcome {
@@ -1129,6 +1131,8 @@ proc evaluate(args: List[Bytes], here: Locale) [process, env] -> Outcome {
   var vals: List[Outcome] = []
   var ops: List[Str] = []
   var weights: List[Int] = []
+  var evaluating: List[Bool] = []
+  var enabled = true
   var vtop = 0
   var otop = 0
   var at = 0
@@ -1137,6 +1141,7 @@ proc evaluate(args: List[Bytes], here: Locale) [process, env] -> Outcome {
   var phase = 0
   var pending = ""
   var pending_weight = 0
+  var trailing_error = ""
   let empty = {value: b"", error: ""}
 
   loop {
@@ -1160,6 +1165,8 @@ proc evaluate(args: List[Bytes], here: Locale) [process, env] -> Outcome {
 
           vtop -= have
           otop -= 1
+          enabled = evaluating[otop]
+          if enabled and result.error != "" { gnu.error(result.error); exit 2 }
 
           if vtop < vals.len() {
             vals[vtop] = result
@@ -1197,9 +1204,11 @@ proc evaluate(args: List[Bytes], here: Locale) [process, env] -> Outcome {
         if otop < ops.len() {
           ops[otop] = token
           weights[otop] = 0
+          evaluating[otop] = enabled
         } else {
           ops += [token]
           weights += [0]
+          evaluating += [enabled]
         }
 
         otop += 1
@@ -1233,17 +1242,14 @@ proc evaluate(args: List[Bytes], here: Locale) [process, env] -> Outcome {
         let level = PRECEDENCE.get(token) ?? 0
 
         if level == 0 {
+          trailing_error = f"unexpected argument {gnu.quote_bytes(token_bytes)}"
           for index in range(otop) {
             if ops[index] == "(" {
-              syntax_error(f"expecting ')' instead of {gnu.quote_bytes(token_bytes)}")
+              trailing_error = f"expecting ')' instead of {gnu.quote_bytes(token_bytes)}"
             }
           }
-
-          syntax_error(f"unexpected argument {gnu.quote_bytes(token_bytes)}")
-        }
-
-        if at + 1 >= total {
-          syntax_error(f"missing argument after {gnu.quote_bytes(token_bytes)}")
+          phase = 4
+          continue
         }
 
         pending = token
@@ -1292,18 +1298,32 @@ proc evaluate(args: List[Bytes], here: Locale) [process, env] -> Outcome {
       vals[vtop] = result
       vtop += 1
       otop -= 1
+      enabled = evaluating[otop]
+      if enabled and result.error != "" { gnu.error(result.error); exit 2 }
       continue
     }
 
+    if phase == 4 { syntax_error(trailing_error) }
+
     if phase == 1 {
+      if at + 1 >= total {
+        syntax_error(f"missing argument after {gnu.quote_bytes(args[at])}")
+      }
       if otop < ops.len() {
         ops[otop] = pending
         weights[otop] = pending_weight
+        evaluating[otop] = enabled
       } else {
         ops += [pending]
         weights += [pending_weight]
+        evaluating += [enabled]
       }
 
+      if enabled and (pending == "|" or pending == "&") {
+        let left_text = vals[vtop - 1].value.utf8() ?? "�"
+        let left_null = left_text == "" or rx"^-?0+$".matches(left_text)
+        enabled = if pending == "|" { left_null } else { ! left_null }
+      }
       otop += 1
       at += 1
       want = true

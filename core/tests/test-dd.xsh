@@ -511,3 +511,29 @@ test test_dd_zero_count_allocates_no_block_buffer { |ctx|
     assert result.stderr == "", arg
   }
 }
+
+test test_dd_zero_transfer_reports_kilobytes_per_second { |ctx|
+  let result = invoke(ctx, ["count=0"])?
+  assert result.status == 0, result.stderr
+  assert result.stderr.ends_with(" s, 0.0 kB/s\n"), result.stderr
+}
+
+test test_dd_warns_once_for_repeated_zero_multipliers { |ctx|
+  let result = invoke(ctx, ["count=0x0x1", "status=none"])?
+  assert result.status == 0, result.stderr
+  assert result.stderr == "dd: warning: '0x' is a zero multiplier; use '00x' if that is intended\n", result.stderr
+}
+
+test test_dd_nocache_pipe_reports_illegal_seek { |ctx|
+  let result = invoke(ctx, ["iflag=nocache", "count=0", "status=none"])?
+  assert result.status == 1, result.stderr
+  assert result.stderr == "dd: failed to discard cache for: 'standard input': Illegal seek\n", result.stderr
+}
+
+test test_dd_help_labels_block_size_and_conversions { |ctx|
+  let result = invoke(ctx, ["--help"])?
+  assert result.status == 0, result.stderr
+  let text = result.stdout.utf8()?
+  assert "\n  bs=BYTES" in text, text
+  assert "\nEach CONV symbol may be:\n" in text, text
+}

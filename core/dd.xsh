@@ -95,7 +95,7 @@ proc parse(argv: List[Bytes]) [process, env, io, error] -> Options {
     if key in ["ibs", "obs", "bs", "cbs", "count", "skip", "seek", "iseek", "oseek"] {
       let factors = text.split("x")
       for index in range(factors.len() - 1) {
-        if factors[index] == "0" { gnu.error("warning: '0x' is a zero multiplier; use '00x' if that is intended") }
+        if factors[index] == "0" { gnu.error("warning: '0x' is a zero multiplier; use '00x' if that is intended"); break }
       }
       let number_start = key.byte_len() + 1
       let number_help = "a number may be followed by a multiplier: c, w, b, then K, M, G and so on for 1024, kB, MB, GB for 1000"
@@ -590,7 +590,7 @@ proc joined_records(blocks: List[BlockOutput]) [error] -> Result[Bytes] {
 }
 
 proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
-  if b"--help" in argv { gnu.help("Usage: dd [OPERAND]...\nCopy a file, converting and formatting according to the operands.\n\nOperands:\n  if=FILE of=FILE bs=BYTES ibs=BYTES obs=BYTES cbs=BYTES\n  count=N skip=N seek=N status=none|noxfer|progress\n\nConversion options:\n  conv=ascii,ebcdic,ibm,block,unblock,lcase,ucase,swab,sync,sparse,notrunc,nocreat\n  iflag=count_bytes,skip_bytes,fullblock,direct,noatime,dsync,sync,nofollow,nocache\n  oflag=seek_bytes,direct,noatime,dsync,sync,nofollow,nocache\nOther descriptor flags are not supported."); return }
+  if b"--help" in argv { gnu.help("Usage: dd [OPERAND]...\nCopy a file, converting and formatting according to the operands.\n\nOperands:\n  bs=BYTES ibs=BYTES obs=BYTES cbs=BYTES if=FILE of=FILE\n  count=N skip=N seek=N status=none|noxfer|progress\n\nEach CONV symbol may be:\n  conv=ascii,ebcdic,ibm,block,unblock,lcase,ucase,swab,sync,sparse,notrunc,nocreat\n  iflag=count_bytes,skip_bytes,fullblock,direct,noatime,dsync,sync,nofollow,nocache\n  oflag=seek_bytes,direct,noatime,dsync,sync,nofollow,nocache\nOther descriptor flags are not supported."); return }
   if b"--version" in argv { gnu.version("dd"); return }
   let started = time.now()
   let opts = parse(argv)
@@ -851,7 +851,7 @@ proc report(opts: Options, size: Int, complete: Int, partial: Int, truncated: In
       let si = if size >= 1000 { human_size(size, 1000, false) } else { "" }
       let iec = if size >= 1024 { human_size(size, 1024, true) } else { "" }
       let units = if si == "" { "" } else if iec == "" { f" ({si})" } else { f" ({si}, {iec})" }
-      status_line(f"{size} bytes{units} copied, {millis / 1000}.{millis % 1000:03} s, {if size == 0 { "0.0 B" } else { human_size(size * 1000 / millis, 1000, false) }}/s")
+      status_line(f"{size} bytes{units} copied, {millis / 1000}.{millis % 1000:03} s, {if size == 0 { "0.0 kB" } else { human_size(size * 1000 / millis, 1000, false) }}/s")
     }
   }
 }

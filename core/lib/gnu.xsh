@@ -299,10 +299,11 @@ export pure errno(failure: Error) -> Int {
 
 ## The `strerror` text of a failed host operation (`No such file or
 ## directory`) without the path prefix and `(os error N)` suffix. Other errors
-## return their message unchanged. Normalize Rust's musl ELOOP spelling to the
-## wording GNU utilities use.
+## return their message unchanged. Normalize Rust's musl ELOOP and ESPIPE
+## spellings to the wording GNU utilities use.
 export pure strerror(failure: Error) -> Str {
   let text = failure.message
+  return "Illegal seek" when errno(failure) == 29
   return "Too many levels of symbolic links" when text.find("Symbolic link loop") != null
 
   let at = text.find(" (os error ") ?? -1
