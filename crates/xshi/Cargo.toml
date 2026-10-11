@@ -4,12 +4,39 @@ version = "0.0.1"
 edition = "2024"
 publish = false
 
-# No dependencies: xshi is disabled and its crate is only a buildable stub.
-# See crates/xshi/src/lib.rs.
+[dependencies]
+libc = { version = "0.2", optional = true }
+mimalloc = { version = "0.1.52", optional = true }
+rustc-hash = { version = "2.1.3", optional = true }
+rustix = { version = "1.1.4", features = ["event", "fs", "pipe", "process", "runtime", "stdio", "system", "termios", "time"], optional = true }
+sha2 = { version = "0.11", optional = true }
+xsh = { path = "../..", default-features = false, features = ["net", "tools"], optional = true }
 
 [features]
 default = []
 benchmark = []
+# Laputa's Asterinas guest opts into the restored interactive shell while
+# ordinary XSH builds keep the small disabled stub.
+laputa-asterinas = ["dep:libc", "dep:mimalloc", "dep:rustc-hash", "dep:rustix", "dep:sha2", "dep:xsh"]
+
+[dev-dependencies]
+rustybench = "0.1"
+tempfile = "3"
+
+[[bench]]
+name = "bench"
+harness = false
+required-features = ["benchmark", "laputa-asterinas"]
+
+[[test]]
+name = "cli"
+path = "tests/cli.rs"
+required-features = ["laputa-asterinas"]
+
+[[test]]
+name = "stdlib_preparation"
+path = "tests/stdlib_preparation.rs"
+required-features = ["laputa-asterinas"]
 
 [lints.clippy]
 nursery = { level = "allow", priority = -2 }

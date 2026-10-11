@@ -2359,7 +2359,6 @@ fn lowered_optional_env_record(
     Ok(env)
 }
 
-#[cfg(feature = "native-tests")]
 fn lowered_bytes_arg_or_empty(
     value: Option<LoweredValue>,
     operation: &str,

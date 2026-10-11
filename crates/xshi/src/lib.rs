@@ -1,15 +1,22 @@
-//! xshi is disabled.
-//!
-//! The interactive shell implementation has been removed and no longer
-//! compiles. This stub keeps the `xshi` crate — and therefore the `xshi`
-//! binary target — buildable so workspace commands that still reference the
-//! `xshi` package keep working. The original implementation remains in git
-//! history.
+#[cfg(feature = "laputa-asterinas")]
+pub mod xshi;
 
+#[cfg(feature = "laputa-asterinas")]
+pub use xshi::app;
+#[cfg(feature = "laputa-asterinas")]
+pub use xshi::interactive;
+#[cfg(feature = "laputa-asterinas")]
+pub use xshi::interactive::{
+    OneCommandOptions, RunOptions, check_source, run, run_one_command,
+    run_one_command_with_options, run_with_options,
+};
+
+#[cfg(not(feature = "laputa-asterinas"))]
 use std::process::ExitCode;
 
-/// Stub entry point kept so the `xshi` binary still compiles.
+/// Keep non-Laputa builds explicit while the interactive shell is opt-in.
+#[cfg(not(feature = "laputa-asterinas"))]
 pub fn stub_main() -> ExitCode {
-    eprintln!("xshi: disabled — the interactive shell is no longer available");
+    eprintln!("xshi: disabled — build with the laputa-asterinas feature to enable the interactive shell");
     ExitCode::FAILURE
 }
