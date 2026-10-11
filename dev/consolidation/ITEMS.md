@@ -56,6 +56,7 @@ Resumed bounded slices have separate worktrees and disjoint shared-file hunks:
 | W1 stable live wire ordinals | preserve surviving tag numbers after three proven-dead row deletions | net <= 0 / 250 touched; no decoder fallback |
 | W1 decoder gap tests | isolated native stage and pattern scenarios plus exact frozen counter proof | zero production / 500 test touched per owner; unreachable arms need writer/caller closure |
 | W3 shared storage conversions | canonical forward/inverse mappings with strict caller-specific guards | +150 lexical / 1,200 interim; delete replaced mapping bodies |
+| W3 borrowed display | one display operation over Runtime/Lowered views and canonical error data accessors | net <= 0 / 250 touched; preserve published scalar display and executor error policies |
 | Binding recovery regressions | explicit checker recovery identity and With initializer handler | +80 / 800, interim; no valid-binding name fallback |
 | Dead formatter code | formatter allowance and compiler-confirmed unused items | net <= 0 / 1,500 |
 
