@@ -3,12 +3,13 @@ use super::{
     ArenaTypeExprKind, ArenaTypeExprTag, BinaryOp, BindingTargetId, BlockId, Diagnostic,
     DiagnosticCode, Effect, ExprId, FixHint, FunctionDefId, FxHashSet, Label, Linter, Name,
     Severity, Span, StmtId, Symbol, Type, TypeExprId, checked_return_removal_facts,
-    effects_annotation, effects_covers_any, expr_child_exprs, inferred_proc_return,
+    effects_annotation, effects_covers_any, inferred_proc_return,
     is_map_empty_call, ok_call_arg, return_value_is_ok_unit, scan_after_type, scan_back_space,
     scan_before_arrow, scan_before_colon, scan_effect_list_span, scan_return_stmt_span,
     span_end_after_following_newlines, tail_type_matches_lint_expected, type_expr_kind,
     type_has_contextual_collection_domain, type_mentions_path,
 };
+use xsh::frontend::syntax::arena::{ArenaChild, ArenaSpawnTarget};
 
 impl<'a> Linter<'a> {
     pub(super) fn lint_inferred_pure_return(&mut self, id: FunctionDefId, exported: bool) {
@@ -637,7 +638,7 @@ impl<'a> Linter<'a> {
                         .expr_types
                         .get(&expression.span)
                         .is_some_and(|ty| ty.validated().is_some())
-                    || expr_child_exprs(self.arena, expr).into_iter().any(|child| {
+                    || self.any_expr_child(expr, |child| {
                         self.expr_types
                             .get(&self.arena.expr(child).span)
                             .is_some_and(Type::holds_validated)
@@ -649,10 +650,10 @@ impl<'a> Linter<'a> {
                         .expr_types
                         .get(&expression.span)
                         .is_some_and(type_mentions_path)
-                        && expr_child_exprs(self.arena, expr).into_iter().any(|child| {
+                        && self.any_expr_child(expr, |child| {
                             matches!(self.arena.expr(child).kind, ArenaExprKind::Str(_))
                         }))
-                    || expr_child_exprs(self.arena, expr).into_iter().any(|child| {
+                    || self.any_expr_child(expr, |child| {
                         self.expression_depends_on_expected_type(child, removing_annotation)
                     })
             }
@@ -680,7 +681,7 @@ impl<'a> Linter<'a> {
                                 self.requirement_expected_targets.get(&expression.span)
                                     == Some(target)
                             }))
-                    || expr_child_exprs(self.arena, expr).into_iter().any(|child| {
+                    || self.any_expr_child(expr, |child| {
                         self.expression_depends_on_expected_type(child, removing_annotation)
                     })
             }
@@ -689,7 +690,7 @@ impl<'a> Linter<'a> {
                 // obtains a nondefault error domain only from its boundary.
                 matches!(self.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "Err"
                     || (name == "Ok" && matches!(self.expr_types.get(&expression.span), Some(Type::Result(_, error)) if error.as_ref() != &Type::Error)))
-                    || expr_child_exprs(self.arena, expr).into_iter().any(|child| {
+                    || self.any_expr_child(expr, |child| {
                         self.expression_depends_on_expected_type(child, removing_annotation)
                     })
             }
@@ -722,10 +723,29 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::Wait(_)
             | ArenaExprKind::BuilderCall { .. }
             | ArenaExprKind::Try(_)
-            | ArenaExprKind::Convert { .. } => expr_child_exprs(self.arena, expr)
-                .into_iter()
-                .any(|child| self.expression_depends_on_expected_type(child, removing_annotation)),
+            | ArenaExprKind::Convert { .. } => self.any_expr_child(expr, |child| {
+                self.expression_depends_on_expected_type(child, removing_annotation)
+            }),
         }
+    }
+
+    /// Expected-type analysis stops at run forms and does not enter nested block children.
+    fn any_expr_child(&self, expr: ExprId, mut predicate: impl FnMut(ExprId) -> bool) -> bool {
+        if matches!(self.arena.expr(expr).kind, ArenaExprKind::Run(_))
+            || matches!(self.arena.expr(expr).kind, ArenaExprKind::Spawn(form)
+                if matches!(form.target, ArenaSpawnTarget::Run(_)))
+        {
+            return false;
+        }
+        let mut found = false;
+        self.arena.for_each_expr_child(expr, |child| {
+            if !found {
+                if let ArenaChild::Expr(child) = child {
+                    found = predicate(child);
+                }
+            }
+        });
+        found
     }
 
     pub(super) fn annotation_refs_user_type(&self, ty: TypeExprId) -> bool {
