@@ -6,7 +6,7 @@
     "commit": "6e39144aaf5a6bc01b9f795010b0914431067183"
   },
   "gate": "G4a",
-  "last_green_commit": "68e03fae",
+  "last_green_commit": "10b36f1b",
   "audit": {
     "new_core_script": "New core/*.xsh applets are installed by the release script at dev/release.xsh:146-160; dev/tests/test-repository-contracts.xsh owns the required core script inventory and contract checks. No separate command registration is needed.",
     "launcher_argument_separator": "Use xsh SCRIPT -- ARGS for an applet and xsh -- SCRIPT ARGS for an explicit script; src/entrypoints/xsh.rs:90-120.",
@@ -1201,74 +1201,92 @@
     {
       "id": "g4.graph.braille_default",
       "gate": "G4a",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-graph.xsh::test_btop_graph_symbol_set_follows_captured_encoding_capabilities"
+      ],
+      "evidence": "The pure graph selector chooses braille from captured UTF-8 capabilities and the in-scope TTY fallback for a non-Unicode terminal; the host release graph suite passed 6/6."
     },
     {
       "id": "g4.graph.dot_mapping",
       "gate": "G4a",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-graph.xsh::test_btop_graph_exhaustively_maps_every_two_by_four_braille_dot_pattern"
+      ],
+      "evidence": "All 256 two-column, four-dot masks map to the corresponding Unicode Braille pattern in the frozen U+2800 through U+28FF oracle; the host release graph suite passed 6/6."
     },
     {
       "id": "g4.graph.time_columns",
       "gate": "G4a",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-graph.xsh::test_btop_graph_pairs_time_columns_and_keeps_an_autoscale_spike"
+      ],
+      "evidence": "Adjacent chronological samples occupy the two columns of each Braille cell, with the newest sample at the right edge; frozen timestamps and a 50/75/100 spike fixture verify projection."
     },
     {
       "id": "g4.graph.inversion",
       "gate": "G4a",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-graph.xsh::test_btop_graph_inversion_and_gaps_preserve_sample_positions"
+      ],
+      "evidence": "The same 50% samples map to the independently specified upper and lower two-dot patterns under inversion."
     },
     {
       "id": "g4.graph.zero",
       "gate": "G4a",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-graph.xsh::test_btop_graph_inversion_and_gaps_preserve_sample_positions"
+      ],
+      "evidence": "An observed zero remains an observed sample and contributes no filled dots; it is distinguished from the adjacent explicit gap in retained sample state and position."
     },
     {
       "id": "g4.graph.gaps",
       "gate": "G4a",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-graph.xsh::test_btop_graph_inversion_and_gaps_preserve_sample_positions"
+      ],
+      "evidence": "Explicit gaps retain their time column, draw no dots, and do not shift neighboring values; the host release graph suite passed 6/6."
     },
     {
       "id": "g4.graph.autoscale_spikes",
       "gate": "G4a",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-graph.xsh::test_btop_graph_pairs_time_columns_and_keeps_an_autoscale_spike"
+      ],
+      "evidence": "Autoscale inspects the full retained history, including a 100-unit spike, rather than clipping to the smaller visible viewport; the spike fills its expected dot column."
     },
     {
       "id": "g4.graph.retention",
       "gate": "G4a",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-graph.xsh::test_btop_graph_history_retention_is_independent_of_viewport_size"
+      ],
+      "evidence": "The fixed 600-sample history retains the same time sequence when projecting 1-cell and 20-cell viewports; history is capped independently of width."
     },
     {
       "id": "g4.graph.resize",
       "gate": "G4a",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-graph.xsh::test_btop_graph_history_retention_is_independent_of_viewport_size"
+      ],
+      "evidence": "Rendering at different viewport widths changes only the visible suffix and leaves all retained sample timestamps unchanged, so resize adds no sample."
     },
     {
       "id": "g4.panel.defaults",
@@ -1969,6 +1987,25 @@
       },
       "duplicate_parser_audit": "Clean: mountinfo parsing is owned by sys_mount.collect; system-report cgroup paths consume the shared mount table projection. Meminfo, block, and process stat parsing also use their shared sys_* readers/policies.",
       "report_json_v1": "System-report JSON v1 and existing top behavior remain green in their host release suites."
+    },
+    "g4a_graph_engine": {
+      "host_only": true,
+      "xsh_check": {
+        "files": 2,
+        "log": ".work/btop-campaign/g4a-graph-check.log"
+      },
+      "native_tests": {
+        "passed": 6,
+        "failed": 0,
+        "log": ".work/btop-campaign/g4a-graph-tests.log"
+      },
+      "ledger_test": {
+        "passed": 1,
+        "failed": 0,
+        "log": ".work/btop-campaign/g4a-graph-ledger-final.log"
+      },
+      "braille_patterns": 256,
+      "retained_sample_limit": 600
     }
   },
   "defaults": [
@@ -2310,6 +2347,6 @@
     }
   ],
   "next": [
-    "G4a graph engine: braille default, dot mapping, time columns, inversion, zero, gaps, spike-safe autoscale, retained history independent of viewport, and resize without invented samples."
+    "G4a panels: replace the temporary four-panel layout with the pinned CPU, memory, and network graphs, including CPU temperatures and the fixed default geometry."
   ]
 }
