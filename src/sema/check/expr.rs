@@ -17,11 +17,11 @@ pub(super) fn expr_ty_auto_propagates(ty: &Type) -> bool {
 }
 
 /// Whether a checked argument can stand where a `Path` is required: a
-/// `Path`, or a dynamic or recovery type whose own diagnostics apply. A string
+/// `Path`, or a recovery type whose own diagnostics apply. A string
 /// literal qualifies only by having taken the `Path` type from its expected
 /// type; a `Str` never does.
 pub(super) fn is_path_like_type(ty: &Type) -> bool {
-    matches!(ty.unvalidated(), Type::Path | Type::Any | Type::Unknown)
+    matches!(ty.unvalidated(), Type::Path | Type::Unknown)
 }
 
 /// Arena-native span helper for expression-or-run values.
@@ -942,23 +942,12 @@ impl Checker {
                             None,
                         )
                         .into_unvalidated();
-                    if !matches!(
-                        left_ty,
-                        Type::Int
-                            | Type::UInt
-                            | Type::Float
-                            | Type::Duration
-                            | Type::Str
-                            | Type::Any
-                            | Type::Unknown
-                    ) {
-                        self.error(
-                            arena.arena.expr(left).span,
-                            "comparison requires Int, Float, Str, or Duration",
-                            DiagnosticCode::CheckOperatorType,
-                        );
-                    }
-                    self.expect_type(&left_ty, &right_ty, arena.arena.expr(right).span);
+                    self.check_ordering_operands(
+                        &left_ty,
+                        &right_ty,
+                        arena.arena.expr(left).span,
+                        arena.arena.expr(right).span,
+                    );
                     previous = Some(right_ty);
                 }
                 Type::Bool
@@ -1533,6 +1522,10 @@ impl Checker {
                     let ty = self.check_expr_arena(arena, source, expr, expected);
                     match ty {
                         Type::Map(key, item) => (*key, *item, arena.arena.span(span)),
+                        Type::Any => {
+                            self.reject_dynamic_use("a map spread", None, arena.arena.expr(expr).span);
+                            (Type::Unknown, Type::Unknown, arena.arena.span(span))
+                        }
                         Type::Unknown => (Type::Unknown, Type::Unknown, arena.arena.span(span)),
                         _ => {
                             self.error(
@@ -1618,7 +1611,9 @@ impl Checker {
                 Type::Unknown
             }
         };
-        if !matches!(&base_ty, Type::Record(fields) if !fields.is_empty()) {
+        if base_ty == Type::Any {
+            self.reject_dynamic_use("a record update base", None, span);
+        } else if !matches!(&base_ty, Type::Record(fields) if !fields.is_empty()) {
             self.error(
                 span,
                 "nested record updates require a statically known record shape",
@@ -1811,7 +1806,8 @@ impl Checker {
                                 record.entry(k).or_insert(v);
                             }
                         }
-                        Type::Any | Type::Unknown => {}
+                        Type::Any => self.reject_dynamic_use("a record spread", None, arena.arena.expr(*expr).span),
+                        Type::Unknown => {}
                         _ => {
                             self.error(
                                 last_span,
@@ -2004,7 +2000,10 @@ impl Checker {
                         self.check_propagation(&iter_ty, arena.arena.expr(iter).span);
                     }
                     let item_ty = iter_ty.iteration_item_type().unwrap_or_else(|| {
-                        if matches!(iter_ty, Type::Any | Type::Unknown) { Type::Any } else if self.reject_unnarrowed_union(&iter_ty, "iteration", arena.arena.expr(iter).span) { Type::Unknown } else {
+                        if iter_ty == Type::Any {
+                            self.reject_dynamic_use("a comprehension source", None, arena.arena.expr(iter).span);
+                            Type::Unknown
+                        } else if iter_ty == Type::Unknown { Type::Unknown } else if self.reject_unnarrowed_union(&iter_ty, "iteration", arena.arena.expr(iter).span) { Type::Unknown } else {
                             self.error(arena.arena.expr(iter).span, "comprehension iterates over List, Stream, Set, Map, Str, or Bytes values", if map { DiagnosticCode::CheckMapcompIterator } else { DiagnosticCode::CheckListcompIterator });
                             Type::Unknown
                         }
@@ -2376,7 +2375,10 @@ impl Checker {
                     Box::new(Type::ProcessError),
                 )
             }
-            Type::Any => Type::Result(Box::new(Type::Status), Box::new(Type::ProcessError)),
+            Type::Any => {
+                self.reject_dynamic_use("a wait target", None, target_span);
+                Type::Unknown
+            }
             Type::Unknown | Type::Invalid => {
                 Type::Result(Box::new(Type::Status), Box::new(Type::ProcessError))
             }
@@ -2637,6 +2639,33 @@ impl Checker {
         result
     }
 
+    fn check_ordering_operands(
+        &mut self,
+        left: &Type,
+        right: &Type,
+        left_span: Span,
+        right_span: Span,
+    ) {
+        let ordered = |ty: &Type| {
+            matches!(ty, Type::Int | Type::UInt | Type::Float | Type::Duration | Type::Str)
+        };
+        if *left == Type::Any || *right == Type::Any {
+            for (ty, other, span) in [(left, right, left_span), (right, left, right_span)] {
+                if *ty == Type::Any {
+                    self.reject_dynamic_use("an ordering operand", ordered(other).then_some(other), span);
+                }
+            }
+            return;
+        }
+        if self.reject_unnarrowed_union(left, "an ordering comparison", left_span) {
+            return;
+        }
+        if !ordered(left) && !left.is_recovery() {
+            self.error(left_span, "comparison requires Int, Float, Str, or Duration", DiagnosticCode::CheckOperatorType);
+        }
+        self.expect_type(left, right, right_span);
+    }
+
     #[allow(clippy::too_many_lines)]
     fn check_binary_arena(
         &mut self,
@@ -2823,38 +2852,7 @@ impl Checker {
                         None,
                     )
                     .into_unvalidated();
-                let ordered = |ty: &Type| {
-                    matches!(
-                        ty,
-                        Type::Int | Type::UInt | Type::Float | Type::Duration | Type::Str
-                    )
-                };
-                if left_ty == Type::Any || right_ty == Type::Any {
-                    for (ty, other, span) in [
-                        (&left_ty, &right_ty, left_span),
-                        (&right_ty, &left_ty, right_span),
-                    ] {
-                        if *ty == Type::Any {
-                            self.reject_dynamic_use(
-                                "an ordering operand",
-                                ordered(other).then_some(other),
-                                span,
-                            );
-                        }
-                    }
-                    return Type::Bool;
-                }
-                if self.reject_unnarrowed_union(&left_ty, "an ordering comparison", left_span) {
-                    return Type::Bool;
-                }
-                if !ordered(&left_ty) && !left_ty.is_recovery() {
-                    self.error(
-                        left_span,
-                        "comparison requires Int, Float, Str, or Duration",
-                        DiagnosticCode::CheckOperatorType,
-                    );
-                }
-                self.expect_type(&left_ty, &right_ty, right_span);
+                self.check_ordering_operands(&left_ty, &right_ty, left_span, right_span);
                 Type::Bool
             }
             BinaryOp::In | BinaryOp::NotIn => {
@@ -3207,9 +3205,10 @@ impl Checker {
             receiver if Self::fixed_field_type(&receiver, name).is_some() => {
                 self.checked_fixed_field(&receiver, name, span)
             }
-            // A dynamic field is checked at runtime and stays dynamic; it
-            // used to type as Unknown, which let it reach any concrete use.
-            Type::Any => Type::Any,
+            Type::Any => {
+                self.reject_dynamic_use("a field receiver", None, arena.arena.expr(base).span);
+                Type::Unknown
+            }
             Type::Unknown => Type::Unknown,
             Type::Optional(inner) => self.optional_field_error(&inner, &name.as_str(), span),
             _ => {
@@ -3341,7 +3340,10 @@ impl Checker {
         let (inner, wrap_optional) = match base_ty {
             Type::Optional(inner) => (*inner, true),
             Type::Result(_, _) => (self.check_propagation(&base_ty, span), false),
-            Type::Any => return Type::Any,
+            Type::Any => {
+                self.reject_dynamic_use("a field receiver", None, arena.arena.expr(base).span);
+                return Type::Unknown;
+            }
             Type::Unknown => return Type::Unknown,
             _ => {
                 self.error(
@@ -3387,7 +3389,11 @@ impl Checker {
                     Type::Unknown
                 }
             },
-            Type::Any | Type::DynamicModule => Type::Any,
+            Type::Any => {
+                self.reject_dynamic_use("a field receiver", None, arena.arena.expr(base).span);
+                Type::Unknown
+            }
+            Type::DynamicModule => Type::Any,
             Type::Unknown => Type::Unknown,
             _ => {
                 self.error(
@@ -3459,7 +3465,11 @@ impl Checker {
             Type::Optional(inner) if inner.validated().is_some() => {
                 (inner.into_unvalidated(), true)
             }
-            Type::Optional(inner) if !matches!(*inner, Type::Any | Type::Unknown) => (*inner, true),
+            Type::Optional(inner) => (*inner, true),
+            Type::Any => {
+                self.reject_dynamic_use("a guarded receiver", None, span);
+                (Type::Unknown, false)
+            }
             Type::Result(_, _) => {
                 let held = self.check_propagation(&ty, span);
                 // One `?[` is one hop: the propagation. An optional the
@@ -3575,7 +3585,8 @@ impl Checker {
             }
             Type::Any => {
                 self.check_expr_arena(arena, source, index, None);
-                Type::Any
+                self.reject_dynamic_use("an index receiver", None, arena.arena.expr(base).span);
+                Type::Unknown
             }
             Type::Unknown => {
                 self.check_expr_arena(arena, source, index, None);
@@ -3636,7 +3647,10 @@ impl Checker {
             Type::List(_) => base_ty,
             Type::Str => Type::Str,
             Type::Bytes => Type::Bytes,
-            Type::Any => Type::Any,
+            Type::Any => {
+                self.reject_dynamic_use("a slice receiver", None, arena.arena.expr(base).span);
+                Type::Unknown
+            }
             Type::Unknown => Type::Unknown,
             _ => {
                 self.error(

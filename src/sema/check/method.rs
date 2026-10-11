@@ -7,7 +7,7 @@ use super::{
 };
 use crate::diagnostic::DiagnosticCode;
 use crate::sema::check::{ApiArgCheck, MethodSig, ModuleFnSig};
-use crate::syntax::arena::{ArenaCallArg, ArenaCallArgKind, ArenaProgram};
+use crate::syntax::arena::{ArenaCallArg, ArenaProgram};
 
 /// Registered method calls instantiate receiver relationships before checking
 /// arguments. Effects and overload selection remain owned by the same registry.
@@ -84,25 +84,11 @@ impl Checker {
             );
         }
         if base_ty == Type::Any {
-            // A dynamic method has no checked signature to bind names
-            // against; such a call used to check and then fail preparation.
-            if args.iter().any(|arg| {
-                matches!(
-                    arg.kind,
-                    ArenaCallArgKind::Named { .. } | ArenaCallArgKind::NamedSpread { .. }
-                )
-            }) {
-                self.error(
-                    span,
-                    &format!("named arguments to `{name}` need a checked receiver; validate the value with `.require(T)` first"),
-                    DiagnosticCode::CheckDynamicBoundary,
-                );
-            }
-            self.check_opaque_callable_effects(&format!("Any.{name}"), span);
+            self.reject_dynamic_use("a method receiver", None, arena.arena.expr(base).span);
             for arg in args {
                 self.check_call_arg_arena(arena, source, &arg.kind, None);
             }
-            return Type::Any;
+            return Type::Unknown;
         }
         if let Type::Result(_, _) = &base_ty {
             return self.check_registered_method_arena(

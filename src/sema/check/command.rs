@@ -140,7 +140,10 @@ impl Checker {
                     Type::Unknown
                 }
             },
-            Type::Any => Type::Any,
+            Type::Any => {
+                self.reject_dynamic_use("a field receiver", None, span);
+                Type::Unknown
+            }
             Type::Unknown => Type::Unknown,
             Type::Optional(inner) => self.optional_field_error(&inner, name, span),
             _ => {
@@ -160,7 +163,10 @@ impl Checker {
         }
         match base_ty.into_unvalidated() {
             Type::List(item) => *item,
-            Type::Any => Type::Any,
+            Type::Any => {
+                self.reject_dynamic_use("an index receiver", None, span);
+                Type::Unknown
+            }
             Type::Record(_) | Type::Unknown => Type::Unknown,
             Type::Optional(inner) => self.optional_index_error(&inner, span),
             _ => {

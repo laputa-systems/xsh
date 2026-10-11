@@ -365,7 +365,8 @@ impl Checker {
                                     "splice item type does not match rest parameter",
                                     DiagnosticCode::CheckTypeMismatch,
                                 ),
-                                Type::Any | Type::Unknown => {}
+                                Type::Any => self.reject_dynamic_use("an argument splice", None, arena.arena.expr(*value).span),
+                                Type::Unknown => {}
                                 _ => self.error(
                                     splice_span,
                                     "`@` splices require List values",
@@ -395,9 +396,11 @@ impl Checker {
             {
                 let splice_span = arena.arena.span(*span);
                 let actual = self.check_expr_arena(arena, source, *value, None);
-                if !matches!(
+                if actual == Type::Any {
+                    self.reject_dynamic_use("an argument splice", None, arena.arena.expr(*value).span);
+                } else if !matches!(
                     actual.unvalidated(),
-                    Type::List(_) | Type::Any | Type::Unknown
+                    Type::List(_) | Type::Unknown
                 ) {
                     self.error(
                         splice_span,
@@ -604,7 +607,9 @@ impl Checker {
             return;
         };
         let ty = self.check_call_arg_arena(arena, source, arg, Some(&Type::Path));
-        if !is_path_like_type(&ty) {
+        if ty == Type::Any {
+            self.expect_type(&Type::Path, &ty, call_arg_span_arena(arena, arg));
+        } else if !is_path_like_type(&ty) {
             self.error(
                 call_arg_span_arena(arena, arg),
                 "expected Path",

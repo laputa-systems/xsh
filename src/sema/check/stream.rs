@@ -39,7 +39,11 @@ impl Checker {
             output
         } else {
             match stream_type_from_input(input_ty) {
-                Some(ty) => {
+                Err(Type::Any) => {
+                    self.reject_dynamic_use("a pipeline source", None, arena.arena.expr(input).span);
+                    Type::Stream(Box::new(Type::Unknown))
+                }
+                Ok(ty) => {
                     let output = self.check_stream_stage_arena(arena, source, first, ty.clone());
                     self.stream_stage_types.insert(
                         (self.current_namespace, arena.arena.span(first.span)),
@@ -50,7 +54,7 @@ impl Checker {
                     );
                     output
                 }
-                None => {
+                Err(_) => {
                     self.error(
                         arena.arena.expr(input).span,
                         "structured pipelines require Stream or List input",
@@ -300,7 +304,11 @@ impl Checker {
                     .map(|argument| argument.ty.clone())
                     .unwrap_or(Type::Unknown);
                 let other_item = match stream_type_from_input(other_ty) {
-                    Some(Type::Stream(item)) => *item,
+                    Ok(Type::Stream(item)) => *item,
+                    Err(Type::Any) => {
+                        self.reject_dynamic_use("a zip source", None, arguments.first().and_then(Option::as_ref).map(|argument| argument.span).unwrap_or(stage_span));
+                        Type::Unknown
+                    }
                     _ => {
                         let span = arguments
                             .first()
@@ -973,14 +981,15 @@ impl Checker {
     }
 }
 
-fn stream_type_from_input(ty: Type) -> Option<Type> {
+// Keep a rejected source's type so opacity has its own diagnostic instead
+// of being confused with a concrete value that is not iterable.
+fn stream_type_from_input(ty: Type) -> Result<Type, Type> {
     match ty.into_unvalidated() {
-        ty @ Type::Stream(_) => Some(ty),
-        Type::List(item) | Type::Set(item) => Some(Type::Stream(item)),
+        ty @ Type::Stream(_) => Ok(ty),
+        Type::List(item) | Type::Set(item) => Ok(Type::Stream(item)),
         Type::Result(ok, _) => stream_type_from_input(*ok),
-        Type::Any => Some(Type::Stream(Box::new(Type::Any))),
-        Type::Unknown => Some(Type::Stream(Box::new(Type::Unknown))),
-        _ => None,
+        Type::Unknown => Ok(Type::Stream(Box::new(Type::Unknown))),
+        other => Err(other),
     }
 }
 

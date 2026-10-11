@@ -56,8 +56,8 @@ impl Checker {
             return ty.clone();
         }
         if matches!(ty, Type::Any) {
-            self.check_opaque_callable_effects("opaque Result propagation", span);
-            return Type::Any;
+            self.reject_dynamic_use("a propagated value", None, span);
+            return Type::Unknown;
         }
         self.record_required_effect(Effect::Error);
         if let Some(effs) = &self.boundary.current_effects
@@ -118,7 +118,8 @@ impl Checker {
             return ty.clone();
         }
         if matches!(ty, Type::Any) {
-            return Type::Any;
+            self.reject_dynamic_use("a propagated value", None, span);
+            return Type::Unknown;
         }
         let Some((ok, err)) = result_types(ty) else {
             self.error(

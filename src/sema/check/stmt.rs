@@ -1787,7 +1787,10 @@ impl Checker {
         let item_ty = iter_ty
             .iteration_item_type()
             .unwrap_or_else(|| match iter_ty {
-                Type::Any => Type::Any,
+                Type::Any => {
+                    self.reject_dynamic_use("an iteration source", None, arena.arena.expr(iter).span);
+                    Type::Unknown
+                }
                 Type::Unknown => Type::Unknown,
                 ref union @ Type::Union(_) => {
                     self.reject_unnarrowed_union(union, "iteration", arena.arena.expr(iter).span);

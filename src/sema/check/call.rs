@@ -19,7 +19,7 @@ fn process_command_argv_item_type_is_valid(ty: &Type) -> bool {
         Type::Union(members) => members.iter().all(process_command_argv_item_type_is_valid),
         _ => matches!(
             ty.unvalidated(),
-            Type::Str | Type::Path | Type::Any | Type::Unknown
+            Type::Str | Type::Path | Type::Unknown
         ),
     }
 }
@@ -605,10 +605,12 @@ impl Checker {
         if let ArenaExprKind::NullSafeField { base, name } = callee_kind {
             let base_ty = self.check_expr_arena(arena, source, base, None);
             let (inner_ty, wrap_optional) = match base_ty {
-                Type::Optional(inner) if !matches!(*inner, Type::Any | Type::Unknown) => {
-                    (*inner, true)
-                }
+                Type::Optional(inner) => (*inner, true),
                 Type::Result(_, _) => (self.check_propagation(&base_ty, span), false),
+                Type::Any => {
+                    self.reject_dynamic_use("a method receiver", None, arena.arena.expr(base).span);
+                    return Type::Unknown;
+                }
                 _ => {
                     self.error(
                         span,
@@ -2145,9 +2147,11 @@ impl Checker {
         }
 
         let target_ty = self.check_optional_api_arg_arena(arena, source, slots[0], None);
-        if !matches!(
+        if target_ty == Type::Any {
+            self.reject_dynamic_use("a command target", None, slots[0].map(|arg| call_arg_span_arena(arena, arg)).unwrap_or(span));
+        } else if !matches!(
             target_ty.unvalidated(),
-            Type::Str | Type::Path | Type::Any | Type::Unknown
+            Type::Str | Type::Path | Type::Unknown
         ) {
             self.error(
                 slots[0]
@@ -2253,7 +2257,9 @@ impl Checker {
                 } else {
                     actual
                 };
-                if !process_command_argv_item_type_is_valid(&item_ty) {
+                if item_ty == Type::Any {
+                    self.reject_dynamic_use("an argv word", None, arena.arena.expr(item.value).span);
+                } else if !process_command_argv_item_type_is_valid(&item_ty) {
                     self.error(
                         arena.arena.expr(item.value).span,
                         "process.command_argv argv items must be Str or Path",
@@ -2267,7 +2273,9 @@ impl Checker {
         let actual = self.check_call_arg_arena(arena, source, arg, None);
         match actual.into_unvalidated() {
             Type::List(item) if process_command_argv_item_type_is_valid(&item) => {}
-            Type::Any | Type::Unknown => {}
+            Type::Any => self.reject_dynamic_use("an argv list", None, call_arg_span_arena(arena, arg)),
+            Type::List(item) if *item == Type::Any => self.reject_dynamic_use("an argv word", None, call_arg_span_arena(arena, arg)),
+            Type::Unknown => {}
             Type::List(_) => self.error(
                 call_arg_span_arena(arena, arg),
                 "process.command_argv argv must contain Str or Path items",

@@ -126,7 +126,7 @@ print value?.trim()
   )?
   assert ! any.success
   {
-    let assertion_condition = "check.null-safe-field" in any.stderr
+    let assertion_condition = "check.dynamic-boundary" in any.stderr
     let assertion_message = any.stderr
     assert assertion_condition, assertion_message
   }
