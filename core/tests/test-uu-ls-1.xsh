@@ -26,7 +26,7 @@ proc listing_terminal() [process, error] -> Result[UnixPty, Error] {
 }
 
 # Keep the replica open until queued terminal bytes have been drained.
-proc listing_terminal_bytes(fd: Int) [process, error] -> Result[Bytes, Error] {
+proc listing_terminal_bytes(fd: Int) [process, net, error] -> Result[Bytes, Error] {
   var output = b""
   while "readable" in unix.poll_fd(fd, ["readable"], timeout_ms: 0)? {
     let chunk = unix.read_fd(fd, 8192)?
@@ -36,7 +36,7 @@ proc listing_terminal_bytes(fd: Int) [process, error] -> Result[Bytes, Error] {
   Ok(output)
 }
 
-proc terminal_listing(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
+proc terminal_listing(s: uu.Scene, args: List[Str]) [fs, process, net, env, error] -> Result[uu.Ran, Error] {
   let input = listing_terminal()?
   defer unix.close_fd(input.master)?
   defer unix.close_fd(input.replica)?
