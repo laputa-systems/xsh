@@ -47,7 +47,7 @@ test test_mktemp_missing_tmpdir_value_reports_required_value { |ctx|
   let root = test.temp_dir(ctx, name: "mktemp-missing-tmpdir")?
   let result = run_applet(ctx, root, ["-p"])?
   assert result.status == 1
-  assert "a value is required for '-p <DIR>' but none was supplied" in result.stderr, result.stderr
+  assert result.stderr == "mktemp: option requires an argument -- 'p'\nTry 'mktemp --help' for more information.\n", result.stderr
   assert result.stdout == ""
 }
 

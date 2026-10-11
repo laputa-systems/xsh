@@ -23,7 +23,7 @@ test test_pathchk_without_a_name_reports_required_argument { |ctx|
   let root = test.temp_dir(ctx, name: "pathchk-no-name")?
   let result = run_applet(ctx, root, [])?
   assert result.status == 1
-  assert "the following required arguments were not provided" in result.stderr, result.stderr
+  assert result.stderr == "pathchk: missing operand\nTry 'pathchk --help' for more information.\n", result.stderr
   assert result.stdout == ""
 }
 

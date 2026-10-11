@@ -97,17 +97,6 @@ proc report_created(target: Path, name: Bytes, directory: Bool) [fs, process, en
 }
 
 proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
-  # The applet parser uses different wording for this required directory value.
-  var preflight_at = 0
-  while preflight_at < argv.len() {
-    let arg = argv[preflight_at].utf8() ?? ""
-    break when arg == "--"
-    if arg == "-p" and preflight_at + 1 == argv.len() {
-      gnu.error("a value is required for '-p <DIR>' but none was supplied")
-      exit 1
-    }
-    preflight_at += 1
-  }
   let prepared = prepare_arguments(argv)
   let opts: Options = cli.applet(prepared.text, {
     gnu: {status: 1},

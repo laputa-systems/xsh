@@ -143,7 +143,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   if opts.command.is_empty() {
     if opts.adjustment != null {
-      gnu.usage_error("A command must be given with an adjustment.", 125)
+      gnu.usage_error("a command must be given with an adjustment", 125)
     }
 
     match process.priority() {
@@ -162,7 +162,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   # written, the command does not run.
   if let Err(failure) = process.nice(adjustment) {
     if (failure.errno ?? 0) == 1 or (failure.errno ?? 0) == 13 {
-      gnu.error(f"warning: setpriority: {failure_text(failure)}")
+      gnu.error(f"cannot set niceness: {failure_text(failure)}")
       if io.flush_stderr() is Err(_) { exit 125 }
     } else {
       gnu.error(f"cannot set niceness: {failure_text(failure)}")

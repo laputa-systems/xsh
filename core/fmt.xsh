@@ -4,13 +4,19 @@ use lib.text_a2 as text
 
 type Options = {width: Str, goal: Str, crown: Bool, tagged: Bool, split: Bool, uniform: Bool, quick: Bool, prefix: Str, skip_prefix: Str?, exact_prefix: Bool, exact_skip: Bool, help: Bool, version: Bool, paths: List[Str]}
 
-proc size(value: Str, what: Str) -> Int {
-  let number = value.parse_int() ?? -1
-  if number < 0 or number > 2500 {
-    gnu.error(f"invalid {what}: {gnu.quote_value(value)}{if number > 2500 and number <= 2147483647 { ": Numerical result out of range" } else { "" }}")
+# Width limits report a numeric range error; goals report the selected width's
+# data-type bound. Both options use the same diagnostic name.
+proc size(value: Str, limit: Int, width: Bool) -> Int {
+  if ! rx"^[ \t\n\u{b}\u{c}\r]*[+]?[0-9]+$".matches(value) {
+    gnu.error(f"invalid width: {gnu.quote_value(value)}")
     exit 1
   }
-  number
+  if let Ok(number) = value.trim().parse_int() {
+    if number <= limit { return number }
+  }
+  let reason = if width { "Numerical result out of range" } else { "Value too large for defined data type" }
+  gnu.error(f"invalid width: {gnu.quote_value(value)}: {reason}")
+  exit 1
 }
 
 pure indent(line: Bytes) -> Int {
@@ -230,12 +236,11 @@ proc main(...argv: List[Bytes]) {
   })?
   if opts.help { gnu.help("Usage: fmt [OPTION]... [FILE]...\nReformat paragraphs.\n  -w, --width=WIDTH\n  -g, --goal=WIDTH\n  -c, --crown-margin\n  -t, --tagged-paragraph\n  -s, --split-only\n  -u, --uniform-spacing\n  -q, --quick\n  -p, --prefix=PREFIX"); return }
   if opts.version { gnu.version("fmt"); return }
-  let requested_width = if opts.width != "" { size(opts.width, "width") } else { -1 }
-  let goal_value = if opts.goal == "" { 0 } else { size(opts.goal, "goal") }
-  let width = if requested_width >= 0 { requested_width } else if opts.goal != "" and goal_value < 65 { goal_value + 10 } else { 75 }
+  let requested_width = if opts.width != "" { size(opts.width, 2500, true) } else { -1 }
+  let goal_value = if opts.goal == "" { 0 } else { size(opts.goal, if requested_width >= 0 { requested_width } else { 75 }, false) }
+  let width = if requested_width >= 0 { requested_width } else if opts.goal != "" { goal_value + 10 } else { 75 }
   # Without -g the goal is LEEWAY (7) percent short of the width, computed as GNU does.
   let goal = if opts.goal == "" { width * 187 / 200 } else { goal_value }
-  if goal > width { gnu.error("GOAL cannot be greater than WIDTH."); exit 1 }
   var failed = false
   let paths = if opts.paths.is_empty() { [b"-"] } else { text.argument_bytes_list(arguments, opts.paths) }
   for name in paths {
