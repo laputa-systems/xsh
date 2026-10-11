@@ -667,6 +667,8 @@ struct FunctionBuild {
     return_kind: LoweredReturnKind,
     return_check: Option<LoweredTypeCheck>,
     slot_count: usize,
+    /// One exact callable type per local dense slot; `None` records no unique checked signature.
+    callable_slot_types: Vec<Option<Type>>,
     body: Vec<BuildStmtId>,
     has_defers: bool,
     scratch: Rc<RefCell<BuildScratch>>,
@@ -1014,6 +1016,7 @@ struct LoweredTopLevelSlot {
     name: Name,
     slot: usize,
     kind: LoweredType,
+    callable_type: Option<Type>,
     mutable: bool,
 }
 

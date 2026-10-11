@@ -242,6 +242,47 @@ impl SlotScope {
         self.bindings.get(&binding).copied()
     }
 
+    /// Retain a checked callable contract only when every source identity in a
+    /// local dense slot shares it; parameters and captures use their headers,
+    /// and ambiguous or dynamic slots carry no signature proof.
+    pub(super) fn callable_types_by_slot(&self, first_local_slot: usize) -> Vec<Option<Type>> {
+        assert!(
+            first_local_slot <= self.high_water,
+            "parameter and capture slots exceed their high-water total"
+        );
+        let mut callable_types = vec![None; self.high_water];
+        let mut seen = vec![false; self.high_water];
+        let mut ambiguous = vec![false; self.high_water];
+        for (binding, slot) in &self.bindings {
+            assert!(*slot < self.high_water, "binding slot exceeds its high-water total");
+            if *slot < first_local_slot {
+                continue;
+            }
+            if ambiguous[*slot] {
+                continue;
+            }
+            match self.binding_type(*binding) {
+                Some(ty @ Type::Callable(_)) => match &callable_types[*slot] {
+                    None if !seen[*slot] => {
+                        callable_types[*slot] = Some(ty.clone());
+                        seen[*slot] = true;
+                    }
+                    Some(previous) if previous == ty => {}
+                    _ => {
+                        callable_types[*slot] = None;
+                        ambiguous[*slot] = true;
+                    }
+                },
+                _ => {
+                    callable_types[*slot] = None;
+                    seen[*slot] = true;
+                    ambiguous[*slot] = true;
+                }
+            }
+        }
+        callable_types
+    }
+
     fn binding_type(&self, binding: BindingId) -> Option<&Type> {
         self.types.get(&binding)
     }
@@ -2141,7 +2182,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         for (binding, name, kind, mutable) in bindings {
             let slot = slots.reserve("captured global");
             slots.bind_source_at(binding, name, slot, None);
-            captures.push(LoweredTopLevelSlot { name, slot, kind, mutable });
+            let callable_type = self.top_level_known[&name]
+                .checked
+                .clone()
+                .filter(|ty| matches!(ty, Type::Callable(_)));
+            captures.push(LoweredTopLevelSlot {
+                name, slot, kind, callable_type, mutable,
+            });
         }
         captures
     }
@@ -2595,6 +2642,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let scratch = self.scratch.borrow();
             lowered_body_has_defers(&scratch, &body)
         };
+        let callable_slot_types = slots.callable_types_by_slot(params.len() + captures.len());
         Ok(FunctionBuild {
             params,
             param_kinds,
@@ -2623,6 +2671,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     schema: None,
                 }),
             slot_count: slots.count(),
+            callable_slot_types,
             body,
             has_defers,
             scratch: self.scratch.clone(),
@@ -3226,7 +3275,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             name,
                             slot,
                             kind: binding.kind,
-                            mutable: binding.mutable,
+                            callable_type: None, mutable: binding.mutable,
                         })
                     })
                     .collect();
@@ -6025,7 +6074,7 @@ pub(super) fn lowered_top_level(
                 name,
                 slot,
                 kind: binding.kind,
-                mutable: binding.mutable,
+                callable_type: None, mutable: binding.mutable,
             })
         })
         .collect();

@@ -216,6 +216,8 @@ struct FullFunction {
     captures: IrRange,
     body: u32,
     slot_count: u32,
+    /// Dense callable type ids; `IR_NONE` means the slot has no single checked signature.
+    callable_slot_types: IrRange,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -290,6 +292,7 @@ struct FullStore {
     driver_programs: Vec<FullDriverProgram>,
     driver_root: u32,
     functions: Vec<FullFunction>,
+    callable_slot_types: Vec<u32>,
     function_instruction_starts: Vec<u32>,
     function_metadata: Vec<FullFunctionMetadata>,
     params: Vec<FullParam>,
@@ -338,6 +341,7 @@ impl Default for FullStore {
             driver_programs: Vec::new(),
             driver_root: IR_NONE,
             functions: Vec::new(),
+            callable_slot_types: Vec::new(),
             function_instruction_starts: Vec::new(),
             function_metadata: Vec::new(),
             params: Vec::new(),
@@ -473,6 +477,7 @@ impl FullStore {
             + self.driver_regions.capacity() * size_of::<FullDriverRegion>()
             + self.driver_programs.capacity() * size_of::<FullDriverProgram>()
             + self.functions.capacity() * size_of::<FullFunction>()
+            + self.callable_slot_types.capacity() * size_of::<u32>()
             + self.function_instruction_starts.capacity() * size_of::<u32>()
             + self.function_metadata.capacity() * size_of::<FullFunctionMetadata>()
             + self.params.capacity() * size_of::<FullParam>()
@@ -1213,7 +1218,7 @@ impl<'a> FullFunctionView<'a> {
                 kind: lowered_type_from_type(
                     &self.program.store.semantic.to_type(capture.type_id)?,
                 )?,
-                mutable: capture.slot_and_flags & (1 << 31) != 0,
+                callable_type: None, mutable: capture.slot_and_flags & (1 << 31) != 0,
             });
         }
         let return_type = self.program.store.semantic.to_type(
@@ -1361,7 +1366,7 @@ impl<'a> FullDriverStepView<'a> {
                 name: Name::intern(self.program.store.string(slot.name)?),
                 slot: slot.slot as usize,
                 kind: lowered_type_from_type(&self.program.store.semantic.to_type(slot.type_id)?)?,
-                mutable: slot.flags & DRIVER_SLOT_MUTABLE != 0,
+                callable_type: None, mutable: slot.flags & DRIVER_SLOT_MUTABLE != 0,
             });
         }
         Ok(slots)
@@ -1781,7 +1786,12 @@ impl FullBuilder {
                 let slot = u32::try_from(capture.slot)
                     .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?;
                 let name = self.intern_string(&capture.name.as_str())?.raw();
-                let type_id = self.intern_lowered_type(capture.kind)?;
+                let type_id = match &capture.callable_type {
+                    Some(ty) => self
+                        .semantic
+                        .intern_type(&mut self.store.semantic, &executable_type(ty))?,
+                    None => self.intern_lowered_type(capture.kind)?,
+                };
                 self.store.captures.push(FullCapture {
                     name,
                     type_id,
@@ -1800,6 +1810,35 @@ impl FullBuilder {
                 return_type,
                 None,
             )?;
+            if body.callable_slot_types.len() != body.slot_count {
+                return Err(IrBuildError::format(
+                    "callable_slot_type_count",
+                    Some(unit.source_span()),
+                    0,
+                    self.store.tags.len(),
+                ));
+            }
+            let callable_slot_types_start = self.store.callable_slot_types.len();
+            for ty in &body.callable_slot_types {
+                let raw = match ty {
+                    None => IR_NONE,
+                    Some(ty @ Type::Callable(_)) => self
+                        .semantic
+                        .intern_type(&mut self.store.semantic, &executable_type(ty))?
+                        .raw(),
+                    Some(_) => {
+                        return Err(IrBuildError::format(
+                            "non_callable_slot_type",
+                            Some(unit.source_span()),
+                            0,
+                            self.store.tags.len(),
+                        ));
+                    }
+                };
+                self.store.callable_slot_types.push(raw);
+            }
+            let callable_slot_types =
+                table_range(callable_slot_types_start, self.store.callable_slot_types.len())?;
             let params = table_range(params_start, self.store.params.len())?;
             let captures = table_range(captures_start, self.store.captures.len())?;
             self.function_ids.insert(unit.key(), function_id);
@@ -1811,6 +1850,7 @@ impl FullBuilder {
                 body: IR_NONE,
                 slot_count: u32::try_from(body.slot_count)
                     .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?,
+                callable_slot_types,
             });
             self.store.function_instruction_starts.push(IR_NONE);
             self.store.function_metadata.push(FullFunctionMetadata {
@@ -3609,6 +3649,7 @@ impl<'a> FullDecoder<'a> {
                 ));
             }
             self.verify_typed_callee_parameter(function, callee, &payload)?;
+            self.verify_typed_callee_slot(function, callee, &payload)?;
         }
         let ty = TypeId::from_raw(payload.raw()?)
             .ok_or_else(|| IrVerifyError::new("typed call signature type id is invalid"))?;
@@ -3696,21 +3737,87 @@ impl<'a> FullDecoder<'a> {
             .get(validation as usize)
             .ok_or_else(|| IrVerifyError::new("typed callee validation is out of bounds"))?
             .type_id;
-        // A parameter declared as something wider, such as an optional
-        // callable narrowed before the call, has no single type to compare.
-        if self
+        self.verify_typed_callee_type(
+            declared,
+            payload,
+            "typed call signature differs from its callee parameter's callable type",
+        )
+    }
+
+    /// A direct slot whose checked declaration is one callable type holds a
+    /// typed call to that signature; parameter slots keep their existing proof.
+    fn verify_typed_callee_slot(
+        &self,
+        function: usize,
+        callee: usize,
+        payload: &FullCursor<'_>,
+    ) -> Result<(), IrVerifyError> {
+        if self.store.tags.get(callee) != Some(&FullTag::ExprParam) {
+            return Ok(());
+        }
+        let slot = *self
             .store
-            .semantic
-            .typed_callable_signature(declared)
-            .is_err()
-        {
+            .payload(self.store.data[callee].range())?
+            .first()
+            .ok_or_else(|| IrVerifyError::new("typed callee slot is missing"))?
+            as usize;
+        let function_row = self
+            .store
+            .functions
+            .get(function)
+            .ok_or_else(|| IrVerifyError::new("typed call owner is out of bounds"))?;
+        let params = function_row
+            .params
+            .bounds(self.store.params.len())
+            .ok_or_else(|| IrVerifyError::new("function parameter range is invalid"))?;
+        if slot < params.len() {
+            return Ok(());
+        }
+        let captures = function_row
+            .captures
+            .bounds(self.store.captures.len())
+            .ok_or_else(|| IrVerifyError::new("function capture range is invalid"))?;
+        if let Some(capture) = self.store.captures[captures].iter().find(|capture| {
+            (capture.slot_and_flags & !(1 << 31)) as usize == slot
+        }) {
+            return self.verify_typed_callee_type(
+                capture.type_id,
+                payload,
+                "typed call signature differs from its callee capture's callable type",
+            );
+        }
+        let slot_types = function_row
+            .callable_slot_types
+            .bounds(self.store.callable_slot_types.len())
+            .ok_or_else(|| IrVerifyError::new("function callable slot type range is invalid"))?;
+        let raw = *self
+            .store
+            .callable_slot_types
+            .get(slot_types.start + slot)
+            .ok_or_else(|| IrVerifyError::new("typed callee slot type is missing"))?;
+        if raw == IR_NONE { return Ok(()); }
+        let declared = TypeId::from_raw(raw)
+            .ok_or_else(|| IrVerifyError::new("function callable slot type id is invalid"))?;
+        self.verify_typed_callee_type(
+            declared,
+            payload,
+            "typed call signature differs from its callee slot's callable type",
+        )
+    }
+
+    fn verify_typed_callee_type(
+        &self,
+        declared: TypeId,
+        payload: &FullCursor<'_>,
+        reason: &'static str,
+    ) -> Result<(), IrVerifyError> {
+        // Wider declarations such as optional callables have no single signature.
+        if self.store.semantic.typed_callable_signature(declared).is_err() {
             return Ok(());
         }
         let mut row = *payload;
         if declared.raw() != row.raw()? {
-            return Err(IrVerifyError::new(
-                "typed call signature differs from its callee parameter's callable type",
-            ));
+            return Err(IrVerifyError::new(reason));
         }
         Ok(())
     }
@@ -4254,6 +4361,7 @@ impl FullVerifier {
         }
         let mut in_place_marks = vec![false; store.tags.len()];
         let owned_blocks = owned_block_counts(store);
+        let mut previous_callable_slot_type_end = 0usize;
         for (index, function) in store.functions.iter().enumerate() {
             store.string(function.name)?;
             let metadata = store.function_metadata[index];
@@ -4278,6 +4386,30 @@ impl FullVerifier {
                 .captures
                 .bounds(store.captures.len())
                 .ok_or_else(|| IrVerifyError::new("function capture range is invalid"))?;
+            let callable_slot_types = function
+                .callable_slot_types
+                .bounds(store.callable_slot_types.len())
+                .ok_or_else(|| IrVerifyError::new("function callable slot type range is invalid"))?;
+            if callable_slot_types.start != previous_callable_slot_type_end
+                || callable_slot_types.len() != function.slot_count as usize
+            {
+                return Err(IrVerifyError::new(
+                    "function callable slot type ranges are not dense and slot-complete",
+                ));
+            }
+            previous_callable_slot_type_end = callable_slot_types.end;
+            for raw in &store.callable_slot_types[callable_slot_types] {
+                if *raw == IR_NONE {
+                    continue;
+                }
+                let ty = TypeId::from_raw(*raw).ok_or_else(|| {
+                    IrVerifyError::new("function callable slot type id is invalid")
+                })?;
+                store
+                    .semantic
+                    .typed_callable_signature(ty)
+                    .map_err(|_| IrVerifyError::new("function slot type is not callable"))?;
+            }
             if store.semantic.signature_param_count(function.signature)? != params.len() {
                 return Err(IrVerifyError::new(
                     "function parameters do not match its signature",
@@ -4421,6 +4553,11 @@ impl FullVerifier {
                     "function {index} body does not terminate with a return"
                 )));
             }
+        }
+        if previous_callable_slot_type_end != store.callable_slot_types.len() {
+            return Err(IrVerifyError::new(
+                "unowned function callable slot type rows",
+            ));
         }
         Self::verify_bridge_ownership(store)?;
         if store.driver_root == IR_NONE {
@@ -5706,7 +5843,7 @@ impl FullCodec for LoweredTopLevelSlot {
             name: Name::decode(decoder, input)?,
             slot: usize::decode(decoder, input)?,
             kind: LoweredType::decode(decoder, input)?,
-            mutable: bool::decode(decoder, input)?,
+            callable_type: None, mutable: bool::decode(decoder, input)?,
         })
     }
 }
@@ -7430,6 +7567,7 @@ run true
                 return_kind: LoweredReturnKind::Plain(LoweredType::Int),
                 return_check: None,
                 slot_count: 1,
+                callable_slot_types: vec![None],
                 body: vec![return_statement],
                 has_defers: false,
                 scratch,
@@ -8723,7 +8861,7 @@ pure selected() -> Str {
         assert_eq!(size_of::<FullStageTag>(), 1);
         assert_eq!(size_of::<FullValueTag>(), 1);
         assert_eq!(size_of::<FullBlock>(), 20);
-        assert_eq!(size_of::<FullFunction>(), 32);
+        assert_eq!(size_of::<FullFunction>(), 40);
         assert_eq!(size_of::<FullParam>(), 12);
         assert_eq!(size_of::<FullParamCold>(), 12);
         assert_eq!(size_of::<FullCapture>(), 12);
@@ -11281,25 +11419,19 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
             proc_in_pure.store.extra[pure_call + 2] = program.store.extra[proc_call + 2];
             rejected(&proc_in_pure, "typed call to a proc inside a pure function");
 
-            // Inside a proc such a row verifies when its callee is a local;
-            // the callee's kind is then checked where the call runs, before
-            // any argument is evaluated.
+            // `shifted` reads the local declared as `Shift` (a proc
+            // signature). Relabeling its call row to the pure `Scale`
+            // signature is rejected before execution.
             let mut other_kind = (*program).clone();
             other_kind.store.extra[proc_call + 1] = 1;
             other_kind.store.extra[proc_call + 2] = program.store.extra[pure_call + 2];
-            FullVerifier::verify(&other_kind).unwrap();
-            let error = call(
-                &Arc::new(other_kind),
-                "shifted",
-                LoweredFunctionKind::Proc,
-                true,
-            )
-            .unwrap_err();
+            let error = FullVerifier::verify(&other_kind).unwrap_err();
             assert!(
                 error
                     .message
-                    .contains("typed call expected a Pure of its callable type, found Proc"),
-                "{error:?}"
+                    .contains("typed call signature differs from its callee slot's callable type"),
+                "{}",
+                error.message
             );
         });
     }
@@ -11382,16 +11514,12 @@ pure both() -> Int {
         });
     }
 
-    // A typed call whose callee is a local, a field, or a call result has
-    // nothing in the program to be held to: only a parameter row records a
-    // declared type, and the type of any other expression is the checker's
-    // fact, which the program does not repeat per slot. Such a row therefore
-    // verifies with a callee of another callable type, and what stops the
-    // call is the callee's own parameter boundary, which a call through a
-    // value always runs: the function tests each argument against its
-    // declared type and its arity before its body starts.
+    // A direct local slot with one declared callable type carries the same
+    // signature proof as a function parameter. The verifier must reject a
+    // typed-call row that names a different callable signature before it can
+    // reach the callee's runtime parameter boundary.
     #[test]
-    fn typed_call_through_a_local_is_held_by_the_callee_s_parameter_boundary() {
+    fn typed_call_through_a_local_names_the_slot_s_callable_type() {
         run_with_large_stack(|| {
             let source = r#"type Scale = pure(n: Int) -> Int
 type Measure = pure(text: Str) -> Int
@@ -11476,24 +11604,86 @@ pure all(wide: Bool, n: Int, text: Str) -> Int {
                     .start
             };
 
-            // `scale(n)` reads the local that holds a `Measure`: the Int
-            // argument reaches a Str parameter.
+            // `scale(n)` reads the local that holds a `Measure`; the row's
+            // signature no longer agrees with the callee slot's declaration.
             let mut retyped = (*program).clone();
             retyped.store.extra[callee_slot(scale)] = program.store.extra[callee_slot(measure)];
-            FullVerifier::verify(&retyped).unwrap();
-            let error = call(&Arc::new(retyped)).unwrap_err();
+            let error = FullVerifier::verify(&retyped).unwrap_err();
             assert!(
-                error.message.contains("expected Str, found Int"),
-                "{error:?}"
+                error
+                    .message
+                    .contains("typed call signature differs from its callee slot's callable type"),
+                "{}",
+                error.message
             );
 
-            // `scale(n)` reads the local that holds a `Pair`: one argument
-            // reaches two parameters.
+            // `scale(n)` reading the two-argument `Pair` slot also disagrees.
             let mut short = (*program).clone();
             short.store.extra[callee_slot(scale)] = program.store.extra[callee_slot(pair)];
-            FullVerifier::verify(&short).unwrap();
-            let error = call(&Arc::new(short)).unwrap_err();
-            assert!(error.message.contains("argument"), "{error:?}");
+            let error = FullVerifier::verify(&short).unwrap_err();
+            assert!(
+                error
+                    .message
+                    .contains("typed call signature differs from its callee slot's callable type"),
+                "{}",
+                error.message
+            );
+        });
+    }
+
+    #[test]
+    fn typed_call_through_a_capture_names_the_capture_s_callable_type() {
+        run_with_large_stack(|| {
+            let source = r#"type Scale = pure(n: Int) -> Int
+type Measure = pure(text: Str) -> Int
+
+pure double(n: Int) -> Int { n * 2 }
+pure length(text: Str) -> Int { text.byte_len() }
+
+let scale: Scale = double
+let measure: Measure = length
+
+pure by_scale() -> Int { scale(5) }
+pure by_measure() -> Int { measure("abc") }
+pure outer() -> Int { by_scale() + by_measure() }
+"#;
+            let program = Arc::new(fixture("typed-callable-captures.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+
+            let mut capture_calls = Vec::new();
+            for (function, row) in program.store.functions.iter().enumerate() {
+                let captures = row.captures.bounds(program.store.captures.len()).unwrap();
+                if captures.is_empty() {
+                    continue;
+                }
+                for instruction in program.store.function_instruction_range(function).unwrap() {
+                    if program.store.tags[instruction] == FullTag::ExprTypedCall {
+                        capture_calls.push(
+                            program.store.data[instruction]
+                                .range()
+                                .bounds(program.store.extra.len())
+                                .unwrap()
+                                .start,
+                        );
+                    }
+                }
+            }
+            assert_eq!(capture_calls.len(), 2);
+            assert_ne!(
+                program.store.extra[capture_calls[0] + 2],
+                program.store.extra[capture_calls[1] + 2]
+            );
+            let mut swapped = (*program).clone();
+            swapped.store.extra[capture_calls[0] + 2] =
+                program.store.extra[capture_calls[1] + 2];
+            let error = FullVerifier::verify(&swapped).unwrap_err();
+            assert!(
+                error.message.contains(
+                    "typed call signature differs from its callee capture's callable type"
+                ),
+                "{}",
+                error.message
+            );
         });
     }
 
