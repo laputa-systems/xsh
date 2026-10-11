@@ -1,5 +1,39 @@
 # Consolidation restart handoff
 
+## Frame/stage integration — 2026-10-11, `adc08a9f`
+
+Accepted `ef7b317c` as `1819fa28`: borrowed frame apply and the single
+StageEngine cover the sealed operand cohort and all 46 scheduled stages.
+The surviving instruction inventory is 152, with stable ordinal holes;
+pattern ordinal 14 remains a hole. The measured production delta is +246
+src and zero xsht against `ca11c451`, including upstream allocation failures.
+Independent review found no demonstrated defect in this slice. Its two
+requested regressions are accepted from `3e97ea44` as `adc08a9f`: distinct
+resource roots held by suspended Fold and parent continuation state, and
+Range conversion failure before a later operand's side effects. Five focused
+explicit-frame units pass on the private source-matched candidate.
+
+The root optimized binary build passes. Focused root native checks pass for
+frame apply, stage execution, typed callables, patterns, collections, streams,
+resource ownership, producers, error cleanup, context scopes, module commands
+and stage result contracts; frame and stage oracles also pass with forced
+frames. The first driver incorrectly named two nonexistent test files;
+those entries are missing-file failures, not passes. The supplemental driver
+runs the actual files successfully. Both manifests remain preserved under
+`.work/consolidation/restart/joint-adc08*`. Frozen root binaries and the source
+manifest are `joint-adc08-bin` and `joint-adc08-source.json`; a root focused
+library harness build is pending. Generated SPEC documentation remains pending.
+
+Filesystem/Path and Print/Cd/Env cohorts, full module records, typed-callee
+verification and the complete lint table/walk remain private. Source budgets
+are total non-test Rust across both roots, not each root separately. The W9
+candidate's imported-command regression is reproduced and fixed privately;
+fresh parity and its deletion offset remain required. JSON consolidation now
+has an independent lane: the published sorted-record-key contract governs
+compact encoding as well as pretty encoding. This corrects an existing compact
+RecordVec mismatch; it does not introduce a compatibility profile. Final
+source shrink, structural zeros and all final acceptance gates remain open.
+
 ## Completed compatibility integration — 2026-10-11, `ca11c451`
 
 At the owner's request, master `4b0b4e7c` is merged in `654bfad3` rather than
