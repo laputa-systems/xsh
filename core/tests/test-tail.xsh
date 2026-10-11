@@ -128,7 +128,7 @@ test test_tail_counts_accept_gnu_suffixes_and_reject_others { |ctx|
   assert bare_option_end.stderr == "tail: invalid number of bytes: '-'\n", bare_option_end.stderr
 }
 
-test test_tail_invalid_sleep_intervals_use_usage_diagnostics { |ctx|
+test test_tail_invalid_sleep_intervals_report_only_the_error { |ctx|
   let root = test.temp_dir(ctx, name: "tail-sleep-interval")?
   let invalid = [
     "1_000",
@@ -150,11 +150,8 @@ test test_tail_invalid_sleep_intervals_use_usage_diagnostics { |ctx|
 
     assert result.status == 1
     assert result.stdout.is_empty()
-    assert result.stderr.starts_with("tail: invalid number of seconds: "), result.stderr
-    assert result.stderr.ends_with("\nTry 'tail --help' for more information.\n"), result.stderr
-    if value == "" {
-      assert result.stderr == "tail: invalid number of seconds: ''\nTry 'tail --help' for more information.\n", result.stderr
-    }
+    let quoted = if value == "' '" { "'\\' \\''" } else { f"'{value}'" }
+    assert result.stderr == f"tail: invalid number of seconds: {quoted}\n", result.stderr
   }
 }
 
@@ -492,7 +489,7 @@ test test_tail_follow_name_banners_for_names_created_after_failed_opens { |ctx|
   let status = process.run(plan)?
 
   assert status.exit_code()? == 124, f"stderr={stderr.read_text()?}"
-  assert stdout.read_text()? == "\n==> log1 <==\nping\n\n==> log2 <==\npong\n", stdout.read_text()?
+  assert stdout.read_text()? == "==> log1 <==\nping\n\n==> log2 <==\npong\n", stdout.read_text()?
   assert stderr.read_text()? == "tail: cannot open 'log1' for reading: No such file or directory\ntail: cannot open 'log2' for reading: No such file or directory\ntail: 'log1' has appeared;  following new file\ntail: 'log2' has appeared;  following new file\n", stderr.read_text()?
   assert (wait writer?).exited_with(0)
 }
@@ -501,7 +498,7 @@ test test_tail_validates_follow_options { |ctx|
   let root = test.temp_dir(ctx, name: "tail")?
 
   assert tail_run(ctx, root, ["--pid=-1", "-f"])?.stderr == "tail: invalid PID: '-1'\n"
-  assert tail_run(ctx, root, ["-s", "1.0s", "-"])?.stderr == "tail: invalid number of seconds: '1.0s'\nTry 'tail --help' for more information.\n"
+  assert tail_run(ctx, root, ["-s", "1.0s", "-"])?.stderr == "tail: invalid number of seconds: '1.0s'\n"
   assert tail_run(ctx, root, ["--max-unchanged-stats=x", "-"])?.stderr == "tail: invalid maximum number of unchanged stats between opens: 'x'\n"
   assert tail_run(ctx, root, ["-s.1", "-"], b"a\n")?.stdout == b"a\n"
 
@@ -689,4 +686,51 @@ test test_tail_debug_reports_blocking_and_polling_while_following { |ctx|
 
   let help = tail_run(ctx, root, ["--help"])?.stdout as Str
   assert "      --debug       indicate which --follow implementation is used\n" in help
+}
+
+test test_tail_count_sign_is_recognized_before_leading_whitespace { |ctx|
+  let root = test.temp_dir(ctx, name: "tail-count-whitespace")?
+  let negative = tail_run(ctx, root, ["-n -10"], b"a\nb\n")?
+  assert negative.status == 1
+  assert negative.stdout == b""
+  assert negative.stderr == "tail: invalid number of lines: ' -10': Value too large for defined data type\n", negative.stderr
+  assert tail_run(ctx, root, ["-n", " +2"], b"a\nb\nc\n")?.stdout == b"b\nc\n"
+  assert tail_run(ctx, root, ["-n", " -0"], b"a\n")?.stdout == b""
+  let invalid = tail_run(ctx, root, ["-c --"])?
+  assert invalid.status == 1
+  assert invalid.stderr == "tail: invalid number of bytes: ' --'\n", invalid.stderr
+}
+
+test test_tail_follow_name_stops_when_the_name_disappears_without_retry { |ctx|
+  let root = test.temp_dir(ctx, name: "tail-name-disappeared")?
+  let log = fp"{root}/log"
+  log.write(b"initial\n")
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let writer = spawn run sh -c "until test -s \"$2\"; do sleep 0.01; done; mv \"$1\" \"$1.old\"" sh $log.display() $stdout.display() ?
+  defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/tail.xsh".display(), "--follow=name", "-s.01", "log"]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 2s)
+  let status = process.run(plan)?
+  assert status.exit_code()? == 1
+  assert stdout.read_text()? == "initial\n"
+  assert stderr.read_text()? == "tail: 'log' has become inaccessible: No such file or directory\ntail: no files remaining\n", stderr.read_text()?
+  assert (wait writer?).exited_with(0)
+}
+
+
+test test_tail_redirected_initial_output_stays_buffered_during_terminal_read { |ctx|
+  let root = test.temp_dir(ctx, name: "tail-terminal-buffer")?
+  fp"{root}/data".write(b"file data\n")
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/tail.xsh".display(), "-f", "data", "-"]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, p"/dev/ptmx", stdout, stderr)
+  let child = spawn plan ?
+  defer child.cancel(signal: "KILL", kill_after: 0ms)?
+  time.sleep(500ms)?
+  assert process.wait_timeout([child], 0ms)? == null
+  child.cancel(signal: "KILL", kill_after: 0ms)?
+  assert stdout.read_bytes()? == b""
+  assert stderr.read_text()? == "tail: warning: following standard input indefinitely is ineffective\n"
 }

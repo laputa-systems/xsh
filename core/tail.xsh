@@ -85,7 +85,7 @@ const FOLLOW_MODES = ["descriptor", "name"]
 # GNU learns of changes from inotify as they happen, while this applet finds them
 # by polling. A pass therefore never sleeps longer than this, so a change is
 # reported about as promptly as GNU reports it; a shorter -s interval still applies.
-const POLL_CEILING = 50ms
+const POLL_CEILING = 10ms
 
 pure poll_pause(interval: Duration) -> Duration {
   return interval when interval < POLL_CEILING
@@ -122,17 +122,20 @@ pure modernize(argv: List[Str]) -> List[Str] {
   [option, count, @if parts[4] == "f" { ["-f"] } else { [] }, @argv[1..]]
 }
 
-# GNU parses counts with strtoumax, which skips leading blanks before the sign,
-# so " -10" is the same count as "-10" and an error quotes what follows the sign.
+# The option's sign is removed before strtoumax skips leading blanks. A minus
+# after those blanks is therefore an unsigned underflow, not a tail count sign.
 proc parse_spec(raw: Str, by_bytes: Bool) [process, env] -> Spec {
-  let text = rx"^[[:space:]]+".replace(raw, with: "")
-  let from_start = text.starts_with("+")
-  let digits = if from_start or text.starts_with("-") { text[1..] } else { text }
-  let value = tio.parse_count(digits)
+  let from_start = raw.starts_with("+")
+  let digits = if from_start or raw.starts_with("-") { raw[1..] } else { raw }
+  let text = rx"^[[:space:]]+".replace(digits, with: "")
+  let unsigned = if text.starts_with("+") or text.starts_with("-") { text[1..] } else { text }
+  let value = tio.parse_count(unsigned)
+  let underflow = text.starts_with("-") and value != null and value != 0
 
-  if value == null {
+  if value == null or underflow {
+    let reason = if underflow { ": Value too large for defined data type" } else { "" }
     gnu.error(
-      f"invalid number of {if by_bytes { "bytes" } else { "lines" }}: {gnu.quote_value(if from_start { text } else { digits })}",
+      f"invalid number of {if by_bytes { "bytes" } else { "lines" }}: {gnu.quote_value(if from_start { raw } else { digits })}{reason}",
     )
     exit 1
   }
@@ -314,20 +317,24 @@ proc stdout_pollable() [fs, error] -> Result[Bool] {
 # GNU writes diagnostics unbuffered, so a diagnostic reported before some output
 # must reach the output stream first. Stderr is buffered here, so it is flushed
 # before every write to standard output.
-proc write_output(data: Bytes) [process, env, io] {
+proc write_output(data: Bytes, flush = true) [process, env, io] {
   if let Err(_) = io.flush_stderr() {
     exit 1
   }
 
-  gnu.write_bytes(data)
+  if flush {
+    gnu.write_bytes(data)
+  } else if let Err(failure) = io.write_stdout_bytes(data) {
+    gnu.write_failed(failure)
+  }
 }
 
 # Writes the `==> NAME <==` line that introduces output from a file. `previous`
 # is the label of the last banner, "" before any output; a banner after earlier
 # output starts on a new line.
-proc write_banner(label: Str, previous: Str) [process, env, io] {
+proc write_banner(label: Str, previous: Str, flush = true) [process, env, io] {
   let separator = if previous == "" { "" } else { "\n" }
-  write_output(bytes.from_text(f"{separator}==> {gnu.quote_maybe(label)} <==\n"))
+  write_output(bytes.from_text(f"{separator}==> {gnu.quote_maybe(label)} <==\n"), flush)
 }
 
 # Warnings are written before any operand is read. A stderr write that fails
@@ -459,14 +466,9 @@ proc is_link(name: Str) [fs] -> Bool {
   }
 }
 
-# Report that a tailed name stopped naming a file. Retry mode says the name
-# became inaccessible; without retrying the name is only reported and kept waiting.
-proc name_gone(label: Str, failure: Error, retrying: Bool) [process, env] -> Unit {
-  if retrying {
-    gnu.error(f"{gnu.quote(label)} has become inaccessible: {gnu.strerror(failure)}")
-  } else {
-    gnu.error(f"{gnu.quote_maybe(label)}: {gnu.strerror(failure)}")
-  }
+# Report when a followed name stops naming an accessible file.
+proc name_gone(label: Str, failure: Error) [process, env] -> Unit {
+  gnu.error(f"{gnu.quote(label)} has become inaccessible: {gnu.strerror(failure)}")
 }
 
 # Whether the directory holding NAME does not exist. Only a missing directory
@@ -483,13 +485,13 @@ proc parent_missing(name: Str) [fs] -> Bool {
 # its directory was removed as well.
 proc gone_step(file: NameFile, failure: Error, retrying: Bool, last: Str) [fs, process, env] -> NameStep {
   if file.state == "tailing" {
-    name_gone(file.label, failure, retrying)
+    name_gone(file.label, failure)
   }
 
   let was_tailed = file.state == "tailing" or file.state == "vanished"
   let state = if was_tailed { "vanished" } else { "waiting" }
 
-  {file: {...file, state: state}, last: last, keep: true, failed: false, dir_removed: was_tailed and file.dir_watched and parent_missing(file.name)}
+  {file: {...file, state: state}, last: last, keep: retrying, failed: ! retrying, dir_removed: was_tailed and file.dir_watched and parent_missing(file.name)}
 }
 
 # A name that is a directory, FIFO, or a link that was not a link at startup.
@@ -582,7 +584,7 @@ proc follow_name_once(file: NameFile, retrying: Bool, headers: Bool, last: Str) 
 }
 
 # Follow named files by checking each name every pass. A name that is gone is
-# kept waiting; a name that cannot be followed is given up without retrying.
+# kept waiting only with retry; otherwise it is given up.
 # With inotify in use, GNU reports the first removed directory and switches to
 # polling for the rest of the run; that switch is reproduced once here.
 proc follow_names(files: List[NameFile], headers: Bool, retrying: Bool, pid: Int, interval: Duration, after: Str, inotify: Bool) [fs, process, time, env, error, io] -> Bool {
@@ -727,7 +729,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
 
   if let sleep_interval = opts.sleep {
     if ! rx"^([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$".matches(sleep_interval) {
-      gnu.usage_error(f"invalid number of seconds: {gnu.quote_value(sleep_interval)}")
+      gnu.error(f"invalid number of seconds: {gnu.quote_value(sleep_interval)}")
+      exit 1
     }
   }
 
@@ -772,6 +775,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
 
   return when ! following and spec.value == 0 and ! spec.from_start
 
+  # GNU leaves initial output buffered while reading a terminal operand. A
+  # redirected stream must not expose that buffer before the blocked read ends.
+  let buffer_initial = following and "-" in operands and unix.isatty(0) and ! unix.isatty(1)
   let headers = opts.verbose or (operands.len() > 1 and ! opts.quiet)
   var last = ""
   var failed = false
@@ -788,13 +794,6 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
       gnu.cannot_open(name, failure)
       failed = true
       follow_classes += ["unwatchable"]
-
-      # A missing operand may appear later under --retry and then gets a banner. That
-      # banner starts with a blank line, as GNU writes it. NUL cannot occur in a file
-      # name, so the mark never equals a real label.
-      if headers and retrying and following {
-        last = "\0"
-      }
 
       if retrying and following and follow_mode == "name" {
         name_files += [{name: name, label: label, state: "waiting", symlink: is_link(name), dir_watched: ! parent_missing(name), dev: 0, ino: 0, offset: 0}]
@@ -835,14 +834,14 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
     let header_written = headers and source.mode == "stdin"
 
     if header_written {
-      write_banner(label, last)
+      write_banner(label, last, ! buffer_initial)
       last = label
     }
 
     guard let plan = prepare(source, spec, opts.zero) else { |failure|
       if tio.is_directory(failure) {
         if headers {
-          write_banner(label, last)
+          write_banner(label, last, ! buffer_initial)
           last = label
         }
 
@@ -867,7 +866,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
     }
 
     if headers and ! header_written {
-      write_banner(label, last)
+      write_banner(label, last, ! buffer_initial)
       last = label
     }
 
@@ -885,12 +884,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
 
         break when chunk.is_empty()
 
-        write_output(chunk)
+        write_output(chunk, ! buffer_initial)
         offset += chunk.len()
       }
       follow_offset = offset
     } else {
-      write_output(plan.data[plan.start..])
+      write_output(plan.data[plan.start..], ! buffer_initial)
     }
 
     # Regular files and character devices (such as /dev/null, which never ends)
@@ -911,6 +910,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
       follow_files += [{label: label, fd: 0, offset: tio.stdin_offset()?}]
     }
   }
+
+  if buffer_initial { gnu.write_bytes(b"") }
 
   # The report follows the initial output of every operand, as GNU orders it, and
   # precedes any follow. Standard input that is a pipe yields no class, so a
