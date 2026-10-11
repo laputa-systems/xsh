@@ -42,7 +42,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let mut values = vec![None; plan.params.len()];
                 values[*slot] = Some(item);
                 while values.last().is_some_and(Option::is_none) { values.pop(); }
-                BuildExprRow::ModuleCall { cli_plan: None, op: plan.sig.op, args: values, span }
+                BuildExprRow::ModuleCall { call_plan: None, op: plan.sig.op, args: values, span }
             }
         } else {
             let function = match self.program.arena.expr(callee).kind {
@@ -56,7 +56,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 _ => return None,
             };
             if let Some(op) = self.compact_bridge_op(function) {
-                BuildExprRow::ModuleCall { cli_plan: None, op, args: vec![Some(item)], span }
+                BuildExprRow::ModuleCall { call_plan: None, op, args: vec![Some(item)], span }
             } else if matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if current_function == Some(name)) {
                 BuildExprRow::SelfCall { args, span }
             } else if matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Ident(_))
