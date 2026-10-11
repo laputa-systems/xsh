@@ -5082,7 +5082,51 @@ impl<'a> Writer<'a> {
                 self.command_chain_has_call_or_index(expr_id)
                     && self.command_chain_base_can_be_bare(base)
             }
-            _ => false,
+            ArenaExprKind::Null
+            | ArenaExprKind::Bool(_)
+            | ArenaExprKind::Int(_)
+            | ArenaExprKind::Float(_)
+            | ArenaExprKind::Duration(_)
+            | ArenaExprKind::Str(_)
+            | ArenaExprKind::Bytes(_)
+            | ArenaExprKind::Regex(_)
+            | ArenaExprKind::Ident(_)
+            | ArenaExprKind::Item
+            | ArenaExprKind::LastStatus
+            | ArenaExprKind::List(_)
+            | ArenaExprKind::ListComp { .. }
+            | ArenaExprKind::MapComp { .. }
+            | ArenaExprKind::Set(_)
+            | ArenaExprKind::SetComp { .. }
+            | ArenaExprKind::Record(_)
+            | ArenaExprKind::If { .. }
+            | ArenaExprKind::Match { .. }
+            | ArenaExprKind::PatternTest { .. }
+            | ArenaExprKind::PatternCondition { .. }
+            | ArenaExprKind::Unary { .. }
+            | ArenaExprKind::ComparisonChain(_)
+            | ArenaExprKind::Binary { .. }
+            | ArenaExprKind::ValuePipelineCall { .. }
+            | ArenaExprKind::Slice { .. }
+            | ArenaExprKind::EnvPathList
+            | ArenaExprKind::Pipeline { .. }
+            | ArenaExprKind::StructuredPipeline { .. }
+            | ArenaExprKind::Run(_)
+            | ArenaExprKind::Spawn(_)
+            | ArenaExprKind::Wait(_)
+            | ArenaExprKind::BuilderCall { .. }
+            | ArenaExprKind::Try(_)
+            | ArenaExprKind::Capture(_)
+            | ArenaExprKind::Require { .. }
+            | ArenaExprKind::Convert { .. }
+            | ArenaExprKind::Collect { .. }
+            | ArenaExprKind::Loop { .. }
+            | ArenaExprKind::Retry { .. }
+            | ArenaExprKind::ValueBlock(_)
+            | ArenaExprKind::ErrorContext { .. }
+            | ArenaExprKind::ContextScope { .. }
+            | ArenaExprKind::TempDirScope { .. }
+            | ArenaExprKind::ResourceScope { .. } => false,
         }
     }
 
@@ -5106,7 +5150,46 @@ impl<'a> Writer<'a> {
                 self.command_chain_base_can_be_bare(base)
                     && matches!(self.arena.expr(index).kind, ArenaExprKind::Int(_))
             }
-            _ => false,
+            ArenaExprKind::Null
+            | ArenaExprKind::Bool(_)
+            | ArenaExprKind::Bytes(_)
+            | ArenaExprKind::Regex(_)
+            | ArenaExprKind::Item
+            | ArenaExprKind::LastStatus
+            | ArenaExprKind::List(_)
+            | ArenaExprKind::ListComp { .. }
+            | ArenaExprKind::MapComp { .. }
+            | ArenaExprKind::Set(_)
+            | ArenaExprKind::SetComp { .. }
+            | ArenaExprKind::Record(_)
+            | ArenaExprKind::If { .. }
+            | ArenaExprKind::Match { .. }
+            | ArenaExprKind::PatternTest { .. }
+            | ArenaExprKind::PatternCondition { .. }
+            | ArenaExprKind::Unary { .. }
+            | ArenaExprKind::ComparisonChain(_)
+            | ArenaExprKind::Binary { .. }
+            | ArenaExprKind::ValuePipelineCall { .. }
+            | ArenaExprKind::Slice { .. }
+            | ArenaExprKind::EnvPathList
+            | ArenaExprKind::Pipeline { .. }
+            | ArenaExprKind::StructuredPipeline { .. }
+            | ArenaExprKind::Run(_)
+            | ArenaExprKind::Spawn(_)
+            | ArenaExprKind::Wait(_)
+            | ArenaExprKind::BuilderCall { .. }
+            | ArenaExprKind::Try(_)
+            | ArenaExprKind::Capture(_)
+            | ArenaExprKind::Require { .. }
+            | ArenaExprKind::Convert { .. }
+            | ArenaExprKind::Collect { .. }
+            | ArenaExprKind::Loop { .. }
+            | ArenaExprKind::Retry { .. }
+            | ArenaExprKind::ValueBlock(_)
+            | ArenaExprKind::ErrorContext { .. }
+            | ArenaExprKind::ContextScope { .. }
+            | ArenaExprKind::TempDirScope { .. }
+            | ArenaExprKind::ResourceScope { .. } => false,
         }
     }
 

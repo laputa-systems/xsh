@@ -499,7 +499,29 @@ fn test_top_level_allowed(program: &ArenaProgram, id: StmtId) -> bool {
         | ArenaStmtKind::PureDef(_)
         | ArenaStmtKind::StreamDef(_) => true,
         ArenaStmtKind::Export(inner) => test_top_level_allowed(program, inner),
-        _ => false,
+        ArenaStmtKind::Var { .. }
+        | ArenaStmtKind::Assign { .. }
+        | ArenaStmtKind::CliMain(_)
+        | ArenaStmtKind::SignalHook(_)
+        | ArenaStmtKind::Return(_)
+        | ArenaStmtKind::Yield(_)
+        | ArenaStmtKind::YieldDelegate(_)
+        | ArenaStmtKind::Defer(_, _)
+        | ArenaStmtKind::If { .. }
+        | ArenaStmtKind::While { .. }
+        | ArenaStmtKind::For { .. }
+        | ArenaStmtKind::With { .. }
+        | ArenaStmtKind::Loop { .. }
+        | ArenaStmtKind::Guard { .. }
+        | ArenaStmtKind::Sugar { .. }
+        | ArenaStmtKind::Assert { .. }
+        | ArenaStmtKind::Break { .. }
+        | ArenaStmtKind::Continue
+        | ArenaStmtKind::Exit(_)
+        | ArenaStmtKind::Match { .. }
+        | ArenaStmtKind::Command(_)
+        | ArenaStmtKind::TailBareIdent(_)
+        | ArenaStmtKind::Expr(_) => false,
     }
 }
 
