@@ -5289,20 +5289,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
                 Ok(())
             }
-            _ if strategy == FrameStrategy::LegacyRecursive => {
-                let flow = self.with_lent_context(index, |evaluator, execution, slots| {
-                    evaluator.eval_indexed_stmt(execution, instruction, slots, span)
-                })?;
-                match flow {
-                    StmtFlow::None => Ok(()),
-                    StmtFlow::Value(value) => {
-                        self.complete_expression_value(index, value, false)
-                    }
-                    StmtFlow::Break(value) => self.break_loop(index, value, false),
-                    StmtFlow::Continue => self.continue_loop(index),
-                    flow => self.complete_call(index, flow),
-                }
-            }
             _ => Err(frame_strategy_error(tag, span)),
         }
     }

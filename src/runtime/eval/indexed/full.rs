@@ -8064,6 +8064,14 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
         }
         for tag in schema::INSTRUCTION_TAGS {
             assert_eq!(tag.effects(), previous_effects(&[*tag]), "{}", tag.name());
+            if tag.kind() == schema::InstructionKind::Stmt {
+                assert_ne!(
+                    tag.frame_strategy(),
+                    FrameStrategy::LegacyRecursive,
+                    "statement {} must be scheduled on frames",
+                    tag.name()
+                );
+            }
         }
     }
 

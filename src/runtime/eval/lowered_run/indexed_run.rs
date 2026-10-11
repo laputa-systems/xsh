@@ -2241,46 +2241,6 @@ impl Evaluator {
         Ok(result)
     }
 
-    /// Runs a statement the heap-backed frames delegate here, publishing root
-    /// slots around it like an expression.
-    fn eval_indexed_stmt(
-        &mut self,
-        execution: &FullExecution<'_>,
-        instruction: u32,
-        slots: &mut [LoweredValue],
-        call_span: Span,
-    ) -> Result<StmtFlow, RuntimeError> {
-        self.sync_indexed_root_slots(slots, call_span)?;
-        let result = self.eval_indexed_stmt_inner(execution, instruction, slots, call_span);
-        let publication = self.sync_indexed_root_slots(slots, call_span);
-        let result = match (result, publication) {
-            (Err(error), _) => Err(error),
-            (Ok(_), Err(error)) => Err(error),
-            (Ok(flow), Ok(())) => Ok(flow),
-        };
-        match (result, self.pending_value_block_flow.take()) {
-            (Ok(_), Some(flow)) => Ok(flow),
-            (result, _) => result,
-        }
-    }
-
-    fn eval_indexed_stmt_inner(
-        &mut self,
-        execution: &FullExecution<'_>,
-        instruction: u32,
-        slots: &mut [LoweredValue],
-        call_span: Span,
-    ) -> Result<StmtFlow, RuntimeError> {
-        let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
-        match tag {
-            _ => Err(RuntimeError::new(
-                "indexed-ir",
-                format!("direct indexed evaluator does not support {tag:?}"),
-            )
-            .with_span(call_span)),
-        }
-    }
-
 }
 
 fn is_typed_int_tag(tag: FullTag) -> bool {
