@@ -2,7 +2,7 @@ use support.uu
 
 # A second tmpfs forces copying rather than rename; cleanup belongs to each test.
 proc other_fs(s: uu.Scene) [fs, error] -> Result[Path, Error] {
-  let dir = fp"/dev/shm/mv-{s.root.basename()}"
+  let dir = fp"/dev/shm/xsh-uu-mv-{s.root.parent().name()}-{s.root.name()}"
   dir.mkdir()?
   dir.chmod(0o700)?
   assert fs.stat(dir)?.dev != fs.stat(s.root)?.dev, "move test requires distinct devices"
