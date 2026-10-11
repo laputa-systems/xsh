@@ -3036,20 +3036,6 @@ impl<'a> FullExecution<'a> {
     }
 
     #[inline(always)]
-    pub(in crate::runtime::eval) fn instruction(
-        &self,
-        input: &mut FullPayload<'a>,
-    ) -> Result<(u32, FullTag, FullPayload<'a>), IrVerifyError> {
-        let (index, tag, payload) = self.decoder.instruction(&mut input.cursor)?;
-        Ok((
-            u32::try_from(index)
-                .map_err(|_| IrVerifyError::new("full IR instruction id overflows"))?,
-            tag,
-            FullPayload { store: self.decoder.store, cursor: payload },
-        ))
-    }
-
-    #[inline(always)]
     pub(in crate::runtime::eval) fn block(
         &self,
         input: &mut FullPayload<'a>,
@@ -3126,16 +3112,6 @@ impl<'a> FullExecution<'a> {
         raw: u32,
     ) -> Result<StageView<'a>, IrVerifyError> {
         StageView::decode(DecodeContext::new(self), raw)
-    }
-
-    #[inline(always)]
-    pub(in crate::runtime::eval) fn finish_instruction(&self, instruction: u32) {
-        self.decoder.finish_instruction(instruction as usize);
-    }
-
-    #[inline(always)]
-    pub(in crate::runtime::eval) fn finish_block(&self, block: IrBlockId) {
-        self.decoder.finish_block(block);
     }
 }
 

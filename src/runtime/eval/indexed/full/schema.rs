@@ -423,26 +423,6 @@ macro_rules! instruction_schema {
                 }
             }
 
-            pub(in crate::runtime::eval) fn field_cursor<'a>(
-                self, context: DecodeContext<'a>, mut input: FullCursor<'a>, name: &str,
-            ) -> Result<FullCursor<'a>, IrVerifyError> {
-                match self {
-                    $($(
-                        Self::$tag => {
-                            $($(
-                                if name == stringify!($tuple_field) { return Ok(input); }
-                                <$tuple_ty>::borrow(context, &mut input)?;
-                            )*)?
-                            $($(
-                                if name == stringify!($field) { return Ok(input); }
-                                <$field_ty>::borrow(context, &mut input)?;
-                            )*)?
-                        }
-                    )*)*
-                }
-                Err(IrVerifyError::new("instruction field does not exist"))
-            }
-
             pub(in crate::runtime::eval) fn kind(self) -> InstructionKind {
                 match self {
                     $($(Self::$tag => InstructionKind::$kind,)*)*

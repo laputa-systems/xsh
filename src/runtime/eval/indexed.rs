@@ -83,8 +83,6 @@ pub struct IrRange {
 }
 
 impl IrRange {
-    const EMPTY: Self = Self { start: 0, len: 0 };
-
     const fn new(start: u32, len: u32) -> Self {
         Self { start, len }
     }
