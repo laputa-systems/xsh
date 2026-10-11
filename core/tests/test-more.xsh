@@ -100,6 +100,7 @@ test test_more_rejects_bad_numbers_before_reading_anything { |ctx|
 
   assert more_run(ctx, ["-n", "0", "--number", "0", "-F", "0"], b"ok\n")?.stdout == "ok\n"
   assert more_run(ctx, ["-n", "10"], b"ok\n")?.stdout == "ok\n"
+  assert more_run(ctx, ["--lines", "65535"], b"ok\n")?.stdout == "ok\n"
 }
 
 test test_more_accepts_every_documented_switch { |ctx|

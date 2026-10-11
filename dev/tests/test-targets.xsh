@@ -89,6 +89,7 @@ test test_docker_argv_is_direct_and_carries_mount_environment_policy {
   assert argv[0] == "docker"
   assert "--init" in argv
   assert "--privileged" in argv
+  assert "/tmp:rw,nodev,exec,mode=1777" in argv
   assert "/repo:/work" in argv
   assert "/repo/target:/work/target" in argv
   assert "TARGET=aarch64-unknown-linux-musl" in argv
@@ -129,6 +130,7 @@ test test_docker_argv_applies_split_resource_limits_before_the_image {
     assert "--cpus=0.01" in docker_options_before_image
     assert "--memory=1g" in docker_options_before_image
     assert "--memory-swap=1g" in docker_options_before_image
+    assert "/tmp:rw,nodev,exec,mode=1777" in docker_options_before_image
     assert argv[-1] == operation
   }
 }

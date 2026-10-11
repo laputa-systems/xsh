@@ -85,6 +85,12 @@ export pure internal_argv(
     argv += ["--cpus=0.01", "--memory=1g", "--memory-swap=1g"]
   }
 
+  # Temporary test fixtures need executable scripts and metadata-only device
+  # nodes, so /tmp must allow execution while denying device access.
+  if operation == "test-linux" or operation == "test-linux-ci" or operation == "test-linux-split" or operation == "test-linux-ci-split" {
+    argv += ["--tmpfs", "/tmp:rw,nodev,exec,mode=1777"]
+  }
+
   if privileged {
     argv += ["--privileged"]
   }

@@ -179,7 +179,7 @@ test test_gnu_split_l_chunk_log { |ctx|
   uu.write(s, "in", text)?
   let wrong = uu.invoke(s, "split", ["-n", "l/16/15", "in"])?
   uu.fails_with_code(wrong, 1)
-  assert wrong.stderr.utf8()?.split("': ")[0].trim() == "split: invalid chunk number: '16'"
+  assert rx"': [^\n]*".replace(wrong.stderr.utf8()?, with: "'") == "split: invalid chunk number: '16'\n"
   let matrix = [
     {count: 6, sizes: [14, 16, 16, 8, 16, 10]},
     {count: 8, sizes: [14, 8, 8, 10, 14, 8, 8, 10]},
@@ -236,30 +236,31 @@ test test_gnu_split_r_chunk_log { |ctx|
   clear_pieces(s)?
   let argv = uu.argv(s, "split", [p"-n", p"r/30"])?
   let shell = process.which("sh")?
-  let plan = process.command_argv(shell, [shell, p"-c", p"ulimit -n 20; exec \"$@\"", p"rr-limit"].extend(argv), s.root, {}, bytes.concat([b"y\n" for _ in range(90)]), uu.at(s, "out"), uu.at(s, "err"), timeout: 10s)
+  let plan = process.command_argv(s.ctx.xsh_bin, argv[..3].extend([shell, p"-c", p"ulimit -n 20; exec \"$@\"", p"rr-limit"]).extend(argv[3..]), s.root, {}, bytes.concat([b"y\n" for _ in range(90)]), uu.at(s, "out"), uu.at(s, "err"), timeout: 10s)
   assert process.run(plan)?.exit_code()? == 0
   let found = pieces(s)?
   assert found.len() == 30
   for file in found { assert fs.stat(file)?.size == 6 }
 }
 
-# A successful baseline establishes the memory available to the exact same
-# launcher and applet before increasing only its requested split size.
+# The isolation launcher runs before the budget is set; the limit applies to
+# the applet itself. A marker distinguishes failed setup from a started applet.
 proc vm_status(s: uu.Scene, args: List[Str], kilobytes: Int, marker: Str? = null, discovery: Bool = false) [fs, process, env, time, error] -> Result[Int, Error] {
   let shell = process.which("sh")?
   let argv = uu.argv(s, "split", [Path(word) for word in args])?
-  let wrapper = r"""ulimit -c 0; ulimit -v "$1" || exit 77; shift; if test -n "$1"; then : > "$1" || exit; fi; shift; exec "$@"; """
-  let words = [shell, p"-c", Path(wrapper), p"vm-limit", Path(f"{kilobytes}"), Path(marker ?? "")].extend(argv)
-  let plan = process.command_argv(shell, words, s.root, {}, b"", uu.at(s, "vm-out"), uu.at(s, "vm-err"), timeout: 11s)
+  let wrapper = r"""trap '' SEGV; ulimit -c 0; ulimit -v "$1" || exit 77; shift; if test -n "$1"; then : > "$1" || exit; fi; shift; exec "$@"; """
+  let words = argv[..3].extend([shell, p"-c", Path(wrapper), p"vm-limit", Path(f"{kilobytes}"), Path(marker ?? "")]).extend(argv[3..])
+  let plan = process.command_argv(s.ctx.xsh_bin, words, s.root, {}, b"", uu.at(s, "vm-out"), uu.at(s, "vm-err"), timeout: 11s)
   let began = time.now() / 1000
   let result = process.run(plan)
   if discovery and time.now() / 1000 - began >= 10 { return Ok(77) }
   let status = result?
-  Ok(if status.signaled() { 128 } else { status.exit_code()? })
+  Ok(status.shell_code()?)
 }
 
-# The XSH launcher needs more address space than split alone; find its baseline
-# before adding the fixed 6000 KiB budget used by the upstream test.
+# Interpreter startup can exceed a standalone utility's memory footprint.
+# Extend the startup search before testing the same small allocation margin;
+# unsupported limits and slow probes retain their separate unavailable result.
 proc minimum_vm(s: uu.Scene, args: List[Str]) [fs, process, env, time, error] -> Result[Int?, Error] {
   let conf = process.which("getconf")?
   let plan = process.command_argv(conf, [conf, p"PAGESIZE"], s.root, {}, b"", uu.at(s, "page-out"), uu.at(s, "page-err"))
@@ -279,6 +280,7 @@ proc minimum_vm(s: uu.Scene, args: List[Str]) [fs, process, env, time, error] ->
       previous = limit
     }
   }
+  assert false, f"split cannot start within 800000 KiB; no startup baseline was established; stderr {uu.read_text(s, "vm-err")?}"
   Ok(null)
 }
 
@@ -316,7 +318,7 @@ test test_gnu_split_suffix_length_log { |ctx|
   uu.write(s, "in", alphabet + "0")?
   let short = uu.invoke(s, "split", ["-b", "1", "-a", "1", "in"])?
   uu.fails(short)
-  for name in ["xa", "xz"] { assert uu.exists(s, name)? }
+  for name in ["xa", "xz"] { assert uu.file_exists(s, name)? }
   for name in ["xaa", "xaz"] { assert ! uu.exists(s, name)? }
   uu.stderr_is(short, "split: output file suffixes exhausted\n")
   clear_pieces(s)?
@@ -333,8 +335,8 @@ test test_gnu_split_suffix_length_log { |ctx|
   if let vm = minimum_vm(s, ["-a", "1", "/dev/null"])? {
     let limit = vm + 6000
     let status = vm_status(s, ["-a", "66542562175252", "in"], limit, marker: "ulimit-worked")?
-    assert uu.file_exists(s, "ulimit-worked")?
-    assert status == 1
+    assert uu.file_exists(s, "ulimit-worked")?, f"limit setup did not reach split at {limit} KiB; stderr {uu.read_text(s, "vm-err")?}"
+    assert status == 1, f"minimum {vm} KiB; limit {limit} KiB; status {status}; stderr {uu.read_text(s, "vm-err")?}"
     assert ! uu.exists(s, "xaa")?
   }
 }
@@ -373,7 +375,7 @@ test test_gnu_split_fail_log { |ctx|
   for args in [["-b", "0", "in"], ["-C", "0", "in"], ["-l", "0", "in"], ["-n", "0", "in"], ["-n", "1/0", "in"], ["-n", "0/1", "in"], ["-n", "2/1", "in"]] { uu.fails_with_code(uu.invoke(s, "split", args)?, 1) }
   clear_pieces(s)?
   uu.succeeds(uu.invoke(s, "split", ["-C", "1"], stdin: b"x\n")?)
-  for name in ["xaa", "xab"] { assert uu.exists(s, name)? }
+  for name in ["xaa", "xab"] { assert uu.file_exists(s, name)? }
   assert ! uu.exists(s, "xac")?
   uu.succeeds(uu.invoke(s, "split", ["-1", "in"])?)
   uu.fails_with_code(uu.invoke(s, "split", ["-0", "in"])?, 1)
