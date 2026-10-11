@@ -4,13 +4,14 @@ use super::serial_pipeline::{
     indexed_for_pipeline_input, indexed_value_pipeline_input,
 };
 use super::{
-    Arc, AssignOp, BLOCK_LIST, BLOCK_STATEMENTS, BTreeMap, BinaryOp, ControlFlow, Evaluator,
+    Arc, AssignOp, BLOCK_LIST, BLOCK_STATEMENTS, BTreeMap, BinaryOp, CommandPlan, ControlFlow,
+    Evaluator,
     FormatSpec, FrameStrategy, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag,
     FunctionHeader,
     IndexedAssignStep, IndexedCompQualifier, IndexedFmt, IndexedFmtPart, IndexedOperands,
     IndexedRecordEntry, LoweredFunctionKey, LoweredFunctionKind, LoweredReturnKind, LoweredType,
     LoweredTypeCheck, LoweredValue, Name, RegisteredDefer, ResolvedAssignStep, RuntimeError, Span,
-    StmtFlow, StreamValue, TraceArg, TraceKind, TracePayload, TracebackFrame, TracebackFrameKind,
+    RunArg, StmtFlow, StreamValue, TraceArg, TraceKind, TracePayload, TracebackFrame, TracebackFrameKind,
     append_call_argument, append_lowered_list_element, append_lowered_map_literal,
     apply_indexed_assignment, apply_indexed_path_assignment, assign_lowered_bytes_view,
     assign_lowered_str_view, bind_lowered_comp_target, capture_checked_error, check_env_name,
@@ -30,11 +31,11 @@ use crate::map_key::MapKey;
 use crate::runtime::eval::indexed::full::schema::{BoolView, IntView};
 use crate::runtime::eval::indexed::full::schema::StmtView;
 use crate::runtime::eval::indexed::full::decode::{
-    ListPosition, RunArgKindView, RunArgView, RunEnvView,
+    ListPosition, ListView, ProcessCommandBuilderEntryView, RunArgKindView, RunArgView, RunEnvView,
 };
 use crate::runtime::eval::{
-    BuildExprId, LoweredCompTarget, LoweredRunEnv, visit_retained_lowered_value,
-    visit_retained_lowered_values,
+    BuildExprId, LoweredCompTarget, LoweredProcessCommandBuilderEntry, LoweredRunArg, LoweredRunEnv,
+    visit_retained_lowered_value, visit_retained_lowered_values,
 };
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
 use crate::runtime::eval::lowered_run::validate_parameter_default;
@@ -721,6 +722,131 @@ enum ExprPatternIfStep {
 type ExprPatternIfBranch = (BuildExprId, BuildExprId, Vec<usize>);
 type ExprPatternIfPosition = ListPosition<ExprPatternIfBranch>;
 
+struct ProcessCommandRunState {
+    args: ListPosition<LoweredRunArg>,
+    env_assignments: ListPosition<LoweredRunEnv>,
+}
+
+struct ProcessCommandBuilderState {
+    call_span: Span,
+    span: Span,
+    plan: Option<CommandPlan>,
+    cwd: Option<crate::runtime::value::PathValue>,
+    env: BTreeMap<String, Vec<u8>>,
+    stdin: Option<LoweredValue>,
+    stdout: Option<LoweredValue>,
+    stderr: Option<LoweredValue>,
+    stdout_append: bool,
+    stderr_append: bool,
+    timeout: Option<crate::runtime::value::DurationValue>,
+    cpu_max: Option<i64>,
+    accepted_exit_codes: Option<crate::runtime::process::AcceptedExitCodes>,
+    detach: Option<bool>,
+    new_session: Option<bool>,
+    ignore_hup: Option<bool>,
+    same_group: Option<bool>,
+    run: Option<ProcessCommandRunState>,
+}
+
+impl ProcessCommandBuilderState {
+    fn new(call_span: Span, span: Span) -> Self {
+        Self {
+            call_span,
+            span,
+            plan: None,
+            cwd: None,
+            env: BTreeMap::new(),
+            stdin: None,
+            stdout: None,
+            stderr: None,
+            stdout_append: false,
+            stderr_append: false,
+            timeout: None,
+            cpu_max: None,
+            accepted_exit_codes: None,
+            detach: None,
+            new_session: None,
+            ignore_hup: None,
+            same_group: None,
+            run: None,
+        }
+    }
+
+    fn visit_retained_values(
+        &self,
+        visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
+    ) {
+        for value in [&self.stdin, &self.stdout, &self.stderr].into_iter().flatten() {
+            visit_retained_lowered_value(value, visitor);
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ProcessCommandRunPhase {
+    Target,
+    Argument,
+    Environment,
+    Timeout,
+    CpuMax,
+    Accept,
+}
+
+#[derive(Clone, Copy)]
+enum ProcessCommandBuilderPhase {
+    Field,
+    Run(ProcessCommandRunPhase),
+}
+
+fn process_command_builder_view<'a>(
+    execution: &FullExecution<'a>,
+    instruction: u32,
+    span: Span,
+) -> Result<(ListView<'a, LoweredProcessCommandBuilderEntry>, Span), RuntimeError> {
+    let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
+    match super::ExprView::decode(execution, tag, payload)
+        .map_err(|error| indexed_error(error, span))?
+    {
+        super::ExprView::ProcessCommandBuilder { entries, span } => Ok((entries, span)),
+        _ => unreachable!("process command builder has a matching typed view"),
+    }
+}
+
+fn process_command_builder_entry<'a>(
+    execution: &FullExecution<'a>,
+    instruction: u32,
+    position: ListPosition<LoweredProcessCommandBuilderEntry>,
+    span: Span,
+) -> Result<(
+    Option<ProcessCommandBuilderEntryView<'a>>,
+    ListPosition<LoweredProcessCommandBuilderEntry>,
+    Span,
+), RuntimeError> {
+    let (mut entries, builder_span) = process_command_builder_view(execution, instruction, span)?;
+    entries
+        .resume(position)
+        .map_err(|error| indexed_error(error, builder_span))?;
+    let entry = entries
+        .next()
+        .transpose()
+        .map_err(|error| indexed_error(error, builder_span))?;
+    Ok((entry, entries.position(), builder_span))
+}
+
+fn run_arg_from_view(value: RunArgView<'_>) -> RunArg {
+    let span = value.span;
+    let (mode, value) = match value.kind {
+        RunArgKindView::Single(value) => (0, value.raw()),
+        RunArgKindView::SingleOrSplice(value) => (1, value.raw()),
+        RunArgKindView::Splice(value) => (2, value.raw()),
+    };
+    RunArg {
+        mode,
+        value,
+        span,
+    }
+}
+
 enum FrameContinuation {
     WithBinding {
         bindings: Vec<(usize, u32)>,
@@ -838,6 +964,13 @@ enum FrameContinuation {
         tag_position: Option<ListPosition<BuildExprId>>,
         values: Vec<super::FrameApplyValue>,
         span: Span,
+        next: Box<FrameContinuation>,
+    },
+    ProcessCommandBuilder {
+        instruction: u32,
+        entry: ListPosition<LoweredProcessCommandBuilderEntry>,
+        phase: ProcessCommandBuilderPhase,
+        state: ProcessCommandBuilderState,
         next: Box<FrameContinuation>,
     },
     TypedBoolNot {
@@ -1194,6 +1327,10 @@ impl FrameContinuation {
                 }
                 next.visit_retained_values(visitor);
             }
+            C::ProcessCommandBuilder { state, next, .. } => {
+                state.visit_retained_values(visitor);
+                next.visit_retained_values(visitor);
+            }
             C::ComparisonRight { left, next, .. } | C::BinaryRight { left, next, .. } => {
                 visit_retained_lowered_value(left, visitor);
                 next.visit_retained_values(visitor);
@@ -1281,6 +1418,7 @@ fn with_initializer_handler(
             | FrameContinuation::BinaryRight { next, .. }
             | FrameContinuation::BoolBinaryRight { next, .. }
             | FrameContinuation::ApplyOperands { next, .. }
+            | FrameContinuation::ProcessCommandBuilder { next, .. }
             | FrameContinuation::TypedBoolNot { next, .. }
             | FrameContinuation::TypedIntByteAtIndex { next, .. }
             | FrameContinuation::TypedIntByteAtFallback { next, .. }
@@ -3851,6 +3989,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     | FullTag::ExprPatternIf
                     | FullTag::ExprStrMatch
                     | FullTag::ExprTagMatch
+                    | FullTag::ExprProcessCommandBuilder
             )
         {
             let flow = {
@@ -3911,6 +4050,27 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             return Ok(());
         }
         match tag {
+            FullTag::ExprProcessCommandBuilder => {
+                let (entries, builder_span) = process_command_builder_view(
+                    &self.calls[index].execution,
+                    instruction,
+                    span,
+                )?;
+                self.evaluator.trace_enter(
+                    TraceKind::ModuleCall,
+                    Some(builder_span),
+                    Some("process.command"),
+                    TracePayload::None,
+                );
+                let state = ProcessCommandBuilderState::new(span, builder_span);
+                self.step_process_command_builder(
+                    index,
+                    instruction,
+                    entries.position(),
+                    state,
+                    next,
+                )?;
+            }
             FullTag::ExprPipeline => {
                 let pipeline = indexed_value_pipeline_input(
                     &self.calls[index].execution,
@@ -5506,6 +5666,26 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         self.push_value(index, FrameValue::Value(value), *next);
                     }
                 }
+                FrameValue::Break(value) => {
+                    self.push_value(index, FrameValue::Break(value), *next);
+                }
+            },
+            FrameContinuation::ProcessCommandBuilder {
+                instruction,
+                entry,
+                phase,
+                state,
+                next,
+            } => match value {
+                FrameValue::Value(value) => self.continue_process_command_builder(
+                    index,
+                    instruction,
+                    entry,
+                    phase,
+                    state,
+                    value,
+                    *next,
+                )?,
                 FrameValue::Break(value) => {
                     self.push_value(index, FrameValue::Break(value), *next);
                 }
@@ -8246,6 +8426,435 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.calls[index]
             .work
             .push(FrameWork::Value { value, next });
+    }
+
+    fn step_process_command_builder(
+        &mut self,
+        index: usize,
+        instruction: u32,
+        entries: ListPosition<LoweredProcessCommandBuilderEntry>,
+        mut state: ProcessCommandBuilderState,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        let (entry, _, _) = process_command_builder_entry(
+            &self.calls[index].execution,
+            instruction,
+            entries,
+            state.call_span,
+        )?;
+        match entry {
+            Some(ProcessCommandBuilderEntryView::Field { value, span, .. }) => {
+                self.push_expr(
+                    index,
+                    value.raw(),
+                    span,
+                    FrameContinuation::ProcessCommandBuilder {
+                        instruction,
+                        entry: entries,
+                        phase: ProcessCommandBuilderPhase::Field,
+                        state,
+                        next: Box::new(next),
+                    },
+                );
+            }
+            Some(ProcessCommandBuilderEntryView::Run {
+                args,
+                env,
+                span,
+                ..
+            }) => {
+                if state.plan.is_some() {
+                    return Err(RuntimeError::new(
+                        "builder-entry",
+                        "process.command accepts one run entry",
+                    )
+                    .with_span(span));
+                }
+                state.plan = Some(super::empty_command_plan());
+                state.run = Some(ProcessCommandRunState {
+                    args: args.position(),
+                    env_assignments: env.position(),
+                });
+                self.step_process_command_run(
+                    index,
+                    instruction,
+                    entries,
+                    ProcessCommandRunPhase::Target,
+                    state,
+                    next,
+                )?;
+            }
+            None => self.finish_process_command_builder(index, state, next)?,
+        }
+        Ok(())
+    }
+
+    fn step_process_command_run(
+        &mut self,
+        index: usize,
+        instruction: u32,
+        entry: ListPosition<LoweredProcessCommandBuilderEntry>,
+        mut phase: ProcessCommandRunPhase,
+        mut state: ProcessCommandBuilderState,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        loop {
+            let (operand, run_span, finished) = {
+                let (entry, _, builder_span) = process_command_builder_entry(
+                    &self.calls[index].execution,
+                    instruction,
+                    entry,
+                    state.call_span,
+                )?;
+                match entry {
+                    Some(ProcessCommandBuilderEntryView::Run {
+                        target,
+                        mut args,
+                        mut env,
+                        timeout,
+                        cpu_max,
+                        accept,
+                        span,
+                    }) => {
+                        let finished = phase == ProcessCommandRunPhase::Accept && accept.is_none();
+                        let operand = match phase {
+                            ProcessCommandRunPhase::Target => {
+                                Some(run_arg_from_view(target).value)
+                            }
+                            ProcessCommandRunPhase::Argument => {
+                                let cursor = state
+                                    .run
+                                    .as_ref()
+                                    .expect("active process command run")
+                                    .args;
+                                args.resume(cursor)
+                                    .map_err(|error| indexed_error(error, builder_span))?;
+                                args.next()
+                                    .transpose()
+                                    .map_err(|error| indexed_error(error, builder_span))?
+                                    .map(run_arg_from_view)
+                                    .map(|arg| arg.value)
+                            }
+                            ProcessCommandRunPhase::Environment => {
+                                let cursor = state
+                                    .run
+                                    .as_ref()
+                                    .expect("active process command run")
+                                    .env_assignments;
+                                env.resume(cursor)
+                                    .map_err(|error| indexed_error(error, builder_span))?;
+                                env.next()
+                                    .transpose()
+                                    .map_err(|error| indexed_error(error, builder_span))?
+                                    .map(|assignment| run_arg_from_view(assignment.value))
+                                    .map(|arg| arg.value)
+                            }
+                            ProcessCommandRunPhase::Timeout => timeout.map(|value| value.raw()),
+                            ProcessCommandRunPhase::CpuMax => cpu_max.map(|value| value.raw()),
+                            ProcessCommandRunPhase::Accept => accept.map(|value| value.raw()),
+                        };
+                        (operand, span, finished)
+                    }
+                    _ => unreachable!("process command run cursor has a run entry"),
+                }
+            };
+            if let Some(operand) = operand {
+                self.push_expr(
+                    index,
+                    operand,
+                    run_span,
+                    FrameContinuation::ProcessCommandBuilder {
+                        instruction,
+                        entry,
+                        phase: ProcessCommandBuilderPhase::Run(phase),
+                        state,
+                        next: Box::new(next),
+                    },
+                );
+                return Ok(());
+            }
+            if finished {
+                state.run = None;
+                let (_, entries, _) = process_command_builder_entry(
+                    &self.calls[index].execution,
+                    instruction,
+                    entry,
+                    state.call_span,
+                )?;
+                return self.step_process_command_builder(index, instruction, entries, state, next);
+            }
+            phase = match phase {
+                ProcessCommandRunPhase::Target => unreachable!("run target is required"),
+                ProcessCommandRunPhase::Argument => ProcessCommandRunPhase::Environment,
+                ProcessCommandRunPhase::Environment => ProcessCommandRunPhase::Timeout,
+                ProcessCommandRunPhase::Timeout => ProcessCommandRunPhase::CpuMax,
+                ProcessCommandRunPhase::CpuMax => ProcessCommandRunPhase::Accept,
+                ProcessCommandRunPhase::Accept => unreachable!("accept phase completed"),
+            };
+        }
+    }
+
+    fn finish_process_command_builder(
+        &mut self,
+        index: usize,
+        state: ProcessCommandBuilderState,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        let mut plan = state.plan.ok_or_else(|| {
+            RuntimeError::new("builder-check", "process.command requires a run entry")
+                .with_span(state.span)
+        })?;
+        if state.cwd.is_some() {
+            plan.cwd = state.cwd;
+        }
+        plan.env.extend(state.env);
+        plan.redirections.extend(super::lowered_command_redirections(
+            state.stdin,
+            state.stdout,
+            state.stderr,
+            state.stdout_append,
+            state.stderr_append,
+            "process.command",
+            state.span,
+        )?);
+        if state.timeout.is_some() {
+            plan.timeout = state.timeout;
+        }
+        if state.cpu_max.is_some() {
+            plan.cpu_max = state.cpu_max;
+        }
+        if state.accepted_exit_codes.is_some() {
+            if plan.accepted_exit_codes.is_some() {
+                return Err(RuntimeError::new(
+                    "accept-policy",
+                    "accept cannot be supplied both as a field and a run option",
+                )
+                .with_span(state.span));
+            }
+            plan.accepted_exit_codes = state.accepted_exit_codes;
+        }
+        if let Some(value) = state.detach {
+            plan.detach = value;
+        }
+        if let Some(value) = state.new_session {
+            plan.new_session = value;
+        }
+        if let Some(value) = state.ignore_hup {
+            plan.ignore_hup = value;
+        }
+        if let Some(value) = state.same_group {
+            plan.same_group = value;
+        }
+        self.evaluator.trace_exit(
+            TraceKind::ModuleResult,
+            Some(state.span),
+            Some("process.command"),
+            TracePayload::None,
+        );
+        self.push_value(
+            index,
+            FrameValue::Value(LoweredValue::Command(Box::new(plan))),
+            next,
+        );
+        Ok(())
+    }
+
+    fn continue_process_command_builder(
+        &mut self,
+        index: usize,
+        instruction: u32,
+        entry: ListPosition<LoweredProcessCommandBuilderEntry>,
+        phase: ProcessCommandBuilderPhase,
+        mut state: ProcessCommandBuilderState,
+        value: LoweredValue,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        match phase {
+            ProcessCommandBuilderPhase::Field => {
+                let (entry_view, remaining, _) = process_command_builder_entry(
+                    &self.calls[index].execution,
+                    instruction,
+                    entry,
+                    state.call_span,
+                )?;
+                let Some(ProcessCommandBuilderEntryView::Field { name, span, .. }) = entry_view else {
+                    unreachable!("field phase has a field entry")
+                };
+                let (operand, field) = match name.as_str().as_str() {
+                    "cwd" => (Some(super::FrameApplyOperand::PathLike("process.command")), "cwd"),
+                    "env" => (Some(super::FrameApplyOperand::Environment("process.command")), "env"),
+                    "stdin" => (None, "stdin"),
+                    "stdout" => (None, "stdout"),
+                    "stderr" => (None, "stderr"),
+                    "stdout_append" => (Some(super::FrameApplyOperand::BuilderBool("stdout_append")), "stdout_append"),
+                    "stderr_append" => (Some(super::FrameApplyOperand::BuilderBool("stderr_append")), "stderr_append"),
+                    "timeout" => (Some(super::FrameApplyOperand::Duration("process.command")), "timeout"),
+                    "accept" => (Some(super::FrameApplyOperand::AcceptedExitCodes), "accept"),
+                    "cpu_max" => (Some(super::FrameApplyOperand::PositiveInt("process.command")), "cpu_max"),
+                    "detach" => (Some(super::FrameApplyOperand::BuilderBool("detach")), "detach"),
+                    "new_session" => (Some(super::FrameApplyOperand::BuilderBool("new_session")), "new_session"),
+                    "ignore_hup" => (Some(super::FrameApplyOperand::BuilderBool("ignore_hup")), "ignore_hup"),
+                    "same_group" => (Some(super::FrameApplyOperand::BuilderBool("same_group")), "same_group"),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "builder-field",
+                            format!("unknown process.command field `{name}`"),
+                        )
+                        .with_span(span));
+                    }
+                };
+                let value = super::indexed_frame_apply_operand(value, operand, span)?;
+                match (field, value) {
+                    ("cwd", super::FrameApplyValue::Path(value)) => state.cwd = Some(value),
+                    ("env", super::FrameApplyValue::Environment(value)) => state.env.extend(value),
+                    ("stdin", super::FrameApplyValue::Value(value)) => state.stdin = Some(value),
+                    ("stdout", super::FrameApplyValue::Value(value)) => state.stdout = Some(value),
+                    ("stderr", super::FrameApplyValue::Value(value)) => state.stderr = Some(value),
+                    ("stdout_append", super::FrameApplyValue::Bool(value)) => state.stdout_append = value,
+                    ("stderr_append", super::FrameApplyValue::Bool(value)) => state.stderr_append = value,
+                    ("timeout", super::FrameApplyValue::Duration(value)) => state.timeout = Some(value),
+                    ("accept", super::FrameApplyValue::AcceptedExitCodes(value)) => state.accepted_exit_codes = Some(value),
+                    ("cpu_max", super::FrameApplyValue::Int(value)) => state.cpu_max = Some(value),
+                    ("detach", super::FrameApplyValue::Bool(value)) => state.detach = Some(value),
+                    ("new_session", super::FrameApplyValue::Bool(value)) => state.new_session = Some(value),
+                    ("ignore_hup", super::FrameApplyValue::Bool(value)) => state.ignore_hup = Some(value),
+                    ("same_group", super::FrameApplyValue::Bool(value)) => state.same_group = Some(value),
+                    _ => unreachable!("process command builder conversion matches its field"),
+                }
+                self.step_process_command_builder(index, instruction, remaining, state, next)
+            }
+            ProcessCommandBuilderPhase::Run(phase) => self.continue_process_command_run(
+                index, instruction, entry, phase, state, value, next,
+            ),
+        }
+    }
+
+    fn continue_process_command_run(
+        &mut self,
+        index: usize,
+        instruction: u32,
+        entry: ListPosition<LoweredProcessCommandBuilderEntry>,
+        phase: ProcessCommandRunPhase,
+        mut state: ProcessCommandBuilderState,
+        value: LoweredValue,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        let (entry_view, _, builder_span) = process_command_builder_entry(
+            &self.calls[index].execution,
+            instruction,
+            entry,
+            state.call_span,
+        )?;
+        let Some(ProcessCommandBuilderEntryView::Run {
+            target,
+            mut args,
+            mut env,
+            timeout: _,
+            cpu_max: _,
+            accept: _,
+            span,
+        }) = entry_view
+        else {
+            unreachable!("run phase has a run entry")
+        };
+        let run = state.run.as_mut().expect("active process command run");
+        let plan = state
+            .plan
+            .as_mut()
+            .expect("process command plan exists during run");
+        let next_phase = match phase {
+            ProcessCommandRunPhase::Target => {
+                let arg = run_arg_from_view(target);
+                let items = Evaluator::run_arg_items(&arg, value.into_value())?;
+                let (target, leading) = super::run_target_and_leading_argv(&arg, items)?;
+                plan.target = target;
+                plan.argv.extend(leading);
+                ProcessCommandRunPhase::Argument
+            }
+            ProcessCommandRunPhase::Argument => {
+                args.resume(run.args)
+                    .map_err(|error| indexed_error(error, builder_span))?;
+                let arg = args
+                    .next()
+                    .transpose()
+                    .map_err(|error| indexed_error(error, builder_span))?
+                    .map(run_arg_from_view)
+                    .expect("scheduled process command argument exists");
+                run.args = args.position();
+                plan.argv
+                    .extend(Evaluator::run_arg_items(&arg, value.into_value())?);
+                ProcessCommandRunPhase::Argument
+            }
+            ProcessCommandRunPhase::Environment => {
+                env.resume(run.env_assignments)
+                    .map_err(|error| indexed_error(error, builder_span))?;
+                let assignment = env
+                    .next()
+                    .transpose()
+                    .map_err(|error| indexed_error(error, builder_span))?
+                    .expect("scheduled process command environment entry exists");
+                let name = assignment.name.as_str().as_str().to_owned();
+                let arg = run_arg_from_view(assignment.value);
+                run.env_assignments = env.position();
+                plan.env
+                    .insert(name, Evaluator::run_env_value(&arg, value.into_value())?);
+                ProcessCommandRunPhase::Environment
+            }
+            ProcessCommandRunPhase::Timeout => {
+                let super::FrameApplyValue::Duration(value) = super::indexed_frame_apply_operand(
+                    value,
+                    Some(super::FrameApplyOperand::Duration("process.command")),
+                    span,
+                )? else {
+                    unreachable!("process command timeout conversion returns a duration")
+                };
+                plan.timeout = Some(value);
+                ProcessCommandRunPhase::CpuMax
+            }
+            ProcessCommandRunPhase::CpuMax => {
+                let super::FrameApplyValue::Int(value) = super::indexed_frame_apply_operand(
+                    value,
+                    Some(super::FrameApplyOperand::PositiveInt("process.command")),
+                    span,
+                )? else {
+                    unreachable!("process command cpu_max conversion returns an integer")
+                };
+                plan.cpu_max = Some(value);
+                ProcessCommandRunPhase::Accept
+            }
+            ProcessCommandRunPhase::Accept => {
+                let super::FrameApplyValue::AcceptedExitCodes(value) =
+                    super::indexed_frame_apply_operand(
+                        value,
+                        Some(super::FrameApplyOperand::AcceptedExitCodes),
+                        span,
+                    )?
+                else {
+                    unreachable!("process command accept conversion returns exit codes")
+                };
+                plan.accepted_exit_codes = Some(value);
+                ProcessCommandRunPhase::Accept
+            }
+        };
+        if phase == ProcessCommandRunPhase::Accept {
+            state.run = None;
+            let (_, entries, _) = process_command_builder_entry(
+                &self.calls[index].execution,
+                instruction,
+                entry,
+                state.call_span,
+            )?;
+            self.step_process_command_builder(index, instruction, entries, state, next)
+        } else {
+            self.step_process_command_run(
+                index,
+                instruction,
+                entry,
+                next_phase,
+                state,
+                next,
+            )
+        }
     }
 
     /// Opens the owned scope of one pattern condition and its body: the

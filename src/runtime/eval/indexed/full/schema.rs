@@ -972,11 +972,11 @@ instruction_schema! {
         } => ExprModuleCall = 99 [EFFECT_HOST | EFFECT_TRACE; Scheduled; FrameControl];
         // Boxed because this cold command-construction payload otherwise makes
         // every `BuildExprId` 16 bytes larger, including expression-heavy scripts.
-        ProcessCommandArgv(value: Box<LoweredProcessCommandArgv>) => ExprProcessCommandArgv = 100 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled; LegacyRecursive];
+        ProcessCommandArgv(value: Box<LoweredProcessCommandArgv>) => ExprProcessCommandArgv = 100 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled; FrameControl];
         ProcessCommandBuilder {
             entries: Vec<LoweredProcessCommandBuilderEntry>,
             span: Span,
-        } => ExprProcessCommandBuilder = 101 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled; LegacyRecursive];
+        } => ExprProcessCommandBuilder = 101 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled; FrameControl];
         Abort {
             status: BuildExprId,
             span: Span,

@@ -15,7 +15,8 @@ use super::{
     error_constructor, execute_run_with_policy, exit_status, fs_module,
     lowered_assign_value, lowered_binary_value, lowered_bool_arg_or, lowered_bool_builder_field,
     lowered_bytes_parts, lowered_bytes_value,
-    lowered_command_plan_value, lowered_command_redirections, lowered_contains_value,
+    empty_command_plan, lowered_command_plan_value, lowered_command_redirections,
+    lowered_contains_value,
     lowered_count_key, lowered_duration_arg, lowered_env_record_arg,
     lowered_error_message, lowered_freeze_large_slot_list, lowered_index_from_end_value,
     lowered_index_value, lowered_inline_stats_field_value, lowered_inline_stats_to_record_vec,
@@ -202,23 +203,6 @@ enum AssertionWork {
     Right {
         op: BinaryOp,
         left_failure: Option<String>,
-    },
-}
-
-enum ProcessCommandEntry {
-    Field {
-        name: Name,
-        value: u32,
-        span: Span,
-    },
-    Run {
-        target: RunArg,
-        args: Vec<RunArg>,
-        env: Vec<RunEnv>,
-        timeout: Option<u32>,
-        cpu_max: Option<u32>,
-        accept: Option<u32>,
-        span: Span,
     },
 }
 
@@ -706,6 +690,7 @@ pub(super) fn indexed_frame_apply_tag(tag: FullTag) -> bool {
             | FullTag::ExprStrPredicate
             | FullTag::ExprGlob
             | FullTag::ExprLastStatus
+            | FullTag::ExprProcessCommandArgv
             | FullTag::ExprFsFiles
             | FullTag::ExprFsWalk
             | FullTag::ExprFsList
@@ -731,10 +716,16 @@ pub(super) fn indexed_frame_apply_tag(tag: FullTag) -> bool {
 pub(super) enum FrameApplyOperand {
     Raw,
     Path(&'static str),
+    PathLike(&'static str),
     Bool(&'static str),
+    BuilderBool(&'static str),
     String(&'static str),
     StringList(&'static str),
     PathList(&'static str),
+    Environment(&'static str),
+    Duration(&'static str),
+    PositiveInt(&'static str),
+    AcceptedExitCodes,
 }
 
 pub(super) enum FrameApplyValue {
@@ -744,6 +735,10 @@ pub(super) enum FrameApplyValue {
     String(String),
     StringList(Vec<String>),
     PathList(Vec<PathValue>),
+    Environment(BTreeMap<String, Vec<u8>>),
+    Duration(DurationValue),
+    Int(i64),
+    AcceptedExitCodes(crate::runtime::process::AcceptedExitCodes),
 }
 
 pub(super) struct FrameApplyChild {
@@ -782,6 +777,28 @@ pub(super) fn indexed_frame_apply_child(
     span: Span,
 ) -> Result<Option<FrameApplyChild>, RuntimeError> {
     let child = match view {
+        ExprView::ProcessCommandArgv(command) => indexed_frame_apply_child_from_fields(
+            [
+                Some((command.target.raw(), None)),
+                Some((command.argv.raw(), None)),
+                command.cwd.map(|id| (id.raw(), None)),
+                command.env.map(|id| (id.raw(), None)),
+                command.stdin.map(|id| (id.raw(), None)),
+                command.stdout.map(|id| (id.raw(), None)),
+                command.stderr.map(|id| (id.raw(), None)),
+                command.stdout_append.map(|id| (id.raw(), None)),
+                command.stderr_append.map(|id| (id.raw(), None)),
+                command.timeout.map(|id| (id.raw(), None)),
+                command.detach.map(|id| (id.raw(), None)),
+                command.new_session.map(|id| (id.raw(), None)),
+                command.ignore_hup.map(|id| (id.raw(), None)),
+                command.cpu_max.map(|id| (id.raw(), None)),
+                command.accept.map(|id| (id.raw(), None)),
+                command.same_group.map(|id| (id.raw(), None)),
+            ],
+            position,
+            command.span,
+        ),
         ExprView::FunctionRef { .. } | ExprView::EmptyMap
         | ExprView::Glob { .. } | ExprView::LastStatus { .. } => None,
         ExprView::PathFrom { value, span } => {
@@ -977,10 +994,24 @@ fn convert_frame_apply_operand(
     match operand {
         FrameApplyOperand::Raw => Ok(FrameApplyValue::Value(value)),
         FrameApplyOperand::Path(operation) => Ok(FrameApplyValue::Path(lowered_path_arg(value, operation, span)?)),
+        FrameApplyOperand::PathLike(operation) => Ok(FrameApplyValue::Path(lowered_path_like_arg(value, operation, span)?)),
         FrameApplyOperand::Bool(operation) => Ok(FrameApplyValue::Bool(lowered_bool_arg_or(Some(value), false, operation, span)?)),
+        FrameApplyOperand::BuilderBool(field) => Ok(FrameApplyValue::Bool(lowered_bool_builder_field(value, field, span)?)),
         FrameApplyOperand::String(operation) => Ok(FrameApplyValue::String(lowered_str_arg_owned(Some(value), "", operation, span)?)),
         FrameApplyOperand::StringList(operation) => Ok(FrameApplyValue::StringList(lowered_str_list_arg(Some(value), operation, span)?)),
         FrameApplyOperand::PathList(operation) => Ok(FrameApplyValue::PathList(lowered_path_list_arg(value, operation, span)?)),
+        FrameApplyOperand::Environment(operation) => Ok(FrameApplyValue::Environment(lowered_env_record_arg(value, operation, span)?)),
+        FrameApplyOperand::Duration(operation) => Ok(FrameApplyValue::Duration(lowered_duration_arg(Some(value), operation, span)?)),
+        FrameApplyOperand::PositiveInt(operation) => {
+            let value = lowered_int_arg(Some(value), operation, span)?;
+            if value <= 0 {
+                return Err(RuntimeError::new("cpu-max", "cpu_max must be positive").with_span(span));
+            }
+            Ok(FrameApplyValue::Int(value))
+        }
+        FrameApplyOperand::AcceptedExitCodes => Ok(FrameApplyValue::AcceptedExitCodes(
+            super::lowered_accepted_exit_codes(value, span)?,
+        )),
     }
 }
 
@@ -1207,6 +1238,44 @@ pub(super) fn indexed_frame_apply_value(
         .collect::<Vec<_>>();
     let mut values = values.into_iter();
     match view {
+        ExprView::ProcessCommandArgv(command) => {
+            let target = values.next().expect("process command target operand");
+            let argv = values.next().expect("process command argv operand");
+            let cwd = command.cwd.map(|_| values.next().expect("process command cwd operand"));
+            let env = command.env.map(|_| values.next().expect("process command env operand"));
+            let stdin = command.stdin.map(|_| values.next().expect("process command stdin operand"));
+            let stdout = command.stdout.map(|_| values.next().expect("process command stdout operand"));
+            let stderr = command.stderr.map(|_| values.next().expect("process command stderr operand"));
+            let stdout_append = command.stdout_append.map(|_| values.next().expect("process command stdout_append operand"));
+            let stderr_append = command.stderr_append.map(|_| values.next().expect("process command stderr_append operand"));
+            let timeout = command.timeout.map(|_| values.next().expect("process command timeout operand"));
+            let detach = command.detach.map(|_| values.next().expect("process command detach operand"));
+            let new_session = command.new_session.map(|_| values.next().expect("process command new_session operand"));
+            let ignore_hup = command.ignore_hup.map(|_| values.next().expect("process command ignore_hup operand"));
+            let cpu_max = command.cpu_max.map(|_| values.next().expect("process command cpu_max operand"));
+            let accept = command.accept.map(|_| values.next().expect("process command accept operand"));
+            let same_group = command.same_group.map(|_| values.next().expect("process command same_group operand"));
+            assert!(values.next().is_none(), "process command operand count mismatch");
+            lowered_command_plan_value(
+                target,
+                argv,
+                cwd,
+                env,
+                stdin,
+                stdout,
+                stderr,
+                stdout_append,
+                stderr_append,
+                timeout,
+                detach,
+                new_session,
+                ignore_hup,
+                cpu_max,
+                accept,
+                same_group,
+                command.span,
+            )
+        }
         ExprView::FunctionRef { function, pure } => {
             assert!(values.next().is_none(), "function reference has no operands");
             let function = match function {
@@ -1400,6 +1469,8 @@ impl Evaluator {
                         | FullTag::ExprTagMatch
                         | FullTag::ExprGlob
                         | FullTag::ExprLastStatus
+                        | FullTag::ExprProcessCommandArgv
+                        | FullTag::ExprProcessCommandBuilder
                 )
             })
             .map_err(|error| indexed_error(error, call_span))?;
@@ -2027,341 +2098,6 @@ impl Evaluator {
                 }
                 let values = super::NativeArgumentValues::new(values);
                 return self.eval_indexed_module_call_values(op, values, span, call_plan.as_deref());
-            }
-            FullTag::ExprProcessCommandArgv => {
-                let target = indexed_raw(&mut payload, call_span)?;
-                let argv = indexed_raw(&mut payload, call_span)?;
-                let mut optional = [None; 14];
-                for value in &mut optional {
-                    *value = indexed_optional_raw(&mut payload, call_span)?;
-                }
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let target = match self.eval_indexed_expr(execution, target, slots, span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let argv = match self.eval_indexed_expr(execution, argv, slots, span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let mut evaluated = Vec::with_capacity(optional.len());
-                for value in optional {
-                    match self.eval_indexed_optional_expr(execution, value, slots, span)? {
-                        ControlFlow::Continue(value) => evaluated.push(value),
-                        ControlFlow::Break(value) => {
-                            return Ok(ControlFlow::Break(value));
-                        }
-                    }
-                }
-                let [
-                    cwd,
-                    env,
-                    stdin,
-                    stdout,
-                    stderr,
-                    stdout_append,
-                    stderr_append,
-                    timeout,
-                    detach,
-                    new_session,
-                    ignore_hup,
-                    cpu_max,
-                    accept,
-                    same_group,
-                ]: [Option<LoweredValue>; 14] = evaluated
-                    .try_into()
-                    .expect("indexed command optional field count");
-                ControlFlow::Continue(lowered_command_plan_value(
-                    target,
-                    argv,
-                    cwd,
-                    env,
-                    stdin,
-                    stdout,
-                    stderr,
-                    stdout_append,
-                    stderr_append,
-                    timeout,
-                    detach,
-                    new_session,
-                    ignore_hup,
-                    cpu_max,
-                    accept,
-                    same_group,
-                    span,
-                )?)
-            }
-            FullTag::ExprProcessCommandBuilder => {
-                let entries = Self::decode_indexed_process_command_entries(
-                    &mut payload,
-                    execution,
-                    call_span,
-                )?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                self.trace_enter(
-                    TraceKind::ModuleCall,
-                    Some(span),
-                    Some("process.command"),
-                    TracePayload::None,
-                );
-                let mut plan = None;
-                let mut cwd = None;
-                let mut env = BTreeMap::new();
-                let mut stdin = None;
-                let mut stdout = None;
-                let mut stderr = None;
-                let mut stdout_append = false;
-                let mut stderr_append = false;
-                let mut timeout = None;
-                let mut cpu_max = None;
-                let mut accepted_exit_codes = None;
-                let mut detach = None;
-                let mut new_session = None;
-                let mut ignore_hup = None;
-                let mut same_group = None;
-                for entry in entries {
-                    match entry {
-                        ProcessCommandEntry::Field { name, value, span } => {
-                            let value =
-                                match self.eval_indexed_expr(execution, value, slots, span)? {
-                                    ControlFlow::Continue(value) => value,
-                                    ControlFlow::Break(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
-                                };
-                            match name.as_str().as_str() {
-                                "cwd" => {
-                                    cwd =
-                                        Some(lowered_path_like_arg(value, "process.command", span)?)
-                                }
-                                "env" => env.extend(lowered_env_record_arg(
-                                    value,
-                                    "process.command",
-                                    span,
-                                )?),
-                                "stdin" => stdin = Some(value),
-                                "stdout" => stdout = Some(value),
-                                "stderr" => stderr = Some(value),
-                                "stdout_append" => {
-                                    stdout_append =
-                                        lowered_bool_builder_field(value, "stdout_append", span)?
-                                }
-                                "stderr_append" => {
-                                    stderr_append =
-                                        lowered_bool_builder_field(value, "stderr_append", span)?
-                                }
-                                "timeout" => {
-                                    timeout = Some(lowered_duration_arg(
-                                        Some(value),
-                                        "process.command",
-                                        span,
-                                    )?)
-                                }
-                                "accept" => {
-                                    accepted_exit_codes =
-                                        Some(super::lowered_accepted_exit_codes(value, span)?);
-                                }
-                                "cpu_max" => {
-                                    let value =
-                                        lowered_int_arg(Some(value), "process.command", span)?;
-                                    if value <= 0 {
-                                        return Err(RuntimeError::new(
-                                            "cpu-max",
-                                            "cpu_max must be positive",
-                                        )
-                                        .with_span(span));
-                                    }
-                                    cpu_max = Some(value);
-                                }
-                                "detach" => {
-                                    detach =
-                                        Some(lowered_bool_builder_field(value, "detach", span)?)
-                                }
-                                "new_session" => {
-                                    new_session = Some(lowered_bool_builder_field(
-                                        value,
-                                        "new_session",
-                                        span,
-                                    )?)
-                                }
-                                "ignore_hup" => {
-                                    ignore_hup =
-                                        Some(lowered_bool_builder_field(value, "ignore_hup", span)?)
-                                }
-                                "same_group" => {
-                                    same_group =
-                                        Some(lowered_bool_builder_field(value, "same_group", span)?)
-                                }
-                                _ => {
-                                    return Err(RuntimeError::new(
-                                        "builder-field",
-                                        format!("unknown process.command field `{name}`"),
-                                    )
-                                    .with_span(span));
-                                }
-                            }
-                        }
-                        ProcessCommandEntry::Run {
-                            target,
-                            args,
-                            env: run_env,
-                            timeout: run_timeout,
-                            cpu_max: run_cpu_max,
-                            accept: run_accept,
-                            span,
-                        } => {
-                            if plan.is_some() {
-                                return Err(RuntimeError::new(
-                                    "builder-entry",
-                                    "process.command accepts one run entry",
-                                )
-                                .with_span(span));
-                            }
-                            let target_items =
-                                match self.eval_indexed_run_arg(execution, &target, slots, span)? {
-                                    ControlFlow::Continue(value) => value,
-                                    ControlFlow::Break(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
-                                };
-                            let (target_value, mut argv) =
-                                run_target_and_leading_argv(&target, target_items)?;
-                            for arg in &args {
-                                match self.eval_indexed_run_arg(execution, arg, slots, span)? {
-                                    ControlFlow::Continue(items) => argv.extend(items),
-                                    ControlFlow::Break(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
-                                }
-                            }
-                            let env_overlay = match self
-                                .eval_indexed_run_env(execution, &run_env, slots, span)?
-                            {
-                                ControlFlow::Continue(value) => value,
-                                ControlFlow::Break(value) => {
-                                    return Ok(ControlFlow::Break(value));
-                                }
-                            };
-                            let mut run_env = BTreeMap::new();
-                            for (name, value) in env_overlay {
-                                run_env.insert(String::from_utf8_lossy(&name).into_owned(), value);
-                            }
-                            let run_timeout = match self.eval_indexed_optional_expr(
-                                execution,
-                                run_timeout,
-                                slots,
-                                span,
-                            )? {
-                                ControlFlow::Continue(value) => value
-                                    .map(|value| {
-                                        lowered_duration_arg(Some(value), "process.command", span)
-                                    })
-                                    .transpose()?,
-                                ControlFlow::Break(value) => {
-                                    return Ok(ControlFlow::Break(value));
-                                }
-                            };
-                            let run_cpu_max = match self.eval_indexed_optional_expr(
-                                execution,
-                                run_cpu_max,
-                                slots,
-                                span,
-                            )? {
-                                ControlFlow::Continue(value) => value
-                                    .map(|value| {
-                                        lowered_int_arg(Some(value), "process.command", span)
-                                    })
-                                    .transpose()?,
-                                ControlFlow::Break(value) => {
-                                    return Ok(ControlFlow::Break(value));
-                                }
-                            };
-                            if run_cpu_max.is_some_and(|value| value <= 0) {
-                                return Err(RuntimeError::new(
-                                    "cpu-max",
-                                    "cpu_max must be positive",
-                                )
-                                .with_span(span));
-                            }
-                            let run_accept = match self
-                                .eval_indexed_optional_expr(execution, run_accept, slots, span)?
-                            {
-                                ControlFlow::Continue(value) => value
-                                    .map(|value| super::lowered_accepted_exit_codes(value, span))
-                                    .transpose()?,
-                                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                            };
-                            plan = Some(CommandPlan {
-                                target: target_value,
-                                argv,
-                                cwd: None,
-                                env: run_env,
-                                redirections: Vec::new(),
-                                timeout: run_timeout,
-                                cpu_max: run_cpu_max,
-                                accepted_exit_codes: run_accept,
-                                detach: false,
-                                new_session: false,
-                                ignore_hup: false,
-                                same_group: false,
-                            });
-                        }
-                    }
-                }
-                let mut plan = plan.ok_or_else(|| {
-                    RuntimeError::new("builder-check", "process.command requires a run entry")
-                        .with_span(span)
-                })?;
-                if cwd.is_some() {
-                    plan.cwd = cwd;
-                }
-                plan.env.extend(env);
-                plan.redirections.extend(lowered_command_redirections(
-                    stdin,
-                    stdout,
-                    stderr,
-                    stdout_append,
-                    stderr_append,
-                    "process.command",
-                    span,
-                )?);
-                if timeout.is_some() {
-                    plan.timeout = timeout;
-                }
-                if cpu_max.is_some() {
-                    plan.cpu_max = cpu_max;
-                }
-                if accepted_exit_codes.is_some() {
-                    if plan.accepted_exit_codes.is_some() {
-                        return Err(RuntimeError::new(
-                            "accept-policy",
-                            "accept cannot be supplied both as a field and a run option",
-                        )
-                        .with_span(span));
-                    }
-                    plan.accepted_exit_codes = accepted_exit_codes;
-                }
-                if let Some(value) = detach {
-                    plan.detach = value;
-                }
-                if let Some(value) = new_session {
-                    plan.new_session = value;
-                }
-                if let Some(value) = ignore_hup {
-                    plan.ignore_hup = value;
-                }
-                if let Some(value) = same_group {
-                    plan.same_group = value;
-                }
-                self.trace_exit(
-                    TraceKind::ModuleResult,
-                    Some(span),
-                    Some("process.command"),
-                    TracePayload::None,
-                );
-                ControlFlow::Continue(LoweredValue::Command(Box::new(plan)))
             }
             FullTag::ExprRunPipeline => {
                 let segments =

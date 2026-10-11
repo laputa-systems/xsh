@@ -98,6 +98,65 @@ print accepted
   assert output.stdout == "accepted\n", output.stdout
 }
 
+test test_process_command_construction_preserves_operand_order { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""proc mark(label: Str, value: Str) [io] -> Str {
+  print $label
+  return value
+}
+proc mark_path(label: Str, value: Path) [io] -> Path {
+  print $label
+  return value
+}
+let argv = process.command_argv(
+  mark("argv-target", "true"),
+  [mark("argv-zero", "true"), mark("argv-one", "argument")],
+  cwd: mark_path("argv-cwd", Path(".")),
+  env: {XSH_COMMAND_VALUE: mark("argv-env", "ready")},
+)
+let builder = process.command {
+  cwd = mark_path("builder-cwd", Path("."))
+  env = {XSH_BUILDER_VALUE: mark("builder-env", "ready")}
+  run (mark("builder-target", "true")) (mark("builder-arg", "argument"))
+}
+print "constructed"
+""",
+  )?
+  assert output.status == 0, output.stderr
+  assert output.stdout == """argv-target
+argv-zero
+argv-one
+argv-cwd
+argv-env
+builder-cwd
+builder-env
+builder-target
+builder-arg
+constructed
+""", output.stdout
+}
+
+test test_process_command_construction_supports_forced_frames { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""let argv = process.command_argv(
+  "true",
+  ["true"],
+  cwd: Path("."),
+  env: {XSH_COMMAND_VALUE: "ready"},
+)
+let builder = process.command {
+  cwd = Path(".")
+  env = {XSH_BUILDER_VALUE: "ready"}
+  run true
+}
+""",
+  )?
+  assert output.status == 0, output.stderr
+  assert output.stdout == "", output.stdout
+}
+
 # The message of a rejected argument string, or the empty string when the
 # string parsed. `test.error_kind` compares kinds only, so message parity is
 # asserted through this.

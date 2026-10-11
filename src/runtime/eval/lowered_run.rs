@@ -2088,6 +2088,23 @@ fn lowered_accepted_exit_codes(
         .map_err(|error| RuntimeError::new(error.kind, error.message).with_span(span))
 }
 
+fn empty_command_plan() -> CommandPlan {
+    CommandPlan {
+        target: Vec::new(),
+        argv: Vec::new(),
+        cwd: None,
+        env: BTreeMap::new(),
+        redirections: Vec::new(),
+        timeout: None,
+        cpu_max: None,
+        accepted_exit_codes: None,
+        detach: false,
+        new_session: false,
+        ignore_hup: false,
+        same_group: false,
+    }
+}
+
 fn lowered_command_plan_value(
     target: LoweredValue,
     argv: LoweredValue,
@@ -2166,22 +2183,22 @@ fn lowered_command_plan_value(
         None => None,
     };
 
-    Ok(LoweredValue::Command(Box::new(CommandPlan {
-        target,
-        argv,
-        cwd,
-        env,
-        redirections,
-        timeout,
-        cpu_max,
-        accepted_exit_codes: accept
-            .map(|value| lowered_accepted_exit_codes(value, span))
-            .transpose()?,
-        detach,
-        new_session,
-        ignore_hup,
-        same_group,
-    })))
+    let mut plan = empty_command_plan();
+    plan.target = target;
+    plan.argv = argv;
+    plan.cwd = cwd;
+    plan.env = env;
+    plan.redirections = redirections;
+    plan.timeout = timeout;
+    plan.cpu_max = cpu_max;
+    plan.accepted_exit_codes = accept
+        .map(|value| lowered_accepted_exit_codes(value, span))
+        .transpose()?;
+    plan.detach = detach;
+    plan.new_session = new_session;
+    plan.ignore_hup = ignore_hup;
+    plan.same_group = same_group;
+    Ok(LoweredValue::Command(Box::new(plan)))
 }
 
 fn lowered_bool_builder_field(
