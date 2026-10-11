@@ -12,31 +12,32 @@ use super::{
     append_lowered_list_element, append_lowered_map_literal, assign_lowered_bytes_view,
     assign_lowered_str_view, bind_lowered_comp_target, btree_map, bytes_contains, bytes_module,
     check_env_name, checked_int_binary, compare_lowered_sort_keys, compound_assignment_value,
-    error_constructor, execute_run_with_policy, exit_status, fs_module,
+    error_constructor, execute_run_with_policy, exit_status, fs_module, archive_module,
     lowered_assign_value, lowered_binary_value, lowered_bool_arg_or, lowered_bool_builder_field,
-    lowered_bytes_or_str_owned, lowered_bytes_parts, lowered_bytes_value,
+    lowered_bytes_parts, lowered_bytes_value,
     lowered_command_plan_value, lowered_command_redirections, lowered_contains_value,
     lowered_count_key, lowered_duration_arg, lowered_env_record_arg,
     lowered_error_message, lowered_freeze_large_slot_list, lowered_index_from_end_value,
     lowered_index_value, lowered_inline_stats_field_value, lowered_inline_stats_to_record_vec,
     lowered_int_arg, lowered_map_literal_key, lowered_match_no_arm, lowered_nonnegative_count,
     lowered_path_arg, lowered_path_from_value, lowered_path_like_arg,
-    lowered_path_list_arg, lowered_path_method_value, lowered_pipeline_input,
+    lowered_path_method_value, lowered_pipeline_input,
     lowered_pipeline_item_count, lowered_pipeline_record_list, lowered_process_run_error,
     lowered_record_field_value, lowered_record_vec_append_or_replace_unsorted,
     lowered_record_vec_get, lowered_record_vec_or_stats, lowered_reduce_fields_owned,
     lowered_reduce_group_insert, lowered_reduce_key_value_owned, lowered_result_err_value,
     lowered_result_ok, lowered_slice_value, lowered_sort_key_orderable, lowered_splice_arg_items,
     lowered_stats_field_value, lowered_status_segment_record, lowered_stmt_flow_to_flow,
-    lowered_str_arg_owned, lowered_str_byte_at_value, lowered_str_byte_len_value,
+    lowered_path_list_arg, lowered_str_arg_owned, lowered_str_byte_at_value,
+    lowered_str_byte_len_value,
     lowered_str_count_lines_value, lowered_str_key, lowered_str_list_arg, lowered_str_parts,
     lowered_str_predicate_text, lowered_str_predicate_value, lowered_str_value,
     lowered_str_view_value, lowered_table_print_value, lowered_tag_key,
     lowered_trace_error_from_value, lowered_trim_is_empty_value, lowered_trim_str_predicate_value,
-    lowered_type_name, lowered_unit_result, lowered_value_argv_len, lowered_value_from_runtime,
-    lowered_value_from_runtime_any, new_temp_fs_root,
+    lowered_type_name, lowered_value_argv_len, lowered_value_from_runtime,
+    lowered_value_from_runtime_any, lowered_unit_result,
     path_bytes, push_lowered_display, push_lowered_fmt_value, push_lowered_native_fmt_value,
-    read_host_path_bytes, read_host_path_text, run_pipeline_inherit_with_policy,
+    read_host_path_bytes, run_pipeline_inherit_with_policy,
     runtime_error_from_value, splice_to_argv, structured_error_constructor,
     ValueView, value_matches_static_type, value_to_argv_bytes,
 };
@@ -703,6 +704,130 @@ pub(super) fn indexed_frame_apply_tag(tag: FullTag) -> bool {
             | FullTag::ExprStrPredicate
             | FullTag::ExprGlob
             | FullTag::ExprLastStatus
+            | FullTag::ExprFsFiles
+            | FullTag::ExprFsWalk
+            | FullTag::ExprFsList
+            | FullTag::ExprFsTempDir
+            | FullTag::ExprFsMkdir
+            | FullTag::ExprFsRemove
+            | FullTag::ExprPathReadText
+            | FullTag::ExprPathReadBytes
+            | FullTag::ExprPathExists
+            | FullTag::ExprPathExecutable
+            | FullTag::ExprPathDu
+            | FullTag::ExprPathMetadata
+            | FullTag::ExprPathReadlink
+            | FullTag::ExprPathResolve
+            | FullTag::ExprPathWrite
+            | FullTag::ExprPathMkdir
+            | FullTag::ExprPathRemove
+            | FullTag::ExprArchiveTarCreate
+    )
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum FrameApplyOperand {
+    Raw,
+    Path(&'static str),
+    Bool(&'static str),
+    String(&'static str),
+    StringList(&'static str),
+    PathList(&'static str),
+}
+
+pub(super) enum FrameApplyValue {
+    Value(LoweredValue),
+    Path(PathValue),
+    Bool(bool),
+    String(String),
+    StringList(Vec<String>),
+    PathList(Vec<PathValue>),
+}
+
+impl FrameApplyValue {
+    fn path(self) -> PathValue {
+        let Self::Path(path) = self else {
+            unreachable!("frame-apply path operand was converted before apply")
+        };
+        path
+    }
+
+    fn bool(self) -> bool {
+        let Self::Bool(value) = self else {
+            unreachable!("frame-apply bool operand was converted before apply")
+        };
+        value
+    }
+
+    fn string(self) -> String {
+        let Self::String(value) = self else {
+            unreachable!("frame-apply string operand was converted before apply")
+        };
+        value
+    }
+
+    fn string_list(self) -> Vec<String> {
+        let Self::StringList(values) = self else {
+            unreachable!("frame-apply string-list operand was converted before apply")
+        };
+        values
+    }
+
+    fn path_list(self) -> Vec<PathValue> {
+        let Self::PathList(values) = self else {
+            unreachable!("frame-apply path-list operand was converted before apply")
+        };
+        values
+    }
+
+    fn into_module_argument(self) -> LoweredValue {
+        match self {
+            Self::Value(value) => value,
+            Self::Path(value) => LoweredValue::Path(value),
+            Self::Bool(value) => LoweredValue::Bool(value),
+            _ => unreachable!("typed frame-apply operand stays with its host operation"),
+        }
+    }
+}
+
+fn convert_frame_apply_operand(
+    value: LoweredValue,
+    operand: FrameApplyOperand,
+    span: Span,
+) -> Result<FrameApplyValue, RuntimeError> {
+    match operand {
+        FrameApplyOperand::Raw => Ok(FrameApplyValue::Value(value)),
+        FrameApplyOperand::Path(operation) => Ok(FrameApplyValue::Path(lowered_path_arg(value, operation, span)?)),
+        FrameApplyOperand::Bool(operation) => Ok(FrameApplyValue::Bool(lowered_bool_arg_or(Some(value), false, operation, span)?)),
+        FrameApplyOperand::String(operation) => Ok(FrameApplyValue::String(lowered_str_arg_owned(Some(value), "", operation, span)?)),
+        FrameApplyOperand::StringList(operation) => Ok(FrameApplyValue::StringList(lowered_str_list_arg(Some(value), operation, span)?)),
+        FrameApplyOperand::PathList(operation) => Ok(FrameApplyValue::PathList(lowered_path_list_arg(value, operation, span)?)),
+    }
+}
+
+pub(super) fn indexed_frame_apply_operand(
+    value: LoweredValue,
+    operand: Option<FrameApplyOperand>,
+    span: Span,
+) -> Result<FrameApplyValue, RuntimeError> {
+    match operand {
+        Some(operand) => convert_frame_apply_operand(value, operand, span),
+        None => Ok(FrameApplyValue::Value(value)),
+    }
+}
+
+fn indexed_frame_apply_prepares_operands(tag: FullTag) -> bool {
+    matches!(
+        tag,
+        FullTag::ExprFsFiles
+            | FullTag::ExprFsWalk
+            | FullTag::ExprFsList
+            | FullTag::ExprFsMkdir
+            | FullTag::ExprFsRemove
+            | FullTag::ExprPathWrite
+            | FullTag::ExprPathMkdir
+            | FullTag::ExprPathRemove
+            | FullTag::ExprArchiveTarCreate
     )
 }
 
@@ -791,16 +916,150 @@ pub(super) fn indexed_str_byte_at_value(
     })
 }
 
+fn indexed_frame_apply_module_call(
+    evaluator: &mut Evaluator,
+    op: RuntimeOp,
+    values: Vec<Option<LoweredValue>>,
+    span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    match evaluator.eval_indexed_module_call_values(
+        op,
+        super::NativeArgumentValues::new(values),
+        span,
+        None,
+    )? {
+        ControlFlow::Continue(value) => Ok(value),
+        ControlFlow::Break(_) => unreachable!("filesystem module calls do not break control flow"),
+    }
+}
+
+fn indexed_frame_apply_host_call(
+    evaluator: &mut Evaluator,
+    op: RuntimeOp,
+    span: Span,
+    call: impl FnOnce(&mut Evaluator) -> Result<LoweredValue, RuntimeError>,
+) -> Result<LoweredValue, RuntimeError> {
+    let trace_name = super::api_spec()
+        .op_trace_name(op)
+        .map(str::to_string);
+    let rooted = trace_name
+        .as_deref()
+        .is_some_and(|name| name.starts_with("FsRoot."));
+    if evaluator.trace_enabled {
+        evaluator.trace_enter(
+            if rooted { TraceKind::MethodCall } else { TraceKind::ModuleCall },
+            Some(span),
+            trace_name.as_deref(),
+            TracePayload::None,
+        );
+    }
+    let result = call(evaluator);
+    if evaluator.trace_enabled {
+        evaluator.trace_exit(
+            if rooted { TraceKind::MethodResult } else { TraceKind::ModuleResult },
+            Some(span),
+            trace_name.as_deref(),
+            TracePayload::None,
+        );
+    }
+    let mut value = result?;
+    evaluator.register_returned_lowered_stream(&mut value, span)?;
+    Ok(value)
+}
+
+fn indexed_frame_apply_host_value(
+    evaluator: &mut Evaluator,
+    tag: FullTag,
+    view: ExprView<'_>,
+    values: Vec<FrameApplyValue>,
+) -> Result<LoweredValue, RuntimeError> {
+    let mut values = values.into_iter();
+    match view {
+        ExprView::FsFiles { gitignore, stat, hidden, exts, result_wrapped, span, .. }
+        | ExprView::FsWalk { gitignore, stat, hidden, exts, result_wrapped, span, .. } => {
+            let root = values.next().expect("filesystem walk root operand").path();
+            let gitignore = gitignore.map_or(true, |_| values.next().expect("gitignore operand").bool());
+            let stat = stat.map_or(true, |_| values.next().expect("stat operand").bool());
+            let exts = exts.map_or_else(Vec::new, |_| values.next().expect("extensions operand").string_list());
+            let hidden = hidden.map_or(false, |_| values.next().expect("hidden operand").bool());
+            assert!(values.next().is_none(), "filesystem walk operand count mismatch");
+            let emit = if tag == FullTag::ExprFsFiles { fs_module::WalkEmit::Files } else { fs_module::WalkEmit::All };
+            let mut stream = match fs_module::walk_filesystem(
+                evaluator.host_path(&root), gitignore, stat, hidden, emit, exts, span,
+            ) {
+                Ok(stream) => stream,
+                Err(error) if result_wrapped => return Ok(lowered_result_err_value(error)),
+                Err(error) => return Err(error),
+            };
+            evaluator.register_returned_stream(&mut stream, span)?;
+            let value = LoweredValue::Stream(Box::new(stream));
+            Ok(if result_wrapped { lowered_result_ok(value) } else { value })
+        }
+        ExprView::FsList { stat, ordered, span, .. } => {
+            let path = Some(values.next().expect("filesystem list path operand").into_module_argument());
+            let stat = stat.map(|_| values.next().expect("filesystem list stat operand").into_module_argument());
+            let ordered = ordered.map(|_| values.next().expect("filesystem list ordered operand").into_module_argument());
+            assert!(values.next().is_none(), "filesystem list operand count mismatch");
+            indexed_frame_apply_module_call(evaluator, RuntimeOp::FsChildren, vec![path, stat, ordered], span)
+        }
+        ExprView::FsMkdir { parents, span, .. } | ExprView::PathMkdir { parents, span, .. } => {
+            let path = Some(values.next().expect("mkdir path operand").into_module_argument());
+            let parents = parents.map(|_| values.next().expect("mkdir parents operand").into_module_argument());
+            assert!(values.next().is_none(), "mkdir operand count mismatch");
+            indexed_frame_apply_module_call(evaluator, RuntimeOp::FsMkdir, vec![path, parents], span)
+        }
+        ExprView::FsRemove { missing_ok, span, .. } | ExprView::PathRemove { missing_ok, span, .. } => {
+            let path = Some(values.next().expect("remove path operand").into_module_argument());
+            let missing_ok = missing_ok.map(|_| values.next().expect("remove missing_ok operand").into_module_argument());
+            assert!(values.next().is_none(), "remove operand count mismatch");
+            indexed_frame_apply_module_call(evaluator, RuntimeOp::FsRemove, vec![path, missing_ok], span)
+        }
+        ExprView::PathWrite { atomic, span, .. } => {
+            let path = Some(values.next().expect("path write path operand").into_module_argument());
+            let data = Some(values.next().expect("path write data operand").into_module_argument());
+            assert!(values.next().is_none(), "path write operand count mismatch");
+            let op = if atomic { RuntimeOp::FsWriteAtomic } else { RuntimeOp::FsWrite };
+            indexed_frame_apply_module_call(evaluator, op, vec![path, data], span)
+        }
+        ExprView::ArchiveTarCreate { compression, overwrite, span, .. } => {
+            let path = values.next().expect("archive output path operand").path();
+            let root = values.next().expect("archive root operand").path();
+            let entries = values.next().expect("archive entries operand").path_list();
+            let compression = compression.map_or_else(|| "auto".to_string(), |_| {
+                values.next().expect("archive compression operand").string()
+            });
+            let overwrite = overwrite.map_or(false, |_| values.next().expect("archive overwrite operand").bool());
+            assert!(values.next().is_none(), "archive create operand count mismatch");
+            indexed_frame_apply_host_call(evaluator, RuntimeOp::ArchiveTarCreate, span, |evaluator| {
+                Ok(lowered_unit_result(archive_module::tar_create(
+                    evaluator.host_path(&path), evaluator.host_path(&root), entries, &compression, overwrite, span,
+                )))
+            })
+        }
+        _ => unreachable!("prepared frame-apply tag has a matching filesystem view"),
+    }
+}
+
 pub(super) fn indexed_frame_apply_value(
-    evaluator: &Evaluator,
+    evaluator: &mut Evaluator,
     execution: &FullExecution<'_>,
     instruction: u32,
-    values: Vec<LoweredValue>,
+    values: Vec<FrameApplyValue>,
     call_span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
     let (tag, payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
     let view = ExprView::decode(execution, tag, payload)
         .map_err(|error| indexed_error(error, call_span))?;
+    if indexed_frame_apply_prepares_operands(tag) {
+        return indexed_frame_apply_host_value(evaluator, tag, view, values);
+    }
+    let values = values
+        .into_iter()
+        .map(|value| match value {
+            FrameApplyValue::Value(value) => value,
+            _ => unreachable!("non-filesystem frame-apply operand was not raw"),
+        })
+        .collect::<Vec<_>>();
     let mut values = values.into_iter();
     match view {
         ExprView::FunctionRef { function, pure } => {
@@ -888,6 +1147,87 @@ pub(super) fn indexed_frame_apply_value(
                 .ok_or_else(|| {
                     RuntimeError::new("last-status", "`$?` is not set").with_span(span)
                 })
+        }
+        ExprView::FsTempDir { span } => {
+            assert!(values.next().is_none(), "temporary directory has no operands");
+            indexed_frame_apply_module_call(evaluator, RuntimeOp::FsTempDir, Vec::new(), span)
+        }
+        ExprView::PathReadText { span, .. } => {
+            let path = match values.next().expect("path read operand") {
+                LoweredValue::Path(path) => path,
+                _ => return Err(RuntimeError::new("type-error", "read_text expected Path").with_span(span)),
+            };
+            assert!(values.next().is_none(), "path read operand count mismatch");
+            indexed_frame_apply_module_call(
+                evaluator,
+                RuntimeOp::FsReadText,
+                vec![Some(LoweredValue::Path(path))],
+                span,
+            )
+        }
+        ExprView::PathReadBytes { span, .. } => {
+            let path = match values.next().expect("path read operand") {
+                LoweredValue::Path(path) => path,
+                _ => {
+                    return Err(RuntimeError::new("type-error", "read_bytes expected Path").with_span(span));
+                }
+            };
+            assert!(values.next().is_none(), "path read operand count mismatch");
+            Ok(match read_host_path_bytes(&evaluator.host_path(&path), span) {
+                Ok(bytes) => lowered_result_ok(LoweredValue::Bytes(bytes)),
+                Err(error) => lowered_result_err_value(error),
+            })
+        }
+        ExprView::PathExists { span, .. }
+        | ExprView::PathExecutable { span, .. }
+        | ExprView::PathDu { span, .. }
+        | ExprView::PathMetadata { span, .. }
+        | ExprView::PathReadlink { span, .. }
+        | ExprView::PathResolve { span, .. } => {
+            let path = values.next().expect("path query operand");
+            assert!(values.next().is_none(), "path query operand count mismatch");
+            let operation = match tag {
+                FullTag::ExprPathExists => "exists",
+                FullTag::ExprPathExecutable => "executable",
+                FullTag::ExprPathDu => "du",
+                FullTag::ExprPathMetadata => "metadata",
+                FullTag::ExprPathReadlink => "readlink",
+                FullTag::ExprPathResolve => "resolve",
+                _ => unreachable!(),
+            };
+            let path = lowered_path_arg(path, operation, span)?;
+            if matches!(tag, FullTag::ExprPathExists | FullTag::ExprPathExecutable | FullTag::ExprPathMetadata) {
+                let op = match tag {
+                    FullTag::ExprPathExists => RuntimeOp::FsExists,
+                    FullTag::ExprPathExecutable => RuntimeOp::FsExecutable,
+                    FullTag::ExprPathMetadata => RuntimeOp::FsMetadata,
+                    _ => unreachable!(),
+                };
+                return indexed_frame_apply_module_call(
+                    evaluator,
+                    op,
+                    vec![Some(LoweredValue::Path(path))],
+                    span,
+                );
+            }
+            let host_path = evaluator.host_path(&path);
+            Ok(match tag {
+                FullTag::ExprPathDu => match fs_module::disk_usage(host_path, span) {
+                    Ok(value) => lowered_result_ok(LoweredValue::Int(value)),
+                    Err(error) => lowered_result_err_value(error),
+                },
+                FullTag::ExprPathReadlink => match fs_module::readlink(host_path, span) {
+                    Ok(value) => lowered_value_from_runtime_any(&value).map(lowered_result_ok).ok_or_else(|| {
+                        RuntimeError::new("type-error", format!("readlink produced unsupported {}", value.type_name())).with_span(span)
+                    })?,
+                    Err(error) => lowered_result_err_value(error),
+                },
+                FullTag::ExprPathResolve => match fs_module::resolve_path(host_path, span) {
+                    Ok(value) => lowered_result_ok(LoweredValue::Path(value)),
+                    Err(error) => lowered_result_err_value(error),
+                },
+                _ => unreachable!(),
+            })
         }
         _ => unreachable!("frame apply tag has a matching typed view"),
     }
@@ -1524,382 +1864,6 @@ impl Evaluator {
                 });
                 self.pending_traceback = final_traceback;
                 ControlFlow::Continue(LoweredValue::ResultErr(Box::new(error)))
-            }
-            FullTag::ExprFsFiles | FullTag::ExprFsWalk => {
-                let root = indexed_raw(&mut payload, call_span)?;
-                let gitignore = indexed_optional_raw(&mut payload, call_span)?;
-                let stat = indexed_optional_raw(&mut payload, call_span)?;
-                let hidden = indexed_optional_raw(&mut payload, call_span)?;
-                let exts = indexed_optional_raw(&mut payload, call_span)?;
-                let result_wrapped = indexed_decode::<bool>(&mut payload, execution, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let operation = if tag == FullTag::ExprFsFiles {
-                    "fs.files"
-                } else {
-                    "fs.walk"
-                };
-                let root = match self.eval_indexed_expr(execution, root, slots, span)? {
-                    ControlFlow::Continue(LoweredValue::Path(path)) => path,
-                    ControlFlow::Continue(_) => {
-                        return Err(RuntimeError::new(
-                            "type-error",
-                            format!("{operation} expected Path"),
-                        )
-                        .with_span(span));
-                    }
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let gitignore =
-                    match self.eval_indexed_optional_expr(execution, gitignore, slots, span)? {
-                        ControlFlow::Continue(value) => {
-                            lowered_bool_arg_or(value, true, operation, span)?
-                        }
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    };
-                let stat = match self.eval_indexed_optional_expr(execution, stat, slots, span)? {
-                    ControlFlow::Continue(value) => {
-                        lowered_bool_arg_or(value, true, operation, span)?
-                    }
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let exts = match self.eval_indexed_optional_expr(execution, exts, slots, span)? {
-                    ControlFlow::Continue(Some(value)) => lowered_str_list_arg(
-                        Some(value),
-                        if tag == FullTag::ExprFsFiles {
-                            "fs.files exts"
-                        } else {
-                            "fs.walk exts"
-                        },
-                        span,
-                    )?,
-                    ControlFlow::Continue(None) => Vec::new(),
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let hidden =
-                    match self.eval_indexed_optional_expr(execution, hidden, slots, span)? {
-                        ControlFlow::Continue(value) => {
-                            lowered_bool_arg_or(value, false, operation, span)?
-                        }
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    };
-                let emit = if tag == FullTag::ExprFsFiles {
-                    crate::modules::fs::WalkEmit::Files
-                } else {
-                    crate::modules::fs::WalkEmit::All
-                };
-                let stream = match crate::modules::fs::walk_filesystem(
-                    self.host_path(&root),
-                    gitignore,
-                    stat,
-                    hidden,
-                    emit,
-                    exts,
-                    span,
-                ) {
-                    Ok(stream) => stream,
-                    Err(error) if result_wrapped => {
-                        return Ok(ControlFlow::Continue(lowered_result_err_value(error)));
-                    }
-                    Err(error) => return Err(error),
-                };
-                let value = LoweredValue::Stream(Box::new(stream));
-                ControlFlow::Continue(if result_wrapped {
-                    lowered_result_ok(value)
-                } else {
-                    value
-                })
-            }
-            FullTag::ExprFsList => {
-                let _op = indexed_decode::<RuntimeOp>(&mut payload, execution, call_span)?;
-                let path = indexed_raw(&mut payload, call_span)?;
-                let stat = indexed_optional_raw(&mut payload, call_span)?;
-                let ordered = indexed_optional_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let operation = "fs.children";
-                let path = match self.eval_indexed_expr(execution, path, slots, span)? {
-                    ControlFlow::Continue(value) => lowered_path_arg(value, operation, span)?,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let stat = match self.eval_indexed_optional_expr(execution, stat, slots, span)? {
-                    ControlFlow::Continue(value) => {
-                        lowered_bool_arg_or(value, true, operation, span)?
-                    }
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let ordered =
-                    match self.eval_indexed_optional_expr(execution, ordered, slots, span)? {
-                        ControlFlow::Continue(value) => {
-                            lowered_bool_arg_or(value, true, operation, span)?
-                        }
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    };
-                ControlFlow::Continue(super::lowered_runtime_stream_result(
-                    fs_module::list_filesystem(self.host_path(&path), stat, ordered, span),
-                    span,
-                )?)
-            }
-            FullTag::ExprFsTempDir => {
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                ControlFlow::Continue(match new_temp_fs_root("fs-temp-dir", span) {
-                    Ok(root) => {
-                        lowered_result_ok(self.push_lowered_fs_root(root))
-                    }
-                    Err(error) => lowered_result_err_value(error),
-                })
-            }
-            FullTag::ExprPathWrite => {
-                let path = indexed_raw(&mut payload, call_span)?;
-                let data = indexed_raw(&mut payload, call_span)?;
-                let atomic = indexed_decode::<bool>(&mut payload, execution, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let path = match self.eval_indexed_expr(execution, path, slots, span)? {
-                    ControlFlow::Continue(value) => lowered_path_arg(value, "write", span)?,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let data = match self.eval_indexed_expr(execution, data, slots, span)? {
-                    ControlFlow::Continue(value) => {
-                        lowered_bytes_or_str_owned(value, "write", span)?
-                    }
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let result = if atomic {
-                    crate::modules::fs::write_atomic(self.host_path(&path), &data, span)
-                } else {
-                    crate::modules::fs::write_path(self.host_path(&path), &data, span)
-                };
-                ControlFlow::Continue(lowered_unit_result(result))
-            }
-            FullTag::ExprFsMkdir | FullTag::ExprPathMkdir => {
-                let path = indexed_raw(&mut payload, call_span)?;
-                let parents = indexed_optional_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let operation = if tag == FullTag::ExprFsMkdir {
-                    "fs.mkdir"
-                } else {
-                    "mkdir"
-                };
-                let path = match self.eval_indexed_expr(execution, path, slots, span)? {
-                    ControlFlow::Continue(value) => lowered_path_arg(value, operation, span)?,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let parents =
-                    match self.eval_indexed_optional_expr(execution, parents, slots, span)? {
-                        ControlFlow::Continue(value) => {
-                            lowered_bool_arg_or(value, true, operation, span)?
-                        }
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    };
-                ControlFlow::Continue(lowered_unit_result(crate::modules::fs::mkdir_path(
-                    self.host_path(&path),
-                    parents,
-                    None,
-                    span,
-                )))
-            }
-            FullTag::ExprFsRemove | FullTag::ExprPathRemove => {
-                let path = indexed_raw(&mut payload, call_span)?;
-                let missing_ok = indexed_optional_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let operation = if tag == FullTag::ExprFsRemove {
-                    "fs.remove"
-                } else {
-                    "remove"
-                };
-                let path = match self.eval_indexed_expr(execution, path, slots, span)? {
-                    ControlFlow::Continue(value) => lowered_path_arg(value, operation, span)?,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let missing_ok =
-                    match self.eval_indexed_optional_expr(execution, missing_ok, slots, span)? {
-                        ControlFlow::Continue(value) => lowered_bool_arg_or(
-                            value,
-                            xsh_registry::signature::REMOVE_MISSING_OK_DEFAULT,
-                            operation,
-                            span,
-                        )?,
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    };
-                ControlFlow::Continue(lowered_unit_result(crate::modules::fs::remove_path(
-                    self.host_path(&path),
-                    missing_ok,
-                    span,
-                )))
-            }
-            FullTag::ExprPathReadText | FullTag::ExprPathReadBytes => {
-                let path = indexed_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let operation = if tag == FullTag::ExprPathReadText {
-                    "read_text"
-                } else {
-                    "read_bytes"
-                };
-                let path = match self.eval_indexed_expr(execution, path, slots, span)? {
-                    ControlFlow::Continue(LoweredValue::Path(path)) => path,
-                    ControlFlow::Continue(_) => {
-                        return Err(RuntimeError::new(
-                            "type-error",
-                            format!("{operation} expected Path"),
-                        )
-                        .with_span(span));
-                    }
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let value = if tag == FullTag::ExprPathReadText {
-                    match read_host_path_text(&self.host_path(&path), span) {
-                        Ok(text) => {
-                            LoweredValue::ResultOk(Box::new(LoweredValue::Str(text.into())))
-                        }
-                        Err(error) => {
-                            LoweredValue::ResultErr(Box::new(Value::Error(Box::new(error))))
-                        }
-                    }
-                } else {
-                    match read_host_path_bytes(&self.host_path(&path), span) {
-                        Ok(bytes) => LoweredValue::ResultOk(Box::new(LoweredValue::Bytes(bytes))),
-                        Err(error) => {
-                            LoweredValue::ResultErr(Box::new(Value::Error(Box::new(error))))
-                        }
-                    }
-                };
-                ControlFlow::Continue(value)
-            }
-            FullTag::ExprPathExists
-            | FullTag::ExprPathExecutable
-            | FullTag::ExprPathDu
-            | FullTag::ExprPathMetadata
-            | FullTag::ExprPathReadlink
-            | FullTag::ExprPathResolve => {
-                let path = indexed_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let operation = match tag {
-                    FullTag::ExprPathExists => "exists",
-                    FullTag::ExprPathExecutable => "executable",
-                    FullTag::ExprPathDu => "du",
-                    FullTag::ExprPathMetadata => "metadata",
-                    FullTag::ExprPathReadlink => "readlink",
-                    FullTag::ExprPathResolve => "resolve",
-                    _ => unreachable!(),
-                };
-                let path = match self.eval_indexed_expr(execution, path, slots, span)? {
-                    ControlFlow::Continue(value) => lowered_path_arg(value, operation, span)?,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let host_path = self.host_path(&path);
-                let value = match tag {
-                    FullTag::ExprPathExists => match crate::modules::fs::exists(host_path, span) {
-                        Ok(value) => lowered_result_ok(LoweredValue::Bool(value)),
-                        Err(error) => lowered_result_err_value(error),
-                    },
-                    FullTag::ExprPathExecutable => {
-                        match crate::modules::fs::executable(host_path, span) {
-                            Ok(value) => lowered_result_ok(LoweredValue::Bool(value)),
-                            Err(error) => lowered_result_err_value(error),
-                        }
-                    }
-                    FullTag::ExprPathDu => match crate::modules::fs::disk_usage(host_path, span) {
-                        Ok(value) => lowered_result_ok(LoweredValue::Int(value)),
-                        Err(error) => lowered_result_err_value(error),
-                    },
-                    FullTag::ExprPathMetadata => {
-                        match crate::modules::fs::metadata(host_path, span) {
-                            Ok(value) => lowered_value_from_runtime_any(&value)
-                                .map(lowered_result_ok)
-                                .ok_or_else(|| {
-                                    RuntimeError::new(
-                                        "type-error",
-                                        format!(
-                                            "metadata produced unsupported {}",
-                                            value.type_name()
-                                        ),
-                                    )
-                                    .with_span(span)
-                                })?,
-                            Err(error) => lowered_result_err_value(error),
-                        }
-                    }
-                    FullTag::ExprPathReadlink => {
-                        match crate::modules::fs::readlink(host_path, span) {
-                            Ok(value) => lowered_value_from_runtime_any(&value)
-                                .map(lowered_result_ok)
-                                .ok_or_else(|| {
-                                    RuntimeError::new(
-                                        "type-error",
-                                        format!(
-                                            "readlink produced unsupported {}",
-                                            value.type_name()
-                                        ),
-                                    )
-                                    .with_span(span)
-                                })?,
-                            Err(error) => lowered_result_err_value(error),
-                        }
-                    }
-                    FullTag::ExprPathResolve => {
-                        match crate::modules::fs::resolve_path(host_path, span) {
-                            Ok(value) => lowered_result_ok(LoweredValue::Path(value)),
-                            Err(error) => lowered_result_err_value(error),
-                        }
-                    }
-                    _ => unreachable!(),
-                };
-                ControlFlow::Continue(value)
-            }
-            FullTag::ExprArchiveTarCreate => {
-                let path = indexed_raw(&mut payload, call_span)?;
-                let root = indexed_raw(&mut payload, call_span)?;
-                let entries = indexed_raw(&mut payload, call_span)?;
-                let compression = indexed_optional_raw(&mut payload, call_span)?;
-                let overwrite = indexed_optional_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let path = match self.eval_indexed_expr(execution, path, slots, span)? {
-                    ControlFlow::Continue(value) => {
-                        lowered_path_arg(value, "archive.tar_create", span)?
-                    }
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let root = match self.eval_indexed_expr(execution, root, slots, span)? {
-                    ControlFlow::Continue(value) => {
-                        lowered_path_arg(value, "archive.tar_create", span)?
-                    }
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let entries = match self.eval_indexed_expr(execution, entries, slots, span)? {
-                    ControlFlow::Continue(value) => {
-                        lowered_path_list_arg(value, "archive.tar_create", span)?
-                    }
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let compression =
-                    match self.eval_indexed_optional_expr(execution, compression, slots, span)? {
-                        ControlFlow::Continue(value) => {
-                            lowered_str_arg_owned(value, "auto", "archive.tar_create", span)?
-                        }
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    };
-                let overwrite =
-                    match self.eval_indexed_optional_expr(execution, overwrite, slots, span)? {
-                        ControlFlow::Continue(value) => {
-                            lowered_bool_arg_or(value, false, "archive.tar_create", span)?
-                        }
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    };
-                ControlFlow::Continue(lowered_unit_result(crate::modules::archive::tar_create(
-                    self.host_path(&path),
-                    self.host_path(&root),
-                    entries,
-                    &compression,
-                    overwrite,
-                    span,
-                )))
             }
             FullTag::ExprModuleCall => {
                 let (op, call_plan, args, span) =

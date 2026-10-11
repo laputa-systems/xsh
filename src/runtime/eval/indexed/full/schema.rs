@@ -878,7 +878,7 @@ instruction_schema! {
             exts: Option<BuildExprId>,
             result_wrapped: bool,
             span: Span,
-        } => ExprFsFiles = 78 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands; LegacyRecursive];
+        } => ExprFsFiles = 78 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameApply];
         FsWalk {
             root: BuildExprId,
             gitignore: Option<BuildExprId>,
@@ -887,75 +887,75 @@ instruction_schema! {
             exts: Option<BuildExprId>,
             result_wrapped: bool,
             span: Span,
-        } => ExprFsWalk = 79 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands; LegacyRecursive];
+        } => ExprFsWalk = 79 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameApply];
         FsList {
             op: RuntimeOp,
             path: BuildExprId,
             stat: Option<BuildExprId>,
             ordered: Option<BuildExprId>,
             span: Span,
-        } => ExprFsList = 80 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands; LegacyRecursive];
+        } => ExprFsList = 80 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameApply];
         FsTempDir {
             span: Span,
-        } => ExprFsTempDir = 81 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands; LegacyRecursive];
+        } => ExprFsTempDir = 81 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameApply];
         FsMkdir {
             path: BuildExprId,
             parents: Option<BuildExprId>,
             span: Span,
-        } => ExprFsMkdir = 82 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands; LegacyRecursive];
+        } => ExprFsMkdir = 82 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameApply];
         FsRemove {
             path: BuildExprId,
             missing_ok: Option<BuildExprId>,
             span: Span,
-        } => ExprFsRemove = 83 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands; LegacyRecursive];
+        } => ExprFsRemove = 83 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameApply];
         PathReadText {
             path: BuildExprId,
             span: Span,
-        } => ExprPathReadText = 84 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands; LegacyRecursive];
+        } => ExprPathReadText = 84 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameApply];
         PathReadBytes {
             path: BuildExprId,
             span: Span,
-        } => ExprPathReadBytes = 85 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands; LegacyRecursive];
+        } => ExprPathReadBytes = 85 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameApply];
         PathExists {
             path: BuildExprId,
             span: Span,
-        } => ExprPathExists = 86 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands; LegacyRecursive];
+        } => ExprPathExists = 86 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameApply];
         PathExecutable {
             path: BuildExprId,
             span: Span,
-        } => ExprPathExecutable = 87 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands; LegacyRecursive];
+        } => ExprPathExecutable = 87 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameApply];
         PathDu {
             path: BuildExprId,
             span: Span,
-        } => ExprPathDu = 88 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands; LegacyRecursive];
+        } => ExprPathDu = 88 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameApply];
         PathMetadata {
             path: BuildExprId,
             span: Span,
-        } => ExprPathMetadata = 89 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands; LegacyRecursive];
+        } => ExprPathMetadata = 89 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameApply];
         PathReadlink {
             path: BuildExprId,
             span: Span,
-        } => ExprPathReadlink = 90 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands; LegacyRecursive];
+        } => ExprPathReadlink = 90 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameApply];
         PathResolve {
             path: BuildExprId,
             span: Span,
-        } => ExprPathResolve = 91 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands; LegacyRecursive];
+        } => ExprPathResolve = 91 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameApply];
         PathWrite {
             path: BuildExprId,
             data: BuildExprId,
             atomic: bool,
             span: Span,
-        } => ExprPathWrite = 92 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands; LegacyRecursive];
+        } => ExprPathWrite = 92 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameApply];
         PathMkdir {
             path: BuildExprId,
             parents: Option<BuildExprId>,
             span: Span,
-        } => ExprPathMkdir = 93 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands; LegacyRecursive];
+        } => ExprPathMkdir = 93 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameApply];
         PathRemove {
             path: BuildExprId,
             missing_ok: Option<BuildExprId>,
             span: Span,
-        } => ExprPathRemove = 94 [EFFECT_PROPAGATE | EFFECT_TRACE; Operands; LegacyRecursive];
+        } => ExprPathRemove = 94 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameApply];
         ArchiveTarCreate {
             path: BuildExprId,
             root: BuildExprId,
@@ -963,7 +963,7 @@ instruction_schema! {
             compression: Option<BuildExprId>,
             overwrite: Option<BuildExprId>,
             span: Span,
-        } => ExprArchiveTarCreate = 96 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; LegacyRecursive];
+        } => ExprArchiveTarCreate = 96 [EFFECT_PROPAGATE | EFFECT_TRACE; Scheduled; FrameApply];
         ModuleCall {
             op: RuntimeOp,
             call_plan: Option<Arc<crate::runtime::eval::ModuleCallPlan>>,
@@ -1391,23 +1391,6 @@ mod tests {
             ExprIndexFromEnd
             ExprRequire
             ExprCheckedValue
-            ExprFsFiles
-            ExprFsWalk
-            ExprFsList
-            ExprFsTempDir
-            ExprFsMkdir
-            ExprFsRemove
-            ExprPathReadText
-            ExprPathReadBytes
-            ExprPathExists
-            ExprPathExecutable
-            ExprPathDu
-            ExprPathMetadata
-            ExprPathReadlink
-            ExprPathResolve
-            ExprPathWrite
-            ExprPathMkdir
-            ExprPathRemove
             ExprFail
             ExprOk
             ExprErr
@@ -1415,7 +1398,7 @@ mod tests {
             ExprTry
         "#;
         let names: Vec<_> = operands.split_whitespace().collect();
-        assert_eq!(names.len(), 72);
+        assert_eq!(names.len(), 55);
         for tag in INSTRUCTION_TAGS {
             let expected = if names.contains(&tag.name()) { InPlaceClass::Operands } else { InPlaceClass::Scheduled };
             assert_eq!(tag.in_place_class(), expected, "{}", tag.name());
@@ -1441,6 +1424,37 @@ mod tests {
                 .copied()
                 .find(|tag| tag.name() == name)
                 .expect("scheduled frame-apply tag is in the instruction schema");
+            assert_eq!(tag.frame_strategy(), FrameStrategy::FrameApply, "{name}");
+            assert_eq!(tag.in_place_class(), InPlaceClass::Scheduled, "{name}");
+        }
+
+        let host_apply = [
+            "ExprFsFiles",
+            "ExprFsWalk",
+            "ExprFsList",
+            "ExprFsTempDir",
+            "ExprFsMkdir",
+            "ExprFsRemove",
+            "ExprPathReadText",
+            "ExprPathReadBytes",
+            "ExprPathExists",
+            "ExprPathExecutable",
+            "ExprPathDu",
+            "ExprPathMetadata",
+            "ExprPathReadlink",
+            "ExprPathResolve",
+            "ExprPathWrite",
+            "ExprPathMkdir",
+            "ExprPathRemove",
+            "ExprArchiveTarCreate",
+        ];
+        assert_eq!(host_apply.len(), 18);
+        for name in host_apply {
+            let tag = INSTRUCTION_TAGS
+                .iter()
+                .copied()
+                .find(|tag| tag.name() == name)
+                .expect("host frame-apply tag is in the instruction schema");
             assert_eq!(tag.frame_strategy(), FrameStrategy::FrameApply, "{name}");
             assert_eq!(tag.in_place_class(), InPlaceClass::Scheduled, "{name}");
         }
@@ -1502,6 +1516,24 @@ mod tests {
                 "ExprStrByteLen",
                 "ExprStrByteAt",
                 "ExprStrPredicate",
+                "ExprFsFiles",
+                "ExprFsWalk",
+                "ExprFsList",
+                "ExprFsTempDir",
+                "ExprFsMkdir",
+                "ExprFsRemove",
+                "ExprPathReadText",
+                "ExprPathReadBytes",
+                "ExprPathExists",
+                "ExprPathExecutable",
+                "ExprPathDu",
+                "ExprPathMetadata",
+                "ExprPathReadlink",
+                "ExprPathResolve",
+                "ExprPathWrite",
+                "ExprPathMkdir",
+                "ExprPathRemove",
+                "ExprArchiveTarCreate",
             ]
         );
         assert_eq!(

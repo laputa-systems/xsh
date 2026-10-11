@@ -327,8 +327,9 @@ mod tests {
                             instruction: 0,
                             tag: FullTag::ExprRange,
                             remaining: Vec::new().into_iter(),
+                            prepared: None,
                             position: 1,
-                            values: vec![apply_retained_root],
+                            values: vec![super::FrameApplyValue::Value(apply_retained_root)],
                             span,
                             next: Box::new(FrameContinuation::Discard(span)),
                         },
@@ -835,8 +836,9 @@ enum FrameContinuation {
         instruction: u32,
         tag: FullTag,
         remaining: std::vec::IntoIter<u32>,
+        prepared: Option<std::vec::IntoIter<super::FrameApplyOperand>>,
         position: usize,
-        values: Vec<LoweredValue>,
+        values: Vec<super::FrameApplyValue>,
         span: Span,
         next: Box<FrameContinuation>,
     },
@@ -1187,7 +1189,11 @@ impl FrameContinuation {
             | C::ResultFallback { next, .. }
             | C::RecordUpdateBase { next, .. } => next.visit_retained_values(visitor),
             C::ApplyOperands { values, next, .. } => {
-                visit_retained_lowered_values(values, visitor);
+                for value in values {
+                    if let super::FrameApplyValue::Value(value) = value {
+                        visit_retained_lowered_value(value, visitor);
+                    }
+                }
                 next.visit_retained_values(visitor);
             }
             C::ComparisonRight { left, next, .. } | C::BinaryRight { left, next, .. } => {
@@ -3792,10 +3798,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         instruction: u32,
         tag: FullTag,
         operands: Vec<u32>,
+        prepared: Option<Vec<super::FrameApplyOperand>>,
         span: Span,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
         let mut remaining = operands.into_iter();
+        let prepared = prepared.map(Vec::into_iter);
+        if let Some(prepared) = &prepared {
+            assert_eq!(prepared.len(), remaining.len());
+        }
         if let Some(first) = remaining.next() {
             let capacity = remaining.len() + 1;
             self.push_expr(
@@ -3806,6 +3817,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     instruction,
                     tag,
                     remaining,
+                    prepared,
                     position: 0,
                     values: Vec::with_capacity(capacity),
                     span,
@@ -3813,9 +3825,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 },
             );
         } else {
+            let evaluator = &mut self.evaluator;
+            let execution = &self.calls[index].execution;
             let value = super::indexed_frame_apply_value(
-                &self.evaluator,
-                &self.calls[index].execution,
+                evaluator,
+                execution,
                 instruction,
                 Vec::new(),
                 span,
@@ -3901,6 +3915,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         if super::indexed_frame_apply_tag(tag) {
             let view = super::ExprView::decode(&self.calls[index].execution, tag, payload)
                 .map_err(|error| indexed_error(error, span))?;
+            let mut prepared = None;
             let (operands, apply_span) = match view {
                 super::ExprView::FunctionRef { .. } => (Vec::new(), span),
                 super::ExprView::PathFrom { value, span } => (vec![value.raw()], span),
@@ -3944,9 +3959,155 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 } => (vec![receiver.raw(), needle.raw()], span),
                 super::ExprView::Glob { span, .. }
                 | super::ExprView::LastStatus { span } => (Vec::new(), span),
+                super::ExprView::FsFiles {
+                    root,
+                    gitignore,
+                    stat,
+                    hidden,
+                    exts,
+                    span,
+                    ..
+                }
+                | super::ExprView::FsWalk {
+                    root,
+                    gitignore,
+                    stat,
+                    hidden,
+                    exts,
+                    span,
+                    ..
+                } => {
+                    let operation = if tag == FullTag::ExprFsFiles { "fs.files" } else { "fs.walk" };
+                    let mut operands = vec![root.raw()];
+                    let mut checks = vec![super::FrameApplyOperand::Path(operation)];
+                    if let Some(value) = gitignore {
+                        operands.push(value.raw());
+                        checks.push(super::FrameApplyOperand::Bool(operation));
+                    }
+                    if let Some(value) = stat {
+                        operands.push(value.raw());
+                        checks.push(super::FrameApplyOperand::Bool(operation));
+                    }
+                    if let Some(value) = exts {
+                        operands.push(value.raw());
+                        checks.push(super::FrameApplyOperand::StringList(if tag == FullTag::ExprFsFiles { "fs.files exts" } else { "fs.walk exts" }));
+                    }
+                    if let Some(value) = hidden {
+                        operands.push(value.raw());
+                        checks.push(super::FrameApplyOperand::Bool(operation));
+                    }
+                    prepared = Some(checks);
+                    (operands, span)
+                }
+                super::ExprView::FsList {
+                    path,
+                    stat,
+                    ordered,
+                    span,
+                    ..
+                } => {
+                    let mut operands = vec![path.raw()];
+                    let mut checks = vec![super::FrameApplyOperand::Path("fs.children")];
+                    if let Some(value) = stat {
+                        operands.push(value.raw());
+                        checks.push(super::FrameApplyOperand::Bool("fs.children"));
+                    }
+                    if let Some(value) = ordered {
+                        operands.push(value.raw());
+                        checks.push(super::FrameApplyOperand::Bool("fs.children"));
+                    }
+                    prepared = Some(checks);
+                    (operands, span)
+                }
+                super::ExprView::FsTempDir { span } => (Vec::new(), span),
+                super::ExprView::PathWrite {
+                    path,
+                    data,
+                    span,
+                    ..
+                } => {
+                    prepared = Some(vec![
+                        super::FrameApplyOperand::Path("write"),
+                        super::FrameApplyOperand::Raw,
+                    ]);
+                    (vec![path.raw(), data.raw()], span)
+                }
+                super::ExprView::FsMkdir {
+                    path,
+                    parents,
+                    span,
+                }
+                | super::ExprView::PathMkdir {
+                    path,
+                    parents,
+                    span,
+                } => {
+                    let mut operands = vec![path.raw()];
+                    let operation = if tag == FullTag::ExprFsMkdir { "fs.mkdir" } else { "mkdir" };
+                    let mut checks = vec![super::FrameApplyOperand::Path(operation)];
+                    if let Some(value) = parents {
+                        operands.push(value.raw());
+                        checks.push(super::FrameApplyOperand::Bool(operation));
+                    }
+                    prepared = Some(checks);
+                    (operands, span)
+                }
+                super::ExprView::FsRemove {
+                    path,
+                    missing_ok,
+                    span,
+                }
+                | super::ExprView::PathRemove {
+                    path,
+                    missing_ok,
+                    span,
+                } => {
+                    let mut operands = vec![path.raw()];
+                    let operation = if tag == FullTag::ExprFsRemove { "fs.remove" } else { "remove" };
+                    let mut checks = vec![super::FrameApplyOperand::Path(operation)];
+                    if let Some(value) = missing_ok {
+                        operands.push(value.raw());
+                        checks.push(super::FrameApplyOperand::Bool(operation));
+                    }
+                    prepared = Some(checks);
+                    (operands, span)
+                }
+                super::ExprView::PathReadText { path, span }
+                | super::ExprView::PathReadBytes { path, span }
+                | super::ExprView::PathExists { path, span }
+                | super::ExprView::PathExecutable { path, span }
+                | super::ExprView::PathDu { path, span }
+                | super::ExprView::PathMetadata { path, span }
+                | super::ExprView::PathReadlink { path, span }
+                | super::ExprView::PathResolve { path, span } => (vec![path.raw()], span),
+                super::ExprView::ArchiveTarCreate {
+                    path,
+                    root,
+                    entries,
+                    compression,
+                    overwrite,
+                    span,
+                } => {
+                    let mut operands = vec![path.raw(), root.raw(), entries.raw()];
+                    let mut checks = vec![
+                        super::FrameApplyOperand::Path("archive.tar_create"),
+                        super::FrameApplyOperand::Path("archive.tar_create"),
+                        super::FrameApplyOperand::PathList("archive.tar_create"),
+                    ];
+                    if let Some(value) = compression {
+                        operands.push(value.raw());
+                        checks.push(super::FrameApplyOperand::String("archive.tar_create"));
+                    }
+                    if let Some(value) = overwrite {
+                        operands.push(value.raw());
+                        checks.push(super::FrameApplyOperand::Bool("archive.tar_create"));
+                    }
+                    prepared = Some(checks);
+                    (operands, span)
+                }
                 _ => unreachable!("frame apply tag has a matching typed view"),
             };
-            self.push_apply_operands(index, instruction, tag, operands, apply_span, next)?;
+            self.push_apply_operands(index, instruction, tag, operands, prepared, apply_span, next)?;
             return Ok(());
         }
         match tag {
@@ -5474,6 +5635,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 instruction,
                 tag,
                 mut remaining,
+                mut prepared,
                 position,
                 mut values,
                 span,
@@ -5492,6 +5654,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         }
                         _ => {}
                     }
+                    let value = super::indexed_frame_apply_operand(
+                        value,
+                        prepared.as_mut().map(|prepared| prepared.next().expect("prepared frame operand")),
+                        span,
+                    )?;
                     values.push(value);
                     let position = position + 1;
                     if let Some(operand) = remaining.next() {
@@ -5503,6 +5670,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                                 instruction,
                                 tag,
                                 remaining,
+                                prepared,
                                 position,
                                 values,
                                 span,
@@ -5510,9 +5678,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             },
                         );
                     } else {
+                        assert!(prepared.as_mut().is_none_or(|prepared| prepared.next().is_none()), "unused frame operand preparation");
+                        let evaluator = &mut self.evaluator;
+                        let execution = &self.calls[index].execution;
                         let value = super::indexed_frame_apply_value(
-                            &self.evaluator,
-                            &self.calls[index].execution,
+                            evaluator,
+                            execution,
                             instruction,
                             values,
                             span,
