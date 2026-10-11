@@ -27,10 +27,10 @@ fn exact_descriptor_creation_mode_ignores_umask_and_preserves_existing_files() {
     std::fs::set_permissions(&existing, std::fs::Permissions::from_mode(0o660)).unwrap();
     let output = run_descriptor_script(directory.path(), r#"
 unix.redirect_fd(100, p"new", write: true, append: true, mode: 0o600, exact_create_mode: true)?
-unix.write_fd(100, b"new")?
+assert unix.write_fd(100, b"new")? == 3
 unix.close_fd(100)?
 unix.redirect_fd(100, p"existing", write: true, append: true, mode: 0o600, exact_create_mode: true)?
-unix.write_fd(100, b"suffix")?
+assert unix.write_fd(100, b"suffix")? == 6
 unix.close_fd(100)?
 unix.redirect_fd(100, p"ordinary", write: true)?
 unix.close_fd(100)?
