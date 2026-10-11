@@ -53,6 +53,54 @@ mod tests {
     use crate::source::SourceMap;
     use crate::syntax::parser::Parser;
 
+    fn full_program(source: &str) -> (Arc<FullProgram>, crate::source::SourceId) {
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file("explicit-frame-test.xsh", source);
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = crate::sema::check::Checker::check_arena_with_sources_and_options(
+            &parsed.arena,
+            &sources,
+            source_id,
+            crate::sema::check::CheckOptions {
+                reveal_types: true,
+                embedded_bodies: true,
+                ..crate::sema::check::CheckOptions::default()
+            },
+        );
+        let declarations =
+            crate::sema::check::Checker::compact_declarations(&parsed.arena, checked);
+        assert!(
+            declarations.diagnostics.is_empty(),
+            "{:?}",
+            declarations.diagnostics
+        );
+        let program = crate::runtime::eval::FullBuilder::build_compact(
+            &parsed.arena,
+            &declarations,
+            source,
+            Arc::new(sources),
+            source_id,
+        )
+        .unwrap();
+        (Arc::new(program), source_id)
+    }
+
+    fn function_instruction(
+        program: &FullProgram,
+        execution: &FullExecution<'_>,
+        tag: FullTag,
+    ) -> u32 {
+        let matches = (0..program.instruction_count())
+            .filter_map(|instruction| {
+                let actual = execution.instruction_id(instruction as u32).ok()?.0;
+                (actual == tag).then_some(instruction as u32)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(matches.len(), 1, "expected one {tag:?} instruction");
+        matches[0]
+    }
+
     #[test]
     fn forced_frames_reject_a_recursive_only_expression() {
         crate::runtime::eval::run_eval(|| {
@@ -206,6 +254,166 @@ mod tests {
                 root_scope
             );
             evaluator.exit_owned_host_scope(child_scope).unwrap();
+        });
+    }
+
+    #[test]
+    fn continuation_transfers_materialized_fold_root_with_its_producer() {
+        crate::runtime::eval::run_eval(|| {
+            let source = "pure folded() -> Int { [1] |> fold(0) { |acc, item| acc + item } }\n";
+            let (program, source_id) = full_program(source);
+            let function = program
+                .symbol_owner()
+                .with_current(|| Name::intern("folded"));
+            let function_view = program
+                .function_view(LoweredFunctionKey::Name(function), LoweredFunctionKind::Pure)
+                .unwrap()
+                .expect("folded function is present");
+            let execution = function_view.execution().unwrap();
+            let pipeline_instruction =
+                function_instruction(&program, &execution, FullTag::ExprPipeline);
+            let span = Span::new(source_id, 0, 0);
+            let (_, span, stages) = super::super::serial_pipeline::indexed_value_pipeline_input(
+                &execution,
+                pipeline_instruction,
+                span,
+            )
+            .unwrap()
+            .expect("folded pipeline is a value pipeline");
+            assert_eq!(stages.len(), 1);
+
+            let mut evaluator = Evaluator::new(Vec::new());
+            let root_scope = evaluator.current_scope_id();
+            let child_scope = evaluator.enter_owned_host_scope();
+            let stage_temp = tempfile::tempdir().unwrap();
+            let stage_root = xsh_root::Root::open(stage_temp.path()).unwrap();
+            let stage_root_id = evaluator.push_fs_capability(
+                crate::runtime::eval::FsCapability::Root(Box::new(
+                    super::super::super::FsRootHandle::TempDir {
+                        root: stage_root,
+                        _temp: stage_temp,
+                    },
+                )),
+            );
+            let continuation_temp = tempfile::tempdir().unwrap();
+            let continuation_root = xsh_root::Root::open(continuation_temp.path()).unwrap();
+            let continuation_root_id = evaluator.push_fs_capability(
+                crate::runtime::eval::FsCapability::Root(Box::new(
+                    super::super::super::FsRootHandle::TempDir {
+                        root: continuation_root,
+                        _temp: continuation_temp,
+                    },
+                )),
+            );
+            let stage_value = LoweredValue::FsRoot(crate::runtime::value::FsRootValue {
+                id: stage_root_id,
+                owner: Arc::clone(&evaluator.resource_owner),
+            });
+            let continuation_value = LoweredValue::FsRoot(crate::runtime::value::FsRootValue {
+                id: continuation_root_id,
+                owner: Arc::clone(&evaluator.resource_owner),
+            });
+
+            let mut pipeline = IndexedStageEngine::new_frame(
+                LoweredValue::List(vec![LoweredValue::Int(1)]),
+                stages,
+                span,
+            )
+            .unwrap();
+            let mut slots = vec![LoweredValue::Unit; function_view.slot_count()];
+            assert!(matches!(
+                pipeline.next_frame(&mut evaluator, &execution, &mut slots),
+                Ok(IndexedStageStep::Expr(_))
+            ));
+            pipeline.resume(ControlFlow::Continue(stage_value));
+            assert!(matches!(
+                pipeline.next_frame(&mut evaluator, &execution, &mut slots),
+                Ok(IndexedStageStep::Block(_))
+            ));
+            // The callback receives a copy in its local slots; isolate the
+            // accumulator's suspended retention path from that ordinary copy.
+            slots.fill(LoweredValue::Unit);
+
+            let frame = ProducerFrameState {
+                work: vec![FrameWork::StageValue {
+                    pipeline: Box::new(pipeline),
+                    span,
+                    next: FrameContinuation::BinaryRight {
+                        op: BinaryOp::Add,
+                        left: continuation_value,
+                        span,
+                        next: Box::new(FrameContinuation::Discard(span)),
+                    },
+                }],
+                slots,
+                slot_scopes: Vec::new(),
+                defers: Vec::new(),
+                block_scopes: Vec::new(),
+                block_defer_offsets: Vec::new(),
+                scope_id: child_scope,
+            };
+            let state = ScriptStreamState::new(RetainedFrameStream(frame));
+            let mut stream = StreamValue::from_script(state);
+            evaluator.register_returned_stream(&mut stream, span).unwrap();
+
+            evaluator.transfer_owned_host_resources_in_stream(&stream, root_scope);
+
+            for root_id in [stage_root_id, continuation_root_id] {
+                assert_eq!(
+                    evaluator.fs_capabilities[root_id as usize - 1]
+                        .as_ref()
+                        .unwrap()
+                        .owner_scope,
+                    root_scope
+                );
+            }
+            evaluator.exit_owned_host_scope(child_scope).unwrap();
+            assert!(evaluator.fs_capabilities[stage_root_id as usize - 1].is_some());
+            assert!(evaluator.fs_capabilities[continuation_root_id as usize - 1].is_some());
+        });
+    }
+
+    #[test]
+    fn range_start_type_error_precedes_later_operand_effects() {
+        crate::runtime::eval::run_eval(|| {
+            let source = r#"
+proc later(divisor: Int) [] -> Int {
+  print "later"
+  1 / divisor
+}
+proc range_case(start: Int, divisor: Int) [] -> Any {
+  range(start, later(divisor))
+}
+"#;
+            let (program, source_id) = full_program(source);
+            let function = program
+                .symbol_owner()
+                .with_current(|| Name::intern("range_case"));
+            let function_view = program
+                .function_view(LoweredFunctionKey::Name(function), LoweredFunctionKind::Proc)
+                .unwrap()
+                .expect("range_case function is present");
+            let execution = function_view.execution().unwrap();
+            let range_instruction = function_instruction(&program, &execution, FullTag::ExprRange);
+            let span = Span::new(source_id, 0, 0);
+            let mut evaluator = Evaluator::new(Vec::new());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let mut slots = vec![LoweredValue::Unit; function_view.slot_count()];
+            slots[0] = LoweredValue::Str(Arc::from("bad start"));
+            slots[1] = LoweredValue::Int(0);
+
+            let error = evaluator
+                .eval_indexed_expr_with_frames(
+                    &execution,
+                    range_instruction,
+                    &mut slots,
+                    span,
+                )
+                .expect_err("invalid start bound fails before the later call");
+
+            assert_eq!(error.kind, "type-error");
+            assert!(error.message.contains("range start expected Int, found Str"));
+            assert!(evaluator.stdout.is_empty(), "later operand ran: {:?}", evaluator.stdout);
         });
     }
 
