@@ -147,15 +147,15 @@ assert gid_changed.gid == 12346 and gid_changed.egid == 12346
 assert gid_changed.uid == original.uid and gid_changed.euid == original.euid
 unix.set_uid(0)?
 let before = unix.id()?
-assert (before.groups |> any { |group| group.gid == 123 })
-assert (before.groups |> any { |group| group.gid == 456 })
+assert before.groups |> any { |entry| entry.gid == 123 }
+assert before.groups |> any { |entry| entry.gid == 456 }
 unix.set_credentials(uid: 12345, gid: 12346, groups: [12347])?
 let after = unix.id()?
 assert after.uid == 12345 and after.euid == 12345
 assert after.gid == 12346 and after.egid == 12346
-assert (after.groups |> any { |group| group.gid == 12347 })
-assert ! (after.groups |> any { |group| group.gid == 123 })
-assert ! (after.groups |> any { |group| group.gid == 456 })
+assert after.groups |> any { |entry| entry.gid == 12347 }
+assert after.groups |> all { |entry| entry.gid != 123 }
+assert after.groups |> all { |entry| entry.gid != 456 }
 print "credentials-changed"
 """))?
   let output = test.temp_path(ctx, name: "credentials.stdout")
