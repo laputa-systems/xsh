@@ -2672,14 +2672,11 @@ fn lowered_pipeline_input(value: LoweredValue, span: Span) -> Result<LoweredValu
 
 fn lowered_error_message(value: &LoweredValue) -> String {
     match value {
-        LoweredValue::Error(e) => match e.as_ref() {
-            Value::Error(err) => err.message.clone(),
-            _ => "error".to_string(),
-        },
-        LoweredValue::ResultErr(e) => match e.as_ref() {
-            Value::Error(err) => err.message.clone(),
-            _ => "error".to_string(),
-        },
+        LoweredValue::Error(error) | LoweredValue::ResultErr(error) => error
+            .error_message()
+            .filter(|_| matches!(error.as_ref(), Value::Error(_)))
+            .unwrap_or("error")
+            .to_string(),
         _ => value.type_name().to_string(),
     }
 }

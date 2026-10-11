@@ -340,16 +340,14 @@ impl Evaluator {
                     Value::Error(error) => error.errno(),
                     _ => None,
                 };
-                let (kind, message) = match value.as_ref() {
-                    Value::Error(error) => (error.kind.clone(), error.message.clone()),
-                    Value::RunError(error) => (error.kind.clone(), error.message.clone()),
-                    _ => {
-                        return Err(
-                            RuntimeError::new("type-error", "field access expected Error")
-                                .with_span(span),
-                        );
-                    }
-                };
+                let (kind, message) = value
+                    .error_kind()
+                    .zip(value.error_message())
+                    .map(|(kind, message)| (kind.to_owned(), message.to_owned()))
+                    .ok_or_else(|| {
+                        RuntimeError::new("type-error", "field access expected Error")
+                            .with_span(span)
+                    })?;
                 match name {
                     "kind" => Ok(LoweredValue::Str(kind.into())),
                     "message" => Ok(LoweredValue::Str(message.into())),

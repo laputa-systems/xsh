@@ -1,7 +1,8 @@
-use super::{LoweredValue, MapKey, ResultValue, RuntimeError, Type, Value};
+use super::{LoweredValue, MapKey, ResultValue, RuntimeError, Type, Value, format_duration};
 use crate::map_key::MapKeyRef;
 use crate::runtime::value::FsEntryValue;
 use crate::sema::types::ModuleExportType;
+use crate::source::Span;
 use crate::sema::validated::{Validation, is_rel_path};
 use crate::symbol::Name;
 use std::collections::{BTreeMap, BTreeSet};
@@ -21,6 +22,45 @@ pub(super) enum ValueView<'a> {
 }
 
 impl<'a> ValueView<'a> {
+    pub(super) fn push_display(self, output: &mut String, span: Span) -> Result<(), RuntimeError> {
+        match self {
+            Self::Runtime(Value::Str(v))
+            | Self::Lowered(LoweredValue::Str(v)) => output.push_str(v),
+            Self::Lowered(LoweredValue::StrView(value)) => output.push_str(value.as_str()),
+            Self::Runtime(Value::Int(v))
+            | Self::Lowered(LoweredValue::Int(v)) => output.push_str(&v.to_string()),
+            Self::Runtime(Value::Float(v))
+            | Self::Lowered(LoweredValue::Float(v)) => output.push_str(&v.format()),
+            Self::Runtime(Value::Duration(v))
+            | Self::Lowered(LoweredValue::Duration(v)) => {
+                output.push_str(&format_duration(v.millis))
+            }
+            Self::Runtime(Value::Bool(v))
+            | Self::Lowered(LoweredValue::Bool(v)) => {
+                output.push_str(if *v { "true" } else { "false" })
+            }
+            Self::Runtime(Value::Path(v))
+            | Self::Lowered(LoweredValue::Path(v)) => output.push_str(&v.display()),
+            Self::Lowered(LoweredValue::Status(v)) => {
+                output.push_str(&format!("{:?}", v.kind).to_lowercase())
+            }
+            Self::Lowered(LoweredValue::Error(v)) if matches!(v.as_ref(), Value::Error(_)) =>
+                output.push_str(v.error_message().expect("Error values have a message")),
+            Self::Lowered(LoweredValue::Error(_)) => output.push_str("error"),
+            Self::Lowered(LoweredValue::ResultOk(v)) => {
+                Self::Lowered(v).push_display(output, span)?;
+            }
+            Self::Lowered(LoweredValue::ResultErr(v)) => {
+                output.push_str(v.error_message().unwrap_or("error"));
+            }
+            value => return Err(RuntimeError::new(
+                "display-conversion",
+                format!("cannot display {}", value.type_name()),
+            ).with_span(span)),
+        }
+        Ok(())
+    }
+
     fn scalar_type(self) -> Option<Type> {
         Some(match self {
             Self::Int(_) | Self::Key(MapKeyRef::Int(_)) => Type::Int,
@@ -359,13 +399,84 @@ pub(super) fn value_matches_static_type(value: ValueView<'_>, ty: &Type) -> bool
 mod tests {
     use super::*;
     use crate::mem_track::{CountingAllocator, begin_stage, enable_tracking, end_stage};
-    use crate::runtime::value::RecordMap;
+    use crate::runtime::process::ProcessStatus;
+    use crate::runtime::value::{
+        DurationValue, FloatValue, PathValue, RecordMap, run_error_constructor,
+    };
     use crate::sema::types::ModuleType;
+    use crate::source::SourceId;
     use crate::symbol::SymbolOwner;
     use std::sync::Arc;
 
     #[global_allocator]
     static ALLOCATOR: CountingAllocator = CountingAllocator::new(std::alloc::System);
+
+    #[test]
+    fn display_views_share_scalar_output_and_keep_lowered_outcomes() {
+        let span = Span::new(SourceId::new(0), 0, 0);
+        let values = [
+            (
+                Value::Str("text".into()),
+                LoweredValue::Str("text".into()),
+                "text",
+            ),
+            (Value::Int(42), LoweredValue::Int(42), "42"),
+            (
+                Value::Float(FloatValue::new(1.5)),
+                LoweredValue::Float(FloatValue::new(1.5)),
+                "1.5",
+            ),
+            (
+                Value::Duration(DurationValue { millis: 1_000 }),
+                LoweredValue::Duration(DurationValue { millis: 1_000 }),
+                "1s",
+            ),
+            (Value::Bool(true), LoweredValue::Bool(true), "true"),
+            (
+                Value::Path(PathValue::new("/tmp/item").unwrap()),
+                LoweredValue::Path(PathValue::new("/tmp/item").unwrap()),
+                "/tmp/item",
+            ),
+        ];
+
+        for (runtime, lowered, expected) in values {
+            let mut runtime_text = String::new();
+            ValueView::Runtime(&runtime)
+                .push_display(&mut runtime_text, span)
+                .unwrap();
+            let mut lowered_text = String::new();
+            ValueView::Lowered(&lowered)
+                .push_display(&mut lowered_text, span)
+                .unwrap();
+            assert_eq!(runtime_text, expected);
+            assert_eq!(lowered_text, expected);
+        }
+
+        let mut status_text = String::new();
+        ValueView::Lowered(&LoweredValue::Status(Box::new(ProcessStatus::exited(1))))
+            .push_display(&mut status_text, span)
+            .unwrap();
+        assert_eq!(status_text, "exit");
+
+        let process_error = run_error_constructor("process", "command failed");
+        let mut direct_error_text = String::new();
+        ValueView::Lowered(&LoweredValue::Error(Box::new(process_error.clone())))
+            .push_display(&mut direct_error_text, span)
+            .unwrap();
+        let mut result_error_text = String::new();
+        ValueView::Lowered(&LoweredValue::ResultErr(Box::new(process_error)))
+            .push_display(&mut result_error_text, span)
+            .unwrap();
+        assert_eq!(direct_error_text, "error");
+        assert_eq!(result_error_text, "command failed");
+
+        let error = ValueView::Key(MapKeyRef::Str("synthetic"))
+            .push_display(&mut String::new(), span)
+            .unwrap_err();
+        assert_eq!(error.kind, "display-conversion");
+        assert_eq!(error.message, "cannot display Str");
+        assert_eq!(error.span, Some(span));
+    }
 
     #[test]
     fn process_error_type_name_matches_the_lowered_executor() {

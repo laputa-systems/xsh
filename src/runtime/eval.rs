@@ -6235,19 +6235,9 @@ pub fn apply_question(
 
 #[cfg(feature = "native-tests")]
 fn display_value(value: &Value, span: Span) -> Result<String, RuntimeError> {
-    match value {
-        Value::Str(value) => Ok(value.to_string()),
-        Value::Int(value) => Ok(value.to_string()),
-        Value::Float(value) => Ok(value.format()),
-        Value::Duration(value) => Ok(format_duration(value.millis)),
-        Value::Bool(value) => Ok(value.to_string()),
-        Value::Path(path) => Ok(path.display()),
-        value => Err(RuntimeError::new(
-            "display-conversion",
-            format!("cannot display {}", value.type_name()),
-        )
-        .with_span(span)),
-    }
+    let mut output = String::new();
+    ValueView::Runtime(value).push_display(&mut output, span)?;
+    Ok(output)
 }
 
 fn format_duration(millis: u64) -> String {
