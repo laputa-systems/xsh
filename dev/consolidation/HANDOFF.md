@@ -1,5 +1,46 @@
 # Consolidation restart handoff
 
+## Current integration checkpoint — 2026-10-11, `65594365`
+
+The owner’s unattended completion instruction remains active. All subagents
+use Luna xhigh. The historical checkpoints below are retained; they are not
+the current branch state.
+
+Since `d15511a3`, accepted slices include checked constructor facts, shared
+stage authority, grammar ownership repairs and the fixed-seed CLI grammar
+regression, the first forced frame cohort, exhaustive formatter/checker/lint
+and runtime policies, resource escape lint repairs, transfer telemetry, and
+script-backed JSON profile publication proof. The latest batch integrates
+runtime policies (`a63b00ef`), mutation recognition (`4aec944a`), required
+replacement argument printing (`176061b0`), generated stage metrics
+(`3392c25b`), and immutable borrowed workspace entry views (`65594365`).
+The borrowed view adds public `CheckBundleView` entry-range APIs; the arena
+remains immutable and site IDs remain stable. Its lane gates passed the
+two-root isolation proof, module/cache integration and optimized checker tests.
+The fuzz lane passed the unchanged 1,500 grammar and runtime seeds and 1,000
+mutants; the runtime gate took 13.41 seconds. These remain lane results until
+the latest joint candidate is verified.
+
+The joint optimized build is running. Its initial attempt encountered
+read-only cached compiler outputs; the integrator detached 521 read-only
+target artifacts without modifying their linked cache originals and restarted
+the same pinned build. Both logs are preserved under
+`.work/consolidation/restart/joint-6559-build*`.
+
+Baseline canonical coverage has passed group 372 of 545, with 4,088 of
+6,122 outcomes recorded. Groups 30 and 181 retain explicit profile gaps;
+the original 107.77 GiB raw evidence remains untouched. Runtime reader
+acceptance still waits for complete combined coverage and missing-arm tests.
+The captured-resource fix, typed frame continuation cohort and borrowed
+pattern views are private review candidates, not accepted root changes.
+
+Full module record reuse across entries, the complete lint rule authority,
+all frame/stage scheduling and borrowed runtime reader migrations, remaining
+wide policies and dead-code blankets, generated docs, final platform gates,
+semantic reviews and comparative performance acceptance remain outstanding.
+The imported error-facet regression is bracketed between `b7e5c5f4` and
+`edac89d0`, and is being repaired with the preserved assertion.
+
 ## Current integration batch — 2026-10-11
 
 Latest root batch ends at `d15511a3`: ListRest codec validation ordering is
