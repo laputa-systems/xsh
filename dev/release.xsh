@@ -85,7 +85,7 @@ type AppletManifest = {
 }
 
 ## Builds the deterministic applet manifest from core sources and the alias table
-## `dev/compat/aliases.json`. Each applet is installed as `core/NAME`; each alias
+## `core/aliases.json`. Each applet is installed as `core/NAME`; each alias
 ## is an extra executable name for one applet, so a consumer can materialize
 ## links from this file instead of a hand-maintained list. An alias that names a
 ## missing applet, or collides with an applet, fails the release.
@@ -104,7 +104,7 @@ export proc applet_manifest(ctx: context.Context) [fs, error] -> Result[Str, Err
   }
 
   let names = applets |> map .name
-  let alias_file = fp"{ctx.root}/dev/compat/aliases.json"
+  let alias_file = fp"{ctx.root}/core/aliases.json"
   var aliases: List[AliasEntry] = []
 
   if alias_file.exists() {

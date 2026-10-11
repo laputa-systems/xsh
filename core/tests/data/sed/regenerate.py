@@ -3,7 +3,7 @@
 
 The table is cases.py (inputs and arguments). Its expected transcript,
 expected.txt, is produced by GNU sed in the xsh-oracle container through
-dev/compat/oracle.sh; the native test reads cases.jsonl, fixtures/, and
+dev/reference/oracle.sh; the native test reads cases.jsonl, fixtures/, and
 expected.txt only, so it needs no container at test time.
 
   regenerate.py oracle [PATTERN]   rewrite cases.jsonl, fixtures/, expected.txt
@@ -117,7 +117,7 @@ def run_oracle(work, cases):
         f.write(run_script(cases, guard="timeout 10 "))
     subprocess.check_call(["chmod", "-R", "a+rwX", mnt])
     subprocess.check_call(
-        [os.path.join(REPO, "dev/compat/oracle.sh"), "--mount", mnt, "--rw", "--", "sh", "/fixture/run.sh", "/fixture/fx", "/fixture/out"]
+        [os.path.join(REPO, "dev/reference/oracle.sh"), "--mount", mnt, "--rw", "--", "sh", "/fixture/run.sh", "/fixture/fx", "/fixture/out"]
     )
     return transcript(cases, os.path.join(mnt, "out"))
 

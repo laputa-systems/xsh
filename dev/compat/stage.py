@@ -33,7 +33,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 CORE = REPO / "core"
-ALIASES = REPO / "dev" / "compat" / "aliases.json"
+ALIASES = REPO / "core" / "aliases.json"
 
 
 def applets() -> list[str]:

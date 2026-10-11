@@ -217,7 +217,7 @@ runs the same image. A build outside that image is not evidence about Linux.
 The driver passes `--init` so orphaned stopped jobs are reaped. For a native
 gate inside the image, run the container-built
 `target/aarch64-unknown-linux-musl/release/xsht`.
-The image includes Python 3 for native tests that run `dev/compat/stage.py`,
+The image includes Python 3 for repository metadata checks,
 util-linux `setpriv` for tests that drop to an unprivileged user, and a `compat`
 account with UID/GID 1000 for those runs. Bash, make, Perl, autotools, the
 uutils GNU preparation tools, and ACL/capability/crypto headers support the
@@ -293,3 +293,11 @@ settings, and treat single-run latency changes as inconclusive.
 - `xsht runtime-stats --json REPORT SCRIPT` reports construction, controller,
   and `par-map` worker allocation; pair memory claims with a host RSS check.
   It and `xsht frontend-stats` are not listed in `xsht --help`.
+
+The native compatibility origins are retained in `core/tests/origins/freeze.json`.
+`python3 core/tests/origins/check_origins.py --strict` verifies each frozen ID
+has one native test or an explained boundary exception, without upstream
+checkouts or reference tools. Optional fixture regeneration and compression
+reference comparisons use `dev/reference/oracle.sh`; ordinary native tests read
+the committed fixture bytes. Release packaging reads `core/aliases.json`, which
+also supplies alias names to native command tests.
