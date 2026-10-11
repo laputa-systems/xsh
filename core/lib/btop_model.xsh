@@ -39,6 +39,7 @@ export type ProcessRow = {
   cpu_average_percent: rates.Rate,
   rss_bytes: Int?,
 }
+type ProcessUpdate = {row: ProcessRow, metadata: ProcessMetadata?}
 
 ## Retains one sparse Linux logical CPU identifier and interval utilization.
 export type CoreUsage = {id: Int, utilization: rates.Rate}
@@ -52,8 +53,11 @@ export enum MetadataState: Str {
 
 ## Retains one process UID only while its identity and command remain stable.
 export type ProcessMetadata = {start_ticks: Int, command: Str, uid: Int, observed_at_ns: Int}
+type MetadataIndexEntry = {pid: Int, entry: ProcessMetadata}
 ## Bounds metadata reuse to one source session and the current process inventory.
 export type MetadataCache = {source_id: Str, by_pid: Map[Int, ProcessMetadata]}
+## Associates a current process with the same PID lifetime from the prior sample.
+export type ProcessMatch = {current: processes.Process, previous: processes.Process?}
 
 ## Keeps values and source states distinct for the memory panel.
 export type MemoryPanel = {
@@ -198,26 +202,12 @@ pure interface_rate(
 
 const PROCESS_METADATA_TTL_NS = 5000000000
 type UidResult = {uid: Int?, state: MetadataState, entry: ProcessMetadata?}
-type ProcessSortKey = {available: Int, negative_rate_tenths: Int, pid: Int}
-
-pure process_index(previous: Observation?) -> Map[Int, processes.Process] {
-  var rows: Map[Int, processes.Process] = {}
-  if let before = previous {
-    for row in before.processes.processes {
-      rows = rows.set(row.pid, row)
-    }
-  }
-  rows
-}
 
 pure core_index(previous: Observation?) -> Map[Int, syscpu.CpuCounters] {
-  var rows: Map[Int, syscpu.CpuCounters] = {}
   if let before = previous {
-    for core in before.cpu.stat.cores {
-      rows = rows.set(core.id, core.counters)
-    }
+    return {core.id: core.counters for core in before.cpu.stat.cores}
   }
-  rows
+  {}
 }
 
 pure core_rate(
@@ -241,18 +231,32 @@ pure core_rate(
   }
 }
 
-pure previous_process(index: Map[Int, processes.Process], current: processes.Process) -> processes.Process? {
-  if let Ok(row) = index.get(current.pid) {
-    if row.start_ticks == current.start_ticks { row } else { null }
-  } else {
-    null
+## Joins each current process against one indexed prior PID and lifetime.
+export pure process_join(
+  current: List[processes.Process],
+  previous: List[processes.Process],
+) -> List[ProcessMatch] {
+  let previous_by_pid = {row.pid: row for row in previous}
+  collect {
+    for row in current {
+      let candidate: processes.Process? = if row.pid in previous_by_pid { previous_by_pid[row.pid] } else { null }
+      let matching_prior: processes.Process? = if let prior = candidate {
+        if prior.start_ticks == row.start_ticks { prior } else { null }
+      } else {
+        null
+      }
+      yield {
+        current: row,
+        previous: matching_prior,
+      }
+    }
   }
 }
 
 pure process_rate(
   current: Observation,
   previous: Observation?,
-  prior_rows: Map[Int, processes.Process],
+  previous_process: processes.Process?,
   row: processes.Process,
   gap: Bool,
 ) -> rates.Rate {
@@ -273,7 +277,7 @@ pure process_rate(
     return rate(rates.Warming)
   }
 
-  if let older = previous_process(prior_rows, row) {
+  if let older = previous_process {
     if older.cpu_ticks == null {
       return rate(rates.Warming)
     }
@@ -327,18 +331,16 @@ pure cached_uid(row: processes.Process, current: Observation, cache: MetadataCac
   {uid: null, state: .Unavailable, entry: null}
 }
 
-pure process_sort_key(row: ProcessRow) -> ProcessSortKey {
-  let observed = row.cpu_percent.state == rates.Observed and row.cpu_percent.value != null
-  let negative_rate_tenths = if observed {
+pure process_sort_rate_tenths(row: ProcessRow) -> Int {
+  if row.cpu_percent.state == rates.Observed and row.cpu_percent.value != null {
     if let Ok(tenth) = ((row.cpu_percent.value ?? 0.0) * 10.0).round() { -tenth } else { 0 }
   } else {
     0
   }
-  {
-    available: if observed { 0 } else { 1 },
-    negative_rate_tenths: negative_rate_tenths,
-    pid: row.pid,
-  }
+}
+
+pure process_sort_availability(row: ProcessRow) -> Int {
+  if row.cpu_percent.state == rates.Observed and row.cpu_percent.value != null { 0 } else { 1 }
 }
 
 ## Applies one source observation and retains only current process metadata.
@@ -349,36 +351,54 @@ export pure step_cached(
   gap: Bool = false,
 ) -> CachedStep {
   let baseline = same_source_baseline(current, previous)
-  let prior_rows = process_index(baseline)
   let prior_cores = core_index(baseline)
+  let before_processes: List[processes.Process] = if let before = baseline {
+    before.processes.processes
+  } else {
+    []
+  }
+  let process_matches = process_join(current.processes.processes, before_processes)
   let cache = if metadata.source_id == current.source_id { metadata } else { {source_id: current.source_id, by_pid: {}} }
   let storage_previous: disks.Source? = if let before = baseline { before.storage } else { null }
   let storage_previous_at: Int? = if let before = baseline { before.at_ns } else { null }
   let selected = observed_interface(current.network)
-  var process_rows: List[ProcessRow] = []
-  var next_metadata: Map[Int, ProcessMetadata] = {}
-  var core_rows: List[CoreUsage] = []
-  for core in current.cpu.stat.cores {
-    core_rows += [{id: core.id, utilization: core_rate(current, baseline, prior_cores, core, gap)}]
+  let core_rows: List[CoreUsage] = collect {
+    for core in current.cpu.stat.cores {
+      yield {id: core.id, utilization: core_rate(current, baseline, prior_cores, core, gap)}
+    }
   }
-  for process_row in current.processes.processes {
-    let uid = cached_uid(process_row, current, cache)
-    let row: ProcessRow = {
-      pid: process_row.pid,
-      parent_pid: process_row.parent_pid,
-      start_ticks: process_row.start_ticks,
-      thread_count: process_row.thread_count,
-      uid: uid.uid,
-      uid_state: uid.state,
-      command: process_row.command,
-      cpu_percent: process_rate(current, baseline, prior_rows, process_row, gap),
-      cpu_average_percent: process_average_rate(current, process_row),
-      rss_bytes: process_row.rss_bytes,
+  let process_updates: List[ProcessUpdate] = collect {
+    for matched in process_matches {
+      let process_row = matched.current
+      let uid = cached_uid(process_row, current, cache)
+      yield {
+        row: {
+          pid: process_row.pid,
+          parent_pid: process_row.parent_pid,
+          start_ticks: process_row.start_ticks,
+          thread_count: process_row.thread_count,
+          uid: uid.uid,
+          uid_state: uid.state,
+          command: process_row.command,
+          cpu_percent: process_rate(current, baseline, matched.previous, process_row, gap),
+          cpu_average_percent: process_average_rate(current, process_row),
+          rss_bytes: process_row.rss_bytes,
+        },
+        metadata: uid.entry,
+      }
     }
-    process_rows += [row]
-    if let entry = uid.entry {
-      next_metadata = next_metadata.set(process_row.pid, entry)
+  }
+  let process_rows: List[ProcessRow] = [update.row for update in process_updates]
+  let next_metadata_entries: List[MetadataIndexEntry] = collect {
+    for update in process_updates {
+      if let entry = update.metadata {
+        yield {pid: update.row.pid, entry: entry}
+      }
     }
+  }
+  let next_metadata: Map[Int, ProcessMetadata] = {
+    item.pid: item.entry
+    for item in next_metadata_entries
   }
 
   {
@@ -401,10 +421,16 @@ export pure step_cached(
         tx_bytes_per_second: interface_rate(current, selected, baseline, false, gap),
       },
       process_state: current.processes.state,
-      processes: process_rows |> sort-by { |row| process_sort_key(row) },
+      processes: process_rows
+        |> sort-by .pid
+        |> sort-by { |row| process_sort_rate_tenths(row) }
+        |> sort-by { |row| process_sort_availability(row) },
       storage: disks.step(current.storage, storage_previous, current.at_ns, storage_previous_at, gap),
     },
-    metadata: {source_id: current.source_id, by_pid: next_metadata},
+    metadata: {
+      source_id: current.source_id,
+      by_pid: next_metadata,
+    },
   }
 }
 

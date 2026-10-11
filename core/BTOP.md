@@ -227,6 +227,11 @@ Focused host release tests are kept with the implementation:
 - `core/tests/test-btop-loop.xsh` and `test-btop-ui.xsh` cover absolute sample
   deadlines, coalesced work, identity selection, every pinned process sort and
   direction, CPU-lazy spike promotion, local-text filtering, and resize.
+- `core/tests/test-btop-performance.xsh` records seeded process-join scaling,
+  bounded process and device identity churn, optional-source degradation, and
+  model/render/diff work. On Alpine x86_64 musl release, the 1,000-to-2,000
+  process join median ratio was 2.03× (9.342 ms to 18.945 ms); the 1,000-row
+  120 by 40 model/render/diff p95 was 2.886 s, above the 50 ms target.
 - `core/tests/test-btop-schedule.xsh` covers source-class deadlines,
   invalidation, coalescing, and checked monotonic bounds. The model tests cover
   UID expiry, exec and credential changes, PID reuse, exit eviction, and churn.
@@ -242,8 +247,8 @@ Focused host release tests are kept with the implementation:
   real delta with a fresh full frame and drive interactive sorting, filtering,
   selection, and resize.
 - The release PTY latency probe sent 100 sort events between replay frames 60
-  seconds apart. On Alpine x86_64 musl, input-to-present p95 was 1.150 ms and
-  p99 was 1.297 ms; replay sampling stayed on its separate recorded interval.
+  seconds apart. On Alpine x86_64 musl, input-to-present p95 was 1.277 ms and
+  p99 was 1.376 ms; replay sampling stayed on its separate recorded interval.
 - `rg -n -i btop src crates stdlib` found no monitor-specific native code.
 
 These tests establish host release behavior. Linux qualification is recorded

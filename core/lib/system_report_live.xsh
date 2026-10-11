@@ -404,55 +404,12 @@ type CpuSetRead = {
   errno: Int?,
 }
 
-type CgroupMountInventory = {mounts: List[collectors.CgroupMount], has_v1: Bool, malformed: Bool}
-
-pure cgroup_mount_inventory(value: Str) -> CgroupMountInventory {
-  var has_v1 = false
-  var malformed = false
-  let mounts: List[collectors.CgroupMount] = collect {
-    for line in value.lines() {
-      let fields = parse_words(line)
-      var separator = 0
-      while separator < fields.len() and fields[separator] != "-" {
-        separator += 1
-      }
-
-      if separator == fields.len() {
-        malformed = true
-        continue
-      }
-
-      if separator < 6 or separator + 3 >= fields.len() {
-        malformed = true
-        continue
-      }
-
-      let filesystem = fields[separator + 1]
-      if filesystem in ["cgroup2", "cgroup"] {
-        let mount_root = sys_mount.decode_mount_field(fields[3])
-        let mount_point = sys_mount.decode_mount_field(fields[4])
-        if ! mount_root.starts_with("/") or ! mount_point.starts_with("/") {
-          malformed = true
-          continue
-        }
-
-        if filesystem == "cgroup2" {
-          yield {root: mount_root, point: mount_point}
-        } else {
-          has_v1 = true
-        }
-      }
-    }
-  }
-
-  {mounts: mounts, has_v1: has_v1, malformed: malformed}
-}
-
 proc read_effective_cgroup_cpuset(root: FsRoot) [fs, error] -> CpuSetRead {
   let membership = read_value(root, p"proc/self/cgroup", max_bytes: 65536)
-  let mounts = read_value(root, p"proc/self/mountinfo", max_bytes: 4194304)
-  if mounts.observation.state != .Observed {
-    return {cpus: [], state: mounts.observation.state, error_kind: mounts.error_kind, errno: mounts.errno}
+  let mount_table = sys_mount.collect(root)
+  if mount_table.source_state != .Observed {
+    let failure = mount_table.issues[0]
+    return {cpus: [], state: failure.state, error_kind: failure.error_kind, errno: failure.errno}
   }
 
   if membership.observation.state != .Observed {
@@ -465,7 +422,7 @@ proc read_effective_cgroup_cpuset(root: FsRoot) [fs, error] -> CpuSetRead {
   }
 
   let group_path = parsed_membership.path
-  let inventory = cgroup_mount_inventory(mounts.observation.value ?? "")
+  let inventory = sys_mount.cgroup_mount_inventory(mount_table)
   if inventory.malformed {
     return {cpus: [], state: report.Malformed, error_kind: "invalid_cgroup_mountinfo", errno: null}
   }
@@ -4132,7 +4089,7 @@ pure first_errno(primary: Int?, secondary: Int?) -> Int? {
 
 proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
   let self_cgroup = read_value(root, p"proc/self/cgroup", max_bytes: 65536)
-  let mountinfo = read_value(root, p"proc/self/mountinfo", max_bytes: 4194304)
+  let mount_table = sys_mount.collect(root)
   var issues: List[report.CollectionIssue] = []
   if self_cgroup.observation.state != .Observed or self_cgroup.observation.value == null {
     issues += [
@@ -4141,8 +4098,9 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
     return {resources: [], issues: issues}
   }
 
-  if mountinfo.observation.state != .Observed or mountinfo.observation.value == null {
-    issues += [issue("memory", "cgroup.mountinfo", mountinfo.observation.state, mountinfo.error_kind, mountinfo.errno)]
+  if mount_table.source_state != .Observed {
+    let failure = mount_table.issues[0]
+    issues += [issue("memory", "cgroup.mountinfo", failure.state, failure.error_kind, failure.errno)]
     return {resources: [], issues: issues}
   }
 
@@ -4153,7 +4111,7 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
   }
 
   let cgroup_path = parsed_membership.path
-  let inventory = cgroup_mount_inventory(mountinfo.observation.value)
+  let inventory = sys_mount.cgroup_mount_inventory(mount_table)
   if inventory.malformed {
     issues += [issue("memory", "cgroup.mountinfo", report.Malformed, "invalid_cgroup_mountinfo", null)]
     return {resources: [], issues: issues}

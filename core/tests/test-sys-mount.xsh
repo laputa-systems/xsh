@@ -102,6 +102,24 @@ test test_sys_mount_decode_field_handles_the_four_kernel_escapes {
   assert mounts.decode_mount_field("plain") == "plain"
 }
 
+test test_sys_mount_projects_cgroup_versions_from_the_shared_mount_table {
+  let root = fs.tempdir()?
+  defer root.close()
+  write_mountinfo(
+    root,
+    """1 0 0:27 /container /sys/fs/cgroup rw - cgroup2 cgroup rw
+2 1 0:19 / /sys/fs/cgroup/cpu rw - cgroup cpu rw
+""",
+  )
+  let inventory = mounts.cgroup_mount_inventory(mounts.collect(root))
+  assert inventory.mounts == [{root: "/container", point: "/sys/fs/cgroup"}]
+  assert inventory.has_v1
+  assert ! inventory.malformed
+
+  root.write(p"proc/self/mountinfo", "invalid mountinfo row\n")
+  assert mounts.cgroup_mount_inventory(mounts.collect(root)).malformed
+}
+
 test test_sys_mount_applies_capacity_only_to_the_exact_raw_mount_identity {
   let root = fs.tempdir()?
   defer root.close()

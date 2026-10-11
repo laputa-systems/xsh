@@ -36,6 +36,12 @@ export type MountTable = {
   issues: List[src.Issue],
 }
 
+## Identifies a visible cgroup mount after mountinfo path decoding.
+export type CgroupMount = {root: Str, point: Str}
+
+## Keeps the cgroup mount projection used to resolve process-visible cpuset paths.
+export type CgroupMountInventory = {mounts: List[CgroupMount], has_v1: Bool, malformed: Bool}
+
 ## Carries one statvfs result captured with a replay frame rather than its tree.
 export type CapturedUsage = {
   mount_id: Int,
@@ -166,6 +172,33 @@ pure mount_usage_safe(index: MountUsageIndex, mount_id: Int) -> Bool {
 
 pure mount_identity_key(mount_id: Int, major: Int, minor: Int, target: Str) -> Str {
   f"{mount_id}:{major}:{minor}:{target}"
+}
+
+## Projects cgroup mounts from the canonical mountinfo parse.
+export pure cgroup_mount_inventory(table: MountTable) -> CgroupMountInventory {
+  var has_v1 = false
+  var malformed = false
+  for issue in table.issues {
+    if issue.field.starts_with("mounts.line.") {
+      malformed = true
+    }
+  }
+  let cgroup_mounts: List[CgroupMount] = collect {
+    for entry in table.mounts {
+      if entry.filesystem in ["cgroup", "cgroup2"] {
+        if ! entry.root.starts_with("/") or ! entry.target.starts_with("/") {
+          malformed = true
+          continue
+        }
+        if entry.filesystem == "cgroup2" {
+          yield {root: entry.root, point: entry.target}
+        } else {
+          has_v1 = true
+        }
+      }
+    }
+  }
+  {mounts: cgroup_mounts, has_v1: has_v1, malformed: malformed}
 }
 
 ## Applies recorded capacity only when each value identifies one raw mount row.

@@ -1,5 +1,6 @@
 ##! Parses bounded Linux inventory source records for system-report.
 use sys_block
+use sys_mount
 use sys_pci
 use sys_source as src
 use system_report as report
@@ -16,7 +17,7 @@ export type UsbDescriptorRecord = {
 export type UnifiedCgroupPath = {state: report.ObservationState, path: Str?, has_v1: Bool}
 
 ## Identifies one visible cgroup mount by its filesystem root and mount point.
-export type CgroupMount = {root: Str, point: Str}
+export type CgroupMount = sys_mount.CgroupMount
 
 ## Keeps the selected transparent-huge-page policy alongside all kernel choices.
 export type TransparentHugePagePolicy = {selected: Str, available: List[Str]}
