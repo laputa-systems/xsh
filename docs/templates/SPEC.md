@@ -4344,7 +4344,11 @@ Contracts worth knowing without consulting the reference:
   take a `RelPath` (4.13), the type of a path already known to be relative
   and free of an escaping `..`; a function that passes a path on to a root
   should declare it `RelPath`. The handle still resolves every path it is
-  given, because only resolution sees a symlink.
+  given, because only resolution sees a symlink. `FsRoot.children` sorts
+  child paths by raw bytes by default; `ordered: false` preserves filesystem
+  enumeration order, including partial results. `max_entries` defaults to
+  65536 and accepts 0 through 65536; truncated results retain a prefix in
+  the selected order and report `enumeration_succeeded: false`.
 - Six methods take an argument whose label makes the call read as a
   sentence, so that two operands of one type cannot be swapped unnoticed:
 

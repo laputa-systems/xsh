@@ -201,6 +201,7 @@ pub(crate) fn rooted_children(
     root: &Root,
     path: &Path,
     max_entries: i64,
+    ordered: bool,
     span: Span,
 ) -> Result<RootChildrenResult, RuntimeError> {
     const MAX_ROOT_CHILDREN: usize = 65_536;
@@ -223,11 +224,11 @@ pub(crate) fn rooted_children(
     // Directory iteration needs a readable descriptor; Linux roots use O_PATH.
     let directory = match root.open_readable_dir(path) {
         Ok(directory) => directory,
-        Err(error) => return Ok(root_children_failure(error, Vec::new())),
+        Err(error) => return Ok(root_children_failure(error, Vec::new(), ordered)),
     };
     let mut entries = match RootDirectoryEntries::open(&directory) {
         Ok(entries) => entries,
-        Err(error) => return Ok(root_children_failure(error, Vec::new())),
+        Err(error) => return Ok(root_children_failure(error, Vec::new(), ordered)),
     };
     let mut children = Vec::new();
     let mut hard_limit_reached = false;
@@ -235,7 +236,7 @@ pub(crate) fn rooted_children(
     while let Some(entry) = entries.read() {
         let entry = match entry {
             Ok(entry) => entry,
-            Err(error) => return Ok(root_children_failure(error, children)),
+            Err(error) => return Ok(root_children_failure(error, children, ordered)),
         };
         let name = entry.as_bytes();
         if name == b"." || name == b".." {
@@ -255,7 +256,9 @@ pub(crate) fn rooted_children(
         children.push(child);
     }
 
-    sort_root_children(&mut children);
+    if ordered {
+        sort_root_children(&mut children);
+    }
     let truncated = hard_limit_reached || children.len() > max_entries;
     if children.len() > max_entries {
         children.truncate(max_entries);
@@ -320,7 +323,11 @@ impl RootDirectoryEntries {
     }
 }
 
-fn root_children_failure(error: std::io::Error, children: Vec<PathBuf>) -> RootChildrenResult {
+fn root_children_failure(
+    error: std::io::Error,
+    children: Vec<PathBuf>,
+    ordered: bool,
+) -> RootChildrenResult {
     let (state, error_kind) = match error.kind() {
         ErrorKind::NotFound => ("absent", "not_found"),
         ErrorKind::PermissionDenied => ("permission_denied", "permission_denied"),
@@ -334,7 +341,9 @@ fn root_children_failure(error: std::io::Error, children: Vec<PathBuf>) -> RootC
         _ => ("read_failure", "other"),
     };
     let mut children = children;
-    sort_root_children(&mut children);
+    if ordered {
+        sort_root_children(&mut children);
+    }
     RootChildrenResult {
         state,
         enumeration_succeeded: false,

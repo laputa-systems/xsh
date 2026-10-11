@@ -671,7 +671,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("fs", "root_children") => Some((
             "Enumerates child paths below a rooted filesystem capability.",
-            "Names stay lossless as Path values and are sorted by raw bytes; the result carries partial entries, stable error state, errno, and truncation status.",
+            "Names stay lossless as Path values and are sorted by raw bytes by default; ordered: false preserves filesystem enumeration order, including partial entries. max_entries defaults to 65536 and accepts 0 through 65536. The result carries partial entries, stable error state, errno, and truncation status. Truncation retains the first max_entries paths in the selected order.",
             &[
                 "filesystem",
                 "rooted",

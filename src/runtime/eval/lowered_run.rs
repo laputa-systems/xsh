@@ -5271,9 +5271,11 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsRootChildren if values.len() == 2 || values.len() == 3 => {
+            RuntimeOp::FsRootChildren if (2..=4).contains(&values.len()) => {
                 let max_entries =
                     lowered_int_arg_or(values.get(2).cloned(), 65_536, "fs.root_children", span)?;
+                let ordered =
+                    lowered_bool_arg_or(values.get(3).cloned(), true, "fs.root_children", span)?;
                 let path = lowered_path_arg(
                     values.get(1).cloned().expect("checked value length"),
                     "fs.root_children",
@@ -5282,7 +5284,7 @@ impl Evaluator {
                 let root = values.first().cloned().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
                 match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
-                    .and_then(|dir| fs_module::rooted_children(dir, &rel, max_entries, span))
+                    .and_then(|dir| fs_module::rooted_children(dir, &rel, max_entries, ordered, span))
                 {
                     Ok(result) => lowered_result_ok(lowered_fs_root_children_result(result, span)?),
                     Err(error) => lowered_result_err_value(error),
