@@ -9,7 +9,6 @@ Print numbers from FIRST to LAST, in steps of INCREMENT.
 Mandatory arguments to long options are mandatory for short options too.
   -f, --format=FORMAT      use printf style floating-point FORMAT
   -s, --separator=STRING   use STRING to separate numbers (default: \\n)
-  -t, --terminator=STRING  use STRING to end the output (default: \\n)
   -w, --equal-width        equalize width by padding with leading zeroes
       --help        display this help and exit
       --version     output version information and exit
@@ -30,7 +29,6 @@ decimal numbers with maximum precision PREC, and to %g otherwise.
 type SeqOptions = {
   format: Str?,
   separator: Str,
-  terminator: Str,
   equal_width: Bool,
   help: Bool,
   version: Bool,
@@ -259,16 +257,6 @@ pure signed_cmp(a: Signed, b: Signed) -> Int {
   if a_neg { -order } else { order }
 }
 
-pure hex_value(text: Str) -> Str {
-  var out = "0"
-
-  for index in range(text.byte_len()) {
-    out = mul_small_add(out, 16, "0123456789abcdef".find(text.byte_slice(index, length: 1).lower()) ?? 0)
-  }
-
-  out
-}
-
 pure bad(why: Str) -> Num {
   {kind: "bad", why: why, neg: false, digits: "0", scale: 0, ints: 0, fracs: 0}
 }
@@ -293,6 +281,8 @@ pure exponent_value(text: Str) -> Int? {
   }
 }
 
+# Hex operands are parsed as long doubles before sequence generation; unlike
+# decimal integer operands, excess significand bits must be rounded away.
 pure parse_hex(body: Str, neg: Bool) -> Num {
   let parts = rx"^0[xX]([0-9a-fA-F]*)(?:\.([0-9a-fA-F]*))?(?:[pP]([+-]?[0-9]+))?$".captures(body)
 
@@ -308,8 +298,35 @@ pure parse_hex(body: Str, neg: Bool) -> Num {
   return bad("float") when power > EXP_LIMIT
 
   let fracs = if exponent == "" and body.find(".") == null { 0 } else { -1 }
-  let shift = power - 4 * parts[2].byte_len()
-  let mantissa = hex_value(parts[1] + parts[2])
+  var shift = power - 4 * parts[2].byte_len()
+  var bits = ""
+  let digits = parts[1] + parts[2]
+  let nibbles = ["0000", "0001", "0010", "0011", "0100", "0101", "0110", "0111", "1000", "1001", "1010", "1011", "1100", "1101", "1110", "1111"]
+
+  for at in range(digits.byte_len()) {
+    bits += nibbles["0123456789abcdef".find(digits.byte_slice(at, length: 1).lower()) ?? 0]
+  }
+
+  bits = strip_zeros(bits)
+  var mantissa = "0"
+  let precision = numeric.long_double_precision()
+  let keep = if bits.byte_len() > precision { precision } else { bits.byte_len() }
+
+  for at in range(keep) {
+    mantissa = mul_small_add(mantissa, 2, if bits.byte_slice(at, length: 1) == "1" { 1 } else { 0 })
+  }
+
+  # strtold rounds discarded significand bits to nearest, with even ties.
+  if bits.byte_len() > keep {
+    let tail = bits.byte_slice(keep)
+    let odd = bits.byte_slice(keep - 1, length: 1) == "1"
+
+    if tail.starts_with("1") and (odd or tail.byte_slice(1).find("1") != null) {
+      mantissa = unsigned_add(mantissa, "1")
+    }
+
+    shift += bits.byte_len() - keep
+  }
 
   return finite(neg, "0", 0, 0, fracs) when mantissa == "0" or power < -EXP_LIMIT
   return finite(neg, mul_pow(mantissa, 2, shift), 0, 0, fracs) when shift >= 0
@@ -589,7 +606,7 @@ pure parse_format(format: Str, shown: Str) -> Parsed {
   let conv = parts[6]
 
   return {message: f"invalid width: '{parts[2]}'", spec: empty} when parts[2].byte_len() > 8 or (parts[2].parse_int() ?? 0) > SIZE_LIMIT
-  return {message: f"invalid precision: '{parts[4]}'", spec: empty} when parts[4].byte_len() > 8 or (parts[4].parse_int() ?? 0) > SIZE_LIMIT
+  return {message: "write error: Value too large for defined data type", spec: empty} when parts[4].byte_len() > 8 or (parts[4].parse_int() ?? 0) > SIZE_LIMIT
   return {message: f"format {shown} has unknown %{conv} directive", spec: empty} when conv == "" or ! ("aAeEfFgG".find(
     conv,
   ) != null)
@@ -651,14 +668,12 @@ pure protect_numbers(argv: List[Str]) -> List[Str] {
 
     if item.starts_with("--") {
       let name = item.byte_slice(2)
-      takes = name.find("=") == null and name != "" and ("format".starts_with(name) or "separator".starts_with(name) or "terminator".starts_with(
-        name,
-      ))
+      takes = name.find("=") == null and name != "" and ("format".starts_with(name) or "separator".starts_with(name))
     } else {
       for index in range(1, item.byte_len()) {
         let letter = item.byte_slice(index, length: 1)
 
-        if letter == "f" or letter == "s" or letter == "t" {
+        if letter == "f" or letter == "s" {
           takes = index == item.byte_len() - 1
           break
         }
@@ -830,7 +845,6 @@ proc main(...argv: List[Bytes]) [process, env, error, io] {
       gnu: {status: 1, permute: false},
       format: {form: "-f --format FORMAT"},
       separator: {form: "-s --separator STRING", default: "\n"},
-      terminator: {form: "-t --terminator STRING", default: "\n"},
       equal_width: {form: "-w --equal-width", default: false},
       help: {form: "--help", default: false, stop: true},
       version: {form: "--version", default: false, stop: true},
@@ -936,7 +950,6 @@ proc main(...argv: List[Bytes]) [process, env, error, io] {
   }
 
   let separator = argument_bytes(opts.separator, prepared.byte_values)
-  let terminator = argument_bytes(opts.terminator, prepared.byte_values)
   var pending: Bytes = b""
   var emitted = false
   for line in sequence_lines(first, step, last, spec, forward, empty) {
@@ -950,5 +963,5 @@ proc main(...argv: List[Bytes]) [process, env, error, io] {
     }
   }
 
-  if emitted { write_bytes(bytes.concat([pending, terminator])) }
+  if emitted { write_bytes(bytes.concat([pending, b"\n"])) }
 }

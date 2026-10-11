@@ -44,18 +44,20 @@ test test_seq_integers_and_directions { |ctx|
 
 test test_seq_separator_and_terminator { |ctx|
   assert seq_out(ctx, ["-s", ",", "2", "6"])? == "2,3,4,5,6\n"
-  assert seq_out(ctx, ["-s", ",", "-t", "!", "2", "6"])? == "2,3,4,5,6!"
+  let terminator = seq_run(ctx, ["-s", ",", "-t", "!", "2", "6"])?
+  assert terminator.status == 1
+  assert terminator.stderr == "seq: invalid option -- 't'\nTry 'seq --help' for more information.\n"
   assert seq_out(ctx, ["--separator=", "2", "6"])? == "23456\n"
   assert seq_out(ctx, ["-s", "\\n", "2", "4"])? == "2\\n3\\n4\n", "the separator is taken literally"
-  assert seq_out(ctx, ["--terminator=END", "2"])? == "1\n2END"
+  let long_terminator = seq_run(ctx, ["--terminator=END", "2"])?
+  assert long_terminator.status == 1
+  assert long_terminator.stderr == "seq: unrecognized option '--terminator=END'\nTry 'seq --help' for more information.\n"
 }
 
-test test_seq_raw_separator_and_terminator { |ctx|
+test test_seq_raw_separator { |ctx|
   let separator = bytes.concat([b"-s,\xff\0", bytes.from_text("2\0"), bytes.from_text("3\0")])
-  let terminator = bytes.concat([b"--terminator=\xff\0", bytes.from_text("2\0")])
 
   assert seq_run_raw(ctx, separator)? == b"2,\xff3\n"
-  assert seq_run_raw(ctx, terminator)? == b"1\n2\xff"
 }
 
 test test_seq_equal_width { |ctx|
@@ -91,7 +93,12 @@ test test_seq_negative_zero_and_tiny_exponents { |ctx|
 test test_seq_arbitrary_precision_and_hex { |ctx|
   assert seq_out(ctx, ["1000000000000000000000000000", "1000000000000000000000000001"])? == "1000000000000000000000000000\n1000000000000000000000000001\n"
   assert seq_out(ctx, ["0xa", "0XA"])? == "10\n"
-  assert seq_out(ctx, ["0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", "0x100000000000000000000000000000000"])? == "340282366920938463463374607431768211455\n340282366920938463463374607431768211456\n"
+  let precision = numeric.long_double_precision()
+  let first_tie = if precision > 64 { "18446744073709551617\n" } else { "18446744073709551616\n" }
+  let second_tie = if precision > 64 { "18446744073709551619\n" } else if precision == 64 { "18446744073709551620\n" } else { "18446744073709551616\n" }
+  assert seq_out(ctx, ["0x10000000000000001", "0x10000000000000001"])? == first_tie
+  assert seq_out(ctx, ["0x10000000000000003", "0x10000000000000003"])? == second_tie
+  assert seq_out(ctx, ["0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", "0x100000000000000000000000000000000"])? == "340282366920938463463374607431768211456\n"
   assert seq_out(ctx, ["0x1p-1", "2"])? == "0.5\n1.5\n"
   assert seq_out(ctx, ["0xffff.4p-4", "4096"])? == "4095.95\n"
   assert seq_out(ctx, ["  0xee.", "  0xef."])? == "238\n239\n"
@@ -228,4 +235,13 @@ test test_seq_help_and_version { |ctx|
   let version = seq_run(ctx, ["--version"])?
   assert version.status == 0
   assert version.stdout.starts_with("seq")
+}
+
+test test_seq_precision_overflow_matches_gnu { |ctx|
+  for format in ["%.18446744073709551615e", "%.9999999999999999999a"] {
+    let result = seq_run(ctx, ["-f", format, "1"])?
+    assert result.status == 1
+    assert result.stdout == ""
+    assert result.stderr == "seq: write error: Value too large for defined data type\n"
+  }
 }
