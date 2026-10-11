@@ -79,3 +79,37 @@ test nohup_full_advisory_output_prevents_command_execution { |ctx|
     assert fp"{root}/nohup.out".read_text()? == ""
   }
 }
+
+test nohup_launch_diagnostic_uses_original_error_terminal { |ctx|
+  let pty = unix.open_pty()?
+  defer unix.close_fd(pty.master)
+  defer unix.close_fd(pty.replica)
+  let root = test.temp_dir(ctx, name: "nohup-launch-error")?
+  let out = fp"{root}/stdout"
+  let script = fp"{ctx.core_dir}/nohup.xsh"
+  let invalid_interpreter = fp"{root}/invalid-interpreter"
+  invalid_interpreter.write("#!/nonexistent/xsh-interpreter\n")?
+  invalid_interpreter.chmod(0o700)?
+  for command in [p"/nonexistent/xsh-command", invalid_interpreter] {
+    let plan = process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin, script, command], root,
+      {LC_ALL: "C"}, b"", out, fp"{pty.name}", timeout: 5s)
+    assert process.run(plan)?.shell_code()? == 127
+    assert out.read_text()? == ""
+    assert unix.read_fd(pty.master, 8192)?.utf8()?.replace("\r\n", with: "\n") ==
+      f"nohup: redirecting standard error to standard output\nnohup: failed to run command '{command}': No such file or directory\n"
+  }
+}
+
+test nohup_new_output_permissions_ignore_umask { |ctx|
+  let pty = unix.open_pty()?
+  defer unix.close_fd(pty.master)
+  defer unix.close_fd(pty.replica)
+  let root = test.temp_dir(ctx, name: "nohup-mode")?
+  let script = fp"{ctx.core_dir}/nohup.xsh"
+  let plan = process.command_argv(p"/bin/sh",
+    [p"sh", p"-c", p"umask 600; exec \"$@\"", p"mask", ctx.xsh_bin, script, p"true"], root,
+    {LC_ALL: "C"}, b"", fp"{pty.name}", fp"{root}/stderr", timeout: 5s)
+  assert process.run(plan)?.shell_code()? == 0
+  assert fs.stat(fp"{root}/nohup.out")?.mode % 4096 == 0o600
+}
