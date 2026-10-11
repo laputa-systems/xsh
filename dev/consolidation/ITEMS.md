@@ -36,12 +36,12 @@ Resumed bounded slices have separate worktrees and disjoint shared-file hunks:
 | W7 deep commitment repair | shared scope/block ownership predicates and retained generated counterexamples | +320 lexical / 2,400, expanded interim allowance; existing language stays unchanged |
 | W1 stage authority | semantic enum, codec rows, tags and coverage-tool stage listing | net <= 0 / 1,500 |
 | R4 captured stream resources | creation registration and borrowed producer-frame capture transfer | +240 lexical / 1,800, interim; sweep removal follows lifecycle proof |
-| W6 complete rule table | shared checked facts, scope facts and all declaration/dispatch hooks | +650 lexical / 3,500 interim; final net <= 0 remains required |
+| W6 complete rule table | shared checked facts, scope facts and all declaration/dispatch hooks; remove duplicated enabled-state authority | +1,200 lexical / 4,200 interim; final net <= 0 remains required |
 | W2 frame strategy and first apply cohort | schema strategy, leaf/Field/Index frames, strict hidden forcing policy | +200 / 1,800, interim; legacy routes must ultimately disappear |
 | W2 typed continuations | active Int/Bool frame continuations and typed statement scheduling | +350 lexical / 2,500 interim; reader acceptance waits baseline coverage |
 | W1 borrowed pattern views | all 18 rows, aggregate payload bridges and store identity checks | +200 lexical / 1,200 interim; runtime consumers remain separate |
 | W9 borrowed workspace entries | immutable entry ranges, view-aware consumers and lint workers | +180 lexical / 2,000 interim; final W9 reduction required |
-| W9 full module records | session-owned loader/cache, dependency-first local checking and complete fact assembly | +450 lexical / 3,500 interim; final W9 reduction required |
+| W9 full module records | session-owned loader/cache, dependency-first local checking and complete fact assembly | +850 lexical / 3,500 interim; final W9 reduction required |
 | W5 remaining semantic policies | explicit declaration, resource, scope and constant boundaries | +300 lexical / 1,800 interim |
 | W5 remaining lint policies | explicit core and sequence boundaries | +250 lexical / 1,400 interim, separate from rule-table scope |
 | W3 shared storage conversions | canonical forward/inverse mappings with strict caller-specific guards | +150 lexical / 1,200 interim; delete replaced mapping bodies |

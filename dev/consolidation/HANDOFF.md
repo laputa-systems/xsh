@@ -2,6 +2,28 @@
 
 ## Current integration checkpoint — 2026-10-11, `65594365`
 
+Follow-up checkpoint `ffabb4c7`: the joint `65594365` build passes in the
+pinned native environment. Its frozen binaries and source manifest are in
+`.work/consolidation/restart/joint-6559-bin` and `joint-6559-source.json`.
+Focused combined native gates pass 15 pattern conditionals, six module-command
+contracts and 16 test declarations. The initial invocation incorrectly passed
+multiple filters; its rejection is preserved, and the corrected sequential
+invocation ran all 37 cases. Borrowed pattern views and bridge fixes are now
+integrated (`602ccd51`, `f7df0fe8`); the rebuilt root static harness passes
+five actual schema/store/corruption cases. Linux module allowances are removed
+in `45e70000`; this warning-only change has Linux compiler evidence and no
+claim of non-Linux validation. `ffabb4c7` removes temporary child vectors
+from annotation linting, with 60 focused lane tests passing.
+
+Baseline coverage is through group 400, 4,400/6,122 outcomes. Group 385 has
+three instrumented parallel-map timeout failures with valid profiles; those
+failures are retained. Existing profile gaps remain groups 30 and 181.
+The full W9 driver needs a real owning multi-entry session and complete
+module output projection; earlier source-aware plumbing was not such a
+session. Necessary temporary budgets are expanded in ITEMS for that driver
+and the full lint table/enabled-state consolidation, without relaxing final
+source reduction or structural acceptance.
+
 The owner’s unattended completion instruction remains active. All subagents
 use Luna xhigh. The historical checkpoints below are retained; they are not
 the current branch state.
