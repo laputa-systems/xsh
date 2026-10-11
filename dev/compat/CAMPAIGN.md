@@ -1,5 +1,89 @@
 # XSH Core Compatibility Campaign
 
+## Handoff to Codex (2026-10-11)
+
+Read this section first. The expanded campaign is closed (next section); what
+remains is the native port and the harness retirement ("Planned: native port and
+harness retirement" below). The owner stopped the Claude Code session at this
+point and asked for a Codex session to continue.
+
+**Model policy.** In a Codex session every subagent uses `gpt-6-luna` at
+`xhigh`, set explicitly on each spawn (`model: "gpt-6-luna"`,
+`reasoning_effort: "xhigh"`); no other model or effort. `LANES.md` has the
+brief template and ownership rules, which apply unchanged. The lane tooling is
+agent-neutral Python: `.claude/skills/xsh-compat-campaign/scripts/lane.py`
+(`new`, `gate`, `drop`, `plan`); `dev/compat/port/lanes.py` generates port lanes.
+
+**Repository state.** `master` at the commit that adds this section is clean and
+tested as described below. Tag `compat-harness-freeze` marks the closing commit
+that still contains the harness. Nothing has been pushed (never push). Do not
+run formatters or autofixers.
+
+**Not verified on the final tree.** The full native suite in the image was
+interrupted. Run it first: `docker run ... xsh-test xsht test -j 3` as UID 1000
+with `--tmpfs /tmp:rw,exec,nosuid,mode=1777` (`dev/compat/docker-xsht.sh` adds
+the tmpfs; the recorded find corpus depends on tmpfs directory sizes). Fix any
+failure before porting. Also re-run `cargo dev docs check` and the three ratchets
+(`check_exclusions.py`, `check_kernel_reads.py`, `check_ignored_options.py`).
+
+**Leftovers.** Worktrees under `../xsh-claude-lanes/`: `fix-diff` and
+`kernel-reads` are merged and can be dropped with `lane.py drop`; the five
+`port-uutils-*` worktrees hold interrupted, uncommitted pilot work (arch, cat,
+tr in three chunks) and can be dropped and regenerated with
+`dev/compat/port/lanes.py`. Docker holds the `xsh-test` and `xsh-oracle`
+images and the `xsh-uutils-target` and `xsh-cargo-registry` volumes; the Docker
+daemon was started with `doas rc-service docker start`.
+
+**Next work, in order.**
+1. Finish the pilot: regenerate the arch, cat and tr lanes, review the
+   transcribed files against `core/tests/support/uu.xsh` conventions, and extend
+   the helper (add what the lanes request; lanes must not edit it) before fanning
+   out.
+2. Fan out uutils transcription: `python3 dev/compat/port/lanes.py list` shows
+   the remaining utilities; `lanes.py uutils UTIL...` creates chunked lanes (80
+   tests each). 5,653 uutils tests are frozen in `dev/compat/port/freeze.json`,
+   plus 514 GNU and 638 BusyBox tests that have no lane generator yet (extend
+   `lanes.py`; GNU tests are shell and Perl scripts under
+   `../ref/gnu-coreutils-9.12/tests`, BusyBox tests are `testsuite/*.tests`).
+   Track progress with `python3 dev/compat/port/check_port.py`.
+3. Validate: each ported file must pass in the image, and where a real
+   reference tool exists the ported expectations should hold against it
+   (`dev/compat/oracle.sh`).
+4. Retire: resolve the couplings listed in the plan (`test-compat-stage.xsh`
+   depends on `dev/compat/stage.py`; the three repository ratchets move to
+   `xsht` checks; `docs/TESTING.md`, the parity manifest and generated docs name
+   the harness), tag the last harness commit `compat-harness-final`, then delete
+   `dev/compat` and its results. GNU and BusyBox ports wait on the owner's
+   licensing decision recorded in the plan (uutils is MIT; GNU and BusyBox tests
+   are GPL: write behavioral tests with origin ids, never copy script text).
+
+**Rules that held throughout** (details in `LANES.md` and the earlier sections):
+upstream tests are read-only and never special-cased; GNU behavior and wording
+win over uutils and BusyBox for GNU applets, and BusyBox is the contract for
+non-coreutils applets; an exclusion is the only way a test stops counting and
+must cite evidence (the throwaway GNU container); XSH first, Rust only for the
+smallest reusable syscall, ioctl, netlink or byte boundary; report contract
+changes; keep every probe in a `mktemp -d` directory and never under the home
+directory; never run `docker kill` on all containers or `pkill -f` on a pattern
+that matches your own command line; never `chown -R` or remove trees you did not
+create.
+
+**Pitfalls found.**
+- git does not keep empty directories: recorded corpora that depend on one must
+  list it (`core/tests/test-patch.xsh` recreates them from the manifest).
+- Image tests need a tmpfs `/tmp`; `df`/`du` tests need a scratch directory on a
+  real filesystem when run through the uutils runner (`.work/...`, not `/tmp`).
+- The BusyBox runner needs `UUTILS_SUITE_LOCK` pointing at a writable file and a
+  non-root-owned `.work/tmp/busybox`.
+- XSH reserves `run`, `env`, `wait`, `path`, `group`, `user`, `when` as names;
+  exported declarations need `##` doc comments.
+- A pre-existing environment fact: `logname` and the `sort` locale tests cannot
+  pass on musl without a login session or glibc locale data.
+
+**Open decisions for the owner:** none blocking. Contract changes of this
+session are listed in the next section; the three strace-without-`-f` tests are
+excluded under the `thread-model` category.
+
 ## Handoff (2026-10-11): expanded campaign closed
 
 State: all 125 commands of the expanded Linux surface are implemented (26 were
@@ -156,7 +240,8 @@ Rules:
 
 Standing instruction (owner, 2026-10-10): when the expanded-campaign gates close,
 continue automatically into this port and the harness retirement without waiting
-for another request. Spawn lanes on Haiku 5.5 at high effort.
+for another request. Claude Code sessions spawn lanes on Haiku 5.5 at high
+effort; a Codex session uses `gpt-6-luna` at `xhigh` (see `LANES.md`).
 
 Order: freeze commit and manifest generator; one Haiku lane per utility
 (`core/tests/test-U.xsh`, gate = every mapped ID present and passing); GNU and
