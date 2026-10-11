@@ -180,6 +180,19 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
   var failed = false
   let path_names: List[Bytes] = collect { for path_value in paths { yield argument_bytes(path_value, prepared.raw) } }
   for name in path_names {
+    if name == b"-" {
+      # Validate the standard descriptor before using its filesystem alias;
+      # runtime reservations for closed streams are not timestamp targets.
+      match unix.duplicate_fd(1) {
+      Ok(saved) => unix.close_fd(saved)?
+      Err(failure) => {
+        continue when opts.no_create
+        gnu.error(f"setting times of {gnu.quote_bytes(name)}: {gnu.strerror(failure)}")
+        failed = true
+        continue
+      }
+      }
+    }
     let target = if name == b"-" { p"/dev/stdout" } else { Path.parse_bytes(name)? }
     # Try timestamps before opening: directories and unwritable owned files
     # can be touched without obtaining a writable descriptor.

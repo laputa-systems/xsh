@@ -540,6 +540,7 @@ fn exec_redirections(
             input = Some(file);
         }
     }
+    crate::runtime::process::inherit_standard_streams(command, 7, &redirections);
     apply_redirections(command, &redirections).map_err(map_error)?;
     drop(input);
     Ok(())
@@ -1808,6 +1809,8 @@ fn poll_fd_native(
 
 fn raw_fd_arg(fd: i64, kind: &str, span: Span) -> Result<libc::c_int, RuntimeError> {
     if (0..=libc::c_int::MAX as i64).contains(&fd) {
+        crate::startup_stdio::check(fd as libc::c_int)
+            .map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
         Ok(fd as libc::c_int)
     } else {
         Err(RuntimeError::new(kind, "fd must be non-negative").with_span(span))

@@ -46,6 +46,7 @@ fn descriptor(fd: i64, kind: &str, span: Span) -> Result<libc::c_int, RuntimeErr
 fn duplicate(source: libc::c_int, target: libc::c_int, kind: &str, span: Span) -> Result<(), RuntimeError> {
     // SAFETY: both numbers are descriptors this process addresses by value;
     // the kernel rejects one that is not open.
+    crate::startup_stdio::check(source).map_err(|error| host_error(kind, error, span))?;
     let source_fd = unsafe { BorrowedFd::borrow_raw(source) };
     if source != target {
         // dup2 takes the replaced descriptor as an owner so that it can be
@@ -56,12 +57,15 @@ fn duplicate(source: libc::c_int, target: libc::c_int, kind: &str, span: Span) -
         let duplicated = rio::dup2(source_fd, &mut replaced);
         let _ = replaced.into_raw_fd();
         duplicated.map_err(|error| host_error(kind, io::Error::from(error), span))?;
+        crate::startup_stdio::replaced(target);
         return Ok(());
     }
     // dup2 onto itself leaves the close-on-exec flag alone, so it is cleared.
     let cleared = rio::fcntl_getfd(source_fd)
         .and_then(|flags| rio::fcntl_setfd(source_fd, flags - rio::FdFlags::CLOEXEC));
-    cleared.map_err(|error| host_error(kind, io::Error::from(error), span))
+    cleared.map_err(|error| host_error(kind, io::Error::from(error), span))?;
+    crate::startup_stdio::replaced(target);
+    Ok(())
 }
 
 fn redirect_fd(args: &Args<'_>) -> Result<Value, RuntimeError> {
@@ -132,6 +136,7 @@ fn duplicate_fd(args: &Args<'_>) -> Result<Value, RuntimeError> {
     let min_fd = descriptor(args.int_or(1, 3)?, kind, span)?;
     // SAFETY: the kernel validates the borrowed descriptor; ownership of the
     // new close-on-exec descriptor passes to the script.
+    crate::startup_stdio::check(source).map_err(|error| host_error(kind, error, span))?;
     let source = unsafe { BorrowedFd::borrow_raw(source) };
     let saved = rio::fcntl_dupfd_cloexec(source, min_fd)
         .map_err(|error| host_error(kind, io::Error::from(error), span))?;

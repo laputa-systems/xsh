@@ -8224,23 +8224,28 @@ fn restore_parent_death_signal(_signal: libc::c_int) {}
 fn run_eval<R: Send>(f: impl FnOnce() -> R + Send) -> R {
     const EVAL_STACK_SIZE: usize = 12 * 1024 * 1024;
     let parent_death_signal = inherited_parent_death_signal();
+    let work = std::sync::Mutex::new(Some(f));
+    let execute = || {
+        let f = work.lock().expect("evaluation work lock").take()
+            .expect("evaluation work runs once");
+        restore_parent_death_signal(parent_death_signal);
+        crate::mem_track::begin_stage();
+        let result = f();
+        crate::mem_track::record_eval_traffic(crate::mem_track::end_stage());
+        result
+    };
     std::thread::scope(|scope| {
-        std::thread::Builder::new()
+        match std::thread::Builder::new()
             .stack_size(debug_test_eval_stack_size(EVAL_STACK_SIZE))
-            .spawn_scoped(scope, || {
-                restore_parent_death_signal(parent_death_signal);
-                // The script's execution happens on this thread, so its
-                // allocation traffic is measured here; the diagnostics report
-                // reads it through `mem_track`. Both calls are inert unless the
-                // process turned allocation counting on.
-                crate::mem_track::begin_stage();
-                let result = f();
-                crate::mem_track::record_eval_traffic(crate::mem_track::end_stage());
-                result
-            })
-            .expect("spawn evaluation worker thread")
-            .join()
-            .unwrap_or_else(|payload| std::panic::resume_unwind(payload))
+            .spawn_scoped(scope, &execute)
+        {
+            Ok(worker) => worker.join()
+                .unwrap_or_else(|payload| std::panic::resume_unwind(payload)),
+            // A process limit may forbid creating a thread while still allowing
+            // this process to execute its script and replace itself with exec.
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => execute(),
+            Err(error) => panic!("spawn evaluation worker thread: {error}"),
+        }
     })
 }
 

@@ -4100,6 +4100,8 @@ impl Evaluator {
         operation: &str,
         span: Span,
     ) -> Result<usize, RuntimeError> {
+        crate::startup_stdio::check(0)
+            .map_err(|error| RuntimeError::host(operation, &error).with_span(span))?;
         let stdin = rustix::stdio::stdin();
         let timeout = revent::Timespec::try_from(WAIT_POLL).expect("WAIT_POLL fits Timespec");
         loop {
@@ -4219,6 +4221,8 @@ impl Evaluator {
             return Ok(());
         }
         let bytes = std::mem::take(&mut self.stdout);
+        crate::startup_stdio::check(1)
+            .map_err(|error| RuntimeError::host("io-flush-stdout", &error).with_span(span))?;
         let mut offset = 0;
         while offset < bytes.len() {
             // A raw write, not `std::io::stdout`, which reports a closed
@@ -4249,6 +4253,8 @@ impl Evaluator {
             return Ok(());
         }
         let bytes = std::mem::take(&mut self.stderr);
+        crate::startup_stdio::check(2)
+            .map_err(|error| RuntimeError::host("io-flush-stderr", &error).with_span(span))?;
         let mut offset = 0;
         while offset < bytes.len() {
             match rustix::io::write(rustix::stdio::stderr(), &bytes[offset..]) {
@@ -6220,6 +6226,9 @@ impl Evaluator {
                 lowered_runtime_result(hash_module::named_digest_file(&algorithm, length, &self.host_path(&path), span).map(Value::digest), span)?
             }
             RuntimeOp::HashDigestStdin if (1..=2).contains(&values.len()) => {
+                if let Err(error) = crate::startup_stdio::check(0) {
+                    return Ok(lowered_result_err_value(RuntimeError::host("hash-digest-stdin", &error).with_span(span)));
+                }
                 let algorithm = lowered_str_arg_owned(values.get(0).cloned(), "", "hash.digest_stdin", span)?;
                 let length = lowered_int_arg_or(values.get(1).cloned(), 0, "hash.digest_stdin", span)?;
                 lowered_runtime_result(hash_module::named_digest_reader(&algorithm, length, &mut std::io::stdin().lock(), span).map(Value::digest), span)?
@@ -6230,6 +6239,9 @@ impl Evaluator {
                 lowered_runtime_result(hash_module::checksum_file(&algorithm, &self.host_path(&path), span), span)?
             }
             RuntimeOp::HashChecksumStdin if values.len() == 1 => {
+                if let Err(error) = crate::startup_stdio::check(0) {
+                    return Ok(lowered_result_err_value(RuntimeError::host("hash-checksum-stdin", &error).with_span(span)));
+                }
                 let algorithm = lowered_str_arg_owned(values.get(0).cloned(), "", "hash.checksum_stdin", span)?;
                 lowered_runtime_result(hash_module::checksum_reader(&algorithm, &mut std::io::stdin().lock(), span), span)?
             }

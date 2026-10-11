@@ -4541,6 +4541,11 @@ Contracts worth knowing without consulting the reference:
   also names every socket, option, netlink, and ioctl number. Interface
   configuration needs the kernel's usual capability; nothing in the runtime
   grants it.
+- Standard descriptors absent when the process starts remain logically closed:
+  stdin reads and descriptor operations fail with `EBADF`, and buffered output
+  reports `EBADF` when flushed. Empty output does not require an open stream.
+  Child commands inherit that absence unless an explicit redirection replaces
+  the stream. `unix.redirect_fd` and `unix.dup_fd` can reopen a standard stream.
 - `io.flush_stdout()` writes the buffered standard output to the host and
   fails with the write's errno (`EPIPE`, `ENOSPC`); without it, output leaves
   the process at exit and its write errors are not visible. Captured output is

@@ -558,3 +558,12 @@ Its session policy is part of the language reference.
 A new host integration names its owner, checkpoint behavior, cleanup
 responsibility, signal interaction, status/error shape, and trace evidence
 before adding API surface.
+
+The startup C constructor records missing standard descriptors before Rust
+reserves them. `startup_stdio` retains those reservations to prevent unrelated
+opens from acquiring standard descriptor numbers, while standard I/O and numeric
+descriptor APIs report the original absence. Process setup removes reservations
+from inherited child streams before applying ordered child redirections.
+Evaluation normally uses its sized worker stack; if the kernel rejects thread
+creation with `EAGAIN`, the initial evaluation runs on the calling thread and
+uses that thread's existing stack limit. Other worker startup errors remain fatal.

@@ -102,8 +102,13 @@ fn build_long_double(root: &Path) {
     let mut flags: Vec<String> = c_build_words(&setting("CFLAGS").unwrap_or_default());
     flags.extend(["-std=c11".into(), "-O2".into(), "-fPIC".into(), "-c".into(),
         root.join("src/modules/numeric/long_double.c").display().to_string(), "-o".into(), out.join("long_double.o").display().to_string()]);
-    run(compiler, flags);
-    run(archiver, vec!["crs".into(), out.join("libxsh_numeric.a").display().to_string(), out.join("long_double.o").display().to_string()]);
+    run(compiler.clone(), flags);
+    let mut startup_flags = c_build_words(&setting("CFLAGS").unwrap_or_default());
+    startup_flags.extend(["-std=c11".into(), "-O2".into(), "-fPIC".into(), "-c".into(),
+        root.join("src/startup_stdio.c").display().to_string(), "-o".into(), out.join("startup_stdio.o").display().to_string()]);
+    run(compiler, startup_flags);
+    println!("cargo:rerun-if-changed=src/startup_stdio.c");
+    run(archiver, vec!["crs".into(), out.join("libxsh_numeric.a").display().to_string(), out.join("long_double.o").display().to_string(), out.join("startup_stdio.o").display().to_string()]);
     println!("cargo:rerun-if-changed=src/modules/numeric/long_double.c");
     println!("cargo:rustc-link-search=native={}", out.display());
     println!("cargo:rustc-link-lib=static=xsh_numeric");
