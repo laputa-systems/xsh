@@ -142,7 +142,6 @@ proc preserve(source: Path, target: Path, opts: Options, follow: Bool, source_me
 # instant of existence; opening its parent pins the kernel-relative creation.
 proc mkdir_copy(target: Path, source_mode: Int, opts: Options) {
   let parent = fs.open_root(target.parent().resolve()?)?
-  defer parent.close()
   # Without mode preservation the default mode is narrowed by the umask and the
   # parent's setgid bit is inherited, as mkdir(1) does. Callers must not chmod
   # such a directory afterwards, because that would drop the inherited bit.

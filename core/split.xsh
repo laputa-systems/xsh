@@ -826,7 +826,6 @@ proc feed_filter_record(
 
 proc filter_round_robin_stdin(command: Str, naming: Naming, count: Int, sep: Int, elide: Bool, verbose: Bool) [fs, process, env, error, io] {
   let scratch = fs.tempdir()?
-  defer scratch.close()
   let root = scratch.host_path()?
   var pipes: List[FilterPipe?] = [null for _ in range(count)]
   defer { close_filter_pipes(pipes)? }
