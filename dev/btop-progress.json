@@ -5,8 +5,8 @@
     "tag": "v1.4.7",
     "commit": "6e39144aaf5a6bc01b9f795010b0914431067183"
   },
-  "gate": "G1",
-  "last_green_commit": "766d5ebf",
+  "gate": "G2",
+  "last_green_commit": "1cf0dafe",
   "audit": {
     "new_core_script": "New core/*.xsh applets are installed by the release script at dev/release.xsh:146-160; dev/tests/test-repository-contracts.xsh owns the required core script inventory and contract checks. No separate command registration is needed.",
     "launcher_argument_separator": "Use xsh SCRIPT -- ARGS for an applet and xsh -- SCRIPT ARGS for an explicit script; src/entrypoints/xsh.rs:90-120.",
@@ -143,18 +143,22 @@
     {
       "id": "g1.proc.sort_ties",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-model.xsh::test_btop_model_ranks_equal_process_rates_by_pid_and_tracks_lifetimes"
+      ],
+      "evidence": "Equal rates sort by ascending PID with stable output order."
     },
     {
       "id": "g1.proc.lifetime",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-model.xsh::test_btop_model_ranks_equal_process_rates_by_pid_and_tracks_lifetimes"
+      ],
+      "evidence": "Exiting, appearing, and same-PID/new-start process instances warm independently."
     },
     {
       "id": "g1.net.rates",
@@ -240,82 +244,103 @@
     {
       "id": "g1.screen.80x24",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-render.xsh::test_btop_g1_screen_places_all_panel_values_at_80_by_24"
+      ],
+      "evidence": "CPU, memory, network, and process values occupy their asserted positions at 80 by 24."
     },
     {
       "id": "g1.screen.120x40",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-render.xsh::test_btop_g1_screen_places_all_panel_values_at_120_by_40"
+      ],
+      "evidence": "CPU, memory, network, and process values occupy their asserted positions at 120 by 40."
     },
     {
       "id": "g1.screen.too_small",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-render.xsh::test_btop_g1_screen_reports_safe_minimum_dimensions"
+      ],
+      "evidence": "The renderer returns a safe minimum-size message below 80 by 24."
     },
     {
       "id": "g1.cli.reject_unknown",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-cli.xsh::test_btop_cli_rejects_unknown_options"
+      ],
+      "evidence": "The real applet exits with status 2 and an unrecognized-option diagnostic."
     },
     {
       "id": "g1.replay.deterministic",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-replay.xsh::test_btop_replay_is_deterministic_and_uses_the_shared_model"
+      ],
+      "evidence": "Repeated replay decoding and model reduction produce identical values from the frozen B3 raw fixture."
     },
     {
       "id": "g1.replay.no_live_fallback",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-replay.xsh::test_btop_replay_never_falls_back_to_missing_host_sources"
+      ],
+      "evidence": "Removing a frame source leaves it absent in the model instead of consulting the host."
     },
     {
       "id": "g1.replay.headless_no_sleep",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-cli.xsh::test_btop_headless_replay_syscall_trace_has_no_child_or_sleep"
+      ],
+      "evidence": "The real headless replay applet completes under syscall tracing without a child-process or sleep syscall."
     },
     {
       "id": "g1.pty.update_resize_quit",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "tests/core_compat_extra/pty.rs::btop_replay_updates_after_resize_and_quits_with_restored_terminal"
+      ],
+      "evidence": "The PTY observes the warming frame, a resized redraw, the second rate update, q exit, restored termios, SGR reset, and cursor visibility."
     },
     {
       "id": "g1.pty.ctrl_c",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "tests/core_compat_extra/pty.rs::btop_replay_ctrl_c_byte_exits_and_restores_terminal"
+      ],
+      "evidence": "The raw-mode PTY delivers Ctrl-C as a byte, exits successfully, and restores termios, SGR styling, and cursor visibility."
     },
     {
       "id": "g1.noexec",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-btop-cli.xsh::test_btop_live_source_syscall_trace_has_no_child_process",
+        "core/tests/test-btop-cli.xsh::test_btop_headless_replay_syscall_trace_has_no_child_or_sleep"
+      ],
+      "evidence": "Syscall traces of rooted live-source collection and the real headless replay applet contain no child-process execution; replay also has no sleep syscall."
     },
     {
       "id": "g1.regress.system_report",
@@ -331,10 +356,12 @@
     {
       "id": "g1.regress.top",
       "gate": "G1",
-      "implemented": false,
-      "status": "not_run",
-      "tests": [],
-      "evidence": ""
+      "implemented": true,
+      "status": "passed",
+      "tests": [
+        "core/tests/test-procps.xsh::test_procps_sampling_tools_render_bounded_samples"
+      ],
+      "evidence": "The existing batch top path and neighboring procps sampling tools still pass their bounded-sample regression."
     },
     {
       "id": "g2.term.cleanup",
@@ -1322,6 +1349,23 @@
         }
       ],
       "shared_meminfo_parser": "core/lib/sys_mem.xsh is the only standard /proc/meminfo parser; system-report consumes its counters, field states, and issues."
+    },
+    "g1_monitor": {
+      "host_release": true,
+      "native_monitor_tests": 24,
+      "tty_primitive_tests": 13,
+      "repository_contract_tests": 5,
+      "top_regression_tests": 1,
+      "pty_tests": 2,
+      "docs_check": "passed",
+      "logs": [
+        ".work/btop-campaign/g1-btop-tests.log",
+        ".work/btop-campaign/g1-tty-tests.log",
+        ".work/btop-campaign/g1-repository-contracts.log",
+        ".work/btop-campaign/g1-top-regression.log",
+        ".work/btop-campaign/g1-pty-build.log",
+        ".work/btop-campaign/g1-docs-check.log"
+      ]
     }
   },
   "defaults": [
@@ -1663,6 +1707,6 @@
     }
   ],
   "next": [
-    "G1: implement the shared btop model, rooted source adaptation, and deterministic raw-fixture replay, then the four-panel screen and CLI."
+    "G2: close every terminal-session path, starting with EOF, handled write failure, render/runtime failure, and partial initialization; keep input, source collection, and rendering independently testable."
   ]
 }
