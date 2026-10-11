@@ -554,6 +554,23 @@ struct OwnedStream {
     script: Option<std::sync::Weak<std::sync::Mutex<Box<dyn crate::runtime::value::ScriptStream>>>>,
 }
 
+#[derive(Default)]
+struct ResourceTransferWorklist {
+    resources: Vec<OwnedHostResource>,
+    streams: Vec<StreamTransfer>,
+}
+
+struct StreamTransfer {
+    owner: StreamOwner,
+    /// Retrying a lock-busy visit must traverse captures even after ownership moved.
+    revisit: bool,
+}
+
+struct PendingStreamCapture {
+    owner: StreamOwner,
+    target_scope: u64,
+}
+
 use net_job::LiveNetJob;
 
 #[derive(Clone, Debug, Default)]
@@ -1572,6 +1589,19 @@ fn assign_lowered_bytes_view(slot: &mut LoweredValue, bytes: &Arc<[u8]>, start: 
     }
 }
 
+pub(crate) struct RetainedLoweredValue<'a>(&'a LoweredValue);
+
+impl<'a> RetainedLoweredValue<'a> {
+    pub(in crate::runtime::eval) fn new(value: &'a LoweredValue) -> Self { Self(value) }
+    fn value(&self) -> &'a LoweredValue { self.0 }
+}
+
+pub(crate) enum RetainedValueRef<'a> {
+    Lowered(RetainedLoweredValue<'a>),
+    Runtime(&'a Value),
+    Stream(&'a StreamValue),
+}
+
 #[derive(Clone, Debug)]
 enum LoweredValue {
     // This private marker survives argument binding only until callee entry.
@@ -2375,6 +2405,8 @@ pub struct Evaluator {
     net_jobs: BTreeMap<u64, LiveNetJob>,
     next_stream_id: u64,
     owned_streams: BTreeMap<u64, OwnedStream>,
+    pending_stream_captures: Vec<PendingStreamCapture>,
+    pending_stream_capture_error: Option<RuntimeError>,
     net_job_reserved_response_bytes: u64,
     network_wait_depth: u32,
     /// Set on the worker of a parallel stage: the evaluator that started the
@@ -2686,6 +2718,8 @@ impl Evaluator {
             net_jobs: BTreeMap::new(),
             next_stream_id: 1,
             owned_streams: BTreeMap::new(),
+            pending_stream_captures: Vec::new(),
+            pending_stream_capture_error: None,
             net_job_reserved_response_bytes: 0,
             network_wait_depth: 0,
             stage_abandoned: None,
@@ -2925,6 +2959,8 @@ impl Evaluator {
             net_jobs: BTreeMap::new(),
             next_stream_id: 1,
             owned_streams: BTreeMap::new(),
+            pending_stream_captures: Vec::new(),
+            pending_stream_capture_error: None,
             net_job_reserved_response_bytes: 0,
             network_wait_depth: 0,
             stage_abandoned: None,
@@ -5437,7 +5473,12 @@ impl Evaluator {
     pub(super) fn exit_owned_host_scope(&mut self, scope_id: u64) -> Result<(), RuntimeError> {
         debug_assert_eq!(self.current_scope_id(), scope_id);
         let cleanup = self.release_owned_host_resources(scope_id);
-        if !self.signal_state.shutdown_force { self.release_owned_capabilities(scope_id); }
+        if !self.signal_state.shutdown_force
+            && self.pending_stream_captures.is_empty()
+            && self.pending_stream_capture_error.is_none()
+        {
+            self.release_owned_capabilities(scope_id);
+        }
         self.scope_ids.pop();
         self.owned_scope_parents.remove(&scope_id);
         cleanup
@@ -5577,7 +5618,9 @@ impl Evaluator {
                 first_error = Some(error);
             }
         }
-        for scope in scopes { self.release_owned_capabilities(scope); }
+        if self.pending_stream_captures.is_empty() && self.pending_stream_capture_error.is_none() {
+            for scope in scopes { self.release_owned_capabilities(scope); }
+        }
         first_error
     }
 
@@ -5590,11 +5633,18 @@ impl Evaluator {
             return primary;
         }
         let primary_failed = matches!(&primary, Err(_) | Ok(Flow::Propagate(_)));
+        if let Err(error) = self.flush_pending_stream_captures() {
+            return if primary_failed { primary } else { Err(error) };
+        }
         let primary = match (self.release_owned_streams(scope_id), primary) {
             (Ok(()), primary) => primary,
             (Err(_), primary) if primary_failed => primary,
             (Err(error), _) => Err(error),
         };
+        let primary_failed = matches!(&primary, Err(_) | Ok(Flow::Propagate(_)));
+        if let Err(error) = self.flush_pending_stream_captures() {
+            return if primary_failed { primary } else { Err(error) };
+        }
         self.cleanup_scope_process_handles(scope_id, primary)
     }
 
@@ -5627,20 +5677,6 @@ impl Evaluator {
         };
         self.forget_owned_resource(owner, kind);
         self.register_owned_resource(target, kind);
-    }
-
-    fn transfer_owned_stream(&mut self, stream: &StreamValue, target: u64) {
-        let Some(owner) = stream.owner() else { return; };
-        if !Arc::ptr_eq(&owner.evaluator, &self.resource_owner) { return; }
-        let Some(owned) = self.owned_streams.get(&owner.id) else { return; };
-        let owner_scope = owned.owner_scope;
-        if owner_scope == target || !self.scope_descends_from(owner_scope, target) { return; }
-        self.owned_streams
-            .get_mut(&owner.id)
-            .expect("live stream owner checked")
-            .owner_scope = target;
-        self.forget_owned_resource(owner_scope, ResourceKind::Activity);
-        self.register_owned_resource(target, ResourceKind::Activity);
     }
 
     pub(super) fn register_returned_stream(&mut self, stream: &mut StreamValue, span: Span) -> Result<(), RuntimeError> {
@@ -5709,9 +5745,171 @@ impl Evaluator {
         Ok(())
     }
 
-    fn transfer_owned_capability(&mut self, id: i64, target: u64) {
+    fn collect_lowered_resources(&self, value: &LoweredValue, worklist: &mut ResourceTransferWorklist) {
+        match value {
+            LoweredValue::ProcessHandle(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
+                worklist.resources.push(OwnedHostResource::Process(handle.id));
+            }
+            LoweredValue::NetJob(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
+                worklist.resources.push(OwnedHostResource::Net(handle.id));
+            }
+            LoweredValue::FsRoot(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
+                self.collect_capability(handle.id, worklist);
+            }
+            LoweredValue::FsLock(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
+                self.collect_capability(handle.id, worklist);
+            }
+            LoweredValue::StatsBlob(stats) => {
+                for value in stats.blobs.values() { self.collect_lowered_resources(value, worklist); }
+            }
+            LoweredValue::Stream(stream) => self.collect_stream_resources(stream, worklist),
+            LoweredValue::List(values) => {
+                for value in values { self.collect_lowered_resources(value, worklist); }
+            }
+            LoweredValue::SharedList(values) => {
+                for value in values.iter() { self.collect_lowered_resources(value, worklist); }
+            }
+            LoweredValue::Map(values) => {
+                for value in values.values() { self.collect_lowered_resources(value, worklist); }
+            }
+            LoweredValue::Record(fields) | LoweredValue::Module(fields) => {
+                for value in fields.values() { self.collect_lowered_resources(value, worklist); }
+            }
+            LoweredValue::RecordVec(fields) => {
+                for (_, value) in fields.iter() { self.collect_lowered_resources(value, worklist); }
+            }
+            LoweredValue::Tag(tag) => {
+                for value in &tag.fields { self.collect_lowered_resources(value, worklist); }
+            }
+            LoweredValue::ResultOk(value) => self.collect_lowered_resources(value, worklist),
+            LoweredValue::ResultErr(value) | LoweredValue::Error(value) => {
+                self.collect_runtime_resources(value, worklist);
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_runtime_resources(&self, value: &Value, worklist: &mut ResourceTransferWorklist) {
+        for value in value.resource_reachable_values() {
+            match value {
+                Value::ProcessHandle(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
+                    worklist.resources.push(OwnedHostResource::Process(handle.id));
+                }
+                Value::NetJob(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
+                    worklist.resources.push(OwnedHostResource::Net(handle.id));
+                }
+                Value::FsRoot(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
+                    self.collect_capability(handle.id, worklist);
+                }
+                Value::FsLock(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
+                    self.collect_capability(handle.id, worklist);
+                }
+                Value::Stream(stream) => self.collect_stream_resources(stream, worklist),
+                _ => {}
+            }
+        }
+    }
+
+    fn collect_capability(&self, id: i64, worklist: &mut ResourceTransferWorklist) {
         if let Some(index) = id.checked_sub(1).and_then(|id| usize::try_from(id).ok()) {
-            self.transfer_owned_host_resource(OwnedHostResource::Capability(index), target);
+            worklist.resources.push(OwnedHostResource::Capability(index));
+        }
+    }
+
+    fn collect_stream_resources(&self, stream: &StreamValue, worklist: &mut ResourceTransferWorklist) {
+        if let Some(owner) = stream.owner() {
+            if !Arc::ptr_eq(&owner.evaluator, &self.resource_owner)
+                || !self.owned_streams.contains_key(&owner.id)
+            {
+                return;
+            }
+            worklist.streams.push(StreamTransfer { owner: owner.clone(), revisit: false });
+        }
+        for item in &stream.items {
+            self.collect_runtime_resources(&item.value, worklist);
+        }
+    }
+
+    fn collect_retained_value(&self, value: crate::runtime::eval::RetainedValueRef<'_>, worklist: &mut ResourceTransferWorklist) {
+        match value {
+            RetainedValueRef::Lowered(value) => self.collect_lowered_resources(value.value(), worklist),
+            RetainedValueRef::Runtime(value) => self.collect_runtime_resources(value, worklist),
+            RetainedValueRef::Stream(value) => self.collect_stream_resources(value, worklist),
+        }
+    }
+
+    fn apply_resource_transfer_worklist(&mut self, mut worklist: ResourceTransferWorklist, target: u64) {
+        for resource in worklist.resources.drain(..) {
+            self.transfer_owned_host_resource(resource, target);
+        }
+        let mut expanded = FxHashSet::default();
+        while let Some(StreamTransfer { owner, revisit }) = worklist.streams.pop() {
+            if !Arc::ptr_eq(&owner.evaluator, &self.resource_owner) || expanded.contains(&owner.id) {
+                continue;
+            }
+            let Some(owner_scope) = self.owned_streams.get(&owner.id).map(|row| row.owner_scope) else {
+                continue;
+            };
+            let moves_outward = owner_scope != target && self.scope_descends_from(owner_scope, target);
+            // An ancestor stream keeps its producer scopes and captures until it moves outward.
+            if !moves_outward && !revisit {
+                continue;
+            }
+            expanded.insert(owner.id);
+            if moves_outward {
+                self.owned_streams.get_mut(&owner.id).expect("live stream owner checked").owner_scope = target;
+                self.forget_owned_resource(owner_scope, ResourceKind::Activity);
+                self.register_owned_resource(target, ResourceKind::Activity);
+            }
+            let Some(script) = self.owned_streams.get(&owner.id)
+                .and_then(|row| row.script.as_ref())
+                .and_then(crate::runtime::value::ScriptStreamState::upgrade)
+            else { continue; };
+            let mut retained = ResourceTransferWorklist::default();
+            let visit = script.try_visit_retained_values(&mut |value| {
+                self.collect_retained_value(value, &mut retained);
+            });
+            match visit {
+                Ok(crate::runtime::value::RetainedVisit::Visited) => {
+                    for resource in retained.resources.drain(..) {
+                        self.transfer_owned_host_resource(resource, target);
+                    }
+                    worklist.streams.extend(retained.streams);
+                }
+                Ok(crate::runtime::value::RetainedVisit::Busy) => {
+                    self.pending_stream_captures.push(PendingStreamCapture {
+                        owner,
+                        target_scope: target,
+                    });
+                }
+                Err(error) => {
+                    if self.pending_stream_capture_error.is_none() {
+                        self.pending_stream_capture_error = Some(error);
+                    }
+                }
+            }
+        }
+    }
+
+    pub(super) fn flush_pending_stream_captures(&mut self) -> Result<(), RuntimeError> {
+        if let Some(error) = &self.pending_stream_capture_error {
+            return Err(error.clone());
+        }
+        let pending = std::mem::take(&mut self.pending_stream_captures);
+        for transfer in pending {
+            let mut worklist = ResourceTransferWorklist::default();
+            worklist.streams.push(StreamTransfer { owner: transfer.owner, revisit: true });
+            self.apply_resource_transfer_worklist(worklist, transfer.target_scope);
+        }
+        if let Some(error) = &self.pending_stream_capture_error {
+            Err(error.clone())
+        } else if self.pending_stream_captures.is_empty() {
+            Ok(())
+        } else {
+            Err(RuntimeError::new(
+                "stream-capture-active",
+                "a producer is active while its captured resources are being transferred",
+            ))
         }
     }
 
@@ -5728,89 +5926,9 @@ impl Evaluator {
         if self.owned_scope_counts.is_empty() {
             return;
         }
-        match value {
-            LoweredValue::ProcessHandle(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
-                self.transfer_owned_host_resource(OwnedHostResource::Process(handle.id), target_scope);
-            }
-            LoweredValue::NetJob(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
-                self.transfer_owned_host_resource(OwnedHostResource::Net(handle.id), target_scope);
-            }
-            LoweredValue::FsRoot(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
-                self.transfer_owned_capability(handle.id, target_scope);
-            }
-            LoweredValue::FsLock(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
-                self.transfer_owned_capability(handle.id, target_scope);
-            }
-            LoweredValue::StatsBlob(stats) => {
-                for value in stats.blobs.values() {
-                    self.transfer_owned_host_resources_in_lowered_value(value, target_scope);
-                }
-            }
-            LoweredValue::Stream(stream) => {
-                self.transfer_owned_stream(stream, target_scope);
-                for item in &stream.items {
-                    self.transfer_owned_host_resources_in_value(&item.value, target_scope);
-                }
-            }
-            LoweredValue::List(values) => {
-                for value in values {
-                    self.transfer_owned_host_resources_in_lowered_value(
-                        value,
-                        target_scope,
-                    );
-                }
-            }
-            LoweredValue::SharedList(values) => {
-                for value in values.iter() {
-                    self.transfer_owned_host_resources_in_lowered_value(
-                        value,
-                        target_scope,
-                    );
-                }
-            }
-            LoweredValue::Map(values) => {
-                for value in values.values() {
-                    self.transfer_owned_host_resources_in_lowered_value(
-                        value,
-                        target_scope,
-                    );
-                }
-            }
-            LoweredValue::Record(fields) | LoweredValue::Module(fields) => {
-                for value in fields.values() {
-                    self.transfer_owned_host_resources_in_lowered_value(
-                        value,
-                        target_scope,
-                    );
-                }
-            }
-            LoweredValue::RecordVec(fields) => {
-                for (_, value) in fields.iter() {
-                    self.transfer_owned_host_resources_in_lowered_value(
-                        value,
-                        target_scope,
-                    );
-                }
-            }
-            LoweredValue::Tag(tag) => {
-                for value in &tag.fields {
-                    self.transfer_owned_host_resources_in_lowered_value(
-                        value,
-                        target_scope,
-                    );
-                }
-            }
-            LoweredValue::ResultOk(value) => {
-                self.transfer_owned_host_resources_in_lowered_value(
-                    value,
-                    target_scope,
-                );
-            }
-            LoweredValue::ResultErr(value) | LoweredValue::Error(value) => {
-                self.transfer_owned_host_resources_in_value(value, target_scope);
-            }
-            _ => {}
-        }
+        let mut worklist = ResourceTransferWorklist::default();
+        self.collect_lowered_resources(value, &mut worklist);
+        self.apply_resource_transfer_worklist(worklist, target_scope);
     }
 
     fn transfer_owned_host_resources_in_value(
@@ -5822,6 +5940,16 @@ impl Evaluator {
             value.resource_reachable_values(),
             target_scope,
         );
+    }
+
+    #[cfg(test)]
+    fn transfer_owned_host_resources_in_stream(&mut self, stream: &StreamValue, target_scope: u64) {
+        if self.owned_scope_counts.is_empty() {
+            return;
+        }
+        let mut worklist = ResourceTransferWorklist::default();
+        self.collect_stream_resources(stream, &mut worklist);
+        self.apply_resource_transfer_worklist(worklist, target_scope);
     }
 
     fn transfer_owned_host_resources_in_runtime_error(
@@ -5843,24 +5971,9 @@ impl Evaluator {
         if self.owned_scope_counts.is_empty() {
             return;
         }
-        for value in values {
-            match value {
-                Value::ProcessHandle(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
-                    self.transfer_owned_host_resource(OwnedHostResource::Process(handle.id), target_scope);
-                }
-                Value::NetJob(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
-                    self.transfer_owned_host_resource(OwnedHostResource::Net(handle.id), target_scope);
-                }
-                Value::FsRoot(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
-                    self.transfer_owned_capability(handle.id, target_scope);
-                }
-                Value::FsLock(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
-                    self.transfer_owned_capability(handle.id, target_scope);
-                }
-                Value::Stream(stream) => self.transfer_owned_stream(stream, target_scope),
-                _ => {}
-            }
-        }
+        let mut worklist = ResourceTransferWorklist::default();
+        for value in values { self.collect_runtime_resources(value, &mut worklist); }
+        self.apply_resource_transfer_worklist(worklist, target_scope);
     }
 
     fn cleanup_scope_process_handles(
@@ -7417,5 +7530,151 @@ mod frame_scheduler_marker_tests {
             force_frames_from_marker(Some(OsStr::new("enabled")))
         })
         .is_err());
+    }
+}
+
+#[cfg(test)]
+mod capture_transfer_tests {
+    use super::*;
+    use crate::runtime::value::{ScriptStream, ScriptStreamState, ScriptStreamStep};
+
+    struct RetainedStreamProducer {
+        retained: Option<StreamValue>,
+        self_stream: Option<Arc<std::sync::Mutex<Option<StreamValue>>>>,
+        transfer_target: Option<u64>,
+        expected_retained_scope: Option<u64>,
+        expected_pending: Option<usize>,
+    }
+
+    impl ScriptStream for RetainedStreamProducer {
+        fn finished(&self) -> bool { false }
+
+        fn poll(
+            &mut self,
+            evaluator: &mut Evaluator,
+            _span: Span,
+        ) -> Result<ScriptStreamStep, RuntimeError> {
+            if let (Some(self_stream), Some(target)) = (&self.self_stream, self.transfer_target) {
+                let stream = self_stream.lock().expect("test stream holder");
+                evaluator.transfer_owned_host_resources_in_stream(
+                    stream.as_ref().expect("test stream is registered"),
+                    target,
+                );
+                if let (Some(retained), Some(expected_scope)) =
+                    (&self.retained, self.expected_retained_scope)
+                {
+                    let id = retained.owner().expect("retained stream owner").id;
+                    assert_eq!(evaluator.owned_streams[&id].owner_scope, expected_scope);
+                }
+                if let Some(expected_pending) = self.expected_pending {
+                    assert_eq!(evaluator.pending_stream_captures.len(), expected_pending);
+                }
+            }
+            Ok(ScriptStreamStep::Yielded(Value::Unit))
+        }
+
+        fn validate_item(&self, _value: &Value, _span: Span) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn visit_retained_values(
+            &self,
+            visitor: &mut dyn for<'a> FnMut(RetainedValueRef<'a>),
+        ) {
+            if let Some(stream) = &self.retained {
+                visitor(RetainedValueRef::Stream(stream));
+            }
+            if let Some(self_stream) = &self.self_stream {
+                let stream = self_stream.lock().expect("test stream holder");
+                if let Some(stream) = stream.as_ref() {
+                    visitor(RetainedValueRef::Stream(stream));
+                }
+            }
+        }
+
+        fn delegated_finished(&mut self) {}
+
+        fn take_delegated(
+            &mut self,
+        ) -> (Option<ScriptStreamState>, Vec<u64>, Option<ScopedProducerContext>) {
+            (None, Vec::new(), None)
+        }
+
+        fn cancel(&mut self, _evaluator: &mut Evaluator, _span: Span) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn active_producer_capture_transfer_flushes_after_its_pull() {
+        let mut evaluator = Evaluator::new(Vec::new());
+        let root_scope = evaluator.current_scope_id();
+        let child_scope = evaluator.enter_owned_host_scope();
+
+        let inner_state = ScriptStreamState::new(RetainedStreamProducer {
+            retained: None,
+            self_stream: None,
+            transfer_target: None,
+            expected_retained_scope: None,
+            expected_pending: None,
+        });
+        let mut inner = StreamValue::from_script(inner_state);
+        evaluator.register_returned_stream(&mut inner, zero_span()).unwrap();
+        let inner_id = inner.owner().expect("registered stream owner").id;
+
+        let self_stream = Arc::new(std::sync::Mutex::new(None));
+        let outer_state = ScriptStreamState::new(RetainedStreamProducer {
+            retained: Some(inner),
+            self_stream: Some(Arc::clone(&self_stream)),
+            transfer_target: Some(root_scope),
+            expected_retained_scope: Some(child_scope),
+            expected_pending: Some(1),
+        });
+        let mut outer = StreamValue::from_script(outer_state.clone());
+        evaluator.register_returned_stream(&mut outer, zero_span()).unwrap();
+        let outer_id = outer.owner().expect("registered stream owner").id;
+        *self_stream.lock().expect("test stream holder") = Some(outer.clone());
+
+        assert_eq!(evaluator.stream_next(&mut outer, zero_span()).unwrap(), Some(Value::Unit));
+        assert_eq!(evaluator.owned_streams[&outer_id].owner_scope, root_scope);
+        assert!(evaluator.pending_stream_captures.is_empty());
+        assert_eq!(evaluator.owned_streams[&inner_id].owner_scope, root_scope);
+        *self_stream.lock().expect("test stream holder") = None;
+        evaluator.exit_owned_host_scope(child_scope).unwrap();
+    }
+
+    #[test]
+    fn active_ancestor_stream_capture_does_not_queue_a_revisit() {
+        let mut evaluator = Evaluator::new(Vec::new());
+        let root_scope = evaluator.current_scope_id();
+        let self_stream = Arc::new(std::sync::Mutex::new(None));
+        let outer_state = ScriptStreamState::new(RetainedStreamProducer {
+            retained: None,
+            self_stream: Some(Arc::clone(&self_stream)),
+            transfer_target: Some(root_scope),
+            expected_retained_scope: None,
+            expected_pending: Some(0),
+        });
+        let mut outer = StreamValue::from_script(outer_state);
+        evaluator.register_returned_stream(&mut outer, zero_span()).unwrap();
+
+        let child_scope = evaluator.enter_owned_host_scope();
+        let inner_state = ScriptStreamState::new(RetainedStreamProducer {
+            retained: Some(outer.clone()),
+            self_stream: None,
+            transfer_target: None,
+            expected_retained_scope: None,
+            expected_pending: None,
+        });
+        let mut inner = StreamValue::from_script(inner_state);
+        evaluator.register_returned_stream(&mut inner, zero_span()).unwrap();
+        let inner_id = inner.owner().expect("registered stream owner").id;
+        *self_stream.lock().expect("test stream holder") = Some(inner);
+
+        assert_eq!(evaluator.stream_next(&mut outer, zero_span()).unwrap(), Some(Value::Unit));
+        assert_eq!(evaluator.owned_streams[&inner_id].owner_scope, root_scope);
+        assert!(evaluator.pending_stream_captures.is_empty());
+        *self_stream.lock().expect("test stream holder") = None;
+        evaluator.exit_owned_host_scope(child_scope).unwrap();
     }
 }

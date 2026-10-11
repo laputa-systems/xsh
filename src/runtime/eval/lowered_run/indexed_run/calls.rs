@@ -464,8 +464,8 @@ impl Evaluator {
             .function_identity()
             .map_err(|error| indexed_error(error, call_span))?;
         let state = self.start_script_producer(function, kind, view, slots.to_vec(), call_span)?;
-        Ok(LoweredValue::Stream(Box::new(StreamValue::from_script(
-            state,
-        ))))
+        let mut stream = StreamValue::from_script(state);
+        self.register_returned_stream(&mut stream, call_span)?;
+        Ok(LoweredValue::Stream(Box::new(stream)))
     }
 }

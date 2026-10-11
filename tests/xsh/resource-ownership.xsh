@@ -267,6 +267,53 @@ test resource_root_return_block_break_and_borrow_survive {
   assert assigned.exists(p".")?
 }
 
+test resource_factory_returned_stream_keeps_its_captured_root { |ctx|
+  let output = test.run_script(ctx, r"""
+stream root_exists(root: FsRoot) [fs, error] -> Stream[Bool] {
+  yield root.exists(p".")?
+}
+proc make_root_stream() [fs, error] -> Result[Stream[Bool]] {
+  let root = fs.tempdir()?
+  defer { assert root.exists(p".")? }
+  return Ok(root_exists(root))
+}
+assert (make_root_stream()? |> collect()) == [true]
+""")?
+  assert output.status == 0, output.stderr
+}
+
+test resource_factory_returned_stream_keeps_its_captured_process_handle { |ctx|
+  let output = test.run_script(ctx, r"""
+stream child_is_live(child: ProcessHandle) [process] -> Stream[Bool] {
+  yield process.kill(child.pid, signal: "0") is Ok(_)
+}
+proc make_child_stream() [process, error] -> Result[Stream[Bool]] {
+  let child = spawn run sleep 30 ?
+  return Ok(child_is_live(child))
+}
+assert (make_child_stream()? |> collect()) == [true]
+""")?
+  assert output.status == 0, output.stderr
+}
+
+test resource_nested_producer_return_keeps_its_captured_root { |ctx|
+  let output = test.run_script(ctx, r"""
+stream root_exists(root: FsRoot) [fs, error] -> Stream[Bool] {
+  yield root.exists(p".")?
+}
+proc make_root_stream() [fs, error] -> Result[Stream[Bool]] {
+  let root = fs.tempdir()?
+  return Ok(root_exists(root))
+}
+stream nested_return() [fs, error] -> Stream[Bool] {
+  let inner = make_root_stream()?
+  yield @inner
+}
+assert (nested_return() |> collect()) == [true]
+""")?
+  assert output.status == 0, output.stderr
+}
+
 test resource_outer_assignment_moves_root_out_of_nested_scope {
   var escaped: FsRoot? = null
   {

@@ -1268,6 +1268,44 @@ impl ProducerFrameState {
 
     pub(super) fn owned_scope_id(&self) -> u64 { self.scope_id }
 
+    pub(super) fn visit_retained_values(
+        &self,
+        visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
+    ) {
+        for slot in &self.slots {
+            visitor(crate::runtime::eval::RetainedValueRef::Lowered(
+                crate::runtime::eval::RetainedLoweredValue::new(slot),
+            ));
+        }
+        for work in &self.work {
+            match work {
+                FrameWork::Value { value, .. } => match value {
+                    FrameValue::Value(value) | FrameValue::Break(value) => {
+                        visitor(crate::runtime::eval::RetainedValueRef::Lowered(
+                            crate::runtime::eval::RetainedLoweredValue::new(value),
+                        ));
+                    }
+                },
+                FrameWork::ForItems { items, .. } => {
+                    for value in items {
+                        visitor(crate::runtime::eval::RetainedValueRef::Lowered(
+                            crate::runtime::eval::RetainedLoweredValue::new(value),
+                        ));
+                    }
+                }
+                FrameWork::ForStream { stream, .. } => {
+                    visitor(crate::runtime::eval::RetainedValueRef::Stream(stream));
+                }
+                FrameWork::ForStrLines { text, .. } => {
+                    visitor(crate::runtime::eval::RetainedValueRef::Lowered(
+                        crate::runtime::eval::RetainedLoweredValue::new(text),
+                    ));
+                }
+                _ => {}
+            }
+        }
+    }
+
     /// Enters the body's call scope, so its slots belong to a live scope.
     pub(super) fn start(&mut self, scope_id: u64) {
         self.scope_id = scope_id;

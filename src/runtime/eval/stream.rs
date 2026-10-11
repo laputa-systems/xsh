@@ -37,10 +37,16 @@ impl Evaluator {
         span: Span,
     ) -> Result<Option<Value>, RuntimeError> {
         self.validate_stream_owner(stream, span)?;
-        if let Some(script) = stream.script() {
-            return self.pull_script_state(script.clone(), span);
+        let result = if let Some(script) = stream.script() {
+            self.pull_script_state(script.clone(), span)
+        } else {
+            stream.next_live(span)
+        };
+        match (result, self.flush_pending_stream_captures()) {
+            (Err(error), _) => Err(error),
+            (Ok(value), Ok(())) => Ok(value),
+            (Ok(_), Err(error)) => Err(error),
         }
-        stream.next_live(span)
     }
 
     /// Stops a script stream early, without draining it.
@@ -55,12 +61,17 @@ impl Evaluator {
         span: Span,
     ) -> Result<(), RuntimeError> {
         self.validate_stream_owner(stream, span)?;
-        if let Some(script) = stream.script() {
-            self.cancel_script_state(script.clone(), span)?;
+        let result = if let Some(script) = stream.script() {
+            self.cancel_script_state(script.clone(), span)
         } else if let Some(source) = stream.source.as_ref() {
-            source.cancel(span)?;
+            source.cancel(span)
+        } else {
+            Ok(())
+        };
+        match (result, self.flush_pending_stream_captures()) {
+            (Err(error), _) => Err(error),
+            (Ok(()), result) => result,
         }
-        Ok(())
     }
 
     /// Descend through delegation iteratively, retaining ancestor scope context

@@ -141,6 +141,39 @@ impl crate::runtime::value::ScriptStream for ScriptProducer {
         Ok(())
     }
 
+    fn visit_retained_values(
+        &self,
+        visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
+    ) {
+        if let Some(frame) = &self.frame {
+            frame.visit_retained_values(visitor);
+        }
+        if let Some(source) = &self.delegated {
+            match source {
+                DelegatedSource::List(DelegatedList::Owned(items)) => {
+                    for value in items.as_slice() {
+                        visitor(crate::runtime::eval::RetainedValueRef::Lowered(
+                            crate::runtime::eval::RetainedLoweredValue::new(value),
+                        ));
+                    }
+                }
+                DelegatedSource::List(DelegatedList::Shared { items, next }) => {
+                    for value in &items[*next..] {
+                        visitor(crate::runtime::eval::RetainedValueRef::Lowered(
+                            crate::runtime::eval::RetainedLoweredValue::new(value),
+                        ));
+                    }
+                }
+                DelegatedSource::Stream { value, prefix, .. } => {
+                    visitor(crate::runtime::eval::RetainedValueRef::Stream(value));
+                    for value in prefix {
+                        visitor(crate::runtime::eval::RetainedValueRef::Runtime(value));
+                    }
+                }
+            }
+        }
+    }
+
     fn delegated_finished(&mut self) {
         self.delegated = None;
     }
@@ -655,6 +688,11 @@ impl ProcessProducer {
 impl crate::runtime::value::ScriptStream for ProcessProducer {
     fn validate_item(&self, _value: &super::Value, _span: Span) -> Result<(), RuntimeError> {
         Ok(())
+    }
+    fn visit_retained_values(
+        &self,
+        _visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
+    ) {
     }
     fn finished(&self) -> bool {
         self.finished

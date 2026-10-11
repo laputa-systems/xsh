@@ -1245,6 +1245,12 @@ pub(crate) trait ScriptStream: Send {
     /// Validate one reached item before it crosses this producer's boundary.
     fn validate_item(&self, value: &Value, span: Span) -> Result<(), RuntimeError>;
 
+    /// Exposes values retained by a suspended producer without cloning them.
+    fn visit_retained_values(
+        &self,
+        visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
+    );
+
     /// Resume this frame after its delegated child has exhausted.
     fn delegated_finished(&mut self);
 
@@ -1272,6 +1278,11 @@ pub(crate) struct ScriptStreamState {
     producer: Arc<Mutex<Box<dyn ScriptStream>>>,
 }
 
+pub(crate) enum RetainedVisit {
+    Visited,
+    Busy,
+}
+
 impl ScriptStreamState {
     pub(crate) fn new(producer: impl ScriptStream + 'static) -> Self {
         Self {
@@ -1286,6 +1297,24 @@ impl ScriptStreamState {
         self.producer.lock().map_err(|_| {
             RuntimeError::new("stream-state", "stream producer state is poisoned").with_span(span)
         })
+    }
+
+    /// Reads a suspended producer only when no pull or cancellation owns it.
+    pub(crate) fn try_visit_retained_values(
+        &self,
+        visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
+    ) -> Result<RetainedVisit, RuntimeError> {
+        match self.producer.try_lock() {
+            Ok(producer) => {
+                producer.visit_retained_values(visitor);
+                Ok(RetainedVisit::Visited)
+            }
+            Err(std::sync::TryLockError::WouldBlock) => Ok(RetainedVisit::Busy),
+            Err(std::sync::TryLockError::Poisoned(_)) => Err(RuntimeError::new(
+                "stream-state",
+                "stream producer state is poisoned",
+            )),
+        }
     }
 
     pub(crate) fn identity(&self) -> usize {
