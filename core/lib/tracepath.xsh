@@ -270,7 +270,7 @@ proc probe(fd: Int, ttl: Int, start: Walk, setup: Setup, clock: icmp.Clock) [net
   read_answers(fd, ttl, walk, setup, clock)
 }
 
-proc open_probe_socket(v6: Bool) [process, error] -> Result[Int, Error] {
+proc open_probe_socket(v6: Bool) [process, net, error] -> Result[Int, Error] {
   let c = linux.net_constants()
   let fd = linux.socket(if v6 { c.AF_INET6 } else { c.AF_INET }, c.SOCK_DGRAM)?
   let level = if v6 { c.SOL_IPV6 } else { c.SOL_IP }

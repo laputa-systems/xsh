@@ -292,7 +292,7 @@ export pure parse_queued_error(data: Bytes, payload: Bytes) -> QueuedError? {
 
 ## Receive one datagram, reading the TTL or hop limit and the kernel receive
 ## timestamp from its ancillary data.
-export proc receive(fd: Int, flags: Int = 0, max_bytes: Int = 65600) [process, error] -> Result[Received, Error] {
+export proc receive(fd: Int, flags: Int = 0, max_bytes: Int = 65600) [process, net, error] -> Result[Received, Error] {
   let c = linux.net_constants()
   let got = linux.recvfrom(fd, max_bytes, flags)?
   var ttl: Int? = null
@@ -311,7 +311,7 @@ export proc receive(fd: Int, flags: Int = 0, max_bytes: Int = 65600) [process, e
 
 ## Take one entry off the socket's error queue, or null when it is empty.
 ## The datagram that caused the error is returned in `payload`.
-export proc read_error(fd: Int) [process, error] -> Result[QueuedError?, Error] {
+export proc read_error(fd: Int) [process, net, error] -> Result[QueuedError?, Error] {
   let c = linux.net_constants()
   let got = match linux.recvfrom(fd, 65600, c.MSG_ERRQUEUE.bit_or(c.MSG_DONTWAIT)) {
     Ok(value) => value
@@ -343,7 +343,7 @@ export proc read_error(fd: Int) [process, error] -> Result[QueuedError?, Error] 
 ## raw socket for processes with CAP_NET_RAW. `raw_only` skips the datagram
 ## socket, for callers that choose their own identifier. A failure carries the
 ## raw socket's errno, which is the one a privilege hint is about.
-export proc open_echo(family: Str, raw_only: Bool = false) [process, error] -> Result[EchoSocket, Error] {
+export proc open_echo(family: Str, raw_only: Bool = false) [process, net, error] -> Result[EchoSocket, Error] {
   let c = linux.net_constants()
   let domain = if family == "inet6" { c.AF_INET6 } else { c.AF_INET }
   let protocol = if family == "inet6" { c.IPPROTO_ICMPV6 } else { c.IPPROTO_ICMP }
@@ -381,7 +381,7 @@ export proc enable_ancillary(sock: EchoSocket) [process, error] -> Result[Unit, 
   Ok()
 }
 
-proc bind_clock(fd: Int) [process, error] -> Result[Clock, Error] {
+proc bind_clock(fd: Int) [process, net, error] -> Result[Clock, Error] {
   let c = linux.net_constants()
   linux.bind(fd, {family: "inet", address: "127.0.0.1", port: 0})
   linux.setsockopt_int(fd, c.SOL_SOCKET, c.SO_TIMESTAMPNS, 1)
@@ -392,7 +392,7 @@ proc bind_clock(fd: Int) [process, error] -> Result[Clock, Error] {
 ## Open the nanosecond clock. Loopback being unusable (a namespace with `lo`
 ## down) leaves the millisecond wall clock, which makes round-trip times
 ## coarse rather than wrong.
-export proc open_clock() [process, error] -> Result[Clock, Error] {
+export proc open_clock() [process, net, error] -> Result[Clock, Error] {
   let c = linux.net_constants()
   let coarse: Clock = {fd: -1, target: b""}
   guard let fd = linux.socket(c.AF_INET, c.SOCK_DGRAM) else { return Ok(coarse) }
@@ -409,21 +409,21 @@ export proc open_clock() [process, error] -> Result[Clock, Error] {
 ## when it is queued, so sending it immediately before a probe is the closest a
 ## script can come to the instant the probe leaves; `clock_collect` returns the
 ## stamp. A clock without a socket answers with the millisecond wall clock.
-export proc clock_mark(clock: Clock) [process, time, error] -> Result[Int, Error] {
+export proc clock_mark(clock: Clock) [process, net, time, error] -> Result[Int, Error] {
   if clock.fd < 0 { return Ok(time.now() * 1000000) }
   let _ = linux.sendto(clock.fd, b"x", clock.target)?
   Ok(-1)
 }
 
 ## The nanosecond wall-clock reading that `clock_mark` started.
-export proc clock_collect(clock: Clock, marked: Int) [process, time, error] -> Result[Int, Error] {
+export proc clock_collect(clock: Clock, marked: Int) [process, net, time, error] -> Result[Int, Error] {
   if clock.fd < 0 { return Ok(marked) }
   let got = receive(clock.fd, 0, 16)?
   Ok(got.stamp_ns ?? time.now() * 1000000)
 }
 
 ## The wall clock in nanoseconds now.
-export proc clock_ns(clock: Clock) [process, time, error] -> Result[Int, Error] {
+export proc clock_ns(clock: Clock) [process, net, time, error] -> Result[Int, Error] {
   let marked = clock_mark(clock)?
   clock_collect(clock, marked)
 }

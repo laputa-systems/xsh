@@ -381,7 +381,7 @@ proc report_error(failure: icmp.QueuedError, target: Target, names: Map[Str], sh
 # is a broadcast address (a connect without SO_BROADCAST is refused).
 type Route = {source: Str, broadcast: Bool}
 
-proc probe_route(target: Target, interface: Str?, requested: Str?) [process, error] -> Result[Route, Error] {
+proc probe_route(target: Target, interface: Str?, requested: Str?) [process, net, error] -> Result[Route, Error] {
   let c = linux.net_constants()
   let domain = if target.family == "inet6" { c.AF_INET6 } else { c.AF_INET }
   let fd = linux.socket(domain, c.SOCK_DGRAM)?
@@ -396,7 +396,7 @@ proc probe_route(target: Target, interface: Str?, requested: Str?) [process, err
   Ok({source: requested ?? linux.getsockname(fd)?.address, broadcast: false})
 }
 
-proc configure(sock: icmp.EchoSocket, plan: Plan, opts: Options, target: Target) [process, env, error] {
+proc configure(sock: icmp.EchoSocket, plan: Plan, opts: Options, target: Target) [process, net, env, error] {
   let c = linux.net_constants()
   let v6 = target.family == "inet6"
   let ip_level = if v6 { c.SOL_IPV6 } else { c.SOL_IP }
