@@ -143,7 +143,7 @@ impl Evaluator {
                         let pid = live.child.pid;
                         let group = live.child.process_group();
                         let _ = live;
-                        self.process_handles.remove(&handle.id);
+                        self.take_process_handle(&handle.id);
                         <Self as CancellationPolicy>::process_group_finished(self, group);
                         self.last_status = Some(status.clone());
                         if let Some(error) = validation_error {
@@ -293,7 +293,7 @@ impl Evaluator {
                 let mut values = Vec::with_capacity(completed.len());
                 let mut first_error = None;
                 for (index, id, pid, group, error, status) in completed {
-                    self.process_handles.remove(&id);
+                    self.take_process_handle(&id);
                     <Self as CancellationPolicy>::process_group_finished(self, group);
                     self.last_status = Some(status.clone());
                     if let Some(error) = error {

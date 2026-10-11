@@ -3559,7 +3559,7 @@ fn lowered_status_segment_record(segment: &ProcessSegmentStatus) -> LoweredValue
 }
 
 fn lowered_fs_root_dir<'a>(
-    roots: &'a [Option<FsRootHandle>],
+    roots: &'a [Option<super::OwnedFsCapability>],
     owner: &Arc<()>,
     root: &LoweredValue,
     span: Span,
@@ -3573,7 +3573,10 @@ fn lowered_fs_root_dir<'a>(
         return Err(RuntimeError::new("fs-root", "root handle is not active").with_span(span));
     };
     slot.as_ref()
-        .map(FsRootHandle::root)
+        .and_then(|owned| match &owned.value {
+            super::FsCapability::Root(root) => Some(root.root()),
+            super::FsCapability::Lock(_) => None,
+        })
         .ok_or_else(|| RuntimeError::new("fs-root", "root handle is not active").with_span(span))
 }
 
@@ -4362,8 +4365,7 @@ impl Evaluator {
     }
 
     fn push_lowered_fs_root(&mut self, root: FsRootHandle) -> LoweredValue {
-        let id = self.fs_roots.len() as i64 + 1;
-        self.fs_roots.push(Some(root));
+        let id = self.push_fs_capability(super::FsCapability::Root(Box::new(root)));
         LoweredValue::FsRoot(super::FsRootValue {
             id,
             owner: self.resource_owner.clone(),
@@ -5047,7 +5049,7 @@ impl Evaluator {
             RuntimeOp::FsCloseRoot | RuntimeOp::FsCloseRootIfOpen if values.len() == 1 => return self.eval_lowered_fs_close_root_values(op, values, span),
             RuntimeOp::FsRootPath if values.len() == 1 => {
                 let root = values.pop().expect("checked value length");
-                match lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
+                match lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span)
                     .and_then(|dir| root_path_from_dir(dir, span))
                 {
                     Ok(path) => lowered_result_ok(LoweredValue::Path(path)),
@@ -5059,7 +5061,7 @@ impl Evaluator {
                     lowered_path_arg(values.pop().expect("checked value length"), "fs.root", span)?;
                 let root = values.pop().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
+                match lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_open_root(dir, &rel, span))
                 {
                     Ok(dir) => lowered_result_ok(self.push_lowered_fs_root(FsRootHandle::Dir(dir))),
@@ -5076,7 +5078,7 @@ impl Evaluator {
                 )?;
                 let root = values.first().cloned().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
+                match lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_children(dir, &rel, max_entries, span))
                 {
                     Ok(result) => lowered_result_ok(lowered_fs_root_children_result(result, span)?),
@@ -5091,7 +5093,7 @@ impl Evaluator {
                 )?;
                 let root = values.pop().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
+                match lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_read(dir, &rel, span))
                 {
                     Ok(bytes) => lowered_result_ok(LoweredValue::Bytes(bytes.into())),
@@ -5107,7 +5109,7 @@ impl Evaluator {
                 )?;
                 let root = values.first().cloned().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
+                match lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_filesystem_stats(dir, &rel, span))
                 {
                     Ok(result) => lowered_result_ok(lowered_fs_root_filesystem_stats(result)),
@@ -5126,7 +5128,7 @@ impl Evaluator {
                 )?;
                 let root = values.pop().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
+                match lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_exists(dir, &rel, span))
                 {
                     Ok(exists) => lowered_result_ok(LoweredValue::Bool(exists)),
@@ -5146,7 +5148,7 @@ impl Evaluator {
                 let root = values.first().cloned().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
                 lowered_unit_result(
-                    lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
+                    lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span)
                         .and_then(|dir| fs_module::rooted_mkdir(dir, &rel, mode, parents, span)),
                 )
             }
@@ -5161,7 +5163,7 @@ impl Evaluator {
                 let root = values.first().cloned().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
                 lowered_unit_result(
-                    lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
+                    lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span)
                         .and_then(|root| fs_module::rooted_remove(root, &rel, dir, span)),
                 )
             }
@@ -5173,7 +5175,7 @@ impl Evaluator {
                 )?;
                 let root = values.pop().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
+                match lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_readlink(dir, &rel, span))
                     .and_then(|path| {
                         path_value_from_pathbuf(path).map_err(|error| error.with_span(span))
@@ -5190,7 +5192,7 @@ impl Evaluator {
                 )?;
                 let root = values.pop().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
+                match lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_readlink_result(dir, &rel, span))
                 {
                     Ok(result) => lowered_result_ok(lowered_fs_root_readlink_result(result, span)?),
@@ -5208,7 +5210,7 @@ impl Evaluator {
                 let root = values.pop().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
                 lowered_unit_result(
-                    lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
+                    lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span)
                         .and_then(|dir| fs_module::rooted_chmod(dir, &rel, mode, span)),
                 )
             }
@@ -5581,8 +5583,7 @@ impl Evaluator {
                 let path = lowered_path_arg(values.remove(0), "fs.lock", span)?;
                 match fs_module::lock_path(self.host_path(&path), shared, nonblocking, span) {
                     Ok(file) => {
-                        let id = self.fs_locks.len() as i64 + 1;
-                        self.fs_locks.push(Some(file));
+                        let id = self.push_fs_capability(super::FsCapability::Lock(file));
                         lowered_result_ok(LoweredValue::FsLock(Box::new(super::FsLockValue {
                             id,
                             owner: self.resource_owner.clone(),
@@ -8236,7 +8237,7 @@ impl Evaluator {
             // nothing left to stop, which is what the caller asked for. A
             // cleanup action can therefore cancel a handle without knowing
             // whether the scope got to it first.
-            let Some(live) = self.process_handles.remove(&handle.id) else {
+            let Some(live) = self.take_process_handle(&handle.id) else {
                 self.trace_spawn_cancel(*span, handle.id, None, &signal.name, kill_after, None);
                 return Ok(ControlFlow::Continue(lowered_result_ok(LoweredValue::Unit)));
             };

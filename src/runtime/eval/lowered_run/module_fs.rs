@@ -48,18 +48,20 @@ impl Evaluator {
                     id.checked_sub(1)
                         .and_then(|index| usize::try_from(index).ok())
                 })
-                .and_then(|index| self.fs_roots.get_mut(index))
             {
-                Some(slot) => {
-                    if slot.take().is_some() || closed_ok {
-                        lowered_result_ok(LoweredValue::Unit)
-                    } else {
-                        lowered_result_err_value(
-                            RuntimeError::new("fs-root", "root handle is not active")
-                                .with_span(span),
-                        )
+                Some(index) if index < self.fs_capabilities.len() => {
+                    match self.take_fs_capability(index) {
+                        Some(super::super::FsCapability::Root(_)) => lowered_result_ok(LoweredValue::Unit),
+                        None if closed_ok => lowered_result_ok(LoweredValue::Unit),
+                        None => lowered_result_err_value(
+                            RuntimeError::new("fs-root", "root handle is not active").with_span(span),
+                        ),
+                        Some(super::super::FsCapability::Lock(_)) => unreachable!("FsRoot identity names a root"),
                     }
                 }
+                Some(_) => lowered_result_err_value(
+                    RuntimeError::new("fs-root", "root handle is not active").with_span(span),
+                ),
                 None => lowered_result_err_value(
                     RuntimeError::new("fs-root", "root handle is not active").with_span(span),
                 ),
@@ -85,7 +87,7 @@ impl Evaluator {
             )?;
             let root = values.first().cloned().expect("checked value length");
             let rel = pathbuf_from_path_value(&path);
-            match lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
+            match lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span)
                 .and_then(|dir| fs_module::rooted_read_result(dir, &rel, max_bytes, span))
             {
                 Ok(result) => lowered_result_ok(lowered_fs_root_read_result(result)),
@@ -106,7 +108,7 @@ impl Evaluator {
             )?;
             let root = values.pop().expect("checked value length");
             let rel = pathbuf_from_path_value(&path);
-            match lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
+            match lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span)
                 .and_then(|dir| fs_module::rooted_read(dir, &rel, span))
             {
                 Ok(bytes) => match String::from_utf8(bytes) {
@@ -146,7 +148,7 @@ impl Evaluator {
                 lowered_path_arg(values.pop().expect("checked value length"), operation, span)?;
             let root = values.pop().expect("checked value length");
             let rel = pathbuf_from_path_value(&path);
-            let result = lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
+            let result = lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span)
                 .and_then(|dir| {
                     if op == RuntimeOp::FsRootWriteAtomic {
                         fs_module::rooted_write_atomic(dir, &rel, &data, span)
@@ -170,7 +172,7 @@ impl Evaluator {
             )?;
             let root = values.pop().expect("checked value length");
             let rel = pathbuf_from_path_value(&path);
-            match lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
+            match lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span)
                 .and_then(|dir| fs_module::rooted_metadata(dir, &rel, span))
             {
                 Ok(record) => match lowered_value_from_runtime_any(&record) {
@@ -210,7 +212,7 @@ impl Evaluator {
             let root = values.remove(0);
             let rel = pathbuf_from_path_value(&path);
             lowered_runtime_result(
-                lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span)
+                lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span)
                     .and_then(|dir| {
                         fs_module::rooted_stat(dir, &rel, follow_symlinks, span)
                     }),
@@ -242,7 +244,7 @@ impl Evaluator {
             let rel = pathbuf_from_path_value(&path);
             let target_rel = pathbuf_from_path_value(&target);
             lowered_unit_result(
-                lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &root, span).and_then(
+                lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &root, span).and_then(
                     |dir| {
                         fs_module::rooted_symlink(
                             dir,
@@ -291,8 +293,8 @@ impl Evaluator {
             let dest_rel = pathbuf_from_path_value(&dest);
             let source_rel = pathbuf_from_path_value(&source);
             let result = match (
-                lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &source_root, span),
-                lowered_fs_root_dir(&self.fs_roots, &self.resource_owner, &dest_root, span),
+                lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &source_root, span),
+                lowered_fs_root_dir(&self.fs_capabilities, &self.resource_owner, &dest_root, span),
             ) {
                 (Ok(source_dir), Ok(dest_dir)) => fs_module::rooted_install_file(
                     source_dir,
@@ -534,22 +536,26 @@ impl Evaluator {
                     RuntimeError::new("fs-lock", "lock handle is not active").with_span(span),
                 )));
             }
-            let Some(slot) = lock.id
+            let Some(index) = lock.id
                 .checked_sub(1)
                 .and_then(|index| usize::try_from(index).ok())
-                .and_then(|index| self.fs_locks.get_mut(index))
+                .filter(|index| *index < self.fs_capabilities.len())
             else {
                 return Ok(ControlFlow::Continue(lowered_result_err_value(
                     RuntimeError::new("fs-lock", "lock handle is not active").with_span(span),
                 )));
             };
-            let Some(file) = slot.take() else {
+            let file = match self.take_fs_capability(index) {
+                Some(super::super::FsCapability::Lock(file)) => file,
+                Some(super::super::FsCapability::Root(_)) => unreachable!("FsLock identity names a lock"),
+                None => {
                 if op == RuntimeOp::FsUnlockIfHeld {
                     return Ok(ControlFlow::Continue(lowered_result_ok(LoweredValue::Unit)));
                 }
                 return Ok(ControlFlow::Continue(lowered_result_err_value(
                     RuntimeError::new("fs-lock", "lock handle is not active").with_span(span),
                 )));
+                }
             };
             lowered_unit_result(fs_module::unlock_file(&file, span))
         };

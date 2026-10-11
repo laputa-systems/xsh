@@ -1219,6 +1219,8 @@ impl ProducerFrameState {
         })
     }
 
+    pub(super) fn owned_scope_id(&self) -> u64 { self.scope_id }
+
     /// Enters the body's call scope, so its slots belong to a live scope.
     pub(super) fn start(&mut self, scope_id: u64) {
         self.scope_id = scope_id;
@@ -1481,19 +1483,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             .unwrap_or(self.calls[index].scope_id)
     }
 
-    fn discarded_statement_scopes(&self, index: usize, keep: usize) -> Vec<u64> {
-        self.calls[index].work[keep..]
-            .iter()
-            .filter_map(|work| match work {
-                FrameWork::Statements {
-                    scope_id: Some(scope),
-                    ..
-                } => Some(*scope),
-                _ => None,
-            })
-            .collect()
-    }
-
     fn crosses_context_scope(&self, index: usize, keep: usize) -> bool {
         self.calls[index].work[keep..].iter().any(|work| {
             matches!(
@@ -1540,15 +1529,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let survivor = boundary.map_or(self.calls[index].scope_id, |boundary| {
             self.boundary_survivor_scope(index, boundary)
         });
-        let sources = self.discarded_statement_scopes(index, keep);
         if let Some(error) = self.pending_error.as_ref()
             && error.abort.is_none()
             && error.propagated
         {
-            for source in sources {
-                self.evaluator
-                    .transfer_owned_host_resources_in_runtime_error(error, source, survivor);
-            }
+            self.evaluator
+                .transfer_owned_host_resources_in_runtime_error(error, survivor);
         }
         if let Err(error) = self.discard_work_from(index, keep) {
             if error.abort.as_ref().is_some_and(|signal| signal.force) {
@@ -2372,6 +2358,21 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         span: value_span,
                     },
                 );
+                Ok(())
+            }
+            FullTag::StmtAssignField => {
+                let execution = &self.calls[index].execution;
+                let slot = indexed_decode(&mut payload, execution, span)?;
+                let field: Arc<str> = indexed_decode(&mut payload, execution, span)?;
+                let op = indexed_decode(&mut payload, execution, span)?;
+                let value = indexed_raw(&mut payload, span)?;
+                let value_span = indexed_decode(&mut payload, execution, span)?;
+                indexed_finish(payload, span)?;
+                let (value, singleton) = indexed_assignment_operand(execution, value, op, value_span)?;
+                self.advance_assign_path(index, AssignPathState {
+                    slot, path: vec![IndexedAssignStep::Field(Name::intern(field.as_ref()))],
+                    selectors: Vec::new(), position: 0, op, value, singleton, check: None, span: value_span,
+                });
                 Ok(())
             }
             FullTag::StmtAssignPath => {
@@ -3638,7 +3639,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     self.evaluator
                         .transfer_owned_host_resources_in_lowered_value(
                             incoming.as_ref().unwrap_or(&value),
-                            source_scope,
                             owner_scope,
                         );
                     self.calls[index].slots[slot] = value;
@@ -3679,7 +3679,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         self.evaluator
                             .transfer_owned_host_resources_in_lowered_value(
                                 &incoming,
-                                source_scope,
                                 owner_scope,
                             );
                     }
@@ -4935,7 +4934,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.evaluator
             .transfer_owned_host_resources_in_lowered_value(
                 &value,
-                self.evaluator.current_scope_id(),
                 self.evaluator.parent_owned_host_scope(),
             );
         self.discard_work_from(index, boundary + 1)?;
@@ -4988,10 +4986,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 .with_span(self.calls[index].call_span));
             }
             let survivor = self.boundary_survivor_scope(index, boundary);
-            for source in self.discarded_statement_scopes(index, boundary + 1) {
-                self.evaluator
-                    .transfer_owned_host_resources_in_lowered_value(value, source, survivor);
-            }
+            self.evaluator
+                .transfer_owned_host_resources_in_lowered_value(value, survivor);
             let contexts = self.calls[index].work[boundary + 1..]
                 .iter()
                 .rev()
@@ -5057,10 +5053,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 .with_span(self.calls[index].call_span));
             }
             let function_scope = self.calls[index].scope_id;
-            for source in self.discarded_statement_scopes(index, 0) {
-                self.evaluator
-                    .transfer_owned_host_resources_in_lowered_value(value, source, function_scope);
-            }
+            self.evaluator
+                .transfer_owned_host_resources_in_lowered_value(value, function_scope);
         }
         // Lexical exits and checked failures retain resources from every
         // discarded block before cleanup runs in the registering scopes.
@@ -5404,7 +5398,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             self.evaluator
                 .transfer_owned_host_resources_in_runtime_error(
                     error,
-                    self.calls[index].scope_id,
                     parent,
                 );
         }
@@ -5450,7 +5443,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         if let Some(value) = leaving {
             let parent = self.evaluator.parent_owned_host_scope();
             self.evaluator
-                .transfer_owned_host_resources_in_lowered_value(value, scope_id, parent);
+                .transfer_owned_host_resources_in_lowered_value(value, parent);
         }
         self.evaluator.release_owned_host_resources(scope_id)
     }
@@ -5495,7 +5488,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         {
             let parent = self.evaluator.parent_owned_host_scope();
             self.evaluator
-                .transfer_owned_host_resources_in_runtime_error(error, call.scope_id, parent);
+                .transfer_owned_host_resources_in_runtime_error(error, parent);
         }
         // An active error remains primary; cleanup failure is intentionally
         // secondary, but the scope still must release its owned resources.
@@ -5600,7 +5593,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             let parent_scope = self.evaluator.parent_owned_host_scope();
             self.evaluator.transfer_owned_host_resources_in_value(
                 &value.clone().into_value(),
-                call.scope_id,
                 parent_scope,
             );
         }
@@ -5610,7 +5602,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         {
             let parent = self.evaluator.parent_owned_host_scope();
             self.evaluator
-                .transfer_owned_host_resources_in_runtime_error(error, call.scope_id, parent);
+                .transfer_owned_host_resources_in_runtime_error(error, parent);
         }
         let cleanup = cleanup_call_scopes(self.evaluator, &mut call);
         self.evaluator.frame_scratch.recycle_block_stacks(&mut call);
@@ -5690,7 +5682,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         {
             let parent = self.evaluator.parent_owned_host_scope();
             self.evaluator
-                .transfer_owned_host_resources_in_lowered_value(value, call.scope_id, parent);
+                .transfer_owned_host_resources_in_lowered_value(value, parent);
         }
         let cleanup = cleanup_call_scopes(self.evaluator, call);
         self.evaluator.frame_scratch.recycle_block_stacks(call);
@@ -6317,7 +6309,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             } else if disposition == CleanupFailureResources::Retain {
                 let parent = self.evaluator.parent_owned_host_scope();
                 self.evaluator
-                    .transfer_owned_host_resources_in_runtime_error(error, scope_id, parent);
+                    .transfer_owned_host_resources_in_runtime_error(error, parent);
             }
         }
         let popped = self.calls[index].block_scopes.pop();
@@ -6479,7 +6471,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         let parent = self.evaluator.parent_owned_host_scope();
                         self.evaluator
                             .transfer_owned_host_resources_in_runtime_error(
-                                error, scope_id, parent,
+                                error, parent,
                             );
                     }
                     let disposition = if primary_failed || first_error.is_some() {

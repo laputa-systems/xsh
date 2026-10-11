@@ -46,6 +46,7 @@ impl Evaluator {
         root: ScriptStreamState,
         span: Span,
     ) -> Result<Option<Value>, RuntimeError> {
+        let consumer_scope = self.current_scope_id();
         let mut parents: Vec<(
             ScriptStreamState,
             Span,
@@ -102,6 +103,9 @@ impl Evaluator {
                             }
                             Ok(())
                         });
+                    if !escaped && validated.is_ok() {
+                        self.transfer_owned_host_resources_in_value(&value, consumer_scope);
+                    }
                     for (_, _, count, context) in parents.iter().rev() {
                         self.detach_owned_host_scopes(*count);
                         if let Some(context) = context {
@@ -148,6 +152,11 @@ impl Evaluator {
                     current_span = parent_span;
                 }
                 Err(error) => {
+                    let escaped = parents.iter().any(|(_, _, _, context)| context.is_some())
+                        && Self::context_scope_runtime_error_escapes(&error);
+                    if !escaped {
+                        self.transfer_owned_host_resources_in_runtime_error(&error, consumer_scope);
+                    }
                     for (_, _, count, context) in parents.iter().rev() {
                         self.detach_owned_host_scopes(*count);
                         if let Some(context) = context {
@@ -157,6 +166,10 @@ impl Evaluator {
                     // A delegated failure stops every suspended ancestor. The
                     // child's original error remains the primary failure.
                     let _ = self.cancel_script_state(root, span);
+                    if escaped {
+                        self.pending_traceback = None;
+                        return Err(RuntimeError::new("context-scope-escape", "a delegated resource-bearing error cannot escape a context").with_span(current_span));
+                    }
                     return Err(error);
                 }
             }

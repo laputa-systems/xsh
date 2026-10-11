@@ -99,7 +99,7 @@ impl Evaluator {
         })
     }
 
-    pub(super) fn context_scope_runtime_error_escapes(error: &RuntimeError) -> bool {
+    pub(in crate::runtime::eval) fn context_scope_runtime_error_escapes(error: &RuntimeError) -> bool {
         error.abort.is_none()
             && error.propagated
             && error.resource_reachable_values().any(|value| {

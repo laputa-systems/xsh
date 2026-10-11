@@ -1630,12 +1630,7 @@ impl Evaluator {
                 indexed_finish(payload, call_span)?;
                 ControlFlow::Continue(match new_temp_fs_root("fs-temp-dir", span) {
                     Ok(root) => {
-                        let id = self.fs_roots.len() as i64 + 1;
-                        self.fs_roots.push(Some(root));
-                        lowered_result_ok(LoweredValue::FsRoot(super::super::FsRootValue {
-                            id,
-                            owner: self.resource_owner.clone(),
-                        }))
+                        lowered_result_ok(self.push_lowered_fs_root(root))
                     }
                     Err(error) => lowered_result_err_value(error),
                 })

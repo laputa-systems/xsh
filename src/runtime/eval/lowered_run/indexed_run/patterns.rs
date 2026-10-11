@@ -481,7 +481,6 @@ impl Evaluator {
         {
             self.transfer_owned_host_resources_in_value(
                 &value.clone().into_value(),
-                scope_id,
                 parent_scope,
             );
         }
@@ -489,7 +488,7 @@ impl Evaluator {
             && error.abort.is_none()
             && error.propagated
         {
-            self.transfer_owned_host_resources_in_runtime_error(error, scope_id, parent_scope);
+            self.transfer_owned_host_resources_in_runtime_error(error, parent_scope);
         }
         // Captures are iteration/branch locals. Retain escaping values before
         // releasing these references and the condition's temporary resources.

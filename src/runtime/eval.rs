@@ -15,6 +15,7 @@ use crate::runtime::process::{
 use crate::runtime::signal::{
     HookSignal, hook_signal_from_number, normalize_hook_signal, signal_rejection_message,
 };
+use xsh_registry::managed_resource::ResourceKind;
 use crate::runtime::value::{
     AbortSignal, CommandPlan, DigestValue, DurationValue, ErrorContext, FloatValue, FsLockValue, FsRootValue,
     FunctionName, NetJobValue, PathValue, ProcessHandleValue, RecordMap, RegexValue, ResultValue,
@@ -3196,8 +3197,7 @@ pub struct Evaluator {
     // error it is reported for.
     pending_traceback: Option<Traceback>,
     unix_next_pid: i64,
-    fs_locks: Vec<Option<std::fs::File>>,
-    fs_roots: Vec<Option<FsRootHandle>>,
+    fs_capabilities: Vec<Option<OwnedFsCapability>>,
     resource_owner: Arc<()>,
     net_runtime: Option<NetRuntimeOwner>,
     net_agents: FxHashMap<NetAgentKey, NetAgent>,
@@ -3226,6 +3226,8 @@ pub struct Evaluator {
     next_within_id: u64,
     scope_ids: Vec<u64>,
     next_runtime_scope_id: u64,
+    owned_scope_parents: FxHashMap<u64, u64>,
+    owned_scope_counts: FxHashMap<u64, OwnedHostCounts>,
     signal_state: EvaluatorSignalState,
     /// Non-forced shutdown stops ordinary work but lets registered cleanup finish.
     cleanup_depth: usize,
@@ -3348,6 +3350,28 @@ impl PreparedTestProgram {
         })
     }
 }
+
+#[derive(Default)]
+struct OwnedHostCounts { activities: usize, capabilities: usize }
+
+impl OwnedHostCounts {
+    fn count(&self, kind: ResourceKind) -> usize {
+        match kind { ResourceKind::Activity => self.activities, ResourceKind::Capability => self.capabilities }
+    }
+    fn count_mut(&mut self, kind: ResourceKind) -> &mut usize {
+        match kind { ResourceKind::Activity => &mut self.activities, ResourceKind::Capability => &mut self.capabilities }
+    }
+}
+
+/// The shared slot order is creation order across roots and locks. Ownership
+/// belongs to the live slot, so aliases cannot disagree about their lifetime.
+struct OwnedFsCapability { owner_scope: u64, value: FsCapability }
+
+// Root payloads are larger than files; keep released capability slots compact.
+enum FsCapability { Root(Box<FsRootHandle>), Lock(std::fs::File) }
+
+#[derive(Clone, Copy)]
+enum OwnedHostResource { Process(u64), Net(u64), Capability(usize) }
 
 pub(in crate::runtime::eval) enum FsRootHandle {
     Dir(Root),
@@ -3476,8 +3500,7 @@ impl Evaluator {
             call_stack: Vec::new(),
             pending_traceback: None,
             unix_next_pid: 1000,
-            fs_locks: Vec::new(),
-            fs_roots: Vec::new(),
+            fs_capabilities: Vec::new(),
             resource_owner: Arc::new(()),
             net_runtime: None,
             net_agents: FxHashMap::default(),
@@ -3499,6 +3522,8 @@ impl Evaluator {
             next_within_id: 1,
             scope_ids: vec![0],
             next_runtime_scope_id: 1,
+            owned_scope_parents: FxHashMap::default(),
+            owned_scope_counts: FxHashMap::default(),
             signal_state: EvaluatorSignalState::default(),
             cleanup_depth: 0,
             frame_machine_depth: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
@@ -3708,8 +3733,7 @@ impl Evaluator {
             call_stack: Vec::new(),
             pending_traceback: None,
             unix_next_pid: 1000,
-            fs_locks: Vec::new(),
-            fs_roots: Vec::new(),
+            fs_capabilities: Vec::new(),
             resource_owner: Arc::new(()),
             net_runtime: None,
             net_agents: FxHashMap::default(),
@@ -3738,6 +3762,8 @@ impl Evaluator {
                 .unwrap_or(1),
             scope_ids: (0..shared.scopes.len() as u64).collect(),
             next_runtime_scope_id: shared.scopes.len() as u64,
+            owned_scope_parents: (1..shared.scopes.len() as u64).map(|id| (id, id - 1)).collect(),
+            owned_scope_counts: FxHashMap::default(),
             signal_state: EvaluatorSignalState::default(),
             cleanup_depth: 0,
             frame_machine_depth: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
@@ -5399,6 +5425,10 @@ impl Evaluator {
                     cleanup = action;
                 }
             }
+            if !cleanup.as_ref().err().is_some_and(|error| error.abort.is_some_and(|signal| signal.force)) {
+                cleanup = self.cleanup_scope_process_handles(self.current_scope_id(), cleanup);
+                if !self.signal_state.shutdown_force { self.release_owned_capabilities(self.current_scope_id()); }
+            }
             if (traceback.is_some() || abort.is_some())
                 && let Err(error) = &cleanup
                 && !error.abort.as_ref().is_some_and(|signal| signal.force)
@@ -6165,8 +6195,7 @@ impl Evaluator {
         for index in (0..self.scopes.len()).rev() {
             if self.scopes[index].contains_key(&interned) {
                 let target_scope = self.scope_ids[index];
-                let source_scope = self.current_scope_id();
-                self.transfer_owned_host_resources_in_value(&value, source_scope, target_scope);
+                self.transfer_owned_host_resources_in_value(&value, target_scope);
                 let binding = self.scopes[index]
                     .get_mut(&interned)
                     .expect("binding existence checked");
@@ -6196,6 +6225,7 @@ impl Evaluator {
     pub(super) fn enter_owned_host_scope(&mut self) -> u64 {
         let scope_id = self.next_runtime_scope_id;
         self.next_runtime_scope_id = self.next_runtime_scope_id.wrapping_add(1);
+        self.owned_scope_parents.insert(scope_id, self.current_scope_id());
         self.scope_ids.push(scope_id);
         scope_id
     }
@@ -6213,6 +6243,9 @@ impl Evaluator {
 
     /// Puts a producer's scopes back for a pull, in the order they opened.
     pub(super) fn reattach_owned_host_scopes(&mut self, scopes: &[u64]) {
+        if let Some(scope) = scopes.first() {
+            self.owned_scope_parents.insert(*scope, self.current_scope_id());
+        }
         self.scope_ids.extend_from_slice(scopes);
     }
 
@@ -6225,24 +6258,71 @@ impl Evaluator {
             .expect("owned host scope has a parent")
     }
 
-    /// Most scopes own no host handles: those leave without building and
-    /// dropping a cleanup result.
-    #[inline]
+    /// Finish activities born in defers, then release capabilities newest first.
+    /// Empty owners never scan a live table, even while other scopes own work.
     pub(super) fn exit_owned_host_scope(&mut self, scope_id: u64) -> Result<(), RuntimeError> {
         debug_assert_eq!(self.current_scope_id(), scope_id);
-        if self.process_handles.is_empty() && self.net_jobs.is_empty() {
-            self.scope_ids.pop();
-            return Ok(());
-        }
-        self.cleanup_owned_host_scope(scope_id)
+        let cleanup = self.release_owned_host_resources(scope_id);
+        if !self.signal_state.shutdown_force { self.release_owned_capabilities(scope_id); }
+        self.scope_ids.pop();
+        self.owned_scope_parents.remove(&scope_id);
+        cleanup
     }
 
-    #[inline(never)]
-    fn cleanup_owned_host_scope(&mut self, scope_id: u64) -> Result<(), RuntimeError> {
-        let cleanup = self.release_owned_host_resources(scope_id);
-        let popped = self.scope_ids.pop();
-        debug_assert_eq!(popped, Some(scope_id));
-        cleanup
+    fn owned_resource_count(&self, scope: u64, kind: ResourceKind) -> usize {
+        self.owned_scope_counts.get(&scope).map_or(0, |counts| counts.count(kind))
+    }
+
+    fn register_owned_resource(&mut self, scope: u64, kind: ResourceKind) {
+        *self.owned_scope_counts.entry(scope).or_default().count_mut(kind) += 1;
+    }
+
+    fn forget_owned_resource(&mut self, scope: u64, kind: ResourceKind) {
+        let counts = self.owned_scope_counts.get_mut(&scope).expect("live resource has an owner");
+        *counts.count_mut(kind) -= 1;
+        if counts.activities == 0 && counts.capabilities == 0 { self.owned_scope_counts.remove(&scope); }
+    }
+
+    fn scope_descends_from(&self, mut scope: u64, ancestor: u64) -> bool {
+        while scope != ancestor {
+            let Some(parent) = self.owned_scope_parents.get(&scope) else { return false; };
+            scope = *parent;
+        }
+        true
+    }
+
+    fn push_fs_capability(&mut self, value: FsCapability) -> i64 {
+        let owner_scope = self.current_scope_id();
+        self.register_owned_resource(owner_scope, ResourceKind::Capability);
+        self.fs_capabilities.push(Some(OwnedFsCapability { owner_scope, value }));
+        self.fs_capabilities.len() as i64
+    }
+
+    fn take_fs_capability(&mut self, index: usize) -> Option<FsCapability> {
+        let owned = self.fs_capabilities.get_mut(index)?.take()?;
+        self.forget_owned_resource(owned.owner_scope, ResourceKind::Capability);
+        Some(owned.value)
+    }
+
+    fn take_process_handle(&mut self, id: &u64) -> Option<LiveProcessHandle> {
+        let live = self.process_handles.remove(id)?;
+        self.forget_owned_resource(live.owner_scope, ResourceKind::Activity);
+        Some(live)
+    }
+
+    fn take_net_job(&mut self, id: &u64) -> Option<LiveNetJob> {
+        let live = self.net_jobs.remove(id)?;
+        self.forget_owned_resource(live.owner_scope, ResourceKind::Activity);
+        Some(live)
+    }
+
+    fn release_owned_capabilities(&mut self, scope: u64) {
+        if self.owned_resource_count(scope, ResourceKind::Capability) == 0 { return; }
+        for index in (0..self.fs_capabilities.len()).rev() {
+            if self.fs_capabilities[index].as_ref().is_some_and(|live| live.owner_scope == scope)
+                && let Some(FsCapability::Lock(file)) = self.take_fs_capability(index)
+            { let _ = crate::modules::fs::unlock_file(&file, zero_span()); }
+        }
     }
 
     /// Cancels and reaps the non-detached process handles `scope_id` owns,
@@ -6255,7 +6335,7 @@ impl Evaluator {
         &mut self,
         scope_id: u64,
     ) -> Result<(), RuntimeError> {
-        if self.process_handles.is_empty() && self.net_jobs.is_empty() {
+        if self.owned_resource_count(scope_id, ResourceKind::Activity) == 0 {
             return Ok(());
         }
         let cleanup = self.cleanup_scope_process_handles(scope_id, Ok(Flow::Continue(Value::Unit)));
@@ -6283,6 +6363,29 @@ impl Evaluator {
         }
     }
 
+    fn transfer_owned_host_resource(&mut self, resource: OwnedHostResource, target: u64) {
+        let owner = match resource {
+            OwnedHostResource::Process(id) => self.process_handles.get(&id).map(|live| live.owner_scope),
+            OwnedHostResource::Net(id) => self.net_jobs.get(&id).map(|live| live.owner_scope),
+            OwnedHostResource::Capability(index) => self.fs_capabilities.get(index).and_then(Option::as_ref).map(|live| live.owner_scope),
+        };
+        let Some(owner) = owner else { return; };
+        if owner == target || !self.scope_descends_from(owner, target) { return; }
+        let kind = match resource {
+            OwnedHostResource::Process(id) => { self.process_handles.get_mut(&id).expect("live owner checked").owner_scope = target; ResourceKind::Activity }
+            OwnedHostResource::Net(id) => { self.net_jobs.get_mut(&id).expect("live owner checked").owner_scope = target; ResourceKind::Activity }
+            OwnedHostResource::Capability(index) => { self.fs_capabilities[index].as_mut().expect("live owner checked").owner_scope = target; ResourceKind::Capability }
+        };
+        self.forget_owned_resource(owner, kind);
+        self.register_owned_resource(target, kind);
+    }
+
+    fn transfer_owned_capability(&mut self, id: i64, target: u64) {
+        if let Some(index) = id.checked_sub(1).and_then(|id| usize::try_from(id).ok()) {
+            self.transfer_owned_host_resource(OwnedHostResource::Capability(index), target);
+        }
+    }
+
     /// Transfer ownership of host resources through a lowered value.
     ///
     /// The lowered form is walked directly. Converting it to a `Value` first
@@ -6291,32 +6394,38 @@ impl Evaluator {
     fn transfer_owned_host_resources_in_lowered_value(
         &mut self,
         value: &LoweredValue,
-        source_scope: u64,
         target_scope: u64,
     ) {
-        if source_scope == target_scope {
+        if self.owned_scope_counts.is_empty() {
             return;
         }
         match value {
             LoweredValue::ProcessHandle(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
-                if let Some(live) = self.process_handles.get_mut(&handle.id)
-                    && live.owner_scope == source_scope
-                {
-                    live.owner_scope = target_scope;
-                }
+                self.transfer_owned_host_resource(OwnedHostResource::Process(handle.id), target_scope);
             }
             LoweredValue::NetJob(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
-                if let Some(live) = self.net_jobs.get_mut(&handle.id)
-                    && live.owner_scope == source_scope
-                {
-                    live.owner_scope = target_scope;
+                self.transfer_owned_host_resource(OwnedHostResource::Net(handle.id), target_scope);
+            }
+            LoweredValue::FsRoot(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
+                self.transfer_owned_capability(handle.id, target_scope);
+            }
+            LoweredValue::FsLock(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
+                self.transfer_owned_capability(handle.id, target_scope);
+            }
+            LoweredValue::StatsBlob(stats) => {
+                for value in stats.blobs.values() {
+                    self.transfer_owned_host_resources_in_lowered_value(value, target_scope);
+                }
+            }
+            LoweredValue::Stream(stream) => {
+                for item in &stream.items {
+                    self.transfer_owned_host_resources_in_value(&item.value, target_scope);
                 }
             }
             LoweredValue::List(values) => {
                 for value in values {
                     self.transfer_owned_host_resources_in_lowered_value(
                         value,
-                        source_scope,
                         target_scope,
                     );
                 }
@@ -6325,7 +6434,6 @@ impl Evaluator {
                 for value in values.iter() {
                     self.transfer_owned_host_resources_in_lowered_value(
                         value,
-                        source_scope,
                         target_scope,
                     );
                 }
@@ -6334,7 +6442,6 @@ impl Evaluator {
                 for value in values.values() {
                     self.transfer_owned_host_resources_in_lowered_value(
                         value,
-                        source_scope,
                         target_scope,
                     );
                 }
@@ -6343,7 +6450,6 @@ impl Evaluator {
                 for value in fields.values() {
                     self.transfer_owned_host_resources_in_lowered_value(
                         value,
-                        source_scope,
                         target_scope,
                     );
                 }
@@ -6352,7 +6458,6 @@ impl Evaluator {
                 for (_, value) in fields.iter() {
                     self.transfer_owned_host_resources_in_lowered_value(
                         value,
-                        source_scope,
                         target_scope,
                     );
                 }
@@ -6361,7 +6466,6 @@ impl Evaluator {
                 for value in &tag.fields {
                     self.transfer_owned_host_resources_in_lowered_value(
                         value,
-                        source_scope,
                         target_scope,
                     );
                 }
@@ -6369,12 +6473,11 @@ impl Evaluator {
             LoweredValue::ResultOk(value) => {
                 self.transfer_owned_host_resources_in_lowered_value(
                     value,
-                    source_scope,
                     target_scope,
                 );
             }
             LoweredValue::ResultErr(value) | LoweredValue::Error(value) => {
-                self.transfer_owned_host_resources_in_value(value, source_scope, target_scope);
+                self.transfer_owned_host_resources_in_value(value, target_scope);
             }
             _ => {}
         }
@@ -6383,12 +6486,10 @@ impl Evaluator {
     fn transfer_owned_host_resources_in_value(
         &mut self,
         value: &Value,
-        source_scope: u64,
         target_scope: u64,
     ) {
         self.transfer_owned_host_resources_in_values(
             value.resource_reachable_values(),
-            source_scope,
             target_scope,
         );
     }
@@ -6396,12 +6497,10 @@ impl Evaluator {
     fn transfer_owned_host_resources_in_runtime_error(
         &mut self,
         error: &RuntimeError,
-        source_scope: u64,
         target_scope: u64,
     ) {
         self.transfer_owned_host_resources_in_values(
             error.resource_reachable_values(),
-            source_scope,
             target_scope,
         );
     }
@@ -6409,27 +6508,24 @@ impl Evaluator {
     fn transfer_owned_host_resources_in_values<'a>(
         &mut self,
         values: impl Iterator<Item = &'a Value>,
-        source_scope: u64,
         target_scope: u64,
     ) {
-        if source_scope == target_scope {
+        if self.owned_scope_counts.is_empty() {
             return;
         }
         for value in values {
             match value {
                 Value::ProcessHandle(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
-                    if let Some(live) = self.process_handles.get_mut(&handle.id)
-                        && live.owner_scope == source_scope
-                    {
-                        live.owner_scope = target_scope;
-                    }
+                    self.transfer_owned_host_resource(OwnedHostResource::Process(handle.id), target_scope);
                 }
                 Value::NetJob(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
-                    if let Some(live) = self.net_jobs.get_mut(&handle.id)
-                        && live.owner_scope == source_scope
-                    {
-                        live.owner_scope = target_scope;
-                    }
+                    self.transfer_owned_host_resource(OwnedHostResource::Net(handle.id), target_scope);
+                }
+                Value::FsRoot(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
+                    self.transfer_owned_capability(handle.id, target_scope);
+                }
+                Value::FsLock(handle) if Arc::ptr_eq(&handle.owner, &self.resource_owner) => {
+                    self.transfer_owned_capability(handle.id, target_scope);
                 }
                 _ => {}
             }
@@ -6445,7 +6541,7 @@ impl Evaluator {
             return primary;
         }
         // Most scopes own no host handles; avoid two table scans on every exit.
-        if self.process_handles.is_empty() && self.net_jobs.is_empty() {
+        if self.owned_resource_count(scope_id, ResourceKind::Activity) == 0 {
             return primary;
         }
         let mut primary_failed = matches!(primary, Err(_) | Ok(Flow::Propagate(_)));
@@ -6456,7 +6552,7 @@ impl Evaluator {
             .filter_map(|(id, live)| (live.owner_scope == scope_id).then_some(*id))
             .collect::<Vec<_>>();
         for id in ids {
-            let Some(live) = self.process_handles.remove(&id) else {
+            let Some(live) = self.take_process_handle(&id) else {
                 continue;
             };
             let cleanup = if live.child.detached {
@@ -6483,7 +6579,7 @@ impl Evaluator {
         let ids = self.process_handles.keys().copied().collect::<Vec<_>>();
         let mut first_error = None;
         for id in ids {
-            let Some(live) = self.process_handles.remove(&id) else {
+            let Some(live) = self.take_process_handle(&id) else {
                 continue;
             };
             let cleanup = if live.child.detached {

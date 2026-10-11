@@ -319,7 +319,10 @@ impl Evaluator {
         producer: &mut ScriptProducer,
         span: Span,
     ) -> Result<ScriptStreamStep, RuntimeError> {
+        let consumer_scope = self.current_scope_id();
         loop {
+            let producer_scope = producer.frame.as_ref().filter(|_| producer.started).map(ProducerFrameState::owned_scope_id);
+            if let Some(scope) = producer_scope { self.owned_scope_parents.insert(scope, consumer_scope); }
             if let Some(step) = self.poll_delegated(producer)? {
                 return Ok(step);
             }
