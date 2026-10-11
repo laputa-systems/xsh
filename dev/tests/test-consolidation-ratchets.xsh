@@ -13,6 +13,16 @@ proc rejection(source: Str) [error] -> Str {
   }
 }
 
+pure schema_rows(start_ordinal: Int, end_ordinal: Int) -> Str {
+  var rows = ""
+  var ordinal = start_ordinal
+  while ordinal < end_ordinal {
+    rows = f"{rows}Variant{ordinal} => Tag{ordinal} = {ordinal} [0];\n"
+    ordinal += 1
+  }
+  rows
+}
+
 proc measured(root: Path) [fs, error] -> Result[metrics.Report] {
   match metrics.measure(root, ["src", "crates/xsht/src"]) {
     Ok(report) => report
@@ -120,6 +130,34 @@ test test_only_tokens_contribute_calls_and_wide_alias_patterns {
   assert wide[0].evidence[0].line == 3
   let tuple = "use ArenaPatternKind as P; fn live() { match (kind, flag) { (P::A, _) => {}, (P::B, _) => {}, (P::C, _) => {}, (P::D, _) => {}, (P::E, _) => {}, (P::F, _) => {}, (P::G, _) => {}, (P::H, _) => {}, _ => {} } }"
   assert value(metrics.scan_file("src/fixture.rs", tuple)?, "wide_arena_wildcards") == 1
+}
+
+test test_instruction_variants_support_hand_enums_and_generated_schema {
+  let handwritten = "enum BuildIntRow { Int, Slot }\nenum BuildBoolRow { Bool }\nenum BuildExprRow { Null, Binary { left: u32, right: u32 } }\nenum BuildStmtRow { Break, Run { command: u32 } }\n"
+  assert value(metrics.scan_file("src/fixture.rs", handwritten)?, "instruction_variants") == 7
+
+  let generated = [
+    "instruction_schema! {",
+    "BuildIntRow => IntView [Int] {", "Int(value: i64) => IntInt = 0 [0; Operands];", "Slot(slot: usize) => IntSlot = 1 [0];", schema_rows(2, 6), "}",
+    "BuildBoolRow => BoolView [Bool] {", "Bool(value: bool) => BoolBool = 6 [0];", "ContainsSlot { slot: usize, needle: Vec<(BuildExprId, Option<BuildExprId>)> } => BoolContainsSlot = 7 [EFFECT_PROCESS | EFFECT_TRACE; Scheduled];", schema_rows(8, 18), "}",
+    "BuildExprRow => ExprView [Expr] {", "Null => ExprNull = 18 [0];", "Binary { op: BinaryOp, operands: Vec<(BuildExprId, Option<BuildExprId>)>, label: &'static str, span: Span } => ExprBinary = 19 [EFFECT_TRACE];", schema_rows(20, 115), "}",
+    "BuildStmtRow => StmtView [Stmt] {", "Break => StmtBreak = 115 [0];", "Run { body: Vec<BuildStmtId>, span: Span } => StmtRun = 116 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_TRACE];", schema_rows(117, 158), "}",
+    "}",
+  ].join("\n")
+  match metrics.scan_file("src/runtime/eval/indexed/full/schema.rs", generated) {
+    Ok(schema) => {
+      assert value(schema, "instruction_variants") == 158
+      assert schema.count.production == generated.split("\n").len()
+    }
+    Err(metrics.MetricError.Invalid {detail, ..}) => test.fail(detail)
+    Err(error) => test.fail(error.message)
+  }
+}
+
+test test_instruction_schema_unknown_and_malformed_layouts_fail_loudly {
+  assert "unknown instruction schema row" in rejection("instruction_schema! { BuildTaskRow => TaskView [Task] { Item => TaskItem = 0 [0]; } }")
+  assert "malformed instruction schema entry" in rejection("instruction_schema! { BuildIntRow => IntView [Int] { Value Missing = 0 [0]; } }")
+  assert "no supported table invocation" in rejection("macro_rules! instruction_schema { () => {}; }")
 }
 
 test test_malformed_lexical_forms_and_eligibility_cfg_attr_fail_loudly {

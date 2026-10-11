@@ -498,6 +498,70 @@ proc modules(source_path: Str, lexed: Lexed, attrs: List[Attribute], spans: List
 pure metric(name: Str, evidence: List[Evidence]) -> Metric { {name: name, value: evidence.len(), evidence: evidence} }
 pure evidence(source_path: Str, item: Token, detail: Str) -> Evidence { {path: source_path, line: item.line, detail: detail} }
 
+# The macro call owns the four instruction tables that generate FullTag.
+proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int) [error] -> Result[List[Evidence]] {
+  let closing = lexed.mates[f"{opening}"]
+  let expected_rows = ["BuildIntRow", "BuildBoolRow", "BuildExprRow", "BuildStmtRow"]
+  var rows: List[Str] = []
+  var variants: List[Evidence] = []
+  var cursor = opening + 1
+  while cursor < closing {
+    let row = (lexed.tokens.get(cursor) ?? end_token).text
+    let header = if row == "BuildIntRow" { ["IntView", "Int"] } else if row == "BuildBoolRow" { ["BoolView", "Bool"] } else if row == "BuildExprRow" { ["ExprView", "Expr"] } else if row == "BuildStmtRow" { ["StmtView", "Stmt"] } else { [] }
+    if header.is_empty() { invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, f"unknown instruction schema row {row}")? }
+    if row in rows { invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, f"repeated instruction schema row {row}")? }
+    rows += [row]
+    if (lexed.tokens.get(cursor + 1) ?? end_token).text != "=" or (lexed.tokens.get(cursor + 2) ?? end_token).text != ">" or (lexed.tokens.get(cursor + 3) ?? end_token).text != header[0] or (lexed.tokens.get(cursor + 4) ?? end_token).text != "[" or (lexed.tokens.get(cursor + 5) ?? end_token).text != header[1] or (lexed.tokens.get(cursor + 6) ?? end_token).text != "]" or (lexed.tokens.get(cursor + 7) ?? end_token).text != "{" {
+      invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, f"malformed instruction schema header for {row}")?
+    }
+    let table_open = cursor + 7
+    let table_close = lexed.mates[f"{table_open}"]
+    var entry = table_open + 1
+    var entry_count = 0
+    while entry < table_close {
+      let variant = lexed.tokens.get(entry) ?? end_token
+      if variant.text == "" or ! ident_start(first(variant.text)) { invalid(source_path, variant.line, f"malformed instruction schema entry in {row}")? }
+      var after_variant = entry + 1
+      let fields = (lexed.tokens.get(after_variant) ?? end_token).text
+      if fields in ["(", "{"] {
+        let fields_close = lexed.mates[f"{after_variant}"]
+        if fields_close <= after_variant or fields_close >= table_close { invalid(source_path, variant.line, f"malformed instruction schema fields for {row}::{variant.text}")? }
+        after_variant = fields_close + 1
+      }
+      if (lexed.tokens.get(after_variant) ?? end_token).text != "=" or (lexed.tokens.get(after_variant + 1) ?? end_token).text != ">" {
+        invalid(source_path, variant.line, f"malformed instruction schema entry for {row}::{variant.text}")?
+      }
+      let tag = lexed.tokens.get(after_variant + 2) ?? end_token
+      if tag.text == "" or ! ident_start(first(tag.text)) or (lexed.tokens.get(after_variant + 3) ?? end_token).text != "=" {
+        invalid(source_path, variant.line, f"malformed instruction schema tag for {row}::{variant.text}")?
+      }
+      var ordinal_end = after_variant + 4
+      var ordinal_text = ""
+      while (lexed.tokens.get(ordinal_end) ?? end_token).text in "0123456789" {
+        ordinal_text += (lexed.tokens.get(ordinal_end) ?? end_token).text
+        ordinal_end += 1
+      }
+      match ordinal_text.parse_int() {
+        Ok(_) => {}
+        Err(_) => invalid(source_path, variant.line, f"malformed instruction schema ordinal for {row}::{variant.text}")?,
+      }
+      let effects_open = ordinal_end
+      if (lexed.tokens.get(effects_open) ?? end_token).text != "[" { invalid(source_path, variant.line, f"malformed instruction schema effects for {row}::{variant.text}")? }
+      let effects_close = lexed.mates[f"{effects_open}"]
+      if effects_close <= effects_open or effects_close >= table_close or (lexed.tokens.get(effects_close + 1) ?? end_token).text != ";" {
+        invalid(source_path, variant.line, f"malformed instruction schema terminator for {row}::{variant.text}: {(lexed.tokens.get(effects_close + 1) ?? end_token).text}")?
+      }
+      variants += [evidence(source_path, variant, f"{row}::{variant.text}")]
+      entry_count += 1
+      entry = effects_close + 2
+    }
+    if entry_count == 0 { invalid(source_path, (lexed.tokens.get(cursor) ?? end_token).line, f"empty instruction schema row {row}")? }
+    cursor = table_close + 1
+  }
+  if (rows |> sort) != (expected_rows |> sort) { invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "incomplete instruction schema table set")? }
+  variants
+}
+
 proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[Attribute], count: SourceCount) [error] -> Result[List[Metric]] {
   let families = ["ArenaExprKind", "ArenaStmtKind", "ArenaPatternKind"]
   var aliases: Map[Str] = {}
@@ -511,12 +575,22 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
   var mappings: List[Evidence] = []
   var resolvers: List[Evidence] = []
   var factories: List[Evidence] = []
+  var instruction_schema_calls = 0
+  var instruction_schema_definition = false
+  var hand_instruction_rows = false
   var blanket: List[Evidence] = []
   var cursor = 0
   while cursor < lexed.tokens.len() {
     let item = lexed.tokens[cursor]
     let name = item.text
     if ! item.literal and ! inside(item, spans) {
+      if name == "macro_rules" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" and (lexed.tokens.get(cursor + 2) ?? end_token).text == "instruction_schema" { instruction_schema_definition = true }
+      if name == "instruction_schema" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" {
+        let opening = cursor + 2
+        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "instruction schema invocation must use a table block")? }
+        instruction_schema_calls += 1
+        instructions += instruction_schema_variants(source_path, lexed, opening)?
+      }
       if name in families and (lexed.tokens.get(cursor + 1) ?? end_token).text == "as" { aliases[(lexed.tokens.get(cursor + 2) ?? end_token).text] = name }
       if name in ["indexed_raw", "indexed_decode", "indexed_finish", "indexed_optional_raw"] and (lexed.tokens.get(cursor - 1) ?? end_token).text != "fn" {
         let next = (lexed.tokens.get(cursor + 1) ?? end_token).text
@@ -533,6 +607,7 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
       if name == "enum" and (lexed.tokens.get(cursor + 2) ?? end_token).text == "{" {
         let definition = (lexed.tokens.get(cursor + 1) ?? end_token).text
         if definition in ["BuildIntRow", "BuildBoolRow", "BuildExprRow", "BuildStmtRow", "BuildPatternRow", "LoweredPipelineStage"] {
+          if definition in ["BuildIntRow", "BuildBoolRow", "BuildExprRow", "BuildStmtRow"] { hand_instruction_rows = true }
           let closing = lexed.mates[f"{cursor + 2}"]
           var member = cursor + 3
           var at_start = true
@@ -608,6 +683,10 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
     }
     cursor += 1
   }
+  if instruction_schema_calls > 1 { invalid(source_path, 1, "multiple instruction schema tables in one source file")? }
+  if instruction_schema_definition and instruction_schema_calls != 1 { invalid(source_path, 1, "instruction schema definition has no supported table invocation")? }
+  if source_path == "src/runtime/eval/indexed/full/schema.rs" and instruction_schema_calls != 1 { invalid(source_path, 1, "unrecognized generated instruction schema layout")? }
+  if instruction_schema_calls > 0 and hand_instruction_rows { invalid(source_path, 1, "handwritten instruction rows overlap the generated schema")? }
   for attr in attrs {
     if inside(lexed.tokens[attr.start], spans) or ! attr.condition_active { continue }
     let kind = attr.start + (if attr.inner { 3 } else { 2 })
