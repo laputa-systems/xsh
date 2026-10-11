@@ -1,0 +1,8 @@
+ls: invalid argument 'XX' for 'time style'
+Valid arguments are:
+  - [posix-]full-iso
+  - [posix-]long-iso
+  - [posix-]iso
+  - [posix-]locale
+  - +FORMAT (e.g., +%H:%M) for a 'date'-style format
+Try 'ls --help' for more information.
