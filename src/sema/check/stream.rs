@@ -14,7 +14,6 @@ fn btree_map<K: Into<Name>, V>(entries: Vec<(K, V)>) -> BTreeMap<Name, V> {
         .collect()
 }
 
-#[allow(dead_code)]
 impl Checker {
     pub(super) fn check_structured_pipeline_arena(
         &mut self,

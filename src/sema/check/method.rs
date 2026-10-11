@@ -11,7 +11,6 @@ use crate::syntax::arena::{ArenaCallArg, ArenaProgram};
 
 /// Registered method calls instantiate receiver relationships before checking
 /// arguments. Effects and overload selection remain owned by the same registry.
-#[allow(dead_code)]
 impl Checker {
     pub(super) fn check_method_dispatch_arena(
         &mut self,

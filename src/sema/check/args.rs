@@ -14,39 +14,7 @@ pub(super) fn module_sig_accepts_arity(arg_count: usize, sig: &ModuleFnSig) -> b
     arg_count >= required && arg_count <= sig.params.len()
 }
 
-/// Arena-native mirror of every function above, operating on the arena's
-/// call-argument representation instead of the old recursive AST's. Not
-/// ported: `check_module_command_args` (a different construct — bareword
-/// command args, not call expressions).
-#[allow(dead_code)]
 impl Checker {
-    pub(super) fn check_standard_arg_shape_arena(
-        &mut self,
-        arena: &ArenaProgram,
-        args: &[ArenaCallArg],
-        names: &[&str],
-        span: Span,
-    ) {
-        if args.len() != names.len() {
-            self.error(
-                span,
-                "incorrect standard API arity",
-                DiagnosticCode::CheckArity,
-            );
-        }
-        for (index, arg) in args.iter().enumerate() {
-            if let ArenaCallArgKind::Named { name, .. } = &arg.kind
-                && names.get(index).is_none_or(|expected| name != expected)
-            {
-                self.error(
-                    call_arg_span_arena(arena, &arg.kind),
-                    "unexpected named parameter",
-                    DiagnosticCode::CheckNamedArg,
-                );
-            }
-        }
-    }
-
     pub(super) fn check_api_arg_arena(
         &mut self,
         arena: &ArenaProgram,

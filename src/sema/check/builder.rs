@@ -8,7 +8,6 @@ use crate::syntax::arena::{
 };
 use crate::syntax::node::RunKind;
 
-#[allow(dead_code)]
 impl Checker {
     pub(super) fn check_builder_call_arena(
         &mut self,

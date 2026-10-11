@@ -196,7 +196,6 @@ impl Checker {
 /// raise-fallback branches remain (the `Path` constructor and generic
 /// method-dispatch cases now go through `method.rs`'s arena-native
 /// `check_registered_method_arena`/`check_method_dispatch_arena`).
-#[allow(dead_code)]
 impl Checker {
     pub(super) fn check_call_arena(
         &mut self,

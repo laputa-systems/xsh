@@ -498,7 +498,6 @@ pub(super) fn patterns_are_exhaustive_arena(
 
 /// Arena-native mirror of `check_stmt` and the block/binding/assignment
 /// machinery it depends on.
-#[allow(dead_code)]
 impl Checker {
     pub(super) fn define_binding_target_arena(
         &mut self,

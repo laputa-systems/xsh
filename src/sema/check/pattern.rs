@@ -14,7 +14,6 @@ fn type_pattern_input_is_dynamic(ty: &Type) -> bool {
 /// `check_pattern` (unlike `check_match`, the statement-level match in
 /// stmt.rs) never calls `check_block` — only `check_expr`/type annotations on
 /// leaf sub-expressions, so no `Block` support is needed to port it.
-#[allow(dead_code)]
 impl Checker {
     pub(super) fn check_nonbinding_pattern_arena(
         &mut self,

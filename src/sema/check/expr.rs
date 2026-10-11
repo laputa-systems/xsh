@@ -316,7 +316,6 @@ impl Checker {
 /// Arena-native port of [`Checker::check_expr`] and its callees.
 ///
 /// This is the live arena checker path used by `check_arena_with_options`.
-#[allow(dead_code)]
 impl Checker {
     pub(super) fn check_expr_or_run_arena(
         &mut self,

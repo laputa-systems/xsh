@@ -89,7 +89,6 @@ pub(super) fn valid_env_name(name: &str) -> bool {
         && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
-#[allow(dead_code)]
 impl Checker {
     // Command names have no expression row. Record the checker's selected
     // identity locally so constraint probes keep sharing immutable facts.
@@ -239,7 +238,6 @@ impl Checker {
 /// `module_sig_is_command_callable`/`standard_module_command_name`/
 /// `is_bare_ident`/`valid_env_name` are pure `Type`/`str`-level and reused
 /// unchanged too.
-#[allow(dead_code)]
 impl Checker {
     pub(super) fn check_command_stmt_arena(
         &mut self,
