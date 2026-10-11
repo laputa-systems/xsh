@@ -19,6 +19,38 @@ pub(super) struct LocalInference {
     unresolved_expr_types: Vec<Span>,
 }
 
+impl LocalInference {
+    pub(super) fn prepare(view: &BundleView<'_>) -> Self {
+        let program = view.program;
+        let mut inference = Self::default();
+        for index in 0..program.arena.stmt_tags.len() {
+            let statement = program.arena.stmt(StmtId::from_index(index));
+            if !view.contains_source(statement.span.source_id) {
+                continue;
+            }
+            let (target, annotation, initializer, mutable) = match statement.kind {
+                ArenaStmtKind::Let {
+                    target,
+                    ty,
+                    initializer,
+                } => (target, ty, initializer, false),
+                ArenaStmtKind::Var {
+                    target,
+                    ty,
+                    initializer,
+                } => (target, ty, initializer, true),
+                _ => continue,
+            };
+            if annotation.is_none()
+                && local_seed_kind(program, target, initializer, mutable).is_some()
+            {
+                inference.seeds.insert(statement.span);
+            }
+        }
+        inference
+    }
+}
+
 impl Checker {
     pub(super) fn record_expr_type(&mut self, span: Span, ty: Type) {
         if ty.contains_inference() {
@@ -216,34 +248,6 @@ impl Checker {
 
     pub(super) fn is_inert_expression_discard(&self, span: Span) -> bool {
         self.local_inference.nonmaterial_expressions.contains(&span)
-    }
-
-    pub(super) fn prepare_local_inference(&mut self, view: &BundleView<'_>) {
-        let program = view.program;
-        for index in 0..program.arena.stmt_tags.len() {
-            let statement = program.arena.stmt(StmtId::from_index(index));
-            if !view.contains_source(statement.span.source_id) {
-                continue;
-            }
-            let (target, annotation, initializer, mutable) = match statement.kind {
-                ArenaStmtKind::Let {
-                    target,
-                    ty,
-                    initializer,
-                } => (target, ty, initializer, false),
-                ArenaStmtKind::Var {
-                    target,
-                    ty,
-                    initializer,
-                } => (target, ty, initializer, true),
-                _ => continue,
-            };
-            if annotation.is_none()
-                && local_seed_kind(program, target, initializer, mutable).is_some()
-            {
-                self.local_inference.seeds.insert(statement.span);
-            }
-        }
     }
 
     /// Gather constraints before checking concrete operations. The cloned

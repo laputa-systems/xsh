@@ -142,6 +142,8 @@ mod infer_return;
 mod inferred_variant;
 #[path = "check/local_inference.rs"]
 mod local_inference;
+#[path = "check/module_record.rs"]
+mod module_record;
 #[path = "check/method.rs"]
 mod method;
 pub(crate) use method::nearest_name;
@@ -188,6 +190,7 @@ pub use super::projection::{CheckedProjection, ProjectionOperation};
 
 pub use self::infer_effects::{EffectDeclarationId, FunctionEffectFact};
 use self::infer_effects::{EffectGraph, EffectSummary};
+use self::module_record::{ArgsDomain, ModuleRecordCache, ModuleRecords};
 
 pub use self::compact::{
     CompactBodyFacts, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo,
@@ -1152,11 +1155,20 @@ impl Checker {
     ) -> CheckOutput {
         program.symbol_owner().with_current(|| {
             let bundle = BundleView::new(program, sources, entry_source_id);
+            let mut module_record_cache = ModuleRecordCache::default();
             // Resolve bodies once to collect dependencies, then check against the
             // fixed-point contracts so callers never depend on source order.
             let mut byte_script_arguments = false;
             let (effect_graph, effect_summaries) = Self::solve_effect_probes(|summaries| {
                 loop {
+                    let records = module_record_cache.get_or_prepare(
+                        &bundle,
+                        if byte_script_arguments {
+                            ArgsDomain::Bytes
+                        } else {
+                            ArgsDomain::Str
+                        },
+                    );
                     let mut probe = Self::new(options);
                     probe.byte_script_arguments = byte_script_arguments;
                     probe.define_standard_values();
@@ -1166,6 +1178,7 @@ impl Checker {
                         &bundle,
                         source,
                         type_program.clone(),
+                        &records,
                     );
                     // Resolve the entry signature before committing any body facts.
                     // Rechecking also gives imported modules the same argument type.
@@ -1182,10 +1195,19 @@ impl Checker {
             checker.define_standard_values();
             checker.effect_summaries = effect_summaries;
             checker.effect_graph = effect_graph;
+            let records = module_record_cache.get_or_prepare(
+                &bundle,
+                if byte_script_arguments {
+                    ArgsDomain::Bytes
+                } else {
+                    ArgsDomain::Str
+                },
+            );
             checker.check_program_arena_with_type_program_and_sources(
                 &bundle,
                 source,
                 type_program,
+                &records,
             );
             checker.publish_command_binding_sites();
             let callable_effects = checker.callable_effects();
@@ -1475,50 +1497,32 @@ impl Checker {
         bundle: &BundleView<'_>,
         source: &str,
         type_program: Arc<crate::syntax::arena::ArenaProgram>,
+        records: &ModuleRecords,
     ) {
         self.resolved_command_sites.clear();
         let program = bundle.program;
-        self.resolved_bindings = Arc::new(ResolvedBindings::collect(program));
-        self.return_inference_index = Some(Arc::new(infer_return::ReturnInferenceIndex::collect(
-            &bundle,
-        )));
-        self.prepare_effect_declarations(&bundle, None);
-        self.prepare_local_inference(&bundle);
-        self.diagnostics
-            .extend(Self::prepare_regex_literals(&bundle));
+        debug_assert_eq!(
+            records.root().args_domain,
+            if self.byte_script_arguments {
+                ArgsDomain::Bytes
+            } else {
+                ArgsDomain::Str
+            }
+        );
+        records.install(self, program);
+        let statements = records.root().statements();
         if !self.collecting_effects {
             self.diagnostics
                 .extend(crate::syntax::grouping::grouping_diagnostics(
                     program, source,
                 ));
         }
-        self.record_constructors = RecordConstructors::collect_bundle(&bundle);
-        self.prepared_constants =
-            super::constants::PreparedConstants::collect_bundle(
-                &bundle, &self.record_constructors, &self.resolved_bindings,
-            );
-        self.diagnostics
-            .extend(self.prepared_constants.diagnostics.clone());
-        self.record_constructors
-            .apply_prepared_defaults_bundle(&bundle, &self.prepared_constants);
-        for (expression, fact) in &self.prepared_constants.record_constructor_instances {
-            self.record_constructor_instances
-                .insert(program.arena.expr(*expression).span, fact.clone());
-        }
-        let (wire_enums, wire_diagnostics) =
-            crate::sema::wire_enums::PreparedWireEnums::prepare_bundle(&bundle, |expr| {
-                self.prepared_constants
-                    .analyze_expression(&program.arena, expr)
-            });
-        self.wire_enums = wire_enums;
-        self.diagnostics.extend(wire_diagnostics);
-        self.collect_user_modules_arena(&bundle, type_program.clone(), source);
-        self.collect_type_imports_arena(program, program.statement_ids());
-        self.collect_definitions_arena(program, type_program, source, program.statement_ids());
-        let statements = program.statement_ids().collect::<Vec<_>>();
-        self.infer_default_parameter_types(program, source, &statements);
-        self.infer_local_pure_returns(&bundle, source, &statements);
-        self.infer_default_parameter_types(program, source, &statements);
+        self.collect_user_modules_arena(&bundle, records, type_program.clone(), source);
+        self.collect_type_imports_arena(program, statements.iter().copied());
+        self.collect_definitions_arena(program, type_program, source, statements.iter().copied());
+        self.infer_default_parameter_types(program, source, statements);
+        self.infer_local_pure_returns(&bundle, source, statements);
+        self.infer_default_parameter_types(program, source, statements);
         // A signature CLI `main`, or a `proc main` that the last statement does
         // not call, runs after the top level and supplies the exit status, so
         // no statement does.
@@ -1582,10 +1586,10 @@ impl Checker {
             .last()
             .filter(|_| !main_runs_after)
             .map(|&stmt| program.arena.stmt(stmt).span);
-        for stmt in program.statement_ids() {
+        for &stmt in statements {
             self.check_stmt_arena(program, source, stmt);
         }
-        self.check_public_result_types(program, &statements);
+        self.check_public_result_types(program, statements);
         self.exit_status_statement = None;
         self.resolve_checked_types();
         let instances: Vec<_> = self.record_constructor_instances.iter().map(|(&span, fact)| (span, fact.clone())).collect();

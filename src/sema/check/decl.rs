@@ -1,8 +1,9 @@
 #![allow(clippy::single_call_fn)]
 
 use super::{
-    BTreeMap, BundleView, Checker, CheckedFunctionKind, CoreCommand, ErrorFamilyInfo, ErrorVariantInfo, FxHashSet, Name,
-    QualifiedName, Span, TagVariantInfo, Type, TypeAnnRef, TypeDefBody, UserModuleSig, api_spec,
+    BTreeMap, BundleView, Checker, CheckedFunctionKind, CoreCommand, ErrorFamilyInfo,
+    ErrorVariantInfo, FxHashSet, ModuleRecords, Name, QualifiedName, Span, TagVariantInfo, Type,
+    TypeAnnRef, TypeDefBody, UserModuleSig, api_spec,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Label};
 use crate::sema::check::{
@@ -21,6 +22,7 @@ impl Checker {
     pub(super) fn collect_user_modules_arena(
         &mut self,
         view: &BundleView<'_>,
+        records: &ModuleRecords,
         type_program: Arc<ArenaProgram>,
         source: &str,
     ) {
@@ -30,6 +32,10 @@ impl Checker {
             let source = sources.map_or(source, |sources| {
                 module_source_text(program, module, sources)
             });
+            let record = records
+                .module(&module.key)
+                .expect("reachable module has a prepared record");
+            debug_assert_eq!(record.args_domain, records.root().args_domain);
             if module.internal {
                 if self.options.embedded_bodies || program.module_statements(module).any(|id| {
                     let kind = match program.arena.stmt(id).kind {
@@ -40,6 +46,7 @@ impl Checker {
                 }) {
                     self.check_user_module_arena(
                         view,
+                        record,
                         type_program.clone(),
                         source,
                         module,
@@ -53,6 +60,7 @@ impl Checker {
             }
             let sig = self.check_user_module_arena(
                 view,
+                record,
                 type_program.clone(),
                 source,
                 module,
@@ -336,12 +344,12 @@ impl Checker {
     pub(super) fn check_user_module_arena(
         &mut self,
         view: &BundleView<'_>,
+        record: &super::module_record::ModuleRecord,
         type_program: Arc<ArenaProgram>,
         source: &str,
         module: &ArenaUserModule,
     ) -> UserModuleSig {
         let program = view.program;
-        self.prepare_local_inference(view);
         let saved_procs = self.procs.clone();
         let saved_pures = self.pures.clone();
         let saved_streams = self.streams.clone();
@@ -363,19 +371,19 @@ impl Checker {
         self.module_depth += 1;
         self.define_standard_values();
 
-        let stmt_ids: Vec<StmtId> = program.module_statements(module).collect();
-        self.check_test_declaration_names_arena(program, &stmt_ids, true);
+        let stmt_ids = record.statements();
+        self.check_test_declaration_names_arena(program, stmt_ids, true);
         if !module.internal {
-            self.check_public_docs(program, module.statements, &stmt_ids);
-            self.check_public_result_types(program, &stmt_ids);
+            self.check_public_docs(program, module.statements, stmt_ids);
+            self.check_public_result_types(program, stmt_ids);
         }
-        for statement in &stmt_ids {
+        for &statement in stmt_ids {
             if matches!(
-                program.arena.stmt(*statement).kind,
+                program.arena.stmt(statement).kind,
                 ArenaStmtKind::CliMain(_)
             ) {
                 self.error(
-                    program.arena.stmt(*statement).span,
+                    program.arena.stmt(statement).span,
                     "`cli main` is only permitted in the entry module",
                     DiagnosticCode::CheckCliEntry,
                 );
@@ -383,8 +391,8 @@ impl Checker {
         }
         self.collect_type_imports_arena(program, stmt_ids.iter().copied());
         let mut names = FxHashSet::default();
-        for stmt_id in &stmt_ids {
-            let (kind, span) = exported_stmt_kind_arena(program, *stmt_id);
+        for &stmt_id in stmt_ids {
+            let (kind, span) = exported_stmt_kind_arena(program, stmt_id);
             match kind {
                 ArenaStmtKind::TypeDef(def_id) => {
                     let def = program.arena.type_def(def_id);
@@ -471,7 +479,7 @@ impl Checker {
 
         // Inferred bodies need constructor signatures before any statement
         // bodies are checked, just as root declarations do.
-        for &stmt_id in &stmt_ids {
+        for &stmt_id in stmt_ids {
             if let ArenaStmtKind::TypeDef(def_id) = exported_stmt_kind_arena(program, stmt_id).0 {
                 let def = program.arena.type_def(def_id);
                 if matches!(def.body, ArenaTypeDefBody::TagUnion(_)) {
@@ -484,18 +492,18 @@ impl Checker {
                 }
             }
         }
-        self.infer_default_parameter_types(program, source, &stmt_ids);
-        self.infer_local_pure_returns(view, source, &stmt_ids);
-        self.infer_default_parameter_types(program, source, &stmt_ids);
+        self.infer_default_parameter_types(program, source, stmt_ids);
+        self.infer_local_pure_returns(view, source, stmt_ids);
+        self.infer_default_parameter_types(program, source, stmt_ids);
         let mut exports = UserModuleSig::default();
-        for stmt_id in &stmt_ids {
-            let stmt = program.arena.stmt(*stmt_id);
+        for &stmt_id in stmt_ids {
+            let stmt = program.arena.stmt(stmt_id);
             if let ArenaStmtKind::SignalHook(hook_id) = stmt.kind {
                 let hook = program.arena.signal_hook(hook_id).clone();
                 self.check_signal_hook_arena(program, source, &hook, stmt.span);
                 continue;
             }
-            if !module_top_level_allowed_arena(program, *stmt_id) {
+            if !module_top_level_allowed_arena(program, stmt_id) {
                 self.error(
                     stmt.span,
                     "imported modules cannot run top-level mutation or commands",

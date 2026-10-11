@@ -85,6 +85,51 @@ pub(super) struct EffectGraph {
 }
 
 impl EffectGraph {
+    pub(super) fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
+
+    pub(super) fn declarations(view: &BundleView<'_>) -> Self {
+        let program = view.program;
+        let mut graph = Self::default();
+        let mut namespaces = super::FxHashMap::default();
+        for module in view.modules.iter().copied() {
+            for statement in program.arena.stmt_ids(module.statements) {
+                namespaces.insert(program.arena.stmt(statement).span.source_id, module.name);
+            }
+        }
+        for raw in 0..program.arena.stmt_tags.len() {
+            let statement_id = StmtId::from_index(raw);
+            let statement = program.arena.stmt(statement_id);
+            if !view.contains_source(statement.span.source_id) {
+                continue;
+            }
+            let definition = match statement.kind {
+                ArenaStmtKind::ProcDef(definition)
+                | ArenaStmtKind::StreamDef(definition)
+                | ArenaStmtKind::CliMain(definition) => definition,
+                _ => continue,
+            };
+            let def = program.arena.function_def(definition);
+            let id = EffectDeclarationId {
+                namespace: namespaces.get(&statement.span.source_id).copied(),
+                body: program.arena.span(program.arena.block(def.body).span),
+            };
+            let declared = def
+                .effects
+                .map(|effects| program.arena.effects(effects).collect());
+            // Exports, streams, and entry points infer like private procs: their
+            // callers depend on body effects, while a native test has no callers.
+            let inference_allowed = !def.test_declaration;
+            let name = id
+                .namespace
+                .map(|namespace| format!("{namespace}.{}", def.name))
+                .unwrap_or_else(|| def.name.to_string());
+            graph.declare(id, name, inference_allowed, declared);
+        }
+        graph
+    }
+
     pub fn declare(
         &mut self,
         id: EffectDeclarationId,
@@ -296,56 +341,6 @@ impl Checker {
         EffectDeclarationId {
             namespace: self.current_namespace,
             body: program.arena.span(program.arena.block(body).span),
-        }
-    }
-
-    pub(super) fn prepare_effect_declarations(
-        &mut self,
-        view: &BundleView<'_>,
-        namespace: Option<Name>,
-    ) {
-        let program = view.program;
-        let mut namespaces = super::FxHashMap::default();
-        for module in view.modules.iter().copied() {
-            for statement in program.arena.stmt_ids(module.statements) {
-                namespaces.insert(program.arena.stmt(statement).span.source_id, module.name);
-            }
-        }
-        for raw in 0..program.arena.stmt_tags.len() {
-            let statement = program.arena.stmt(StmtId::from_index(raw));
-            if !view.contains_source(statement.span.source_id) {
-                continue;
-            }
-            let definition = match statement.kind {
-                ArenaStmtKind::ProcDef(definition)
-                | ArenaStmtKind::StreamDef(definition)
-                | ArenaStmtKind::CliMain(definition) => definition,
-                _ => continue,
-            };
-            {
-                let def = program.arena.function_def(definition);
-                let id = EffectDeclarationId {
-                    namespace: namespaces
-                        .get(&statement.span.source_id)
-                        .copied()
-                        .or(namespace),
-                    body: program.arena.span(program.arena.block(def.body).span),
-                };
-                let declared = def
-                    .effects
-                    .map(|effects| program.arena.effects(effects).collect());
-                // Exports, streams, and entry points infer like private procs:
-                // an importer reads the inferred set, which depends only on the
-                // body and its callees. A native test has no callers, so
-                // without a clause it stays unrestricted.
-                let inference_allowed = !def.test_declaration;
-                let name = id
-                    .namespace
-                    .map(|namespace| format!("{namespace}.{}", def.name))
-                    .unwrap_or_else(|| def.name.to_string());
-                self.effect_graph
-                    .declare(id, name, inference_allowed, declared);
-            }
         }
     }
 
