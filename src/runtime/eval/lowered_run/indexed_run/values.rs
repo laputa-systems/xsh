@@ -3,9 +3,9 @@ use super::{
     FullExecution, FullTag, LoweredStrPredicate, LoweredValue, Name, RuntimeError, Span, StmtFlow,
     TraceKind, TracePayload, Value, bytes_contains, checked_int_binary, indexed_decode,
     indexed_error, indexed_finish, indexed_optional_raw, indexed_raw, indexed_value,
-    lowered_binary_value, lowered_contains_value, lowered_inline_stats_field_value,
-    lowered_path_method_value, lowered_record_vec_get, lowered_record_vec_or_stats,
-    lowered_result_err_value, lowered_stats_field_value, lowered_status_segment_record,
+    lowered_binary_value, lowered_contains_value,
+    lowered_path_method_value, lowered_record_field_value, lowered_record_vec_or_stats,
+    lowered_result_err_value, lowered_status_segment_record,
     lowered_str_byte_at_value, lowered_str_byte_len_value, lowered_str_count_lines_value,
     lowered_str_predicate_text, lowered_str_value, lowered_trim_is_empty_value,
     lowered_trim_str_predicate_value, lowered_value_from_runtime_any,
@@ -663,23 +663,11 @@ impl Evaluator {
         span: Span,
     ) -> Result<Option<LoweredValue>, RuntimeError> {
         match base {
-            LoweredValue::Record(record) | LoweredValue::Module(record) => record
-                .get(name)
-                .cloned()
-                .map(Some)
-                .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(span)),
-            LoweredValue::RecordVec(record) => lowered_record_vec_get(record.as_slice(), name)
-                .cloned()
-                .map(Some)
-                .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(span)),
-            LoweredValue::Stats {
-                blanks,
-                code,
-                comments,
-            } => lowered_inline_stats_field_value(*blanks, *code, *comments, name)
-                .map(Some)
-                .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(span)),
-            LoweredValue::StatsBlob(stats) => lowered_stats_field_value(stats, name)
+            LoweredValue::Record(_)
+            | LoweredValue::Module(_)
+            | LoweredValue::RecordVec(_)
+            | LoweredValue::Stats { .. }
+            | LoweredValue::StatsBlob(_) => lowered_record_field_value(base, name)
                 .map(Some)
                 .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(span)),
             LoweredValue::FsEntry(entry) => {
