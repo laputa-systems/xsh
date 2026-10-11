@@ -95,16 +95,16 @@ test test_list_pattern_dynamic_elements_keep_type_narrowing {
 
 test test_list_pattern_rejects_unsupported_subjects_and_bindings { |ctx|
   for source in [
-    """let selected = match "abc" { [_, ..] => 1 _ => 0 }
+    """let selected = match "abc" { [_, ..] => 1, _ => 0 }
 """,
-    """let selected = match b"abc" { [_, ..] => 1 _ => 0 }
+    """let selected = match b"abc" { [_, ..] => 1, _ => 0 }
 """,
-    """let selected = match {name: "x"} { [_, ..] => 1 _ => 0 }
+    """let selected = match {name: "x"} { [_, ..] => 1, _ => 0 }
 """,
-    """let selected = match Ok([1]) { [_, ..] => 1 _ => 0 }
+    """let selected = match Ok([1]) { [_, ..] => 1, _ => 0 }
 """,
     """stream numbers() [] -> Stream[Int] { yield 1 }
-let selected = match numbers() { [_, ..] => 1 _ => 0 }
+let selected = match numbers() { [_, ..] => 1, _ => 0 }
 """,
   ] {
     let result = test.run_script(ctx, source)?
@@ -189,7 +189,7 @@ test test_list_pattern_rejects_duplicates_and_honors_guards { |ctx|
   assert guarded == 2
   let duplicate = test.run_script(
     ctx,
-    """let selected = match [1, 2] { [same, same] => same _ => 0 }
+    """let selected = match [1, 2] { [same, same] => same, _ => 0 }
 """,
   )?
   let rejected = ! duplicate.success

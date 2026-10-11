@@ -1,7 +1,7 @@
 use super::{
     Arc, ArenaExprKind, ArenaPatternKind, BuildExprId, BuildExprRow, BuildPatternId,
     BuildPatternIdSlots, BuildPatternRow, CompactLowerConstructProbe, DurationValue, ExprId,
-    LoweredErrorPatternFields, LoweredValue, Name, PathValue, PatternId,
+    LoweredValue, Name, PathValue, PatternId,
     QualifiedName, SlotScope, Type, UnaryOp, checked_type_annotation,
     cleanup_lowered_pattern_slots,
 };
@@ -584,37 +584,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         cleanup,
                     ));
                 }
-                if name == "Err"
-                    && let Some(arg) = arg
-                    && let ArenaPatternKind::ErrorVariant {
-                        family,
-                        variant,
-                        fields,
-                    } = self.qualified_pattern_kind(*arg)?
-                {
-                    return self
-                        .lower_error_variant_pattern(family, variant, fields, true, slots)
-                        .inspect(|_| {
-                            self.output.constructed_patterns += 1;
-                        });
-                }
-                if name == "Err"
-                    && let Some(arg) = arg
-                    && let ArenaPatternKind::Facet(facet) = self.program.arena.pattern(*arg).kind
-                {
-                    self.output.constructed_patterns += 1;
-                    return Some((
-                        push_build_row!(
-                            self,
-                            pattern,
-                            BuildPatternRow::Facet {
-                                facet,
-                                result_wrapped: true,
-                            }
-                        ),
-                        Vec::new(),
-                    ));
-                }
                 if name == "Ok" || name == "Err" {
                     let mut cleanup = Vec::new();
                     let binding_ty = if name == "Ok" {
@@ -673,52 +642,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }?;
         self.output.constructed_patterns += 1;
         Some(lowered)
-    }
-
-    fn lower_error_variant_pattern(
-        &self,
-        family: Name,
-        variant: Name,
-        fields: crate::syntax::arena::ArenaRange,
-        result_wrapped: bool,
-        slots: &mut SlotScope,
-    ) -> Option<(BuildPatternId, Vec<(Name, usize)>)> {
-        let mut cleanup = Vec::new();
-        let mut lowered = LoweredErrorPatternFields::new();
-        for field in self.program.arena.pattern_fields(fields) {
-            let slot = self.lower_error_pattern_field(field.pattern, slots, &mut cleanup)?;
-            lowered.push((field.name, slot));
-        }
-        Some((
-            push_build_row!(
-                self,
-                pattern,
-                BuildPatternRow::ErrorVariant {
-                    family,
-                    variant,
-                    fields: Box::new(lowered),
-                    result_wrapped,
-                }
-            ),
-            cleanup,
-        ))
-    }
-
-    fn lower_error_pattern_field(
-        &self,
-        id: PatternId,
-        slots: &mut SlotScope,
-        cleanup: &mut Vec<(Name, usize)>,
-    ) -> Option<Option<usize>> {
-        match self.program.arena.pattern(id).kind {
-            ArenaPatternKind::Wildcard => Some(None),
-            ArenaPatternKind::Binding(name) if self.pattern_declaration(id, name).is_some() => {
-                let slot = slots.declare_source(self.pattern_declaration(id, name)?, name, None);
-                cleanup.push((name, slot));
-                Some(Some(slot))
-            }
-            _ => None,
-        }
     }
 
     fn lower_pattern_literal(&self, id: ExprId) -> Option<BuildPatternId> {

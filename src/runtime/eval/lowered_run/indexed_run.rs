@@ -44,12 +44,10 @@ use crate::map_key::MapKey;
 use crate::runtime::eval::indexed::IrVerifyError;
 use crate::runtime::eval::indexed::full::{
     BLOCK_LIST, BLOCK_STATEMENTS, FrameStrategy, FullDriverTag, FullExecution, FullFunctionView,
-    FullPatternTag, FullPayload, FullProgram, FullStageTag, FullTag,
+    FullPayload, FullProgram, FullStageTag, FullTag,
 };
 use crate::runtime::eval::indexed::full::schema::ExprView;
-use crate::runtime::eval::lower::{
-    lowered_error_value_has_facet, lowered_error_variant_matches, lowered_record_field,
-};
+use crate::runtime::eval::lower::{lowered_error_value_has_facet, lowered_record_field};
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
 use crate::runtime::eval::{
     LoweredModuleExport, LoweredTopLevelSlot, LoweredTypeCheck, ModuleCallPlan, Propagation, ScanBytes, ScanCheck,

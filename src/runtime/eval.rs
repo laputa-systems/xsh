@@ -1141,7 +1141,6 @@ type LoweredParamDefaults = SmallVec<[Option<LoweredValue>; 4]>;
 type LoweredTopLevelSlots = SmallVec<[LoweredTopLevelSlot; 4]>;
 type BuildPatternIdSlots = SmallVec<[Option<usize>; 2]>;
 type LoweredCompFields = SmallVec<[(Name, Box<LoweredCompTarget>, Span); 4]>;
-type LoweredErrorPatternFields = SmallVec<[(Name, Option<usize>); 4]>;
 
 #[derive(Clone, Debug)]
 enum LoweredCompTarget {
@@ -1404,14 +1403,6 @@ enum BuildPatternRow {
     ResultErr {
         slot: Option<usize>,
         unit_only: bool,
-    },
-    ErrorVariant {
-        family: Name,
-        variant: Name,
-        // Structured error patterns are rare; keep their multi-field payload
-        // from setting the size of every pattern in every match arm.
-        fields: Box<LoweredErrorPatternFields>,
-        result_wrapped: bool,
     },
     // `is Facet => …`: matches when the error value carries `facet`.
     // `result_wrapped` distinguishes `Err(is Facet)` (scrutinee is a Result)

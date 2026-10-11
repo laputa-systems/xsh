@@ -119,16 +119,16 @@ test test_pattern_tests_accept_only_grouped_capture_free_alternatives {
 
 test test_pattern_aliases_reject_invalid_names_duplicates_and_incompatible_alternatives { |ctx|
   for source in [
-    """let result = match [1] { [value] as value => value _ => 0 }
+    """let result = match [1] { [value] as value => value, _ => 0 }
 """,
-    """let result = match {left: 1, right: 2} { {left: value, right: value} => value _ => 0 }
+    """let result = match {left: 1, right: 2} { {left: value, right: value} => value, _ => 0 }
 """,
-    """let result = match [1] { [left] | [right] => 1 _ => 0 }
+    """let result = match [1] { [left] | [right] => 1, _ => 0 }
 """,
     """enum Event { Number(Int), Text(Str) }
-let result = match Number(1) { Number(value) | Text(value) => 1 _ => 0 }
+let result = match Number(1) { Number(value) | Text(value) => 1, _ => 0 }
 """,
-    """let result = match 1 { 1 | 2 as original => 1 _ => 0 }
+    """let result = match 1 { 1 | 2 as original => 1, _ => 0 }
 """,
   ] {
     let result = test.run_script(ctx, source)?

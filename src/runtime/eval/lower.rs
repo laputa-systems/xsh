@@ -1,7 +1,7 @@
 //! AST -> lowered-IR lowering pass, split out of `eval.rs`.
 
 use crate::modules::{ModuleFnSig, RuntimeOp, api_spec};
-use crate::runtime::value::{DurationValue, PathValue, RecordMap, RegexValue, RuntimeError, Value};
+use crate::runtime::value::{DurationValue, PathValue, RegexValue, RuntimeError, Value};
 use crate::sema::check::{
     BindingId, CheckedApiCall, CompactBodyFacts, CompactDeclOutput, Conversion,
     ResourceTransferSite,
@@ -28,7 +28,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use super::lowered_ops::{
-    lowered_binary_op, lowered_value_from_runtime_any, lowered_value_matches,
+    lowered_binary_op, lowered_value_matches,
 };
 use super::{
     LoweredProcessCommandArgv, LoweredProcessCommandBuilderEntry, LoweredRecordEntry,
@@ -368,7 +368,7 @@ use super::{
     COMPACT_COMMAND_BLOCKER_KIND_COUNT, COMPACT_EXPR_KIND_COUNT, COMPACT_STMT_KIND_COUNT,
     COMPACT_TYPE_EXPR_TAG_COUNT, CompactLowerConstructProbeOutput, Flow, FunctionBuild,
     LowerableFunctions, LoweredAssignPath, LoweredAssignStep, LoweredCallArg, LoweredCompFields,
-    LoweredCompTarget, LoweredErrorExpr, LoweredErrorPatternFields, LoweredFmtPart,
+    LoweredCompTarget, LoweredErrorExpr, LoweredFmtPart,
     LoweredFunctionBlocker, LoweredFunctionKey, LoweredFunctionKind, LoweredFunctionUnit,
     LoweredModuleExport, LoweredModuleExportKind, LoweredParamChecks, LoweredParamDefaults,
     LoweredParamKinds, LoweredParamNames, LoweredParamRest, LoweredPipelineStage,
@@ -6276,53 +6276,6 @@ pub(super) fn lowered_error_value_has_facet(value: &Value, facet: &str) -> bool 
         Value::RunError(error) => error.facets().iter().any(|f| f == facet),
         _ => false,
     }
-}
-
-pub(super) fn lowered_error_variant_matches(
-    family: &Name,
-    variant: &Name,
-    fields: &LoweredErrorPatternFields,
-    value: &Value,
-    slots: &mut [LoweredValue],
-    bind: bool,
-) -> bool {
-    match value {
-        Value::Error(error) => {
-            crate::runtime::value::error_family_matches(error.family_name(), *family)
-                && error.variant_name() == *variant
-                && lowered_error_pattern_fields_match(&error.payload, fields, slots, bind)
-        }
-        Value::RunError(error) if *family == Name::PROCESS_ERROR => {
-            if error.variant_name() != variant.as_str() {
-                return false;
-            }
-            let payload = error.payload();
-            lowered_error_pattern_fields_match(&payload, fields, slots, bind)
-        }
-        _ => false,
-    }
-}
-
-fn lowered_error_pattern_fields_match(
-    payload: &RecordMap,
-    fields: &LoweredErrorPatternFields,
-    slots: &mut [LoweredValue],
-    bind: bool,
-) -> bool {
-    for (name, slot) in fields {
-        let Some(value) = payload.get(&name.as_str()) else {
-            return false;
-        };
-        if let Some(slot) = slot {
-            let Some(value) = lowered_value_from_runtime_any(value) else {
-                return false;
-            };
-            if bind {
-                slots[*slot] = value;
-            }
-        }
-    }
-    true
 }
 
 pub(super) fn lowered_str_key(value: &LoweredValue) -> Option<&str> {

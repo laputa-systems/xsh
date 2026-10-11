@@ -1,32 +1,22 @@
 use super::{
-    Arc, BLOCK_LIST, Evaluator, FullExecution, FullPatternTag, FullPayload, LoweredValue, Name,
-    RuntimeError, SmallVec, Span, StmtFlow, Type, Value, indexed_decode, indexed_error,
-    indexed_finish, indexed_raw, indexed_string, lowered_error_value_has_facet,
-    lowered_error_variant_matches, lowered_record_field, lowered_value_from_runtime_any,
-    ValueView, value_matches_static_type,
+    Arc, Evaluator, FullExecution, LoweredValue, Name, RuntimeError, Span, StmtFlow, Value,
+    indexed_error, lowered_error_value_has_facet, lowered_record_field,
+    lowered_value_from_runtime_any, ValueView, value_matches_static_type,
 };
+use crate::runtime::eval::indexed::full::schema::PatternView;
+
+fn indexed_pattern_view<'a>(
+    execution: &FullExecution<'a>,
+    pattern: u32,
+    span: Span,
+) -> Result<PatternView<'a>, RuntimeError> {
+    let (tag, payload) = execution
+        .pattern(pattern)
+        .map_err(|error| indexed_error(error, span))?;
+    PatternView::decode(execution, tag, payload).map_err(|error| indexed_error(error, span))
+}
 
 impl Evaluator {
-    pub(super) fn decode_indexed_pattern_fields<'a>(
-        payload: &mut FullPayload<'a>,
-        execution: &FullExecution<'a>,
-        span: Span,
-    ) -> Result<Vec<(Name, u32)>, RuntimeError> {
-        let (_, mut fields) = execution
-            .block(payload, BLOCK_LIST)
-            .map_err(|error| indexed_error(error, span))?;
-        let count = indexed_raw(&mut fields, span)? as usize;
-        let mut decoded = Vec::with_capacity(count);
-        for _ in 0..count {
-            decoded.push((
-                indexed_decode::<Name>(&mut fields, execution, span)?,
-                indexed_raw(&mut fields, span)?,
-            ));
-        }
-        indexed_finish(fields, span)?;
-        Ok(decoded)
-    }
-
     // Structural validation precedes capture publication throughout the pattern tree.
     // Failed nested patterns leave every capture slot untouched and allocate no list rest.
     pub(in crate::runtime::eval) fn indexed_pattern_matches(
@@ -50,89 +40,120 @@ impl Evaluator {
         span: Span,
         bind: bool,
     ) -> Result<bool, RuntimeError> {
-        let (tag, mut payload) = execution
-            .pattern(pattern)
-            .map_err(|error| indexed_error(error, span))?;
-        let matched = match tag {
-            FullPatternTag::TagType => {
-                let type_name = indexed_decode::<Name>(&mut payload, execution, span)?;
-                let variants = indexed_decode::<Vec<Name>>(&mut payload, execution, span)?;
-                matches!(value, LoweredValue::Tag(value) if value.type_name == type_name && variants.iter().any(|name| value.name.as_ref() == name.as_str()))
+        let view = indexed_pattern_view(execution, pattern, span)?;
+        let matched = match view {
+            PatternView::TagType {
+                type_name,
+                variants,
+            } => {
+                let Some(value) = (match value {
+                    LoweredValue::Tag(value) if value.type_name == type_name => Some(value),
+                    _ => None,
+                }) else {
+                    for variant in variants {
+                        variant.map_err(|error| indexed_error(error, span))?;
+                    }
+                    return Ok(false);
+                };
+                let mut matched = false;
+                for variant in variants {
+                    let variant = variant.map_err(|error| indexed_error(error, span))?;
+                    matched |= value.name.as_ref() == variant.as_str();
+                }
+                matched
             }
-            FullPatternTag::RecordTest => {
-                let fields = Self::decode_indexed_pattern_fields(&mut payload, execution, span)?;
-                let mut matched =
-                    matches!(value, LoweredValue::Record(_) | LoweredValue::RecordVec(_));
-                for (name, pattern) in fields.iter() {
+            PatternView::RecordTest { fields } => {
+                let mut matched = matches!(value, LoweredValue::Record(_) | LoweredValue::RecordVec(_));
+                for field in fields {
+                    let (name, child) = field.map_err(|error| indexed_error(error, span))?;
+                    if !matched {
+                        continue;
+                    }
                     let Some(field) = lowered_record_field(value, &name.as_str()) else {
                         matched = false;
-                        break;
+                        continue;
                     };
                     if !Self::indexed_pattern_match_pass(
-                        execution, *pattern, field, slots, span, bind,
+                        execution,
+                        child.raw(),
+                        field,
+                        slots,
+                        span,
+                        bind,
                     )? {
                         matched = false;
-                        break;
                     }
                 }
                 matched
             }
-            FullPatternTag::ResultTest => {
-                let ok = indexed_decode::<bool>(&mut payload, execution, span)?;
-                let inner = indexed_raw(&mut payload, span)?;
-                match value {
-                    LoweredValue::ResultOk(value) if ok => Self::indexed_pattern_match_pass(
-                        execution, inner, value, slots, span, bind,
-                    )?,
-                    LoweredValue::ResultErr(value) if !ok => {
-                        if let Some(value) = lowered_value_from_runtime_any(value) {
-                            Self::indexed_pattern_match_pass(
-                                execution, inner, &value, slots, span, bind,
-                            )?
-                        } else {
-                            false
-                        }
+            PatternView::ResultTest { ok, inner } => match value {
+                LoweredValue::ResultOk(value) if ok => Self::indexed_pattern_match_pass(
+                    execution,
+                    inner.raw(),
+                    value,
+                    slots,
+                    span,
+                    bind,
+                )?,
+                LoweredValue::ResultErr(value) if !ok => {
+                    if let Some(value) = lowered_value_from_runtime_any(value) {
+                        Self::indexed_pattern_match_pass(
+                            execution,
+                            inner.raw(),
+                            &value,
+                            slots,
+                            span,
+                            bind,
+                        )?
+                    } else {
+                        false
                     }
-                    _ => false,
                 }
-            }
-            FullPatternTag::TagTest => {
-                let type_name = indexed_decode::<Name>(&mut payload, execution, span)?;
-                let name = indexed_decode::<Name>(&mut payload, execution, span)?;
-                let (_, mut patterns) = execution
-                    .block(&mut payload, BLOCK_LIST)
-                    .map_err(|error| indexed_error(error, span))?;
-                let count = indexed_raw(&mut patterns, span)? as usize;
-                let mut fields = Vec::with_capacity(count);
-                for _ in 0..count {
-                    fields.push(indexed_raw(&mut patterns, span)?);
-                }
-                indexed_finish(patterns, span)?;
-                if let LoweredValue::Tag(value) = value {
-                    let mut matched = value.type_name == type_name
-                        && value.name.as_ref() == name.as_str()
-                        && value.fields.len() == fields.len();
+                _ => false,
+            },
+            PatternView::TagTest {
+                type_name,
+                name,
+                fields,
+            } => {
+                let tag = match value {
+                    LoweredValue::Tag(value) => Some(value),
+                    _ => None,
+                };
+                let mut matched = tag.is_some_and(|value| {
+                    value.type_name == type_name && value.name.as_ref() == name.as_str()
+                });
+                let mut field_index = 0;
+                for child in fields {
+                    let child = child.map_err(|error| indexed_error(error, span))?;
                     if matched {
-                        for (pattern, value) in fields.iter().zip(&value.fields) {
-                            if !Self::indexed_pattern_match_pass(
-                                execution, *pattern, value, slots, span, bind,
-                            )? {
-                                matched = false;
-                                break;
-                            }
+                        let Some(field) = tag.and_then(|tag| tag.fields.get(field_index)) else {
+                            matched = false;
+                            field_index += 1;
+                            continue;
+                        };
+                        if !Self::indexed_pattern_match_pass(
+                            execution,
+                            child.raw(),
+                            field,
+                            slots,
+                            span,
+                            bind,
+                        )? {
+                            matched = false;
                         }
                     }
-                    matched
-                } else {
-                    false
+                    field_index += 1;
                 }
+                matched && tag.is_some_and(|tag| tag.fields.len() == field_index)
             }
-            FullPatternTag::ErrorTest => {
-                let family = indexed_decode::<Name>(&mut payload, execution, span)?;
-                let variant = indexed_decode::<Name>(&mut payload, execution, span)?;
-                let fields = Self::decode_indexed_pattern_fields(&mut payload, execution, span)?;
-                if let LoweredValue::Error(value) = value {
-                    let error_fields = match value.as_ref() {
+            PatternView::ErrorTest {
+                family,
+                variant,
+                fields,
+            } => {
+                let error_fields = if let LoweredValue::Error(value) = value {
+                    match value.as_ref() {
                         Value::Error(error)
                             if crate::runtime::value::error_family_matches(
                                 error.family_name(),
@@ -148,110 +169,123 @@ impl Evaluator {
                             Some(error.payload())
                         }
                         _ => None,
-                    };
-                    if let Some(values) = error_fields {
-                        let mut matched = true;
-                        for (name, pattern) in fields.iter() {
-                            let Some(value) = values
-                                .get(&name.as_str())
-                                .and_then(lowered_value_from_runtime_any)
-                            else {
-                                matched = false;
-                                break;
-                            };
-                            if !Self::indexed_pattern_match_pass(
-                                execution, *pattern, &value, slots, span, bind,
-                            )? {
-                                matched = false;
-                                break;
-                            }
-                        }
-                        matched
-                    } else {
-                        false
                     }
-                } else {
-                    false
-                }
-            }
-            FullPatternTag::List => {
-                let (_, mut patterns) = execution
-                    .block(&mut payload, BLOCK_LIST)
-                    .map_err(|error| indexed_error(error, span))?;
-                let count = indexed_raw(&mut patterns, span)? as usize;
-                let mut elements = Vec::with_capacity(count);
-                for _ in 0..count {
-                    elements.push(indexed_raw(&mut patterns, span)?);
-                }
-                indexed_finish(patterns, span)?;
-                let rest = if indexed_decode::<bool>(&mut payload, execution, span)? {
-                    Some(indexed_raw(&mut payload, span)?)
                 } else {
                     None
                 };
+                let mut matched = error_fields.is_some();
+                for field in fields {
+                    let (name, child) = field.map_err(|error| indexed_error(error, span))?;
+                    if !matched {
+                        continue;
+                    }
+                    let Some(field) = error_fields
+                        .as_ref()
+                        .and_then(|values| values.get(&name.as_str()))
+                        .and_then(lowered_value_from_runtime_any)
+                    else {
+                        matched = false;
+                        continue;
+                    };
+                    if !Self::indexed_pattern_match_pass(
+                        execution,
+                        child.raw(),
+                        &field,
+                        slots,
+                        span,
+                        bind,
+                    )? {
+                        matched = false;
+                    }
+                }
+                matched
+            }
+            PatternView::List { elements, rest } => {
+                let count = elements.len();
                 let items = match value {
                     LoweredValue::List(items) => Some(items.as_slice()),
                     LoweredValue::SharedList(items) => Some(items.as_slice()),
                     _ => None,
                 };
-                if let Some(items) = items {
-                    let mut matched =
-                        items.len() >= count && (rest.is_some() || items.len() == count);
+                let mut matched = items.is_some_and(|items| {
+                    items.len() >= count && (rest.is_some() || items.len() == count)
+                });
+                let mut index = 0;
+                for child in elements {
+                    let child = child.map_err(|error| indexed_error(error, span))?;
                     if matched {
-                        for (pattern, item) in elements.iter().zip(items) {
-                            if !Self::indexed_pattern_match_pass(
-                                execution, *pattern, item, slots, span, bind,
-                            )? {
-                                matched = false;
-                                break;
-                            }
+                        let Some(item) = items.and_then(|items| items.get(index)) else {
+                            matched = false;
+                            index += 1;
+                            continue;
+                        };
+                        if !Self::indexed_pattern_match_pass(
+                            execution,
+                            child.raw(),
+                            item,
+                            slots,
+                            span,
+                            bind,
+                        )? {
+                            matched = false;
                         }
                     }
-                    if matched
-                        && bind
-                        && let Some(rest) = rest
-                    {
-                        let (tag, mut rest_payload) = execution
-                            .pattern(rest)
-                            .map_err(|error| indexed_error(error, span))?;
-                        if tag == FullPatternTag::Bind {
-                            let slot = indexed_decode::<usize>(&mut rest_payload, execution, span)?;
-                            slots[slot] = LoweredValue::List(items[count..].to_vec());
-                        }
-                        indexed_finish(rest_payload, span)?;
-                    }
-                    matched
+                    index += 1;
+                }
+                matched = matched && index == count && if let Some(items) = items {
+                    index <= items.len() && (rest.is_some() || index == items.len())
                 } else {
                     false
+                };
+                if matched && bind && let Some(rest) = rest {
+                    if let PatternView::Bind { slot } = indexed_pattern_view(
+                        execution,
+                        rest.raw(),
+                        span,
+                    )? {
+                        let Some(items) = items else {
+                            return Err(RuntimeError::new(
+                                "indexed-ir",
+                                "indexed IR verification failed: matched list pattern lost its subject list",
+                            )
+                            .with_span(span));
+                        };
+                        slots[slot] = LoweredValue::List(items[index..].to_vec());
+                    }
                 }
+                matched
             }
-            FullPatternTag::Alias => {
-                let pattern = indexed_raw(&mut payload, span)?;
-                let slot = indexed_decode::<usize>(&mut payload, execution, span)?;
-                let matched =
-                    Self::indexed_pattern_match_pass(execution, pattern, value, slots, span, bind)?;
+            PatternView::Alias { pattern, slot } => {
+                let matched = Self::indexed_pattern_match_pass(
+                    execution,
+                    pattern.raw(),
+                    value,
+                    slots,
+                    span,
+                    bind,
+                )?;
                 if matched && bind {
                     slots[slot] = value.clone();
                 }
                 matched
             }
-            FullPatternTag::Alternation => {
-                let (_, mut children) = execution
-                    .block(&mut payload, BLOCK_LIST)
-                    .map_err(|error| indexed_error(error, span))?;
-                let count = indexed_raw(&mut children, span)? as usize;
+            PatternView::Alternation { patterns } => {
                 let mut selected = None;
-                for _ in 0..count {
-                    let child = indexed_raw(&mut children, span)?;
+                for child in patterns {
+                    let child = child.map_err(|error| indexed_error(error, span))?;
                     if selected.is_none()
                         && Self::indexed_pattern_match_pass(
-                            execution, child, value, slots, span, false,
+                            execution,
+                            child.raw(),
+                            value,
+                            slots,
+                            span,
+                            false,
                         )?
                     {
-                        selected = Some(child);
+                        selected = Some(child.raw());
                     }
                 }
-                indexed_finish(children, span)?;
                 if let Some(selected) = selected {
                     if bind {
                         Self::indexed_pattern_match_pass(
@@ -264,26 +298,16 @@ impl Evaluator {
                     false
                 }
             }
-            FullPatternTag::Wildcard => true,
-            FullPatternTag::Text => {
-                use crate::sema::check::{TextHoleKind, TextHoleValue, split_text};
-                let (_, mut patterns) = execution
-                    .block(&mut payload, BLOCK_LIST)
+            PatternView::Wildcard => true,
+            PatternView::Text {
+                mut holes,
+                mut kinds,
+                segments,
+            } => {
+                use crate::sema::check::{TextHoleValue, split_text};
+                let segments = segments
+                    .collect::<Result<Vec<_>, _>>()
                     .map_err(|error| indexed_error(error, span))?;
-                let count = indexed_raw(&mut patterns, span)? as usize;
-                let mut holes = Vec::with_capacity(count);
-                for _ in 0..count {
-                    holes.push(indexed_raw(&mut patterns, span)?);
-                }
-                indexed_finish(patterns, span)?;
-                let mut kinds = Vec::with_capacity(count);
-                for _ in 0..count {
-                    kinds.push(indexed_raw(&mut payload, span)? as usize);
-                }
-                let mut segments = Vec::with_capacity(count + 1);
-                for _ in 0..=count {
-                    segments.push(indexed_string(&mut payload, execution, span)?);
-                }
                 let subject = match value {
                     LoweredValue::Str(text) => Some(text.as_ref()),
                     LoweredValue::StrView(view) => Some(view.as_str()),
@@ -291,46 +315,67 @@ impl Evaluator {
                 };
                 let texts = subject.and_then(|subject| split_text(&segments, subject));
                 let mut matched = texts.is_some();
-                // Every hole converts before any name is bound, and a hole
-                // whose text is not a value of its kind fails the match.
-                for ((hole, kind), text) in holes.iter().zip(&kinds).zip(texts.iter().flatten()) {
-                    // The verifier checked each kind before the program ran.
-                    let Some(kind) = TextHoleKind::from_index(*kind) else {
-                        matched = false;
-                        break;
-                    };
-                    let converted = match kind.convert(text) {
-                        // Text needs no value unless a name takes it.
-                        Some(TextHoleValue::Text(_)) if !bind => continue,
-                        Some(TextHoleValue::Text(text)) => LoweredValue::Str(Arc::from(text)),
-                        Some(TextHoleValue::Int(number)) => LoweredValue::Int(number),
-                        Some(TextHoleValue::Float(number)) => {
-                            LoweredValue::Float(crate::runtime::value::FloatValue::new(number))
-                        }
-                        None => {
+                let mut index = 0;
+                while let Some(hole) = holes.next() {
+                    let hole = hole.map_err(|error| indexed_error(error, span))?;
+                    let kind = kinds
+                        .next()
+                        .ok_or_else(|| {
+                            RuntimeError::new(
+                                "indexed-ir",
+                                "indexed IR verification failed: text pattern hole and kind counts differ",
+                            )
+                            .with_span(span)
+                        })?
+                        .map_err(|error| indexed_error(error, span))?;
+                    if matched {
+                        let Some(text) = texts
+                            .as_ref()
+                            .and_then(|texts| texts.get(index))
+                        else {
                             matched = false;
-                            break;
+                            index += 1;
+                            continue;
+                        };
+                        let converted = match kind.convert(text) {
+                            Some(TextHoleValue::Text(_)) if !bind => None,
+                            Some(TextHoleValue::Text(text)) => {
+                                Some(LoweredValue::Str(Arc::from(text)))
+                            }
+                            Some(TextHoleValue::Int(number)) => Some(LoweredValue::Int(number)),
+                            Some(TextHoleValue::Float(number)) => Some(LoweredValue::Float(
+                                crate::runtime::value::FloatValue::new(number),
+                            )),
+                            None => {
+                                matched = false;
+                                None
+                            }
+                        };
+                        if let Some(converted) = converted
+                            && !Self::indexed_pattern_match_pass(
+                                execution,
+                                hole.raw(),
+                                &converted,
+                                slots,
+                                span,
+                                bind,
+                            )?
+                        {
+                            matched = false;
                         }
-                    };
-                    if !Self::indexed_pattern_match_pass(
-                        execution, *hole, &converted, slots, span, bind,
-                    )? {
-                        matched = false;
-                        break;
                     }
+                    index += 1;
                 }
                 matched
             }
-            FullPatternTag::Bind => {
-                let slot = indexed_decode::<usize>(&mut payload, execution, span)?;
+            PatternView::Bind { slot } => {
                 if bind {
                     slots[slot] = value.clone();
                 }
                 true
             }
-            FullPatternTag::Type => {
-                let ty = indexed_decode::<Type>(&mut payload, execution, span)?;
-                let slot = indexed_decode::<Option<usize>>(&mut payload, execution, span)?;
+            PatternView::Type { ty, slot } => {
+                let ty = ty.materialize().map_err(|error| indexed_error(error, span))?;
                 if !value_matches_static_type(ValueView::Lowered(value), &ty) {
                     false
                 } else {
@@ -342,12 +387,13 @@ impl Evaluator {
                     true
                 }
             }
-            FullPatternTag::Literal => {
-                indexed_decode::<LoweredValue>(&mut payload, execution, span)? == *value
+            PatternView::Literal(value_ref) => {
+                value_ref
+                    .materialize()
+                    .map_err(|error| indexed_error(error, span))?
+                    == *value
             }
-            FullPatternTag::ResultOk => {
-                let slot = indexed_decode::<Option<usize>>(&mut payload, execution, span)?;
-                let unit_only = indexed_decode::<bool>(&mut payload, execution, span)?;
+            PatternView::ResultOk { slot, unit_only } => {
                 if let LoweredValue::ResultOk(inner) = value {
                     if unit_only && !matches!(inner.as_ref(), LoweredValue::Unit) {
                         false
@@ -363,15 +409,12 @@ impl Evaluator {
                     false
                 }
             }
-            FullPatternTag::ResultErr => {
-                let slot = indexed_decode::<Option<usize>>(&mut payload, execution, span)?;
-                let unit_only = indexed_decode::<bool>(&mut payload, execution, span)?;
+            PatternView::ResultErr { slot, unit_only } => {
                 if let LoweredValue::ResultErr(inner) = value {
                     if unit_only && !matches!(inner.as_ref(), Value::Unit) {
                         false
                     } else if let Some(slot) = slot {
                         let Some(inner) = lowered_value_from_runtime_any(inner.as_ref()) else {
-                            indexed_finish(payload, span)?;
                             return Ok(false);
                         };
                         if bind {
@@ -385,82 +428,51 @@ impl Evaluator {
                     false
                 }
             }
-            FullPatternTag::ErrorVariant => {
-                let family = indexed_decode::<Name>(&mut payload, execution, span)?;
-                let variant = indexed_decode::<Name>(&mut payload, execution, span)?;
-                let fields = indexed_decode::<Box<SmallVec<[(Name, Option<usize>); 4]>>>(
-                    &mut payload,
-                    execution,
-                    span,
-                )?;
-                let result_wrapped = indexed_decode::<bool>(&mut payload, execution, span)?;
+            PatternView::Facet {
+                facet,
+                result_wrapped,
+            } => {
                 let error = if result_wrapped {
                     let LoweredValue::ResultErr(error) = value else {
-                        indexed_finish(payload, span)?;
                         return Ok(false);
                     };
                     error.as_ref()
                 } else {
                     let LoweredValue::Error(error) = value else {
-                        indexed_finish(payload, span)?;
-                        return Ok(false);
-                    };
-                    error.as_ref()
-                };
-                lowered_error_variant_matches(&family, &variant, &fields, error, slots, bind)
-            }
-            FullPatternTag::Facet => {
-                let facet = indexed_decode::<Name>(&mut payload, execution, span)?;
-                let result_wrapped = indexed_decode::<bool>(&mut payload, execution, span)?;
-                let error = if result_wrapped {
-                    let LoweredValue::ResultErr(error) = value else {
-                        indexed_finish(payload, span)?;
-                        return Ok(false);
-                    };
-                    error.as_ref()
-                } else {
-                    let LoweredValue::Error(error) = value else {
-                        indexed_finish(payload, span)?;
                         return Ok(false);
                     };
                     error.as_ref()
                 };
                 lowered_error_value_has_facet(error, &facet.as_str())
             }
-            FullPatternTag::Tag => {
-                let type_name = indexed_decode::<Name>(&mut payload, execution, span)?;
-                let name = indexed_decode::<Name>(&mut payload, execution, span)?;
-                let field_count = indexed_raw(&mut payload, span)? as usize;
-                let mut field_slots = SmallVec::<[Option<usize>; 2]>::with_capacity(field_count);
-                for _ in 0..field_count {
-                    field_slots.push(indexed_decode::<Option<usize>>(
-                        &mut payload,
-                        execution,
-                        span,
-                    )?);
-                }
-                let LoweredValue::Tag(value) = value else {
-                    indexed_finish(payload, span)?;
-                    return Ok(false);
+            PatternView::Tag {
+                type_name,
+                name,
+                slots: field_slots,
+            } => {
+                let tag = match value {
+                    LoweredValue::Tag(value) => Some(value),
+                    _ => None,
                 };
-                if value.type_name != type_name
-                    || value.name.as_ref() != name.as_str()
-                    || value.fields.len() != field_slots.len()
-                {
-                    false
-                } else {
-                    for (slot, field) in field_slots.iter().zip(&value.fields) {
-                        if let Some(slot) = slot
-                            && bind
-                        {
-                            slots[*slot] = field.clone();
-                        }
+                let mut matched = tag.is_some_and(|value| {
+                    value.type_name == type_name && value.name.as_ref() == name.as_str()
+                });
+                let mut field_count = 0;
+                for slot in field_slots {
+                    let slot = slot.map_err(|error| indexed_error(error, span))?;
+                    let Some(field) = tag.and_then(|tag| tag.fields.get(field_count)) else {
+                        matched = false;
+                        field_count += 1;
+                        continue;
+                    };
+                    if matched && bind && let Some(slot) = slot {
+                        slots[slot] = field.clone();
                     }
-                    true
+                    field_count += 1;
                 }
+                matched && tag.is_some_and(|tag| tag.fields.len() == field_count)
             }
         };
-        indexed_finish(payload, span)?;
         Ok(matched)
     }
 

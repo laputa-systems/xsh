@@ -19,7 +19,7 @@ use crate::runtime::eval::{
     BuildPatternIdSlots, BuildPatternRow, BuildScratch, BuildStmtId, BuildTopKind,
     BuildTopStmtId, BuildTopStmtRow, FunctionBuild, FunctionHeader, LoweredAssignPath,
     LoweredAssignStep, LoweredCallArg, LoweredCompQualifier, LoweredCompQualifiers,
-    LoweredCompTarget, LoweredErrorExpr, LoweredErrorPatternFields, LoweredFmtPart,
+    LoweredCompTarget, LoweredErrorExpr, LoweredFmtPart,
     LoweredFunctionKey, LoweredFunctionKind, LoweredFunctionUnit, LoweredModuleExport,
     LoweredModuleExportKind, LoweredProcessCommandArgv,
     LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredRecordUpdates, LoweredReturnKind,
@@ -3469,15 +3469,6 @@ impl<'a> FullDecoder<'a> {
                         BuildPatternIdSlots::decode(self, &mut payload)?
                             .into_iter()
                             .flatten(),
-                    );
-                }
-                FullPatternTag::ErrorVariant => {
-                    Name::decode(self, &mut payload)?;
-                    Name::decode(self, &mut payload)?;
-                    captures.extend(
-                        Box::<LoweredErrorPatternFields>::decode(self, &mut payload)?
-                            .iter()
-                            .filter_map(|(_, slot)| *slot),
                     );
                 }
                 FullPatternTag::List
@@ -7794,11 +7785,6 @@ run true
             BuildPatternRow::Literal(LoweredValue::Null),
             BuildPatternRow::ResultOk { slot: Some(0), unit_only: false },
             BuildPatternRow::ResultErr { slot: None, unit_only: true },
-            BuildPatternRow::ErrorVariant { family: Name::ERROR, variant: Name::STR,
-                fields: Box::new(SmallVec::<[(Name, Option<usize>); 4]>::from_vec(
-                    vec![(Name::INT, Some(0))],
-                )),
-                result_wrapped: true },
             BuildPatternRow::Facet { facet: Name::ERROR, result_wrapped: false },
             BuildPatternRow::Tag { type_name: Name::INT, name: Name::STR,
                 slots: SmallVec::from([Some(0), None]) },
@@ -7814,7 +7800,7 @@ run true
         builder.current_owner = Some(0);
         builder.current_slot_count = 1;
         builder.active_scratch = Some(scratch);
-        let roots = (0..18)
+        let roots = (0..17)
             .map(|index| {
                 let mut words = Vec::new();
                 BuildPatternId::new(index).encode(&mut builder, &mut words).unwrap();
@@ -7840,7 +7826,6 @@ run true
             schema::PatternView::Literal(_) => FullPatternTag::Literal,
             schema::PatternView::ResultOk { .. } => FullPatternTag::ResultOk,
             schema::PatternView::ResultErr { .. } => FullPatternTag::ResultErr,
-            schema::PatternView::ErrorVariant { .. } => FullPatternTag::ErrorVariant,
             schema::PatternView::Facet { .. } => FullPatternTag::Facet,
             schema::PatternView::Tag { .. } => FullPatternTag::Tag,
             schema::PatternView::Text { .. } => FullPatternTag::Text,
@@ -8460,7 +8445,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
     fn pattern_schema_views_cover_all_rows_and_keep_fields_borrowed() {
         let (builder, roots) = pattern_view_fixture();
         let execution = schema_execution(&builder.store);
-        assert_eq!(schema::PATTERN_TAGS.len(), 18);
+        assert_eq!(schema::PATTERN_TAGS.len(), 17);
         let mut ids = FullCursor::new(&roots);
         let context = DecodeContext::new(&execution);
         let mut viewed_tags = Vec::with_capacity(roots.len());
@@ -8471,7 +8456,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
         ids.finish().unwrap();
         assert_eq!(viewed_tags, schema::PATTERN_TAGS);
 
-        let mut text_ids = FullCursor::new(&roots[17..]);
+        let mut text_ids = FullCursor::new(&roots[16..]);
         let text_id = BuildPatternId::borrow(context, &mut text_ids).unwrap();
         let schema::PatternView::Text { mut holes, mut kinds, mut segments } =
             execution.pattern_view(text_id).unwrap() else { panic!("text pattern view") };
@@ -8503,16 +8488,16 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
         let (builder, roots) = pattern_view_fixture();
         let execution = schema_execution(&builder.store);
         let context = DecodeContext::new(&execution);
-        let mut text_ids = FullCursor::new(&roots[17..]);
+        let mut text_ids = FullCursor::new(&roots[16..]);
         let text_id = BuildPatternId::borrow(context, &mut text_ids).unwrap();
 
         let mut invalid = builder.store.clone();
-        let text_range = invalid.pattern_data[roots[17] as usize].range();
+        let text_range = invalid.pattern_data[roots[16] as usize].range();
         invalid.extra[text_range.start as usize + 1] =
             crate::sema::check::TextHoleKind::ALL.len() as u32;
         let invalid_execution = schema_execution(&invalid);
         let error = match invalid_execution.pattern_view(
-            BuildPatternId::borrow(DecodeContext::new(&invalid_execution), &mut FullCursor::new(&roots[17..])).unwrap()
+            BuildPatternId::borrow(DecodeContext::new(&invalid_execution), &mut FullCursor::new(&roots[16..])).unwrap()
         ) {
             Err(error) => error,
             Ok(_) => panic!("invalid text hole kind was accepted"),
@@ -8520,7 +8505,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
         assert!(error.message.contains("text pattern hole kind is out of range"));
 
         let mut trailing = builder.store.clone();
-        let text_index = roots[17] as usize;
+        let text_index = roots[16] as usize;
         let text_data = trailing.pattern_data[text_index];
         let mut text_payload = trailing.payload(text_data.range()).unwrap().to_vec();
         text_payload.push(0);
@@ -8532,7 +8517,7 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
         };
         let trailing_execution = schema_execution(&trailing);
         let trailing_id = BuildPatternId::borrow(DecodeContext::new(&trailing_execution),
-            &mut FullCursor::new(&roots[17..])).unwrap();
+            &mut FullCursor::new(&roots[16..])).unwrap();
         let error = match trailing_execution.pattern_view(trailing_id) {
             Err(error) => error,
             Ok(_) => panic!("trailing pattern row word was accepted"),
@@ -9397,12 +9382,13 @@ pure selected() -> Str {
                 FullPatternTag::Literal as u8,
                 FullPatternTag::ResultOk as u8,
                 FullPatternTag::ResultErr as u8,
-                FullPatternTag::ErrorVariant as u8,
                 FullPatternTag::Facet as u8,
                 FullPatternTag::Tag as u8,
                 FullPatternTag::Text as u8,
             ],
-            std::array::from_fn::<_, 18, _>(|index| index as u8),
+            std::array::from_fn::<_, 17, _>(|index| {
+                if index < 14 { index as u8 } else { index as u8 + 1 }
+            }),
         );
     }
 

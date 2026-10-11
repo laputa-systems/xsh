@@ -5,8 +5,7 @@ use super::{
     EFFECT_DYNAMIC_CALL, EFFECT_ENV, EFFECT_HOST, EFFECT_PROCESS, EFFECT_PROPAGATE, EFFECT_TRACE,
     FloatValue, FullBuilder, FullCodec, FullCursor, FullDecoder, FullExecution, FullPayload,
     FunctionName, FxHashMap, IrBuildError, IrVerifyError, LoweredAssignPath, LoweredCallArg,
-    LoweredCompQualifiers, LoweredCompTarget, LoweredErrorExpr, LoweredErrorPatternFields,
-    LoweredFmtPart,
+    LoweredCompQualifiers, LoweredCompTarget, LoweredErrorExpr, LoweredFmtPart,
     LoweredFunctionKey, LoweredPipelineStage, LoweredProcessCommandArgv,
     LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredRecordUpdates,
     LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment, LoweredSpawnRun,
@@ -1350,12 +1349,6 @@ pattern_schema! {
             slot: Option<usize>,
             unit_only: bool,
         } [Normal, None],
-        ErrorVariant = 14 {
-            family: Name,
-            variant: Name,
-            fields: Box<LoweredErrorPatternFields>,
-            result_wrapped: bool,
-        } [Normal, None],
         Facet = 15 {
             facet: Name,
             result_wrapped: bool,
@@ -1518,10 +1511,11 @@ mod tests {
 
     #[test]
     fn pattern_schema_preserves_all_tag_ordinals() {
-        assert_eq!(PATTERN_TAGS.len(), 18);
-        for (ordinal, tag) in PATTERN_TAGS.iter().enumerate() {
-            assert_eq!(*tag as usize, ordinal);
-        }
+        assert_eq!(PATTERN_TAGS.len(), 17);
+        assert_eq!(
+            PATTERN_TAGS.iter().map(|tag| *tag as u8).collect::<Vec<_>>(),
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17],
+        );
         assert_eq!(FullPatternTag::Text as u8, 17);
     }
 }
