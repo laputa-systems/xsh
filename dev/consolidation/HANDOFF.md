@@ -31,6 +31,29 @@ than claiming lossless individual raw archival. Earlier wrong-environment and
 wrong-top-level-binary phases are preserved as superseded supplemental evidence.
 Coverage and final runtime-reader acceptance remain incomplete.
 
+Further integration: `c49c05e5` replaces `lint.prefer-with-scope` with
+default-on `lint.redundant-close` and shares checked output through lint workers;
+its focused lint gate passes 282/282. `349124ad` corrects the whole-initializer
+run propagation fixture while proving guarded hops and runtime output unchanged.
+W9's borrowed reachable view and per-root isolation proof are `a8cd70a2` /
+`a963a005`; repeated probe preparation remains for the next slice. Any opacity
+and its nine hidden-fixture migrations are now integrated (`4a09be2d`,
+`2be723b9`, `c2676b8b`). The joint optimized build passes; focused opacity
+102/102 and migration 155/155 gates pass. Known shell recovery and With
+initializer failures remain assigned to the binding owner. A newly exposed
+`fs.dirs` owner-registration regression is assigned to the stream owner;
+do not claim the full candidate gate green.
+
+`1e35ab66` removes the inherited CLI dead-code blanket and unused Rust
+convenience APIs `check_script`, `check_script_with_options`,
+`check_paths_with_options`, `check_paths_with_summary_options`, and
+`CliOutput::success`. CLI dispatch still uses `check_paths_timed`; its focused
+check/coverage gates pass. Legitimate exported coverage constructors and syscall
+summary data retain item-level allowances. `4a7447b9` removes four lint-proven
+redundant FsRoot defers in cp/mv/curl/split, preserving explicit unlocks;
+focused core gates pass with two TLS fixture skips. The SPEC template now
+records affine local checks and stream cleanup; generated docs are still pending.
+
 W9's canonical no-argument baseline lint completed on 1,160 discovered files;
 the contended 160.97-second run and same-process profile are setup attribution,
 not comparative performance acceptance. ARM compiler/environment recovery is

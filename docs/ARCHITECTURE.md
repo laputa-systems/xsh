@@ -169,7 +169,11 @@ their original source identities instead of rebuilding them from root text.
 Source-aware checker constructors use the same map for diagnostics and
 command binding sites. Standalone single-source constructors remain available.
 Frontend telemetry includes retained declaration and type-expression facts,
-template instances, and literal storage.
+template instances, and literal storage. `CheckOptions::for_execution`,
+`for_check_cli`, and `for_interactive` select entry policy; warnings are
+published by every profile and only errors block runtime preparation.
+Lint workers share an `Arc<CheckOutput>` when rules require checked binding
+identities, rather than starting another check for each source in the bundle.
 
 **Lowering and verification.** `FullBuilder::build_compact` reserves function
 identities, lowers each checked body into short-lived construction scratch,
