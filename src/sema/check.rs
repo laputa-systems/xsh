@@ -72,6 +72,9 @@ mod pattern;
 #[path = "check/proof.rs"]
 mod proof;
 mod public_result;
+#[path = "check/resource.rs"]
+mod resource;
+pub use resource::{ResourceTransferFacts, ResourceTransferSite};
 #[path = "check/set.rs"]
 mod set;
 #[path = "check/stmt.rs"]
@@ -271,12 +274,22 @@ pub struct CheckOutput {
     /// The resource kind of each binding of a managed `with` scope, in binding
     /// order, keyed by the scope. A scope with a rejected binding has none.
     pub resource_scopes: BTreeMap<Span, Vec<crate::modules::ManagedResource>>,
+    /// Whether each checked value sink can transfer a host resource into a
+    /// different runtime ownership scope. Missing entries indicate an
+    /// unpublished sink fact, not a scalar value.
+    pub resource_transfers: ResourceTransferFacts,
     /// Each text pattern, compiled: its literal segments and what each hole
     /// makes of the text it matches. Lowering copies this into the program.
     pub text_patterns: BTreeMap<Span, TextPattern>,
     /// Embedded implementation bodies were checked, so every body lowering
     /// builds has published facts.
     pub embedded_bodies_checked: bool,
+}
+
+impl CheckOutput {
+    pub fn resource_transfer(&self, site: ResourceTransferSite) -> Option<bool> {
+        self.resource_transfers.get(&site).copied()
+    }
 }
 
 /// The qualified pattern a target-typed `.Name` pattern was resolved to from
@@ -864,6 +877,7 @@ pub struct Checker {
     from_end_indexes: BTreeMap<Span, u32>,
     conversions: BTreeMap<Span, Conversion>,
     resource_scopes: BTreeMap<Span, Vec<crate::modules::ManagedResource>>,
+    resource_transfers: ResourceTransferFacts,
     text_patterns: BTreeMap<Span, TextPattern>,
     inferred_variant_patterns: BTreeMap<Span, InferredVariantPattern>,
     options: CheckOptions,
@@ -1123,6 +1137,7 @@ impl Checker {
                 from_end_indexes: checker.from_end_indexes,
                 conversions: checker.conversions,
                 resource_scopes: checker.resource_scopes,
+                resource_transfers: checker.resource_transfers,
                 text_patterns: checker.text_patterns,
                 inferred_variant_patterns: checker.inferred_variant_patterns,
                 embedded_bodies_checked: options.embedded_bodies,
@@ -1252,6 +1267,7 @@ impl Checker {
             from_end_indexes: BTreeMap::new(),
             conversions: BTreeMap::new(),
             resource_scopes: BTreeMap::new(),
+            resource_transfers: ResourceTransferFacts::default(),
             text_patterns: BTreeMap::new(),
             inferred_variant_patterns: BTreeMap::new(),
             options,
@@ -1461,6 +1477,11 @@ impl Checker {
         );
         self.checked_declarations.cli_entries = entries;
         self.diagnostics.extend(diagnostics);
+        if !self.collecting_effects {
+            let resource_check = resource::check(self, program);
+            self.diagnostics.extend(resource_check.diagnostics);
+            self.resource_transfers = resource_check.transfers;
+        }
     }
 
     pub(crate) fn check_public_module_docs(

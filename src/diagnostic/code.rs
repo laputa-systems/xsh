@@ -488,6 +488,7 @@ diagnostic_codes! {
         CheckCollectItem = "check.collect-item", error, "Reject a `collect` block that never yields where no expected type gives its item type";
         CheckWithoutEffect = "check.without-effect", error, "Reject `without error`: a local bound subtracts host effects, and `try` bounds errors";
         CheckWithResource = "check.with-resource", error, "Reject a `with` without `else` that binds a value which is not a built-in resource (`FsRoot`, `FsLock`)";
+        CheckUseAfterRelease = "check.use-after-release", error, "Reject use of an exact local resource after an unconditional release in its block";
         CheckUnionType = "check.union-type", error, "Reject a `Union[...]` whose members are fewer than two, repeat or contain one another, or are `Any`, `Null`, optional, a stream, a callable type, or another union";
         CheckUnionNarrow = "check.union-narrow", error, "Reject an operation on a `Union[...]` value that has not been narrowed to one member by `is` or a type pattern";
         CheckCallableType = "check.callable-type", error, "Reject a callable type whose parameters have a default, a rest marker, a repeated name, or no type, and a callable type used as a runtime type test";

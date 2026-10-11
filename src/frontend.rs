@@ -19,7 +19,8 @@ pub mod check {
         Conversion, EffectDeclarationId, ErrorFamilyInfo, ErrorVariantInfo, FunctionEffectFact,
         InstantiatedTypeExpressions, MessagePayloadConstructor, ProjectionOperation,
         RecordRequireMigration, RequirementTarget, ResolvedBindings, ResolvedTypeExpressions,
-        StatementPosition, StaticCallableAlias, TagVariantInfo, call_receiver_text,
+        ResourceTransferFacts, ResourceTransferSite, StatementPosition, StaticCallableAlias,
+        TagVariantInfo, call_receiver_text,
     };
     pub use crate::sema::constants::{
         CheckedRecordConstructor, LiteralConstant, PreparedConstants, RecordConstructors,

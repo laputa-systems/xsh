@@ -325,6 +325,8 @@ test resource_use_after_release_is_checked_for_exact_locals { |ctx|
     "let lock = fs.lock(p\"resource-affine.lock\")?\nfs.unlock(lock)\nfs.unlock(lock)\n",
     "let child = spawn run true ?\nlet _ = wait child?\nlet _ = wait child\n",
     "let job = net.start({method: \"GET\", url: \"https://example.test/resource\"})?\njob.cancel()\nlet _ = job.wait()\n",
+    "let root = fs.tempdir()?\nassert root.close() == Ok()\nlet _ = root.exists(p\".\")\n",
+    "proc make_root() [fs, error] -> Result[FsRoot] { fs.tempdir() }\nlet root = make_root()?\nroot.close()\nlet _ = root.exists(p\".\")\n",
   ] {
     let output = test.run_script(ctx, source)?
     assert output.status == 2, output.stderr
@@ -336,9 +338,16 @@ test resource_untracked_release_reassignment_and_cancel_exception { |ctx|
   let output = test.expect(ctx, r"""
 proc close_borrowed(root: FsRoot) [fs] { root.close() }
 proc root_released(root: FsRoot) [fs] -> Bool { root.exists(p".") is Err(_) }
+proc release_root_alias(root: FsRoot) [fs, error] -> Result[Bool] {
+  let alias = root
+  alias.close()?
+  alias.exists(p".") is Err(_)
+}
 let borrowed = fs.tempdir()?
 close_borrowed(borrowed)
 assert root_released(borrowed)
+let aliased = fs.tempdir()?
+assert release_root_alias(aliased)?
 var replaced = fs.tempdir()?
 replaced.close()
 replaced = fs.tempdir()?
@@ -346,6 +355,38 @@ assert replaced.exists(p".")?
 let conditional = fs.tempdir()?
 if true { conditional.close() }
 assert root_released(conditional)
+let field_source = fs.tempdir()?
+let holder = {root: field_source}
+let field_alias = holder.root
+field_alias.close()?
+assert field_alias.exists(p".") is Err(_)
+let list_source = fs.tempdir()?
+let roots = [list_source]
+let element_alias = roots[0]
+element_alias.close()?
+assert element_alias.exists(p".") is Err(_)
+let optional_source = fs.tempdir()?
+let optional_root: FsRoot? = optional_source
+let optional_alias = optional_root ?? optional_source
+optional_alias.close()?
+assert optional_alias.exists(p".") is Err(_)
+let lazy_root = fs.tempdir()?
+assert ! (false and lazy_root.close() is Err(_))
+assert lazy_root.exists(p".")?
+let loop_root = fs.tempdir()?
+for _ in [1] { loop_root.close()? }
+assert loop_root.exists(p".") is Err(_)
+{
+  let deferred_root = fs.tempdir()?
+  defer deferred_root.close()?
+  assert deferred_root.exists(p".")?
+}
+let shadowed = fs.tempdir()?
+shadowed.close()?
+{
+  let shadowed = fs.tempdir()?
+  assert shadowed.exists(p".")?
+}
 let child = spawn run true ?
 let _ = wait child?
 assert child.cancel(kill_after: 0ms) == Ok()

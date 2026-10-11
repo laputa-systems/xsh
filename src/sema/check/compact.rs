@@ -125,11 +125,18 @@ pub struct CompactBodyFacts {
     pub conversions: FxHashMap<ExprId, super::Conversion>,
     /// The resource kind of each binding of a managed `with` scope.
     pub resource_scopes: FxHashMap<ExprId, Vec<crate::modules::ManagedResource>>,
+    /// Explicit checked ownership transfers keyed by statement or block in
+    /// this same arena. Missing entries are unpublished facts.
+    pub resource_transfers: super::ResourceTransferFacts,
     /// Each text pattern as the checker compiled it.
     pub text_patterns: FxHashMap<crate::syntax::arena::PatternId, super::TextPattern>,
 }
 
 impl CompactBodyFacts {
+    pub fn resource_transfer(&self, site: super::ResourceTransferSite) -> Option<bool> {
+        self.resource_transfers.get(&site).copied()
+    }
+
     fn collect(
         program: &ArenaProgram,
         checked: &super::CheckOutput,
@@ -144,6 +151,7 @@ impl CompactBodyFacts {
             resolved_bindings: checked.resolved_bindings.clone(),
             argument_bindings: checked.argument_bindings.clone(),
             module_commands: checked.module_commands.clone(),
+            resource_transfers: checked.resource_transfers.clone(),
             ..Self::default()
         };
         let mut record_constructor_types = FxHashMap::default();

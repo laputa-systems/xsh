@@ -5,6 +5,9 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 use xsh_registry::types::BuiltinTypeName;
+
+#[path = "types/resource.rs"]
+mod resource;
 pub use xsh_registry::types::BuiltinTypeParameter;
 
 fn btree_map<K: Ord, V>(entries: Vec<(K, V)>) -> BTreeMap<K, V> {
