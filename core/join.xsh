@@ -118,6 +118,18 @@ pure order(left: Bytes, right: Bytes, collate_c: Bool) -> Int {
   1
 }
 
+# The character locale determines whether a delimiter can span UTF-8 bytes.
+proc utf8_locale() [env] -> Bool {
+  for name in ["LC_ALL", "LC_CTYPE", "LANG"] {
+    let value = env.get_or(name, "") ?? ""
+    if value != "" {
+      let lower = value.lower()
+      return lower.find("utf-8") != null or lower.find("utf8") != null
+    }
+  }
+  false
+}
+
 # The fields of one line, following GNU join's `xfields`.
 pure split_fields(line: Bytes, layout: Layout) -> List[Bytes] {
   let total = line.len()
@@ -128,9 +140,6 @@ pure split_fields(line: Bytes, layout: Layout) -> List[Bytes] {
   if let Ok(text) = line.utf8() {
     if layout.mode == "blank" {
       let words = [bytes.from_text(hit.text) for hit in rx"[^ \t\n]+".find(text)]
-
-      return [] when words.is_empty()
-      return [@words, b""] when text.ends_with(" ") or text.ends_with("\t") or text.ends_with("\n")
 
       return words
     }
@@ -192,7 +201,6 @@ pure split_fields(line: Bytes, layout: Layout) -> List[Bytes] {
       }
 
       if at == total {
-        out += [b""]
         more = false
       }
     }
@@ -361,15 +369,7 @@ proc field_number(text: Str) [process, env] -> Int {
     exit 1
   }
 
-  return tio.MAX_COUNT - 1 when text.byte_len() > 18
-
-  (text.parse_int() ?? 1) - 1
-}
-
-# A 0-based field index as the 1-based number in messages; the clamp for a
-# value past the integer range reads as the largest unsigned number.
-pure shown(index: Int) -> Str {
-  if index >= tio.MAX_COUNT - 1 { "18446744073709551615" } else { f"{index + 1}" }
+  (text.parse_int() ?? tio.MAX_COUNT) - 1
 }
 
 proc file_number(text: Str) [process, env] -> Int {
@@ -495,7 +495,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     let value = field_number(text)
 
     if key1 >= 0 and key1 != value {
-      gnu.error(f"incompatible join fields {shown(key1)}, {shown(value)}")
+      gnu.error(f"incompatible join fields {key1}, {value}")
       exit 1
     }
 
@@ -507,7 +507,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     let value = field_number(text)
 
     if key1 >= 0 and key1 != value {
-      gnu.error(f"incompatible join fields {shown(key1)}, {shown(value)}")
+      gnu.error(f"incompatible join fields {key1}, {value}")
       exit 1
     }
 
@@ -518,7 +518,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     let value = field_number(text)
 
     if key2 >= 0 and key2 != value {
-      gnu.error(f"incompatible join fields {shown(key2)}, {shown(value)}")
+      gnu.error(f"incompatible join fields {key2}, {value}")
       exit 1
     }
 
@@ -553,15 +553,15 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       mode = "sep"
       sep = tab_bytes
     } else if let Ok(valid_tab) = tab_bytes.utf8() {
-      if valid_tab.count_chars() == 1 {
+      if utf8_locale() and valid_tab.count_chars() == 1 {
         mode = "sep"
         sep = tab_bytes
       } else {
-        gnu.error(f"multi-character tab {gnu.quote(tab)}")
+        gnu.error(f"multi-character tab {gnu.quote_value_bytes(tab_bytes)}")
         exit 1
       }
     } else {
-      gnu.error("non-UTF-8 multi-byte tab")
+      gnu.error(f"multi-character tab {gnu.quote_value_bytes(tab_bytes)}")
       exit 1
     }
   }

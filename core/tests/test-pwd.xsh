@@ -46,5 +46,5 @@ test test_pwd_fails_from_a_deleted_working_directory { |ctx|
   let result = run_applet_in_deleted_directory(ctx, root)?
   assert result.status == 1
   assert result.stdout == ""
-  assert result.stderr == "pwd: failed to get current directory: No such file or directory\n", result.stderr
+  assert result.stderr == "pwd: couldn't find directory entry in '..' with matching i-node\n", result.stderr
 }

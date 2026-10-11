@@ -1,11 +1,11 @@
 type Ran = {status: Int, stdout: Bytes, stderr: Str}
 
 # Runs core/join.xsh by its real path inside `root`, capturing both streams.
-proc join_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs, process, error] -> Result[Ran] {
+proc join_run(ctx: TestContext, root: Path, args: List[Str], input = b"", locale = "C") [fs, process, error] -> Result[Ran] {
   let out = fp"{root}/.out"
   let err = fp"{root}/.err"
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/join.xsh".display()].extend(args)
-  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, input, out, err)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: locale}, input, out, err)
   let status = process.run(plan)?
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
 }
@@ -72,7 +72,9 @@ test test_join_field_separators { |ctx|
   assert join_run(ctx, root, ["-t", ";", "s1", "s2"])?.stdout == b"2;b;x\n"
   assert join_run(ctx, root, ["-t", ",", "gap", "gap"])?.stdout == b"a,,b,,b\n"
   assert join_run(ctx, root, ["-t", ",", "-e", "EMPTY", "gap", "gap"])?.stdout == b"a,EMPTY,b,EMPTY,b\n"
-  assert join_run(ctx, root, ["sp", "-"], b" a  ,c ")?.stdout == b"a ,,,b ,c \n", "blank runs separate fields"
+  assert join_run(ctx, root, ["sp", "-"], b" a  ,c ")?.stdout == b"a ,,,b ,c\n", "blank runs separate fields"
+  fp"{root}/raw".write(b"a \xff \t\n")
+  assert join_run(ctx, root, ["raw", "raw"])?.stdout == b"a \xff \xff\n", "trailing blanks also vanish from undecodable input"
   fp"{root}/lines".write("1 a\n8 h\n")
   assert join_run(ctx, root, ["-t", "", "lines", "lines"])?.stdout == b"1 a\n8 h\n", "an empty separator joins on the whole line"
 
@@ -110,7 +112,13 @@ test test_join_headers_and_errors { |ctx|
   assert both.stderr == "join: both files cannot be standard input\n", both.stderr
 
   let fields = join_run(ctx, root, ["-j", "3", "-1", "5", "h1", "h2"])?
-  assert fields.stderr == "join: incompatible join fields 3, 5\n", fields.stderr
+  assert fields.stderr == "join: incompatible join fields 2, 4\n", fields.stderr
+
+  let wide = join_run(ctx, root, ["-j", "1000000000000000000", "-1", "5", "h1", "h2"])?
+  assert wide.stderr == "join: incompatible join fields 999999999999999999, 4\n", wide.stderr
+
+  let huge = join_run(ctx, root, ["-j", "18446744073709551615", "-1", "5", "h1", "h2"])?
+  assert huge.stderr == "join: incompatible join fields 9223372036854775806, 4\n", huge.stderr
 
   let zero = join_run(ctx, root, ["-j", "0", "h1", "h2"])?
   assert zero.stderr == "join: invalid field number: '0'\n", zero.stderr
@@ -135,7 +143,7 @@ test test_join_non_utf8_separator { |ctx|
   let two: List[Union[Str, Path]] = ["-t", Path.parse_bytes(b"\xa7\xa7")?, "s1", "s2"]
   let multi = join_run_mixed(ctx, root, two)?
   assert multi.status == 1
-  assert multi.stderr == "join: non-UTF-8 multi-byte tab\n", multi.stderr
+  assert multi.stderr == "join: multi-character tab '\\247\\247'\n", multi.stderr
 }
 
 test test_join_non_utf8_file_names { |ctx|
@@ -171,4 +179,17 @@ test test_join_check_order_follows_the_collation { |ctx|
   let plain = process.run(process.command_argv(ctx.xsh_bin, words, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", out, err))?
   assert plain.exit_code()? == 1
   assert err.read_text()? == "join: f1:2: is not sorted: ab:d  1\n"
+}
+
+test test_join_multibyte_separator_follows_character_locale { |ctx|
+  let root = test.temp_dir(ctx, name: "join-multibyte")?
+  fp"{root}/s1".write("a§b\n")
+  fp"{root}/s2".write("a§c\n")
+  let args = ["-t", "§", "s1", "s2"]
+  let single_byte = join_run(ctx, root, args)?
+  assert single_byte.status == 1
+  assert single_byte.stderr == "join: multi-character tab '\\302\\247'\n", single_byte.stderr
+  let utf8 = join_run(ctx, root, args, locale: "C.utf8")?
+  assert utf8.status == 0, utf8.stderr
+  assert utf8.stdout == bytes.from_text("a§b§c\n")
 }
