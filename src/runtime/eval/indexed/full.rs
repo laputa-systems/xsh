@@ -1,4 +1,5 @@
 pub(in crate::runtime::eval) mod decode;
+pub(in crate::runtime::eval) mod in_place;
 pub(in crate::runtime::eval) mod schema;
 
 use decode::{BorrowCodec, DecodeContext};
@@ -363,6 +364,8 @@ struct FullStore {
     run_kinds: Vec<RunKind>,
     redirection_kinds: Vec<RedirectionKind>,
     semantic: SemanticPools,
+    /// Derived from verified operand graphs so runtime dispatch needs only a table lookup.
+    in_place: std::sync::OnceLock<Vec<bool>>,
 }
 
 impl Default for FullStore {
@@ -409,6 +412,7 @@ impl Default for FullStore {
             run_kinds: Vec::new(),
             redirection_kinds: Vec::new(),
             semantic: SemanticPools::default(),
+            in_place: std::sync::OnceLock::new(),
         }
     }
 }
@@ -550,6 +554,10 @@ impl FullStore {
             + self.binary_ops.capacity() * size_of::<BinaryOp>()
             + self.run_kinds.capacity() * size_of::<RunKind>()
             + self.redirection_kinds.capacity() * size_of::<RedirectionKind>()
+            + self
+                .in_place
+                .get()
+                .map_or(0, |marks| marks.capacity() * size_of::<bool>())
             + self
                 .semantic
                 .retained_bytes()
@@ -947,7 +955,11 @@ impl FullProgram {
             .ok_or_else(|| IrVerifyError::new("driver root step range is invalid"))
     }
 
-    fn verify_driver(&self, owned_blocks: &FxHashMap<u32, usize>) -> Result<(), IrVerifyError> {
+    fn verify_driver(
+        &self,
+        owned_blocks: &FxHashMap<u32, usize>,
+        in_place_marks: &mut [bool],
+    ) -> Result<(), IrVerifyError> {
         if self.store.driver_root == IR_NONE {
             return Ok(());
         }
@@ -958,6 +970,7 @@ impl FullProgram {
             &mut program_states,
             &mut step_states,
             owned_blocks,
+            in_place_marks,
         )?;
         if program_states.iter().any(|state| *state != 2)
             || step_states.iter().any(|state| *state != 2)
@@ -975,6 +988,7 @@ impl FullProgram {
         program_states: &mut [u8],
         step_states: &mut [u8],
         owned_blocks: &FxHashMap<u32, usize>,
+        in_place_marks: &mut [bool],
     ) -> Result<(), IrVerifyError> {
         let index = raw
             .checked_sub(1)
@@ -1006,7 +1020,13 @@ impl FullProgram {
                 }
                 _ => unreachable!("driver step state is bounded"),
             }
-            self.verify_driver_step(step_index, program_states, step_states, owned_blocks)?;
+            self.verify_driver_step(
+                step_index,
+                program_states,
+                step_states,
+                owned_blocks,
+                in_place_marks,
+            )?;
             step_states[step_index] = 2;
         }
         program_states[index] = 2;
@@ -1019,6 +1039,7 @@ impl FullProgram {
         program_states: &mut [u8],
         step_states: &mut [u8],
         owned_blocks: &FxHashMap<u32, usize>,
+        in_place_marks: &mut [bool],
     ) -> Result<(), IrVerifyError> {
         let step = self.store.driver_steps[step_index];
         let instruction_range = self.store.driver_instruction_range(step_index)?;
@@ -1028,6 +1049,9 @@ impl FullProgram {
             store: &self.store,
             owner,
             instruction_states: Some(RefCell::new(vec![0; instruction_range.len()])),
+            instruction_proof: Some(RefCell::new(in_place::InstructionProof::new(
+                instruction_range.clone(),
+            ))),
             instruction_range,
             block_states: Some(OwnedBlockStates::new(owner, owned_blocks)),
             slot_count: step.slot_count,
@@ -1063,7 +1087,13 @@ impl FullProgram {
                 Vec::<LoweredModuleExport>::verify(&decoder, &mut payload)?;
                 let child = payload.raw()?;
                 Span::verify(&decoder, &mut payload)?;
-                self.verify_driver_program(child, program_states, step_states, owned_blocks)?;
+                self.verify_driver_program(
+                    child,
+                    program_states,
+                    step_states,
+                    owned_blocks,
+                    in_place_marks,
+                )?;
             }
             FullDriverTag::Let => {
                 Name::verify(&decoder, &mut payload)?;
@@ -1112,7 +1142,8 @@ impl FullProgram {
             }
         }
         payload.finish()?;
-        decoder.finish_function()
+        decoder.finish_function()?;
+        decoder.copy_in_place_marks_into(in_place_marks)
     }
 }
 
@@ -1279,6 +1310,7 @@ impl<'a> FullFunctionView<'a> {
                     .raw(),
                 instruction_range: self.program.store.function_instruction_range(self.index)?,
                 instruction_states: None,
+                instruction_proof: None,
                 block_states: None,
                 slot_count: function.slot_count,
                 pattern_ceiling: Cell::new(usize::MAX),
@@ -1334,6 +1366,7 @@ impl<'a> FullDriverStepView<'a> {
                     .map_err(|_| IrVerifyError::new("driver owner is invalid"))?,
                 instruction_range: self.program.store.driver_instruction_range(self.index)?,
                 instruction_states: None,
+                instruction_proof: None,
                 block_states: None,
                 slot_count: step.slot_count,
                 pattern_ceiling: Cell::new(usize::MAX),
@@ -2888,12 +2921,26 @@ impl<'a> FullExecution<'a> {
                 owner: self.decoder.owner,
                 instruction_range: self.decoder.instruction_range.clone(),
                 instruction_states: None,
+                instruction_proof: None,
                 block_states: None,
                 slot_count: self.decoder.slot_count,
                 pattern_ceiling: Cell::new(usize::MAX),
                 verified: self.decoder.verified,
             },
         }
+    }
+
+    /// The evaluator calls this for instruction IDs from an already verified
+    /// owner range, after verification has installed the derived mark table.
+    pub(in crate::runtime::eval) fn is_in_place(&self, instruction: u32) -> bool {
+        *self
+            .decoder
+            .store
+            .in_place
+            .get()
+            .expect("verified full IR has an in-place mark table")
+            .get(instruction as usize)
+            .expect("verified instruction ID is in bounds")
     }
 
     pub(in crate::runtime::eval) fn string(&self, raw: u32) -> Result<&str, IrVerifyError> {
@@ -3261,6 +3308,7 @@ pub(in crate::runtime::eval) struct FullDecoder<'a> {
     owner: u32,
     instruction_range: std::ops::Range<usize>,
     instruction_states: Option<RefCell<Vec<u8>>>,
+    instruction_proof: Option<RefCell<in_place::InstructionProof>>,
     block_states: Option<OwnedBlockStates>,
     slot_count: u32,
     pattern_ceiling: Cell<usize>,
@@ -3542,6 +3590,9 @@ impl<'a> FullDecoder<'a> {
             .copied()
             .ok_or_else(|| IrVerifyError::new("full IR instruction is out of bounds"))?;
         let data = self.store.data[index];
+        if let Some(proof) = &self.instruction_proof {
+            proof.borrow_mut().enter(index, tag);
+        }
         Ok((index, tag, self.cursor(self.store.payload(data.range())?)))
     }
 
@@ -3766,8 +3817,25 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn finish_instruction(&self, index: usize) {
+        if let Some(proof) = &self.instruction_proof {
+            proof.borrow_mut().finish(index);
+        }
         if let Some(states) = &self.instruction_states {
             states.borrow_mut()[index - self.instruction_range.start] = 2;
+        }
+    }
+
+    fn copy_in_place_marks_into(&self, output: &mut [bool]) -> Result<(), IrVerifyError> {
+        let complete = self
+            .instruction_proof
+            .as_ref()
+            .is_none_or(|proof| proof.borrow().copy_marks_into(output));
+        if complete {
+            Ok(())
+        } else {
+            Err(IrVerifyError::new(
+                "full IR in-place proof did not cover its instruction range",
+            ))
         }
     }
 
@@ -3780,7 +3848,11 @@ impl<'a> FullDecoder<'a> {
             .block_states
             .as_ref()
             .is_none_or(|states| states.finished_owned.get() == states.owned);
-        if instructions_complete && blocks_complete {
+        let proof_complete = self
+            .instruction_proof
+            .as_ref()
+            .is_none_or(|proof| proof.borrow().complete());
+        if instructions_complete && blocks_complete && proof_complete {
             Ok(())
         } else {
             Err(IrVerifyError::new(
@@ -4231,6 +4303,7 @@ impl FullVerifier {
             }
             previous_cold_param = Some(cold.param);
         }
+        let mut in_place_marks = vec![false; store.tags.len()];
         let owned_blocks = owned_block_counts(store);
         for (index, function) in store.functions.iter().enumerate() {
             store.string(function.name)?;
@@ -4282,8 +4355,11 @@ impl FullVerifier {
             let decoder = FullDecoder {
                 store,
                 owner,
-                instruction_range: instructions,
+                instruction_range: instructions.clone(),
                 instruction_states: Some(RefCell::new(vec![0; instruction_len])),
+                instruction_proof: Some(RefCell::new(in_place::InstructionProof::new(
+                    instructions.clone(),
+                ))),
                 block_states: Some(OwnedBlockStates::new(owner, &owned_blocks)),
                 slot_count: function.slot_count,
                 pattern_ceiling: Cell::new(usize::MAX),
@@ -4320,6 +4396,7 @@ impl FullVerifier {
                 }
             }
             decoder.finish_function()?;
+            decoder.copy_in_place_marks_into(&mut in_place_marks)?;
             let body_payload = store.payload(body_block.instructions)?;
             let mut default_slots = BTreeSet::new();
             let mut entry_open = true;
@@ -4596,11 +4673,17 @@ impl FullVerifier {
                     "driver plan contains an unreachable sync row",
                 ));
             }
-            program.verify_driver(&owned_blocks)?;
+            program.verify_driver(&owned_blocks, &mut in_place_marks)?;
         }
         if previous_end != store.tags.len() {
             return Err(IrVerifyError::new(
                 "full IR contains instructions outside executable owner ranges",
+            ));
+        }
+        let marks = store.in_place.get_or_init(|| in_place_marks.clone());
+        if marks != &in_place_marks {
+            return Err(IrVerifyError::new(
+                "full IR in-place mark cache does not match verifier proof",
             ));
         }
         Ok(())
@@ -7272,12 +7355,261 @@ run true
                 owner: 0,
                 instruction_range: 0..store.tags.len(),
                 instruction_states: None,
+                instruction_proof: None,
                 block_states: None,
                 slot_count: 1,
                 pattern_ceiling: Cell::new(usize::MAX),
                 verified: false,
             },
         }
+    }
+
+    fn function_instruction_indices(
+        program: &FullProgram,
+        function: &str,
+        tag: FullTag,
+    ) -> Vec<usize> {
+        let function_index = program
+            .store
+            .functions
+            .iter()
+            .position(|row| program.store.string(row.name).is_ok_and(|name| name == function))
+            .expect("fixture function exists");
+        program
+            .store
+            .function_instruction_range(function_index)
+            .expect("fixture function range exists")
+            .filter(|instruction| program.store.tags[*instruction] == tag)
+            .collect()
+    }
+
+    fn append_path_from_chain(program: &mut FullProgram, wrappers: usize) -> Vec<usize> {
+        program.store.in_place.take();
+        let function_index = program
+            .store
+            .functions
+            .iter()
+            .position(|row| program.store.string(row.name).is_ok_and(|name| name == "make_path"))
+            .expect("path fixture function exists");
+        let mut range = program
+            .store
+            .function_instruction_range(function_index)
+            .expect("path fixture function range exists");
+        assert_eq!(function_index + 1, program.store.functions.len());
+        assert_eq!(range.end, program.store.tags.len());
+        let old_instruction_end = u32::try_from(program.store.tags.len()).expect("fixture fits");
+        assert!(program
+            .store
+            .driver_steps
+            .iter()
+            .all(|step| step.instruction_start == old_instruction_end));
+        let template_index = range
+            .clone()
+            .find(|instruction| program.store.tags[*instruction] == FullTag::ExprPathFrom)
+            .expect("path fixture contains a conversion");
+        let template_range = program.store.data[template_index]
+            .range()
+            .bounds(program.store.extra.len())
+            .expect("path conversion payload is in bounds");
+        let template = program.store.extra[template_range].to_vec();
+        let return_index = range
+            .find(|instruction| program.store.tags[*instruction] == FullTag::StmtReturn)
+            .expect("path fixture returns its conversion");
+        let return_payload = program.store.data[return_index]
+            .range()
+            .bounds(program.store.extra.len())
+            .expect("return payload is in bounds");
+        let mut child = template_index as u32;
+        let mut appended = Vec::with_capacity(wrappers);
+        for _ in 0..wrappers {
+            let instruction = program.store.tags.len();
+            let mut payload = template.clone();
+            payload[0] = child;
+            let start = u32::try_from(program.store.extra.len()).expect("fixture payload fits");
+            let len = u32::try_from(payload.len()).expect("fixture payload fits");
+            program.store.extra.extend(payload);
+            program.store.data.push(IrData::new(start, len));
+            program.store.tags.push(FullTag::ExprPathFrom);
+            appended.push(instruction);
+            child = u32::try_from(instruction).expect("fixture instruction ID fits");
+        }
+        let new_instruction_end = u32::try_from(program.store.tags.len()).expect("fixture fits");
+        for step in &mut program.store.driver_steps {
+            step.instruction_start = new_instruction_end;
+        }
+        program.store.extra[return_payload.start] = child;
+        appended
+    }
+
+    fn direct_if_fixture() -> FullProgram {
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file(
+            "direct-if.xsh",
+            "pure selected(flag: Bool) -> Int { return if flag { 1 } else { 2 } }\n",
+        );
+        let span = Span::new(source_id, 0, 0);
+        let symbols = crate::symbol::SymbolOwner::new();
+        symbols.with_current(|| {
+            let scratch = Rc::new(RefCell::new(BuildScratch::default()));
+            let return_statement = {
+                let mut scratch = scratch.borrow_mut();
+                let condition = scratch.expr(BuildExprRow::Param(0));
+                let then_value = scratch.expr(BuildExprRow::Int(1));
+                let else_value = scratch.expr(BuildExprRow::Int(2));
+                let selection = scratch.expr(BuildExprRow::IfExpr {
+                    branches: vec![(condition, then_value)],
+                    else_value,
+                    span,
+                });
+                scratch.stmt(BuildStmtRow::Return { value: selection })
+            };
+            let body = FunctionBuild {
+                params: SmallVec::from_vec(vec![Name::intern("flag")]),
+                param_kinds: SmallVec::from_vec(vec![LoweredType::Bool]),
+                param_checks: SmallVec::from_vec(vec![None]),
+                param_rest: SmallVec::from_vec(vec![false]),
+                param_defaults: SmallVec::from_vec(vec![None]),
+                captures: SmallVec::new(),
+                return_kind: LoweredReturnKind::Plain(LoweredType::Int),
+                return_check: None,
+                slot_count: 1,
+                body: vec![return_statement],
+                has_defers: false,
+                scratch,
+            };
+            let unit = LoweredFunctionUnit {
+                key: LoweredFunctionKey::Name(Name::intern("selected")),
+                kind: LoweredFunctionKind::Pure,
+                source_span: span,
+                definition_span: span,
+                owner: None,
+                param_count: 1,
+                capture_count: 0,
+                slot_count: 1,
+                dependency_edges: Vec::new(),
+                body: Some(body),
+                blocker: None,
+                blocker_detail: None,
+                scc_member_count: 1,
+                scc_group: None,
+            };
+            let mut builder = FullBuilder::new(source_id);
+            builder.predeclare(&[&unit]).unwrap();
+            let body = unit.lowered_body().unwrap();
+            let function = builder.function_ids[&unit.key()];
+            builder.current_owner = Some(function.raw());
+            builder.current_slot_count = body.slot_count as u32;
+            builder.encode_body(function, &body).unwrap();
+            builder.current_owner = None;
+            builder.current_slot_count = 0;
+            builder
+                .finish(Arc::new(sources), symbols.clone())
+                .expect("direct selection artifact verifies")
+        })
+    }
+
+    #[test]
+    fn direct_if_children_are_marked_and_selected() {
+        let program = Arc::new(direct_if_fixture());
+        let selections = function_instruction_indices(&program, "selected", FullTag::ExprIf);
+        assert_eq!(selections.len(), 1);
+        assert!(program.store.in_place.get().unwrap()[selections[0]]);
+
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for (flag, expected) in [(true, 1), (false, 2)] {
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "selected")),
+                    LoweredFunctionKind::Pure,
+                    &[Value::Bool(flag)],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("selection function exists");
+            assert_eq!(result.unwrap(), Value::Int(expected));
+        }
+    }
+
+    #[test]
+    fn in_place_marks_follow_verified_operands_and_selection_runs_directly() {
+        let source = r#"
+pure leaf() -> Int { return 7 }
+pure sum(left: Int, right: Int) -> Int { return left + right }
+pure selected(flag: Bool) -> Int { return if flag { 1 } else { 2 } }
+pure selected_call(flag: Bool) -> Int { return if flag { leaf() } else { 2 } }
+pure aggregate() -> List[Int] { return [leaf(), 3] }
+pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
+"#;
+        let program = Arc::new(fixture("in-place-marks.xsh", source));
+        FullVerifier::verify(&program).unwrap();
+        let marks = program.store.in_place.get().expect("verification installs marks");
+        let selected = function_instruction_indices(&program, "selected", FullTag::ExprIf);
+        assert_eq!(selected.len(), 1);
+        assert!(!marks[selected[0]]);
+        let selected_call =
+            function_instruction_indices(&program, "selected_call", FullTag::ExprIf);
+        assert_eq!(selected_call.len(), 1);
+        assert!(!marks[selected_call[0]]);
+        let aggregate = function_instruction_indices(&program, "aggregate", FullTag::ExprList);
+        assert_eq!(aggregate.len(), 1);
+        assert!(!marks[aggregate[0]]);
+        assert!(function_instruction_indices(&program, "aggregate", FullTag::ExprInt)
+            .into_iter()
+            .any(|instruction| marks[instruction]));
+        let binary = function_instruction_indices(&program, "sum", FullTag::ExprBinary);
+        assert_eq!(binary.len(), 1);
+        assert!(marks[binary[0]]);
+        let matched = function_instruction_indices(&program, "matched", FullTag::ExprMatch);
+        assert_eq!(matched.len(), 1);
+        assert!(marks[matched[0]]);
+
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for (name, arguments, expected) in [
+            ("sum", vec![Value::Int(4), Value::Int(5)], Value::Int(9)),
+            ("selected", vec![Value::Bool(true)], Value::Int(1)),
+            ("selected", vec![Value::Bool(false)], Value::Int(2)),
+            ("matched", vec![Value::Int(1)], Value::Int(11)),
+            ("matched", vec![Value::Int(0)], Value::Int(12)),
+        ] {
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, name)),
+                    LoweredFunctionKind::Pure,
+                    &arguments,
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("selection function exists");
+            assert_eq!(result.unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn in_place_mark_cache_is_checked_against_independent_verification() {
+        let mut program = fixture(
+            "in-place-cache.xsh",
+            "pure value() -> Int { return 1 }",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let marks = program.store.in_place.get_mut().unwrap();
+        let mark = marks.iter_mut().find(|mark| **mark).expect("fixture has a mark");
+        *mark = !*mark;
+        let error = FullVerifier::verify(&program).unwrap_err();
+        assert!(error.message.contains("in-place mark cache does not match"));
+    }
+
+    #[test]
+    fn in_place_height_limit_marks_128_and_rejects_129_and_ancestors() {
+        let mut program = fixture(
+            "in-place-height.xsh",
+            "pure make_path() -> Path { return Path(\"x\") }",
+        );
+        let appended = append_path_from_chain(&mut program, 128);
+        FullVerifier::verify(&program).unwrap();
+        let marks = program.store.in_place.get().expect("verification installs marks");
+        assert!(marks[appended[125]]);
+        assert!(!marks[appended[126]]);
+        assert!(!marks[appended[127]]);
     }
 
     #[test]
@@ -8213,6 +8545,7 @@ pure selected() -> Str {
                 owner: 0,
                 instruction_range: 0..0,
                 instruction_states: None,
+                instruction_proof: None,
                 block_states: None,
                 slot_count: 0,
                 pattern_ceiling: Cell::new(usize::MAX),
@@ -8262,6 +8595,7 @@ pure selected() -> Str {
                 owner: 0,
                 instruction_range: 0..0,
                 instruction_states: None,
+                instruction_proof: None,
                 block_states: None,
                 slot_count: 0,
                 pattern_ceiling: Cell::new(usize::MAX),

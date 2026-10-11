@@ -46,6 +46,7 @@ use crate::runtime::eval::indexed::full::{
     BLOCK_LIST, BLOCK_STATEMENTS, FullDriverTag, FullExecution, FullFunctionView, FullPatternTag,
     FullPayload, FullProgram, FullStageTag, FullTag,
 };
+use crate::runtime::eval::indexed::full::schema::ExprView;
 use crate::runtime::eval::lower::{
     lowered_error_value_has_facet, lowered_error_variant_matches, lowered_record_field,
 };
@@ -654,7 +655,80 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
-        let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
+        let (tag, payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
+        if matches!(tag, FullTag::ExprIf | FullTag::ExprMatch)
+            && execution.is_in_place(instruction)
+        {
+            let view = ExprView::decode(execution, tag, payload)
+                .map_err(|error| indexed_error(error, call_span))?;
+            return match view {
+                ExprView::IfExpr {
+                    branches,
+                    else_value,
+                    span,
+                } => {
+                    for branch in branches {
+                        let (condition, value) =
+                            branch.map_err(|error| indexed_error(error, span))?;
+                        match self.eval_indexed_bool(execution, condition.raw(), slots, span)? {
+                            ControlFlow::Continue(true) => {
+                                return self.eval_indexed_expr(
+                                    execution,
+                                    value.raw(),
+                                    slots,
+                                    span,
+                                );
+                            }
+                            ControlFlow::Continue(false) => {}
+                            ControlFlow::Break(value) => {
+                                return Ok(ControlFlow::Break(value));
+                            }
+                        }
+                    }
+                    self.eval_indexed_expr(execution, else_value.raw(), slots, span)
+                }
+                ExprView::MatchExpr { value, arms, span } => {
+                    let value = match self.eval_indexed_expr(execution, value.raw(), slots, span)? {
+                        ControlFlow::Continue(value) => value,
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    };
+                    if matches!(value, LoweredValue::ResultErr(_)) {
+                        self.pending_traceback = None;
+                    }
+                    for arm in arms {
+                        let (pattern, guard, body) =
+                            arm.map_err(|error| indexed_error(error, span))?;
+                        if !Self::indexed_pattern_matches(
+                            execution,
+                            pattern.raw(),
+                            &value,
+                            slots,
+                            span,
+                        )? {
+                            continue;
+                        }
+                        if let Some(guard) = guard {
+                            match self.eval_indexed_expr(
+                                execution,
+                                guard.raw(),
+                                slots,
+                                span,
+                            )? {
+                                ControlFlow::Continue(LoweredValue::Bool(true)) => {}
+                                ControlFlow::Continue(_) => continue,
+                                ControlFlow::Break(value) => {
+                                    return Ok(ControlFlow::Break(value));
+                                }
+                            }
+                        }
+                        return self.eval_indexed_expr(execution, body.raw(), slots, span);
+                    }
+                    Err(lowered_match_no_arm(span))
+                }
+                _ => unreachable!("selection tag has a matching typed view"),
+            };
+        }
+        let mut payload = payload;
         let result = match tag {
             FullTag::ExprNull => {
                 indexed_finish(payload, call_span)?;
@@ -794,6 +868,17 @@ impl Evaluator {
                         .eval_indexed_bool(execution, right, slots, span)
                         .map(|flow| flow.map_continue(LoweredValue::Bool));
                 }
+                if execution.is_in_place(instruction) {
+                    let left = match self.eval_indexed_expr(execution, left, slots, call_span)? {
+                        ControlFlow::Continue(value) => value,
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    };
+                    let right = match self.eval_indexed_expr(execution, right, slots, call_span)? {
+                        ControlFlow::Continue(value) => value,
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    };
+                    return Ok(ControlFlow::Continue(lowered_binary_value(op, left, right, span)?));
+                }
                 return self
                     .eval_indexed_binary_stack(execution, slots, call_span, op, left, right, span);
             }
@@ -900,7 +985,7 @@ impl Evaluator {
                     match part {
                         IndexedFmtPart::Text(text) => fmt.push_text(&text),
                         IndexedFmtPart::Expr(expr, span, spec) => {
-                            match self.eval_indexed_expr(execution, expr, slots, call_span)? {
+                            match self.eval_indexed_expr(execution, expr, slots, span)? {
                                 ControlFlow::Continue(value) => {
                                     fmt.push_value(&value, span, spec.as_ref())?
                                 }
@@ -3010,75 +3095,6 @@ impl Evaluator {
                     context.as_deref(),
                     span,
                 )?))
-            }
-            FullTag::StmtPatternIf => {
-                let (_, mut branches) = execution
-                    .block(&mut payload, BLOCK_LIST)
-                    .map_err(|error| indexed_error(error, call_span))?;
-                let count = indexed_raw(&mut branches, call_span)? as usize;
-                let mut decoded = Vec::with_capacity(count);
-                for _ in 0..count {
-                    let condition = indexed_raw(&mut branches, call_span)?;
-                    let body = indexed_raw(&mut branches, call_span)?;
-                    let captures =
-                        indexed_decode::<Vec<usize>>(&mut branches, execution, call_span)?;
-                    decoded.push((condition, body, captures));
-                }
-                indexed_finish(branches, call_span)?;
-                let else_body = indexed_optional_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                for (condition, body, captures) in decoded {
-                    let scope_id = self.enter_owned_host_scope();
-                    let mut selected = false;
-                    let result = (|| {
-                        match self.eval_indexed_bool(execution, condition, slots, span)? {
-                            ControlFlow::Continue(false) => return Ok(StmtFlow::None),
-                            ControlFlow::Break(value) => return Ok(StmtFlow::Propagate(value)),
-                            ControlFlow::Continue(true) => {
-                                selected = true;
-                            }
-                        }
-                        self.eval_indexed_statement_block(execution, body, slots, span)
-                    })();
-                    let flow =
-                        self.finish_indexed_pattern_scope(scope_id, &captures, slots, result)?;
-                    if selected || !matches!(flow, StmtFlow::None) {
-                        return Ok(flow);
-                    }
-                }
-                match else_body {
-                    Some(body) => self.eval_indexed_statement_block(execution, body, slots, span),
-                    None => Ok(StmtFlow::None),
-                }
-            }
-            FullTag::StmtPatternWhile => {
-                let condition = indexed_raw(&mut payload, call_span)?;
-                let body = indexed_raw(&mut payload, call_span)?;
-                let captures = indexed_decode::<Vec<usize>>(&mut payload, execution, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                loop {
-                    self.service_pending_signal(span)?;
-                    if self.shutting_down() {
-                        return Ok(StmtFlow::None);
-                    }
-                    let scope_id = self.enter_owned_host_scope();
-                    let result = (|| {
-                        match self.eval_indexed_bool(execution, condition, slots, span)? {
-                            ControlFlow::Continue(false) => return Ok(StmtFlow::Break(None)),
-                            ControlFlow::Break(value) => return Ok(StmtFlow::Propagate(value)),
-                            ControlFlow::Continue(true) => {}
-                        }
-                        self.eval_indexed_statement_block(execution, body, slots, span)
-                    })();
-                    match self.finish_indexed_pattern_scope(scope_id, &captures, slots, result)? {
-                        StmtFlow::None | StmtFlow::Continue => {}
-                        StmtFlow::Break(_) => break,
-                        flow => return Ok(flow),
-                    }
-                }
-                Ok(StmtFlow::None)
             }
             FullTag::StmtStrMatch | FullTag::StmtTagMatch => {
                 let value = indexed_raw(&mut payload, call_span)?;

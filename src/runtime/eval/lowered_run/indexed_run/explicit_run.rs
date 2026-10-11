@@ -17,7 +17,7 @@ use super::{
     indexed_decode, indexed_error, indexed_finish, indexed_optional_raw, indexed_raw,
     indexed_string, indexed_value, lowered_binary_value, lowered_bytes_parts,
     lowered_comp_iterable, lowered_condition_bool, lowered_err_with_cause, lowered_fallback_value,
-    lowered_freeze_large_slot_list, lowered_map_literal_key, lowered_match_no_arm,
+    lowered_map_literal_key, lowered_match_no_arm,
     lowered_result_err_value, lowered_result_ok, lowered_str_parts, lowered_value_from_runtime_any,
     resolve_assign_index,
 };
@@ -2708,37 +2708,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         }
     }
 
-    /// A slot read or literal, which evaluates without scheduling any work.
-    fn leaf_operand(
-        &mut self,
-        index: usize,
-        instruction: u32,
-        span: Span,
-    ) -> Result<Option<LoweredValue>, RuntimeError> {
-        let (tag, mut payload) = indexed_value(
-            self.calls[index].execution.instruction_id(instruction),
-            span,
-        )?;
-        let execution = &self.calls[index].execution;
-        let value = match tag {
-            FullTag::ExprNull => LoweredValue::Null,
-            FullTag::ExprUnit => LoweredValue::Unit,
-            FullTag::ExprInt => LoweredValue::Int(indexed_decode(&mut payload, execution, span)?),
-            FullTag::ExprBool => LoweredValue::Bool(indexed_decode(&mut payload, execution, span)?),
-            FullTag::ExprStr => LoweredValue::Str(indexed_decode(&mut payload, execution, span)?),
-            FullTag::ExprParam => {
-                let slot: usize = indexed_decode(&mut payload, execution, span)?;
-                indexed_finish(payload, span)?;
-                let slot = &mut self.calls[index].slots[slot];
-                lowered_freeze_large_slot_list(slot);
-                return Ok(Some(slot.clone()));
-            }
-            _ => return Ok(None),
-        };
-        indexed_finish(payload, span)?;
-        Ok(Some(value))
-    }
-
     fn eval_expr(
         &mut self,
         index: usize,
@@ -2746,8 +2715,22 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         span: Span,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
-        if let Some(value) = self.leaf_operand(index, instruction, span)? {
-            self.push_value(index, FrameValue::Value(value), next);
+        if self.calls[index].execution.is_in_place(instruction) {
+            let flow = {
+                let call = &mut self.calls[index];
+                self.evaluator.eval_indexed_expr(
+                    &call.execution,
+                    instruction,
+                    &mut call.slots,
+                    span,
+                )?
+            };
+            match flow {
+                ControlFlow::Continue(value) => {
+                    self.push_value(index, FrameValue::Value(value), next);
+                }
+                ControlFlow::Break(value) => self.complete_expression_escape(index, value)?,
+            }
             return Ok(());
         }
         let (tag, mut payload) = indexed_value(
@@ -2829,31 +2812,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let right = indexed_raw(&mut payload, span)?;
                 let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
-                // Slot and literal operands are read in place rather than
-                // scheduled; `and`/`or` keep their short circuit.
-                if !matches!(op, BinaryOp::And | BinaryOp::Or)
-                    && let Some(left) = self.leaf_operand(index, left, value_span)?
-                {
-                    match self.leaf_operand(index, right, value_span)? {
-                        Some(right) => self.push_value(
-                            index,
-                            FrameValue::Value(lowered_binary_value(op, left, right, value_span)?),
-                            next,
-                        ),
-                        None => self.push_expr(
-                            index,
-                            right,
-                            value_span,
-                            FrameContinuation::BinaryRight {
-                                op,
-                                left,
-                                span: value_span,
-                                next: Box::new(next),
-                            },
-                        ),
-                    }
-                    return Ok(());
-                }
                 self.push_expr(
                     index,
                     left,
@@ -3213,20 +3171,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                     _ => None,
                 };
-                if decoded_args.is_empty()
-                    && let Some(receiver) = self.leaf_operand(index, receiver, value_span)?
-                {
-                    let receiver =
-                        take_consumed_receiver(&mut self.calls[index].slots, consume, receiver);
-                    return self.push_method_result(
-                        index,
-                        receiver,
-                        name,
-                        Vec::new(),
-                        value_span,
-                        next,
-                    );
-                }
                 self.push_expr(
                     index,
                     receiver,

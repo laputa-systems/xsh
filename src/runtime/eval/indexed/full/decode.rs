@@ -48,6 +48,7 @@ impl<'a> DecodeContext<'a> {
             owner: self.owner,
             instruction_range: self.start..self.end,
             instruction_states: None,
+            instruction_proof: None,
             block_states: None,
             slot_count: self.slots,
             pattern_ceiling: Cell::new(usize::MAX),
