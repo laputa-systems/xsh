@@ -14,9 +14,9 @@ incomplete. Resume this handoff before the historical notes in CAMPAIGN.md.
   Never reset, rebase, stash, edit, or move its HEAD. Specify the workdir on every
   command. An earlier accidental rebase was corrected; never restore an old
   recorded original-checkout hash because the owner has continued working there.
-- Use exclusively gpt-6.1-sol, medium, fork_turns:none for new agents. No Luna.
-  The owner requested maximum independent lanes; bound simultaneous builds and
-  test memory independently of agent concurrency.
+- On resume, the owner requested exclusively gpt-6-luna, xhigh,
+  fork_turns:none for new agents. Bound simultaneous builds and test memory
+  independently of agent concurrency.
 - No worktrees or persistent scratch in /tmp. Set TMPDIR to the integration
   .work/tmp for Python lane-generator tests. Disposable test fixtures in bounded
   container tmpfs are recreated by their committed tests and need not survive.
@@ -71,7 +71,9 @@ x86_64-unknown-linux-musl, the pinned compiler and these flags:
 Build only xsh bins and xsht, with bounded RAM/jobs and reusable integration
 target. See .work/system-codec-build.log and .work/native-api-build.log. Do not
 run another Linux libc/toolchain as evidence. Preserve the original .git mount
-read-only in Docker. The reference images persist across reboot:
+read-only in Docker. The reference images were absent from the active Docker
+daemon after reboot; the owner confirmed that they need rebuilding from the
+retained sources:
 
 - xsh-oracle-gnu-9.12: image 8aceca9f1278, glibc 2.43-7; real GNU tools are
   /usr/local/bin, NOT distro GNU 9.10. Includes strip, upstream getlimits, all
