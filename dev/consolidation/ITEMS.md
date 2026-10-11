@@ -16,27 +16,27 @@ the stated gates; scouting is not verification.
 |---|---|---|---|
 | S0 | Integrator: approvals, baseline commit, ownership and handoff | owner approval | active |
 | S1 | Integrator: pinned Linux environment, baseline correctness gates and coverage | S0 | native baseline green; Rust and coverage pending |
-| S2 | Integrator: XSH structural scanner, baseline JSON, evidence for each metric | S0; verified binaries to run | 13 fixture tests green; exact-source scan running |
-| S3 | Integrator: measured no-LTO optimized test profile and path-mapped lane gate | S1 | draft reviewed; corrections and candidate measurements pending |
-| S4 | Pure partitions of lower, indexed executor, module executor, and lint | coverage; baseline gates | body-preservation proofs green; compiler gates queued; acceptance pending coverage |
-| S5 | Integrator: instruction-table, traversal, and lint-rule designs; campaign skill | revalidation | active |
-| D1 | `src/diagnostic.rs`, new native diagnostic-rendering coverage | recorded contract below; S1 for execution | baseline failure reproduced; focused native green; unit gate pending |
-| D2 | `src/sema/types.rs`, imported-enum diagnostic coverage | recorded contract below; S1 for execution | baseline failure reproduced; fixed gates active |
+| S2 | Integrator: XSH structural scanner, baseline JSON, evidence for each metric | S0; verified binaries to run | 13 fixtures green; exact-source baseline measured; CLI/ratchet wiring active |
+| S3 | Integrator: measured no-LTO optimized test profile and path-mapped lane gate | S1 | tooling integrated be681661; 51 automation tests green; profile measurements pending |
+| S4 | Pure partitions of lower, indexed executor, module executor, and lint | coverage; baseline gates | four partitions integrated; body proofs and compiler gates green; combined coverage acceptance pending |
+| S5 | Integrator: instruction-table, traversal, and lint-rule designs; campaign skill | revalidation | designs and campaign skill established |
+| D1 | `src/diagnostic.rs`, new native diagnostic-rendering coverage | recorded contract below; S1 for execution | integrated 053a546b; 4 native, 18 parser and 7 renderer tests green |
+| D2 | `src/sema/types.rs`, imported-enum diagnostic coverage | recorded contract below; S1 for execution | integrated a13ea703; 36 native and one unit green |
 | D3 | `tests/xsh/stdlib/unix_process.xsh`: prove buffered output survives both exec forms | S1 for execution | integrated `b6f1af4f`; 21 passed, 2 privilege skips |
-| W7A | grammar and parser rule sharing; parser native tests and grammar proofs | S1 for execution | baseline probes recorded; context-specific lookahead repair active |
-| W7B | `crates/xsh-fuzz/src/mutate.rs`, soundness tests: recognize every cleanly parsed mutant | S1; W7A before acceptance | ready |
-| W5A | `src/syntax/arena.rs`: immediate exhaustive child enumerators and sugar views | traversal design; S1 for execution | prepared; compiler/unit gate active |
-| W1 | instruction/row/tag/decoder table, patterns/stages, return analysis, module inventory | S1, S4, instruction-table design | planned |
-| W2 | bounded nested machines, verifier mark, shared apply functions, frame scheduling, one pipeline | W1; oracle resolution below | planned |
-| W3 | checked type-expression facts, storage mappings, one borrowed value/type view | W2, checked declarations | planned |
-| W4 | boundary context, lexical identities, callee proof, module commands, checked declarations/session | S1, S4; exclusive checker/IR owners | boundary context regressions reproduced; A compiler gate queued; B/E wait for traversal/A |
-| W5 | exhaustive behavior matches and recursive-only enumerator migrations | W5A, S4 | planned |
-| W6 | lint declaration table, one descent, shared checked facts/probes, rule repairs | W5, check-session; oracle resolution below | planned |
-| W8A | opaque Any plus repository/Laputa migration | checker owner; design corrections below | planned |
-| W8R | opaque locks, resource table/tokens/scopes/escape facts/streams/affine checks and migrations | W1/W3/checker owners; D12 recount | regression and shared-type drafts active; runtime ownership waits for partition |
-| W8E | socket effect sets and explicit-clause migrations | effect consumers' exclusive ownership | four intended baseline failures; static effect-set implementation active |
+| W7A | grammar and parser rule sharing; parser native tests and grammar proofs | S1 for execution | integrated 854e48da; 23 grammar/50 native green; deep proof exposed nine counterexamples, repair active |
+| W7B | `crates/xsh-fuzz/src/mutate.rs`, soundness tests: recognize every cleanly parsed mutant | S1; W7A before acceptance | recognizer and corpus-walker regressions active; focused gates green |
+| W5A | `src/syntax/arena.rs`: immediate exhaustive child enumerators and sugar views | traversal design; S1 for execution | integrated e45beb30; 8 units and compiler gate green |
+| W1 | instruction/row/tag/decoder table, patterns/stages, return analysis, module inventory | S1, S4, instruction-table design | authoritative construction/schema slice active; runtime reader migration waits coverage |
+| W2 | bounded nested machines, verifier mark, shared apply functions, frame scheduling, one pipeline | W1; oracle resolution below | bounded machines integrated bbb3cc7a; 66 native and lifecycle unit green; frame/apply work follows W1 |
+| W3 | checked type-expression facts, storage mappings, one borrowed value/type view | W2, checked declarations | borrowed predicate slice active; checked type-expression/storage mappings follow facts |
+| W4 | boundary context, lexical identities, callee proof, module commands, checked declarations/session | S1, S4; exclusive checker/IR owners | A integrated a2ca731a with 104 native tests; B lexical identities, module commands and ordinary diagnostics active |
+| W5 | exhaustive behavior matches and recursive-only enumerator migrations | W5A, S4 | structural grep/refactor and lint walker migrations active |
+| W6 | lint declaration table, one descent, shared checked facts/probes, rule repairs | W5, check-session; oracle resolution below | repairs integrated 1d5f9a96; common descent/table slice active |
+| W8A | opaque Any plus repository/Laputa migration | checker owner; design corrections below | opacity tests reproduced; candidate checker and semantic migration inventory active |
+| W8R | opaque locks, resource table/tokens/scopes/escape facts/streams/affine checks and migrations | W1/W3/checker owners; D12 recount | R1 integrated 7b8b4f01; 24 native plus four host/registry tests green; R2 scopes/ancestry active |
+| W8E | socket effect sets and explicit-clause migrations | effect consumers' exclusive ownership | integrated 305ac0f9 plus 710bbe47/bf88ad3b migrations; focused API/native/compiler gates green |
 | W9 | isolated module checking/records/reuse; no stage program clone; wide-spread lookup | check-session; lowering ownership | planned |
-| W10 | feature-touch recount, reliability, comparative workloads, docs and closing report | functional completion | planned |
+| W10 | feature-touch recount, reliability, comparative workloads, docs and closing report | functional completion | starting feature probe complete; seven-tool workload parity green; closing evidence pending |
 
 The first ready implementation set is independent by source ownership.
 Preparation may happen before the baseline completes; changes cannot be
@@ -45,11 +45,15 @@ an exact file set and budget after the pure partitions establish it.
 
 Pure partition scaffolding budgets are explicitly +400 production Rust lines
 for lower, indexed execution, and lint, and +700 for module execution. Their
-prepared deltas are +142, +137, +136, and +609 respectively; moved bodies and
+verified deltas are +143, +137, +136, and +603 respectively; moved bodies and
 comments are retained. The traversal prerequisite has a +650 production-line
 budget before consumer deletion offsets it. Grammar rule sharing has +80.
 Boundary-context A has +100 / 1,800 touched; effect sets +150 / 900 touched;
-resource foundation preparation +600 / 2,500 touched. These are scoped
+resource foundation preparation +600 / 2,500 touched. Subsequent scoped
+exceptions: R2 +250 / 1,800 touched, explicit Any rejection +80 / 1,800,
+module command facts +100 / 800, ordinary diagnostics +100 / 900. W1
+construction/schema allows 4,500 touched with a completed net reduction of
+at least 200 lines. These are scoped
 exceptions to the default zero-growth budget, not waivers of final ratchets.
 
 ## Ordinary defect contracts
@@ -77,7 +81,7 @@ exceptions to the default zero-growth budget, not waivers of final ratchets.
 
 - Instruction table: 158 instruction variants (6 integer, 12 boolean,
   97 expression, 43 statement), 18 patterns and 46 stages. Manual execution
-  reads/finishes: 922 calls plus 43 optional raw reads. Pattern Text encoding
+  reads/finishes: 923 calls across 922 physical lines, plus 43 optional raw reads. Pattern Text encoding
   and existing tag ordinals must remain unchanged.
 - Wide arena wildcards: 57, including aliased pattern variants. Semantic
   classifiers stay exhaustive behavior matches; recursive-only walkers use
@@ -86,9 +90,11 @@ exceptions to the default zero-growth budget, not waivers of final ratchets.
   including Laputa `048592b0473bcee57b5dd0573297115ab78ef633`. The printed
   731-site denominator is inaccurate and is not reused as a baseline.
 - Raw physical Rust lines are 205,842 under `src/` and 60,041 under
-  `crates/xsht/src`; they include tests. Non-test ratchets require a lexical
-  counter that excludes test-only items without excluding production
-  `cfg(any(..., test))` items or matching comments and strings.
+  `crates/xsht/src`; they include tests. The verified lexical scanner measures 189,274 and 49,968 non-test lines,
+  retaining mixed platform/test items and ignoring comments/string contents.
+  It measures 47,705 lines under inherited blanket dead-code allowances; the
+  earlier 15,800 figure omitted containing scopes. Semantic proof rows stay
+  explicitly unmeasured until their respective checks run.
 - Module support inventories' 24-name difference includes native-test and
   script-backed operations. It is not evidence of 24 runtime defects.
 - Module-check reuse is scoped to a resolved import graph and args domain.

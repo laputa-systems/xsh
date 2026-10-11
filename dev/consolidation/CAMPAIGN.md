@@ -1,6 +1,6 @@
 # XSH Consolidation Campaign
 
-Status: active, Setup in progress. The owner approved the entire campaign
+Status: active, Setup and implementation in progress. The owner approved the entire campaign
 and all six designs on 2026-10-11, including the Codex model policy and
 completeness-first sequence. The start commit is
 `5e66b6b896a47d0c692739135d51200b007a2a67`; integration is on `consolidation`
@@ -719,7 +719,7 @@ time and native-suite time, with thin LTO excluded.
   row across this start commit and Laputa `048592b0`; scope ownership may
   proceed. The draft's 731-site denominator was not reproduced.
 - Structural starting counts from source: 158 instructions, 18 patterns,
-  46 stages, 922 hand-ordered read/finish calls plus 43 optional reads,
+  46 stages, 923 hand-ordered read/finish calls across 922 lines plus 43 optional reads,
   57 wide wildcard matches including aliased pattern matches. Raw Rust
   physical lines include inline tests and are not the non-test baseline.
 - Stale design examples are corrected against source evidence without
@@ -754,3 +754,54 @@ time and native-suite time, with thin LTO excluded.
   automatic heavy sibling-corpus checks are excluded.
 - Native build queue is serialized independently of ready agent lanes.
   No formatter, autofixer, push, or unrelated worktree change has run.
+
+
+### 2026-10-11 — construction prerequisites and contract slices
+
+- Integrated all four pure partitions after source-body preservation proofs
+  and pinned musl compiler checks. Combined coverage and allocation evidence
+  remain required; partitioning is not a completed semantic workstream.
+- D1 and D2 focused gates passed and their TODOs closed; D3 retained the
+  exact buffered-output/exit/defer process regressions.
+- Boundary contexts passed 104 native tests. The prior value-block outer-loop
+  transfer expectation contradicted the approved callable-boundary rule:
+  `abe26163` retains tests for rejecting outer break/continue and for valid
+  callback-local loops (30 focused tests).
+- Bounded nested machines passed 66 native tests and an actual-overflow host
+  lifecycle test proving reuse of the same evaluator. The opaque lock and
+  evaluator-token foundation passed 24 native tests, two foreign-handle host
+  tests and two registry tests. Roots/locks are not yet scope-owned until R2.
+- Lock test migrations retain release-error precedence and resource liveness
+  coverage: foreign opaque handles replace forged records; marker files and
+  independent nonblocking reacquisition replace inspection of private IDs.
+- Twenty socket APIs now require process and net. The registry's starting
+  required-label test was already contradicted by set_capabilities: coverage
+  now checks label/binding invariants, positional rejection and labeled calls.
+  Clause-only migrations changed 17 library and 39 applet/test clauses; all
+  affected source checks and 21 linux_net tests passed (one capability skip).
+- First grammar sharing passed 23 grammar and 50 native tests. The deeper
+  22,768-candidate proof found nine parser disagreements and 58.323% validity
+  against the retained 80% threshold. Repair is active; no deep-proof pass
+  or full rule coverage is claimed.
+- Baseline LLVM coverage records pre-existing stale/corpus assertions instead
+  of treating aggregate failures as green. Its frozen runtime/lowering source
+  hashes still match the starting commit. Signal-fixture readiness and LLVM
+  fuzz-worker flush handling have independent host regressions. Corpus phases
+  temporarily mask the known directory-symlink cycle and WIP compatibility
+  subtree; those mounts are removed before native tests. Production corpus
+  helpers are being fixed with retained symlink/WIP regressions.
+- The source scanner passed 13 fixtures and measured the exact starting
+  tree: 189,274 / 49,968 non-test Rust lines and 47,705 lines under inherited
+  blanket dead-code allowances. Semantic/performance rows remain unmeasured.
+  Batch ratchets use a recorded, bounded intermediate envelope; final close
+  requires the unchanged baseline and no envelope.
+- Lexical identities, authoritative instructions, resource scope ownership,
+  opaque Any, borrowed value/type predicates, common lint descent and module
+  command plans now run on independent file sets. Remaining dependencies are
+  scheduled at slice boundaries, with one queued primary compiler and one
+  bounded coverage compiler. Timing remains deferred until functional close.
+- Comparative workload preparation passed 35 exact seven-tool parity cases,
+  eight harness tests and five XSH source checks. No timing result is claimed.
+  Separate Laputa consolidation and migration worktrees were created on disk;
+  symlink audit found no required Laputa caller migration. Heavy sibling
+  corpus checks remain excluded.
