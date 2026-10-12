@@ -27,6 +27,34 @@ macro_rules! instruction_decoder_method {
     ($view:ident, $method:item) => {};
 }
 
+macro_rules! instruction_view_kind {
+    (
+        ExprView;
+        $(
+            $(#[$attr:meta])*
+            $variant:ident
+            $(($($tuple_field:ident: $tuple_ty:ty),* $(,)?))?
+            $({$($(#[$field_attr:meta])* $field:ident: $field_ty:ty),* $(,)?})?
+            => $tag:ident,
+        )*
+    ) => {
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        pub(in crate::runtime::eval) enum ExprViewKind {
+            $($variant,)*
+        }
+
+        impl FullTag {
+            pub(in crate::runtime::eval) fn expr_view_kind(self) -> Option<ExprViewKind> {
+                match self {
+                    $(Self::$tag => Some(ExprViewKind::$variant),)*
+                    _ => None,
+                }
+            }
+        }
+    };
+    ($view:ident; $($row:tt)*) => {};
+}
+
 macro_rules! pattern_encode_payload {
     (Normal, $builder:ident, $payload:ident) => {};
     (Normal, $builder:ident, $payload:ident, { $($field:ident),* $(,)? }) => {
@@ -467,6 +495,12 @@ macro_rules! instruction_schema {
                 }
             }
 
+            pub(in crate::runtime::eval) fn is_scheduled_frame_control_expr(self) -> bool {
+                self.kind() == InstructionKind::Expr
+                    && self.in_place_class() == InPlaceClass::Scheduled
+                    && self.frame_strategy() == FrameStrategy::FrameControl
+            }
+
             pub(in crate::runtime::eval) fn is_eager_atom(self) -> bool {
                 match self {
                     $($(Self::$tag => instruction_schema!(@eager_atom $($classification)?),)*)*
@@ -515,6 +549,16 @@ macro_rules! instruction_schema {
                     $({$($field: <$field_ty as BorrowCodec>::View<'a>),*})?,
                 )*
             }
+
+            instruction_view_kind!($view;
+                $(
+                    $(#[$attr])*
+                    $variant
+                    $(($($tuple_field: $tuple_ty),*))?
+                    $({$($(#[$field_attr])* $field: $field_ty),*})?
+                    => $tag,
+                )*
+            );
 
             impl<'a> $view<'a> {
                 pub(in crate::runtime::eval) fn decode<'e>(
@@ -1427,6 +1471,34 @@ mod tests {
         FrameStrategy, FullPatternTag, FullTag, INSTRUCTION_TAGS, InPlaceClass, InstructionKind,
         PATTERN_TAGS,
     };
+
+    #[test]
+    fn scheduled_frame_control_expressions_use_the_explicit_machine_route() {
+        for tag in [
+            FullTag::ExprListComp,
+            FullTag::ExprMapComp,
+            FullTag::ExprMethod,
+            FullTag::ExprModuleCall,
+            FullTag::ExprExternalCall,
+            FullTag::ExprDynamicCall,
+            FullTag::ExprTypedCall,
+            FullTag::ExprRunCapture,
+        ] {
+            assert!(tag.is_scheduled_frame_control_expr(), "{}", tag.name());
+        }
+
+        for tag in [
+            FullTag::ExprBinary,
+            FullTag::ExprPatternIf,
+            FullTag::ExprStrMatch,
+            FullTag::ExprTagMatch,
+            FullTag::ExprGlob,
+            FullTag::ExprLastStatus,
+            FullTag::StmtLet,
+        ] {
+            assert!(!tag.is_scheduled_frame_control_expr(), "{}", tag.name());
+        }
+    }
 
     #[test]
     fn instruction_classes_include_only_operations_that_never_run_script() {

@@ -1292,31 +1292,16 @@ impl Evaluator {
         let frame_scheduled = execution
             .instruction_id(instruction)
             .map(|(tag, _)| {
-                matches!(
-                    tag,
-                    FullTag::ExprPipeline
-                        | FullTag::ExprBinary
-                        | FullTag::ExprPatternIf
-                        | FullTag::ExprStrMatch
-                        | FullTag::ExprTagMatch
-                        | FullTag::ExprGlob
-                        | FullTag::ExprLastStatus
-                        | FullTag::ExprProcessCommandArgv
-                        | FullTag::ExprProcessCommandBuilder
-                        | FullTag::ExprRunCapture
-                        | FullTag::ExprRunPipeline
-                        | FullTag::ExprSpawnRun
-                        | FullTag::ExprSpawnCommand
-                        | FullTag::ExprWait
-                        | FullTag::ExprLoop
-                        | FullTag::ExprRetry
-                        | FullTag::ExprCall
-                        | FullTag::ExprDirectPureCall
-                        | FullTag::ExprSelfCall
-                        | FullTag::ExprExternalCall
-                        | FullTag::ExprDynamicCall
-                        | FullTag::ExprTypedCall
-                )
+                tag.is_scheduled_frame_control_expr()
+                    || matches!(
+                        tag,
+                        FullTag::ExprBinary
+                            | FullTag::ExprPatternIf
+                            | FullTag::ExprStrMatch
+                            | FullTag::ExprTagMatch
+                            | FullTag::ExprGlob
+                            | FullTag::ExprLastStatus
+                    )
             })
             .map_err(|error| indexed_error(error, call_span))?;
         let result = if self.force_frames || frame_scheduled {

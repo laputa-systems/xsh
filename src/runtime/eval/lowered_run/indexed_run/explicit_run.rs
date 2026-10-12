@@ -37,7 +37,7 @@ use crate::runtime::eval::indexed::full::ProgramOwner;
 use super::{LoweredMapCursor, LoweredScalarCursor};
 use crate::map_key::MapKey;
 use crate::runtime::eval::indexed::IrBlockId;
-use crate::runtime::eval::indexed::full::schema::{BoolView, ExprView, IntView};
+use crate::runtime::eval::indexed::full::schema::{BoolView, ExprView, ExprViewKind, IntView};
 use crate::runtime::eval::indexed::full::schema::StmtView;
 use crate::runtime::eval::indexed::full::decode::{
     AssignStepView, CallArgView, CompQualifierView, CompTargetView, FmtPartView, ListPosition,
@@ -6392,11 +6392,28 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             self.push_apply_operands(index, instruction, tag, first, apply_span, next)?;
             return Ok(());
         }
-        match tag {
-            FullTag::ExprRunCapture | FullTag::ExprSpawnRun | FullTag::ExprRunPipeline => {
+        let view_kind = tag
+            .expr_view_kind()
+            .ok_or_else(|| frame_strategy_error(tag, span))?;
+        self.eval_expr_view(index, instruction, tag, view_kind, &execution, payload, span, next)
+    }
+
+    fn eval_expr_view<'e>(
+        &mut self,
+        index: usize,
+        instruction: u32,
+        tag: FullTag,
+        view_kind: ExprViewKind,
+        execution: &'e FullExecution<'_>,
+        payload: FullPayload<'e>,
+        span: Span,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        match view_kind {
+            ExprViewKind::RunCapture | ExprViewKind::SpawnRun | ExprViewKind::RunPipeline => {
                 self.start_process_run(index, instruction, tag, span, next)?;
             }
-            FullTag::ExprSpawnCommand => {
+            ExprViewKind::SpawnCommand => {
                 let super::ExprView::SpawnCommand { command, span } =
                     super::ExprView::decode(&execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
@@ -6413,7 +6430,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            FullTag::ExprWait => {
+            ExprViewKind::Wait => {
                 let super::ExprView::Wait { target, span } =
                     super::ExprView::decode(&execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
@@ -6430,7 +6447,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            FullTag::ExprProcessCommandBuilder => {
+            ExprViewKind::ProcessCommandBuilder => {
                 let (entries, builder_span) = process_command_builder_view(
                     &execution,
                     instruction,
@@ -6451,7 +6468,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     next,
                 )?;
             }
-            FullTag::ExprPipeline => {
+            ExprViewKind::ListPipeline => {
                 let pipeline = indexed_value_pipeline_input(
                     &execution,
                     instruction,
@@ -6484,7 +6501,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 }
             }
-            FullTag::ExprValueBlock => {
+            ExprViewKind::ValueBlock => {
                 let super::ExprView::ValueBlock { body, span } =
                     super::ExprView::decode(&execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
@@ -6497,7 +6514,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 });
                 self.push_statement_block(index, body.block_id(), span)?;
             }
-            FullTag::ExprLoop => {
+            ExprViewKind::Loop => {
                 let super::ExprView::Loop {
                     body,
                     span: loop_span,
@@ -6512,7 +6529,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     completion: Some(Box::new(next)),
                 });
             }
-            FullTag::ExprRetry => {
+            ExprViewKind::Retry => {
                 let super::ExprView::Retry {
                     delays,
                     pattern,
@@ -6545,7 +6562,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     Box::new(next),
                 )?;
             }
-            FullTag::ExprCapture => {
+            ExprViewKind::Capture => {
                 let super::ExprView::Capture { body, span } =
                     super::ExprView::decode(&execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
@@ -6558,7 +6575,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 });
                 self.push_statement_block(index, body.block_id(), span)?;
             }
-            FullTag::ExprContextScope => {
+            ExprViewKind::ContextScope => {
                 let super::ExprView::ContextScope {
                     kind,
                     input,
@@ -6581,7 +6598,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            FullTag::ExprErrorContext => {
+            ExprViewKind::ErrorContext => {
                 let super::ExprView::ErrorContext {
                     message,
                     body,
@@ -6602,7 +6619,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            FullTag::ExprComparisonChain => {
+            ExprViewKind::ComparisonChain => {
                 let (first, pairs) = decode_comparison_chain(
                     &execution,
                     tag,
@@ -6620,7 +6637,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            FullTag::ExprBinary => {
+            ExprViewKind::Binary => {
                 let super::ExprView::Binary {
                     op,
                     left,
@@ -6643,7 +6660,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            FullTag::ExprIf => {
+            ExprViewKind::IfExpr => {
                 let super::ExprView::IfExpr {
                     branches,
                     else_value,
@@ -6663,7 +6680,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     Box::new(next),
                 )?;
             }
-            FullTag::ExprMatch => {
+            ExprViewKind::MatchExpr => {
                 let (value, arms, value_span) = decode_match_expr(
                     &execution,
                     tag,
@@ -6682,7 +6699,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            FullTag::ExprPatternIf => {
+            ExprViewKind::PatternIf => {
                 let view = super::ExprView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?;
                 let (position, value_span) = match view {
@@ -6703,7 +6720,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     Box::new(next),
                 )?;
             }
-            FullTag::ExprStrMatch | FullTag::ExprTagMatch => {
+            ExprViewKind::StrMatchExpr | ExprViewKind::TagMatchExpr => {
                 let view = super::ExprView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?;
                 let value = match view {
@@ -6725,7 +6742,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             // Compound expressions and formatted strings must stay in the active heap-backed frame machine.
             // Falling back to the recursive evaluator here would nest another explicit runner for each Result
             // call in the expression and consume native stack even when the outer loop itself is iterative.
-            FullTag::ExprList | FullTag::ExprListBuild => {
+            ExprViewKind::List | ExprViewKind::ListBuild => {
                 let mut items = indexed_list_literal_view(
                     &execution,
                     tag,
@@ -6761,7 +6778,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     );
                 }
             }
-            FullTag::ExprMapLiteral => {
+            ExprViewKind::MapLiteral => {
                 let mut entries = indexed_map_literal_view(
                     &execution,
                     tag,
@@ -6785,7 +6802,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     Box::new(next),
                 )?;
             }
-            FullTag::ExprRecordUpdate => {
+            ExprViewKind::RecordUpdate => {
                 let (base, updates, update_span) = decode_record_updates(
                     &execution,
                     tag,
@@ -6804,7 +6821,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            FullTag::ExprRecord => {
+            ExprViewKind::Record => {
                 let mut entries = indexed_record_literal_view(
                     &execution,
                     tag,
@@ -6827,7 +6844,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     Box::new(next),
                 )?;
             }
-            FullTag::ExprListComp | FullTag::ExprMapComp => {
+            ExprViewKind::ListComp | ExprViewKind::MapComp => {
                 let view = ExprView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?;
                 let (map, key, value, mut qualifiers, value_span) = match view {
@@ -6880,7 +6897,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 };
                 self.step_comp_qualifier(index, Box::new(state), Box::new(next))?;
             }
-            FullTag::ExprFmtString | FullTag::ExprPathFmtString => {
+            ExprViewKind::FmtString | ExprViewKind::PathFmtString => {
                 let (mut parts, fmt) = decode_fmt(
                     &execution,
                     tag,
@@ -6902,7 +6919,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     Box::new(next),
                 )?;
             }
-            FullTag::ExprResultFallback => {
+            ExprViewKind::ResultFallback => {
                 let super::ExprView::ResultFallback { left, right } =
                     super::ExprView::decode(&execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
@@ -6920,7 +6937,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            FullTag::ExprOk => {
+            ExprViewKind::Ok => {
                 let super::ExprView::Ok(value) =
                     super::ExprView::decode(&execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
@@ -6934,7 +6951,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     FrameContinuation::WrapOk(Box::new(next)),
                 );
             }
-            FullTag::ExprProcCallResult => {
+            ExprViewKind::ProcCallResult => {
                 let super::ExprView::ProcCallResult(value) =
                     super::ExprView::decode(&execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
@@ -6948,7 +6965,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     FrameContinuation::ProcCallResult(Box::new(next)),
                 );
             }
-            FullTag::ExprErr => {
+            ExprViewKind::Err => {
                 let super::ExprView::Err { value, cause } =
                     super::ExprView::decode(&execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
@@ -6966,7 +6983,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            FullTag::ExprTry => {
+            ExprViewKind::Try => {
                 let super::ExprView::Try {
                     value,
                     span: propagation,
@@ -6989,7 +7006,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            FullTag::ExprCheckedValue => {
+            ExprViewKind::CheckedValue => {
                 let super::ExprView::CheckedValue {
                     value,
                     check,
@@ -7012,7 +7029,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            FullTag::ExprRequire => {
+            ExprViewKind::Require => {
                 let super::ExprView::Require {
                     value,
                     check,
@@ -7034,7 +7051,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            FullTag::ExprMethod => {
+            ExprViewKind::Method => {
                 let ExprView::Method {
                     receiver,
                     name,
@@ -7086,7 +7103,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            FullTag::ExprDynamicCall | FullTag::ExprTypedCall => {
+            ExprViewKind::DynamicCall | ExprViewKind::TypedCall => {
                 let view = ExprView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?;
                 let (callee, typed_pure, mut args, value_span) = match view {
@@ -7122,7 +7139,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            FullTag::ExprField => {
+            ExprViewKind::Field => {
                 let super::ExprView::Field {
                     base,
                     name,
@@ -7157,7 +7174,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            FullTag::ExprIndex => {
+            ExprViewKind::Index => {
                 let super::ExprView::Index {
                     base,
                     index: instruction,
@@ -7178,7 +7195,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            FullTag::ExprIndexFromEnd => {
+            ExprViewKind::IndexFromEnd => {
                 let super::ExprView::IndexFromEnd {
                     base,
                     distance,
@@ -7199,7 +7216,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            FullTag::ExprModuleCall => {
+            ExprViewKind::ModuleCall => {
                 let ExprView::ModuleCall {
                     op,
                     call_plan,
@@ -7225,7 +7242,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     next,
                 )?;
             }
-            FullTag::ExprExternalCall => {
+            ExprViewKind::ExternalCall => {
                 let ExprView::ExternalCall {
                     function: qualified,
                     mut args,
@@ -7252,7 +7269,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     next,
                 )?;
             }
-            FullTag::ExprCall | FullTag::ExprSelfCall | FullTag::ExprDirectPureCall => {
+            ExprViewKind::Call | ExprViewKind::SelfCall | ExprViewKind::DirectPureCall => {
                 let view = ExprView::decode(&execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?;
                 let (function, mut args, value_span) = match view {
@@ -7299,10 +7316,57 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     next,
                 )?;
             }
-            _ => return Err(frame_strategy_error(tag, span)),
+            ExprViewKind::Null |
+            ExprViewKind::Unit |
+            ExprViewKind::Int |
+            ExprViewKind::Float |
+            ExprViewKind::Duration |
+            ExprViewKind::Bool |
+            ExprViewKind::Str |
+            ExprViewKind::Bytes |
+            ExprViewKind::PreparedRegex |
+            ExprViewKind::PreparedConstant |
+            ExprViewKind::Path |
+            ExprViewKind::FunctionRef |
+            ExprViewKind::PathFrom |
+            ExprViewKind::Param |
+            ExprViewKind::Glob |
+            ExprViewKind::LastStatus |
+            ExprViewKind::EmptyMap |
+            ExprViewKind::Range |
+            ExprViewKind::Tag |
+            ExprViewKind::Slice |
+            ExprViewKind::StrByteLen |
+            ExprViewKind::StrByteAt |
+            ExprViewKind::StrPredicate |
+            ExprViewKind::FsFiles |
+            ExprViewKind::FsWalk |
+            ExprViewKind::FsList |
+            ExprViewKind::FsTempDir |
+            ExprViewKind::FsMkdir |
+            ExprViewKind::FsRemove |
+            ExprViewKind::PathReadText |
+            ExprViewKind::PathReadBytes |
+            ExprViewKind::PathExists |
+            ExprViewKind::PathExecutable |
+            ExprViewKind::PathDu |
+            ExprViewKind::PathMetadata |
+            ExprViewKind::PathReadlink |
+            ExprViewKind::PathResolve |
+            ExprViewKind::PathWrite |
+            ExprViewKind::PathMkdir |
+            ExprViewKind::PathRemove |
+            ExprViewKind::ArchiveTarCreate |
+            ExprViewKind::ProcessCommandArgv |
+            ExprViewKind::Abort |
+            ExprViewKind::Fail |
+            ExprViewKind::Error => {
+                return Err(frame_strategy_error(tag, span));
+            }
         }
         Ok(())
     }
+
 
     fn step_assertion(
         &mut self,

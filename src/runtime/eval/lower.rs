@@ -420,7 +420,7 @@ use super::{
     BuildBoolId, BuildBoolRow, BuildExprId, BuildExprRow, BuildIntId, BuildIntRow, BuildPatternId,
     BuildPatternIdSlots, BuildPatternRow, BuildScratch, BuildStmtId, BuildStmtRow, BuildTopKind,
     BuildTopStmtId, BuildTopStmtRow, COMPACT_CALL_BLOCKER_KIND_COUNT,
-    COMPACT_COMMAND_BLOCKER_KIND_COUNT, COMPACT_EXPR_KIND_COUNT, COMPACT_STMT_KIND_COUNT,
+    COMPACT_COMMAND_BLOCKER_KIND_COUNT, COMPACT_STMT_KIND_COUNT,
     COMPACT_TYPE_EXPR_TAG_COUNT, CompactLowerConstructProbeOutput, Flow, FunctionBuild,
     LowerableFunctions, LoweredAssignPath, LoweredAssignStep, LoweredCallArg, LoweredCompFields,
     LoweredCompTarget, LoweredFmtPart,
@@ -1437,122 +1437,97 @@ fn compact_stmt_blocker_label(program: &ArenaProgram, stmt: StmtId) -> String {
     }
 }
 
-fn compact_expr_kind_index(kind: ArenaExprKind) -> usize {
-    match kind {
-        ArenaExprKind::Null => 0,
-        ArenaExprKind::Bool(_) => 1,
-        ArenaExprKind::Int(_) => 2,
-        ArenaExprKind::Float(_) => 3,
-        ArenaExprKind::Duration(_) => 4,
-        ArenaExprKind::Str(_) => 5,
-        ArenaExprKind::PathStr(_) => 6,
-        ArenaExprKind::GlobStr(_) => 7,
-        ArenaExprKind::FmtString(_) => 8,
-        ArenaExprKind::PathFmtString(_) => 9,
-        ArenaExprKind::Bytes(_) => 10,
-        ArenaExprKind::Ident(_) => 11,
-        ArenaExprKind::Item => 12,
-        ArenaExprKind::LastStatus => 13,
-        ArenaExprKind::List(_) => 14,
-        ArenaExprKind::ListComp { .. } => 15,
-        ArenaExprKind::MapComp { .. } => 16,
-        ArenaExprKind::Record(_) => 17,
-        ArenaExprKind::If { .. } => 18,
-        ArenaExprKind::Match { .. }
-        | ArenaExprKind::PatternTest { .. }
-        | ArenaExprKind::PatternCondition { .. } => 19,
-        ArenaExprKind::Unary { .. } => 20,
-        ArenaExprKind::ComparisonChain(_) => 40,
-        ArenaExprKind::Binary { .. } => 21,
-        ArenaExprKind::Call { .. } => 22,
-        ArenaExprKind::Field { .. } => 23,
-        ArenaExprKind::NullSafeField { .. } => 24,
-        ArenaExprKind::Index { .. } => 25,
-        ArenaExprKind::Slice { .. } => 26,
-        ArenaExprKind::EnvString(_) => 27,
-        ArenaExprKind::EnvPathList => 28,
-        ArenaExprKind::Pipeline { .. } => 29,
-        ArenaExprKind::StructuredPipeline { .. } => 30,
-        ArenaExprKind::Run(_) => 31,
-        ArenaExprKind::Spawn(_) => 32,
-        ArenaExprKind::Wait(_) => 33,
-        ArenaExprKind::BuilderCall { .. } => 34,
-        ArenaExprKind::Try(_) => 35,
-        ArenaExprKind::Require { .. } => 36,
-        ArenaExprKind::Loop { .. } => 37,
-        ArenaExprKind::Capture(_) => 42,
-        ArenaExprKind::Retry { .. } => 38,
-        ArenaExprKind::ValueBlock(_) => 39,
-        ArenaExprKind::ErrorContext { .. } => 44,
-        ArenaExprKind::Regex(_) => 41,
-        ArenaExprKind::ValuePipelineCall { .. } => 43,
-        ArenaExprKind::ContextScope { .. } => 45,
-        ArenaExprKind::TempDirScope { .. } => 46,
-        ArenaExprKind::Convert { .. } => 47,
-        ArenaExprKind::Set(_) => 48,
-        ArenaExprKind::SetComp { .. } => 49,
-        ArenaExprKind::Collect { .. } => 50,
-        ArenaExprKind::ResourceScope { .. } => 51,
-    }
+macro_rules! compact_expr_kind_catalog {
+    ($($kind:pat => ($index:literal, $label:literal);)+) => {
+        const COMPACT_EXPR_KIND_CATALOG: &[(usize, &str)] = &[
+            $(($index, $label),)+
+        ];
+
+        pub(super) const COMPACT_EXPR_KIND_COUNT: usize =
+            compact_expr_kind_count(COMPACT_EXPR_KIND_CATALOG);
+
+        fn compact_expr_kind_index(kind: ArenaExprKind) -> usize {
+            match kind {
+                $($kind => $index,)+
+            }
+        }
+
+        fn compact_expr_kind_label(kind: ArenaExprKind) -> &'static str {
+            match kind {
+                $($kind => $label,)+
+            }
+        }
+    };
 }
 
-fn compact_expr_kind_label(kind: ArenaExprKind) -> &'static str {
-    match kind {
-        ArenaExprKind::Null => "null",
-        ArenaExprKind::Bool(_) => "bool",
-        ArenaExprKind::Int(_) => "int",
-        ArenaExprKind::Float(_) => "float",
-        ArenaExprKind::Duration(_) => "duration",
-        ArenaExprKind::Str(_) => "str",
-        ArenaExprKind::PathStr(_) => "path_str",
-        ArenaExprKind::GlobStr(_) => "glob_str",
-        ArenaExprKind::FmtString(_) => "fmt_string",
-        ArenaExprKind::PathFmtString(_) => "path_fmt_string",
-        ArenaExprKind::Bytes(_) => "bytes",
-        ArenaExprKind::Ident(_) => "ident",
-        ArenaExprKind::Item => "item",
-        ArenaExprKind::LastStatus => "last_status",
-        ArenaExprKind::List(_) => "list",
-        ArenaExprKind::ListComp { .. } => "list_comp",
-        ArenaExprKind::MapComp { .. } => "map_comp",
-        ArenaExprKind::Set(_) => "set",
-        ArenaExprKind::SetComp { .. } => "set_comp",
-        ArenaExprKind::Record(_) => "record",
-        ArenaExprKind::If { .. } => "if",
-        ArenaExprKind::Match { .. } => "match",
-        ArenaExprKind::PatternTest { .. } => "pattern_test",
-        ArenaExprKind::PatternCondition { .. } => "pattern_condition",
-        ArenaExprKind::Unary { .. } => "unary",
-        ArenaExprKind::ComparisonChain(_) => "comparison-chain",
-        ArenaExprKind::Binary { .. } => "binary",
-        ArenaExprKind::Call { .. } => "call",
-        ArenaExprKind::Field { .. } => "field",
-        ArenaExprKind::NullSafeField { .. } => "null_safe_field",
-        ArenaExprKind::Index { .. } => "index",
-        ArenaExprKind::Slice { .. } => "slice",
-        ArenaExprKind::EnvString(_) => "env_string",
-        ArenaExprKind::EnvPathList => "env_path_list",
-        ArenaExprKind::Pipeline { .. } => "pipeline",
-        ArenaExprKind::StructuredPipeline { .. } => "structured_pipeline",
-        ArenaExprKind::Run(_) => "run",
-        ArenaExprKind::Spawn(_) => "spawn",
-        ArenaExprKind::Wait(_) => "wait",
-        ArenaExprKind::BuilderCall { .. } => "builder_call",
-        ArenaExprKind::Try(_) => "try",
-        ArenaExprKind::Require { .. } => "require",
-        ArenaExprKind::Loop { .. } => "loop",
-        ArenaExprKind::Capture(_) => "try",
-        ArenaExprKind::Retry { .. } => "retry",
-        ArenaExprKind::ValueBlock(_) => "value_block",
-        ArenaExprKind::ErrorContext { .. } => "error_context",
-        ArenaExprKind::Regex(_) => "regex_literal",
-        ArenaExprKind::ValuePipelineCall { .. } => "value_pipeline_call",
-        ArenaExprKind::ContextScope { .. } => "context_scope",
-        ArenaExprKind::TempDirScope { .. } => "tempdir_scope",
-        ArenaExprKind::Convert { .. } => "convert",
-        ArenaExprKind::Collect { .. } => "collect",
-        ArenaExprKind::ResourceScope { .. } => "resource_scope",
+const fn compact_expr_kind_count(catalog: &[(usize, &str)]) -> usize {
+    let mut count = 0;
+    let mut index = 0;
+    while index < catalog.len() {
+        let candidate = catalog[index].0 + 1;
+        if candidate > count {
+            count = candidate;
+        }
+        index += 1;
     }
+    count
+}
+
+compact_expr_kind_catalog! {
+    ArenaExprKind::Null => (0, "null");
+    ArenaExprKind::Bool(_) => (1, "bool");
+    ArenaExprKind::Int(_) => (2, "int");
+    ArenaExprKind::Float(_) => (3, "float");
+    ArenaExprKind::Duration(_) => (4, "duration");
+    ArenaExprKind::Str(_) => (5, "str");
+    ArenaExprKind::PathStr(_) => (6, "path_str");
+    ArenaExprKind::GlobStr(_) => (7, "glob_str");
+    ArenaExprKind::FmtString(_) => (8, "fmt_string");
+    ArenaExprKind::PathFmtString(_) => (9, "path_fmt_string");
+    ArenaExprKind::Bytes(_) => (10, "bytes");
+    ArenaExprKind::Ident(_) => (11, "ident");
+    ArenaExprKind::Item => (12, "item");
+    ArenaExprKind::LastStatus => (13, "last_status");
+    ArenaExprKind::List(_) => (14, "list");
+    ArenaExprKind::ListComp { .. } => (15, "list_comp");
+    ArenaExprKind::MapComp { .. } => (16, "map_comp");
+    ArenaExprKind::Record(_) => (17, "record");
+    ArenaExprKind::If { .. } => (18, "if");
+    ArenaExprKind::Match { .. } => (19, "match");
+    ArenaExprKind::PatternTest { .. } => (19, "pattern_test");
+    ArenaExprKind::PatternCondition { .. } => (19, "pattern_condition");
+    ArenaExprKind::Unary { .. } => (20, "unary");
+    ArenaExprKind::Binary { .. } => (21, "binary");
+    ArenaExprKind::Call { .. } => (22, "call");
+    ArenaExprKind::Field { .. } => (23, "field");
+    ArenaExprKind::NullSafeField { .. } => (24, "null_safe_field");
+    ArenaExprKind::Index { .. } => (25, "index");
+    ArenaExprKind::Slice { .. } => (26, "slice");
+    ArenaExprKind::EnvString(_) => (27, "env_string");
+    ArenaExprKind::EnvPathList => (28, "env_path_list");
+    ArenaExprKind::Pipeline { .. } => (29, "pipeline");
+    ArenaExprKind::StructuredPipeline { .. } => (30, "structured_pipeline");
+    ArenaExprKind::Run(_) => (31, "run");
+    ArenaExprKind::Spawn(_) => (32, "spawn");
+    ArenaExprKind::Wait(_) => (33, "wait");
+    ArenaExprKind::BuilderCall { .. } => (34, "builder_call");
+    ArenaExprKind::Try(_) => (35, "try");
+    ArenaExprKind::Require { .. } => (36, "require");
+    ArenaExprKind::Loop { .. } => (37, "loop");
+    ArenaExprKind::Retry { .. } => (38, "retry");
+    ArenaExprKind::ValueBlock(_) => (39, "value_block");
+    ArenaExprKind::ComparisonChain(_) => (40, "comparison-chain");
+    ArenaExprKind::Regex(_) => (41, "regex_literal");
+    ArenaExprKind::Capture(_) => (42, "try");
+    ArenaExprKind::ValuePipelineCall { .. } => (43, "value_pipeline_call");
+    ArenaExprKind::ErrorContext { .. } => (44, "error_context");
+    ArenaExprKind::ContextScope { .. } => (45, "context_scope");
+    ArenaExprKind::TempDirScope { .. } => (46, "tempdir_scope");
+    ArenaExprKind::Convert { .. } => (47, "convert");
+    ArenaExprKind::Set(_) => (48, "set");
+    ArenaExprKind::SetComp { .. } => (49, "set_comp");
+    ArenaExprKind::Collect { .. } => (50, "collect");
+    ArenaExprKind::ResourceScope { .. } => (51, "resource_scope");
 }
 
 fn compact_checked_type_is_concrete(ty: &Type) -> bool {
@@ -2005,7 +1980,6 @@ fn compact_body_tail_command_blocker(
 
 const _: [(); COMPACT_TYPE_EXPR_TAG_COUNT] = [(); 13];
 const _: [(); COMPACT_STMT_KIND_COUNT] = [(); 30];
-const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 52];
 const _: [(); COMPACT_CALL_BLOCKER_KIND_COUNT] = [(); 6];
 const _: [(); COMPACT_COMMAND_BLOCKER_KIND_COUNT] = [(); 6];
 
@@ -6678,6 +6652,74 @@ pub(super) fn cleanup_pipeline_stage_item_slot(
 ) {
     if let Some(name) = cleanup {
         slots.retire(name, slot, "pipeline.item");
+    }
+}
+
+#[cfg(test)]
+mod compact_expr_kind_tests {
+    use super::{COMPACT_EXPR_KIND_CATALOG, COMPACT_EXPR_KIND_COUNT};
+
+    #[test]
+    fn expression_counter_catalog_preserves_existing_indices_and_labels() {
+        const EXPECTED: &[(usize, &str)] = &[
+            (0, "null"),
+            (1, "bool"),
+            (2, "int"),
+            (3, "float"),
+            (4, "duration"),
+            (5, "str"),
+            (6, "path_str"),
+            (7, "glob_str"),
+            (8, "fmt_string"),
+            (9, "path_fmt_string"),
+            (10, "bytes"),
+            (11, "ident"),
+            (12, "item"),
+            (13, "last_status"),
+            (14, "list"),
+            (15, "list_comp"),
+            (16, "map_comp"),
+            (17, "record"),
+            (18, "if"),
+            (19, "match"),
+            (19, "pattern_test"),
+            (19, "pattern_condition"),
+            (20, "unary"),
+            (21, "binary"),
+            (22, "call"),
+            (23, "field"),
+            (24, "null_safe_field"),
+            (25, "index"),
+            (26, "slice"),
+            (27, "env_string"),
+            (28, "env_path_list"),
+            (29, "pipeline"),
+            (30, "structured_pipeline"),
+            (31, "run"),
+            (32, "spawn"),
+            (33, "wait"),
+            (34, "builder_call"),
+            (35, "try"),
+            (36, "require"),
+            (37, "loop"),
+            (38, "retry"),
+            (39, "value_block"),
+            (40, "comparison-chain"),
+            (41, "regex_literal"),
+            (42, "try"),
+            (43, "value_pipeline_call"),
+            (44, "error_context"),
+            (45, "context_scope"),
+            (46, "tempdir_scope"),
+            (47, "convert"),
+            (48, "set"),
+            (49, "set_comp"),
+            (50, "collect"),
+            (51, "resource_scope"),
+        ];
+
+        assert_eq!(COMPACT_EXPR_KIND_COUNT, 52);
+        assert_eq!(COMPACT_EXPR_KIND_CATALOG, EXPECTED);
     }
 }
 
