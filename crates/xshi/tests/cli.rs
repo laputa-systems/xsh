@@ -3,7 +3,10 @@
 mod test_binary;
 
 use std::os::unix::ffi::OsStringExt;
-use std::process::{Command, Output};
+#[cfg(target_os = "linux")]
+use std::os::unix::process::CommandExt;
+use std::io::Write;
+use std::process::{Command, Output, Stdio};
 
 /// Runs `xshi` against a private HOME so no test reads or writes the
 /// developer's history, trust, or configuration.
@@ -13,6 +16,7 @@ fn xshi(args: &[&str]) -> (Output, tempfile::TempDir) {
         .args(args)
         .env("HOME", home.path())
         .env("USER", "testuser")
+        .current_dir(home.path())
         .output()
         .expect("run xshi");
     (output, home)
@@ -81,6 +85,75 @@ fn command_mode_exit_builtin_sets_process_status() {
     let (output, _home) = xshi(&["-c", "exit 3"]);
     assert_eq!(output.status.code(), Some(3));
     assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn deep_type_diagnostic_survives_a_small_process_main_stack() {
+    let home = tempfile::tempdir().expect("temporary HOME");
+    let source = format!(
+        "let value = {}1{}; print $value",
+        "[".repeat(120),
+        "]".repeat(120)
+    );
+    let mut command = Command::new(test_bin!("xshi"));
+    command
+        .args(["--no-config", "-c", &source])
+        .env("HOME", home.path())
+        .current_dir(home.path());
+    // The submitted program stays below XSH's nesting limit but forces the
+    // checker to render a deeply nested value type before reporting the error.
+    unsafe {
+        command.pre_exec(|| {
+            let stack_limit = libc::rlimit {
+                rlim_cur: 256 * 1024,
+                rlim_max: 256 * 1024,
+            };
+            if libc::setrlimit(libc::RLIMIT_STACK, &stack_limit) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let output = command.output().expect("run xshi with a small main stack");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("err[check.display-conversion]"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stdout.is_empty());
+}
+
+#[test]
+fn interactive_session_preserves_its_exit_status_on_the_worker() {
+    let home = tempfile::tempdir().expect("temporary HOME");
+    let mut child = Command::new(test_bin!("xshi"))
+        .args(["--no-config"])
+        .env("HOME", home.path())
+        .env("XSHI_ALLOW_NON_TTY_FOR_TESTS", "1")
+        .current_dir(home.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("run xshi session");
+    child
+        .stdin
+        .take()
+        .expect("session stdin")
+        .write_all(b"exit\n")
+        .expect("submit exit command");
+    let output = child.wait_with_output().expect("wait for xshi session");
+
+    assert_eq!(output.status.code(), Some(0));
     assert!(output.stderr.is_empty());
 }
 

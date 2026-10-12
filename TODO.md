@@ -80,7 +80,6 @@ Limits that are a crash or a wait instead of a diagnostic:
   call is bounded at 100,000 open calls (`stack-overflow`).
 - A spread of 16,000 fields takes half a minute: the checker is quadratic in
   its width. Lowering a pipeline clones the program once per stage.
-- `xshi` has no thread with a sized stack.
 
 Grammar and parser, outside the seeds the grammar tests generate:
 
