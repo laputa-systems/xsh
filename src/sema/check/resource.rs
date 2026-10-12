@@ -289,6 +289,46 @@ impl Analyzer<'_> {
                         if self.checker.statement_positions.get(&node.span).is_some_and(|position|
                             *position == super::StatementPosition::Value
                         ) => self.checker.expr_types.get(&node.span).map(Type::may_hold_resource),
+                    ArenaStmtKind::Match { arms, .. }
+                        if self.checker.statement_positions.get(&node.span).is_some_and(|position|
+                            *position == super::StatementPosition::Value
+                        ) => {
+                            // A tail Match yields its chosen arm block's value, so
+                            // its transfer fact follows the checked arm tails.
+                            let arm_blocks = self
+                                .program
+                                .arena
+                                .match_arms(arms)
+                                .iter()
+                                .map(|arm| arm.block)
+                                .collect::<Vec<_>>();
+                            let mut holds_resource = false;
+                            let mut unresolved = false;
+                            for arm_block in arm_blocks {
+                                let statements = self
+                                    .program
+                                    .arena
+                                    .stmt_ids(self.program.arena.block(arm_block).statements)
+                                    .collect::<Vec<_>>();
+                                self.publish_block_transfer(arm_block, &statements);
+                                match self
+                                    .transfers
+                                    .get(&ResourceTransferSite::BlockValue(arm_block))
+                                    .copied()
+                                {
+                                    Some(true) => holds_resource = true,
+                                    Some(false) => {}
+                                    None => unresolved = true,
+                                }
+                            }
+                            if holds_resource {
+                                Some(true)
+                            } else if unresolved {
+                                None
+                            } else {
+                                Some(false)
+                            }
+                        }
                     _ => Some(false),
                 }
             }
@@ -655,6 +695,27 @@ mod tests {
         assert_eq!(compact.bodies.resource_transfer(resource_return), Some(true));
         assert_eq!(compact.bodies.resource_transfer(bare_tail), Some(true));
         assert_eq!(compact.bodies.resource_transfer(scalar_return), Some(false));
+    }
+
+    #[test]
+    fn match_tail_transfer_fact_uses_its_checked_arm_values() {
+        let source = "proc tail_match() [fs, process] -> FsRoot { let opened = fs.tempdir(); match opened { Ok(root) => root; Err(_) => exit 1 } }\n";
+        let program = Parser::parse_source_arena_only(SourceId::new(0), source).arena;
+        let checked = Checker::check_arena_with_options(
+            &program,
+            source,
+            super::super::CheckOptions {
+                embedded_bodies: true,
+                ..super::super::CheckOptions::default()
+            },
+        );
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+        let tail = ResourceTransferSite::BlockValue(function_body(&program, "tail_match"));
+        assert_eq!(checked.resource_transfer(tail), Some(true));
+
+        let compact = Checker::compact_declarations(&program, checked);
+        assert_eq!(compact.bodies.resource_transfer(tail), Some(true));
     }
 
     #[test]
