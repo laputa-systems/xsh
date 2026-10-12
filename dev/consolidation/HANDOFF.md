@@ -1,5 +1,52 @@
 # Consolidation restart handoff
 
+## Wider closure lanes and accepted boundaries — 2026-10-12
+
+Master `4a14be26` accepts the runner preparation (`8e336d8d`), library-owned
+XSHT binary entry (`11daa6a0`), 32-worker default (`aa5aca3a`), and final
+structural-zero enforcement (`f6bf743d`). The schema observer accepts generated
+eager classification and increasing retired ordinal gaps (`33946059`,
+`0d2e6ef0`); all 152 actual instruction rows remain counted. Original scanners,
+tests and baselines remain byte-preserved. Private focused gates passed;
+this combined source has not yet been built or accepted as final.
+
+Lint boundary closure (`1924987f`, `df5a82d1`) uses one reusable expression
+worklist per body proof. Semantic declaration closure (`c36d336d`) removes
+three wide wildcards and the separate module allowlist. The old flat-map
+positive fixture failed identically on matching fb04: `84c6ef94` uses explicit
+propagation and retains a full/compact rejection regression for bare Result.
+Canonical SPEC/checker corrections (`f4134bf3`) preserve the inferred-Int
+positive and explicitly reject opaque Any sort keys. Generated docs remain
+pending. Performance harness `4a14be26` fixes per-round medians and records
+actual container resources; its 35/35 comparator result is readiness-only,
+using the frozen original release binary, with no timing samples.
+
+The first full eight-worker reference was interrupted after 945.472 seconds:
+1,730 successes, 29 timeouts and 33 skips, with only 1,792 of 12,538 IDs
+terminal. This is incomplete failure evidence, not a walltime baseline. The
+timeouts expose coarse declarations: 2,112 AWK fixtures in 26 sequential
+groups and 4,000 checksum inputs in four sequential groups. AWK and checksum
+sharding now have independent owners and must preserve every original input
+and assertion. Both performance arms must share those test repairs. No
+candidate full-suite run or 4x speedup is claimed. Coordinated timing locks
+were released; automatic build queues and correctness work may proceed.
+
+W1 final call readers are sealed at `4fad095a` plus `b88cc72f` and under complete
+independent review. Exact-cc512 allocation slopes match for direct/method calls
+and improve module calls in normal and forced modes; all three frame layouts
+match. W4 owns complete callable producer provenance and its owned-master port;
+W9 owns publication corrections, normalized full parity and its later port.
+Compiler-driven blanket retirement runs independently with shared-file
+requests directed to those owners. None of these pending lanes is accepted.
+
+The fb04 frozen xsh was accidentally rewritten by an objcopy section-dump
+command after the 86 native log outcomes. Its exact original hash was restored
+from the untouched main build, the transformed ELF was preserved, and frozen
+artifacts are now read-only. The recovery receipt qualifies affected later
+observer evidence; the native logs predate the mutation. Of those 86 files,
+85 passed and an overbroad serial whole-core-ls gate timed out; its two changed
+PTY cases need a focused combined-source gate instead.
+
 ## Owned frames and runner preparation — 2026-10-12
 
 Integration is on master `cc512718`. Accepted owned execution port
