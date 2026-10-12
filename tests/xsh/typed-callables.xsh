@@ -15,6 +15,7 @@ type Join = pure(left: Str, right: Str) -> Str
 
 type Step = {name: Str, build: Builder, scale: Scale}
 type Holder = {callback: Scale}
+type PathHolder = {path: Path}
 type CallbackCollection = {callbacks: List[Scale]}
 type Bundle = {nested: Holder}
 type BroadcastAddress = {broadcast: Str?}
@@ -831,4 +832,104 @@ print bounded("three")?
   assert "expected Str, found Int" in rejected.stderr, rejected.stderr
   assert "err[check.named-arg]: unknown named parameter `label`" in rejected.stderr, rejected.stderr
   assert "effect `fs` required by `handler` is not in caller's declared effects" in rejected.stderr, rejected.stderr
+}
+
+test test_path_read_accepts_paths_returned_by_methods_and_try { |ctx|
+  let root = test.temp_dir(ctx, name: "typed-callable-path-producers")?
+  let file = fp"{root}/note"
+  file.write("contents")
+
+  # The receiver expressions have no stored callable fact; their Path type
+  # comes from the Path method and fs.cwd() result contracts.
+  var parent_read = ""
+  with text = file.normalize().read_text() {
+    parent_read = text
+  } else { |failure|
+    parent_read = failure.message
+  }
+  var current_directory_read = ""
+  with text = fs.cwd()?.read_text() {
+    current_directory_read = text
+  } else { |failure|
+    current_directory_read = failure.message
+  }
+  assert parent_read == "contents"
+  assert current_directory_read != ""
+}
+
+test test_path_read_checks_each_inline_path_result { |ctx|
+  let root = test.temp_dir(ctx, name: "typed-callable-path-branches")?
+  let file = fp"{root}/note"
+  file.write("contents")
+
+  var conditional = ""
+  with text = (if true { fp"{root}/note" } else { fp"{root}/note" }).read_text() {
+    conditional = text
+  } else { |failure|
+    conditional = failure.message
+  }
+  assert conditional == "contents"
+
+  var selected = ""
+  with text = (match "selected" {
+    "other" => fp"{root}/other"
+    _ => fp"{root}/note"
+  }).read_text() {
+    selected = text
+  } else { |failure|
+    selected = failure.message
+  }
+  assert selected == "contents"
+
+  let maybe_file: Path? = null
+  var fallback = ""
+  with text = (maybe_file ?? fp"{root}/note").read_text() {
+    fallback = text
+  } else { |failure|
+    fallback = failure.message
+  }
+  assert fallback == "contents"
+
+  var resolved = ""
+  with text = (file.resolve() ?? fp"{root}/note").read_text() {
+    resolved = text
+  } else { |failure|
+    resolved = failure.message
+  }
+  assert resolved == "contents"
+
+  var projected = ""
+  with text = {path: fp"{root}/note"}.path.read_text() {
+    projected = text
+  } else { |failure|
+    projected = failure.message
+  }
+  assert projected == "contents"
+
+  var updated_projection = ""
+  with text = {...{path: fp"{root}/other"}, path: fp"{root}/note"}.path.read_text() {
+    updated_projection = text
+  } else { |failure|
+    updated_projection = failure.message
+  }
+  assert updated_projection == "contents"
+
+  let checked_holder: PathHolder = {path: fp"{root}/note"}
+  var checked_projection = ""
+  with text = checked_holder.path.read_text() {
+    checked_projection = text
+  } else { |failure|
+    checked_projection = failure.message
+  }
+  assert checked_projection == "contents"
+}
+
+test test_with_keeps_registry_results_for_environment_path_methods {
+  var outcome = ""
+  with popped = env.PATH.pop() {
+    outcome = popped.display()
+  } else { |failure|
+    outcome = failure.message
+  }
+  assert outcome != ""
 }

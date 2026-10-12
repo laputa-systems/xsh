@@ -64,7 +64,7 @@ impl<'a> DecodeContext<'a> {
             block_states: None,
             slot_count: self.slots,
             pattern_ceiling: Cell::new(usize::MAX),
-            local_function_ref_initializers: RefCell::default(),
+            local_immutable_let_initializers: RefCell::default(),
             function_signature_index: None,
             verified: self.verified,
         }

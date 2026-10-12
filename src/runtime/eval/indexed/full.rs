@@ -1258,7 +1258,7 @@ impl FullProgram {
             block_states: Some(OwnedBlockStates::new(owner, owned_blocks)),
             slot_count: step.slot_count,
             pattern_ceiling: Cell::new(usize::MAX),
-            local_function_ref_initializers: RefCell::default(),
+            local_immutable_let_initializers: RefCell::default(),
             function_signature_index: Some(function_signature_index.clone()),
             verified: false,
         };
@@ -3480,7 +3480,7 @@ impl<'p> FullExecution<'p> {
             block_states: None,
             slot_count: self.slot_count,
             pattern_ceiling: Cell::new(usize::MAX),
-            local_function_ref_initializers: RefCell::default(),
+            local_immutable_let_initializers: RefCell::default(),
             function_signature_index: None,
             verified: self.verified,
         }
@@ -3768,7 +3768,7 @@ pub(in crate::runtime::eval) struct FullDecoder<'a> {
     block_states: Option<OwnedBlockStates>,
     slot_count: u32,
     pattern_ceiling: Cell<usize>,
-    local_function_ref_initializers: RefCell<FxHashMap<usize, Option<usize>>>,
+    local_immutable_let_initializers: RefCell<Option<FxHashMap<usize, Option<usize>>>>,
     function_signature_index: Option<Arc<FunctionSignatureIndex>>,
     verified: bool,
 }
@@ -4443,6 +4443,142 @@ impl<'a> FullDecoder<'a> {
         Ok(Some(binding.type_id))
     }
 
+    // Function-body instructions share an owner range, so index writes once
+    // before proving local expression types from unique `let` initializers.
+    fn local_immutable_let_initializer(
+        &self,
+        slot: usize,
+    ) -> Result<(bool, Option<usize>), IrVerifyError> {
+        if self.local_immutable_let_initializers.borrow().is_none() {
+            let index = self.local_immutable_let_initializers_uncached()?;
+            *self.local_immutable_let_initializers.borrow_mut() = Some(index);
+        }
+        let index = self.local_immutable_let_initializers.borrow();
+        Ok(index
+            .as_ref()
+            .and_then(|initializers| initializers.get(&slot))
+            .map_or((false, None), |initializer| (true, *initializer)))
+    }
+
+    fn local_immutable_let_initializers_uncached(
+        &self,
+    ) -> Result<FxHashMap<usize, Option<usize>>, IrVerifyError> {
+        let mut initializers = FxHashMap::default();
+        for instruction in self.instruction_range.clone() {
+            if self.store.tags[instruction].kind() != schema::InstructionKind::Stmt
+            {
+                continue;
+            }
+            let (written_slots, initializer) = self.statement_written_slots(instruction)?;
+            for slot in written_slots {
+                let initializer = initializer
+                    .filter(|(written, _)| *written == slot)
+                    .map(|(_, initializer)| initializer);
+                if initializers.insert(slot, initializer).is_some() {
+                    initializers.insert(slot, None);
+                }
+            }
+        }
+        Ok(initializers)
+    }
+
+    fn comp_target_written_slots(
+        &self,
+        target: decode::CompTargetView<'a>,
+        written_slots: &mut Vec<usize>,
+    ) -> Result<(), IrVerifyError> {
+        match target {
+            decode::CompTargetView::Discard => {}
+            decode::CompTargetView::Slot(slot) => written_slots.push(slot),
+            decode::CompTargetView::Record { mut fields } => {
+                for field in &mut fields {
+                    let (_, target, _) = field?;
+                    self.comp_target_written_slots(target, written_slots)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn statement_written_slots(
+        &self,
+        instruction: usize,
+    ) -> Result<(Vec<usize>, Option<(usize, usize)>), IrVerifyError> {
+        let mut written_slots = Vec::new();
+        let mut initializer = None;
+        match self.statement_view(instruction)? {
+            schema::StmtView::Let { slot, value } => {
+                written_slots.push(slot);
+                initializer = Some((slot, value.raw() as usize));
+            }
+            schema::StmtView::LetInt { slot, .. }
+            | schema::StmtView::LetBool { slot, .. }
+            | schema::StmtView::Assign { slot, .. }
+            | schema::StmtView::AssignInt { slot, .. }
+            | schema::StmtView::AssignBool { slot, .. }
+            | schema::StmtView::AssignField { slot, .. }
+            | schema::StmtView::AssignFieldInt { slot, .. }
+            | schema::StmtView::AssignPath { slot, .. }
+            | schema::StmtView::DefaultParameter { slot, .. }
+            | schema::StmtView::For { slot, .. }
+            | schema::StmtView::ForStrLines { slot, .. } => written_slots.push(slot),
+            schema::StmtView::Guard {
+                target,
+                else_param_slot,
+                ..
+            } => {
+                self.comp_target_written_slots(target, &mut written_slots)?;
+                written_slots.extend(else_param_slot);
+            }
+            schema::StmtView::With {
+                mut bindings,
+                else_param_slot,
+                mut captures,
+                ..
+            } => {
+                for binding in &mut bindings {
+                    written_slots.push(binding?.0);
+                }
+                written_slots.extend(else_param_slot);
+                for capture in &mut captures {
+                    written_slots.push(capture?);
+                }
+            }
+            schema::StmtView::PatternIf { mut branches, .. } => {
+                for branch in &mut branches {
+                    let (_, _, captures) = branch?;
+                    for capture in captures {
+                        written_slots.push(capture?);
+                    }
+                }
+            }
+            schema::StmtView::PatternWhile { mut captures, .. } => {
+                for capture in &mut captures {
+                    written_slots.push(capture?);
+                }
+            }
+            schema::StmtView::Match { mut arms, .. } => {
+                for arm in &mut arms {
+                    let (pattern, _, _) = arm?;
+                    written_slots.extend(self.pattern_capture_slots(pattern.raw() as usize)?);
+                }
+            }
+            schema::StmtView::ForRecord { target, .. }
+            | schema::StmtView::LetRecord { target, .. } => {
+                self.comp_target_written_slots(target, &mut written_slots)?;
+            }
+            schema::StmtView::ScanLines {
+                text_slot,
+                line_slot,
+                ..
+            } => written_slots.extend([text_slot, line_slot]),
+            _ => {}
+        }
+        written_slots.sort_unstable();
+        written_slots.dedup();
+        Ok((written_slots, initializer))
+    }
+
     fn verify_driver_module_slots(
         &self,
         registered_module_types: &FxHashMap<Name, RegisteredModuleType>,
@@ -4596,7 +4732,7 @@ impl<'a> FullDecoder<'a> {
                 block_states: None,
                 slot_count: step.slot_count,
                 pattern_ceiling: Cell::new(usize::MAX),
-                local_function_ref_initializers: RefCell::default(),
+                local_immutable_let_initializers: RefCell::default(),
                 function_signature_index: self.function_signature_index.clone(),
                 verified: false,
             };
@@ -4846,17 +4982,23 @@ impl<'a> FullDecoder<'a> {
         mut statements: ListView<'a, BuildStmtId>,
         expected: &Type,
     ) -> Result<(), IrVerifyError> {
+        let value = self.checked_block_tail_expression(&mut statements)?;
+        self.checked_expression_matches_type(value, expected)
+    }
+
+    fn checked_block_tail_expression(
+        &self,
+        statements: &mut ListView<'a, BuildStmtId>,
+    ) -> Result<usize, IrVerifyError> {
         let mut tail = None;
-        for statement in &mut statements {
+        for statement in statements {
             tail = Some(statement?.raw() as usize);
         }
         let Some(instruction) = tail else {
             return Err(IrVerifyError::new("checked value block has no value tail"));
         };
         match self.statement_view(instruction)? {
-            schema::StmtView::Value { value } => {
-                self.checked_expression_matches_type(value.raw() as usize, expected)
-            }
+            schema::StmtView::Value { value } => Ok(value.raw() as usize),
             _ => Err(IrVerifyError::new("checked value block has no value tail")),
         }
     }
@@ -5107,39 +5249,7 @@ impl<'a> FullDecoder<'a> {
         &self,
         slot: usize,
     ) -> Result<Option<usize>, IrVerifyError> {
-        if let Some(initializer) = self.local_function_ref_initializers.borrow().get(&slot) {
-            return Ok(*initializer);
-        }
-        let initializer = self.local_function_ref_initializer_uncached(slot)?;
-        self.local_function_ref_initializers
-            .borrow_mut()
-            .insert(slot, initializer);
-        Ok(initializer)
-    }
-
-    fn local_function_ref_initializer_uncached(
-        &self,
-        slot: usize,
-    ) -> Result<Option<usize>, IrVerifyError> {
-        let mut initializer = None;
-        for instruction in self.instruction_range.clone() {
-            if self.store.tags[instruction].kind() != schema::InstructionKind::Stmt
-                || !self.statement_writes_slot(instruction, slot)?
-            {
-                continue;
-            }
-            let schema::StmtView::Let {
-                slot: written,
-                value,
-            } = self.statement_view(instruction)?
-            else {
-                return Ok(None);
-            };
-            debug_assert_eq!(written, slot);
-            if initializer.replace(value.raw() as usize).is_some() {
-                return Ok(None);
-            }
-        }
+        let (_, initializer) = self.local_immutable_let_initializer(slot)?;
         let Some(initializer) = initializer else {
             return Ok(None);
         };
@@ -5543,27 +5653,39 @@ impl<'a> FullDecoder<'a> {
         }
     }
 
-    fn registered_module_return_type(op: RuntimeOp) -> Result<Type, IrVerifyError> {
+    fn registered_api_operation_return_type(op: RuntimeOp) -> Result<Type, IrVerifyError> {
         static RETURN_TYPES:
             std::sync::OnceLock<FxHashMap<RuntimeOp, Result<Type, ()>>> =
             std::sync::OnceLock::new();
         let return_types = RETURN_TYPES.get_or_init(|| {
             let mut return_types = FxHashMap::default();
+            let mut record = |op, return_type: &Type| {
+                match return_types.entry(op) {
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(Ok(return_type.clone()));
+                    }
+                    std::collections::hash_map::Entry::Occupied(mut entry) => {
+                        if entry
+                            .get()
+                            .as_ref()
+                            .is_ok_and(|previous| previous != return_type)
+                        {
+                            drop(entry.insert(Err(())));
+                        }
+                    }
+                }
+            };
             for (_, module) in crate::modules::api_spec().module_entries() {
                 for function in &module.functions {
                     for overload in &function.overloads {
-                        match return_types.entry(overload.op) {
-                            std::collections::hash_map::Entry::Vacant(entry) => {
-                                entry.insert(Ok(overload.return_ty.clone()));
-                            }
-                            std::collections::hash_map::Entry::Occupied(mut entry) => {
-                                if entry.get().as_ref().is_ok_and(|previous| {
-                                    previous != &overload.return_ty
-                                }) {
-                                    drop(entry.insert(Err(())));
-                                }
-                            }
-                        }
+                        record(overload.op, &overload.return_ty);
+                    }
+                }
+            }
+            for (_, methods) in crate::modules::api_spec().method_entries() {
+                for method in methods {
+                    for overload in &method.overloads {
+                        record(overload.sig.op, &overload.sig.return_ty);
                     }
                 }
             }
@@ -5572,10 +5694,10 @@ impl<'a> FullDecoder<'a> {
         match return_types.get(&op) {
             Some(Ok(return_type)) => Ok(return_type.clone()),
             Some(Err(())) => Err(IrVerifyError::new(
-                "checked module call operation has ambiguous return types",
+                "checked API operation has ambiguous return types",
             )),
             None => Err(IrVerifyError::new(
-                "checked module call operation has no registry signature",
+                "checked API operation has no registry signature",
             )),
         }
     }
@@ -5607,8 +5729,396 @@ impl<'a> FullDecoder<'a> {
         })
     }
 
+    fn registered_path_method_type(name: &str) -> Result<Type, IrVerifyError> {
+        let overloads = crate::modules::api_spec()
+            .method_overloads(crate::modules::MethodReceiver::Path, name)
+            .ok_or_else(|| IrVerifyError::new("checked path method has no registry signature"))?;
+        let mut return_type = None;
+        for overload in overloads {
+            match &return_type {
+                Some(previous) if previous != &overload.sig.return_ty => {
+                    return Err(IrVerifyError::new(
+                        "checked path method has ambiguous return types",
+                    ));
+                }
+                Some(_) => {}
+                None => return_type = Some(overload.sig.return_ty.clone()),
+            }
+        }
+        return_type.ok_or_else(|| {
+            IrVerifyError::new("checked path method has no registry signature")
+        })
+    }
+
+    fn derive_checked_expression_type(
+        &self,
+        instruction: usize,
+    ) -> Result<Option<Type>, IrVerifyError> {
+        if let Some(ty) = self.checked_expression_type(instruction)? {
+            return Ok(Some(ty));
+        }
+        match self.expression_view(instruction)? {
+            schema::ExprView::Param(slot) => {
+                let (has_local_write, initializer) = if driver_owner_index(self.owner).is_none() {
+                    self.local_immutable_let_initializer(slot)?
+                } else {
+                    (false, None)
+                };
+                if has_local_write {
+                    return match initializer {
+                        Some(initializer) => self.derive_checked_expression_type(initializer),
+                        None => Ok(None),
+                    };
+                }
+                let Some(type_id) = self.checked_slot_type(slot)? else {
+                    return Ok(None);
+                };
+                self.store.semantic.to_type(type_id).map(Some)
+            }
+            schema::ExprView::Path(_)
+            | schema::ExprView::PathFrom { .. }
+            | schema::ExprView::PathFmtString { .. } => Ok(Some(Type::Path)),
+            schema::ExprView::Record(_) => self.derive_checked_record_type(instruction),
+            schema::ExprView::RecordUpdate {
+                base,
+                mut updates,
+                ..
+            } => {
+                let Some(base_type) =
+                    self.derive_checked_expression_type(base.raw() as usize)?
+                else {
+                    return Ok(None);
+                };
+                let Type::Record(mut fields) = base_type.into_unvalidated() else {
+                    return Ok(None);
+                };
+                for update in &mut updates {
+                    let (mut path, value, _) = update?;
+                    let path = path.by_ref().collect::<Result<Vec<_>, _>>()?;
+                    let Some(value_type) =
+                        self.derive_checked_expression_type(value.raw() as usize)?
+                    else {
+                        return Ok(None);
+                    };
+                    if !Self::update_derived_record_type(&mut fields, &path, value_type) {
+                        return Ok(None);
+                    }
+                }
+                Ok(Some(Type::Record(fields)))
+            }
+            schema::ExprView::Require { check, .. } => Ok(Some(Type::Result(
+                Box::new(check.ty.materialize()?),
+                Box::new(Type::Error),
+            ))),
+            schema::ExprView::ValueBlock { mut body, .. } => {
+                let value = self.checked_block_tail_expression(&mut body)?;
+                self.derive_checked_expression_type(value)
+            }
+            schema::ExprView::Method { receiver, name, .. } => {
+                let Some(receiver_type) =
+                    self.derive_checked_expression_type(receiver.raw() as usize)?
+                else {
+                    return Ok(None);
+                };
+                if receiver_type.into_unvalidated() != Type::Path {
+                    return Ok(None);
+                }
+                Self::registered_path_method_type(name).map(Some)
+            }
+            schema::ExprView::ModuleCall { op, .. } => {
+                Self::registered_api_operation_return_type(op).map(Some)
+            }
+            schema::ExprView::PathReadlink { path, .. } => {
+                self.verify_path_operand(path.raw() as usize)?;
+                Self::registered_path_method_return_type("readlink", RuntimeOp::FsReadlink)
+                    .map(Some)
+            }
+            schema::ExprView::PathResolve { path, .. } => {
+                self.verify_path_operand(path.raw() as usize)?;
+                Self::registered_path_method_return_type("resolve", RuntimeOp::PathResolve)
+                    .map(Some)
+            }
+            schema::ExprView::Try { value, .. } => {
+                let Some(value_type) =
+                    self.derive_checked_expression_type(value.raw() as usize)?
+                else {
+                    return Ok(None);
+                };
+                match value_type.into_unvalidated() {
+                    Type::Result(ok, _) => Ok(Some(*ok)),
+                    _ => Ok(None),
+                }
+            }
+            schema::ExprView::IfExpr {
+                mut branches,
+                else_value,
+                ..
+            } => {
+                for branch in &mut branches {
+                    let (_, value) = branch?;
+                    if !self.checked_path_value(value.raw() as usize)? {
+                        return Ok(None);
+                    }
+                }
+                if self.checked_path_value(else_value.raw() as usize)? {
+                    Ok(Some(Type::Path))
+                } else {
+                    Ok(None)
+                }
+            }
+            schema::ExprView::PatternIf {
+                mut branches,
+                else_value,
+                ..
+            } => {
+                for branch in &mut branches {
+                    let (_, value, _) = branch?;
+                    if !self.checked_path_value(value.raw() as usize)? {
+                        return Ok(None);
+                    }
+                }
+                if self.checked_path_value(else_value.raw() as usize)? {
+                    Ok(Some(Type::Path))
+                } else {
+                    Ok(None)
+                }
+            }
+            schema::ExprView::MatchExpr {
+                value: subject,
+                mut arms,
+                ..
+            } => {
+                let subject_type =
+                    self.derive_checked_expression_type(subject.raw() as usize)?;
+                let mut checked_arms = Vec::with_capacity(arms.len());
+                for arm in &mut arms {
+                    let (pattern, guard, value) = arm?;
+                    checked_arms.push((pattern.raw(), guard.is_some(), value.raw() as usize));
+                }
+                if checked_arms.is_empty() {
+                    return Ok(None);
+                }
+                let optional_payload_slot = if checked_arms.len() == 2
+                    && let Some(Type::Optional(payload)) = subject_type.as_ref()
+                {
+                    let mut null_arm = false;
+                    let mut bind_slot = None;
+                    for (pattern, has_guard, _) in &checked_arms {
+                        if *has_guard {
+                            null_arm = false;
+                            bind_slot = None;
+                            break;
+                        }
+                        match self.checked_pattern_view(*pattern)? {
+                            schema::PatternView::Literal(value)
+                                if value.materialize()? == LoweredValue::Null =>
+                            {
+                                null_arm = true;
+                            }
+                            schema::PatternView::Bind { slot } => bind_slot = Some(slot),
+                            _ => {
+                                null_arm = false;
+                                bind_slot = None;
+                                break;
+                            }
+                        }
+                    }
+                    null_arm.then(|| bind_slot.map(|slot| (slot, payload.as_ref().clone())))
+                        .flatten()
+                } else {
+                    None
+                };
+                for (pattern, _, arm_value) in &checked_arms {
+                    if self.checked_path_value(*arm_value)? {
+                        continue;
+                    }
+                    let schema::ExprView::Param(slot) = self.expression_view(*arm_value)? else {
+                        return Ok(None);
+                    };
+                    let captured_type = optional_payload_slot
+                        .as_ref()
+                        .filter(|(bound, _)| *bound == slot)
+                        .map(|(_, ty)| ty.clone())
+                        .map_or_else(
+                            || {
+                                self.checked_pattern_bound_type(
+                                    *pattern,
+                                    slot,
+                                    subject_type.as_ref(),
+                                )
+                            },
+                            |ty| Ok(Some(ty)),
+                        )?;
+                    if captured_type
+                        .is_none_or(|ty| ty.into_unvalidated() != Type::Path)
+                    {
+                        return Ok(None);
+                    }
+                }
+                Ok(Some(Type::Path))
+            }
+            schema::ExprView::StrMatchExpr {
+                mut arms,
+                fallback,
+                ..
+            }
+            | schema::ExprView::TagMatchExpr {
+                mut arms,
+                fallback,
+                ..
+            } => {
+                let mut saw_arm = false;
+                for arm in &mut arms {
+                    let (_, value) = arm?;
+                    saw_arm = true;
+                    if !self.checked_path_value(value.raw() as usize)? {
+                        return Ok(None);
+                    }
+                }
+                if let Some(fallback) = fallback {
+                    saw_arm = true;
+                    if !self.checked_path_value(fallback.raw() as usize)? {
+                        return Ok(None);
+                    }
+                }
+                if saw_arm {
+                    Ok(Some(Type::Path))
+                } else {
+                    Ok(None)
+                }
+            }
+            schema::ExprView::ResultFallback { left, right } => {
+                let Some(left_type) =
+                    self.derive_checked_expression_type(left.raw() as usize)?
+                else {
+                    return Ok(None);
+                };
+                let fallback_type = match left_type.into_unvalidated() {
+                    Type::Optional(value) | Type::Result(value, _) => *value,
+                    _ => return Ok(None),
+                };
+                if fallback_type.into_unvalidated() == Type::Path
+                    && self.checked_path_value(right.raw() as usize)?
+                {
+                    Ok(Some(Type::Path))
+                } else {
+                    Ok(None)
+                }
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn checked_path_value(&self, instruction: usize) -> Result<bool, IrVerifyError> {
+        let ty = self.derive_checked_expression_type(instruction)?;
+        Ok(ty.is_some_and(|ty| ty.into_unvalidated() == Type::Path))
+    }
+
+    fn checked_pattern_bound_type(
+        &self,
+        root: u32,
+        slot: usize,
+        subject_type: Option<&Type>,
+    ) -> Result<Option<Type>, IrVerifyError> {
+        let Some(subject_type) = subject_type else {
+            return Ok(None);
+        };
+        let mut pending = vec![(root, subject_type.clone())];
+        while let Some((pattern, subject_type)) = pending.pop() {
+            match self.checked_pattern_view(pattern)? {
+                schema::PatternView::Bind { slot: bound } if bound == slot => {
+                    return Ok(Some(subject_type));
+                }
+                schema::PatternView::Alias {
+                    pattern: inner,
+                    slot: bound,
+                } => {
+                    if bound == slot {
+                        return Ok(Some(subject_type.clone()));
+                    }
+                    pending.push((inner.raw(), subject_type));
+                }
+                schema::PatternView::ResultTest { ok, inner } => {
+                    if let Some(payload) =
+                        Self::checked_result_payload_type(Some(&subject_type), ok)
+                    {
+                        pending.push((inner.raw(), payload));
+                    }
+                }
+                schema::PatternView::ResultOk {
+                    slot: Some(bound),
+                    ..
+                } if bound == slot => {
+                    return Ok(Self::checked_result_payload_type(Some(&subject_type), true));
+                }
+                schema::PatternView::ResultErr {
+                    slot: Some(bound),
+                    ..
+                } if bound == slot => {
+                    return Ok(Self::checked_result_payload_type(Some(&subject_type), false));
+                }
+                schema::PatternView::Type {
+                    ty,
+                    slot: Some(bound),
+                } if bound == slot => return ty.materialize().map(Some),
+                _ => {}
+            }
+        }
+        Ok(None)
+    }
+
+    fn derive_checked_record_type(
+        &self,
+        instruction: usize,
+    ) -> Result<Option<Type>, IrVerifyError> {
+        let schema::ExprView::Record(mut entries) = self.expression_view(instruction)? else {
+            return Err(IrVerifyError::new(
+                "record instruction tag and generated view disagree",
+            ));
+        };
+        let mut fields = BTreeMap::new();
+        for entry in self.checked_record_entries(&mut entries)? {
+            match entry {
+                CheckedRecordEntry::Field(name, value) => {
+                    let Some(field_type) = self.derive_checked_expression_type(value)? else {
+                        return Ok(None);
+                    };
+                    fields.insert(name, field_type);
+                }
+                CheckedRecordEntry::Spread(value) => {
+                    let Some(source_type) = self.derive_checked_expression_type(value)? else {
+                        return Ok(None);
+                    };
+                    let Type::Record(source_fields) = source_type.into_unvalidated() else {
+                        return Ok(None);
+                    };
+                    fields.extend(source_fields);
+                }
+            }
+        }
+        Ok(Some(Type::Record(fields)))
+    }
+
+    fn update_derived_record_type(
+        fields: &mut BTreeMap<Name, Type>,
+        path: &[Name],
+        value_type: Type,
+    ) -> bool {
+        let Some((field, rest)) = path.split_first() else {
+            return false;
+        };
+        if rest.is_empty() {
+            return fields.insert(*field, value_type).is_some();
+        }
+        let Some(Type::Record(nested)) = fields.get_mut(field) else {
+            return false;
+        };
+        Self::update_derived_record_type(nested, rest, value_type)
+    }
+
     fn verify_path_operand(&self, instruction: usize) -> Result<(), IrVerifyError> {
-        if let Some(actual) = self.checked_expression_type(instruction)? {
+        let actual = self.derive_checked_expression_type(instruction)?;
+        if let Some(actual) = actual {
             if actual.into_unvalidated() == Type::Path {
                 return Ok(());
             }
@@ -5616,14 +6126,9 @@ impl<'a> FullDecoder<'a> {
                 "checked path method receiver is not a Path",
             ));
         }
-        match self.expression_view(instruction)? {
-            schema::ExprView::Path(_)
-            | schema::ExprView::PathFrom { .. }
-            | schema::ExprView::PathFmtString { .. } => Ok(()),
-            _ => Err(IrVerifyError::new(
-                "checked path method receiver has no Path producer",
-            )),
-        }
+        Err(IrVerifyError::new(
+            "checked path method receiver has no Path producer",
+        ))
     }
 
     fn verify_checked_expression_producer(
@@ -5811,14 +6316,14 @@ impl<'a> FullDecoder<'a> {
                 }
             }
             schema::ExprView::ModuleCall { op, .. } => {
-                if Self::registered_module_return_type(op)? != ty {
+                if Self::registered_api_operation_return_type(op)? != ty {
                     return Err(IrVerifyError::new(
                         "checked module call result disagrees with its registry signature",
                     ));
                 }
             }
             schema::ExprView::FsTempDir { .. } => {
-                if Self::registered_module_return_type(RuntimeOp::FsTempDir)? != ty {
+                if Self::registered_api_operation_return_type(RuntimeOp::FsTempDir)? != ty {
                     return Err(IrVerifyError::new(
                         "checked temporary-directory result disagrees with its registry signature",
                     ));
@@ -6333,7 +6838,7 @@ impl<'a> FullDecoder<'a> {
                 "field instruction tag and generated view disagree",
             ));
         };
-        self.checked_expression_type(base.raw() as usize)
+        self.derive_checked_expression_type(base.raw() as usize)
     }
 
     fn derive_checked_field_type(&self, instruction: usize) -> Result<Type, IrVerifyError> {
@@ -6344,7 +6849,7 @@ impl<'a> FullDecoder<'a> {
         let base = *base as usize;
         let field = Name::intern(self.store.string(*name)?);
         let receiver = self
-            .checked_expression_type(base)?
+            .derive_checked_expression_type(base)?
             .ok_or_else(|| IrVerifyError::new("checked field receiver has no source type"))?;
         let receiver = receiver.into_unvalidated();
         let receiver_id = if matches!(&receiver, Type::Record(_) | Type::Module(_)) {
@@ -6597,7 +7102,7 @@ impl<'a> FullDecoder<'a> {
                 unreachable!("Try instruction tag and generated view disagree")
             };
             let operand_type = self
-                .checked_expression_type(value.raw() as usize)?
+                .derive_checked_expression_type(value.raw() as usize)?
                 .ok_or_else(|| {
                     IrVerifyError::new(
                         "checked With propagation is missing its Result source type",
@@ -7918,7 +8423,7 @@ impl FullVerifier {
                 block_states: Some(OwnedBlockStates::new(owner, &owned_blocks)),
                 slot_count: function.slot_count,
                 pattern_ceiling: Cell::new(usize::MAX),
-                local_function_ref_initializers: RefCell::default(),
+                local_immutable_let_initializers: RefCell::default(),
                 function_signature_index: Some(function_signature_index.clone()),
                 verified: false,
             };
@@ -10039,7 +10544,7 @@ fn stage_view_decoder(store: &FullStore) -> FullDecoder<'_> {
         block_states: None,
         slot_count: 1,
         pattern_ceiling: Cell::new(usize::MAX),
-        local_function_ref_initializers: RefCell::default(),
+        local_immutable_let_initializers: RefCell::default(),
         function_signature_index: None,
         verified: false,
     }
@@ -12747,7 +13252,7 @@ pure selected() -> Str {
                 block_states: None,
                 slot_count: 0,
                 pattern_ceiling: Cell::new(usize::MAX),
-                local_function_ref_initializers: RefCell::default(),
+                local_immutable_let_initializers: RefCell::default(),
                 function_signature_index: None,
                 verified: false,
             };
@@ -12799,7 +13304,7 @@ pure selected() -> Str {
                 block_states: None,
                 slot_count: 0,
                 pattern_ceiling: Cell::new(usize::MAX),
-                local_function_ref_initializers: RefCell::default(),
+                local_immutable_let_initializers: RefCell::default(),
                 function_signature_index: None,
                 verified: false,
             };
