@@ -7889,9 +7889,11 @@ impl<'a> FullDecoder<'a> {
             return self.store.semantic.to_type(field_id);
         }
         match receiver {
-            Type::Record(fields) => fields.get(&field).cloned().ok_or_else(|| {
-                IrVerifyError::new("checked field is absent from its record receiver")
-            }),
+            // A field the declared record lacks is readable only where a
+            // `"name" in record` test refined the receiver, and that
+            // refinement types the field `Any`. The slot keeps the declared
+            // record, so the refinement is not visible here.
+            Type::Record(fields) => Ok(fields.get(&field).cloned().unwrap_or(Type::Any)),
             Type::Module(exports) => exports.get(&field).map(|export| export.field_type()).ok_or_else(|| {
                 IrVerifyError::new("checked field is absent from its module receiver")
             }),
