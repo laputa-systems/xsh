@@ -632,6 +632,10 @@ source or suspended script producer. `IndexedStageEngine` in
 materializing stages on active frame continuations. Serial stages pull one
 source item through every stage before the next, stop at bounded terminals, and
 materialize before an unsupported stage. `par-map` is the worker boundary.
+Direct field projections in `map`, `sort-by`, and `group-by`, and eligible
+string field comparisons in `where`, cache their checked shape for an
+execution. Other expressions use the evaluator. Cached reads retain the field
+expression's span so metadata failures identify the same source range.
 `yield @source` delegation and cancellation are iterative
 (`src/runtime/eval/lowered_run/indexed_run/producer.rs`), so delegation depth
 never becomes native stack depth; child cleanup runs before parent cleanup.

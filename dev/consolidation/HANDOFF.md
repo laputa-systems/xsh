@@ -1,5 +1,31 @@
 # Consolidation restart handoff
 
+## Stage fast paths and verifier discovery — 2026-10-12
+
+Master `9c6d4eb0` accepts the restored direct-field Map/Where/SortBy/GroupBy
+paths and precise cached-field error spans. Independent review found an
+initial span regression; retained red/green evidence and the follow-up fix
+preserve the field expression's range. Stage-engine tests passed 9/9 in
+normal and forced-frame modes, plus four focused stream cases in each mode.
+The allocation comparison is one 256-row point (candidate 4,552 allocations,
+parent 4,551); it proves neither an allocation slope nor a speedup. Final
+isolated comparative timings remain pending.
+
+W4 seals its reviewed owned port as private `ec5057d5`, but fresh discovery
+exposes 53 invalid file-only entries versus zero on its source-matched abdd
+base. These are preparation failures, not headers or successful test IDs.
+The first reports full-IR verification failure; the author is reproducing
+and correcting the common cause before integration. Focused passing gates
+do not qualify this broader discovery failure as green.
+
+W9's strict common-root publication matrix is exact through source 699 of
+1,690, then fails at source 703 in every profile: the candidate publishes an
+extra statically resolved call span for `unix.write_fd(fd, part)` in the
+original DD fixture. Input and diagnostic digests match. Both captures and
+the failed attempt are retained; removing that fact for localization is not
+an oracle allowance. The reference fact-admission condition is under review
+before an owned fix and fresh complete matrix.
+
 ## Extension and lint closure lanes — 2026-10-12
 
 Master `a149123f` accepts the formatted-interpolation error-location oracle
@@ -41,7 +67,7 @@ canonical declaration identity, never suffix-only verifier equality.
 A separate stage-engine lane restores the approved Map/Where fast checks and
 historical SortBy/GroupBy field projections. It is sealed privately and under
 independent review; no timing acceptance is claimed. The cached Map plan adds
-one fixed execution allocation, with no per-row allocation delta. Review is
+one allocation at the sampled 256-row size; no slope is established. Review is
 checking list/stream errors against both current engine and frozen materializer.
 
 W9 retains the true cache/constructor-order fixes and all failed attempts. Its
