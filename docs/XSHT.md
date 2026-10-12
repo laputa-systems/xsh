@@ -203,7 +203,10 @@ handler block when replacing an identity-success `Result` match.
 diagnostic. `FILTER` matches a path prefix or a test-name substring; `--exact`
 takes `PATH::TEST_NAME`. `--list`, `--fail-fast`, `--keep-temp`, and
 `--nocapture` behave as named. Child output is captured per test and shown on
-failure.
+failure. Matching files are loaded, checked, and prepared on a bounded pool of
+front-end workers; results return in path order. `--jobs` controls test
+execution and does not limit file preparation, so `--list` can use multiple
+CPUs.
 
 Without `--jobs`, half the logical CPUs run concurrently (1 to 8). Each
 `test.run_script`, `test.run_xsh`, and `test.run_xsht_trace` child leads a

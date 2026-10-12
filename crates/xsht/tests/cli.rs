@@ -23,6 +23,31 @@ fn xsht_reports_non_utf8_argument_without_panicking() {
 }
 
 #[test]
+fn test_list_returns_test_and_invalid_file_ids_in_sorted_order() {
+    let root = TempDir::new().expect("temporary native test project");
+    let tests = root.path().join("tests");
+    fs::create_dir(&tests).expect("create native test root");
+    fs::write(tests.join("z.xsh"), "test zeta { |_| }\n").expect("write z test");
+    fs::write(tests.join("a.xsh"), "test alpha { |_| }\n").expect("write a test");
+    fs::write(tests.join("m.xsh"), "test mu { |_| }\n").expect("write m test");
+    fs::write(tests.join("bad.xsh"), "test broken { |ctx| let value: Int = \"wrong\" }\n")
+        .expect("write invalid test");
+
+    let output = Command::new(test_bin!("xsht"))
+        .args(["test", "--list"])
+        .current_dir(root.path())
+        .output()
+        .expect("list native tests");
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8(output.stdout).expect("UTF-8 test list"),
+        "tests/a.xsh::alpha\ntests/bad.xsh\ntests/m.xsh::mu\ntests/z.xsh::zeta\n"
+    );
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn copied_xsht_formats_and_lints_script_backed_calls_in_static_and_loaded_modules() {
     let root = TempDir::new().expect("create isolated source root");
     let xsht = root.path().join("xsht");
