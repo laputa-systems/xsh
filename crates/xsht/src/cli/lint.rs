@@ -389,22 +389,39 @@ struct LintWorkspace {
     input_errors: Vec<String>,
 }
 
-/// Attach tool configuration after the language loader has parsed the graph.
-/// Imports and source identities belong to the loader, not a lint worker.
-fn workspace_modules(loaded: FxHashMap<String, LoadedModule>) -> FxHashMap<String, WorkspaceModule> {
-    loaded
-        .into_iter()
-        .map(|(key, module)| {
-            let mut diagnostics = module.diagnostics;
-            diagnostics.extend(
-                module.imports.iter().filter_map(|import| import.diagnostic.clone()),
-            );
-            let config = ResolvedLintConfig {
-                lint_options: LintOptions::default(),
-                line_width: 0,
-                module_roots: module.module_roots.clone(),
-            };
-            (key, WorkspaceModule {
+/// Resolve each file's nearest tool configuration before it becomes lint work.
+/// A module with an invalid config is reported through the command's read-error
+/// path instead of reaching the linter with incomplete settings.
+fn workspace_modules(
+    loaded: FxHashMap<String, LoadedModule>,
+    mut resolve_config: impl FnMut(&str, &LoadedModule) -> Result<ResolvedLintConfig, String>,
+) -> (
+    FxHashMap<String, WorkspaceModule>,
+    Vec<String>,
+    FxHashSet<String>,
+) {
+    let mut modules = FxHashMap::default();
+    let mut config_errors = Vec::<(String, String)>::new();
+    let mut invalid_config_keys = FxHashSet::default();
+    for (key, module) in loaded {
+        let config = match resolve_config(&key, &module) {
+            Ok(config) => config,
+            Err(message) => {
+                invalid_config_keys.insert(key.clone());
+                config_errors.push((
+                    key,
+                    format!("xsht: {message} for '{}'\n", module.path.display()),
+                ));
+                continue;
+            }
+        };
+        let mut diagnostics = module.diagnostics;
+        diagnostics.extend(
+            module.imports.iter().filter_map(|import| import.diagnostic.clone()),
+        );
+        modules.insert(
+            key,
+            WorkspaceModule {
                 path: module.path,
                 source_id: module.source_id,
                 text: module.text,
@@ -413,9 +430,18 @@ fn workspace_modules(loaded: FxHashMap<String, LoadedModule>) -> FxHashMap<Strin
                 diagnostics,
                 module_roots: module.module_roots,
                 config,
-            })
-        })
-        .collect()
+            },
+        );
+    }
+    config_errors.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+    (
+        modules,
+        config_errors
+            .into_iter()
+            .map(|(_, message)| message)
+            .collect(),
+        invalid_config_keys,
+    )
 }
 
 fn lint_workspace(
@@ -471,15 +497,14 @@ fn lint_workspace_with_parallelism(
     candidate_keys.sort_unstable();
     candidate_keys.dedup();
 
-    let mut modules = workspace_modules(loader.finish());
+    let (mut modules, module_config_errors, invalid_config_keys) =
+        workspace_modules(loader.finish(), |_, module| {
+            lint_config_for_file(&module.path.to_string_lossy(), runless, config_cache)
+        });
+    input_errors.extend(module_config_errors);
     let mut program = builder.finish();
     for module in modules.values_mut() {
-        if let Ok(config) =
-            lint_config_for_file(&module.path.to_string_lossy(), runless, config_cache)
-        {
-            module.config = config;
-            module.config.lint_options.only.clone_from(&discovery.only);
-        }
+        module.config.lint_options.only.clone_from(&discovery.only);
     }
     let explicit_roots = discovery
         .explicit_roots
@@ -488,6 +513,19 @@ fn lint_workspace_with_parallelism(
         .cloned()
         .collect::<FxHashSet<_>>();
     let roots = select_lint_roots(&candidate_keys, &modules, &explicit_roots);
+    let roots = if invalid_config_keys.is_empty() {
+        roots
+    } else {
+        roots
+            .into_iter()
+            .filter(|root| {
+                let reachable = reachable_keys(&[root.clone()].into_iter().collect(), &modules);
+                !reachable
+                    .iter()
+                    .any(|key| invalid_config_keys.contains(key))
+            })
+            .collect()
+    };
     program.modules.shrink_to_fit();
     let mut workspace = LintWorkspace::new(sources, program, modules, roots, input_errors);
     let callable_edge_facts =
@@ -1033,7 +1071,22 @@ fn migrate_workspace_syntax(
         root_module.text.as_bytes().to_vec(),
         root_module.module_roots.clone(),
     );
-    let modules = workspace_modules(loader.finish());
+    let configs_by_key = workspace
+        .modules
+        .iter()
+        .map(|(key, module)| (key.clone(), module.config.clone()))
+        .collect::<FxHashMap<_, _>>();
+    let (modules, config_errors, _) = workspace_modules(loader.finish(), |key, module| {
+        configs_by_key.get(key).cloned().ok_or_else(|| {
+            format!(
+                "no resolved lint configuration for '{}'",
+                module.path.display()
+            )
+        })
+    });
+    if !config_errors.is_empty() {
+        return failure(Vec::new(), config_errors.concat(), 2);
+    }
     let program = builder.finish();
     let candidate = LintWorkspace::new(
         sources,
@@ -2632,7 +2685,13 @@ print ${name}
         let mut builder = ArenaProgramBuilder::with_token_capacity(4096);
         let mut loader = ModuleLoader::new(&mut sources, &mut builder);
         let root = loader.load(entry.clone(), fs::read(&entry).unwrap(), Vec::new());
-        let modules = workspace_modules(loader.finish());
+        let config_cache = ConfigCache::default();
+        let (modules, config_errors, invalid_config_keys) =
+            workspace_modules(loader.finish(), |_, module| {
+                lint_config_for_file(&module.path.to_string_lossy(), false, &config_cache)
+            });
+        assert!(config_errors.is_empty(), "{config_errors:?}");
+        assert!(invalid_config_keys.is_empty(), "{invalid_config_keys:?}");
         let program = builder.finish();
         let workspace =
             LintWorkspace::new(sources, program, modules, vec![root.clone()], Vec::new());
@@ -2699,7 +2758,13 @@ print ${name}
                 loader.load(file.clone(), fs::read(file).unwrap(), Vec::new()),
             );
         }
-        let modules = workspace_modules(loader.finish());
+        let config_cache = ConfigCache::default();
+        let (modules, config_errors, invalid_config_keys) =
+            workspace_modules(loader.finish(), |_, module| {
+                lint_config_for_file(&module.path.to_string_lossy(), false, &config_cache)
+            });
+        assert!(config_errors.is_empty(), "{config_errors:?}");
+        assert!(invalid_config_keys.is_empty(), "{invalid_config_keys:?}");
         let program = builder.finish();
         let workspace = LintWorkspace::new(sources, program, modules, roots, Vec::new());
         let type_program = workspace.type_program();

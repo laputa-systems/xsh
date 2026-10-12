@@ -140,6 +140,43 @@ test test_lint_reports_imported_check_errors_once { |ctx|
   assert fp"{root}/lib/shared.xsh".display() in linted.stderr, linted.stderr
 }
 
+test test_lint_reports_invalid_nearest_config_for_imported_module { |ctx|
+  let root = project(
+    ctx,
+    {
+      "xsht-config.ini": "module_path = .\n[format]\nline-width = 40\n",
+      "main.xsh": "use sub.helper\nprint $helper.value\n",
+      "sub/xsht-config.ini": "[format]\nline-width = not-a-number\n",
+      "sub/helper.xsh": "##! Helper.\n## Exports a value.\nexport const value = 1\n",
+    },
+  )?
+  let linted = xsht(root, ["lint", "main.xsh"])?
+  assert linted.status.exited_with(2), linted.stderr
+  assert "invalid xsht-config.ini format.line-width: expected a positive integer" in linted.stderr, linted.stderr
+  assert linted.stdout == ""
+  assert fp"{root}/sub/helper.xsh".read_text()? == "##! Helper.\n## Exports a value.\nexport const value = 1\n"
+}
+
+test test_lint_uses_imported_module_width_for_replacement_layout { |ctx|
+  let width = 40
+  let around = "  fs.symlink(root.parent(), \"\")".byte_len()
+  let filler = "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+  let link = filler.byte_slice(0, width - around)
+  let helper = f"proc stage(root: Path) [fs, error] {{\n  fs.symlink(root.parent(), \"{link}\")\n}}\n"
+  let root = project(
+    ctx,
+    {
+      "xsht-config.ini": "module_path = .\n[format]\nline-width = 120\n",
+      "main.xsh": "use sub.helper\nprint 1\n",
+      "sub/xsht-config.ini": "[format]\nline-width = 40\n",
+      "sub/helper.xsh": helper,
+    },
+  )?
+  let linted = xsht(root, ["lint", "main.xsh"])?
+  assert linted.status.exited_with(1), linted.stderr
+  assert ".symlink(\n    to: root.parent(),\n  )" in linted.stderr, linted.stderr
+}
+
 test test_lint_accepts_current_syntax_and_ignores_strings_and_comments { |ctx|
   let file = test.temp_file(
     ctx,
