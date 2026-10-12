@@ -158,6 +158,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         )
     }
 
+    // The shared arena can contain one physical namespace under several module-root contexts.
+    // Resolve import aliases only among modules reachable from this lowering root.
     pub(super) fn compact_imported_module_owner(&self, alias: Name) -> Option<Name> {
         let module_owner = |use_id| {
             let use_stmt = self.program.arena.use_stmt(use_id);
@@ -168,19 +170,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 return None;
             }
             let key = use_stmt.resolved.as_deref()?;
-            self.program
-                .modules
-                .iter()
-                .find(|module| module.key.as_str() == key)
+            self.scope
+                .module_with_key(key)
                 .map(|module| module.name)
         };
 
         if let Some(namespace) = self.current_namespace {
-            let module = self
-                .program
-                .modules
-                .iter()
-                .find(|module| module.name == namespace)?;
+            let module = self.scope.module_named(namespace)?;
             return self
                 .program
                 .module_statements(module)
@@ -190,12 +186,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 });
         }
 
-        self.program.statement_ids().find_map(|statement| {
-            match self.program.arena.stmt(statement).kind {
-                ArenaStmtKind::Use(use_id) => module_owner(use_id),
-                _ => None,
-            }
-        })
+        self.program
+            .arena
+            .stmt_ids(self.scope.root_statements())
+            .find_map(|statement| {
+                match self.program.arena.stmt(statement).kind {
+                    ArenaStmtKind::Use(use_id) => module_owner(use_id),
+                    _ => None,
+                }
+            })
     }
 
     pub(super) fn declaration_binding(&self, span: Span, name: Name) -> Option<BindingId> {

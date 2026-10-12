@@ -779,6 +779,7 @@ fn discover_native_tests(
     let worker_count = std::thread::available_parallelism()
         .map(|count| count.get())
         .unwrap_or(1)
+        .min(32)
         .min(workspace.entries.len());
     let next_entry = AtomicUsize::new(0);
     let mut entry_reports = std::thread::scope(|scope| {

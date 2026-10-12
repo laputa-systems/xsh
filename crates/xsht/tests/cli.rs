@@ -160,6 +160,81 @@ fn test_roots_resolve_shared_modules_in_their_nearest_config_context() {
 }
 
 #[test]
+fn test_roots_lower_contextual_nominal_imports_in_the_selected_scope() {
+    let root = TempDir::new().expect("temporary native test project");
+    let left_tests = root.path().join("tests/left");
+    let right_tests = root.path().join("tests/right");
+    let common_modules = root.path().join("common");
+    let left_modules = root.path().join("left_modules");
+    let right_modules = root.path().join("right_modules");
+    for directory in [
+        &left_tests,
+        &right_tests,
+        &common_modules,
+        &left_modules,
+        &right_modules,
+    ] {
+        fs::create_dir_all(directory).expect("create native test fixture directory");
+    }
+    fs::write(
+        root.path().join("xsht-config.ini"),
+        "test_roots = tests\n",
+    )
+    .expect("write root test configuration");
+    fs::write(
+        left_tests.join("xsht-config.ini"),
+        "module_path = ../../left_modules\n",
+    )
+    .expect("write left module configuration");
+    fs::write(
+        right_tests.join("xsht-config.ini"),
+        "module_path = ../../right_modules\n",
+    )
+    .expect("write right module configuration");
+    fs::write(
+        common_modules.join("shared.xsh"),
+        "##! Shared test helpers over a context-specific nominal module.\nuse nested as n\n## Build this context's tagged value.\nexport pure state() -> n.State { n.Right }\n## Match this context's tag.\nexport pure is_right(state: n.State) -> Bool { match state { n.Right => true; _ => false } }\n## Build this context's error family variant.\nexport pure failure() -> Result[Unit, n.ContextError] { Err(n.ContextError.Right()) }\n## Match this context's error family variant.\nexport pure is_right_failure(failure: Result[Unit, n.ContextError]) -> Bool { match failure { Err(n.ContextError.Right) => true; _ => false } }\n",
+    )
+    .expect("write shared module");
+    fs::write(
+        left_modules.join("nested.xsh"),
+        "##! Left context nominal types.\n## The state tags resolved in the left context.\nexport enum State { Left, Right }\n## The error family resolved in the left context.\nexport error ContextError = Left | Right\n",
+    )
+    .expect("write left nested dependency");
+    fs::write(
+        right_modules.join("nested.xsh"),
+        "##! Right context nominal types.\n## The state tags resolved in the right context.\nexport enum State { Left, Right }\n## The error family resolved in the right context.\nexport error ContextError = Left | Right\n",
+    )
+    .expect("write right nested dependency");
+    fs::write(
+        left_tests.join("first.xsh"),
+        "use shared\nuse nested as n\ntest left_root_context { |_| let state: n.State = n.Right; assert state == n.Right; let failure: Result[Unit, n.ContextError] = Err(n.ContextError.Right()); assert failure is Err(n.ContextError.Right) }\ntest left_transitive_context { |_| assert shared.is_right(shared.state()); assert shared.is_right_failure(shared.failure()) }\n",
+    )
+    .expect("write left test root");
+    fs::write(
+        right_tests.join("second.xsh"),
+        "use shared\nuse nested as n\ntest right_root_context { |_| let state: n.State = n.Right; assert state == n.Right; let failure: Result[Unit, n.ContextError] = Err(n.ContextError.Right()); assert failure is Err(n.ContextError.Right) }\ntest right_transitive_context { |_| assert shared.is_right(shared.state()); assert shared.is_right_failure(shared.failure()) }\n",
+    )
+    .expect("write right test root");
+
+    let output = Command::new(test_bin!("xsht"))
+        .args(["test", "--jobs", "4"])
+        .current_dir(root.path())
+        .env("XSH_MODULE_PATH", &common_modules)
+        .output()
+        .expect("run nominal imports in distinct module contexts");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(output.stderr.is_empty());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("4 passed; 0 failed; 0 skipped"));
+}
+
+#[test]
 fn test_help_describes_native_test_concurrency_bounds() {
     let output = Command::new(test_bin!("xsht"))
         .args(["test", "--help"])
