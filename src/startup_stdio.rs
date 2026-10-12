@@ -36,7 +36,7 @@ pub(crate) fn inherit(command: &mut std::process::Command, inherited: u8) {
     unsafe {
         command.pre_exec(move || {
             for fd in 0..3 {
-                if absent & (1 << fd) != 0 { libc::close(fd); }
+                if absent & (1 << fd) != 0 { rustix::io::close(fd); }
             }
             Ok(())
         });

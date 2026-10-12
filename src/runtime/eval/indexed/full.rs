@@ -19313,28 +19313,28 @@ type Bundle = {nested: Holder}
 pure double(n: Int) -> Int { n * 2 }
 pure text_copy(text: Str) -> Str { text }
 
-pure apply_field() -> Int {
+pure apply_field() -> Result[Int] {
   var holder: Holder = {callback: double}
   let other: Label = text_copy
   holder.callback = double
   assert other("x") == "x"
-  holder.callback(2)
+  Ok(holder.callback(2))
 }
 
-pure apply_path() -> Int {
+pure apply_path() -> Result[Int] {
   var bundle: Bundle = {nested: {callback: double}}
   let other: Label = text_copy
   bundle.nested.callback = double
   assert other("x") == "x"
-  bundle.nested.callback(2)
+  Ok(bundle.nested.callback(2))
 }
 
-pure apply_update() -> Int {
+pure apply_update() -> Result[Int] {
   let bundle: Bundle = {nested: {callback: double}}
   let other: Label = text_copy
   let updated = {...bundle, nested.callback: double}
   assert other("x") == "x"
-  updated.nested.callback(2)
+  Ok(updated.nested.callback(2))
 }
 "#;
         let program = fixture("typed-callable-field-assignment.xsh", source);
@@ -19398,7 +19398,9 @@ pure apply_update() -> Int {
             forged.store.extra[target_words].copy_from_slice(
                 &program.store.extra[alternate_words],
             );
-            forged.store.checked_expr_types[value_fact_index] = alternate_fact;
+            let instruction = forged.store.checked_expr_types[value_fact_index].instruction;
+            forged.store.checked_expr_types[value_fact_index] =
+                FullCheckedExprType { instruction, ..alternate_fact };
             forged
         }
 
@@ -19471,7 +19473,9 @@ pure apply_update() -> Int {
         let mut forged = program.clone();
         forged.store.extra[target_words]
             .copy_from_slice(&program.store.extra[alternate_words]);
-        forged.store.checked_expr_types[value_fact_index] = alternate_fact;
+        let instruction = forged.store.checked_expr_types[value_fact_index].instruction;
+        forged.store.checked_expr_types[value_fact_index] =
+            FullCheckedExprType { instruction, ..alternate_fact };
         let error = FullVerifier::verify(&forged).unwrap_err();
         assert!(
             error.message.contains(
