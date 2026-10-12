@@ -1264,6 +1264,11 @@ impl<'a> FullFunctionView<'a> {
             BLOCK_STATEMENTS,
         )
     }
+
+    #[cfg(test)]
+    pub(in crate::runtime::eval) fn slot_count(&self) -> usize {
+        self.program.store.functions[self.index].slot_count as usize
+    }
 }
 
 impl<'a> FullDriverStepView<'a> {
