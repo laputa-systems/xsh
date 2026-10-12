@@ -21,6 +21,7 @@ HERE = Path(__file__).resolve().parent
 WORKLOADS = ("startup", "spawn", "pipeline", "directory", "json")
 TOOLS = ("xsh", "dash", "bash", "nushell", "ysh", "elvish", "python")
 BINARIES = {"dash": "/opt/comparators/bin/dash", "bash": "/bin/bash", "nushell": "/opt/comparators/bin/nu", "ysh": "/opt/comparators/bin/ysh", "elvish": "/opt/comparators/bin/elvish", "python": "/usr/bin/python3"}
+MEMORY_LIMIT_BYTES = 4 * 1024**3
 
 
 def argv_for(tool, workload, fixtures, xsh):
@@ -41,6 +42,57 @@ def order_for(round_index, sample_index, tools=TOOLS):
     offset = (round_index + sample_index) % len(tools)
     order = list(tools[offset:] + tools[:offset])
     return order[::-1] if (round_index + sample_index) % 2 else order
+
+
+def summarize_samples(samples, tool, workload):
+    values = [row["wall_ns"] for row in samples if row["tool"] == tool and row["workload"] == workload]
+    median = statistics.median(values)
+    rounds = [[row["wall_ns"] for row in samples if row["tool"] == tool and row["workload"] == workload and row["round"] == index] for index in range(3)]
+    return {"samples": len(values), "median_ns": median, "mad_ns": statistics.median(abs(value - median) for value in values), "round_medians_ns": [statistics.median(round_values) for round_values in rounds]}
+
+
+def host_allowed_cpus():
+    try:
+        return sorted(os.sched_getaffinity(0))
+    except AttributeError as error:
+        raise ValueError("the benchmark host must expose its allowed CPU set") from error
+
+
+def cgroup_memory_limit():
+    paths = (Path("/sys/fs/cgroup/memory.max"), Path("/sys/fs/cgroup/memory/memory.limit_in_bytes"))
+    for path in paths:
+        try:
+            value = path.read_text().strip()
+        except FileNotFoundError:
+            continue
+        return None if value == "max" else int(value)
+    raise ValueError("the benchmark container does not expose its cgroup memory limit")
+
+
+def cgroup_memory_swap_limit():
+    version_two = Path("/sys/fs/cgroup/memory.swap.max")
+    try:
+        value = version_two.read_text().strip()
+    except FileNotFoundError:
+        memory = Path("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+        combined = Path("/sys/fs/cgroup/memory/memory.memsw.limit_in_bytes")
+        try:
+            memory_bytes = int(memory.read_text().strip())
+            combined_bytes = int(combined.read_text().strip())
+        except FileNotFoundError as error:
+            raise ValueError("the benchmark container does not expose its cgroup swap limit") from error
+        return max(0, combined_bytes - memory_bytes)
+    return None if value == "max" else int(value)
+
+
+def validate_container_resources(cpu_id, memory_bytes, actual_cpu_ids, actual_memory_bytes, actual_swap_bytes):
+    if actual_cpu_ids != [cpu_id]:
+        raise ValueError(f"container CPU affinity differs from its cpuset: {actual_cpu_ids}")
+    if memory_bytes != MEMORY_LIMIT_BYTES or actual_memory_bytes != memory_bytes:
+        raise ValueError(f"container memory limit differs from the pinned {MEMORY_LIMIT_BYTES}-byte limit: {actual_memory_bytes}")
+    if actual_swap_bytes != 0:
+        raise ValueError(f"container swap limit must be zero: {actual_swap_bytes}")
+    return {"cpuset_cpus": str(cpu_id), "affinity_cpus": actual_cpu_ids, "memory_limit_bytes": actual_memory_bytes, "memory_swap_limit_bytes": memory_bytes, "memory_swap_max_bytes": actual_swap_bytes}
 
 
 def changes(before, after):
@@ -109,6 +161,8 @@ def inside(args):
         raise ValueError("comparator image parent differs from the committed architecture pin")
     if digest(HERE / "versions.lock.json") != digest(Path("/opt/comparators/source/versions.lock.json")):
         raise ValueError("comparator image was prepared with a different version lock")
+    cpu_id = int(args.cpuset_cpus)
+    container_resources = validate_container_resources(cpu_id, args.memory_bytes, sorted(os.sched_getaffinity(0)), cgroup_memory_limit(), cgroup_memory_swap_limit())
     fixture_hash = validate_fixtures(args.fixtures)
     args.scratch.mkdir(parents=True, exist_ok=True)
     identities_record = identities(args.xsh, lock, args.source_commit)
@@ -123,6 +177,7 @@ def inside(args):
         "target": {"x86_64": "x86_64-unknown-linux-musl", "aarch64": "aarch64-unknown-linux-musl"}[platform.machine()],
         "cpuinfo": Path("/proc/cpuinfo").read_text(),
         "clock": vars(time.get_clock_info("perf_counter")),
+        "resources": {"host_allowed_cpus": [int(cpu) for cpu in args.host_cpus_allowed.split(",")], **container_resources},
         "fixtures_sha256": fixture_hash,
         "lock_sha256": digest(HERE / "versions.lock.json"),
         "harness_sha256": digest(Path(__file__)),
@@ -197,10 +252,7 @@ def inside(args):
                                 raise ValueError(f"sample parity failed: {tool}/{workload}")
                         write_report()
                 for tool in TOOLS:
-                    values = [row["wall_ns"] for row in report["samples"] if row["tool"] == tool and row["workload"] == workload]
-                    median = statistics.median(values)
-                    rounds = [[row["wall_ns"] for row in report["samples"] if row["tool"] == tool and row["workload"] == workload and row["round"] == index] for index in range(3)]
-                    report["summary"][f"{tool}/{workload}"] = {"samples": len(values), "median_ns": median, "mad_ns": statistics.median(abs(value - median) for value in values), "round_medians_ns": [statistics.median(values) for values in rounds]}
+                    report["summary"][f"{tool}/{workload}"] = summarize_samples(report["samples"], tool, workload)
         if validate_fixtures(args.fixtures) != fixture_hash:
             raise ValueError("fixtures changed during the run")
         report["complete"] = True
@@ -224,12 +276,16 @@ def host(args):
         raise ValueError("image must be a prepared overlay of the immutable Dockerfile.test image")
     if args.measure:
         validate_close(args.functional_close, args.source_commit)
+    available_cpus = host_allowed_cpus()
+    if not available_cpus:
+        raise ValueError("the benchmark host has no allowed CPUs")
+    cpu_id = available_cpus[0]
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.scratch.mkdir(parents=True, exist_ok=False)
-    command = ["docker", "run", "--rm", "--init", "--network", "none", "--read-only", "--platform", "linux/" + image_info["Architecture"], "--user", f"{os.getuid()}:{os.getgid()}", "-v", f"{HERE}:/suite:ro", "-v", f"{args.xsh.resolve()}:/bench/xsh:ro", "-v", f"{args.fixtures.resolve()}:/fixtures:ro", "-v", f"{args.output.parent.resolve()}:/results", "-v", f"{args.scratch.resolve()}:/scratch", "-w", "/suite"]
+    command = ["docker", "run", "--rm", "--init", "--network", "none", "--read-only", "--platform", "linux/" + image_info["Architecture"], "--cpuset-cpus", str(cpu_id), "--memory", str(MEMORY_LIMIT_BYTES), "--memory-swap", str(MEMORY_LIMIT_BYTES), "--user", f"{os.getuid()}:{os.getgid()}", "-v", f"{HERE}:/suite:ro", "-v", f"{args.xsh.resolve()}:/bench/xsh:ro", "-v", f"{args.fixtures.resolve()}:/fixtures:ro", "-v", f"{args.output.parent.resolve()}:/results", "-v", f"{args.scratch.resolve()}:/scratch", "-w", "/suite"]
     if args.functional_close:
         command += ["-v", f"{args.functional_close.resolve()}:/functional-close.json:ro"]
-    command += [image_id, "/usr/bin/python3", "-B", "/suite/run.py", "--inside", "--xsh", "/bench/xsh", "--fixtures", "/fixtures", "--output", "/results/" + args.output.name, "--scratch", "/scratch/run", "--image-id", image_id, "--base-image", base_image, "--source-commit", args.source_commit, "--timeout", str(args.timeout)]
+    command += [image_id, "/usr/bin/python3", "-B", "/suite/run.py", "--inside", "--xsh", "/bench/xsh", "--fixtures", "/fixtures", "--output", "/results/" + args.output.name, "--scratch", "/scratch/run", "--image-id", image_id, "--base-image", base_image, "--source-commit", args.source_commit, "--timeout", str(args.timeout), "--cpuset-cpus", str(cpu_id), "--host-cpus-allowed", ",".join(str(cpu) for cpu in available_cpus), "--memory-bytes", str(MEMORY_LIMIT_BYTES)]
     if args.measure:
         command += ["--measure", "--functional-close", "/functional-close.json"]
     try:
@@ -252,5 +308,8 @@ if __name__ == "__main__":
     parser.add_argument("--inside", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--image-id", help=argparse.SUPPRESS)
     parser.add_argument("--base-image", help=argparse.SUPPRESS)
+    parser.add_argument("--cpuset-cpus", help=argparse.SUPPRESS)
+    parser.add_argument("--host-cpus-allowed", help=argparse.SUPPRESS)
+    parser.add_argument("--memory-bytes", type=int, help=argparse.SUPPRESS)
     args = parser.parse_args()
     inside(args) if args.inside else host(args)

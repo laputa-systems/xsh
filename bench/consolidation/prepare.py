@@ -10,6 +10,9 @@ import urllib.request
 from fixtures import digest
 
 HERE = Path(__file__).resolve().parent
+BUILD_CPU_QUOTA = 400_000
+BUILD_MEMORY_BYTES = 8 * 1024**3
+BUILD_MEMORY = "8g"
 
 
 def prepare(args):
@@ -47,13 +50,14 @@ def prepare(args):
     request = {"base_image": base, "architecture": args.arch, "dockerfile_sha256": digest(HERE / "Dockerfile"), "lock_sha256": digest(HERE / "versions.lock.json")}
     (context / "preparation.json").write_text(json.dumps(request, indent=2) + "\n")
     if args.build:
+        request["build_resources"] = {"cpu_quota": BUILD_CPU_QUOTA, "memory_bytes": BUILD_MEMORY_BYTES}
         # BuildKit parses an image ID in FROM as a registry tag, so resolve a local alias first.
         reference = "xsh-comparative-base:" + args.arch + "-" + base.removeprefix("sha256:")
         subprocess.run(["docker", "image", "tag", base, reference], check=True)
         resolved = subprocess.check_output(["docker", "image", "inspect", "--format", "{{.Id}}", reference], text=True).strip()
         if resolved != base:
             raise ValueError("comparator base alias differs from its pinned image ID")
-        subprocess.run(["docker", "build", "--platform", "linux/" + args.arch, "--build-arg", "BASE_REFERENCE=" + reference, "--build-arg", "BASE_IMAGE=" + base, "--build-arg", "TARGETARCH=" + args.arch, "--tag", args.tag, str(context)], check=True)
+        subprocess.run(["docker", "build", "--platform", "linux/" + args.arch, "--resource", f"cpu-quota={BUILD_CPU_QUOTA}", "--resource", f"memory={BUILD_MEMORY}", "--build-arg", "BASE_REFERENCE=" + reference, "--build-arg", "BASE_IMAGE=" + base, "--build-arg", "TARGETARCH=" + args.arch, "--tag", args.tag, str(context)], check=True)
         request["image_id"] = subprocess.check_output(["docker", "image", "inspect", "--format", "{{.Id}}", args.tag], text=True).strip()
         (context / "preparation.json").write_text(json.dumps(request, indent=2) + "\n")
     print(json.dumps(request, sort_keys=True))

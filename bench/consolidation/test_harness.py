@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 from fixtures import generate
 from prepare import prepare
-from run import equivalent, invoke, order_for, validate_close, validate_fixtures
+from run import MEMORY_LIMIT_BYTES, equivalent, invoke, order_for, summarize_samples, validate_close, validate_container_resources, validate_fixtures
 
 HERE = Path(__file__).resolve().parent
 
@@ -73,6 +73,29 @@ class HarnessTests(unittest.TestCase):
                 positions[tool].add(position)
         self.assertTrue(all(len(value) == 7 for value in positions.values()))
 
+    def test_round_medians_use_each_round_instead_of_the_pooled_samples(self):
+        samples = [
+            {"tool": "dash", "workload": "pipeline", "round": round_index, "wall_ns": value}
+            for round_index, values in enumerate(((1, 3, 5), (10, 20, 30), (100, 200, 300)))
+            for value in values
+        ]
+
+        summary = summarize_samples(samples, "dash", "pipeline")
+
+        self.assertEqual(summary["median_ns"], 20)
+        self.assertEqual(summary["round_medians_ns"], [3, 20, 200])
+
+    def test_container_resource_limits_must_match_the_recorded_cpuset_and_memory(self):
+        resources = validate_container_resources(3, MEMORY_LIMIT_BYTES, [3], MEMORY_LIMIT_BYTES, 0)
+        self.assertEqual(resources["affinity_cpus"], [3])
+        self.assertEqual(resources["memory_limit_bytes"], MEMORY_LIMIT_BYTES)
+        with self.assertRaisesRegex(ValueError, "CPU affinity"):
+            validate_container_resources(3, MEMORY_LIMIT_BYTES, [2, 3], MEMORY_LIMIT_BYTES, 0)
+        with self.assertRaisesRegex(ValueError, "memory limit"):
+            validate_container_resources(3, MEMORY_LIMIT_BYTES, [3], MEMORY_LIMIT_BYTES * 2, 0)
+        with self.assertRaisesRegex(ValueError, "swap limit"):
+            validate_container_resources(3, MEMORY_LIMIT_BYTES, [3], MEMORY_LIMIT_BYTES, 1)
+
     def test_timeout_kills_children_before_they_can_write(self):
         script = self.root / "parent.py"
         script.write_text("import subprocess,sys,time\nsubprocess.Popen([sys.executable, '-c', \"import time,pathlib; time.sleep(0.4); pathlib.Path('leaked').write_text('child')\"])\ntime.sleep(5)\n")
@@ -107,7 +130,10 @@ class HarnessTests(unittest.TestCase):
         build = next(call.args[0] for call in run.call_args_list if call.args[0][1] == "build")
         self.assertIn("BASE_REFERENCE=xsh-comparative-base:amd64-" + "a" * 64, build)
         self.assertIn("BASE_IMAGE=" + base, build)
+        self.assertIn("cpu-quota=400000", build)
+        self.assertIn("memory=8g", build)
         self.assertEqual(json.loads((args.destination / "preparation.json").read_text())["base_image"], base)
+        self.assertEqual(json.loads((args.destination / "preparation.json").read_text())["build_resources"], {"cpu_quota": 400_000, "memory_bytes": 8 * 1024**3})
 
 
 if __name__ == "__main__":

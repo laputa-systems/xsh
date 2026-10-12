@@ -57,7 +57,9 @@ python3 -B bench/consolidation/prepare.py .work/consolidation/comparative-overla
 
 Coordinate the machine compiler queue before `--build`. Preparation builds
 dash with `make -j2`, then Oils with its sequential optimized build; both
-use the existing image compiler and libraries. For final ARM verification,
+use the existing image compiler and libraries. BuildKit limits the overlay
+build to four CPU-equivalents and 8 GiB, and the preparation receipt records
+those limits. For final ARM verification,
 pass `--arch arm64 --base-image sha256:THE_ARM_DOCKERFILE_TEST_IMAGE_ID` and
 use a separate overlay tag. The result records the exact base and overlay IDs.
 
@@ -77,6 +79,11 @@ are writable. Exact stdout bytes, empty stderr, status zero, timeout state,
 and no remaining scratch changes must agree before measuring. Any failure
 stops the run and leaves its raw observation in the report. Process-group
 timeouts kill workload descendants, and scratch is removed on exit.
+The container is pinned to the first CPU allowed to the host runner, with a
+4 GiB memory limit and swap disabled. It checks the in-container CPU affinity,
+cgroup memory limit, and zero swap limit before running, then records the
+host's allowed CPU set, requested cpuset, observed affinity, memory limit, and
+swap limit in the report.
 
 For measurement, add `--measure --functional-close /absolute/close.json`.
 The integrator supplies that JSON record with `functional_complete: true`

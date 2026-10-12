@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "fixtures_sha256": "575c949c539ec7dc8a968b783555214197329d44b30a781719f105553d02f502",
-  "base_images": {"amd64": "sha256:99e195582ba55dc427b1551022fbe56f8f344ed7838e971ecba86ce43a7733e9"},
+  "base_images": {"amd64": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"},
   "versions": {"bash": "5.3.9", "python": "3.14.8", "dash": "0.5.12", "nushell": "0.107.0", "ysh": "0.37.0", "elvish": "0.21.0"},
   "sources": {
     "dash": {"url": "https://deb.debian.org/debian/pool/main/d/dash/dash_0.5.12.orig.tar.gz", "sha256": "6a474ac46e8b0b32916c4c60df694c82058d3297d8b385b74508030ca4a8f28a"},
