@@ -26,6 +26,9 @@ pub struct CompactDeclOutput {
     pub(crate) cli_entries: Vec<crate::sema::cli_entry::CliEntryPlan>,
     pub diagnostics: Vec<Diagnostic>,
     pub function_return_types: BTreeMap<crate::source::Span, Type>,
+    /// Full checker signatures are keyed by body span, whose source ID keeps
+    /// independently parsed module arenas distinct when their local IDs match.
+    pub function_signatures: BTreeMap<Span, CompactFunctionSig>,
     pub function_effect_facts: BTreeMap<super::EffectDeclarationId, super::FunctionEffectFact>,
     pub parameter_types: BTreeMap<crate::source::Span, Type>,
     pub types: FxHashMap<Name, CompactTypeDefInfo>,

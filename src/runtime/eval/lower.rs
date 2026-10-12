@@ -2258,7 +2258,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .arena
             .span(self.program.arena.block(def.body).span);
         let definition_span = function.definition_span;
-        match self.lower_function_with_blocker(function.id, function.pure) {
+        match self.lower_function_with_blocker(function.id) {
             Ok(body) => {
                 let param_count = body.params.len();
                 let capture_count = body.captures.len();
@@ -2356,7 +2356,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     fn lower_function_with_blocker(
         &mut self,
         id: crate::syntax::arena::FunctionDefId,
-        _pure: bool,
     ) -> Result<FunctionBuild, CompactFunctionBlocker> {
         let def = self.program.arena.function_def(id);
         let body_span = self
@@ -2405,6 +2404,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         .cloned()
                 })
                 .ok_or(CompactFunctionBlocker::ParamType)?;
+            // Parameter checks and pattern schemas must use the same imported nominal identity.
+            let expected = self.canonicalize_checked_type(expected);
             let kind = lowered_checked_type(&expected).ok_or(CompactFunctionBlocker::ParamType)?;
             // A parameter of a callable type records the checked type, so
             // the verifier can tie a typed call through the parameter to it.
@@ -2576,30 +2577,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 .cloned()
             })
             .map(|ty| self.canonicalize_checked_type(ty));
-        let checked_function_signature = match (self.current_namespace, _pure) {
-            (Some(namespace), true) => self.declarations.qualified_pures
-                .get(&QualifiedName::new(namespace, def.name))
-                .or_else(|| {
-                    self.declarations
-                        .qualified_streams
-                        .get(&QualifiedName::new(namespace, def.name))
-                }),
-            (Some(namespace), false) => self.declarations.qualified_procs
-                .get(&QualifiedName::new(namespace, def.name)),
-            (None, true) => self
-                .declarations
-                .pures
-                .get(&def.name)
-                .or_else(|| self.declarations.streams.get(&def.name)),
-            (None, false) => self.declarations.procs.get(&def.name),
-        }
-        .map(|signature| {
-            self.canonicalize_checked_callable(CallableType {
-                params: signature.params.clone(),
-                return_ty: Box::new(signature.return_ty.clone()),
-                effects: signature.effects.clone(),
-            })
-        });
+        let checked_function_signature = self
+            .declarations
+            .function_signatures
+            .get(&body_span)
+            .map(|signature| {
+                self.canonicalize_checked_callable(CallableType {
+                    params: signature.params.clone(),
+                    return_ty: Box::new(signature.return_ty.clone()),
+                    effects: signature.effects.clone(),
+                })
+            });
         let return_check = checked_return_type
             .clone()
             .filter(Type::has_unsigned_constraint)
@@ -4245,8 +4233,18 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     let mut error_ty = None;
                     for binding in self.program.arena.with_bindings(bindings).to_vec() {
                         let checked = self.lower_binding_checked_type(None, binding.initializer);
-                        let source_exprs =
-                            with_error_source_exprs(self.program, binding.initializer);
+                        let source_exprs = with_error_source_exprs(
+                            self.program,
+                            binding.initializer,
+                        )
+                        .into_iter()
+                        .filter(|source_expr| {
+                            matches!(
+                                self.bodies.expr_types.get(source_expr),
+                                Some(Type::Result(_, _) | Type::Any | Type::Unknown)
+                            )
+                        })
+                        .collect::<Vec<_>>();
                         for source_expr in &source_exprs {
                             let Some(source_type) = self.bodies.expr_types.get(source_expr) else {
                                 self.last_blocker_detail = Some((

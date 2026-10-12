@@ -1290,7 +1290,7 @@ impl FullProgram {
             if !temporary {
                 self.store.string(slot.name)?;
             }
-            lowered_type_from_type(&self.store.semantic.to_type(slot.type_id)?)?;
+            driver_slot_runtime_kind(&self.store.semantic.to_type(slot.type_id)?)?;
         }
         let mut payload = FullCursor::new(self.store.payload(step.data.range())?);
         let verified_child_program = schema::DriverPayloadView::verify_fields(
@@ -1584,7 +1584,9 @@ impl<'a> FullDriverStepView<'a> {
             slots.push(LoweredTopLevelSlot {
                 name: Name::intern(self.program.store.string(slot.name)?),
                 slot: slot.slot as usize,
-                kind: lowered_type_from_type(&self.program.store.semantic.to_type(slot.type_id)?)?,
+                kind: driver_slot_runtime_kind(
+                    &self.program.store.semantic.to_type(slot.type_id)?,
+                )?,
                 checked_type: None, mutable: slot.flags & DRIVER_SLOT_MUTABLE != 0,
             });
         }
@@ -1871,9 +1873,8 @@ impl FullBuilder {
             headers,
             identities: std::sync::OnceLock::new(),
         };
-        FullVerifier::verify(&program).map_err(|_| {
-            IrBuildError::format("full_ir_verification", None, 0, 0)
-        })?;
+        FullVerifier::verify(&program)
+            .map_err(|_| IrBuildError::format("full_ir_verification", None, 0, 0))?;
         Ok(program)
     }
 
@@ -3248,12 +3249,23 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
         | Type::Inference(_)
         | Type::Invalid
         | Type::EnvPathList
-        | Type::ProcessError => Err(IrVerifyError::new(
-            "semantic type has no lowered runtime equivalent",
-        )),
+        | Type::ProcessError => {
+            Err(IrVerifyError::new(
+                "semantic type has no lowered runtime equivalent",
+            ))
+        }
         ty => lowered_type_for_type(ty).ok_or_else(|| {
             IrVerifyError::new("semantic type has no lowered runtime equivalent")
         }),
+    }
+}
+
+/// The lowered environment-path read materializes a path list while its checked
+/// slot keeps `EnvPathList` for method resolution and checker facts.
+fn driver_slot_runtime_kind(ty: &Type) -> Result<LoweredType, IrVerifyError> {
+    match ty {
+        Type::EnvPathList => Ok(LoweredType::List),
+        ty => lowered_type_from_type(ty),
     }
 }
 
@@ -5531,6 +5543,89 @@ impl<'a> FullDecoder<'a> {
         }
     }
 
+    fn registered_module_return_type(op: RuntimeOp) -> Result<Type, IrVerifyError> {
+        static RETURN_TYPES:
+            std::sync::OnceLock<FxHashMap<RuntimeOp, Result<Type, ()>>> =
+            std::sync::OnceLock::new();
+        let return_types = RETURN_TYPES.get_or_init(|| {
+            let mut return_types = FxHashMap::default();
+            for (_, module) in crate::modules::api_spec().module_entries() {
+                for function in &module.functions {
+                    for overload in &function.overloads {
+                        match return_types.entry(overload.op) {
+                            std::collections::hash_map::Entry::Vacant(entry) => {
+                                entry.insert(Ok(overload.return_ty.clone()));
+                            }
+                            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                                if entry.get().as_ref().is_ok_and(|previous| {
+                                    previous != &overload.return_ty
+                                }) {
+                                    drop(entry.insert(Err(())));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return_types
+        });
+        match return_types.get(&op) {
+            Some(Ok(return_type)) => Ok(return_type.clone()),
+            Some(Err(())) => Err(IrVerifyError::new(
+                "checked module call operation has ambiguous return types",
+            )),
+            None => Err(IrVerifyError::new(
+                "checked module call operation has no registry signature",
+            )),
+        }
+    }
+
+    fn registered_path_method_return_type(
+        name: &str,
+        op: RuntimeOp,
+    ) -> Result<Type, IrVerifyError> {
+        let mut return_type = None;
+        for overload in crate::modules::api_spec()
+            .method_overloads(crate::modules::MethodReceiver::Path, name)
+            .unwrap_or_default()
+        {
+            if overload.sig.op != op {
+                continue;
+            }
+            match &return_type {
+                Some(previous) if previous != &overload.sig.return_ty => {
+                    return Err(IrVerifyError::new(
+                        "checked path method has ambiguous return types",
+                    ));
+                }
+                Some(_) => {}
+                None => return_type = Some(overload.sig.return_ty.clone()),
+            }
+        }
+        return_type.ok_or_else(|| {
+            IrVerifyError::new("checked path method has no registry signature")
+        })
+    }
+
+    fn verify_path_operand(&self, instruction: usize) -> Result<(), IrVerifyError> {
+        if let Some(actual) = self.checked_expression_type(instruction)? {
+            if actual.into_unvalidated() == Type::Path {
+                return Ok(());
+            }
+            return Err(IrVerifyError::new(
+                "checked path method receiver is not a Path",
+            ));
+        }
+        match self.expression_view(instruction)? {
+            schema::ExprView::Path(_)
+            | schema::ExprView::PathFrom { .. }
+            | schema::ExprView::PathFmtString { .. } => Ok(()),
+            _ => Err(IrVerifyError::new(
+                "checked path method receiver has no Path producer",
+            )),
+        }
+    }
+
     fn verify_checked_expression_producer(
         &self,
         instruction: usize,
@@ -5712,6 +5807,30 @@ impl<'a> FullDecoder<'a> {
                 if ty != *callable.sig.return_ty {
                     return Err(IrVerifyError::new(
                         "checked typed-call result disagrees with its signature",
+                    ));
+                }
+            }
+            schema::ExprView::ModuleCall { op, .. } => {
+                if Self::registered_module_return_type(op)? != ty {
+                    return Err(IrVerifyError::new(
+                        "checked module call result disagrees with its registry signature",
+                    ));
+                }
+            }
+            schema::ExprView::FsTempDir { .. } => {
+                if Self::registered_module_return_type(RuntimeOp::FsTempDir)? != ty {
+                    return Err(IrVerifyError::new(
+                        "checked temporary-directory result disagrees with its registry signature",
+                    ));
+                }
+            }
+            schema::ExprView::PathReadText { path, .. } => {
+                self.verify_path_operand(path.raw() as usize)?;
+                if Self::registered_path_method_return_type("read_text", RuntimeOp::FsReadText)?
+                    != ty
+                {
+                    return Err(IrVerifyError::new(
+                        "checked path read result disagrees with its registry signature",
                     ));
                 }
             }
@@ -6075,6 +6194,13 @@ impl<'a> FullDecoder<'a> {
                     "checked With error source fact has no initializer producer",
                 ));
             }
+            if fact.with_error_source
+                && !matches!(ty, Type::Result(_, _) | Type::Any | Type::Unknown)
+            {
+                return Err(IrVerifyError::new(
+                    "checked With error source fact is not a result value",
+                ));
+            }
             if !ty.contains_typed_callable()
                 && !fact.with_error_source
                 && !matches!(ty, Type::ErrorVariant { .. })
@@ -6179,11 +6305,14 @@ impl<'a> FullDecoder<'a> {
     fn checked_expression_type(&self, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
         match self.expression_checked_type_id(instruction) {
             Ok(Some(type_id)) => self.store.semantic.to_type(type_id).map(Some),
-            Ok(None) if self.store.tags.get(instruction) == Some(&FullTag::ExprField) => {
-                self.derive_checked_field_type(instruction).map(Some)
-            }
+            Ok(None) if self.store.tags.get(instruction) == Some(&FullTag::ExprField) => self
+                .checked_field_receiver_type(instruction)?
+                .map_or(Ok(None), |_| self.derive_checked_field_type(instruction).map(Some)),
             Ok(None) => Ok(None),
             Err(error) if self.store.tags.get(instruction) == Some(&FullTag::ExprField) => {
+                if self.checked_field_receiver_type(instruction)?.is_none() {
+                    return Ok(None);
+                }
                 let field_type = self.derive_checked_field_type(instruction)?;
                 if field_type.contains_typed_callable() {
                     Err(error)
@@ -6193,6 +6322,18 @@ impl<'a> FullDecoder<'a> {
             }
             Err(error) => Err(error),
         }
+    }
+
+    fn checked_field_receiver_type(
+        &self,
+        instruction: usize,
+    ) -> Result<Option<Type>, IrVerifyError> {
+        let schema::ExprView::Field { base, .. } = self.expression_view(instruction)? else {
+            return Err(IrVerifyError::new(
+                "field instruction tag and generated view disagree",
+            ));
+        };
+        self.checked_expression_type(base.raw() as usize)
     }
 
     fn derive_checked_field_type(&self, instruction: usize) -> Result<Type, IrVerifyError> {
@@ -6416,10 +6557,9 @@ impl<'a> FullDecoder<'a> {
                     ));
                 }
                 if else_param_slot.is_some() {
-                    let value_type = self.checked_expression_type(initializer)?.ok_or_else(|| {
-                        IrVerifyError::new("checked With initializer is missing its source type")
-                    })?;
-                    if let Type::Result(_, error) = value_type {
+                    if let Some(Type::Result(_, error)) =
+                        self.checked_expression_type(initializer)?
+                    {
                         Self::merge_with_error_type(&mut error_type, *error);
                     }
                 }
@@ -6970,6 +7110,17 @@ impl<'a> FullDecoder<'a> {
             FullTag::ExprField => match self.derive_typed_callee_type(instruction) {
                 Ok(type_id) => Ok(Some(type_id)),
                 Err(error) => {
+                    let schema::ExprView::Field { base, .. } =
+                        self.expression_view(instruction)?
+                    else {
+                        unreachable!("field instruction tag and generated view disagree")
+                    };
+                    if self
+                        .checked_expression_type(base.raw() as usize)?
+                        .is_none()
+                    {
+                        return Ok(None);
+                    }
                     let field_type = self.derive_checked_field_type(instruction)?;
                     if field_type.contains_typed_callable() {
                         Err(error)
@@ -7732,7 +7883,8 @@ impl FullVerifier {
                 })?;
                 store.semantic.to_type(ty)?;
             }
-            if store.semantic.signature_param_count(function.signature)? != params.len() {
+            let signature_param_count = store.semantic.signature_param_count(function.signature)?;
+            if signature_param_count != params.len() {
                 return Err(IrVerifyError::new(
                     "function parameters do not match its signature",
                 ));
@@ -19021,6 +19173,11 @@ proc local() [env, error] -> Int {
             assert_eq!(lowered_type_for_type(&ty), None, "{ty:?}");
             assert!(lowered_type_from_type(&ty).is_err(), "{ty:?}");
         }
+        assert_eq!(
+            driver_slot_runtime_kind(&Type::EnvPathList),
+            Ok(LoweredType::List)
+        );
+        assert!(driver_slot_runtime_kind(&Type::Invalid).is_err());
         let facet = Type::ErrorFacet(Name::intern("Error"));
         assert_eq!(lowered_type_for_type(&facet), None);
         assert_eq!(lowered_type_from_type(&facet), Ok(LoweredType::Error));

@@ -17,6 +17,8 @@ type Step = {name: Str, build: Builder, scale: Scale}
 type Holder = {callback: Scale}
 type CallbackCollection = {callbacks: List[Scale]}
 type Bundle = {nested: Holder}
+type BroadcastAddress = {broadcast: Str?}
+type BroadcastInterface = {ipv4: BroadcastAddress?}
 
 proc debug_build(root: Path) [error] -> Result[Str] {
   Ok(f"debug {root}")
@@ -51,6 +53,47 @@ pure join(left: Str, right: Str) -> Str {
 
 pure get_holder() -> Holder {
   Holder(callback: triple)
+}
+
+pure optional_broadcast(item: BroadcastInterface) -> Str {
+  var text = "0.0.0.0"
+  if let address = item.ipv4 {
+    text = address.broadcast ?? text
+  }
+  text
+}
+
+test test_non_callable_field_projection_from_pattern_slot {
+  assert optional_broadcast({ipv4: {broadcast: "192.0.2.255"}}) == "192.0.2.255"
+}
+
+test test_root_functions_keep_signatures_distinct_from_same_named_imports { |ctx|
+  let root = test.temp_dir(ctx, name: "typed-callable-signature-owners")?
+  fp"{root}/helper.xsh".write(r"""##! Functions that share names with root declarations.
+## Returns the joined imported words.
+export pure choose(left: Str, right: Str) -> Str { left + right }
+## Returns the imported procedure value.
+export proc capture(left: Str, right: Str) -> Str { left + right }
+""")
+  let output = test.run_script(
+    ctx,
+    r"""use helper as source
+pure choose(value: Int) -> Int { value + 1 }
+proc capture(value: Int) -> Int { value + 2 }
+print source.choose("module", "pure")
+print choose(40)
+print source.capture("module", "proc")
+print capture(40)
+""",
+    [],
+    {XSH_MODULE_PATH: root},
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == """modulepure
+41
+moduleproc
+42
+"""
 }
 
 proc choose(debug: Bool) -> Builder {

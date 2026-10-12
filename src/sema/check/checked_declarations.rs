@@ -117,6 +117,14 @@ impl CheckedDeclarations {
             output.function_defs += 1;
             output.params += declaration.parameter_spans.len();
             let Some(signature) = declaration.signature else { continue; };
+            match output.function_signatures.entry(declaration.body) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(signature.clone());
+                }
+                std::collections::btree_map::Entry::Occupied(entry) => {
+                    assert_eq!(entry.get(), &signature, "one function body has one checked signature");
+                }
+            }
             if let Some(namespace) = declaration.namespace {
                 let name = QualifiedName::new(namespace, declaration.name);
                 match declaration.kind {
