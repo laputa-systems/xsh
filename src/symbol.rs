@@ -301,8 +301,9 @@ impl Name {
     pub const PROCESS_HANDLE: Self = Self(Symbol::from_raw(24));
     pub const NET_JOB: Self = Self(Symbol::from_raw(25));
     pub const FS_ROOT: Self = Self(Symbol::from_raw(26));
-    pub const REL_PATH: Self = Self(Symbol::from_raw(27));
-    pub const RESULT: Self = Self(Symbol::from_raw(28));
+    pub const FS_LOCK: Self = Self(Symbol::from_raw(27));
+    pub const REL_PATH: Self = Self(Symbol::from_raw(28));
+    pub const RESULT: Self = Self(Symbol::from_raw(29));
 
     pub fn intern(text: impl AsRef<str>) -> Self {
         let text = text.as_ref();
@@ -840,6 +841,9 @@ mod tests {
         assert_eq!(Name::FS_ROOT, Name::intern("FsRoot"));
         assert_eq!(Name::FS_ROOT.as_str(), "FsRoot");
         assert!(Name::FS_ROOT.is_builtin());
+        assert_eq!(Name::FS_LOCK, Name::intern("FsLock"));
+        assert_eq!(Name::FS_LOCK.as_str(), "FsLock");
+        assert!(Name::FS_LOCK.is_builtin());
         assert_eq!(Name::REL_PATH, Name::intern("RelPath"));
         assert_eq!(Name::REL_PATH.as_str(), "RelPath");
         assert!(Name::REL_PATH.is_builtin());
