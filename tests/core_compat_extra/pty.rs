@@ -40,6 +40,43 @@ impl Terminal {
     }
 }
 
+/// The native case closes its PTY masters while the runner is still alive.
+/// Starting that runner as a session leader exposes accidental controlling-
+/// terminal acquisition without signaling the Rust test process.
+#[test]
+fn native_terminal_redirection_does_not_hang_up_its_session_leader() {
+    let xsht = Path::new(test_bin!("xsh")).with_file_name("xsht");
+    let mut command = Command::new(xsht);
+    command
+        .args([
+            "test",
+            "--exact",
+            "core/tests/test-uu-ls-1.xsh::test_uu_ls_ls_align_unquoted",
+        ])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() < 0 {
+                Err(std::io::Error::last_os_error())
+            } else {
+                Ok(())
+            }
+        });
+    }
+
+    let output = Running::spawn(&mut command).finish();
+    assert!(
+        output.status.success(),
+        "xsht failed as a session leader: {:?}\nstdout: {}\nstderr: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
 // Linux returns EIO after the final slave closes; other Unix hosts return EOF.
 // Poll bounds the capture even if an inherited descriptor unexpectedly stays open.
 fn terminal_bytes(mut master: File) -> Vec<u8> {
@@ -221,7 +258,7 @@ fn btop_pty_scenario(directory: &Path, script: &Path, columns: u16, rows: u16, l
         "XSH_MODULE_PATH",
         format!("{}:{}", repository.display(), repository.join("core").display()),
     );
-    let command = CommandSpec::new(release_bin!("xsh"))
+    let command = CommandSpec::new(test_bin!("xsh"))
         .arg(script)
         .current_dir(directory);
     Scenario::new(label)
@@ -235,7 +272,7 @@ fn run_xsh_output(directory: &Path, name: &str, source: &str) -> Vec<u8> {
     let script = directory.join(name);
     fs::write(&script, source).unwrap();
     let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let mut command = Command::new(release_bin!("xsh"));
+    let mut command = Command::new(test_bin!("xsh"));
     command
         .arg(&script)
         .current_dir(directory)
@@ -841,7 +878,7 @@ fn btop_terminal_partial_start_failure_restores_input_terminal_attributes() {
         "use core.lib.btop_terminal as terminal\nproc start_probe() [env, process, io, error] -> Result[Unit, Error] {\n  let session = terminal.begin()?\n  terminal.finish(session)?\n}\nstart_probe()?\n",
     ).unwrap();
     let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let mut command = Command::new(release_bin!("xsh"));
+    let mut command = Command::new(test_bin!("xsh"));
     command
         .arg(&script)
         .current_dir(directory.path())

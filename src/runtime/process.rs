@@ -12,7 +12,7 @@ use std::io;
 use std::num::NonZeroI32;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, RawFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::CommandExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
@@ -2691,6 +2691,9 @@ fn file_redirection_file(
     mode: FileRedirectionMode,
 ) -> Result<std::fs::File, RunError> {
     let mut options = OpenOptions::new();
+    // The runner opens redirections before spawning the child; a session
+    // leader must not acquire a controlling terminal from a PTY slave.
+    options.custom_flags(libc::O_NOCTTY);
     match mode {
         FileRedirectionMode::Read => {
             options.read(true);
