@@ -18,7 +18,11 @@ proof. The frozen `test-consolidation-ratchets.xsh` remains part of the source
 advisory evidence; current observer tests live in
 `dev/tests/test-consolidation-ratchets-current.xsh` and are bound by their
 canonical path and hash. The observer provenance checks the historical,
-source-advisory, and current test hashes independently. Source totals and
+source-advisory, and current test hashes independently. Default directory-based
+test discovery excludes the frozen historical test file: its current-driver
+fixtures predate the successor provenance contract. Explicit file invocation
+still runs it for historical inspection; all 38 current counterparts remain
+in the ordinary native suite. Source totals and
 touched-line budgets are advisory, following the owner's performance priority;
 reports retain both source totals and every rise. Structural metrics remain
 bounded by the baseline. Envelope approvals

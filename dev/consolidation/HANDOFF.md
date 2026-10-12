@@ -1,5 +1,26 @@
 # Consolidation restart handoff
 
+## Historical ratchet discovery migration — 2026-10-12
+
+The frozen `dev/tests/test-consolidation-ratchets.xsh` is excluded from
+ordinary directory-based discovery by the root configuration. Its bytes and
+hash attestations are unchanged; explicit file invocation remains available.
+Independent source review identifies two stale fixtures that invoke the
+current driver without successor observer/evidence inputs, explaining the
+legacy 36/38 result. Its current counterpart retains all 38 declarations,
+including corrected fixtures and structural-zero, provenance and final-close
+coverage. This retires historical executable discovery rather than silently
+filtering failing IDs or changing the frozen original oracle. Final fresh
+paired full-suite lists must include all current counterparts and no frozen
+legacy-file IDs.
+
+W4 correction `fb770640` is sealed, but final review identifies one remaining
+required producer gap: PathResolve/PathReadlink Result rows marked by With
+initializer Try lack fixed registry producer arms. The author owns focused
+red-first correction and exact registry Result/Error checks, without operand
+Path validation. The separate compiler-witness lane proceeds on its own
+branch and will port that final correction before acceptance.
+
 ## Narrowed verifier and sealed module port — 2026-10-12
 
 Main remains `e40235db`; the following private slices are not yet accepted.
