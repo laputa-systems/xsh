@@ -1,5 +1,56 @@
 # Consolidation restart handoff
 
+## Narrowed verifier and sealed module port — 2026-10-12
+
+Main remains `e40235db`; the following private slices are not yet accepted.
+W4's original producer-proof commit `ec5057d5` and follow-ups `7575dd6c`
+and `84a3f178` correct the discovery failures recorded below. A further
+two-file correction removes incidental Path operand validation from
+registry-fixed Result/Error producers. Independent review establishes that
+blanket scalar Path provenance is outside the approved callable/Error proof
+contract; required callable source identity and canonical Error checks remain
+strict. The broader uncommitted Path proof was archived with source hashes
+before reversible rollback. Valid computed, indexed, mutable and direct-record
+Path receiver regressions remain. The exact optimized pair passes 35 callable
+tests in both modes, the original focused gates, current ratchets 38/38,
+and fresh discovery: 13,647 valid IDs, zero invalid file-only entries and empty
+stderr. Final corrective seal and independent acceptance remain pending.
+Seven verifier semantic queries still need compiler-demanded extension closure;
+that is a separate lane, not authorization for broader scalar provenance.
+
+W9 owner `39763a66` is sealed and removes the private ignored parity-helper
+include from tracked tests. Independent source review finds no remaining owner
+contract defect. A fresh immutable candidate-only comparison reuses the fully
+validated original reference and exact original absolute input root; it has
+passed 300 of 1,690 inputs in all four profiles at this checkpoint. Earlier
+complete v9 evidence applies to the pre-cleanup source and cannot certify the
+latest owner. The obsolete old-source v7 rerun was stopped and preserved as
+superseded, not counted as a semantic failure or completed latest proof.
+
+Private master port `4b990e07` combines owner `39763a66` with main `e40235db`,
+preserving parallel checking, default 32 workers, fair file admission and its
+eight-case bound. Focused parallel-discovery CLI tests and tooling-test 17/17
+pass. Independent review finds two port defects: path-only shared loader
+caching can reuse nested imports under a different nearest configuration,
+and synchronous workspace preparation delays cancellation. A separate
+follow-up lane owns regression tests and both fixes; owner proof source stays
+immutable. Port acceptance waits for those fixes and complete owner parity.
+
+Runtime/counter slice `556d8d75` is sealed and independently reviewed, with
+actual exhaustive semantic dispatch and one counter catalogue. Its earlier
+lowering-coverage failure requires rerun after corrected W4 integration.
+Final combined correctness, generated documentation, source/feature observers,
+semantic review bundle and comparative release performance remain pending.
+Source caps and strict shrink are advisory; ARM64/macOS remain excluded;
+fourfold native speedup is aspirational and performance nonregression remains
+the acceptance requirement.
+
+Disk cleanup is complete. The additional inactive main `.work/target` removal
+freed 6,754,529,280 bytes by statvfs after reference/process checks. All seven
+retained executable hashes matched. The real-main ignored cleanup ledger
+records exact paths, reasons and outcomes; source, Git worktrees, original
+oracles and evidence were preserved.
+
 ## Stage fast paths and verifier discovery — 2026-10-12
 
 Master `9c6d4eb0` accepts the restored direct-field Map/Where/SortBy/GroupBy
