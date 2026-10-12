@@ -2,6 +2,12 @@ type RecordBuild = {jobs: Int, target: Str}
 
 type RecordConfig = {root: Str, build: RecordBuild}
 
+type NestedBindingItemInfo = {label: Str, points: Int}
+
+type NestedBindingItem = {id: Int, info: NestedBindingItemInfo}
+
+type NestedBindingGroup = {name: Str, items: List[NestedBindingItem]}
+
 test test_nested_renamed_record_binding_preserves_field_types {
   let config = RecordConfig("src", {jobs: 3, target: "native"})
   let {root, build: {jobs, target: target_name, ..}, ..} = config
@@ -48,6 +54,37 @@ test test_nested_record_iteration_and_comprehension_targets {
   assert selected == ["native"]
   let counts = {root: jobs for {root, build: {jobs, ..}, ..} in configs}
   assert (counts.get("src") ?? 0) == 3
+}
+
+test test_nested_record_comprehension_targets_resume_for_each_outer_item {
+  let groups: List[NestedBindingGroup] = [
+    {
+      name: "first",
+      items: [
+        {id: 1, info: {label: "one", points: 1}},
+        {id: 2, info: {label: "two", points: 0}},
+      ],
+    },
+    {
+      name: "empty",
+      items: [],
+    },
+    {
+      name: "last",
+      items: [
+        {id: 3, info: {label: "three", points: 3}},
+      ],
+    },
+  ]
+
+  let selected = [
+    f"{group_name}:{id}:{label}"
+    for {name: group_name, items, ..} in groups
+    for {id, info: {label, points, ..}, ..} in items
+    if points > 0
+  ]
+
+  assert selected == ["first:1:one", "last:3:three"]
 }
 
 pure record_config_result() -> Result[RecordConfig] {

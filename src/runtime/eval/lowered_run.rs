@@ -105,6 +105,8 @@ use super::modules::{
     test_error_kind, test_failure, test_mock_expected_return_type, test_temp_path,
 };
 use super::net_job::NetJobTask;
+use crate::runtime::eval::indexed::IrVerifyError;
+use crate::runtime::eval::indexed::full::decode::{CompTargetView, InlineList};
 use super::{
     Binding, DynamicFunction, Evaluator, Flow, FsRootHandle, FunctionHeader, LoweredCompTarget,
     LoweredFunctionKey, LoweredFunctionKind, LoweredModuleExportKind, LoweredReturnKind,
@@ -3509,32 +3511,92 @@ impl LoweredMapCursor {
     }
 }
 
-fn bind_lowered_comp_target(
-    target: &LoweredCompTarget,
+enum CompTargetNode<'a> {
+    Lowered(&'a LoweredCompTarget),
+    Indexed(CompTargetView<'a>),
+}
+
+enum CompTargetKind<'a> {
+    Discard,
+    Slot(usize),
+    Record(CompTargetFields<'a>),
+}
+
+enum CompTargetFields<'a> {
+    Lowered(std::slice::Iter<'a, (Name, Box<LoweredCompTarget>, Span)>),
+    Indexed(InlineList<'a, (Name, Box<LoweredCompTarget>, Span)>),
+}
+
+impl<'a> CompTargetNode<'a> {
+    fn kind(self) -> CompTargetKind<'a> {
+        match self {
+            Self::Lowered(LoweredCompTarget::Discard) | Self::Indexed(CompTargetView::Discard) => {
+                CompTargetKind::Discard
+            }
+            Self::Lowered(LoweredCompTarget::Slot(slot)) => CompTargetKind::Slot(*slot),
+            Self::Indexed(CompTargetView::Slot(slot)) => CompTargetKind::Slot(slot),
+            Self::Lowered(LoweredCompTarget::Record { fields }) => {
+                CompTargetKind::Record(CompTargetFields::Lowered(fields.iter()))
+            }
+            Self::Indexed(CompTargetView::Record { fields }) => {
+                CompTargetKind::Record(CompTargetFields::Indexed(fields))
+            }
+        }
+    }
+}
+
+impl<'a> CompTargetFields<'a> {
+    fn next(
+        &mut self,
+        span: Span,
+        indexed_error: Option<fn(IrVerifyError, Span) -> RuntimeError>,
+    ) -> Result<Option<(Name, CompTargetNode<'a>, Span)>, RuntimeError> {
+        match self {
+            Self::Lowered(fields) => Ok(fields.next().map(|(name, target, field_span)| {
+                (
+                    name.clone(),
+                    CompTargetNode::Lowered(target.as_ref()),
+                    field_span.clone(),
+                )
+            })),
+            Self::Indexed(fields) => fields
+                .next()
+                .transpose()
+                .map(|field| {
+                    field.map(|(name, target, field_span)| {
+                        (name, CompTargetNode::Indexed(target), field_span)
+                    })
+                })
+                .map_err(|error| {
+                    indexed_error.expect("indexed target fields retain their error mapper")(
+                        error, span,
+                    )
+                }),
+        }
+    }
+}
+
+fn bind_comp_target(
+    target: CompTargetNode<'_>,
     value: LoweredValue,
     slots: &mut [LoweredValue],
     span: Span,
+    indexed_error: Option<fn(IrVerifyError, Span) -> RuntimeError>,
 ) -> Result<(), RuntimeError> {
-    if let LoweredCompTarget::Slot(slot) = target {
-        slots[*slot] = value;
-        return Ok(());
-    }
-    if matches!(target, LoweredCompTarget::Discard) {
-        return Ok(());
-    }
     fn collect(
-        target: &LoweredCompTarget,
+        target: CompTargetKind<'_>,
         value: LoweredValue,
         span: Span,
         pending: &mut Vec<(usize, LoweredValue)>,
+        indexed_error: Option<fn(IrVerifyError, Span) -> RuntimeError>,
     ) -> Result<(), RuntimeError> {
         match target {
-            LoweredCompTarget::Discard => Ok(()),
-            LoweredCompTarget::Slot(slot) => {
-                pending.push((*slot, value));
+            CompTargetKind::Discard => Ok(()),
+            CompTargetKind::Slot(slot) => {
+                pending.push((slot, value));
                 Ok(())
             }
-            LoweredCompTarget::Record { fields } => {
+            CompTargetKind::Record(mut fields) => {
                 if !matches!(
                     value,
                     LoweredValue::Record(_)
@@ -3548,27 +3610,67 @@ fn bind_lowered_comp_target(
                     )
                     .with_span(span));
                 }
-                for (name, target, field_span) in fields {
-                    let selected =
-                        lowered_record_field_value(&value, &name.as_str()).ok_or_else(|| {
-                            RuntimeError::new(
-                                "missing-field",
-                                format!("missing destructured field `{name}`"),
-                            )
-                            .with_span(*field_span)
-                        })?;
-                    collect(target, selected, *field_span, pending)?;
+                while let Some((name, target, field_span)) = fields.next(span, indexed_error)? {
+                    let selected = lowered_record_field_value(&value, &name.as_str()).ok_or_else(|| {
+                        RuntimeError::new(
+                            "missing-field",
+                            format!("missing destructured field `{name}`"),
+                        )
+                        .with_span(field_span)
+                    })?;
+                    collect(target.kind(), selected, field_span, pending, indexed_error)?;
                 }
                 Ok(())
             }
         }
     }
+
+    let kind = target.kind();
+    match &kind {
+        CompTargetKind::Discard => return Ok(()),
+        CompTargetKind::Slot(slot) => {
+            slots[*slot] = value;
+            return Ok(());
+        }
+        CompTargetKind::Record(_) => {}
+    }
     let mut pending = Vec::new();
-    collect(target, value, span, &mut pending)?;
+    collect(kind, value, span, &mut pending, indexed_error)?;
     for (slot, value) in pending {
         slots[slot] = value;
     }
     Ok(())
+}
+
+fn bind_lowered_comp_target(
+    target: &LoweredCompTarget,
+    value: LoweredValue,
+    slots: &mut [LoweredValue],
+    span: Span,
+) -> Result<(), RuntimeError> {
+    bind_comp_target(
+        CompTargetNode::Lowered(target),
+        value,
+        slots,
+        span,
+        None,
+    )
+}
+
+pub(in crate::runtime::eval) fn bind_indexed_comp_target(
+    target: CompTargetView<'_>,
+    value: LoweredValue,
+    slots: &mut [LoweredValue],
+    span: Span,
+    indexed_error: fn(IrVerifyError, Span) -> RuntimeError,
+) -> Result<(), RuntimeError> {
+    bind_comp_target(
+        CompTargetNode::Indexed(target),
+        value,
+        slots,
+        span,
+        Some(indexed_error),
+    )
 }
 
 fn checked_unsigned_value(

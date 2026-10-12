@@ -18,7 +18,7 @@ use super::{
     append_call_argument, append_lowered_list_element, append_lowered_map_literal,
     apply_indexed_assignment, apply_indexed_path_assignment, assign_lowered_bytes_view,
     assign_lowered_str_view,
-    bind_lowered_comp_target, capture_checked_error, check_env_name,
+    bind_indexed_comp_target, bind_lowered_comp_target, capture_checked_error, check_env_name,
     checked_indexed_assignment, comparison_link_holds,
     comparison_pair_at, decode_comparison_chain, decode_match_expr,
     decode_record_updates, match_expr_arm_at, record_update_at,
@@ -40,7 +40,8 @@ use crate::runtime::eval::indexed::IrBlockId;
 use crate::runtime::eval::indexed::full::schema::{BoolView, ExprView, IntView};
 use crate::runtime::eval::indexed::full::schema::StmtView;
 use crate::runtime::eval::indexed::full::decode::{
-    AssignStepView, CallArgView, CompQualifierView, FmtPartView, ListPosition, ListView,
+    AssignStepView, CallArgView, CompQualifierView, CompTargetView, FmtPartView, ListPosition,
+    ListView,
     ProcessCommandBuilderEntryView, RecordEntryView, RunArgKindView, RunArgView, RunEnvView,
     ScanConditionView,
 };
@@ -921,7 +922,8 @@ enum CompIterator {
 }
 
 struct CompIteratorState {
-    target: LoweredCompTarget,
+    instruction: u32,
+    target_position: ListPosition<LoweredCompQualifier>,
     span: Span,
     next_qualifier: ListPosition<LoweredCompQualifier>,
 }
@@ -1233,6 +1235,30 @@ fn indexed_comp_qualifiers_view_at<'e>(
         }
         _ => Err(RuntimeError::new("indexed-ir", "comprehension qualifier view is invalid")
             .with_span(span)),
+    }
+}
+
+fn indexed_comp_target_view_at<'e>(
+    execution: &'e FullExecution<'_>,
+    instruction: u32,
+    position: ListPosition<LoweredCompQualifier>,
+    span: Span,
+) -> Result<CompTargetView<'e>, RuntimeError> {
+    let mut qualifiers = indexed_comp_qualifiers_view_at(execution, instruction, span)?;
+    qualifiers
+        .resume(position)
+        .map_err(|error| indexed_error(error, span))?;
+    match qualifiers
+        .next()
+        .transpose()
+        .map_err(|error| indexed_error(error, span))?
+    {
+        Some(CompQualifierView::For { target, .. }) => Ok(target),
+        _ => Err(RuntimeError::new(
+            "indexed-ir",
+            "comprehension target cursor is invalid",
+        )
+        .with_span(span)),
     }
 }
 
@@ -10096,18 +10122,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         qualifiers
             .resume(state.position)
             .map_err(|error| indexed_error(error, state.span))?;
+        let qualifier_position = qualifiers.position();
         let qualifier = qualifiers
             .next()
             .transpose()
             .map_err(|error| indexed_error(error, state.span))?;
         state.position = qualifiers.position();
         match qualifier {
-            Some(CompQualifierView::For { target, iter, span }) => {
-                let target = target
-                    .materialize()
-                    .map_err(|error| indexed_error(error, span))?;
+            Some(CompQualifierView::For { target: _, iter, span }) => {
                 let active = CompIteratorState {
-                    target,
+                    instruction: state.instruction,
+                    target_position: qualifier_position,
                     span,
                     next_qualifier: state.position,
                 };
@@ -10191,11 +10216,19 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     | CompIterator::Items { active, .. }
                     | CompIterator::Stream { active, .. } => active,
                 };
-                bind_lowered_comp_target(
-                    &active.target,
-                    item,
-                    &mut self.calls[index].slots,
+                let call = &mut self.calls[index];
+                let target = indexed_comp_target_view_at(
+                    &call.execution,
+                    active.instruction,
+                    active.target_position,
                     active.span,
+                )?;
+                bind_indexed_comp_target(
+                    target,
+                    item,
+                    &mut call.slots,
+                    active.span,
+                    indexed_error,
                 )?;
                 state.position = active.next_qualifier;
                 return self.step_comp_qualifier(index, state, next);
