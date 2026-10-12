@@ -6,6 +6,7 @@ use crate::xsht::cli::{
 };
 use crate::xsht::config::FileToolConfig;
 use crate::xsht::trace::{CoverageTraceRenderer, TracebackRenderer};
+use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{IsTerminal, Write};
@@ -313,12 +314,7 @@ fn run_test_cases_parallel<F>(
 ) where
     F: FnMut(String, TestOutcome) -> bool,
 {
-    let queue = Arc::new(Mutex::new(
-        cases
-            .into_iter()
-            .enumerate()
-            .collect::<std::collections::VecDeque<_>>(),
-    ));
+    let queue = Arc::new(Mutex::new(fair_test_case_queue(cases)));
     let (tx, rx) = mpsc::channel();
 
     let options = Arc::new(options.clone());
@@ -368,6 +364,45 @@ fn run_test_cases_parallel<F>(
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
+}
+
+/// Round-robin cases across source files while retaining each case's original
+/// index. A fixture-heavy file must not fill every newly available worker slot
+/// before other files get a chance to run. Cases arrive in ID order, so each
+/// file occupies one contiguous queue.
+fn fair_test_case_queue(cases: Vec<TestCase>) -> VecDeque<(usize, TestCase)> {
+    let mut file_queues: Vec<VecDeque<(usize, TestCase)>> = Vec::new();
+    let mut current_file = None;
+    for (index, case) in cases.into_iter().enumerate() {
+        let file = case
+            .id()
+            .split_once("::")
+            .map_or(case.id(), |(file, _)| file);
+        if current_file.as_deref() != Some(file) {
+            file_queues.push(VecDeque::new());
+            current_file = Some(file.to_string());
+        }
+        file_queues
+            .last_mut()
+            .expect("the current test file queue must exist")
+            .push_back((index, case));
+    }
+
+    let mut active_files = (0..file_queues.len()).collect::<VecDeque<_>>();
+    let capacity = file_queues
+        .iter()
+        .map(std::collections::VecDeque::len)
+        .sum();
+    let mut queue = VecDeque::with_capacity(capacity);
+    while let Some(file_index) = active_files.pop_front() {
+        if let Some(case) = file_queues[file_index].pop_front() {
+            queue.push_back(case);
+            if !file_queues[file_index].is_empty() {
+                active_files.push_back(file_index);
+            }
+        }
+    }
+    queue
 }
 
 enum TestCase {
@@ -1553,7 +1588,16 @@ fn classify_native_test_result(result: Option<Value>) -> TestOutcomeKind {
 
 #[cfg(test)]
 mod tests {
-    use super::{Duration, default_test_jobs_for, format_test_duration};
+    use super::{
+        Duration, TestCase, default_test_jobs_for, fair_test_case_queue, format_test_duration,
+    };
+
+    fn invalid_case(id: &str) -> TestCase {
+        TestCase::Invalid {
+            id: id.to_string(),
+            message: String::new(),
+        }
+    }
 
     #[test]
     fn default_test_jobs_use_visible_cpus_up_to_32() {
@@ -1563,6 +1607,35 @@ mod tests {
         assert_eq!(default_test_jobs_for(11), 11);
         assert_eq!(default_test_jobs_for(32), 32);
         assert_eq!(default_test_jobs_for(64), 32);
+    }
+
+    #[test]
+    fn parallel_queue_round_robins_files_without_changing_case_indexes() {
+        let cases = vec![
+            invalid_case("core/a.xsh::test_a1"),
+            invalid_case("core/a.xsh::test_a2"),
+            invalid_case("core/a.xsh::test_a3"),
+            invalid_case("core/b.xsh"),
+            invalid_case("core/c.xsh::test_c1"),
+            invalid_case("core/c.xsh::test_c2"),
+        ];
+
+        let scheduled = fair_test_case_queue(cases)
+            .into_iter()
+            .map(|(index, case)| (index, case.id().to_string()))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            scheduled,
+            vec![
+                (0, "core/a.xsh::test_a1".to_string()),
+                (3, "core/b.xsh".to_string()),
+                (4, "core/c.xsh::test_c1".to_string()),
+                (1, "core/a.xsh::test_a2".to_string()),
+                (5, "core/c.xsh::test_c2".to_string()),
+                (2, "core/a.xsh::test_a3".to_string()),
+            ]
+        );
     }
 
     #[test]
