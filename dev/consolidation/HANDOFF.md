@@ -1,5 +1,40 @@
 # Consolidation restart handoff
 
+## Result producer cohort and nominal-domain regression — 2026-10-12
+
+Main `0769da30` retains the frozen historical ratchet exclusion and current
+coverage. W4 is not accepted yet: final review of `fb770640` identifies a
+missing fixed Result producer family, including specialized Path and FS rows
+used as immediate Try sources inside With initializers. The author owns a
+coherent registry-derived result/error proof plus valid-source and corruption
+coverage. Conditional Result wrappers and encoded operations must agree with
+the registry shape. This does not authorize scalar Path operand proofs.
+The independent verifier witness lane adds exhaustive semantic query matches
+in a separate branch and will port the final producer correction.
+
+W9 latest-owner proof `functional-full-owner-v1` is incomplete. It validates
+1,000 original inputs across all four profiles, then the 1000–1099 range
+panics at source 1075, `docs/snippets/spec/70-nominal-type.xsh`, in the entry
+argument-domain probe: nominal signature lookup lacks the constructor
+nominal-name index. Removing redundant Str preparation exposed this missing
+probe prerequisite. The failed log and incomplete attempt status remain;
+there is no complete latest-owner parity claim. No parity jobs remain.
+The owner is adding root/import nominal probe regressions and factoring one
+declaration-only constructor-index pass, retaining existing full-bundle
+default collection afterward. Independent review follows its exact seal.
+A fresh immutable latest-candidate matrix will use four bounded workers over
+disjoint ranges; the original reference, absolute input root and strict
+6,760-outcome validator remain unchanged. All children must be joined/cleaned
+on failure; this functional concurrency is not performance evidence.
+
+The private combined runtime slice `4c5cf26e` (W4 `fb770640` plus runtime
+`556d8d75`) passes optimized lowering coverage 10/10 in both modes. A disposable
+single-row schema probe at ordinal 158 produces E0004 at the actual semantic
+dispatcher; its scratch worktree is removed and evidence copied unchanged into
+real-main `.work/final-review-evidence/runtime-counter-closure-final-private`.
+This scoped probe and private pair predate the new W4 producer correction;
+final-source combined review and the complete AST feature experiment remain.
+
 ## Historical ratchet discovery migration — 2026-10-12
 
 The frozen `dev/tests/test-consolidation-ratchets.xsh` is excluded from
