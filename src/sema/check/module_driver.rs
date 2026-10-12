@@ -1,6 +1,6 @@
 use super::{
     ArgsDomain, CheckBundleView, CheckOptions, CheckOutput, Checker, EffectSummary,
-    FunctionEffectFact, ResourceTransferFacts, UserModuleSig,
+    FunctionEffectFact, RecordConstructors, ResourceTransferFacts, UserModuleSig,
 };
 use crate::source::{SourceId, SourceMap};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -567,6 +567,7 @@ impl Checker {
         let program = view.program;
         let mut checker = Self::new(options);
         checker.user_modules = Arc::new(modules.clone());
+        checker.record_constructors = RecordConstructors::collect_declarations_bundle(view);
         checker.collect_type_imports_arena(program, view.statement_ids());
         checker.collect_definitions_arena(
             program,
@@ -679,6 +680,64 @@ mod tests {
             actual.checked_declarations.cli_entries.len(),
             expected.checked_declarations.cli_entries.len()
         );
+    }
+
+    #[test]
+    fn argument_domain_probe_resolves_entry_and_imported_nominal_signatures() {
+        let entry_source = concat!(
+            "use model\n",
+            "nominal type LocalPackage = {id: Str}\n",
+            "pure local_id(package: LocalPackage) -> Str { package.id }\n",
+            "pure imported_id(package: model.Package) -> Str { package.id }\n",
+            "proc main(...argv: List[Bytes]) {}\n",
+        );
+        let module_source = concat!(
+            "##! Package types.\n",
+            "## A package identity owned by this module.\n",
+            "export nominal type Package = {id: Str}\n",
+        );
+        let mut sources = SourceMap::new();
+        let entry_source_id = sources.add_file("entry.xsh", entry_source);
+        let module_source_id = sources.add_file("model.xsh", module_source);
+        let mut builder = ArenaProgramBuilder::with_token_capacity(96);
+        let entry = Parser::parse_source_into_arena_builder(
+            entry_source_id,
+            entry_source,
+            &mut builder,
+        );
+        let module = Parser::parse_source_into_arena_builder(
+            module_source_id,
+            module_source,
+            &mut builder,
+        );
+        assert!(entry.diagnostics.is_empty(), "{:?}", entry.diagnostics);
+        assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
+        let model_name = builder.symbol_owner().intern("model");
+        builder.push_arena_module("model".to_string(), model_name, module.statements);
+        for statement in builder.statement_ids(entry.statements) {
+            if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
+                builder.set_use_resolved(use_id, Arc::from("model"));
+            }
+        }
+        let program = Arc::new(builder.finish_with_statements(entry.statements));
+        program.symbol_owner().with_current(|| {
+            let view = CheckBundleView::for_root(
+                &program,
+                entry.statements,
+                Some(&sources),
+                Some(entry_source_id),
+            );
+            let options = CheckOptions::default();
+            let modules = Checker::module_type_headers(&view, options, Arc::clone(&program));
+
+            assert!(Checker::entry_uses_byte_arguments(
+                &view,
+                entry_source,
+                options,
+                Arc::clone(&program),
+                &modules,
+            ));
+        });
     }
 
     #[test]

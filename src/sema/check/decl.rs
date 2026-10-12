@@ -2,8 +2,8 @@
 
 use super::{
     BTreeMap, CheckBundleView, Checker, CheckedFunctionKind, CoreCommand, ErrorFamilyInfo,
-    ErrorVariantInfo, FxHashMap, FxHashSet, Name, QualifiedName, Span, TagVariantInfo, Type,
-    TypeAnnRef, TypeDefBody, UserModuleSig, api_spec,
+    ErrorVariantInfo, FxHashMap, FxHashSet, Name, QualifiedName, RecordConstructors, Span,
+    TagVariantInfo, Type, TypeAnnRef, TypeDefBody, UserModuleSig, api_spec,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Label};
 use crate::sema::check::{
@@ -30,11 +30,13 @@ impl Checker {
         type_program: Arc<ArenaProgram>,
     ) -> FxHashMap<String, UserModuleSig> {
         let program = view.program();
+        let record_constructors = RecordConstructors::collect_declarations_bundle(view);
         let mut headers = FxHashMap::default();
         for module in view.modules() {
             let mut checker = Self::new(options);
             checker.current_namespace = Some(module.name);
             checker.user_modules = Arc::new(headers.clone());
+            checker.record_constructors = record_constructors.detached();
             let statements = program.module_statements(module).collect::<Vec<_>>();
             checker.collect_type_imports_arena(program, statements.iter().copied());
             let mut exported = Vec::new();

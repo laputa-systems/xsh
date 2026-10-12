@@ -598,19 +598,26 @@ impl RecordConstructors {
     }
 
     pub(super) fn collect_bundle(view: &CheckBundleView<'_>) -> Self {
+        let mut index = Self::collect_declarations_bundle(view);
         let program = view.program;
-        let mut index = Self::default();
-        index.declare_scope(program, None, view.statement_ids().collect());
+        index.collect_scope(program, None, view.statement_ids().collect());
         for module in view.modules.iter().copied() {
-            index.declare_scope(
+            index.collect_scope(
                 program,
                 Some(module.name),
                 program.module_statements(module).collect(),
             );
         }
-        index.collect_scope(program, None, view.statement_ids().collect());
+        index
+    }
+
+    /// Collect only lexical type, import, and error declarations, without schema defaults.
+    pub(super) fn collect_declarations_bundle(view: &CheckBundleView<'_>) -> Self {
+        let program = view.program;
+        let mut index = Self::default();
+        index.declare_scope(program, None, view.statement_ids().collect());
         for module in view.modules.iter().copied() {
-            index.collect_scope(
+            index.declare_scope(
                 program,
                 Some(module.name),
                 program.module_statements(module).collect(),
