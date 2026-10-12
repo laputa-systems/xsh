@@ -208,7 +208,7 @@ front-end workers; results return in path order. `--jobs` controls test
 execution and does not limit file preparation, so `--list` can use multiple
 CPUs.
 
-Without `--jobs`, half the logical CPUs run concurrently (1 to 8). Each
+Without `--jobs`, all visible logical CPUs run concurrently, capped at 32. Each
 `test.run_script`, `test.run_xsh`, and `test.run_xsht_trace` child leads a
 runner-owned process group; on SIGINT/SIGTERM the runner sends SIGTERM to those
 groups, waits one second, sends SIGKILL, and exits `128 + signal`.

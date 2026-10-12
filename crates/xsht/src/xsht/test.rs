@@ -298,10 +298,10 @@ fn default_test_jobs() -> usize {
     default_test_jobs_for(std::thread::available_parallelism().map_or(1, usize::from))
 }
 
-/// Leave half the logical CPUs free so a default run does not saturate the
-/// machine; test subprocesses such as `test.run_script` add their own load.
+/// Use every visible logical CPU up to a fixed cap to scale large test runs
+/// while bounding evaluator stacks and nested test subprocesses.
 fn default_test_jobs_for(cpus: usize) -> usize {
-    (cpus / 2).clamp(1, 8)
+    cpus.clamp(1, 32)
 }
 
 fn run_test_cases_parallel<F>(
@@ -1556,12 +1556,13 @@ mod tests {
     use super::{Duration, default_test_jobs_for, format_test_duration};
 
     #[test]
-    fn default_test_jobs_leave_half_the_cpus_free() {
+    fn default_test_jobs_use_visible_cpus_up_to_32() {
         assert_eq!(default_test_jobs_for(1), 1);
-        assert_eq!(default_test_jobs_for(2), 1);
-        assert_eq!(default_test_jobs_for(8), 4);
-        assert_eq!(default_test_jobs_for(11), 5);
-        assert_eq!(default_test_jobs_for(64), 8);
+        assert_eq!(default_test_jobs_for(2), 2);
+        assert_eq!(default_test_jobs_for(8), 8);
+        assert_eq!(default_test_jobs_for(11), 11);
+        assert_eq!(default_test_jobs_for(32), 32);
+        assert_eq!(default_test_jobs_for(64), 32);
     }
 
     #[test]
