@@ -200,7 +200,7 @@ export pure greeting(name: Str) -> Str {
   for name in ["tool", "other"] {
     fp"{root}/bin/{name}.xsh".write(r"""use greet
 
-cli main(name: Str = "world") [io] {
+cli main(name = "world") [io] {
   print greet.greeting(name)
 }
 """)
