@@ -210,10 +210,12 @@ front-end workers; results return in path order. `--jobs` controls test
 execution and does not limit file preparation, so `--list` can use multiple
 CPUs.
 
-Without `--jobs`, all visible logical CPUs run concurrently, capped at 32. Each
-`test.run_script`, `test.run_xsh`, and `test.run_xsht_trace` child leads a
-runner-owned process group; on SIGINT/SIGTERM the runner sends SIGTERM to those
-groups, waits one second, sends SIGKILL, and exits `128 + signal`.
+Without `--jobs`, all visible logical CPUs run concurrently, capped at 32. The
+scheduler rotates ready source files and admits at most eight test cases from
+one file to execution at a time. Each `test.run_script`, `test.run_xsh`, and
+`test.run_xsht_trace` child leads a runner-owned process group; on SIGINT/SIGTERM
+the runner sends SIGTERM to those groups, waits one second, sends SIGKILL, and
+exits `128 + signal`.
 
 Each test has a time limit: `--timeout DURATION` (an XSH duration literal such
 as `30s` or `5m`; default `120s`; `0` or `none` disables it), or the limit the

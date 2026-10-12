@@ -497,7 +497,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                 names: &["-j", "--jobs"],
                 arg: OptionArg::value("N"),
                 repeatable: false,
-                description: "Run N tests concurrently (default: all CPUs, capped at 32)",
+                description: "Run N tests concurrently (default: all CPUs capped at 32; max 8 per file)",
             },
             OptionSpec {
                 names: &["--timeout"],

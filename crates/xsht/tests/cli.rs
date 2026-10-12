@@ -48,6 +48,59 @@ fn test_list_returns_test_and_invalid_file_ids_in_sorted_order() {
 }
 
 #[test]
+fn test_help_describes_native_test_concurrency_bounds() {
+    let output = Command::new(test_bin!("xsht"))
+        .args(["test", "--help"])
+        .output()
+        .expect("show native test help");
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    assert!(String::from_utf8(output.stdout)
+        .expect("UTF-8 test help")
+        .contains("default: all CPUs capped at 32; max 8 per file"));
+}
+
+#[test]
+fn test_runner_admits_another_file_while_one_file_is_at_its_active_limit() {
+    let root = TempDir::new().expect("temporary native test project");
+    let tests = root.path().join("tests");
+    let markers = root.path().join("markers");
+    fs::create_dir(&tests).expect("create native test root");
+    fs::create_dir(&markers).expect("create marker root");
+
+    let mut hot_tests = String::new();
+    for index in 1..=12 {
+        hot_tests.push_str(&format!(
+            "test hot_{index:02} [fs, time, error] {{\n  p\"markers/hot-{index:02}\".write(\"\")?\n  var checks = 0\n  while checks < 500 and ! p\"markers/release\".exists()? {{\n    time.sleep(10ms)?\n    checks += 1\n  }}\n  assert p\"markers/release\".exists()?, \"the cold file must release hot tests\"\n}}\n"
+        ));
+    }
+    fs::write(tests.join("hot.xsh"), hot_tests).expect("write hot test file");
+    fs::write(
+        tests.join("cold.xsh"),
+        "test cold_file_progresses_while_hot_file_runs [fs, time, error] {\n  var checks = 0\n  while checks < 500 and ! p\"markers/hot-08\".exists()? {\n    time.sleep(10ms)?\n    checks += 1\n  }\n  assert p\"markers/hot-08\".exists()?, \"the hot file must reach its eighth active test\"\n  checks = 0\n  while checks < 200 and ! p\"markers/hot-09\".exists()? {\n    time.sleep(10ms)?\n    checks += 1\n  }\n  let exceeded_active_limit = p\"markers/hot-09\".exists()?\n  p\"markers/release\".write(\"\")?\n  assert ! exceeded_active_limit, \"the hot file must not exceed its active limit\"\n}\n",
+    )
+    .expect("write cold test file");
+
+    let output = Command::new(test_bin!("xsht"))
+        .args(["test", "--jobs", "16", "--timeout", "10s"])
+        .current_dir(root.path())
+        .output()
+        .expect("run native tests with the file-level active limit");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(output.stderr.is_empty());
+    assert!(String::from_utf8_lossy(&output.stdout)
+        .contains("13 passed; 0 failed; 0 skipped"));
+    assert!(markers.join("hot-12").exists());
+}
+
+#[test]
 fn copied_xsht_formats_and_lints_script_backed_calls_in_static_and_loaded_modules() {
     let root = TempDir::new().expect("create isolated source root");
     let xsht = root.path().join("xsht");

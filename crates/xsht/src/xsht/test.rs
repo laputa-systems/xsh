@@ -15,7 +15,7 @@ use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticRenderer, Label};
 use xsh::execution::evaluator::{
@@ -314,7 +314,7 @@ fn run_test_cases_parallel<F>(
 ) where
     F: FnMut(String, TestOutcome) -> bool,
 {
-    let queue = Arc::new(Mutex::new(fair_test_case_queue(cases)));
+    let queue = Arc::new((Mutex::new(ParallelTestQueue::new(cases)), Condvar::new()));
     let (tx, rx) = mpsc::channel();
 
     let options = Arc::new(options.clone());
@@ -326,18 +326,39 @@ fn run_test_cases_parallel<F>(
         let run_id = Arc::clone(&run_id);
         std::thread::spawn(move || {
             loop {
-                if cancellation_requested_signal().is_some() {
-                    break;
-                }
-                let Some((index, case)) = queue
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .pop_front()
-                else {
+                let work = {
+                    let (state, work_available) = &*queue;
+                    let mut state = state
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    loop {
+                        if cancellation_requested_signal().is_some() {
+                            break None;
+                        }
+                        if let Some(work) = state.take_next() {
+                            break Some(work);
+                        }
+                        if state.is_complete() {
+                            break None;
+                        }
+                        state = work_available
+                            .wait_timeout(state, Duration::from_millis(50))
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
+                            .0;
+                    }
+                };
+                let Some((file_index, index, case)) = work else {
                     break;
                 };
-                let id = case.id().to_string();
-                let outcome = run_test_case(case, index, &run_id, &options);
+                let (id, outcome) = {
+                    let _lease = ActiveTestLease {
+                        queue: &queue,
+                        file_index,
+                    };
+                    let id = case.id().to_string();
+                    let outcome = run_test_case(case, index, &run_id, &options);
+                    (id, outcome)
+                };
                 if tx.send((index, id, outcome)).is_err() {
                     break;
                 }
@@ -366,43 +387,113 @@ fn run_test_cases_parallel<F>(
     }
 }
 
-/// Round-robin cases across source files while retaining each case's original
-/// index. A fixture-heavy file must not fill every newly available worker slot
-/// before other files get a chance to run. Cases arrive in ID order, so each
-/// file occupies one contiguous queue.
-fn fair_test_case_queue(cases: Vec<TestCase>) -> VecDeque<(usize, TestCase)> {
-    let mut file_queues: Vec<VecDeque<(usize, TestCase)>> = Vec::new();
-    let mut current_file = None;
-    for (index, case) in cases.into_iter().enumerate() {
-        let file = case
-            .id()
-            .split_once("::")
-            .map_or(case.id(), |(file, _)| file);
-        if current_file.as_deref() != Some(file) {
-            file_queues.push(VecDeque::new());
-            current_file = Some(file.to_string());
+/// Limit each file's admitted test cases so a large fixture file cannot starve
+/// other files or overwhelm short child-process deadlines.
+const MAX_ACTIVE_TESTS_PER_FILE: usize = 8;
+
+struct ActiveTestLease<'queue> {
+    queue: &'queue Arc<(Mutex<ParallelTestQueue>, Condvar)>,
+    file_index: usize,
+}
+
+impl Drop for ActiveTestLease<'_> {
+    fn drop(&mut self) {
+        let (state, work_available) = &**self.queue;
+        state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .finish(self.file_index);
+        work_available.notify_all();
+    }
+}
+
+struct TestFileQueue {
+    cases: VecDeque<(usize, TestCase)>,
+    active: usize,
+    ready: bool,
+}
+
+struct ParallelTestQueue {
+    files: Vec<TestFileQueue>,
+    ready_files: VecDeque<usize>,
+    pending: usize,
+    active: usize,
+}
+
+impl ParallelTestQueue {
+    fn new(cases: Vec<TestCase>) -> Self {
+        let mut files: Vec<TestFileQueue> = Vec::new();
+        let mut current_file = None;
+        for (index, case) in cases.into_iter().enumerate() {
+            let file = case
+                .id()
+                .split_once("::")
+                .map_or(case.id(), |(file, _)| file);
+            if current_file.as_deref() != Some(file) {
+                files.push(TestFileQueue {
+                    cases: VecDeque::new(),
+                    active: 0,
+                    ready: false,
+                });
+                current_file = Some(file.to_string());
+            }
+            files
+                .last_mut()
+                .expect("the current test file queue must exist")
+                .cases
+                .push_back((index, case));
         }
-        file_queues
-            .last_mut()
-            .expect("the current test file queue must exist")
-            .push_back((index, case));
+
+        let pending = files
+            .iter()
+            .map(|file| file.cases.len())
+            .sum();
+        let mut queue = Self {
+            files,
+            ready_files: VecDeque::new(),
+            pending,
+            active: 0,
+        };
+        for file_index in 0..queue.files.len() {
+            queue.enqueue_if_ready(file_index);
+        }
+        queue
     }
 
-    let mut active_files = (0..file_queues.len()).collect::<VecDeque<_>>();
-    let capacity = file_queues
-        .iter()
-        .map(std::collections::VecDeque::len)
-        .sum();
-    let mut queue = VecDeque::with_capacity(capacity);
-    while let Some(file_index) = active_files.pop_front() {
-        if let Some(case) = file_queues[file_index].pop_front() {
-            queue.push_back(case);
-            if !file_queues[file_index].is_empty() {
-                active_files.push_back(file_index);
-            }
+    fn take_next(&mut self) -> Option<(usize, usize, TestCase)> {
+        let file_index = self.ready_files.pop_front()?;
+        let file = &mut self.files[file_index];
+        file.ready = false;
+        let (index, case) = file
+            .cases
+            .pop_front()
+            .expect("a ready file must have a pending test");
+        file.active += 1;
+        self.active += 1;
+        self.pending -= 1;
+        self.enqueue_if_ready(file_index);
+        Some((file_index, index, case))
+    }
+
+    fn finish(&mut self, file_index: usize) {
+        let file = &mut self.files[file_index];
+        debug_assert!(file.active > 0);
+        file.active -= 1;
+        self.active -= 1;
+        self.enqueue_if_ready(file_index);
+    }
+
+    fn enqueue_if_ready(&mut self, file_index: usize) {
+        let file = &mut self.files[file_index];
+        if !file.cases.is_empty() && file.active < MAX_ACTIVE_TESTS_PER_FILE && !file.ready {
+            file.ready = true;
+            self.ready_files.push_back(file_index);
         }
     }
-    queue
+
+    fn is_complete(&self) -> bool {
+        self.pending == 0 && self.active == 0
+    }
 }
 
 enum TestCase {
@@ -1589,7 +1680,7 @@ fn classify_native_test_result(result: Option<Value>) -> TestOutcomeKind {
 #[cfg(test)]
 mod tests {
     use super::{
-        Duration, TestCase, default_test_jobs_for, fair_test_case_queue, format_test_duration,
+        Duration, ParallelTestQueue, TestCase, default_test_jobs_for, format_test_duration,
     };
 
     fn invalid_case(id: &str) -> TestCase {
@@ -1610,31 +1701,80 @@ mod tests {
     }
 
     #[test]
-    fn parallel_queue_round_robins_files_without_changing_case_indexes() {
+    fn parallel_queue_fairly_admits_files_with_per_file_cap_and_stable_order() {
         let cases = vec![
             invalid_case("core/a.xsh::test_a1"),
             invalid_case("core/a.xsh::test_a2"),
             invalid_case("core/a.xsh::test_a3"),
-            invalid_case("core/b.xsh"),
+            invalid_case("core/a.xsh::test_a4"),
+            invalid_case("core/a.xsh::test_a5"),
+            invalid_case("core/a.xsh::test_a6"),
+            invalid_case("core/a.xsh::test_a7"),
+            invalid_case("core/a.xsh::test_a8"),
+            invalid_case("core/a.xsh::test_a9"),
+            invalid_case("core/a.xsh::test_a10"),
+            invalid_case("core/b.xsh::test_b1"),
+            invalid_case("core/b.xsh::test_b2"),
+            invalid_case("core/b.xsh::test_b3"),
+            invalid_case("core/b.xsh::test_b4"),
+            invalid_case("core/b.xsh::test_b5"),
+            invalid_case("core/b.xsh::test_b6"),
+            invalid_case("core/b.xsh::test_b7"),
+            invalid_case("core/b.xsh::test_b8"),
+            invalid_case("core/b.xsh::test_b9"),
+            invalid_case("core/b.xsh::test_b10"),
             invalid_case("core/c.xsh::test_c1"),
             invalid_case("core/c.xsh::test_c2"),
         ];
 
-        let scheduled = fair_test_case_queue(cases)
-            .into_iter()
-            .map(|(index, case)| (index, case.id().to_string()))
-            .collect::<Vec<_>>();
+        let mut queue = ParallelTestQueue::new(cases);
+        let mut scheduled = Vec::new();
+        while let Some((file_index, index, case)) = queue.take_next() {
+            scheduled.push((file_index, index, case.id().to_string()));
+        }
 
         assert_eq!(
-            scheduled,
+            scheduled
+                .iter()
+                .map(|(_, index, id)| (*index, id.as_str()))
+                .collect::<Vec<_>>(),
             vec![
-                (0, "core/a.xsh::test_a1".to_string()),
-                (3, "core/b.xsh".to_string()),
-                (4, "core/c.xsh::test_c1".to_string()),
-                (1, "core/a.xsh::test_a2".to_string()),
-                (5, "core/c.xsh::test_c2".to_string()),
-                (2, "core/a.xsh::test_a3".to_string()),
+                (0, "core/a.xsh::test_a1"),
+                (10, "core/b.xsh::test_b1"),
+                (20, "core/c.xsh::test_c1"),
+                (1, "core/a.xsh::test_a2"),
+                (11, "core/b.xsh::test_b2"),
+                (21, "core/c.xsh::test_c2"),
+                (2, "core/a.xsh::test_a3"),
+                (12, "core/b.xsh::test_b3"),
+                (3, "core/a.xsh::test_a4"),
+                (13, "core/b.xsh::test_b4"),
+                (4, "core/a.xsh::test_a5"),
+                (14, "core/b.xsh::test_b5"),
+                (5, "core/a.xsh::test_a6"),
+                (15, "core/b.xsh::test_b6"),
+                (6, "core/a.xsh::test_a7"),
+                (16, "core/b.xsh::test_b7"),
+                (7, "core/a.xsh::test_a8"),
+                (17, "core/b.xsh::test_b8"),
             ]
+        );
+        assert_eq!(scheduled.len(), 18);
+        assert!(!queue.is_complete());
+
+        queue.finish(0);
+        assert_eq!(
+            queue
+                .take_next()
+                .map(|(_, index, case)| (index, case.id().to_string())),
+            Some((8, "core/a.xsh::test_a9".to_string()))
+        );
+        queue.finish(1);
+        assert_eq!(
+            queue
+                .take_next()
+                .map(|(_, index, case)| (index, case.id().to_string())),
+            Some((18, "core/b.xsh::test_b9".to_string()))
         );
     }
 
