@@ -284,15 +284,14 @@ proc write_fd_all(fd: Int, data: Bytes) [process, net] -> WriteOutcome {
   {written: offset, failure: null}
 }
 
-pure all_zero(data: Bytes) -> Bool {
-  for index in range(data.len()) {
-    if data.byte_at(index) != 0 { return false }
-  }
-  true
+# A byte loop here costs seconds per MiB of sparse input, so count the zero
+# prefix natively instead.
+pure all_zero(data: Bytes) -> Result[Bool] {
+  Ok(bytes.repeat_prefix_count(data, b"\0")? == data.len())
 }
 
 proc write_output_chunk(fd: Int, data: Bytes, offset: Int, sparse: Bool) [error, process, net] -> Result[WriteOutcome] {
-  if sparse and all_zero(data) { return Ok({written: data.len(), failure: null}) }
+  if sparse and all_zero(data)? { return Ok({written: data.len(), failure: null}) }
   if sparse { let _ = unix.seek_fd(fd, offset)? }
   Ok(write_fd_all(fd, data))
 }
