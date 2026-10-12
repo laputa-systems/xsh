@@ -1,5 +1,58 @@
 # Consolidation restart handoff
 
+## Deterministic fixtures, GNU regressions and build tooling — 2026-10-12
+
+Master `724c53ba` includes deterministic DD FIFO production (`abdd589c`):
+the test-only child opens a write-only FIFO rendezvous and acknowledges chunk
+consumption before the existing pauses. Inputs, assertions and the 15-second
+DD deadline remain unchanged. All five callers passed three rounds privately;
+this repairs a fixture race rather than altering runtime IO contracts.
+
+The frozen `abdd589c` combined optimized source passed all 43 focused gates:
+121 indexed Rust units and 710 native test executions, zero skips. Twenty
+files ran in both execution modes, plus both exact session-leader LS PTY
+cases. The real-main receipt is
+`.work/final-review-evidence/master-abdd-kache-combined-gate.md`; original
+source/binary manifests and raw logs remain retained. This is focused
+integration evidence, not final acceptance or full-suite throughput evidence.
+
+GNU regression fixes `57800e04` and `724c53ba` preserve resource ownership for
+implicit tail-Match returns and suppress automatic main dispatch after signal
+shutdown during initialization. A Root returned through an arm remains live
+through borrowed calls; interrupted initializers cannot leave main running
+with unbound captured globals. The four GNU cases passed normal and serial
+privately, resource lifetime tests passed, and signal hooks passed 14/14 in
+both modes. The deterministic startup regression reproduces status 3 before
+the fix and the requested hook status 143 afterwards. Canonical signal and
+architecture prose now describe these contracts; generated docs remain pending.
+The Match publication delta is an intentional bug fix separate from W9's
+exact frozen-reference refactor parity proof.
+
+All three central build wrappers now use the host static kache 1.0.0 and mold
+3.0.0 through read-only mounts, with the pinned image's Clang driver, CRT
+search path and symbol aliases. The compiler, libc and image remain pinned
+to `sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c`.
+The corrected wrapper passed compile checks and the combined build/gate above.
+The first direct-mold driver attempt rejected GCC-style arguments before
+compiling XSH and is retained as a failed attempt. Jemalloc remains build-only.
+
+The requested Luna xhigh disk cleanup removed inactive Cargo targets while
+preserving source worktrees, dirty source, original oracles, raw receipts and
+seven required executables with matching hashes. About 196 GiB of disposable
+targets were removed; available space was about 415 GiB at completion. Exact
+paths, pre-delete sizes, reasons and outcomes are in the real-main ignored
+`.work/final-review-evidence/disk-cleanup-ledger.jsonl`. Concurrent builds mean
+free-space deltas are not exclusive accounting.
+
+W4's owned port passes typed-callable and signal gates but is not accepted:
+an imported-module fixture exposed a verifier failure under investigation.
+W9's repaired CLI cache merge retains equal shared plans and rejects conflicts;
+fresh source-matched b2sum and lspci captures pass all four profiles. Its new
+full 1,690-input/four-profile pair is running with explicit executable hashes.
+Previous failed, stale and partial captures remain preserved and qualified.
+Full publication parity, W9 master port, final structural/semantic bundle,
+full relevant correctness and comparative performance gates remain pending.
+
 ## Accepted broad component batch and corrected publication evidence — 2026-10-12
 
 Master `7205a0b6` accepts configured-width lint (`05aad7be`, `6b273089`),

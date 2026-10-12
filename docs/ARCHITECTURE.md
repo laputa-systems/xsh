@@ -593,6 +593,8 @@ Top-level entrypoints clear prior signal state before installing handlers;
 signals recorded afterward remain pending through source preparation until an
 execution checkpoint. An embedding host clears old state before an independent
 run, while nested work shares the active run's signal state.
+Completed shutdown suppresses automatic `main` dispatch, including when a
+signal interrupts initialization before captured globals are bound.
 
 **Status is data; failure is control.** The substrate returns structured
 outcomes; the evaluator decides whether to set `$?`, wrap `Ok`, propagate `Err`,
@@ -602,7 +604,9 @@ rather than throwing from the wait loop.
 **Lexical cleanup is ownership.** A live resource belongs to its creating
 scope until a value carrying it enters an enclosing scope. Transfers follow
 scope ancestry, so a resource created in any nested scope moves directly to
-the receiving scope and survives intermediate exits. A scope first stops its
+the receiving scope and survives intermediate exits. Checked block-transfer
+facts include implicit tail values from `match` arms, so a returned capability
+survives arm cleanup just as it survives an explicit return. A scope first stops its
 owned activities before user defers run; activities created by a defer are
 stopped as the scope finishes. Roots and locks remain usable during defers and
 are released afterwards, newest first. Automatic capability cleanup drops
