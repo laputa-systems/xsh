@@ -1,5 +1,60 @@
 # Consolidation restart handoff
 
+## Accepted broad component batch and corrected publication evidence — 2026-10-12
+
+Master `7205a0b6` accepts configured-width lint (`05aad7be`, `6b273089`),
+including loud errors for invalid nearest imported configurations. Independent
+review confirms dependent roots are excluded before lint work; private units
+41/41, integration 22/22 and focused native regressions passed.
+
+Indexed blanket retirement (`cc59c5d1`) and metadata closure (`51c82f32`,
+`2ac19edd`) remove redundant comparison-chain assertion metadata, validate
+and consume the encoded filesystem-children operation, and replace the driver
+defer trigger's hand-indexed read with its typed view. Comparison-chain tag 32
+is unchanged; its internal payload loses the unused Boolean. A test-only slot
+count helper remains for existing Rust tests. Focused corruption/ordinal/defer
+checks and comparison-chain 6/6 in both modes passed. The only production
+warning is the W4-owned typed-call signature reader; final warning-deny feature
+matrix remains pending that integration.
+
+Canonical stage-call checking (`413d1982`, `eefe8ba8`) removes per-callback
+arena clones while sharing callback-result, Unit-tail and argument-binding
+rules. It fixes a reproduced invalid Bool assertion edit on a callee token.
+Int no-fix coverage already passes baseline and is an invariant, not a claimed
+regression. Focused stage/tail files passed 15/15, 28/28 and 4/4 in both modes;
+the allocation regression passed. At 96 unrelated declarations, residual
+named-vs-inline growth is 36,764 bytes and 123 allocations; the byte guard is
+bounded regression evidence, not proof of zero growth.
+
+Feature-on XSHI (`09159c8b`, `97d3bec6`) runs session/checker/evaluator work on
+a 12 MiB thread while argument parsing and signal guards stay on the joining
+thread. Existing IO workers keep their original behavior. The tiny-main-stack
+regression, actual pthread stack probe and CLI 10/10 passed privately.
+
+Bounded fair scheduler (`3a6c3daa`, `7205a0b6`) limits parallel admission to
+eight cases per file and rotates ready files. Default workers remain capped
+at 32; explicit jobs remain an override. Serial behavior, stable IDs/temp
+indices and completion-arrival parallel reporting remain intact. The real
+multi-file progress gate and default-worker BusyBox AWK 49/49 passed. The
+bound counts admitted cases; preexisting uncooperative timed-out evaluator
+threads can outlive leases. No full-suite nonregression claim is made yet.
+
+The completed W9 original-corpus matrix has 6,760 valid rows per arm, identical
+input and diagnostic digests, but 256 publication mismatches across 64 paths
+in all four profiles. The earlier live-prefix comparator ignored output rows
+that preceded input rows, so every earlier live-publication-match claim is
+withdrawn. Independent receipt audit validates the complete corpus and all
+mismatches. A fresh first-mismatch capture isolates the missing imported
+`PreparedConstants.cli_plans` cache; the lane owns a red-first fix and renewed
+parity proof. W9 is not accepted or ported.
+
+Combined master verification for this broad batch is pending. W4 full producer
+proof, W9 publication, deterministic DD FIFO producer and GNU resource/capture
+regressions remain active. The frozen-source metrics scan hit its 240-second
+cap, not a reported scanner error; nine observer tests pass, but no full report
+was produced. One mutable-source scan was explicitly invalidated and retained.
+All original baseline files remain unchanged.
+
 ## Throughput requirement clarified and combined gate green — 2026-10-12
 
 The owner explicitly made 4x speedup aspirational; performance nonregression
