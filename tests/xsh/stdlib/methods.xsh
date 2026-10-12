@@ -298,3 +298,11 @@ value.bit_and(1)
   }
   assert "integer-bitset" in negative_mask.stderr
 }
+
+test test_error_message_field_can_be_matched_as_text {
+  let nonempty = match "nope".parse_int() {
+    Err(failure) => match failure.message { "" => false, _ => true }
+    Ok(_) => false
+  }
+  assert nonempty
+}

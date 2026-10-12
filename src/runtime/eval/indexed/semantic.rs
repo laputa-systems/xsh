@@ -156,11 +156,6 @@ impl SemanticPools {
     }
 
     #[cfg(test)]
-    pub(super) fn signature_count(&self) -> usize {
-        self.signature_data.len()
-    }
-
-    #[cfg(test)]
     pub(super) fn shape_count(&self) -> usize {
         self.shapes.len()
     }
@@ -176,6 +171,34 @@ impl SemanticPools {
         let payload = self.signature_payload(id)?;
         TypeId::from_raw(payload[0])
             .ok_or_else(|| IrVerifyError::new("signature return type id is invalid"))
+    }
+
+    pub(super) fn signature_matches_callable(
+        &self,
+        id: SignatureId,
+        expected: &CallableType,
+    ) -> Result<bool, IrVerifyError> {
+        Ok(self.to_signature(id, 0)? == *expected)
+    }
+
+    pub(super) fn signature_fits_callable(
+        &self,
+        id: SignatureId,
+        actual_pure: bool,
+        expected: &crate::sema::types::TypedCallable,
+    ) -> Result<bool, IrVerifyError> {
+        let actual = self.to_signature(id, 0)?;
+        Ok(expected
+            .mismatch(actual_pure, &actual, true)
+            .is_none())
+    }
+
+    pub(super) fn callable_type_fits(
+        &self,
+        actual: &crate::sema::types::TypedCallable,
+        expected: &crate::sema::types::TypedCallable,
+    ) -> bool {
+        expected.mismatch(actual.pure, &actual.sig, true).is_none()
     }
 
     pub(super) fn signature_param_count(&self, id: SignatureId) -> Result<usize, IrVerifyError> {
@@ -222,6 +245,94 @@ impl SemanticPools {
             .get(start..end)
             .ok_or_else(|| IrVerifyError::new("record type payload is out of bounds"))?;
         Ok((fields, types))
+    }
+
+    /// Resolves checked fields on records and statically typed module exports.
+    /// Optional module exports cannot prove a direct field read is callable.
+    pub(super) fn field_type(
+        &self,
+        mut id: TypeId,
+        field: Name,
+    ) -> Result<Option<TypeId>, IrVerifyError> {
+        for _ in 0..=self.type_tags.len() {
+            let tag = self.type_tag(id)?;
+            let data = self.type_data[id.index()];
+            match tag {
+                TypeTag::Validated | TypeTag::Nominal => {
+                    id = TypeId::from_raw(data.lhs)
+                        .ok_or_else(|| IrVerifyError::new("record base type id is invalid"))?;
+                }
+                TypeTag::Record => {
+                    let (fields, types) = self.record_fields(id)?;
+                    let Some(index) = fields.iter().position(|name| *name == field) else {
+                        return Ok(None);
+                    };
+                    return TypeId::from_raw(types[index])
+                        .map(Some)
+                        .ok_or_else(|| IrVerifyError::new("record field type id is invalid"));
+                }
+                TypeTag::Module | TypeTag::ExactModule => {
+                    let shape = ShapeId::from_raw(data.lhs)
+                        .ok_or_else(|| IrVerifyError::new("module shape id is invalid"))?;
+                    let fields = self.shape_fields(shape)?;
+                    let Some(index) = fields.iter().position(|name| *name == field) else {
+                        return Ok(None);
+                    };
+                    let index = u32::try_from(index)
+                        .map_err(|_| IrVerifyError::new("module export index overflows"))?;
+                    let offset = data
+                        .rhs
+                        .checked_add(index.checked_mul(2).ok_or_else(|| {
+                            IrVerifyError::new("module export offset overflows")
+                        })?)
+                        .ok_or_else(|| IrVerifyError::new("module export offset overflows"))?
+                        as usize;
+                    let end = offset
+                        .checked_add(2)
+                        .ok_or_else(|| IrVerifyError::new("module export range overflows"))?;
+                    let export = self
+                        .type_extra
+                        .get(offset..end)
+                        .ok_or_else(|| IrVerifyError::new("module export is out of bounds"))?;
+                    if export[0] & MODULE_EXPORT_OPTIONAL != 0 {
+                        return Ok(None);
+                    }
+                    return match export[0] & 0b11 {
+                        0 => TypeId::from_raw(export[1])
+                            .map(Some)
+                            .ok_or_else(|| IrVerifyError::new("module export type id is invalid")),
+                        kind @ (1 | 2) => {
+                            let signature = SignatureId::from_raw(export[1]).ok_or_else(|| {
+                                IrVerifyError::new("module export signature id is invalid")
+                            })?;
+                            let callable_tag = if kind == 1 {
+                                TypeTag::TypedProc
+                            } else {
+                                TypeTag::TypedPure
+                            };
+                            let Some(index) = self.type_tags.iter().enumerate().find_map(
+                                |(index, tag)| {
+                                    (*tag == callable_tag
+                                        && self
+                                            .type_data
+                                            .get(index)
+                                            .is_some_and(|data| data.lhs == signature.raw()))
+                                    .then_some(index)
+                                },
+                            ) else {
+                                return Ok(None);
+                            };
+                            TypeId::new(index).map(Some).map_err(|_| {
+                                IrVerifyError::new("module callable type id overflows")
+                            })
+                        }
+                        _ => Err(IrVerifyError::new("module export kind is invalid")),
+                    }
+                }
+                _ => return Ok(None),
+            }
+        }
+        Err(IrVerifyError::new("field type graph contains a cycle"))
     }
 
     /// The signature of a typed callable type.
@@ -1471,6 +1582,78 @@ mod tests {
             effects: Some(vec![Effect::Fs, Effect::Error]),
         }
     }
+
+    #[test]
+    fn module_value_fields_resolve_exact_checked_callable_types() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let callable = CallableType {
+                params: Vec::new(),
+                return_ty: Box::new(Type::Unit),
+                effects: Some(Vec::new()),
+            };
+            let typed = |pure| {
+                Type::Callable(std::sync::Arc::new(crate::sema::types::TypedCallable {
+                    pure,
+                    sig: callable.clone(),
+                }))
+            };
+            let module = Type::Module(std::sync::Arc::new(
+                crate::sema::types::ModuleType::exact(BTreeMap::from([
+                    (
+                        Name::intern("handler"),
+                        ModuleExportType::Value {
+                            ty: typed(false),
+                            optional: false,
+                        },
+                    ),
+                    (
+                        Name::intern("optional"),
+                        ModuleExportType::Value {
+                            ty: typed(false),
+                            optional: true,
+                        },
+                    ),
+                    (
+                        Name::intern("proc_export"),
+                        ModuleExportType::Proc {
+                            sig: callable.clone(),
+                            optional: false,
+                        },
+                    ),
+                    (
+                        Name::intern("pure_export"),
+                        ModuleExportType::Pure {
+                            sig: callable.clone(),
+                            optional: false,
+                        },
+                    ),
+                ])),
+            ));
+            let mut pools = SemanticPools::default();
+            let mut builder = SemanticPoolBuilder::default();
+            let module_id = builder.intern_type(&mut pools, &module).unwrap();
+            let proc_type = builder.intern_type(&mut pools, &typed(false)).unwrap();
+            let pure_type = builder.intern_type(&mut pools, &typed(true)).unwrap();
+
+            assert_eq!(
+                pools.field_type(module_id, Name::intern("handler")),
+                Ok(Some(proc_type))
+            );
+            assert_eq!(
+                pools.field_type(module_id, Name::intern("proc_export")),
+                Ok(Some(proc_type))
+            );
+            assert_eq!(
+                pools.field_type(module_id, Name::intern("pure_export")),
+                Ok(Some(pure_type))
+            );
+            assert_eq!(
+                pools.field_type(module_id, Name::intern("optional")),
+                Ok(None)
+            );
+        });
+    }
+
 
     #[test]
     fn equal_types_signatures_and_shapes_share_compact_ids() {

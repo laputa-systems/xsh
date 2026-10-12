@@ -40,7 +40,7 @@ use super::{
     lowered_value_from_runtime_any,
     path_bytes, push_lowered_display, push_lowered_fmt_value, push_lowered_native_fmt_value,
     read_host_path_bytes, run_pipeline_inherit_with_policy,
-    runtime_error_from_value, splice_to_argv, structured_error_constructor,
+    identified_structured_error_constructor, runtime_error_from_value, splice_to_argv,
     ValueView, value_matches_static_type, value_to_argv_bytes,
 };
 use crate::map_key::MapKey;
@@ -998,6 +998,7 @@ pub(super) fn indexed_frame_apply_value(
         }
         ExprView::Error(ErrorExprView::Structured {
             family,
+            family_identity,
             variant,
             mut fields,
             facets,
@@ -1046,8 +1047,9 @@ pub(super) fn indexed_frame_apply_value(
                 Some(Value::Str(message)) => message.to_string(),
                 _ => format!("{family}.{variant}"),
             };
-            return Ok(LoweredValue::Error(Box::new(structured_error_constructor(
+            return Ok(LoweredValue::Error(Box::new(identified_structured_error_constructor(
                 family.to_string(),
+                family_identity.to_string(),
                 variant.to_string(),
                 record,
                 facet_names,

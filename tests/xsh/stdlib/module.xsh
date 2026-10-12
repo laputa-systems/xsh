@@ -826,6 +826,11 @@ export pure failure() -> Result[Unit, Error] {
   Err(HelperError.Failed(detail: "loaded", code: 9))
 }
 """)
+  fp"{root}/other.xsh".write(r"""
+##! Second imported error family with the same declaration name.
+## A distinct identity with a matching variant shape.
+export error HelperError = Failed(detail: Str, code: Int)
+""")
   let result = test.run_script(
     ctx,
     r"""
@@ -874,6 +879,35 @@ match failure {
   }
   assert aliased.stdout == """aliased 8
 """
+  let distinct_families = test.run_script(
+    ctx,
+    r"""
+use helper as h
+use other as o
+let helper_failure = h.HelperError.Failed(detail: "helper", code: 1)
+let other_failure = o.HelperError.Failed(detail: "other", code: 2)
+match helper_failure {
+  h.HelperError.Failed {detail, code} => print $detail $code
+  _ => print "wrong helper family"
+}
+match other_failure {
+  o.HelperError.Failed {detail, code} => print $detail $code
+  _ => print "wrong other family"
+}
+let dynamic: Any = helper_failure
+match dynamic {
+  o.HelperError.Failed {..} => print "cross-matched"
+  _ => print "distinct"
+}
+""",
+    [],
+    {XSH_MODULE_PATH: root},
+  )?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = distinct_families
+    assert assertion_condition, assertion_message
+  }
+  assert distinct_families.stdout == "helper 1\nother 2\ndistinct\n"
   let loaded = test.run_script(
     ctx,
     f"""
@@ -969,6 +1003,10 @@ export pure render(value: Str) -> Str {
 export stream numbers() [] -> Stream[Int] {
   yield 1
 }
+## A widened stream export keeps its declared Any item type.
+export stream values() [] -> Stream[Any] {
+  yield 1
+}
 ## A tagged union export.
 export enum State { Ready, Stopped(Str) }
 ## An error family export with an error facet.
@@ -983,6 +1021,9 @@ use helper
 proc check_stream() [] -> Unit {
   for value in helper.numbers() {
     let _: Int = value
+  }
+  for value in helper.values() {
+    let _: Any = value
   }
 }
 

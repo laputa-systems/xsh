@@ -201,7 +201,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 .is_some()
                 || matches!(self.checked_expr_type(base), Some(Type::ErrorFamily(_)))
                 || matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(_) if self.source_slot(base, slots).is_none() && matches!(self.checked_expr_type(base), Some(Type::Module(_))))
-                || matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "Path" || api_spec().module(&module.as_str()).is_some() || self.declarations.error_families_by_name.contains_key(&module))
+                || matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(module) if self.source_slot(base, slots).is_none() && (module == "Path" || api_spec().module(&module.as_str()).is_some() || self.declarations.error_families_by_name.contains_key(&module)))
                 || self
                     .declarations
                     .record_constructors
@@ -210,6 +210,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             if !namespace {
                 let receiver = self.lower_expr(base, slots, current_function, item_slot)?;
                 let slot = slots.reserve("call receiver");
+                if let Some(ty) = self.concrete_checked_type(base)
+                    && !slots.record_checked_slot_type(slot, ty)
+                {
+                    return None;
+                }
                 bindings.push((receiver, slot));
                 let bound = push_build_row!(self, expr, BuildExprRow::Param(slot));
                 overrides.push((base, slots.postfix_receivers.insert(base, bound)));
@@ -223,8 +228,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. }
             )
         {
+            let Some(ty @ Type::Callable(_)) = self.bodies.expr_types.get(&callee).cloned() else {
+                return None;
+            };
             let value = self.lower_expr(callee, slots, current_function, item_slot)?;
             let slot = slots.reserve("typed callee");
+            if !slots.record_checked_slot_type(slot, ty) {
+                return None;
+            }
             bindings.push((value, slot));
             let bound = push_build_row!(self, expr, BuildExprRow::Param(slot));
             overrides.push((callee, slots.postfix_receivers.insert(callee, bound)));
@@ -247,8 +258,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     };
                     overrides.push((expr, slots.postfix_receivers.insert(expr, bound)));
                 }
-                let value =
-                    self.lower_call(id, callee, args, slots, current_function, item_slot)?;
+                let value = self.lower_call(id, callee, args, slots, current_function, item_slot)?;
                 return Some(self.wrap_argument_bindings(
                     value,
                     bindings,
@@ -320,6 +330,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 stdlib_linkage: self.stdlib_linkage,
                 function_defs: Rc::clone(&self.function_defs),
                 scratch: Rc::clone(&self.scratch),
+                with_error_source_exprs: self.with_error_source_exprs.clone(),
                 // The child's program is the extended copy itself.
                 spread_programs: Rc::default(),
             };

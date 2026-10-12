@@ -1,7 +1,7 @@
 use super::{
     Arc, ArenaExprKind, ArenaPatternKind, BuildExprId, BuildExprRow, BuildPatternId,
     BuildPatternIdSlots, BuildPatternRow, CompactLowerConstructProbe, DurationValue, ExprId,
-    LoweredValue, Name, PathValue, PatternId,
+    CheckedPatternField, CheckedPatternVariantKey, CheckedPatternVariantKind, LoweredValue, Name, PathValue, PatternId,
     QualifiedName, SlotScope, Type, UnaryOp, checked_type_annotation,
     cleanup_lowered_pattern_slots,
 };
@@ -223,9 +223,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 if let Some((family, variant)) = text.rsplit_once('.') {
                     let family = Name::intern(family);
                     let variant = Name::intern(variant);
-                    if let Some((family, info)) = self.compact_pattern_error_family(family)
-                        && info.variants.contains_key(&variant)
-                    {
+                    if let Some(family) = self.record_error_pattern_schema(family, variant) {
                         return Some((
                             push_build_row!(
                                 self,
@@ -241,13 +239,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     }
                 }
                 if self.compact_tag_variant_arity(*name) == Some(0) {
+                    let (type_name, variant) = self.record_tag_pattern_schema(*name)?;
                     Some((
                         push_build_row!(
                             self,
                             pattern,
                             BuildPatternRow::Tag {
-                                type_name: self.compact_tag_type_name(*name)?,
-                                name: compact_pattern_tag_name(*name),
+                                type_name,
+                                name: variant,
                                 slots: Default::default()
                             }
                         ),
@@ -412,13 +411,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 .lower_pattern_literal(*expr)
                 .map(|pattern| (pattern, Vec::new())),
             ArenaPatternKind::Binding(name) if self.compact_tag_variant_arity(*name) == Some(0) => {
+                let (type_name, variant) = self.record_tag_pattern_schema(*name)?;
                 Some((
                     push_build_row!(
                         self,
                         pattern,
                         BuildPatternRow::Tag {
-                            type_name: self.compact_tag_type_name(*name)?,
-                            name: compact_pattern_tag_name(*name),
+                            type_name,
+                            name: variant,
                             slots: Default::default(),
                         }
                     ),
@@ -489,22 +489,21 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             } => {
                 let qualified = Name::intern(format!("{family}.{variant}"));
                 if fields.len == 0 && self.compact_tag_variant_arity(qualified) == Some(0) {
+                    let (type_name, tag_variant) = self.record_tag_pattern_schema(qualified)?;
                     return Some((
                         push_build_row!(
                             self,
                             pattern,
                             BuildPatternRow::Tag {
-                                type_name: self.compact_tag_type_name(qualified)?,
-                                name: *variant,
+                                type_name,
+                                name: tag_variant,
                                 slots: Default::default()
                             }
                         ),
                         Vec::new(),
                     ));
                 }
-                let family = self
-                    .compact_pattern_error_family(*family)
-                    .map_or(*family, |(family, _)| family);
+                let family = self.record_error_pattern_schema(*family, *variant)?;
                 let mut lowered = Vec::new();
                 let mut cleanup = Vec::new();
                 for field in self.program.arena.pattern_fields(*fields).to_vec() {
@@ -572,15 +571,18 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         cleanup.extend(bindings);
                     }
                     return Some((
-                        push_build_row!(
-                            self,
-                            pattern,
-                            BuildPatternRow::TagTest {
-                                type_name: self.compact_tag_type_name(*name)?,
-                                name: compact_pattern_tag_name(*name),
-                                fields
-                            }
-                        ),
+                        {
+                            self.record_tag_pattern_schema(*name)?;
+                            push_build_row!(
+                                self,
+                                pattern,
+                                BuildPatternRow::TagTest {
+                                    type_name: self.compact_tag_type_name(*name)?,
+                                    name: compact_pattern_tag_name(*name),
+                                    fields
+                                }
+                            )
+                        },
                         cleanup,
                     ));
                 }
@@ -620,6 +622,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             return None;
                         }
                     };
+                self.record_tag_pattern_schema(*name)?;
                 Some((
                     push_build_row!(
                         self,
@@ -878,15 +881,26 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 .clone();
             Some((Name::intern(key.to_string()), info))
         } else {
-            self.declarations
-                .error_families_by_name
-                .get(&family)
-                .cloned()
-                .map(|info| (family, info))
+            self.current_namespace
+                .and_then(|namespace| {
+                    let key = self.compact_qualified_function_key(namespace, family);
+                    self.declarations
+                        .qualified_error_families
+                        .get(&key)
+                        .cloned()
+                        .map(|info| (Name::intern(key.to_string()), info))
+                })
+                .or_else(|| {
+                    self.declarations
+                        .error_families_by_name
+                        .get(&family)
+                        .cloned()
+                        .map(|info| (family, info))
+                })
         }
     }
 
-    fn compact_qualified_pattern_facet(&self, name: Name) -> Option<Name> {
+    pub(super) fn compact_qualified_pattern_facet(&self, name: Name) -> Option<Name> {
         let text = name.as_str();
         let (namespace, facet) = text.rsplit_once('.')?;
         let namespace = self.compact_imported_module_owner(Name::intern(namespace))?;
@@ -959,6 +973,62 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             })
             .or_else(|| self.declarations.tag_variants_by_name.get(&name))
             .map(|variant| variant.field_types.clone())
+    }
+
+    pub(super) fn record_tag_pattern_schema(&self, name: Name) -> Option<(Name, Name)> {
+        let type_name = self.compact_tag_type_name(name)?;
+        let variant = compact_pattern_tag_name(name);
+        self.record_checked_tag_schema(
+            type_name,
+            variant,
+            &self.compact_tag_variant_field_types(name)?,
+        )
+        .then_some((type_name, variant))
+    }
+
+    pub(super) fn record_checked_tag_schema(
+        &self,
+        type_name: Name,
+        variant: Name,
+        field_types: &[Type],
+    ) -> bool {
+        let fields = field_types
+            .iter()
+            .cloned()
+            .into_iter()
+            .map(|ty| CheckedPatternField { name: None, ty })
+            .collect();
+        let key = CheckedPatternVariantKey {
+            kind: CheckedPatternVariantKind::Tag,
+            owner: type_name,
+            variant,
+        };
+        self.scratch
+            .borrow_mut()
+            .record_checked_pattern_variant(key, fields)
+    }
+
+    pub(super) fn record_error_pattern_schema(&self, family: Name, variant: Name) -> Option<Name> {
+        let (family, info) = self.compact_pattern_error_family(family)?;
+        let variant_info = info.variants.get(&variant)?;
+        let fields = variant_info
+            .fields
+            .keys()
+            .zip(variant_info.fields.values())
+            .map(|(name, ty)| CheckedPatternField {
+                name: Some(*name),
+                ty: ty.clone(),
+            })
+            .collect();
+        let key = CheckedPatternVariantKey {
+            kind: CheckedPatternVariantKind::Error,
+            owner: family,
+            variant,
+        };
+        self.scratch
+            .borrow_mut()
+            .record_checked_pattern_variant(key, fields)
+            .then_some(family)
     }
 
     pub(super) fn compact_tag_variant_arity(&self, name: Name) -> Option<usize> {

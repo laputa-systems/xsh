@@ -682,6 +682,9 @@ struct BuildScratch {
     prepared_schemas: Vec<(Type, Arc<require::PreparedSchema>)>,
     prepared_constants: FxHashMap<crate::syntax::arena::ExprId, LoweredValue>,
     expressions: Vec<BuildExprRow>,
+    /// Exact checker types for callable expressions, structured error constructors,
+    /// and error sources; aligned with `expressions` until instruction encoding.
+    checked_expr_types: Vec<Option<CheckedExprType>>,
     /// Binary expressions with a checked operand other than Int (a Duration,
     /// even when the result is an Int interval count, or Str concatenation)
     /// prohibit integer-only specialization.
@@ -689,16 +692,85 @@ struct BuildScratch {
     statements: Vec<BuildStmtRow>,
     resource_transfers: Vec<bool>,
     patterns: Vec<BuildPatternRow>,
+    checked_pattern_variants: BTreeMap<CheckedPatternVariantKey, Vec<CheckedPatternField>>,
     ints: Vec<BuildIntRow>,
     bools: Vec<BuildBoolRow>,
     top_statements: Vec<BuildTopStmtRow>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct CheckedExprType {
+    ty: Type,
+    function_ref: Option<(FunctionName, bool)>,
+    with_error_source: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub(super) enum CheckedPatternVariantKind {
+    Tag,
+    Error,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub(super) struct CheckedPatternVariantKey {
+    pub(super) kind: CheckedPatternVariantKind,
+    pub(super) owner: Name,
+    pub(super) variant: Name,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct CheckedPatternField {
+    pub(super) name: Option<Name>,
+    pub(super) ty: Type,
 }
 
 impl BuildScratch {
     fn expr(&mut self, row: BuildExprRow) -> BuildExprId {
         let id = BuildExprId::new(self.expressions.len());
         self.expressions.push(row);
+        self.checked_expr_types.push(None);
         id
+    }
+
+    fn record_checked_expr_type(
+        &mut self,
+        id: BuildExprId,
+        ty: Type,
+        with_error_source: bool,
+    ) -> bool {
+        let Some(fact) = self.checked_expr_types.get_mut(id.index()) else {
+            return false;
+        };
+        let function_ref = match self.expressions.get(id.index()) {
+            Some(BuildExprRow::FunctionRef { function, pure }) => Some((*function, *pure)),
+            _ => None,
+        };
+        let checked = CheckedExprType {
+            ty,
+            function_ref,
+            with_error_source,
+        };
+        match fact {
+            Some(existing) => *existing == checked,
+            None => {
+                *fact = Some(checked);
+                true
+            }
+        }
+    }
+
+    fn record_checked_pattern_variant(
+        &mut self,
+        key: CheckedPatternVariantKey,
+        fields: Vec<CheckedPatternField>,
+    ) -> bool {
+        match self.checked_pattern_variants.get(&key) {
+            Some(existing) => existing == &fields,
+            None => {
+                self.checked_pattern_variants.insert(key, fields);
+                true
+            }
+        }
     }
 
     fn stmt(&mut self, row: BuildStmtRow) -> BuildStmtId {
@@ -747,9 +819,13 @@ struct FunctionBuild {
     captures: LoweredTopLevelSlots,
     return_kind: LoweredReturnKind,
     return_check: Option<LoweredTypeCheck>,
+    /// Exact checker return type used to verify calls through produced values.
+    checked_return_type: Option<Type>,
+    /// Full checker signature used to correlate function-reference values with their targets.
+    checked_function_signature: Option<crate::sema::types::CallableType>,
     slot_count: usize,
-    /// One exact callable type per local dense slot; `None` records no unique checked signature.
-    callable_slot_types: Vec<Option<Type>>,
+    /// One exact checked type per local dense slot when all source bindings agree.
+    slot_type_facts: Vec<Option<Type>>,
     body: Vec<BuildStmtId>,
     scratch: Rc<RefCell<BuildScratch>>,
 }
@@ -1019,6 +1095,7 @@ struct BuildTopStmtRow {
     kind: BuildTopKind,
     slots: LoweredTopLevelSlots,
     slot_count: usize,
+    slot_type_facts: Vec<Option<Type>>,
 }
 
 #[derive(Clone, Debug)]
@@ -1029,6 +1106,8 @@ enum BuildTopKind {
         path: Vec<Name>,
         namespace: Name,
         exports: Vec<LoweredModuleExport>,
+        /// Exact checker type registered for this imported module binding.
+        checked_type: Option<Type>,
         module_statements: Vec<(Span, BuildTopStmtId)>,
         span: Span,
     },
@@ -1096,7 +1175,7 @@ struct LoweredTopLevelSlot {
     name: Name,
     slot: usize,
     kind: LoweredType,
-    callable_type: Option<Type>,
+    checked_type: Option<Type>,
     mutable: bool,
 }
 
@@ -1419,6 +1498,7 @@ struct ScanBytes {
 enum LoweredErrorExpr {
     Structured {
         family: String,
+        family_identity: String,
         variant: String,
         fields: Vec<(Arc<str>, BuildExprId)>,
         facets: Vec<Name>,
@@ -6309,6 +6389,7 @@ fn runtime_error_from_value(value: Value, span: Span) -> RuntimeError {
                 propagated_run_error: Some(original),
                 scope_cleanup: false,
                 family_name: Name::PROCESS_ERROR,
+                family_identity: Name::PROCESS_ERROR,
                 variant_name,
                 _symbols: symbols,
             }

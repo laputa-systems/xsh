@@ -156,7 +156,7 @@ impl Evaluator {
                     match value.as_ref() {
                         Value::Error(error)
                             if crate::runtime::value::error_family_matches(
-                                error.family_name(),
+                                error.family_identity(),
                                 family,
                             ) && error.variant_name() == variant =>
                         {

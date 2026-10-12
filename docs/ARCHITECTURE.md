@@ -248,6 +248,20 @@ for encoding, decoding, and verification; runtime consumers use borrowed views.
 Literal-value verification retains the distinct StatsBlob string-key check and
 Set duplicate rejection. Pattern tags preserve the unused ordinal 14.
 
+Typed-callable verification retains exact checker types for expression
+producers and imported module bindings as private verifier metadata; it does
+not add words to executable payloads. The registered module type is checked
+against the child program's exact export set, callable signatures, and
+callable-value initializers, then against typed module slots that use the
+import. A missing type fails when such a slot needs import provenance.
+`FullDriverStep` is 40 bytes with this optional `TypeId` metadata (36 bytes
+before); `full_indexed_layouts_keep_hot_rows_compact` pins that layout.
+`typed_callable_driver_temporary_module_fact_matches_its_source` rejects a
+registered type copied from another import, missing provenance on a used
+module, or metadata attached to a non-import step; and
+`typed_callable_module_receiver_facts_reject_another_import_slot` rejects a
+module receiver rewritten to a different import slot.
+
 Specialized `Path` calls use the receiver in `CheckedApiCall`, including
 null-safe calls. A shared method name alone cannot select a filesystem
 instruction: imported procedures may export those names with their own

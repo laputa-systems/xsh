@@ -394,6 +394,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         // evaluated in source order above, as for a call by name, so slot
         // order is free here.
         if let Some(callable) = self.bodies.typed_callable_calls.get(&id).cloned() {
+            let Some(Type::Callable(checked_callee_type)) =
+                self.bodies.expr_types.get(&callee).cloned()
+            else {
+                return None;
+            };
+            if checked_callee_type.as_ref() != callable.as_ref() {
+                return None;
+            }
             let args = self.lower_function_call_args(
                 &args_vec,
                 Some(&callable.sig.params),
@@ -402,9 +410,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 slots,
                 current_function,
                 item_slot,
-            )?;
+            );
+            let args = args?;
             let callee = self.lower_expr(callee, slots, current_function, item_slot)?;
-            return Some(push_build_row!(
+            let typed_call = push_build_row!(
                 self,
                 expr,
                 BuildExprRow::TypedCall {
@@ -414,7 +423,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     args,
                     span,
                 }
-            ));
+            );
+            return Some(typed_call);
         }
         if let Some(alias) = self
             .declarations
@@ -558,7 +568,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         if let Some((error, bindings)) =
             self.lower_compact_error_expr(id, callee, &args_vec, slots, current_function, item_slot)
         {
-            let value = push_build_row!(self, expr, BuildExprRow::Error(Box::new(error)));
+            let value = self.push_checked_structured_error(id, error, span)?;
             return Some(self.wrap_argument_bindings(value, bindings, span));
         }
         match self.program.arena.expr(callee).kind {
@@ -630,6 +640,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         let types = self.compact_tag_variant_field_types(Name::intern(format!(
                             "{module}.{name}"
                         )))?;
+                        self.record_tag_pattern_schema(Name::intern(format!("{module}.{name}")))?;
                         let (fields, bindings) = self.lower_checked_call_values(
                             &positional,
                             &types,
@@ -2110,6 +2121,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         return None;
                     }
                     let types = self.compact_tag_variant_field_types(name)?;
+                    self.record_tag_pattern_schema(name)?;
                     let (fields, bindings) = self.lower_checked_call_values(
                         positional,
                         &types,

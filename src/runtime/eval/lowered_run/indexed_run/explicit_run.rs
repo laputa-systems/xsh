@@ -7618,7 +7618,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             self.evaluator.pending_value_block_flow = None;
             self.evaluator.pending_traceback = None;
             if let Some(slot) = else_param_slot {
-                self.calls[index].slots[slot] = LoweredValue::Error(error);
+                self.calls[index].slots[slot] = lowered_value_from_runtime_any(error.as_ref())
+                    .ok_or_else(|| {
+                        RuntimeError::new(
+                            "type-error",
+                            format!(
+                                "with error payload cannot be lowered from {}",
+                                error.type_name()
+                            ),
+                        )
+                        .with_span(span)
+                    })?;
             }
             return self.push_statement_block(index, else_body, span);
         }
@@ -7730,7 +7740,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     LoweredValue::ResultErr(error) => {
                         self.evaluator.pending_traceback = None;
                         if let Some(slot) = else_param_slot {
-                            self.calls[index].slots[slot] = LoweredValue::Error(error);
+                            self.calls[index].slots[slot] =
+                                lowered_value_from_runtime_any(error.as_ref()).ok_or_else(|| {
+                                    RuntimeError::new(
+                                        "type-error",
+                                        format!(
+                                            "with error payload cannot be lowered from {}",
+                                            error.type_name()
+                                        ),
+                                    )
+                                    .with_span(span)
+                                })?;
                         }
                         return self.push_statement_block(index, else_body, span);
                     }
@@ -7793,7 +7813,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 FrameValue::Value(LoweredValue::ResultErr(error)) => {
                     if let Some(slot) = else_param_slot {
-                        self.calls[index].slots[slot] = LoweredValue::Error(error);
+                        self.calls[index].slots[slot] =
+                            lowered_value_from_runtime_any(error.as_ref()).ok_or_else(|| {
+                                RuntimeError::new(
+                                    "type-error",
+                                    format!(
+                                        "guard error payload cannot be lowered from {}",
+                                        error.type_name()
+                                    ),
+                                )
+                                .with_span(span)
+                            })?;
                     }
                     self.calls[index]
                         .work

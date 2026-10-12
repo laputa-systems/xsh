@@ -2,7 +2,7 @@ pub(in crate::runtime::eval) mod decode;
 pub(in crate::runtime::eval) mod in_place;
 pub(in crate::runtime::eval) mod schema;
 
-use decode::{BorrowCodec, DecodeContext, StageRef};
+use decode::{BorrowCodec, DecodeContext, ErrorExprView, ListView, StageRef};
 #[cfg(test)]
 use decode::PatternId;
 pub(in crate::runtime::eval) use schema::{BuildPatternRow, FullDriverTag};
@@ -22,7 +22,7 @@ use crate::runtime::eval::{
     BuildPatternIdSlots, BuildScratch, BuildStmtId, BuildTopKind,
     BuildTopStmtId, BuildTopStmtRow, FunctionBuild, FunctionHeader, LoweredAssignPath,
     LoweredAssignStep, LoweredCallArg, LoweredCompQualifier, LoweredCompQualifiers,
-    LoweredCompTarget, LoweredErrorExpr, LoweredFmtPart,
+    CheckedPatternField, LoweredCompTarget, LoweredErrorExpr, LoweredFmtPart,
     LoweredFunctionKey, LoweredFunctionKind, LoweredFunctionUnit, LoweredModuleExport,
     LoweredModuleExportKind, LoweredProcessCommandArgv,
     LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredRecordUpdates, LoweredReturnKind,
@@ -30,7 +30,7 @@ use crate::runtime::eval::{
     LoweredRunRedirection, LoweredSpawnRun, LoweredStatsValue, LoweredStrPredicate,
     LoweredTagValue, LoweredTopLevelSlot, LoweredTopLevelSlots, LoweredType, LoweredTypeCheck,
     LoweredValue, PreparedConstantValue, ProgramBuild, ReduceByOp, ScanBytes, ScanCheck,
-    ScanCondition,
+    ScanCondition, CheckedPatternVariantKey, CheckedPatternVariantKind,
 };
 use crate::runtime::value::{DurationValue, FloatValue, FunctionName, PathValue, RegexValue};
 use crate::sema::check::CompactDeclOutput;
@@ -67,6 +67,7 @@ const DRIVER_OWNER_BIT: u32 = 1 << 31;
 const DRIVER_SLOT_READ: u8 = 1;
 const DRIVER_SLOT_WRITE: u8 = 1 << 1;
 const DRIVER_SLOT_MUTABLE: u8 = 1 << 2;
+const DRIVER_SLOT_TEMPORARY: u8 = 1 << 3;
 
 const EFFECT_IMPORT: u32 = 1 << 0;
 const EFFECT_CWD: u32 = 1 << 1;
@@ -259,6 +260,8 @@ struct FullDriverStep {
     slot_count: u32,
     location: u32,
     effects: u32,
+    /// Checker module type retained for verifier provenance, or `IR_NONE`.
+    registered_module_type: u32,
     tag: FullDriverTag,
     reserved: [u8; 3],
 }
@@ -307,8 +310,10 @@ struct FullFunction {
     captures: IrRange,
     body: u32,
     slot_count: u32,
-    /// Dense callable type ids; `IR_NONE` means the slot has no single checked signature.
-    callable_slot_types: IrRange,
+    /// Dense checked type ids for local slots; `IR_NONE` means no unique fact exists.
+    slot_type_facts: IrRange,
+    /// Exact checker return type for deriving call results; independent of runtime return checks.
+    checked_return_type: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -356,11 +361,127 @@ struct FullValidation {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct FullCheckedExprType {
+    instruction: u32,
+    type_id: TypeId,
+    function_ref: Option<(FunctionName, bool)>,
+    with_error_source: bool,
+}
+
+#[derive(Clone, Copy)]
+enum CallableAssignmentPathStep {
+    Field(Name),
+    Index,
+}
+
+#[derive(Clone, Copy)]
+enum FunctionSignatureLookup {
+    Missing,
+    Unique(SignatureId),
+    Ambiguous,
+}
+
+#[derive(Default)]
+struct FunctionIdentitySignatures {
+    pure: FunctionSignatureLookup,
+    proc: FunctionSignatureLookup,
+}
+
+enum CheckedRecordEntry {
+    Field(Name, usize),
+    Spread(usize),
+}
+
+impl Default for FunctionSignatureLookup {
+    fn default() -> Self {
+        Self::Missing
+    }
+}
+
+/// Shares bounded target lookup between checked references and module exports.
+struct FunctionSignatureIndex {
+    functions: FxHashMap<(Option<Name>, Name), FunctionIdentitySignatures>,
+}
+
+#[derive(Clone, Copy)]
+enum RegisteredModuleType {
+    Missing,
+    Present(TypeId),
+    Ambiguous,
+}
+
+impl FunctionSignatureIndex {
+    fn build(store: &FullStore) -> Result<Self, IrVerifyError> {
+        let mut functions: FxHashMap<(Option<Name>, Name), FunctionIdentitySignatures> =
+            FxHashMap::default();
+        for (index, function) in store.functions.iter().enumerate() {
+            let metadata = store
+                .function_metadata
+                .get(index)
+                .ok_or_else(|| IrVerifyError::new("function reference metadata is missing"))?;
+            let name = Name::intern(store.string(function.name)?);
+            let owner = if metadata.owner == IR_NONE {
+                None
+            } else {
+                Some(Name::intern(store.string(metadata.owner)?))
+            };
+            let entry = functions.entry((owner, name)).or_default();
+            let lookup = if metadata.flags & 1 == 0 {
+                &mut entry.pure
+            } else {
+                &mut entry.proc
+            };
+            *lookup = match *lookup {
+                FunctionSignatureLookup::Missing => {
+                    FunctionSignatureLookup::Unique(function.signature)
+                }
+                FunctionSignatureLookup::Unique(_) | FunctionSignatureLookup::Ambiguous => {
+                    FunctionSignatureLookup::Ambiguous
+                }
+            };
+        }
+        Ok(Self { functions })
+    }
+
+    fn module_export(
+        &self,
+        owner: Name,
+        name: Name,
+        pure: bool,
+    ) -> Result<SignatureId, IrVerifyError> {
+        let lookup = self
+            .functions
+            .get(&(Some(owner), name))
+            .map(|signatures| if pure { &signatures.pure } else { &signatures.proc });
+        match lookup {
+            Some(FunctionSignatureLookup::Unique(signature)) => Ok(*signature),
+            Some(FunctionSignatureLookup::Ambiguous) => Err(IrVerifyError::new(
+                "registered module function target is ambiguous",
+            )),
+            Some(FunctionSignatureLookup::Missing) | None => Err(IrVerifyError::new(
+                "registered module function target is missing",
+            )),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(C)]
 struct FullFunctionMetadata {
     owner: u32,
     flags: u8,
     reserved: [u8; 3],
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct FullPatternFieldType {
+    name: Option<Name>,
+    type_id: TypeId,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct FullPatternVariantSchema {
+    fields: Vec<FullPatternFieldType>,
 }
 
 #[derive(Clone, Debug)]
@@ -386,7 +507,16 @@ struct FullStore {
     driver_programs: Vec<FullDriverProgram>,
     driver_root: u32,
     functions: Vec<FullFunction>,
-    callable_slot_types: Vec<u32>,
+    slot_type_facts: Vec<u32>,
+    /// Sparse checker types for typed callables, structured errors, and error sources.
+    checked_expr_types: Vec<FullCheckedExprType>,
+    /// Exact nominal payload fields attached to the checked pattern producers.
+    checked_pattern_variants:
+        BTreeMap<CheckedPatternVariantKey, FullPatternVariantSchema>,
+    /// Independently projected declaration fields used to authenticate each
+    /// checked pattern payload schema.
+    declared_pattern_variants:
+        BTreeMap<CheckedPatternVariantKey, FullPatternVariantSchema>,
     function_instruction_starts: Vec<u32>,
     function_metadata: Vec<FullFunctionMetadata>,
     params: Vec<FullParam>,
@@ -436,7 +566,10 @@ impl Default for FullStore {
             driver_programs: Vec::new(),
             driver_root: IR_NONE,
             functions: Vec::new(),
-            callable_slot_types: Vec::new(),
+            slot_type_facts: Vec::new(),
+            checked_expr_types: Vec::new(),
+            checked_pattern_variants: BTreeMap::new(),
+            declared_pattern_variants: BTreeMap::new(),
             function_instruction_starts: Vec::new(),
             function_metadata: Vec::new(),
             params: Vec::new(),
@@ -573,7 +706,24 @@ impl FullStore {
             + self.driver_regions.capacity() * size_of::<FullDriverRegion>()
             + self.driver_programs.capacity() * size_of::<FullDriverProgram>()
             + self.functions.capacity() * size_of::<FullFunction>()
-            + self.callable_slot_types.capacity() * size_of::<u32>()
+            + self.slot_type_facts.capacity() * size_of::<u32>()
+            + self.checked_expr_types.capacity() * size_of::<FullCheckedExprType>()
+            + self
+                .checked_pattern_variants
+                .values()
+                .map(|schema| {
+                    size_of::<(CheckedPatternVariantKey, FullPatternVariantSchema)>()
+                        + schema.fields.capacity() * size_of::<FullPatternFieldType>()
+                })
+                .sum::<usize>()
+            + self
+                .declared_pattern_variants
+                .values()
+                .map(|schema| {
+                    size_of::<(CheckedPatternVariantKey, FullPatternVariantSchema)>()
+                        + schema.fields.capacity() * size_of::<FullPatternFieldType>()
+                })
+                .sum::<usize>()
             + self.function_instruction_starts.capacity() * size_of::<u32>()
             + self.function_metadata.capacity() * size_of::<FullFunctionMetadata>()
             + self.params.capacity() * size_of::<FullParam>()
@@ -641,6 +791,14 @@ impl FullStore {
         self.driver_regions.shrink_to_fit();
         self.driver_programs.shrink_to_fit();
         self.functions.shrink_to_fit();
+        self.slot_type_facts.shrink_to_fit();
+        self.checked_expr_types.shrink_to_fit();
+        for schema in self.checked_pattern_variants.values_mut() {
+            schema.fields.shrink_to_fit();
+        }
+        for schema in self.declared_pattern_variants.values_mut() {
+            schema.fields.shrink_to_fit();
+        }
         self.function_instruction_starts.shrink_to_fit();
         self.function_metadata.shrink_to_fit();
         self.params.shrink_to_fit();
@@ -973,6 +1131,7 @@ impl FullProgram {
         &self,
         owned_blocks: &FxHashMap<u32, usize>,
         in_place_marks: &mut [bool],
+        function_signature_index: Arc<FunctionSignatureIndex>,
     ) -> Result<(), IrVerifyError> {
         if self.store.driver_root == IR_NONE {
             return Ok(());
@@ -985,6 +1144,7 @@ impl FullProgram {
             &mut step_states,
             owned_blocks,
             in_place_marks,
+            &function_signature_index,
         )?;
         if program_states.iter().any(|state| *state != 2)
             || step_states.iter().any(|state| *state != 2)
@@ -1003,6 +1163,7 @@ impl FullProgram {
         step_states: &mut [u8],
         owned_blocks: &FxHashMap<u32, usize>,
         in_place_marks: &mut [bool],
+        function_signature_index: &Arc<FunctionSignatureIndex>,
     ) -> Result<(), IrVerifyError> {
         let index = raw
             .checked_sub(1)
@@ -1023,6 +1184,7 @@ impl FullProgram {
             .steps
             .bounds(self.store.driver_steps.len())
             .ok_or_else(|| IrVerifyError::new("driver program step range is invalid"))?;
+        let mut registered_module_types = FxHashMap::default();
         for step_index in steps {
             match step_states[step_index] {
                 0 => step_states[step_index] = 1,
@@ -1034,13 +1196,32 @@ impl FullProgram {
                 }
                 _ => unreachable!("driver step state is bounded"),
             }
-            self.verify_driver_step(
+            let registered_import = self.verify_driver_step(
                 step_index,
                 program_states,
                 step_states,
                 owned_blocks,
                 in_place_marks,
+                function_signature_index,
+                &registered_module_types,
             )?;
+            if let Some((namespace, module_type)) = registered_import {
+                use std::collections::hash_map::Entry;
+                match registered_module_types.entry(namespace) {
+                    Entry::Vacant(entry) => {
+                        entry.insert(module_type.map_or(
+                            RegisteredModuleType::Missing,
+                            RegisteredModuleType::Present,
+                        ));
+                    }
+                    Entry::Occupied(mut entry) => match *entry.get() {
+                        RegisteredModuleType::Missing | RegisteredModuleType::Ambiguous => {}
+                        RegisteredModuleType::Present(_) => {
+                            *entry.get_mut() = RegisteredModuleType::Ambiguous;
+                        }
+                    },
+                }
+            }
             step_states[step_index] = 2;
         }
         program_states[index] = 2;
@@ -1054,8 +1235,15 @@ impl FullProgram {
         step_states: &mut [u8],
         owned_blocks: &FxHashMap<u32, usize>,
         in_place_marks: &mut [bool],
-    ) -> Result<(), IrVerifyError> {
+        function_signature_index: &Arc<FunctionSignatureIndex>,
+        registered_module_types: &FxHashMap<Name, RegisteredModuleType>,
+    ) -> Result<Option<(Name, Option<TypeId>)>, IrVerifyError> {
         let step = self.store.driver_steps[step_index];
+        if step.tag != FullDriverTag::Use && step.registered_module_type != IR_NONE {
+            return Err(IrVerifyError::new(
+                "non-import driver step has a registered module type",
+            ));
+        }
         let instruction_range = self.store.driver_instruction_range(step_index)?;
         let owner =
             driver_owner(step_index).map_err(|_| IrVerifyError::new("driver owner is invalid"))?;
@@ -1070,6 +1258,8 @@ impl FullProgram {
             block_states: Some(OwnedBlockStates::new(owner, owned_blocks)),
             slot_count: step.slot_count,
             pattern_ceiling: Cell::new(usize::MAX),
+            local_function_ref_initializers: RefCell::default(),
+            function_signature_index: Some(function_signature_index.clone()),
             verified: false,
         };
         let location_words = [step.location];
@@ -1081,33 +1271,90 @@ impl FullProgram {
             .bounds(self.store.driver_slots.len())
             .ok_or_else(|| IrVerifyError::new("driver slot range is invalid"))?;
         for slot in &self.store.driver_slots[slots] {
-            if slot.flags & !(DRIVER_SLOT_READ | DRIVER_SLOT_WRITE | DRIVER_SLOT_MUTABLE) != 0
+            let temporary = slot.flags & DRIVER_SLOT_TEMPORARY != 0;
+            if slot.flags
+                & !(DRIVER_SLOT_READ
+                    | DRIVER_SLOT_WRITE
+                    | DRIVER_SLOT_MUTABLE
+                    | DRIVER_SLOT_TEMPORARY)
+                != 0
                 || slot.flags & DRIVER_SLOT_READ == 0
                 || slot.slot >= step.slot_count
+                || (temporary
+                    && (slot.name != IR_NONE
+                        || slot.flags & (DRIVER_SLOT_WRITE | DRIVER_SLOT_MUTABLE) != 0))
+                || (!temporary && slot.name == IR_NONE)
             {
                 return Err(IrVerifyError::new("driver slot metadata is invalid"));
             }
-            self.store.string(slot.name)?;
+            if !temporary {
+                self.store.string(slot.name)?;
+            }
             lowered_type_from_type(&self.store.semantic.to_type(slot.type_id)?)?;
         }
         let mut payload = FullCursor::new(self.store.payload(step.data.range())?);
-        if let Some(child) = schema::DriverPayloadView::verify_fields(
+        let verified_child_program = schema::DriverPayloadView::verify_fields(
             &decoder,
             step.tag,
             &mut payload,
             step.slot_count,
-        )? {
+        )?;
+        payload.finish()?;
+        if let Some(child_program) = verified_child_program {
             self.verify_driver_program(
-                child,
+                child_program,
                 program_states,
                 step_states,
                 owned_blocks,
                 in_place_marks,
+                function_signature_index,
             )?;
         }
-        payload.finish()?;
+        let mut registered_import = None;
+        if step.tag == FullDriverTag::Use {
+            let view = self.driver_step_view_absolute(step_index)?;
+            let execution = view.execution()?;
+            let schema::DriverPayloadView::Use {
+                namespace,
+                exports,
+                child_program,
+                ..
+            } = view.decode_payload(&execution, view.payload()?)?
+            else {
+                return Err(IrVerifyError::new("driver payload row does not match its tag"));
+            };
+            if verified_child_program != Some(child_program) {
+                return Err(IrVerifyError::new(
+                    "driver payload child differs from its verified row",
+                ));
+            }
+            let exports = exports.collect::<Result<Vec<_>, _>>()?;
+            let module_type = if step.registered_module_type == IR_NONE {
+                None
+            } else {
+                let module_type = TypeId::from_raw(step.registered_module_type)
+                    .ok_or_else(|| IrVerifyError::new("registered module type id is invalid"))?;
+                self.store.semantic.to_type(module_type)?;
+                Some(module_type)
+            };
+            if let Some(module_type) = module_type {
+                decoder.verify_registered_module_type(
+                    module_type,
+                    namespace,
+                    &exports,
+                    child_program,
+                )?;
+            }
+            registered_import = Some((namespace, module_type));
+        }
         decoder.finish_function()?;
-        decoder.copy_in_place_marks_into(in_place_marks)
+        decoder.verify_driver_module_slots(registered_module_types)?;
+        decoder.verify_checked_expression_facts()?;
+        decoder.verify_temporary_driver_slot_types()?;
+        decoder.verify_callable_slot_initializers()?;
+        decoder.verify_typed_calls_after_structure()?;
+        decoder.copy_in_place_marks_into(in_place_marks)?;
+        Ok(registered_import)
     }
 }
 
@@ -1215,7 +1462,7 @@ impl<'a> FullFunctionView<'a> {
                 kind: lowered_type_from_type(
                     &self.program.store.semantic.to_type(capture.type_id)?,
                 )?,
-                callable_type: None, mutable: capture.slot_and_flags & (1 << 31) != 0,
+                checked_type: None, mutable: capture.slot_and_flags & (1 << 31) != 0,
             });
         }
         let return_type = self.program.store.semantic.to_type(
@@ -1331,11 +1578,14 @@ impl<'a> FullDriverStepView<'a> {
             .ok_or_else(|| IrVerifyError::new("driver slot range is invalid"))?;
         let mut slots = SmallVec::new();
         for slot in &self.program.store.driver_slots[range] {
+            if slot.flags & DRIVER_SLOT_TEMPORARY != 0 {
+                continue;
+            }
             slots.push(LoweredTopLevelSlot {
                 name: Name::intern(self.program.store.string(slot.name)?),
                 slot: slot.slot as usize,
                 kind: lowered_type_from_type(&self.program.store.semantic.to_type(slot.type_id)?)?,
-                callable_type: None, mutable: slot.flags & DRIVER_SLOT_MUTABLE != 0,
+                checked_type: None, mutable: slot.flags & DRIVER_SLOT_MUTABLE != 0,
             });
         }
         Ok(slots)
@@ -1356,6 +1606,7 @@ struct FullCheckpoint {
     driver_regions: usize,
     driver_programs: usize,
     driver_root: u32,
+    checked_expr_types: usize,
     params: usize,
     captures: usize,
     validations: usize,
@@ -1418,6 +1669,123 @@ impl FullBuilder {
                 ));
             }
             self.function_ids.insert(key, function_id);
+        }
+        Ok(())
+    }
+
+    fn declared_pattern_fields(
+        declarations: &CompactDeclOutput,
+        key: CheckedPatternVariantKey,
+    ) -> Option<Vec<CheckedPatternField>> {
+        match key.kind {
+            CheckedPatternVariantKind::Tag => {
+                let mut matches = declarations
+                    .tag_variants_by_name
+                    .iter()
+                    .filter(|(name, variant)| {
+                        **name == key.variant && variant.type_name == key.owner
+                    })
+                    .map(|(_, variant)| variant.field_types.as_slice())
+                    .chain(
+                        declarations
+                            .qualified_tag_variants
+                            .iter()
+                            .filter(|(name, variant)| {
+                                name.member == key.variant && variant.type_name == key.owner
+                            })
+                            .map(|(_, variant)| variant.field_types.as_slice()),
+                    );
+                let field_types = matches.next()?;
+                if matches.any(|other| other != field_types) {
+                    return None;
+                }
+                Some(
+                    field_types
+                        .iter()
+                        .cloned()
+                        .map(|ty| CheckedPatternField { name: None, ty })
+                        .collect(),
+                )
+            }
+            CheckedPatternVariantKind::Error => {
+                let family = if let Some((namespace, member)) = key.owner.as_str().rsplit_once('.') {
+                    declarations.qualified_error_families.get(&QualifiedName::new(
+                        Name::intern(namespace),
+                        Name::intern(member),
+                    ))?
+                } else {
+                    declarations.error_families_by_name.get(&key.owner)?
+                };
+                let variant = family.variants.get(&key.variant)?;
+                Some(
+                    variant
+                        .fields
+                        .keys()
+                        .zip(variant.fields.values())
+                        .map(|(name, ty)| CheckedPatternField {
+                            name: Some(*name),
+                            ty: ty.clone(),
+                        })
+                        .collect(),
+                )
+            }
+        }
+    }
+
+    fn register_checked_pattern_variants(
+        &mut self,
+        scratch: &BuildScratch,
+        declarations: &CompactDeclOutput,
+    ) -> Result<(), IrBuildError> {
+        for (key, fields) in &scratch.checked_pattern_variants {
+            let canonical_fields = Self::declared_pattern_fields(declarations, *key)
+                .ok_or_else(|| IrBuildError::format(
+                    "checked_pattern_declaration_missing",
+                    None,
+                    0,
+                    self.store.tags.len(),
+                ))?;
+            if fields != &canonical_fields {
+                return Err(IrBuildError::format(
+                    "checked_pattern_declaration_mismatch",
+                    None,
+                    0,
+                    self.store.tags.len(),
+                ));
+            }
+
+            for (target, fields) in [
+                (&mut self.store.checked_pattern_variants, fields),
+                (&mut self.store.declared_pattern_variants, &canonical_fields),
+            ] {
+                let mut full_fields = Vec::with_capacity(fields.len());
+                for field in fields {
+                    full_fields.push(FullPatternFieldType {
+                        name: field.name,
+                        type_id: self.semantic.intern_type(
+                            &mut self.store.semantic,
+                            &executable_type(&field.ty),
+                        )?,
+                    });
+                }
+                let schema = FullPatternVariantSchema {
+                    fields: full_fields,
+                };
+                match target.get(key) {
+                    Some(existing) if existing == &schema => {}
+                    Some(_) => {
+                        return Err(IrBuildError::format(
+                            "checked_pattern_variant_conflict",
+                            None,
+                            0,
+                            self.store.tags.len(),
+                        ));
+                    }
+                    None => {
+                        target.insert(*key, schema);
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -1503,8 +1871,9 @@ impl FullBuilder {
             headers,
             identities: std::sync::OnceLock::new(),
         };
-        FullVerifier::verify(&program)
-            .map_err(|_| IrBuildError::format("full_ir_verification", None, 0, 0))?;
+        FullVerifier::verify(&program).map_err(|_| {
+            IrBuildError::format("full_ir_verification", None, 0, 0)
+        })?;
         Ok(program)
     }
 
@@ -1608,6 +1977,7 @@ impl FullBuilder {
                             .map(|(_, detail)| detail.clone()),
                     )
                 })?;
+                builder.register_checked_pattern_variants(&body.scratch.borrow(), declarations)?;
                 let checkpoint = builder.checkpoint();
                 let function = builder.function_ids[&unit.key()];
                 builder.current_owner = Some(function.raw());
@@ -1652,6 +2022,7 @@ impl FullBuilder {
             &sources,
             &functions,
         );
+        builder.register_checked_pattern_variants(&driver.scratch.borrow(), declarations)?;
         let source_statements = program.statement_ids().collect::<Vec<_>>();
         drop(pures);
         drop(procs);
@@ -1756,7 +2127,7 @@ impl FullBuilder {
                 let slot = u32::try_from(capture.slot)
                     .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?;
                 let name = self.intern_string(&capture.name.as_str())?.raw();
-                let type_id = match &capture.callable_type {
+                let type_id = match &capture.checked_type {
                     Some(ty) => self
                         .semantic
                         .intern_type(&mut self.store.semantic, &executable_type(ty))?,
@@ -1768,19 +2139,43 @@ impl FullBuilder {
                     slot_and_flags: slot | u32::from(capture.mutable) << 31,
                 });
             }
+            let checked_return_type = body
+                .checked_return_type
+                .as_ref()
+                .map(|ty| {
+                    self.semantic
+                        .intern_type(&mut self.store.semantic, &executable_type(ty))
+                })
+                .transpose()?
+                .map_or(IR_NONE, TypeId::raw);
             let return_type = if let Some(check) = &body.return_check {
                 self.semantic
                     .intern_type(&mut self.store.semantic, &executable_type(&check.ty))?
+            } else if body
+                .checked_return_type
+                .as_ref()
+                .is_some_and(Type::contains_typed_callable)
+            {
+                TypeId::from_raw(checked_return_type).ok_or_else(|| {
+                    IrBuildError::format("checked_callable_return_type", None, 0, 0)
+                })?
             } else {
                 self.intern_return_type(body.return_kind)?
             };
-            let signature = self.semantic.intern_signature_parts(
-                &mut self.store.semantic,
-                &signature_params,
-                return_type,
-                None,
-            )?;
-            if body.callable_slot_types.len() != body.slot_count {
+            let signature = if let Some(checked) = &body.checked_function_signature {
+                self.semantic.intern_signature(
+                    &mut self.store.semantic,
+                    &executable_callable_type(checked),
+                )?
+            } else {
+                self.semantic.intern_signature_parts(
+                    &mut self.store.semantic,
+                    &signature_params,
+                    return_type,
+                    None,
+                )?
+            };
+            if body.slot_type_facts.len() != body.slot_count {
                 return Err(IrBuildError::format(
                     "callable_slot_type_count",
                     Some(unit.source_span()),
@@ -1788,27 +2183,19 @@ impl FullBuilder {
                     self.store.tags.len(),
                 ));
             }
-            let callable_slot_types_start = self.store.callable_slot_types.len();
-            for ty in &body.callable_slot_types {
+            let slot_type_facts_start = self.store.slot_type_facts.len();
+            for ty in &body.slot_type_facts {
                 let raw = match ty {
                     None => IR_NONE,
-                    Some(ty @ Type::Callable(_)) => self
+                    Some(ty) => self
                         .semantic
                         .intern_type(&mut self.store.semantic, &executable_type(ty))?
                         .raw(),
-                    Some(_) => {
-                        return Err(IrBuildError::format(
-                            "non_callable_slot_type",
-                            Some(unit.source_span()),
-                            0,
-                            self.store.tags.len(),
-                        ));
-                    }
                 };
-                self.store.callable_slot_types.push(raw);
+                self.store.slot_type_facts.push(raw);
             }
-            let callable_slot_types =
-                table_range(callable_slot_types_start, self.store.callable_slot_types.len())?;
+            let slot_type_facts =
+                table_range(slot_type_facts_start, self.store.slot_type_facts.len())?;
             let params = table_range(params_start, self.store.params.len())?;
             let captures = table_range(captures_start, self.store.captures.len())?;
             self.function_ids.insert(unit.key(), function_id);
@@ -1820,7 +2207,8 @@ impl FullBuilder {
                 body: IR_NONE,
                 slot_count: u32::try_from(body.slot_count)
                     .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?,
-                callable_slot_types,
+                slot_type_facts,
+                checked_return_type,
             });
             self.store.function_instruction_starts.push(IR_NONE);
             self.store.function_metadata.push(FullFunctionMetadata {
@@ -2122,14 +2510,46 @@ impl FullBuilder {
         let slot_count = statement
             .as_ref()
             .map_or(0, |statement| statement.slot_count);
+        if let Some(statement) = statement.as_ref() {
+            if statement.slot_type_facts.len() != statement.slot_count {
+                return Err(IrBuildError::format(
+                    "driver_slot_type_fact_count",
+                    Some(span),
+                    0,
+                    self.store.tags.len(),
+                ));
+            }
+        }
         let write_slots = statement
             .as_ref()
             .is_some_and(|statement| matches!(statement.kind, BuildTopKind::Stmt(_)));
         if let Some(statement) = statement.as_ref() {
+            let mut covered_slots = vec![false; statement.slot_count];
             for slot in &statement.slots {
                 let slot_index = u32::try_from(slot.slot)
                     .map_err(|_| IrBuildError::format("driver_slot_overflow", None, 0, 0))?;
-                let type_id = self.intern_lowered_type(slot.kind)?;
+                let covered = covered_slots.get_mut(slot.slot).ok_or_else(|| {
+                    IrBuildError::format("driver_slot_out_of_bounds", Some(span), 0, 0)
+                })?;
+                if std::mem::replace(covered, true) {
+                    return Err(IrBuildError::format(
+                        "duplicate_driver_slot",
+                        Some(span),
+                        0,
+                        0,
+                    ));
+                }
+                let type_id = statement
+                    .slot_type_facts
+                    .get(slot.slot)
+                    .and_then(Option::as_ref)
+                    .or(slot.checked_type.as_ref())
+                    .map(|ty| {
+                        self.semantic
+                            .intern_type(&mut self.store.semantic, &executable_type(ty))
+                    })
+                    .transpose()?
+                    .map_or_else(|| self.intern_lowered_type(slot.kind), Ok)?;
                 let name = self.intern_string(&slot.name.as_str())?.raw();
                 self.store.driver_slots.push(FullDriverSlot {
                     name,
@@ -2145,46 +2565,80 @@ impl FullBuilder {
                     reserved: [0; 3],
                 });
             }
+            for (slot, covered) in covered_slots.iter().enumerate() {
+                if *covered {
+                    continue;
+                }
+                let Some(ty) = statement
+                    .slot_type_facts
+                    .get(slot)
+                    .and_then(Option::as_ref)
+                    .filter(|ty| checked_type_contains_typed_callable(ty))
+                else {
+                    continue;
+                };
+                let type_id = self
+                    .semantic
+                    .intern_type(&mut self.store.semantic, &executable_type(ty))?;
+                self.store.driver_slots.push(FullDriverSlot {
+                    name: IR_NONE,
+                    type_id,
+                    slot: u32::try_from(slot)
+                        .map_err(|_| IrBuildError::format("driver_slot_overflow", None, 0, 0))?,
+                    flags: DRIVER_SLOT_READ | DRIVER_SLOT_TEMPORARY,
+                    reserved: [0; 3],
+                });
+            }
         }
         let slots = table_range(slots_start, self.store.driver_slots.len())?;
         self.current_owner = Some(owner);
         self.current_slot_count = u32::try_from(slot_count)
             .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?;
+        let mut registered_module_type = IR_NONE;
         let mut payload = self.take_payload();
         let row = match statement.as_ref().map(|statement| &statement.kind) {
             None => schema::DriverPayloadRowRef::Skip {},
             Some(BuildTopKind::Use {
-                key, alias, path, namespace, exports, span: use_span, ..
-            }) => schema::DriverPayloadRowRef::Use {
-                key,
-                alias,
-                path,
-                namespace,
-                exports,
-                child_program: &child_program,
-                span: use_span,
-            },
-            Some(BuildTopKind::Let { target, ty, validation, mutable, value, value_span }) => {
-                schema::DriverPayloadRowRef::Let {
-                    target, ty, validation, mutable, value, value_span,
+                key, alias, path, namespace, exports, checked_type, span, ..
+            }) => {
+                registered_module_type = match checked_type {
+                    Some(ty @ Type::Module(_)) => self
+                        .semantic
+                        .intern_type(&mut self.store.semantic, &executable_type(ty))?
+                        .raw(),
+                    Some(_) => {
+                        return Err(IrBuildError::format(
+                            "driver_use_checked_type",
+                            Some(*span),
+                            0,
+                            self.store.tags.len(),
+                        ));
+                    }
+                    None => IR_NONE,
+                };
+                schema::DriverPayloadRowRef::Use {
+                    key, alias, path, namespace, exports,
+                    child_program: &child_program,
+                    span,
                 }
             }
-            Some(BuildTopKind::LetRecord { source, fields, target, mutable, span }) => {
-                schema::DriverPayloadRowRef::LetRecord { source, fields, target, mutable, span }
-            }
-            Some(BuildTopKind::Assign { target, op, value, span }) => {
-                schema::DriverPayloadRowRef::Assign { target, op, value, span }
-            }
-            Some(BuildTopKind::Discard { value, span }) => {
-                schema::DriverPayloadRowRef::Discard { value, span }
-            }
-            Some(BuildTopKind::Stmt(statement)) => {
-                schema::DriverPayloadRowRef::Stmt { statement }
-            }
+            Some(BuildTopKind::Let { target, ty, validation, mutable, value, value_span }) =>
+                schema::DriverPayloadRowRef::Let {
+                    target, ty, validation, mutable, value, value_span,
+                },
+            Some(BuildTopKind::LetRecord { source, fields, target, mutable, span }) =>
+                schema::DriverPayloadRowRef::LetRecord {
+                    source, fields, target, mutable, span,
+                },
+            Some(BuildTopKind::Assign { target, op, value, span }) =>
+                schema::DriverPayloadRowRef::Assign { target, op, value, span },
+            Some(BuildTopKind::Discard { value, span }) =>
+                schema::DriverPayloadRowRef::Discard { value, span },
+            Some(BuildTopKind::Stmt(statement)) =>
+                schema::DriverPayloadRowRef::Stmt { statement },
             Some(BuildTopKind::Expr(value)) => schema::DriverPayloadRowRef::Expr { value },
-            Some(BuildTopKind::Defer { value, on_error, span }) => {
-                schema::DriverPayloadRowRef::Defer { value, on_error, span }
-            }
+            Some(BuildTopKind::Defer { value, on_error, span }) =>
+                schema::DriverPayloadRowRef::Defer { value, on_error, span },
             Some(BuildTopKind::SignalHook {
                 signal, pre_cancel, body, slots, slot_count, span,
             }) => schema::DriverPayloadRowRef::SignalHook {
@@ -2223,6 +2677,7 @@ impl FullBuilder {
                 .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?,
             location,
             effects,
+            registered_module_type,
             tag,
             reserved: [0; 3],
         });
@@ -2239,6 +2694,9 @@ impl FullBuilder {
                 .bounds(self.store.driver_slots.len())
                 .ok_or_else(|| IrBuildError::format("driver_slot_range", None, 0, 0))?;
             for slot in &self.store.driver_slots[slots] {
+                if slot.flags & DRIVER_SLOT_TEMPORARY != 0 {
+                    continue;
+                }
                 let flags = slot.flags & (DRIVER_SLOT_READ | DRIVER_SLOT_WRITE);
                 if let Some((type_id, existing)) = sync.get_mut(&slot.name) {
                     if *type_id != slot.type_id {
@@ -2486,6 +2944,7 @@ impl FullBuilder {
             driver_regions: self.store.driver_regions.len(),
             driver_programs: self.store.driver_programs.len(),
             driver_root: self.store.driver_root,
+            checked_expr_types: self.store.checked_expr_types.len(),
             params: self.store.params.len(),
             captures: self.store.captures.len(),
             validations: self.store.validations.len(),
@@ -2530,6 +2989,9 @@ impl FullBuilder {
             .driver_programs
             .truncate(checkpoint.driver_programs);
         self.store.driver_root = checkpoint.driver_root;
+        self.store
+            .checked_expr_types
+            .truncate(checkpoint.checked_expr_types);
         self.store.params.truncate(checkpoint.params);
         self.store.captures.truncate(checkpoint.captures);
         self.store.validations.truncate(checkpoint.validations);
@@ -2574,6 +3036,16 @@ fn table_range(start: usize, end: usize) -> Result<IrRange, IrBuildError> {
         u32::try_from(end.saturating_sub(start))
             .map_err(|_| IrBuildError::format("table_overflow", None, 0, 0))?,
     ))
+}
+
+fn checked_type_contains_typed_callable(ty: &Type) -> bool {
+    match ty {
+        Type::Module(module) => module.exports.values().any(|export| match export {
+            ModuleExportType::Value { ty, .. } => ty.contains_typed_callable(),
+            ModuleExportType::Proc { .. } | ModuleExportType::Pure { .. } => true,
+        }),
+        _ => ty.contains_typed_callable(),
+    }
 }
 
 fn driver_tag_effects(tag: FullDriverTag) -> u32 {
@@ -2760,6 +3232,14 @@ pub(in crate::runtime::eval) fn lowered_type_for_type(ty: &Type) -> Option<Lower
     })
 }
 
+fn typed_callable_purity(ty: &Type) -> Option<bool> {
+    match ty {
+        Type::Callable(callable) => Some(callable.pure),
+        Type::Validated(validated) => typed_callable_purity(validated.base()),
+        _ => None,
+    }
+}
+
 /// The verifier rejects checker recovery types but accepts error facets as Error.
 fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
     match ty {
@@ -2811,6 +3291,14 @@ impl<'a> FullPayload<'a> {
     #[inline(always)]
     fn check_store(&self, execution: &FullExecution<'_>) -> Result<(), IrVerifyError> {
         if std::ptr::eq(self.store, execution.store()) {
+            Ok(())
+        } else {
+            Err(IrVerifyError::new("full IR payload belongs to another program"))
+        }
+    }
+
+    fn check_store_decoder(&self, decoder: &FullDecoder<'_>) -> Result<(), IrVerifyError> {
+        if std::ptr::eq(self.store, decoder.store) {
             Ok(())
         } else {
             Err(IrVerifyError::new("full IR payload belongs to another program"))
@@ -2980,6 +3468,8 @@ impl<'p> FullExecution<'p> {
             block_states: None,
             slot_count: self.slot_count,
             pattern_ceiling: Cell::new(usize::MAX),
+            local_function_ref_initializers: RefCell::default(),
+            function_signature_index: None,
             verified: self.verified,
         }
     }
@@ -3266,6 +3756,8 @@ pub(in crate::runtime::eval) struct FullDecoder<'a> {
     block_states: Option<OwnedBlockStates>,
     slot_count: u32,
     pattern_ceiling: Cell<usize>,
+    local_function_ref_initializers: RefCell<FxHashMap<usize, Option<usize>>>,
+    function_signature_index: Option<Arc<FunctionSignatureIndex>>,
     verified: bool,
 }
 
@@ -3300,6 +3792,38 @@ fn owned_block_counts(store: &FullStore) -> FxHashMap<u32, usize> {
 }
 
 impl<'a> FullDecoder<'a> {
+    fn expression_view<'e>(
+        &'e self,
+        instruction: usize,
+    ) -> Result<schema::ExprView<'e>, IrVerifyError> {
+        let tag = *self
+            .store
+            .tags
+            .get(instruction)
+            .ok_or_else(|| IrVerifyError::new("checked expression instruction is out of bounds"))?;
+        let payload = FullPayload {
+            store: self.store,
+            cursor: FullCursor::new(self.store.payload(self.store.data[instruction].range())?),
+        };
+        schema::ExprView::decode_from_decoder(self, tag, payload)
+    }
+
+    fn statement_view<'e>(
+        &'e self,
+        instruction: usize,
+    ) -> Result<schema::StmtView<'e>, IrVerifyError> {
+        let tag = *self
+            .store
+            .tags
+            .get(instruction)
+            .ok_or_else(|| IrVerifyError::new("checked statement instruction is out of bounds"))?;
+        let payload = FullPayload {
+            store: self.store,
+            cursor: FullCursor::new(self.store.payload(self.store.data[instruction].range())?),
+        };
+        schema::StmtView::decode_from_decoder(self, tag, payload)
+    }
+
     #[inline(always)]
     fn cursor(&self, words: &'a [u32]) -> FullCursor<'a> {
         if self.verified {
@@ -3584,9 +4108,27 @@ impl<'a> FullDecoder<'a> {
     /// executor binds arguments by position and reads no defaults, so a row
     /// with another argument count, a splice, or an omitted slot would call
     /// the function with arguments the checker never saw.
-    fn verify_typed_call_shape(&self, mut payload: FullCursor<'_>) -> Result<(), IrVerifyError> {
-        let callee = payload.raw()? as usize;
-        let pure = bool::decode(self, &mut payload)?;
+    fn verify_typed_call_shape(&self, payload: FullCursor<'_>) -> Result<(), IrVerifyError> {
+        let schema::ExprView::TypedCall {
+            callee,
+            pure,
+            signature,
+            args,
+            ..
+        } = schema::ExprView::decode_from_decoder(
+            self,
+            FullTag::ExprTypedCall,
+            FullPayload {
+                store: self.store,
+                cursor: payload,
+            },
+        )?
+        else {
+            return Err(IrVerifyError::new(
+                "typed call shape decoder returned another expression kind",
+            ));
+        };
+        let callee = callee.raw() as usize;
         // Top-level steps have no enclosing function to hold the call to.
         if driver_owner_index(self.owner).is_none()
             && let Some(function) = IrFunctionId::from_raw(self.owner)
@@ -3604,11 +4146,9 @@ impl<'a> FullDecoder<'a> {
                     "typed call to a proc inside a pure function",
                 ));
             }
-            self.verify_typed_callee_parameter(function, callee, &payload)?;
-            self.verify_typed_callee_slot(function, callee, &payload)?;
         }
-        let ty = TypeId::from_raw(payload.raw()?)
-            .ok_or_else(|| IrVerifyError::new("typed call signature type id is invalid"))?;
+        let ty = signature.id;
+        self.verify_typed_callee_signature(callee, ty)?;
         let semantic = &self.store.semantic;
         let signature = semantic
             .typed_callable_signature(ty)
@@ -3618,164 +4158,2868 @@ impl<'a> FullDecoder<'a> {
                 "typed call kind does not match its callable type",
             ));
         }
-        let id = IrBlockId::from_raw(payload.raw()?)
-            .ok_or_else(|| IrVerifyError::new("typed call argument block id is invalid"))?;
-        let block = self
-            .store
-            .blocks
-            .get(id.index())
-            .ok_or_else(|| IrVerifyError::new("typed call argument block is missing"))?;
-        let mut args = self.cursor(self.store.payload(block.instructions)?);
-        let len = args.raw()? as usize;
+        let len = args.len();
         if len != semantic.signature_param_count(signature)? {
             return Err(IrVerifyError::new(
                 "typed call argument count does not match its signature",
             ));
         }
-        for _ in 0..len {
-            if args.raw()? != 0 {
+        for argument in args {
+            if !matches!(argument?, decode::CallArgView::Single(_)) {
                 return Err(IrVerifyError::new(
                     "typed call argument is not a single value",
                 ));
             }
-            args.raw()?;
-        }
-        args.finish()
-    }
-
-    /// A typed call whose callee is read straight from a parameter of the
-    /// enclosing function was checked against that parameter's declared
-    /// type, which the function header records. The row must name the same
-    /// type: any other callable type would bind the arguments to a signature
-    /// the parameter's values were never held to.
-    fn verify_typed_callee_parameter(
-        &self,
-        function: usize,
-        callee: usize,
-        payload: &FullCursor<'_>,
-    ) -> Result<(), IrVerifyError> {
-        if self.store.tags.get(callee) != Some(&FullTag::ExprParam) {
-            return Ok(());
-        }
-        let slot = *self
-            .store
-            .payload(self.store.data[callee].range())?
-            .first()
-            .ok_or_else(|| IrVerifyError::new("typed callee slot is missing"))?
-            as usize;
-        let params = self
-            .store
-            .functions
-            .get(function)
-            .ok_or_else(|| IrVerifyError::new("typed call owner is out of bounds"))?
-            .params;
-        let Some(param) = params.bounds(self.store.params.len()).and_then(|bounds| {
-            bounds
-                .start
-                .checked_add(slot)
-                .filter(|param| *param < bounds.end)
-        }) else {
-            return Ok(());
-        };
-        let Some(validation) = self
-            .store
-            .param_cold
-            .iter()
-            .find(|cold| cold.param as usize == param)
-            .map(|cold| cold.validation)
-            .filter(|validation| *validation != IR_NONE)
-        else {
-            return Ok(());
-        };
-        let declared = self
-            .store
-            .validations
-            .get(validation as usize)
-            .ok_or_else(|| IrVerifyError::new("typed callee validation is out of bounds"))?
-            .type_id;
-        self.verify_typed_callee_type(
-            declared,
-            payload,
-            "typed call signature differs from its callee parameter's callable type",
-        )
-    }
-
-    /// A direct slot whose checked declaration is one callable type holds a
-    /// typed call to that signature; parameter slots keep their existing proof.
-    fn verify_typed_callee_slot(
-        &self,
-        function: usize,
-        callee: usize,
-        payload: &FullCursor<'_>,
-    ) -> Result<(), IrVerifyError> {
-        if self.store.tags.get(callee) != Some(&FullTag::ExprParam) {
-            return Ok(());
-        }
-        let slot = *self
-            .store
-            .payload(self.store.data[callee].range())?
-            .first()
-            .ok_or_else(|| IrVerifyError::new("typed callee slot is missing"))?
-            as usize;
-        let function_row = self
-            .store
-            .functions
-            .get(function)
-            .ok_or_else(|| IrVerifyError::new("typed call owner is out of bounds"))?;
-        let params = function_row
-            .params
-            .bounds(self.store.params.len())
-            .ok_or_else(|| IrVerifyError::new("function parameter range is invalid"))?;
-        if slot < params.len() {
-            return Ok(());
-        }
-        let captures = function_row
-            .captures
-            .bounds(self.store.captures.len())
-            .ok_or_else(|| IrVerifyError::new("function capture range is invalid"))?;
-        if let Some(capture) = self.store.captures[captures].iter().find(|capture| {
-            (capture.slot_and_flags & !(1 << 31)) as usize == slot
-        }) {
-            return self.verify_typed_callee_type(
-                capture.type_id,
-                payload,
-                "typed call signature differs from its callee capture's callable type",
-            );
-        }
-        let slot_types = function_row
-            .callable_slot_types
-            .bounds(self.store.callable_slot_types.len())
-            .ok_or_else(|| IrVerifyError::new("function callable slot type range is invalid"))?;
-        let raw = *self
-            .store
-            .callable_slot_types
-            .get(slot_types.start + slot)
-            .ok_or_else(|| IrVerifyError::new("typed callee slot type is missing"))?;
-        if raw == IR_NONE { return Ok(()); }
-        let declared = TypeId::from_raw(raw)
-            .ok_or_else(|| IrVerifyError::new("function callable slot type id is invalid"))?;
-        self.verify_typed_callee_type(
-            declared,
-            payload,
-            "typed call signature differs from its callee slot's callable type",
-        )
-    }
-
-    fn verify_typed_callee_type(
-        &self,
-        declared: TypeId,
-        payload: &FullCursor<'_>,
-        reason: &'static str,
-    ) -> Result<(), IrVerifyError> {
-        // Wider declarations such as optional callables have no single signature.
-        if self.store.semantic.typed_callable_signature(declared).is_err() {
-            return Ok(());
-        }
-        let mut row = *payload;
-        if declared.raw() != row.raw()? {
-            return Err(IrVerifyError::new(reason));
         }
         Ok(())
+    }
+
+    /// Lowering checked the source callee against this signature. Verify the
+    /// encoded callee independently from its exact slot, field, or producer.
+    fn verify_typed_callee_signature(
+        &self,
+        callee: usize,
+        signature: TypeId,
+    ) -> Result<(), IrVerifyError> {
+        let reason = match self.store.tags.get(callee) {
+            Some(FullTag::ExprField) => {
+                "typed call signature differs from its callee field's callable type"
+            }
+            Some(FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall) => {
+                "typed call signature differs from its callee call result's callable type"
+            }
+            Some(FullTag::ExprParam) => {
+                "typed call signature differs from its callee slot's callable type"
+            }
+            _ => "typed call signature differs from its checked callee type",
+        };
+        let actual = match self.derive_typed_callee_type(callee) {
+            Ok(actual) => actual,
+            Err(error)
+                if self.store.tags.get(callee) == Some(&FullTag::ExprParam)
+                    && (error.message == "typed callee slot has no checked type fact"
+                        || error
+                            .message
+                            .starts_with("typed callee slot has no checked type fact:")) =>
+            {
+                let slot = self
+                    .store
+                    .payload(self.store.data[callee].range())?
+                    .first()
+                    .copied()
+                    .ok_or_else(|| IrVerifyError::new("typed callee slot is missing"))?
+                    as usize;
+                let expected = self.store.semantic.to_type(signature)?;
+                self.local_function_ref_matches_type(slot, &expected)?;
+                return Ok(());
+            }
+            Err(error) => return Err(error),
+        };
+        if actual != signature {
+            return Err(IrVerifyError::new(reason));
+        }
+        self.store
+            .semantic
+            .typed_callable_signature(actual)
+            .map_err(|_| IrVerifyError::new("typed call callee is not a typed callable"))?;
+        Ok(())
+    }
+
+    fn derive_typed_callee_type(&self, instruction: usize) -> Result<TypeId, IrVerifyError> {
+        let tag = *self
+            .store
+            .tags
+            .get(instruction)
+            .ok_or_else(|| IrVerifyError::new("typed callee expression is out of bounds"))?;
+        if !matches!(
+            tag,
+            FullTag::ExprField
+                | FullTag::ExprParam
+                | FullTag::ExprCall
+                | FullTag::ExprDirectPureCall
+                | FullTag::ExprSelfCall
+                | FullTag::ExprTypedCall
+        ) {
+            return self
+                .checked_expression_type_id(instruction)?
+                .ok_or_else(|| IrVerifyError::new("typed callee has no checked expression type"));
+        }
+        let mut fields = Vec::new();
+        let mut current = instruction;
+        for _ in 0..self.store.tags.len() {
+            if self.store.tags.get(current) == Some(&FullTag::ExprField) {
+                let words = self
+                    .store
+                    .payload(self.store.data[current].range())?;
+                let [base, name, ..] = words else {
+                    return Err(IrVerifyError::new("typed callee field payload is truncated"));
+                };
+                fields.push(Name::intern(self.store.string(*name)?));
+                current = *base as usize;
+                continue;
+            }
+            let leaf_tag = *self
+                .store
+                .tags
+                .get(current)
+                .ok_or_else(|| IrVerifyError::new("typed callee expression is out of bounds"))?;
+            let mut ty = if matches!(
+                leaf_tag,
+                FullTag::ExprParam
+                    | FullTag::ExprCall
+                    | FullTag::ExprDirectPureCall
+                    | FullTag::ExprSelfCall
+                    | FullTag::ExprTypedCall
+            ) {
+                self.derive_typed_callee_leaf_type(current)?
+            } else {
+                self.checked_expression_type_id(current)?
+                    .ok_or_else(|| IrVerifyError::new("typed callee receiver has no checked type"))?
+            };
+            for field in fields.into_iter().rev() {
+                let Some(field_type) = self
+                    .store
+                    .semantic
+                    .field_type(ty, field)?
+                else {
+                    return Err(IrVerifyError::new(format!(
+                        "typed callee field `{field}` is absent from checked receiver type {:?}",
+                        self.store.semantic.to_type(ty)?
+                    )));
+                };
+                ty = field_type;
+            }
+            return Ok(ty);
+        }
+        Err(IrVerifyError::new("typed callee field chain contains a cycle"))
+    }
+
+    fn derive_typed_callee_leaf_type(
+        &self,
+        instruction: usize,
+    ) -> Result<TypeId, IrVerifyError> {
+        let tag = *self
+            .store
+            .tags
+            .get(instruction)
+            .ok_or_else(|| IrVerifyError::new("typed callee expression is out of bounds"))?;
+        let words = self
+            .store
+            .payload(self.store.data[instruction].range())?;
+        match tag {
+            FullTag::ExprParam => {
+                let slot = *words
+                    .first()
+                    .ok_or_else(|| IrVerifyError::new("typed callee slot is missing"))?
+                    as usize;
+                self.checked_slot_type(slot)?.ok_or_else(|| {
+                    IrVerifyError::new("typed callee slot has no checked type fact")
+                })
+            }
+            FullTag::ExprCall | FullTag::ExprDirectPureCall => {
+                let function = IrFunctionId::from_raw(*words.first().ok_or_else(|| {
+                    IrVerifyError::new("typed callee call target is missing")
+                })?)
+                .ok_or_else(|| IrVerifyError::new("typed callee call target is invalid"))?;
+                self.function_return_type(function.index())
+            }
+            FullTag::ExprSelfCall => {
+                let function = IrFunctionId::from_raw(self.owner)
+                    .ok_or_else(|| IrVerifyError::new("self call has no function owner"))?;
+                self.function_return_type(function.index())
+            }
+            FullTag::ExprTypedCall => {
+                let raw = *words
+                    .get(2)
+                    .ok_or_else(|| IrVerifyError::new("typed call signature is missing"))?;
+                let ty = TypeId::from_raw(raw)
+                    .ok_or_else(|| IrVerifyError::new("typed call signature type id is invalid"))?;
+                let signature = self.store.semantic.typed_callable_signature(ty)?;
+                self.store.semantic.signature_return_type(signature)
+            }
+            _ => Err(IrVerifyError::new(
+                "typed callee type cannot be derived from its IR expression",
+            )),
+        }
+    }
+
+    fn checked_slot_type(&self, slot: usize) -> Result<Option<TypeId>, IrVerifyError> {
+        if driver_owner_index(self.owner).is_none()
+            && let Some(function) = IrFunctionId::from_raw(self.owner)
+        {
+            let function = self
+                .store
+                .functions
+                .get(function.index())
+                .ok_or_else(|| IrVerifyError::new("typed call owner is out of bounds"))?;
+            let params = function
+                .params
+                .bounds(self.store.params.len())
+                .ok_or_else(|| IrVerifyError::new("function parameter range is invalid"))?;
+            if slot < params.len() {
+                let parameter = params.start + slot;
+                let validation = self
+                    .store
+                    .param_cold
+                    .binary_search_by_key(&(parameter as u32), |cold| cold.param)
+                    .ok()
+                    .map(|index| self.store.param_cold[index].validation)
+                    .filter(|validation| *validation != IR_NONE);
+                if let Some(validation) = validation {
+                    let validation = self
+                        .store
+                        .validations
+                        .get(validation as usize)
+                        .ok_or_else(|| {
+                            IrVerifyError::new("typed callee validation is out of bounds")
+                        })?;
+                    return Ok(Some(validation.type_id));
+                }
+                return Ok(self.store.params.get(parameter).map(|param| param.type_id));
+            }
+            let captures = function
+                .captures
+                .bounds(self.store.captures.len())
+                .ok_or_else(|| IrVerifyError::new("function capture range is invalid"))?;
+            if let Some(capture) = self.store.captures[captures.clone()].iter().find(|capture| {
+                (capture.slot_and_flags & !(1 << 31)) as usize == slot
+            }) {
+                return Ok(Some(capture.type_id));
+            }
+            let slot_types = function
+                .slot_type_facts
+                .bounds(self.store.slot_type_facts.len())
+                .ok_or_else(|| IrVerifyError::new("function slot type fact range is invalid"))?;
+            if slot >= function.slot_count as usize {
+                return Err(IrVerifyError::new("typed callee slot is out of bounds"));
+            }
+            let raw = *self
+                .store
+                .slot_type_facts
+                .get(slot_types.start + slot)
+                .ok_or_else(|| IrVerifyError::new("typed callee slot type fact is missing"))?;
+            if raw == IR_NONE {
+                return Ok(None);
+            }
+            return TypeId::from_raw(raw)
+                .map(Some)
+                .ok_or_else(|| IrVerifyError::new("typed callee slot type fact is invalid"));
+        }
+        let owner = driver_owner_index(self.owner)
+            .ok_or_else(|| IrVerifyError::new("typed call owner is invalid"))?;
+        let step = self
+            .store
+            .driver_steps
+            .get(owner)
+            .ok_or_else(|| IrVerifyError::new("typed call driver owner is out of bounds"))?;
+        let slots = step
+            .slots
+            .bounds(self.store.driver_slots.len())
+            .ok_or_else(|| IrVerifyError::new("typed callee driver slot range is invalid"))?;
+        if slot >= step.slot_count as usize {
+            return Err(IrVerifyError::new(
+                "typed callee driver slot is out of bounds",
+            ));
+        }
+        let Some(binding) = self.store.driver_slots[slots]
+            .iter()
+            .find(|binding| binding.slot as usize == slot)
+        else {
+            return Ok(None);
+        };
+        self.store.semantic.to_type(binding.type_id)?;
+        Ok(Some(binding.type_id))
+    }
+
+    fn verify_driver_module_slots(
+        &self,
+        registered_module_types: &FxHashMap<Name, RegisteredModuleType>,
+    ) -> Result<(), IrVerifyError> {
+        let Some(owner) = driver_owner_index(self.owner) else {
+            return Ok(());
+        };
+        let step = self
+            .store
+            .driver_steps
+            .get(owner)
+            .ok_or_else(|| IrVerifyError::new("driver module slot owner is out of bounds"))?;
+        let slots = step
+            .slots
+            .bounds(self.store.driver_slots.len())
+            .ok_or_else(|| IrVerifyError::new("driver module slot range is invalid"))?;
+        for binding in &self.store.driver_slots[slots] {
+            if binding.flags & DRIVER_SLOT_TEMPORARY != 0 {
+                continue;
+            }
+            let checked_type = self.store.semantic.to_type(binding.type_id)?;
+            let Type::Module(module) = &checked_type else {
+                continue;
+            };
+            if !checked_type_contains_typed_callable(&checked_type) {
+                continue;
+            }
+            let name = Name::intern(self.store.string(binding.name)?);
+            let Some(registered) = registered_module_types.get(&name) else {
+                continue;
+            };
+            let registered = match registered {
+                RegisteredModuleType::Missing => {
+                    return Err(IrVerifyError::new(
+                        "exact module binding has no registered result type",
+                    ));
+                }
+                RegisteredModuleType::Present(type_id) => *type_id,
+                RegisteredModuleType::Ambiguous => {
+                    return Err(IrVerifyError::new(
+                        "module binding has multiple registered imports",
+                    ));
+                }
+            };
+            if self.store.semantic.to_type(registered)? != checked_type || !module.exact {
+                return Err(IrVerifyError::new(
+                    "driver module slot differs from its registered import result",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn verify_registered_module_type(
+        &self,
+        module_type_id: TypeId,
+        namespace: Name,
+        exports: &[LoweredModuleExport],
+        child: u32,
+    ) -> Result<(), IrVerifyError> {
+        let Type::Module(module) = self.store.semantic.to_type(module_type_id)? else {
+            return Err(IrVerifyError::new(
+                "registered import result is not a module type",
+            ));
+        };
+        if !module.exact || module.exports.len() != exports.len() {
+            return Err(IrVerifyError::new(
+                "registered module type differs from its exact export set",
+            ));
+        }
+        let mut names = BTreeSet::new();
+        for export in exports {
+            if !names.insert(export.name) {
+                return Err(IrVerifyError::new(
+                    "registered module export name is duplicated",
+                ));
+            }
+            let Some(checked) = module.exports.get(&export.name) else {
+                return Err(IrVerifyError::new(
+                    "registered module type omits an exported member",
+                ));
+            };
+            match (export.kind, checked) {
+                (
+                    LoweredModuleExportKind::Value,
+                    ModuleExportType::Value { ty, optional: false },
+                ) => {
+                    if ty.contains_typed_callable() {
+                        self.verify_registered_module_value(child, export.name, ty)?;
+                    }
+                }
+                (
+                    LoweredModuleExportKind::Pure,
+                    ModuleExportType::Pure { sig, optional: false },
+                )
+                | (
+                    LoweredModuleExportKind::Proc,
+                    ModuleExportType::Proc { sig, optional: false },
+                ) => {
+                    let function_namespace = export.function_namespace.unwrap_or(namespace);
+                    let signature = self.registered_module_function_signature(
+                        function_namespace,
+                        export.name,
+                        export.kind == LoweredModuleExportKind::Pure,
+                    )?;
+                    if !self.store.semantic.signature_matches_callable(signature, sig)? {
+                        return Err(IrVerifyError::new(
+                            "registered module callable type differs from its child function",
+                        ));
+                    }
+                }
+                _ => {
+                    return Err(IrVerifyError::new(
+                        "registered module export kind differs from its exact type",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn verify_registered_module_value(
+        &self,
+        child: u32,
+        name: Name,
+        expected: &Type,
+    ) -> Result<(), IrVerifyError> {
+        let program_index = child
+            .checked_sub(1)
+            .map(|index| index as usize)
+            .filter(|index| *index < self.store.driver_programs.len())
+            .ok_or_else(|| IrVerifyError::new("module child program is out of bounds"))?;
+        let steps = self.store.driver_programs[program_index]
+            .steps
+            .bounds(self.store.driver_steps.len())
+            .ok_or_else(|| IrVerifyError::new("module child step range is invalid"))?;
+        let mut found = None;
+        for step_index in steps {
+            let step = self.store.driver_steps[step_index];
+            if step.tag != FullDriverTag::Let {
+                continue;
+            }
+            let instruction_range = self.store.driver_instruction_range(step_index)?;
+            let decoder = FullDecoder {
+                store: self.store,
+                owner: driver_owner(step_index)
+                    .map_err(|_| IrVerifyError::new("module child owner is invalid"))?,
+                instruction_states: None,
+                instruction_proof: None,
+                instruction_range,
+                block_states: None,
+                slot_count: step.slot_count,
+                pattern_ceiling: Cell::new(usize::MAX),
+                local_function_ref_initializers: RefCell::default(),
+                function_signature_index: self.function_signature_index.clone(),
+                verified: false,
+            };
+            let mut payload = decoder.cursor(self.store.payload(step.data.range())?);
+            if Name::decode(&decoder, &mut payload)? != name {
+                continue;
+            }
+            Option::<LoweredType>::decode(&decoder, &mut payload)?;
+            Option::<LoweredTypeCheck>::decode(&decoder, &mut payload)?;
+            bool::decode(&decoder, &mut payload)?;
+            let value = payload.raw()? as usize;
+            if decoder.store.tags.get(value).is_none_or(|tag| {
+                tag.kind() != schema::InstructionKind::Expr
+                    || !decoder.instruction_range.contains(&value)
+            }) {
+                return Err(IrVerifyError::new(
+                    "module value export initializer belongs to another driver step",
+                ));
+            }
+            if found.replace(()).is_some() {
+                return Err(IrVerifyError::new(
+                    "module value export has multiple child declarations",
+                ));
+            }
+            decoder.checked_expression_matches_type(value, expected)?;
+        }
+        found.ok_or_else(|| {
+            IrVerifyError::new("module value export has no child declaration")
+        })
+    }
+
+    fn registered_module_function_signature(
+        &self,
+        namespace: Name,
+        name: Name,
+        pure: bool,
+    ) -> Result<SignatureId, IrVerifyError> {
+        self.function_signature_index
+            .as_ref()
+            .ok_or_else(|| IrVerifyError::new("function signature index is missing"))?
+            .module_export(namespace, name, pure)
+    }
+
+    fn verify_temporary_driver_slot_types(&self) -> Result<(), IrVerifyError> {
+        let Some(owner) = driver_owner_index(self.owner) else {
+            return Ok(());
+        };
+        let step = self
+            .store
+            .driver_steps
+            .get(owner)
+            .ok_or_else(|| IrVerifyError::new("typed call driver owner is out of bounds"))?;
+        let slots = step
+            .slots
+            .bounds(self.store.driver_slots.len())
+            .ok_or_else(|| IrVerifyError::new("typed callee driver slot range is invalid"))?;
+        for slot in self.store.driver_slots[slots]
+            .iter()
+            .filter(|slot| slot.flags & DRIVER_SLOT_TEMPORARY != 0)
+        {
+            let slot_index = slot.slot as usize;
+            let expected = self.store.semantic.to_type(slot.type_id)?;
+            let mut initializer = None;
+            for instruction in self.instruction_range.clone() {
+                if self.store.tags[instruction] == FullTag::ExprMatch {
+                    let schema::ExprView::MatchExpr { value, mut arms, .. } =
+                        self.expression_view(instruction)?
+                    else {
+                        unreachable!("expression tag and generated view disagree")
+                    };
+                    for arm in &mut arms {
+                        let (pattern, guard, _) = arm?;
+                        let pattern_id = pattern.raw();
+                        let pattern = self.checked_pattern_view(pattern_id)?;
+                        match pattern {
+                            schema::PatternView::Bind { slot: bound }
+                                if bound == slot_index && guard.is_none() =>
+                            {
+                                if initializer.replace(value.raw() as usize).is_some() {
+                                    return Err(IrVerifyError::new(
+                                        "temporary driver slot has multiple structural initializers",
+                                    ));
+                                }
+                            }
+                            _ if self
+                                .pattern_capture_slots(pattern_id as usize)?
+                                .contains(&slot_index) =>
+                            {
+                                return Err(IrVerifyError::new(
+                                    "temporary driver slot initializer pattern is not a direct bind",
+                                ));
+                            }
+                            _ => {}
+                        }
+                    }
+                } else if self.store.tags[instruction].kind() == schema::InstructionKind::Stmt
+                    && self.statement_writes_slot(instruction, slot_index)?
+                {
+                    return Err(IrVerifyError::new(
+                        "temporary driver slot has a statement writer",
+                    ));
+                }
+            }
+            let initializer = initializer.ok_or_else(|| {
+                IrVerifyError::new("temporary driver slot has no structural initializer")
+            })?;
+            let result = if matches!(expected, Type::Module(_)) {
+                let actual = self
+                    .expression_checked_type_id(initializer)?
+                    .ok_or_else(|| {
+                        IrVerifyError::new(
+                            "temporary module receiver has no checked source type",
+                        )
+                    })?;
+                if self.store.semantic.to_type(actual)? == expected {
+                    Ok(())
+                } else {
+                    Err(IrVerifyError::new(
+                        "temporary module receiver differs from its exact source type",
+                    ))
+                }
+            } else {
+                self.checked_expression_matches_type(initializer, &expected)
+            };
+            result.map_err(|_| {
+                    IrVerifyError::new(
+                        "temporary driver slot type fact disagrees with its MatchExpr initializer",
+                    )
+                })?;
+        }
+        Ok(())
+    }
+
+    fn checked_expression_type_id(
+        &self,
+        instruction: usize,
+    ) -> Result<Option<TypeId>, IrVerifyError> {
+        let instruction = u32::try_from(instruction)
+            .map_err(|_| IrVerifyError::new("checked expression instruction is out of bounds"))?;
+        Ok(self
+            .store
+            .checked_expr_types
+            .binary_search_by_key(&instruction, |fact| fact.instruction)
+            .ok()
+            .map(|index| self.store.checked_expr_types[index].type_id))
+    }
+
+    fn instruction_parent_of(&self, instruction: usize) -> Result<Option<usize>, IrVerifyError> {
+        let proof = self
+            .instruction_proof
+            .as_ref()
+            .ok_or_else(|| IrVerifyError::new("full IR instruction parent proof is missing"))?;
+        Ok(proof.borrow().parent_of(instruction))
+    }
+
+    fn checked_with_error_source_instructions(&self) -> Result<BTreeSet<usize>, IrVerifyError> {
+        let mut initializer_roots = BTreeSet::new();
+        for instruction in self.instruction_range.clone() {
+            if self.store.tags[instruction] != FullTag::StmtWith {
+                continue;
+            }
+            let schema::StmtView::With {
+                mut bindings, ..
+            } = self.statement_view(instruction)?
+            else {
+                unreachable!("With instruction tag and generated view disagree")
+            };
+            for binding in &mut bindings {
+                let (_, value) = binding?;
+                initializer_roots.insert(value.raw() as usize);
+            }
+        }
+        let mut sources = initializer_roots.clone();
+        for instruction in self.instruction_range.clone() {
+            if self.store.tags[instruction] != FullTag::ExprTry {
+                continue;
+            }
+            let schema::ExprView::Try { value, .. } = self.expression_view(instruction)? else {
+                unreachable!("Try instruction tag and generated view disagree")
+            };
+            let mut current = instruction;
+            loop {
+                if initializer_roots.contains(&current) {
+                    sources.insert(value.raw() as usize);
+                    break;
+                }
+                let Some(parent) = self.instruction_parent_of(current)? else {
+                    break;
+                };
+                current = parent;
+            }
+        }
+        Ok(sources)
+    }
+
+    fn function_reference_signature(
+        &self,
+        function: decode::FunctionNameView,
+    ) -> Result<(SignatureId, bool), IrVerifyError> {
+        let (name, namespace) = match function {
+            decode::FunctionNameView::Name(name) => (name, None),
+            decode::FunctionNameView::Qualified(name) => (name.member, Some(name.namespace)),
+        };
+        let index = self
+            .function_signature_index
+            .as_ref()
+            .ok_or_else(|| IrVerifyError::new("function signature index is missing"))?;
+        let lookup = index.functions.get(&(namespace, name));
+        let result = match lookup {
+            Some(signatures) => match (&signatures.pure, &signatures.proc) {
+                (FunctionSignatureLookup::Unique(signature), FunctionSignatureLookup::Missing) => {
+                    Some((*signature, true))
+                }
+                (FunctionSignatureLookup::Missing, FunctionSignatureLookup::Unique(signature)) => {
+                    Some((*signature, false))
+                }
+                (FunctionSignatureLookup::Missing, FunctionSignatureLookup::Missing) => None,
+                _ => {
+                    return Err(IrVerifyError::new(
+                        "function reference target is ambiguous in the checked program",
+                    ));
+                }
+            },
+            None => None,
+        };
+        result.ok_or_else(|| {
+            let target = match namespace {
+                Some(namespace) => QualifiedName::new(namespace, name).to_string(),
+                None => name.to_string(),
+            };
+            IrVerifyError::new(format!(
+                "function reference `{target}` has no checked signature"
+            ))
+        })
+    }
+
+    fn require_checked_child_type(
+        &self,
+        child: usize,
+        expected: &Type,
+    ) -> Result<(), IrVerifyError> {
+        self.checked_expression_matches_type(child, expected)
+    }
+
+    fn checked_block_tail_matches_type(
+        &self,
+        mut statements: ListView<'a, BuildStmtId>,
+        expected: &Type,
+    ) -> Result<(), IrVerifyError> {
+        let mut tail = None;
+        for statement in &mut statements {
+            tail = Some(statement?.raw() as usize);
+        }
+        let Some(instruction) = tail else {
+            return Err(IrVerifyError::new("checked value block has no value tail"));
+        };
+        match self.statement_view(instruction)? {
+            schema::StmtView::Value { value } => {
+                self.checked_expression_matches_type(value.raw() as usize, expected)
+            }
+            _ => Err(IrVerifyError::new("checked value block has no value tail")),
+        }
+    }
+
+    fn checked_record_entries(
+        &self,
+        entries: &mut ListView<'a, LoweredRecordEntry>,
+    ) -> Result<Vec<CheckedRecordEntry>, IrVerifyError> {
+        let mut checked = Vec::with_capacity(entries.len());
+        for entry in entries.by_ref() {
+            checked.push(match entry? {
+                decode::RecordEntryView::Field(name, value) => {
+                    CheckedRecordEntry::Field(name, value.raw() as usize)
+                }
+                decode::RecordEntryView::Spread(value) => {
+                    CheckedRecordEntry::Spread(value.raw() as usize)
+                }
+            });
+        }
+        Ok(checked)
+    }
+
+    fn checked_record_update_matches_type(
+        &self,
+        base: usize,
+        mut updates: ListView<'a, (Vec<Name>, BuildExprId, Span)>,
+        expected: &Type,
+    ) -> Result<(), IrVerifyError> {
+        let Type::Record(_) = expected else {
+            return Err(IrVerifyError::new(
+                "checked record update has a non-record result type",
+            ));
+        };
+        self.checked_expression_matches_type(base, expected)?;
+        for update in &mut updates {
+            let (path, value, _) = update?;
+            let mut target_type = expected;
+            for name in path {
+                let name = name?;
+                let Type::Record(target_fields) = target_type else {
+                    return Err(IrVerifyError::new(
+                        "checked record update path crosses a non-record field",
+                    ));
+                };
+                target_type = target_fields.get(&name).ok_or_else(|| {
+                    IrVerifyError::new(
+                        "checked record update field is absent from its result type",
+                    )
+                })?;
+            }
+            if target_type.contains_typed_callable() {
+                self.checked_expression_matches_type(value.raw() as usize, target_type)
+                    .map_err(|_| {
+                        IrVerifyError::new(
+                            "record update value disagrees with its checked callable field",
+                        )
+                    })?;
+            }
+        }
+        Ok(())
+    }
+
+    fn checked_pattern_view<'e>(
+        &'e self,
+        pattern: u32,
+    ) -> Result<schema::PatternView<'e>, IrVerifyError> {
+        let index = pattern as usize;
+        let tag = *self
+            .store
+            .patterns
+            .get(index)
+            .ok_or_else(|| IrVerifyError::new("checked pattern is out of bounds"))?;
+        let data = self
+            .store
+            .pattern_data
+            .get(index)
+            .ok_or_else(|| IrVerifyError::new("checked pattern payload is missing"))?;
+        let payload = FullPayload {
+            store: self.store,
+            cursor: self.cursor(self.store.payload(data.range())?),
+        };
+        schema::PatternView::decode_from_decoder(self, tag, payload)
+    }
+
+    fn checked_match_result_matches_type(
+        &self,
+        subject: u32,
+        mut arms: ListView<'a, (BuildPatternId, Option<BuildExprId>, BuildExprId)>,
+        expected: &Type,
+    ) -> Result<(), IrVerifyError> {
+        let mut arm_values = Vec::new();
+        let mut null_branch = None;
+        let mut null_pattern_count = 0;
+        let mut bound_value_count = 0;
+        let mut optional_bind_shape = true;
+        for arm in &mut arms {
+            let (pattern, guard, value) = arm?;
+            let value = value.raw() as usize;
+            arm_values.push(value);
+            match self.checked_pattern_view(pattern.raw())? {
+                schema::PatternView::Literal(literal)
+                    if literal.materialize()? == LoweredValue::Null && guard.is_none() =>
+                {
+                    null_pattern_count += 1;
+                    null_branch = Some(value);
+                }
+                schema::PatternView::Bind { slot } if guard.is_none() => {
+                    if matches!(
+                        self.expression_view(value)?,
+                        schema::ExprView::Param(value_slot) if value_slot == slot
+                    ) {
+                        bound_value_count += 1;
+                    } else {
+                        optional_bind_shape = false;
+                    }
+                }
+                _ => optional_bind_shape = false,
+            }
+        }
+        if optional_bind_shape
+            && arm_values.len() == 2
+            && null_pattern_count == 1
+            && bound_value_count == 1
+        {
+            let subject = self
+                .checked_expression_type(subject as usize)?
+                .ok_or_else(|| {
+                    IrVerifyError::new("checked optional binding match has no subject type")
+                })?;
+            if !matches!(subject, Type::Optional(inner) if *inner == *expected) {
+                return Err(IrVerifyError::new(
+                    "checked optional binding result disagrees with its subject type",
+                ));
+            }
+            return self.checked_expression_matches_type(
+                null_branch.expect("one null arm was counted"),
+                expected,
+            );
+        }
+        for value in arm_values {
+            self.checked_expression_matches_type(value, expected)?;
+        }
+        Ok(())
+    }
+
+    fn comp_target_view_writes_slot(
+        &self,
+        target: decode::CompTargetView<'a>,
+        slot: usize,
+    ) -> Result<bool, IrVerifyError> {
+        match target {
+            decode::CompTargetView::Discard => Ok(false),
+            decode::CompTargetView::Slot(written) => Ok(written == slot),
+            decode::CompTargetView::Record { mut fields } => {
+                for field in &mut fields {
+                    let (_, target, _) = field?;
+                    if self.comp_target_view_writes_slot(target, slot)? {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            }
+        }
+    }
+
+    fn statement_writes_slot(
+        &self,
+        instruction: usize,
+        slot: usize,
+    ) -> Result<bool, IrVerifyError> {
+        Ok(match self.statement_view(instruction)? {
+            schema::StmtView::Let { slot: written, .. }
+            | schema::StmtView::LetInt { slot: written, .. }
+            | schema::StmtView::LetBool { slot: written, .. }
+            | schema::StmtView::Assign { slot: written, .. }
+            | schema::StmtView::AssignInt { slot: written, .. }
+            | schema::StmtView::AssignBool { slot: written, .. }
+            | schema::StmtView::AssignField { slot: written, .. }
+            | schema::StmtView::AssignFieldInt { slot: written, .. }
+            | schema::StmtView::AssignPath { slot: written, .. }
+            | schema::StmtView::DefaultParameter { slot: written, .. } => written == slot,
+            schema::StmtView::Guard {
+                target,
+                else_param_slot,
+                ..
+            } => self.comp_target_view_writes_slot(target, slot)? || else_param_slot == Some(slot),
+            schema::StmtView::With {
+                mut bindings,
+                else_param_slot,
+                mut captures,
+                ..
+            } => {
+                let mut writes = else_param_slot == Some(slot);
+                for binding in &mut bindings {
+                    let (written, _) = binding?;
+                    writes |= written == slot;
+                }
+                for capture in &mut captures {
+                    writes |= capture? == slot;
+                }
+                writes
+            }
+            schema::StmtView::PatternIf { mut branches, .. } => {
+                let mut writes = false;
+                for branch in &mut branches {
+                    let (_, _, captures) = branch?;
+                    for capture in captures {
+                        writes |= capture? == slot;
+                    }
+                }
+                writes
+            }
+            schema::StmtView::PatternWhile { mut captures, .. } => {
+                let mut writes = false;
+                for capture in &mut captures {
+                    writes |= capture? == slot;
+                }
+                writes
+            }
+            schema::StmtView::Match { mut arms, .. } => {
+                let mut writes = false;
+                for arm in &mut arms {
+                    let (pattern, _, _) = arm?;
+                    writes |= self
+                        .pattern_capture_slots(pattern.raw() as usize)?
+                        .contains(&slot);
+                }
+                writes
+            }
+            schema::StmtView::For { slot: written, .. }
+            | schema::StmtView::ForStrLines { slot: written, .. } => written == slot,
+            schema::StmtView::ForRecord { target, .. }
+            | schema::StmtView::LetRecord { target, .. } => {
+                self.comp_target_view_writes_slot(target, slot)?
+            }
+            schema::StmtView::ScanLines {
+                text_slot,
+                line_slot,
+                ..
+            } => text_slot == slot || line_slot == slot,
+            _ => false,
+        })
+    }
+
+    /// Use a local handle's target only when its slot has one immutable
+    /// function-reference initializer; every lowered slot write is checked.
+    fn local_function_ref_initializer(
+        &self,
+        slot: usize,
+    ) -> Result<Option<usize>, IrVerifyError> {
+        if let Some(initializer) = self.local_function_ref_initializers.borrow().get(&slot) {
+            return Ok(*initializer);
+        }
+        let initializer = self.local_function_ref_initializer_uncached(slot)?;
+        self.local_function_ref_initializers
+            .borrow_mut()
+            .insert(slot, initializer);
+        Ok(initializer)
+    }
+
+    fn local_function_ref_initializer_uncached(
+        &self,
+        slot: usize,
+    ) -> Result<Option<usize>, IrVerifyError> {
+        let mut initializer = None;
+        for instruction in self.instruction_range.clone() {
+            if self.store.tags[instruction].kind() != schema::InstructionKind::Stmt
+                || !self.statement_writes_slot(instruction, slot)?
+            {
+                continue;
+            }
+            let schema::StmtView::Let {
+                slot: written,
+                value,
+            } = self.statement_view(instruction)?
+            else {
+                return Ok(None);
+            };
+            debug_assert_eq!(written, slot);
+            if initializer.replace(value.raw() as usize).is_some() {
+                return Ok(None);
+            }
+        }
+        let Some(initializer) = initializer else {
+            return Ok(None);
+        };
+        Ok(matches!(
+            self.expression_view(initializer)?,
+            schema::ExprView::FunctionRef { .. }
+        )
+        .then_some(initializer))
+    }
+
+    fn checked_expression_matches_type(
+        &self,
+        instruction: usize,
+        expected: &Type,
+    ) -> Result<(), IrVerifyError> {
+        if !expected.contains_typed_callable()
+            && self.checked_expression_type_id(instruction)?.is_none()
+        {
+            return Ok(());
+        }
+        if let schema::ExprView::Param(slot) = self.expression_view(instruction)? {
+            let actual = if let Some(actual) = self.checked_expression_type_id(instruction)? {
+                Some(self.store.semantic.to_type(actual)?)
+            } else {
+                match self.checked_slot_type(slot) {
+                    Ok(Some(actual)) => Some(self.store.semantic.to_type(actual)?),
+                    Ok(None) => None,
+                    Err(error)
+                        if error
+                            .message
+                            .starts_with("typed callee slot has no checked type fact:") =>
+                    {
+                        None
+                    }
+                    Err(error) => return Err(error),
+                }
+            };
+            if actual.as_ref() == Some(expected) {
+                return Ok(());
+            }
+            if actual
+                .as_ref()
+                .is_some_and(|actual| self.checked_type_fits(actual, expected))
+            {
+                return Ok(());
+            }
+            if let Type::Callable(callable) = expected
+                && actual.as_ref().is_none_or(|actual| {
+                    matches!(
+                        (actual, callable.pure),
+                        (Type::Pure, true) | (Type::Proc, false)
+                    )
+                })
+            {
+                return self.local_function_ref_matches_type(slot, expected);
+            }
+            return Err(IrVerifyError::new(
+                "checked callable expression slot disagrees with its expected type",
+            ));
+        }
+        if let Some(actual) = self.expression_checked_type_id(instruction)? {
+            let actual_type = self.store.semantic.to_type(actual)?;
+            if actual_type == *expected || self.checked_type_fits(&actual_type, expected) {
+                return Ok(());
+            }
+            if let schema::ExprView::Param(slot) = self.expression_view(instruction)?
+                && let Type::Callable(callable) = expected
+                && matches!(
+                    (actual_type, callable.pure),
+                    (Type::Pure, true) | (Type::Proc, false)
+                )
+                && let Some(initializer) = self.local_function_ref_initializer(slot)?
+            {
+                return self.checked_expression_matches_type(initializer, expected);
+            }
+            return Err(IrVerifyError::new(
+                "checked expression child type disagrees with its producer",
+            ));
+        }
+        match self.expression_view(instruction)? {
+            schema::ExprView::Param(slot) => {
+                let actual = match self.checked_slot_type(slot) {
+                    Ok(Some(actual)) => Some(self.store.semantic.to_type(actual)?),
+                    Ok(None) => None,
+                    Err(error)
+                        if error
+                            .message
+                            .starts_with("typed callee slot has no checked type fact:") =>
+                    {
+                        None
+                    }
+                    Err(error) => return Err(error),
+                };
+                if actual.as_ref() == Some(expected) {
+                    Ok(())
+                } else if let Type::Callable(callable) = expected
+                    && actual.as_ref().is_none_or(|actual| {
+                        matches!(
+                            (actual, callable.pure),
+                            (Type::Pure, true) | (Type::Proc, false)
+                        )
+                    })
+                {
+                    self.local_function_ref_matches_type(slot, expected)
+                } else {
+                    Err(IrVerifyError::new(
+                        "checked callable expression slot disagrees with its expected type",
+                    ))
+                }
+            }
+            schema::ExprView::FunctionRef { function, pure } => {
+                let (signature, target_pure) = self.function_reference_signature(function)?;
+                let Type::Callable(callable) = expected else {
+                    return Err(IrVerifyError::new(
+                        "checked function reference tail has a non-callable expected type",
+                    ));
+                };
+                if target_pure != pure
+                    || callable.pure != pure
+                    || !self
+                        .store
+                        .semantic
+                        .signature_fits_callable(signature, pure, callable)?
+                {
+                    return Err(IrVerifyError::new(
+                        "checked function reference tail disagrees with its target signature",
+                    ));
+                }
+                Ok(())
+            }
+            schema::ExprView::Null => {
+                if matches!(expected, Type::Optional(_)) {
+                    Ok(())
+                } else {
+                    Err(IrVerifyError::new(
+                        "checked null expression has an incompatible expected type",
+                    ))
+                }
+            }
+            schema::ExprView::CheckedValue { value, check, .. } => {
+                if check.ty.materialize()? != *expected {
+                    return Err(IrVerifyError::new(
+                        "checked value wrapper disagrees with its checked result type",
+                    ));
+                }
+                self.checked_expression_matches_type(value.raw() as usize, expected)
+            }
+            schema::ExprView::Try { value, .. } => {
+                let value = value.raw() as usize;
+                if let schema::ExprView::Require { value: checked, check, .. } = self.expression_view(value)?
+                    && check.ty.materialize()? == *expected
+                {
+                    // A checked record constructor returns its value only after
+                    // the runtime require has enforced the declared record type.
+                    return self.checked_expression_matches_type(
+                        checked.raw() as usize,
+                        expected,
+                    );
+                }
+                let Some(actual) = self.expression_checked_type_id(value)? else {
+                    return Err(IrVerifyError::new(
+                        "checked try producer is missing its result type",
+                    ));
+                };
+                let actual = self.store.semantic.to_type(actual)?;
+                let ok = match actual {
+                    Type::Result(ok, _) => *ok,
+                    Type::Validated(validated) => match validated.base() {
+                        Type::Result(ok, _) => ok.as_ref().clone(),
+                        _ => {
+                            return Err(IrVerifyError::new(
+                                "checked try producer operand is not a result",
+                            ));
+                        }
+                    },
+                    _ => {
+                        return Err(IrVerifyError::new(
+                            "checked try producer operand is not a result",
+                        ));
+                    }
+                };
+                if ok == *expected {
+                    Ok(())
+                } else {
+                    Err(IrVerifyError::new(
+                        "checked try result disagrees with its checked operand",
+                    ))
+                }
+            }
+            schema::ExprView::ValueBlock { body, .. } => {
+                self.checked_block_tail_matches_type(body, expected)
+            }
+            schema::ExprView::Record(mut entries) => {
+                let Type::Record(fields) = expected else {
+                    return Err(IrVerifyError::new(
+                        "checked record producer has a non-record expected type",
+                    ));
+                };
+                let entries = self.checked_record_entries(&mut entries)?;
+                let mut supplied = BTreeSet::new();
+                let mut later_fields = BTreeSet::new();
+                for entry in entries.into_iter().rev() {
+                    match entry {
+                        CheckedRecordEntry::Field(name, value) => {
+                            if !later_fields.contains(&name)
+                                && let Some(field_type) = fields.get(&name)
+                                && field_type.contains_typed_callable()
+                            {
+                                self.checked_expression_matches_type(value, field_type)?;
+                                supplied.insert(name);
+                            }
+                            later_fields.insert(name);
+                        }
+                        CheckedRecordEntry::Spread(value) => {
+                            let Some(source_type) = self.expression_checked_type_id(value)? else {
+                                return Err(IrVerifyError::new(
+                                    "checked callable record spread is missing its type",
+                                ));
+                            };
+                            let Type::Record(source_fields) =
+                                self.store.semantic.to_type(source_type)?
+                            else {
+                                return Err(IrVerifyError::new(
+                                    "checked callable record spread has no field facts",
+                                ));
+                            };
+                            for (name, field_type) in source_fields {
+                                if !later_fields.contains(&name) {
+                                    if field_type.contains_typed_callable()
+                                        && let Some(expected_field) = fields.get(&name)
+                                    {
+                                        if !self.checked_type_fits(&field_type, expected_field) {
+                                            return Err(IrVerifyError::new(
+                                                "checked record spread field disagrees with its result",
+                                            ));
+                                        }
+                                        supplied.insert(name);
+                                    }
+                                }
+                                later_fields.insert(name);
+                            }
+                        }
+                    }
+                }
+                if fields.iter().any(|(name, field_type)| {
+                    field_type.contains_typed_callable() && !supplied.contains(name)
+                }) {
+                    return Err(IrVerifyError::new(
+                        "checked record producer has an unproven callable field",
+                    ));
+                }
+                Ok(())
+            }
+            schema::ExprView::IfExpr {
+                mut branches,
+                else_value,
+                ..
+            } => {
+                for branch in &mut branches {
+                    let (_, value) = branch?;
+                    self.checked_expression_matches_type(value.raw() as usize, expected)?;
+                }
+                self.checked_expression_matches_type(else_value.raw() as usize, expected)
+            }
+            schema::ExprView::PatternIf {
+                mut branches,
+                else_value,
+                ..
+            } => {
+                for branch in &mut branches {
+                    let (_, value, _) = branch?;
+                    self.checked_expression_matches_type(value.raw() as usize, expected)?;
+                }
+                self.checked_expression_matches_type(else_value.raw() as usize, expected)
+            }
+            schema::ExprView::MatchExpr { value, arms, .. } => self
+                .checked_match_result_matches_type(value.raw(), arms, expected),
+            schema::ExprView::Loop { mut body, .. } => {
+                let mut found_value = false;
+                for statement in &mut body {
+                    let statement = statement?.raw() as usize;
+                    if let schema::StmtView::BreakValue { value } =
+                        self.statement_view(statement)?
+                    {
+                        found_value = true;
+                        self.checked_expression_matches_type(value.raw() as usize, expected)?;
+                    }
+                }
+                if found_value {
+                    Ok(())
+                } else {
+                    Err(IrVerifyError::new(
+                        "checked callable loop has no value-producing break",
+                    ))
+                }
+            }
+            _ => {
+                Err(IrVerifyError::new(
+                    "checked callable expression child has no structural producer proof",
+                ))
+            }
+        }
+    }
+
+    fn checked_type_fits(&self, actual: &Type, expected: &Type) -> bool {
+        match (actual, expected) {
+            (Type::Callable(actual), Type::Callable(expected)) => {
+                self.store.semantic.callable_type_fits(actual, expected)
+            }
+            _ => actual.matches_expected(expected),
+        }
+    }
+
+    fn function_reference_matches_callable(
+        &self,
+        instruction: usize,
+        expected: &Type,
+    ) -> Result<(), IrVerifyError> {
+        let schema::ExprView::FunctionRef { function, pure } = self.expression_view(instruction)?
+        else {
+            return Err(IrVerifyError::new(
+                "checked callable initializer is not a function reference",
+            ));
+        };
+        let (signature, target_pure) = self.function_reference_signature(function)?;
+        let Type::Callable(callable) = expected else {
+            return Err(IrVerifyError::new(
+                "checked function reference has a non-callable expected type",
+            ));
+        };
+        if target_pure != pure
+            || callable.pure != pure
+            || !self
+                .store
+                .semantic
+                .signature_fits_callable(signature, pure, callable)?
+        {
+            return Err(IrVerifyError::new(
+                "checked function reference tail disagrees with its target signature",
+            ));
+        }
+        Ok(())
+    }
+
+    fn local_function_ref_matches_type(
+        &self,
+        slot: usize,
+        expected: &Type,
+    ) -> Result<(), IrVerifyError> {
+        let initializer = self
+            .local_function_ref_initializer(slot)?
+            .ok_or_else(|| {
+                IrVerifyError::new(
+                    "checked callable slot has no immutable function reference initializer",
+                )
+            })?;
+        self.function_reference_matches_callable(initializer, expected)
+    }
+
+    fn checked_index_result_type(&self, base: usize) -> Result<Type, IrVerifyError> {
+        let Some(base_type) = self.expression_checked_type_id(base)? else {
+            return Err(IrVerifyError::new(
+                "callable index producer is missing its checked base type",
+            ));
+        };
+        let base_type = self.store.semantic.to_type(base_type)?;
+        let mut current = base_type;
+        let mut optional = false;
+        let item = loop {
+            match current {
+                Type::Optional(inner) => {
+                    optional = true;
+                    current = *inner;
+                }
+                Type::Validated(validated) => {
+                    current = validated.base().clone();
+                }
+                Type::List(item) | Type::Set(item) => break *item,
+                Type::Map(_, value) => break *value,
+                _ => {
+                    return Err(IrVerifyError::new(
+                        "callable index producer has no checked collection element type",
+                    ));
+                }
+            }
+        };
+        Ok(if optional {
+            Type::Optional(Box::new(item))
+        } else {
+            item
+        })
+    }
+
+    fn expression_is_nonempty_list_literal(
+        &self,
+        instruction: usize,
+    ) -> Result<bool, IrVerifyError> {
+        match self.expression_view(instruction)? {
+            schema::ExprView::List(values) => Ok(values.len() > 0),
+            _ => Ok(false),
+        }
+    }
+
+    fn verify_checked_expression_producer(
+        &self,
+        instruction: usize,
+        fact: FullCheckedExprType,
+    ) -> Result<(), IrVerifyError> {
+        let ty = self.store.semantic.to_type(fact.type_id)?;
+        if !ty.contains_typed_callable()
+            && !fact.with_error_source
+            && !matches!(ty, Type::ErrorVariant { .. })
+        {
+            return Err(IrVerifyError::new(
+                "checked expression fact is neither callable, a structured error, nor a With error source",
+            ));
+        }
+        let exact_type = |actual: TypeId| -> Result<(), IrVerifyError> {
+            if self.store.semantic.to_type(actual)? == ty {
+                Ok(())
+            } else {
+                Err(IrVerifyError::new(
+                    "checked expression fact disagrees with its structural producer",
+                ))
+            }
+        };
+        let require_child = |child: usize, expected: &Type| {
+            self.require_checked_child_type(child, expected)
+        };
+        let view = self.expression_view(instruction)?;
+        match view {
+            schema::ExprView::Int(_) if matches!(ty, Type::Int | Type::UInt) => {}
+            schema::ExprView::Float(_) if ty == Type::Float => {}
+            schema::ExprView::Duration(_) if ty == Type::Duration => {}
+            schema::ExprView::Bool(_) if ty == Type::Bool => {}
+            schema::ExprView::Str(_) if ty == Type::Str => {}
+            schema::ExprView::Bytes(_) if ty == Type::Bytes => {}
+            schema::ExprView::Path(_) if ty == Type::Path => {}
+            schema::ExprView::PreparedRegex(_) if ty == Type::Regex => {}
+            schema::ExprView::Unit if ty == Type::Unit => {}
+            schema::ExprView::FunctionRef { function, pure } => {
+                let function_matches = fact.function_ref.is_some_and(|(expected, expected_pure)| {
+                    if expected_pure != pure {
+                        return false;
+                    }
+                    match (expected.as_name(), expected.as_qualified(), function) {
+                        (Some(expected), None, decode::FunctionNameView::Name(actual)) => {
+                            expected == actual
+                        }
+                        (None, Some(expected), decode::FunctionNameView::Qualified(actual)) => {
+                            expected == actual
+                        }
+                        _ => false,
+                    }
+                });
+                let (signature, target_is_pure) = self.function_reference_signature(function)?;
+                let Type::Callable(checked_callable) = &ty else {
+                    return Err(IrVerifyError::new(
+                        "checked function reference has a non-callable fact",
+                    ));
+                };
+                if !function_matches {
+                    return Err(IrVerifyError::new(
+                        "checked function reference identity disagrees with its producer: source name",
+                    ));
+                }
+                if target_is_pure != pure {
+                    return Err(IrVerifyError::new(
+                        "checked function reference identity disagrees with its producer: function kind",
+                    ));
+                }
+                if typed_callable_purity(&ty) != Some(pure) {
+                    return Err(IrVerifyError::new(
+                        "checked function reference identity disagrees with its producer: checked kind",
+                    ));
+                }
+                if !self.store.semantic.signature_fits_callable(
+                    signature,
+                    pure,
+                    checked_callable,
+                )? {
+                    return Err(IrVerifyError::new(
+                        "checked function reference identity disagrees with its producer: checked signature",
+                    ));
+                }
+            }
+            schema::ExprView::Param(slot) => {
+                let actual = match self.checked_slot_type(slot) {
+                    Ok(Some(actual)) => actual,
+                    Ok(None) => return self.local_function_ref_matches_type(slot, &ty),
+                    Err(error)
+                        if error
+                            .message
+                            .starts_with("typed callee slot has no checked type fact:") =>
+                    {
+                        return self.local_function_ref_matches_type(slot, &ty);
+                    }
+                    Err(error) => return Err(error),
+                };
+                let actual_type = self.store.semantic.to_type(actual)?;
+                if actual_type == ty {
+                    return Ok(());
+                } else if let Type::Callable(callable) = &ty
+                    && matches!(
+                        (actual_type, callable.pure),
+                        (Type::Pure, true) | (Type::Proc, false)
+                    )
+                {
+                    return self.local_function_ref_matches_type(slot, &ty);
+                } else {
+                    return Err(IrVerifyError::new(
+                        "checked expression fact disagrees with its structural producer",
+                    ));
+                }
+            }
+            schema::ExprView::Field { .. } => {
+                if self.derive_checked_field_type(instruction)? != ty {
+                    return Err(IrVerifyError::new(
+                        "checked field fact disagrees with its structural receiver",
+                    ));
+                }
+            }
+            schema::ExprView::Error(ErrorExprView::Structured {
+                family,
+                family_identity,
+                variant,
+                ..
+            }) => {
+                let family_identity = Name::intern(family_identity);
+                let variant = Name::intern(variant);
+                let Type::ErrorVariant {
+                    family: checked_family,
+                    variant: checked_variant,
+                } = &ty
+                else {
+                    return Err(IrVerifyError::new(
+                        "checked structured-error fact is not an error variant",
+                    ));
+                };
+                if *checked_family != family_identity || *checked_variant != variant {
+                    return Err(IrVerifyError::new(
+                        "checked structured-error identity disagrees with its constructor",
+                    ));
+                }
+                let identity_text = family_identity.as_str();
+                let display_family = identity_text
+                    .as_str()
+                    .rsplit_once('.')
+                    .map(|(_, member)| member)
+                    .unwrap_or(identity_text.as_str());
+                if family != display_family {
+                    return Err(IrVerifyError::new(
+                        "structured-error display name disagrees with its declaration identity",
+                    ));
+                }
+                let key = CheckedPatternVariantKey {
+                    kind: CheckedPatternVariantKind::Error,
+                    owner: family_identity,
+                    variant,
+                };
+                if !self.store.checked_pattern_variants.contains_key(&key) {
+                    return Err(IrVerifyError::new(
+                        "structured-error constructor has no checked declaration schema",
+                    ));
+                }
+            }
+            schema::ExprView::Call { function, .. }
+            | schema::ExprView::DirectPureCall { function, .. } => {
+                exact_type(self.function_return_type(function.id.index())?)?;
+            }
+            schema::ExprView::SelfCall { .. } => {
+                let function = IrFunctionId::from_raw(self.owner)
+                    .ok_or_else(|| IrVerifyError::new("self call has no function owner"))?;
+                exact_type(self.function_return_type(function.index())?)?;
+            }
+            schema::ExprView::TypedCall { signature, .. } => {
+                let Type::Callable(callable) = signature.materialize()? else {
+                    return Err(IrVerifyError::new(
+                        "checked typed-call producer has a non-callable signature",
+                    ));
+                };
+                if ty != *callable.sig.return_ty {
+                    return Err(IrVerifyError::new(
+                        "checked typed-call result disagrees with its signature",
+                    ));
+                }
+            }
+            schema::ExprView::Index { base, .. }
+            | schema::ExprView::IndexFromEnd { base, .. } => {
+                let actual = self.checked_index_result_type(base.raw() as usize)?;
+                if actual != ty {
+                    return Err(IrVerifyError::new(
+                        "checked index fact disagrees with its collection producer",
+                    ));
+                }
+            }
+            schema::ExprView::Try { value, .. } => {
+                let value = value.raw() as usize;
+                let Some(value_type) = self.expression_checked_type_id(value)? else {
+                    return Err(IrVerifyError::new(
+                        "checked try producer is missing its operand type",
+                    ));
+                };
+                let value_type = self.store.semantic.to_type(value_type)?;
+                let result = match value_type {
+                    Type::Result(ok, _) => *ok,
+                    Type::Validated(validated) => match validated.base() {
+                        Type::Result(ok, _) => ok.as_ref().clone(),
+                        _ => {
+                            return Err(IrVerifyError::new(
+                                "checked try producer operand is not a result",
+                            ));
+                        }
+                    },
+                    _ => {
+                        return Err(IrVerifyError::new(
+                            "checked try producer operand is not a result",
+                        ));
+                    }
+                };
+                if result != ty {
+                    return Err(IrVerifyError::new(
+                        "checked try fact disagrees with its result operand",
+                    ));
+                }
+            }
+            schema::ExprView::IfExpr {
+                mut branches,
+                else_value,
+                ..
+            } => {
+                for branch in &mut branches {
+                    let (_, value) = branch?;
+                    require_child(value.raw() as usize, &ty)?;
+                }
+                require_child(else_value.raw() as usize, &ty)?;
+            }
+            schema::ExprView::PatternIf {
+                mut branches,
+                else_value,
+                ..
+            } => {
+                for branch in &mut branches {
+                    let (_, value, _) = branch?;
+                    require_child(value.raw() as usize, &ty)?;
+                }
+                require_child(else_value.raw() as usize, &ty)?;
+            }
+            schema::ExprView::MatchExpr { value, arms, .. } => {
+                self.checked_match_result_matches_type(value.raw(), arms, &ty)?;
+            }
+            schema::ExprView::StrMatchExpr {
+                mut arms,
+                fallback,
+                ..
+            }
+            | schema::ExprView::TagMatchExpr {
+                mut arms,
+                fallback,
+                ..
+            } => {
+                for arm in &mut arms {
+                    let (_, value) = arm?;
+                    require_child(value.raw() as usize, &ty)?;
+                }
+                if let Some(fallback) = fallback {
+                    require_child(fallback.raw() as usize, &ty)?;
+                }
+            }
+            schema::ExprView::ResultFallback { left, right } => {
+                let left = left.raw() as usize;
+                let Some(left_type) = self.expression_checked_type_id(left)? else {
+                    return Err(IrVerifyError::new(
+                        "checked fallback producer is missing its left type",
+                    ));
+                };
+                let left_type = self.store.semantic.to_type(left_type)?;
+                let fallback_type = match left_type {
+                    Type::Optional(value) | Type::Result(value, _) => *value,
+                    Type::Validated(value) => match value.base() {
+                        Type::Optional(inner) | Type::Result(inner, _) => inner.as_ref().clone(),
+                        _ => {
+                            return Err(IrVerifyError::new(
+                                "checked fallback producer has no fallback value type",
+                            ));
+                        }
+                    },
+                    _ => {
+                        return Err(IrVerifyError::new(
+                            "checked fallback producer has no fallback value type",
+                        ));
+                    }
+                };
+                if fallback_type != ty {
+                    return Err(IrVerifyError::new(
+                        "checked fallback fact disagrees with its left producer",
+                    ));
+                }
+                require_child(right.raw() as usize, &ty)?;
+            }
+            schema::ExprView::Record(mut entries) => {
+                let Type::Record(fields) = &ty else {
+                    return Err(IrVerifyError::new(
+                        "checked record fact has a non-record result type",
+                    ));
+                };
+                let entries = self.checked_record_entries(&mut entries)?;
+                let mut supplied = BTreeSet::new();
+                let mut later_fields = BTreeSet::new();
+                for entry in entries.into_iter().rev() {
+                    match entry {
+                        CheckedRecordEntry::Field(name, value) => {
+                            if !later_fields.contains(&name)
+                                && let Some(field_type) = fields.get(&name)
+                                && field_type.contains_typed_callable()
+                            {
+                                require_child(value, field_type)?;
+                                supplied.insert(name);
+                            }
+                            later_fields.insert(name);
+                        }
+                        CheckedRecordEntry::Spread(value) => {
+                            let Some(source_type) = self.expression_checked_type_id(value)? else {
+                                return Err(IrVerifyError::new(
+                                    "checked record spread is missing its type",
+                                ));
+                            };
+                            let Type::Record(source_fields) =
+                                self.store.semantic.to_type(source_type)?
+                            else {
+                                return Err(IrVerifyError::new(
+                                    "checked callable record spread has no field facts",
+                                ));
+                            };
+                            for (name, field_type) in source_fields {
+                                if !later_fields.contains(&name) {
+                                    if field_type.contains_typed_callable()
+                                        && let Some(expected_field) = fields.get(&name)
+                                    {
+                                        if !self.checked_type_fits(&field_type, expected_field) {
+                                            return Err(IrVerifyError::new(
+                                                "checked record spread field disagrees with its result",
+                                            ));
+                                        }
+                                        supplied.insert(name);
+                                    }
+                                }
+                                later_fields.insert(name);
+                            }
+                        }
+                    }
+                }
+                if fields.iter().any(|(name, field_type)| {
+                    field_type.contains_typed_callable() && !supplied.contains(name)
+                }) {
+                    return Err(IrVerifyError::new(
+                        "checked record fact has an unproven callable field",
+                    ));
+                }
+            }
+            schema::ExprView::RecordUpdate { base, updates, .. } => {
+                self.checked_record_update_matches_type(
+                    base.raw() as usize,
+                    updates,
+                    &ty,
+                )?;
+            }
+            schema::ExprView::Ok(value) => {
+                let Type::Result(ok, _) = &ty else {
+                    return Err(IrVerifyError::new("checked Ok fact is not a result"));
+                };
+                require_child(value.raw() as usize, ok)?;
+            }
+            schema::ExprView::Err { value, .. } => {
+                let Type::Result(_, error) = &ty else {
+                    return Err(IrVerifyError::new("checked Err fact is not a result"));
+                };
+                require_child(value.raw() as usize, error)?;
+            }
+            schema::ExprView::Null => {
+                if !matches!(ty, Type::Optional(_) | Type::Any) {
+                    return Err(IrVerifyError::new(
+                        "checked null fact has an incompatible producer type",
+                    ));
+                }
+            }
+            schema::ExprView::ValueBlock { body, .. } => {
+                self.checked_block_tail_matches_type(body, &ty)?;
+            }
+            schema::ExprView::ContextScope { body, .. } => {
+                match &ty {
+                    Type::Result(ok, _) => {
+                        self.checked_block_tail_matches_type(body, ok)?;
+                    }
+                    _ => {
+                        return Err(IrVerifyError::new(
+                            "checked scope fact disagrees with its value block",
+                        ));
+                    }
+                }
+            }
+            schema::ExprView::Loop { mut body, .. } => {
+                let mut found_value = false;
+                for statement in &mut body {
+                    let statement = statement?.raw() as usize;
+                    if let schema::StmtView::BreakValue { value } =
+                        self.statement_view(statement)?
+                    {
+                        found_value = true;
+                        require_child(value.raw() as usize, &ty)?;
+                    }
+                }
+                if !found_value {
+                    return Err(IrVerifyError::new(
+                        "checked loop fact has no value-producing break",
+                    ));
+                }
+            }
+            schema::ExprView::List(mut values) => {
+                let (item, requires_nonempty) = match &ty {
+                    Type::List(item) => (item.as_ref(), false),
+                    Type::Validated(validated)
+                        if validated.validation() == crate::sema::validated::Validation::NonEmpty =>
+                    {
+                        let Type::List(item) = validated.base() else {
+                            return Err(IrVerifyError::new(
+                                "checked non-empty list fact has a non-list base",
+                            ));
+                        };
+                        (item.as_ref(), true)
+                    }
+                    _ => {
+                    return Err(IrVerifyError::new("checked list fact is not a list"));
+                    }
+                };
+                if requires_nonempty && values.len() == 0 {
+                    return Err(IrVerifyError::new(
+                        "checked non-empty list fact has an empty literal producer",
+                    ));
+                }
+                for value in &mut values {
+                    require_child(value?.raw() as usize, item)?;
+                }
+            }
+            schema::ExprView::ListBuild(mut values) => {
+                let (item, requires_nonempty) = match &ty {
+                    Type::List(item) => (item.as_ref(), false),
+                    Type::Validated(validated)
+                        if validated.validation() == crate::sema::validated::Validation::NonEmpty =>
+                    {
+                        let Type::List(item) = validated.base() else {
+                            return Err(IrVerifyError::new(
+                                "checked non-empty list-build fact has a non-list base",
+                            ));
+                        };
+                        (item.as_ref(), true)
+                    }
+                    _ => {
+                    return Err(IrVerifyError::new("checked list-build fact is not a list"));
+                    }
+                };
+                let mut proves_nonempty = false;
+                for value in &mut values {
+                    let (splice, value, _) = value?;
+                    let value = value.raw() as usize;
+                    if splice {
+                        let Some(actual) = self.expression_checked_type_id(value)? else {
+                            return Err(IrVerifyError::new(
+                                "checked list splice is missing its type",
+                            ));
+                        };
+                        let actual = self.store.semantic.to_type(actual)?;
+                        let (actual_list, is_nonempty) = match &actual {
+                            Type::Validated(validated)
+                                if validated.validation()
+                                    == crate::sema::validated::Validation::NonEmpty =>
+                            {
+                                (validated.base(), true)
+                            }
+                            actual => (actual, false),
+                        };
+                        let expected_list = Type::List(Box::new(item.clone()));
+                        if !self.checked_type_fits(actual_list, &expected_list) {
+                            return Err(IrVerifyError::new(
+                                "checked list splice disagrees with its element type",
+                            ));
+                        }
+                        if is_nonempty
+                            || (!requires_nonempty
+                                && self.expression_is_nonempty_list_literal(value)?)
+                        {
+                            proves_nonempty = true;
+                        }
+                    } else {
+                        require_child(value, item)?;
+                        proves_nonempty = true;
+                    }
+                }
+                if requires_nonempty && !proves_nonempty {
+                    return Err(IrVerifyError::new(
+                        "checked non-empty list-build fact has no non-empty producer",
+                    ));
+                }
+            }
+            schema::ExprView::ListComp { value, .. } => {
+                let Type::List(item) = &ty else {
+                    return Err(IrVerifyError::new("checked list-comprehension fact is not a list"));
+                };
+                require_child(value.raw() as usize, item)?;
+            }
+            schema::ExprView::MapComp { key, value, .. } => {
+                let Type::Map(key_type, value_type) = &ty else {
+                    return Err(IrVerifyError::new("checked map-comprehension fact is not a map"));
+                };
+                require_child(key.raw() as usize, key_type)?;
+                require_child(value.raw() as usize, value_type)?;
+            }
+            _ => {
+                if fact.function_ref.is_some() {
+                    return Err(IrVerifyError::new(
+                        "checked function reference producer tag was changed",
+                    ));
+                }
+                return Err(IrVerifyError::new(
+                    "checked callable expression has no structural producer proof",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn verify_checked_expression_facts(&self) -> Result<(), IrVerifyError> {
+        let facts = &self.store.checked_expr_types;
+        let with_error_sources = self.checked_with_error_source_instructions()?;
+        // Instruction order makes each owner's sparse facts one searchable range.
+        let first = facts
+            .partition_point(|fact| (fact.instruction as usize) < self.instruction_range.start);
+        let last = facts
+            .partition_point(|fact| (fact.instruction as usize) < self.instruction_range.end);
+        for fact in &facts[first..last] {
+            let instruction = fact.instruction as usize;
+            let ty = self.store.semantic.to_type(fact.type_id)?;
+            if fact.with_error_source && !with_error_sources.contains(&instruction) {
+                return Err(IrVerifyError::new(
+                    "checked With error source fact has no initializer producer",
+                ));
+            }
+            if !ty.contains_typed_callable()
+                && !fact.with_error_source
+                && !matches!(ty, Type::ErrorVariant { .. })
+            {
+                return Err(IrVerifyError::new(
+                    "checked expression fact is neither callable, a structured error, nor a With error source",
+                ));
+            }
+            if let Err(error) = self.verify_checked_expression_producer(instruction, *fact) {
+                return Err(error);
+            }
+        }
+        for instruction in self.instruction_range.clone() {
+            if self.store.tags[instruction] == FullTag::ExprError
+                && self.checked_expression_type_id(instruction)?.is_none()
+            {
+                return Err(IrVerifyError::new(
+                    "structured-error constructor has no checked declaration identity",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn verify_typed_calls_after_structure(&self) -> Result<(), IrVerifyError> {
+        for instruction in self.instruction_range.clone() {
+            if self.store.tags[instruction] != FullTag::ExprTypedCall {
+                continue;
+            }
+            let payload = self.store.payload(self.store.data[instruction].range())?;
+            self.verify_typed_call_shape(self.cursor(payload))?;
+        }
+        Ok(())
+    }
+
+    fn verify_callable_slot_initializer(
+        &self,
+        slot: usize,
+        value: usize,
+    ) -> Result<(), IrVerifyError> {
+        let slot_type = match self.checked_slot_type(slot) {
+            Ok(slot_type) => slot_type,
+            Err(error)
+                if error
+                    .message
+                    .starts_with("typed callee slot has no checked type fact:")
+                    && self.checked_expression_type_id(value)?.is_none()
+                    && matches!(
+                        self.expression_view(value)?,
+                        schema::ExprView::FunctionRef { .. }
+                    ) =>
+            {
+                // An unannotated function reference has only broad Pure/Proc inference;
+                // contextual callable uses are checked from this immutable source at use sites.
+                return Ok(());
+            }
+            Err(error) => return Err(error),
+        };
+        let Some(fact) = slot_type else {
+            return Ok(());
+        };
+        let fact_type = self.store.semantic.to_type(fact)?;
+        if !fact_type.contains_typed_callable() {
+            return Ok(());
+        }
+        if let Some(initializer) = self.checked_expression_type_id(value)? {
+            if self.store.semantic.to_type(initializer)? == fact_type {
+                return Ok(());
+            }
+        }
+        if self
+            .checked_expression_matches_type(value, &fact_type)
+            .is_err()
+        {
+            return Err(IrVerifyError::new(
+                "local slot type fact disagrees with its initializer IR representation",
+            ));
+        }
+        Ok(())
+    }
+
+    fn verify_callable_slot_without_checked_initializer(
+        &self,
+        slot: usize,
+    ) -> Result<(), IrVerifyError> {
+        let Some(slot_type) = self.checked_slot_type(slot)? else {
+            return Ok(());
+        };
+        if self
+            .store
+            .semantic
+            .to_type(slot_type)?
+            .contains_typed_callable()
+        {
+            return Err(IrVerifyError::new(
+                "local slot type fact disagrees with its initializer IR representation",
+            ));
+        }
+        Ok(())
+    }
+
+    fn checked_expression_type(&self, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
+        match self.expression_checked_type_id(instruction) {
+            Ok(Some(type_id)) => self.store.semantic.to_type(type_id).map(Some),
+            Ok(None) if self.store.tags.get(instruction) == Some(&FullTag::ExprField) => {
+                self.derive_checked_field_type(instruction).map(Some)
+            }
+            Ok(None) => Ok(None),
+            Err(error) if self.store.tags.get(instruction) == Some(&FullTag::ExprField) => {
+                let field_type = self.derive_checked_field_type(instruction)?;
+                if field_type.contains_typed_callable() {
+                    Err(error)
+                } else {
+                    Ok(Some(field_type))
+                }
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn derive_checked_field_type(&self, instruction: usize) -> Result<Type, IrVerifyError> {
+        let payload = self.store.payload(self.store.data[instruction].range())?;
+        let [base, name, ..] = payload else {
+            return Err(IrVerifyError::new("checked field payload is truncated"));
+        };
+        let base = *base as usize;
+        let field = Name::intern(self.store.string(*name)?);
+        let receiver = self
+            .checked_expression_type(base)?
+            .ok_or_else(|| IrVerifyError::new("checked field receiver has no source type"))?;
+        let receiver = receiver.into_unvalidated();
+        let receiver_id = if matches!(&receiver, Type::Record(_) | Type::Module(_)) {
+            self.expression_checked_type_id(base)?
+        } else {
+            None
+        };
+        if let Some(receiver_id) = receiver_id
+            && let Some(field_id) = self.store.semantic.field_type(receiver_id, field)?
+        {
+            return self.store.semantic.to_type(field_id);
+        }
+        match receiver {
+            Type::Record(fields) => fields.get(&field).cloned().ok_or_else(|| {
+                IrVerifyError::new("checked field is absent from its record receiver")
+            }),
+            Type::Module(exports) => exports.get(&field).map(|export| export.field_type()).ok_or_else(|| {
+                IrVerifyError::new("checked field is absent from its module receiver")
+            }),
+            Type::ErasedRecord | Type::DynamicModule => Ok(Type::Any),
+            receiver => match crate::sema::check::Checker::fixed_field_type(&receiver, field) {
+                Some(Some(field_type)) => Ok(field_type),
+                Some(None) => Err(IrVerifyError::new(
+                    "checked field is absent from its fixed-field receiver",
+                )),
+                None => Err(IrVerifyError::new(
+                    "checked field receiver has no structural field type",
+                )),
+            },
+        }
+    }
+
+    fn checked_result_payload_type(subject_type: Option<&Type>, ok: bool) -> Option<Type> {
+        match subject_type? {
+            Type::Result(ok_type, error_type) => Some(if ok {
+                ok_type.as_ref().clone()
+            } else {
+                error_type.as_ref().clone()
+            }),
+            Type::Validated(validated) => match validated.base() {
+                Type::Result(ok_type, error_type) => Some(if ok {
+                    ok_type.as_ref().clone()
+                } else {
+                    error_type.as_ref().clone()
+                }),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn verify_tag_pattern_subject(
+        &self,
+        subject_type: Option<&Type>,
+        type_name: Name,
+    ) -> Result<(), IrVerifyError> {
+        if let Some(subject_type) = subject_type {
+            match subject_type {
+                Type::Any | Type::Unknown => {}
+                Type::Tag(actual) if *actual == type_name => {}
+                _ => {
+                    return Err(IrVerifyError::new(
+                        "tag pattern disagrees with its checked subject type",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn verify_error_pattern_subject(
+        &self,
+        subject_type: Option<&Type>,
+        family: Name,
+        variant: Name,
+    ) -> Result<(), IrVerifyError> {
+        if let Some(subject_type) = subject_type {
+            match subject_type {
+                Type::Any | Type::Unknown | Type::Error | Type::ProcessError => {}
+                Type::ErrorFamily(actual) if *actual == family => {}
+                Type::ErrorVariant {
+                    family: actual_family,
+                    variant: actual_variant,
+                } if *actual_family == family && *actual_variant == variant => {}
+                _ => {
+                    return Err(IrVerifyError::new(
+                        "error pattern disagrees with its checked subject type",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn pattern_variant_field_type(
+        &self,
+        key: CheckedPatternVariantKey,
+        field: usize,
+    ) -> Result<Option<Type>, IrVerifyError> {
+        let Some(schema) = self.store.checked_pattern_variants.get(&key) else {
+            return Ok(None);
+        };
+        let field = schema
+            .fields
+            .get(field)
+            .ok_or_else(|| IrVerifyError::new("pattern variant field is outside its declaration"))?;
+        self.store.semantic.to_type(field.type_id).map(Some)
+    }
+
+    fn verify_callable_slot_writer_type(
+        &self,
+        slot: usize,
+        writer_type: Option<&Type>,
+    ) -> Result<(), IrVerifyError> {
+        let Some(slot_type) = self.checked_slot_type(slot)? else {
+            return Ok(());
+        };
+        let slot_type = self.store.semantic.to_type(slot_type)?;
+        if !slot_type.contains_typed_callable() {
+            return Ok(());
+        }
+        let Some(writer_type) = writer_type else {
+            return Err(IrVerifyError::new(
+                "local callable slot writer has no checked producer type",
+            ));
+        };
+        if writer_type == &slot_type || self.checked_type_fits(writer_type, &slot_type) {
+            Ok(())
+        } else {
+            Err(IrVerifyError::new(
+                "local callable slot type fact disagrees with its writer producer",
+            ))
+        }
+    }
+
+    fn callable_assignment_target_type(
+        &self,
+        root_slot: usize,
+        path: &[CallableAssignmentPathStep],
+    ) -> Result<Option<Type>, IrVerifyError> {
+        let Some(root_type) = self.checked_slot_type(root_slot)? else {
+            return Ok(None);
+        };
+        let mut target_type = self.store.semantic.to_type(root_type)?;
+        for step in path {
+            target_type = match step {
+                CallableAssignmentPathStep::Field(name) => {
+                    let Type::Record(fields) = target_type else {
+                        return Ok(None);
+                    };
+                    fields.get(name).cloned().ok_or_else(|| {
+                        IrVerifyError::new(
+                            "callable assignment field is absent from its checked receiver",
+                        )
+                    })?
+                }
+                CallableAssignmentPathStep::Index => match target_type.into_unvalidated() {
+                    Type::List(item) | Type::Map(_, item) => *item,
+                    _ => return Ok(None),
+                },
+            };
+        }
+        Ok(Some(target_type))
+    }
+
+    fn verify_callable_assignment_value(
+        &self,
+        root_slot: usize,
+        path: &[CallableAssignmentPathStep],
+        value: usize,
+    ) -> Result<(), IrVerifyError> {
+        let Some(target_type) = self.callable_assignment_target_type(root_slot, path)? else {
+            return Ok(());
+        };
+        if target_type.contains_typed_callable() {
+            self.checked_expression_matches_type(value, &target_type)
+                .map_err(|_| {
+                    IrVerifyError::new(
+                        "assignment value disagrees with its checked callable target",
+                    )
+                })?;
+        }
+        Ok(())
+    }
+
+    // Assign each propagated try to its nearest With initializer in one owner pass.
+    fn checked_with_initializer_error_types(
+        &self,
+    ) -> Result<BTreeMap<usize, Type>, IrVerifyError> {
+        let mut initializer_owners = BTreeMap::new();
+        let mut error_types = BTreeMap::new();
+        for instruction in self.instruction_range.clone() {
+            if self.store.tags[instruction] != FullTag::StmtWith {
+                continue;
+            }
+            let schema::StmtView::With {
+                mut bindings,
+                else_param_slot,
+                ..
+            } = self.statement_view(instruction)? else {
+                unreachable!("With instruction tag and generated view disagree")
+            };
+            let mut error_type = None;
+            for binding in &mut bindings {
+                let (_, value) = binding?;
+                let initializer = value.raw() as usize;
+                if initializer_owners.insert(initializer, instruction).is_some() {
+                    return Err(IrVerifyError::new(
+                        "checked With initializer has multiple owners",
+                    ));
+                }
+                if else_param_slot.is_some() {
+                    let value_type = self.checked_expression_type(initializer)?.ok_or_else(|| {
+                        IrVerifyError::new("checked With initializer is missing its source type")
+                    })?;
+                    if let Type::Result(_, error) = value_type {
+                        Self::merge_with_error_type(&mut error_type, *error);
+                    }
+                }
+            }
+            if else_param_slot.is_some() {
+                error_types.insert(instruction, error_type);
+            }
+        }
+        for instruction in self.instruction_range.clone() {
+            if self.store.tags[instruction] != FullTag::ExprTry {
+                continue;
+            }
+            let mut current = instruction;
+            let mut with_instruction = None;
+            loop {
+                if let Some(owner) = initializer_owners.get(&current) {
+                    with_instruction = Some(*owner);
+                    break;
+                }
+                let Some(parent) = self.instruction_parent_of(current)? else {
+                    break;
+                };
+                if self.store.tags[parent] == FullTag::StmtDefer {
+                    break;
+                }
+                current = parent;
+            }
+            let Some(with_instruction) = with_instruction else {
+                continue;
+            };
+            let Some(error_type) = error_types.get_mut(&with_instruction) else {
+                continue;
+            };
+            let schema::ExprView::Try { value, .. } = self.expression_view(instruction)? else {
+                unreachable!("Try instruction tag and generated view disagree")
+            };
+            let operand_type = self
+                .checked_expression_type(value.raw() as usize)?
+                .ok_or_else(|| {
+                    IrVerifyError::new(
+                        "checked With propagation is missing its Result source type",
+                    )
+                })?;
+            let error = Self::checked_result_payload_type(Some(&operand_type), false)
+                .ok_or_else(|| {
+                    IrVerifyError::new("checked With propagation source is not a Result")
+                })?;
+            Self::merge_with_error_type(error_type, error);
+        }
+        Ok(error_types
+            .into_iter()
+            .map(|(instruction, error_type)| (instruction, error_type.unwrap_or(Type::Error)))
+            .collect())
+    }
+
+    fn merge_with_error_type(error_type: &mut Option<Type>, next: Type) {
+        *error_type = Some(match error_type.take() {
+            None => next,
+            Some(previous) if previous == next => previous,
+            Some(_) => Type::Error,
+        });
+    }
+
+    fn verify_comp_target_writer_type(
+        &self,
+        target: decode::CompTargetView<'a>,
+        writer_type: Option<&Type>,
+    ) -> Result<(), IrVerifyError> {
+        match target {
+            decode::CompTargetView::Discard => Ok(()),
+            decode::CompTargetView::Slot(slot) => {
+                self.verify_callable_slot_writer_type(slot, writer_type)
+            }
+            decode::CompTargetView::Record { mut fields } => {
+                let writer_fields = writer_type.and_then(|writer_type| match writer_type {
+                    Type::Record(fields) => Some(fields),
+                    _ => None,
+                });
+                for field in &mut fields {
+                    let (name, target, _) = field?;
+                    let field_type = writer_fields.and_then(|fields| fields.get(&name));
+                    self.verify_comp_target_writer_type(target, field_type)?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn verify_pattern_writer_types(
+        &self,
+        root: u32,
+        subject_type: Option<&Type>,
+    ) -> Result<(), IrVerifyError> {
+        let mut pending = vec![(root, subject_type.cloned())];
+        while let Some((pattern, subject_type)) = pending.pop() {
+            match self.checked_pattern_view(pattern)? {
+                schema::PatternView::Alias { pattern, slot } => {
+                    self.verify_callable_slot_writer_type(slot, subject_type.as_ref())?;
+                    pending.push((pattern.raw(), subject_type));
+                }
+                schema::PatternView::Alternation { mut patterns } => {
+                    for pattern in &mut patterns {
+                        pending.push((pattern?.raw(), subject_type.clone()));
+                    }
+                }
+                schema::PatternView::List {
+                    mut elements,
+                    rest,
+                } => {
+                    let item_type = subject_type.as_ref().and_then(Type::iteration_item_type);
+                    for pattern in &mut elements {
+                        pending.push((pattern?.raw(), item_type.clone()));
+                    }
+                    if let Some(rest) = rest {
+                        let rest_type = item_type.map(|item| Type::List(Box::new(item)));
+                        pending.push((rest.raw(), rest_type));
+                    }
+                }
+                schema::PatternView::RecordTest { mut fields } => {
+                    let writer_fields = subject_type.as_ref().and_then(|subject| match subject {
+                        Type::Record(fields) => Some(fields),
+                        _ => None,
+                    });
+                    for field in &mut fields {
+                        let (name, pattern) = field?;
+                        let field_type = writer_fields.and_then(|fields| fields.get(&name)).cloned();
+                        pending.push((pattern.raw(), field_type));
+                    }
+                }
+                schema::PatternView::ResultTest { ok, inner } => {
+                    let payload_type = Self::checked_result_payload_type(
+                        subject_type.as_ref(),
+                        ok,
+                    );
+                    pending.push((inner.raw(), payload_type));
+                }
+                schema::PatternView::TagTest {
+                    type_name,
+                    name,
+                    mut fields,
+                } => {
+                    self.verify_tag_pattern_subject(subject_type.as_ref(), type_name)?;
+                    let key = CheckedPatternVariantKey {
+                        kind: CheckedPatternVariantKind::Tag,
+                        owner: type_name,
+                        variant: name,
+                    };
+                    let declared_count = self
+                        .store
+                        .checked_pattern_variants
+                        .get(&key)
+                        .map(|schema| schema.fields.len());
+                    let mut field_index = 0usize;
+                    for pattern in &mut fields {
+                        let pattern = pattern?;
+                        let field_type = self.pattern_variant_field_type(key, field_index)?;
+                        pending.push((pattern.raw(), field_type));
+                        field_index += 1;
+                    }
+                    if declared_count.is_some_and(|count| count != field_index) {
+                        return Err(IrVerifyError::new(
+                            "tag pattern field count disagrees with its declaration",
+                        ));
+                    }
+                }
+                schema::PatternView::ErrorTest {
+                    family,
+                    variant,
+                    mut fields,
+                } => {
+                    self.verify_error_pattern_subject(
+                        subject_type.as_ref(),
+                        family,
+                        variant,
+                    )?;
+                    let key = CheckedPatternVariantKey {
+                        kind: CheckedPatternVariantKind::Error,
+                        owner: family,
+                        variant,
+                    };
+                    for field in &mut fields {
+                        let (name, pattern) = field?;
+                        let Some(schema) = self.store.checked_pattern_variants.get(&key) else {
+                            pending.push((pattern.raw(), None));
+                            continue;
+                        };
+                        let field_index = schema
+                            .fields
+                            .iter()
+                            .position(|field| field.name == Some(name))
+                            .ok_or_else(|| {
+                                IrVerifyError::new(
+                                    "error pattern field is absent from its declaration",
+                                )
+                            })?;
+                        let field_type = self.pattern_variant_field_type(key, field_index)?;
+                        pending.push((pattern.raw(), field_type));
+                    }
+                }
+                schema::PatternView::Bind { slot } => {
+                    self.verify_callable_slot_writer_type(slot, subject_type.as_ref())?;
+                }
+                schema::PatternView::Type { ty, slot } => {
+                    let ty = ty.materialize()?;
+                    if ty.contains_typed_callable() {
+                        return Err(IrVerifyError::new(
+                            "type pattern cannot establish a typed callable",
+                        ));
+                    }
+                    if let Some(slot) = slot {
+                        self.verify_callable_slot_writer_type(slot, Some(&ty))?;
+                    }
+                }
+                schema::PatternView::ResultOk { slot, .. } => {
+                    if let Some(slot) = slot {
+                        let payload_type =
+                            Self::checked_result_payload_type(subject_type.as_ref(), true);
+                        self.verify_callable_slot_writer_type(slot, payload_type.as_ref())?;
+                    }
+                }
+                schema::PatternView::ResultErr { slot, .. } => {
+                    if let Some(slot) = slot {
+                        let payload_type =
+                            Self::checked_result_payload_type(subject_type.as_ref(), false);
+                        self.verify_callable_slot_writer_type(slot, payload_type.as_ref())?;
+                    }
+                }
+                schema::PatternView::Tag {
+                    type_name,
+                    name,
+                    slots,
+                } => {
+                    self.verify_tag_pattern_subject(subject_type.as_ref(), type_name)?;
+                    let key = CheckedPatternVariantKey {
+                        kind: CheckedPatternVariantKind::Tag,
+                        owner: type_name,
+                        variant: name,
+                    };
+                    let declared_count = self
+                        .store
+                        .checked_pattern_variants
+                        .get(&key)
+                        .map(|schema| schema.fields.len());
+                    let mut field_index = 0usize;
+                    for slot in slots {
+                        if let Some(slot) = slot? {
+                            let field_type = self.pattern_variant_field_type(key, field_index)?;
+                            self.verify_callable_slot_writer_type(slot, field_type.as_ref())?;
+                        }
+                        field_index += 1;
+                    }
+                    if declared_count.is_some_and(|count| count != field_index) {
+                        return Err(IrVerifyError::new(
+                            "tag pattern field count disagrees with its declaration",
+                        ));
+                    }
+                }
+                schema::PatternView::Text { mut holes, .. } => {
+                    for hole in &mut holes {
+                        pending.push((hole?.raw(), None));
+                    }
+                }
+                schema::PatternView::Wildcard
+                | schema::PatternView::TagType { .. }
+                | schema::PatternView::Literal(_)
+                | schema::PatternView::Facet { .. } => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn verify_pattern_condition_writers(
+        &self,
+        condition: usize,
+        mut captures: ListView<'a, usize>,
+    ) -> Result<(), IrVerifyError> {
+        let mut capture_slots = Vec::new();
+        for capture in &mut captures {
+            capture_slots.push(capture?);
+        }
+        if capture_slots.is_empty() {
+            return Ok(());
+        }
+        let schema::ExprView::MatchExpr { value, mut arms, .. } =
+            self.expression_view(condition)?
+        else {
+            return Err(IrVerifyError::new(
+                "pattern condition captures have no match producer",
+            ));
+        };
+        let subject_type = self.checked_expression_type(value.raw() as usize)?;
+        let mut pattern_captures = BTreeSet::new();
+        for arm in &mut arms {
+            let (pattern, _, _) = arm?;
+            let pattern = pattern.raw();
+            self.verify_pattern_writer_types(pattern, subject_type.as_ref())?;
+            pattern_captures.extend(self.pattern_capture_slots(pattern as usize)?);
+        }
+        let declared_captures = capture_slots.iter().copied().collect::<BTreeSet<_>>();
+        if declared_captures.len() != capture_slots.len() || pattern_captures != declared_captures {
+            return Err(IrVerifyError::new(
+                "pattern condition captures disagree with its match producer",
+            ));
+        }
+        Ok(())
+    }
+
+    fn verify_callable_slot_initializers(&self) -> Result<(), IrVerifyError> {
+        let with_error_types = self.checked_with_initializer_error_types()?;
+        for instruction in self.instruction_range.clone() {
+            let instruction_kind = self.store.tags[instruction].kind();
+            if instruction_kind == schema::InstructionKind::Expr {
+                match self.expression_view(instruction)? {
+                    schema::ExprView::MatchExpr { value, mut arms, .. } => {
+                        let subject_type = self.checked_expression_type(value.raw() as usize)?;
+                        for arm in &mut arms {
+                            let (pattern, _, _) = arm?;
+                            self.verify_pattern_writer_types(
+                                pattern.raw(),
+                                subject_type.as_ref(),
+                            )?;
+                        }
+                    }
+                    schema::ExprView::PatternIf { mut branches, .. } => {
+                        for branch in &mut branches {
+                            let (condition, _, captures) = branch?;
+                            self.verify_pattern_condition_writers(
+                                condition.raw() as usize,
+                                captures,
+                            )?;
+                        }
+                    }
+                    schema::ExprView::ListComp { mut qualifiers, .. }
+                    | schema::ExprView::MapComp { mut qualifiers, .. } => {
+                        for qualifier in &mut qualifiers {
+                            if let decode::CompQualifierView::For { target, iter, .. } = qualifier? {
+                                let item_type = self
+                                    .checked_expression_type(iter.raw() as usize)?
+                                    .and_then(|iter_type| iter_type.iteration_item_type());
+                                self.verify_comp_target_writer_type(
+                                    target,
+                                    item_type.as_ref(),
+                                )?;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if instruction_kind != schema::InstructionKind::Stmt {
+                continue;
+            }
+            match self.statement_view(instruction)? {
+                schema::StmtView::Let { slot, value }
+                | schema::StmtView::Assign { slot, value, .. }
+                | schema::StmtView::DefaultParameter { slot, value, .. } => {
+                    self.verify_callable_slot_initializer(slot, value.raw() as usize)?;
+                }
+                schema::StmtView::LetInt { slot, .. }
+                | schema::StmtView::LetBool { slot, .. }
+                | schema::StmtView::AssignInt { slot, .. }
+                | schema::StmtView::AssignBool { slot, .. } => {
+                    self.verify_callable_slot_without_checked_initializer(slot)?;
+                }
+                schema::StmtView::AssignField {
+                    slot,
+                    field,
+                    value,
+                    ..
+                } => {
+                    let path = [CallableAssignmentPathStep::Field(Name::intern(field))];
+                    self.verify_callable_assignment_value(
+                        slot,
+                        &path,
+                        value.raw() as usize,
+                    )?;
+                }
+                schema::StmtView::AssignFieldInt { slot, field, .. } => {
+                    let path = [CallableAssignmentPathStep::Field(Name::intern(field))];
+                    if self
+                        .callable_assignment_target_type(slot, &path)?
+                        .is_some_and(|ty| ty.contains_typed_callable())
+                    {
+                        return Err(IrVerifyError::new(
+                            "integer assignment cannot write a typed callable field",
+                        ));
+                    }
+                }
+                schema::StmtView::AssignPath {
+                    slot,
+                    mut path,
+                    value,
+                    ..
+                } => {
+                    let mut checked_path = Vec::new();
+                    for step in &mut path {
+                        checked_path.push(match step? {
+                            decode::AssignStepView::Field(name) => {
+                                CallableAssignmentPathStep::Field(name)
+                            }
+                            decode::AssignStepView::Index(_) => CallableAssignmentPathStep::Index,
+                        });
+                    }
+                    self.verify_callable_assignment_value(
+                        slot,
+                        &checked_path,
+                        value.raw() as usize,
+                    )?;
+                }
+                schema::StmtView::LetRecord { source, target, .. } => {
+                    let source_type = self.checked_expression_type(source.raw() as usize)?;
+                    self.verify_comp_target_writer_type(target, source_type.as_ref())?;
+                }
+                schema::StmtView::For { slot, iter, .. } => {
+                    let item_type = self
+                        .checked_expression_type(iter.raw() as usize)?
+                        .and_then(|iter_type| iter_type.iteration_item_type());
+                    self.verify_callable_slot_writer_type(slot, item_type.as_ref())?;
+                }
+                schema::StmtView::ForStrLines { slot, text, .. } => {
+                    let text_type = self.checked_expression_type(text.raw() as usize)?;
+                    let item_type = text_type.map(|text_type| match text_type {
+                        Type::Bytes => Type::Bytes,
+                        _ => Type::Str,
+                    });
+                    self.verify_callable_slot_writer_type(slot, item_type.as_ref())?;
+                }
+                schema::StmtView::ForRecord { target, iter, .. } => {
+                    let item_type = self
+                        .checked_expression_type(iter.raw() as usize)?
+                        .and_then(|iter_type| iter_type.iteration_item_type());
+                    self.verify_comp_target_writer_type(target, item_type.as_ref())?;
+                }
+                schema::StmtView::ScanLines {
+                    text_slot,
+                    line_slot,
+                    ..
+                } => {
+                    self.verify_callable_slot_writer_type(text_slot, None)?;
+                    let text_type = self
+                        .checked_slot_type(text_slot)?
+                        .map(|type_id| self.store.semantic.to_type(type_id))
+                        .transpose()?;
+                    let line_type = text_type.and_then(|text_type| match text_type {
+                        Type::Str => Some(Type::Str),
+                        Type::Bytes => Some(Type::Bytes),
+                        _ => None,
+                    });
+                    self.verify_callable_slot_writer_type(line_slot, line_type.as_ref())?;
+                }
+                schema::StmtView::Guard {
+                    target,
+                    value,
+                    optional,
+                    else_param_slot,
+                    ..
+                } => {
+                    let value_type = self.checked_expression_type(value.raw() as usize)?;
+                    let success_type = value_type.as_ref().and_then(|value_type| match value_type {
+                        Type::Optional(inner) if optional => Some(inner.as_ref().clone()),
+                        Type::Result(ok, _) if !optional => Some(ok.as_ref().clone()),
+                        Type::Validated(validated) if !optional => match validated.base() {
+                            Type::Result(ok, _) => Some(ok.as_ref().clone()),
+                            _ => None,
+                        },
+                        _ => None,
+                    });
+                    self.verify_comp_target_writer_type(target, success_type.as_ref())?;
+                    if let Some(slot) = else_param_slot {
+                        let failure_type = value_type
+                            .as_ref()
+                            .and_then(|value_type| {
+                                Self::checked_result_payload_type(Some(value_type), false)
+                            });
+                        self.verify_callable_slot_writer_type(slot, failure_type.as_ref())?;
+                    }
+                }
+                schema::StmtView::With {
+                    mut bindings,
+                    else_param_slot,
+                    ..
+                } => {
+                    for binding in &mut bindings {
+                        let (slot, value) = binding?;
+                        let value = value.raw() as usize;
+                        let value_type = self.checked_expression_type(value)?;
+                        let bound_type = value_type.map(|value_type| match value_type {
+                            Type::Result(ok, _) => ok.as_ref().clone(),
+                            other => other,
+                        });
+                        self.verify_callable_slot_writer_type(slot, bound_type.as_ref())?;
+                    }
+                    if let Some(slot) = else_param_slot {
+                        let error_type = with_error_types.get(&instruction).ok_or_else(|| {
+                            IrVerifyError::new("checked With error type is missing")
+                        })?;
+                        self.verify_callable_slot_writer_type(slot, Some(error_type))?;
+                    }
+                }
+                schema::StmtView::Match { value, mut arms, .. } => {
+                    let subject_type = self.checked_expression_type(value.raw() as usize)?;
+                    for arm in &mut arms {
+                        let (pattern, _, _) = arm?;
+                        self.verify_pattern_writer_types(pattern.raw(), subject_type.as_ref())?;
+                    }
+                }
+                schema::StmtView::PatternIf { mut branches, .. } => {
+                    for branch in &mut branches {
+                        let (condition, _, captures) = branch?;
+                        self.verify_pattern_condition_writers(
+                            condition.raw() as usize,
+                            captures,
+                        )?;
+                    }
+                }
+                schema::StmtView::PatternWhile {
+                    condition,
+                    captures,
+                    ..
+                } => {
+                    self.verify_pattern_condition_writers(condition.raw() as usize, captures)?;
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn expression_checked_type_id(
+        &self,
+        instruction: usize,
+    ) -> Result<Option<TypeId>, IrVerifyError> {
+        if let Some(ty) = self.checked_expression_type_id(instruction)? {
+            return Ok(Some(ty));
+        }
+        let Some(tag) = self.store.tags.get(instruction).copied() else {
+            return Err(IrVerifyError::new("typed expression is out of bounds"));
+        };
+        let words = self.store.payload(self.store.data[instruction].range())?;
+        match tag {
+            FullTag::ExprParam => {
+                let slot = *words
+                    .first()
+                    .ok_or_else(|| IrVerifyError::new("typed parameter slot is missing"))?
+                    as usize;
+                self.checked_slot_type(slot)
+            }
+            FullTag::ExprField => match self.derive_typed_callee_type(instruction) {
+                Ok(type_id) => Ok(Some(type_id)),
+                Err(error) => {
+                    let field_type = self.derive_checked_field_type(instruction)?;
+                    if field_type.contains_typed_callable() {
+                        Err(error)
+                    } else {
+                        Ok(None)
+                    }
+                }
+            },
+            FullTag::ExprCall | FullTag::ExprDirectPureCall => {
+                let function = IrFunctionId::from_raw(*words.first().ok_or_else(|| {
+                    IrVerifyError::new("typed call target is missing")
+                })?)
+                .ok_or_else(|| IrVerifyError::new("typed call target is invalid"))?;
+                self.function_return_type(function.index()).map(Some)
+            }
+            FullTag::ExprSelfCall => IrFunctionId::from_raw(self.owner)
+                .ok_or_else(|| IrVerifyError::new("self call has no function owner"))
+                .and_then(|function| self.function_return_type(function.index()))
+                .map(Some),
+            FullTag::ExprTypedCall => {
+                let raw = *words
+                    .get(2)
+                    .ok_or_else(|| IrVerifyError::new("typed call signature is missing"))?;
+                let ty = TypeId::from_raw(raw)
+                    .ok_or_else(|| IrVerifyError::new("typed call signature is invalid"))?;
+                let signature = self.store.semantic.typed_callable_signature(ty)?;
+                self.store
+                    .semantic
+                    .signature_return_type(signature)
+                    .map(Some)
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn function_return_type(&self, function: usize) -> Result<TypeId, IrVerifyError> {
+        let function = self
+            .store
+            .functions
+            .get(function)
+            .ok_or_else(|| IrVerifyError::new("typed callee function is out of bounds"))?;
+        if function.checked_return_type != IR_NONE {
+            let ty = TypeId::from_raw(function.checked_return_type)
+                .ok_or_else(|| IrVerifyError::new("typed callee checked return type is invalid"))?;
+            self.store.semantic.type_tag(ty)?;
+            return Ok(ty);
+        }
+        self.store
+            .semantic
+            .signature_return_type(function.signature)
     }
 
     /// A retry selects errors without binding them, and a backoff's delays
@@ -3823,6 +7067,36 @@ impl<'a> FullDecoder<'a> {
         if bool::decode(self, &mut payload)? && else_param_slot.is_some() {
             return Err(IrVerifyError::new(
                 "optional guard cannot bind a failure parameter",
+            ));
+        }
+        Ok(())
+    }
+
+    /// A With binding and its error parameter are distinct source bindings,
+    /// even though only one branch writes each slot at runtime.
+    fn verify_with_shape(&self, instruction: usize) -> Result<(), IrVerifyError> {
+        let schema::StmtView::With {
+            mut bindings,
+            else_param_slot,
+            ..
+        } = self.statement_view(instruction)?
+        else {
+            return Err(IrVerifyError::new("With instruction tag and view disagree"));
+        };
+        let mut slots = BTreeSet::new();
+        for binding in &mut bindings {
+            let (slot, _) = binding?;
+            if !slots.insert(slot) {
+                return Err(IrVerifyError::new(
+                    "With success bindings share a source slot",
+                ));
+            }
+        }
+        if let Some(slot) = else_param_slot
+            && !slots.insert(slot)
+        {
+            return Err(IrVerifyError::new(
+                "With success and error bindings share a source slot",
             ));
         }
         Ok(())
@@ -4255,6 +7529,68 @@ impl FullVerifier {
             return Err(IrVerifyError::new("full IR tag/data columns differ"));
         }
         store.semantic.verify()?;
+        for (key, schema) in &store.checked_pattern_variants {
+            if key.owner.as_str().is_empty() || key.variant.as_str().is_empty() {
+                return Err(IrVerifyError::new(
+                    "checked nominal pattern schema has an empty identity",
+                ));
+            }
+            let Some(declared) = store.declared_pattern_variants.get(key) else {
+                return Err(IrVerifyError::new(
+                    "checked nominal pattern schema has no canonical declaration",
+                ));
+            };
+            if schema != declared {
+                return Err(IrVerifyError::new(
+                    "checked nominal pattern schema disagrees with its canonical declaration",
+                ));
+            }
+            let mut error_fields = BTreeSet::new();
+            for field in &schema.fields {
+                match (key.kind, field.name) {
+                    (CheckedPatternVariantKind::Tag, None) => {}
+                    (CheckedPatternVariantKind::Error, Some(name))
+                        if error_fields.insert(name) => {}
+                    _ => {
+                        return Err(IrVerifyError::new(
+                            "checked nominal pattern field schema has an invalid name",
+                        ));
+                    }
+                }
+                store.semantic.to_type(field.type_id)?;
+            }
+        }
+        if store.checked_pattern_variants.len() != store.declared_pattern_variants.len() {
+            return Err(IrVerifyError::new(
+                "canonical nominal pattern declarations do not match checked pattern schemas",
+            ));
+        }
+        let function_signature_index = Arc::new(FunctionSignatureIndex::build(store)?);
+        let mut previous_checked_expression = None;
+        for fact in &store.checked_expr_types {
+            let instruction = fact.instruction as usize;
+            if instruction >= store.tags.len()
+                || previous_checked_expression.is_some_and(|previous| previous >= instruction)
+                || store.tags[instruction].kind() != schema::InstructionKind::Expr
+            {
+                return Err(IrVerifyError::new(
+                    "checked expression type rows are not strictly ordered expression facts",
+                ));
+            }
+            let ty = store.semantic.to_type(fact.type_id)?;
+            let structured_error = matches!(ty, Type::ErrorVariant { .. });
+            if structured_error != (store.tags[instruction] == FullTag::ExprError) {
+                return Err(IrVerifyError::new(
+                    "checked error-variant type row does not match its structured-error producer",
+                ));
+            }
+            if !ty.contains_typed_callable() && !fact.with_error_source && !structured_error {
+                return Err(IrVerifyError::new(
+                    "checked expression type row is neither callable, a structured error, nor a With error source",
+                ));
+            }
+            previous_checked_expression = Some(instruction);
+        }
         program
             .sources
             .get(store.source_id)
@@ -4334,12 +7670,28 @@ impl FullVerifier {
         }
         let mut in_place_marks = vec![false; store.tags.len()];
         let owned_blocks = owned_block_counts(store);
-        let mut previous_callable_slot_type_end = 0usize;
+        let mut previous_slot_type_fact_end = 0usize;
         for (index, function) in store.functions.iter().enumerate() {
             store.string(function.name)?;
             let metadata = store.function_metadata[index];
             if metadata.owner != IR_NONE {
                 store.string(metadata.owner)?;
+            }
+            if function.checked_return_type != IR_NONE {
+                let ty = TypeId::from_raw(function.checked_return_type).ok_or_else(|| {
+                    IrVerifyError::new("function checked return type id is invalid")
+                })?;
+                let signature_return = store
+                    .semantic
+                    .signature_return_type(function.signature)?;
+                let checked_return = store.semantic.to_type(ty)?;
+                let declared_return = store.semantic.to_type(signature_return)?;
+                // A body may produce a narrower value than the public return contract.
+                if !checked_return.matches_expected(&declared_return) {
+                    return Err(IrVerifyError::new(
+                        "checked return type disagrees with the function signature",
+                    ));
+                }
             }
             if metadata.flags & !0b1 != 0 {
                 return Err(IrVerifyError::new("function metadata flags are invalid"));
@@ -4359,29 +7711,26 @@ impl FullVerifier {
                 .captures
                 .bounds(store.captures.len())
                 .ok_or_else(|| IrVerifyError::new("function capture range is invalid"))?;
-            let callable_slot_types = function
-                .callable_slot_types
-                .bounds(store.callable_slot_types.len())
-                .ok_or_else(|| IrVerifyError::new("function callable slot type range is invalid"))?;
-            if callable_slot_types.start != previous_callable_slot_type_end
-                || callable_slot_types.len() != function.slot_count as usize
+            let slot_type_facts = function
+                .slot_type_facts
+                .bounds(store.slot_type_facts.len())
+                .ok_or_else(|| IrVerifyError::new("function slot type fact range is invalid"))?;
+            if slot_type_facts.start != previous_slot_type_fact_end
+                || slot_type_facts.len() != function.slot_count as usize
             {
                 return Err(IrVerifyError::new(
-                    "function callable slot type ranges are not dense and slot-complete",
+                    "function slot type fact ranges are not dense and slot-complete",
                 ));
             }
-            previous_callable_slot_type_end = callable_slot_types.end;
-            for raw in &store.callable_slot_types[callable_slot_types] {
+            previous_slot_type_fact_end = slot_type_facts.end;
+            for raw in &store.slot_type_facts[slot_type_facts.clone()] {
                 if *raw == IR_NONE {
                     continue;
                 }
                 let ty = TypeId::from_raw(*raw).ok_or_else(|| {
-                    IrVerifyError::new("function callable slot type id is invalid")
+                    IrVerifyError::new("function slot type fact id is invalid")
                 })?;
-                store
-                    .semantic
-                    .typed_callable_signature(ty)
-                    .map_err(|_| IrVerifyError::new("function slot type is not callable"))?;
+                store.semantic.to_type(ty)?;
             }
             if store.semantic.signature_param_count(function.signature)? != params.len() {
                 return Err(IrVerifyError::new(
@@ -4395,7 +7744,7 @@ impl FullVerifier {
                     return Err(IrVerifyError::new("parameter flags are invalid"));
                 }
             }
-            for capture in &store.captures[captures] {
+            for capture in &store.captures[captures.clone()] {
                 store.string(capture.name)?;
                 store.semantic.type_tag(capture.type_id)?;
                 if capture.slot_and_flags & !(1 << 31) >= function.slot_count {
@@ -4417,6 +7766,8 @@ impl FullVerifier {
                 block_states: Some(OwnedBlockStates::new(owner, &owned_blocks)),
                 slot_count: function.slot_count,
                 pattern_ceiling: Cell::new(usize::MAX),
+                local_function_ref_initializers: RefCell::default(),
+                function_signature_index: Some(function_signature_index.clone()),
                 verified: false,
             };
             let body_id = IrBlockId::from_raw(function.body)
@@ -4450,6 +7801,9 @@ impl FullVerifier {
                 }
             }
             decoder.finish_function()?;
+            decoder.verify_typed_calls_after_structure()?;
+            decoder.verify_checked_expression_facts()?;
+            decoder.verify_callable_slot_initializers()?;
             decoder.copy_in_place_marks_into(&mut in_place_marks)?;
             let body_payload = store.payload(body_block.instructions)?;
             let mut default_slots = BTreeSet::new();
@@ -4527,7 +7881,7 @@ impl FullVerifier {
                 )));
             }
         }
-        if previous_callable_slot_type_end != store.callable_slot_types.len() {
+        if previous_slot_type_fact_end != store.slot_type_facts.len() {
             return Err(IrVerifyError::new(
                 "unowned function callable slot type rows",
             ));
@@ -4585,18 +7939,28 @@ impl FullVerifier {
                     }
                     covered_slots[slot_index] = true;
                     let slot = store.driver_slots[slot_index];
-                    store.string(slot.name)?;
+                    let temporary = slot.flags & DRIVER_SLOT_TEMPORARY != 0;
+                    if !temporary {
+                        store.string(slot.name)?;
+                    }
                     store.semantic.type_tag(slot.type_id)?;
                     if slot.reserved != [0; 3]
                         || slot.flags
-                            & !(DRIVER_SLOT_READ | DRIVER_SLOT_WRITE | DRIVER_SLOT_MUTABLE)
+                            & !(DRIVER_SLOT_READ
+                                | DRIVER_SLOT_WRITE
+                                | DRIVER_SLOT_MUTABLE
+                                | DRIVER_SLOT_TEMPORARY)
                             != 0
                         || slot.flags & DRIVER_SLOT_READ == 0
                         || slot.slot >= step.slot_count
+                        || (temporary
+                            && (slot.name != IR_NONE
+                                || slot.flags & (DRIVER_SLOT_WRITE | DRIVER_SLOT_MUTABLE) != 0))
+                        || (!temporary && slot.name == IR_NONE)
                     {
                         return Err(IrVerifyError::new("driver slot is invalid"));
                     }
-                    if !names.insert(slot.name) || !indices.insert(slot.slot) {
+                    if (!temporary && !names.insert(slot.name)) || !indices.insert(slot.slot) {
                         return Err(IrVerifyError::new("driver step slots are not unique"));
                     }
                     if slot.flags & DRIVER_SLOT_WRITE != 0 {
@@ -4688,6 +8052,9 @@ impl FullVerifier {
                             .bounds(store.driver_slots.len())
                             .ok_or_else(|| IrVerifyError::new("driver slot range is invalid"))?;
                         for slot in &store.driver_slots[slots] {
+                            if slot.flags & DRIVER_SLOT_TEMPORARY != 0 {
+                                continue;
+                            }
                             let flags = slot.flags & (DRIVER_SLOT_READ | DRIVER_SLOT_WRITE);
                             if let Some((type_id, existing)) = expected_sync.get_mut(&slot.name) {
                                 if *type_id != slot.type_id {
@@ -4732,7 +8099,11 @@ impl FullVerifier {
                     "driver plan contains an unreachable sync row",
                 ));
             }
-            program.verify_driver(&owned_blocks, &mut in_place_marks)?;
+            program.verify_driver(
+                &owned_blocks,
+                &mut in_place_marks,
+                Arc::clone(&function_signature_index),
+            )?;
         }
         if previous_end != store.tags.len() {
             return Err(IrVerifyError::new(
@@ -6159,7 +9530,7 @@ fn verify_node_metadata(
 
 
 macro_rules! impl_build_id_codec {
-    ($id:ty, $rows:ident, $row:ty, $resource_transfer:literal) => {
+    ($id:ty, $rows:ident, $row:ty, $resource_transfer:literal, $checked_expr_type:literal) => {
         impl FullCodec for $id {
             fn encode(
                 &self,
@@ -6174,6 +9545,11 @@ macro_rules! impl_build_id_codec {
                     .$rows
                     .get(self.index())
                     .ok_or_else(|| IrBuildError::format("indexed_build_id", None, 0, 0))?;
+                let checked_expr_type = if $checked_expr_type {
+                    scratch.checked_expr_types.get(self.index()).cloned().flatten()
+                } else {
+                    None
+                };
                 let transfers_resource = if $resource_transfer {
                     *scratch.resource_transfers.get(self.index()).ok_or_else(|| {
                         IrBuildError::format("indexed_resource_transfer_fact", None, 0, 0)
@@ -6183,6 +9559,49 @@ macro_rules! impl_build_id_codec {
                 };
                 let instruction_start = builder.store.tags.len();
                 row.encode(builder, output)?;
+                if let Some(ty) = checked_expr_type {
+                    let instruction = builder
+                        .store
+                        .tags
+                        .len()
+                        .checked_sub(1)
+                        .filter(|instruction| *instruction >= instruction_start)
+                        .ok_or_else(|| {
+                            IrBuildError::format(
+                                "indexed_checked_expr_instruction",
+                                None,
+                                0,
+                                builder.store.tags.len(),
+                            )
+                        })?;
+                    if !builder.store.tags[instruction]
+                        .kind()
+                        .eq(&schema::InstructionKind::Expr)
+                    {
+                        return Err(IrBuildError::format(
+                            "indexed_checked_expr_tag",
+                            None,
+                            0,
+                            instruction,
+                        ));
+                    }
+                    let type_id = builder
+                        .semantic
+                        .intern_type(&mut builder.store.semantic, &executable_type(&ty.ty))?;
+                    builder.store.checked_expr_types.push(FullCheckedExprType {
+                        instruction: u32::try_from(instruction).map_err(|_| {
+                            IrBuildError::format(
+                                "indexed_checked_expr_instruction",
+                                None,
+                                0,
+                                instruction,
+                            )
+                        })?,
+                        type_id,
+                        function_ref: ty.function_ref,
+                        with_error_source: ty.with_error_source,
+                    });
+                }
                 if transfers_resource {
                     let instruction = builder
                         .store
@@ -6229,11 +9648,11 @@ macro_rules! impl_build_id_codec {
     };
 }
 
-impl_build_id_codec!(BuildExprId, expressions, BuildExprRow, false);
-impl_build_id_codec!(BuildStmtId, statements, BuildStmtRow, true);
-impl_build_id_codec!(BuildPatternId, patterns, BuildPatternRow, false);
-impl_build_id_codec!(BuildIntId, ints, BuildIntRow, false);
-impl_build_id_codec!(BuildBoolId, bools, BuildBoolRow, false);
+impl_build_id_codec!(BuildExprId, expressions, BuildExprRow, false, true);
+impl_build_id_codec!(BuildStmtId, statements, BuildStmtRow, true, false);
+impl_build_id_codec!(BuildPatternId, patterns, BuildPatternRow, false, false);
+impl_build_id_codec!(BuildIntId, ints, BuildIntRow, false, false);
+impl_build_id_codec!(BuildBoolId, bools, BuildBoolRow, false, false);
 
 
 
@@ -6468,6 +9887,8 @@ fn stage_view_decoder(store: &FullStore) -> FullDecoder<'_> {
         block_states: None,
         slot_count: 1,
         pattern_ceiling: Cell::new(usize::MAX),
+        local_function_ref_initializers: RefCell::default(),
+        function_signature_index: None,
         verified: false,
     }
 }
@@ -7907,8 +11328,10 @@ proc main() [env, error] -> Result[Unit] {
                 captures: SmallVec::new(),
                 return_kind: LoweredReturnKind::Plain(LoweredType::Int),
                 return_check: None,
+                checked_return_type: None,
+                checked_function_signature: None,
                 slot_count: 1,
-                callable_slot_types: vec![None],
+                slot_type_facts: vec![None],
                 body: vec![return_statement],
                 scratch,
             };
@@ -9172,6 +12595,8 @@ pure selected() -> Str {
                 block_states: None,
                 slot_count: 0,
                 pattern_ceiling: Cell::new(usize::MAX),
+                local_function_ref_initializers: RefCell::default(),
+                function_signature_index: None,
                 verified: false,
             };
             let mut words = vec![0];
@@ -9222,6 +12647,8 @@ pure selected() -> Str {
                 block_states: None,
                 slot_count: 0,
                 pattern_ceiling: Cell::new(usize::MAX),
+                local_function_ref_initializers: RefCell::default(),
+                function_signature_index: None,
                 verified: false,
             };
             let mut cursor = FullCursor::new(&words);
@@ -9389,13 +12816,13 @@ pure selected() -> Str {
         assert_eq!(size_of::<FullStageTag>(), 1);
         assert_eq!(size_of::<FullValueTag>(), 1);
         assert_eq!(size_of::<FullBlock>(), 20);
-        assert_eq!(size_of::<FullFunction>(), 40);
+        assert_eq!(size_of::<FullFunction>(), 44);
         assert_eq!(size_of::<FullParam>(), 12);
         assert_eq!(size_of::<FullParamCold>(), 12);
         assert_eq!(size_of::<FullCapture>(), 12);
         assert_eq!(size_of::<FullFunctionMetadata>(), 8);
         assert_eq!(size_of::<FullValidation>(), 8);
-        assert_eq!(size_of::<FullDriverStep>(), 36);
+        assert_eq!(size_of::<FullDriverStep>(), 40);
         assert_eq!(size_of::<FullDriverSlot>(), 16);
         assert_eq!(size_of::<FullDriverSync>(), 12);
         assert_eq!(size_of::<FullDriverRegion>(), 20);
@@ -12133,7 +15560,11 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
             let proc_call = typed_call(0);
             let rejected = |corrupt: &FullProgram, reason: &str| {
                 let error = FullVerifier::verify(corrupt).unwrap_err();
-                assert!(error.message.contains(reason), "{}", error.message);
+                assert!(
+                    error.message.contains(reason),
+                    "expected `{reason}`, got `{}`",
+                    error.message
+                );
             };
 
             // The row claims a kind its type does not have.
@@ -12163,7 +15594,8 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
                     .unwrap()
                     .start
             };
-            // More arguments than the signature has parameters.
+            // The list declares an extra argument, which disagrees with the
+            // checked callable signature.
             let mut extra_argument = (*program).clone();
             let count = arguments(&extra_argument);
             extra_argument.store.extra[count] += 1;
@@ -12172,13 +15604,15 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
                 "typed call argument count does not match its signature",
             );
 
-            // A spliced argument, and one left to a default the type lacks.
-            for kind in [1, 2] {
-                let mut indirect = (*program).clone();
-                let first = arguments(&indirect) + 1;
-                indirect.store.extra[first] = kind;
-                rejected(&indirect, "typed call argument is not a single value");
-            }
+            // Pointing the argument at an instruction that does not produce
+            // one value is rejected before ownership validation.
+            let mut unowned_argument = (*program).clone();
+            let first = arguments(&unowned_argument) + 1;
+            unowned_argument.store.extra[first] = 2;
+            rejected(
+                &unowned_argument,
+                "typed call argument is not a single value",
+            );
 
             // The type's signature lets a call omit a parameter.
             let mut defaulted = (*program).clone();
@@ -12215,6 +15649,1990 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
                 error.message
             );
         });
+    }
+
+    #[test]
+    fn typed_callable_field_facts_reject_field_and_receiver_corruption() {
+        let source = r#"type Scale = pure(n: Int) -> Int
+type Holder = {scale: Scale, count: Int}
+type OtherHolder = {scale: Int}
+
+pure apply_field(holder: Holder, other: OtherHolder, holder_again: Holder, n: Int) -> Int {
+  let retained = other
+  let retained_holder = holder_again
+  holder.scale(n)
+}
+"#;
+        let program = fixture("typed-callable-field-facts.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        fn payload(program: &FullProgram, instruction: usize) -> &[u32] {
+            program
+                .store
+                .payload(program.store.data[instruction].range())
+                .unwrap()
+        }
+        let field_callee = |program: &FullProgram| {
+            program
+                .store
+                .tags
+                .iter()
+                .enumerate()
+                .filter(|(_, tag)| **tag == FullTag::ExprTypedCall)
+                .find_map(|(instruction, _)| {
+                    let callee = *payload(program, instruction).first()? as usize;
+                    (program.store.tags.get(callee) == Some(&FullTag::ExprField)).then_some(callee)
+                })
+                .expect("record-field typed call exists")
+        };
+        let reject = |program: &FullProgram| {
+            let error = FullVerifier::verify(program).unwrap_err();
+            assert!(
+                error
+                    .message
+                    .contains("typed call signature differs from its callee field's callable type"),
+                "{}",
+                error.message
+            );
+        };
+
+        let mut wrong_field = program.clone();
+        let field = field_callee(&wrong_field);
+        assert_eq!(wrong_field.store.string(payload(&wrong_field, field)[1]).unwrap(), "scale");
+        let count_name = u32::try_from(wrong_field.store.strings.len() + 1).unwrap();
+        let start = u32::try_from(wrong_field.store.string_bytes.len()).unwrap();
+        wrong_field.store.string_bytes.extend_from_slice(b"count");
+        wrong_field
+            .store
+            .strings
+            .push(IrRange::new(start, 5));
+        wrong_field.store.extra[wrong_field.store.data[field].range().start as usize + 1] =
+            count_name;
+        assert_eq!(wrong_field.store.string(payload(&wrong_field, field)[1]).unwrap(), "count");
+        reject(&wrong_field);
+
+        let mut wrong_receiver = program.clone();
+        let field = field_callee(&wrong_receiver);
+        let receiver = payload(&wrong_receiver, field)[0] as usize;
+        assert_eq!(wrong_receiver.store.tags[receiver], FullTag::ExprParam);
+        wrong_receiver.store.extra
+            [wrong_receiver.store.data[receiver].range().start as usize] = 1;
+        reject(&wrong_receiver);
+
+        let other_receiver = program
+            .store
+            .function_instruction_range(0)
+            .unwrap()
+            .find(|instruction| {
+                program.store.tags[*instruction] == FullTag::ExprParam
+                    && payload(&program, *instruction).first() == Some(&2)
+            })
+            .expect("the other record parameter is already referenced");
+        let mut shared_receiver = program.clone();
+        let field = field_callee(&shared_receiver);
+        shared_receiver.store.extra
+            [shared_receiver.store.data[field].range().start as usize] =
+            u32::try_from(other_receiver).unwrap();
+        let error = FullVerifier::verify(&shared_receiver).unwrap_err();
+        assert!(error.message.contains("multiple parents"), "{}", error.message);
+    }
+
+    #[test]
+    fn typed_callable_record_return_facts_reject_field_and_receiver_corruption() {
+        let source = r#"type Scale = pure(n: Int) -> Int
+type Holder = {callback: Scale, count: Int}
+type OtherHolder = {callback: Int}
+
+pure double(n: Int) -> Int {
+  n * 2
+}
+
+pure get_holder() -> Holder {
+  Holder(callback: double, count: 0)
+}
+
+pure get_other_holder() -> OtherHolder {
+  OtherHolder(callback: 0)
+}
+
+pure apply_result(n: Int) -> Int {
+  get_holder().callback(n)
+}
+"#;
+        let program = fixture("typed-callable-record-result.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        fn payload(program: &FullProgram, instruction: usize) -> &[u32] {
+            program
+                .store
+                .payload(program.store.data[instruction].range())
+                .unwrap()
+        }
+        let field_callee = program
+            .store
+            .tags
+            .iter()
+            .enumerate()
+            .filter(|(_, tag)| **tag == FullTag::ExprTypedCall)
+            .find_map(|(instruction, _)| {
+                let callee = *payload(&program, instruction).first()? as usize;
+                (program.store.tags.get(callee) == Some(&FullTag::ExprField))
+                    .then_some(callee)
+            })
+            .expect("record-return field typed call exists");
+        assert_eq!(
+            program.store.string(payload(&program, field_callee)[1]).unwrap(),
+            "callback"
+        );
+        let reject = |program: &FullProgram| {
+            let error = FullVerifier::verify(program).unwrap_err();
+            assert!(
+                error
+                    .message
+                    .contains("typed call signature differs from its callee field's callable type"),
+                "{}",
+                error.message
+            );
+        };
+
+        let mut wrong_field = program.clone();
+        let count_name = u32::try_from(wrong_field.store.strings.len() + 1).unwrap();
+        let start = u32::try_from(wrong_field.store.string_bytes.len()).unwrap();
+        wrong_field.store.string_bytes.extend_from_slice(b"count");
+        wrong_field.store.strings.push(IrRange::new(start, 5));
+        wrong_field.store.extra[wrong_field.store.data[field_callee].range().start as usize + 1] =
+            count_name;
+        reject(&wrong_field);
+
+        let receiver = payload(&program, field_callee)[0] as usize;
+        assert!(matches!(
+            program.store.tags[receiver],
+            FullTag::ExprCall | FullTag::ExprDirectPureCall
+        ));
+        let alternate = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "get_other_holder")
+            .expect("alternate record producer exists");
+        let mut wrong_receiver = program.clone();
+        wrong_receiver.store.extra
+            [wrong_receiver.store.data[receiver].range().start as usize] =
+            IrFunctionId::new(alternate).unwrap().raw();
+        reject(&wrong_receiver);
+    }
+
+    #[test]
+    fn typed_callable_call_result_facts_reject_a_different_producer_target() {
+        let source = r#"type Scale = pure(n: Int) -> Int
+type Label = pure(text: Str) -> Int
+
+pure double(n: Int) -> Int {
+  n * 2
+}
+
+pure label_length(text: Str) -> Int {
+  text.byte_len()
+}
+
+pure provide_scale() -> Scale {
+  double
+}
+
+pure provide_label() -> Label {
+  label_length
+}
+
+pure apply_result(n: Int) -> Int {
+  provide_scale()(n)
+}
+"#;
+        let program = fixture("typed-callable-call-result-facts.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        let producing_call = program
+            .store
+            .tags
+            .iter()
+            .enumerate()
+            .filter(|(_, tag)| **tag == FullTag::ExprTypedCall)
+            .find_map(|(instruction, _)| {
+                let words = program
+                    .store
+                    .payload(program.store.data[instruction].range())
+                    .ok()?;
+                let callee = *words.first()? as usize;
+                matches!(
+                    program.store.tags.get(callee),
+                    Some(FullTag::ExprCall | FullTag::ExprDirectPureCall)
+                )
+                .then_some(callee)
+            })
+            .expect("call-result typed call exists");
+        let alternate = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "provide_label")
+            .expect("alternate callable producer exists");
+        let mut wrong_result = program.clone();
+        wrong_result.store.extra
+            [wrong_result.store.data[producing_call].range().start as usize] =
+            IrFunctionId::new(alternate).unwrap().raw();
+        let error = FullVerifier::verify(&wrong_result).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("typed call signature differs from its callee call result's callable type"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn typed_callable_call_result_rejects_a_forged_checked_return_type() {
+        let source = r#"type Scale = pure(n: Int) -> Int
+
+pure double(n: Int) -> Int { n * 2 }
+pure provide_scale() -> Scale { double }
+pure provide_int() -> Int { 7 }
+
+pure apply_result(n: Int) -> Int {
+  provide_scale()(n)
+}
+"#;
+        let program = fixture("typed-callable-forged-return-type.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        fn payload(program: &FullProgram, instruction: usize) -> &[u32] {
+            program
+                .store
+                .payload(program.store.data[instruction].range())
+                .unwrap()
+        }
+        let (typed_call, producer_call) = program
+            .store
+            .tags
+            .iter()
+            .enumerate()
+            .filter(|(_, tag)| **tag == FullTag::ExprTypedCall)
+            .find_map(|(instruction, _)| {
+                let callee = *payload(&program, instruction).first()? as usize;
+                matches!(
+                    program.store.tags.get(callee),
+                    Some(FullTag::ExprCall | FullTag::ExprDirectPureCall)
+                )
+                .then_some((instruction, callee))
+            })
+            .expect("call-result typed call exists");
+        let signature = TypeId::from_raw(payload(&program, typed_call)[2]).unwrap();
+        let alternate = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "provide_int")
+            .expect("integer producer exists");
+
+        let mut forged = program.clone();
+        forged.store.extra[forged.store.data[producer_call].range().start as usize] =
+            IrFunctionId::new(alternate).unwrap().raw();
+        forged.store.functions[alternate].checked_return_type = signature.raw();
+
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error.message.contains("checked return type disagrees with the function signature"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn typed_callable_function_ref_fact_matches_its_target_signature() {
+        let source = r#"type Scale = pure(n: Int) -> Int
+type Label = pure(text: Str) -> Int
+
+pure double(n: Int) -> Int { n * 2 }
+pure label_length(text: Str) -> Int { text.byte_len() }
+
+pure apply() -> Int {
+  let callback: Scale = double
+  let label: Label = label_length
+  callback(7) + label("seven")
+}
+"#;
+        let program = fixture("typed-callable-function-ref-signature.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        let _symbols = program.symbol_owner().enter();
+        let function = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "apply")
+            .expect("apply function exists");
+        fn fact_for(program: &FullProgram, name: &str) -> (usize, FullCheckedExprType) {
+            program
+                .store
+                .checked_expr_types
+                .iter()
+                .enumerate()
+                .find(|(_, fact)| {
+                    fact.function_ref.is_some_and(|(function, _)| {
+                        function.as_name() == Some(Name::intern(name))
+                    })
+                })
+                .map(|(index, fact)| (index, *fact))
+                .expect("function reference checked type exists")
+        }
+        let (double_fact_index, double_fact) = fact_for(&program, "double");
+        let (_, label_fact) = fact_for(&program, "label_length");
+        let double_instruction = double_fact.instruction as usize;
+        let callback_slot = program
+            .store
+            .function_instruction_range(function)
+            .unwrap()
+            .find_map(|instruction| {
+                if program.store.tags[instruction] != FullTag::StmtLet {
+                    return None;
+                }
+                let words = program.store.payload(program.store.data[instruction].range()).ok()?;
+                (words.get(1).copied() == Some(double_instruction as u32))
+                    .then(|| words[0] as usize)
+            })
+            .expect("callable initializer slot exists");
+        let typed_call = program
+            .store
+            .function_instruction_range(function)
+            .unwrap()
+            .find(|instruction| program.store.tags[*instruction] == FullTag::ExprTypedCall)
+            .expect("typed call exists");
+        let mut forged = program.clone();
+        let signature = label_fact.type_id.raw();
+        forged.store.checked_expr_types[double_fact_index].type_id = label_fact.type_id;
+        let slot_facts = forged.store.functions[function]
+            .slot_type_facts
+            .bounds(forged.store.slot_type_facts.len())
+            .unwrap();
+        forged.store.slot_type_facts[slot_facts.start + callback_slot] = signature;
+        let call_signature = forged.store.data[typed_call].range().start as usize + 2;
+        forged.store.extra[call_signature] = signature;
+
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error.message.contains("checked function reference identity disagrees with its producer"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn scoped_callable_alias_checks_its_function_reference_signature() {
+        let source = r#"type Scale = pure(n: Int) -> Int
+type Label = pure(text: Str) -> Int
+
+pure double(n: Int) -> Int { n * 2 }
+pure label_length(text: Str) -> Int { text.byte_len() }
+pure provide_label() -> Label { label_length }
+
+test test_scoped_callable_alias {
+  let scoped: Scale = within 5s {
+    let result: Scale = double
+    result
+  }?
+  let other: Label = label_length
+  assert scoped(2) == 4
+  assert other("two") == 3
+}
+"#;
+        let program = fixture("typed-callable-scoped-alias.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        let _symbols = program.symbol_owner().enter();
+        let scoped_test = program
+            .store
+            .functions
+            .iter()
+            .position(|function| {
+                program.store.string(function.name).unwrap() == "test_scoped_callable_alias"
+            })
+            .expect("scoped test function exists");
+        let alias_initializer = program
+            .store
+            .function_instruction_range(scoped_test)
+            .unwrap()
+            .find_map(|instruction| {
+                if program.store.tags[instruction] != FullTag::StmtLet {
+                    return None;
+                }
+                let words = program
+                    .store
+                    .payload(program.store.data[instruction].range())
+                    .ok()?;
+                let value = *words.get(1)? as usize;
+                (program.store.tags.get(value) == Some(&FullTag::ExprFunctionRef))
+                    .then_some(value)
+            })
+            .expect("scoped local has a function reference initializer");
+        let label_reference = program
+            .store
+            .checked_expr_types
+            .iter()
+            .find(|fact| {
+                fact.function_ref.is_some_and(|(function, _)| {
+                    function.as_name() == Some(Name::intern("label_length"))
+                })
+            })
+            .map(|fact| fact.instruction as usize)
+            .expect("alternate function reference exists");
+        let target_range = program.store.data[alias_initializer].range();
+        let alternate_range = program.store.data[label_reference].range();
+        assert_eq!(target_range.len, alternate_range.len);
+
+        let mut forged = program.clone();
+        let target_start = target_range.start as usize;
+        let alternate_start = alternate_range.start as usize;
+        let payload_len = target_range.len as usize;
+        forged.store.extra[target_start..target_start + payload_len]
+            .copy_from_slice(&program.store.extra[alternate_start..alternate_start + payload_len]);
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("checked function reference identity disagrees with its producer"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn typed_callable_local_fact_cannot_retype_an_integer_slot() {
+        let source = r#"type Scale = pure(n: Int) -> Int
+
+pure double(n: Int) -> Int { n * 2 }
+
+pure apply() -> Int {
+  let callback: Scale = double
+  let number = 7
+  callback(number)
+}
+"#;
+        let program = fixture("typed-callable-forged-local-type.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        let function = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "apply")
+            .expect("apply function exists");
+        fn payload(program: &FullProgram, instruction: usize) -> &[u32] {
+            program
+                .store
+                .payload(program.store.data[instruction].range())
+                .unwrap()
+        }
+        let typed_call = program
+            .store
+            .function_instruction_range(function)
+            .unwrap()
+            .find(|instruction| program.store.tags[*instruction] == FullTag::ExprTypedCall)
+            .expect("typed call exists");
+        let callee = *payload(&program, typed_call).first().unwrap() as usize;
+        assert_eq!(program.store.tags[callee], FullTag::ExprParam);
+        let int_slot = program
+            .store
+            .function_instruction_range(function)
+            .unwrap()
+            .find(|instruction| program.store.tags[*instruction] == FullTag::StmtLetInt)
+            .map(|instruction| payload(&program, instruction)[0] as usize)
+            .expect("integer local uses the integer let instruction");
+        let fact_range = program.store.functions[function]
+            .slot_type_facts
+            .bounds(program.store.slot_type_facts.len())
+            .unwrap();
+        let signature = payload(&program, typed_call)[2];
+
+        let mut forged = program.clone();
+        forged.store.extra[forged.store.data[callee].range().start as usize] =
+            u32::try_from(int_slot).unwrap();
+        forged.store.slot_type_facts[fact_range.start + int_slot] = signature;
+
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("local slot type fact disagrees with its initializer IR representation"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn typed_callable_slot_fact_cannot_retype_an_integer_initializer() {
+        let source = r#"type Scale = pure(n: Int) -> Int
+
+pure double(n: Int) -> Int { n * 2 }
+
+pure apply() -> Int {
+  let callback: Scale = double
+  let number = 7
+  callback(number)
+}
+"#;
+        let program = fixture("typed-callable-forged-slot-fact.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        let function = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "apply")
+            .expect("apply function exists");
+        let int_slot = program
+            .store
+            .function_instruction_range(function)
+            .unwrap()
+            .find_map(|instruction| {
+                (program.store.tags[instruction] == FullTag::StmtLetInt)
+                    .then(|| program.store.payload(program.store.data[instruction].range()).unwrap()[0] as usize)
+            })
+            .expect("integer local uses the integer let instruction");
+        let fact_range = program.store.functions[function]
+            .slot_type_facts
+            .bounds(program.store.slot_type_facts.len())
+            .unwrap();
+        let typed_call = program
+            .store
+            .function_instruction_range(function)
+            .unwrap()
+            .find(|instruction| program.store.tags[*instruction] == FullTag::ExprTypedCall)
+            .expect("typed call exists");
+        let signature = program
+            .store
+            .payload(program.store.data[typed_call].range())
+            .unwrap()[2];
+
+        let mut forged = program.clone();
+        forged.store.slot_type_facts[fact_range.start + int_slot] = signature;
+
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("local slot type fact disagrees with its initializer IR representation"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn typed_callable_loop_slot_fact_matches_its_iteration_item_type() {
+        let source = r#"type Count = pure(text: Str) -> Int
+type Measure = pure(size: Int) -> Int
+
+pure byte_count(text: Str) -> Int { text.byte_len() }
+pure measure(size: Int) -> Int { size }
+
+pure loop_call(counts: List[Count], text: Str) -> Int {
+  var total = 0
+  for each in counts {
+    total = each(text)
+  }
+  total
+}
+
+pure measured(callback: Measure, size: Int) -> Int {
+  callback(size)
+}
+"#;
+        let program = fixture("typed-callable-forged-loop-slot-type.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        let function = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "loop_call")
+            .expect("loop function exists");
+        let measured = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "measured")
+            .expect("second callable signature function exists");
+        fn payload(program: &FullProgram, instruction: usize) -> &[u32] {
+            program
+                .store
+                .payload(program.store.data[instruction].range())
+                .unwrap()
+        }
+        let range = program.store.function_instruction_range(function).unwrap();
+        let loop_slot = range
+            .clone()
+            .find_map(|instruction| {
+                (program.store.tags[instruction] == FullTag::StmtFor)
+                    .then(|| payload(&program, instruction)[0] as usize)
+            })
+            .expect("typed loop binding exists");
+        let loop_call = range
+            .clone()
+            .find_map(|instruction| {
+                if program.store.tags[instruction] != FullTag::ExprTypedCall {
+                    return None;
+                }
+                let callee = payload(&program, instruction)[0] as usize;
+                (program.store.tags.get(callee) == Some(&FullTag::ExprParam)
+                    && payload(&program, callee).first().copied() == Some(loop_slot as u32))
+                .then_some((instruction, callee))
+            })
+            .expect("loop binding is called through its local slot");
+        let alternate_signature = program
+            .store
+            .function_instruction_range(measured)
+            .unwrap()
+            .find(|instruction| program.store.tags[*instruction] == FullTag::ExprTypedCall)
+            .map(|instruction| payload(&program, instruction)[2])
+            .expect("distinct typed call signature exists");
+        let callee_fact = program
+            .store
+            .checked_expr_types
+            .iter()
+            .position(|fact| fact.instruction as usize == loop_call.1)
+            .expect("loop callee has an exact checker fact");
+        let fact_range = program.store.functions[function]
+            .slot_type_facts
+            .bounds(program.store.slot_type_facts.len())
+            .unwrap();
+
+        let mut forged = program.clone();
+        forged.store.slot_type_facts[fact_range.start + loop_slot] = alternate_signature;
+        let alternate_signature = TypeId::from_raw(alternate_signature).unwrap();
+        forged.store.checked_expr_types[callee_fact].type_id = alternate_signature;
+        let call_signature = forged.store.data[loop_call.0].range().start as usize + 2;
+        forged.store.extra[call_signature] = alternate_signature.raw();
+
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error.message.contains("local callable slot type fact disagrees with its writer producer"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn typed_callable_guard_error_binding_matches_its_result_payload() {
+        let source = r#"type Scale = pure(n: Int) -> Int
+type Measure = pure(value: Int) -> Int
+
+pure double(n: Int) -> Int {
+  n * 2
+}
+
+pure measure(value: Int) -> Int {
+  value
+}
+
+pure invoke_measure(callback: Measure, value: Int) -> Int {
+  callback(value)
+}
+
+pure use_failure(result: Result[Int, Scale]) -> Int {
+  guard let value = result else { |failure| return failure(3) }
+  value
+}
+"#;
+        let program = fixture("typed-callable-guard-error.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+
+        let use_failure = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "use_failure")
+            .expect("guard function exists");
+        let invoke_measure = program
+            .store
+            .functions
+            .iter()
+            .position(|function| {
+                program.store.string(function.name).unwrap() == "invoke_measure"
+            })
+            .expect("alternate callable function exists");
+        fn payload(program: &FullProgram, instruction: usize) -> &[u32] {
+            program
+                .store
+                .payload(program.store.data[instruction].range())
+                .unwrap()
+        }
+        let range = program.store.function_instruction_range(use_failure).unwrap();
+        let guard = range
+            .clone()
+            .find(|instruction| program.store.tags[*instruction] == FullTag::StmtGuard)
+            .expect("guard row exists");
+        let execution = schema_execution_with_owner(
+            &program.store,
+            IrFunctionId::new(use_failure).unwrap().raw(),
+            program.store.functions[use_failure].slot_count,
+        );
+        let (tag, payload_view) = execution
+            .instruction_id(u32::try_from(guard).unwrap())
+            .expect("guard instruction exists");
+        let schema::StmtView::Guard {
+            else_param_slot: Some(failure_slot),
+            ..
+        } = schema::StmtView::decode(&execution, tag, payload_view).unwrap()
+        else {
+            panic!("guard binds its Result error parameter");
+        };
+        let call = range
+            .clone()
+            .find_map(|instruction| {
+                if program.store.tags[instruction] != FullTag::ExprTypedCall {
+                    return None;
+                }
+                let callee = payload(&program, instruction)[0] as usize;
+                (program.store.tags.get(callee) == Some(&FullTag::ExprParam)
+                    && payload(&program, callee).first().copied()
+                        == Some(failure_slot as u32))
+                .then_some((instruction, callee))
+            })
+            .expect("the checked failure value is called");
+        let alternate_signature = program
+            .store
+            .function_instruction_range(invoke_measure)
+            .unwrap()
+            .find(|instruction| program.store.tags[*instruction] == FullTag::ExprTypedCall)
+            .map(|instruction| payload(&program, instruction)[2])
+            .expect("alternate signature call exists");
+        let callee_fact = program
+            .store
+            .checked_expr_types
+            .iter()
+            .position(|fact| fact.instruction as usize == call.1)
+            .expect("failure parameter has an exact checker fact");
+        let slot_facts = program.store.functions[use_failure]
+            .slot_type_facts
+            .bounds(program.store.slot_type_facts.len())
+            .unwrap();
+
+        let mut forged = program.clone();
+        forged.store.slot_type_facts[slot_facts.start + failure_slot] = alternate_signature;
+        let alternate_signature = TypeId::from_raw(alternate_signature).unwrap();
+        forged.store.checked_expr_types[callee_fact].type_id = alternate_signature;
+        let call_signature = forged.store.data[call.0].range().start as usize + 2;
+        forged.store.extra[call_signature] = alternate_signature.raw();
+
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("local callable slot type fact disagrees with its writer producer"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn typed_callable_with_error_binding_matches_its_result_payload() {
+        let source = r#"type Scale = pure(n: Int) -> Int
+type Measure = pure(value: Int) -> Int
+
+pure double(n: Int) -> Int { n * 2 }
+pure measure(value: Int) -> Int { value }
+
+pure use_failure(
+  result: Result[Int, Scale],
+  second: Result[Int, Scale],
+) -> Result[Int, Scale] {
+  var value = 0
+  with direct = result, left = result?, right = second? {
+    value = direct + left + right
+  } else { |failure| return Ok(failure(4)) }
+  Ok(value)
+}
+
+pure other(callback: Measure) -> Int { callback(7) }
+"#;
+        let program = fixture("typed-callable-with-error.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+
+        fn payload(program: &FullProgram, instruction: usize) -> &[u32] {
+            program
+                .store
+                .payload(program.store.data[instruction].range())
+                .unwrap()
+        }
+        let use_failure = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "use_failure")
+            .expect("With function exists");
+        let other = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "other")
+            .expect("alternate callable function exists");
+        let range = program
+            .store
+            .function_instruction_range(use_failure)
+            .unwrap();
+        let with = range
+            .clone()
+            .find(|instruction| program.store.tags[*instruction] == FullTag::StmtWith)
+            .expect("With row exists");
+        let execution = schema_execution_with_owner(
+            &program.store,
+            IrFunctionId::new(use_failure).unwrap().raw(),
+            program.store.functions[use_failure].slot_count,
+        );
+        let (tag, payload_view) = execution
+            .instruction_id(u32::try_from(with).unwrap())
+            .expect("With instruction exists");
+        let schema::StmtView::With {
+            else_param_slot: Some(failure_slot),
+            ..
+        } = schema::StmtView::decode(&execution, tag, payload_view).unwrap()
+        else {
+            panic!("With binds its failure parameter");
+        };
+        let call = range
+            .clone()
+            .find_map(|instruction| {
+                if program.store.tags[instruction] != FullTag::ExprTypedCall {
+                    return None;
+                }
+                let callee = payload(&program, instruction)[0] as usize;
+                (program.store.tags.get(callee) == Some(&FullTag::ExprParam)
+                    && payload(&program, callee).first().copied()
+                        == Some(failure_slot as u32))
+                .then_some((instruction, callee))
+            })
+            .expect("the With failure value is called");
+        let alternate_signature = program
+            .store
+            .function_instruction_range(other)
+            .unwrap()
+            .find(|instruction| program.store.tags[*instruction] == FullTag::ExprTypedCall)
+            .map(|instruction| payload(&program, instruction)[2])
+            .expect("alternate signature call exists");
+        let callee_fact = program
+            .store
+            .checked_expr_types
+            .iter()
+            .position(|fact| fact.instruction as usize == call.1)
+            .expect("With failure parameter has an exact checker fact");
+        let slot_facts = program.store.functions[use_failure]
+            .slot_type_facts
+            .bounds(program.store.slot_type_facts.len())
+            .unwrap();
+
+        let mut forged = program.clone();
+        forged.store.slot_type_facts[slot_facts.start + failure_slot] = alternate_signature;
+        let alternate_signature = TypeId::from_raw(alternate_signature).unwrap();
+        forged.store.checked_expr_types[callee_fact].type_id = alternate_signature;
+        let call_signature = forged.store.data[call.0].range().start as usize + 2;
+        forged.store.extra[call_signature] = alternate_signature.raw();
+
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("local callable slot type fact disagrees with its writer producer"),
+            "{}",
+            error.message
+        );
+
+    }
+
+    #[test]
+    fn typed_callable_with_binding_cannot_be_retyped_from_an_any_initializer() {
+        let source = r#"type Scale = pure(n: Int) -> Int
+
+pure double(n: Int) -> Int { n * 2 }
+
+pure use_callback(result: Result[Scale, Scale], dynamic: Result[Any, Scale]) -> Int {
+  with callback = result, opaque = dynamic {
+    return callback(4)
+  } else { |failure| return failure(4) }
+}
+"#;
+        let program = fixture("typed-callable-with-any-with-binding.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+
+        let owner = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "use_callback")
+            .expect("With function exists");
+        let mut range = program.store.function_instruction_range(owner).unwrap();
+        let with = range
+            .find(|instruction| program.store.tags[*instruction] == FullTag::StmtWith)
+            .expect("With row exists");
+        let with_payload = program.store.data[with]
+            .range()
+            .bounds(program.store.extra.len())
+            .unwrap();
+        let bindings_block = IrBlockId::from_raw(program.store.extra[with_payload.start])
+            .expect("With bindings block exists");
+        let bindings = program.store.blocks[bindings_block.index()]
+            .instructions
+            .bounds(program.store.extra.len())
+            .unwrap();
+        assert_eq!(program.store.extra[bindings.start], 2);
+        let callback_initializer = program.store.extra[bindings.start + 2] as usize;
+        let opaque_initializer = program.store.extra[bindings.start + 4] as usize;
+        assert_eq!(program.store.tags[callback_initializer], FullTag::ExprParam);
+        assert_eq!(program.store.tags[opaque_initializer], FullTag::ExprParam);
+        assert_ne!(callback_initializer, opaque_initializer);
+
+        let mut forged = program.clone();
+        forged.store.extra[bindings.start + 2] = opaque_initializer as u32;
+        forged.store.extra[bindings.start + 4] = callback_initializer as u32;
+
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error.message.contains("callable") || error.message.contains("checked type"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn typed_callable_with_error_slot_cannot_alias_a_different_success_type() {
+        let source = r#"type Count = pure(text: Str) -> Int
+type Measure = pure(value: Int) -> Int
+
+pure count(text: Str) -> Int { text.byte_len() }
+pure measure(value: Int) -> Int { value }
+
+pure use_failure(result: Result[Count, Measure]) -> Int {
+  var value = 0
+  with candidate = result {
+    value = candidate("success")
+  } else { |failure| value = failure(4) }
+  value
+}
+"#;
+        let program = fixture("typed-callable-with-error-slot-alias.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+
+        fn payload(program: &FullProgram, instruction: usize) -> &[u32] {
+            program
+                .store
+                .payload(program.store.data[instruction].range())
+                .unwrap()
+        }
+        fn call_for_slot(
+            program: &FullProgram,
+            range: std::ops::Range<usize>,
+            slot: usize,
+        ) -> (usize, usize) {
+            range
+                .into_iter()
+                .find_map(|instruction| {
+                    if program.store.tags[instruction] != FullTag::ExprTypedCall {
+                        return None;
+                    }
+                    let callee = payload(program, instruction)[0] as usize;
+                    (program.store.tags.get(callee) == Some(&FullTag::ExprParam)
+                        && payload(program, callee).first().copied() == Some(slot as u32))
+                    .then_some((instruction, callee))
+                })
+                .expect("typed call through the selected With binding exists")
+        }
+
+        let owner = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "use_failure")
+            .expect("With function exists");
+        let range = program.store.function_instruction_range(owner).unwrap();
+        let with = range
+            .clone()
+            .find(|instruction| program.store.tags[*instruction] == FullTag::StmtWith)
+            .expect("With row exists");
+        let execution = schema_execution_with_owner(
+            &program.store,
+            IrFunctionId::new(owner).unwrap().raw(),
+            program.store.functions[owner].slot_count,
+        );
+        let (tag, payload_view) = execution
+            .instruction_id(u32::try_from(with).unwrap())
+            .expect("With instruction exists");
+        let schema::StmtView::With {
+            mut bindings,
+            else_param_slot: Some(failure_slot),
+            ..
+        } = schema::StmtView::decode(&execution, tag, payload_view).unwrap()
+        else {
+            panic!("With binds its failure parameter");
+        };
+        let (success_slot, _) = bindings
+            .next()
+            .expect("With success binding exists")
+            .unwrap();
+        assert_ne!(success_slot, failure_slot);
+        let (success_call, _) = call_for_slot(&program, range.clone(), success_slot);
+        let (failure_call, failure_callee) = call_for_slot(&program, range.clone(), failure_slot);
+        let checked_fact = program
+            .store
+            .checked_expr_types
+            .iter()
+            .position(|fact| fact.instruction as usize == failure_callee)
+            .expect("failure parameter has an exact checker fact");
+        let success_signature = payload(&program, success_call)[2];
+
+        let mut forged = program.clone();
+        let with_payload = forged.store.data[with]
+            .range()
+            .bounds(forged.store.extra.len())
+            .unwrap();
+        assert_eq!(forged.store.extra[with_payload.start + 2], 1);
+        forged.store.extra[with_payload.start + 3] = success_slot as u32;
+        let callee_payload = forged.store.data[failure_callee]
+            .range()
+            .bounds(forged.store.extra.len())
+            .unwrap();
+        forged.store.extra[callee_payload.start] = success_slot as u32;
+        let signature = TypeId::from_raw(success_signature).unwrap();
+        forged.store.checked_expr_types[checked_fact].type_id = signature;
+        let call_signature = forged.store.data[failure_call].range().start as usize + 2;
+        forged.store.extra[call_signature] = success_signature;
+
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("With success and error bindings share a source slot"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn typed_callable_pattern_slot_facts_match_nominal_variant_fields() {
+        let source = r#"type Count = pure(text: Str) -> Int
+type Measure = pure(value: Str) -> Int
+enum Choice { Selected(Count), Empty }
+error Failure = Selected(handler: Count)
+
+pure count(text: Str) -> Int { text.byte_len() }
+pure measure(value: Str) -> Int { value.byte_len() }
+
+pure tag_apply(choice: Choice) -> Int {
+  match choice {
+    Selected(each) => each("tag"),
+    Empty => 0,
+  }
+}
+
+pure error_apply(failure: Error) -> Int {
+  match failure {
+    Failure.Selected {handler} => handler("error"),
+    _ => 0,
+  }
+}
+
+pure other(callback: Measure) -> Int { callback("alternate") }
+
+pure construct_failure() -> Result[Unit, Failure] {
+  return Err(Failure.Selected(handler: count))
+}
+"#;
+        let program = fixture("typed-callable-pattern-slot-facts.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        fn payload(program: &FullProgram, instruction: usize) -> &[u32] {
+            program
+                .store
+                .payload(program.store.data[instruction].range())
+                .unwrap()
+        }
+        let other = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "other")
+            .expect("alternate signature function exists");
+        let alternate_signature = program
+            .store
+            .function_instruction_range(other)
+            .unwrap()
+            .find(|instruction| program.store.tags[*instruction] == FullTag::ExprTypedCall)
+            .map(|instruction| payload(&program, instruction)[2])
+            .expect("alternate typed call signature exists");
+
+        for name in ["tag_apply", "error_apply"] {
+            let function = program
+                .store
+                .functions
+                .iter()
+                .position(|function| program.store.string(function.name).unwrap() == name)
+                .expect("pattern function exists");
+            let (call, callee) = program
+                .store
+                .function_instruction_range(function)
+                .unwrap()
+                .find_map(|instruction| {
+                    if program.store.tags[instruction] != FullTag::ExprTypedCall {
+                        return None;
+                    }
+                    let callee = payload(&program, instruction)[0] as usize;
+                    (program.store.tags.get(callee) == Some(&FullTag::ExprParam))
+                        .then_some((instruction, callee))
+                })
+                .expect("pattern-bound callable is called");
+            let slot = payload(&program, callee)[0] as usize;
+            let fact = program
+                .store
+                .checked_expr_types
+                .iter()
+                .position(|fact| fact.instruction as usize == callee)
+                .expect("pattern-bound callable has an exact checker fact");
+            let fact_range = program.store.functions[function]
+                .slot_type_facts
+                .bounds(program.store.slot_type_facts.len())
+                .unwrap();
+
+            let mut forged = program.clone();
+            forged.store.slot_type_facts[fact_range.start + slot] = alternate_signature;
+            let alternate_signature = TypeId::from_raw(alternate_signature).unwrap();
+            forged.store.checked_expr_types[fact].type_id = alternate_signature;
+            let call_signature = forged.store.data[call].range().start as usize + 2;
+            forged.store.extra[call_signature] = alternate_signature.raw();
+
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(
+                error.message.contains("local callable slot type fact disagrees with its writer producer"),
+                "{name}: {}",
+                error.message
+            );
+        }
+
+        let construct_failure = program
+            .store
+            .functions
+            .iter()
+            .position(|function| {
+                program.store.string(function.name).unwrap() == "construct_failure"
+            })
+            .expect("structured error constructor function exists");
+        let error_instruction = program
+            .store
+            .function_instruction_range(construct_failure)
+            .unwrap()
+            .find(|instruction| program.store.tags[*instruction] == FullTag::ExprError)
+            .expect("structured error constructor is encoded");
+        let error_payload = program.store.data[error_instruction]
+            .range()
+            .bounds(program.store.extra.len())
+            .unwrap();
+        assert_eq!(program.store.extra[error_payload.start], 1);
+        assert_eq!(
+            program
+                .store
+                .string(program.store.extra[error_payload.start + 1])
+                .unwrap(),
+            "Failure"
+        );
+        let error_fact = program
+            .store
+            .checked_expr_types
+            .binary_search_by_key(
+                &u32::try_from(error_instruction).unwrap(),
+                |fact| fact.instruction,
+            )
+            .expect("structured error constructor carries its checked family identity");
+
+        fn append_string(store: &mut FullStore, value: &str) -> u32 {
+            let start = u32::try_from(store.string_bytes.len()).unwrap();
+            let length = u32::try_from(value.len()).unwrap();
+            store.string_bytes.extend_from_slice(value.as_bytes());
+            let id = u32::try_from(store.strings.len()).unwrap();
+            store.strings.push(IrRange::new(start, length));
+            id
+        }
+
+        let mut wrong_identity = program.clone();
+        let wrong_identity_id = append_string(&mut wrong_identity.store, "missing.Failure");
+        wrong_identity.store.extra[error_payload.start + 2] = wrong_identity_id;
+        let error = FullVerifier::verify(&wrong_identity).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("checked structured-error identity disagrees with its constructor"),
+            "{}",
+            error.message
+        );
+
+        let mut wrong_display = program.clone();
+        let wrong_display_id = append_string(&mut wrong_display.store, "OtherFailure");
+        wrong_display.store.extra[error_payload.start + 1] = wrong_display_id;
+        let error = FullVerifier::verify(&wrong_display).unwrap_err();
+        assert!(
+            error.message.contains(
+                "structured-error display name disagrees with its declaration identity"
+            ),
+            "{}",
+            error.message
+        );
+
+        let mut missing_identity = program.clone();
+        missing_identity.store.checked_expr_types.remove(error_fact);
+        let error = FullVerifier::verify(&missing_identity).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("structured-error constructor has no checked declaration identity"),
+            "{}",
+            error.message
+        );
+
+        let tag_key = program
+            .store
+            .checked_pattern_variants
+            .iter()
+            .find(|(key, schema)| {
+                key.kind == CheckedPatternVariantKind::Tag && !schema.fields.is_empty()
+            })
+            .map(|(key, _)| key)
+            .copied()
+            .expect("tag pattern has a declaration schema with callable fields");
+        let mut forged = program.clone();
+        forged.store.checked_pattern_variants.get_mut(&tag_key).unwrap().fields[0].type_id =
+            TypeId::from_raw(alternate_signature).unwrap();
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error.message.contains(
+                "checked nominal pattern schema disagrees with its canonical declaration"
+            ),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn verifier_rejects_typed_callable_type_patterns() {
+        let callable = Type::Callable(Arc::new(crate::sema::types::TypedCallable {
+            pure: true,
+            sig: CallableType {
+                params: Vec::new(),
+                return_ty: Box::new(Type::Unit),
+                effects: None,
+            },
+        }));
+        let mut builder = FullBuilder::new(SourceId::new(0));
+        builder.current_owner = Some(0);
+        builder.current_slot_count = 1;
+        let mut roots = Vec::new();
+        BuildPatternRow::Type {
+            ty: callable,
+            slot: Some(0),
+        }
+        .encode(&mut builder, &mut roots)
+        .unwrap();
+
+        let execution = schema_execution_with_slots(&builder.store, 1);
+        let error = execution
+            .decoder()
+            .verify_pattern_writer_types(roots[0], Some(&Type::Any))
+            .unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("type pattern cannot establish a typed callable"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn callable_field_assignments_match_the_record_field_producer_type() {
+        let source = r#"type Scale = pure(n: Int) -> Int
+type Label = pure(text: Str) -> Str
+type Holder = {callback: Scale}
+type Bundle = {nested: Holder}
+
+pure double(n: Int) -> Int { n * 2 }
+pure text_copy(text: Str) -> Str { text }
+
+pure apply_field() -> Int {
+  var holder: Holder = {callback: double}
+  let other: Label = text_copy
+  holder.callback = double
+  assert other("x") == "x"
+  holder.callback(2)
+}
+
+pure apply_path() -> Int {
+  var bundle: Bundle = {nested: {callback: double}}
+  let other: Label = text_copy
+  bundle.nested.callback = double
+  assert other("x") == "x"
+  bundle.nested.callback(2)
+}
+
+pure apply_update() -> Int {
+  let bundle: Bundle = {nested: {callback: double}}
+  let other: Label = text_copy
+  let updated = {...bundle, nested.callback: double}
+  assert other("x") == "x"
+  updated.nested.callback(2)
+}
+"#;
+        let program = fixture("typed-callable-field-assignment.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        let _symbols = program.symbol_owner().enter();
+
+        fn forged_assignment(
+            program: &FullProgram,
+            function_name: &str,
+            expected_tag: FullTag,
+        ) -> FullProgram {
+            let function = program
+                .store
+                .functions
+                .iter()
+                .position(|function| program.store.string(function.name).unwrap() == function_name)
+                .expect("assignment function exists");
+            let range = program.store.function_instruction_range(function).unwrap();
+            let execution = FullFunctionView { program, index: function }
+                .execution()
+                .unwrap();
+            let statement = range
+                .clone()
+                .find(|instruction| program.store.tags[*instruction] == expected_tag)
+                .expect("callable field assignment exists");
+            let (tag, payload) = execution.instruction_id(statement as u32).unwrap();
+            let value = match schema::StmtView::decode(&execution, tag, payload).unwrap() {
+                schema::StmtView::AssignField { value, .. }
+                | schema::StmtView::AssignPath { value, .. } => value.raw() as usize,
+                _ => panic!("expected a field or path assignment"),
+            };
+            let (value_fact_index, _) = program
+                .store
+                .checked_expr_types
+                .iter()
+                .enumerate()
+                .find(|(_, fact)| fact.instruction as usize == value)
+                .expect("assignment value has a checked callable fact");
+            let (alternate_instruction, alternate_fact) = program
+                .store
+                .checked_expr_types
+                .iter()
+                .find(|fact| {
+                    range.contains(&(fact.instruction as usize))
+                        && fact.function_ref.is_some_and(|(function, _)| {
+                            function.as_name() == Some(Name::intern("text_copy"))
+                        })
+                })
+                .map(|fact| (fact.instruction as usize, *fact))
+                .expect("alternate callable initializer exists in this function");
+
+            let target_range = program.store.data[value].range();
+            let alternate_range = program.store.data[alternate_instruction].range();
+            assert_eq!(target_range.len, alternate_range.len);
+            let target_words = target_range.bounds(program.store.extra.len()).unwrap();
+            let alternate_words = alternate_range
+                .bounds(program.store.extra.len())
+                .unwrap();
+
+            let mut forged = program.clone();
+            forged.store.extra[target_words].copy_from_slice(
+                &program.store.extra[alternate_words],
+            );
+            forged.store.checked_expr_types[value_fact_index] = alternate_fact;
+            forged
+        }
+
+        for (function, tag) in [
+            ("apply_field", FullTag::StmtAssignField),
+            ("apply_path", FullTag::StmtAssignPath),
+        ] {
+            let forged = forged_assignment(&program, function, tag);
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(
+                error.message.contains(
+                    "assignment value disagrees with its checked callable target"
+                ),
+                "{function}: {}",
+                error.message
+            );
+        }
+
+        let function = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "apply_update")
+            .expect("record update function exists");
+        let range = program.store.function_instruction_range(function).unwrap();
+        let execution = FullFunctionView {
+            program: &program,
+            index: function,
+        }
+        .execution()
+        .unwrap();
+        let update = range
+            .clone()
+            .find(|instruction| program.store.tags[*instruction] == FullTag::ExprRecordUpdate)
+            .expect("callable record update expression exists");
+        let (tag, payload) = execution.instruction_id(update as u32).unwrap();
+        let value = match schema::ExprView::decode(&execution, tag, payload).unwrap() {
+            schema::ExprView::RecordUpdate { mut updates, .. } => updates
+                .next()
+                .expect("one callable field update")
+                .unwrap()
+                .1
+                .raw() as usize,
+            _ => panic!("expected a record update expression"),
+        };
+        let (value_fact_index, _) = program
+            .store
+            .checked_expr_types
+            .iter()
+            .enumerate()
+            .find(|(_, fact)| fact.instruction as usize == value)
+            .expect("record update value has a checked callable fact");
+        let (alternate_instruction, alternate_fact) = program
+            .store
+            .checked_expr_types
+            .iter()
+            .find(|fact| {
+                range.contains(&(fact.instruction as usize))
+                    && fact.function_ref.is_some_and(|(function, _)| {
+                        function.as_name() == Some(Name::intern("text_copy"))
+                    })
+            })
+            .map(|fact| (fact.instruction as usize, *fact))
+            .expect("alternate callable initializer exists in record update function");
+        let target_range = program.store.data[value].range();
+        let alternate_range = program.store.data[alternate_instruction].range();
+        assert_eq!(target_range.len, alternate_range.len);
+        let target_words = target_range.bounds(program.store.extra.len()).unwrap();
+        let alternate_words = alternate_range.bounds(program.store.extra.len()).unwrap();
+        let mut forged = program.clone();
+        forged.store.extra[target_words]
+            .copy_from_slice(&program.store.extra[alternate_words]);
+        forged.store.checked_expr_types[value_fact_index] = alternate_fact;
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error.message.contains(
+                "record update value disagrees with its checked callable field"
+            ),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn typed_callable_local_fact_cannot_retype_a_string_initializer() {
+        let source = r#"type Scale = pure(n: Int) -> Int
+
+pure double(n: Int) -> Int { n * 2 }
+
+pure apply() -> Int {
+  let callback: Scale = double
+  let text = "ordinary"
+  callback(7)
+}
+"#;
+        let program = fixture("typed-callable-forged-string-local-type.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        let function = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "apply")
+            .expect("apply function exists");
+        fn payload(program: &FullProgram, instruction: usize) -> &[u32] {
+            program
+                .store
+                .payload(program.store.data[instruction].range())
+                .unwrap()
+        }
+        let typed_call = program
+            .store
+            .function_instruction_range(function)
+            .unwrap()
+            .find(|instruction| program.store.tags[*instruction] == FullTag::ExprTypedCall)
+            .expect("typed call exists");
+        let callee = payload(&program, typed_call)[0] as usize;
+        let text_slot = program
+            .store
+            .function_instruction_range(function)
+            .unwrap()
+            .find_map(|instruction| {
+                let words = payload(&program, instruction);
+                (program.store.tags[instruction] == FullTag::StmtLet
+                    && words.get(1).is_some_and(|value| {
+                        program.store.tags.get(*value as usize) == Some(&FullTag::ExprStr)
+                    }))
+                .then(|| words[0] as usize)
+            })
+            .expect("string initializer uses a general let instruction");
+        let fact_range = program.store.functions[function]
+            .slot_type_facts
+            .bounds(program.store.slot_type_facts.len())
+            .unwrap();
+        let signature = payload(&program, typed_call)[2];
+
+        let mut forged = program.clone();
+        forged.store.extra[forged.store.data[callee].range().start as usize] =
+            u32::try_from(text_slot).unwrap();
+        forged.store.slot_type_facts[fact_range.start + text_slot] = signature;
+
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("local slot type fact disagrees with its initializer IR representation"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn typed_callable_local_fact_cannot_retype_a_string_branch_initializer() {
+        let source = r#"type Scale = pure(n: Int) -> Int
+
+pure double(n: Int) -> Int { n * 2 }
+
+pure apply() -> Int {
+  let callback: Scale = double
+  let text = if true { "a" } else { "b" }
+  callback(7)
+}
+"#;
+        let program = fixture("typed-callable-forged-if-local-type.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        let function = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "apply")
+            .expect("apply function exists");
+        fn payload(program: &FullProgram, instruction: usize) -> &[u32] {
+            program
+                .store
+                .payload(program.store.data[instruction].range())
+                .unwrap()
+        }
+        let typed_call = program
+            .store
+            .function_instruction_range(function)
+            .unwrap()
+            .find(|instruction| program.store.tags[*instruction] == FullTag::ExprTypedCall)
+            .expect("typed call exists");
+        let callee = payload(&program, typed_call)[0] as usize;
+        assert_eq!(program.store.tags[callee], FullTag::ExprParam);
+        let text_slot = program
+            .store
+            .function_instruction_range(function)
+            .unwrap()
+            .find_map(|instruction| {
+                let words = payload(&program, instruction);
+                (program.store.tags[instruction] == FullTag::StmtLet
+                    && words.get(1).is_some_and(|value| {
+                        program.store.tags.get(*value as usize) == Some(&FullTag::ExprIf)
+                    }))
+                .then(|| words[0] as usize)
+            })
+            .expect("conditional string initializer uses a general let instruction");
+        let fact_range = program.store.functions[function]
+            .slot_type_facts
+            .bounds(program.store.slot_type_facts.len())
+            .unwrap();
+        let signature = payload(&program, typed_call)[2];
+
+        let mut forged = program.clone();
+        forged.store.extra[forged.store.data[callee].range().start as usize] =
+            u32::try_from(text_slot).unwrap();
+        forged.store.slot_type_facts[fact_range.start + text_slot] = signature;
+
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("local slot type fact disagrees with its initializer IR representation"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn checked_initializer_cycle_is_rejected_before_recursive_type_derivation() {
+        let source = r#"pure identity(value: UInt) -> UInt {
+  let checked = value
+  checked
+}
+"#;
+        let program = fixture("checked-initializer-cycle.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        let checked_value = program
+            .store
+            .function_instruction_range(0)
+            .unwrap()
+            .find(|instruction| program.store.tags[*instruction] == FullTag::ExprCheckedValue)
+            .expect("unsigned let initializer has a checked value wrapper");
+        let checked_value_payload = program.store.data[checked_value].range();
+
+        let mut malformed = program.clone();
+        malformed.store.extra[checked_value_payload.start as usize] =
+            u32::try_from(checked_value).unwrap();
+
+        let error = FullVerifier::verify(&malformed).unwrap_err();
+        assert!(error.message.contains("cycle"), "{}", error.message);
+    }
+
+    #[test]
+    fn typed_callable_driver_temporary_module_fact_matches_its_source() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("xsh-typed-call-driver-module-fact-{stamp}"));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("first.xsh"),
+            "##! First module for driver receiver tests.\n\
+             ## The callable contract shared by both modules.\n\
+             export type Handler = pure(value: Int) -> Int\n\
+             pure double(value: Int) -> Int { value * 2 }\n\
+             ## The exported callable value.\n\
+             export let handler: Handler = double\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("second.xsh"),
+            "##! Second module for driver receiver tests.\n\
+             ## The same callable contract with a distinct exact export set.\n\
+             export type Handler = pure(value: Int) -> Int\n\
+             pure double(value: Int) -> Int { value * 3 }\n\
+             ## The exported callable value.\n\
+             export let handler: Handler = double\n\
+             ## An extra export distinguishes the exact module type.\n\
+             export let extra: Str = \"second\"\n",
+        )
+        .unwrap();
+        let script = root.join("main.xsh");
+        fs::write(
+            &script,
+            "use first\nuse second\nprint first.handler(value: 1)\nprint second.handler(value: 1)\n",
+        )
+        .unwrap();
+        let (sources, parsed) = crate::loader::parse_script(&script.to_string_lossy()).unwrap();
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.arena.span_source_id.unwrap();
+        let source = sources.get(source_id).unwrap().text().to_string();
+        let checked = Checker::check_arena_with_sources_and_options(
+            &parsed.arena,
+            &sources,
+            source_id,
+            crate::sema::check::CheckOptions {
+                reveal_types: true,
+                embedded_bodies: true,
+                ..crate::sema::check::CheckOptions::default()
+            },
+        );
+        let declarations = Checker::compact_declarations(&parsed.arena, checked);
+        assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+        let program = FullBuilder::build_compact(
+            &parsed.arena,
+            &declarations,
+            &source,
+            Arc::new(sources),
+            source_id,
+        )
+        .unwrap();
+        FullVerifier::verify(&program).unwrap();
+
+        let (temporary_slot, second_type) = program
+            .store
+            .driver_steps
+            .iter()
+            .find_map(|step| {
+                let slots = step.slots.bounds(program.store.driver_slots.len())?;
+                let slots_start = slots.start;
+                let rows = &program.store.driver_slots[slots];
+                let first_type = rows
+                    .iter()
+                    .find(|row| {
+                        row.flags & DRIVER_SLOT_TEMPORARY == 0
+                            && program.store.string(row.name).ok() == Some("first")
+                    })
+                    .map(|row| row.type_id)?;
+                let second_type = rows
+                    .iter()
+                    .find(|row| {
+                        row.flags & DRIVER_SLOT_TEMPORARY == 0
+                            && program.store.string(row.name).ok() == Some("second")
+                    })
+                    .map(|row| row.type_id)?;
+                if first_type == second_type
+                    || !rows.iter().any(|row| {
+                        row.flags & DRIVER_SLOT_TEMPORARY != 0 && row.type_id == first_type
+                    })
+                {
+                    return None;
+                }
+                let temp = rows.iter().position(|row| {
+                    row.flags & DRIVER_SLOT_TEMPORARY != 0 && row.type_id == first_type
+                })?;
+                Some((slots_start + temp, second_type))
+            })
+            .expect("named-argument lowering emits a typed temporary module receiver");
+        assert!(matches!(
+            program.store.semantic.to_type(second_type),
+            Ok(Type::Module(_))
+        ));
+        let mut forged = program.clone();
+        forged.store.driver_slots[temporary_slot].type_id = second_type;
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error.message.contains("temporary driver slot type fact disagrees with its MatchExpr initializer"),
+            "{}",
+            error.message
+        );
+
+        let first_use = program
+            .store
+            .driver_steps
+            .iter()
+            .position(|step| {
+                if step.tag != FullDriverTag::Use {
+                    return false;
+                }
+                let Ok(payload) = program.store.payload(step.data.range()) else {
+                    return false;
+                };
+                payload
+                    .first()
+                    .and_then(|key| program.store.string(*key).ok())
+                    .is_some_and(|key| key.ends_with("first.xsh"))
+            })
+            .expect("first import registration exists");
+        let use_step = program.store.driver_steps[first_use];
+        assert_ne!(use_step.registered_module_type, IR_NONE);
+        let mut missing = program.clone();
+        missing.store.driver_steps[first_use].registered_module_type = IR_NONE;
+        let error = FullVerifier::verify(&missing).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("exact module binding has no registered result type"),
+            "{}",
+            error.message
+        );
+
+        let non_use = program
+            .store
+            .driver_steps
+            .iter()
+            .position(|step| step.tag != FullDriverTag::Use)
+            .expect("the root has a non-import driver step");
+        let mut misplaced = program.clone();
+        misplaced.store.driver_steps[non_use].registered_module_type = use_step.registered_module_type;
+        let error = FullVerifier::verify(&misplaced).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("non-import driver step has a registered module type"),
+            "{}",
+            error.message
+        );
+
+        let mut forged = program.clone();
+        forged.store.driver_steps[first_use].registered_module_type = second_type.raw();
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("registered module type differs from its exact export set"),
+            "{}",
+            error.message
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn typed_callable_module_receiver_facts_reject_another_import_slot() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("xsh-typed-call-module-slot-{stamp}"));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("first.xsh"),
+            "##! First module for typed-call verifier tests.\n\
+             ## The pure callable contract.\n\
+             export type Handler = pure(value: Int) -> Int\n\
+             pure double(value: Int) -> Int { value * 2 }\n\
+             ## The exported callable value.\n\
+             export let handler: Handler = double\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("second.xsh"),
+            "##! Second module for typed-call verifier tests.\n\
+             ## The effectful callable contract.\n\
+             export type Handler = proc(value: Int) [error] -> Result[Str, Error]\n\
+             proc label(value: Int) [error] -> Result[Str, Error] { Ok(f\"{value}\") }\n\
+             ## The exported callable value.\n\
+             export let handler: Handler = label\n",
+        )
+        .unwrap();
+        let script = root.join("main.xsh");
+        fs::write(
+            &script,
+            "use first\n\
+             use second\n\
+             pure apply(value: Int) -> Int {\n\
+               let retained = second\n\
+               first.handler(value)\n\
+             }\n\
+             print first.handler(1)\n",
+        )
+        .unwrap();
+
+        let (sources, parsed) = crate::loader::parse_script(&script.to_string_lossy()).unwrap();
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.arena.span_source_id.unwrap();
+        let source = sources.get(source_id).unwrap().text().to_string();
+        let checked = Checker::check_arena_with_sources_and_options(
+            &parsed.arena,
+            &sources,
+            source_id,
+            crate::sema::check::CheckOptions {
+                reveal_types: true,
+                embedded_bodies: true,
+                ..crate::sema::check::CheckOptions::default()
+            },
+        );
+        let declarations = Checker::compact_declarations(&parsed.arena, checked);
+        assert!(
+            declarations.diagnostics.is_empty(),
+            "{:?}",
+            declarations.diagnostics
+        );
+        let program = FullBuilder::build_compact(
+            &parsed.arena,
+            &declarations,
+            &source,
+            Arc::new(sources),
+            source_id,
+        )
+        .unwrap();
+        FullVerifier::verify(&program).unwrap();
+
+        let function = program
+            .store
+            .functions
+            .iter()
+            .position(|function| program.store.string(function.name).unwrap() == "apply")
+            .expect("apply function exists");
+        let captures = program.store.functions[function]
+            .captures
+            .bounds(program.store.captures.len())
+            .unwrap();
+        let other_module_slot = program.store.captures[captures]
+            .iter()
+            .find(|capture| program.store.string(capture.name).unwrap() == "second")
+            .expect("second import is retained by apply")
+            .slot_and_flags
+            & !(1 << 31);
+        let payload = |instruction: usize| {
+            program
+                .store
+                .payload(program.store.data[instruction].range())
+                .unwrap()
+        };
+        let receiver = program
+            .store
+            .function_instruction_range(function)
+            .unwrap()
+            .find_map(|instruction| {
+                if program.store.tags[instruction] != FullTag::ExprTypedCall {
+                    return None;
+                }
+                let callee = *payload(instruction).first()? as usize;
+                if program.store.tags.get(callee) != Some(&FullTag::ExprField) {
+                    return None;
+                }
+                let receiver = *payload(callee).first()? as usize;
+                (program.store.tags.get(receiver) == Some(&FullTag::ExprParam))
+                    .then_some(receiver)
+            })
+            .expect("imported callable field receiver is a parameter");
+        let mut wrong_receiver = program.clone();
+        wrong_receiver.store.extra
+            [wrong_receiver.store.data[receiver].range().start as usize] = other_module_slot;
+        let error = FullVerifier::verify(&wrong_receiver).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("typed call signature differs from its callee field's callable type"),
+            "{}",
+            error.message
+        );
+
+        let driver_step = program
+            .store
+            .driver_steps
+            .iter()
+            .enumerate()
+            .find(|(index, _)| {
+                program
+                    .store
+                    .driver_instruction_range(*index)
+                    .unwrap()
+                    .any(|instruction| program.store.tags[instruction] == FullTag::ExprTypedCall)
+            })
+            .map(|(_, step)| step)
+            .expect("top-level imported callable call exists");
+        let driver_slots = driver_step
+            .slots
+            .bounds(program.store.driver_slots.len())
+            .unwrap();
+        let other_driver_slot = program.store.driver_slots[driver_slots]
+            .iter()
+            .find(|slot| program.store.string(slot.name).unwrap() == "second")
+            .expect("second import is present in the driver slot layout")
+            .slot;
+        let mut driver_range = program
+            .store
+            .driver_instruction_range(
+                program
+                    .store
+                    .driver_steps
+                    .iter()
+                    .position(|step| std::ptr::eq(step, driver_step))
+                    .unwrap(),
+            )
+            .unwrap();
+        let driver_receiver = driver_range
+            .find_map(|instruction| {
+                if program.store.tags[instruction] != FullTag::ExprTypedCall {
+                    return None;
+                }
+                let callee = *payload(instruction).first()? as usize;
+                if program.store.tags.get(callee) != Some(&FullTag::ExprField) {
+                    return None;
+                }
+                let receiver = *payload(callee).first()? as usize;
+                (program.store.tags.get(receiver) == Some(&FullTag::ExprParam))
+                    .then_some(receiver)
+            })
+            .expect("top-level field receiver is a parameter");
+        let mut wrong_driver_receiver = program.clone();
+        wrong_driver_receiver.store.extra
+            [wrong_driver_receiver.store.data[driver_receiver].range().start as usize] =
+            other_driver_slot;
+        let error = FullVerifier::verify(&wrong_driver_receiver).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("typed call signature differs from its callee field's callable type"),
+            "{}",
+            error.message
+        );
+
+        let _ = fs::remove_dir_all(root);
     }
 
     // A typed call through a parameter was checked against the parameter's
@@ -12287,7 +17705,7 @@ pure both() -> Int {
             let error = FullVerifier::verify(&swapped).unwrap_err();
             assert!(
                 error.message.contains(
-                    "typed call signature differs from its callee parameter's callable type"
+                    "typed call signature differs from its callee slot's callable type"
                 ),
                 "{}",
                 error.message
@@ -12460,7 +17878,7 @@ pure outer() -> Int { by_scale() + by_measure() }
             let error = FullVerifier::verify(&swapped).unwrap_err();
             assert!(
                 error.message.contains(
-                    "typed call signature differs from its callee capture's callable type"
+                    "typed call signature differs from its callee slot's callable type"
                 ),
                 "{}",
                 error.message

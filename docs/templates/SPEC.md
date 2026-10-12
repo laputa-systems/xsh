@@ -1556,6 +1556,8 @@ the first statement of a block.
 A pattern selects a variant the same way, from the type of the value it
 matches: `.Name`, `.Name(p, ...)` for an enum payload, and `.Name {field, ..}`
 for an error variant's fields are exactly the qualified patterns.
+An imported alias keeps the identity of the declared family; distinct modules'
+families with the same name remain distinct for type and pattern matching.
 
 ```xsh
 {{.spec.inferred_variant_patterns.source}}

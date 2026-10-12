@@ -384,8 +384,8 @@ pub(super) fn value_matches_static_type(value: ValueView<'_>, ty: &Type) -> bool
         Type::DynamicModule => value.module_len().is_some(),
         Type::Result(ok, error) => value.result().is_some_and(|(success, value)| value_matches_static_type(value, if success { ok } else { error })),
         Type::Error => matches!(value.scalar_type(), Some(Type::Error | Type::ProcessError)),
-        Type::ErrorFamily(family) => value.error().is_some_and(|error| crate::runtime::value::error_family_matches(error.family_name(), *family)),
-        Type::ErrorVariant { family, variant } => value.error().is_some_and(|error| crate::runtime::value::error_family_matches(error.family_name(), *family) && error.variant_name() == *variant),
+        Type::ErrorFamily(family) => value.error().is_some_and(|error| crate::runtime::value::error_family_matches(error.family_identity(), *family)),
+        Type::ErrorVariant { family, variant } => value.error().is_some_and(|error| crate::runtime::value::error_family_matches(error.family_identity(), *family) && error.variant_name() == *variant),
         Type::ErrorFacet(facet) => value.error().is_some_and(|error| facet.with_str(|facet| error.facets.iter().any(|value| value == facet))),
         // Callable handles carry their kind, not their checked signature.
         Type::Callable(callable) => value.scalar_type() == Some(if callable.pure { Type::Pure } else { Type::Proc }),

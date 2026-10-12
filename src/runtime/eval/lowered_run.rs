@@ -25,7 +25,8 @@ use crate::runtime::run::execute_run_with_policy;
 use crate::runtime::value::{
     CommandPlan, CommandRedirection, CommandRedirectionMode, CommandRedirectionStream,
     DurationValue, FunctionName, LiveStream, PathValue, ProcessHandleValue, RecordMap, RegexValue,
-    RunError, RuntimeError, StreamValue, Value, error_constructor, structured_error_constructor,
+    RunError, RuntimeError, StreamValue, Value, error_constructor,
+    identified_structured_error_constructor,
 };
 use crate::sema::types::Type;
 use crate::source::Span;

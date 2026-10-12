@@ -21,6 +21,12 @@ macro_rules! ignore_field {
     ($field:ident) => { _ };
 }
 
+macro_rules! instruction_decoder_method {
+    (ExprView, $method:item) => { $method };
+    (StmtView, $method:item) => { $method };
+    ($view:ident, $method:item) => {};
+}
+
 macro_rules! pattern_encode_payload {
     (Normal, $builder:ident, $payload:ident) => {};
     (Normal, $builder:ident, $payload:ident, { $($field:ident),* $(,)? }) => {
@@ -295,6 +301,25 @@ macro_rules! pattern_schema {
                 input.finish()?;
                 Ok(view)
             }
+
+            pub(in crate::runtime::eval) fn decode_from_decoder<'e>(
+                decoder: &'e FullDecoder<'_>,
+                tag: FullPatternTag,
+                payload: FullPayload<'e>,
+            ) -> Result<PatternView<'e>, IrVerifyError> {
+                payload.check_store_decoder(decoder)?;
+                let context = DecodeContext::from_decoder(decoder);
+                let mut input = payload.cursor;
+                let view = match tag {
+                    $(FullPatternTag::$variant => pattern_borrow_row!(
+                        $variant, $mode, context, input
+                        $(, { $($field: $field_ty $(=> $verify_ty)?),* })?
+                        $(, ($tuple_field: $tuple_ty))?
+                    ),)*
+                };
+                input.finish()?;
+                Ok(view)
+            }
         }
 
         impl FullCodec for BuildPatternRow {
@@ -517,6 +542,35 @@ macro_rules! instruction_schema {
                     payload.finish()?;
                     Ok(value)
                 }
+
+                instruction_decoder_method!($view,
+                    pub(in crate::runtime::eval) fn decode_from_decoder<'e>(
+                        decoder: &'e FullDecoder<'_>,
+                        tag: FullTag,
+                        mut payload: FullPayload<'e>,
+                    ) -> Result<$view<'e>, IrVerifyError> {
+                        payload.check_store_decoder(decoder)?;
+                        let context = DecodeContext::from_decoder(decoder);
+                        let value = match tag {
+                            $(
+                                FullTag::$tag => {
+                                    $($(
+                                        let $tuple_field = <$tuple_ty>::borrow(context, &mut payload.cursor)?;
+                                    )*)?
+                                    $($(
+                                        let $field = <$field_ty>::borrow(context, &mut payload.cursor)?;
+                                    )*)?
+                                    $view::$variant
+                                        $(($($tuple_field),*))?
+                                        $({$($field),*})?
+                                }
+                            )*
+                            _ => return Err(IrVerifyError::new("full IR instruction tag has the wrong category")),
+                        };
+                        payload.finish()?;
+                        Ok(value)
+                    }
+                );
             }
 
             impl FullCodec for $row {
@@ -599,6 +653,9 @@ macro_rules! instruction_schema {
                     if tag == FullTag::StmtGuard {
                         let payload = decoder.cursor(decoder.store.payload(decoder.store.data[instruction].range())?);
                         decoder.verify_guard_shape(payload)?;
+                    }
+                    if tag == FullTag::StmtWith {
+                        decoder.verify_with_shape(instruction)?;
                     }
                     decoder.finish_instruction(instruction);
                     Ok(())
@@ -1015,7 +1072,7 @@ instruction_schema! {
             value: BuildExprId,
             cause: Option<BuildExprId>,
         } => ExprErr = 105 [0; Operands; FrameControl];
-        // Boxed: `LoweredErrorExpr::Structured` inlines two `String`s plus two
+        // Boxed: `LoweredErrorExpr::Structured` inlines three `String`s plus two
         // `Vec`s (~96 bytes) that would otherwise size every `BuildExprId` variant
         // for the sake of the comparatively rare structured-error-literal case.
         Error(value: Box<LoweredErrorExpr>) => ExprError = 106 [0; Operands; FrameApply];

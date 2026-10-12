@@ -10,6 +10,7 @@ const TOO_DEEP: u16 = HEIGHT_LIMIT + 1;
 pub(super) struct InstructionProof {
     range: Range<usize>,
     marks: Vec<bool>,
+    parents: Vec<u32>,
     open: Vec<(usize, u16)>,
 }
 
@@ -19,12 +20,18 @@ impl InstructionProof {
         Self {
             range,
             marks: vec![false; len],
+            parents: vec![u32::MAX; len],
             open: Vec::new(),
         }
     }
 
     pub(super) fn enter(&mut self, instruction: usize, tag: FullTag) {
         debug_assert!(self.range.contains(&instruction));
+        if let Some((parent, _)) = self.open.last() {
+            let parent = u32::try_from(*parent)
+                .expect("instruction owner range fits a u32 parent index");
+            self.parents[instruction - self.range.start] = parent;
+        }
         let height = match tag.in_place_class() {
             InPlaceClass::Operands => 1,
             InPlaceClass::Scheduled => UNMARKED,
@@ -60,5 +67,13 @@ impl InstructionProof {
         }
         target.copy_from_slice(&self.marks);
         true
+    }
+
+    pub(super) fn parent_of(&self, instruction: usize) -> Option<usize> {
+        if !self.range.contains(&instruction) {
+            return None;
+        }
+        let parent = self.parents[instruction - self.range.start];
+        (parent != u32::MAX).then(|| self.range.start + parent as usize)
     }
 }

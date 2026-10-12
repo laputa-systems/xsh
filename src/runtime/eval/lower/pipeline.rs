@@ -828,6 +828,7 @@ mod tests {
             stdlib_linkage: super::super::StdlibLowerLinkage::Local,
             function_defs: std::rc::Rc::new(std::cell::RefCell::new(None)),
             scratch: std::rc::Rc::new(std::cell::RefCell::new(super::super::BuildScratch::default())),
+            with_error_source_exprs: crate::runtime::eval::lower::FxHashMap::default(),
             spread_programs: std::rc::Rc::default(),
         };
         let mut slots = SlotScope::default();

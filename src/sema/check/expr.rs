@@ -134,9 +134,106 @@ impl Checker {
                         .return_schema
                         .clone()
                 }
-                _ => None,
+                ArenaExprKind::Null
+                | ArenaExprKind::Bool(_)
+                | ArenaExprKind::Int(_)
+                | ArenaExprKind::Float(_)
+                | ArenaExprKind::Duration(_)
+                | ArenaExprKind::Str(_)
+                | ArenaExprKind::PathStr(_)
+                | ArenaExprKind::GlobStr(_)
+                | ArenaExprKind::FmtString(_)
+                | ArenaExprKind::PathFmtString(_)
+                | ArenaExprKind::Bytes(_)
+                | ArenaExprKind::Regex(_)
+                | ArenaExprKind::Item
+                | ArenaExprKind::LastStatus
+                | ArenaExprKind::List(_)
+                | ArenaExprKind::ListComp { .. }
+                | ArenaExprKind::MapComp { .. }
+                | ArenaExprKind::Set(_)
+                | ArenaExprKind::SetComp { .. }
+                | ArenaExprKind::Record(_)
+                | ArenaExprKind::If { .. }
+                | ArenaExprKind::Match { .. }
+                | ArenaExprKind::PatternTest { .. }
+                | ArenaExprKind::PatternCondition { .. }
+                | ArenaExprKind::Unary { .. }
+                | ArenaExprKind::ComparisonChain(_)
+                | ArenaExprKind::Binary { .. }
+                | ArenaExprKind::Call { .. }
+                | ArenaExprKind::ValuePipelineCall { .. }
+                | ArenaExprKind::NullSafeField { .. }
+                | ArenaExprKind::Index { .. }
+                | ArenaExprKind::Slice { .. }
+                | ArenaExprKind::EnvString(_)
+                | ArenaExprKind::EnvPathList
+                | ArenaExprKind::Pipeline { .. }
+                | ArenaExprKind::StructuredPipeline { .. }
+                | ArenaExprKind::Run(_)
+                | ArenaExprKind::Spawn(_)
+                | ArenaExprKind::Wait(_)
+                | ArenaExprKind::BuilderCall { .. }
+                | ArenaExprKind::Try(_)
+                | ArenaExprKind::Capture(_)
+                | ArenaExprKind::Require { .. }
+                | ArenaExprKind::Convert { .. }
+                | ArenaExprKind::Collect { .. }
+                | ArenaExprKind::Loop { .. }
+                | ArenaExprKind::Retry { .. }
+                | ArenaExprKind::ValueBlock(_)
+                | ArenaExprKind::ErrorContext { .. }
+                | ArenaExprKind::ContextScope { .. }
+                | ArenaExprKind::TempDirScope { .. }
+                | ArenaExprKind::ResourceScope { .. } => None,
             },
-            _ => None,
+            ArenaExprKind::Null
+            | ArenaExprKind::Bool(_)
+            | ArenaExprKind::Int(_)
+            | ArenaExprKind::Float(_)
+            | ArenaExprKind::Duration(_)
+            | ArenaExprKind::Str(_)
+            | ArenaExprKind::PathStr(_)
+            | ArenaExprKind::GlobStr(_)
+            | ArenaExprKind::FmtString(_)
+            | ArenaExprKind::PathFmtString(_)
+            | ArenaExprKind::Bytes(_)
+            | ArenaExprKind::Regex(_)
+            | ArenaExprKind::Item
+            | ArenaExprKind::LastStatus
+            | ArenaExprKind::List(_)
+            | ArenaExprKind::ListComp { .. }
+            | ArenaExprKind::MapComp { .. }
+            | ArenaExprKind::Set(_)
+            | ArenaExprKind::SetComp { .. }
+            | ArenaExprKind::Record(_)
+            | ArenaExprKind::If { .. }
+            | ArenaExprKind::Match { .. }
+            | ArenaExprKind::PatternTest { .. }
+            | ArenaExprKind::PatternCondition { .. }
+            | ArenaExprKind::Unary { .. }
+            | ArenaExprKind::ComparisonChain(_)
+            | ArenaExprKind::Binary { .. }
+            | ArenaExprKind::ValuePipelineCall { .. }
+            | ArenaExprKind::Slice { .. }
+            | ArenaExprKind::EnvString(_)
+            | ArenaExprKind::EnvPathList
+            | ArenaExprKind::Pipeline { .. }
+            | ArenaExprKind::StructuredPipeline { .. }
+            | ArenaExprKind::Run(_)
+            | ArenaExprKind::Spawn(_)
+            | ArenaExprKind::Wait(_)
+            | ArenaExprKind::BuilderCall { .. }
+            | ArenaExprKind::Capture(_)
+            | ArenaExprKind::Convert { .. }
+            | ArenaExprKind::Collect { .. }
+            | ArenaExprKind::Loop { .. }
+            | ArenaExprKind::Retry { .. }
+            | ArenaExprKind::ValueBlock(_)
+            | ArenaExprKind::ErrorContext { .. }
+            | ArenaExprKind::ContextScope { .. }
+            | ArenaExprKind::TempDirScope { .. }
+            | ArenaExprKind::ResourceScope { .. } => None,
         }
     }
 
@@ -3252,7 +3349,7 @@ impl Checker {
 
     /// Fields of runtime values whose field set is fixed. `None` when the
     /// receiver is not such a value; `Some(None)` for an unknown field.
-    fn fixed_field_type(receiver: &Type, name: Name) -> Option<Option<Type>> {
+    pub(crate) fn fixed_field_type(receiver: &Type, name: Name) -> Option<Option<Type>> {
         let name = name.as_str();
         let name = name.as_str();
         Some(match receiver {

@@ -5,6 +5,7 @@ use super::{
     ExprId, FxHashMap, LoweredAssignStep, LoweredCompFields, LoweredCompTarget, LoweredErrorExpr,
     LoweredFmtPart, LoweredRecordEntry, LoweredRecordUpdates, LoweredType, LoweredValue, Name,
     PathValue, QualifiedName, RegexValue, SlotScope, Span, Type, compact_error_family_display,
+    compact_error_family_identity,
     compact_error_family_info, compact_error_family_key, is_discard_name, lower_literal_constant,
     lowered_value_matches, positional_call_args, single_positional_arena_call_arg,
 };
@@ -520,8 +521,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         item_slot: Option<usize>,
     ) -> Option<(LoweredErrorExpr, Vec<(BuildExprId, usize)>)> {
         let family_name = compact_error_family_display(family_key);
+        let family_identity = compact_error_family_identity(family_key);
         let info = compact_error_family_info(self.declarations, family_key)
             .and_then(|family| family.variants.get(&variant))?;
+        self.record_error_pattern_schema(Name::intern(&family_identity), variant)?;
         let binding = self.bodies.error_constructors.get(&call)?.clone();
         if binding.fields.len() != args.len() {
             return None;
@@ -564,6 +567,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some((
             LoweredErrorExpr::Structured {
                 family: family_name,
+                family_identity,
                 variant: variant.to_string(),
                 fields,
                 facets: info.facets.clone(),
@@ -583,7 +587,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         key: CompactErrorFamilyKey,
     ) -> CompactErrorFamilyKey {
         match key {
-            CompactErrorFamilyKey::Local(name) => CompactErrorFamilyKey::Local(name),
+            CompactErrorFamilyKey::Local(name) => self
+                .current_namespace
+                .map(|namespace| QualifiedName::new(namespace, name))
+                .filter(|qualified| {
+                    self.declarations
+                        .qualified_error_families
+                        .contains_key(qualified)
+                })
+                .map(CompactErrorFamilyKey::Qualified)
+                .unwrap_or(CompactErrorFamilyKey::Local(name)),
             CompactErrorFamilyKey::Qualified(name) => {
                 CompactErrorFamilyKey::Qualified(QualifiedName::new(
                     self.compact_imported_module_owner(name.namespace)
@@ -616,6 +629,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 variant,
                 field_types,
             } => {
+                if !self.record_checked_tag_schema(type_name, variant, &field_types) {
+                    return None;
+                }
                 let positional = positional_call_args(&args)?;
                 if positional.len() != field_types.len() {
                     return None;
@@ -661,7 +677,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     current_function,
                     item_slot,
                 )?;
-                let value = push_build_row!(self, expr, BuildExprRow::Error(Box::new(error)));
+                let value = self.push_checked_structured_error(id, error, span)?;
                 Some(self.wrap_argument_bindings(value, bindings, span))
             }
         }

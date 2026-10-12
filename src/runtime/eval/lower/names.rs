@@ -291,6 +291,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         if self.compact_tag_variant_arity(name) != Some(0) {
             return None;
         }
+        self.record_tag_pattern_schema(name)?;
         Some({
             push_build_row!(
                 self,

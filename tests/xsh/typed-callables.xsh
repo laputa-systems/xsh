@@ -5,12 +5,18 @@
 # `Pure` handle at run time.
 
 type Builder = proc(root: Path) [fs, process, error] -> Result[Str]
+type SpecificBuilder = proc(root: Path) [fs, error] -> Result[Str]
+type BuilderRecord = {build: Builder}
+type SpecificBuilderRecord = {build: SpecificBuilder}
 
 type Scale = pure(n: Int) -> Int
 
 type Join = pure(left: Str, right: Str) -> Str
 
 type Step = {name: Str, build: Builder, scale: Scale}
+type Holder = {callback: Scale}
+type CallbackCollection = {callbacks: List[Scale]}
+type Bundle = {nested: Holder}
 
 proc debug_build(root: Path) [error] -> Result[Str] {
   Ok(f"debug {root}")
@@ -41,6 +47,10 @@ pure triple(n: Int) -> Int {
 
 pure join(left: Str, right: Str) -> Str {
   left + "-" + right
+}
+
+pure get_holder() -> Holder {
+  Holder(callback: triple)
 }
 
 proc choose(debug: Bool) -> Builder {
@@ -88,6 +98,90 @@ test test_typed_callable_selected_by_if_is_called_with_checked_arguments {
   assert debug("/literal")? == "debug /literal"
 }
 
+test test_typed_callable_values_from_checked_expression_families_remain_callable {
+  let callbacks: List[Scale] = [double, triple]
+  let indexed = callbacks[0]
+  assert indexed(4) == 8
+
+  let branched: Scale = if true {
+    let marker = 1
+    let _ = marker
+    triple
+  } else {
+    let marker = 2
+    let _ = marker
+    double
+  }
+  assert branched(4) == 12
+
+  let matched: Scale = match true {
+    true => double,
+    false => triple,
+  }
+  assert matched(5) == 10
+
+  let absent: Scale? = null
+  let recovered = absent ?? double
+  assert recovered(6) == 12
+
+  let looped: Scale = loop { break triple }
+  assert looped(3) == 9
+
+  let scoped: Scale = within 5s {
+    let result = double
+    result
+  }?
+  assert scoped(7) == 14
+
+  let directory_scoped: Scale = cd (p".") {
+    let result = triple
+    result
+  }?
+  assert directory_scoped(2) == 6
+}
+
+pure recover_with_typed_failure(result: Result[Int, Scale]) -> Int {
+  guard let value = result else { |failure| return failure(3) }
+  value
+}
+
+pure recover_with_typed_with_failure(
+  first: Result[Int, Scale],
+  second: Result[Int, Scale],
+) -> Result[Int, Scale] {
+  var value = 0
+  with direct = first, left = first?, right = second? {
+    value = direct + left + right
+  } else { |failure| return Ok(failure(4)) }
+  Ok(value)
+}
+
+test test_typed_callable_guard_success_binding_keeps_its_checked_type {
+  assert recover_with_typed_failure(Ok(9)) == 9
+}
+
+test test_typed_callable_guard_failure_binding_keeps_its_checked_type {
+  assert recover_with_typed_failure(Err(double)) == 6
+}
+
+test test_typed_callable_with_failure_binding_keeps_its_checked_type {
+  let result = recover_with_typed_with_failure(Ok(2), Ok(3))
+  let value = match result { Ok(value) => value, Err(failure) => failure(4) }
+  assert value == 7
+}
+
+test test_typed_callable_with_propagated_failure_binding_keeps_its_checked_type {
+  let result = recover_with_typed_with_failure(Ok(2), Err(double))
+  let value = match result { Ok(value) => value, Err(failure) => failure(4) }
+  assert value == 8
+}
+
+test test_typed_callable_with_initial_failure_binding_keeps_its_checked_type {
+  let result = recover_with_typed_with_failure(Err(double), Ok(3))
+  let value = match result { Ok(value) => value, Err(failure) => failure(4) }
+  assert value == 8
+}
+
 test test_typed_callable_is_returned_passed_and_stored {
   assert choose(true)(/a)? == "debug /a"
   assert choose_by_name("inferred")(/a)? == "inferred /a false"
@@ -115,6 +209,19 @@ test test_typed_callable_is_returned_passed_and_stored {
 }
 
 test test_typed_callable_record_field_is_called_like_a_method {
+  assert get_holder().callback(7) == 21
+
+  var holder: Holder = {callback: double}
+  holder.callback = triple
+  assert holder.callback(3) == 9
+
+  var bundle: Bundle = {nested: Holder(callback: double)}
+  bundle.nested.callback = triple
+  assert bundle.nested.callback(3) == 9
+
+  let updated = {...bundle, nested.callback: double}
+  assert updated.nested.callback(4) == 8
+
   let step = Step(name: "release", build: release_build, scale: double)
   assert step.build(/a)? == "release /a false"
   assert step.scale(21) == 42
@@ -125,6 +232,27 @@ test test_typed_callable_record_field_is_called_like_a_method {
 
   let field = step.build
   assert field(/c)? == "release /c false"
+}
+
+pure apply_validated_collection(callbacks: NonEmpty[Scale]) -> Int {
+  var holder: CallbackCollection = {callbacks: [double]}
+  holder.callbacks = callbacks
+  let updated = {...holder, callbacks: callbacks}
+  updated.callbacks[0](7)
+}
+
+pure flatten_nested_callbacks(callbacks: List[NonEmpty[Scale]]) -> List[List[Scale]] {
+  [@callbacks]
+}
+
+test test_validated_callable_collection_fits_its_base_record_field {
+  assert apply_validated_collection([double]) == 14
+}
+
+test test_nonempty_nested_callable_lists_fit_a_spliced_list {
+  let callbacks = flatten_nested_callbacks([[double], [triple]])
+  assert callbacks[0][0](4) == 8
+  assert callbacks[1][0](4) == 12
 }
 
 test test_pure_typed_callable_is_callable_from_pure_code {
@@ -168,6 +296,19 @@ type Count = pure(text: Str) -> Int
 
 pure byte_count(text: Str) -> Int {
   text.byte_len()
+}
+
+pure use_with_callbacks(result: Result[Count, Scale]) -> Int {
+  var value = 0
+  with candidate = result {
+    value = candidate("success")
+  } else { |failure| value = failure(4) }
+  value
+}
+
+test test_typed_callable_with_success_and_error_slots_keep_their_own_types {
+  assert use_with_callbacks(Ok(byte_count)) == 7
+  assert use_with_callbacks(Err(double)) == 8
 }
 
 # A callable value captured by a stage block, and one that crosses the
@@ -239,6 +380,12 @@ test test_alias_that_kept_its_signature_fits_a_callable_type {
   let chosen: Builder = if true { alias } else { debug_build }
   assert build(/a)? == "release /a false"
   assert chosen(/b)? == "release /b false"
+}
+
+test test_record_spread_keeps_a_compatible_callable_field {
+  let specific: SpecificBuilderRecord = {build: release_build}
+  let widened: BuilderRecord = {...specific}
+  assert widened.build(/a)? == "release /a false"
 }
 
 proc check_errors(ctx: TestContext, source: Str) [fs, process, env, error] -> Result[Str] {
@@ -590,7 +737,8 @@ proc select(stage: Stage) [error] -> Result[Unit] {
 # with the type's labels, and its effect bound is charged to the caller.
 test test_module_exported_callable_value_is_called_through_its_type { |ctx|
   let root = test.temp_dir(ctx, name: "typed-callable-module")?
-  fp"{root}/handlers.xsh".write(r"""
+  fp"{root}/nested".mkdir()?
+  fp"{root}/nested/handlers.xsh".write(r"""
 ##! Handlers chosen when the module loads.
 ## What a handler is called with and returns.
 export type Handler = proc(name: Str) [fs, error] -> Result[Str, Error]
@@ -604,15 +752,16 @@ export let handler: Handler = greet
 """)
   let accepted = test.run_xsh(
     ctx,
-    r"""use handlers
+    r"""use nested.handlers
+use nested.handlers as callback_module
 
 proc relay(name: Str) [fs, error] -> Result[Str] {
-  handlers.handler(name)
+  callback_module.handler(name)
 }
 
 print handlers.handler("one")?
-print handlers.handler(name: "two")?
-let kept: handlers.Handler = handlers.handler
+print callback_module.handler(name: "two")?
+let kept: callback_module.Handler = callback_module.handler
 print kept("three")?
 print relay("four")?
 """,
@@ -623,14 +772,14 @@ print relay("four")?
 
   let rejected = test.run_xsh(
     ctx,
-    r"""use handlers
+    r"""use nested.handlers as callback_module
 
 proc bounded(name: Str) [error] -> Result[Str] {
-  handlers.handler(name)
+  callback_module.handler(name)
 }
 
-print handlers.handler(1)?
-print handlers.handler(label: "two")?
+print callback_module.handler(1)?
+print callback_module.handler(label: "two")?
 print bounded("three")?
 """,
     env: {XSH_MODULE_PATH: root},

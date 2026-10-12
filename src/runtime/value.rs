@@ -1545,6 +1545,7 @@ pub struct RuntimeError {
     // ordinary propagated failure.
     pub(crate) scope_cleanup: bool,
     pub(crate) family_name: Name,
+    pub(crate) family_identity: Name,
     pub(crate) variant_name: Name,
     pub(crate) _symbols: SymbolOwner,
 }
@@ -1570,6 +1571,7 @@ impl RuntimeError {
             propagated_run_error: None,
             scope_cleanup: false,
             family_name: Name::ERROR,
+            family_identity: Name::ERROR,
             variant_name,
             _symbols: symbols,
         }
@@ -1583,9 +1585,23 @@ impl RuntimeError {
         message: impl Into<String>,
     ) -> Self {
         let family = family.into();
+        Self::structured_with_identity(family.clone(), family, variant, payload, facets, message)
+    }
+
+    pub(crate) fn structured_with_identity(
+        family: impl Into<String>,
+        family_identity: impl Into<String>,
+        variant: impl Into<String>,
+        payload: RecordMap,
+        facets: Vec<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        let family = family.into();
+        let family_identity = family_identity.into();
         let variant = variant.into();
         let symbols = SymbolOwner::current().unwrap_or_default();
         let family_name = symbols.intern(&family);
+        let family_identity = symbols.intern(&family_identity);
         let variant_name = symbols.intern(&variant);
         let kind = payload
             .get("kind")
@@ -1610,6 +1626,7 @@ impl RuntimeError {
             propagated_run_error: None,
             scope_cleanup: false,
             family_name,
+            family_identity,
             variant_name,
             _symbols: symbols,
         }
@@ -1658,6 +1675,7 @@ impl RuntimeError {
             abort: Some(AbortSignal { status, force }),
             within: None,
             family_name: Name::ERROR,
+            family_identity: Name::ERROR,
             variant_name: symbols.intern("Abort"),
             _symbols: symbols,
         }
@@ -1665,6 +1683,10 @@ impl RuntimeError {
 
     pub fn family_name(&self) -> Name {
         self.family_name
+    }
+
+    pub(crate) fn family_identity(&self) -> Name {
+        self.family_identity
     }
 
     pub fn variant_name(&self) -> Name {
@@ -1797,15 +1819,9 @@ impl RunError {
     }
 }
 
-/// Whether a runtime error of `actual` family belongs to the checked family
-/// `expected`. Errors carry their family's declared name; an importer spells a
-/// module's family through its namespace (`mod.E`), which names the same family.
+/// Whether a runtime error belongs to the checked error-family declaration.
 pub fn error_family_matches(actual: Name, expected: Name) -> bool {
     actual == expected
-        || expected
-            .as_str()
-            .rsplit_once('.')
-            .is_some_and(|(_, member)| member == actual.as_str().as_str())
 }
 
 /// An OS error source that maps onto the built-in error facet vocabulary.
@@ -1862,6 +1878,24 @@ pub fn structured_error_constructor(
 ) -> Value {
     Value::Error(Box::new(RuntimeError::structured(
         family, variant, payload, facets, message,
+    )))
+}
+
+pub(crate) fn identified_structured_error_constructor(
+    family: impl Into<String>,
+    family_identity: impl Into<String>,
+    variant: impl Into<String>,
+    payload: RecordMap,
+    facets: Vec<String>,
+    message: impl Into<String>,
+) -> Value {
+    Value::Error(Box::new(RuntimeError::structured_with_identity(
+        family,
+        family_identity,
+        variant,
+        payload,
+        facets,
+        message,
     )))
 }
 
@@ -2091,6 +2125,28 @@ mod tests {
             assert_eq!(
                 error.variant_name(),
                 crate::symbol::Name::intern("NotFound")
+            );
+            assert_eq!(error.family_identity(), crate::symbol::Name::intern("FsError"));
+        });
+    }
+
+    #[test]
+    fn runtime_error_display_family_is_separate_from_declaration_identity() {
+        SymbolOwner::new().with_current(|| {
+            let error = RuntimeError::structured_with_identity(
+                "HelperError",
+                "helper.xsh.HelperError",
+                "Failed",
+                RecordMap::new(),
+                Vec::new(),
+                "failed",
+            );
+
+            assert_eq!(error.family, "HelperError");
+            assert_eq!(error.family_name(), crate::symbol::Name::intern("HelperError"));
+            assert_eq!(
+                error.family_identity(),
+                crate::symbol::Name::intern("helper.xsh.HelperError")
             );
         });
     }

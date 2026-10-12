@@ -9,7 +9,7 @@ use super::{
 
 use super::{
     Arc, AssignOp, BinaryOp, BuildBoolId, BuildExprId, BuildIntId, BuildPatternId, BuildStmtId,
-    Cell, DurationValue, FloatValue, FormatSpec, FullCodec, FullCursor, FullDecoder,
+    Cell, DurationValue, FloatValue, FormatSpec, FullCodec, FullCursor, FullDecoder, RefCell,
     FullExecution, FullStore, FunctionName, HashAlgorithm, IrBlockId, IrFunctionId,
     IrVerifyError, LoweredFunctionKey, LoweredModuleExport,
     LoweredStrPredicate, LoweredTopLevelSlot, LoweredType, LoweredValue, Name,
@@ -43,6 +43,17 @@ impl<'a> DecodeContext<'a> {
         }
     }
 
+    pub(super) fn from_decoder(decoder: &FullDecoder<'a>) -> Self {
+        Self {
+            store: decoder.store,
+            owner: decoder.owner,
+            start: decoder.instruction_range.start,
+            end: decoder.instruction_range.end,
+            slots: decoder.slot_count,
+            verified: decoder.verified,
+        }
+    }
+
     fn decoder(self) -> FullDecoder<'a> {
         FullDecoder {
             store: self.store,
@@ -53,6 +64,8 @@ impl<'a> DecodeContext<'a> {
             block_states: None,
             slot_count: self.slots,
             pattern_ceiling: Cell::new(usize::MAX),
+            local_function_ref_initializers: RefCell::default(),
+            function_signature_index: None,
             verified: self.verified,
         }
     }
@@ -299,7 +312,7 @@ impl LoweredTopLevelSlotView<'_> {
             name: self.name,
             slot: self.slot,
             kind: self.kind.materialize_lowered()?,
-            callable_type: None,
+            checked_type: None,
             mutable: self.mutable,
         })
     }
@@ -833,10 +846,10 @@ macro_rules! enum_schema {
     };
 }
 
-// Hook slot callability is checker metadata; the encoded row carries only these four fields.
+// Exact checker types remain verifier metadata; the encoded row carries only these fields.
 struct_schema!(LoweredTopLevelSlot => LoweredTopLevelSlotView {
     name: Name, slot: usize, kind: LoweredType, mutable: bool,
-} with { callable_type: None });
+} with { checked_type: None });
 
 struct_schema!(LoweredRunArg => RunArgView {
     kind: LoweredRunArgKind, span: Span,
@@ -952,6 +965,6 @@ enum_schema!(LoweredProcessCommandBuilderEntry => ProcessCommandBuilderEntryView
         span: Span } = 1;
 });
 enum_schema!(LoweredErrorExpr => ErrorExprView ["error expression tag is invalid"] {
-    Structured { family: String, variant: String, fields: Vec<(Arc<str>, BuildExprId)>,
-        facets: Vec<Name> } = 1;
+    Structured { family: String, family_identity: String, variant: String,
+        fields: Vec<(Arc<str>, BuildExprId)>, facets: Vec<Name> } = 1;
 });
