@@ -14,6 +14,7 @@ use super::{
 use crate::runtime::eval::indexed::full::decode::ListView;
 use crate::runtime::eval::indexed::full::schema::ExprView;
 use crate::runtime::eval::indexed::full::{LoweredPipelineStage, StageView};
+use super::pipeline::IndexedItemPredicate;
 use crate::map_key::MapKey;
 
 // Serial stages run on each live source item before the next pull. Bounded
@@ -174,11 +175,13 @@ fn indexed_batch_rows(
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(super) struct IndexedLiveSerialStage {
     instruction: u32,
     tag: FullStageTag,
     state: IndexedSerialState,
+    map_projection: Option<(Arc<str>, Span)>,
+    where_predicate: Option<Arc<IndexedItemPredicate>>,
 }
 
 #[derive(Clone, Copy)]
@@ -194,7 +197,7 @@ enum IndexedSerialState {
 }
 
 impl IndexedLiveSerialStage {
-    fn ends_group(self) -> bool {
+    fn ends_group(&self) -> bool {
         matches!(
             self.state,
             IndexedSerialState::Materialized
@@ -231,7 +234,7 @@ pub(super) fn indexed_for_pipeline_input(
     };
     let input = input.raw();
     let stage_count = stages.len();
-    let decoded = decode_serial_prefix(stages, span)?;
+    let decoded = decode_serial_prefix(execution, stages, span)?;
     if decoded.len() != stage_count
         || decoded.is_empty()
         || decoded
@@ -272,7 +275,7 @@ pub(super) fn indexed_value_pipeline_input(
     };
     let input = input.raw();
     let stage_count = stages.len();
-    let decoded = decode_serial_complete(stages, span)?;
+    let decoded = decode_serial_complete(execution, stages, span)?;
     if decoded.len() != stage_count {
         return Ok(None);
     }
@@ -504,6 +507,7 @@ struct IndexedMaterializedStage {
     awaiting_argument: bool,
     callback_result: Option<ControlFlow<LoweredValue, LoweredValue>>,
     keyed: Option<IndexedKeyedStage>,
+    key_projection: Option<(String, Span)>,
     fold: Option<IndexedFoldStage>,
     reduce: Option<IndexedReduceByStage>,
     par_map: Option<IndexedParMapStage>,
@@ -529,6 +533,7 @@ impl IndexedMaterializedStage {
         let mut arguments = SmallVec::new();
         let mut static_columns = None;
         let mut keyed = None;
+        let mut key_projection = None;
         let mut fold = None;
         let mut reduce = None;
         let mut par_map = None;
@@ -580,6 +585,13 @@ impl IndexedMaterializedStage {
                 if let Some(descending) = descending {
                     arguments.push(descending.raw());
                 }
+                key_projection = Evaluator::indexed_field_projection_with_span(
+                    execution,
+                    key.raw(),
+                    slot,
+                    span,
+                )?
+                .map(|(field, field_span)| (field.to_owned(), field_span));
                 keyed = Some(IndexedKeyedStage::SortBy {
                     slot,
                     key: key.raw(),
@@ -588,6 +600,13 @@ impl IndexedMaterializedStage {
                 });
             }
             StageView::GroupBy { slot, key } => {
+                key_projection = Evaluator::indexed_field_projection_with_span(
+                    execution,
+                    key.raw(),
+                    slot,
+                    span,
+                )?
+                .map(|(field, field_span)| (field.to_owned(), field_span));
                 keyed = Some(IndexedKeyedStage::GroupBy {
                     slot,
                     key: key.raw(),
@@ -750,6 +769,7 @@ impl IndexedMaterializedStage {
             awaiting_argument: false,
             callback_result: None,
             keyed,
+            key_projection,
             fold,
             reduce,
             par_map,
@@ -929,27 +949,39 @@ impl IndexedMaterializedStage {
             let input = self.input.take().expect("keyed stage input is evaluated once");
             self.items = Some(IndexedPipelineItems::new(evaluator, input, self.span)?);
         }
-        let next = self
-            .items
-            .as_mut()
-            .expect("keyed stage input initialized")
-            .next(evaluator, self.span)?;
-        let Some(item) = next else {
-            let mut items = self.items.take().expect("keyed source remains active");
-            items.cancel(evaluator, self.span)?;
-            let keyed = self.keyed.take().expect("keyed accumulator remains active");
-            return Ok(IndexedMaterializedStep::Done(
-                keyed.into_value(self.span)?,
-            ));
-        };
-        let (slot, key) = self
-            .keyed
-            .as_ref()
-            .expect("keyed stage remains active")
-            .slot_and_key();
-        slots[slot] = item;
-        self.awaiting_key = true;
-        Ok(IndexedMaterializedStep::Expr(key))
+        loop {
+            let next = self
+                .items
+                .as_mut()
+                .expect("keyed stage input initialized")
+                .next(evaluator, self.span)?;
+            let Some(item) = next else {
+                let mut items = self.items.take().expect("keyed source remains active");
+                items.cancel(evaluator, self.span)?;
+                let keyed = self.keyed.take().expect("keyed accumulator remains active");
+                return Ok(IndexedMaterializedStep::Done(
+                    keyed.into_value(self.span)?,
+                ));
+            };
+            let (slot, key) = self
+                .keyed
+                .as_ref()
+                .expect("keyed stage remains active")
+                .slot_and_key();
+            if let Some((field, field_span)) = self.key_projection.as_ref()
+                && let Some(key_value) =
+                    evaluator.indexed_borrowed_field_value(&item, field, *field_span)?
+            {
+                self.keyed
+                    .as_mut()
+                    .expect("keyed stage remains active")
+                    .add(key_value, item, self.span)?;
+                continue;
+            }
+            slots[slot] = item;
+            self.awaiting_key = true;
+            return Ok(IndexedMaterializedStep::Expr(key));
+        }
     }
 
     fn next_fold(
@@ -2166,15 +2198,28 @@ impl IndexedSerialPipeline {
                     return Ok(IndexedSerialStep::Block(body.block_id()));
                 }
                 StageView::Where { slot, predicate } => {
-                    let value = item.take().expect("where stage receives an item");
-                    slots[slot] = value.clone();
-                    self.awaiting = Some(SerialAwait {
-                        stage_index,
-                        slot,
-                        item: value,
-                        phase: SerialAwaitPhase::Expr(SerialExprKind::Where),
-                    });
-                    return Ok(IndexedSerialStep::Expr(predicate.raw()));
+                    let input = item.take().expect("where stage receives an item");
+                    let keep = stage
+                        .where_predicate
+                        .as_ref()
+                        .map(|fast_path| {
+                            evaluator.eval_indexed_item_predicate(fast_path, &input, self.span)
+                        })
+                        .transpose()?;
+                    match keep {
+                        Some(true) => item = Some(input),
+                        Some(false) => {}
+                        None => {
+                            slots[slot] = input.clone();
+                            self.awaiting = Some(SerialAwait {
+                                stage_index,
+                                slot,
+                                item: input,
+                                phase: SerialAwaitPhase::Expr(SerialExprKind::Where),
+                            });
+                            return Ok(IndexedSerialStep::Expr(predicate.raw()));
+                        }
+                    }
                 }
                 StageView::WhereBlock { slot, body, value } => {
                     let input = item.take().expect("where block receives an item");
@@ -2191,17 +2236,39 @@ impl IndexedSerialPipeline {
                 }
                 StageView::Map { slot, value } | StageView::FlatMap { slot, value } => {
                     let input = item.take().expect("map stage receives an item");
-                    slots[slot] = input.clone();
-                    self.awaiting = Some(SerialAwait {
-                        stage_index,
-                        slot,
-                        item: input,
-                        phase: SerialAwaitPhase::Expr(SerialExprKind::Map {
-                            flat,
-                            wrap_error: true,
-                        }),
-                    });
-                    return Ok(IndexedSerialStep::Expr(value.raw()));
+                    let projected = if !flat {
+                        if let Some((field, field_span)) = stage.map_projection.as_ref() {
+                            match evaluator.indexed_borrowed_field_value(&input, field, *field_span) {
+                                Ok(projected) => projected,
+                                Err(error) => {
+                                    return Err(evaluator.stream_item_runtime_error(
+                                        "map",
+                                        self.source_index.saturating_sub(1),
+                                        error,
+                                    ));
+                                }
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    if let Some(projected) = projected {
+                        item = Some(projected);
+                    } else {
+                        slots[slot] = input.clone();
+                        self.awaiting = Some(SerialAwait {
+                            stage_index,
+                            slot,
+                            item: input,
+                            phase: SerialAwaitPhase::Expr(SerialExprKind::Map {
+                                flat,
+                                wrap_error: true,
+                            }),
+                        });
+                        return Ok(IndexedSerialStep::Expr(value.raw()));
+                    }
                 }
                 StageView::MapBlock { slot, body, value }
                 | StageView::FlatMapBlock { slot, body, value } => {
@@ -2514,7 +2581,7 @@ impl IndexedStageEngine {
                     .iter()
                     .position(|stage| stage.ends_group())
                     .map_or(group_limit, |offset| start + offset + 1);
-                let active_stages = self.stages[start..end].iter().copied().collect();
+                let active_stages = self.stages[start..end].iter().cloned().collect();
                 self.active_stage_count = end - start;
                 let input = self.current.take().expect("serial stage group input");
                 let active = IndexedSerialPipeline::new_frame(input, active_stages, self.span)?;
@@ -2576,20 +2643,23 @@ impl IndexedStageEngine {
 // Decode stage shape before running the input. A `for` loop can keep this
 // state across body executions without evaluating the input expression again.
 pub(super) fn decode_serial_prefix(
+    execution: &FullExecution<'_>,
     stages: ListView<'_, LoweredPipelineStage>,
     span: Span,
 ) -> Result<SmallVec<[IndexedLiveSerialStage; 4]>, RuntimeError> {
-    decode_serial_stages(stages, span, true)
+    decode_serial_stages(execution, stages, span, true)
 }
 
 pub(super) fn decode_serial_complete(
+    execution: &FullExecution<'_>,
     stages: ListView<'_, LoweredPipelineStage>,
     span: Span,
 ) -> Result<SmallVec<[IndexedLiveSerialStage; 4]>, RuntimeError> {
-    decode_serial_stages(stages, span, false)
+    decode_serial_stages(execution, stages, span, false)
 }
 
 fn decode_serial_stages(
+    execution: &FullExecution<'_>,
     mut stages: ListView<'_, LoweredPipelineStage>,
     span: Span,
     stop_after_terminal: bool,
@@ -2604,12 +2674,12 @@ fn decode_serial_stages(
         let instruction = stage.id.raw();
         let view = stage.view;
         let tag = view.tag();
+        let mut map_projection = None;
+        let mut where_predicate = None;
         let state = match view {
             StageView::Tee { .. }
             | StageView::Each { .. }
-            | StageView::Where { .. }
             | StageView::WhereBlock { .. }
-            | StageView::Map { .. }
             | StageView::FlatMap { .. }
             | StageView::MapBlock { .. }
             | StageView::FlatMapBlock { .. }
@@ -2617,6 +2687,26 @@ fn decode_serial_stages(
             | StageView::All { .. }
             | StageView::AnyBlock { .. }
             | StageView::AllBlock { .. } => IndexedSerialState::Stateless,
+            StageView::Where { slot, predicate } => {
+                where_predicate = Evaluator::indexed_item_predicate(
+                    execution,
+                    predicate.raw(),
+                    slot,
+                    span,
+                )?
+                .map(Arc::new);
+                IndexedSerialState::Stateless
+            }
+            StageView::Map { slot, value } => {
+                map_projection = Evaluator::indexed_field_projection_with_span(
+                    execution,
+                    value.raw(),
+                    slot,
+                    span,
+                )?
+                .map(|(field, field_span)| (Arc::from(field), field_span));
+                IndexedSerialState::Stateless
+            }
             StageView::Drop(_) => IndexedSerialState::Drop { count: 0, seen: 0 },
             StageView::Enumerate => IndexedSerialState::Enumerate { index: 0 },
             StageView::Take(_) => IndexedSerialState::Take { count: 0 },
@@ -2630,6 +2720,8 @@ fn decode_serial_stages(
             instruction,
             tag,
             state,
+            map_projection,
+            where_predicate,
         };
         prefix.push(decoded);
         if stop_after_terminal

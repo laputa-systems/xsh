@@ -1,11 +1,11 @@
 use super::{
-    Arc, BTreeMap, ControlFlow, Evaluator, FullExecution,
+    Arc, BTreeMap, BinaryOp, ControlFlow, Evaluator, FullExecution,
     FullStageTag, FullTag, LoweredProjectedReduceState, LoweredReduceProjection, LoweredValue,
     MapKey, ParMapItemOutcome, ReduceByOp, RuntimeError, Span, StmtFlow, Traceback,
     ExprView, indexed_error, indexed_value,
     lowered_error_message, lowered_inline_stats_field_value, lowered_record_vec_get,
     lowered_reduce_fields_owned, lowered_reduce_group_insert, lowered_reduce_key_value_owned,
-    lowered_stats_field_value, lowered_value_from_runtime_any,
+    lowered_stats_field_value, lowered_str_value, lowered_value_from_runtime_any,
 };
 use crate::runtime::eval::indexed::full::decode::{ListView, RecordEntryView};
 use crate::runtime::eval::LoweredRecordEntry;
@@ -23,6 +23,18 @@ pub(super) fn par_map_item_failed(
             flow,
             Some(StmtFlow::Propagate(_) | StmtFlow::Return(LoweredValue::ResultErr(_)))
         )
+}
+
+#[derive(Debug)]
+pub(super) enum IndexedItemPredicate {
+    StringCompare {
+        field: Arc<str>,
+        field_span: Span,
+        op: BinaryOp,
+        value: Arc<str>,
+    },
+    And(Box<Self>, Box<Self>),
+    Or(Box<Self>, Box<Self>),
 }
 
 impl Evaluator {
@@ -656,11 +668,25 @@ impl Evaluator {
         item_slot: usize,
         span: Span,
     ) -> Result<Option<&'execution str>, RuntimeError> {
+        Ok(Self::indexed_field_projection_with_span(execution, instruction, item_slot, span)?
+            .map(|(name, _)| name))
+    }
+
+    pub(super) fn indexed_field_projection_with_span<'execution>(
+        execution: &'execution FullExecution<'_>,
+        instruction: u32,
+        item_slot: usize,
+        span: Span,
+    ) -> Result<Option<(&'execution str, Span)>, RuntimeError> {
         let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
         if tag != FullTag::ExprField {
             return Ok(None);
         }
-        let ExprView::Field { base, name, .. } =
+        let ExprView::Field {
+            base,
+            name,
+            span: field_span,
+        } =
             ExprView::decode(execution, tag, payload).map_err(|error| indexed_error(error, span))?
         else {
             unreachable!("field tag has a matching borrowed view")
@@ -674,7 +700,141 @@ impl Evaluator {
         else {
             unreachable!("parameter tag has a matching borrowed view")
         };
-        Ok((slot == item_slot).then_some(name))
+        Ok((slot == item_slot).then_some((name, field_span)))
+    }
+
+    fn indexed_binary_parts(
+        execution: &FullExecution<'_>,
+        instruction: u32,
+        span: Span,
+    ) -> Result<Option<(BinaryOp, u32, u32)>, RuntimeError> {
+        let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
+        if tag != FullTag::ExprBinary {
+            return Ok(None);
+        }
+        let ExprView::Binary {
+            op, left, right, ..
+        } = ExprView::decode(execution, tag, payload).map_err(|error| indexed_error(error, span))?
+        else {
+            unreachable!("binary tag has a matching borrowed view")
+        };
+        Ok(Some((op, left.raw(), right.raw())))
+    }
+
+    fn indexed_string_literal<'execution>(
+        execution: &'execution FullExecution<'_>,
+        instruction: u32,
+        span: Span,
+    ) -> Result<Option<&'execution str>, RuntimeError> {
+        let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
+        if tag != FullTag::ExprStr {
+            return Ok(None);
+        }
+        let ExprView::Str(value) =
+            ExprView::decode(execution, tag, payload).map_err(|error| indexed_error(error, span))?
+        else {
+            unreachable!("string tag has a matching borrowed view")
+        };
+        Ok(Some(value))
+    }
+
+    fn indexed_string_comparison<'execution>(
+        execution: &'execution FullExecution<'_>,
+        instruction: u32,
+        item_slot: usize,
+        span: Span,
+    ) -> Result<Option<(&'execution str, Span, BinaryOp, &'execution str)>, RuntimeError> {
+        let Some((op @ (BinaryOp::Eq | BinaryOp::Ne), left, right)) =
+            Self::indexed_binary_parts(execution, instruction, span)?
+        else {
+            return Ok(None);
+        };
+        if let Some((field, field_span)) =
+            Self::indexed_field_projection_with_span(execution, left, item_slot, span)?
+            && let Some(value) = Self::indexed_string_literal(execution, right, span)?
+        {
+            return Ok(Some((field, field_span, op, value)));
+        }
+        if let Some((field, field_span)) =
+            Self::indexed_field_projection_with_span(execution, right, item_slot, span)?
+            && let Some(value) = Self::indexed_string_literal(execution, left, span)?
+        {
+            return Ok(Some((field, field_span, op, value)));
+        }
+        Ok(None)
+    }
+
+    pub(super) fn indexed_item_predicate(
+        execution: &FullExecution<'_>,
+        instruction: u32,
+        item_slot: usize,
+        span: Span,
+    ) -> Result<Option<IndexedItemPredicate>, RuntimeError> {
+        let Some((op, left, right)) = Self::indexed_binary_parts(execution, instruction, span)?
+        else {
+            return Ok(None);
+        };
+        match op {
+            BinaryOp::And | BinaryOp::Or => {
+                let Some(left) = Self::indexed_item_predicate(execution, left, item_slot, span)?
+                else {
+                    return Ok(None);
+                };
+                let Some(right) = Self::indexed_item_predicate(execution, right, item_slot, span)?
+                else {
+                    return Ok(None);
+                };
+                Ok(Some(if op == BinaryOp::And {
+                    IndexedItemPredicate::And(Box::new(left), Box::new(right))
+                } else {
+                    IndexedItemPredicate::Or(Box::new(left), Box::new(right))
+                }))
+            }
+            BinaryOp::Eq | BinaryOp::Ne => {
+                let Some((field, field_span, op, value)) =
+                    Self::indexed_string_comparison(execution, instruction, item_slot, span)?
+                else {
+                    return Ok(None);
+                };
+                Ok(Some(IndexedItemPredicate::StringCompare {
+                    field: Arc::from(field),
+                    field_span,
+                    op,
+                    value: Arc::from(value),
+                }))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    pub(super) fn eval_indexed_item_predicate(
+        &mut self,
+        predicate: &IndexedItemPredicate,
+        item: &LoweredValue,
+        span: Span,
+    ) -> Result<bool, RuntimeError> {
+        match predicate {
+            IndexedItemPredicate::StringCompare {
+                field,
+                field_span,
+                op,
+                value,
+            } => {
+                let field_value = self
+                    .indexed_borrowed_field_value(item, field, *field_span)?
+                    .ok_or_else(|| {
+                        RuntimeError::new("missing-field", field.as_ref()).with_span(*field_span)
+                    })?;
+                let equal = lowered_str_value(&field_value).is_some_and(|text| text == value.as_ref());
+                Ok(if *op == BinaryOp::Eq { equal } else { !equal })
+            }
+            IndexedItemPredicate::And(left, right) => Ok(self
+                .eval_indexed_item_predicate(left, item, span)?
+                && self.eval_indexed_item_predicate(right, item, span)?),
+            IndexedItemPredicate::Or(left, right) => Ok(self
+                .eval_indexed_item_predicate(left, item, span)?
+                || self.eval_indexed_item_predicate(right, item, span)?),
+        }
     }
 
     pub(super) fn indexed_field_chain_ref<'slots>(
