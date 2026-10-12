@@ -119,12 +119,6 @@ Tests:
   alone and fails when the rest of the `xsht` integration target runs beside
   it. With the utilities merged, `xsht lint` on this repository takes about
   17 s against a 15 s budget, so the test fails alone too.
-- Three applet tests fail on an x86_64 musl host and did before the
-  utilities were merged: `core/tests/test-stty.xsh` expects glibc's
-  "Inappropriate ioctl for device" where musl says "Not a tty";
-  `core/tests/test-ls.xsh` expects a dangling symlink colored `01;36` and
-  gets the orphan color `40;31;01`; `core/tests/test-uniq.xsh` expects the
-  rejected value quoted in "invalid number of fields to skip".
 - `showcase/tests/test-px.xsh::test_px_default_search_matches_executable_substrings`
   once failed to spawn a file it had just written (`Text file busy`), under
   load.
