@@ -426,8 +426,8 @@ test test_typed_callable_optional_binding_calls_the_present_value {
 }
 
 # A top-level statement owns its callable-typed bindings (`with`, `for`,
-# patterns, comprehension targets) as a function body does, so each is checked
-# against the value that writes it.
+# patterns, comprehension targets, pipeline stage parameters) as a function
+# body does, so each is checked against the value that writes it.
 test test_typed_callable_bindings_inside_top_level_statements { |ctx|
   let result = test.run_xsh(
     ctx,
@@ -470,6 +470,9 @@ while let scale = maybe {
 
 let doubled = [scale(2) for scale in scales]
 assert doubled == [4, 6]
+
+let piped = scales |> map { |scale| scale(2) } |> collect()
+assert piped == [4, 6]
 """,
   )?
   assert result.success, result.stderr

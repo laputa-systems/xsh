@@ -275,12 +275,34 @@ module, or metadata attached to a non-import step; and
 module receiver rewritten to a different import slot.
 
 A top-level statement's own callable bindings (`with`, `for`, patterns,
-comprehension targets, optional bindings) are temporary driver slots as well.
-Only a module receiver, or a slot with a `MatchExpr` initializer, needs that
-single initializer; every other temporary slot is checked against its writers
-exactly as a function local is, and must have at least one.
-`typed_callable_driver_with_binding_matches_its_result_payload` rejects a
-retyped `with` binding, and
+comprehension targets, optional bindings, pipeline stage parameters) are
+temporary driver slots as well. A module receiver, or a slot that a `MatchExpr`
+arm binds whole outside a pattern condition, has exactly that one writer and
+takes its type from the matched value. Every other temporary slot needs a
+writer that `verify_callable_slot_initializers` compared against the slot's
+type; writers it does not compare (`With` captures, field and path
+assignments, integer and boolean statements) never count, so a forged step
+cannot satisfy "has a writer" with them. Direct binds that are the condition of
+`if let`, `while let` or a pattern-condition expression take that generic proof
+too, which also narrows an optional subject after its unguarded `null` arm.
+
+A pipeline stage's item parameter is proven against the iteration item type of
+the stage's input: the source's item type for the first stage, then the same
+type through `where`, `take`, `drop`, `sort`, `sort-by`, `unique-by`, `shuffle`
+and `tee`, or the value's checked type (flattened for `flat-map`) after a
+`map` or `par-map`. Reduce items of a fused `par-map`/`reduce-by` are proven
+the same way.
+After any other stage there is no derivable item type, and a fold's
+accumulator has no producer type independent of its own block, so a
+callable-typed slot of either kind is rejected.
+
+`typed_callable_driver_with_binding_matches_its_result_payload`,
+`typed_callable_driver_temporary_without_a_writer_is_rejected`,
+`typed_callable_driver_temporary_is_not_written_by_a_field_assignment`,
+`typed_callable_driver_module_receiver_rejects_a_second_writer`,
+`typed_callable_optional_binding_needs_its_null_arm_first_and_unguarded` and
+`typed_callable_top_level_pipeline_stage_slot_is_proven_by_its_item_type`
+reject forged writers, and
 `test_typed_callable_bindings_inside_top_level_statements` covers the accepted
 forms.
 
