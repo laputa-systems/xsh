@@ -244,6 +244,17 @@ per-test isolation, cancellation, timeout, cleanup, coverage and reporting
 contracts. Coordinate full-suite runs and timings with the integrator so
 only one full native suite runs at once and campaign builds do not compete.
 
+## Owner update — throughput acceptance, 2026-10-12
+
+The owner clarified that a fourfold full native-suite speedup is aspirational,
+not an acceptance threshold. Performance must not regress; further
+optimizations can follow once this campaign is settled. This supersedes the
+hard fourfold requirement in the earlier full-native-throughput update.
+Reliable parallel execution, isolation, cancellation, cleanup, coverage and
+reporting remain required. Use comparable corpus and resource allocation for
+nonregression evidence; preserve failed and incomplete run qualifications.
+Do not prolong functional closure to pursue optional speed tuning.
+
 ## Planning figures
 
 Setup records every row at the start commit. Structural counts are ratchets

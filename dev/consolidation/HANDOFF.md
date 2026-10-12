@@ -1,5 +1,27 @@
 # Consolidation restart handoff
 
+## Throughput requirement clarified and combined gate green — 2026-10-12
+
+The owner explicitly made 4x speedup aspirational; performance nonregression
+is the acceptance requirement, and further optimizations may follow campaign
+closure. Earlier hard-4x statements in this log are superseded. The scheduler
+lane now closes reliability and honest nonregression evidence rather than
+chasing a speed target.
+
+The frozen `7feee1d9` combined optimized source passed all 37 focused gates:
+120 indexed Rust units and 616 native test executions, with zero skips. This
+includes 17 files in both modes and both exact LS PTY cases as a session
+leader. Source and binary manifests, raw logs and the real-main review receipt
+are retained. This is focused integration evidence, not a full-suite gate.
+
+Sixteen native-file preparation repairs are accepted from `3a2e3dd3`:
+fourteen descriptor helper effect closures and two PID snapshots before
+consuming wait. Both frozen benchmark arms prepare all 16 files, listing 800
+IDs each. Runtime spot coverage passes 16/17 each; the retained partial-block
+DD FIFO case fails independently on both arms, sometimes at its existing 15s
+deadline. Its dedicated follow-up lane owns root-cause investigation and
+preserves the original assertions and deadlines.
+
 ## Wider component closure and scheduler failures — 2026-10-12
 
 Master `c031b1f3` includes final call readers (`01ec3b91`, `edf269e2`),
