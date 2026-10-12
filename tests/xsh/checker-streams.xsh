@@ -155,27 +155,66 @@ test test_checker_accepts_sort_by_desc_named_argument { |ctx|
   expect_rejected(ctx, "let _ = [1, 2, 3] |> sort-by(unknown: true) .\n", ["check.named-arg"])
 }
 
-# Map.empty() is Map[Any]; Map.get(k) ?? 0 therefore yields an Any-typed
-# field. The map-accumulator pattern (and its list-comprehension
-# equivalent) sorts by that field at runtime with a supported scalar, so
-# the checker must accept it the same way the runtime does.
-test test_checker_accepts_sort_by_any_typed_record_fields_from_map_get { |ctx|
-  expect_free_of(
+# Integer writes let inference specialize map.empty() to a concrete value type.
+test test_checker_accepts_sort_by_inferred_int_record_fields_from_map_get { |ctx|
+  expect_clean(
     ctx,
     r"""
 let counts = map.empty()
 let keys = ["b", "a"]
 let acc = counts.set("a", 2).set("b", 1)
 let by_count = keys
-  |> map { |k| {count: (acc.get(k) ?? 0), ext: k} }
+  |> map { |k| {count: acc.get(k) ?? 0, ext: k} }
   |> sort-by .count
   |> collect()
 let by_count_comp = [
-  {count: (acc.get(k) ?? 0), ext: k}
+  {count: acc.get(k) ?? 0, ext: k}
   for k in keys
 ] |> sort-by .count |> collect()
 """,
-    ["check.stream-sort"],
+  )
+}
+
+# Values read from Map[Str, Any] stay opaque even when their runtime value is
+# orderable. Validate the key before sorting.
+test test_checker_rejects_sort_by_any_typed_record_fields_from_map_and_comprehension { |ctx|
+  let sources = [
+    r"""
+let counts: Map[Str, Any] = {}
+let keys = ["b", "a"]
+let acc = counts.set("a", 2).set("b", 1)
+let _ = keys
+  |> map { |k| {count: acc.get(k) ?? 0, ext: k} }
+  |> sort-by .count
+  |> collect()
+""",
+    r"""
+let counts: Map[Str, Any] = {}
+let keys = ["b", "a"]
+let acc = counts.set("a", 2).set("b", 1)
+let _ = [
+  {count: acc.get(k) ?? 0, ext: k}
+  for k in keys
+] |> sort-by .count |> collect()
+""",
+  ]
+  for source in sources {
+    expect_rejected(ctx, source, ["check.dynamic-boundary"])
+  }
+}
+
+test test_checker_accepts_sort_by_validated_map_any_typed_record_fields { |ctx|
+  expect_clean(
+    ctx,
+    r"""
+let counts: Map[Str, Any] = {}
+let keys = ["b", "a"]
+let acc = counts.set("a", 2).set("b", 1)
+let by_count = keys
+  |> map { |k| {count: acc.get(k) ?? 0, ext: k} }
+  |> sort-by .count.require(Int)?
+  |> collect()
+""",
   )
 }
 

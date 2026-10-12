@@ -43,7 +43,7 @@ composition model and replaces its semantics.
   which host effects they use; a declared clause is a checked upper bound.
 - **Predictable execution.** Evaluation order is source order. The concurrency
   units are host processes and bounded stream stages; there are no futures,
-  callbacks, event loops, or green threads.
+  asynchronous callbacks, event loops, or green threads.
 - **Methods first.** Operations on a value are methods (`xs.len()`,
   `p.read_text()`). Module functions exist where there is no natural receiver,
   such as `map.empty()` or `regex.compile(...)`.
@@ -3368,10 +3368,11 @@ reason (completion, propagation, `return`, loop control, cancellation, or
 failure), after the body's defers run. The scope's `Result` reports only
 entering and restoring. Failures inside the body propagate to their ordinary
 destination, so use `try` to capture the whole operation. Scopes never change
-the host process's own cwd or environment. A live stream or handle cannot
-escape a scope as its value, through an assignment, a `return`, or a `yield`;
-consume it inside. A producer that yields from inside a scope keeps its own
-directory and environment between pulls.
+the host process's own cwd or environment. A value containing a live
+`Stream[T]`, `ProcessHandle`, or `NetJob` cannot escape a `cd`, `env`, or
+`within` context scope as its value, through an outer assignment, a `return`,
+or a `yield`; consume it inside. A producer that yields from inside a `cd` or
+`env` scope keeps its own directory and environment between pulls.
 
 `tempdir` is the scope for scratch space. It has two heads:
 
@@ -3917,8 +3918,9 @@ A `NetJob` is consumed by its first `wait()` or `cancel()`, and either one
 fails on a consumed job (`net-job-not-live`): only a process handle's `cancel`
 is idempotent. `process.kill(pid)` names a pid, not an owned handle, and fails
 with `process-missing` once the child is reaped. These are process and transfer
-fan-out, not an async runtime: there are no futures, callbacks, channels,
-or `await`. `process.wait_any` waits for one of the supplied process handles.
+fan-out, not an async runtime: there are no futures, asynchronous callbacks,
+channels, or `await`. `process.wait_any` waits for one of the supplied process
+handles.
 
 ### 11.9 Command plans and builder blocks
 
@@ -4184,9 +4186,9 @@ runs as one stage that reduces on the workers; it stops and reports as
 
 `sort` and `sort-by` are stable. They order `Int`, `Str`, `Bool`, and `Path`
 values, and records whose fields are themselves orderable (compared field by
-field in field-name order). `desc: true` reverses. Keys of type `Any` are
-ordered by their runtime value and fail if it is not orderable; other key
-types are check-time errors.
+field in field-name order). `desc: true` reverses. An `Any` item or key must be
+validated to an orderable type before sorting; other unsupported types are
+check-time errors.
 
 ### 13.6 Guidance
 
@@ -4966,7 +4968,7 @@ These are deliberately absent:
   tilde and brace expansion;
 - truthiness and implicit conversions between strings, numbers, and Booleans;
 - exceptions and `try`/`catch` (failures are `Result` data);
-- futures, `await`, callbacks, event loops, and wait-any;
+- futures, `await`, asynchronous callbacks, and event loops;
 - generic functions and expression-level type arguments;
 - first-class command blocks and script-level job control;
 - tagged JSON.
