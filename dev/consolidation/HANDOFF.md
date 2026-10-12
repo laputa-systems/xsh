@@ -33,7 +33,7 @@ canonicalizes annotated local and top-level runtime checks, retaining source
 diagnostic names and inferred facts. Independent review finds no defect,
 report SHA-256 `233108b7db0cfd3e81bfc2c534a143298b01fb1a96d85a00926506aebbb73993`.
 CLI root tests pass 3/3; callables 36 and resources 19 pass in each mode,
-as do six selected nominal/structured/imported Error executions in each mode.
+as do five selected nominal/structured/imported Error cases in each mode.
 Supplemental receipt SHA-256 is
 `4e0631b804c7c6fc61874bab10434891ada3cf4be23c48798d44caa5dbab5da1`.
 The new top-level red was observed but its redirected log was overwritten;
