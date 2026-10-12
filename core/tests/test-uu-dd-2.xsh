@@ -9,22 +9,29 @@ proc ascii_block(size: Int) [error] -> Result[Bytes, Error] {
   bytes.from_ints([i % 128 for i in range(size)])
 }
 
-# FIFO writers keep one open descriptor so each delayed write remains a short record.
-proc fifo_copy(s: uu.Scene, args: List[Str], data: Bytes, width: Int, pause: Duration) [fs, process, net, env, time, error] -> Result[uu.Ran, Error] {
+# The host helper waits until each FIFO chunk has been read before writing the next.
+proc fifo_copy(s: uu.Scene, args: List[Str], data: Bytes, width: Int, pause: Duration) [fs, process, env, error] -> Result[uu.Ran, Error] {
   uu.mkfifo(s, "fifo")?
+  uu.write_bytes(s, "fifo-input", data)?
   let plan = uu.command(s, "dd", args, timeout: 15s)?
   let child = spawn plan?
-  let fd = unix.open_fd(uu.at(s, "fifo"), write: true, nonblock: false)?
-  var offset = 0
-  while offset < data.len() {
-    let end = if offset + width < data.len() { offset + width } else { data.len() }
-    let part = data[offset..end]
-    assert unix.write_fd(fd, part)? == part.len()
-    offset = end
-    time.sleep(pause)?
-  }
-  unix.close_fd(fd)?
+  var child_open = true
+  defer { if child_open { child.cancel(signal: "KILL", kill_after: 0ms)? } }
+  let helper = fp"{s.ctx.xsh_bin.parent()}/xsh-test-helper"
+  let helper_args: List[Path] = [
+    helper,
+    p"fifo-write-acked",
+    uu.at(s, "fifo"),
+    uu.at(s, "fifo-input"),
+    Path(f"{width}"),
+    Path(f"{pause / 1ms}"),
+  ]
+  let producer = process.command_argv(helper, helper_args, s.root, {}, b"",
+    stderr: uu.at(s, ".fifo-writer-stderr"), timeout: 14s)
+  let producer_status = process.run(producer)?
+  assert producer_status.exited_with(0), uu.read_text(s, ".fifo-writer-stderr")?
   let status = process.wait_any([child])?.status
+  child_open = false
   Ok({util: "dd", args: args, status: status.exit_code()?, stdout: uu.read(s, ".uu-stdout")?, stderr: uu.read(s, ".uu-stderr")?})
 }
 

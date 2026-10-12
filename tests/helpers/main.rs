@@ -7,6 +7,7 @@
 
 #![allow(clippy::single_call_fn)]
 
+mod fifo;
 mod show_fds;
 
 use std::ffi::OsString;
@@ -25,6 +26,7 @@ fn main() {
 
     let result = match mode.as_str() {
         "completion-output" => completion_output(args),
+        "fifo-write-acked" => fifo::write_acked_chunks(args),
         "bytes-echo" => bytes_echo(args),
         "bytes-prefix" => bytes_prefix(args),
         "bytes-sink-marker" => bytes_sink_marker(args),
