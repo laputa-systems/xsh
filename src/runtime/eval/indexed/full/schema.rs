@@ -263,6 +263,7 @@ macro_rules! pattern_schema {
             $($variant = $ordinal,)*
         }
 
+        #[cfg(test)]
         pub(in crate::runtime::eval) const PATTERN_TAGS: &[FullPatternTag] = &[
             $(FullPatternTag::$variant,)*
         ];
@@ -466,6 +467,7 @@ macro_rules! instruction_schema {
             }
         }
 
+        #[cfg(test)]
         pub(in crate::runtime::eval) const INSTRUCTION_TAGS: &[FullTag] = &[
             $($(FullTag::$tag,)*)*
         ];

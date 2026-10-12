@@ -154,11 +154,15 @@ instruction_id!(BuildBoolId, Bool, BoolInstructionId);
 #[derive(Clone, Copy)]
 pub(in crate::runtime::eval) struct PatternId<'a> {
     raw: u32,
+    #[cfg(test)]
     store: &'a FullStore,
+    #[cfg(not(test))]
+    store: PhantomData<&'a FullStore>,
 }
 impl PatternId<'_> {
     pub(in crate::runtime::eval) fn raw(self) -> u32 { self.raw }
 
+    #[cfg(test)]
     pub(super) fn raw_for_store(self, store: &FullStore) -> Result<u32, IrVerifyError> {
         if !std::ptr::eq(self.store, store) {
             return Err(IrVerifyError::new("pattern identity belongs to another program"));
@@ -173,7 +177,13 @@ impl BorrowCodec for BuildPatternId {
         let raw = input.raw()?;
         context.store.patterns.get(raw as usize)
             .ok_or_else(|| IrVerifyError::new("pattern id is out of bounds"))?;
-        Ok(PatternId { raw, store: context.store })
+        Ok(PatternId {
+            raw,
+            #[cfg(test)]
+            store: context.store,
+            #[cfg(not(test))]
+            store: PhantomData,
+        })
     }
 }
 
@@ -704,6 +714,7 @@ macro_rules! struct_schema {
             }
         }
         impl $ty {
+            #[cfg(test)]
             pub(super) fn field_cursor<'a>(
                 context: DecodeContext<'a>, mut input: FullCursor<'a>, name: &str,
             ) -> Result<FullCursor<'a>, IrVerifyError> {

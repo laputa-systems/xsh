@@ -631,6 +631,7 @@ struct EvaluatorSignalState {
 enum TestCancelRequest {
     None,
     /// Raise one ordinary `canceled` error so cleanup runs.
+    #[cfg(feature = "native-tests")]
     Cancel,
     /// Abort without cleanup: the test did not unwind in time.
     Force,
@@ -5956,6 +5957,7 @@ impl CancellationPolicy for Evaluator {
         }
         match self.test_cancel_request() {
             TestCancelRequest::None => {}
+            #[cfg(feature = "native-tests")]
             TestCancelRequest::Cancel => {
                 self.signal_state.test_cancel_delivered = true;
                 return CancellationDecision::Forward(libc::SIGTERM);

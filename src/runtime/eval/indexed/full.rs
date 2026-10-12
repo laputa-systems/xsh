@@ -2,7 +2,9 @@ pub(in crate::runtime::eval) mod decode;
 pub(in crate::runtime::eval) mod in_place;
 pub(in crate::runtime::eval) mod schema;
 
-use decode::{BorrowCodec, DecodeContext, PatternId, StageRef};
+use decode::{BorrowCodec, DecodeContext, StageRef};
+#[cfg(test)]
+use decode::PatternId;
 pub(in crate::runtime::eval) use schema::{BuildPatternRow, FullDriverTag};
 pub(in crate::runtime::eval) use schema::{
     BuildBoolRow, BuildExprRow, BuildIntRow, BuildStmtRow, FrameStrategy, FullTag,
@@ -715,6 +717,7 @@ impl FullProgram {
         self.store.retained_bytes()
     }
 
+    #[cfg(test)]
     pub(in crate::runtime::eval) fn retained_bytes(&self) -> usize {
         size_of::<Self>()
             + self
@@ -728,6 +731,7 @@ impl FullProgram {
         self.store.tags.len()
     }
 
+    #[cfg(test)]
     pub(in crate::runtime::eval) fn extra_words(&self) -> usize {
         self.store.extra.len()
     }
@@ -1258,10 +1262,6 @@ impl<'a> FullFunctionView<'a> {
             BLOCK_STATEMENTS,
         )
     }
-
-    pub(in crate::runtime::eval) fn slot_count(&self) -> usize {
-        self.program.store.functions[self.index].slot_count as usize
-    }
 }
 
 impl<'a> FullDriverStepView<'a> {
@@ -1521,6 +1521,7 @@ impl FullBuilder {
         )
     }
 
+    #[cfg(test)]
     pub(in crate::runtime::eval) fn build_compact(
         program: &ArenaProgram,
         declarations: &CompactDeclOutput,
@@ -2814,16 +2815,7 @@ impl<'a> FullPayload<'a> {
         self.cursor.raw()
     }
 
-    #[inline(always)]
-    pub(in crate::runtime::eval) fn decode<T: FullCodec>(
-        &mut self,
-        execution: &FullExecution<'_>,
-    ) -> Result<T, IrVerifyError> {
-        self.check_store(execution)?;
-        let decoder = execution.decoder();
-        T::decode(&decoder, &mut self.cursor)
-    }
-
+    #[cfg(test)]
     #[inline(always)]
     pub(in crate::runtime::eval) fn borrow<'e, T: BorrowCodec>(
         &'e mut self,
@@ -2951,6 +2943,7 @@ impl<'p> FullExecution<'p> {
         ))
     }
 
+    #[cfg(test)]
     pub(in crate::runtime::eval) fn shared_function(
         program: Arc<FullProgram>,
         index: usize,
@@ -3007,10 +3000,6 @@ impl<'p> FullExecution<'p> {
             .resource_transfers
             .get(instruction as usize)
             .expect("verified resource-transfer instruction ID is in bounds")
-    }
-
-    pub(in crate::runtime::eval) fn string(&self, raw: u32) -> Result<&str, IrVerifyError> {
-        self.store().string(raw)
     }
 
     pub(in crate::runtime::eval) fn function_identity(
@@ -3124,6 +3113,7 @@ impl<'p> FullExecution<'p> {
         ))
     }
 
+    #[cfg(test)]
     pub(in crate::runtime::eval) fn pattern_view<'e>(
         &'e self,
         pattern: PatternId<'e>,
@@ -3133,6 +3123,7 @@ impl<'p> FullExecution<'p> {
         schema::PatternView::decode(self, tag, payload)
     }
 
+    #[cfg(test)]
     #[inline(always)]
     pub(in crate::runtime::eval) fn block<'e>(
         &'e self,

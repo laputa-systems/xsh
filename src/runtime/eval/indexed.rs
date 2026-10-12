@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::source::Span;
 use std::num::NonZeroU32;
 
