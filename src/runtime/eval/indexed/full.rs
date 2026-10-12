@@ -5705,7 +5705,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::RecordUpdate { .. }
             | schema::ExprView::List(_)
             | schema::ExprView::ListBuild(_)
-            | schema::ExprView::EmptyMap
             | schema::ExprView::Range { .. }
             | schema::ExprView::Tag { .. }
             | schema::ExprView::ListComp { .. }
@@ -6135,7 +6134,97 @@ impl<'a> FullDecoder<'a> {
             schema::ExprView::PreparedConstant(PreparedConstantValue(LoweredValue::Str(value))) => {
                 Some(value.clone())
             }
-            _ => None,
+            schema::ExprView::Null
+            | schema::ExprView::Unit
+            | schema::ExprView::Int(_)
+            | schema::ExprView::Float(_)
+            | schema::ExprView::Duration(_)
+            | schema::ExprView::Bool(_)
+            | schema::ExprView::Bytes(_)
+            | schema::ExprView::PreparedRegex(_)
+            | schema::ExprView::PreparedConstant(_)
+            | schema::ExprView::Path(_)
+            | schema::ExprView::FunctionRef { .. }
+            | schema::ExprView::PathFrom { .. }
+            | schema::ExprView::Param(_)
+            | schema::ExprView::ComparisonChain { .. }
+            | schema::ExprView::Binary { .. }
+            | schema::ExprView::IfExpr { .. }
+            | schema::ExprView::PatternIf { .. }
+            | schema::ExprView::MatchExpr { .. }
+            | schema::ExprView::StrMatchExpr { .. }
+            | schema::ExprView::TagMatchExpr { .. }
+            | schema::ExprView::ResultFallback { .. }
+            | schema::ExprView::FmtString(_)
+            | schema::ExprView::PathFmtString { .. }
+            | schema::ExprView::Glob { .. }
+            | schema::ExprView::LastStatus { .. }
+            | schema::ExprView::Record(_)
+            | schema::ExprView::MapLiteral(_)
+            | schema::ExprView::RecordUpdate { .. }
+            | schema::ExprView::List(_)
+            | schema::ExprView::ListBuild(_)
+            | schema::ExprView::EmptyMap
+            | schema::ExprView::Range { .. }
+            | schema::ExprView::Tag { .. }
+            | schema::ExprView::ListComp { .. }
+            | schema::ExprView::MapComp { .. }
+            | schema::ExprView::ListPipeline { .. }
+            | schema::ExprView::Field { .. }
+            | schema::ExprView::Index { .. }
+            | schema::ExprView::IndexFromEnd { .. }
+            | schema::ExprView::Slice { .. }
+            | schema::ExprView::Method { .. }
+            | schema::ExprView::StrByteLen { .. }
+            | schema::ExprView::StrByteAt { .. }
+            | schema::ExprView::StrPredicate { .. }
+            | schema::ExprView::Require { .. }
+            | schema::ExprView::CheckedValue { .. }
+            | schema::ExprView::RunCapture(_)
+            | schema::ExprView::RunPipeline { .. }
+            | schema::ExprView::SpawnRun(_)
+            | schema::ExprView::SpawnCommand { .. }
+            | schema::ExprView::Wait { .. }
+            | schema::ExprView::Capture { .. }
+            | schema::ExprView::ValueBlock { .. }
+            | schema::ExprView::ErrorContext { .. }
+            | schema::ExprView::ContextScope { .. }
+            | schema::ExprView::Loop { .. }
+            | schema::ExprView::Retry { .. }
+            | schema::ExprView::FsFiles { .. }
+            | schema::ExprView::FsWalk { .. }
+            | schema::ExprView::FsList { .. }
+            | schema::ExprView::FsTempDir { .. }
+            | schema::ExprView::FsMkdir { .. }
+            | schema::ExprView::FsRemove { .. }
+            | schema::ExprView::PathReadText { .. }
+            | schema::ExprView::PathReadBytes { .. }
+            | schema::ExprView::PathExists { .. }
+            | schema::ExprView::PathExecutable { .. }
+            | schema::ExprView::PathDu { .. }
+            | schema::ExprView::PathMetadata { .. }
+            | schema::ExprView::PathReadlink { .. }
+            | schema::ExprView::PathResolve { .. }
+            | schema::ExprView::PathWrite { .. }
+            | schema::ExprView::PathMkdir { .. }
+            | schema::ExprView::PathRemove { .. }
+            | schema::ExprView::ArchiveTarCreate { .. }
+            | schema::ExprView::ModuleCall { .. }
+            | schema::ExprView::ProcessCommandArgv(_)
+            | schema::ExprView::ProcessCommandBuilder { .. }
+            | schema::ExprView::Abort { .. }
+            | schema::ExprView::Fail { .. }
+            | schema::ExprView::Ok(_)
+            | schema::ExprView::Err { .. }
+            | schema::ExprView::Error(_)
+            | schema::ExprView::Try { .. }
+            | schema::ExprView::Call { .. }
+            | schema::ExprView::DirectPureCall { .. }
+            | schema::ExprView::ExternalCall { .. }
+            | schema::ExprView::DynamicCall { .. }
+            | schema::ExprView::SelfCall { .. }
+            | schema::ExprView::TypedCall { .. }
+            | schema::ExprView::ProcCallResult(_) => None,
         })
     }
 
@@ -6532,7 +6621,55 @@ impl<'a> FullDecoder<'a> {
                     Ok(None)
                 }
             }
-            _ => Ok(None),
+            schema::ExprView::Null
+            | schema::ExprView::Int(_)
+            | schema::ExprView::PreparedRegex(_)
+            | schema::ExprView::PreparedConstant(_)
+            | schema::ExprView::FunctionRef { .. }
+            | schema::ExprView::ComparisonChain { .. }
+            | schema::ExprView::Glob { .. }
+            | schema::ExprView::LastStatus { .. }
+            | schema::ExprView::MapLiteral(_)
+            | schema::ExprView::List(_)
+            | schema::ExprView::ListBuild(_)
+            | schema::ExprView::EmptyMap
+            | schema::ExprView::Range { .. }
+            | schema::ExprView::Tag { .. }
+            | schema::ExprView::ListComp { .. }
+            | schema::ExprView::MapComp { .. }
+            | schema::ExprView::ListPipeline { .. }
+            | schema::ExprView::Field { .. }
+            | schema::ExprView::Index { .. }
+            | schema::ExprView::IndexFromEnd { .. }
+            | schema::ExprView::Slice { .. }
+            | schema::ExprView::StrByteLen { .. }
+            | schema::ExprView::StrByteAt { .. }
+            | schema::ExprView::StrPredicate { .. }
+            | schema::ExprView::CheckedValue { .. }
+            | schema::ExprView::RunCapture(_)
+            | schema::ExprView::RunPipeline { .. }
+            | schema::ExprView::SpawnRun(_)
+            | schema::ExprView::SpawnCommand { .. }
+            | schema::ExprView::Wait { .. }
+            | schema::ExprView::Capture { .. }
+            | schema::ExprView::ErrorContext { .. }
+            | schema::ExprView::ContextScope { .. }
+            | schema::ExprView::Loop { .. }
+            | schema::ExprView::Retry { .. }
+            | schema::ExprView::ProcessCommandArgv(_)
+            | schema::ExprView::ProcessCommandBuilder { .. }
+            | schema::ExprView::Abort { .. }
+            | schema::ExprView::Fail { .. }
+            | schema::ExprView::Ok(_)
+            | schema::ExprView::Err { .. }
+            | schema::ExprView::Error(_)
+            | schema::ExprView::Call { .. }
+            | schema::ExprView::DirectPureCall { .. }
+            | schema::ExprView::ExternalCall { .. }
+            | schema::ExprView::DynamicCall { .. }
+            | schema::ExprView::SelfCall { .. }
+            | schema::ExprView::TypedCall { .. }
+            | schema::ExprView::ProcCallResult(_) => Ok(None),
         }
     }
 
@@ -7389,7 +7526,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::Tag { .. }
             | schema::ExprView::ListPipeline { .. }
             | schema::ExprView::Slice { .. }
-            | schema::ExprView::Method { .. }
             | schema::ExprView::StrByteLen { .. }
             | schema::ExprView::StrByteAt { .. }
             | schema::ExprView::StrPredicate { .. }
