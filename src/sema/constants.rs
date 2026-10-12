@@ -459,6 +459,37 @@ pub struct RecordConstructors {
 }
 
 impl RecordConstructors {
+    #[cfg(test)]
+    pub(crate) fn instance_facts_for_test(&self) -> Vec<(TypeDefId, Vec<Type>, Type)> {
+        self.instances
+            .lock()
+            .expect("record constructor cache lock poisoned")
+            .clone()
+    }
+
+    pub(super) fn instance_count(&self) -> usize {
+        self.instances
+            .lock()
+            .expect("record constructor cache lock poisoned")
+            .len()
+    }
+
+    /// Keep only schema instances admitted after the owner's visible facts were installed.
+    pub(super) fn instance_facts_since(&self, start: usize) -> Self {
+        let instances = self
+            .instances
+            .lock()
+            .expect("record constructor cache lock poisoned");
+        let appended = instances
+            .get(start..)
+            .unwrap_or_else(|| panic!("record constructor cache shrank from {start}"))
+            .to_vec();
+        Self {
+            instances: Arc::new(Mutex::new(appended)),
+            ..Self::default()
+        }
+    }
+
     pub(super) fn detached(&self) -> Self {
         Self {
             instances: Arc::new(Mutex::new(

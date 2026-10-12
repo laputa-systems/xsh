@@ -411,6 +411,7 @@ impl PreparedModuleFacts {
         let mut record_constructors = RecordConstructors::collect_bundle(view);
         let mut visible_constructors = dependencies.record_constructors.clone();
         let owner_instances = visible_constructors.merge_visible(&record_constructors);
+        let prepared_instance_start = visible_constructors.instance_count();
         let (mut prepared_for_owner, wire_diagnostics) =
             PreparedConstants::collect_bundle_with_visible_and_diagnostics(
                 view,
@@ -419,6 +420,10 @@ impl PreparedModuleFacts {
                 &dependencies.prepared_constants,
             );
         record_constructors.merge_instance_facts(&owner_instances);
+        // Constant preparation may admit owner schemas through the shared visible index.
+        // Transfer only its appended facts; dependency facts were already admitted separately.
+        let prepared_instances = visible_constructors.instance_facts_since(prepared_instance_start);
+        record_constructors.merge_instance_facts(&prepared_instances);
         record_constructors.apply_prepared_defaults_bundle(view, &prepared_for_owner);
         prepared_for_owner.retain_owner_source(
             program,

@@ -1471,4 +1471,126 @@ mod tests {
         }
     }
 
+    #[test]
+    fn check_cli_preserves_constant_and_body_constructor_instances() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/xsh/stdlib/rel_path.xsh");
+        let file = path.to_string_lossy().into_owned();
+        let source = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+        let roots = crate::frontend::load::project_module_roots(&path)
+            .unwrap_or_else(|error| panic!("module roots for {}: {error}", path.display()));
+        let entry = crate::frontend::load::entry_source_from_text(&file, source.clone());
+        let source_id = entry.source_id;
+        let (sources, parsed) = crate::frontend::load::parse_load_entry_source_arena_only(
+            &file, entry, roots,
+        );
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let program = Arc::new(parsed.arena);
+        let checked = Checker::check_arena_with_sources_and_options(
+            &program,
+            &sources,
+            source_id,
+            CheckOptions::for_check_cli(),
+        );
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+        let instance_names = checked
+            .checked_declarations
+            .record_constructors
+            .instance_facts_for_test()
+            .iter()
+            .map(|(definition, _, _)| {
+                program
+                    .arena
+                    .type_def(*definition)
+                    .name
+                    .as_str()
+                    .as_str()
+                    .to_owned()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(instance_names, ["Defaults", "Entry", "Inventory"]);
+
+        let defaults_span = checked
+            .record_constructor_instances
+            .keys()
+            .find(|span| {
+                let owner = sources.get(span.source_id).expect("constructor source exists");
+                &owner.text()[span.range()] == "Defaults(mode: 1)"
+            })
+            .expect("Defaults constructor fact");
+        let defaults = checked
+            .record_constructor_instances
+            .get(defaults_span)
+            .expect("Defaults constructor fact");
+        assert_eq!(
+            checked
+                .checked_declarations
+                .record_constructors
+                .defaults(defaults.instance.definition)
+                .and_then(|defaults| {
+                    defaults
+                        .iter()
+                        .find(|(name, _)| name.as_str().as_str() == "rel")
+                        .map(|(_, value)| value)
+                }),
+            Some(&crate::sema::constants::LiteralConstant::Path(Arc::from("etc/default")))
+        );
+        let invalid_source = source.replacen("\"etc/default\"", "42", 1);
+        assert_ne!(invalid_source, source, "regression fixture default changed");
+        let invalid_entry = crate::frontend::load::entry_source_from_text(&file, invalid_source);
+        let invalid_source_id = invalid_entry.source_id;
+        let (invalid_sources, invalid_parsed) =
+            crate::frontend::load::parse_load_entry_source_arena_only(
+                &file,
+                invalid_entry,
+                crate::frontend::load::project_module_roots(&path)
+                    .expect("project module roots"),
+            );
+        assert!(invalid_parsed.diagnostics.is_empty(), "{:?}", invalid_parsed.diagnostics);
+        let invalid_program = Arc::new(invalid_parsed.arena);
+        let invalid_checked = Checker::check_arena_with_sources_and_options(
+            &invalid_program,
+            &invalid_sources,
+            invalid_source_id,
+            CheckOptions::for_check_cli(),
+        );
+        assert!(invalid_checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch)
+        }));
+    }
+
+    #[test]
+    fn check_body_publishes_supplied_record_constructor_fields() {
+        let source = concat!(
+            "type Options = {provided: Int, defaulted: Int = 0}\n",
+            "pure make_options() -> Options { Options(provided: 1) }\n",
+        );
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(
+            &parsed.arena,
+            source,
+            CheckOptions::for_execution(),
+        );
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let span = checked
+            .record_constructor_fields
+            .keys()
+            .find(|span| &source[span.range()] == "Options(provided: 1)")
+            .expect("supplied-field constructor fact");
+        let fields = checked
+            .record_constructor_fields
+            .get(span)
+            .expect("supplied-field fact");
+        assert_eq!(
+            fields
+                .iter()
+                .map(|field| field.as_str().as_str().to_owned())
+                .collect::<Vec<_>>(),
+            ["provided"]
+        );
+    }
+
 }
