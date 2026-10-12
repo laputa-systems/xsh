@@ -54,6 +54,10 @@ adjacent comment explaining why a native test cannot express it.
 
 ## Finding tests
 
+Repository tests inherit the `module_path` roots in `xsht-config.ini`, including
+`core` for `lib.*` imports in temporary child scripts. An ambient
+`XSH_MODULE_PATH` override is unnecessary for the repository suite.
+
 - `xsht test --list FILTER` lists matching native tests. `FILTER` is a path
   prefix (`tests/xsh/stdlib`) or a test-name substring (`map_iteration`);
   `--exact PATH::TEST_NAME` selects one test.
