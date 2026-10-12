@@ -8039,16 +8039,25 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         if transfers_resource || error_payload {
                             self.check_context_scope_value_escape(index, &value)?;
                             let call_scope = self.calls[index].scope_id;
-                            let parent_scope = self
-                                .evaluator
-                                .owned_scope_parents
-                                .get(&call_scope)
-                                .copied()
-                                .expect("checked function scope has an ownership parent");
+                            // A frame that owns its scope closes it on exit, so
+                            // the payload moves to the caller's scope. A block
+                            // frame that borrows its scope leaves it open, and
+                            // that scope can be a worker's root with no
+                            // parent; the payload only has to outlive the
+                            // nested block scopes this return unwinds.
+                            let target_scope = if self.calls[index].owns_scope() {
+                                self.evaluator
+                                    .owned_scope_parents
+                                    .get(&call_scope)
+                                    .copied()
+                                    .expect("checked function scope has an ownership parent")
+                            } else {
+                                call_scope
+                            };
                             self.evaluator
                                 .transfer_owned_host_resources_in_lowered_value(
                                     &value,
-                                    parent_scope,
+                                    target_scope,
                                 );
                         }
                         StmtFlow::Return(value)
