@@ -106,6 +106,32 @@ test test_par_map_propagation_fails_the_enclosing_function_like_map {
   assert divide_total([10, 20])?["all"] == 15
 }
 
+# A `return Err(...)` written in the callback itself leaves the enclosing
+# function with that `Err`. On a worker the callback's expression runs in the
+# worker's root scope, which has no enclosing scope to hand the payload to.
+proc reject_zero_in_callback(xs: List[Int], jobs: Int) [error] -> Result[List[Int]] {
+  xs |> par-map(jobs:) { |x|
+    if x == 0 {
+      return Err(TestError.DivisionByZero("callback returned"))
+    }
+
+    100 / x
+  }
+}
+
+test test_par_map_callback_return_err_fails_the_enclosing_function {
+  for jobs in [1, 4] {
+    if let Err(failure) = reject_zero_in_callback([10, 20, 0, 40], jobs) {
+      assert failure is TestError.DivisionByZero
+      assert failure.message == "callback returned"
+    } else {
+      assert false, "expected the callback's returned Err"
+    }
+  }
+
+  assert reject_zero_in_callback([10, 20, 25], 4)? == [10, 5, 4]
+}
+
 test test_par_map_uncaught_propagation_traces_the_callers { |ctx|
   let failed = test.run_script(
     ctx,
