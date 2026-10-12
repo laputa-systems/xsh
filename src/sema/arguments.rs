@@ -11,6 +11,7 @@ pub enum ArgumentValueSource {
     Expression(ExprId),
     RecordField { record: ExprId, field: Name },
     PositionalSplice(ExprId),
+    CheckedType,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

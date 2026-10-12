@@ -1,5 +1,6 @@
 use super::{Binding, Checker, FxHashSet, Name};
 use crate::diagnostic::DiagnosticCode;
+use crate::source::Span;
 use crate::sema::types::Type;
 use crate::syntax::arena::{
     ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaStreamStage, ExprId,
@@ -115,51 +116,86 @@ impl Checker {
                     );
                     return Type::Unknown;
                 }
+                let item_span = arena.arena.expr(callee).span;
+                let checked_argument = super::args::CheckedCallArgument {
+                    ty: &item_ty,
+                    span: item_span,
+                };
                 if let ArenaExprKind::Field { base, name } = arena.arena.expr(callee).kind
                     && let ArenaExprKind::Ident(namespace) = arena.arena.expr(base).kind
                     && let Some(overloads) =
                         super::api_spec().module_overloads(&namespace.as_str(), &name.as_str())
                 {
-                    let matches = overloads
-                        .iter()
-                        .filter(|signature| {
-                            super::args::module_sig_accepts_arity(1, signature)
-                                && signature.params.first().is_some_and(|parameter| {
-                                    item_ty.matches_expected(&parameter.ty)
-                                })
-                        })
-                        .count();
-                    if matches != 1 {
-                        self.error(
-                            arena.arena.expr(callee).span,
-                            "stage callable requires a unique checked one-item signature",
-                            DiagnosticCode::CheckStreamCallableSignature,
-                        );
+                    if !self.check_stream_callable_module_overload(
+                        checked_argument,
+                        overloads,
+                        item_span,
+                    ) {
                         return Type::Unknown;
                     }
                 }
-                let mut temporary = arena.clone();
-                let mut normalized = stage.clone();
-                normalized.args = temporary.arena.append_call_arguments(
-                    &crate::sema::stage_arguments::stage_configuration_arguments(
-                        arena, stage, entry,
-                    ),
-                );
-                normalized.block = Some(
-                    temporary
-                        .arena
-                        .append_stage_callable_block(callee, arena.arena.expr(callee).span)
-                        .0,
-                );
+                if let Some(argument) = arena
+                    .arena
+                    .call_args(stage.args)
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| *index != entry)
+                    .map(|(_, argument)| argument)
+                    .find(|argument| {
+                        matches!(argument.kind, ArenaCallArgKind::Positional(_))
+                            || matches!(argument.kind, ArenaCallArgKind::Named { name, .. } if name == "block")
+                    })
+                {
+                    self.error(
+                        super::args::call_arg_span_arena(arena, &argument.kind),
+                        "stage accepts either a block or a named callable",
+                        DiagnosticCode::CheckStreamCallable,
+                    );
+                    return Type::Unknown;
+                }
                 self.argument_bindings
                     .entry(arena.arena.span(stage.span))
                     .or_default()
                     .callable_entry = Some(entry);
-                return self.check_stream_stage_arena(
-                    &temporary,
+                self.check_stage_arguments_excluding_callable_arena(
+                    arena,
                     source,
-                    &normalized,
-                    Type::Stream(Box::new(item_ty)),
+                    stage,
+                    Some(entry),
+                );
+                self.check_stage_no_args_excluding_callable_arena(
+                    arena,
+                    stage,
+                    Some(entry),
+                );
+                self.push_deferred_capture_scope();
+                let enclosing_boundary = self.enter_callback_boundary();
+                self.define(
+                    super::item_binding(),
+                    Binding::new(item_ty.clone(), false),
+                    item_span,
+                );
+                self.boundary.item_frames.push(super::ItemFrame::Implicit {
+                    ty: item_ty.clone(),
+                    used: true,
+                    stage: true,
+                });
+                let mut callback_ty = self.check_call_with_checked_argument_arena(
+                    arena,
+                    source,
+                    callee,
+                    checked_argument,
+                    item_span,
+                    None,
+                );
+                if matches!(stage.kind, StreamStageKind::Each | StreamStageKind::Tee) {
+                    callback_ty = self.check_named_stream_sink_tail(source, &callback_ty, item_span);
+                }
+                self.boundary.item_frames.pop();
+                self.leave_callback_boundary(enclosing_boundary);
+                self.pop_scope();
+                return self.check_named_stream_callable_result(
+                    stage, &item_ty, callback_ty, stage_span,
                 );
             }
             Err((span, message)) => {
@@ -519,6 +555,96 @@ impl Checker {
         }
     }
 
+    fn check_named_stream_sink_tail(&mut self, source: &str, actual: &Type, span: Span) -> Type {
+        self.statement_positions
+            .insert(span, super::StatementPosition::Value);
+        self.statement_root = Some(span);
+        self.propagating_statements.insert(span);
+        self.statement_expression_spans.insert(span);
+        if actual.is_result() {
+            self.reject_discarded_value(actual, span, span, true, None);
+            if super::expr::expr_ty_auto_propagates(actual) {
+                self.statement_positions
+                    .insert(span, super::StatementPosition::Statement);
+                return Type::Unit;
+            }
+        }
+        if !self.reject_bool_statement(source, actual, span) {
+            self.record_statement_error(actual, span);
+            if !actual.is_result()
+                && !self.is_inert_expression_discard(span)
+                && !self.is_discardable_value(actual, span)
+            {
+                self.expect_type(&Type::Unit, actual, span);
+            }
+        }
+        self.statement_positions
+            .insert(span, super::StatementPosition::Statement);
+        Type::Unit
+    }
+
+    fn check_named_stream_callable_result(
+        &mut self,
+        stage: &ArenaStreamStage,
+        item_ty: &Type,
+        callback_ty: Type,
+        stage_span: Span,
+    ) -> Type {
+        match stage.kind {
+            StreamStageKind::Where => {
+                self.expect_type(&Type::Bool, &callback_ty, stage_span);
+                Type::Stream(Box::new(item_ty.clone()))
+            }
+            StreamStageKind::Map => {
+                if callback_ty == Type::Unit {
+                    self.error(
+                        stage_span,
+                        "map requires a tail value",
+                        DiagnosticCode::CheckMapTail,
+                    );
+                }
+                Type::Stream(Box::new(callback_ty))
+            }
+            StreamStageKind::FlatMap => match callback_ty.into_unvalidated() {
+                Type::List(item) | Type::Stream(item) => Type::Stream(item),
+                Type::Unknown => Type::Stream(Box::new(Type::Unknown)),
+                _ => {
+                    self.error(
+                        stage_span,
+                        "flat-map blocks must produce List or Stream",
+                        DiagnosticCode::CheckFlatMap,
+                    );
+                    Type::Stream(Box::new(Type::Unknown))
+                }
+            },
+            StreamStageKind::Each => Type::Unit,
+            StreamStageKind::Tee | StreamStageKind::UniqueBy => {
+                Type::Stream(Box::new(item_ty.clone()))
+            }
+            StreamStageKind::SortBy => {
+                if callback_ty.contains_any() {
+                    self.reject_dynamic_use("a sort key", None, stage_span);
+                } else if !is_sortable_key_type(&callback_ty) {
+                    self.error(
+                        stage_span,
+                        "sort-by keys must be Int, Str, Bool, Path, or a record of supported keys",
+                        DiagnosticCode::CheckStreamSort,
+                    );
+                }
+                Type::Stream(Box::new(item_ty.clone()))
+            }
+            StreamStageKind::GroupBy => Type::Stream(Box::new(Type::Record(btree_map(vec![
+                ("key".to_string(), callback_ty),
+                ("items".to_string(), Type::List(Box::new(item_ty.clone()))),
+            ])))),
+            StreamStageKind::Any | StreamStageKind::All => {
+                self.expect_type(&Type::Bool, &callback_ty, stage_span);
+                Type::Bool
+            }
+            _ => unreachable!("only unary callback stages have named callable descriptors"),
+        }
+    }
+
     fn check_required_stream_block_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -716,6 +842,16 @@ impl Checker {
         source: &str,
         stage: &ArenaStreamStage,
     ) -> Vec<Option<crate::sema::arguments::ExpandedArgument>> {
+        self.check_stage_arguments_excluding_callable_arena(arena, source, stage, None)
+    }
+
+    fn check_stage_arguments_excluding_callable_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        stage: &ArenaStreamStage,
+        callable_entry: Option<usize>,
+    ) -> Vec<Option<crate::sema::arguments::ExpandedArgument>> {
         use crate::sema::arguments::{
             ArgumentValueSource, bind_static_arguments, expand_named_arguments,
         };
@@ -725,9 +861,16 @@ impl Checker {
         if params.is_empty() {
             return Vec::new();
         }
-        let args = arena.arena.call_args(stage.args);
+        let args = arena
+            .arena
+            .call_args(stage.args)
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| Some(*index) != callable_entry)
+            .map(|(_, argument)| argument.clone())
+            .collect::<Vec<_>>();
         let mut positional = 0;
-        for arg in args {
+        for arg in &args {
             let expected = match arg.kind {
                 ArenaCallArgKind::Named { name, .. } => params
                     .iter()
@@ -750,7 +893,7 @@ impl Checker {
                 self.check_call_arg_arena(arena, source, &arg.kind, expected);
             }
         }
-        let expanded = match expand_named_arguments(arena, args, |expr| {
+        let expanded = match expand_named_arguments(arena, &args, |expr| {
             self.expr_types.get(&arena.arena.expr(expr).span).cloned()
         }) {
             Ok(expanded) => expanded,
@@ -841,7 +984,21 @@ impl Checker {
     }
 
     fn check_stage_no_args_arena(&mut self, arena: &ArenaProgram, stage: &ArenaStreamStage) {
-        if !stage.args.is_empty()
+        self.check_stage_no_args_excluding_callable_arena(arena, stage, None);
+    }
+
+    fn check_stage_no_args_excluding_callable_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        stage: &ArenaStreamStage,
+        callable_entry: Option<usize>,
+    ) {
+        if arena
+            .arena
+            .call_args(stage.args)
+            .iter()
+            .enumerate()
+            .any(|(index, _)| Some(index) != callable_entry)
             && xsh_registry::stream_parameters::stage_parameters(stage.kind.as_str()).is_empty()
         {
             self.error(

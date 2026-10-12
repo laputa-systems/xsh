@@ -166,6 +166,21 @@ impl Checker {
         callable: &Arc<TypedCallable>,
         span: Span,
     ) -> Type {
+        self.check_typed_callable_call_with_checked_argument(
+            arena, source, callee, args, callable, span, None,
+        )
+    }
+
+    pub(super) fn check_typed_callable_call_with_checked_argument(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        callee: ExprId,
+        args: &[ArenaCallArg],
+        callable: &Arc<TypedCallable>,
+        span: Span,
+        checked_argument: Option<super::args::CheckedCallArgument<'_>>,
+    ) -> Type {
         let return_ty = callable.sig.return_ty.as_ref().clone();
         // A callable type has no rest parameter and no defaults, so a call
         // whose argument count is decided at run time cannot be checked.
@@ -233,7 +248,14 @@ impl Checker {
                 self.check_resolved_callable_effects(&signature, &name, span);
             }
         }
-        self.check_function_arg_list_arena(arena, source, args, &signature.params, span);
+        self.check_function_call_arguments_arena(
+            arena,
+            source,
+            args,
+            &signature.params,
+            span,
+            checked_argument,
+        );
         if !callable.pure {
             // A procedure may change mutable lexical captures before the next statement.
             self.invalidate_mutable_narrowings();

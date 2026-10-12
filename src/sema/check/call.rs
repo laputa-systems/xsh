@@ -206,8 +206,52 @@ impl Checker {
         span: Span,
         expected_context: Option<&Type>,
     ) -> Type {
+        self.check_call_arena_with_arguments(
+            arena,
+            source,
+            callee,
+            arena.arena.call_args(args_range),
+            Some(args_range),
+            None,
+            span,
+            expected_context,
+        )
+    }
+
+    pub(super) fn check_call_with_checked_argument_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        callee: ExprId,
+        argument: super::args::CheckedCallArgument<'_>,
+        span: Span,
+        expected_context: Option<&Type>,
+    ) -> Type {
+        self.check_call_arena_with_arguments(
+            arena,
+            source,
+            callee,
+            &[],
+            None,
+            Some(argument),
+            span,
+            expected_context,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn check_call_arena_with_arguments(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        callee: ExprId,
+        args: &[ArenaCallArg],
+        args_range: Option<ArenaRange>,
+        checked_argument: Option<super::args::CheckedCallArgument<'_>>,
+        span: Span,
+        expected_context: Option<&Type>,
+    ) -> Type {
         let callee_kind = arena.arena.expr(callee).kind;
-        let args = arena.arena.call_args(args_range);
         if let ArenaExprKind::Field { base, name } = callee_kind
             && matches!(arena.arena.expr(base).kind, ArenaExprKind::Item)
             && !self.item_shorthand_in_scope()
@@ -225,7 +269,15 @@ impl Checker {
             return Type::Invalid;
         }
         if let Some(callable) = self.typed_callable_local_callee(arena, source, callee) {
-            return self.check_typed_callable_call(arena, source, callee, args, &callable, span);
+            return self.check_typed_callable_call_with_checked_argument(
+                arena,
+                source,
+                callee,
+                args,
+                &callable,
+                span,
+                checked_argument,
+            );
         }
         if args
             .iter()
@@ -255,7 +307,7 @@ impl Checker {
                 arena,
                 source,
                 callee,
-                args_range,
+                args_range.expect("source call arguments retain their arena range"),
                 span,
                 expected_context,
             );
@@ -286,7 +338,9 @@ impl Checker {
                     );
                 }
             }
-            self.check_function_arg_list_arena(arena, source, args, &alias.signature.params, span);
+            self.check_function_call_arguments_arena(
+                arena, source, args, &alias.signature.params, span, checked_argument,
+            );
             if !alias.pure {
                 self.invalidate_mutable_narrowings();
             }
@@ -346,14 +400,18 @@ impl Checker {
                 } else {
                     self.check_resolved_callable_effects(&sig, &name.as_str(), span);
                 }
-                self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
+                self.check_function_call_arguments_arena(
+                    arena, source, args, &sig.params, span, checked_argument,
+                );
                 // A procedure may change mutable lexical captures before the next statement.
                 self.invalidate_mutable_narrowings();
                 self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                 return sig.return_ty;
             }
             if let Some(sig) = self.pures.get(&name).cloned() {
-                self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
+                self.check_function_call_arguments_arena(
+                    arena, source, args, &sig.params, span, checked_argument,
+                );
                 self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                 return sig.return_ty;
             }
@@ -367,7 +425,9 @@ impl Checker {
                 } else {
                     self.check_resolved_callable_effects(&sig, &name.as_str(), span);
                 }
-                self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
+                self.check_function_call_arguments_arena(
+                    arena, source, args, &sig.params, span, checked_argument,
+                );
                 self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                 return sig.return_ty;
             }
@@ -420,7 +480,9 @@ impl Checker {
                         defaulted: false,
                         rest: false,
                     }];
-                    self.check_function_arg_list_arena(arena, source, args, &params, span);
+                    self.check_function_call_arguments_arena(
+                        arena, source, args, &params, span, checked_argument,
+                    );
                     return Type::Result(Box::new(Type::Unit), Box::new(Type::Error));
                 }
                 // `error.failure(message)` is the error value `error.fail`
@@ -434,7 +496,9 @@ impl Checker {
                         defaulted: false,
                         rest: false,
                     }];
-                    self.check_function_arg_list_arena(arena, source, args, &params, span);
+                    self.check_function_call_arguments_arena(
+                        arena, source, args, &params, span, checked_argument,
+                    );
                     return Type::Error;
                 }
                 if self.error_families.contains_key(&module) {
@@ -477,7 +541,9 @@ impl Checker {
                 }
                 let qualified = QualifiedName::new(module, name);
                 if let Some(sig) = self.qualified_pures.get(&qualified).cloned() {
-                    self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
+                    self.check_function_call_arguments_arena(
+                        arena, source, args, &sig.params, span, checked_argument,
+                    );
                     self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                     return sig.return_ty;
                 }
@@ -491,7 +557,9 @@ impl Checker {
                     } else {
                         self.check_resolved_callable_effects(&sig, &qualified.to_string(), span);
                     }
-                    self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
+                    self.check_function_call_arguments_arena(
+                        arena, source, args, &sig.params, span, checked_argument,
+                    );
                     self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                     return sig.return_ty;
                 }
@@ -505,7 +573,9 @@ impl Checker {
                     } else {
                         self.check_resolved_callable_effects(&sig, &qualified.to_string(), span);
                     }
-                    self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
+                    self.check_function_call_arguments_arena(
+                        arena, source, args, &sig.params, span, checked_argument,
+                    );
                     self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                     return sig.return_ty;
                 }
@@ -565,6 +635,7 @@ impl Checker {
                         args,
                         span,
                         expected_context,
+                        checked_argument,
                     );
                 }
             }
@@ -598,6 +669,7 @@ impl Checker {
                 args,
                 span,
                 expected_context,
+                checked_argument,
             );
         }
 
@@ -648,6 +720,7 @@ impl Checker {
                 args,
                 span,
                 method_expected,
+                checked_argument,
             );
             return if wrap_optional && !matches!(return_ty, Type::Optional(_)) {
                 Type::Optional(Box::new(return_ty))
@@ -688,6 +761,7 @@ impl Checker {
         args: &[ArenaCallArg],
         span: Span,
         expected: Option<&Type>,
+        checked_argument: Option<super::args::CheckedCallArgument<'_>>,
     ) -> Type {
         // A record field of a callable type is called like a method. The
         // field wins over a record method of the same name, because the
@@ -700,7 +774,9 @@ impl Checker {
                 arena.arena.expr(callee).span,
                 Type::Callable(callable.clone()),
             );
-            return self.check_typed_callable_call(arena, source, callee, args, &callable, span);
+            return self.check_typed_callable_call_with_checked_argument(
+                arena, source, callee, args, &callable, span, checked_argument,
+            );
         }
         if let Type::Callable(_) = &base_ty {
             self.error(
@@ -745,6 +821,7 @@ impl Checker {
                         args,
                         &sig.params,
                         span,
+                        checked_argument,
                     );
                     self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                     return sig.return_ty.as_ref().clone();
@@ -756,6 +833,7 @@ impl Checker {
                         args,
                         &sig.params,
                         span,
+                        checked_argument,
                     );
                     self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                     return sig.return_ty.as_ref().clone();
@@ -771,8 +849,9 @@ impl Checker {
                         arena.arena.expr(callee).span,
                         Type::Callable(callable.clone()),
                     );
-                    return self
-                        .check_typed_callable_call(arena, source, callee, args, &callable, span);
+                    return self.check_typed_callable_call_with_checked_argument(
+                        arena, source, callee, args, &callable, span, checked_argument,
+                    );
                 }
                 ModuleExportType::Value { .. } => {}
             }
@@ -848,6 +927,7 @@ impl Checker {
         args: &[ArenaCallArg],
         params: &[CallableParamType],
         span: Span,
+        checked_argument: Option<super::args::CheckedCallArgument<'_>>,
     ) {
         let params = params
             .iter()
@@ -869,7 +949,14 @@ impl Checker {
                 rest: param.rest,
             })
             .collect::<Vec<_>>();
-        self.check_function_arg_list_arena(arena, source, args, &params, span);
+        self.check_function_call_arguments_arena(
+            arena,
+            source,
+            args,
+            &params,
+            span,
+            checked_argument,
+        );
     }
 
     fn check_spread_call_arena(
@@ -1073,6 +1160,9 @@ impl Checker {
                     }
                     projections.push(id);
                     id
+                }
+                ArgumentValueSource::CheckedType => {
+                    unreachable!("checked call arguments do not enter named-spread projection")
                 }
             };
             inputs.push(if let Some(name) = arg.name {
@@ -1804,6 +1894,7 @@ impl Checker {
         args: &[ArenaCallArg],
         span: Span,
         expected_context: Option<&Type>,
+        checked_argument: Option<super::args::CheckedCallArgument<'_>>,
     ) -> Type {
         let Some(module_sig) = api_spec().module(module) else {
             self.error(span, "unknown module", DiagnosticCode::CheckUnknownModule);
@@ -1903,6 +1994,9 @@ impl Checker {
                     return removed;
                 }
                 executable_mode_checked = true;
+            } else if let Some(argument) = checked_argument {
+                self.expect_type(&Type::Int, argument.ty, argument.span);
+                executable_mode_checked = true;
             }
         }
         let Some(overloads) = module_sig.function_overloads(name).or(migration.as_deref()) else {
@@ -1915,12 +2009,19 @@ impl Checker {
         let (sig, args_checked) = if overloads.len() == 1 {
             (&overloads[0], executable_mode_checked)
         } else {
-            (
+            let sig = if let Some(argument) = checked_argument {
+                let Some(sig) = self.check_module_overload_with_checked_argument(
+                    argument, overloads, span,
+                ) else {
+                    return Type::Unknown;
+                };
+                sig
+            } else {
                 self.check_module_overload_args_arena(
                     arena, source, module, name, args, overloads, span,
-                ),
-                true,
-            )
+                )
+            };
+            (sig, true)
         };
         if sig.discardable {
             self.discardable_values.insert(span);
@@ -1963,25 +2064,64 @@ impl Checker {
         }
         match sig.arg_check {
             ApiArgCheck::JsonCompatible => {
-                self.check_json_api_args_arena(arena, source, name, args, span);
+                if let Some(argument) = checked_argument {
+                    self.check_json_api_checked_argument(name, argument, span);
+                } else {
+                    self.check_json_api_args_arena(arena, source, name, args, span);
+                }
             }
             ApiArgCheck::HashVerifyFile => {
-                self.check_hash_verify_file_args_arena(arena, source, args, span);
+                if let Some(argument) = checked_argument {
+                    self.error(
+                        span,
+                        "verify_file requires path and checksum",
+                        DiagnosticCode::CheckArity,
+                    );
+                    let _ = argument;
+                } else {
+                    self.check_hash_verify_file_args_arena(arena, source, args, span);
+                }
             }
             ApiArgCheck::Standard => {
                 if !args_checked {
-                    self.check_module_sig_args_arena(arena, source, args, sig, span);
+                    self.check_module_sig_args_with_checked_argument_arena(
+                        arena,
+                        source,
+                        args,
+                        sig,
+                        span,
+                        &[],
+                        checked_argument,
+                    );
                 }
             }
             ApiArgCheck::PathLikeSingle | ApiArgCheck::ResultContext => {
                 if !args_checked {
-                    self.check_module_sig_args_arena(arena, source, args, sig, span);
+                    self.check_module_sig_args_with_checked_argument_arena(
+                        arena,
+                        source,
+                        args,
+                        sig,
+                        span,
+                        &[],
+                        checked_argument,
+                    );
                 }
             }
         }
         instance.resolve(&self.type_constraints);
         if let Some(registered) = registered {
-            self.publish_api_call(arena, args, span, None, registered, &instance.signature);
+            if let Some(argument) = checked_argument {
+                self.publish_api_call_with_checked_argument(
+                    span,
+                    None,
+                    registered,
+                    &instance.signature,
+                    argument,
+                );
+            } else {
+                self.publish_api_call(arena, args, span, None, registered, &instance.signature);
+            }
         }
         let sig = &instance.signature;
         let return_ty = if sig.semantic_rule == crate::modules::signature::SemanticRule::CliCommands
@@ -2514,6 +2654,27 @@ impl Checker {
                 );
             }
             _ => {}
+        }
+    }
+
+    fn check_json_api_checked_argument(
+        &mut self,
+        name: &str,
+        argument: super::args::CheckedCallArgument<'_>,
+        span: Span,
+    ) {
+        match name {
+            "encode" => self.expect_json_compatible(argument.ty, argument.span),
+            "encode_lines" => {
+                let expected = Type::List(Box::new(Type::Any));
+                self.expect_type(&expected, argument.ty, argument.span);
+                self.expect_json_compatible(argument.ty, argument.span);
+            }
+            _ => self.error(
+                span,
+                "incorrect standard API arity",
+                DiagnosticCode::CheckArity,
+            ),
         }
     }
 

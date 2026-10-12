@@ -601,6 +601,37 @@ impl Checker {
         );
     }
 
+    pub(super) fn publish_api_call_with_checked_argument(
+        &mut self,
+        span: Span,
+        receiver: Option<MethodReceiver>,
+        sig: &'static ModuleFnSig,
+        concrete: &ModuleFnSig,
+        argument: super::args::CheckedCallArgument<'_>,
+    ) {
+        let expanded = [crate::sema::arguments::ExpandedArgument {
+            entry_index: 0,
+            name: None,
+            value: crate::sema::arguments::ArgumentValueSource::CheckedType,
+            ty: argument.ty.clone(),
+            span: argument.span,
+        }];
+        let params = crate::sema::builtin_templates::callable_parameters(concrete);
+        let Ok(binding) = crate::sema::arguments::bind_static_arguments(&params, &expanded) else {
+            return;
+        };
+        let params = params.into_iter().map(|param| param.ty).collect();
+        self.api_calls.insert(
+            span,
+            super::CheckedApiCall {
+                receiver,
+                sig,
+                params,
+                argument_slots: binding.argument_slots,
+            },
+        );
+    }
+
     fn report_unknown_method(
         &mut self,
         receiver: MethodReceiver,

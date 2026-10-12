@@ -9,12 +9,93 @@ use super::{
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{ArenaCallArg, ArenaCallArgKind, ArenaCommandArg, ArenaProgram, ExprId};
 
+#[derive(Clone, Copy)]
+pub(super) struct CheckedCallArgument<'a> {
+    pub ty: &'a Type,
+    pub span: Span,
+}
+
+fn expanded_checked_argument(argument: CheckedCallArgument<'_>) -> crate::sema::arguments::ExpandedArgument {
+    crate::sema::arguments::ExpandedArgument {
+        entry_index: 0,
+        name: None,
+        value: crate::sema::arguments::ArgumentValueSource::CheckedType,
+        ty: argument.ty.clone(),
+        span: argument.span,
+    }
+}
+
 pub(super) fn module_sig_accepts_arity(arg_count: usize, sig: &ModuleFnSig) -> bool {
     let required = sig.params.iter().filter(|param| !param.defaulted).count();
     arg_count >= required && arg_count <= sig.params.len()
 }
 
 impl Checker {
+    pub(super) fn check_function_call_arguments_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        args: &[ArenaCallArg],
+        params: &[FunctionParamSig],
+        span: Span,
+        checked_argument: Option<CheckedCallArgument<'_>>,
+    ) {
+        if let Some(argument) = checked_argument {
+            assert!(args.is_empty(), "a checked argument replaces source arguments");
+            self.check_function_arg_list_with_checked_argument(argument, params, span);
+        } else {
+            self.check_function_arg_list_arena(arena, source, args, params, span);
+        }
+    }
+
+    fn check_function_arg_list_with_checked_argument(
+        &mut self,
+        argument: CheckedCallArgument<'_>,
+        params: &[FunctionParamSig],
+        span: Span,
+    ) {
+        let required = params
+            .iter()
+            .filter(|param| !param.defaulted && !param.rest)
+            .count();
+        let has_rest = params.iter().any(|param| param.rest);
+        let max = if has_rest { usize::MAX } else { params.len() };
+        if required > 1 || max == 0 {
+            let expected = if required == max {
+                format!("{required} argument{}", if required == 1 { "" } else { "s" })
+            } else if has_rest {
+                format!("at least {required} arguments")
+            } else {
+                format!("{required} to {max} arguments")
+            };
+            self.error(
+                span,
+                &format!("incorrect function arity: expected {expected}, found 1"),
+                DiagnosticCode::CheckArity,
+            );
+        }
+        let Some(param) = params.first() else {
+            return;
+        };
+        let expected = if param.rest {
+            match &param.ty {
+                Type::List(item) => item.as_ref(),
+                Type::Any | Type::Unknown => &param.ty,
+                _ => {
+                    self.error(
+                        span,
+                        "rest parameter requires List",
+                        DiagnosticCode::CheckRestType,
+                    );
+                    return;
+                }
+            }
+        } else {
+            &param.ty
+        };
+        self.expect_type(expected, argument.ty, argument.span);
+    }
+
     pub(super) fn check_api_arg_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -149,6 +230,95 @@ impl Checker {
             DiagnosticCode::CheckTypeMismatch,
         );
         arity_matches[0]
+    }
+
+    pub(super) fn check_module_overload_with_checked_argument<'a>(
+        &mut self,
+        argument: CheckedCallArgument<'_>,
+        overloads: &'a [ModuleFnSig],
+        span: Span,
+    ) -> Option<&'a ModuleFnSig> {
+        let arity_matches = overloads
+            .iter()
+            .filter(|sig| module_sig_accepts_arity(1, sig))
+            .collect::<Vec<_>>();
+        if arity_matches.is_empty() {
+            self.error(
+                span,
+                "incorrect standard API arity",
+                DiagnosticCode::CheckArity,
+            );
+            return None;
+        }
+        let matches = arity_matches
+            .iter()
+            .copied()
+            .filter(|sig| {
+                sig.params.first().is_some_and(|param| {
+                    module_arg_matches_param_arena(argument.ty, &param.ty)
+                })
+            })
+            .collect::<Vec<_>>();
+        if let Some(sig) = matches.first() {
+            if matches.len() > 1 && !matches!(argument.ty, Type::Unknown) {
+                self.error(
+                    span,
+                    "ambiguous standard API overload",
+                    DiagnosticCode::CheckAmbiguousOverload,
+                );
+            }
+            return Some(*sig);
+        }
+        let expected = arity_matches
+            .iter()
+            .filter_map(|sig| sig.params.first().map(|param| &param.ty))
+            .try_fold(None, |expected: Option<&Type>, ty| match expected {
+                Some(current) if current != ty => Err(()),
+                Some(current) => Ok(Some(current)),
+                None => Ok(Some(ty)),
+            })
+            .ok()
+            .flatten();
+        if let Some(expected) = expected
+            && argument.ty.any_flows_to_concrete(expected)
+        {
+            self.expect_type(expected, argument.ty, argument.span);
+            return Some(arity_matches[0]);
+        }
+        self.error(
+            span,
+            "no standard API overload matches argument types",
+            DiagnosticCode::CheckTypeMismatch,
+        );
+        Some(arity_matches[0])
+    }
+
+    pub(super) fn check_stream_callable_module_overload(
+        &mut self,
+        argument: CheckedCallArgument<'_>,
+        overloads: &[ModuleFnSig],
+        span: Span,
+    ) -> bool {
+        let matches = overloads
+            .iter()
+            .filter(|signature| {
+                module_sig_accepts_arity(1, signature)
+                    && signature
+                        .params
+                        .first()
+                        .is_some_and(|parameter| argument.ty.matches_expected(&parameter.ty))
+            })
+            .count();
+        if matches == 1 {
+            true
+        } else {
+            self.error(
+                span,
+                "stage callable requires a unique checked one-item signature",
+                DiagnosticCode::CheckStreamCallableSignature,
+            );
+            false
+        }
     }
 
     pub(super) fn check_expr_arg_list_arena(
@@ -422,14 +592,33 @@ impl Checker {
         span: Span,
         schemas: &[Option<crate::sema::constants::SchemaExpectation>],
     ) {
+        self.check_module_sig_args_with_checked_argument_arena(
+            arena, source, args, sig, span, schemas, None,
+        );
+    }
+
+    pub(super) fn check_module_sig_args_with_checked_argument_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        args: &[ArenaCallArg],
+        sig: &ModuleFnSig,
+        span: Span,
+        schemas: &[Option<crate::sema::constants::SchemaExpectation>],
+        checked_argument: Option<CheckedCallArgument<'_>>,
+    ) {
         let params = crate::sema::builtin_templates::callable_parameters(sig);
-        let expanded = match crate::sema::arguments::expand_named_arguments(arena, args, |_| None) {
+        let mut expanded = match crate::sema::arguments::expand_named_arguments(arena, args, |_| None) {
             Ok(expanded) => expanded,
             Err(error) => {
                 self.error(error.span, &error.message, DiagnosticCode::CheckNamedSpread);
                 return;
             }
         };
+        if let Some(argument) = checked_argument {
+            assert!(args.is_empty(), "a checked argument replaces source arguments");
+            expanded.push(expanded_checked_argument(argument));
+        }
         let binding = match crate::sema::arguments::bind_static_arguments(&params, &expanded) {
             Ok(binding) => binding,
             Err(error) => {
@@ -437,7 +626,7 @@ impl Checker {
                     .iter()
                     .filter(|parameter| !parameter.defaulted)
                     .count();
-                let code = if args.len() < required || args.len() > params.len() {
+                let code = if expanded.len() < required || expanded.len() > params.len() {
                     DiagnosticCode::CheckArity
                 } else {
                     DiagnosticCode::CheckNamedArg
@@ -449,6 +638,15 @@ impl Checker {
                 );
                 for arg in args {
                     self.check_call_arg_arena(arena, source, &arg.kind, None);
+                }
+                if let Some(argument) = checked_argument
+                    && let Some(param) = params.first()
+                {
+                    let expected = self
+                        .type_constraints
+                        .resolve(&param.ty)
+                        .unwrap_or_else(|_| param.ty.clone());
+                    self.expect_type(&expected, argument.ty, argument.span);
                 }
                 return;
             }
@@ -487,8 +685,41 @@ impl Checker {
                     format!("pass `{label}` by name"),
                     format!("{label}: "),
                 ));
+            } else if matches!(
+                value.value,
+                crate::sema::arguments::ArgumentValueSource::CheckedType
+            ) {
+                diagnostic = diagnostic.with_fix_hint(crate::diagnostic::FixHint::replacement(
+                    Span::at(value.span.source_id, value.span.start()),
+                    format!("pass `{label}` by name"),
+                    format!("{label}: "),
+                ));
             }
             self.diagnostics.push(diagnostic);
+        }
+        if let Some(argument) = checked_argument {
+            if let Some(&slot) = binding.argument_slots.first() {
+                let expected = self
+                    .type_constraints
+                    .resolve(&params[slot].ty)
+                    .unwrap_or_else(|_| params[slot].ty.clone());
+                let previous_schema = self.boundary.expected_schema.clone();
+                self.boundary.expected_schema = schemas
+                    .get(slot)
+                    .cloned()
+                    .flatten()
+                    .or_else(|| Some(crate::sema::constants::SchemaExpectation::default()));
+                let actual = argument.ty;
+                self.boundary.expected_schema = previous_schema;
+                if expected == Type::Path && is_path_like_type(actual) {
+                    return;
+                }
+                if is_argv_word_list(&expected) && is_argv_word_list_argument(actual) {
+                    return;
+                }
+                self.expect_type(&expected, actual, argument.span);
+            }
+            return;
         }
         for (arg, slot) in args.iter().zip(binding.argument_slots) {
             let expected = self

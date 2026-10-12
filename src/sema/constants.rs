@@ -2303,6 +2303,7 @@ impl PreparedConstants {
                 Some((value, origin, Some(field)))
             }
             ArgumentValueSource::PositionalSplice(_) => None,
+            ArgumentValueSource::CheckedType => None,
         }
     }
 

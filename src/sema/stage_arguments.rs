@@ -2,7 +2,7 @@ use crate::sema::types::{CallableParamType, Type};
 use crate::source::Span;
 use crate::symbol::Name;
 use crate::syntax::arena::{
-    ArenaCallArgInput, ArenaCallArgKind, ArenaProgram, ArenaRange, ArenaStreamStage, ExprId,
+    ArenaCallArgKind, ArenaProgram, ArenaRange, ArenaStreamStage, ExprId,
 };
 use xsh_registry::stream_parameters::{
     StageParameterDefault, StageParameterType, stage_parameters,
@@ -132,36 +132,4 @@ pub(crate) fn stage_callable_argument(
         ));
     }
     Ok(Some((argument.entry_index, callee)))
-}
-
-/// Configuration entries besides the callable descriptor retain their original
-/// syntax and source evaluation order.
-pub(crate) fn stage_configuration_arguments(
-    program: &ArenaProgram,
-    stage: &ArenaStreamStage,
-    callable_entry: usize,
-) -> Vec<ArenaCallArgInput> {
-    program
-        .arena
-        .call_args(stage.args)
-        .iter()
-        .enumerate()
-        .filter(|(index, _)| *index != callable_entry)
-        .map(|(_, arg)| match arg.kind {
-            ArenaCallArgKind::Positional(value) => ArenaCallArgInput::Positional(value),
-            ArenaCallArgKind::Named { name, value, .. } => ArenaCallArgInput::Named {
-                name,
-                value,
-                span: program.arena.expr(value).span,
-            },
-            ArenaCallArgKind::NamedSpread { value, span } => ArenaCallArgInput::NamedSpread {
-                value,
-                span: program.arena.span(span),
-            },
-            ArenaCallArgKind::Splice { value, span } => ArenaCallArgInput::Splice {
-                value,
-                span: program.arena.span(span),
-            },
-        })
-        .collect()
 }

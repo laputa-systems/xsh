@@ -93,6 +93,83 @@ fn accumulation_traffic(collection: &str, size: usize) -> (u64, u64, String) {
     )
 }
 
+fn stage_construction_traffic(named: bool, filler_functions: usize) -> (u64, String) {
+    let mut source = String::new();
+    for index in 0..filler_functions {
+        source.push_str(&format!(
+            "pure unused_{index}(value: Int) -> Int {{ value + 1 }}\n"
+        ));
+    }
+    source.push_str("pure increment(item: Int) -> Int { item + 1 }\n");
+    if named {
+        source.push_str("let values = [1, 2] |> map(block: increment)\n");
+    } else {
+        source.push_str("let values = [1, 2] |> map { |item| item + 1 }\n");
+    }
+    source.push_str("print values[0] values[1]\n");
+
+    let script = write_temp_script(
+        &format!("stage-construction-{named}-{filler_functions}"),
+        &source,
+    );
+    let report = temp_path(&format!("stage-construction-{named}-{filler_functions}"))
+        .with_extension("json");
+    let stats_binary = std::env::var_os("CARGO_BIN_EXE_xsht")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(cargo_env!("CARGO_BIN_EXE_xsht")));
+    let output = Command::new(stats_binary)
+        .args([
+            "runtime-stats",
+            "--json",
+            report.to_str().unwrap(),
+            script.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run xsht runtime-stats over the stage fixture");
+    assert!(
+        output.status.success(),
+        "named={named} filler_functions={filler_functions} stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report_text = std::fs::read_to_string(&report).expect("read runtime stats report");
+    let report_json = json_parse(&report_text);
+    let construction = json_field(&report_json, "construction");
+    let bytes = json_u64(json_field(construction, "alloc_bytes"));
+    let _ = std::fs::remove_file(report);
+    let _ = std::fs::remove_file(script);
+    (
+        bytes,
+        String::from_utf8(output.stdout).expect("fixture stdout is UTF-8"),
+    )
+}
+
+/// A named stage callable must not make construction cost grow with unrelated
+/// syntax elsewhere in its source program.
+#[test]
+fn named_stage_callable_construction_does_not_copy_the_program() {
+    let small_inline = stage_construction_traffic(false, 0);
+    let small_named = stage_construction_traffic(true, 0);
+    let large_inline = stage_construction_traffic(false, 96);
+    let large_named = stage_construction_traffic(true, 96);
+
+    for output in [
+        &small_inline.1,
+        &small_named.1,
+        &large_inline.1,
+        &large_named.1,
+    ] {
+        assert_eq!(output, "2 3\n");
+    }
+
+    let additional_bytes = (large_named.0 - large_inline.0) as i64
+        - (small_named.0 - small_inline.0) as i64;
+    assert!(
+        additional_bytes < 65_536,
+        "unrelated declarations added {additional_bytes} bytes to named-callable \
+         construction relative to a block"
+    );
+}
+
 /// Sixteen times as many appended items or inserted map entries must not
 /// multiply allocation traffic quadratically. Alias behavior is covered by
 /// native tests in `tests/xsh/stdlib/methods.xsh` and `map.xsh`.

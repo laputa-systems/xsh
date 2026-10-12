@@ -136,6 +136,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     ));
                     continue;
                 }
+                ArgumentValueSource::CheckedType => {
+                    unreachable!("checked types are not lowered as source arguments")
+                }
             };
             let slot = slots.reserve("call argument");
             bindings.push((value, slot));
@@ -280,6 +283,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             .append_argument_projection(record, field, arg.span);
                         bodies.expr_types.insert(expr, arg.ty.clone());
                         expr
+                    }
+                    ArgumentValueSource::CheckedType => {
+                        unreachable!("checked types are not lowered as source arguments")
                     }
                 };
                 overrides.push((expr, slots.postfix_receivers.insert(expr, bound)));
