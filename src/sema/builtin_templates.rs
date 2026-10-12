@@ -321,7 +321,7 @@ pub(crate) fn parameter_schema_contexts(
         let mut result = SchemaExpectation::default();
         for (component, child) in children(ty) {
             if let Some(context) = project(child, parameters) {
-                result.children.insert(component, context);
+                result.insert_child(component, context);
             }
         }
         Some(result)

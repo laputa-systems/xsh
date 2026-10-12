@@ -411,10 +411,15 @@ pub struct RecordConstructorInference {
 
 /// Application provenance follows the same field and container boundaries as
 /// an independently checked annotation, including aliases and private owners.
+///
+/// The children are shared: expectation trees follow every binding and call
+/// signature through the checker's scope snapshots and are cloned far more
+/// often than they change, so a clone copies the root and a change copies one
+/// level (`Arc::make_mut`).
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SchemaExpectation {
     pub instances: Vec<SchemaInstance>,
-    pub children: BTreeMap<SchemaComponent, SchemaExpectation>,
+    pub children: Arc<BTreeMap<SchemaComponent, SchemaExpectation>>,
 }
 
 impl SchemaExpectation {
@@ -432,9 +437,16 @@ impl SchemaExpectation {
                 .cloned(),
         );
         self.instances = instances;
-        for (component, context) in &concrete.children {
-            self.children.entry(*component).or_default().merge(context);
+        for (component, context) in concrete.children.iter() {
+            Arc::make_mut(&mut self.children)
+                .entry(*component)
+                .or_default()
+                .merge(context);
         }
+    }
+
+    pub fn insert_child(&mut self, component: SchemaComponent, child: Self) {
+        Arc::make_mut(&mut self.children).insert(component, child);
     }
 
     pub fn value_context(&self) -> &Self {
@@ -1340,9 +1352,7 @@ impl RecordConstructors {
                     let context = self.expectation_annotation(
                         arena, field.ty, namespace, &bindings, &contexts, active,
                     )?;
-                    result
-                        .children
-                        .insert(SchemaComponent::Field(field.name), context);
+                    result.insert_child(SchemaComponent::Field(field.name), context);
                 }
                 result
             }
@@ -1422,7 +1432,7 @@ impl RecordConstructors {
             | ArenaTypeExprTag::Stream
             | ArenaTypeExprTag::NonEmpty
             | ArenaTypeExprTag::Set => {
-                result.children.insert(
+                result.insert_child(
                     SchemaComponent::Item,
                     self.expectation_annotation(
                         arena, inner, namespace, bindings, contexts, active,
@@ -1431,14 +1441,14 @@ impl RecordConstructors {
             }
             ArenaTypeExprTag::Map => {
                 if let Some(key) = TypeExprId::from_optional_raw(data.rhs) {
-                    result.children.insert(
+                    result.insert_child(
                         SchemaComponent::Key,
                         self.expectation_annotation(
                             arena, key, namespace, bindings, contexts, active,
                         )?,
                     );
                 }
-                result.children.insert(
+                result.insert_child(
                     SchemaComponent::Value,
                     self.expectation_annotation(
                         arena, inner, namespace, bindings, contexts, active,
@@ -1446,7 +1456,7 @@ impl RecordConstructors {
                 );
             }
             ArenaTypeExprTag::Optional => {
-                result.children.insert(
+                result.insert_child(
                     SchemaComponent::Optional,
                     self.expectation_annotation(
                         arena, inner, namespace, bindings, contexts, active,
@@ -1454,14 +1464,14 @@ impl RecordConstructors {
                 );
             }
             ArenaTypeExprTag::Result => {
-                result.children.insert(
+                result.insert_child(
                     SchemaComponent::Success,
                     self.expectation_annotation(
                         arena, inner, namespace, bindings, contexts, active,
                     )?,
                 );
                 if let Some(error) = TypeExprId::from_optional_raw(data.rhs) {
-                    result.children.insert(
+                    result.insert_child(
                         SchemaComponent::Error,
                         self.expectation_annotation(
                             arena, error, namespace, bindings, contexts, active,

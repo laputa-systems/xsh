@@ -2137,10 +2137,10 @@ impl Checker {
             })
             .map(|schema| crate::sema::constants::SchemaExpectation {
                 instances: Vec::new(),
-                children: std::collections::BTreeMap::from([(
+                children: std::sync::Arc::new(std::collections::BTreeMap::from([(
                     crate::sema::constants::SchemaComponent::Success,
                     schema,
-                )]),
+                )])),
             });
         let init_ty = self.check_expr_with_schema_arena(
             arena,
