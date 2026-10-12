@@ -104,6 +104,8 @@ impl Checker {
                 self.check_expr_arena(arena, source, value, None);
             }
         }
+        let mut named_callback_ty = None;
+        let mut named_stage_arguments = None;
         match crate::sema::stage_arguments::stage_callable_argument(arena, stage, |expr| {
             self.expr_types.get(&arena.arena.expr(expr).span).cloned()
         }) {
@@ -157,17 +159,12 @@ impl Checker {
                     .entry(arena.arena.span(stage.span))
                     .or_default()
                     .callable_entry = Some(entry);
-                self.check_stage_arguments_excluding_callable_arena(
+                named_stage_arguments = Some(self.check_stage_arguments_excluding_callable_arena(
                     arena,
                     source,
                     stage,
                     Some(entry),
-                );
-                self.check_stage_no_args_excluding_callable_arena(
-                    arena,
-                    stage,
-                    Some(entry),
-                );
+                ));
                 self.push_deferred_capture_scope();
                 let enclosing_boundary = self.enter_callback_boundary();
                 self.define(
@@ -189,14 +186,22 @@ impl Checker {
                     None,
                 );
                 if matches!(stage.kind, StreamStageKind::Each | StreamStageKind::Tee) {
-                    callback_ty = self.check_named_stream_sink_tail(source, &callback_ty, item_span);
+                    self.statement_positions
+                        .insert(item_span, super::StatementPosition::Value);
+                    self.propagating_statements.insert(item_span);
+                    callback_ty = self.check_unit_statement_value_tail(
+                        None,
+                        &callback_ty,
+                        item_span,
+                        item_span,
+                        None,
+                        false,
+                    );
                 }
                 self.boundary.item_frames.pop();
                 self.leave_callback_boundary(enclosing_boundary);
                 self.pop_scope();
-                return self.check_named_stream_callable_result(
-                    stage, &item_ty, callback_ty, stage_span,
-                );
+                named_callback_ty = Some(callback_ty);
             }
             Err((span, message)) => {
                 self.error(span, &message, DiagnosticCode::CheckStreamCallable);
@@ -204,26 +209,40 @@ impl Checker {
             }
             Ok(None) => {}
         }
-        let arguments = self.check_stage_arguments_arena(arena, source, stage);
+        let arguments = named_stage_arguments
+            .unwrap_or_else(|| self.check_stage_arguments_arena(arena, source, stage));
         match stage.kind {
             StreamStageKind::Where => {
                 self.check_stage_no_args_arena(arena, stage);
-                let actual = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
-                self.expect_type(&Type::Bool, &actual, stage_span);
-                Type::Stream(Box::new(item_ty))
+                let callback_ty = self.check_stream_stage_callback_type(
+                    arena,
+                    source,
+                    stage,
+                    &item_ty,
+                    named_callback_ty.as_ref(),
+                );
+                self.check_stream_stage_callback_result(
+                    stage.kind,
+                    &item_ty,
+                    callback_ty,
+                    stage_span,
+                )
             }
             StreamStageKind::Map => {
                 self.check_stage_no_args_arena(arena, stage);
-                let actual = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
-                let output_ty = actual;
-                if output_ty == Type::Unit {
-                    self.error(
-                        stage_span,
-                        "map requires a tail value",
-                        DiagnosticCode::CheckMapTail,
-                    );
-                }
-                Type::Stream(Box::new(output_ty))
+                let callback_ty = self.check_stream_stage_callback_type(
+                    arena,
+                    source,
+                    stage,
+                    &item_ty,
+                    named_callback_ty.as_ref(),
+                );
+                self.check_stream_stage_callback_result(
+                    stage.kind,
+                    &item_ty,
+                    callback_ty,
+                    stage_span,
+                )
             }
             StreamStageKind::ParMap => {
                 self.check_stage_no_args_arena(arena, stage);
@@ -240,18 +259,19 @@ impl Checker {
             }
             StreamStageKind::Each => {
                 self.check_stage_no_args_arena(arena, stage);
-                let actual = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
-                match actual {
-                    Type::Unit => {}
-                    Type::Result(ok, _) if *ok == Type::Unit => {}
-                    Type::Unknown => {}
-                    _ => self.error(
-                        stage_span,
-                        "each blocks must produce Unit or Result[Unit]",
-                        DiagnosticCode::CheckEachTail,
-                    ),
-                }
-                Type::Unit
+                let callback_ty = self.check_stream_stage_callback_type(
+                    arena,
+                    source,
+                    stage,
+                    &item_ty,
+                    named_callback_ty.as_ref(),
+                );
+                self.check_stream_stage_callback_result(
+                    stage.kind,
+                    &item_ty,
+                    callback_ty,
+                    stage_span,
+                )
             }
             StreamStageKind::Batch => {
                 self.check_batch_stage_arena(arena, source, stage, &item_ty, &arguments);
@@ -282,17 +302,19 @@ impl Checker {
             }
             StreamStageKind::SortBy => {
                 self.check_stage_no_args_arena(arena, stage);
-                let key_ty = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
-                if key_ty.contains_any() {
-                    self.reject_dynamic_use("a sort key", None, stage_span);
-                } else if !is_sortable_key_type(&key_ty) {
-                    self.error(
-                        stage_span,
-                        "sort-by keys must be Int, Str, Bool, Path, or a record of supported keys",
-                        DiagnosticCode::CheckStreamSort,
-                    );
-                }
-                Type::Stream(Box::new(item_ty))
+                let callback_ty = self.check_stream_stage_callback_type(
+                    arena,
+                    source,
+                    stage,
+                    &item_ty,
+                    named_callback_ty.as_ref(),
+                );
+                self.check_stream_stage_callback_result(
+                    stage.kind,
+                    &item_ty,
+                    callback_ty,
+                    stage_span,
+                )
             }
             StreamStageKind::Take | StreamStageKind::Drop => {
                 if stage.block.is_some() {
@@ -316,8 +338,19 @@ impl Checker {
             }
             StreamStageKind::UniqueBy => {
                 self.check_stage_no_args_arena(arena, stage);
-                let _ = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
-                Type::Stream(Box::new(item_ty))
+                let callback_ty = self.check_stream_stage_callback_type(
+                    arena,
+                    source,
+                    stage,
+                    &item_ty,
+                    named_callback_ty.as_ref(),
+                );
+                self.check_stream_stage_callback_result(
+                    stage.kind,
+                    &item_ty,
+                    callback_ty,
+                    stage_span,
+                )
             }
             StreamStageKind::Enumerate => {
                 if !stage.args.is_empty() || stage.block.is_some() {
@@ -385,17 +418,19 @@ impl Checker {
             }
             StreamStageKind::Tee => {
                 self.check_stage_no_args_arena(arena, stage);
-                let actual = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
-                match actual {
-                    Type::Unit | Type::Unknown => {}
-                    Type::Result(ok, _) if *ok == Type::Unit => {}
-                    _ => self.error(
-                        stage_span,
-                        "tee blocks must produce Unit",
-                        DiagnosticCode::CheckEachTail,
-                    ),
-                }
-                Type::Stream(Box::new(item_ty))
+                let callback_ty = self.check_stream_stage_callback_type(
+                    arena,
+                    source,
+                    stage,
+                    &item_ty,
+                    named_callback_ty.as_ref(),
+                );
+                self.check_stream_stage_callback_result(
+                    stage.kind,
+                    &item_ty,
+                    callback_ty,
+                    stage_span,
+                )
             }
             StreamStageKind::Sum => {
                 if !stage.args.is_empty() || stage.block.is_some() {
@@ -423,11 +458,19 @@ impl Checker {
             }
             StreamStageKind::GroupBy => {
                 self.check_stage_no_args_arena(arena, stage);
-                let key_ty = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
-                Type::Stream(Box::new(Type::Record(btree_map(vec![
-                    ("key".to_string(), key_ty),
-                    ("items".to_string(), Type::List(Box::new(item_ty))),
-                ]))))
+                let callback_ty = self.check_stream_stage_callback_type(
+                    arena,
+                    source,
+                    stage,
+                    &item_ty,
+                    named_callback_ty.as_ref(),
+                );
+                self.check_stream_stage_callback_result(
+                    stage.kind,
+                    &item_ty,
+                    callback_ty,
+                    stage_span,
+                )
             }
             StreamStageKind::Fold | StreamStageKind::Reduce => {
                 let acc_ty = arguments
@@ -446,25 +489,35 @@ impl Checker {
             }
             StreamStageKind::FlatMap => {
                 self.check_stage_no_args_arena(arena, stage);
-                let actual = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
-                match actual.into_unvalidated() {
-                    Type::List(item) | Type::Stream(item) => Type::Stream(item),
-                    Type::Unknown => Type::Stream(Box::new(Type::Unknown)),
-                    _ => {
-                        self.error(
-                            stage_span,
-                            "flat-map blocks must produce List or Stream",
-                            DiagnosticCode::CheckFlatMap,
-                        );
-                        Type::Stream(Box::new(Type::Unknown))
-                    }
-                }
+                let callback_ty = self.check_stream_stage_callback_type(
+                    arena,
+                    source,
+                    stage,
+                    &item_ty,
+                    named_callback_ty.as_ref(),
+                );
+                self.check_stream_stage_callback_result(
+                    stage.kind,
+                    &item_ty,
+                    callback_ty,
+                    stage_span,
+                )
             }
             StreamStageKind::Any | StreamStageKind::All => {
                 self.check_stage_no_args_arena(arena, stage);
-                let actual = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
-                self.expect_type(&Type::Bool, &actual, stage_span);
-                Type::Bool
+                let callback_ty = self.check_stream_stage_callback_type(
+                    arena,
+                    source,
+                    stage,
+                    &item_ty,
+                    named_callback_ty.as_ref(),
+                );
+                self.check_stream_stage_callback_result(
+                    stage.kind,
+                    &item_ty,
+                    callback_ty,
+                    stage_span,
+                )
             }
             StreamStageKind::Shuffle => {
                 if stage.block.is_some() {
@@ -555,42 +608,27 @@ impl Checker {
         }
     }
 
-    fn check_named_stream_sink_tail(&mut self, source: &str, actual: &Type, span: Span) -> Type {
-        self.statement_positions
-            .insert(span, super::StatementPosition::Value);
-        self.statement_root = Some(span);
-        self.propagating_statements.insert(span);
-        self.statement_expression_spans.insert(span);
-        if actual.is_result() {
-            self.reject_discarded_value(actual, span, span, true, None);
-            if super::expr::expr_ty_auto_propagates(actual) {
-                self.statement_positions
-                    .insert(span, super::StatementPosition::Statement);
-                return Type::Unit;
-            }
-        }
-        if !self.reject_bool_statement(source, actual, span) {
-            self.record_statement_error(actual, span);
-            if !actual.is_result()
-                && !self.is_inert_expression_discard(span)
-                && !self.is_discardable_value(actual, span)
-            {
-                self.expect_type(&Type::Unit, actual, span);
-            }
-        }
-        self.statement_positions
-            .insert(span, super::StatementPosition::Statement);
-        Type::Unit
+    fn check_stream_stage_callback_type(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        stage: &ArenaStreamStage,
+        item_ty: &Type,
+        checked_callback_ty: Option<&Type>,
+    ) -> Type {
+        checked_callback_ty.cloned().unwrap_or_else(|| {
+            self.check_required_stream_block_arena(arena, source, stage, item_ty)
+        })
     }
 
-    fn check_named_stream_callable_result(
+    fn check_stream_stage_callback_result(
         &mut self,
-        stage: &ArenaStreamStage,
+        kind: StreamStageKind,
         item_ty: &Type,
         callback_ty: Type,
         stage_span: Span,
     ) -> Type {
-        match stage.kind {
+        match kind {
             StreamStageKind::Where => {
                 self.expect_type(&Type::Bool, &callback_ty, stage_span);
                 Type::Stream(Box::new(item_ty.clone()))
@@ -984,7 +1022,11 @@ impl Checker {
     }
 
     fn check_stage_no_args_arena(&mut self, arena: &ArenaProgram, stage: &ArenaStreamStage) {
-        self.check_stage_no_args_excluding_callable_arena(arena, stage, None);
+        let callable_entry = self
+            .argument_bindings
+            .get(&arena.arena.span(stage.span))
+            .and_then(|binding| binding.callable_entry);
+        self.check_stage_no_args_excluding_callable_arena(arena, stage, callable_entry);
     }
 
     fn check_stage_no_args_excluding_callable_arena(

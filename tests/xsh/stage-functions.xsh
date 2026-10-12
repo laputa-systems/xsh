@@ -73,6 +73,64 @@ true
 """
 }
 
+test test_named_each_bool_callback_has_no_source_fix { |ctx|
+  let rejected = test.run_xsh(
+    ctx,
+    r"""pure positive(item: Int) -> Bool { item > 0 }
+let _ = [1] |> each(positive)
+""",
+  )?
+  assert rejected.status == 2, rejected.stderr
+  assert "err[check.bool-statement]" in rejected.stderr, rejected.stderr
+  assert "Bool expression statement is not an assertion" in rejected.stderr, rejected.stderr
+  assert "help:" not in rejected.stderr, rejected.stderr
+}
+
+test test_named_each_int_callback_has_no_discard_fix { |ctx|
+  let rejected = test.run_xsh(
+    ctx,
+    r"""pure value(item: Int) -> Int { item }
+let _ = [1] |> each(value)
+""",
+  )?
+  assert rejected.status == 2, rejected.stderr
+  assert "err[check.type-mismatch]" in rejected.stderr, rejected.stderr
+  assert "help:" not in rejected.stderr, rejected.stderr
+}
+
+test test_named_stage_call_uses_one_item_function_binding { |ctx|
+  let no_parameters = test.run_xsh(
+    ctx,
+    r"""pure constant() -> Int { 1 }
+let _ = [1] |> map(constant)
+""",
+  )?
+  assert no_parameters.status == 2, no_parameters.stderr
+  assert "err[check.arity]" in no_parameters.stderr, no_parameters.stderr
+  assert "incorrect function arity: expected 0 arguments, found 1" in no_parameters.stderr, no_parameters.stderr
+
+  let too_many_required = test.run_xsh(
+    ctx,
+    r"""pure pair(item: Int, other: Int) -> Int { item + other }
+let _ = [1] |> map(pair)
+""",
+  )?
+  assert too_many_required.status == 2, too_many_required.stderr
+  assert "err[check.arity]" in too_many_required.stderr, too_many_required.stderr
+  assert "incorrect function arity: expected 2 arguments, found 1" in too_many_required.stderr, too_many_required.stderr
+
+  let optional_and_rest = test.run_xsh(
+    ctx,
+    r"""pure optional(item: Int, amount: Int = 3) -> Int { item + amount }
+pure rest(item: Int, ...others: List[Int]) -> Int { item }
+print ${([1] |> map(optional))[0]}
+print ${([2] |> map(rest))[0]}
+""",
+  )?
+  assert optional_and_rest.success, optional_and_rest.stderr
+  assert optional_and_rest.stdout == "4\n2\n", optional_and_rest.stdout
+}
+
 test test_stage_functions_supply_independent_aggregate_defaults { |ctx|
   let output = test.run_script(
     ctx,

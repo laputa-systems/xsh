@@ -143,10 +143,10 @@ fn stage_construction_traffic(named: bool, filler_functions: usize) -> (u64, Str
     )
 }
 
-/// A named stage callable must not make construction cost grow with unrelated
-/// syntax elsewhere in its source program.
+/// Keep named-callable construction's allocation slope bounded as unrelated
+/// declarations are added elsewhere in the source program.
 #[test]
-fn named_stage_callable_construction_does_not_copy_the_program() {
+fn named_stage_callable_construction_has_bounded_allocation_slope() {
     let small_inline = stage_construction_traffic(false, 0);
     let small_named = stage_construction_traffic(true, 0);
     let large_inline = stage_construction_traffic(false, 96);
@@ -161,12 +161,12 @@ fn named_stage_callable_construction_does_not_copy_the_program() {
         assert_eq!(output, "2 3\n");
     }
 
-    let additional_bytes = (large_named.0 - large_inline.0) as i64
-        - (small_named.0 - small_inline.0) as i64;
+    let small_delta = i128::from(small_named.0) - i128::from(small_inline.0);
+    let large_delta = i128::from(large_named.0) - i128::from(large_inline.0);
+    let additional_bytes = large_delta - small_delta;
     assert!(
         additional_bytes < 65_536,
-        "unrelated declarations added {additional_bytes} bytes to named-callable \
-         construction relative to a block"
+        "named-callable allocation slope grew by {additional_bytes} bytes with unrelated declarations"
     );
 }
 

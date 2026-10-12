@@ -30,6 +30,46 @@ pub(super) fn module_sig_accepts_arity(arg_count: usize, sig: &ModuleFnSig) -> b
     arg_count >= required && arg_count <= sig.params.len()
 }
 
+fn function_arity_error(params: &[FunctionParamSig], found: usize) -> Option<String> {
+    let required = params
+        .iter()
+        .filter(|param| !param.defaulted && !param.rest)
+        .count();
+    let max = if params.iter().any(|param| param.rest) {
+        usize::MAX
+    } else {
+        params.len()
+    };
+    if (required..=max).contains(&found) {
+        return None;
+    }
+    let expected = if required == max {
+        format!(
+            "{required} argument{}",
+            if required == 1 { "" } else { "s" }
+        )
+    } else if max == usize::MAX {
+        format!("at least {required} arguments")
+    } else {
+        format!("{required} to {max} arguments")
+    };
+    Some(format!(
+        "incorrect function arity: expected {expected}, found {found}"
+    ))
+}
+
+fn callable_parameter_types(params: &[FunctionParamSig]) -> Vec<crate::sema::types::CallableParamType> {
+    params
+        .iter()
+        .map(|param| crate::sema::types::CallableParamType {
+            name: param.name,
+            ty: param.ty.clone(),
+            defaulted: param.defaulted,
+            rest: param.rest,
+        })
+        .collect()
+}
+
 impl Checker {
     pub(super) fn check_function_call_arguments_arena(
         &mut self,
@@ -42,58 +82,31 @@ impl Checker {
     ) {
         if let Some(argument) = checked_argument {
             assert!(args.is_empty(), "a checked argument replaces source arguments");
-            self.check_function_arg_list_with_checked_argument(argument, params, span);
-        } else {
-            self.check_function_arg_list_arena(arena, source, args, params, span);
-        }
-    }
-
-    fn check_function_arg_list_with_checked_argument(
-        &mut self,
-        argument: CheckedCallArgument<'_>,
-        params: &[FunctionParamSig],
-        span: Span,
-    ) {
-        let required = params
-            .iter()
-            .filter(|param| !param.defaulted && !param.rest)
-            .count();
-        let has_rest = params.iter().any(|param| param.rest);
-        let max = if has_rest { usize::MAX } else { params.len() };
-        if required > 1 || max == 0 {
-            let expected = if required == max {
-                format!("{required} argument{}", if required == 1 { "" } else { "s" })
-            } else if has_rest {
-                format!("at least {required} arguments")
-            } else {
-                format!("{required} to {max} arguments")
-            };
-            self.error(
-                span,
-                &format!("incorrect function arity: expected {expected}, found 1"),
-                DiagnosticCode::CheckArity,
-            );
-        }
-        let Some(param) = params.first() else {
-            return;
-        };
-        let expected = if param.rest {
-            match &param.ty {
-                Type::List(item) => item.as_ref(),
-                Type::Any | Type::Unknown => &param.ty,
-                _ => {
-                    self.error(
-                        span,
-                        "rest parameter requires List",
-                        DiagnosticCode::CheckRestType,
-                    );
+            let expanded = [expanded_checked_argument(argument)];
+            let params_for_binding = callable_parameter_types(params);
+            let arity = function_arity_error(params, 1);
+            let binding = match crate::sema::arguments::bind_static_arguments(
+                &params_for_binding,
+                &expanded,
+            ) {
+                Ok(binding) => binding,
+                Err(error) => {
+                    let message = arity.unwrap_or(error.message);
+                    self.error(span, &message, DiagnosticCode::CheckArity);
+                    if let Some(param) = params.first() {
+                        let expected = self.function_argument_type(param, span);
+                        self.expect_type(&expected, argument.ty, argument.span);
+                    }
                     return;
                 }
+            };
+            for (slot, argument) in binding.argument_slots.into_iter().zip(expanded) {
+                let expected = self.function_argument_type(&params[slot], span);
+                self.expect_type(&expected, &argument.ty, argument.span);
             }
-        } else {
-            &param.ty
-        };
-        self.expect_type(expected, argument.ty, argument.span);
+            return;
+        }
+        self.check_function_arg_list_arena(arena, source, args, params, span);
     }
 
     pub(super) fn check_api_arg_arena(
@@ -378,15 +391,7 @@ impl Checker {
             .any(|arg| matches!(arg.kind, ArenaCallArgKind::Named { .. }))
         {
             use crate::sema::arguments::{bind_static_arguments, expand_named_arguments};
-            let callable = params
-                .iter()
-                .map(|param| crate::sema::types::CallableParamType {
-                    name: param.name,
-                    ty: param.ty.clone(),
-                    defaulted: param.defaulted,
-                    rest: param.rest,
-                })
-                .collect::<Vec<_>>();
+            let callable = callable_parameter_types(params);
             let expanded = expand_named_arguments(arena, args, |_| None)
                 .expect("named spreads expanded before function binding");
             match bind_static_arguments(&callable, &expanded).inspect(|binding| {
@@ -443,32 +448,12 @@ impl Checker {
                 ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. }
             )
         });
-        let required = params
-            .iter()
-            .filter(|param| !param.defaulted && !param.rest)
-            .count();
-        let max = if params.iter().any(|param| param.rest) {
-            usize::MAX
-        } else {
-            params.len()
-        };
-        if !has_splice && (args.len() < required || args.len() > max) {
-            let expected = if required == max {
-                format!(
-                    "{required} argument{}",
-                    if required == 1 { "" } else { "s" }
-                )
-            } else if max == usize::MAX {
-                format!("at least {required} arguments")
-            } else {
-                format!("{required} to {max} arguments")
-            };
+        if !has_splice
+            && let Some(message) = function_arity_error(params, args.len())
+        {
             self.error(
                 span,
-                &format!(
-                    "incorrect function arity: expected {expected}, found {}",
-                    args.len()
-                ),
+                &message,
                 DiagnosticCode::CheckArity,
             );
         }
@@ -477,19 +462,7 @@ impl Checker {
         let mut can_check_following_positionals = true;
         for param in params {
             if param.rest {
-                let item_ty = match &param.ty {
-                    Type::List(item) => item.as_ref().clone(),
-                    Type::Any => Type::Any,
-                    Type::Unknown => Type::Unknown,
-                    _ => {
-                        self.error(
-                            span,
-                            "rest parameter requires List",
-                            DiagnosticCode::CheckRestType,
-                        );
-                        Type::Unknown
-                    }
-                };
+                let item_ty = self.function_argument_type(param, span);
                 for arg in &args[index..] {
                     match &arg.kind {
                         ArenaCallArgKind::Splice { value, span }
@@ -569,6 +542,24 @@ impl Checker {
                 self.expect_type(expected, &actual, call_arg_span_arena(arena, &arg.kind));
             }
             index += 1;
+        }
+    }
+
+    fn function_argument_type(&mut self, param: &FunctionParamSig, span: Span) -> Type {
+        if !param.rest {
+            return param.ty.clone();
+        }
+        match &param.ty {
+            Type::List(item) => item.as_ref().clone(),
+            Type::Any | Type::Unknown => param.ty.clone(),
+            _ => {
+                self.error(
+                    span,
+                    "rest parameter requires List",
+                    DiagnosticCode::CheckRestType,
+                );
+                Type::Unknown
+            }
         }
     }
 
@@ -682,15 +673,6 @@ impl Checker {
                     .min().unwrap_or(value.span.start());
                 diagnostic = diagnostic.with_fix_hint(crate::diagnostic::FixHint::replacement(
                     Span::new(value.span.source_id, start, start),
-                    format!("pass `{label}` by name"),
-                    format!("{label}: "),
-                ));
-            } else if matches!(
-                value.value,
-                crate::sema::arguments::ArgumentValueSource::CheckedType
-            ) {
-                diagnostic = diagnostic.with_fix_hint(crate::diagnostic::FixHint::replacement(
-                    Span::at(value.span.source_id, value.span.start()),
                     format!("pass `{label}` by name"),
                     format!("{label}: "),
                 ));

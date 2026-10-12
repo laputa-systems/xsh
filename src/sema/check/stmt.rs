@@ -732,6 +732,23 @@ impl Checker {
         ty: &Type,
         statement: Span,
     ) -> bool {
+        self.reject_bool_statement_with_source_fix(Some(source), ty, statement)
+    }
+
+    pub(super) fn reject_bool_statement_without_source_fix(
+        &mut self,
+        ty: &Type,
+        statement: Span,
+    ) -> bool {
+        self.reject_bool_statement_with_source_fix(None, ty, statement)
+    }
+
+    fn reject_bool_statement_with_source_fix(
+        &mut self,
+        source: Option<&str>,
+        ty: &Type,
+        statement: Span,
+    ) -> bool {
         if *ty != Type::Bool {
             return false;
         }
@@ -741,11 +758,50 @@ impl Checker {
                 statement,
                 "use `assert <expr>` to assert it, or `let _ = <expr>` to discard it",
             ));
-        if let Some(fix) = bool_statement_assert_fix(source, statement) {
+        if let Some(fix) = source.and_then(|source| bool_statement_assert_fix(source, statement)) {
             diagnostic = diagnostic.with_fix_hint(fix);
         }
         self.diagnostics.push(diagnostic);
         true
+    }
+
+    /// Apply statement-consumption rules to a checked value. A checked
+    /// callback has no expression source for a safe Bool assertion edit.
+    pub(super) fn check_unit_statement_value_tail(
+        &mut self,
+        source: Option<&str>,
+        actual: &Type,
+        statement: Span,
+        value: Span,
+        copy_update: Option<CopyUpdateMistake>,
+        discard_fix: bool,
+    ) -> Type {
+        self.statement_expression_spans.insert(value);
+        if actual.is_result() {
+            self.reject_discarded_value(actual, statement, value, discard_fix, copy_update);
+            if expr_ty_auto_propagates(actual) {
+                self.statement_positions
+                    .insert(statement, super::StatementPosition::Statement);
+                return Type::Unit;
+            }
+        }
+        let rejected_bool = if let Some(source) = source {
+            self.reject_bool_statement(source, actual, statement)
+        } else {
+            self.reject_bool_statement_without_source_fix(actual, statement)
+        };
+        if !rejected_bool {
+            self.record_statement_error(actual, statement);
+            if !actual.is_result()
+                && !self.is_inert_expression_discard(value)
+                && !self.is_discardable_value(actual, value)
+            {
+                self.expect_type(&Type::Unit, actual, value);
+            }
+        }
+        self.statement_positions
+            .insert(statement, super::StatementPosition::Statement);
+        Type::Unit
     }
 
     /// A statement keeps no value: `Unit` is discarded, `Result[Unit]`
@@ -3864,47 +3920,27 @@ impl Checker {
                 );
                 self.boundary.context_scope_tail_value = previous_tail;
                 self.record_inert_expression_discard(arena, ArenaExprOrRun::Expr(expr_id));
-                if actual.is_result() {
-                    if expected.is_some_and(Type::is_result_unit) {
-                        // The type stays the function's result, so its error
-                        // is still checked against the declared one and no
-                        // `error` effect is asked of a proc that only hands
-                        // its callee's result back.
-                        if expr_ty_auto_propagates(&actual)
-                            && self.propagating_statements.contains(&stmt.span)
-                        {
-                            self.statement_positions
-                                .insert(stmt.span, super::StatementPosition::Statement);
-                        }
-                        return actual;
-                    }
-                    if expr_ty_auto_propagates(&actual) {
+                if actual.is_result() && expected.is_some_and(Type::is_result_unit) {
+                    // The type stays the function's result, so its error
+                    // is still checked against the declared one and no
+                    // `error` effect is asked of a proc that only hands
+                    // its callee's result back.
+                    if expr_ty_auto_propagates(&actual)
+                        && self.propagating_statements.contains(&stmt.span)
+                    {
                         self.statement_positions
                             .insert(stmt.span, super::StatementPosition::Statement);
-                        return Type::Unit;
                     }
-                    self.reject_discarded_value(
-                        &actual,
-                        stmt.span,
-                        arena.arena.expr(expr_id).span,
-                        true,
-                        copy_update_mistake(arena, expr_id, &actual),
-                    );
+                    return actual;
                 }
-                self.statement_expression_spans
-                    .insert(arena.arena.expr(expr_id).span);
-                if !self.reject_bool_statement(source, &actual, stmt.span) {
-                    self.record_statement_error(&actual, stmt.span);
-                    if !actual.is_result()
-                        && !self.is_inert_expression_discard(arena.arena.expr(expr_id).span)
-                        && !self.is_discardable_value(&actual, arena.arena.expr(expr_id).span)
-                    {
-                        self.expect_type(&Type::Unit, &actual, arena.arena.expr(expr_id).span);
-                    }
-                }
-                self.statement_positions
-                    .insert(stmt.span, super::StatementPosition::Statement);
-                return Type::Unit;
+                return self.check_unit_statement_value_tail(
+                    Some(source),
+                    &actual,
+                    stmt.span,
+                    arena.arena.expr(expr_id).span,
+                    copy_update_mistake(arena, expr_id, &actual),
+                    true,
+                );
             }
             self.statement_positions
                 .insert(stmt.span, super::StatementPosition::Statement);
