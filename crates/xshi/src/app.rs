@@ -25,7 +25,8 @@ xshi: this shell is interactive-only and does not run scripts
 usage: xshi [-c COMMAND] [--config PATH] [--no-config] [-V|--version] [-h|--help]
 ";
 
-// Interactive submissions call the recursive XSH evaluator directly.
+// Interactive submissions recurse through checking and evaluation, so give
+// them a stack bound independent of the process main stack.
 const INTERACTIVE_EVALUATOR_STACK_BYTES: usize = 12 * 1024 * 1024;
 
 fn run_on_interactive_evaluator_stack<R: Send>(work: impl FnOnce() -> R + Send) -> R {
