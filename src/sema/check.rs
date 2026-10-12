@@ -9,7 +9,7 @@ pub(crate) use crate::sema::types::{CallableParamType, CallableType, ModuleExpor
 pub(crate) use crate::source::Span;
 use crate::source::{SourceId, SourceMap};
 pub(crate) use crate::symbol::{Name, QualifiedName};
-use crate::syntax::arena::{ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaRange, ArenaStmtKind, ArenaUserModule, StmtId, TypeExprId};
+use crate::syntax::arena::{ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaRange, ArenaStmtKind, ArenaUserModule, BlockId, ExprId, StmtId, TypeExprId};
 pub(crate) use crate::syntax::node::{BinaryOp, CoreCommand, Effect, RunKind, UnaryOp};
 
 use callable_alias::CallableAlias;
@@ -228,6 +228,64 @@ impl<'a> CheckBundleView<'a> {
 
     pub(super) fn contains_source(&self, source_id: SourceId) -> bool {
         self.all_sources || self.source_ids.contains(&source_id)
+    }
+
+    /// The expressions whose span lies in a source of this view, in table
+    /// order. A pass over one module's rows must not cost the whole shared
+    /// arena, so this reads the arena's per-source index.
+    pub(super) fn expr_ids(&self) -> Vec<ExprId> {
+        self.view_ids(self.program.arena.expr_tags.len(), ExprId::from_index, |rows, source| {
+            rows.expr_ids(source).collect()
+        })
+    }
+
+    /// The statements whose span lies in a source of this view, in table order.
+    pub(super) fn stmt_ids(&self) -> Vec<StmtId> {
+        self.view_ids(self.program.arena.stmt_tags.len(), StmtId::from_index, |rows, source| {
+            rows.stmt_ids(source).collect()
+        })
+    }
+
+    /// The blocks whose span lies in a source of this view, in table order.
+    pub(super) fn block_ids(&self) -> Vec<BlockId> {
+        self.view_ids(self.program.arena.blocks.len(), BlockId::from_index, |rows, source| {
+            rows.block_ids(source).collect()
+        })
+    }
+
+    /// Indices into the record field table of the fields that carry a span
+    /// in a source of this view.
+    pub(super) fn record_field_indices(&self) -> Vec<usize> {
+        if self.all_sources {
+            return (0..self.program.arena.record_fields.len()).collect();
+        }
+        let rows = self.program.arena.source_rows();
+        let mut indices = self
+            .source_ids
+            .iter()
+            .flat_map(|&source| rows.record_field_indices(source))
+            .collect::<Vec<_>>();
+        indices.sort_unstable();
+        indices
+    }
+
+    fn view_ids<I: Ord>(
+        &self,
+        table_len: usize,
+        from_index: fn(usize) -> I,
+        in_source: impl Fn(&crate::syntax::arena::SourceRows, SourceId) -> Vec<I>,
+    ) -> Vec<I> {
+        if self.all_sources {
+            return (0..table_len).map(from_index).collect();
+        }
+        let rows = self.program.arena.source_rows();
+        let mut ids = self
+            .source_ids
+            .iter()
+            .flat_map(|&source| in_source(&rows, source))
+            .collect::<Vec<_>>();
+        ids.sort_unstable();
+        ids
     }
 
     /// Return the immutable arena that owns every statement and module ID in this view.

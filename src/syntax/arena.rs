@@ -7,6 +7,8 @@ use crate::syntax::node::{
     UnaryOp,
 };
 use crate::syntax::token::{TokenTable, TokenTag};
+use rustc_hash::FxHashMap;
+use std::fmt;
 use std::mem::size_of;
 use std::num::NonZeroU32;
 use std::ops::{Deref, DerefMut};
@@ -182,6 +184,57 @@ mod layout_tests {
             vec_capacity_bytes(&values),
             size_of::<Vec<u32>>() + values.capacity() * size_of::<u32>()
         );
+    }
+
+    #[test]
+    fn source_rows_list_exactly_the_rows_a_table_scan_would_select() {
+        use super::ArenaProgramBuilder;
+        use crate::syntax::parser::Parser;
+
+        let mut builder = ArenaProgramBuilder::with_token_capacity(256);
+        // Source 3 is parsed on both sides of source 0, so its rows are not
+        // contiguous and sources do not arrive in id order.
+        let sources = [
+            (3, "let a = [1, 2]\nif a.len() > 1 { let b = {x: 1} }\n"),
+            (0, "let c = {y: 2}\nlet d = c.y + 1\n"),
+            (3, "let e = 5\n"),
+        ];
+        let mut root = None;
+        for (source_id, text) in sources {
+            let parsed =
+                Parser::parse_source_into_arena_builder(SourceId::new(source_id), text, &mut builder);
+            assert!(parsed.diagnostics.is_empty());
+            root = Some(parsed.statements);
+        }
+        let program = builder.finish_with_statements(root.unwrap());
+        let arena = &program.arena;
+        let rows = arena.source_rows();
+        for source_id in [SourceId::new(0), SourceId::new(3), SourceId::new(9)] {
+            let exprs = (0..arena.expr_tags.len())
+                .map(ExprId::from_index)
+                .filter(|&id| arena.expr(id).span.source_id == source_id)
+                .collect::<Vec<_>>();
+            assert_eq!(rows.expr_ids(source_id).collect::<Vec<_>>(), exprs);
+            let stmts = (0..arena.stmt_tags.len())
+                .map(StmtId::from_index)
+                .filter(|&id| arena.stmt(id).span.source_id == source_id)
+                .collect::<Vec<_>>();
+            assert_eq!(rows.stmt_ids(source_id).collect::<Vec<_>>(), stmts);
+            let blocks = (0..arena.blocks.len())
+                .map(super::BlockId::from_index)
+                .filter(|&id| arena.span(arena.block(id).span).source_id == source_id)
+                .collect::<Vec<_>>();
+            assert_eq!(rows.block_ids(source_id).collect::<Vec<_>>(), blocks);
+        }
+        assert!(rows.expr_ids(SourceId::new(0)).count() > 0);
+        assert!(rows.expr_ids(SourceId::new(3)).count() > 0);
+        assert_eq!(rows.expr_ids(SourceId::new(9)).count(), 0);
+        let records = (0..arena.expr_tags.len())
+            .map(ExprId::from_index)
+            .filter(|&id| matches!(arena.expr(id).kind, super::ArenaExprKind::Record(_)))
+            .collect::<Vec<_>>();
+        assert_eq!(rows.record_expr_ids().collect::<Vec<_>>(), records);
+        assert_eq!(records.len(), 2);
     }
 
     #[test]
@@ -4384,6 +4437,150 @@ pub struct AstArena {
     pub redirections: Vec<ArenaRedirection>,
     pub word_part_tags: Vec<ArenaWordPartTag>,
     pub word_part_data: Vec<ArenaWordPartData>,
+    source_rows: SourceRowsCache,
+}
+
+/// The rows of each table that belong to each source, in table order.
+///
+/// A workspace shares one arena between every module it loads, and a pass
+/// over one module that scans a whole table costs the workspace's size, so
+/// running it per module is quadratic in the workspace. This index is built
+/// from one scan and answers "the rows of this source" in time proportional
+/// to the answer.
+#[derive(Debug, Default)]
+pub struct SourceRows {
+    table_lens: [usize; 4],
+    exprs: FxHashMap<SourceId, Vec<u32>>,
+    stmts: FxHashMap<SourceId, Vec<u32>>,
+    blocks: FxHashMap<SourceId, Vec<u32>>,
+    /// Only the fields that carry a source span of their own: paths and names.
+    record_fields: FxHashMap<SourceId, Vec<u32>>,
+    /// Every record expression of every source.
+    record_exprs: Vec<u32>,
+}
+
+impl SourceRows {
+    fn build(arena: &AstArena) -> Self {
+        fn bucket(
+            len: usize,
+            mut source_of: impl FnMut(usize) -> Option<SourceId>,
+        ) -> FxHashMap<SourceId, Vec<u32>> {
+            let mut rows = FxHashMap::<SourceId, Vec<u32>>::default();
+            for index in 0..len {
+                if let Some(source_id) = source_of(index) {
+                    rows.entry(source_id).or_default().push(raw_index(index));
+                }
+            }
+            rows
+        }
+        Self {
+            table_lens: arena.source_row_table_lens(),
+            exprs: bucket(arena.expr_tags.len(), |index| {
+                Some(arena.expr(ExprId::from_index(index)).span.source_id)
+            }),
+            stmts: bucket(arena.stmt_tags.len(), |index| {
+                Some(arena.stmt(StmtId::from_index(index)).span.source_id)
+            }),
+            blocks: bucket(arena.blocks.len(), |index| {
+                Some(arena.span(arena.blocks[index].span).source_id)
+            }),
+            record_fields: bucket(arena.record_fields.len(), |index| {
+                match arena.record_fields[index].kind {
+                    ArenaRecordFieldKind::Path { span, .. }
+                    | ArenaRecordFieldKind::Named { span, .. } => {
+                        Some(arena.span(span).source_id)
+                    }
+                    _ => None,
+                }
+            }),
+            record_exprs: arena
+                .expr_tags
+                .iter()
+                .enumerate()
+                .filter(|(_, tag)| **tag == ArenaExprTag::Record)
+                .map(|(index, _)| raw_index(index))
+                .collect(),
+        }
+    }
+
+    /// Every record expression of every source, in table order.
+    pub fn record_expr_ids(&self) -> impl Iterator<Item = ExprId> + '_ {
+        self.record_exprs.iter().map(|&raw| ExprId::from_index(raw as usize))
+    }
+
+    pub fn expr_ids(&self, source_id: SourceId) -> impl Iterator<Item = ExprId> + '_ {
+        Self::ids(&self.exprs, source_id).map(|raw| ExprId::from_index(raw as usize))
+    }
+
+    pub fn stmt_ids(&self, source_id: SourceId) -> impl Iterator<Item = StmtId> + '_ {
+        Self::ids(&self.stmts, source_id).map(|raw| StmtId::from_index(raw as usize))
+    }
+
+    pub fn block_ids(&self, source_id: SourceId) -> impl Iterator<Item = BlockId> + '_ {
+        Self::ids(&self.blocks, source_id).map(|raw| BlockId::from_index(raw as usize))
+    }
+
+    /// Indices into `AstArena::record_fields`.
+    pub fn record_field_indices(&self, source_id: SourceId) -> impl Iterator<Item = usize> + '_ {
+        Self::ids(&self.record_fields, source_id).map(|raw| raw as usize)
+    }
+
+    fn ids(
+        rows: &FxHashMap<SourceId, Vec<u32>>,
+        source_id: SourceId,
+    ) -> impl Iterator<Item = u32> + '_ {
+        rows.get(&source_id).into_iter().flatten().copied()
+    }
+}
+
+/// Lazily built [`SourceRows`], which never takes part in comparing arenas.
+#[derive(Default)]
+struct SourceRowsCache(OnceLock<Arc<SourceRows>>);
+
+impl Clone for SourceRowsCache {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl PartialEq for SourceRowsCache {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for SourceRowsCache {}
+
+impl fmt::Debug for SourceRowsCache {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("SourceRowsCache")
+    }
+}
+
+impl AstArena {
+    fn source_row_table_lens(&self) -> [usize; 4] {
+        [
+            self.expr_tags.len(),
+            self.stmt_tags.len(),
+            self.blocks.len(),
+            self.record_fields.len(),
+        ]
+    }
+
+    /// The rows of every table grouped by source. The index is built on first
+    /// use and shared by clones of the arena; a table that has grown since
+    /// gets a fresh index instead of a stale one.
+    pub fn source_rows(&self) -> Arc<SourceRows> {
+        let cached = self
+            .source_rows
+            .0
+            .get_or_init(|| Arc::new(SourceRows::build(self)));
+        if cached.table_lens == self.source_row_table_lens() {
+            Arc::clone(cached)
+        } else {
+            Arc::new(SourceRows::build(self))
+        }
+    }
 }
 
 impl AstArena {

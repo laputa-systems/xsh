@@ -56,11 +56,12 @@ impl ReturnInferenceIndex {
                 shadows.entry(name).or_default().push(span);
             }
         };
-        for block in &program.arena.blocks {
+        // Every pass below reads only the rows of this view's sources; the
+        // arena may hold a whole workspace.
+        let blocks = view.block_ids();
+        for &block_id in &blocks {
+            let block = program.arena.block(block_id);
             let block_span = program.arena.span(block.span);
-            if !view.contains_source(block_span.source_id) {
-                continue;
-            }
             for id in program.arena.stmt_ids(block.statements) {
                 let stmt = program.arena.stmt(program.arena.core_stmt_id(id));
                 match stmt.kind {
@@ -81,20 +82,16 @@ impl ReturnInferenceIndex {
             }
         }
         drop(add_shadow);
-        for block in &program.arena.blocks {
+        for &block_id in &blocks {
+            let block = program.arena.block(block_id);
             let span = program.arena.span(block.span);
-            if !view.contains_source(span.source_id) {
-                continue;
-            }
             for param in program.arena.block_params(block.params) {
                 shadows.entry(param.name).or_default().push(span);
             }
         }
-        for raw in 0..program.arena.stmt_tags.len() {
-            let statement = program.arena.stmt(StmtId::from_index(raw));
-            if !view.contains_source(statement.span.source_id) {
-                continue;
-            }
+        let statements = view.stmt_ids();
+        for &statement_id in &statements {
+            let statement = program.arena.stmt(statement_id);
             match statement.kind {
                 ArenaStmtKind::Match { arms, .. } => {
                     for arm in program.arena.match_arms(arms) {
@@ -127,11 +124,9 @@ impl ReturnInferenceIndex {
                 _ => {}
             }
         }
-        for raw in 0..program.arena.expr_tags.len() {
-            let expr = program.arena.expr(ExprId::from_index(raw));
-            if !view.contains_source(expr.span.source_id) {
-                continue;
-            }
+        let expressions = view.expr_ids();
+        for &expr_id in &expressions {
+            let expr = program.arena.expr(expr_id);
             match expr.kind {
                 ArenaExprKind::Match { arms, .. } => {
                     for arm in program.arena.match_expr_arms(arms) {
@@ -191,20 +186,18 @@ impl ReturnInferenceIndex {
             }
         }
         let mut callees = FxHashSet::default();
-        for raw in 0..program.arena.expr_tags.len() {
-            let expr = program.arena.expr(ExprId::from_index(raw));
-            if view.contains_source(expr.span.source_id)
-                && let ArenaExprKind::Call { callee, .. } = expr.kind
-            {
+        for &expr_id in &expressions {
+            if let ArenaExprKind::Call { callee, .. } = program.arena.expr(expr_id).kind {
                 callees.insert(callee);
             }
         }
         // Named record keys may have speculative Ident rows in the arena.
         // Their spelling selects a field and does not read a binding.
-        let record_keys = program
-            .arena
-            .record_fields
-            .iter()
+        let rows = program.arena.source_rows();
+        let record_keys = view
+            .record_field_indices()
+            .into_iter()
+            .map(|index| &program.arena.record_fields[index])
             .filter_map(|field| match field.kind {
                 ArenaRecordFieldKind::Path { path, span, .. } => {
                     let span = program.arena.span(span);
@@ -228,8 +221,13 @@ impl ReturnInferenceIndex {
             })
             .collect::<FxHashSet<_>>();
         let mut references = Vec::new();
-        for raw in 0..program.arena.expr_tags.len() {
-            let id = ExprId::from_index(raw);
+        // A shorthand field of any source is a reference, so the record
+        // expressions of every source are visited with this view's.
+        let mut reference_exprs = expressions.clone();
+        reference_exprs.extend(rows.record_expr_ids());
+        reference_exprs.sort_unstable();
+        reference_exprs.dedup();
+        for id in reference_exprs {
             let expr = program.arena.expr(id);
             if view.contains_source(expr.span.source_id)
                 && let ArenaExprKind::Ident(name) = expr.kind
@@ -245,11 +243,9 @@ impl ReturnInferenceIndex {
                 }
             }
         }
-        for raw in 0..program.arena.stmt_tags.len() {
-            let stmt = program.arena.stmt(StmtId::from_index(raw));
-            if view.contains_source(stmt.span.source_id)
-                && let ArenaStmtKind::TailBareIdent(name) = stmt.kind
-            {
+        for &statement_id in &statements {
+            let stmt = program.arena.stmt(statement_id);
+            if let ArenaStmtKind::TailBareIdent(name) = stmt.kind {
                 references.push((stmt.span, name, false));
             }
         }
@@ -737,10 +733,9 @@ fn proc_may_return_value(
     });
     let body = program.arena.span(program.arena.block(def.body).span);
     tail_value
-        || (0..program.arena.stmt_tags.len()).any(|raw| {
-            let stmt = program.arena.stmt(StmtId::from_index(raw));
+        || program.arena.source_rows().stmt_ids(body.source_id).any(|id| {
+            let stmt = program.arena.stmt(id);
             matches!(stmt.kind, ArenaStmtKind::Return(Some(_)))
-                && stmt.span.source_id == body.source_id
                 && stmt.span.start() >= body.start()
                 && stmt.span.end() <= body.end()
         })
