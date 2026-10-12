@@ -13,10 +13,6 @@ is the contract for everything that is built; nothing here describes it.
   checker-known runtime-owned types, moves, and consuming operations, starting
   with use after a consuming operation in straight-line code of one scope.
   Open: how a parameter says it borrows a handle or takes it.
-- **Opaque `Any`.** `Any` can be navigated with fields, indexes, method
-  calls, and iteration, which defers shape errors to run time. Make
-  `.require(T)` or a type pattern the way in, and keep a local, greppable
-  escape hatch for schema-less code. Open: the spelling of that escape hatch.
 - **`lint.prefer-inferred-proc-return`** is opt-in, with about 160 provable
   sites here. Decide whether it becomes a default. A failed
   `.require(Contract)` raises a plain `Error` with facets; a built-in
@@ -60,64 +56,18 @@ line always computes. Three things found while porting the rest:
 
 ## Defects
 
-Language and checker:
+The remaining typed-call verifier gap is W4-owned. It establishes signatures
+for parameter, local-slot, and capture callees, but not yet for callees
+produced by a record-field selection or a call result. Keep W4 open until the
+producer provenance is verified through those expressions.
 
-- A later binding of a `with` that reads an earlier binding sharing a
-  top-level `const`'s name reads the constant.
-- An `Any` receiver takes no named arguments, so a required label cannot be
-  required there. `FsRoot.symlink(target, path)` is still positional (39
-  sites). A plain `.field` or `[i]` on an optional reports a generic type
-  error instead of naming the optional.
-- A typed call whose callee is a local, a field, or a call result is tied to
-  its callable type only by a check at run time; the verifier ties parameter
-  callees.
-- A module command other than `json.write` checks and then fails at run time
-  (`fs.fsync $p`: `unsupported-proc-command`).
-
-Limits that are a crash or a wait instead of a diagnostic:
-
-- Recursion through a stage block aborts at 100 to 150 levels. A function
-  call is bounded at 100,000 open calls (`stack-overflow`).
-- A spread of 16,000 fields takes half a minute: the checker is quadratic in
-  its width. Lowering a pipeline clones the program once per stage.
-
-Grammar and parser, outside the seeds the grammar tests generate:
-
-- The grammar accepts `while let [.. a-b] = ...`; the parser rejects it. The
-  parser accepts `xs |> first .name` and a spaced `(...) ?`; the grammar
-  rejects both.
-- Generated sentences that failed to parse in one-off deeper runs: block
-  parameters split across lines (`{ ; | c ,` then a line break), `is 10ms`
-  as a pattern, `y is a .. ]` in a slice, and a statement starting
-  `$? * $? >`.
-
-Formatter and lint:
-
-- `xsht fmt` prints a bare-block match arm body as `({ ... })`, misindents a
-  `"""` string that is the only argument of a nested multi-line call, and
-  misindents a list that holds a raw string with an unbalanced `(`.
-- `lint.redundant-optional-fallback` rewrites `(x ?? 0) + 1` to `(x) + 1`,
-  whose parentheses are then `check.redundant-parens`; the fix should drop
-  them. `check.named-arg`, the error for a positional argument that needs a
-  label, offers no fix.
-- `lint.redundant-propagation` is silent on `let x = (run.text a ?)` and
-  `let x = (run.text a)?`, whose `?` is removable.
-- `lint.prefer-fail` changes what an uncaught failure reports, from
-  `Family.Variant` to `validation`, and reads only the linted file, so a test
-  in another file that names the kind goes stale.
-- `lint.prefer-env-path-list` (a note) has 18 Laputa sites with no automatic
-  fix: the list drops the trailing empty entry of an unset variable, keeps a
-  value that is not UTF-8, and fails on a directory that contains `:`.
-
-Tests:
-
-- `lint_performance::repository_lint_is_clean_within_wall_budget` passes
-  alone and fails when the rest of the `xsht` integration target runs beside
-  it. With the utilities merged, `xsht lint` on this repository takes about
-  17 s against a 15 s budget, so the test fails alone too.
-- `showcase/tests/test-px.xsh::test_px_default_search_matches_executable_substrings`
-  once failed to spawn a file it had just written (`Text file busy`), under
-  load.
+The W9 module publication and check-count gap also remains open. A frozen
+full-corpus comparison (`e240` reference vs `a280` candidate) found 256
+prepared-publication differences across 64 paths under four profiles, while
+diagnostics matched. The captured `core/b2sum.xsh` difference is missing
+prepared `cli_plans`; the audit did not establish a user-visible runtime
+failure. No current per-workspace module check counts have been recorded.
+Close W9 only after accepted publication parity and check-count evidence.
 
 ## Laputa
 
@@ -158,10 +108,10 @@ rebuild alone takes about two minutes.
   build in the kernel; `cargo dev` preloads jemalloc into its build steps
   there (`XSH_DEV_BUILD_PRELOAD`). A plain `cargo build` does not: a release
   rebuild of `xsh` takes 163 s without the preload and 33 s with it.
-- Check a module once per workspace. `xsht lint` rechecks shared modules
-  under every root that imports them (about 37 s of thread time here, and
-  the same check again after every fix round); a per-module checked-interface
-  cache is the fix, and `xsh` startup would use the same cache.
+- Measure module-check reuse with current per-workspace pass counts. An older
+  source snapshot reported repeated checks of shared modules (about 37 s of
+  thread time and another check after each fix round); that timing is
+  historical, and no current pass-count measurement is recorded.
 - The `xsht` integration target is dominated by the corpus tests (lint and
   format invariance over this repository and Laputa) and competes with
   itself for the lint budget test.
@@ -174,6 +124,11 @@ rebuild alone takes about two minutes.
 - About 1,300 native tests run a whole script through a fresh `xsh` process;
   the few `system-report` tests take five to eight seconds each. Running a
   script test in process is undesigned.
+- The `xsht` lint wall-budget test has historical failures under concurrent
+  integration load and an older standalone `xsht lint` measurement of about
+  17 s against its 15 s budget. The scheduler and lint sources have changed
+  since those measurements; current standalone status is unmeasured, so keep
+  the existing gate authoritative and rerun it on the current release binary.
 - Run only the gates a change can affect: map changed paths to the rows of
   the table in `docs/TESTING.md`, as one `cargo dev` command.
 
@@ -229,3 +184,14 @@ From the hardening pass:
   work is still defining explicit typed conversion boundaries. Revisit only if
   real corpus bugs remain that `as`, enums, bounded scalars, or nominal
   records cannot express cleanly.
+
+Accepted safety boundaries:
+
+- `lint.prefer-env-path-list` remains a non-applying note. Rewriting path
+  strings can lose a trailing empty component for an unset variable, cannot
+  preserve non-UTF-8 values, and can fail for a directory containing `:`.
+  `tests/xsh/stdlib/env_path_list.xsh::test_prefer_env_path_list_lint_offers_the_list_without_applying_it`
+  preserves this boundary.
+- The 100,000-open-call `stack-overflow` limit is an intentional runtime
+  bound, retained by `tests/xsh/call-depth.xsh`; stage-block recursion now
+  reports the same diagnostic before native stack exhaustion.
