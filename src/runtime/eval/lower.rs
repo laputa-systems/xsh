@@ -2990,15 +2990,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     Some(ty) => {
                         let lowered =
                             lowered_arena_type(ty, self.declarations, self.current_namespace)?;
+                        let checked = self.canonical_checked_type_annotation(ty)?;
                         (
                             Some(lowered),
                             compact_type_check(
                                 lowered,
-                                checked_type_annotation(
-                                    self.declarations,
-                                    self.current_namespace,
-                                    ty,
-                                )?,
+                                &checked,
                                 compact_type_expr_name(&self.program.arena, ty),
                             ),
                         )
@@ -3076,15 +3073,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     Some(ty) => {
                         let lowered =
                             lowered_arena_type(ty, self.declarations, self.current_namespace)?;
+                        let checked = self.canonical_checked_type_annotation(ty)?;
                         (
                             Some(lowered),
                             compact_type_check(
                                 lowered,
-                                checked_type_annotation(
-                                    self.declarations,
-                                    self.current_namespace,
-                                    ty,
-                                )?,
+                                &checked,
                                 compact_type_expr_name(&self.program.arena, ty),
                             ),
                         )

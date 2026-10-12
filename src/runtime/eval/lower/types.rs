@@ -447,10 +447,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .cloned()
     }
 
+    /// Runtime checks use declaration identities, so resolve import aliases in
+    /// checked annotations before comparing them with lowered values.
+    pub(super) fn canonical_checked_type_annotation(&self, ty: TypeExprId) -> Option<Type> {
+        checked_type_annotation(self.declarations, self.current_namespace, ty)
+            .cloned()
+            .map(|ty| self.canonicalize_checked_type(ty))
+    }
+
     pub(super) fn lower_binding_checked_type(&self, ty: Option<TypeExprId>, value: ExprId) -> Option<Type> {
         match ty {
-            Some(ty) => checked_type_annotation(self.declarations, self.current_namespace, ty)
-                .cloned(),
+            Some(ty) => self.canonical_checked_type_annotation(ty),
             None => {
                 self.bodies
                     .expr_types
@@ -521,7 +528,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         if lowered_type_needs_static_check(kind) || matches!(checked_ty, Some(Type::UInt)) {
             let check = LoweredTypeCheck {
                 schema: None,
-                ty: match checked_ty {
+                ty: self.canonicalize_checked_type(match checked_ty {
                     Some(ty) => ty.clone(),
                     None => checked_type_annotation(
                         self.declarations,
@@ -529,7 +536,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         ty,
                     )?
                     .clone(),
-                },
+                }),
                 name: compact_type_expr_name(&self.program.arena, ty),
             };
             Some(push_build_row!(
