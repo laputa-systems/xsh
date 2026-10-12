@@ -10,6 +10,7 @@ type BuilderRecord = {build: Builder}
 type SpecificBuilderRecord = {build: SpecificBuilder}
 
 type Scale = pure(n: Int) -> Int
+type CallbackRecord = {double: Scale}
 
 type Join = pure(left: Str, right: Str) -> Str
 
@@ -46,6 +47,33 @@ pure double(n: Int) -> Int {
 
 pure triple(n: Int) -> Int {
   n * 3
+}
+
+pure parse_number(value: Int) -> Int {
+  var parsed_value = 0
+  with parsed = f"{value}".parse_int() {
+    parsed_value = parsed
+  } else { |failure|
+    parsed_value = -1
+  }
+  parsed_value
+}
+
+pure empty_callback_count() -> Int {
+  let callbacks: Map[Str, Scale] = {}
+  callbacks.len()
+}
+
+proc callback_from_map(callbacks: Map[Scale]) [error] -> Result[Int] {
+  with selected = callbacks.get("double") {
+    return Ok(selected(4))
+  } else { |failure| return Err(failure) }
+}
+
+proc callback_from_record(callbacks: CallbackRecord) [error] -> Result[Int] {
+  with selected = callbacks.get("double") {
+    return Ok(selected(4))
+  } else { |failure| return Err(failure) }
 }
 
 pure join(left: Str, right: Str) -> Str {
@@ -388,6 +416,29 @@ test test_typed_callable_fits_the_dynamic_handle_of_its_kind {
   let scale: Scale = double
   let handle: Pure = scale
   assert handle.call(4).require(Int)? == 8
+}
+
+test test_typed_callable_container_methods_keep_their_element_types {
+  let callbacks: List[Scale] = []
+  let updated = callbacks.push(double)
+  assert updated[0](4) == 8
+  let additions: List[Scale] = [double]
+  let extended = callbacks.extend([@additions])
+  assert extended[0](4) == 8
+
+  let by_name: Map[Str, Scale] = {}
+  let stored = by_name.set("double", double)
+  with selected = stored.get("double")? {
+    assert selected(4) == 8
+  } else { |failure| test.fail(failure.message)? }
+}
+
+test test_registered_method_checks_intrinsic_formatted_string_receiver {
+  assert parse_number(12) == 12
+}
+
+test test_empty_typed_callable_map_is_a_valid_initializer {
+  assert empty_callback_count() == 0
 }
 
 proc bump(n: Int) -> Int {
@@ -984,4 +1035,26 @@ test test_with_try_path_results_keep_registry_error_types { |ctx|
     link_target = failure.message
   }
   assert link_target == file.display()
+
+  var relative_link = ""
+  with stripped = link.strip_prefix(root)? {
+    relative_link = stripped.display()
+  } else { |failure|
+    relative_link = failure.message
+  }
+  assert relative_link == "link"
+
+  let callbacks: List[Scale] = [double]
+  with listed = callbacks.get(0)? {
+    assert listed(4) == 8
+  } else { |failure| test.fail(failure.message)? }
+
+  let callback_result: Result[Scale] = Ok(double)
+  with contextual = callback_result.context("typed-callee")? {
+    assert contextual(4) == 8
+  } else { |failure| test.fail(failure.message)? }
+
+  with parsed = "12".parse_int()? {
+    assert parsed == 12
+  } else { |failure| test.fail(failure.message)? }
 }

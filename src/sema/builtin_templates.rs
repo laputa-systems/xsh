@@ -229,7 +229,9 @@ fn seed_fixed_parameters(
     }
 }
 
-#[cfg(test)]
+/// Materializes a registered method signature from its exact receiver type.
+/// Argument-only parameters remain unresolved, so callers cannot mistake an
+/// unknown generic result for a checked return type.
 pub(crate) fn concrete_method_signature(
     method: &crate::modules::signature::MethodSig,
     receiver: &Type,

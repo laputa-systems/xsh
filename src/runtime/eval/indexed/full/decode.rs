@@ -394,6 +394,11 @@ impl<T> ListPosition<T> {
 impl<T> ListView<'_, T> {
     pub(in crate::runtime::eval) fn len(&self) -> usize { self.remaining }
 
+    #[cfg(test)]
+    pub(super) fn block_identity_for_test(&self) -> super::IrBlockId {
+        self.block
+    }
+
     pub(in crate::runtime::eval) fn preflight(&mut self) -> Result<(), IrVerifyError>
     where
         T: BorrowCodec,

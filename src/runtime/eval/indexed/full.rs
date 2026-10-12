@@ -5514,6 +5514,16 @@ impl<'a> FullDecoder<'a> {
                     ))
                 }
             }
+            // An empty map has no entries from which to infer key or value types.
+            schema::ExprView::EmptyMap => {
+                if matches!(expected, Type::Map(_, _)) {
+                    Ok(())
+                } else {
+                    Err(IrVerifyError::new(
+                        "checked empty map has a non-map expected type",
+                    ))
+                }
+            }
             schema::ExprView::CheckedValue { value, check, .. } => {
                 if check.ty.materialize()? != *expected {
                     return Err(IrVerifyError::new(
@@ -5934,24 +5944,198 @@ impl<'a> FullDecoder<'a> {
         })
     }
 
-    fn registered_path_method_type(name: &str) -> Result<Type, IrVerifyError> {
+    fn registered_method_receiver<'b>(
+        receiver_type: &'b Type,
+        name: &str,
+    ) -> Option<(crate::modules::MethodReceiver, &'b Type)> {
+        let candidate = match receiver_type {
+            Type::Validated(validated) => {
+                if let Some(receiver) = validated.validation().method_receiver()
+                    && crate::modules::api_spec()
+                        .method_overloads(receiver, name)
+                        .is_some()
+                {
+                    return Some((receiver, receiver_type));
+                }
+                return Self::registered_method_receiver(validated.base(), name);
+            }
+            Type::Result(_, _) => crate::modules::MethodReceiver::Result,
+            Type::EnvPathList => crate::modules::MethodReceiver::EnvPathList,
+            Type::Path => crate::modules::MethodReceiver::Path,
+            Type::Int | Type::UInt => crate::modules::MethodReceiver::Int,
+            Type::Float => crate::modules::MethodReceiver::Float,
+            Type::Stream(_) => crate::modules::MethodReceiver::Stream,
+            Type::List(_) => crate::modules::MethodReceiver::List,
+            Type::Set(_) => crate::modules::MethodReceiver::Set,
+            Type::Map(_, _) => crate::modules::MethodReceiver::Map,
+            Type::ErasedRecord | Type::Record(_) | Type::Module(_) => {
+                crate::modules::MethodReceiver::Record
+            }
+            Type::Str => crate::modules::MethodReceiver::Str,
+            Type::Bytes => crate::modules::MethodReceiver::Bytes,
+            Type::Status => crate::modules::MethodReceiver::Status,
+            Type::ProcessHandle => crate::modules::MethodReceiver::ProcessHandle,
+            Type::NetJob => crate::modules::MethodReceiver::NetJob,
+            Type::FsRoot => crate::modules::MethodReceiver::FsRoot,
+            Type::Digest => crate::modules::MethodReceiver::Digest,
+            Type::Regex => crate::modules::MethodReceiver::Regex,
+            _ => return None,
+        };
+        crate::modules::api_spec()
+            .method_overloads(candidate, name)
+            .map(|_| (candidate, receiver_type))
+    }
+
+    fn registered_method_signatures(
+        receiver_type: &Type,
+        name: &str,
+    ) -> Result<Option<Vec<crate::modules::signature::ModuleFnSig>>, IrVerifyError> {
+        let Some((receiver, exact_receiver_type)) =
+            Self::registered_method_receiver(receiver_type, name)
+        else {
+            return Ok(None);
+        };
         let overloads = crate::modules::api_spec()
-            .method_overloads(crate::modules::MethodReceiver::Path, name)
-            .ok_or_else(|| IrVerifyError::new("checked path method has no registry signature"))?;
-        let mut return_type = None;
+            .method_overloads(receiver, name)
+            .ok_or_else(|| IrVerifyError::new("checked method has no registry signature"))?;
+        let mut signatures = Vec::with_capacity(overloads.len());
         for overload in overloads {
+            let Some(signature) = crate::sema::builtin_templates::concrete_method_signature(
+                overload,
+                exact_receiver_type,
+            ) else {
+                return Ok(None);
+            };
+            signatures.push(signature);
+        }
+        Ok((!signatures.is_empty()).then_some(signatures))
+    }
+
+    fn registered_method_return_type(
+        receiver_type: &Type,
+        name: &str,
+    ) -> Result<Option<Type>, IrVerifyError> {
+        let Some(signatures) = Self::registered_method_signatures(receiver_type, name)? else {
+            return Ok(None);
+        };
+        let mut return_type = None;
+        for signature in signatures {
             match &return_type {
-                Some(previous) if previous != &overload.sig.return_ty => {
+                Some(previous) if previous != &signature.return_ty => {
                     return Err(IrVerifyError::new(
-                        "checked path method has ambiguous return types",
+                        "checked method has ambiguous registry return types",
                     ));
                 }
                 Some(_) => {}
-                None => return_type = Some(overload.sig.return_ty.clone()),
+                None => return_type = Some(signature.return_ty),
             }
         }
-        return_type.ok_or_else(|| {
-            IrVerifyError::new("checked path method has no registry signature")
+        Ok(return_type)
+    }
+
+    fn verify_method_callable_arguments(
+        &self,
+        receiver_type: &Type,
+        name: &str,
+        args: &[usize],
+    ) -> Result<(), IrVerifyError> {
+        let Some(signatures) = Self::registered_method_signatures(receiver_type, name)? else {
+            return Err(IrVerifyError::new(
+                "checked method has no exact parameter signature",
+            ));
+        };
+        let mut expected_arguments = None;
+        for signature in signatures {
+            let callable_arguments = signature
+                .params
+                .iter()
+                .enumerate()
+                .filter_map(|(index, parameter)| {
+                    parameter
+                        .ty
+                        .contains_typed_callable()
+                        .then_some((index, parameter.ty.clone()))
+                })
+                .collect::<Vec<_>>();
+            if let Some(previous) = &expected_arguments {
+                if previous != &callable_arguments {
+                    return Err(IrVerifyError::new(
+                        "checked method callable parameter positions are ambiguous",
+                    ));
+                }
+            } else {
+                expected_arguments = Some(callable_arguments.clone());
+            }
+            let Some((last_callable, _)) = callable_arguments.last() else {
+                continue;
+            };
+            if args.len() <= *last_callable
+                || args.len() > signature.params.len()
+                || signature.params[..=*last_callable]
+                    .iter()
+                    .any(|parameter| parameter.defaulted)
+                || signature.params[args.len()..]
+                    .iter()
+                    .any(|parameter| !parameter.defaulted)
+            {
+                return Err(IrVerifyError::new(
+                    "checked method callable arguments do not have an unambiguous parameter mapping",
+                ));
+            }
+        }
+        for (index, expected) in expected_arguments.into_iter().flatten() {
+            let argument = args.get(index).ok_or_else(|| {
+                IrVerifyError::new("checked method callable argument is missing")
+            })?;
+            self.checked_expression_matches_type(*argument, &expected)
+                .map_err(|error| {
+                    IrVerifyError::new(format!(
+                        "checked method argument disagrees with its instantiated registry parameter: {}",
+                        error.message
+                    ))
+                })?;
+        }
+        Ok(())
+    }
+
+    fn checked_method_return_type(
+        &self,
+        receiver_type: &Type,
+        name: &str,
+        args: &[usize],
+    ) -> Result<Option<Type>, IrVerifyError> {
+        let Some(registered) = Self::registered_method_return_type(receiver_type, name)? else {
+            return Ok(None);
+        };
+        if name != "get" || args.len() != 1 {
+            return Ok(Some(registered));
+        }
+        let argument = &args[0];
+        let Some(key) = self.checked_literal_string(*argument)? else {
+            return Ok(Some(registered));
+        };
+        let field = Name::intern(&key);
+        let projected = match receiver_type {
+            Type::Record(fields) => fields.get(&field).cloned(),
+            Type::Module(exports) => exports.get(&field).map(|export| export.field_type()),
+            _ => None,
+        };
+        Ok(Some(match projected {
+            Some(value) => Type::Result(Box::new(value), Box::new(Type::Error)),
+            None => registered,
+        }))
+    }
+
+    fn checked_literal_string(
+        &self,
+        instruction: usize,
+    ) -> Result<Option<Arc<str>>, IrVerifyError> {
+        Ok(match self.expression_view(instruction)? {
+            schema::ExprView::Str(value) => Some(Arc::from(value)),
+            schema::ExprView::PreparedConstant(PreparedConstantValue(LoweredValue::Str(value))) => {
+                Some(value.clone())
+            }
+            _ => None,
         })
     }
 
@@ -5963,6 +6147,13 @@ impl<'a> FullDecoder<'a> {
             return Ok(Some(ty));
         }
         match self.expression_view(instruction)? {
+            schema::ExprView::Str(_) => Ok(Some(Type::Str)),
+            schema::ExprView::FmtString(_) => Ok(Some(Type::Str)),
+            schema::ExprView::Bytes(_) => Ok(Some(Type::Bytes)),
+            schema::ExprView::Float(_) => Ok(Some(Type::Float)),
+            schema::ExprView::Bool(_) => Ok(Some(Type::Bool)),
+            schema::ExprView::Duration(_) => Ok(Some(Type::Duration)),
+            schema::ExprView::Unit => Ok(Some(Type::Unit)),
             schema::ExprView::Param(slot) => {
                 let (has_local_write, initializer) = if driver_owner_index(self.owner).is_none() {
                     self.local_immutable_let_initializer(slot)?
@@ -6019,16 +6210,23 @@ impl<'a> FullDecoder<'a> {
                 let value = self.checked_block_tail_expression(&mut body)?;
                 self.derive_checked_expression_type(value)
             }
-            schema::ExprView::Method { receiver, name, .. } => {
+            schema::ExprView::Method {
+                receiver,
+                name,
+                args,
+                ..
+            } => {
+                let args = args
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .map(|argument| argument.raw() as usize)
+                    .collect::<Vec<_>>();
                 let Some(receiver_type) =
                     self.derive_checked_expression_type(receiver.raw() as usize)?
                 else {
                     return Ok(None);
                 };
-                if receiver_type.into_unvalidated() != Type::Path {
-                    return Ok(None);
-                }
-                Self::registered_path_method_type(name).map(Some)
+                self.checked_method_return_type(&receiver_type, name, &args)
             }
             schema::ExprView::ModuleCall { op, .. } => {
                 Self::registered_api_operation_return_type(op).map(Some)
@@ -6613,6 +6811,38 @@ impl<'a> FullDecoder<'a> {
                 if ty != *callable.sig.return_ty {
                     return Err(IrVerifyError::new(
                         "checked typed-call result disagrees with its signature",
+                    ));
+                }
+            }
+            schema::ExprView::Method {
+                receiver,
+                name,
+                args,
+                ..
+            } => {
+                let args = args
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .map(|argument| argument.raw() as usize)
+                    .collect::<Vec<_>>();
+                let Some(receiver_type) =
+                    self.derive_checked_expression_type(receiver.raw() as usize)?
+                else {
+                    return Err(IrVerifyError::new(
+                        "checked method has no exact receiver type",
+                    ));
+                };
+                let Some(expected) =
+                    self.checked_method_return_type(&receiver_type, name, &args)?
+                else {
+                    return Err(IrVerifyError::new(
+                        "checked method has no exact registry return type",
+                    ));
+                };
+                self.verify_method_callable_arguments(&receiver_type, name, &args)?;
+                if ty != expected {
+                    return Err(IrVerifyError::new(
+                        "checked method result disagrees with its receiver's registry signature",
                     ));
                 }
             }
@@ -17387,7 +17617,25 @@ pure apply_result(n: Int) -> Int {
 
     #[test]
     fn with_fallible_path_results_match_their_registered_types() {
-        let source = r#"test test_with_fallible_path_results_match_their_registered_types {
+        let source = r#"type Scale = pure(n: Int) -> Int
+type Label = pure(text: Str) -> Int
+pure double(n: Int) -> Int { n * 2 }
+pure label_length(text: Str) -> Int { text.byte_len() }
+
+proc from_map(callbacks: Map[Scale]) [error] -> Result[Int] {
+  with mapped = callbacks.get("double") {
+    return Ok(mapped(1))
+  } else { |failure| return Err(failure) }
+}
+
+type CallbackRecord = {double: Scale}
+proc from_record(callbacks: CallbackRecord) [error] -> Result[Int] {
+  with mapped = callbacks.get("double") {
+    return Ok(mapped(1))
+  } else { |failure| return Err(failure) }
+}
+
+test test_with_fallible_path_results_match_their_registered_types {
   let source_path = fp"source"
   with raw_content = source_path.read_bytes()? {
     let _ = raw_content
@@ -17422,6 +17670,9 @@ pure apply_result(n: Int) -> Int {
   with removed = source_path.remove()? {
     let _ = removed
   } else { |failure| let _ = failure.message }
+  with relative_path = source_path.strip_prefix(source_path)? {
+    let _ = relative_path
+  } else { |failure| let _ = failure.message }
   with children = fs.children(source_path)? {
     let _ = children
   } else { |failure| let _ = failure.message }
@@ -17439,6 +17690,17 @@ pure apply_result(n: Int) -> Int {
   } else { |failure| let _ = failure.message }
   with contents = source_path.read_text()? {
     let _ = contents
+  } else { |failure| let _ = failure.message }
+  let callbacks: List[Scale] = [double]
+  with listed = callbacks.get(0)? {
+    let _ = listed(1)
+  } else { |failure| let _ = failure.message }
+  let callback_result: Result[Scale] = Ok(double)
+  with contextual = callback_result.context("typed-callee")? {
+    let _ = contextual(1)
+  } else { |failure| let _ = failure.message }
+  with parsed = "12".parse_int()? {
+    let _ = parsed
   } else { |failure| let _ = failure.message }
 }
 "#;
@@ -17519,6 +17781,11 @@ pure apply_result(n: Int) -> Int {
                 FullTag::ExprPathRemove,
                 alternate_type,
                 "checked path removal disagrees with its registry signature",
+            ),
+            (
+                FullTag::ExprMethod,
+                alternate_type,
+                "checked method result disagrees with its receiver's registry signature",
             ),
             (
                 FullTag::ExprFsList,
@@ -17607,6 +17874,132 @@ pure apply_result(n: Int) -> Int {
             "{}",
             error.message
         );
+    }
+
+    #[test]
+    fn typed_callable_container_method_arguments_match_their_receiver_types() {
+        let source = r#"type Scale = pure(n: Int) -> Int
+type Label = pure(text: Str) -> Int
+
+pure double(n: Int) -> Int { n * 2 }
+pure label_length(text: Str) -> Int { text.byte_len() }
+
+pure push_scale(callbacks: List[Scale], alternate: Label) -> List[Scale] {
+  let _ = alternate
+  callbacks.push(double)
+}
+
+pure set_scale(callbacks: Map[Str, Scale], alternate: Label) -> Map[Str, Scale] {
+  let _ = alternate
+  callbacks.set("double", double)
+}
+
+"#;
+        let program = fixture("typed-callable-container-method-arguments.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        let _symbols = program.symbol_owner().enter();
+
+        for (owner_name, method_name, argument_index) in [
+            ("push_scale", "push", 0),
+            ("set_scale", "set", 1),
+        ] {
+            let owner = program
+                .store
+                .functions
+                .iter()
+                .position(|function| program.store.string(function.name).unwrap() == owner_name)
+                .expect("container method owner exists");
+            let execution = FullExecution::shared_function(Arc::new(program.clone()), owner)
+                .expect("container method owner execution exists");
+            let decoder = execution.decoder();
+            let (method_argument, argument_block) = execution
+                .instruction_range
+                .clone()
+                .find_map(|instruction| {
+                    let FullTag::ExprMethod = program.store.tags[instruction] else {
+                        return None;
+                    };
+                    let schema::ExprView::Method { name, mut args, .. } =
+                        decoder.expression_view(instruction).ok()?
+                    else {
+                        return None;
+                    };
+                    if name != method_name {
+                        return None;
+                    }
+                    let block = args.block_identity_for_test();
+                    let argument = args
+                        .nth(argument_index)?
+                        .ok()?
+                        .raw() as usize;
+                    Some((argument, block))
+                })
+                .expect("container method argument exists");
+            assert_eq!(program.store.tags[method_argument], FullTag::ExprFunctionRef);
+            let method_argument_fact = program
+                .store
+                .checked_expr_types
+                .iter()
+                .position(|fact| fact.instruction as usize == method_argument)
+                .expect("container method argument has a checked type fact");
+            let method_argument_fact_value = program.store.checked_expr_types[method_argument_fact];
+            let alternate_param_fact = program
+                .store
+                .checked_expr_types
+                .iter()
+                .find(|fact| {
+                    execution.instruction_range.contains(&(fact.instruction as usize))
+                        && program.store.tags[fact.instruction as usize] == FullTag::ExprParam
+                        && fact.type_id != method_argument_fact_value.type_id
+                        && matches!(
+                            program.store.semantic.to_type(fact.type_id),
+                            Ok(Type::Callable(_))
+                        )
+                })
+                .copied()
+                .expect("same-owner alternate callable parameter has its own checked fact");
+            let alternate_instruction = alternate_param_fact.instruction as usize;
+            let schema::ExprView::Param(_) = decoder
+                .expression_view(alternate_instruction)
+                .expect("alternate parameter expression decodes")
+            else {
+                panic!("alternate expression is not a parameter");
+            };
+            let discard_statement = execution
+                .instruction_range
+                .clone()
+                .find_map(|instruction| {
+                    match decoder.statement_view(instruction).ok()? {
+                        schema::StmtView::Expr { value, .. }
+                        | schema::StmtView::Value { value } if value.raw() as usize == alternate_instruction => {
+                            Some(instruction)
+                        }
+                        _ => None,
+                    }
+                })
+                .expect("same-owner alternate parameter expression is evaluated");
+            let discard_payload = program.store.data[discard_statement].range();
+            let argument_elements = program.store.blocks[argument_block.index()]
+                .instructions
+                .bounds(program.store.extra.len())
+                .unwrap();
+            assert_eq!(program.store.tags[alternate_instruction], FullTag::ExprParam);
+            assert!(method_argument_fact_value.type_id != alternate_param_fact.type_id);
+
+            let mut forged = program.clone();
+            forged.store.extra[argument_elements.start + 1 + argument_index] =
+                u32::try_from(alternate_instruction).unwrap();
+            forged.store.extra[discard_payload.start as usize] =
+                u32::try_from(method_argument).unwrap();
+
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(
+                error.message.contains("checked method argument"),
+                "{owner_name}.{method_name}: {}",
+                error.message
+            );
+        }
+
     }
 
     #[test]
