@@ -1,5 +1,5 @@
 use super::Type;
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 
 impl Type {
     /// Whether a value of this type can contain a host resource handle.
@@ -7,7 +7,9 @@ impl Type {
     /// contents cannot be inspected from the static type.
     pub(crate) fn may_hold_resource(&self) -> bool {
         let mut pending = vec![self];
-        let mut visited = HashSet::new();
+        // Fx keeps the checker free of the process-random seed std's hasher
+        // fetches from getrandom, which an applet must run without.
+        let mut visited = FxHashSet::default();
 
         while let Some(ty) = pending.pop() {
             let identity = std::ptr::from_ref(ty);
