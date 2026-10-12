@@ -138,11 +138,11 @@ macro_rules! lowered_unix_route_pattern {
     (
         unix_rows {
             first_callable {
-                $( $first_class:ident; $first_pattern:pat $(if $first_guard:expr)? => $first_body:expr $(,)? )*
+                $( callable; $first_pattern:pat $(if $first_guard:expr)? => $first_body:expr $(,)? )*
             }
             internal { $($internal_rows:tt)* }
             callable {
-                $( $callable_class:ident; $callable_pattern:pat $(if $callable_guard:expr)? => $callable_body:expr $(,)? )*
+                $( callable; $callable_pattern:pat $(if $callable_guard:expr)? => $callable_body:expr $(,)? )*
             }
             fallback { $($fallback_rows:tt)* }
         }
@@ -155,7 +155,7 @@ macro_rules! lowered_linux_route_pattern {
     (
         linux_rows {
             host_rows {
-                $( $host_class:ident; $host_pattern:pat $(if $host_guard:expr)? => $host_body:expr $(,)? )*
+                $( callable; $host_pattern:pat $(if $host_guard:expr)? => $host_body:expr $(,)? )*
             }
             host_fallback { $($fallback_rows:tt)* }
             fake_rows { $($fake_rows:tt)* }

@@ -22,13 +22,13 @@ macro_rules! define_linux_call_authority {
             host_rows {
                 $(
                     $(#[$host_attribute:meta])*
-                    $host_class:ident; $host_pattern:pat $(if $host_guard:expr)? => $host_body:expr $(,)?
+                    callable; $host_pattern:pat $(if $host_guard:expr)? => $host_body:expr $(,)?
                 )*
             }
             host_fallback {
                 $(
                     $(#[$fallback_attribute:meta])*
-                    $fallback_class:ident; $fallback_pattern:pat $(if $fallback_guard:expr)? => $fallback_body:expr $(,)?
+                    fallback; $fallback_pattern:pat $(if $fallback_guard:expr)? => $fallback_body:expr $(,)?
                 )*
             }
             fake_rows {

@@ -21,25 +21,25 @@ macro_rules! define_unix_call_authority {
             first_callable {
                 $(
                     $(#[$first_attribute:meta])*
-                    $first_class:ident; $first_pattern:pat $(if $first_guard:expr)? => $first_body:expr $(,)?
+                    callable; $first_pattern:pat $(if $first_guard:expr)? => $first_body:expr $(,)?
                 )*
             }
             internal {
                 $(
                     $(#[$internal_attribute:meta])*
-                    $internal_class:ident; $internal_pattern:pat $(if $internal_guard:expr)? => $internal_body:expr $(,)?
+                    internal; $internal_pattern:pat $(if $internal_guard:expr)? => $internal_body:expr $(,)?
                 )*
             }
             callable {
                 $(
                     $(#[$callable_attribute:meta])*
-                    $callable_class:ident; $callable_pattern:pat $(if $callable_guard:expr)? => $callable_body:expr $(,)?
+                    callable; $callable_pattern:pat $(if $callable_guard:expr)? => $callable_body:expr $(,)?
                 )*
             }
             fallback {
                 $(
                     $(#[$fallback_attribute:meta])*
-                    $fallback_class:ident; $fallback_pattern:pat $(if $fallback_guard:expr)? => $fallback_body:expr $(,)?
+                    fallback; $fallback_pattern:pat $(if $fallback_guard:expr)? => $fallback_body:expr $(,)?
                 )*
             }
         }
