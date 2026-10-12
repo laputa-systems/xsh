@@ -7257,7 +7257,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     ),
                     _ => unreachable!("static call tag has a typed call view"),
                 };
-                let capacity = args.len();
                 args.preflight()
                     .map_err(|error| indexed_error(error, value_span))?;
                 let position = args.position();
@@ -7269,7 +7268,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     function,
                     kind,
                     false,
-                    Vec::with_capacity(capacity),
+                    Vec::new(),
                     value_span,
                     next,
                 )?;
