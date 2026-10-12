@@ -118,6 +118,7 @@ pub(super) fn lint_try_capture_helpers(
         let mut locals = BTreeSet::new();
         let mut propagated = false;
         let mut remaining = 128;
+        let mut pending = Vec::new();
         let body_statements = program.arena.stmt_ids(body.statements).collect::<Vec<_>>();
         if body_statements.is_empty()
             || !body_statements
@@ -144,6 +145,7 @@ pub(super) fn lint_try_capture_helpers(
                                     &locals,
                                     &mut propagated,
                                     &mut remaining,
+                                    &mut pending,
                                 )
                             {
                                 return false;
@@ -158,6 +160,7 @@ pub(super) fn lint_try_capture_helpers(
                                 &locals,
                                 &mut propagated,
                                 &mut remaining,
+                                &mut pending,
                             )
                         }
                         _ => false,
@@ -225,156 +228,146 @@ fn closed_scalar_expression(
     locals: &BTreeSet<Name>,
     propagated: &mut bool,
     remaining: &mut usize,
+    pending: &mut Vec<ExprId>,
 ) -> bool {
-    let mut pending = vec![value];
-    while let Some(expr) = pending.pop() {
-        if *remaining == 0 {
-            return false;
-        }
-        *remaining -= 1;
-        let kind = program.arena.expr(expr).kind;
-        let children = match kind {
-            ArenaExprKind::Int(_)
-            | ArenaExprKind::Str(_)
-            | ArenaExprKind::Bool(_)
-            | ArenaExprKind::Float(_)
-            | ArenaExprKind::Duration(_)
-            | ArenaExprKind::PathStr(_) => continue,
-            ArenaExprKind::Ident(name) if locals.contains(&name) => continue,
-            ArenaExprKind::Try(_) => {
-                let mut children = Vec::new();
-                let mut unsupported_child = false;
-                program.arena.for_each_expr_child(expr, |child| match child {
-                    ArenaChild::Expr(child) => children.push(child),
-                    ArenaChild::Stmt(_)
-                    | ArenaChild::Pattern(_)
-                    | ArenaChild::Block(_)
-                    | ArenaChild::BindingTarget(_)
-                    | ArenaChild::AssignTarget(_)
-                    | ArenaChild::TypeExpr(_)
-                    | ArenaChild::BuilderBlock(_) => unsupported_child = true,
-                });
-                if unsupported_child || children.len() != 1 {
-                    return false;
-                }
-                *propagated = true;
-                children
+    pending.clear();
+    pending.push(value);
+    let valid = 'walk: {
+        while let Some(expr) = pending.pop() {
+            if *remaining == 0 {
+                break 'walk false;
             }
-            ArenaExprKind::Call { callee, args } => {
-                let ArenaExprKind::Field { base, name } = program.arena.expr(callee).kind else {
-                    return false;
-                };
-                let permitted = match checked.expr_types.get(&program.arena.expr(base).span) {
-                    Some(Type::Path) => name == "read_text",
-                    Some(Type::Str) => matches!(name.as_str().as_ref(), "trim" | "parse_int"),
-                    _ => false,
-                };
-                if !permitted {
-                    return false;
-                }
-                let Some(argument_values) = program
-                    .arena
-                    .call_args(args)
-                    .iter()
-                    .map(|argument| match argument.kind {
-                        ArenaCallArgKind::Positional(value)
-                        | ArenaCallArgKind::Named { value, .. } => Some(value),
-                        ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => {
-                            None
+            *remaining -= 1;
+            let kind = program.arena.expr(expr).kind;
+            match kind {
+                ArenaExprKind::Int(_)
+                | ArenaExprKind::Str(_)
+                | ArenaExprKind::Bool(_)
+                | ArenaExprKind::Float(_)
+                | ArenaExprKind::Duration(_)
+                | ArenaExprKind::PathStr(_) => continue,
+                ArenaExprKind::Ident(name) if locals.contains(&name) => continue,
+                ArenaExprKind::Try(_) => {
+                    let mut expression_children = 0;
+                    let mut unsupported_child = false;
+                    program.arena.for_each_expr_child(expr, |child| match child {
+                        ArenaChild::Expr(child) => {
+                            pending.push(child);
+                            expression_children += 1;
                         }
-                    })
-                    .collect::<Option<Vec<_>>>()
-                else {
-                    return false;
-                };
+                        ArenaChild::Stmt(_)
+                        | ArenaChild::Pattern(_)
+                        | ArenaChild::Block(_)
+                        | ArenaChild::BindingTarget(_)
+                        | ArenaChild::AssignTarget(_)
+                        | ArenaChild::TypeExpr(_)
+                        | ArenaChild::BuilderBlock(_) => unsupported_child = true,
+                    });
+                    if unsupported_child || expression_children != 1 {
+                        break 'walk false;
+                    }
+                    *propagated = true;
+                }
+                ArenaExprKind::Call { callee, args } => {
+                    let ArenaExprKind::Field { base, name } = program.arena.expr(callee).kind else {
+                        break 'walk false;
+                    };
+                    let permitted = match checked.expr_types.get(&program.arena.expr(base).span) {
+                        Some(Type::Path) => name == "read_text",
+                        Some(Type::Str) => {
+                            matches!(name.as_str().as_ref(), "trim" | "parse_int")
+                        }
+                        _ => false,
+                    };
+                    if !permitted {
+                        break 'walk false;
+                    }
+                    if !program.arena.call_args(args).iter().all(|argument| {
+                        matches!(
+                            argument.kind,
+                            ArenaCallArgKind::Positional(_) | ArenaCallArgKind::Named { .. }
+                        )
+                    }) {
+                        break 'walk false;
+                    }
 
-                let mut call_children = Vec::new();
-                let mut unsupported_child = false;
-                program.arena.for_each_expr_child(expr, |child| match child {
-                    ArenaChild::Expr(child) => call_children.push(child),
-                    ArenaChild::Stmt(_)
-                    | ArenaChild::Pattern(_)
-                    | ArenaChild::Block(_)
-                    | ArenaChild::BindingTarget(_)
-                    | ArenaChild::AssignTarget(_)
-                    | ArenaChild::TypeExpr(_)
-                    | ArenaChild::BuilderBlock(_) => unsupported_child = true,
-                });
-                if unsupported_child
-                    || call_children.first() != Some(&callee)
-                    || call_children.get(1..) != Some(argument_values.as_slice())
-                {
-                    return false;
+                    let child_start = pending.len();
+                    let mut callee_seen = false;
+                    let mut unsupported_child = false;
+                    program.arena.for_each_expr_child(expr, |child| match child {
+                        ArenaChild::Expr(child) if !callee_seen => {
+                            callee_seen = true;
+                            if child != callee {
+                                unsupported_child = true;
+                            }
+                        }
+                        ArenaChild::Expr(child) => pending.push(child),
+                        ArenaChild::Stmt(_)
+                        | ArenaChild::Pattern(_)
+                        | ArenaChild::Block(_)
+                        | ArenaChild::BindingTarget(_)
+                        | ArenaChild::AssignTarget(_)
+                        | ArenaChild::TypeExpr(_)
+                        | ArenaChild::BuilderBlock(_) => unsupported_child = true,
+                    });
+                    if unsupported_child || !callee_seen {
+                        break 'walk false;
+                    }
+                    pending[child_start..].reverse();
+                    pending.push(base);
                 }
-                let mut receiver = Vec::new();
-                let mut unsupported_receiver_child = false;
-                program.arena.for_each_expr_child(callee, |child| match child {
-                    ArenaChild::Expr(child) => receiver.push(child),
-                    ArenaChild::Stmt(_)
-                    | ArenaChild::Pattern(_)
-                    | ArenaChild::Block(_)
-                    | ArenaChild::BindingTarget(_)
-                    | ArenaChild::AssignTarget(_)
-                    | ArenaChild::TypeExpr(_)
-                    | ArenaChild::BuilderBlock(_) => unsupported_receiver_child = true,
-                });
-                if unsupported_receiver_child || receiver.as_slice() != [base] {
-                    return false;
-                }
-                let mut children = vec![base];
-                children.extend(call_children.into_iter().skip(1));
-                children
+                ArenaExprKind::Null
+                | ArenaExprKind::GlobStr(_)
+                | ArenaExprKind::FmtString(_)
+                | ArenaExprKind::PathFmtString(_)
+                | ArenaExprKind::Bytes(_)
+                | ArenaExprKind::Regex(_)
+                | ArenaExprKind::Item
+                | ArenaExprKind::LastStatus
+                | ArenaExprKind::List(_)
+                | ArenaExprKind::ListComp { .. }
+                | ArenaExprKind::MapComp { .. }
+                | ArenaExprKind::Set(_)
+                | ArenaExprKind::SetComp { .. }
+                | ArenaExprKind::Record(_)
+                | ArenaExprKind::If { .. }
+                | ArenaExprKind::Match { .. }
+                | ArenaExprKind::PatternTest { .. }
+                | ArenaExprKind::PatternCondition { .. }
+                | ArenaExprKind::Unary { .. }
+                | ArenaExprKind::ComparisonChain(_)
+                | ArenaExprKind::Binary { .. }
+                | ArenaExprKind::ValuePipelineCall { .. }
+                | ArenaExprKind::Field { .. }
+                | ArenaExprKind::NullSafeField { .. }
+                | ArenaExprKind::Index { .. }
+                | ArenaExprKind::Slice { .. }
+                | ArenaExprKind::EnvString(_)
+                | ArenaExprKind::EnvPathList
+                | ArenaExprKind::Pipeline { .. }
+                | ArenaExprKind::StructuredPipeline { .. }
+                | ArenaExprKind::Run(_)
+                | ArenaExprKind::Spawn(_)
+                | ArenaExprKind::Wait(_)
+                | ArenaExprKind::BuilderCall { .. }
+                | ArenaExprKind::Capture(_)
+                | ArenaExprKind::Require { .. }
+                | ArenaExprKind::Convert { .. }
+                | ArenaExprKind::Collect { .. }
+                | ArenaExprKind::Loop { .. }
+                | ArenaExprKind::Retry { .. }
+                | ArenaExprKind::ValueBlock(_)
+                | ArenaExprKind::ErrorContext { .. }
+                | ArenaExprKind::ContextScope { .. }
+                | ArenaExprKind::TempDirScope { .. }
+                | ArenaExprKind::ResourceScope { .. }
+                | ArenaExprKind::Ident(_) => break 'walk false,
             }
-            ArenaExprKind::Null
-            | ArenaExprKind::GlobStr(_)
-            | ArenaExprKind::FmtString(_)
-            | ArenaExprKind::PathFmtString(_)
-            | ArenaExprKind::Bytes(_)
-            | ArenaExprKind::Regex(_)
-            | ArenaExprKind::Item
-            | ArenaExprKind::LastStatus
-            | ArenaExprKind::List(_)
-            | ArenaExprKind::ListComp { .. }
-            | ArenaExprKind::MapComp { .. }
-            | ArenaExprKind::Set(_)
-            | ArenaExprKind::SetComp { .. }
-            | ArenaExprKind::Record(_)
-            | ArenaExprKind::If { .. }
-            | ArenaExprKind::Match { .. }
-            | ArenaExprKind::PatternTest { .. }
-            | ArenaExprKind::PatternCondition { .. }
-            | ArenaExprKind::Unary { .. }
-            | ArenaExprKind::ComparisonChain(_)
-            | ArenaExprKind::Binary { .. }
-            | ArenaExprKind::ValuePipelineCall { .. }
-            | ArenaExprKind::Field { .. }
-            | ArenaExprKind::NullSafeField { .. }
-            | ArenaExprKind::Index { .. }
-            | ArenaExprKind::Slice { .. }
-            | ArenaExprKind::EnvString(_)
-            | ArenaExprKind::EnvPathList
-            | ArenaExprKind::Pipeline { .. }
-            | ArenaExprKind::StructuredPipeline { .. }
-            | ArenaExprKind::Run(_)
-            | ArenaExprKind::Spawn(_)
-            | ArenaExprKind::Wait(_)
-            | ArenaExprKind::BuilderCall { .. }
-            | ArenaExprKind::Capture(_)
-            | ArenaExprKind::Require { .. }
-            | ArenaExprKind::Convert { .. }
-            | ArenaExprKind::Collect { .. }
-            | ArenaExprKind::Loop { .. }
-            | ArenaExprKind::Retry { .. }
-            | ArenaExprKind::ValueBlock(_)
-            | ArenaExprKind::ErrorContext { .. }
-            | ArenaExprKind::ContextScope { .. }
-            | ArenaExprKind::TempDirScope { .. }
-            | ArenaExprKind::ResourceScope { .. }
-            | ArenaExprKind::Ident(_) => return false,
-        };
-        pending.extend(children.into_iter().rev());
-    }
-    true
+        }
+        true
+    };
+    pending.clear();
+    valid
 }
 
 #[derive(Clone, Copy)]
