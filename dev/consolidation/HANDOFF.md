@@ -1,5 +1,82 @@
 # Consolidation restart handoff
 
+## Selected-context fix and latest constructor publication delta — 2026-10-12
+
+Main is `b3e7d965` before this checkpoint; W4/W9 remain private and unaccepted.
+The owner asked whether the campaign is nearly finished: implementation is
+mostly in place, but exact correctness closure and final integrated/performance
+gates still remain. Continue unattended rather than treating focused tests as
+final acceptance.
+
+W4 specialized Result producer/lowering correction is sealed as `17db51da`,
+parent `fb770640`, diff SHA-256
+`25c9a8dda59e3d76d704ddab4251617a41ee03e56e6111c1e857a5524ff7976e`.
+It removes duplicate FsFiles/FsWalk Try lowering that bypassed source facts;
+normal lowering attaches facts to the actual producer row. Registry-derived
+result shapes include conditional wrappers. Private Rust checks and native
+callables 36/36 in both modes pass; fresh private discovery has 13,648 IDs.
+Final review identifies generic registered Method results as a remaining
+producer gap (Path methods, scalar fallible methods, container getters and
+Result.context). The author owns receiver-specific registry template
+instantiation and exact callable/Error provenance, with no blanket scalar Path
+contract. Generic source remains mutable; do not integrate that WIP.
+
+Verifier feature-witness slice is privately sealed as `0b33906c`, with
+`17db51da` ported as `f36b46d5`. Six actual semantic queries enumerate all 92
+expression views, and the narrow function-reference source query is shared by
+its two clients. Private source check, corruption checks and callables 36/36
+both modes pass. Receipt SHA-256 is
+`69ad67a75d70874960410857f4294d0c351b0068aa96be9d5588aeea2bee3e54`.
+This seal predates the generic Method follow-up; it needs that port and a
+new-helper feature audit before final acceptance.
+
+W9 nominal probe correction `40c9d792` is sealed, independently reviewed,
+and reproduces/fixes the missing nominal index panic. All 62 checker units,
+seven constant units and source 1075 in four profiles pass. Fresh four-worker
+owner-v2 attempt 1 stopped on a controller helper omission, cleaned all owned
+jobs and was preserved. Attempt 2 proves 47 complete ranges (1,175 inputs /
+4,700 outcomes), then finds a real publication mismatch at source 1631,
+`tests/xsh/stdlib/rel_path.xsh`, check-cli profile. Diagnostics match. The
+reference publishes constructor instances Defaults, Entry, Inventory; candidate
+publishes Inventory, Entry. All three are root-owned SourceId(0); Defaults
+exists in checked call facts but is missing from the published instance cache.
+Captured original input/helper/reference/candidate identities and both outputs
+remain under `w9-publication-mismatch-1631`. No proof jobs remain. The owner
+is adding a red regression in isolated
+`module-record-instance-publication-followup` before repairing cache admission
+and reference ordering. Keep the declaration-only nominal fix; do not sort
+rendered outputs or drop publication fields to hide the difference.
+
+Discovery context/cancellation fixes are privately sealed as `14de6072` and
+`3f39188c` on top of master port `4b990e07`. The first creates context-qualified
+internal module keys while preserving physical paths and namespaces, and adds
+a cancellation-aware loader API alongside the existing never-cancel API.
+The second reproduces second-context enum/Error construction failure and
+confines alias-owner lookup to selected module identities and root statement
+ranges. Preparation is capped at 32 independently of execution --jobs;
+execution fairness and its per-file eight-case bound are unchanged. Focused
+CLI cases and optimized builds pass; the owner did not retain follow-up raw
+logs. Independent source/artifact review finds no remaining defect, report
+SHA-256 `db1c2c328fbfce4d6b046b22945fefb02f3cbe9ad3e2c22d9e32cba540fcf6d5`.
+The earlier broad global-function collision claim is explicitly withdrawn:
+function definitions already use selected scope. Final combined W4 canonical
+Error identity and scoped-import tests are still required.
+
+The final correctness launcher is prepared under real-main
+`.work/final-review-evidence/final-correctness-gates`, not executed. Independent
+review caught and corrected hidden runtime Cargo builds, feature-overwritten
+products, manifest trust and signal cleanup. Distinct product/harness/runtime/
+privileged targets preserve exact feature variants; runtime tests keep their
+existing nested Cargo contract in a managed writable target, UID 1000, pinned
+compiler/cache/lock and compiler-only jemalloc. No tracked test seam was added.
+Final static review SHA-256 is
+`8a2a1a1fc7ff375b72b002415673999e9c09ac15819d99ffe6bef20ff0ee9cb2`.
+Launcher SHA-256 `a8281383228289b12eb5494784a9a4a46e784287ce1ed5a0f11c46f9e9c59e68`;
+runner `fcfb41b49fc28818ac90b1a6809bd941f56bcbce85cc6e528125c08bc66866af`;
+manifest `993d3f49dfb70ff02cb8c76324c82f6348e30850e722124e5ba24c55c4016b58`.
+W4/W9 integration, final source freeze, complete publication parity, generated
+docs, observers/review bundle and release performance remain pending.
+
 ## Result producer cohort and nominal-domain regression — 2026-10-12
 
 Main `0769da30` retains the frozen historical ratchet exclusion and current
