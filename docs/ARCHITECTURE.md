@@ -125,6 +125,11 @@ reads its `module_path`. The runner, `xshi`, and `xsht` all get project roots
 there; `xsht` reads the rest of the file itself, and `xsh` never learns the
 tool configuration.
 
+A shared test workspace keys loaded modules by physical path and the entry's
+module-root context. The same physical module can therefore have separate
+import closures without changing its source path or visible namespace.
+Lowering resolves import aliases only within the selected root's module closure.
+
 ## Pipeline
 
 | Stage | Primary objects | Owner |
@@ -232,6 +237,13 @@ identities, rather than starting another check for each source in the bundle.
 range and its reachable module closure. Workspace lint workers reuse that arena
 and prepare each root against its view instead of copying and reshaping the
 program for every worker.
+
+`CheckSession` prepares module records serially and caches owner-local bindings,
+inference, constructors, constants, and diagnostics. A bundle view combines
+the selected entry's dependency-visible facts without replaying dependency
+bodies. Constant preparation transfers newly admitted constructor instances
+back to the owner's facts in admission order; dependency instances remain
+owned by their prepared records.
 
 **Lowering and verification.** `FullBuilder::build_compact` reserves function
 identities, lowers each checked body into short-lived construction scratch,

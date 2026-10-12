@@ -334,7 +334,8 @@ a script can carry arbitrary bytes to child processes.
 
 A sole rest parameter in `proc main(...argv: List[Bytes])` opts the entry
 script into raw argument bytes. In that entry context, immutable `args` also
-has type `List[Bytes]`, including in imported modules. Empty arguments and
+has type `List[Bytes]`, including in imported modules. Local or imported type
+aliases resolving to `List[Bytes]` retain the same entry semantics. Empty arguments and
 option-like arguments retain their original bytes. Decode text explicitly
 with `.utf8()` and construct byte paths with `Path.parse_bytes`; there is no
 lossy decoding. Fixed or mixed byte parameters and `cli main` do not opt into
