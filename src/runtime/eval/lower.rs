@@ -4312,7 +4312,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ArenaStmtKind::Assert { condition, message } => {
                 let span = self.program.arena.expr(condition).span;
                 let value = self.lower_expr(condition, slots, current_function, item_slot)?;
-                self.mark_comparison_chain_assertion(value);
                 let message = match message {
                     Some(message) => {
                         Some(self.lower_expr(message, slots, current_function, item_slot)?)
@@ -5036,7 +5035,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     expr,
                     BuildExprRow::ComparisonChain {
                         pairs,
-                        assertion: false
                     }
                 ))
             }

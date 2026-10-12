@@ -280,16 +280,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
     }
 
-    // Conditions and returned Bool values keep ordinary short-circuit behavior;
-    // only statement assertions ask the chain to retain failed pair values.
-    pub(super) fn mark_comparison_chain_assertion(&mut self, value: BuildExprId) {
-        if let BuildExprRow::ComparisonChain { assertion, .. } =
-            &mut self.scratch.borrow_mut().expressions[value.index()]
-        {
-            *assertion = true;
-        }
-    }
-
     pub(super) fn lower_fmt_string(
         &mut self,
         parts: crate::syntax::arena::ArenaRange,

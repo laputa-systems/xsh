@@ -944,13 +944,15 @@ impl FullProgram {
             .checked_add(index)
             .filter(|step| *step < steps.end)
             .ok_or_else(|| IrVerifyError::new("driver root step is out of bounds"))?;
-        let step = self.store.driver_steps[step];
-        if step.tag != FullDriverTag::Defer {
+        let view = self.driver_step_view_absolute(step)?;
+        if view.tag() != FullDriverTag::Defer {
             return Err(IrVerifyError::new("driver step is not a deferred action"));
         }
-        match self.store.payload(step.data.range())? {
-            [_, flag, ..] => Ok(*flag == 1),
-            _ => Err(IrVerifyError::new("deferred driver step has no trigger")),
+        let execution = view.execution()?;
+        let payload = view.payload()?;
+        match view.decode_payload(&execution, payload)? {
+            schema::DriverPayloadView::Defer { on_error, .. } => Ok(on_error),
+            _ => Err(IrVerifyError::new("driver step is not a deferred action")),
         }
     }
 
@@ -6103,6 +6105,14 @@ fn verify_node_metadata(
     }
     if tag == FullTag::ExprComparisonChain {
         decoder.verify_comparison_chain_shape(payload)?;
+    }
+    if tag == FullTag::ExprFsList {
+        let op = RuntimeOp::decode(decoder, &mut payload.clone())?;
+        if op != RuntimeOp::FsChildren {
+            return Err(IrVerifyError::new(
+                "filesystem list operation is not `fs.children`",
+            ));
+        }
     }
     if tag == FullTag::ExprTypedCall {
         decoder.verify_typed_call_shape(payload)?;
@@ -11617,6 +11627,30 @@ proc configured() [] -> Int {
                 .message
                 .contains("ordering operators")
         );
+    }
+
+    #[test]
+    fn fs_list_verifier_requires_the_filesystem_children_operation() {
+        let program = fixture("fs-list.xsh", "let children = fs.children(p\".\")?\n");
+        let instruction = program
+            .store
+            .tags
+            .iter()
+            .position(|tag| *tag == FullTag::ExprFsList)
+            .expect("fs.children lowers to an indexed filesystem-list expression");
+        let payload = program.store.data[instruction]
+            .range()
+            .bounds(program.store.extra.len())
+            .expect("filesystem-list expression payload is in bounds");
+        let mut malformed = program;
+        let op = u32::try_from(malformed.store.runtime_ops.len()).expect("operation index fits");
+        malformed.store.runtime_ops.push(RuntimeOp::FsMkdir);
+        malformed.store.extra[payload.start] = op;
+
+        assert!(FullVerifier::verify(&malformed)
+            .unwrap_err()
+            .message
+            .contains("filesystem list operation is not `fs.children`"));
     }
 
     #[test]

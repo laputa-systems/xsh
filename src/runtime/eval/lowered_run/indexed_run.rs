@@ -916,12 +916,12 @@ fn indexed_frame_apply_host_value(
             let value = LoweredValue::Stream(Box::new(stream));
             Ok(if result_wrapped { lowered_result_ok(value) } else { value })
         }
-        ExprView::FsList { stat, ordered, span, .. } => {
+        ExprView::FsList { op, stat, ordered, span, .. } => {
             let path = Some(values.next().expect("filesystem list path operand").into_module_argument());
             let stat = stat.map(|_| values.next().expect("filesystem list stat operand").into_module_argument());
             let ordered = ordered.map(|_| values.next().expect("filesystem list ordered operand").into_module_argument());
             assert!(values.next().is_none(), "filesystem list operand count mismatch");
-            indexed_frame_apply_module_call(evaluator, RuntimeOp::FsChildren, vec![path, stat, ordered], span)
+            indexed_frame_apply_module_call(evaluator, op, vec![path, stat, ordered], span)
         }
         ExprView::FsMkdir { parents, span, .. } | ExprView::PathMkdir { parents, span, .. } => {
             let path = Some(values.next().expect("mkdir path operand").into_module_argument());

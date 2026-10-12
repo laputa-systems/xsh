@@ -698,7 +698,6 @@ instruction_schema! {
         Param(slot: usize) => ExprParam = 31 [0; Operands; FrameApply; EagerAtom];
         ComparisonChain {
             pairs: Vec<BuildExprId>,
-            assertion: bool,
         } => ExprComparisonChain = 32 [0; Operands; FrameControl];
         Binary {
             op: BinaryOp,

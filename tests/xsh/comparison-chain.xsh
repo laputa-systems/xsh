@@ -136,5 +136,6 @@ assert observed(1) < observed(2) < observed(1) < 1 / 0
 """
   assert "AssertionError.Failed" in failed.stderr
   assert "2 < 1" in failed.stderr
+  assert ":5:8" in failed.stderr, failed.stderr
   assert "division-by-zero" not in failed.stderr, failed.stderr
 }
