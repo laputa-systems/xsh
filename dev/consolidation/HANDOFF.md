@@ -1,5 +1,74 @@
 # Consolidation restart handoff
 
+## Paused for reboot; sealed work integrated — 2026-10-12
+
+The owner requested wind-down, integration and a handoff, then stop. The goal
+is paused. Do not resume implementation, builds or tests until the owner asks.
+This section supersedes the older private-integration status below.
+
+Main `/home/josh/d/laputa-systems/xsh`, branch `master`, now contains the complete
+sealed integration at `b494c761a633b10d5857809d79717306c791dae1`. Root
+fast-forwarded the prepared integration branch without merging diagnostic WIP.
+The batch includes W4 producer/callee proofs through `31ddb470`, all eight
+exhaustive expression-query witnesses through `0749d6ac`, runtime dispatch and
+counter closure, W9 owner preparation and constructor publication, contextual
+loader/cancellation and selected-scope alias resolution, and annotated Error
+alias checks. Canonical architecture/SPEC prose is integrated; generated docs
+have not been regenerated. `git diff --check` passes. No new build or test was
+started during wind-down, and the combined master has not been verified.
+
+**First issue on resume:** a top-level direct `with` binding of `Result[Scale]`
+rejects a typed callback success value. Frozen `abdd589c` accepts it; the sealed
+W4 candidate rejects it. Function-local direct `with` works. The minimal native
+regression is `test_typed_callable_success_value_direct_with_in_program`, using
+`test.run_xsh` to compile the standalone root program. A temporary Rust trace
+reports `temporary driver slot has a statement writer`. Inspect the
+`DRIVER_SLOT_TEMPORARY` classification and top-level `StmtWith` writer proof;
+preserve the stricter ExprMatch/imported-module temporary provenance checks.
+
+The exact unfinished regression and temporary diagnostic are committed as
+`ba9cab12` on `lane/typed-callee-owned-master-port`, parent `31ddb470`, in the
+existing worktree
+`/home/josh/d/laputa-systems/xsh-consolidation-lanes/typed-callee-owned-master-port`.
+That worktree is clean. This is a red checkpoint, not a production fix. Do not
+merge it unchanged: retain the native regression, diagnose/fix the driver
+classification, and remove the temporary Rust test/trace before sealing.
+The next owner should work from current master and port this small checkpoint,
+then run the single regression and relevant existing corruption tests first.
+
+Verified results retained from the sealed lanes: W9 diagnostic/publication
+parity for all 1,690 original inputs and 6,760 profile outcomes; W4 Rust
+corruption checks (20 typed-callable cases plus registered producer, cycle,
+layout and call-through checks); native callables 41/41 in both execution
+modes; Error alias CLI roots 3/3 and focused callable/resource/Error cases in
+both modes. W9's final controller invocation initially failed on `.receipt`
+versus `receipt.tsv` naming; an isolated adapter passed the unchanged strict
+verifier, independently rerun by Root, without rerunning cases. These results
+apply to their sealed sources, not the final combined master.
+
+All campaign agents are stopped and no Docker container is running. Existing
+worktrees, baselines and artifacts were left intact. Optional supporting
+copies are under `.work/final-review-evidence/reboot-wind-down-20261012`; the
+failure and restart state above are durable in Git. Treat `.work` as disposable
+under the owner's updated working contract. Create future worktrees under
+`.work/wt`, scratch under `.work/tmp`, use Conventional Commit messages, and
+avoid additional bookkeeping unless a concrete reader or failure needs it.
+
+On resume, revalidate the pinned x86_64 Linux musl image and tools. Existing
+main `target/.../verification` binaries are frozen `abdd` artifacts and do not
+match the newly integrated source; preserve them as references, rebuild an
+exact candidate pair before using it. ARM64 and macOS remain out of scope.
+Continue with Luna xhigh agents, performance nonregression, advisory source
+budgets, and the aspirational (non-gating) fourfold suite speedup.
+
+Remaining acceptance after the driver fix: independent review and the
+exhaustive-query port; focused combined verification and module check/preparation
+counts; generated documentation and TODO reconciliation; actual future-feature
+compiler probe, structural observer and semantic review bundle; final relevant
+correctness/fuzz/process/Linux gates; and release workload/profile/scheduler
+comparisons. Prepared correctness and performance launchers under
+`.work/final-review-evidence` have not run. The campaign is unfinished.
+
 ## Private integration, complete owner parity and alias fix — 2026-10-12
 
 Before this checkpoint main is `fdf8d41b`, with no pending tracked edits.
