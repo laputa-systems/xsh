@@ -1,0 +1,20 @@
+# regex-lite 0.1.9 with one change: nfa.rs always keys capture names with a
+# BTreeMap. Upstream's std build uses a HashMap, whose RandomState calls
+# getrandom while compiling any regex; applets must keep working when that
+# syscall fails.
+[package]
+name = "regex-lite"
+version = "0.1.9"
+edition = "2021"
+rust-version = "1.65"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[features]
+default = ["std", "string"]
+std = []
+string = []
+
+[lib]
+name = "regex_lite"
+path = "src/lib.rs"
