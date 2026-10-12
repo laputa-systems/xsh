@@ -68,6 +68,26 @@ let text = path.read_text()?
   expect_free_of(checked, ["check.unknown-module-api"])
 }
 
+test test_imported_process_body_facts_reach_compact_lowering { |ctx|
+  let root = test.temp_dir(ctx, name: "module-process-body")?
+  fp"{root}/helper.xsh".write(r"""##! A process-backed imported helper.
+## Run a version query through the process capture API.
+export proc version() [process, error] {
+  let argv = ["git", "--version"]
+  let output = run.capture --text --timeout=30s @argv
+  print output.stdout.trim()
+}
+""")
+  let output = test.run_script(
+    ctx,
+    "use helper\nhelper.version()\n",
+    [],
+    {XSH_MODULE_PATH: root},
+  )?
+  assert output.success, output.stderr
+  assert output.stdout.starts_with("git version "), output.stdout
+}
+
 test test_checker_accepts_error_bindings_and_preserves_error_fail_effect { |ctx|
   let bindings = check(ctx, "\nproc keep_error() { let error = \"missing value\" }\n")?
   expect_free_of(bindings, ["check.standard-module-shadow"])

@@ -1926,6 +1926,29 @@ impl FullBuilder {
         allow_checker_only: bool,
         stdlib_linkage: super::super::lower::StdlibLowerLinkage,
     ) -> Result<FullProgram, IrBuildError> {
+        let scope = super::super::lower::CompactRootScope::whole_program(program);
+        Self::build_compact_with_scope(
+            program,
+            declarations,
+            source,
+            sources,
+            source_id,
+            allow_checker_only,
+            stdlib_linkage,
+            &scope,
+        )
+    }
+
+    pub(in crate::runtime::eval) fn build_compact_with_scope(
+        program: &ArenaProgram,
+        declarations: &CompactDeclOutput,
+        source: &str,
+        sources: Arc<SourceMap>,
+        source_id: SourceId,
+        allow_checker_only: bool,
+        stdlib_linkage: super::super::lower::StdlibLowerLinkage,
+        scope: &super::super::lower::CompactRootScope<'_>,
+    ) -> Result<FullProgram, IrBuildError> {
         let symbols = program.symbol_owner().clone();
         symbols.clone().with_current(|| {
             Self::build_compact_with_options_inner(
@@ -1936,6 +1959,7 @@ impl FullBuilder {
                 source_id,
                 allow_checker_only,
                 stdlib_linkage,
+                scope,
                 symbols,
             )
         })
@@ -1949,10 +1973,11 @@ impl FullBuilder {
         source_id: SourceId,
         allow_checker_only: bool,
         stdlib_linkage: super::super::lower::StdlibLowerLinkage,
+        scope: &super::super::lower::CompactRootScope<'_>,
         symbols: crate::symbol::SymbolOwner,
     ) -> Result<FullProgram, IrBuildError> {
         let mut builder = Self::new(source_id);
-        builder.reserve_function_keys(super::super::lower::compact_function_keys(program))?;
+        builder.reserve_function_keys(super::super::lower::compact_function_keys(program, scope))?;
         let mut pures = rustc_hash::FxHashSet::default();
         let mut procs = rustc_hash::FxHashSet::default();
         let mut qualified_pures = rustc_hash::FxHashSet::default();
@@ -1962,6 +1987,7 @@ impl FullBuilder {
             declarations,
             source,
             &sources,
+            scope,
             stdlib_linkage,
             |mut unit| {
                 builder.predeclare(&[&unit])?;
@@ -2022,9 +2048,13 @@ impl FullBuilder {
             source,
             &sources,
             &functions,
+            scope,
         );
         builder.register_checked_pattern_variants(&driver.scratch.borrow(), declarations)?;
-        let source_statements = program.statement_ids().collect::<Vec<_>>();
+        let source_statements = program
+            .arena
+            .stmt_ids(scope.root_statements())
+            .collect::<Vec<_>>();
         drop(pures);
         drop(procs);
         drop(qualified_pures);
@@ -11528,7 +11558,7 @@ mod tests {
     use super::*;
     use crate::runtime::eval::Evaluator;
     use crate::runtime::value::Value;
-    use crate::sema::check::Checker;
+    use crate::sema::check::{CheckBundleView, CheckOptions, Checker};
     use crate::syntax::parser::Parser;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -11567,6 +11597,49 @@ on USR1 [] {
 defer run true
 run true
 "#;
+
+    #[test]
+    fn compact_lowering_uses_only_the_selected_entry_view() {
+        let alpha_source = "print \"alpha\"\n";
+        let sibling_source = "print ${reveal_type(1)}\n";
+        let mut sources = SourceMap::new();
+        let alpha_id = sources.add_file("alpha.xsh", alpha_source);
+        let sibling_id = sources.add_file("sibling.xsh", sibling_source);
+        let mut builder = crate::syntax::arena::ArenaProgramBuilder::with_token_capacity(32);
+        let alpha = Parser::parse_source_into_arena_builder(alpha_id, alpha_source, &mut builder);
+        let sibling =
+            Parser::parse_source_into_arena_builder(sibling_id, sibling_source, &mut builder);
+        assert!(alpha.diagnostics.is_empty(), "{:?}", alpha.diagnostics);
+        assert!(sibling.diagnostics.is_empty(), "{:?}", sibling.diagnostics);
+        let program = builder.finish_with_statements(alpha.statements);
+        let sources = Arc::new(sources);
+        let view = CheckBundleView::for_root(
+            &program,
+            alpha.statements,
+            Some(&sources),
+            Some(alpha_id),
+        );
+        let checked = Checker::check_bundle_view_with_type_program(
+            &view,
+            alpha_source,
+            CheckOptions::for_execution(),
+            Arc::new(program.clone()),
+        );
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let declarations = Checker::compact_declarations(&program, checked);
+        let diagnostics = Evaluator::compact_lowerability_diagnostics_with_view(
+            &view,
+            alpha_id,
+            Arc::clone(&sources),
+            declarations,
+            Vec::new(),
+            "alpha".to_string(),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert_eq!(program.statements, alpha.statements);
+        assert!(sibling.statements != alpha.statements);
+    }
 
     #[test]
     fn resource_transfer_marks_require_aligned_eligible_instructions() {

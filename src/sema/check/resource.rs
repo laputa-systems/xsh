@@ -24,17 +24,38 @@ pub type ResourceTransferFacts = FxHashMap<ResourceTransferSite, bool>;
 pub(super) struct ResourceCheck {
     pub diagnostics: Vec<Diagnostic>,
     pub transfers: ResourceTransferFacts,
+    /// Transfer facts that remain knowable when embedded bodies are suppressed.
+    pub suppressed_body_transfers: ResourceTransferFacts,
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(super) static W9_RESOURCE_VISITS: std::cell::RefCell<(usize, std::collections::BTreeMap<crate::source::SourceId, usize>)> = std::cell::RefCell::new((0, std::collections::BTreeMap::new()));
 }
 
 pub(super) fn check(checker: &Checker, view: &CheckBundleView<'_>) -> ResourceCheck {
+    check_scopes(checker, view, view.modules.clone())
+}
+
+/// The entry owns its statement range; imported ranges are analyzed by their cached records.
+pub(super) fn check_root_owner(checker: &Checker, view: &CheckBundleView<'_>) -> ResourceCheck {
+    check_scopes(checker, view, Vec::new())
+}
+
+fn check_scopes<'a>(
+    checker: &Checker,
+    view: &CheckBundleView<'a>,
+    modules: Vec<&'a ArenaUserModule>,
+) -> ResourceCheck {
     Analyzer {
         checker,
         program: view.program,
         root_statements: view.root_statements,
-        modules: view.modules.clone(),
+        modules,
         blocks: FxHashSet::default(),
         diagnostics: Vec::new(),
         transfers: FxHashMap::default(),
+        suppressed_body_transfers: FxHashMap::default(),
         diagnosed: FxHashSet::default(),
     }
     .run()
@@ -48,11 +69,28 @@ struct Analyzer<'a> {
     blocks: FxHashSet<BlockId>,
     diagnostics: Vec<Diagnostic>,
     transfers: ResourceTransferFacts,
+    suppressed_body_transfers: ResourceTransferFacts,
     diagnosed: FxHashSet<(BindingId, Span)>,
 }
 
 impl Analyzer<'_> {
     fn run(mut self) -> ResourceCheck {
+        #[cfg(test)]
+        W9_RESOURCE_VISITS.with(|visits| {
+            let mut visits = visits.borrow_mut();
+            visits.0 += 1;
+            for module in &self.modules {
+                let source = self
+                    .program
+                    .module_statements(module)
+                    .next()
+                    .map(|statement| self.program.arena.stmt(statement).span.source_id)
+                    .or_else(|| self.program.module_doc_for(module.statements).map(|span| span.source_id));
+                if let Some(source) = source {
+                    *visits.1.entry(source).or_default() += 1;
+                }
+            }
+        });
         let root = self.program.arena.stmt_ids(self.root_statements).collect::<Vec<_>>();
         self.analyze_scope(&root);
         let modules = self.modules.iter().map(|module| {
@@ -110,6 +148,7 @@ impl Analyzer<'_> {
         ResourceCheck {
             diagnostics: self.diagnostics,
             transfers: self.transfers,
+            suppressed_body_transfers: self.suppressed_body_transfers,
         }
     }
 
@@ -234,6 +273,8 @@ impl Analyzer<'_> {
                     }
                 } else {
                     self.transfers.insert(ResourceTransferSite::Return(stmt), false);
+                    self.suppressed_body_transfers
+                        .insert(ResourceTransferSite::Return(stmt), false);
                 }
             }
             ArenaStmtKind::Break { value: Some(expr) } => {
@@ -243,6 +284,8 @@ impl Analyzer<'_> {
             }
             ArenaStmtKind::Break { value: None } => {
                 self.transfers.insert(ResourceTransferSite::Break(stmt), false);
+                self.suppressed_body_transfers
+                    .insert(ResourceTransferSite::Break(stmt), false);
             }
             ArenaStmtKind::Yield(value) => {
                 if let Some(holds) = self.expr_or_run_may_hold(value) {
@@ -262,6 +305,8 @@ impl Analyzer<'_> {
                     )
                 {
                     let holds = if declared_bindings.contains(&binding) {
+                        self.suppressed_body_transfers
+                            .insert(ResourceTransferSite::Assignment(stmt), false);
                         Some(false)
                     } else {
                         self.expr_or_run_may_hold(value)
@@ -276,6 +321,8 @@ impl Analyzer<'_> {
     }
 
     fn publish_block_transfer(&mut self, block: BlockId, statements: &[StmtId]) {
+        self.suppressed_body_transfers
+            .insert(ResourceTransferSite::BlockValue(block), false);
         let holds = match statements.last() {
             None => Some(false),
             Some(stmt) => {
@@ -668,6 +715,51 @@ mod tests {
                 _ => false,
             })
             .expect("test assignment exists")
+    }
+
+    #[test]
+    #[ignore = "manual source-specific resource traversal attribution"]
+    fn w9_resource_scope_attribution() {
+        use crate::frontend::load::{
+            entry_source_from_text, parse_load_entry_source_arena_only, project_module_roots,
+        };
+        use std::path::PathBuf;
+
+        let input_root = PathBuf::from(
+            std::env::var("W9_RESOURCE_INPUT_ROOT").expect("W9_RESOURCE_INPUT_ROOT"),
+        );
+        let relative = PathBuf::from(
+            std::env::var("W9_RESOURCE_SOURCE").expect("W9_RESOURCE_SOURCE"),
+        );
+        let path = input_root.join(&relative);
+        let file = path.to_str().expect("source path is UTF-8");
+        let source = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+        let entry = entry_source_from_text(file, source);
+        let entry_source_id = entry.source_id;
+        let (sources, parsed) = parse_load_entry_source_arena_only(
+            file,
+            entry,
+            project_module_roots(&path).expect("resolve project module roots"),
+        );
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        W9_RESOURCE_VISITS.with(|visits| *visits.borrow_mut() = (0, Default::default()));
+        let output = Checker::check_arena_with_sources_and_options(
+            &parsed.arena,
+            &sources,
+            entry_source_id,
+            super::super::CheckOptions::default(),
+        );
+        let visits = W9_RESOURCE_VISITS.with(|visits| visits.borrow().clone());
+        eprintln!("resource_analyzer_runs\t{}", visits.0);
+        for (source, count) in visits.1 {
+            let name = sources.get(source).expect("visited source belongs to input").name();
+            eprintln!("module_scope_visits\t{name}\t{count}");
+            assert_eq!(count, 1, "module resource scope visited more than once: {name}");
+        }
+        assert!(!output.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == Some(DiagnosticCode::CheckUseAfterRelease)
+        }));
     }
 
     #[test]

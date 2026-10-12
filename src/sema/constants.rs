@@ -459,6 +459,83 @@ pub struct RecordConstructors {
 }
 
 impl RecordConstructors {
+    pub(super) fn detached(&self) -> Self {
+        Self {
+            instances: Arc::new(Mutex::new(
+                self.instances
+                    .lock()
+                    .expect("record constructor cache lock poisoned")
+                    .clone(),
+            )),
+            definitions: self.definitions.clone(),
+            imports: self.imports.clone(),
+            exports: self.exports.clone(),
+            error_types: self.error_types.clone(),
+            namespaces: self.namespaces.clone(),
+            nominal_names: self.nominal_names.clone(),
+            defaults: self.defaults.clone(),
+        }
+    }
+
+    pub(super) fn merge_visible(&mut self, other: &Self) -> Self {
+        merge_owned_map(&mut self.definitions, &other.definitions);
+        merge_owned_map(&mut self.imports, &other.imports);
+        self.exports.extend(other.exports.iter().copied());
+        merge_owned_map(&mut self.error_types, &other.error_types);
+        merge_owned_map(&mut self.namespaces, &other.namespaces);
+        merge_owned_map(&mut self.nominal_names, &other.nominal_names);
+        merge_owned_map(&mut self.defaults, &other.defaults);
+        self.merge_instance_facts(other)
+    }
+
+    pub(super) fn merge_instance_facts(&mut self, other: &Self) -> Self {
+        let incoming = other
+            .instances
+            .lock()
+            .expect("record constructor cache lock poisoned")
+            .clone();
+        let mut instances = self
+            .instances
+            .lock()
+            .expect("record constructor cache lock poisoned");
+        let mut added = Vec::new();
+        for (definition, arguments, ty) in incoming {
+            if let Some((_, _, existing)) = instances
+                .iter()
+                .find(|(found, found_arguments, _)| *found == definition && *found_arguments == arguments)
+            {
+                assert_eq!(
+                    *existing, ty,
+                    "schema instance {definition:?} has conflicting visible owner facts"
+                );
+            } else {
+                instances.push((definition, arguments.clone(), ty.clone()));
+                added.push((definition, arguments, ty));
+            }
+        }
+        Self {
+            instances: Arc::new(Mutex::new(added)),
+            ..Self::default()
+        }
+    }
+
+    pub(super) fn retaining_instances(
+        &self,
+        mut keep: impl FnMut(TypeDefId) -> bool,
+    ) -> Self {
+        let retained = self.detached();
+        retained
+            .instances
+            .lock()
+            .expect("record constructor cache lock poisoned")
+            .retain(|(definition, _, _)| keep(*definition));
+        retained
+    }
+
+    pub(super) fn replace_instance_facts(&mut self, facts: &Self) {
+        self.instances = Arc::clone(&facts.instances);
+    }
+
     pub(crate) fn retained_type_facts(&self) -> (usize, usize) {
         use std::mem::size_of;
 
@@ -2011,6 +2088,67 @@ mod prepared_constant_tests {
     use super::*;
     use crate::source::SourceId;
 
+    fn cli_plan(default: i64) -> Arc<crate::modules::cli::CliDescriptorPlan> {
+        use crate::modules::cli::{CliDescriptorPlan, ParsePolicy};
+        use crate::runtime::value::{RecordMap, Value};
+
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let descriptor = RecordMap::from([(
+                Arc::from("jobs"),
+                Value::Record(RecordMap::from([
+                    (Arc::from("kind"), Value::Str(Arc::from("Int"))),
+                    (Arc::from("form"), Value::Str(Arc::from("-j --jobs N"))),
+                    (Arc::from("default"), Value::Int(default)),
+                ])),
+            )]);
+            Arc::new(
+                CliDescriptorPlan::normalize(
+                    descriptor,
+                    crate::source::Span::new(SourceId::new(0), 0, 1),
+                    ParsePolicy::Applet,
+                    &BTreeMap::new(),
+                )
+                .expect("valid descriptor plan"),
+            )
+        })
+    }
+
+    fn cli_plan_constants(
+        plan: Arc<crate::modules::cli::CliDescriptorPlan>,
+    ) -> PreparedConstants {
+        let constants = PreparedConstants::default();
+        constants
+            .cli_plans
+            .lock()
+            .expect("descriptor cache lock")
+            .insert((ExprId::from_index(0), true), Ok(plan));
+        constants
+    }
+
+    #[test]
+    fn cli_plan_merge_retains_one_equal_canonical_result() {
+        let plan = cli_plan(4);
+        let mut output = cli_plan_constants(Arc::clone(&plan));
+        let owner = cli_plan_constants(Arc::clone(&plan));
+        output.merge_cli_plan_facts(&owner);
+        let plans = output.cli_plans.lock().expect("descriptor cache lock");
+        assert_eq!(plans.len(), 1);
+        let retained = plans
+            .get(&(ExprId::from_index(0), true))
+            .expect("canonical plan was retained")
+            .as_ref()
+            .expect("plan is valid");
+        assert!(Arc::ptr_eq(retained, &plan));
+    }
+
+    #[test]
+    #[should_panic(expected = "canonical CLI descriptor plan")]
+    fn cli_plan_merge_rejects_conflicting_canonical_results() {
+        let mut output = cli_plan_constants(cli_plan(4));
+        let owner = cli_plan_constants(cli_plan(5));
+        output.merge_cli_plan_facts(&owner);
+    }
+
     #[test]
     fn prepared_constants_keep_only_configured_workspace_sources() {
         use crate::syntax::arena::ArenaProgramBuilder;
@@ -2164,6 +2302,119 @@ struct ConstantPreparation<'a> {
 }
 
 impl PreparedConstants {
+    pub(super) fn clear_prepared_declaration_facts(&mut self) {
+        self.values.clear();
+        self.types.clear();
+        self.record_constructor_instances.clear();
+        self.origins.clear();
+        self.tail_bindings.clear();
+        self.global_bindings.clear();
+        self.binding_values.clear();
+        self.diagnostics.clear();
+        self.cli_wire_enums = Default::default();
+    }
+
+    pub(super) fn merge_visible(&mut self, other: &Self) {
+        merge_owned_map(&mut self.values, &other.values);
+        merge_owned_map(&mut self.types, &other.types);
+        merge_owned_map(&mut self.record_constructor_instances, &other.record_constructor_instances);
+        merge_owned_map(&mut self.origins, &other.origins);
+        for (&span, &expression) in &other.tail_bindings {
+            if let Some(existing) = self.tail_bindings.get(&span) {
+                assert_eq!(
+                    *existing, expression,
+                    "constant tail binding {span:?} has conflicting owner facts"
+                );
+            } else {
+                self.tail_bindings.insert(span, expression);
+            }
+        }
+        merge_owned_map(&mut self.global_bindings, &other.global_bindings);
+        merge_owned_map(&mut self.binding_values, &other.binding_values);
+        self.diagnostics.extend(other.diagnostics.iter().cloned());
+        self.cli_wire_enums
+            .merge_visible(&other.cli_wire_enums);
+    }
+
+    // Different importing owners can resolve the same immutable descriptor
+    // expression. Its canonical origin is one cache key, so equal results are
+    // one fact while conflicting results indicate inconsistent checking.
+    pub(super) fn merge_cli_plan_facts(&mut self, other: &Self) {
+        assert!(
+            !Arc::ptr_eq(&self.cli_plans, &other.cli_plans),
+            "CLI descriptor caches must remain source-owner scoped"
+        );
+        let other_plans = other.cli_plans.lock().expect("descriptor cache lock");
+        let mut plans = self.cli_plans.lock().expect("descriptor cache lock");
+        for (&key, plan) in other_plans.iter() {
+            if let Some(existing) = plans.get(&key) {
+                assert_eq!(
+                    existing, plan,
+                    "canonical CLI descriptor plan {key:?} has conflicting results"
+                );
+            } else {
+                plans.insert(key, plan.clone());
+            }
+        }
+
+        assert!(
+            !Arc::ptr_eq(&self.cli_command_plans, &other.cli_command_plans),
+            "CLI command descriptor caches must remain source-owner scoped"
+        );
+        let other_command_plans = other
+            .cli_command_plans
+            .lock()
+            .expect("command descriptor cache lock");
+        let mut command_plans = self
+            .cli_command_plans
+            .lock()
+            .expect("command descriptor cache lock");
+        for (&key, plan) in other_command_plans.iter() {
+            if let Some(existing) = command_plans.get(&key) {
+                assert_eq!(
+                    existing, plan,
+                    "canonical CLI command descriptor plan {key:?} has conflicting results"
+                );
+            } else {
+                command_plans.insert(key, plan.clone());
+            }
+        }
+    }
+
+    pub(super) fn retain_owner_source(
+        &mut self,
+        program: &ArenaProgram,
+        source_id: crate::source::SourceId,
+        bindings: &crate::sema::check::ResolvedBindings,
+    ) {
+        let arena = &program.arena;
+        self.values
+            .retain(|id, _| arena.expr(*id).span.source_id == source_id);
+        self.types
+            .retain(|id, _| arena.expr(*id).span.source_id == source_id);
+        self.record_constructor_instances
+            .retain(|id, _| arena.expr(*id).span.source_id == source_id);
+        self.origins
+            .retain(|id, _| arena.expr(*id).span.source_id == source_id);
+        self.tail_bindings
+            .retain(|span, _| span.source_id == source_id);
+        self.global_bindings.retain(|_, expression| {
+            arena.expr(*expression).span.source_id == source_id
+        });
+        self.binding_values.retain(|binding, _| {
+            bindings
+                .declarations
+                .get(binding)
+                .is_some_and(|declaration| declaration.span.source_id == source_id)
+        });
+        self.diagnostics.retain(|diagnostic| {
+            diagnostic
+                .labels
+                .iter()
+                .any(|label| label.span.source_id == source_id)
+        });
+    }
+
     fn cli_descriptor_origin(&self, arena: &AstArena, expr: ExprId, depth: usize) -> ExprId {
         if depth > 128 {
             return expr;
@@ -2391,6 +2642,21 @@ impl PreparedConstants {
         constructors: &RecordConstructors,
         bindings: &crate::sema::check::ResolvedBindings,
     ) -> Self {
+        Self::collect_bundle_with_visible_and_diagnostics(
+            view,
+            constructors,
+            bindings,
+            &Self::default(),
+        )
+        .0
+    }
+
+    pub(super) fn collect_bundle_with_visible_and_diagnostics(
+        view: &CheckBundleView<'_>,
+        constructors: &RecordConstructors,
+        bindings: &crate::sema::check::ResolvedBindings,
+        visible_constants: &Self,
+    ) -> (Self, Vec<crate::diagnostic::Diagnostic>) {
         let program = view.program;
         let arena = &program.arena;
         let mut statements = bindings.declarations.values().filter_map(|declaration| {
@@ -2400,10 +2666,9 @@ impl PreparedConstants {
         }).collect::<Vec<_>>();
         statements.sort_unstable();
         statements.dedup();
-        if statements.is_empty() { return Self::default(); }
         let mut preparation = ConstantPreparation {
             program, constructors, bindings,
-            active: FxHashSet::default(), prepared: Self::default(), steps: 0,
+            active: FxHashSet::default(), prepared: visible_constants.clone(), steps: 0,
             type_constraints: crate::sema::constraints::TypeConstraints::default(),
             expected_schema: None, constructor_group_depth: 0, pending_constructors: Vec::new(),
         };
@@ -2417,42 +2682,66 @@ impl PreparedConstants {
                 );
             }
         }
-        let mut references = bindings.expression_namespaces.keys().copied().filter(|&id| {
-            view.contains_source(arena.expr(id).span.source_id)
-                && matches!(arena.expr(id).kind, ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. })
-        }).collect::<Vec<_>>();
-        references.sort_unstable();
-        for id in references {
-            preparation.steps = 0;
-            if let Ok(value) = preparation.expression(id, bindings.expression_namespaces[&id], None, 0) {
-                preparation.prepared.types.entry(id).or_insert_with(|| value.value_type());
-                preparation.prepared.values.insert(id, value);
+        let has_visible_constants = !preparation.prepared.values.is_empty()
+            || !preparation.prepared.diagnostics.is_empty();
+        if has_visible_constants {
+            let mut references = bindings.expression_namespaces.keys().copied().filter(|&id| {
+                view.contains_source(arena.expr(id).span.source_id)
+                    && matches!(arena.expr(id).kind, ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. })
+            }).collect::<Vec<_>>();
+            references.sort_unstable();
+            for id in references {
+                preparation.steps = 0;
+                if let Ok(value) = preparation.expression(id, bindings.expression_namespaces[&id], None, 0) {
+                    preparation.prepared.types.entry(id).or_insert_with(|| value.value_type());
+                    preparation.prepared.values.insert(id, value);
+                }
             }
-        }
-        for (&statement, &binding) in &bindings.tails {
-            if view.contains_source(arena.stmt(statement).span.source_id)
-                && let Some(declaration) = bindings.constant(binding)
-                && let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(expr), .. } = arena.stmt(declaration).kind
-                && preparation.prepared.values.contains_key(&expr)
-            {
-                preparation.prepared.tail_bindings.insert(arena.stmt(statement).span, expr);
+            for (&statement, &binding) in &bindings.tails {
+                if view.contains_source(arena.stmt(statement).span.source_id)
+                    && let Some(declaration) = bindings.constant(binding)
+                    && let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(expr), .. } = arena.stmt(declaration).kind
+                    && preparation.prepared.values.contains_key(&expr)
+                {
+                    preparation.prepared.tail_bindings.insert(arena.stmt(statement).span, expr);
+                }
             }
-        }
-        for (&id, declaration) in &bindings.declarations {
-            if let Some(statement) = bindings.constant(id)
-                && view.contains_source(arena.stmt(statement).span.source_id)
-                && let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(expr), .. } = arena.stmt(statement).kind
-            {
-                preparation.prepared.binding_values.insert(id, expr);
-                if declaration.global {
-                    preparation.prepared.global_bindings.insert((declaration.namespace, declaration.name), expr);
+            for (&id, declaration) in &bindings.declarations {
+                if let Some(statement) = bindings.constant(id)
+                    && view.contains_source(arena.stmt(statement).span.source_id)
+                    && let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(expr), .. } = arena.stmt(statement).kind
+                {
+                    preparation.prepared.binding_values.insert(id, expr);
+                    if declaration.global {
+                        preparation.prepared.global_bindings.insert((declaration.namespace, declaration.name), expr);
+                    }
                 }
             }
         }
-        preparation.prepared.cli_wire_enums = crate::sema::wire_enums::PreparedWireEnums::prepare_bundle(view,
-            |expr| preparation.prepared.analyze_expression(arena, expr)).0;
+        let (wire_enums, wire_diagnostics) =
+            crate::sema::wire_enums::PreparedWireEnums::prepare_bundle(view, |expr| {
+                preparation.prepared.analyze_expression(arena, expr)
+            });
+        preparation.prepared.cli_wire_enums = wire_enums;
         preparation.prepared.types.retain(|_, ty| !ty.contains_inference());
-        preparation.prepared
+        (preparation.prepared, wire_diagnostics)
+    }
+}
+
+fn merge_owned_map<K, V>(target: &mut FxHashMap<K, V>, source: &FxHashMap<K, V>)
+where
+    K: Copy + Eq + std::hash::Hash + std::fmt::Debug,
+    V: Clone + Eq + std::fmt::Debug,
+{
+    for (&key, value) in source {
+        if let Some(existing) = target.get(&key) {
+            assert_eq!(
+                existing, value,
+                "prepared fact {key:?} has conflicting owner records"
+            );
+        } else {
+            target.insert(key, value.clone());
+        }
     }
 }
 

@@ -21,7 +21,7 @@ use crate::runtime::value::{
     FunctionName, NetJobValue, PathValue, ProcessHandleValue, RecordMap, RegexValue, ResultValue,
     RuntimeError, StreamOwner, StreamSource, StreamValue, Value,
 };
-use crate::sema::check::{Checker, CompactDeclOutput};
+use crate::sema::check::{CheckBundleView, Checker, CompactDeclOutput};
 use crate::sema::types::{CallableType, Type};
 use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::{Name, QualifiedName};
@@ -3791,11 +3791,37 @@ impl Evaluator {
         {
             return Err(diagnostic.clone());
         }
+        let scope = lower::CompactRootScope::whole_program(program);
         self.prepare_compact_indexed_only_or_diagnostic_with_parts(
             program,
             source_id,
             allow_checker_only,
             declarations,
+            &scope,
+        )
+    }
+
+    pub(crate) fn prepare_checked_compact_indexed_only_with_view(
+        &mut self,
+        view: &CheckBundleView<'_>,
+        source_id: SourceId,
+        allow_checker_only: bool,
+        declarations: CompactDeclOutput,
+    ) -> Result<CompactIndexedRunPlan, Diagnostic> {
+        if let Some(diagnostic) = declarations
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.severity == Severity::Error)
+        {
+            return Err(diagnostic.clone());
+        }
+        let scope = lower::CompactRootScope::from_view(view);
+        self.prepare_compact_indexed_only_or_diagnostic_with_parts(
+            view.program(),
+            source_id,
+            allow_checker_only,
+            declarations,
+            &scope,
         )
     }
 
@@ -3805,9 +3831,10 @@ impl Evaluator {
         source_id: SourceId,
         allow_checker_only: bool,
         declarations: CompactDeclOutput,
+        scope: &lower::CompactRootScope<'_>,
     ) -> Result<CompactIndexedRunPlan, Diagnostic> {
         if !allow_checker_only
-            && let Some(span) = compact_reveal_type_call_span(program)
+            && let Some(span) = compact_reveal_type_call_span(program, scope)
         {
             return Err(compact_lowerability_diagnostic(
                 span,
@@ -3817,7 +3844,13 @@ impl Evaluator {
         }
         // Text-only embedding APIs supply UTF-8 words; a checked byte entry
         // exposes their exact bytes through both main and imported args readers.
-        if !self.interactive && crate::sema::check::byte_argument_main(program, &declarations.parameter_types) {
+        if !self.interactive
+            && crate::sema::check::byte_argument_main_for_root(
+                program,
+                scope.root_statements(),
+                &declarations.parameter_types,
+            )
+        {
             let Some(Binding { value: Value::List(words), .. }) = self.lookup(Name::intern("args")) else {
                 return Err(compact_lowerability_diagnostic(zero_span(),
                     "script argument binding is not a list", DiagnosticCode::CompactMainArgs));
@@ -3840,7 +3873,7 @@ impl Evaluator {
                 DiagnosticCode::CompactIndexedSource,
             ));
         };
-        let indexed = FullBuilder::build_compact_with_options(
+        let indexed = FullBuilder::build_compact_with_scope(
             program,
             &declarations,
             source,
@@ -3848,6 +3881,7 @@ impl Evaluator {
             source_id,
             allow_checker_only,
             crate::runtime::eval::lower::StdlibLowerLinkage::Local,
+            scope,
         )
         .map_err(|error| {
             let span = error.span.unwrap_or_else(zero_span);
@@ -3860,7 +3894,7 @@ impl Evaluator {
                 DiagnosticCode::CompactIndexedBuild,
             )
         })?;
-        let root = program.statement_ids().collect::<Vec<_>>();
+        let root = program.arena.stmt_ids(scope.root_statements()).collect::<Vec<_>>();
         let driver_steps = indexed.driver_step_count().map_err(|error| {
             compact_lowerability_diagnostic(
                 root.first()
@@ -4131,6 +4165,29 @@ impl Evaluator {
             let mut evaluator = Self::new_with_sources_and_command(argv, sources, command_name);
             match evaluator.prepare_checked_compact_indexed_only(
                 program,
+                source_id,
+                true,
+                declarations,
+            ) {
+                Ok(_) => Vec::new(),
+                Err(diagnostic) => vec![diagnostic],
+            }
+        })
+    }
+
+    pub fn compact_lowerability_diagnostics_with_view(
+        view: &CheckBundleView<'_>,
+        source_id: SourceId,
+        sources: Arc<SourceMap>,
+        declarations: CompactDeclOutput,
+        argv: Vec<String>,
+        command_name: String,
+    ) -> Vec<Diagnostic> {
+        view.program().symbol_owner().with_current(|| {
+            let mut evaluator =
+                Self::new_with_shared_sources_and_command(argv, sources, command_name);
+            match evaluator.prepare_checked_compact_indexed_only_with_view(
+                view,
                 source_id,
                 true,
                 declarations,
@@ -4779,6 +4836,44 @@ impl Evaluator {
         self.capture_process_output = true;
         let plan = program.symbol_owner().with_current(|| {
             self.prepare_checked_compact_indexed_only(&program, source_id, false, declarations)
+        })?;
+        let script_span = plan.script_span;
+        let shared = self.lowered_shared_state();
+        let (diagnostics, traceback) = self.eval_installed_indexed_test_setup(&plan);
+        let (setup_shared, setup_failure) = if traceback.is_some() {
+            (
+                Arc::clone(&shared),
+                Some(self.finish_test_output(diagnostics, traceback, None)),
+            )
+        } else {
+            (self.lowered_shared_state(), None)
+        };
+        Ok(PreparedTestProgram {
+            plan,
+            script_span,
+            symbols: program.symbol_owner().clone(),
+            shared,
+            setup_shared,
+            setup_failure,
+        })
+    }
+
+    #[cfg(feature = "native-tests")]
+    pub fn prepare_test_program_for_view(
+        mut self,
+        view: &CheckBundleView<'_>,
+        source_id: SourceId,
+        declarations: CompactDeclOutput,
+    ) -> Result<PreparedTestProgram, Diagnostic> {
+        self.capture_process_output = true;
+        let program = view.program();
+        let plan = program.symbol_owner().with_current(|| {
+            self.prepare_checked_compact_indexed_only_with_view(
+                view,
+                source_id,
+                false,
+                declarations,
+            )
         })?;
         let script_span = plan.script_span;
         let shared = self.lowered_shared_state();
@@ -7212,10 +7307,16 @@ fn compact_expr_is_reveal_type_call(program: &ArenaProgram, expr: ExprId) -> boo
     matches!(program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "reveal_type")
 }
 
-fn compact_reveal_type_call_span(program: &ArenaProgram) -> Option<Span> {
+fn compact_reveal_type_call_span(
+    program: &ArenaProgram,
+    scope: &lower::CompactRootScope<'_>,
+) -> Option<Span> {
+    let source_ids = scope.source_ids(program);
     (0..program.arena.expr_tags.len()).find_map(|index| {
         let expr = ExprId::from_index(index);
-        compact_expr_is_reveal_type_call(program, expr).then(|| program.arena.expr(expr).span)
+        let span = program.arena.expr(expr).span;
+        (source_ids.contains(&span.source_id) && compact_expr_is_reveal_type_call(program, expr))
+            .then_some(span)
     })
 }
 

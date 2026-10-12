@@ -737,6 +737,110 @@ pub fn parse_load_entry_source_shared_arena_only(
     }
 }
 
+/// Source bytes and import roots for one entry in a shared tooling workspace.
+pub struct ArenaEntryInput {
+    pub file: String,
+    pub bytes: Vec<u8>,
+    pub module_roots: Vec<PathBuf>,
+}
+
+/// One entry's root range and source-local loading result in a shared arena.
+pub struct LoadedArenaEntry {
+    pub file: String,
+    pub source_id: SourceId,
+    pub statements: ArenaRange,
+    pub cst: LazyCst,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+/// Several entry roots and their common imports in one immutable arena/session.
+pub struct LoadedArenaWorkspace {
+    pub sources: Arc<SourceMap>,
+    pub program: Arc<ArenaProgram>,
+    pub entries: Vec<LoadedArenaEntry>,
+}
+
+/// Parse entry roots into one arena and resolve shared imports once.
+///
+/// Each entry keeps its own loading diagnostics while dependencies are added
+/// only once to the common arena. Callers create a new workspace after any
+/// source edit so cached semantic facts remain tied to these exact identities.
+pub fn parse_load_entries_shared_arena_only(
+    inputs: Vec<ArenaEntryInput>,
+) -> LoadedArenaWorkspace {
+    let mut sources = SourceMap::new();
+    let token_capacity = inputs
+        .iter()
+        .map(|input| input.bytes.len() / 4 + 1)
+        .sum();
+    let mut builder = ArenaProgramBuilder::with_token_capacity(token_capacity);
+    let mut entries = Vec::with_capacity(inputs.len());
+    let mut entry_loads = Vec::with_capacity(inputs.len());
+    for input in inputs {
+        let (source_id, mut diagnostics) = add_source_bytes(&mut sources, &input.file, input.bytes);
+        let source = sources
+            .get(source_id)
+            .expect("entry source was just inserted")
+            .text();
+        let parsed = if diagnostics.is_empty() {
+            Parser::parse_source_into_arena_builder(source_id, source, &mut builder)
+        } else {
+            crate::syntax::parser::ArenaParseFragment {
+                statements: ArenaRange::default(),
+                cst: LazyCst::empty(source_id),
+                diagnostics: Vec::new(),
+            }
+        };
+        diagnostics.extend(parsed.diagnostics);
+        entry_loads.push((input.file.clone(), input.module_roots, diagnostics.is_empty()));
+        entries.push(LoadedArenaEntry {
+            file: input.file,
+            source_id,
+            statements: parsed.statements,
+            cst: parsed.cst,
+            diagnostics,
+        });
+    }
+
+    let mut loaded = FxHashSet::default();
+    {
+        let mut loader = ModuleLoader::new(&mut sources, &mut builder);
+        let mut root_imports = Vec::with_capacity(entries.len());
+        for ((file, module_roots, load_imports), entry) in
+            entry_loads.iter().zip(&entries)
+        {
+            root_imports.push(if *load_imports {
+                loader.load_imports(Path::new(file), entry.statements, module_roots)
+            } else {
+                Vec::new()
+            });
+        }
+        let modules = loader.finish();
+        for (entry, imports) in entries.iter_mut().zip(&root_imports) {
+            runtime_import_diagnostics(imports, &modules, &mut loaded, &mut entry.diagnostics);
+            loaded.clear();
+        }
+    }
+
+    if let Some(entry) = entries.first() {
+        let mut embedded = EmbeddedModuleLoader::new(&mut sources, &mut builder);
+        embedded.load_stdlib_modules(entry.source_id);
+        for entry in &mut entries {
+            entry.diagnostics.extend(embedded.diagnostics.iter().cloned());
+        }
+    }
+
+    let root_statements = entries
+        .first()
+        .map_or_else(ArenaRange::default, |entry| entry.statements);
+    let program = builder.finish_with_statements(root_statements);
+    LoadedArenaWorkspace {
+        sources: Arc::new(sources),
+        program: Arc::new(program),
+        entries,
+    }
+}
+
 /// A parsed file and its imports in one shared source map and arena.
 /// Parser recovery is retained for syntax migration; execution checks only
 /// files reachable through imports whose source parsed successfully.
@@ -1122,6 +1226,41 @@ fn module_path_from_base(base: &Path, path: &[Name]) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn batch_entry_loader_shares_imports_and_keeps_root_ranges() {
+        let root = tempfile::TempDir::new().expect("create module fixture");
+        let first = root.path().join("first.xsh");
+        let second = root.path().join("second.xsh");
+        let shared = root.path().join("shared.xsh");
+        fs::write(&shared, "export pure value() -> Int { 1 }\n")
+            .expect("write shared module");
+
+        let loaded = parse_load_entries_shared_arena_only(vec![
+            ArenaEntryInput {
+                file: first.to_string_lossy().into_owned(),
+                bytes: b"use shared\nconst first = 1\n".to_vec(),
+                module_roots: Vec::new(),
+            },
+            ArenaEntryInput {
+                file: second.to_string_lossy().into_owned(),
+                bytes: b"use shared\nconst second = 2\n".to_vec(),
+                module_roots: Vec::new(),
+            },
+        ]);
+
+        assert_eq!(loaded.entries.len(), 2);
+        assert_ne!(loaded.entries[0].source_id, loaded.entries[1].source_id);
+        assert_ne!(loaded.entries[0].statements, loaded.entries[1].statements);
+        assert!(loaded.entries.iter().all(|entry| {
+            entry.diagnostics.is_empty()
+                && loaded.sources.get(entry.source_id).is_some_and(|source| {
+                    source.text().contains("use shared")
+                })
+        }));
+        assert_eq!(loaded.program.modules.len(), 1);
+        assert_eq!(loaded.program.modules[0].key, module_key(&shared));
+    }
 
     // Search provenance is exposed through the Rust frontend, so the host
     // test compares loaded imports and imports parsed without resolution.

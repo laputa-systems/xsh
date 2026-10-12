@@ -26,6 +26,19 @@ pub fn nominal_enum_name(namespace: Option<Name>, name: Name) -> Name {
 }
 
 impl PreparedWireEnums {
+    pub(super) fn merge_visible(&mut self, other: &Self) {
+        for (&name, mapping) in &other.mappings {
+            if let Some(existing) = self.mappings.get(&name) {
+                assert_eq!(
+                    existing, mapping,
+                    "wire enum `{name}` has conflicting visible owner mappings"
+                );
+            } else {
+                self.mappings.insert(name, Arc::clone(mapping));
+            }
+        }
+    }
+
     pub fn prepare(
         program: &ArenaProgram,
         analyze: impl Fn(ExprId) -> Option<LiteralConstant>,

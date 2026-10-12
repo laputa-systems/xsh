@@ -48,6 +48,43 @@ fn test_list_returns_test_and_invalid_file_ids_in_sorted_order() {
 }
 
 #[test]
+fn test_roots_share_imported_modules_during_parallel_discovery() {
+    let root = TempDir::new().expect("temporary native test project");
+    let tests = root.path().join("tests");
+    fs::create_dir(&tests).expect("create native test root");
+    fs::write(
+        tests.join("shared.xsh"),
+        "##! Shared native test value.\n## Return its fixed value.\nexport pure answer() -> Int { 42 }\n",
+    )
+    .expect("write shared module");
+    fs::write(
+        tests.join("a.xsh"),
+        "use shared\ntest first_root { |_| assert shared.answer() == 42 }\n",
+    )
+    .expect("write first test root");
+    fs::write(
+        tests.join("b.xsh"),
+        "use shared\ntest second_root { |_| assert shared.answer() == 42 }\n",
+    )
+    .expect("write second test root");
+
+    let output = Command::new(test_bin!("xsht"))
+        .args(["test", "--jobs", "4"])
+        .current_dir(root.path())
+        .output()
+        .expect("run test roots that share an imported module");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(output.stderr.is_empty());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("2 passed; 0 failed; 0 skipped"));
+}
+
+#[test]
 fn test_help_describes_native_test_concurrency_bounds() {
     let output = Command::new(test_bin!("xsht"))
         .args(["test", "--help"])

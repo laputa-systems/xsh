@@ -20,14 +20,14 @@ use std::sync::Arc;
 
 const DEFAULT_STATUS: i64 = 1;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct Unsupported {
     long: bool,
     name: String,
     reason: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct GnuConfig {
     prog: Option<String>,
     status: i64,

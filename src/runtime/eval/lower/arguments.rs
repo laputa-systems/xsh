@@ -318,6 +318,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let (temporary, bodies) = (&*temporary, &*bodies);
             let mut child = CompactLowerConstructProbe {
                 program: temporary,
+                scope: Rc::clone(&self.scope),
                 bodies,
                 declarations: self.declarations,
                 source: self.source,

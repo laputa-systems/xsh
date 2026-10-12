@@ -25,9 +25,9 @@ use xsh::execution::evaluator::{
 use xsh::execution::script::XSH_COVERAGE_TRACE_DIR;
 use xsh::execution::value::{PathValue, RecordMap, ResultValue, RuntimeError, Value};
 use xsh::frontend::check::Type;
-use xsh::frontend::check::{CheckOptions, Checker};
-use xsh::frontend::load::parse_script_with_module_roots;
-use xsh::frontend::syntax::arena::{ArenaProgram, ArenaStmtKind, FunctionDefId, StmtId};
+use xsh::frontend::check::{CheckOptions, CheckSession, Checker};
+use xsh::frontend::load::{ArenaEntryInput, parse_load_entries_shared_arena_only};
+use xsh::frontend::syntax::arena::{ArenaProgram, ArenaRange, ArenaStmtKind, FunctionDefId, StmtId};
 use xsh::process::{cancellation_escalated_signal, cancellation_requested_signal, path_bytes};
 
 #[derive(Clone, Debug)]
@@ -95,21 +95,19 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
     } else {
         config.test_roots.iter().map(PathBuf::from).collect()
     };
-    for root in &test_roots {
-        match discover_native_tests(root, &configs, &options) {
-            Ok(native) => cases.extend(native),
-            Err(message) => {
-                if let Some(output) = cancellation_output() {
-                    return output;
-                }
-                return CliOutput {
-                    status: 2,
-                    stdout: stdout.into_bytes(),
-                    stderr: text_bytes(format!("xsht: {message}\n")),
-                    trace_text: String::new(),
-                    syscall_summary: None,
-                };
+    match discover_native_tests(&test_roots, &configs, &options) {
+        Ok(native) => cases.extend(native),
+        Err(message) => {
+            if let Some(output) = cancellation_output() {
+                return output;
             }
+            return CliOutput {
+                status: 2,
+                stdout: stdout.into_bytes(),
+                stderr: text_bytes(format!("xsht: {message}\n")),
+                trace_text: String::new(),
+                syscall_summary: None,
+            };
         }
     }
     cases.sort_unstable_by(|left, right| left.id().cmp(right.id()));
@@ -581,9 +579,14 @@ fn test_file_may_match(file: &Path, file_name: &str, options: &TestOptions) -> b
     }
 }
 
-fn test_file_matches(program: &ArenaProgram, file: &str, options: &TestOptions) -> bool {
+fn test_file_matches(
+    program: &ArenaProgram,
+    statements: ArenaRange,
+    file: &str,
+    options: &TestOptions,
+) -> bool {
     test_id_matches(file, options)
-        || program.statement_ids().any(|id| {
+        || program.arena.stmt_ids(statements).any(|id| {
             let kind = match program.arena.stmt(id).kind {
                 ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
                 kind => kind,
@@ -597,9 +600,9 @@ fn test_file_matches(program: &ArenaProgram, file: &str, options: &TestOptions) 
         })
 }
 
-fn test_top_level_diagnostics(program: &ArenaProgram) -> Vec<Diagnostic> {
+fn test_top_level_diagnostics(program: &ArenaProgram, statements: ArenaRange) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
-    for id in program.statement_ids() {
+    for id in program.arena.stmt_ids(statements) {
         if !test_top_level_allowed(program, id) {
             let span = program.arena.stmt(id).span;
             diagnostics.push(
@@ -680,16 +683,18 @@ struct NativeTestFile {
 }
 
 fn discover_native_tests(
-    root: &Path,
+    roots: &[PathBuf],
     configs: &ConfigCache,
     options: &TestOptions,
 ) -> Result<Vec<TestCase>, String> {
-    if !root.exists() {
-        return Ok(Vec::new());
-    }
     let mut files = Vec::new();
-    collect_xsh_files(root, configs, DiscoveryFor::Scripts, &mut files)?;
+    for root in roots {
+        if root.exists() {
+            collect_xsh_files(root, configs, DiscoveryFor::Scripts, &mut files)?;
+        }
+    }
     files.sort_unstable();
+    files.dedup();
 
     let mut test_files = Vec::new();
     for file in files {
@@ -697,8 +702,6 @@ fn discover_native_tests(
         if !test_file_may_match(&file, &file_name, options) {
             continue;
         }
-        // A test file loads with the project module roots of the config
-        // above it, exactly as `xsh` and `xsht check` load it.
         let module_roots =
             FileToolConfig::new(configs.nearest_config_for_file(&file)?).module_roots();
         let child_module_path = child_module_path(&module_roots);
@@ -711,23 +714,62 @@ fn discover_native_tests(
     if test_files.is_empty() {
         return Ok(Vec::new());
     }
-    if test_files.len() == 1 {
-        return Ok(discover_native_test_file(&test_files[0], options));
+
+    let mut reports: Vec<Option<Vec<TestCase>>> =
+        (0..test_files.len()).map(|_| None).collect();
+    let mut inputs = Vec::new();
+    let mut entry_file_indices = Vec::new();
+    for (file_index, file) in test_files.iter().enumerate() {
+        let file_name = file.path.to_string_lossy().into_owned();
+        let bytes = match fs::read(&file.path) {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                reports[file_index] = Some(if test_id_matches(&file_name, options) {
+                    vec![TestCase::Invalid {
+                        id: file_name,
+                        message: format!("failed to read test file: {err}"),
+                    }]
+                } else {
+                    Vec::new()
+                });
+                continue;
+            }
+        };
+        inputs.push(ArenaEntryInput {
+            file: file_name,
+            bytes,
+            module_roots: file.module_roots.clone(),
+        });
+        entry_file_indices.push(file_index);
     }
 
-    // Each file can be loaded and prepared independently. Bound concurrent
-    // front-end work by the CPUs visible to the process, then restore file
-    // order before returning diagnostics and test declarations.
+    let workspace = parse_load_entries_shared_arena_only(inputs);
+    let session = CheckSession::new(Arc::clone(&workspace.program), Arc::clone(&workspace.sources));
+    assert_eq!(
+        workspace.entries.len(),
+        entry_file_indices.len(),
+        "shared native-test loader returned a different entry count"
+    );
+
+    // Loading uses one immutable workspace so roots can share module records.
+    // Keep checking bounded and restore sorted file order after workers finish.
     let worker_count = std::thread::available_parallelism()
         .map(|count| count.get())
         .unwrap_or(1)
-        .min(test_files.len());
-    let next_file = AtomicUsize::new(0);
-    let mut reports = std::thread::scope(|scope| {
+        .min(workspace.entries.len());
+    let next_entry = AtomicUsize::new(0);
+    let mut entry_reports = std::thread::scope(|scope| {
         let (report_tx, report_rx) = crossbeam_channel::unbounded();
         for _ in 0..worker_count {
             let report_tx = report_tx.clone();
-            let (files, next_file, options) = (&test_files, &next_file, options);
+            let (workspace, session, files, entry_file_indices, next_entry, options) = (
+                &workspace,
+                &session,
+                &test_files,
+                &entry_file_indices,
+                &next_entry,
+                options,
+            );
             std::thread::Builder::new()
                 .name("xsht-test-discover".to_string())
                 .stack_size(FRONTEND_WORKER_STACK_BYTES)
@@ -735,14 +777,19 @@ fn discover_native_tests(
                     if cancellation_output().is_some() {
                         break;
                     }
-                    let file_index = next_file.fetch_add(1, Ordering::Relaxed);
-                    let Some(file) = files.get(file_index) else {
+                    let entry_index = next_entry.fetch_add(1, Ordering::Relaxed);
+                    let Some(entry) = workspace.entries.get(entry_index) else {
                         break;
                     };
-                    if report_tx
-                        .send((file_index, discover_native_test_file(file, options)))
-                        .is_err()
-                    {
+                    let file_index = entry_file_indices[entry_index];
+                    let cases = discover_native_test_entry(
+                        workspace,
+                        session,
+                        entry,
+                        &files[file_index],
+                        options,
+                    );
+                    if report_tx.send((file_index, cases)).is_err() {
                         break;
                     }
                 })
@@ -755,114 +802,101 @@ fn discover_native_tests(
         return Err("native test discovery interrupted".to_string());
     }
     assert_eq!(
-        reports.len(),
-        test_files.len(),
+        entry_reports.len(),
+        workspace.entries.len(),
         "native test discovery worker panicked"
     );
-    reports.sort_unstable_by_key(|(file_index, _)| *file_index);
+    entry_reports.sort_unstable_by_key(|(file_index, _)| *file_index);
+    for (file_index, cases) in entry_reports {
+        reports[file_index] = Some(cases);
+    }
 
     let mut cases = Vec::new();
-    for (_, mut file_cases) in reports {
-        cases.append(&mut file_cases);
+    for report in reports {
+        cases.extend(report.expect("every native test file must produce a report"));
     }
     Ok(cases)
 }
 
-fn discover_native_test_file(file: &NativeTestFile, options: &TestOptions) -> Vec<TestCase> {
+fn discover_native_test_entry(
+    workspace: &xsh::frontend::load::LoadedArenaWorkspace,
+    session: &CheckSession,
+    entry: &xsh::frontend::load::LoadedArenaEntry,
+    file: &NativeTestFile,
+    options: &TestOptions,
+) -> Vec<TestCase> {
     let file_name = file.path.to_string_lossy().into_owned();
+    let program = workspace.program.as_ref();
+    let statements = entry.statements;
     let mut cases = Vec::new();
-    let (sources, parsed) = match parse_script_with_module_roots(&file_name, &file.module_roots) {
-        Ok(parsed) => parsed,
-        Err(err) => {
-            let id = file_name.clone();
-            if test_id_matches(&id, options) {
-                cases.push(TestCase::Invalid {
-                    id,
-                    message: format!("failed to read test file: {err}"),
-                });
-            }
-            return cases;
-        }
-    };
-    if !parsed.diagnostics.is_empty() {
-        let id = file_name.clone();
-        if test_file_matches(&parsed.arena, &file_name, options) {
+    if !entry.diagnostics.is_empty() {
+        if test_file_matches(program, statements, &file_name, options) {
             cases.push(TestCase::Invalid {
-                id,
-                message: DiagnosticRenderer::new().render(&parsed.diagnostics, &sources),
+                id: file_name,
+                message: DiagnosticRenderer::new()
+                    .render(&entry.diagnostics, &workspace.sources),
             });
         }
         return cases;
     }
 
-    let mut top_level_errors = test_top_level_diagnostics(&parsed.arena);
-    for stmt_id in parsed.arena.statement_ids() {
-        let kind = parsed.arena.arena.stmt(stmt_id).kind;
+    let mut top_level_errors = test_top_level_diagnostics(program, statements);
+    for stmt_id in program.arena.stmt_ids(statements) {
+        let kind = program.arena.stmt(stmt_id).kind;
         let def_id = match kind {
             ArenaStmtKind::ProcDef(def) => Some(def),
-            ArenaStmtKind::Export(inner) => match parsed.arena.arena.stmt(inner).kind {
+            ArenaStmtKind::Export(inner) => match program.arena.stmt(inner).kind {
                 ArenaStmtKind::ProcDef(def) => Some(def),
                 _ => None,
             },
             _ => None,
         };
         if let Some(def_id) = def_id {
-            let def = parsed.arena.arena.function_def(def_id);
+            let def = program.arena.function_def(def_id);
             if !def.test_declaration
                 && def.name.as_str().starts_with("test_")
-                && native_test_signature_uses_ctx(&parsed.arena, def_id).is_ok()
+                && native_test_signature_uses_ctx(program, def_id).is_ok()
             {
-                top_level_errors.push(Diagnostic::error("legacy native test proc requires migration: replace its signature with `test NAME { |ctx| ... }`; extract callable shared work into an ordinary helper")
-                    .with_code(DiagnosticCode::CheckLegacyTestProc)
-                    .with_label(Label::primary(parsed.arena.arena.stmt(stmt_id).span, "keep the exact declared name to preserve the test ID")));
+                top_level_errors.push(
+                    Diagnostic::error("legacy native test proc requires migration: replace its signature with `test NAME { |ctx| ... }`; extract callable shared work into an ordinary helper")
+                        .with_code(DiagnosticCode::CheckLegacyTestProc)
+                        .with_label(Label::primary(program.arena.stmt(stmt_id).span, "keep the exact declared name to preserve the test ID")),
+                );
             }
         }
     }
 
     if !top_level_errors.is_empty() {
-        let id = file_name.clone();
-        if test_file_matches(&parsed.arena, &file_name, options) {
+        if test_file_matches(program, statements, &file_name, options) {
             cases.push(TestCase::Invalid {
-                id,
-                message: DiagnosticRenderer::new().render(&top_level_errors, &sources),
+                id: file_name,
+                message: DiagnosticRenderer::new()
+                    .render(&top_level_errors, &workspace.sources),
             });
         }
         return cases;
     }
 
-    // The entry file is always the first source added to a fresh source map
-    // during parsing; modules are appended after it.
-    let source_id = sources
-        .files()
-        .first()
-        .map(xsh::frontend::source::SourceFile::id)
-        .expect("entry source must be present in a parsed test file");
-    let arena = Arc::new(parsed.arena);
-    // This one check gates the file and supplies its lowering facts.
-    let checked = Checker::check_arena_with_sources_and_options(
-        &arena,
-        &sources,
-        source_id,
-        CheckOptions::for_execution(),
-    );
+    let view = session.view_for_root(statements, entry.source_id);
+    let checked = session.check_view(&view, CheckOptions::for_execution());
     if !checked.diagnostics.is_empty() {
-        let id = file_name.clone();
-        if test_file_matches(&arena, &file_name, options) {
+        if test_file_matches(view.program(), statements, &file_name, options) {
             cases.push(TestCase::Invalid {
-                id,
-                message: DiagnosticRenderer::new().render(&checked.diagnostics, &sources),
+                id: file_name,
+                message: DiagnosticRenderer::new()
+                    .render(&checked.diagnostics, &workspace.sources),
             });
         }
         return cases;
     }
 
-    let sources = Arc::new(sources);
+    let program = view.program();
     let mut matching_tests = Vec::new();
-    for stmt_id in arena.statement_ids() {
-        let Some(def_id) = registered_test_declaration(&arena, stmt_id) else {
+    for stmt_id in view.statement_ids() {
+        let Some(def_id) = registered_test_declaration(program, stmt_id) else {
             continue;
         };
-        let name = arena.arena.function_def(def_id).name;
+        let name = program.arena.function_def(def_id).name;
         let id = format!("{file_name}::{name}");
         if test_id_matches(&id, options) {
             matching_tests.push((id, name.to_string(), def_id));
@@ -872,20 +906,24 @@ fn discover_native_test_file(file: &NativeTestFile, options: &TestOptions) -> Ve
         return cases;
     }
 
-    let prepared = match Evaluator::new_with_shared_sources(Vec::new(), Arc::clone(&sources))
-        .with_module_roots(file.module_roots.clone())
-        .with_native_test_host({
-            let module_path = file.child_module_path.clone();
-            Arc::new(move |request| native_test_host(request, module_path.as_deref()))
-        })
-        .prepare_test_program(
-            Arc::clone(&arena),
-            source_id,
-            Checker::compact_declarations(&arena, checked),
-        ) {
+    let prepared = match Evaluator::new_with_shared_sources(
+        Vec::new(),
+        Arc::clone(&workspace.sources),
+    )
+    .with_module_roots(file.module_roots.clone())
+    .with_native_test_host({
+        let module_path = file.child_module_path.clone();
+        Arc::new(move |request| native_test_host(request, module_path.as_deref()))
+    })
+    .prepare_test_program_for_view(
+        &view,
+        entry.source_id,
+        Checker::compact_declarations(program, checked),
+    ) {
         Ok(prepared) => Arc::new(prepared),
         Err(diagnostic) => {
-            let message = DiagnosticRenderer::new().render(&[diagnostic], &sources);
+            let message =
+                DiagnosticRenderer::new().render(&[diagnostic], &workspace.sources);
             if test_id_matches(&file_name, options) {
                 cases.push(TestCase::Invalid {
                     id: file_name,
@@ -903,7 +941,7 @@ fn discover_native_test_file(file: &NativeTestFile, options: &TestOptions) -> Ve
         }
     };
     for (id, name, def_id) in matching_tests {
-        match native_test_signature_uses_ctx(&arena, def_id) {
+        match native_test_signature_uses_ctx(program, def_id) {
             Ok(has_ctx) => cases.push(TestCase::Native(NativeTestCase {
                 id,
                 file: file_name.clone(),

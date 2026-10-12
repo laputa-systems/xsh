@@ -20,6 +20,19 @@ pub(super) struct LocalInference {
 }
 
 impl LocalInference {
+    pub(super) fn merge_prepared_owner(&mut self, other: &Self) {
+        assert!(
+            !other.collecting
+                && other.bindings.is_empty()
+                && other.solved_functions.is_empty()
+                && other.nonmaterial_expressions.is_empty()
+                && other.checked_bindings.is_empty()
+                && other.unresolved_expr_types.is_empty(),
+            "module owner preparation must contain only local-inference seeds"
+        );
+        self.seeds.extend(other.seeds.iter().copied());
+    }
+
     pub(super) fn prepare(view: &CheckBundleView<'_>) -> Self {
         let program = view.program;
         let mut inference = Self::default();

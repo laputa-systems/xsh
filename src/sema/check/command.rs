@@ -314,19 +314,16 @@ impl Checker {
             } => self.check_core_command_arena(arena, source, *name, *args, *env, *block, span),
             ArenaCommand::Run(run_id) => {
                 self.record_required_effect(Effect::Process);
-                if let Some(effs) = &self.boundary.current_effects
-                    && !Self::effects_covers(effs, &Effect::Process)
-                {
-                    let run_span = arena.arena.span(arena.arena.run_form(*run_id).span);
-                    self.error(
-                        run_span,
-                        "`run` requires the `process` effect",
-                        DiagnosticCode::CheckEffectViolation,
-                    );
-                }
+                let run_span = arena.arena.span(arena.arena.run_form(*run_id).span);
+                self.check_required_effect_clause(
+                    Effect::Process,
+                    run_span,
+                    "`run` requires the `process` effect",
+                    "`run`",
+                );
                 self.check_effect_not_excluded(
                     &Effect::Process,
-                    arena.arena.span(arena.arena.run_form(*run_id).span),
+                    run_span,
                     "`run`",
                 );
                 self.check_run_arena(arena, source, *run_id)
@@ -791,14 +788,22 @@ impl Checker {
                     run_capture_result_type_arena(arena, run_id).expect("capture run kind");
                 if run.propagate {
                     let reported = self.diagnostics.len();
+                    let deferred = self.deferred_effect_checks.len();
                     let value = self.check_propagation(&result, run_span);
                     // The propagation is the form's own, with no `?` to
                     // point at, so its diagnostics say where it comes from.
                     if !run.propagation_written {
-                        for diagnostic in &mut self.diagnostics[reported..] {
-                            diagnostic.notes.push(
-                                "a capturing run form propagates a failed command as `?` does; write `try run...` to keep the failure as a value".into(),
+                        let note = "a capturing run form propagates a failed command as `?` does; write `try run...` to keep the failure as a value";
+                        if self.defer_effect_diagnostics {
+                            self.add_deferred_required_effect_note(
+                                deferred,
+                                run_span,
+                                note.into(),
                             );
+                        } else {
+                            for diagnostic in &mut self.diagnostics[reported..] {
+                                diagnostic.notes.push(note.into());
+                            }
                         }
                     }
                     value

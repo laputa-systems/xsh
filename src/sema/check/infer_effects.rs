@@ -60,14 +60,14 @@ impl EffectSummary {
 /// A summary edge reads the target's solved summary; a contract edge reads the
 /// target's declared clause. Keeping contract edges distinct lets the solver
 /// ask what a declared callee would infer without its clause.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct EffectEdge {
     target: EffectDeclarationId,
     captures_error: bool,
     contract: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct EffectNode {
     pub name: String,
     pub inferred: bool,
@@ -85,23 +85,51 @@ pub(super) struct EffectGraph {
 }
 
 impl EffectGraph {
-    pub(super) fn is_empty(&self) -> bool {
-        self.nodes.is_empty()
+    pub(super) fn contains(&self, id: EffectDeclarationId) -> bool {
+        self.nodes.contains_key(&id)
     }
 
-    pub(super) fn declarations(view: &CheckBundleView<'_>) -> Self {
+    pub(super) fn declarations_for_root(view: &CheckBundleView<'_>) -> Self {
+        Self::declarations_for_source(view, view.root_source_id(), None)
+    }
+
+    pub(super) fn declarations_for_module(
+        view: &CheckBundleView<'_>,
+        module: &crate::syntax::arena::ArenaUserModule,
+    ) -> Self {
+        let source_id = view
+            .program
+            .module_statements(module)
+            .next()
+            .map(|statement| view.program.arena.stmt(statement).span.source_id)
+            .or_else(|| view.program.module_doc_for(module.statements).map(|span| span.source_id));
+        Self::declarations_for_source(view, source_id, Some(module.name))
+    }
+
+    /// Return only declaration-level facts for an owner whose body is not checked.
+    pub(super) fn declaration_facts(&self) -> BTreeMap<EffectDeclarationId, FunctionEffectFact> {
+        let summaries = self
+            .nodes
+            .keys()
+            .map(|&identity| (identity, EffectSummary::default()))
+            .collect();
+        self.facts(&summaries)
+    }
+
+    fn declarations_for_source(
+        view: &CheckBundleView<'_>,
+        source_id: Option<crate::source::SourceId>,
+        namespace: Option<Name>,
+    ) -> Self {
+        let Some(source_id) = source_id else {
+            return Self::default();
+        };
         let program = view.program;
         let mut graph = Self::default();
-        let mut namespaces = super::FxHashMap::default();
-        for module in view.modules.iter().copied() {
-            for statement in program.arena.stmt_ids(module.statements) {
-                namespaces.insert(program.arena.stmt(statement).span.source_id, module.name);
-            }
-        }
         for raw in 0..program.arena.stmt_tags.len() {
             let statement_id = StmtId::from_index(raw);
             let statement = program.arena.stmt(statement_id);
-            if !view.contains_source(statement.span.source_id) {
+            if statement.span.source_id != source_id {
                 continue;
             }
             let definition = match statement.kind {
@@ -112,17 +140,14 @@ impl EffectGraph {
             };
             let def = program.arena.function_def(definition);
             let id = EffectDeclarationId {
-                namespace: namespaces.get(&statement.span.source_id).copied(),
+                namespace,
                 body: program.arena.span(program.arena.block(def.body).span),
             };
             let declared = def
                 .effects
                 .map(|effects| program.arena.effects(effects).collect());
-            // Exports, streams, and entry points infer like private procs: their
-            // callers depend on body effects, while a native test has no callers.
             let inference_allowed = !def.test_declaration;
-            let name = id
-                .namespace
+            let name = namespace
                 .map(|namespace| format!("{namespace}.{}", def.name))
                 .unwrap_or_else(|| def.name.to_string());
             graph.declare(id, name, inference_allowed, declared);
@@ -196,8 +221,11 @@ impl EffectGraph {
         }
     }
 
-    pub fn solve(&self) -> BTreeMap<EffectDeclarationId, EffectSummary> {
-        self.solve_with(None)
+    pub(super) fn solve_with_external(
+        &self,
+        external: &BTreeMap<EffectDeclarationId, EffectSummary>,
+    ) -> BTreeMap<EffectDeclarationId, EffectSummary> {
+        self.solve_with(None, external)
     }
 
     /// Effect sets only grow within the finite domain. Unknown witnesses choose
@@ -207,6 +235,7 @@ impl EffectGraph {
     fn solve_with(
         &self,
         unclaused: Option<EffectDeclarationId>,
+        external: &BTreeMap<EffectDeclarationId, EffectSummary>,
     ) -> BTreeMap<EffectDeclarationId, EffectSummary> {
         let mut summaries = self
             .nodes
@@ -226,7 +255,11 @@ impl EffectGraph {
                             unknown_chain: Vec::new(),
                         }
                     } else {
-                        let Some(target) = summaries.get(&edge.target).cloned() else {
+                        let Some(target) = summaries
+                            .get(&edge.target)
+                            .or_else(|| external.get(&edge.target))
+                            .cloned()
+                        else {
                             continue;
                         };
                         target
@@ -275,7 +308,7 @@ impl EffectGraph {
         if !self.reaches_own_contract(id) {
             return true;
         }
-        self.solve_with(Some(id))[&id]
+        self.solve_with(Some(id), &BTreeMap::new())[&id]
             .effects()
             .is_some_and(|known| same(&known))
     }
@@ -330,9 +363,286 @@ impl EffectGraph {
 }
 
 use super::{Checker, FunctionSig};
+use super::effect_bounds::ExcludedEffect;
 use crate::syntax::arena::{ArenaFunctionDef, ArenaProgram, ArenaStmtKind, BlockId, StmtId};
 
+#[derive(Clone, Debug)]
+pub(super) enum DeferredEffectKind {
+    Required {
+        effect: Effect,
+        message: String,
+        subject: String,
+    },
+    Call {
+        target: Option<EffectDeclarationId>,
+        contract: Option<Vec<Effect>>,
+        inferred: bool,
+        unknown_chain: Vec<String>,
+        name: String,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct DeferredEffectCheck {
+    position: usize,
+    owner: Option<EffectDeclarationId>,
+    caller: Option<Vec<Effect>>,
+    span: Span,
+    kind: DeferredEffectKind,
+    notes: Vec<String>,
+    excluded: Vec<ExcludedEffect>,
+    in_pure: bool,
+    retry_attempt_depth: usize,
+}
+
 impl Checker {
+    pub(super) fn defer_required_effect(
+        &mut self,
+        effect: Effect,
+        span: Span,
+        subject: &str,
+    ) {
+        if !self.defer_effect_diagnostics
+            || (self.boundary.retry_attempt_depth > 0 && effect == Effect::Error)
+        {
+            return;
+        }
+        self.push_deferred_effect_check(
+            span,
+            DeferredEffectKind::Required {
+                message: format!("{subject} requires the `{}` effect", effect.as_str()),
+                effect,
+                subject: subject.to_string(),
+            },
+        );
+    }
+
+    pub(super) fn check_required_effect_clause(
+        &mut self,
+        effect: Effect,
+        span: Span,
+        message: &str,
+        subject: &str,
+    ) {
+        if self.defer_effect_diagnostics {
+            self.push_deferred_effect_check(
+                span,
+                DeferredEffectKind::Required {
+                    effect,
+                    message: message.to_string(),
+                    subject: subject.to_string(),
+                },
+            );
+        } else if let Some(caller) = &self.boundary.current_effects
+            && !Self::effects_covers(caller, &effect)
+        {
+            self.error(span, message, DiagnosticCode::CheckEffectViolation);
+        }
+    }
+
+    fn push_deferred_effect_check(&mut self, span: Span, kind: DeferredEffectKind) {
+        self.deferred_effect_checks.push(DeferredEffectCheck {
+            position: self.diagnostics.len(),
+            owner: self.boundary.effect_owner,
+            caller: self.boundary.current_effects.clone(),
+            span,
+            kind,
+            notes: Vec::new(),
+            excluded: self.boundary.excluded_effects.clone(),
+            in_pure: self.boundary.in_pure,
+            retry_attempt_depth: self.boundary.retry_attempt_depth,
+        });
+    }
+
+    pub(super) fn defer_callable_effects(
+        &mut self,
+        target: Option<EffectDeclarationId>,
+        contract: Option<Vec<Effect>>,
+        inferred: bool,
+        unknown_chain: Vec<String>,
+        name: &str,
+        span: Span,
+    ) {
+        if !self.defer_effect_diagnostics {
+            return;
+        }
+        self.push_deferred_effect_check(
+            span,
+            DeferredEffectKind::Call {
+                target,
+                contract,
+                inferred,
+                unknown_chain,
+                name: name.to_string(),
+            },
+        );
+    }
+
+    pub(super) fn validate_deferred_effects(&mut self) {
+        if self.deferred_effect_checks.is_empty() {
+            return;
+        }
+        let checks = std::mem::take(&mut self.deferred_effect_checks);
+        let summaries = self.effect_summaries.clone();
+        let mut inserted = 0;
+        for check in checks {
+            let start = self.diagnostics.len();
+            let deferred_span = check.span;
+            let notes = check.notes.clone();
+            let saved_boundary = self.boundary.clone();
+            let saved_collecting = self.collecting_effects;
+            let saved_recording = self.record_effects;
+            let saved_deferred = self.defer_effect_diagnostics;
+            self.boundary.current_effects = self.caller_effect_contract(check.owner, &check.caller, &summaries);
+            self.boundary.effect_owner = check.owner;
+            self.boundary.excluded_effects = check.excluded;
+            self.boundary.in_pure = check.in_pure;
+            self.boundary.retry_attempt_depth = check.retry_attempt_depth;
+            self.collecting_effects = false;
+            self.record_effects = false;
+            self.defer_effect_diagnostics = false;
+            match check.kind {
+                DeferredEffectKind::Required {
+                    effect,
+                    message,
+                    subject,
+                } => {
+                    self.check_required_effect_clause(
+                        effect.clone(),
+                        check.span,
+                        &message,
+                        &subject,
+                    );
+                    self.check_effect_not_excluded(&effect, check.span, &subject);
+                }
+                DeferredEffectKind::Call {
+                    target,
+                    contract,
+                    inferred,
+                    mut unknown_chain,
+                    name,
+                } => {
+                    let (effects, target_unknown) = self.callee_effect_contract(
+                        target,
+                        contract,
+                        inferred,
+                        unknown_chain,
+                        &summaries,
+                    );
+                    unknown_chain = target_unknown;
+                    if let Some(caller) = self.boundary.current_effects.clone() {
+                        if effects.is_none() && inferred {
+                            let mut chain = vec![name.clone()];
+                            chain.extend(unknown_chain.clone());
+                            self.error(
+                                check.span,
+                                &format!("proc `{name}` has an unknown effect summary: {}; call a named callable with a checked effect contract instead of an opaque or unrestricted dependency", chain.join(" -> ")),
+                                DiagnosticCode::CheckEffectViolation,
+                            );
+                        } else {
+                            self.check_callee_effects(&caller, &effects, &name, check.span);
+                        }
+                    }
+                    self.check_callee_not_excluded(&effects, &unknown_chain, &name, check.span);
+                }
+            }
+            self.boundary = saved_boundary;
+            self.collecting_effects = saved_collecting;
+            self.record_effects = saved_recording;
+            self.defer_effect_diagnostics = saved_deferred;
+            let mut generated = self.diagnostics.drain(start..).collect::<Vec<_>>();
+            if generated.iter().any(|diagnostic| {
+                diagnostic.code == Some(DiagnosticCode::CheckEffectViolation)
+                    && diagnostic.labels.iter().any(|label| label.span == deferred_span)
+            }) {
+                // Deferred errors arrive after call checking has admitted static call facts.
+                self.statically_resolved_call_spans.retain(|call| {
+                    call.source_id != deferred_span.source_id
+                        || call.start() > deferred_span.start()
+                        || call.end() < deferred_span.end()
+                });
+            }
+            for diagnostic in &mut generated {
+                diagnostic.notes.extend(notes.iter().cloned());
+            }
+            let insertion = check.position.saturating_add(inserted).min(self.diagnostics.len());
+            inserted += generated.len();
+            self.diagnostics.splice(insertion..insertion, generated.drain(..));
+        }
+    }
+
+    pub(super) fn add_deferred_required_effect_note(
+        &mut self,
+        from: usize,
+        span: Span,
+        note: String,
+    ) {
+        if !self.defer_effect_diagnostics {
+            return;
+        }
+        if let Some(check) = self.deferred_effect_checks[from..]
+            .iter_mut()
+            .rev()
+            .find(|check| {
+                check.span == span
+                    && matches!(
+                        &check.kind,
+                        DeferredEffectKind::Required {
+                            effect: Effect::Error,
+                            subject,
+                            ..
+                        } if subject == "`?`"
+                    )
+            })
+        {
+            check.notes.push(note);
+        }
+    }
+
+    fn caller_effect_contract(
+        &self,
+        owner: Option<EffectDeclarationId>,
+        fallback: &Option<Vec<Effect>>,
+        summaries: &BTreeMap<EffectDeclarationId, EffectSummary>,
+    ) -> Option<Vec<Effect>> {
+        owner
+            .and_then(|owner| self.effect_graph.nodes.get(&owner).map(|node| (owner, node)))
+            .map_or_else(
+                || fallback.clone(),
+                |(owner, node)| {
+                    node.declared.clone().or_else(|| {
+                        node.inferred
+                            .then(|| summaries.get(&owner).and_then(EffectSummary::effects))
+                            .flatten()
+                    })
+                },
+            )
+    }
+
+    fn callee_effect_contract(
+        &self,
+        target: Option<EffectDeclarationId>,
+        contract: Option<Vec<Effect>>,
+        inferred: bool,
+        fallback_unknown_chain: Vec<String>,
+        summaries: &BTreeMap<EffectDeclarationId, EffectSummary>,
+    ) -> (Option<Vec<Effect>>, Vec<String>) {
+        let Some((id, node)) = target.and_then(|id| self.effect_graph.nodes.get(&id).map(|node| (id, node))) else {
+            return (contract, fallback_unknown_chain);
+        };
+        if let Some(declared) = &node.declared {
+            return (Some(declared.clone()), Vec::new());
+        }
+        if inferred {
+            if let Some(summary) = summaries.get(&id) {
+                let mut chain = vec![node.name.clone()];
+                chain.extend(summary.unknown_chain.clone());
+                return (summary.effects(), chain);
+            }
+        }
+        (contract, fallback_unknown_chain)
+    }
+
     pub(super) fn effect_declaration_id(
         &self,
         program: &ArenaProgram,
@@ -370,7 +680,7 @@ impl Checker {
     }
 
     pub(super) fn record_required_effect(&mut self, effect: Effect) {
-        if self.collecting_effects {
+        if self.record_effects || self.collecting_effects {
             self.effect_graph
                 .require(self.boundary.effect_owner, effect, self.boundary.retry_attempt_depth > 0);
         }
@@ -378,9 +688,13 @@ impl Checker {
 
     pub(super) fn require_effect(&mut self, effect: Effect, span: Span, subject: &str) {
         let captured = self.boundary.retry_attempt_depth > 0;
-        if self.collecting_effects {
+        if self.record_effects || self.collecting_effects {
             self.effect_graph
                 .require(self.boundary.effect_owner, effect.clone(), captured);
+        }
+        if self.defer_effect_diagnostics {
+            self.defer_required_effect(effect, span, subject);
+            return;
         }
         if captured && effect == Effect::Error {
             return;
@@ -403,9 +717,10 @@ impl Checker {
         name: &str,
         span: Span,
     ) {
-        if self.collecting_effects {
+        if self.record_effects || self.collecting_effects {
             if let Some(declaration) = sig.effect_declaration
                 && (sig.inferred_effects || sig.effects.is_some())
+                && self.effect_graph.contains(declaration)
             {
                 self.effect_graph.call(
                     self.boundary.effect_owner,
@@ -415,6 +730,21 @@ impl Checker {
             } else {
                 self.record_effect_contract(&sig.effects, name);
             }
+        }
+        if self.defer_effect_diagnostics {
+            let unknown_chain = sig
+                .effect_declaration
+                .and_then(|declaration| self.effect_summaries.get(&declaration))
+                .map_or_else(Vec::new, |summary| summary.unknown_chain.clone());
+            self.defer_callable_effects(
+                sig.effect_declaration,
+                sig.effects.clone(),
+                sig.inferred_effects,
+                unknown_chain,
+                name,
+                span,
+            );
+            return;
         }
         if let Some(caller) = self.boundary.current_effects.clone() {
             if sig.effects.is_none() && sig.inferred_effects {
@@ -446,7 +776,7 @@ impl Checker {
     }
 
     pub(super) fn record_effect_contract(&mut self, effects: &Option<Vec<Effect>>, name: &str) {
-        if !self.collecting_effects {
+        if !self.record_effects && !self.collecting_effects {
             return;
         }
         match effects {
@@ -467,6 +797,10 @@ impl Checker {
 
     pub(super) fn check_opaque_callable_effects(&mut self, name: &str, span: Span) {
         self.record_effect_contract(&None, name);
+        if self.defer_effect_diagnostics {
+            self.defer_callable_effects(None, None, false, Vec::new(), name, span);
+            return;
+        }
         if let Some(caller) = self.boundary.current_effects.clone() {
             self.check_callee_effects(&caller, &None, name, span);
         }

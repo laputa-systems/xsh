@@ -23,6 +23,7 @@ struct ReturnDeclaration {
 /// Where the program reads and rebinds names. Dependency ordering consults
 /// it for every module, so it is collected once per checked program rather
 /// than once per module.
+#[derive(Clone, Default)]
 pub(super) struct ReturnInferenceIndex {
     /// The source ranges in which a local binding hides each name.
     shadows: FxHashMap<Name, Vec<Span>>,
@@ -31,6 +32,22 @@ pub(super) struct ReturnInferenceIndex {
 }
 
 impl ReturnInferenceIndex {
+    pub(super) fn merge_owner(&mut self, other: &Self) {
+        for (&name, spans) in &other.shadows {
+            self.shadows
+                .entry(name)
+                .or_default()
+                .extend(spans.iter().copied());
+        }
+        for spans in self.shadows.values_mut() {
+            spans.sort_unstable();
+            spans.dedup();
+        }
+        self.references.extend(other.references.iter().copied());
+        self.references.sort_unstable();
+        self.references.dedup();
+    }
+
     pub(super) fn collect(view: &CheckBundleView<'_>) -> Self {
         let program = view.program;
         let mut shadows: FxHashMap<Name, Vec<Span>> = FxHashMap::default();

@@ -11,7 +11,7 @@ mod gnu;
 
 use gnu::GnuConfig;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct OptionSpec {
     value_ty: ArgValueType,
     repeated: bool,
@@ -383,7 +383,7 @@ impl ArgTokenKind {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct CommandSpec {
     canonical: String,
     aliases: Vec<String>,
@@ -411,7 +411,7 @@ pub(crate) enum ParsePolicy {
 /// One normalized descriptor supplies both checked field types and argument
 /// parsing policy. Prepared calls retain this plan without exposing it as a
 /// language value; dynamic descriptors use the same normalization at runtime.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CliDescriptorPlan {
     specs: BTreeMap<String, OptionSpec>,
     gnu: Option<GnuConfig>,

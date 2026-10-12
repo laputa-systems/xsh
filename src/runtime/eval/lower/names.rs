@@ -9,7 +9,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     pub(super) fn function_index(&self) -> Rc<CompactFunctionIndex> {
         let uninitialised = self.function_defs.borrow().is_none();
         if uninitialised {
-            let index = Rc::new(CompactFunctionIndex::new(self.program));
+            let index = Rc::new(CompactFunctionIndex::new(self.program, &self.scope));
             *self.function_defs.borrow_mut() = Some(index);
         }
         Rc::clone(

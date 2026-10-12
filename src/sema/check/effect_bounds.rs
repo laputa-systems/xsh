@@ -103,6 +103,9 @@ impl Checker {
         span: Span,
         subject: &str,
     ) {
+        if self.defer_effect_diagnostics {
+            return;
+        }
         if self.collecting_effects || self.boundary.in_pure || self.clause_rejects(required) {
             return;
         }
@@ -133,6 +136,17 @@ impl Checker {
         callee_name: &str,
         span: Span,
     ) {
+        if self.defer_effect_diagnostics {
+            self.defer_callable_effects(
+                None,
+                callee_effects.clone(),
+                false,
+                unknown_chain.to_vec(),
+                callee_name,
+                span,
+            );
+            return;
+        }
         if self.collecting_effects || self.boundary.in_pure {
             return;
         }

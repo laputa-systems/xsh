@@ -816,6 +816,9 @@ mod tests {
 
         let mut probe = CompactLowerConstructProbe {
             program: &parsed.arena,
+            scope: std::rc::Rc::new(super::super::CompactRootScope::whole_program(
+                &parsed.arena,
+            )),
             declarations: &declarations,
             bodies: &declarations.bodies,
             source,

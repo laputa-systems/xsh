@@ -2,7 +2,7 @@
 
 use super::{
     BTreeMap, CheckBundleView, Checker, CheckedFunctionKind, CoreCommand, ErrorFamilyInfo,
-    ErrorVariantInfo, FxHashSet, ModuleRecords, Name, QualifiedName, Span, TagVariantInfo, Type,
+    ErrorVariantInfo, FxHashMap, FxHashSet, Name, QualifiedName, Span, TagVariantInfo, Type,
     TypeAnnRef, TypeDefBody, UserModuleSig, api_spec,
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Label};
@@ -15,59 +15,64 @@ use crate::syntax::arena::{
     ArenaStmtKind, ArenaTypeDef, ArenaTypeDefBody, ArenaUserModule, ErrorDefId, FunctionDefId,
     StmtId, TypeDefId, TypeExprId,
 };
-use crate::source::SourceMap;
-use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
+#[cfg(test)]
+thread_local! {
+    pub(super) static USER_MODULE_CHECKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 impl Checker {
-    pub(super) fn collect_user_modules_arena(
-        &mut self,
+    /// Resolve exported type headers before the entry selects its argument domain.
+    pub(super) fn module_type_headers(
         view: &CheckBundleView<'_>,
-        records: &ModuleRecords,
+        options: super::CheckOptions,
         type_program: Arc<ArenaProgram>,
-        source: &str,
-    ) {
-        let program = view.program;
-        let sources = view.sources;
-        for module in view.modules.iter().copied() {
-            let source = sources.map_or(source, |sources| {
-                module_source_text(program, module, sources)
-            });
-            let record = records
-                .module(&module.key)
-                .expect("reachable module has a prepared record");
-            debug_assert_eq!(record.args_domain, records.root().args_domain);
-            if module.internal {
-                if self.options.embedded_bodies || program.module_statements(module).any(|id| {
-                    let kind = match program.arena.stmt(id).kind {
-                        ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
-                        other => other,
-                    };
-                    matches!(kind, ArenaStmtKind::PureDef(id) if program.arena.function_def(id).return_ty_defaulted)
-                }) {
-                    self.check_user_module_arena(
-                        view,
-                        record,
-                        type_program.clone(),
-                        source,
-                        module,
-                    );
+    ) -> FxHashMap<String, UserModuleSig> {
+        let program = view.program();
+        let mut headers = FxHashMap::default();
+        for module in view.modules() {
+            let mut checker = Self::new(options);
+            checker.current_namespace = Some(module.name);
+            checker.user_modules = Arc::new(headers.clone());
+            let statements = program.module_statements(module).collect::<Vec<_>>();
+            checker.collect_type_imports_arena(program, statements.iter().copied());
+            let mut exported = Vec::new();
+            for &statement in &statements {
+                let stmt = program.arena.stmt(statement);
+                let (kind, span, is_exported) = match stmt.kind {
+                    ArenaStmtKind::Export(inner) => {
+                        let inner = program.arena.stmt(inner);
+                        (inner.kind, inner.span, true)
+                    }
+                    kind => (kind, stmt.span, false),
+                };
+                let ArenaStmtKind::TypeDef(id) = kind else {
+                    continue;
+                };
+                let def = program.arena.type_def(id);
+                checker.type_defs.insert(
+                    def.name,
+                    type_def_body_arena(type_program.clone(), id, Some(module.name)),
+                );
+                if is_exported {
+                    exported.push((id, def.name, span));
                 }
-                // Embedded implementations are not user modules: they have no
-                // `use` path, no module contract, and no public documentation
-                // obligations. Their bodies are checked with programs that lower
-                // them and validated against the registry by `script_impls`.
-                continue;
             }
-            let sig = self.check_user_module_arena(
-                view,
-                record,
-                type_program.clone(),
-                source,
-                module,
-            );
-            Arc::make_mut(&mut self.user_modules).insert(module.key.clone(), sig);
+            let mut header = UserModuleSig::default();
+            for (id, name, span) in exported {
+                let def = program.arena.type_def(id);
+                header.types.insert(
+                    name,
+                    type_def_body_arena(type_program.clone(), id, Some(module.name)),
+                );
+                if def.type_parameters.is_empty() {
+                    header.resolved_types.insert(name, checker.type_from_name(name, span));
+                }
+            }
+            headers.insert(module.key.clone(), header);
         }
+        headers
     }
 
     pub(super) fn collect_type_imports_arena(
@@ -370,27 +375,11 @@ impl Checker {
         source: &str,
         module: &ArenaUserModule,
     ) -> UserModuleSig {
+        #[cfg(test)]
+        USER_MODULE_CHECKS.with(|checks| checks.set(checks.get() + 1));
         let program = view.program;
-        let saved_procs = self.procs.clone();
-        let saved_pures = self.pures.clone();
-        let saved_streams = self.streams.clone();
-        let saved_qualified_procs = self.qualified_procs.clone();
-        let saved_qualified_pures = self.qualified_pures.clone();
-        let saved_qualified_streams = self.qualified_streams.clone();
-        let saved_type_defs = self.type_defs.clone();
-        let saved_tag_variants = self.tag_variants.clone();
-        let saved_type_namespaces = self.type_namespaces.clone();
-        let saved_error_families = self.error_families.clone();
-        let saved_error_facets = self.error_facets.clone();
-        let enclosing_boundary = self.enter_callable_boundary();
-        let saved_exported = self.current_exported;
-        let saved_module_depth = self.module_depth;
-        let saved_namespace = self.current_namespace;
         self.current_namespace = Some(module.name);
-        let saved_scopes = self.scopes.clone();
-        self.scopes = vec![FxHashMap::default()];
         self.module_depth += 1;
-        self.define_standard_values();
 
         let stmt_ids = record.statements();
         self.check_test_declaration_names_arena(program, stmt_ids, true);
@@ -737,22 +726,6 @@ impl Checker {
             }
         }
 
-        self.procs = saved_procs;
-        self.pures = saved_pures;
-        self.streams = saved_streams;
-        self.qualified_procs = saved_qualified_procs;
-        self.qualified_pures = saved_qualified_pures;
-        self.qualified_streams = saved_qualified_streams;
-        self.type_defs = saved_type_defs;
-        self.tag_variants = saved_tag_variants;
-        self.type_namespaces = saved_type_namespaces;
-        self.error_families = saved_error_families;
-        self.error_facets = saved_error_facets;
-        self.boundary = enclosing_boundary;
-        self.current_exported = saved_exported;
-        self.module_depth = saved_module_depth;
-        self.current_namespace = saved_namespace;
-        self.scopes = saved_scopes;
         exports
     }
 
@@ -814,29 +787,6 @@ impl Checker {
 
 }
 
-fn module_source_text<'a>(
-    program: &ArenaProgram,
-    module: &crate::syntax::arena::ArenaUserModule,
-    sources: &'a SourceMap,
-) -> &'a str {
-    let source_id = program
-        .module_statements(module)
-        .next()
-        .map(|statement| program.arena.stmt(statement).span.source_id)
-        .or_else(|| program.module_doc_for(module.statements).map(|span| span.source_id))
-        .or_else(|| {
-            sources
-                .files()
-                .iter()
-                .find(|source| source.name() == module.key)
-                .map(|source| source.id())
-        })
-        .unwrap_or_else(|| panic!("source identity missing for module `{}`", module.key));
-    sources
-        .get(source_id)
-        .unwrap_or_else(|| panic!("source `{source_id:?}` missing for module `{}`", module.key))
-        .text()
-}
 
 pub(super) fn callable_type_from_function_signature(sig: &FunctionSig) -> super::CallableType {
     super::CallableType {

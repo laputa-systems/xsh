@@ -13,7 +13,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticRenderer, Label, LabelStyle};
 use xsh::execution::evaluator::Evaluator;
-use xsh::frontend::check::{AnnotationFact, AnnotationFactKind, CheckOptions, Checker};
+use xsh::frontend::check::{
+    AnnotationFact, AnnotationFactKind, CheckOptions, CheckSession, Checker,
+};
 use xsh::frontend::load as loader;
 use xsh::frontend::source::{SourceId, SourceMap, Span};
 use xsh::frontend::syntax::parser::Parser;
@@ -183,12 +185,24 @@ pub fn check_paths_timed(
             .unwrap_or(1)
             .min(files.len().max(1))
     };
+    let shared_workspace = if annotation_selection.is_none() {
+        let load_started = Instant::now();
+        let workspace = load_check_workspace(&files);
+        timings.record(Stage::Load, load_started.elapsed());
+        if let Some(output) = cancellation_output() {
+            return output;
+        }
+        workspace
+    } else {
+        None
+    };
     let next_file = AtomicUsize::new(0);
     let mut reports = std::thread::scope(|scope| {
         let (report_tx, report_rx) = crossbeam_channel::unbounded();
         for _ in 0..worker_count {
             let report_tx = report_tx.clone();
             let (files, next_file) = (&files, &next_file);
+            let shared_workspace = shared_workspace.as_ref();
             std::thread::Builder::new()
                 .name("xsht-check".to_string())
                 .stack_size(super::FRONTEND_WORKER_STACK_BYTES)
@@ -201,8 +215,12 @@ pub fn check_paths_timed(
                         let Some(file) = files.get(file_index) else {
                             break;
                         };
-                        let report =
-                            check_entry(&file.to_string_lossy(), annotation_selection, timings);
+                        let report = check_entry(
+                            &file.to_string_lossy(),
+                            annotation_selection,
+                            timings,
+                            shared_workspace,
+                        );
                         if report_tx.send((file_index, report)).is_err() {
                             break;
                         }
@@ -275,6 +293,46 @@ enum EntryOutput {
     Diagnostics(Vec<Diagnostic>),
 }
 
+struct CheckWorkspace {
+    sources: Arc<SourceMap>,
+    program: Arc<xsh::frontend::syntax::arena::ArenaProgram>,
+    session: CheckSession,
+    entries: rustc_hash::FxHashMap<String, loader::LoadedArenaEntry>,
+}
+
+fn load_check_workspace(files: &[std::path::PathBuf]) -> Option<CheckWorkspace> {
+    let mut inputs = Vec::new();
+    for file in files {
+        let path = file.to_string_lossy().into_owned();
+        let Ok(config) = config_for_file(&path) else {
+            continue;
+        };
+        let Ok(bytes) = fs::read(file) else {
+            continue;
+        };
+        inputs.push(loader::ArenaEntryInput {
+            file: path,
+            bytes,
+            module_roots: config.module_roots(),
+        });
+    }
+    if inputs.is_empty() {
+        return None;
+    }
+    let loaded = loader::parse_load_entries_shared_arena_only(inputs);
+    let session = CheckSession::new(Arc::clone(&loaded.program), Arc::clone(&loaded.sources));
+    Some(CheckWorkspace {
+        sources: loaded.sources,
+        program: loaded.program,
+        session,
+        entries: loaded
+            .entries
+            .into_iter()
+            .map(|entry| (entry.file.clone(), entry))
+            .collect(),
+    })
+}
+
 /// What checking one entry file contributes to `xsht check`. Its spans index
 /// `sources`, which holds only this entry and the modules it loads.
 struct EntryReport {
@@ -283,7 +341,7 @@ struct EntryReport {
     lowering_diagnostics: Vec<Diagnostic>,
     /// The exit status this entry asks for; a later entry's request replaces it.
     status: Option<u8>,
-    sources: SourceMap,
+    sources: Arc<SourceMap>,
 }
 
 impl EntryReport {
@@ -301,12 +359,16 @@ fn check_entry(
     path_str: &str,
     annotation_selection: Option<AnnotationSelection>,
     timings: &StageTimings,
+    workspace: Option<&CheckWorkspace>,
 ) -> EntryReport {
+    let report_sources = workspace
+        .map(|workspace| Arc::clone(&workspace.sources))
+        .unwrap_or_else(|| Arc::new(SourceMap::new()));
     let mut report = EntryReport {
         output: Vec::new(),
         lowering_diagnostics: Vec::new(),
         status: None,
-        sources: SourceMap::new(),
+        sources: report_sources,
     };
     let file_config = match config_for_file(path_str) {
         Ok(file_config) => file_config,
@@ -330,61 +392,62 @@ fn check_entry(
     let module_roots = file_config.module_roots();
 
     let load_started = Instant::now();
-    let bytes = match fs::read(path_str) {
-        Ok(bytes) => bytes,
-        Err(err) => {
-            return report.failed(
-                2,
-                EntryOutput::Text(format!("xsh: failed to read '{path_str}': {err}\n")),
-            );
+    let loaded_entry = workspace.and_then(|workspace| workspace.entries.get(path_str));
+    let (arena, source_id, statements) = if let Some(entry) = loaded_entry {
+        if !entry.diagnostics.is_empty() {
+            return report.failed(2, EntryOutput::Diagnostics(entry.diagnostics.clone()));
         }
-    };
-    let source_id = match report
-        .sources
-        .add_file_from_utf8(path_str.to_string(), bytes.clone())
-    {
-        Ok(id) => id,
-        Err(error) => {
-            let text = String::from_utf8_lossy(&bytes).into_owned();
-            let sid = report.sources.add_file(path_str.to_string(), text);
-            let offset = error
-                .offset
-                .min(report.sources.get(sid).map_or(0, |s| s.len()));
-            let diagnostics = vec![
-                Diagnostic::error("source file is not valid UTF-8")
-                    .with_code(DiagnosticCode::SourceInvalidUtf8)
-                    .with_label(Label::primary(
-                        Span::new(sid, offset, offset),
-                        "invalid UTF-8 starts here",
-                    )),
-            ];
-            let rendered = DiagnosticRenderer::new().render(&diagnostics, &report.sources);
+        (
+            Arc::clone(&workspace.expect("loaded entry has a workspace").program),
+            entry.source_id,
+            entry.statements,
+        )
+    } else {
+        let bytes = match fs::read(path_str) {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                return report.failed(
+                    2,
+                    EntryOutput::Text(format!("xsh: failed to read '{path_str}': {err}\n")),
+                );
+            }
+        };
+        let mut sources = SourceMap::new();
+        let (source_id, source_diagnostics) =
+            loader::add_source_bytes(&mut sources, path_str, bytes);
+        if !source_diagnostics.is_empty() {
+            let rendered = DiagnosticRenderer::new().render(&source_diagnostics, &sources);
+            report.sources = Arc::new(sources);
             return report.failed(2, EntryOutput::Text(rendered));
         }
+        let parsed = loader::parse_load_entry_source_shared_arena_only(
+            path_str,
+            source_id,
+            &mut sources,
+            module_roots,
+        );
+        report.sources = Arc::new(sources);
+        if !parsed.diagnostics.is_empty() {
+            return report.failed(2, EntryOutput::Diagnostics(parsed.diagnostics));
+        }
+        let arena = Arc::new(parsed.arena);
+        let statements = arena.statements;
+        (arena, source_id, statements)
     };
-    drop(bytes);
-
-    let parsed = loader::parse_load_entry_source_shared_arena_only(
-        path_str,
-        source_id,
-        &mut report.sources,
-        module_roots,
-    );
-    timings.record(Stage::Load, load_started.elapsed());
-    if !parsed.diagnostics.is_empty() {
-        return report.failed(2, EntryOutput::Diagnostics(parsed.diagnostics));
+    if loaded_entry.is_none() {
+        timings.record(Stage::Load, load_started.elapsed());
     }
 
     // This one check renders the diagnostics and supplies the lowering facts.
-    let arena = Arc::new(parsed.arena);
+    let local_session = (workspace.is_none() || loaded_entry.is_none())
+        .then(|| CheckSession::new(Arc::clone(&arena), Arc::clone(&report.sources)));
+    let session = local_session
+        .as_ref()
+        .or_else(|| workspace.map(|workspace| &workspace.session))
+        .expect("a check session is available for the entry");
+    let view = session.view_for_root(statements, source_id);
     let mut checked = timings.time(Stage::Check, || {
-        Checker::check_arena_with_sources_options_and_type_program(
-            &arena,
-            &report.sources,
-            source_id,
-            CheckOptions::for_check_cli(),
-            Arc::clone(&arena),
-        )
+        session.check_view(&view, CheckOptions::for_check_cli())
     });
     if !checked.diagnostics.is_empty() {
         return report.failed(2, EntryOutput::Diagnostics(checked.diagnostics));
@@ -393,11 +456,11 @@ fn check_entry(
     let mut type_stderr = DiagnosticRenderer::new().render(&checked.reveal_types, &report.sources);
     let annotation_facts = std::mem::take(&mut checked.annotation_facts);
     let lowering_diagnostics = timings.time(Stage::Lower, || {
-        Evaluator::compact_lowerability_diagnostics_with_parts(
-            &arena,
+        Evaluator::compact_lowerability_diagnostics_with_view(
+            &view,
             source_id,
-            report.sources.clone(),
-            Checker::compact_declarations(&arena, checked),
+            Arc::clone(&report.sources),
+            Checker::compact_declarations(view.program(), checked),
             Vec::new(),
             xsh::execution::script::script_command_name(path_str),
         )

@@ -88,6 +88,80 @@ impl ResolvedBindings {
         resolver.facts
     }
 
+    pub(super) fn merge_visible(&self, other: &Self) -> Self {
+        let mut merged = self.clone();
+        for (&id, declaration) in &other.declarations {
+            if let Some(existing) = merged.declarations.get(&id) {
+                let same_args = id == BindingId::args()
+                    && existing.name == declaration.name
+                    && existing.span == declaration.span
+                    && existing.kind == declaration.kind
+                    && existing.global == declaration.global
+                    && existing.exported == declaration.exported;
+                assert!(
+                    same_args || existing.name == declaration.name
+                        && existing.span == declaration.span
+                        && existing.namespace == declaration.namespace
+                        && existing.kind == declaration.kind
+                        && existing.global == declaration.global
+                        && existing.exported == declaration.exported,
+                    "binding identity {id:?} has conflicting module declarations"
+                );
+            } else {
+                merged.declarations.insert(id, declaration.clone());
+            }
+        }
+        merge_binding_map(&mut merged.declaration_sites, &other.declaration_sites);
+        merge_binding_map(&mut merged.expressions, &other.expressions);
+        merge_binding_map(&mut merged.tails, &other.tails);
+        merge_binding_map(&mut merged.value_sites, &other.value_sites);
+        merge_binding_map(
+            &mut merged.expression_namespaces,
+            &other.expression_namespaces,
+        );
+        merged
+    }
+
+    pub(super) fn resolve_module_fields(
+        &mut self,
+        program: &ArenaProgram,
+        declarations: &FxHashMap<BindingId, BindingDeclaration>,
+    ) {
+        let globals = declarations
+            .iter()
+            .filter_map(|(&id, declaration)| {
+                declaration
+                    .global
+                    .then_some(((declaration.namespace, declaration.name), id))
+            })
+            .collect::<FxHashMap<_, _>>();
+        for &expression in self.expression_namespaces.keys() {
+            let ArenaExprKind::Field { base, name } = program.arena.expr(expression).kind else {
+                continue;
+            };
+            let Some(binding) = self.expressions.get(&base).copied() else {
+                continue;
+            };
+            let Some(BindingDeclaration {
+                kind: BindingKind::Module(namespace),
+                ..
+            }) = declarations.get(&binding)
+            else {
+                continue;
+            };
+            if let Some(&target) = globals.get(&(Some(*namespace), name)) {
+                if let Some(existing) = self.expressions.get(&expression) {
+                    assert_eq!(
+                        *existing, target,
+                        "qualified module field resolved to conflicting declarations"
+                    );
+                } else {
+                    self.expressions.insert(expression, target);
+                }
+            }
+        }
+    }
+
     /// Only physical targets that lexical checking declared have identities.
     pub fn target(&self, target: BindingTargetId) -> Option<BindingId> {
         let id = BindingId(BindingOrigin::Target(target));
@@ -102,6 +176,23 @@ impl ResolvedBindings {
         match self.declarations[&id].kind {
             BindingKind::Constant(statement) => Some(statement),
             BindingKind::Runtime | BindingKind::Module(_) => None,
+        }
+    }
+}
+
+fn merge_binding_map<K, V>(target: &mut FxHashMap<K, V>, source: &FxHashMap<K, V>)
+where
+    K: Copy + Eq + std::hash::Hash + std::fmt::Debug,
+    V: Clone + Eq + std::fmt::Debug,
+{
+    for (&key, value) in source {
+        if let Some(existing) = target.get(&key) {
+            assert_eq!(
+                existing, value,
+                "binding fact {key:?} has conflicting owner records"
+            );
+        } else {
+            target.insert(key, value.clone());
         }
     }
 }

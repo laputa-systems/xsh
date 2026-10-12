@@ -3,19 +3,20 @@
 use crate::modules::{ModuleFnSig, RuntimeOp, api_spec};
 use crate::runtime::value::{DurationValue, PathValue, RegexValue, RuntimeError, Value};
 use crate::sema::check::{
-    BindingId, BindingKind, CheckedApiCall, CompactBodyFacts, CompactDeclOutput, Conversion,
+    BindingId, BindingKind, CheckBundleView, CheckedApiCall, CompactBodyFacts, CompactDeclOutput, Conversion,
     ResourceTransferSite,
 };
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
-use crate::source::{SourceMap, Span};
+use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::{Name, QualifiedName, Symbol};
 use crate::syntax::arena::DeferTrigger;
 use crate::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCallArg, ArenaChild,
     ArenaCallArgKind, ArenaCommand, ArenaCommandArgKind, ArenaExprKind, ArenaExprOrRun,
     ArenaFmtPart, ArenaPatternKind, ArenaProgram, ArenaRecordFieldKind, ArenaSpawnTarget,
-    ArenaStmtKind, ArenaStreamStage, ArenaTypeExprTag, ArenaWordPart, AstArena, BindingTargetId,
-    BlockId, ExprId, FunctionDefId, PatternId, StmtId, SugarView, TypeExprId,
+    ArenaStmtKind, ArenaStreamStage, ArenaTypeExprTag, ArenaUserModule, ArenaWordPart, AstArena,
+    ArenaRange, BindingTargetId, BlockId, ExprId, FunctionDefId, PatternId, StmtId, SugarView,
+    TypeExprId,
 };
 use crate::syntax::node::{
     AssignOp, BinaryOp, CommandWordRefSegment, CoreCommand, RunKind, StreamStageKind, UnaryOp,
@@ -446,8 +447,20 @@ pub(super) fn probe_compact_lower_constructed_bodies(
     declarations: &CompactDeclOutput,
     source: &str,
 ) -> CompactLowerConstructProbeOutput {
+    let scope = CompactRootScope::whole_program(program);
+    probe_compact_lower_constructed_bodies_in_scope(program, declarations, source, &scope)
+}
+
+pub(in crate::runtime::eval) fn probe_compact_lower_constructed_bodies_in_scope(
+    program: &ArenaProgram,
+    declarations: &CompactDeclOutput,
+    source: &str,
+    scope: &CompactRootScope<'_>,
+) -> CompactLowerConstructProbeOutput {
+    let scope = Rc::new(scope.clone());
     let mut probe = CompactLowerConstructProbe {
         program,
+        scope: Rc::clone(&scope),
         declarations,
         bodies: &declarations.bodies,
         source,
@@ -481,11 +494,66 @@ pub(in crate::runtime::eval) enum StdlibLowerLinkage {
     External,
 }
 
+/// A borrowed entry root and the resolved module closure prepared for it.
+#[derive(Clone)]
+pub(in crate::runtime::eval) struct CompactRootScope<'a> {
+    root_statements: ArenaRange,
+    modules: Vec<&'a ArenaUserModule>,
+}
+
+impl<'a> CompactRootScope<'a> {
+    pub(in crate::runtime::eval) fn whole_program(program: &'a ArenaProgram) -> Self {
+        Self {
+            root_statements: program.statements,
+            modules: program.modules.iter().collect(),
+        }
+    }
+
+    pub(in crate::runtime::eval) fn from_view(view: &CheckBundleView<'a>) -> Self {
+        Self {
+            root_statements: view.root_statements(),
+            modules: view.modules().collect(),
+        }
+    }
+
+    pub(in crate::runtime::eval) fn root_statements(&self) -> ArenaRange {
+        self.root_statements
+    }
+
+    pub(in crate::runtime::eval) fn source_ids(
+        &self,
+        program: &ArenaProgram,
+    ) -> FxHashSet<SourceId> {
+        let mut source_ids = program
+            .arena
+            .stmt_ids(self.root_statements)
+            .map(|id| program.arena.stmt(id).span.source_id)
+            .collect::<FxHashSet<_>>();
+        for module in &self.modules {
+            source_ids.extend(
+                program
+                    .module_statements(module)
+                    .map(|id| program.arena.stmt(id).span.source_id),
+            );
+        }
+        source_ids
+    }
+
+    fn module_named(&self, name: Name) -> Option<&'a ArenaUserModule> {
+        self.modules.iter().copied().find(|module| module.name == name)
+    }
+
+    fn module_with_key(&self, key: &str) -> Option<&'a ArenaUserModule> {
+        self.modules.iter().copied().find(|module| module.key == key)
+    }
+}
+
 pub(super) fn lower_compact_function_units_into(
     program: &ArenaProgram,
     declarations: &CompactDeclOutput,
     source: &str,
     sources: &SourceMap,
+    scope: &CompactRootScope<'_>,
     stdlib_linkage: StdlibLowerLinkage,
     mut emit: impl FnMut(LoweredFunctionUnit) -> Result<(), super::indexed::IrBuildError>,
 ) -> Result<(), super::indexed::IrBuildError> {
@@ -493,7 +561,8 @@ pub(super) fn lower_compact_function_units_into(
     // them once per function would make preparation quadratic in program size.
     // One index answers the whole loop: each unit's dependencies and its
     // component metadata come from the same walk of every body.
-    let index = Rc::new(CompactFunctionIndex::new(program));
+    let scope = Rc::new(scope.clone());
+    let index = Rc::new(CompactFunctionIndex::new(program, &scope));
     let candidates = index
         .defs
         .iter()
@@ -519,6 +588,7 @@ pub(super) fn lower_compact_function_units_into(
     // size.
     let recorder = CompactLowerConstructProbe {
         program,
+        scope: Rc::clone(&scope),
         declarations,
         bodies: &declarations.bodies,
         source,
@@ -538,11 +608,12 @@ pub(super) fn lower_compact_function_units_into(
     for function in index.defs.iter().copied() {
         let prefix = prefixes
             .entry(function.namespace)
-            .or_insert_with(|| CompactTopLevelPrefix::for_namespace(program, function.namespace));
+            .or_insert_with(|| CompactTopLevelPrefix::for_namespace(program, &scope, function.namespace));
         prefix.advance_to_recording(&recorder, function.id);
         let top_level_known = prefix.known.clone();
         let mut probe = CompactLowerConstructProbe {
             program,
+            scope: Rc::clone(&scope),
             declarations,
             bodies: &declarations.bodies,
             source,
@@ -576,9 +647,12 @@ pub(super) fn lower_compact_top_level_program_with_probe(
     source: &str,
     sources: &SourceMap,
     functions: &LowerableFunctions<'_>,
+    scope: &CompactRootScope<'_>,
 ) -> (ProgramBuild, CompactLowerConstructProbeOutput) {
+    let scope = Rc::new(scope.clone());
     let mut probe = CompactLowerConstructProbe {
         program,
+        scope: Rc::clone(&scope),
         declarations,
         bodies: &declarations.bodies,
         source,
@@ -587,6 +661,7 @@ pub(super) fn lower_compact_top_level_program_with_probe(
         functions: Some(functions),
         top_level_known: compact_top_level_known(
             program,
+            &scope,
             declarations,
             source,
             Some(sources),
@@ -601,13 +676,14 @@ pub(super) fn lower_compact_top_level_program_with_probe(
         with_error_source_exprs: FxHashMap::default(),
         spread_programs: Rc::default(),
     };
-    let root = program.statement_ids().collect::<Vec<_>>();
+    let root = program.arena.stmt_ids(scope.root_statements).collect::<Vec<_>>();
     let lowered = probe.lower_program_statements(&root);
     (lowered, probe.output)
 }
 
 fn compact_top_level_known(
     program: &ArenaProgram,
+    scope: &CompactRootScope<'_>,
     declarations: &CompactDeclOutput,
     source: &str,
     sources: Option<&SourceMap>,
@@ -615,16 +691,15 @@ fn compact_top_level_known(
     functions: Option<&LowerableFunctions<'_>>,
 ) -> FxHashMap<Name, LoweredTopLevelBinding> {
     let statements = match namespace {
-        Some(namespace) => program
-            .modules
-            .iter()
-            .find(|module| module.name == namespace)
+        Some(namespace) => scope
+            .module_named(namespace)
             .map(|module| program.module_statements(module).collect::<Vec<_>>())
             .unwrap_or_default(),
-        None => program.statement_ids().collect::<Vec<_>>(),
+        None => program.arena.stmt_ids(scope.root_statements).collect::<Vec<_>>(),
     };
     let probe = CompactLowerConstructProbe {
         program,
+        scope: Rc::new(scope.clone()),
         declarations,
         bodies: &declarations.bodies,
         source,
@@ -649,6 +724,7 @@ fn compact_top_level_known(
 /// cannot share the cursor `lower_compact_function_units_into` keeps.
 fn compact_function_top_level_known(
     program: &ArenaProgram,
+    scope: &CompactRootScope<'_>,
     declarations: &CompactDeclOutput,
     source: &str,
     sources: Option<&SourceMap>,
@@ -658,6 +734,7 @@ fn compact_function_top_level_known(
 ) -> FxHashMap<Name, LoweredTopLevelBinding> {
     let probe = CompactLowerConstructProbe {
         program,
+        scope: Rc::new(scope.clone()),
         declarations,
         bodies: &declarations.bodies,
         source,
@@ -673,7 +750,7 @@ fn compact_function_top_level_known(
         with_error_source_exprs: FxHashMap::default(),
         spread_programs: Rc::default(),
     };
-    let mut prefix = CompactTopLevelPrefix::for_namespace(program, namespace);
+    let mut prefix = CompactTopLevelPrefix::for_namespace(program, scope, namespace);
     prefix.advance_to_recording(&probe, function_id);
     prefix.known
 }
@@ -691,15 +768,17 @@ struct CompactTopLevelPrefix {
 }
 
 impl CompactTopLevelPrefix {
-    fn for_namespace(program: &ArenaProgram, namespace: Option<Name>) -> Self {
+    fn for_namespace(
+        program: &ArenaProgram,
+        scope: &CompactRootScope<'_>,
+        namespace: Option<Name>,
+    ) -> Self {
         let statements = match namespace {
-            Some(namespace) => program
-                .modules
-                .iter()
-                .find(|module| module.name == namespace)
+            Some(namespace) => scope
+                .module_named(namespace)
                 .map(|module| program.module_statements(module).collect::<Vec<_>>())
                 .unwrap_or_default(),
-            None => program.statement_ids().collect::<Vec<_>>(),
+            None => program.arena.stmt_ids(scope.root_statements).collect::<Vec<_>>(),
         };
         Self {
             statements,
@@ -754,8 +833,8 @@ struct CompactFunctionIndex {
 }
 
 impl CompactFunctionIndex {
-    fn new(program: &ArenaProgram) -> Self {
-        let defs = compact_function_defs(program);
+    fn new(program: &ArenaProgram, scope: &CompactRootScope<'_>) -> Self {
+        let defs = compact_function_defs(program, scope);
         let index_of = defs
             .iter()
             .enumerate()
@@ -1080,12 +1159,15 @@ fn compact_function_key(namespace: Option<Name>, name: Name) -> LoweredFunctionK
     }
 }
 
-fn compact_function_defs(program: &ArenaProgram) -> Vec<CompactFunctionDef> {
+fn compact_function_defs(
+    program: &ArenaProgram,
+    scope: &CompactRootScope<'_>,
+) -> Vec<CompactFunctionDef> {
     let mut functions = Vec::new();
-    for stmt in program.statement_ids() {
+    for stmt in program.arena.stmt_ids(scope.root_statements) {
         collect_compact_function_def(program, stmt, None, &mut functions);
     }
-    for module in &program.modules {
+    for module in scope.modules.iter().copied() {
         for stmt in program.module_statements(module) {
             collect_compact_function_def(program, stmt, Some(module.name), &mut functions);
         }
@@ -1093,8 +1175,11 @@ fn compact_function_defs(program: &ArenaProgram) -> Vec<CompactFunctionDef> {
     functions
 }
 
-pub(super) fn compact_function_keys(program: &ArenaProgram) -> Vec<LoweredFunctionKey> {
-    compact_function_defs(program)
+pub(super) fn compact_function_keys(
+    program: &ArenaProgram,
+    scope: &CompactRootScope<'_>,
+) -> Vec<LoweredFunctionKey> {
+    compact_function_defs(program, scope)
         .into_iter()
         .map(|function| function.key)
         .collect()
@@ -1146,6 +1231,7 @@ fn collect_compact_function_def(
 
 struct CompactLowerConstructProbe<'a, 'defs> {
     program: &'a ArenaProgram,
+    scope: Rc<CompactRootScope<'a>>,
     declarations: &'a CompactDeclOutput,
     bodies: &'a CompactBodyFacts,
     source: &'a str,
@@ -2041,13 +2127,18 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 
     fn probe_program(&mut self) {
-        let root = self.program.statement_ids().collect::<Vec<_>>();
+        let root = self
+            .program
+            .arena
+            .stmt_ids(self.scope.root_statements)
+            .collect::<Vec<_>>();
         self.top_level_known = self.collect_top_level_known(&root);
         self.lower_top_level_program(&root);
         for stmt in root {
             self.probe_function_stmt(stmt);
         }
-        for module in &self.program.modules {
+        let modules = self.scope.modules.clone();
+        for module in modules {
             let statements = self.program.module_statements(module).collect::<Vec<_>>();
             self.current_namespace = Some(module.name);
             self.top_level_known = self.collect_top_level_known(&statements);
@@ -2134,6 +2225,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     &mut self.top_level_known,
                     compact_function_top_level_known(
                         self.program,
+                        &self.scope,
                         self.declarations,
                         self.source,
                         self.sources,
@@ -2173,6 +2265,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     &mut self.top_level_known,
                     compact_function_top_level_known(
                         self.program,
+                        &self.scope,
                         self.declarations,
                         self.source,
                         self.sources,
@@ -2768,16 +2861,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 )?;
                 let checked_type =
                     self.checked_import_module_type(id, namespace, key.as_ref());
-                let module = self
-                    .program
-                    .modules
-                    .iter()
-                    .find(|module| module.key.as_str() == key.as_ref())?;
+                let module = self.scope.module_with_key(key.as_ref())?;
                 let module_statement_ids =
                     self.program.module_statements(module).collect::<Vec<_>>();
                 let module_lowered = {
                     let mut probe = CompactLowerConstructProbe {
                         program: self.program,
+                        scope: Rc::clone(&self.scope),
                         declarations: self.declarations,
                         bodies: self.bodies,
                         source: self.source,
@@ -2786,6 +2876,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         functions: self.functions,
                         top_level_known: compact_top_level_known(
                             self.program,
+                            &self.scope,
                             self.declarations,
                             self.source,
                             self.sources,

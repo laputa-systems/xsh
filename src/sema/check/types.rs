@@ -60,15 +60,12 @@ impl Checker {
             return Type::Unknown;
         }
         self.record_required_effect(Effect::Error);
-        if let Some(effs) = &self.boundary.current_effects
-            && !effs.contains(&Effect::Error)
-        {
-            self.error(
-                span,
-                "`?` requires the `error` effect",
-                DiagnosticCode::CheckEffectViolation,
-            );
-        }
+        self.check_required_effect_clause(
+            Effect::Error,
+            span,
+            "`?` requires the `error` effect",
+            "`?`",
+        );
         let Some((ok, err)) = result_types(ty) else {
             self.error(
                 span,

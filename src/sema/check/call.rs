@@ -178,6 +178,17 @@ impl Checker {
         span: Span,
     ) {
         self.record_effect_contract(callee_effects, callee_name);
+        if self.defer_effect_diagnostics {
+            self.defer_callable_effects(
+                None,
+                callee_effects.clone(),
+                false,
+                Vec::new(),
+                callee_name,
+                span,
+            );
+            return;
+        }
         self.check_callee_effects(caller_effs, callee_effects, callee_name, span);
     }
 

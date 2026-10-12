@@ -397,13 +397,12 @@ impl Checker {
                 &format!("{form} forms are not allowed in pure functions"),
                 DiagnosticCode::CheckPureRun,
             );
-        } else if let Some(effs) = &self.boundary.current_effects
-            && !Self::effects_covers(effs, &Effect::Process)
-        {
-            self.error(
+        } else {
+            self.check_required_effect_clause(
+                Effect::Process,
                 span,
                 &format!("{form} requires the `process` effect"),
-                DiagnosticCode::CheckEffectViolation,
+                form,
             );
         }
         self.check_effect_not_excluded(&Effect::Process, span, form);
@@ -2300,13 +2299,12 @@ impl Checker {
                     "retry delays are not allowed in pure functions",
                     DiagnosticCode::CheckPureEffect,
                 );
-            } else if let Some(effs) = &self.boundary.current_effects
-                && !Self::effects_covers(effs, &Effect::Time)
-            {
-                self.error(
+            } else {
+                self.check_required_effect_clause(
+                    Effect::Time,
                     span,
                     "`retry` with delays requires the `time` effect",
-                    DiagnosticCode::CheckEffectViolation,
+                    "`retry` with delays",
                 );
             }
             self.check_effect_not_excluded(&Effect::Time, span, "`retry` with delays");
@@ -2378,13 +2376,12 @@ impl Checker {
                 "`run` forms are not allowed in pure functions",
                 DiagnosticCode::CheckPureRun,
             );
-        } else if let Some(effs) = &self.boundary.current_effects
-            && !Self::effects_covers(effs, &Effect::Process)
-        {
-            self.error(
+        } else {
+            self.check_required_effect_clause(
+                Effect::Process,
                 run_span,
                 "`run` requires the `process` effect",
-                DiagnosticCode::CheckEffectViolation,
+                "`run`",
             );
         }
         self.check_effect_not_excluded(&Effect::Process, run_span, "`run`");

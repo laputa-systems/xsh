@@ -1,12 +1,13 @@
 use super::{
-    CheckBundleView, Checker, Diagnostic, EffectGraph, RecordConstructors, ResolvedBindings,
+    CheckBundleView, CheckOutput, Checker, Diagnostic, RecordConstructors,
+    ResolvedBindings, ResourceTransferFacts, UserModuleSig,
     infer_return::ReturnInferenceIndex, local_inference::LocalInference,
 };
 use crate::sema::constants::PreparedConstants;
-use crate::sema::wire_enums::PreparedWireEnums;
-use crate::syntax::arena::{ArenaProgram, StmtId};
-use rustc_hash::FxHashMap;
-use std::sync::Arc;
+use crate::syntax::arena::{ArenaProgram, ArenaStmtKind, ArenaUserModule, StmtId};
+use rustc_hash::{FxHashMap, FxHashSet};
+use crate::source::SourceId;
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(super) enum ArgsDomain {
@@ -14,47 +15,226 @@ pub(super) enum ArgsDomain {
     Bytes,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(super) enum ModuleRecordRole {
+    Entry,
+    User,
+    Embedded,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(super) struct ModuleRecordKey {
+    module_key: Arc<str>,
+    source_id: SourceId,
+    start: u32,
+    len: u32,
+    role: ModuleRecordRole,
+    args_domain: ArgsDomain,
+}
+
 pub(super) struct ModuleRecord {
-    pub(super) args_domain: ArgsDomain,
+    key: ModuleRecordKey,
     statements: Arc<[StmtId]>,
+    owner_facts: Arc<PreparedModuleFacts>,
+    prepared_facts: Arc<PreparedModuleFacts>,
+    checked: OnceLock<Arc<CheckedModuleFacts>>,
+}
+
+pub(super) struct CheckedModuleFacts {
+    pub(super) signature: Option<UserModuleSig>,
+    pub(super) output: CheckOutput,
+    pub(super) module_diagnostic_position: usize,
+    pub(super) suppressed_body_transfers: ResourceTransferFacts,
 }
 
 impl ModuleRecord {
+    pub(super) fn source_id(&self) -> SourceId {
+        self.key.source_id
+    }
+
+    pub(super) fn is_embedded(&self) -> bool {
+        self.key.role == ModuleRecordRole::Embedded
+    }
+
+    pub(super) fn args_domain(&self) -> ArgsDomain {
+        self.key.args_domain
+    }
+
     pub(super) fn statements(&self) -> &[StmtId] {
         &self.statements
     }
+
+    pub(super) fn owner_facts(&self) -> &Arc<PreparedModuleFacts> {
+        &self.owner_facts
+    }
+
+    pub(super) fn prepared_facts(&self) -> &Arc<PreparedModuleFacts> {
+        &self.prepared_facts
+    }
+
+    pub(super) fn check_once(
+        &self,
+        check: impl FnOnce() -> CheckedModuleFacts,
+    ) -> Arc<CheckedModuleFacts> {
+        self.checked.get_or_init(|| Arc::new(check())).clone()
+    }
+
 }
 
-#[derive(Clone)]
 pub(super) struct ModuleRecords {
     root: Arc<ModuleRecord>,
     modules: FxHashMap<Arc<str>, Arc<ModuleRecord>>,
-    facts: Arc<PreparedModuleFacts>,
 }
 
 impl ModuleRecords {
-    fn prepare(view: &CheckBundleView<'_>, args_domain: ArgsDomain) -> Self {
-        let facts = Arc::new(PreparedModuleFacts::prepare(view));
+    fn prepare(
+        view: &CheckBundleView<'_>,
+        args_domain: ArgsDomain,
+        shared: &Mutex<FxHashMap<ModuleRecordKey, Arc<ModuleRecord>>>,
+        #[cfg(test)] preparations: &Mutex<FxHashMap<ModuleRecordKey, usize>>,
+    ) -> Self {
         let program = view.program;
-        let root = Arc::new(ModuleRecord {
-            args_domain,
-            statements: view.statement_ids().collect::<Vec<_>>().into(),
-        });
-        let modules = view
-            .modules
-            .iter()
-            .map(|module| {
-                (
-                    Arc::from(module.key.as_str()),
+        let mut prepared = FxHashMap::<Arc<str>, Arc<ModuleRecord>>::default();
+        for module in view.modules.iter().copied() {
+            let source_id = module_source_id(program, module);
+            let role = if module.internal {
+                ModuleRecordRole::Embedded
+            } else {
+                ModuleRecordRole::User
+            };
+            let module_key: Arc<str> = Arc::from(module.key.as_str());
+            let key = ModuleRecordKey {
+                module_key: Arc::clone(&module_key),
+                source_id,
+                start: module.statements.start,
+                len: module.statements.len,
+                role,
+                args_domain,
+            };
+            let mut cache = shared.lock().expect("module record cache poisoned");
+            let record = cache
+                .entry(key.clone())
+                .or_insert_with(|| {
+                    let dependency_facts = Self::module_dependency_facts(view, module, &prepared);
+                    let module_view = CheckBundleView::for_module_owner(
+                        program,
+                        module,
+                        view.sources,
+                        source_id,
+                    );
+                    let owner_facts = Arc::new(PreparedModuleFacts::prepare_owner(
+                        &module_view,
+                        &dependency_facts,
+                    ));
+                    let mut visible_facts = dependency_facts;
+                    visible_facts.merge_owner(program, &owner_facts);
+                    #[cfg(test)]
+                    {
+                        record_test_preparation(preparations, key.clone());
+                    }
                     Arc::new(ModuleRecord {
-                        args_domain,
+                        key: key.clone(),
                         statements: program.module_statements(module).collect::<Vec<_>>().into(),
-                    }),
-                )
-            })
-            .collect();
-        Self { root, modules, facts }
+                        owner_facts,
+                        prepared_facts: Arc::new(visible_facts),
+                        checked: OnceLock::new(),
+                    })
+                })
+                .clone();
+            prepared.insert(Arc::clone(&module_key), record);
+        }
+
+        let root_source_id = view.root_source_id().unwrap_or_else(|| SourceId::new(0));
+        let root_key = ModuleRecordKey {
+            module_key: Arc::from("<entry>"),
+            source_id: root_source_id,
+            start: view.root_statements.start,
+            len: view.root_statements.len,
+            role: ModuleRecordRole::Entry,
+            args_domain,
+        };
+        let root = {
+            let mut cache = shared.lock().expect("module record cache poisoned");
+            cache
+                .entry(root_key.clone())
+                .or_insert_with(|| {
+                    let mut dependency_facts = PreparedModuleFacts::default();
+                    for module in view.modules.iter().copied() {
+                        let record = prepared
+                            .get(module.key.as_str())
+                            .expect("reachable module was prepared before entry facts");
+                        dependency_facts.merge_owner(program, record.owner_facts());
+                    }
+                    let root_view = CheckBundleView::for_module(
+                        program,
+                        view.root_statements,
+                        view.sources,
+                        Some(root_source_id),
+                    );
+                    let owner_facts = Arc::new(PreparedModuleFacts::prepare_owner(
+                        &root_view,
+                        &dependency_facts,
+                    ));
+                    let mut wire_diagnostics = owner_facts.wire_diagnostics.clone();
+                    wire_diagnostics.extend(dependency_facts.wire_diagnostics.iter().cloned());
+                    let mut visible_facts = dependency_facts;
+                    visible_facts.merge_owner(program, &owner_facts);
+                    visible_facts.wire_diagnostics = wire_diagnostics;
+                    // The legacy collector visited entry constants before module constants.
+                    // Reassemble owner-local instances in that order for stable publication.
+                    let mut ordered_instances = owner_facts.record_constructors.detached();
+                    for module in view.modules.iter().copied() {
+                        let record = prepared
+                            .get(module.key.as_str())
+                            .expect("reachable module was prepared before entry instances");
+                        ordered_instances.merge_instance_facts(
+                            &record.owner_facts.record_constructors,
+                        );
+                    }
+                    visible_facts
+                        .record_constructors
+                        .replace_instance_facts(&ordered_instances);
+                    #[cfg(test)]
+                    record_test_preparation(preparations, root_key.clone());
+                    Arc::new(ModuleRecord {
+                        key: root_key.clone(),
+                        statements: view.statement_ids().collect::<Vec<_>>().into(),
+                        owner_facts,
+                        prepared_facts: Arc::new(visible_facts),
+                        checked: OnceLock::new(),
+                    })
+                })
+                .clone()
+        };
+        Self {
+            root,
+            modules: prepared,
+        }
+    }
+
+    fn module_dependency_facts(
+        view: &CheckBundleView<'_>,
+        module: &ArenaUserModule,
+        prepared: &FxHashMap<Arc<str>, Arc<ModuleRecord>>,
+    ) -> PreparedModuleFacts {
+        let dependency_keys = module_dependency_keys(view.program, module);
+        let mut facts = PreparedModuleFacts::default();
+        for dependency in view.modules.iter().copied() {
+            if dependency.key != module.key && dependency_keys.contains(&dependency.key) {
+                let record = prepared
+                    .get(dependency.key.as_str())
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "module `{}` depends on `{}` before it is prepared; prepared: {:?}",
+                            module.key,
+                            dependency.key,
+                            prepared.keys().collect::<Vec<_>>(),
+                        )
+                    });
+                facts.merge_owner(view.program, record.owner_facts());
+            }
+        }
+        facts
     }
 
     pub(super) fn root(&self) -> &Arc<ModuleRecord> {
@@ -62,12 +242,12 @@ impl ModuleRecords {
     }
 
     pub(super) fn install(&self, checker: &mut Checker, program: &ArenaProgram) {
-        self.facts.install(checker, program);
+        self.root.prepared_facts.install(checker, program);
     }
 
     #[cfg(test)]
     fn facts(&self) -> &Arc<PreparedModuleFacts> {
-        &self.facts
+        &self.root.prepared_facts
     }
 
     pub(super) fn module(&self, key: &str) -> Option<&Arc<ModuleRecord>> {
@@ -80,9 +260,102 @@ impl ModuleRecords {
     }
 }
 
+fn module_source_id(program: &ArenaProgram, module: &ArenaUserModule) -> SourceId {
+    program
+        .module_statements(module)
+        .next()
+        .map(|statement| program.arena.stmt(statement).span.source_id)
+        .or_else(|| program.module_doc_for(module.statements).map(|span| span.source_id))
+        .unwrap_or_else(|| panic!("module source identity missing for `{}`", module.key))
+}
+
+fn module_import_keys<'a>(
+    program: &'a ArenaProgram,
+    module: &'a ArenaUserModule,
+) -> impl Iterator<Item = String> + 'a {
+    program.module_statements(module).filter_map(|statement| {
+        let ArenaStmtKind::Use(use_id) = program.arena.stmt(statement).kind else {
+            return None;
+        };
+        program.arena.use_stmt(use_id).resolved.as_deref().map(str::to_owned)
+    })
+}
+
+fn module_dependency_keys(program: &ArenaProgram, module: &ArenaUserModule) -> FxHashSet<String> {
+    let mut pending = module_import_keys(program, module).collect::<Vec<_>>();
+    let mut dependencies = FxHashSet::default();
+    while let Some(key) = pending.pop() {
+        if !dependencies.insert(key.clone()) {
+            continue;
+        }
+        if let Some(dependency) = program.modules.iter().find(|candidate| candidate.key == key) {
+            pending.extend(module_import_keys(program, dependency));
+        }
+    }
+    dependencies
+}
+
+#[cfg(test)]
+fn test_preparation_count(
+    counts: &Mutex<FxHashMap<ModuleRecordKey, usize>>,
+    key: &ModuleRecordKey,
+) -> usize {
+    counts
+        .lock()
+        .expect("module preparation counter poisoned")
+        .get(key)
+        .copied()
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+fn record_test_preparation(
+    counts: &Mutex<FxHashMap<ModuleRecordKey, usize>>,
+    key: ModuleRecordKey,
+) {
+    *counts
+        .lock()
+        .expect("module preparation counter poisoned")
+        .entry(key)
+        .or_default() += 1;
+}
+
 #[derive(Default)]
 pub(super) struct ModuleRecordCache {
-    domains: FxHashMap<ArgsDomain, Arc<ModuleRecords>>,
+    shared: Arc<Mutex<FxHashMap<ModuleRecordKey, Arc<ModuleRecord>>>>,
+    #[cfg(test)]
+    preparations: Mutex<FxHashMap<ModuleRecordKey, usize>>,
+}
+
+impl ModuleRecordCache {
+    pub(super) fn with_shared(
+        shared: Arc<Mutex<FxHashMap<ModuleRecordKey, Arc<ModuleRecord>>>>,
+    ) -> Self {
+        Self {
+            shared,
+            #[cfg(test)]
+            preparations: Mutex::new(FxHashMap::default()),
+        }
+    }
+
+    /// Reuse a selected domain only after that entry has a checked record.
+    pub(super) fn checked_entry_domain(
+        &self,
+        view: &CheckBundleView<'_>,
+    ) -> Option<ArgsDomain> {
+        let key = |args_domain| ModuleRecordKey {
+            module_key: Arc::from("<entry>"),
+            source_id: view.root_source_id().unwrap_or_else(|| SourceId::new(0)),
+            start: view.root_statements.start,
+            len: view.root_statements.len,
+            role: ModuleRecordRole::Entry,
+            args_domain,
+        };
+        let shared = self.shared.lock().expect("module record cache poisoned");
+        [ArgsDomain::Str, ArgsDomain::Bytes]
+            .into_iter()
+            .find(|&domain| shared.get(&key(domain)).is_some_and(|record| record.checked.get().is_some()))
+    }
 }
 
 impl ModuleRecordCache {
@@ -90,73 +363,115 @@ impl ModuleRecordCache {
         &mut self,
         view: &CheckBundleView<'_>,
         args_domain: ArgsDomain,
-    ) -> Arc<ModuleRecords> {
-        self.domains
-            .entry(args_domain)
-            .or_insert_with(|| Arc::new(ModuleRecords::prepare(view, args_domain)))
-            .clone()
+    ) -> ModuleRecords {
+        ModuleRecords::prepare(
+            view,
+            args_domain,
+            &self.shared,
+            #[cfg(test)]
+            &self.preparations,
+        )
+    }
+
+    #[cfg(test)]
+    fn preparation_count(&self, key: &ModuleRecordKey) -> usize {
+        test_preparation_count(&self.preparations, key)
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub(super) struct PreparedModuleFacts {
     pub(super) resolved_bindings: Arc<ResolvedBindings>,
     pub(super) return_inference_index: Arc<ReturnInferenceIndex>,
-    pub(super) effect_declarations: EffectGraph,
     pub(super) local_inference: LocalInference,
     pub(super) record_constructors: RecordConstructors,
     pub(super) prepared_constants: PreparedConstants,
-    pub(super) wire_enums: PreparedWireEnums,
     regex_diagnostics: Vec<Diagnostic>,
     wire_diagnostics: Vec<Diagnostic>,
 }
 
 impl PreparedModuleFacts {
-    fn prepare(view: &CheckBundleView<'_>) -> Self {
+    fn prepare_owner(
+        view: &CheckBundleView<'_>,
+        dependencies: &PreparedModuleFacts,
+    ) -> Self {
         let program = view.program;
-        let resolved_bindings = Arc::new(ResolvedBindings::collect_bundle(view));
+        let owner_bindings = ResolvedBindings::collect_bundle(view);
+        let mut visible_bindings = dependencies
+            .resolved_bindings
+            .merge_visible(&owner_bindings);
+        let declarations = visible_bindings.declarations.clone();
+        visible_bindings.resolve_module_fields(program, &declarations);
+        let mut resolved_bindings = owner_bindings;
+        resolved_bindings.resolve_module_fields(program, &declarations);
+        let resolved_bindings = Arc::new(resolved_bindings);
         let return_inference_index = Arc::new(ReturnInferenceIndex::collect(view));
-        let effect_declarations = EffectGraph::declarations(view);
         let local_inference = LocalInference::prepare(view);
         let regex_diagnostics = Checker::prepare_regex_literals(view);
         let mut record_constructors = RecordConstructors::collect_bundle(view);
-        let prepared_constants = PreparedConstants::collect_bundle(
-            view,
-            &record_constructors,
-            &resolved_bindings,
+        let mut visible_constructors = dependencies.record_constructors.clone();
+        let owner_instances = visible_constructors.merge_visible(&record_constructors);
+        let (mut prepared_for_owner, wire_diagnostics) =
+            PreparedConstants::collect_bundle_with_visible_and_diagnostics(
+                view,
+                &visible_constructors,
+                &visible_bindings,
+                &dependencies.prepared_constants,
+            );
+        record_constructors.merge_instance_facts(&owner_instances);
+        record_constructors.apply_prepared_defaults_bundle(view, &prepared_for_owner);
+        prepared_for_owner.retain_owner_source(
+            program,
+            view.root_source_id().unwrap_or_else(|| SourceId::new(0)),
+            &visible_bindings,
         );
-        record_constructors.apply_prepared_defaults_bundle(view, &prepared_constants);
-        let (wire_enums, wire_diagnostics) = PreparedWireEnums::prepare_bundle(view, |expr| {
-            prepared_constants.analyze_expression(&program.arena, expr)
-        });
-        Self {
+        let facts = Self {
             resolved_bindings,
             return_inference_index,
-            effect_declarations,
             local_inference,
             record_constructors,
-            prepared_constants,
-            wire_enums,
+            prepared_constants: prepared_for_owner,
             regex_diagnostics,
             wire_diagnostics,
-        }
+        };
+        facts
+    }
+
+    fn merge_owner(&mut self, program: &ArenaProgram, owner: &Self) {
+        let mut bindings = self
+            .resolved_bindings
+            .merge_visible(&owner.resolved_bindings);
+        let declarations = bindings.declarations.clone();
+        bindings.resolve_module_fields(program, &declarations);
+        self.resolved_bindings = Arc::new(bindings);
+        Arc::make_mut(&mut self.return_inference_index)
+            .merge_owner(&owner.return_inference_index);
+        self.local_inference
+            .merge_prepared_owner(&owner.local_inference);
+        self.record_constructors
+            .merge_visible(&owner.record_constructors);
+        self.prepared_constants
+            .merge_visible(&owner.prepared_constants);
+        self.regex_diagnostics
+            .extend(owner.regex_diagnostics.iter().cloned());
+        self.wire_diagnostics
+            .extend(owner.wire_diagnostics.iter().cloned());
     }
 
     pub(super) fn install(&self, checker: &mut Checker, program: &ArenaProgram) {
         checker.resolved_bindings = self.resolved_bindings.clone();
         checker.return_inference_index = Some(self.return_inference_index.clone());
-        if checker.effect_graph.is_empty() {
-            checker.effect_graph = self.effect_declarations.clone();
-        }
         checker.local_inference = self.local_inference.clone();
         checker.record_constructors = self.record_constructors.clone();
         checker.prepared_constants = self.prepared_constants.clone();
-        checker.wire_enums = self.wire_enums.clone();
+        checker.wire_enums = self.prepared_constants.cli_wire_enums.clone();
         checker.diagnostics.extend(self.regex_diagnostics.iter().cloned());
         checker
             .diagnostics
             .extend(self.prepared_constants.diagnostics.iter().cloned());
-        checker.diagnostics.extend(self.wire_diagnostics.iter().cloned());
+        checker
+            .diagnostics
+            .extend(self.wire_diagnostics.iter().cloned());
         for (expression, fact) in &self.prepared_constants.record_constructor_instances {
             checker
                 .record_constructor_instances
@@ -171,6 +486,67 @@ mod tests {
     use crate::source::SourceId;
     use crate::syntax::arena::ArenaProgramBuilder;
     use crate::syntax::parser::Parser;
+
+    #[test]
+    fn prepared_record_instances_follow_root_then_module_owner_order() {
+        let root_source = "type RootSpec = {value: Int}\nconst root_spec: RootSpec = {value: 1}\n";
+        let module_source = "##! Imported record values.\n## A module-owned schema.\nexport type ModuleSpec = {value: Int}\n## A typed module constant.\nexport const module_spec: ModuleSpec = {value: 2}\n";
+        let mut builder = ArenaProgramBuilder::with_token_capacity(96);
+        let root = Parser::parse_source_into_arena_builder(
+            SourceId::new(0),
+            root_source,
+            &mut builder,
+        );
+        let module = Parser::parse_source_into_arena_builder(
+            SourceId::new(1),
+            module_source,
+            &mut builder,
+        );
+        assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
+        assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
+        let module_name = builder.symbol_owner().intern("owned");
+        builder.push_internal_arena_module("owned".to_string(), module_name, module.statements);
+
+        let program = builder.finish_with_statements(root.statements);
+        let _symbol_owner = program.symbol_owner().enter();
+        let view = CheckBundleView::for_root(
+            &program,
+            root.statements,
+            None,
+            Some(SourceId::new(0)),
+        );
+        let root_type = program
+            .statement_ids()
+            .find_map(|statement| match program.arena.stmt(statement).kind {
+                ArenaStmtKind::TypeDef(definition) => Some(definition),
+                _ => None,
+            })
+            .expect("entry schema");
+        let module = view.modules.first().expect("embedded module");
+        let module_type = program
+            .module_statements(module)
+            .find_map(|statement| match program.arena.stmt(statement).kind {
+                ArenaStmtKind::Export(inner) => match program.arena.stmt(inner).kind {
+                    ArenaStmtKind::TypeDef(definition) => Some(definition),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .expect("module schema");
+        let mut cache = ModuleRecordCache::default();
+        let records = cache.get_or_prepare(&view, ArgsDomain::Str);
+        let constructor_facts = format!("{:?}", records.root().prepared_facts.record_constructors);
+        let root_instance = constructor_facts
+            .find(&format!("({root_type:?}, [], Record"))
+            .expect("entry type instance is prepared");
+        let module_instance = constructor_facts
+            .find(&format!("({module_type:?}, [], Record"))
+            .expect("module type instance is prepared");
+        assert!(
+            root_instance < module_instance,
+            "the entry owner's prepared instance must precede imported owner instances: {constructor_facts}"
+        );
+    }
 
     #[test]
     fn probe_rounds_reuse_one_record_per_reachable_module_and_argument_domain() {
@@ -195,17 +571,36 @@ mod tests {
             "use shared\n",
             &mut builder,
         );
-        for parsed in [&root, &shared, &left, &right] {
+        let alias_root = Parser::parse_source_into_arena_builder(
+            SourceId::new(7),
+            "use shared_alias\n",
+            &mut builder,
+        );
+        let embedded_shared = Parser::parse_source_into_arena_builder(
+            SourceId::new(6),
+            "export pure identity(value: Int) -> Int { value }\n",
+            &mut builder,
+        );
+        for parsed in [&root, &shared, &left, &right, &alias_root, &embedded_shared] {
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         }
         for (name, parsed) in [("shared", &shared), ("left", &left), ("right", &right)] {
             let symbol = builder.symbol_owner().intern(name);
             builder.push_arena_module(name.to_string(), symbol, parsed.statements);
         }
+        let alias = builder.symbol_owner().intern("shared_alias");
+        builder.push_arena_module("shared_alias".to_string(), alias, shared.statements);
+        let embedded_name = builder.symbol_owner().intern("shared");
+        builder.push_internal_arena_module(
+            "embedded-shared".to_string(),
+            embedded_name,
+            embedded_shared.statements,
+        );
         for (statements, names) in [
             (root.statements, ["left", "right"].as_slice()),
             (left.statements, ["shared"].as_slice()),
             (right.statements, ["shared"].as_slice()),
+            (alias_root.statements, ["shared_alias"].as_slice()),
         ] {
             let mut names = names.iter();
             for statement in builder.statement_ids(statements) {
@@ -215,20 +610,137 @@ mod tests {
             }
         }
         let program = builder.finish_with_statements(root.statements);
+        let _symbol_owner = program.symbol_owner().enter();
         let view = CheckBundleView::new(&program, None, Some(SourceId::new(0)));
         let mut cache = ModuleRecordCache::default();
         let first_probe = cache.get_or_prepare(&view, ArgsDomain::Str);
         let next_probe = cache.get_or_prepare(&view, ArgsDomain::Str);
         let byte_probe = cache.get_or_prepare(&view, ArgsDomain::Bytes);
-        assert_eq!(cache.domains.len(), 2);
         let shared = first_probe.module("shared").unwrap();
-        assert_eq!(first_probe.module_count(), 3);
-        assert!(Arc::ptr_eq(&first_probe, &next_probe));
+        assert_eq!(first_probe.module_count(), 4);
+        assert!(Arc::ptr_eq(first_probe.root(), next_probe.root()));
         assert!(Arc::ptr_eq(shared, next_probe.module("shared").unwrap()));
         assert!(!Arc::ptr_eq(shared, byte_probe.module("shared").unwrap()));
-        assert_eq!(shared.args_domain, ArgsDomain::Str);
-        assert_eq!(byte_probe.module("shared").unwrap().args_domain, ArgsDomain::Bytes);
+        assert!(
+            !Arc::ptr_eq(shared, first_probe.module("embedded-shared").unwrap()),
+            "an embedded implementation has a separate record role from a user module"
+        );
+        assert_eq!(shared.args_domain(), ArgsDomain::Str);
+        assert_eq!(byte_probe.module("shared").unwrap().args_domain(), ArgsDomain::Bytes);
         assert!(Arc::ptr_eq(first_probe.facts(), next_probe.facts()));
         assert!(!Arc::ptr_eq(first_probe.facts(), byte_probe.facts()));
+
+        let shared_range = program
+            .modules
+            .iter()
+            .find(|module| module.key == "shared")
+            .expect("shared module registered")
+            .statements;
+        let shared_key = ModuleRecordKey {
+            module_key: Arc::from("shared"),
+            source_id: SourceId::new(1),
+            start: shared_range.start,
+            len: shared_range.len,
+            role: ModuleRecordRole::User,
+            args_domain: ArgsDomain::Str,
+        };
+        assert_eq!(cache.preparation_count(&shared_key), 1);
+        let root_key = ModuleRecordKey {
+            module_key: Arc::from("<entry>"),
+            source_id: SourceId::new(0),
+            start: root.statements.start,
+            len: root.statements.len,
+            role: ModuleRecordRole::Entry,
+            args_domain: ArgsDomain::Str,
+        };
+        assert_eq!(cache.preparation_count(&root_key), 1);
+        let byte_shared_key = ModuleRecordKey {
+            args_domain: ArgsDomain::Bytes,
+            ..shared_key.clone()
+        };
+        assert_eq!(cache.preparation_count(&byte_shared_key), 1);
+
+        let left_view = CheckBundleView::for_root(
+            &program,
+            left.statements,
+            None,
+            Some(SourceId::new(2)),
+        );
+        let mut left_cache = ModuleRecordCache::with_shared(cache.shared.clone());
+        let left_entry = left_cache.get_or_prepare(&left_view, ArgsDomain::Str);
+        assert!(Arc::ptr_eq(shared, left_entry.module("shared").unwrap()));
+        assert_eq!(left_cache.preparation_count(&shared_key), 0);
+        assert_eq!(left_entry.module_count(), 2);
+        let left_root_key = ModuleRecordKey {
+            module_key: Arc::from("<entry>"),
+            source_id: SourceId::new(2),
+            start: left.statements.start,
+            len: left.statements.len,
+            role: ModuleRecordRole::Entry,
+            args_domain: ArgsDomain::Str,
+        };
+        assert_eq!(left_cache.preparation_count(&left_root_key), 1);
+
+        let right_view = CheckBundleView::for_root(
+            &program,
+            right.statements,
+            None,
+            Some(SourceId::new(3)),
+        );
+        let mut right_cache = ModuleRecordCache::with_shared(cache.shared.clone());
+        let right_entry = right_cache.get_or_prepare(&right_view, ArgsDomain::Str);
+        assert!(Arc::ptr_eq(shared, right_entry.module("shared").unwrap()));
+        assert_eq!(right_cache.preparation_count(&shared_key), 0);
+
+        let alias_view = CheckBundleView::for_root(
+            &program,
+            alias_root.statements,
+            None,
+            Some(SourceId::new(7)),
+        );
+        let mut alias_cache = ModuleRecordCache::with_shared(cache.shared.clone());
+        let alias_entry = alias_cache.get_or_prepare(&alias_view, ArgsDomain::Str);
+        let shared_alias = alias_entry.module("shared_alias").unwrap();
+        assert!(!Arc::ptr_eq(shared, shared_alias));
+        let alias_key = ModuleRecordKey {
+            module_key: Arc::from("shared_alias"),
+            ..shared_key.clone()
+        };
+        assert_eq!(alias_cache.preparation_count(&alias_key), 1);
+
+        let mut other_builder = ArenaProgramBuilder::with_token_capacity(128);
+        let other_root = Parser::parse_source_into_arena_builder(
+            SourceId::new(4),
+            "use shared\n",
+            &mut other_builder,
+        );
+        let other_shared = Parser::parse_source_into_arena_builder(
+            SourceId::new(5),
+            "export pure identity(value: Int) -> Int { value }\n",
+            &mut other_builder,
+        );
+        let other_name = other_builder.symbol_owner().intern("shared");
+        other_builder.push_arena_module(
+            "shared".to_string(),
+            other_name,
+            other_shared.statements,
+        );
+        for statement in other_builder.statement_ids(other_root.statements) {
+            if let Some((use_id, _, _)) = other_builder.use_stmt_for_statement(statement) {
+                other_builder.set_use_resolved(use_id, Arc::from("shared"));
+            }
+        }
+        let other_program = other_builder.finish_with_statements(other_root.statements);
+        let other_view = CheckBundleView::new(&other_program, None, Some(SourceId::new(4)));
+        let other_module = other_program.symbol_owner().with_current(|| {
+            ModuleRecordCache::with_shared(cache.shared.clone())
+                .get_or_prepare(&other_view, ArgsDomain::Str)
+                .module("shared")
+                .unwrap()
+                .clone()
+        });
+        assert!(!Arc::ptr_eq(shared, &other_module));
+        assert_ne!(shared.source_id(), other_module.source_id());
+
     }
 }

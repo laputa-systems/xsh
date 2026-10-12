@@ -24,8 +24,10 @@ pub struct CheckBundleView<'a> {
     pub(super) sources: Option<&'a SourceMap>,
     pub(super) modules: Vec<&'a ArenaUserModule>,
     pub(super) root_statements: ArenaRange,
+    pub(super) root_source_id: Option<SourceId>,
     source_ids: FxHashSet<SourceId>,
     all_sources: bool,
+    pub(super) entry_context: Option<Arc<()>>,
 }
 
 impl<'a> CheckBundleView<'a> {
@@ -44,34 +46,16 @@ impl<'a> CheckBundleView<'a> {
         sources: Option<&'a SourceMap>,
         entry_source_id: Option<SourceId>,
     ) -> Self {
-        let mut reachable = FxHashSet::<Arc<str>>::default();
-        let mut pending = Vec::new();
-        Self::enqueue_imports(
-            program,
-            program.arena.stmt_ids(root_statements),
-            &mut reachable,
-            &mut pending,
-        );
-        while let Some(key) = pending.pop() {
-            if let Some(module) = program
-                .modules
-                .iter()
-                .find(|module| !module.internal && module.key == key.as_ref())
-            {
-                Self::enqueue_imports(
-                    program,
-                    program.module_statements(module),
-                    &mut reachable,
-                    &mut pending,
-                );
-            }
-        }
         let mut modules = Vec::new();
         let mut visited = FxHashSet::default();
         for module in program.modules.iter().filter(|module| module.internal) {
-            if module.statements != root_statements {
-                modules.push(module);
-            }
+            Self::order_module(
+                program,
+                &module.key,
+                root_statements,
+                &mut visited,
+                &mut modules,
+            );
         }
         let mut roots = Vec::new();
         let mut root_imports = FxHashSet::default();
@@ -86,7 +70,6 @@ impl<'a> CheckBundleView<'a> {
             Self::order_module(
                 program,
                 &key,
-                &reachable,
                 root_statements,
                 &mut visited,
                 &mut modules,
@@ -105,8 +88,17 @@ impl<'a> CheckBundleView<'a> {
             sources,
             modules,
             root_statements,
+            root_source_id: entry_source_id.or_else(|| {
+                program
+                    .arena
+                    .stmt_ids(root_statements)
+                    .next()
+                    .map(|statement| program.arena.stmt(statement).span.source_id)
+                    .or_else(|| program.module_doc_for(root_statements).map(|span| span.source_id))
+            }),
             source_ids,
             all_sources: false,
+            entry_context: None,
         }
     }
 
@@ -127,8 +119,41 @@ impl<'a> CheckBundleView<'a> {
             sources,
             modules: Vec::new(),
             root_statements,
+            root_source_id: entry_source_id.or_else(|| {
+                program
+                    .arena
+                    .stmt_ids(root_statements)
+                    .next()
+                    .map(|statement| program.arena.stmt(statement).span.source_id)
+                    .or_else(|| program.module_doc_for(root_statements).map(|span| span.source_id))
+            }),
             source_ids,
             all_sources: false,
+            entry_context: None,
+        }
+    }
+
+    fn for_module_owner(
+        program: &'a ArenaProgram,
+        module: &'a ArenaUserModule,
+        sources: Option<&'a SourceMap>,
+        source_id: SourceId,
+    ) -> Self {
+        let source_ids = program
+            .module_statements(module)
+            .map(|statement| program.arena.stmt(statement).span.source_id)
+            .chain(program.module_doc_for(module.statements).map(|span| span.source_id))
+            .chain(std::iter::once(source_id))
+            .collect();
+        Self {
+            program,
+            sources,
+            modules: vec![module],
+            root_statements: ArenaRange::default(),
+            root_source_id: Some(source_id),
+            source_ids,
+            all_sources: false,
+            entry_context: None,
         }
     }
 
@@ -138,26 +163,29 @@ impl<'a> CheckBundleView<'a> {
             sources: None,
             modules: program.modules.iter().collect(),
             root_statements: program.statements,
+            root_source_id: None,
             source_ids: FxHashSet::default(),
             all_sources: true,
+            entry_context: None,
         }
     }
 
     fn order_module(
         program: &'a ArenaProgram,
         key: &str,
-        reachable: &FxHashSet<Arc<str>>,
         root_statements: ArenaRange,
         visited: &mut FxHashSet<Arc<str>>,
         ordered: &mut Vec<&'a ArenaUserModule>,
     ) {
-        let Some(module) = program.modules.iter().find(|module| {
-            !module.internal && module.key == key && module.statements != root_statements
-        }) else {
+        let Some(module) = program
+            .modules
+            .iter()
+            .find(|module| module.key == key && module.statements != root_statements)
+        else {
             return;
         };
         let module_key: Arc<str> = Arc::from(module.key.as_str());
-        if !reachable.contains(&module_key) || !visited.insert(module_key) {
+        if !visited.insert(module_key) {
             return;
         }
         let mut dependencies = Vec::new();
@@ -172,7 +200,6 @@ impl<'a> CheckBundleView<'a> {
             Self::order_module(
                 program,
                 &dependency,
-                reachable,
                 root_statements,
                 visited,
                 ordered,
@@ -211,6 +238,10 @@ impl<'a> CheckBundleView<'a> {
     /// Return the entry statement range selected by this view.
     pub fn root_statements(&self) -> ArenaRange {
         self.root_statements
+    }
+
+    pub(super) fn root_source_id(&self) -> Option<SourceId> {
+        self.root_source_id
     }
 
     /// Iterate the entry's top-level statements.
@@ -266,6 +297,9 @@ mod infer_return;
 mod inferred_variant;
 #[path = "check/local_inference.rs"]
 mod local_inference;
+#[path = "check/module_driver.rs"]
+mod module_driver;
+pub use module_driver::CheckSession;
 #[path = "check/module_record.rs"]
 mod module_record;
 #[path = "check/method.rs"]
@@ -313,7 +347,7 @@ pub use super::constants::RecordConstructors;
 pub use super::projection::{CheckedProjection, ProjectionOperation};
 
 pub use self::infer_effects::{EffectDeclarationId, FunctionEffectFact};
-use self::infer_effects::{EffectGraph, EffectSummary};
+use self::infer_effects::{DeferredEffectCheck, EffectGraph, EffectSummary};
 use self::module_record::{ArgsDomain, ModuleRecordCache, ModuleRecords};
 
 pub use self::compact::{
@@ -498,6 +532,121 @@ pub struct CheckOutput {
 impl CheckOutput {
     pub fn resource_transfer(&self, site: ResourceTransferSite) -> Option<bool> {
         self.resource_transfers.get(&site).copied()
+    }
+
+    pub(super) fn merge_module_facts(&mut self, mut module: Self) {
+        // Each checked module owns command-word bindings resolved from its body.
+        // The entry record already owns aggregate constructor facts; module records
+        // also carry dependency views that would publish their instances repeatedly.
+        self.prepared_constants
+            .merge_cli_plan_facts(&module.prepared_constants);
+        self.resolved_bindings = Arc::new(
+            self.resolved_bindings
+                .merge_visible(&module.resolved_bindings),
+        );
+        self.checked_declarations
+            .types
+            .extend(module.checked_declarations.types);
+        self.checked_declarations
+            .errors
+            .extend(module.checked_declarations.errors);
+        self.checked_declarations
+            .functions
+            .extend(module.checked_declarations.functions);
+        self.resolved_type_expressions
+            .annotations
+            .extend(module.resolved_type_expressions.annotations);
+        self.resolved_type_expressions
+            .templates
+            .extend(module.resolved_type_expressions.templates);
+        self.resolved_type_expressions
+            .instantiations
+            .extend(module.resolved_type_expressions.instantiations);
+        self.static_callable_aliases
+            .append(&mut module.static_callable_aliases);
+        self.local_binding_types
+            .append(&mut module.local_binding_types);
+        self.proven_nonnull_fallback_receivers
+            .append(&mut module.proven_nonnull_fallback_receivers);
+        self.diagnostics.append(&mut module.diagnostics);
+        self.annotation_facts.append(&mut module.annotation_facts);
+        self.function_return_types
+            .append(&mut module.function_return_types);
+        self.record_constructor_instances
+            .append(&mut module.record_constructor_instances);
+        self.parameter_types.append(&mut module.parameter_types);
+        self.requirement_targets
+            .append(&mut module.requirement_targets);
+        self.requirement_expected_targets
+            .append(&mut module.requirement_expected_targets);
+        self.reveal_types.append(&mut module.reveal_types);
+        self.expr_types.append(&mut module.expr_types);
+        self.stream_stage_types
+            .append(&mut module.stream_stage_types);
+        self.projections.append(&mut module.projections);
+        self.statement_positions
+            .append(&mut module.statement_positions);
+        for (identity, fact) in module.function_effect_facts {
+            if let Some(existing) = self.function_effect_facts.get(&identity) {
+                assert_eq!(
+                    existing, &fact,
+                    "function effect fact {identity:?} has conflicting module records"
+                );
+            } else {
+                self.function_effect_facts.insert(identity, fact);
+            }
+        }
+        self.assertion_effect_spans
+            .append(&mut module.assertion_effect_spans);
+        self.statement_expression_spans
+            .append(&mut module.statement_expression_spans);
+        self.propagating_statements
+            .append(&mut module.propagating_statements);
+        self.discardable_bindings
+            .append(&mut module.discardable_bindings);
+        self.propagating_conditions
+            .append(&mut module.propagating_conditions);
+        self.redundant_condition_propagations
+            .append(&mut module.redundant_condition_propagations);
+        self.unvalidated_command_vectors
+            .append(&mut module.unvalidated_command_vectors);
+        self.membership_migration_spans
+            .append(&mut module.membership_migration_spans);
+        self.standard_call_spans
+            .append(&mut module.standard_call_spans);
+        self.statically_resolved_call_spans
+            .append(&mut module.statically_resolved_call_spans);
+        self.api_calls.append(&mut module.api_calls);
+        self.module_commands.append(&mut module.module_commands);
+        self.argument_bindings.append(&mut module.argument_bindings);
+        self.definitely_exiting_block_spans
+            .append(&mut module.definitely_exiting_block_spans);
+        self.handler_input_types
+            .append(&mut module.handler_input_types);
+        self.inferred_variants.append(&mut module.inferred_variants);
+        self.path_literals.append(&mut module.path_literals);
+        self.redundant_variant_qualifiers
+            .append(&mut module.redundant_variant_qualifiers);
+        self.record_constructor_fields
+            .append(&mut module.record_constructor_fields);
+        self.message_payload_constructors
+            .append(&mut module.message_payload_constructors);
+        self.record_require_migrations
+            .append(&mut module.record_require_migrations);
+        self.error_constructors
+            .append(&mut module.error_constructors);
+        self.optional_binding_spans
+            .append(&mut module.optional_binding_spans);
+        self.collect_yields.append(&mut module.collect_yields);
+        self.typed_callable_calls
+            .append(&mut module.typed_callable_calls);
+        self.from_end_indexes.append(&mut module.from_end_indexes);
+        self.conversions.append(&mut module.conversions);
+        self.resource_scopes.append(&mut module.resource_scopes);
+        self.resource_transfers.extend(module.resource_transfers);
+        self.text_patterns.append(&mut module.text_patterns);
+        self.inferred_variant_patterns
+            .append(&mut module.inferred_variant_patterns);
     }
 }
 
@@ -1120,6 +1269,11 @@ pub struct Checker {
     return_conflicts: Option<Vec<(Type, Type, Span)>>,
     inference_reachable: bool,
     collecting_effects: bool,
+    record_effects: bool,
+    defer_effect_diagnostics: bool,
+    deferred_effect_checks: Vec<DeferredEffectCheck>,
+    authoritative_effect_graph: bool,
+    module_diagnostic_position: usize,
     effect_graph: EffectGraph,
     effect_summaries: BTreeMap<EffectDeclarationId, EffectSummary>,
     /// Set by a probe that read a callee's effects from a module-value type
@@ -1291,140 +1445,73 @@ impl Checker {
         options: CheckOptions,
         type_program: Arc<crate::syntax::arena::ArenaProgram>,
     ) -> CheckOutput {
-        let program = view.program;
-        program.symbol_owner().with_current(|| {
-            let mut module_record_cache = ModuleRecordCache::default();
-            // Resolve bodies once to collect dependencies, then check against the
-            // fixed-point contracts so callers never depend on source order.
-            let mut byte_script_arguments = false;
-            let (effect_graph, effect_summaries) = Self::solve_effect_probes(|summaries| {
-                loop {
-                    let records = module_record_cache.get_or_prepare(
-                        view,
-                        if byte_script_arguments {
-                            ArgsDomain::Bytes
-                        } else {
-                            ArgsDomain::Str
-                        },
-                    );
-                    let mut probe = Self::new(options);
-                    probe.byte_script_arguments = byte_script_arguments;
-                    probe.define_standard_values();
-                    probe.collecting_effects = true;
-                    probe.effect_summaries = summaries.clone();
-                    probe.check_program_arena_with_type_program_and_sources(
-                        view,
-                        source,
-                        type_program.clone(),
-                        &records,
-                    );
-                    // Resolve the entry signature before committing any body facts.
-                    // Rechecking also gives imported modules the same argument type.
-                    if options.interactive_commands.is_none() && !byte_script_arguments
-                        && byte_argument_main_in_view(view, &probe.parameter_types) {
-                        byte_script_arguments = true;
-                        continue;
-                    }
-                    break probe;
-                }
-            });
-            let mut checker = Self::new(options);
-            checker.byte_script_arguments = byte_script_arguments;
-            checker.define_standard_values();
-            checker.effect_summaries = effect_summaries;
-            checker.effect_graph = effect_graph;
-            let records = module_record_cache.get_or_prepare(
-                view,
-                if byte_script_arguments {
-                    ArgsDomain::Bytes
-                } else {
-                    ArgsDomain::Str
-                },
-            );
-            checker.check_program_arena_with_type_program_and_sources(
-                view,
-                source,
-                type_program,
-                &records,
-            );
-            checker.publish_command_binding_sites();
-            let callable_effects = checker.callable_effects();
-            let checked_declarations = checker.take_checked_declarations();
-            CheckOutput {
-                checked_declarations,
-                resolved_type_expressions: checker.resolved_type_expressions,
-                static_callable_aliases: checker.static_callable_aliases,
-                typed_callable_calls: checker.typed_callable_calls,
-                local_binding_types: checker.local_inference.checked_bindings,
-                resolved_bindings: checker.resolved_bindings,
-                prepared_constants: checker.prepared_constants,
-                proven_nonnull_fallback_receivers: checker.proven_nonnull_fallback_receivers,
-                diagnostics: checker.diagnostics,
-                annotation_facts: checker.annotation_facts,
-                function_return_types: checker.function_return_types,
-                record_constructor_instances: checker.record_constructor_instances,
-                parameter_types: checker.parameter_types,
-                requirement_targets: checker.requirement_targets,
-                requirement_expected_targets: checker.requirement_expected_targets,
-                reveal_types: checker.reveal_types,
-                expr_types: checker.expr_types,
-                stream_stage_types: checker.stream_stage_types,
-                projections: checker.projections,
-                statement_positions: checker.statement_positions,
-                function_effect_facts: checker.effect_graph.facts(&checker.effect_summaries),
-                callable_effects,
-                assertion_effect_spans: checker.assertion_effect_spans,
-                statement_expression_spans: checker.statement_expression_spans,
-                propagating_statements: checker.propagating_statements,
-                discardable_bindings: checker.discardable_bindings,
-                propagating_conditions: checker.propagating_conditions,
-                redundant_condition_propagations: checker.redundant_condition_propagations,
-                unvalidated_command_vectors: checker.unvalidated_command_vectors,
-                membership_migration_spans: checker.membership_migration_spans,
-                standard_call_spans: checker.standard_call_spans,
-                statically_resolved_call_spans: checker.statically_resolved_call_spans,
-                api_calls: checker.api_calls,
-                module_commands: checker.module_commands,
-                argument_bindings: checker.argument_bindings,
-                definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
-                handler_input_types: checker.handler_input_types,
-                inferred_variants: checker.inferred_variants,
-                path_literals: checker.path_literals,
-                redundant_variant_qualifiers: checker.redundant_variant_qualifiers,
-                record_constructor_fields: checker.record_constructor_fields,
-                message_payload_constructors: checker.message_payload_constructors,
-                record_require_migrations: checker.record_require_migrations,
-                error_constructors: checker.error_constructors,
-                optional_binding_spans: checker.optional_binding_spans,
-                collect_yields: checker.collect_yields,
-                from_end_indexes: checker.from_end_indexes,
-                conversions: checker.conversions,
-                resource_scopes: checker.resource_scopes,
-                resource_transfers: checker.resource_transfers,
-                text_patterns: checker.text_patterns,
-                inferred_variant_patterns: checker.inferred_variant_patterns,
-                embedded_bodies_checked: options.embedded_bodies,
-            }
-        })
+        Self::check_bundle_in_session(
+            view,
+            source,
+            options,
+            type_program,
+            view.sources,
+            &mut ModuleRecordCache::default(),
+        )
     }
 
-    /// Probe passes resolve every body once to build the effect graph, so a
-    /// checked program never depends on declaration or module order. A call
-    /// through a module value reads its callee's effects from the value's type
-    /// rather than recording an edge; such a probe repeats with the previous
-    /// solution until the summaries it read are the solved ones. Summaries only
-    /// grow within a finite domain, so the repetition terminates.
-    fn solve_effect_probes(
-        mut probe: impl FnMut(BTreeMap<EffectDeclarationId, EffectSummary>) -> Self,
-    ) -> (EffectGraph, BTreeMap<EffectDeclarationId, EffectSummary>) {
-        let mut provisional = BTreeMap::new();
-        loop {
-            let checker = probe(provisional.clone());
-            let solved = checker.effect_graph.solve();
-            if !checker.provisional_effects_read.get() || solved == provisional {
-                return (checker.effect_graph, solved);
-            }
-            provisional = solved;
+    fn into_output(mut self) -> CheckOutput {
+        let callable_effects = self.callable_effects();
+        let checked_declarations = self.take_checked_declarations();
+        CheckOutput {
+            checked_declarations,
+            resolved_type_expressions: self.resolved_type_expressions,
+            static_callable_aliases: self.static_callable_aliases,
+            typed_callable_calls: self.typed_callable_calls,
+            local_binding_types: self.local_inference.checked_bindings,
+            resolved_bindings: self.resolved_bindings,
+            prepared_constants: self.prepared_constants,
+            proven_nonnull_fallback_receivers: self.proven_nonnull_fallback_receivers,
+            diagnostics: self.diagnostics,
+            annotation_facts: self.annotation_facts,
+            function_return_types: self.function_return_types,
+            record_constructor_instances: self.record_constructor_instances,
+            parameter_types: self.parameter_types,
+            requirement_targets: self.requirement_targets,
+            requirement_expected_targets: self.requirement_expected_targets,
+            reveal_types: self.reveal_types,
+            expr_types: self.expr_types,
+            stream_stage_types: self.stream_stage_types,
+            projections: self.projections,
+            statement_positions: self.statement_positions,
+            function_effect_facts: self.effect_graph.facts(&self.effect_summaries),
+            callable_effects,
+            assertion_effect_spans: self.assertion_effect_spans,
+            statement_expression_spans: self.statement_expression_spans,
+            propagating_statements: self.propagating_statements,
+            discardable_bindings: self.discardable_bindings,
+            propagating_conditions: self.propagating_conditions,
+            redundant_condition_propagations: self.redundant_condition_propagations,
+            unvalidated_command_vectors: self.unvalidated_command_vectors,
+            membership_migration_spans: self.membership_migration_spans,
+            standard_call_spans: self.standard_call_spans,
+            statically_resolved_call_spans: self.statically_resolved_call_spans,
+            api_calls: self.api_calls,
+            module_commands: self.module_commands,
+            argument_bindings: self.argument_bindings,
+            definitely_exiting_block_spans: self.definitely_exiting_block_spans,
+            handler_input_types: self.handler_input_types,
+            inferred_variants: self.inferred_variants,
+            path_literals: self.path_literals,
+            redundant_variant_qualifiers: self.redundant_variant_qualifiers,
+            record_constructor_fields: self.record_constructor_fields,
+            message_payload_constructors: self.message_payload_constructors,
+            record_require_migrations: self.record_require_migrations,
+            error_constructors: self.error_constructors,
+            optional_binding_spans: self.optional_binding_spans,
+            collect_yields: self.collect_yields,
+            from_end_indexes: self.from_end_indexes,
+            conversions: self.conversions,
+            resource_scopes: self.resource_scopes,
+            resource_transfers: self.resource_transfers,
+            text_patterns: self.text_patterns,
+            inferred_variant_patterns: self.inferred_variant_patterns,
+            embedded_bodies_checked: self.options.embedded_bodies,
         }
     }
 
@@ -1540,6 +1627,11 @@ impl Checker {
             return_conflicts: None,
             inference_reachable: true,
             collecting_effects: false,
+            record_effects: false,
+            defer_effect_diagnostics: false,
+            deferred_effect_checks: Vec::new(),
+            authoritative_effect_graph: false,
+            module_diagnostic_position: 0,
             effect_graph: EffectGraph::default(),
             effect_summaries: BTreeMap::new(),
             provisional_effects_read: std::cell::Cell::new(false),
@@ -1651,7 +1743,7 @@ impl Checker {
                 .into(),
         );
         debug_assert_eq!(
-            records.root().args_domain,
+            records.root().args_domain(),
             if self.byte_script_arguments {
                 ArgsDomain::Bytes
             } else {
@@ -1668,7 +1760,7 @@ impl Checker {
                     source,
                 ));
         }
-        self.collect_user_modules_arena(&bundle, records, type_program.clone(), source);
+        self.module_diagnostic_position = self.diagnostics.len();
         self.collect_type_imports_arena(program, statements.iter().copied());
         self.collect_definitions_arena(program, type_program, source, statements.iter().copied());
         self.infer_default_parameter_types(program, source, statements);
@@ -1763,7 +1855,7 @@ impl Checker {
         self.checked_declarations.cli_entries = entries;
         self.diagnostics.extend(diagnostics);
         if !self.collecting_effects {
-            let resource_check = resource::check(self, bundle);
+            let resource_check = resource::check_root_owner(self, bundle);
             self.diagnostics.extend(resource_check.diagnostics);
             self.resource_transfers = resource_check.transfers;
         }
@@ -2102,11 +2194,16 @@ pub(crate) fn byte_argument_main(
     byte_argument_main_with_statements(program, program.statement_ids(), parameter_types)
 }
 
-fn byte_argument_main_in_view(
-    view: &CheckBundleView<'_>,
+pub(crate) fn byte_argument_main_for_root(
+    program: &ArenaProgram,
+    root_statements: ArenaRange,
     parameter_types: &BTreeMap<Span, Type>,
 ) -> bool {
-    byte_argument_main_with_statements(view.program, view.statement_ids(), parameter_types)
+    byte_argument_main_with_statements(
+        program,
+        program.arena.stmt_ids(root_statements),
+        parameter_types,
+    )
 }
 
 fn byte_argument_main_with_statements(

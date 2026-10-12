@@ -381,9 +381,10 @@ impl CallableEdgeFactStore {
 /// lists are borrowed from it, so imports are parsed and resolved once even
 /// when several roots reach the same module.
 struct LintWorkspace {
-    sources: SourceMap,
-    program: ArenaProgram,
+    sources: Arc<SourceMap>,
+    program: Arc<ArenaProgram>,
     type_program: std::sync::OnceLock<Arc<ArenaProgram>>,
+    check_session: std::sync::OnceLock<xsh::frontend::check::CheckSession>,
     modules: FxHashMap<String, WorkspaceModule>,
     roots: Vec<String>,
     input_errors: Vec<String>,
@@ -626,7 +627,6 @@ fn lint_workspace_root(
     let Some(root_module) = workspace.modules.get(root) else {
         return LintWorkspaceRootWork::Complete(Vec::new());
     };
-    let view = workspace.root_view(root);
     let mut relevant_diagnostics = Vec::new();
     for key in &reachable {
         if let Some(module) = workspace.modules.get(key) {
@@ -651,11 +651,10 @@ fn lint_workspace_root(
 
     let mut checked = timings.time(Stage::Check, || {
         SymbolOwner::new().with_current(|| {
-            xsh::frontend::check::Checker::check_bundle_view_with_type_program(
-                &view,
-                &root_module.text,
+            workspace.check_session(type_program.clone()).check(
+                root_module.statements,
+                root_module.source_id,
                 CheckOptions::default(),
-                type_program.clone(),
             )
         })
     });
@@ -795,6 +794,7 @@ fn lint_workspace_root(
         Vec::new()
     };
     if cancellation_output().is_none() {
+        let view = workspace.root_view(root);
         for module in view.modules().filter(|module| module.internal) {
             if let Some(source_id) = range_source_id(&workspace.program, module.statements) {
                 source_ids.push(source_id);
@@ -1107,13 +1107,13 @@ fn migrate_workspace_syntax(
             2,
         );
     }
-    let view = candidate.root_view(root);
-    let checked = xsh::frontend::check::Checker::check_bundle_view_with_type_program(
-        &view,
-        &candidate.modules[root].text,
-        CheckOptions::default(),
-        candidate.type_program(),
-    );
+    let checked = candidate
+        .check_session(candidate.type_program())
+        .check(
+            candidate.modules[root].statements,
+            candidate.modules[root].source_id,
+            CheckOptions::default(),
+        );
     if !checked.diagnostics.is_empty() {
         return failure(
             render_diagnostics_with_keys(&checked.diagnostics, &candidate.sources),
@@ -1265,9 +1265,10 @@ impl LintWorkspace {
         input_errors: Vec<String>,
     ) -> Self {
         Self {
-            sources,
-            program,
+            sources: Arc::new(sources),
+            program: Arc::new(program),
             type_program: std::sync::OnceLock::new(),
+            check_session: std::sync::OnceLock::new(),
             modules,
             roots,
             input_errors,
@@ -1277,13 +1278,26 @@ impl LintWorkspace {
     fn type_program(&self) -> Arc<ArenaProgram> {
         self.type_program
             .get_or_init(|| {
-                let mut program = self.program.clone();
+                let mut program = self.program.as_ref().clone();
                 // Type references share the arena; entry bundles own module membership.
                 // Keeping every root as a module would qualify its local enum constructors.
                 program.modules.clear();
                 Arc::new(program)
             })
             .clone()
+    }
+
+    fn check_session(
+        &self,
+        type_program: Arc<ArenaProgram>,
+    ) -> &xsh::frontend::check::CheckSession {
+        self.check_session.get_or_init(|| {
+            xsh::frontend::check::CheckSession::new_with_type_program(
+                self.program.clone(),
+                self.sources.clone(),
+                type_program,
+            )
+        })
     }
 
     fn reachable_modules(&self, root: &str) -> FxHashSet<String> {
