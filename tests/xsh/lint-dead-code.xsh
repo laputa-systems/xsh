@@ -180,6 +180,35 @@ test test_lint_signal_hooks_use_final_top_level_bindings_and_order_findings_by_s
   ], reported.stderr
 }
 
+test test_lint_resource_scope_body_fields_shadow_top_level_callables { |ctx|
+  let reported = unused_callables(
+    ctx,
+    "pure target() -> Int {\n  return 1\n}\n\nproc main(root: Path) [fs, error] -> Result[Path] {\n  let value = with target = fs.open_root(root)? {\n    target.host_path()?\n  }\n  value\n}\n",
+  )?
+  assert reported.status.exited_with(1), reported.stderr
+  assert headers(reported.stderr) == ["warn[lint.unused-callable]: unused callable `target`"], reported.stderr
+}
+
+test test_lint_resource_scope_initializers_use_prior_bindings_and_names_do_not_escape { |ctx|
+  let reported = unused_callables(
+    ctx,
+    "pure first() -> Int {\n  return 1\n}\n\npure second() -> Int {\n  return 2\n}\n\npure escaped() -> Int {\n  return 3\n}\n\nproc main() [fs, error] -> Result[Path] {\n  let value = with first = fs.tempdir()?, second = fs.open_root(first.host_path()?)?, escaped = fs.open_root(first.host_path()?)? {\n    second.host_path()?\n  }\n  let callback = escaped\n  value\n}\n",
+  )?
+  assert headers(reported.stderr) == [
+    "warn[lint.unused-callable]: unused callable `first`",
+    "warn[lint.unused-callable]: unused callable `second`",
+  ], reported.stderr
+}
+
+test test_lint_resource_scope_initializer_resolves_outer_callable_before_binding { |ctx|
+  let reported = unused_callables(
+    ctx,
+    "pure target(root: Path) -> Path {\n  return root\n}\n\nproc main(root: Path) [fs, error] -> Result[Path] {\n  let value = with target = fs.open_root(target(root))? {\n    target.host_path()?\n  }\n  value\n}\n",
+  )?
+  assert reported.status.exited_with(0), reported.stderr
+  assert headers(reported.stderr) == [], reported.stderr
+}
+
 test test_lint_callable_reachability_uses_import_aliases_and_reports_shared_modules_once { |ctx|
   let root = test.temp_dir(ctx, name: "callable-shared-import")?
   fp"{root}/helper.xsh".write(

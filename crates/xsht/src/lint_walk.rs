@@ -155,8 +155,27 @@ impl LintExprVisitor<'_, '_> {
             | ArenaExprKind::ErrorContext { .. }
             | ArenaExprKind::ContextScope { .. }
             | ArenaExprKind::Loop { .. }
-            | ArenaExprKind::Collect { .. }
-            | ArenaExprKind::ResourceScope { .. } => self.walk_immediate_children(expr),
+            | ArenaExprKind::Collect { .. } => self.walk_immediate_children(expr),
+
+            ArenaExprKind::ResourceScope {
+                bindings, block, ..
+            } => {
+                if let Some(edges) = &mut self.linter.callable_edges {
+                    edges.push_scope();
+                }
+                for binding in arena.with_bindings(bindings).to_vec() {
+                    self.visit_expr(binding.initializer);
+                    if binding.name.as_str() != "_"
+                        && let Some(edges) = &mut self.linter.callable_edges
+                    {
+                        edges.define(binding.name);
+                    }
+                }
+                self.linter.lint_block(block);
+                if let Some(edges) = &mut self.linter.callable_edges {
+                    edges.pop_scope();
+                }
+            }
 
             ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
                 for part in arena.fmt_parts(parts).collect::<Vec<_>>() {
