@@ -1,5 +1,39 @@
 # Consolidation restart handoff
 
+## Owned frames and runner preparation — 2026-10-12
+
+Integration is on master `cc512718`. Accepted owned execution port
+`ed6fb5e5` retains the c746 typed readers and removes every legacy recursive
+strategy; resolution also retains the schema-generated eager-atom predicate
+from `d7e730f5`. The private port passed 664 tests across 48 files per mode,
+136 module/stream/signal tests per mode and 120 indexed Rust units. Independent
+source review found no integration defect. These are private-lane gates;
+combined master verification remains pending. Call-argument cursors are now
+ready and have an exclusive private lane from cc512.
+
+The low-stack matching verification control fails with the engine's 32-machine
+limit (exit 1); the owned candidate passes. The older release control's native
+stack overflow is supplemental, mismatched-profile evidence. Do not combine
+those controls. Scalar views, schema-generated eager membership and ownership
+will be verified together at the next frozen master build.
+
+The valid frozen f884 pilot has 48 concrete test IDs. Listing alone took
+10.18 s; the existing default eight workers took 12.38 s and 32 workers took
+12.13 s, both 48/48 passing. This is about 1.02x, not the required 4x. The
+runner lane is implementing bounded parallel file preparation, preserving
+sorted discovery, deterministic errors and fresh per-case evaluator state.
+The earlier 117-case pilot was rejected before timings: quoted fixture tests
+inflated static counts and a core ls helper lacked its `net` effect. Master
+`ad02581f` fixes both fd-reading helpers; their exact two PTY cases pass.
+
+W9's corrected resource scope avoids repeated imported-owner analysis; the
+heavy lspci input has exact symbol-rendered publication in all four profiles.
+The broad `structured-full-v3` attempt was stopped and preserved: diagnostic
+hashes matched its 800 terminal outcomes, but source 15 exposes a real surplus
+record-constructor publication difference. That lane is fixing the producer
+boundary before rebuilding normalized receipts and restarting the matrix.
+No full W9 parity or final structural/performance acceptance is claimed.
+
 ## Native runner performance and accepted follow-ups — 2026-10-11
 
 The owner explicitly added full `xsht test` parallelization, test-pollution

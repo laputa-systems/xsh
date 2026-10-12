@@ -5,9 +5,9 @@ parsed once into a compact arena and a lossless CST, checked once, and the
 checker publishes facts that later consumers read: lowering, the formatter,
 lint, and the other `xsht` tools. Lowering commits a verified indexed program.
 The indexed executor schedules work and continuations on heap-backed frames,
-with a verifier-bounded in-place route for operand-only instructions. Some
-instruction tags still use legacy recursive handlers; there is no second
-frontend or alternate executable representation.
+with a verifier-bounded in-place route for operand-only instructions. Both
+routes share instruction behavior; there is one frontend and executable
+representation.
 
 `docs/SPEC.md` is the language contract. This document is the contributor map:
 where each stage lives, the invariants that hold the stages together, and the
@@ -260,10 +260,14 @@ checked type after the callback; fold initializers use the enclosing scope.
 **Execution.** `indexed_run` executes function blocks and driver ranges from
 borrowed `FullProgram` views. Scheduled calls and continuations live in
 heap-backed frames (`CallFrame`, `FrameWork`); the verifier marks eligible
-operand-only instructions for in-place execution up to height 128. Instruction
-tags marked `LegacyRecursive` still use recursive handlers. Statement blocks
-nested in frame-controlled expressions run on lent block frames over the
-caller's slots. After installation, parser, checker, and builder state are
+operand-only instructions for in-place execution up to height 128. Statement
+blocks nested in frame-controlled expressions run on lent block frames over
+the caller's slots. `FullExecution` retains the verified instruction range and
+its `ProgramOwner`: root execution borrows its program, while calls into loaded
+programs retain an `Arc<FullProgram>`. Decoders and payload views borrow that
+owner only during dispatch. Dynamic calls resolve the target after argument
+and default evaluation; suspended producers retain their program until cleanup.
+After installation, parser, checker, and builder state are
 dropped: only `FullProgram`, its `SourceMap`, and its `SymbolOwner` survive
 execution. The runner, native tests, direct calls, module loading, auto-main,
 and signal-hook setup all prepare through
@@ -329,8 +333,8 @@ annotated ones, and `xsht test` in the project.
    it cannot select another evaluator.
 2. **One decision pipeline.** Each semantic decision (overload selection,
    argument binding, narrowing, inference, effects, constants) is made once, by
-   the checker. Two routes that must agree (full and compact checking, legacy
-   and frame evaluation for tags with both routes) share one implementation or
+   the checker. Two routes that must agree (full and compact checking, in-place
+   and frame evaluation for eligible tags) share one implementation or
    are pinned by a parity test. Which member of a `Union[...]` a value belongs
    to is one such decision: the checker, the runtime type test, and schema decoding all ask
    `sema::types::first_accepting_union_member`, and `union_member_error` is
