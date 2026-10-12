@@ -1,6 +1,6 @@
 use super::{
-    Arc, BLOCK_LIST, BinaryOp, FullExecution, FullPayload, FullTag, IndexedFmt,
-    IndexedModuleCall, IrVerifyError, Name, RuntimeError, RuntimeOp, Span,
+    BinaryOp, FullExecution, FullPayload, FullTag, IndexedFmt,
+    IrVerifyError, Name, RuntimeError, Span,
 };
 use crate::runtime::eval::LoweredFmtPart;
 use crate::runtime::eval::indexed::full::decode::ListView;
@@ -27,48 +27,6 @@ pub(super) fn indexed_value(
     span: Span,
 ) -> Result<(FullTag, FullPayload<'_>), RuntimeError> {
     value.map_err(|error| indexed_error(error, span))
-}
-
-#[inline(always)]
-pub(super) fn indexed_decode<'a, T: crate::runtime::eval::indexed::full::FullCodec>(
-    payload: &mut FullPayload<'a>,
-    execution: &FullExecution<'_>,
-    span: Span,
-) -> Result<T, RuntimeError> {
-    payload
-        .decode(execution)
-        .map_err(|error| indexed_error(error, span))
-}
-
-#[inline(always)]
-pub(super) fn indexed_raw(payload: &mut FullPayload<'_>, span: Span) -> Result<u32, RuntimeError> {
-    payload.raw().map_err(|error| indexed_error(error, span))
-}
-
-pub(super) fn indexed_string<'e>(
-    payload: &mut FullPayload<'_>,
-    execution: &'e FullExecution<'_>,
-    span: Span,
-) -> Result<&'e str, RuntimeError> {
-    execution
-        .string(indexed_raw(payload, span)?)
-        .map_err(|error| indexed_error(error, span))
-}
-
-#[inline(always)]
-pub(super) fn indexed_finish(payload: FullPayload<'_>, span: Span) -> Result<(), RuntimeError> {
-    payload.finish().map_err(|error| indexed_error(error, span))
-}
-
-pub(super) fn indexed_optional_raw(
-    payload: &mut FullPayload<'_>,
-    span: Span,
-) -> Result<Option<u32>, RuntimeError> {
-    match indexed_raw(payload, span)? {
-        0 => Ok(None),
-        1 => indexed_raw(payload, span).map(Some),
-        _ => Err(RuntimeError::new("indexed-ir", "invalid optional value tag").with_span(span)),
-    }
 }
 
 pub(super) fn decode_record_updates<'e>(
@@ -239,33 +197,6 @@ pub(super) fn record_update_at(
         .map(|name| name.map_err(|error| indexed_error(error, field_span)))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Some((path, value.raw(), field_span, updates.position())))
-}
-
-/// A module call's operation, prepared plan, optional argument operands, and span.
-pub(super) fn decode_module_call<'e>(
-    execution: &'e FullExecution<'_>,
-    payload: &mut FullPayload<'e>,
-    span: Span,
-) -> Result<IndexedModuleCall, RuntimeError> {
-    let op = indexed_decode::<RuntimeOp>(payload, execution, span)?;
-    let call_plan = indexed_decode::<Option<Arc<crate::runtime::eval::call_plan::ModuleCallPlan>>>(
-        payload, execution, span,
-    )?;
-    let (_, mut encoded) = execution
-        .block(payload, BLOCK_LIST)
-        .map_err(|error| indexed_error(error, span))?;
-    let len = indexed_raw(&mut encoded, span)? as usize;
-    let mut args = Vec::with_capacity(len);
-    for _ in 0..len {
-        args.push(indexed_optional_raw(&mut encoded, span)?);
-    }
-    indexed_finish(encoded, span)?;
-    Ok((
-        op,
-        call_plan,
-        args,
-        indexed_decode::<Span>(payload, execution, span)?,
-    ))
 }
 
 /// Decode format parts through the expression row schema and keep their list borrowed.

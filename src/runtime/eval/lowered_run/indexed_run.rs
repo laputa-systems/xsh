@@ -49,7 +49,7 @@ use crate::runtime::eval::indexed::full::decode::{
     ErrorExprView, FmtPartView, ListPosition, ListView, RecordEntryView,
 };
 use crate::runtime::eval::indexed::full::{
-    BLOCK_LIST, FrameStrategy, FullDriverTag, FullExecution, FullFunctionView,
+    FrameStrategy, FullDriverTag, FullExecution, FullFunctionView,
     FullPayload, FullProgram, FullStageTag, FullTag,
 };
 use crate::runtime::eval::indexed::full::schema::ExprView;
@@ -81,11 +81,10 @@ use assignments::{
 };
 use calls::{append_call_argument, indexed_callable_identity, indexed_typed_callee_kind};
 use operands::{
-    indexed_error, indexed_value, indexed_decode, indexed_raw, indexed_string, indexed_finish,
-    indexed_optional_raw, decode_record_updates, decode_comparison_chain,
+    indexed_error, indexed_value, decode_record_updates, decode_comparison_chain,
     decode_comparison_pair, comparison_pair_at, decode_match_expr, match_expr_arm_at,
     record_update_at, ComparisonChainPosition, MatchExprPosition, RecordUpdatePosition,
-    decode_module_call, decode_fmt,
+    decode_fmt,
 };
 
 use process::run_target_and_leading_argv;
@@ -183,13 +182,6 @@ enum AssertionWork {
         left_failure: Option<String>,
     },
 }
-
-type IndexedModuleCall = (
-    RuntimeOp,
-    Option<Arc<crate::runtime::eval::call_plan::ModuleCallPlan>>,
-    Vec<Option<u32>>,
-    Span,
-);
 
 /// One `par-map` item as a worker left it.
 struct ParMapItemOutcome {
@@ -1490,7 +1482,6 @@ impl Evaluator {
         if indexed_frame_apply_tag(tag) {
             return self.eval_indexed_expr_with_frames(execution, instruction, slots, call_span);
         }
-        let mut payload = payload;
         let result = match tag {
             FullTag::ExprComparisonChain => {
                 let (first, mut pairs) =
@@ -1747,27 +1738,38 @@ impl Evaluator {
                 ControlFlow::Continue(lowered_index_from_end_value(base, distance.get(), span)?)
             }
             FullTag::ExprMethod => {
-                let receiver = indexed_raw(&mut payload, call_span)?;
-                let name = indexed_string(&mut payload, execution, call_span)?;
-                let (_, mut args) = execution
-                    .block(&mut payload, BLOCK_LIST)
-                    .map_err(|error| indexed_error(error, call_span))?;
-                let len = indexed_raw(&mut args, call_span)? as usize;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let receiver = match self.eval_indexed_expr(execution, receiver, slots, span)? {
+                let ExprView::Method {
+                    receiver,
+                    name,
+                    mut args,
+                    span,
+                } = ExprView::decode(execution, tag, payload)
+                    .map_err(|error| indexed_error(error, call_span))?
+                else {
+                    unreachable!("method tag has a typed method view")
+                };
+                args.preflight()
+                    .map_err(|error| indexed_error(error, span))?;
+                let capacity = args.len();
+                let receiver = match self.eval_indexed_expr(
+                    execution,
+                    receiver.raw(),
+                    slots,
+                    span,
+                )? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                let mut values = Vec::with_capacity(len);
-                for _ in 0..len {
-                    let arg = indexed_raw(&mut args, span)?;
-                    match self.eval_indexed_expr(execution, arg, slots, span)? {
+                let mut values = Vec::with_capacity(capacity);
+                for argument in args {
+                    let argument = argument
+                        .map_err(|error| indexed_error(error, span))?
+                        .raw();
+                    match self.eval_indexed_expr(execution, argument, slots, span)? {
                         ControlFlow::Continue(value) => values.push(value),
                         ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                     }
                 }
-                indexed_finish(args, span)?;
                 return self.eval_indexed_method_dispatch(receiver, name, values, span);
             }
             FullTag::ExprCheckedValue => {
@@ -1825,22 +1827,37 @@ impl Evaluator {
                 }
             }
             FullTag::ExprModuleCall => {
-                let (op, call_plan, args, span) =
-                    decode_module_call(execution, &mut payload, call_span)?;
-                indexed_finish(payload, call_span)?;
+                let ExprView::ModuleCall {
+                    op,
+                    call_plan,
+                    mut args,
+                    span,
+                } = ExprView::decode(execution, tag, payload)
+                    .map_err(|error| indexed_error(error, call_span))?
+                else {
+                    unreachable!("module call tag has a typed call view")
+                };
+                args.preflight()
+                    .map_err(|error| indexed_error(error, span))?;
                 let mut values = Vec::with_capacity(args.len());
                 for arg in args {
+                    let arg = arg.map_err(|error| indexed_error(error, span))?;
                     let Some(arg) = arg else {
                         values.push(None);
                         continue;
                     };
-                    match self.eval_indexed_expr(execution, arg, slots, span)? {
+                    match self.eval_indexed_expr(execution, arg.raw(), slots, span)? {
                         ControlFlow::Continue(value) => values.push(Some(value)),
                         ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                     }
                 }
                 let values = super::NativeArgumentValues::new(values);
-                return self.eval_indexed_module_call_values(op, values, span, call_plan.as_deref());
+                return self.eval_indexed_module_call_values(
+                    op,
+                    values,
+                    span,
+                    call_plan.map(|plan| plan.as_ref()),
+                );
             }
             FullTag::ExprOk => {
                 let ExprView::Ok(value) = ExprView::decode(execution, tag, payload)

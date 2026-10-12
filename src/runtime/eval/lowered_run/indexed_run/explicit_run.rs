@@ -5,7 +5,7 @@ use super::serial_pipeline::{
 };
 use super::super::LoweredRetryDelays;
 use super::{
-    Arc, AssignOp, BLOCK_LIST, BTreeMap, BinaryOp, CommandPlan, ControlFlow,
+    Arc, AssignOp, BTreeMap, BinaryOp, CommandPlan, ControlFlow,
     Evaluator,
     FormatSpec, FrameStrategy, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag,
     FunctionHeader,
@@ -20,12 +20,11 @@ use super::{
     assign_lowered_str_view,
     bind_lowered_comp_target, capture_checked_error, check_env_name,
     checked_indexed_assignment, comparison_link_holds,
-    comparison_pair_at, decode_comparison_chain, decode_match_expr, decode_module_call,
+    comparison_pair_at, decode_comparison_chain, decode_match_expr,
     decode_record_updates, match_expr_arm_at, record_update_at,
     ComparisonChainPosition, MatchExprPosition, RecordUpdatePosition,
     decode_fmt, finish_record_entries, indexed_assignment_operand, indexed_callable_identity,
-    indexed_decode, indexed_error, indexed_finish, indexed_optional_raw, indexed_raw,
-    indexed_string, indexed_value, lowered_binary_value, lowered_bytes_parts,
+    indexed_error, indexed_value, lowered_binary_value, lowered_bytes_parts,
     lowered_comp_iterable, lowered_condition_bool, lowered_err_with_cause, lowered_fallback_value,
     lowered_map_literal_key, lowered_match_no_arm, lowered_path_like_arg,
     lowered_result_err_value, lowered_result_ok, lowered_str_key, lowered_str_parts,
@@ -41,12 +40,12 @@ use crate::runtime::eval::indexed::IrBlockId;
 use crate::runtime::eval::indexed::full::schema::{BoolView, ExprView, IntView};
 use crate::runtime::eval::indexed::full::schema::StmtView;
 use crate::runtime::eval::indexed::full::decode::{
-    AssignStepView, CompQualifierView, FmtPartView, ListPosition, ListView,
+    AssignStepView, CallArgView, CompQualifierView, FmtPartView, ListPosition, ListView,
     ProcessCommandBuilderEntryView, RecordEntryView, RunArgKindView, RunArgView, RunEnvView,
     ScanConditionView,
 };
 use crate::runtime::eval::{
-    BuildBoolId, BuildExprId, BuildPatternId, BuildStmtId, LoweredAssignStep,
+    BuildBoolId, BuildExprId, BuildPatternId, BuildStmtId, LoweredCallArg, LoweredAssignStep,
     LoweredCompQualifier, LoweredCompTarget, LoweredFmtPart, LoweredProcessCommandBuilderEntry,
     LoweredRecordEntry, LoweredRunArg, LoweredRunEnv, LoweredRunPipelineSegment,
     LoweredRunRedirection,
@@ -208,12 +207,38 @@ fn statement_print_argument(
 }
 
 type StatementWithBindingPosition = ListPosition<(usize, BuildExprId)>;
+type CallArgumentPosition = ListPosition<LoweredCallArg>;
+type MethodArgumentPosition = ListPosition<BuildExprId>;
+type ModuleArgumentPosition = ListPosition<Option<BuildExprId>>;
 type StatementIfExprPosition = ListPosition<(BuildExprId, Vec<BuildStmtId>)>;
 type StatementIfBoolPosition = ListPosition<(BuildBoolId, Vec<BuildStmtId>)>;
 type StatementPatternIfPosition =
     ListPosition<(BuildExprId, Vec<BuildStmtId>, Vec<usize>)>;
 type StatementMatchPosition =
     ListPosition<(BuildPatternId, Option<BuildExprId>, Vec<BuildStmtId>)>;
+
+#[derive(Clone, Copy)]
+enum CallArgumentMode {
+    Single,
+    Splice,
+}
+
+enum CallArgumentOperand {
+    Default(usize),
+    Expression {
+        instruction: u32,
+        mode: CallArgumentMode,
+    },
+}
+
+impl CallArgumentMode {
+    fn runtime_kind(self) -> u32 {
+        match self {
+            Self::Single => 0,
+            Self::Splice => 1,
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 enum StatementIfPosition {
@@ -1695,8 +1720,8 @@ enum FrameContinuation {
     ModuleArguments {
         op: super::RuntimeOp,
         call_plan: Option<Arc<crate::runtime::eval::call_plan::ModuleCallPlan>>,
-        args: Vec<Option<u32>>,
-        position: usize,
+        instruction: u32,
+        position: ModuleArgumentPosition,
         values: Vec<Option<LoweredValue>>,
         span: Span,
         next: Box<FrameContinuation>,
@@ -1907,7 +1932,9 @@ enum FrameContinuation {
         transfers_resource: bool,
     },
     DynamicCallee {
-        args: Vec<(u32, u32)>,
+        instruction: u32,
+        position: CallArgumentPosition,
+        values: Vec<LoweredValue>,
         /// The kind a typed call's callee must have; `None` for a dynamic call.
         typed_pure: Option<bool>,
         span: Span,
@@ -1915,8 +1942,9 @@ enum FrameContinuation {
     },
     DynamicArguments {
         callee: LoweredValue,
-        args: Vec<(u32, u32)>,
-        argument: usize,
+        instruction: u32,
+        position: CallArgumentPosition,
+        mode: CallArgumentMode,
         values: Vec<LoweredValue>,
         span: Span,
         next: Box<FrameContinuation>,
@@ -1925,8 +1953,9 @@ enum FrameContinuation {
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
         external: bool,
-        args: Vec<(u32, u32)>,
-        index: usize,
+        instruction: u32,
+        position: CallArgumentPosition,
+        mode: CallArgumentMode,
         values: Vec<LoweredValue>,
         span: Span,
         next: Box<FrameContinuation>,
@@ -1958,8 +1987,9 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     MethodReceiver {
+        instruction: u32,
+        position: MethodArgumentPosition,
         name: Arc<str>,
-        args: Vec<u32>,
         span: Span,
         // The slot this call's result overwrites, when the call is the value of
         // a plain assignment to the same slot the receiver is read from. The
@@ -1968,11 +1998,11 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     MethodArg {
+        instruction: u32,
+        position: MethodArgumentPosition,
         name: Arc<str>,
-        args: Vec<u32>,
         receiver: LoweredValue,
         consume: Option<usize>,
-        index: usize,
         values: Vec<LoweredValue>,
         span: Span,
         next: Box<FrameContinuation>,
@@ -2893,15 +2923,128 @@ fn indexed_slot_read(
     instruction: u32,
     span: Span,
 ) -> Result<Option<usize>, RuntimeError> {
-    let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), span)?;
-    match tag {
-        FullTag::ExprParam => Ok(Some(indexed_decode::<usize>(
-            &mut payload,
-            execution,
-            span,
-        )?)),
-        _ => Ok(None),
+    let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
+    if tag != FullTag::ExprParam {
+        return Ok(None);
     }
+    let ExprView::Param(slot) =
+        ExprView::decode(execution, tag, payload).map_err(|error| indexed_error(error, span))?
+    else {
+        unreachable!("parameter tag has a typed parameter view")
+    };
+    Ok(Some(slot))
+}
+
+fn indexed_call_arguments<'e>(
+    execution: &'e FullExecution<'_>,
+    instruction: u32,
+    span: Span,
+) -> Result<ListView<'e, LoweredCallArg>, RuntimeError> {
+    let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
+    let view = ExprView::decode(execution, tag, payload)
+        .map_err(|error| indexed_error(error, span))?;
+    let args = match view {
+        ExprView::Call { args, .. }
+        | ExprView::DirectPureCall { args, .. }
+        | ExprView::ExternalCall { args, .. }
+        | ExprView::DynamicCall { args, .. }
+        | ExprView::SelfCall { args, .. }
+        | ExprView::TypedCall { args, .. } => args,
+        _ => unreachable!("call instruction has a typed call argument list"),
+    };
+    Ok(args)
+}
+
+fn call_argument_at<'e>(
+    execution: &'e FullExecution<'_>,
+    instruction: u32,
+    position: CallArgumentPosition,
+    span: Span,
+) -> Result<Option<(CallArgumentOperand, CallArgumentPosition)>, RuntimeError> {
+    let mut args = indexed_call_arguments(execution, instruction, span)?;
+    args.resume(position)
+        .map_err(|error| indexed_error(error, span))?;
+    let argument = args
+        .next()
+        .transpose()
+        .map_err(|error| indexed_error(error, span))?;
+    let position = args.position();
+    Ok(argument.map(|argument| {
+        let operand = match argument {
+            CallArgView::Default(slot) => CallArgumentOperand::Default(slot as usize),
+            CallArgView::Single(instruction) => CallArgumentOperand::Expression {
+                instruction: instruction.raw(),
+                mode: CallArgumentMode::Single,
+            },
+            CallArgView::Splice(instruction) => CallArgumentOperand::Expression {
+                instruction: instruction.raw(),
+                mode: CallArgumentMode::Splice,
+            },
+        };
+        (operand, position)
+    }))
+}
+
+fn indexed_method_arguments<'e>(
+    execution: &'e FullExecution<'_>,
+    instruction: u32,
+    span: Span,
+) -> Result<ListView<'e, BuildExprId>, RuntimeError> {
+    let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
+    let ExprView::Method { args, .. } = ExprView::decode(execution, tag, payload)
+        .map_err(|error| indexed_error(error, span))?
+    else {
+        unreachable!("method instruction has a typed argument list")
+    };
+    Ok(args)
+}
+
+fn method_argument_at(
+    execution: &FullExecution<'_>,
+    instruction: u32,
+    position: MethodArgumentPosition,
+    span: Span,
+) -> Result<Option<(u32, MethodArgumentPosition)>, RuntimeError> {
+    let mut args = indexed_method_arguments(execution, instruction, span)?;
+    args.resume(position)
+        .map_err(|error| indexed_error(error, span))?;
+    let argument = args
+        .next()
+        .transpose()
+        .map_err(|error| indexed_error(error, span))?;
+    let position = args.position();
+    Ok(argument.map(|argument| (argument.raw(), position)))
+}
+
+fn indexed_module_arguments<'e>(
+    execution: &'e FullExecution<'_>,
+    instruction: u32,
+    span: Span,
+) -> Result<ListView<'e, Option<BuildExprId>>, RuntimeError> {
+    let (tag, payload) = indexed_value(execution.instruction_id(instruction), span)?;
+    let ExprView::ModuleCall { args, .. } = ExprView::decode(execution, tag, payload)
+        .map_err(|error| indexed_error(error, span))?
+    else {
+        unreachable!("module call has a typed argument list")
+    };
+    Ok(args)
+}
+
+fn module_argument_at(
+    execution: &FullExecution<'_>,
+    instruction: u32,
+    position: ModuleArgumentPosition,
+    span: Span,
+) -> Result<Option<(Option<u32>, ModuleArgumentPosition)>, RuntimeError> {
+    let mut args = indexed_module_arguments(execution, instruction, span)?;
+    args.resume(position)
+        .map_err(|error| indexed_error(error, span))?;
+    let argument = args
+        .next()
+        .transpose()
+        .map_err(|error| indexed_error(error, span))?;
+    let position = args.position();
+    Ok(argument.map(|argument| (argument.map(|id| id.raw()), position)))
 }
 
 /// Take a receiver out of the slot it was read from, when that slot still holds
@@ -2947,16 +3090,11 @@ pub(super) enum ProducerStep {
     Finished(Result<LoweredValue, RuntimeError>),
 }
 
-/// Reusable vectors for frame work and decoded operands.
-///
-/// Calls repeatedly decode short argument lists into vectors.
-/// Bounded pools reuse their storage after evaluation, along with work stacks
-/// and slot scopes, the same way `lowered_slot_pool` does for slots.
+/// Reusable vectors for frame work and scoped frame state.
 #[derive(Default)]
 pub(in crate::runtime::eval) struct FrameScratch {
     work: Vec<Vec<FrameWork>>,
     slot_scopes: Vec<Vec<u64>>,
-    call_args: Vec<Vec<(u32, u32)>>,
     /// A frame's block scopes and their defer offsets, taken when the frame
     /// opens its first block.
     block_stacks: Vec<(Vec<u64>, Vec<usize>)>,
@@ -2979,19 +3117,6 @@ impl FrameScratch {
     fn take_block_stacks(&mut self) -> (Vec<u64>, Vec<usize>) {
         self.block_stacks.pop().unwrap_or_default()
     }
-
-    pub(super) fn take_call_args(&mut self) -> Vec<(u32, u32)> {
-        self.call_args.pop().unwrap_or_default()
-    }
-
-    pub(super) fn recycle_call_args(&mut self, mut args: Vec<(u32, u32)>) {
-        if args.capacity() > 32 || self.call_args.len() >= Self::POOL_CAP {
-            return;
-        }
-        args.clear();
-        self.call_args.push(args);
-    }
-
 
     /// Returns a finished frame's vectors to the pools, cleared for reuse.
     pub(super) fn recycle(&mut self, call: &mut CallFrame<'_>) {
@@ -4410,50 +4535,97 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.push_call_in_owner(index, resolved, values, span, Some(next))
     }
 
-    /// Walks a named call's arguments from `argument`, filling the arguments it
-    /// omits from the callee's prepared defaults, then resolves the call.
+    fn push_method_arguments(
+        &mut self,
+        index: usize,
+        instruction: u32,
+        position: MethodArgumentPosition,
+        name: Arc<str>,
+        receiver: LoweredValue,
+        consume: Option<usize>,
+        values: Vec<LoweredValue>,
+        span: Span,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        if let Some((argument, position)) = method_argument_at(
+            &self.calls[index].execution,
+            instruction,
+            position,
+            span,
+        )? {
+            self.push_expr(
+                index,
+                argument,
+                span,
+                FrameContinuation::MethodArg {
+                    instruction,
+                    position,
+                    name,
+                    receiver,
+                    consume,
+                    values,
+                    span,
+                    next: Box::new(next),
+                },
+            );
+        } else {
+            let receiver =
+                take_consumed_receiver(&mut self.calls[index].slots, consume, receiver);
+            self.push_method_result(index, receiver, name, values, span, next)?;
+        }
+        Ok(())
+    }
+
+    /// Walks a named call's borrowed arguments, filling omitted defaults at their encoded positions.
     fn push_static_arguments(
         &mut self,
         index: usize,
+        instruction: u32,
+        mut position: CallArgumentPosition,
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
         external: bool,
-        args: Vec<(u32, u32)>,
-        mut argument: usize,
         mut values: Vec<LoweredValue>,
         span: Span,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
-        while let Some((arg_kind, instruction)) = args.get(argument).copied() {
-            if arg_kind == 2 {
-                values.push(self.argument_default_for_active(
-                    index,
-                    function,
-                    kind,
-                    instruction as usize,
-                    span,
-                )?);
-                argument += 1;
-            } else {
-                self.push_expr(
-                    index,
-                    instruction,
-                    span,
-                    FrameContinuation::CallArguments {
-                        function,
-                        kind,
-                        external,
-                        args,
-                        index: argument,
-                        values,
+        while let Some((argument, next_position)) = call_argument_at(
+            &self.calls[index].execution,
+            instruction,
+            position,
+            span,
+        )? {
+            match argument {
+                CallArgumentOperand::Default(slot) => {
+                    values.push(self.argument_default_for_active(
+                        index, function, kind, slot, span,
+                    )?);
+                    position = next_position;
+                }
+                CallArgumentOperand::Expression {
+                    instruction: argument,
+                    mode,
+                } => {
+                    self.push_expr(
+                        index,
+                        argument,
                         span,
-                        next: Box::new(next),
-                    },
-                );
-                return Ok(());
+                        FrameContinuation::CallArguments {
+                            function,
+                            kind,
+                            external,
+                            instruction,
+                            position: next_position,
+                            mode,
+                            values,
+                            span,
+                            next: Box::new(next),
+                        },
+                    );
+                    return Ok(());
+                }
             }
         }
-        self.evaluator.frame_scratch.recycle_call_args(args);
         if external {
             let LoweredFunctionKey::Qualified(qualified) = function else {
                 unreachable!("external calls have qualified names")
@@ -4468,41 +4640,52 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         &mut self,
         index: usize,
         callee: LoweredValue,
-        args: Vec<(u32, u32)>,
-        mut argument: usize,
+        instruction: u32,
+        mut position: CallArgumentPosition,
         mut values: Vec<LoweredValue>,
         span: Span,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
-        while let Some((kind, instruction)) = args.get(argument).copied() {
-            if kind == 2 {
-                let (function, function_kind) = indexed_callable_identity(&callee, span)?;
-                values.push(self.argument_default_for_active(
-                    index,
-                    function,
-                    function_kind,
-                    instruction as usize,
-                    span,
-                )?);
-                argument += 1;
-            } else {
-                self.push_expr(
-                    index,
-                    instruction,
-                    span,
-                    FrameContinuation::DynamicArguments {
-                        callee,
-                        args,
-                        argument,
-                        values,
+        while let Some((argument, next_position)) = call_argument_at(
+            &self.calls[index].execution,
+            instruction,
+            position,
+            span,
+        )? {
+            match argument {
+                CallArgumentOperand::Default(slot) => {
+                    let (function, function_kind) = indexed_callable_identity(&callee, span)?;
+                    values.push(self.argument_default_for_active(
+                        index,
+                        function,
+                        function_kind,
+                        slot,
                         span,
-                        next: Box::new(next),
-                    },
-                );
-                return Ok(());
+                    )?);
+                    position = next_position;
+                }
+                CallArgumentOperand::Expression {
+                    instruction: argument,
+                    mode,
+                } => {
+                    self.push_expr(
+                        index,
+                        argument,
+                        span,
+                        FrameContinuation::DynamicArguments {
+                            callee,
+                            instruction,
+                            position: next_position,
+                            mode,
+                            values,
+                            span,
+                            next: Box::new(next),
+                        },
+                    );
+                    return Ok(());
+                }
             }
         }
-        self.evaluator.frame_scratch.recycle_call_args(args);
         let (function, kind) = indexed_callable_identity(&callee, span)?;
         self.push_resolved_call(index, function, kind, values, span, next)
     }
@@ -5161,7 +5344,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let execution = self.calls[index].execution.thread_local();
         let transfers_resource = execution.transfers_resource(instruction);
         let span = self.calls[index].call_span;
-        let (tag, mut payload) = indexed_value(
+        let (tag, payload) = indexed_value(
             execution.instruction_id(instruction),
             span,
         )?;
@@ -5286,32 +5469,33 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             FullTag::StmtDefaultParameter => {
-                let slot =
-                    indexed_decode::<usize>(&mut payload, &execution, span)?;
-                let value = indexed_raw(&mut payload, span)?;
-                let kind = indexed_decode::<LoweredType>(
-                    &mut payload,
-                    &execution,
-                    span,
-                )?;
-                let check = indexed_decode::<Option<LoweredTypeCheck>>(
-                    &mut payload,
-                    &execution,
-                    span,
-                )?;
-                let span =
-                    indexed_decode::<Span>(&mut payload, &execution, span)?;
-                indexed_finish(payload, span)?;
+                let StmtView::DefaultParameter {
+                    slot,
+                    value,
+                    kind,
+                    check,
+                    span: value_span,
+                } = StmtView::decode(&execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("default-parameter tag has a typed view")
+                };
+                let kind = kind
+                    .materialize_lowered()
+                    .map_err(|error| indexed_error(error, value_span))?;
+                let check = check
+                    .map(|check| super::indexed_type_check(check, value_span))
+                    .transpose()?;
                 if matches!(self.calls[index].slots[slot], LoweredValue::OmittedArgument) {
                     self.push_expr(
                         index,
-                        value,
-                        span,
+                        value.raw(),
+                        value_span,
                         FrameContinuation::ParameterDefault {
                             slot,
                             kind,
                             check,
-                            span,
+                            span: value_span,
                         },
                     );
                 }
@@ -5331,18 +5515,22 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             FullTag::StmtLetRecord => {
-                let source = indexed_raw(&mut payload, span)?;
-                let target = indexed_decode::<LoweredCompTarget>(
-                    &mut payload,
-                    &execution,
-                    span,
-                )?;
-                let value_span = indexed_decode(&mut payload, &execution, span)?;
-                indexed_finish(payload, span)?;
+                let StmtView::LetRecord {
+                    source,
+                    target,
+                    span: value_span,
+                } = StmtView::decode(&execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("record binding tag has a typed view")
+                };
+                let target = target
+                    .materialize()
+                    .map_err(|error| indexed_error(error, value_span))?;
                 self.declare_target(index, &target);
                 self.push_expr(
                     index,
-                    source,
+                    source.raw(),
                     span,
                     FrameContinuation::StoreTarget {
                         target,
@@ -5915,10 +6103,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             FullTag::StmtLoop => {
-                let body = indexed_raw(&mut payload, span)?;
-                indexed_finish(payload, span)?;
+                let StmtView::Loop { body } = StmtView::decode(&execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("loop statement tag has a typed view")
+                };
                 self.calls[index].work.push(FrameWork::Loop {
-                    body,
+                    body: body.block_id(),
                     span,
                     completion: None,
                 });
@@ -6095,7 +6286,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let execution = self.calls[index].execution.thread_local();
         let in_place = !self.evaluator.force_frames
             && execution.is_in_place(instruction);
-        let (tag, mut payload) = indexed_value(
+        let (tag, payload) = indexed_value(
             execution.instruction_id(instruction),
             span,
         )?;
@@ -6296,29 +6487,28 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 });
             }
             FullTag::ExprRetry => {
-                let delays = payload
-                    .borrow::<Vec<BuildExprId>>(&execution)
-                    .map_err(|error| indexed_error(error, span))?;
+                let super::ExprView::Retry {
+                    delays,
+                    pattern,
+                    body,
+                    span: retry_span,
+                    schedule,
+                } = super::ExprView::decode(&execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("retry tag has a typed retry view")
+                };
                 let delay_position = delays.position();
                 let delay_count = delays.len();
-                let pattern = indexed_optional_raw(&mut payload, span)?;
-                let body = indexed_raw(&mut payload, span)?;
-                let span = indexed_decode(&mut payload, &execution, span)?;
-                let schedule_kind = indexed_decode(
-                    &mut payload,
-                    &execution,
-                    span,
-                )?;
-                indexed_finish(payload, span)?;
                 self.eval_retry_delay(
                     index,
                     Box::new(RetryFrameState {
                         instruction,
                         delay_position,
-                        pattern,
-                        body,
-                        span,
-                        schedule_kind,
+                        pattern: pattern.map(|pattern| pattern.raw()),
+                        body: body.block_id(),
+                        span: retry_span,
+                        schedule_kind: schedule,
                         delay_values: Vec::with_capacity(delay_count),
                         delays: None,
                         attempt_index: 0,
@@ -6330,29 +6520,37 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 )?;
             }
             FullTag::ExprCapture => {
-                let body = indexed_raw(&mut payload, span)?;
-                let span = indexed_decode(&mut payload, &execution, span)?;
-                indexed_finish(payload, span)?;
+                let super::ExprView::Capture { body, span } =
+                    super::ExprView::decode(&execution, tag, payload)
+                        .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("capture tag has a typed capture view")
+                };
                 self.calls[index].work.push(FrameWork::ExpressionBoundary {
                     policy: ExpressionBoundaryPolicy::Capture,
                     next,
                 });
-                self.push_statement_block(index, body, span)?;
+                self.push_statement_block(index, body.block_id(), span)?;
             }
             FullTag::ExprContextScope => {
-                let kind = indexed_decode(&mut payload, &execution, span)?;
-                let input = indexed_raw(&mut payload, span)?;
-                let body = indexed_raw(&mut payload, span)?;
-                let span = indexed_decode(&mut payload, &execution, span)?;
-                indexed_finish(payload, span)?;
+                let super::ExprView::ContextScope {
+                    kind,
+                    input,
+                    body,
+                    span: context_span,
+                } = super::ExprView::decode(&execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("context-scope tag has a typed view")
+                };
                 self.push_expr(
                     index,
-                    input,
-                    span,
+                    input.raw(),
+                    context_span,
                     FrameContinuation::ContextScopeEntry {
                         kind,
-                        body,
-                        span,
+                        body: body.block_id(),
+                        span: context_span,
                         next: Box::new(next),
                     },
                 );
@@ -6811,24 +7009,21 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
             }
             FullTag::ExprMethod => {
-                let receiver = indexed_raw(&mut payload, span)?;
-                let name: Arc<str> = Arc::from(indexed_string(
-                    &mut payload,
-                    &execution,
-                    span,
-                )?);
-                let (_, mut args) = self.calls[index]
-                    .execution
-                    .block(&mut payload, BLOCK_LIST)
-                    .map_err(|error| indexed_error(error, span))?;
-                let len = indexed_raw(&mut args, span)? as usize;
-                let value_span = indexed_decode(&mut payload, &execution, span)?;
-                indexed_finish(payload, span)?;
-                let mut decoded_args = Vec::with_capacity(len);
-                for _ in 0..len {
-                    decoded_args.push(indexed_raw(&mut args, value_span)?);
-                }
-                indexed_finish(args, value_span)?;
+                let ExprView::Method {
+                    receiver,
+                    name,
+                    mut args,
+                    span: value_span,
+                } = ExprView::decode(&execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("method tag has a typed method view")
+                };
+                args.preflight()
+                    .map_err(|error| indexed_error(error, value_span))?;
+                let position = args.position();
+                let receiver = receiver.raw();
+                let name: Arc<str> = Arc::from(name);
                 // `x = x.set(..)` and its shape: the call's result overwrites
                 // the very slot the receiver reads, so the receiver can be
                 // taken out of the slot rather than copied. Anything else — a
@@ -6856,8 +7051,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     receiver,
                     value_span,
                     FrameContinuation::MethodReceiver {
+                        instruction,
+                        position,
                         name,
-                        args: decoded_args,
                         span: value_span,
                         consume,
                         next: Box::new(next),
@@ -6865,27 +7061,35 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
             }
             FullTag::ExprDynamicCall | FullTag::ExprTypedCall => {
-                let callee = indexed_raw(&mut payload, span)?;
-                let typed_pure = if tag == FullTag::ExprTypedCall {
-                    let pure =
-                        indexed_decode::<bool>(&mut payload, &execution, span)?;
-                    // The signature is for the verifier; execution binds the
-                    // verified arguments by position.
-                    indexed_raw(&mut payload, span)?;
-                    Some(pure)
-                } else {
-                    None
+                let view = ExprView::decode(&execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?;
+                let (callee, typed_pure, mut args, value_span) = match view {
+                    ExprView::DynamicCall {
+                        callee,
+                        args,
+                        span,
+                    } => (callee.raw(), None, args, span),
+                    ExprView::TypedCall {
+                        callee,
+                        pure,
+                        args,
+                        span,
+                        ..
+                    } => (callee.raw(), Some(pure), args, span),
+                    _ => unreachable!("dynamic call tag has a typed call view"),
                 };
-                let mut args = self.evaluator.frame_scratch.take_call_args();
-                decode_call_args_into(&execution, &mut payload, span, &mut args)?;
-                let value_span = indexed_decode(&mut payload, &execution, span)?;
-                indexed_finish(payload, span)?;
+                let capacity = args.len();
+                args.preflight()
+                    .map_err(|error| indexed_error(error, value_span))?;
+                let position = args.position();
                 self.push_expr(
                     index,
                     callee,
                     value_span,
                     FrameContinuation::DynamicCallee {
-                        args,
+                        instruction,
+                        position,
+                        values: Vec::with_capacity(capacity),
                         typed_pure,
                         span: value_span,
                         next: Box::new(next),
@@ -6970,66 +7174,102 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
             }
             FullTag::ExprModuleCall => {
-                let (op, call_plan, args, value_span) =
-                    decode_module_call(&execution, &mut payload, span)?;
-                indexed_finish(payload, span)?;
-                self.step_module_arguments(
-                    index,
+                let ExprView::ModuleCall {
                     op,
                     call_plan,
-                    args,
-                    0,
-                    Vec::new(),
+                    mut args,
+                    span: value_span,
+                } = ExprView::decode(&execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("module call tag has a typed call view")
+                };
+                let capacity = args.len();
+                args.preflight()
+                    .map_err(|error| indexed_error(error, value_span))?;
+                let position = args.position();
+                self.step_module_arguments(
+                    index,
+                    instruction,
+                    position,
+                    op,
+                    call_plan.cloned(),
+                    Vec::with_capacity(capacity),
                     value_span,
                     next,
                 )?;
             }
             FullTag::ExprExternalCall => {
-                let qualified = indexed_decode::<crate::symbol::QualifiedName>(
-                    &mut payload,
-                    &execution,
-                    span,
-                )?;
+                let ExprView::ExternalCall {
+                    function: qualified,
+                    mut args,
+                    span: value_span,
+                } = ExprView::decode(&execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?
+                else {
+                    unreachable!("external call tag has a typed call view")
+                };
+                let capacity = args.len();
+                args.preflight()
+                    .map_err(|error| indexed_error(error, value_span))?;
+                let position = args.position();
                 let kind = self.external_kind(index, qualified, span)?;
-                let mut args = self.evaluator.frame_scratch.take_call_args();
-                decode_call_args_into(&execution, &mut payload, span, &mut args)?;
-                let value_span = indexed_decode(&mut payload, &execution, span)?;
-                indexed_finish(payload, span)?;
                 self.push_static_arguments(
                     index,
+                    instruction,
+                    position,
                     LoweredFunctionKey::Qualified(qualified),
                     kind,
                     true,
-                    args,
-                    0,
-                    Vec::new(),
+                    Vec::with_capacity(capacity),
                     value_span,
                     next,
                 )?;
             }
             FullTag::ExprCall | FullTag::ExprSelfCall | FullTag::ExprDirectPureCall => {
-                let function = if matches!(tag, FullTag::ExprCall | FullTag::ExprDirectPureCall) {
-                    indexed_decode(&mut payload, &execution, span)?
-                } else {
-                    self.calls[index]
-                        .execution
-                        .function_identity()
-                        .map_err(|error| indexed_error(error, span))?
-                        .0
+                let view = ExprView::decode(&execution, tag, payload)
+                    .map_err(|error| indexed_error(error, span))?;
+                let (function, mut args, value_span) = match view {
+                    ExprView::Call {
+                        function,
+                        args,
+                        span,
+                    }
+                    | ExprView::DirectPureCall {
+                        function,
+                        args,
+                        span,
+                    } => (
+                        function
+                            .key(&execution)
+                            .map_err(|error| indexed_error(error, span))?,
+                        args,
+                        span,
+                    ),
+                    ExprView::SelfCall { args, span } => (
+                        self.calls[index]
+                            .execution
+                            .function_identity()
+                            .map_err(|error| indexed_error(error, span))?
+                            .0,
+                        args,
+                        span,
+                    ),
+                    _ => unreachable!("static call tag has a typed call view"),
                 };
+                let capacity = args.len();
+                args.preflight()
+                    .map_err(|error| indexed_error(error, value_span))?;
+                let position = args.position();
                 let kind = self.function_kind(index, function, span)?;
-                let mut args = self.evaluator.frame_scratch.take_call_args();
-                decode_call_args_into(&execution, &mut payload, span, &mut args)?;
-                let value_span = indexed_decode(&mut payload, &execution, span)?;
-                indexed_finish(payload, span)?;
                 self.push_static_arguments(
                     index,
+                    instruction,
+                    position,
                     function,
                     kind,
                     false,
-                    args,
-                    0,
-                    Vec::new(),
+                    Vec::with_capacity(capacity),
                     value_span,
                     next,
                 )?;
@@ -7409,7 +7649,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FrameContinuation::ModuleArguments {
                 op,
                 call_plan,
-                args,
+                instruction,
                 position,
                 mut values,
                 span,
@@ -7419,10 +7659,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     values.push(Some(value));
                     self.step_module_arguments(
                         index,
+                        instruction,
+                        position,
                         op,
                         call_plan,
-                        args,
-                        position + 1,
                         values,
                         span,
                         *next,
@@ -8893,7 +9133,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
             },
             FrameContinuation::DynamicCallee {
-                args,
+                instruction,
+                position,
+                values,
                 typed_pure,
                 span,
                 next,
@@ -8902,7 +9144,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     if let Some(pure) = typed_pure {
                         super::indexed_typed_callee_kind(&callee, pure, span)?;
                     }
-                    self.push_dynamic_arguments(index, callee, args, 0, Vec::new(), span, *next)?
+                    self.push_dynamic_arguments(
+                        index,
+                        callee,
+                        instruction,
+                        position,
+                        values,
+                        span,
+                        *next,
+                    )?
                 }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
@@ -8910,19 +9160,20 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             },
             FrameContinuation::DynamicArguments {
                 callee,
-                args,
-                argument,
+                instruction,
+                position,
+                mode,
                 mut values,
                 span,
                 next,
             } => match value {
                 FrameValue::Value(value) => {
-                    append_call_argument(&mut values, args[argument].0, value, span)?;
+                    append_call_argument(&mut values, mode.runtime_kind(), value, span)?;
                     self.push_dynamic_arguments(
                         index,
                         callee,
-                        args,
-                        argument + 1,
+                        instruction,
+                        position,
                         values,
                         span,
                         *next,
@@ -8936,21 +9187,22 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 function,
                 kind,
                 external,
-                args,
-                index: argument,
+                instruction,
+                position,
+                mode,
                 mut values,
                 span,
                 next,
             } => match value {
                 FrameValue::Value(value) => {
-                    append_call_argument(&mut values, args[argument].0, value, span)?;
+                    append_call_argument(&mut values, mode.runtime_kind(), value, span)?;
                     self.push_static_arguments(
                         index,
+                        instruction,
+                        position,
                         function,
                         kind,
                         external,
-                        args,
-                        argument + 1,
                         values,
                         span,
                         *next,
@@ -9049,74 +9301,54 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },
             FrameContinuation::MethodReceiver {
+                instruction,
+                position,
                 name,
-                args,
                 span,
                 consume,
                 next,
                 ..
             } => match value {
                 FrameValue::Value(receiver) => {
-                    if let Some(argument) = args.first().copied() {
-                        self.push_expr(
-                            index,
-                            argument,
-                            span,
-                            FrameContinuation::MethodArg {
-                                name,
-                                args,
-                                receiver,
-                                consume,
-                                index: 0,
-                                values: Vec::new(),
-                                span,
-                                next,
-                            },
-                        );
-                    } else {
-                        let receiver =
-                            take_consumed_receiver(&mut self.calls[index].slots, consume, receiver);
-                        self.push_method_result(index, receiver, name, Vec::new(), span, *next)?;
-                    }
+                    self.push_method_arguments(
+                        index,
+                        instruction,
+                        position,
+                        name,
+                        receiver,
+                        consume,
+                        Vec::new(),
+                        span,
+                        *next,
+                    )?;
                 }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::MethodArg {
+                instruction,
+                position,
                 name,
-                args,
                 receiver,
                 consume,
-                index: argument,
                 mut values,
                 span,
                 next,
             } => match value {
                 FrameValue::Value(value) => {
                     values.push(value);
-                    let next_index = argument + 1;
-                    if let Some(instruction) = args.get(next_index).copied() {
-                        self.push_expr(
-                            index,
-                            instruction,
-                            span,
-                            FrameContinuation::MethodArg {
-                                name,
-                                args,
-                                receiver,
-                                consume,
-                                index: next_index,
-                                values,
-                                span,
-                                next,
-                            },
-                        );
-                    } else {
-                        let receiver =
-                            take_consumed_receiver(&mut self.calls[index].slots, consume, receiver);
-                        self.push_method_result(index, receiver, name, values, span, *next)?;
-                    }
+                    self.push_method_arguments(
+                        index,
+                        instruction,
+                        position,
+                        name,
+                        receiver,
+                        consume,
+                        values,
+                        span,
+                        *next,
+                    )?;
                 }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
@@ -10025,25 +10257,30 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn step_module_arguments(
         &mut self,
         index: usize,
+        instruction: u32,
+        mut position: ModuleArgumentPosition,
         op: super::RuntimeOp,
         call_plan: Option<Arc<crate::runtime::eval::call_plan::ModuleCallPlan>>,
-        args: Vec<Option<u32>>,
-        mut position: usize,
         mut values: Vec<Option<LoweredValue>>,
         span: Span,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
-        while let Some(argument) = args.get(position).copied() {
-            if let Some(instruction) = argument {
+        while let Some((argument, next_position)) = module_argument_at(
+            &self.calls[index].execution,
+            instruction,
+            position,
+            span,
+        )? {
+            if let Some(argument) = argument {
                 self.push_expr(
                     index,
-                    instruction,
+                    argument,
                     span,
                     FrameContinuation::ModuleArguments {
                         op,
                         call_plan,
-                        args,
-                        position,
+                        instruction,
+                        position: next_position,
                         values,
                         span,
                         next: Box::new(next),
@@ -10052,7 +10289,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 return Ok(());
             }
             values.push(None);
-            position += 1;
+            position = next_position;
         }
         if op == super::RuntimeOp::UtilsCache {
             return self.step_utils_cache(
@@ -11202,13 +11439,19 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         mut state: Box<RetryFrameState>,
         next: Box<FrameContinuation>,
     ) -> Result<(), RuntimeError> {
-        let (_, mut payload) = self.calls[index]
+        let (tag, payload) = self.calls[index]
             .execution
             .instruction_id(state.instruction)
             .map_err(|error| indexed_error(error, state.span))?;
-        let mut delays = payload
-            .borrow::<Vec<BuildExprId>>(&self.calls[index].execution)
-            .map_err(|error| indexed_error(error, state.span))?;
+        let super::ExprView::Retry { mut delays, .. } = super::ExprView::decode(
+            &self.calls[index].execution,
+            tag,
+            payload,
+        )
+        .map_err(|error| indexed_error(error, state.span))?
+        else {
+            unreachable!("retry instruction has a typed retry view")
+        };
         delays
             .resume(state.delay_position)
             .map_err(|error| indexed_error(error, state.span))?;
@@ -13243,23 +13486,4 @@ fn update_context_traceback(evaluator: &mut Evaluator, value: &LoweredValue) {
         };
         traceback.error = crate::trace::TraceError::from_value(error);
     }
-}
-
-pub(super) fn decode_call_args_into<'e>(
-    execution: &'e FullExecution<'_>,
-    payload: &mut FullPayload<'e>,
-    span: Span,
-    values: &mut Vec<(u32, u32)>,
-) -> Result<(), RuntimeError> {
-    let (_, mut args) = execution
-        .block(payload, BLOCK_LIST)
-        .map_err(|error| indexed_error(error, span))?;
-    let len = indexed_raw(&mut args, span)? as usize;
-    values.clear();
-    values.reserve(len);
-    for _ in 0..len {
-        values.push((indexed_raw(&mut args, span)?, indexed_raw(&mut args, span)?));
-    }
-    indexed_finish(args, span)?;
-    Ok(())
 }

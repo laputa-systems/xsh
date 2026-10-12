@@ -643,7 +643,22 @@ impl BorrowCodec for FunctionName {
 #[derive(Clone, Copy)]
 pub(in crate::runtime::eval) struct FunctionRef<'a> {
     pub(in crate::runtime::eval) id: IrFunctionId,
-    program: PhantomData<&'a FullStore>,
+    store: &'a FullStore,
+}
+impl FunctionRef<'_> {
+    /// Resolve the borrowed identity through the program that owns this reference.
+    pub(in crate::runtime::eval) fn key(
+        self,
+        execution: &FullExecution<'_>,
+    ) -> Result<LoweredFunctionKey, IrVerifyError> {
+        if !std::ptr::eq(self.store, execution.store()) {
+            return Err(IrVerifyError::new("function reference belongs to another program"));
+        }
+        execution
+            .program()
+            .function_identity(self.id.index())
+            .map(|(key, _)| key)
+    }
 }
 impl BorrowCodec for LoweredFunctionKey {
     type View<'a> = FunctionRef<'a>;
@@ -653,7 +668,10 @@ impl BorrowCodec for LoweredFunctionKey {
             .ok_or_else(|| IrVerifyError::new("function identity is invalid"))?;
         context.store.functions.get(id.index())
             .ok_or_else(|| IrVerifyError::new("function identity is out of bounds"))?;
-        Ok(FunctionRef { id, program: PhantomData })
+        Ok(FunctionRef {
+            id,
+            store: context.store,
+        })
     }
 }
 
