@@ -948,10 +948,10 @@ impl Checker {
                 schema_expectation: Some(if param.rest {
                     crate::sema::constants::SchemaExpectation {
                         instances: Vec::new(),
-                        children: BTreeMap::from([(
+                        children: std::sync::Arc::new(BTreeMap::from([(
                             crate::sema::constants::SchemaComponent::Item,
                             crate::sema::constants::SchemaExpectation::default(),
-                        )]),
+                        )])),
                     }
                 } else {
                     crate::sema::constants::SchemaExpectation::default()
@@ -1069,7 +1069,7 @@ impl Checker {
                     .map(|(name, actual)| {
                         if let Some(parameter) = parameters_by_name.get(name) {
                             if let Some(schema) = &parameter.schema_expectation {
-                                context.children.insert(
+                                context.insert_child(
                                     crate::sema::constants::SchemaComponent::Field(*name),
                                     schema.clone(),
                                 );

@@ -2,7 +2,7 @@ use super::{BTreeMap, BTreeSet, CheckBundleView, Checker, Diagnostic, Label, Spa
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
     ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaFunctionDef, ArenaProgram,
-    ArenaStmtKind, BindingTargetId, StmtId,
+    ArenaStmtKind, BindingTargetId,
 };
 use std::sync::Arc;
 
@@ -36,11 +36,8 @@ impl LocalInference {
     pub(super) fn prepare(view: &CheckBundleView<'_>) -> Self {
         let program = view.program;
         let mut inference = Self::default();
-        for index in 0..program.arena.stmt_tags.len() {
-            let statement = program.arena.stmt(StmtId::from_index(index));
-            if !view.contains_source(statement.span.source_id) {
-                continue;
-            }
+        for id in view.stmt_ids() {
+            let statement = program.arena.stmt(id);
             let (target, annotation, initializer, mutable) = match statement.kind {
                 ArenaStmtKind::Let {
                     target,

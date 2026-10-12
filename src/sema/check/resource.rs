@@ -57,6 +57,9 @@ fn check_scopes<'a>(
         transfers: FxHashMap::default(),
         suppressed_body_transfers: FxHashMap::default(),
         diagnosed: FxHashSet::default(),
+        cancel_calls: std::cell::OnceCell::new(),
+        value_sites_by_binding: std::cell::OnceCell::new(),
+        declaration_sites_by_span: std::cell::OnceCell::new(),
     }
     .run()
 }
@@ -71,6 +74,29 @@ struct Analyzer<'a> {
     transfers: ResourceTransferFacts,
     suppressed_body_transfers: ResourceTransferFacts,
     diagnosed: FxHashSet<(BindingId, Span)>,
+    // The three tables below index checker facts that every statement of every
+    // scope would otherwise rescan in full, which is quadratic in the program.
+    // Each is built on first use and holds exactly what the scan it replaces
+    // visited.
+    cancel_calls: std::cell::OnceCell<Vec<CancelCall>>,
+    value_sites_by_binding: std::cell::OnceCell<FxHashMap<BindingId, Vec<ValueSite>>>,
+    declaration_sites_by_span: std::cell::OnceCell<FxHashMap<Span, Vec<BindingId>>>,
+}
+
+/// A `cancel` call on a process handle whose receiver is a bare identifier
+/// that resolved to a binding.
+struct CancelCall {
+    call: Span,
+    receiver: Span,
+    binding: BindingId,
+}
+
+/// One resolved use of a binding. `order` is the position in the checker's
+/// value-site table iteration, which is the order diagnostics are reported in.
+struct ValueSite {
+    order: usize,
+    span: Span,
+    name: Name,
 }
 
 impl Analyzer<'_> {
@@ -169,15 +195,17 @@ impl Analyzer<'_> {
                 _ => None,
             })
             .collect::<FxHashSet<_>>();
-        let declared_bindings = self
-            .checker
-            .resolved_bindings
-            .declaration_sites
-            .iter()
-            .filter_map(|(&(span, _), &binding)| {
-                declaration_spans.contains(&span).then_some(binding)
-            })
-            .collect::<FxHashSet<_>>();
+        let declared_bindings = if declaration_spans.is_empty() {
+            FxHashSet::default()
+        } else {
+            let sites = self.declaration_sites_by_span();
+            declaration_spans
+                .iter()
+                .filter_map(|span| sites.get(span))
+                .flatten()
+                .copied()
+                .collect::<FxHashSet<_>>()
+        };
         let locals = statements
             .iter()
             .filter_map(|&stmt| self.local_resource(stmt))
@@ -211,6 +239,66 @@ impl Analyzer<'_> {
             }
         }
 
+    }
+
+    fn declaration_sites_by_span(&self) -> &FxHashMap<Span, Vec<BindingId>> {
+        self.declaration_sites_by_span.get_or_init(|| {
+            let mut sites = FxHashMap::<Span, Vec<BindingId>>::default();
+            for (&(span, _), &binding) in &self.checker.resolved_bindings.declaration_sites {
+                sites.entry(span).or_default().push(binding);
+            }
+            sites
+        })
+    }
+
+    fn value_sites_by_binding(&self) -> &FxHashMap<BindingId, Vec<ValueSite>> {
+        self.value_sites_by_binding.get_or_init(|| {
+            let mut sites = FxHashMap::<BindingId, Vec<ValueSite>>::default();
+            for (order, (&(span, name), &binding)) in
+                self.checker.resolved_bindings.value_sites.iter().enumerate()
+            {
+                sites.entry(binding).or_default().push(ValueSite { order, span, name });
+            }
+            sites
+        })
+    }
+
+    /// Process-handle `cancel` calls with an identifier receiver, sorted by
+    /// where the call starts so a statement's calls are one contiguous run.
+    fn cancel_calls(&self) -> &[CancelCall] {
+        self.cancel_calls.get_or_init(|| {
+            let arena = &self.program.arena;
+            // Only a call the checker resolved to a cancel can qualify, and
+            // the resolved calls are far fewer than the expressions.
+            if !self.checker.api_calls.values().any(|api| {
+                api.sig.op == crate::modules::RuntimeOp::ProcessHandleCancel
+            }) {
+                return Vec::new();
+            }
+            let mut calls = Vec::new();
+            for index in 0..arena.expr_tags.len() {
+                let node = arena.expr(ExprId::from_index(index));
+                let ArenaExprKind::Call { callee, .. } = node.kind else { continue };
+                if !self.checker.api_calls.get(&node.span).is_some_and(|api| {
+                    api.sig.op == crate::modules::RuntimeOp::ProcessHandleCancel
+                }) {
+                    continue;
+                }
+                let ArenaExprKind::Field { base, .. } = arena.expr(callee).kind else { continue };
+                if !matches!(arena.expr(base).kind, ArenaExprKind::Ident(_)) {
+                    continue;
+                }
+                if let Some(binding) = self.checker.resolved_bindings.expressions.get(&base).copied() {
+                    calls.push(CancelCall {
+                        call: node.span,
+                        receiver: arena.expr(base).span,
+                        binding,
+                    });
+                }
+            }
+            calls.sort_unstable_by_key(|call| (call.call.source_id, call.call.start()));
+            calls
+        })
     }
 
     fn local_resource(&self, stmt: StmtId) -> Option<(BindingId, ManagedResource)> {
@@ -402,11 +490,27 @@ impl Analyzer<'_> {
         released: &FxHashMap<BindingId, Span>,
         exempt: &FxHashSet<(BindingId, Span)>,
     ) {
-        for (&(span, name), &binding) in &self.checker.resolved_bindings.value_sites {
-            if !locals.contains_key(&binding) || !span_in(statement_span, span) {
+        if released.is_empty() {
+            return;
+        }
+        let by_binding = self.value_sites_by_binding();
+        let mut mentions = Vec::new();
+        for &binding in released.keys() {
+            if !locals.contains_key(&binding) {
                 continue;
             }
-            let Some(released_at) = released.get(&binding).copied() else { continue };
+            if let Some(sites) = by_binding.get(&binding) {
+                mentions.extend(
+                    sites
+                        .iter()
+                        .filter(|site| span_in(statement_span, site.span))
+                        .map(|site| (site.order, binding, site.span, site.name)),
+                );
+            }
+        }
+        mentions.sort_unstable_by_key(|&(order, ..)| order);
+        for (_, binding, span, name) in mentions {
+            let released_at = released[&binding];
             if exempt.contains(&(binding, span)) || !self.diagnosed.insert((binding, span)) {
                 continue;
             }
@@ -609,26 +713,21 @@ impl Analyzer<'_> {
         locals: &FxHashMap<BindingId, ManagedResource>,
     ) -> FxHashSet<(BindingId, Span)> {
         let mut sites = FxHashSet::default();
-        for index in 0..self.program.arena.expr_tags.len() {
-            let call = ExprId::from_index(index);
-            let node = self.program.arena.expr(call);
-            if !span_in(statement, node.span)
-                || !matches!(node.kind, ArenaExprKind::Call { .. })
-                || !self.checker.api_calls.get(&node.span).is_some_and(|api|
-                    api.sig.op == crate::modules::RuntimeOp::ProcessHandleCancel
-                )
-            {
-                continue;
+        if locals.is_empty() {
+            return sites;
+        }
+        let calls = self.cancel_calls();
+        let first = calls.partition_point(|call| {
+            (call.call.source_id, call.call.start()) < (statement.source_id, statement.start())
+        });
+        for call in &calls[first..] {
+            if call.call.source_id != statement.source_id || call.call.start() > statement.end() {
+                break;
             }
-            let ArenaExprKind::Call { callee, .. } = node.kind else { continue };
-            let ArenaExprKind::Field { base, .. } = self.program.arena.expr(callee).kind else { continue };
-            if !matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(_)) {
-                continue;
-            }
-            if let Some(binding) = self.checker.resolved_bindings.expressions.get(&base).copied()
-                && locals.get(&binding) == Some(&ManagedResource::ProcessHandle)
+            if span_in(statement, call.call)
+                && locals.get(&call.binding) == Some(&ManagedResource::ProcessHandle)
             {
-                sites.insert((binding, self.program.arena.expr(base).span));
+                sites.insert((call.binding, call.receiver));
             }
         }
         sites

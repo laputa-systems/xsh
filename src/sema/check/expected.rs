@@ -93,7 +93,7 @@ fn resolve_context(
             }
         }
     }
-    for child in context.children.values_mut() {
+    for child in std::sync::Arc::make_mut(&mut context.children).values_mut() {
         *child = resolve_context(child.clone(), constraints, depth + 1)?;
     }
     Some(context)
