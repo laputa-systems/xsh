@@ -1442,16 +1442,41 @@ pure metric_value(report: Report, name: Str) -> Result[Int, Error] {
   rows[0].value
 }
 
-## Final closure requires both measured production roots to shrink and every blanket scope to be gone.
-export proc assert_final_close(current: Report, baseline: Report) [error] -> Result[Unit, Error] {
-  assert_not_risen(current, baseline)?
-  for name in ["source_lines_src", "source_lines_xsht"] {
-    let now = metric_value(current, name)?
-    let before = metric_value(baseline, name)?
-    if now >= before { return Err(MetricError.Contract(detail: f"final close requires {name} below baseline: {before} -> {now}")) }
+const SOURCE_ADVISORY_METRICS = ["source_lines_src", "source_lines_xsht"]
+const FINAL_ZERO_METRICS = ["manual_payload_calls", "optional_raw_calls", "wide_arena_wildcards", "blanket_dead_code_lines"]
+
+# Source totals remain in reports and audits but do not participate in structural rise checks.
+proc validate_policy_report(report: Report) [error] -> Result[Unit, Error] {
+  if report.schema != 1 { return Err(MetricError.Contract(detail: "unsupported consolidation metric schema")) }
+  assert_not_risen(report, report)?
+  for name in SOURCE_ADVISORY_METRICS {
+    let rows = report.metrics |> where .name == name |> collect
+    if rows.len() != 1 { return Err(MetricError.Contract(detail: f"expected exactly one {name} metric")) }
   }
-  if metric_value(current, "blanket_dead_code_lines")? != 0 {
-    return Err(MetricError.Contract(detail: "final close requires zero blanket_dead_code_lines"))
+}
+
+pure structural_report(report: Report) -> Report {
+  {...report, metrics: collect { for row in report.metrics { if row.name not in SOURCE_ADVISORY_METRICS { yield row } } }}
+}
+
+## Intermediate and final acceptance use one structural ratchet while keeping source totals advisory.
+export proc assert_structural_not_risen(current: Report, baseline: Report) [error] -> Result[Unit, Error] {
+  validate_policy_report(current)?
+  validate_policy_report(baseline)?
+  assert_not_risen(structural_report(current), structural_report(baseline))
+}
+
+## Final close requires zero manual readers, optional raw reads, wide arena matches, and blanket scopes.
+export proc assert_final_close(current: Report, baseline: Report) [error] -> Result[Unit, Error] {
+  for name in FINAL_ZERO_METRICS {
+    let _ = metric_value(current, name)?
+    let _ = metric_value(baseline, name)?
+  }
+  assert_structural_not_risen(current, baseline)?
+  for name in FINAL_ZERO_METRICS {
+    if metric_value(current, name)? != 0 {
+      return Err(MetricError.Contract(detail: f"final close requires zero {name}"))
+    }
   }
 }
 

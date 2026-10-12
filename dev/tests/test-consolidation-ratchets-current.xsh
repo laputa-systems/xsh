@@ -566,6 +566,9 @@ pure close_report(src_lines: Int, xsht_lines: Int, blanket_lines: Int) -> metric
     metrics: [
       {name: "source_lines_src", value: src_lines, evidence: []},
       {name: "source_lines_xsht", value: xsht_lines, evidence: []},
+      {name: "manual_payload_calls", value: 0, evidence: []},
+      {name: "optional_raw_calls", value: 0, evidence: []},
+      {name: "wide_arena_wildcards", value: 0, evidence: []},
       {name: "blanket_dead_code_lines", value: blanket_lines, evidence: []},
     ],
     reviews: [],
@@ -583,6 +586,10 @@ proc final_close_failure(current: metrics.Report, baseline: metrics.Report) [err
 
 pure report_metric(report: metrics.Report, name: Str) -> Int {
   (report.metrics |> where .name == name |> collect)[0].value
+}
+
+pure with_metric(report: metrics.Report, name: Str, value: Int) -> metrics.Report {
+  {...report, metrics: collect { for row in report.metrics { yield if row.name == name { {...row, value: value} } else { row } } }}
 }
 
 pure proof_bundle(report: metrics.Report, fixture: ReviewFixture) -> metrics.ReviewEvidenceBundle {
@@ -611,15 +618,22 @@ proc review_failure(report: metrics.Report, bundle: metrics.ReviewEvidenceBundle
   }
 }
 
-test test_legacy_final_close_helper_requires_strict_source_reduction_and_zero_blankets {
+test test_final_close_requires_structural_zeros_and_keeps_source_totals_advisory {
   let baseline = close_report(10, 8, 4)
-  let equal_src = close_report(10, 7, 0)
-  let equal_xsht = close_report(9, 8, 0)
-  let blanket_remains = close_report(9, 7, 1)
+  let source_equal = close_report(10, 8, 0)
+  let source_growth = close_report(11, 9, 0)
   let closed = close_report(9, 7, 0)
-  assert "source_lines_src" in final_close_failure(equal_src, baseline)
-  assert "source_lines_xsht" in final_close_failure(equal_xsht, baseline)
-  assert "blanket_dead_code_lines" in final_close_failure(blanket_remains, baseline)
+  assert final_close_failure(source_equal, baseline) == "accepted"
+  assert final_close_failure(source_growth, baseline) == "accepted"
+  for name in ["manual_payload_calls", "optional_raw_calls", "wide_arena_wildcards", "blanket_dead_code_lines"] {
+    let current = with_metric(closed, name, 1)
+    let prior = with_metric(baseline, name, 2)
+    assert final_close_failure(current, prior) == f"final close requires zero {name}"
+  }
+  assert final_close_failure({...closed, metrics: closed.metrics |> where .name != "manual_payload_calls" |> collect}, baseline) == "expected one manual_payload_calls metric"
+  assert "manual_payload_calls" in final_close_failure({...closed, metrics: closed.metrics + [closed.metrics[2]]}, baseline)
+  assert final_close_failure(closed, {...baseline, metrics: baseline.metrics |> where .name != "manual_payload_calls" |> collect}) == "expected one manual_payload_calls metric"
+  assert "manual_payload_calls" in final_close_failure(closed, {...baseline, metrics: baseline.metrics + [baseline.metrics[2]]})
   metrics.assert_final_close(closed, baseline)?
 }
 
@@ -688,6 +702,14 @@ test test_final_close_cli_keeps_source_totals_advisory_and_preserves_final_gates
   let unresolved = {...proof, rows: collect { for row in proof.rows { yield if row.name == "timings" { {...row, status: "open"} } else { row } } }}
   json.write(proof_path, unresolved)
   assert ! test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path.display()])?.success
+  json.write(proof_path, proof)
+  for name in ["manual_payload_calls", "optional_raw_calls", "wide_arena_wildcards", "blanket_dead_code_lines"] {
+    json.write(fp"{fixture.root}/current.json", with_metric(report, name, 1))
+    json.write(fp"{fixture.root}/baseline.json", with_metric(baseline, name, 2))
+    assert ! test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path.display()])?.success
+  }
+  json.write(fp"{fixture.root}/current.json", report)
+  json.write(fp"{fixture.root}/baseline.json", baseline)
   let equal_src: metrics.Report = {
     ...report,
     metrics: collect {
