@@ -7954,22 +7954,34 @@ impl<'a> FullDecoder<'a> {
         family: Name,
         variant: Name,
     ) -> Result<(), IrVerifyError> {
-        if let Some(subject_type) = subject_type {
-            match subject_type {
-                Type::Any | Type::Unknown | Type::Error | Type::ProcessError => {}
-                Type::ErrorFamily(actual) if *actual == family => {}
-                Type::ErrorVariant {
-                    family: actual_family,
-                    variant: actual_variant,
-                } if *actual_family == family && *actual_variant == variant => {}
-                _ => {
-                    return Err(IrVerifyError::new(
-                        "error pattern disagrees with its checked subject type",
-                    ));
-                }
-            }
+        if let Some(subject_type) = subject_type
+            && !Self::error_pattern_may_match(subject_type, family, variant)
+        {
+            return Err(IrVerifyError::new(
+                "error pattern disagrees with its checked subject type",
+            ));
         }
         Ok(())
+    }
+
+    /// Whether a value of `subject_type` can be the error the pattern names.
+    ///
+    /// A union subject keeps its declared members even in the branch where an
+    /// `is` test narrowed it to the error member, so the pattern is consistent
+    /// when any member can hold that error.
+    fn error_pattern_may_match(subject_type: &Type, family: Name, variant: Name) -> bool {
+        match subject_type {
+            Type::Any | Type::Unknown | Type::Error | Type::ProcessError => true,
+            Type::ErrorFamily(actual) => *actual == family,
+            Type::ErrorVariant {
+                family: actual_family,
+                variant: actual_variant,
+            } => *actual_family == family && *actual_variant == variant,
+            Type::Union(members) => members
+                .iter()
+                .any(|member| Self::error_pattern_may_match(member, family, variant)),
+            _ => false,
+        }
     }
 
     fn pattern_variant_field_type(
@@ -20343,6 +20355,27 @@ pure apply() -> Int {
             error.message
         );
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn error_pattern_subject_union_requires_a_member_that_can_hold_the_error() {
+        let owner = crate::symbol::SymbolOwner::new();
+        let _guard = owner.enter();
+        let family = Name::intern("FetchError");
+        let other = Name::intern("OtherError");
+        let variant = Name::intern("Usage");
+        let union = |members: Vec<Type>| Type::Union(members);
+        assert!(FullDecoder::error_pattern_may_match(
+            &union(vec![Type::Str, Type::ErrorFamily(family)]),
+            family,
+            variant
+        ));
+        assert!(!FullDecoder::error_pattern_may_match(
+            &union(vec![Type::Str, Type::ErrorFamily(other)]),
+            family,
+            variant
+        ));
+        assert!(!FullDecoder::error_pattern_may_match(&Type::Str, family, variant));
     }
 
     #[test]
