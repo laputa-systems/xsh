@@ -288,8 +288,8 @@ type MatrixCase = {
 }
 type Observed = {stdout: Bytes, stderr: Bytes, status: Int, root: Str}
 
-proc matrix_cases(ctx: TestContext) [fs, error] -> Result[List[MatrixCase]] {
-  let decoded = json.decode(fp"{ctx.core_dir}/tests/data/awk/cases.json".read_text()?)?
+proc matrix_cases(ctx: TestContext, family: Str) [fs, error] -> Result[List[MatrixCase]] {
+  let decoded = json.decode(fp"{ctx.core_dir}/tests/data/awk/matrix/{family}.json".read_text()?)?
   Ok(decoded.require(List[MatrixCase])?)
 }
 
@@ -334,16 +334,14 @@ pure normalized(data: Bytes, root: Str) -> Bytes {
   }
 }
 
-proc check_matrix(ctx: TestContext, prefixes: List[Str]) [fs, process, env, error] -> Result[Unit] {
+proc check_matrix_shard(ctx: TestContext, family: Str, shard: Int) [fs, process, env, error] -> Result[Unit] {
+  let cases = matrix_cases(ctx, family)?
+  let start = shard * 8
+  assert start < cases.len(), f"empty AWK matrix shard {family}/{shard}"
+  let end = if start + 8 < cases.len() { start + 8 } else { cases.len() }
   var failures: List[Str] = []
-  var index = 0
-  var selected = 0
-  for case in matrix_cases(ctx)? {
-    index += 1
-    var wanted = false
-    for prefix in prefixes { if case.name.starts_with(prefix) { wanted = true } }
-    if ! wanted { continue }
-    selected += 1
+  for index in range(start, end) {
+    let case = cases[index]
     let seen = run_case(ctx, case, index)?
     let root = seen.root
     var problems: List[Str] = []
@@ -353,33 +351,282 @@ proc check_matrix(ctx: TestContext, prefixes: List[Str]) [fs, process, env, erro
     if seen.status != wanted_status { problems += ["status"] }
     if ! problems.is_empty() { failures += [f"{case.name}: {problems.join(",")}"] }
   }
-  assert selected > 0, "no matrix cases selected"
-  assert failures.is_empty(), f"{failures.len()} of {selected} cases differ from the recorded GNU awk output:\n{failures.join("\n")}"
+  assert failures.is_empty(), f"{failures.len()} of {end - start} cases differ from the recorded GNU awk output:\n{failures.join("\n")}"
 }
 
-test test_awk_matrix_patterns_and_records { |ctx| check_matrix(ctx, ["pat_", "rs_"]) }
-test test_awk_matrix_fields_and_separators { |ctx| check_matrix(ctx, ["fld_", "fs_"]) }
-test test_awk_matrix_getline { |ctx| check_matrix(ctx, ["get_"]) }
-test test_awk_matrix_printf { |ctx| check_matrix(ctx, ["printf"]) }
-test test_awk_matrix_strings { |ctx| check_matrix(ctx, ["str_"]) }
-test test_awk_matrix_numbers { |ctx| check_matrix(ctx, ["num_"]) }
-test test_awk_matrix_arrays_and_functions { |ctx| check_matrix(ctx, ["arr_", "fn_"]) }
-test test_awk_matrix_streams_and_processes { |ctx| check_matrix(ctx, ["io_"]) }
-test test_awk_matrix_options_and_uninitialized { |ctx| check_matrix(ctx, ["opt_"]) }
-test test_awk_matrix_grammar { |ctx| check_matrix(ctx, ["gram_"]) }
-test test_awk_matrix_regex { |ctx| check_matrix(ctx, ["rx_", "rxdyn_"]) }
-test test_awk_matrix_for_in_order_and_non_utf8_bytes { |ctx| check_matrix(ctx, ["ord_", "bin_"]) }
-test test_awk_matrix_lexical_forms { |ctx| check_matrix(ctx, ["lex_"]) }
-test test_awk_matrix_special_variables { |ctx| check_matrix(ctx, ["sv_"]) }
-test test_awk_matrix_declaration_and_newline_diagnostics { |ctx| check_matrix(ctx, ["diag_declname_", "diag_newline_in_"]) }
-test test_awk_matrix_rule_and_regexp_constant_diagnostics { |ctx| check_matrix(ctx, ["diag_rule_noaction_", "diag_regexconst_", "diag_string_end_"]) }
-test test_awk_matrix_source_end_diagnostics { |ctx| check_matrix(ctx, ["diag_source_end_", "file_syntax_"]) }
-test test_awk_matrix_untyped_variables { |ctx| check_matrix(ctx, ["typing_"]) }
-test test_awk_matrix_assignment_targets { |ctx| check_matrix(ctx, ["assign_", "field_assign_"]) }
-test test_awk_matrix_arithmetic_and_bit_functions { |ctx| check_matrix(ctx, ["arith_"]) }
-test test_awk_matrix_builtin_argument_counts { |ctx| check_matrix(ctx, ["arity_"]) }
-test test_awk_matrix_regexp_syntax_first_half { |ctx| check_matrix(ctx, ["regexp_syntax_0", "regexp_syntax_1"]) }
-test test_awk_matrix_regexp_syntax_second_half { |ctx| check_matrix(ctx, ["regexp_syntax_2", "regexp_syntax_3", "regexp_syntax_4", "regexp_syntax_5", "regexp_syntax_6", "regexp_syntax_7", "regexp_syntax_8", "regexp_syntax_9"]) }
-test test_awk_matrix_gnu_variables_and_field_modes { |ctx| check_matrix(ctx, ["gnu_"]) }
-test test_awk_matrix_program_files_and_includes { |ctx| check_matrix(ctx, ["include_", "option_"]) }
-test test_awk_matrix_dialect_options { |ctx| check_matrix(ctx, ["mode_"]) }
+test test_awk_matrix_patterns_and_records_shard_000 { |ctx| check_matrix_shard(ctx, "patterns_and_records", 0) }
+test test_awk_matrix_patterns_and_records_shard_001 { |ctx| check_matrix_shard(ctx, "patterns_and_records", 1) }
+test test_awk_matrix_patterns_and_records_shard_002 { |ctx| check_matrix_shard(ctx, "patterns_and_records", 2) }
+test test_awk_matrix_patterns_and_records_shard_003 { |ctx| check_matrix_shard(ctx, "patterns_and_records", 3) }
+test test_awk_matrix_patterns_and_records_shard_004 { |ctx| check_matrix_shard(ctx, "patterns_and_records", 4) }
+test test_awk_matrix_patterns_and_records_shard_005 { |ctx| check_matrix_shard(ctx, "patterns_and_records", 5) }
+test test_awk_matrix_patterns_and_records_shard_006 { |ctx| check_matrix_shard(ctx, "patterns_and_records", 6) }
+test test_awk_matrix_patterns_and_records_shard_007 { |ctx| check_matrix_shard(ctx, "patterns_and_records", 7) }
+test test_awk_matrix_patterns_and_records_shard_008 { |ctx| check_matrix_shard(ctx, "patterns_and_records", 8) }
+test test_awk_matrix_patterns_and_records_shard_009 { |ctx| check_matrix_shard(ctx, "patterns_and_records", 9) }
+test test_awk_matrix_patterns_and_records_shard_010 { |ctx| check_matrix_shard(ctx, "patterns_and_records", 10) }
+test test_awk_matrix_fields_and_separators_shard_000 { |ctx| check_matrix_shard(ctx, "fields_and_separators", 0) }
+test test_awk_matrix_fields_and_separators_shard_001 { |ctx| check_matrix_shard(ctx, "fields_and_separators", 1) }
+test test_awk_matrix_fields_and_separators_shard_002 { |ctx| check_matrix_shard(ctx, "fields_and_separators", 2) }
+test test_awk_matrix_fields_and_separators_shard_003 { |ctx| check_matrix_shard(ctx, "fields_and_separators", 3) }
+test test_awk_matrix_fields_and_separators_shard_004 { |ctx| check_matrix_shard(ctx, "fields_and_separators", 4) }
+test test_awk_matrix_fields_and_separators_shard_005 { |ctx| check_matrix_shard(ctx, "fields_and_separators", 5) }
+test test_awk_matrix_fields_and_separators_shard_006 { |ctx| check_matrix_shard(ctx, "fields_and_separators", 6) }
+test test_awk_matrix_fields_and_separators_shard_007 { |ctx| check_matrix_shard(ctx, "fields_and_separators", 7) }
+test test_awk_matrix_fields_and_separators_shard_008 { |ctx| check_matrix_shard(ctx, "fields_and_separators", 8) }
+test test_awk_matrix_fields_and_separators_shard_009 { |ctx| check_matrix_shard(ctx, "fields_and_separators", 9) }
+test test_awk_matrix_fields_and_separators_shard_010 { |ctx| check_matrix_shard(ctx, "fields_and_separators", 10) }
+test test_awk_matrix_fields_and_separators_shard_011 { |ctx| check_matrix_shard(ctx, "fields_and_separators", 11) }
+test test_awk_matrix_getline_shard_000 { |ctx| check_matrix_shard(ctx, "getline", 0) }
+test test_awk_matrix_getline_shard_001 { |ctx| check_matrix_shard(ctx, "getline", 1) }
+test test_awk_matrix_getline_shard_002 { |ctx| check_matrix_shard(ctx, "getline", 2) }
+test test_awk_matrix_getline_shard_003 { |ctx| check_matrix_shard(ctx, "getline", 3) }
+test test_awk_matrix_getline_shard_004 { |ctx| check_matrix_shard(ctx, "getline", 4) }
+test test_awk_matrix_getline_shard_005 { |ctx| check_matrix_shard(ctx, "getline", 5) }
+test test_awk_matrix_printf_shard_000 { |ctx| check_matrix_shard(ctx, "printf", 0) }
+test test_awk_matrix_printf_shard_001 { |ctx| check_matrix_shard(ctx, "printf", 1) }
+test test_awk_matrix_printf_shard_002 { |ctx| check_matrix_shard(ctx, "printf", 2) }
+test test_awk_matrix_printf_shard_003 { |ctx| check_matrix_shard(ctx, "printf", 3) }
+test test_awk_matrix_printf_shard_004 { |ctx| check_matrix_shard(ctx, "printf", 4) }
+test test_awk_matrix_printf_shard_005 { |ctx| check_matrix_shard(ctx, "printf", 5) }
+test test_awk_matrix_printf_shard_006 { |ctx| check_matrix_shard(ctx, "printf", 6) }
+test test_awk_matrix_printf_shard_007 { |ctx| check_matrix_shard(ctx, "printf", 7) }
+test test_awk_matrix_printf_shard_008 { |ctx| check_matrix_shard(ctx, "printf", 8) }
+test test_awk_matrix_printf_shard_009 { |ctx| check_matrix_shard(ctx, "printf", 9) }
+test test_awk_matrix_printf_shard_010 { |ctx| check_matrix_shard(ctx, "printf", 10) }
+test test_awk_matrix_printf_shard_011 { |ctx| check_matrix_shard(ctx, "printf", 11) }
+test test_awk_matrix_printf_shard_012 { |ctx| check_matrix_shard(ctx, "printf", 12) }
+test test_awk_matrix_printf_shard_013 { |ctx| check_matrix_shard(ctx, "printf", 13) }
+test test_awk_matrix_printf_shard_014 { |ctx| check_matrix_shard(ctx, "printf", 14) }
+test test_awk_matrix_printf_shard_015 { |ctx| check_matrix_shard(ctx, "printf", 15) }
+test test_awk_matrix_printf_shard_016 { |ctx| check_matrix_shard(ctx, "printf", 16) }
+test test_awk_matrix_printf_shard_017 { |ctx| check_matrix_shard(ctx, "printf", 17) }
+test test_awk_matrix_printf_shard_018 { |ctx| check_matrix_shard(ctx, "printf", 18) }
+test test_awk_matrix_printf_shard_019 { |ctx| check_matrix_shard(ctx, "printf", 19) }
+test test_awk_matrix_strings_shard_000 { |ctx| check_matrix_shard(ctx, "strings", 0) }
+test test_awk_matrix_strings_shard_001 { |ctx| check_matrix_shard(ctx, "strings", 1) }
+test test_awk_matrix_strings_shard_002 { |ctx| check_matrix_shard(ctx, "strings", 2) }
+test test_awk_matrix_strings_shard_003 { |ctx| check_matrix_shard(ctx, "strings", 3) }
+test test_awk_matrix_strings_shard_004 { |ctx| check_matrix_shard(ctx, "strings", 4) }
+test test_awk_matrix_strings_shard_005 { |ctx| check_matrix_shard(ctx, "strings", 5) }
+test test_awk_matrix_strings_shard_006 { |ctx| check_matrix_shard(ctx, "strings", 6) }
+test test_awk_matrix_strings_shard_007 { |ctx| check_matrix_shard(ctx, "strings", 7) }
+test test_awk_matrix_strings_shard_008 { |ctx| check_matrix_shard(ctx, "strings", 8) }
+test test_awk_matrix_strings_shard_009 { |ctx| check_matrix_shard(ctx, "strings", 9) }
+test test_awk_matrix_strings_shard_010 { |ctx| check_matrix_shard(ctx, "strings", 10) }
+test test_awk_matrix_strings_shard_011 { |ctx| check_matrix_shard(ctx, "strings", 11) }
+test test_awk_matrix_numbers_shard_000 { |ctx| check_matrix_shard(ctx, "numbers", 0) }
+test test_awk_matrix_numbers_shard_001 { |ctx| check_matrix_shard(ctx, "numbers", 1) }
+test test_awk_matrix_numbers_shard_002 { |ctx| check_matrix_shard(ctx, "numbers", 2) }
+test test_awk_matrix_numbers_shard_003 { |ctx| check_matrix_shard(ctx, "numbers", 3) }
+test test_awk_matrix_numbers_shard_004 { |ctx| check_matrix_shard(ctx, "numbers", 4) }
+test test_awk_matrix_numbers_shard_005 { |ctx| check_matrix_shard(ctx, "numbers", 5) }
+test test_awk_matrix_numbers_shard_006 { |ctx| check_matrix_shard(ctx, "numbers", 6) }
+test test_awk_matrix_numbers_shard_007 { |ctx| check_matrix_shard(ctx, "numbers", 7) }
+test test_awk_matrix_numbers_shard_008 { |ctx| check_matrix_shard(ctx, "numbers", 8) }
+test test_awk_matrix_arrays_and_functions_shard_000 { |ctx| check_matrix_shard(ctx, "arrays_and_functions", 0) }
+test test_awk_matrix_arrays_and_functions_shard_001 { |ctx| check_matrix_shard(ctx, "arrays_and_functions", 1) }
+test test_awk_matrix_arrays_and_functions_shard_002 { |ctx| check_matrix_shard(ctx, "arrays_and_functions", 2) }
+test test_awk_matrix_arrays_and_functions_shard_003 { |ctx| check_matrix_shard(ctx, "arrays_and_functions", 3) }
+test test_awk_matrix_arrays_and_functions_shard_004 { |ctx| check_matrix_shard(ctx, "arrays_and_functions", 4) }
+test test_awk_matrix_arrays_and_functions_shard_005 { |ctx| check_matrix_shard(ctx, "arrays_and_functions", 5) }
+test test_awk_matrix_arrays_and_functions_shard_006 { |ctx| check_matrix_shard(ctx, "arrays_and_functions", 6) }
+test test_awk_matrix_arrays_and_functions_shard_007 { |ctx| check_matrix_shard(ctx, "arrays_and_functions", 7) }
+test test_awk_matrix_arrays_and_functions_shard_008 { |ctx| check_matrix_shard(ctx, "arrays_and_functions", 8) }
+test test_awk_matrix_arrays_and_functions_shard_009 { |ctx| check_matrix_shard(ctx, "arrays_and_functions", 9) }
+test test_awk_matrix_arrays_and_functions_shard_010 { |ctx| check_matrix_shard(ctx, "arrays_and_functions", 10) }
+test test_awk_matrix_streams_and_processes_shard_000 { |ctx| check_matrix_shard(ctx, "streams_and_processes", 0) }
+test test_awk_matrix_streams_and_processes_shard_001 { |ctx| check_matrix_shard(ctx, "streams_and_processes", 1) }
+test test_awk_matrix_streams_and_processes_shard_002 { |ctx| check_matrix_shard(ctx, "streams_and_processes", 2) }
+test test_awk_matrix_streams_and_processes_shard_003 { |ctx| check_matrix_shard(ctx, "streams_and_processes", 3) }
+test test_awk_matrix_streams_and_processes_shard_004 { |ctx| check_matrix_shard(ctx, "streams_and_processes", 4) }
+test test_awk_matrix_streams_and_processes_shard_005 { |ctx| check_matrix_shard(ctx, "streams_and_processes", 5) }
+test test_awk_matrix_streams_and_processes_shard_006 { |ctx| check_matrix_shard(ctx, "streams_and_processes", 6) }
+test test_awk_matrix_streams_and_processes_shard_007 { |ctx| check_matrix_shard(ctx, "streams_and_processes", 7) }
+test test_awk_matrix_streams_and_processes_shard_008 { |ctx| check_matrix_shard(ctx, "streams_and_processes", 8) }
+test test_awk_matrix_streams_and_processes_shard_009 { |ctx| check_matrix_shard(ctx, "streams_and_processes", 9) }
+test test_awk_matrix_streams_and_processes_shard_010 { |ctx| check_matrix_shard(ctx, "streams_and_processes", 10) }
+test test_awk_matrix_streams_and_processes_shard_011 { |ctx| check_matrix_shard(ctx, "streams_and_processes", 11) }
+test test_awk_matrix_options_and_uninitialized_shard_000 { |ctx| check_matrix_shard(ctx, "options_and_uninitialized", 0) }
+test test_awk_matrix_options_and_uninitialized_shard_001 { |ctx| check_matrix_shard(ctx, "options_and_uninitialized", 1) }
+test test_awk_matrix_options_and_uninitialized_shard_002 { |ctx| check_matrix_shard(ctx, "options_and_uninitialized", 2) }
+test test_awk_matrix_options_and_uninitialized_shard_003 { |ctx| check_matrix_shard(ctx, "options_and_uninitialized", 3) }
+test test_awk_matrix_options_and_uninitialized_shard_004 { |ctx| check_matrix_shard(ctx, "options_and_uninitialized", 4) }
+test test_awk_matrix_options_and_uninitialized_shard_005 { |ctx| check_matrix_shard(ctx, "options_and_uninitialized", 5) }
+test test_awk_matrix_options_and_uninitialized_shard_006 { |ctx| check_matrix_shard(ctx, "options_and_uninitialized", 6) }
+test test_awk_matrix_options_and_uninitialized_shard_007 { |ctx| check_matrix_shard(ctx, "options_and_uninitialized", 7) }
+test test_awk_matrix_options_and_uninitialized_shard_008 { |ctx| check_matrix_shard(ctx, "options_and_uninitialized", 8) }
+test test_awk_matrix_grammar_shard_000 { |ctx| check_matrix_shard(ctx, "grammar", 0) }
+test test_awk_matrix_grammar_shard_001 { |ctx| check_matrix_shard(ctx, "grammar", 1) }
+test test_awk_matrix_grammar_shard_002 { |ctx| check_matrix_shard(ctx, "grammar", 2) }
+test test_awk_matrix_grammar_shard_003 { |ctx| check_matrix_shard(ctx, "grammar", 3) }
+test test_awk_matrix_grammar_shard_004 { |ctx| check_matrix_shard(ctx, "grammar", 4) }
+test test_awk_matrix_grammar_shard_005 { |ctx| check_matrix_shard(ctx, "grammar", 5) }
+test test_awk_matrix_grammar_shard_006 { |ctx| check_matrix_shard(ctx, "grammar", 6) }
+test test_awk_matrix_grammar_shard_007 { |ctx| check_matrix_shard(ctx, "grammar", 7) }
+test test_awk_matrix_grammar_shard_008 { |ctx| check_matrix_shard(ctx, "grammar", 8) }
+test test_awk_matrix_grammar_shard_009 { |ctx| check_matrix_shard(ctx, "grammar", 9) }
+test test_awk_matrix_grammar_shard_010 { |ctx| check_matrix_shard(ctx, "grammar", 10) }
+test test_awk_matrix_grammar_shard_011 { |ctx| check_matrix_shard(ctx, "grammar", 11) }
+test test_awk_matrix_grammar_shard_012 { |ctx| check_matrix_shard(ctx, "grammar", 12) }
+test test_awk_matrix_regex_shard_000 { |ctx| check_matrix_shard(ctx, "regex", 0) }
+test test_awk_matrix_regex_shard_001 { |ctx| check_matrix_shard(ctx, "regex", 1) }
+test test_awk_matrix_regex_shard_002 { |ctx| check_matrix_shard(ctx, "regex", 2) }
+test test_awk_matrix_regex_shard_003 { |ctx| check_matrix_shard(ctx, "regex", 3) }
+test test_awk_matrix_regex_shard_004 { |ctx| check_matrix_shard(ctx, "regex", 4) }
+test test_awk_matrix_regex_shard_005 { |ctx| check_matrix_shard(ctx, "regex", 5) }
+test test_awk_matrix_regex_shard_006 { |ctx| check_matrix_shard(ctx, "regex", 6) }
+test test_awk_matrix_regex_shard_007 { |ctx| check_matrix_shard(ctx, "regex", 7) }
+test test_awk_matrix_regex_shard_008 { |ctx| check_matrix_shard(ctx, "regex", 8) }
+test test_awk_matrix_regex_shard_009 { |ctx| check_matrix_shard(ctx, "regex", 9) }
+test test_awk_matrix_regex_shard_010 { |ctx| check_matrix_shard(ctx, "regex", 10) }
+test test_awk_matrix_regex_shard_011 { |ctx| check_matrix_shard(ctx, "regex", 11) }
+test test_awk_matrix_for_in_order_and_non_utf8_bytes_shard_000 { |ctx| check_matrix_shard(ctx, "for_in_order_and_non_utf8_bytes", 0) }
+test test_awk_matrix_for_in_order_and_non_utf8_bytes_shard_001 { |ctx| check_matrix_shard(ctx, "for_in_order_and_non_utf8_bytes", 1) }
+test test_awk_matrix_for_in_order_and_non_utf8_bytes_shard_002 { |ctx| check_matrix_shard(ctx, "for_in_order_and_non_utf8_bytes", 2) }
+test test_awk_matrix_for_in_order_and_non_utf8_bytes_shard_003 { |ctx| check_matrix_shard(ctx, "for_in_order_and_non_utf8_bytes", 3) }
+test test_awk_matrix_for_in_order_and_non_utf8_bytes_shard_004 { |ctx| check_matrix_shard(ctx, "for_in_order_and_non_utf8_bytes", 4) }
+test test_awk_matrix_for_in_order_and_non_utf8_bytes_shard_005 { |ctx| check_matrix_shard(ctx, "for_in_order_and_non_utf8_bytes", 5) }
+test test_awk_matrix_lexical_forms_shard_000 { |ctx| check_matrix_shard(ctx, "lexical_forms", 0) }
+test test_awk_matrix_lexical_forms_shard_001 { |ctx| check_matrix_shard(ctx, "lexical_forms", 1) }
+test test_awk_matrix_lexical_forms_shard_002 { |ctx| check_matrix_shard(ctx, "lexical_forms", 2) }
+test test_awk_matrix_lexical_forms_shard_003 { |ctx| check_matrix_shard(ctx, "lexical_forms", 3) }
+test test_awk_matrix_lexical_forms_shard_004 { |ctx| check_matrix_shard(ctx, "lexical_forms", 4) }
+test test_awk_matrix_lexical_forms_shard_005 { |ctx| check_matrix_shard(ctx, "lexical_forms", 5) }
+test test_awk_matrix_lexical_forms_shard_006 { |ctx| check_matrix_shard(ctx, "lexical_forms", 6) }
+test test_awk_matrix_lexical_forms_shard_007 { |ctx| check_matrix_shard(ctx, "lexical_forms", 7) }
+test test_awk_matrix_special_variables_shard_000 { |ctx| check_matrix_shard(ctx, "special_variables", 0) }
+test test_awk_matrix_special_variables_shard_001 { |ctx| check_matrix_shard(ctx, "special_variables", 1) }
+test test_awk_matrix_special_variables_shard_002 { |ctx| check_matrix_shard(ctx, "special_variables", 2) }
+test test_awk_matrix_special_variables_shard_003 { |ctx| check_matrix_shard(ctx, "special_variables", 3) }
+test test_awk_matrix_special_variables_shard_004 { |ctx| check_matrix_shard(ctx, "special_variables", 4) }
+test test_awk_matrix_special_variables_shard_005 { |ctx| check_matrix_shard(ctx, "special_variables", 5) }
+test test_awk_matrix_declaration_and_newline_diagnostics_shard_000 { |ctx| check_matrix_shard(ctx, "declaration_and_newline_diagnostics", 0) }
+test test_awk_matrix_declaration_and_newline_diagnostics_shard_001 { |ctx| check_matrix_shard(ctx, "declaration_and_newline_diagnostics", 1) }
+test test_awk_matrix_declaration_and_newline_diagnostics_shard_002 { |ctx| check_matrix_shard(ctx, "declaration_and_newline_diagnostics", 2) }
+test test_awk_matrix_declaration_and_newline_diagnostics_shard_003 { |ctx| check_matrix_shard(ctx, "declaration_and_newline_diagnostics", 3) }
+test test_awk_matrix_declaration_and_newline_diagnostics_shard_004 { |ctx| check_matrix_shard(ctx, "declaration_and_newline_diagnostics", 4) }
+test test_awk_matrix_declaration_and_newline_diagnostics_shard_005 { |ctx| check_matrix_shard(ctx, "declaration_and_newline_diagnostics", 5) }
+test test_awk_matrix_declaration_and_newline_diagnostics_shard_006 { |ctx| check_matrix_shard(ctx, "declaration_and_newline_diagnostics", 6) }
+test test_awk_matrix_declaration_and_newline_diagnostics_shard_007 { |ctx| check_matrix_shard(ctx, "declaration_and_newline_diagnostics", 7) }
+test test_awk_matrix_declaration_and_newline_diagnostics_shard_008 { |ctx| check_matrix_shard(ctx, "declaration_and_newline_diagnostics", 8) }
+test test_awk_matrix_declaration_and_newline_diagnostics_shard_009 { |ctx| check_matrix_shard(ctx, "declaration_and_newline_diagnostics", 9) }
+test test_awk_matrix_declaration_and_newline_diagnostics_shard_010 { |ctx| check_matrix_shard(ctx, "declaration_and_newline_diagnostics", 10) }
+test test_awk_matrix_rule_and_regexp_constant_diagnostics_shard_000 { |ctx| check_matrix_shard(ctx, "rule_and_regexp_constant_diagnostics", 0) }
+test test_awk_matrix_rule_and_regexp_constant_diagnostics_shard_001 { |ctx| check_matrix_shard(ctx, "rule_and_regexp_constant_diagnostics", 1) }
+test test_awk_matrix_rule_and_regexp_constant_diagnostics_shard_002 { |ctx| check_matrix_shard(ctx, "rule_and_regexp_constant_diagnostics", 2) }
+test test_awk_matrix_rule_and_regexp_constant_diagnostics_shard_003 { |ctx| check_matrix_shard(ctx, "rule_and_regexp_constant_diagnostics", 3) }
+test test_awk_matrix_rule_and_regexp_constant_diagnostics_shard_004 { |ctx| check_matrix_shard(ctx, "rule_and_regexp_constant_diagnostics", 4) }
+test test_awk_matrix_rule_and_regexp_constant_diagnostics_shard_005 { |ctx| check_matrix_shard(ctx, "rule_and_regexp_constant_diagnostics", 5) }
+test test_awk_matrix_rule_and_regexp_constant_diagnostics_shard_006 { |ctx| check_matrix_shard(ctx, "rule_and_regexp_constant_diagnostics", 6) }
+test test_awk_matrix_rule_and_regexp_constant_diagnostics_shard_007 { |ctx| check_matrix_shard(ctx, "rule_and_regexp_constant_diagnostics", 7) }
+test test_awk_matrix_source_end_diagnostics_shard_000 { |ctx| check_matrix_shard(ctx, "source_end_diagnostics", 0) }
+test test_awk_matrix_source_end_diagnostics_shard_001 { |ctx| check_matrix_shard(ctx, "source_end_diagnostics", 1) }
+test test_awk_matrix_source_end_diagnostics_shard_002 { |ctx| check_matrix_shard(ctx, "source_end_diagnostics", 2) }
+test test_awk_matrix_source_end_diagnostics_shard_003 { |ctx| check_matrix_shard(ctx, "source_end_diagnostics", 3) }
+test test_awk_matrix_source_end_diagnostics_shard_004 { |ctx| check_matrix_shard(ctx, "source_end_diagnostics", 4) }
+test test_awk_matrix_source_end_diagnostics_shard_005 { |ctx| check_matrix_shard(ctx, "source_end_diagnostics", 5) }
+test test_awk_matrix_source_end_diagnostics_shard_006 { |ctx| check_matrix_shard(ctx, "source_end_diagnostics", 6) }
+test test_awk_matrix_source_end_diagnostics_shard_007 { |ctx| check_matrix_shard(ctx, "source_end_diagnostics", 7) }
+test test_awk_matrix_source_end_diagnostics_shard_008 { |ctx| check_matrix_shard(ctx, "source_end_diagnostics", 8) }
+test test_awk_matrix_source_end_diagnostics_shard_009 { |ctx| check_matrix_shard(ctx, "source_end_diagnostics", 9) }
+test test_awk_matrix_source_end_diagnostics_shard_010 { |ctx| check_matrix_shard(ctx, "source_end_diagnostics", 10) }
+test test_awk_matrix_source_end_diagnostics_shard_011 { |ctx| check_matrix_shard(ctx, "source_end_diagnostics", 11) }
+test test_awk_matrix_untyped_variables_shard_000 { |ctx| check_matrix_shard(ctx, "untyped_variables", 0) }
+test test_awk_matrix_untyped_variables_shard_001 { |ctx| check_matrix_shard(ctx, "untyped_variables", 1) }
+test test_awk_matrix_untyped_variables_shard_002 { |ctx| check_matrix_shard(ctx, "untyped_variables", 2) }
+test test_awk_matrix_untyped_variables_shard_003 { |ctx| check_matrix_shard(ctx, "untyped_variables", 3) }
+test test_awk_matrix_untyped_variables_shard_004 { |ctx| check_matrix_shard(ctx, "untyped_variables", 4) }
+test test_awk_matrix_untyped_variables_shard_005 { |ctx| check_matrix_shard(ctx, "untyped_variables", 5) }
+test test_awk_matrix_untyped_variables_shard_006 { |ctx| check_matrix_shard(ctx, "untyped_variables", 6) }
+test test_awk_matrix_untyped_variables_shard_007 { |ctx| check_matrix_shard(ctx, "untyped_variables", 7) }
+test test_awk_matrix_untyped_variables_shard_008 { |ctx| check_matrix_shard(ctx, "untyped_variables", 8) }
+test test_awk_matrix_untyped_variables_shard_009 { |ctx| check_matrix_shard(ctx, "untyped_variables", 9) }
+test test_awk_matrix_untyped_variables_shard_010 { |ctx| check_matrix_shard(ctx, "untyped_variables", 10) }
+test test_awk_matrix_untyped_variables_shard_011 { |ctx| check_matrix_shard(ctx, "untyped_variables", 11) }
+test test_awk_matrix_assignment_targets_shard_000 { |ctx| check_matrix_shard(ctx, "assignment_targets", 0) }
+test test_awk_matrix_assignment_targets_shard_001 { |ctx| check_matrix_shard(ctx, "assignment_targets", 1) }
+test test_awk_matrix_assignment_targets_shard_002 { |ctx| check_matrix_shard(ctx, "assignment_targets", 2) }
+test test_awk_matrix_assignment_targets_shard_003 { |ctx| check_matrix_shard(ctx, "assignment_targets", 3) }
+test test_awk_matrix_assignment_targets_shard_004 { |ctx| check_matrix_shard(ctx, "assignment_targets", 4) }
+test test_awk_matrix_assignment_targets_shard_005 { |ctx| check_matrix_shard(ctx, "assignment_targets", 5) }
+test test_awk_matrix_assignment_targets_shard_006 { |ctx| check_matrix_shard(ctx, "assignment_targets", 6) }
+test test_awk_matrix_assignment_targets_shard_007 { |ctx| check_matrix_shard(ctx, "assignment_targets", 7) }
+test test_awk_matrix_arithmetic_and_bit_functions_shard_000 { |ctx| check_matrix_shard(ctx, "arithmetic_and_bit_functions", 0) }
+test test_awk_matrix_arithmetic_and_bit_functions_shard_001 { |ctx| check_matrix_shard(ctx, "arithmetic_and_bit_functions", 1) }
+test test_awk_matrix_arithmetic_and_bit_functions_shard_002 { |ctx| check_matrix_shard(ctx, "arithmetic_and_bit_functions", 2) }
+test test_awk_matrix_arithmetic_and_bit_functions_shard_003 { |ctx| check_matrix_shard(ctx, "arithmetic_and_bit_functions", 3) }
+test test_awk_matrix_arithmetic_and_bit_functions_shard_004 { |ctx| check_matrix_shard(ctx, "arithmetic_and_bit_functions", 4) }
+test test_awk_matrix_arithmetic_and_bit_functions_shard_005 { |ctx| check_matrix_shard(ctx, "arithmetic_and_bit_functions", 5) }
+test test_awk_matrix_arithmetic_and_bit_functions_shard_006 { |ctx| check_matrix_shard(ctx, "arithmetic_and_bit_functions", 6) }
+test test_awk_matrix_arithmetic_and_bit_functions_shard_007 { |ctx| check_matrix_shard(ctx, "arithmetic_and_bit_functions", 7) }
+test test_awk_matrix_arithmetic_and_bit_functions_shard_008 { |ctx| check_matrix_shard(ctx, "arithmetic_and_bit_functions", 8) }
+test test_awk_matrix_arithmetic_and_bit_functions_shard_009 { |ctx| check_matrix_shard(ctx, "arithmetic_and_bit_functions", 9) }
+test test_awk_matrix_builtin_argument_counts_shard_000 { |ctx| check_matrix_shard(ctx, "builtin_argument_counts", 0) }
+test test_awk_matrix_builtin_argument_counts_shard_001 { |ctx| check_matrix_shard(ctx, "builtin_argument_counts", 1) }
+test test_awk_matrix_builtin_argument_counts_shard_002 { |ctx| check_matrix_shard(ctx, "builtin_argument_counts", 2) }
+test test_awk_matrix_builtin_argument_counts_shard_003 { |ctx| check_matrix_shard(ctx, "builtin_argument_counts", 3) }
+test test_awk_matrix_builtin_argument_counts_shard_004 { |ctx| check_matrix_shard(ctx, "builtin_argument_counts", 4) }
+test test_awk_matrix_builtin_argument_counts_shard_005 { |ctx| check_matrix_shard(ctx, "builtin_argument_counts", 5) }
+test test_awk_matrix_builtin_argument_counts_shard_006 { |ctx| check_matrix_shard(ctx, "builtin_argument_counts", 6) }
+test test_awk_matrix_builtin_argument_counts_shard_007 { |ctx| check_matrix_shard(ctx, "builtin_argument_counts", 7) }
+test test_awk_matrix_builtin_argument_counts_shard_008 { |ctx| check_matrix_shard(ctx, "builtin_argument_counts", 8) }
+test test_awk_matrix_regexp_syntax_first_half_shard_000 { |ctx| check_matrix_shard(ctx, "regexp_syntax_first_half", 0) }
+test test_awk_matrix_regexp_syntax_first_half_shard_001 { |ctx| check_matrix_shard(ctx, "regexp_syntax_first_half", 1) }
+test test_awk_matrix_regexp_syntax_first_half_shard_002 { |ctx| check_matrix_shard(ctx, "regexp_syntax_first_half", 2) }
+test test_awk_matrix_regexp_syntax_first_half_shard_003 { |ctx| check_matrix_shard(ctx, "regexp_syntax_first_half", 3) }
+test test_awk_matrix_regexp_syntax_first_half_shard_004 { |ctx| check_matrix_shard(ctx, "regexp_syntax_first_half", 4) }
+test test_awk_matrix_regexp_syntax_first_half_shard_005 { |ctx| check_matrix_shard(ctx, "regexp_syntax_first_half", 5) }
+test test_awk_matrix_regexp_syntax_first_half_shard_006 { |ctx| check_matrix_shard(ctx, "regexp_syntax_first_half", 6) }
+test test_awk_matrix_regexp_syntax_first_half_shard_007 { |ctx| check_matrix_shard(ctx, "regexp_syntax_first_half", 7) }
+test test_awk_matrix_regexp_syntax_first_half_shard_008 { |ctx| check_matrix_shard(ctx, "regexp_syntax_first_half", 8) }
+test test_awk_matrix_regexp_syntax_first_half_shard_009 { |ctx| check_matrix_shard(ctx, "regexp_syntax_first_half", 9) }
+test test_awk_matrix_regexp_syntax_first_half_shard_010 { |ctx| check_matrix_shard(ctx, "regexp_syntax_first_half", 10) }
+test test_awk_matrix_regexp_syntax_first_half_shard_011 { |ctx| check_matrix_shard(ctx, "regexp_syntax_first_half", 11) }
+test test_awk_matrix_regexp_syntax_first_half_shard_012 { |ctx| check_matrix_shard(ctx, "regexp_syntax_first_half", 12) }
+test test_awk_matrix_regexp_syntax_second_half_shard_000 { |ctx| check_matrix_shard(ctx, "regexp_syntax_second_half", 0) }
+test test_awk_matrix_regexp_syntax_second_half_shard_001 { |ctx| check_matrix_shard(ctx, "regexp_syntax_second_half", 1) }
+test test_awk_matrix_regexp_syntax_second_half_shard_002 { |ctx| check_matrix_shard(ctx, "regexp_syntax_second_half", 2) }
+test test_awk_matrix_regexp_syntax_second_half_shard_003 { |ctx| check_matrix_shard(ctx, "regexp_syntax_second_half", 3) }
+test test_awk_matrix_regexp_syntax_second_half_shard_004 { |ctx| check_matrix_shard(ctx, "regexp_syntax_second_half", 4) }
+test test_awk_matrix_regexp_syntax_second_half_shard_005 { |ctx| check_matrix_shard(ctx, "regexp_syntax_second_half", 5) }
+test test_awk_matrix_regexp_syntax_second_half_shard_006 { |ctx| check_matrix_shard(ctx, "regexp_syntax_second_half", 6) }
+test test_awk_matrix_regexp_syntax_second_half_shard_007 { |ctx| check_matrix_shard(ctx, "regexp_syntax_second_half", 7) }
+test test_awk_matrix_regexp_syntax_second_half_shard_008 { |ctx| check_matrix_shard(ctx, "regexp_syntax_second_half", 8) }
+test test_awk_matrix_regexp_syntax_second_half_shard_009 { |ctx| check_matrix_shard(ctx, "regexp_syntax_second_half", 9) }
+test test_awk_matrix_gnu_variables_and_field_modes_shard_000 { |ctx| check_matrix_shard(ctx, "gnu_variables_and_field_modes", 0) }
+test test_awk_matrix_gnu_variables_and_field_modes_shard_001 { |ctx| check_matrix_shard(ctx, "gnu_variables_and_field_modes", 1) }
+test test_awk_matrix_gnu_variables_and_field_modes_shard_002 { |ctx| check_matrix_shard(ctx, "gnu_variables_and_field_modes", 2) }
+test test_awk_matrix_gnu_variables_and_field_modes_shard_003 { |ctx| check_matrix_shard(ctx, "gnu_variables_and_field_modes", 3) }
+test test_awk_matrix_gnu_variables_and_field_modes_shard_004 { |ctx| check_matrix_shard(ctx, "gnu_variables_and_field_modes", 4) }
+test test_awk_matrix_gnu_variables_and_field_modes_shard_005 { |ctx| check_matrix_shard(ctx, "gnu_variables_and_field_modes", 5) }
+test test_awk_matrix_gnu_variables_and_field_modes_shard_006 { |ctx| check_matrix_shard(ctx, "gnu_variables_and_field_modes", 6) }
+test test_awk_matrix_gnu_variables_and_field_modes_shard_007 { |ctx| check_matrix_shard(ctx, "gnu_variables_and_field_modes", 7) }
+test test_awk_matrix_gnu_variables_and_field_modes_shard_008 { |ctx| check_matrix_shard(ctx, "gnu_variables_and_field_modes", 8) }
+test test_awk_matrix_gnu_variables_and_field_modes_shard_009 { |ctx| check_matrix_shard(ctx, "gnu_variables_and_field_modes", 9) }
+test test_awk_matrix_gnu_variables_and_field_modes_shard_010 { |ctx| check_matrix_shard(ctx, "gnu_variables_and_field_modes", 10) }
+test test_awk_matrix_program_files_and_includes_shard_000 { |ctx| check_matrix_shard(ctx, "program_files_and_includes", 0) }
+test test_awk_matrix_program_files_and_includes_shard_001 { |ctx| check_matrix_shard(ctx, "program_files_and_includes", 1) }
+test test_awk_matrix_program_files_and_includes_shard_002 { |ctx| check_matrix_shard(ctx, "program_files_and_includes", 2) }
+test test_awk_matrix_program_files_and_includes_shard_003 { |ctx| check_matrix_shard(ctx, "program_files_and_includes", 3) }
+test test_awk_matrix_dialect_options_shard_000 { |ctx| check_matrix_shard(ctx, "dialect_options", 0) }
+test test_awk_matrix_dialect_options_shard_001 { |ctx| check_matrix_shard(ctx, "dialect_options", 1) }
+test test_awk_matrix_dialect_options_shard_002 { |ctx| check_matrix_shard(ctx, "dialect_options", 2) }
+test test_awk_matrix_dialect_options_shard_003 { |ctx| check_matrix_shard(ctx, "dialect_options", 3) }
+test test_awk_matrix_dialect_options_shard_004 { |ctx| check_matrix_shard(ctx, "dialect_options", 4) }
+test test_awk_matrix_dialect_options_shard_005 { |ctx| check_matrix_shard(ctx, "dialect_options", 5) }
+test test_awk_matrix_dialect_options_shard_006 { |ctx| check_matrix_shard(ctx, "dialect_options", 6) }
+test test_awk_matrix_dialect_options_shard_007 { |ctx| check_matrix_shard(ctx, "dialect_options", 7) }
+test test_awk_matrix_dialect_options_shard_008 { |ctx| check_matrix_shard(ctx, "dialect_options", 8) }
+test test_awk_matrix_dialect_options_shard_009 { |ctx| check_matrix_shard(ctx, "dialect_options", 9) }
+test test_awk_matrix_dialect_options_shard_010 { |ctx| check_matrix_shard(ctx, "dialect_options", 10) }
+test test_awk_matrix_dialect_options_shard_011 { |ctx| check_matrix_shard(ctx, "dialect_options", 11) }
+test test_awk_matrix_dialect_options_shard_012 { |ctx| check_matrix_shard(ctx, "dialect_options", 12) }
+test test_awk_matrix_dialect_options_shard_013 { |ctx| check_matrix_shard(ctx, "dialect_options", 13) }
+test test_awk_matrix_dialect_options_shard_014 { |ctx| check_matrix_shard(ctx, "dialect_options", 14) }
+test test_awk_matrix_dialect_options_shard_015 { |ctx| check_matrix_shard(ctx, "dialect_options", 15) }
+test test_awk_matrix_dialect_options_shard_016 { |ctx| check_matrix_shard(ctx, "dialect_options", 16) }
+test test_awk_matrix_dialect_options_shard_017 { |ctx| check_matrix_shard(ctx, "dialect_options", 17) }
+test test_awk_matrix_dialect_options_shard_018 { |ctx| check_matrix_shard(ctx, "dialect_options", 18) }
+test test_awk_matrix_dialect_options_shard_019 { |ctx| check_matrix_shard(ctx, "dialect_options", 19) }
+test test_awk_matrix_dialect_options_shard_020 { |ctx| check_matrix_shard(ctx, "dialect_options", 20) }

@@ -3,17 +3,20 @@
 
     python3 core/tests/data/awk/regenerate.py generate   # run gawk in the oracle container, rewrite cases.json
     python3 core/tests/data/awk/regenerate.py check [-v] [NAME...]   # run the XSH applet, compare with cases.json
+    python3 core/tests/data/awk/regenerate.py groups     # rewrite the native test's grouped fixture files
+    python3 core/tests/data/awk/regenerate.py check-groups  # verify exact grouped fixture and shard coverage
 
 The case definitions live in cases_src.py. `generate` needs docker and the
-xsh-oracle image; `check` and the native test need neither. Expected output is
-whatever gawk 5.3.2 (default mode, UTF-8 locale) produced: the temporary
-directory is rendered as @DIR@ and every file operand or argument spelled
-@DIR@/name is substituted before the run.
+xsh-oracle image; `check`, `groups`, `check-groups`, and the native test need
+neither. Expected output is whatever gawk 5.3.2 (default mode, UTF-8 locale)
+produced: the temporary directory is rendered as @DIR@ and every file operand
+or argument spelled @DIR@/name is substituted before the run.
 """
 import base64
 import concurrent.futures
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -23,6 +26,120 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
 ORACLE = os.path.join(ROOT, "dev", "compat", "oracle.sh")
 XSH = os.environ.get("XSH_BIN", os.path.join(ROOT, "target", "release", "xsh"))
+
+MATRIX_SHARD_SIZE = 8
+MATRIX_GROUP_PREFIXES = {
+    "patterns_and_records": ("pat_", "rs_"),
+    "fields_and_separators": ("fld_", "fs_"),
+    "getline": ("get_",),
+    "printf": ("printf",),
+    "strings": ("str_",),
+    "numbers": ("num_",),
+    "arrays_and_functions": ("arr_", "fn_"),
+    "streams_and_processes": ("io_",),
+    "options_and_uninitialized": ("opt_",),
+    "grammar": ("gram_",),
+    "regex": ("rx_", "rxdyn_"),
+    "for_in_order_and_non_utf8_bytes": ("ord_", "bin_"),
+    "lexical_forms": ("lex_",),
+    "special_variables": ("sv_",),
+    "declaration_and_newline_diagnostics": ("diag_declname_", "diag_newline_in_"),
+    "rule_and_regexp_constant_diagnostics": ("diag_rule_noaction_", "diag_regexconst_", "diag_string_end_"),
+    "source_end_diagnostics": ("diag_source_end_", "file_syntax_"),
+    "untyped_variables": ("typing_",),
+    "assignment_targets": ("assign_", "field_assign_"),
+    "arithmetic_and_bit_functions": ("arith_",),
+    "builtin_argument_counts": ("arity_",),
+    "regexp_syntax_first_half": ("regexp_syntax_0", "regexp_syntax_1"),
+    "regexp_syntax_second_half": tuple(f"regexp_syntax_{index}" for index in range(2, 10)),
+    "gnu_variables_and_field_modes": ("gnu_",),
+    "program_files_and_includes": ("include_", "option_"),
+    "dialect_options": ("mode_",),
+}
+
+
+def matrix_groups(cases):
+    groups = {name: [] for name in MATRIX_GROUP_PREFIXES}
+    owners = {}
+    for case in cases:
+        name = case["name"]
+        matches = [
+            group
+            for group, prefixes in MATRIX_GROUP_PREFIXES.items()
+            if any(name.startswith(prefix) for prefix in prefixes)
+        ]
+        if len(matches) != 1:
+            raise ValueError(f"matrix case {name!r} belongs to {len(matches)} groups")
+        if name in owners:
+            raise ValueError(f"duplicate matrix case {name!r}")
+        owners[name] = matches[0]
+        groups[matches[0]].append(case)
+    return groups
+
+
+def matrix_group_directory():
+    return os.path.join(HERE, "matrix")
+
+
+def write_matrix_groups(cases):
+    groups = matrix_groups(cases)
+    directory = matrix_group_directory()
+    os.makedirs(directory, exist_ok=True)
+    for group, rows in groups.items():
+        with open(os.path.join(directory, group + ".json"), "w") as handle:
+            json.dump(rows, handle, ensure_ascii=False, separators=(",", ":"))
+            handle.write("\n")
+    return groups
+
+
+def check_matrix_groups(cases=None):
+    if cases is None:
+        with open(os.path.join(HERE, "cases.json")) as handle:
+            cases = json.load(handle)
+    expected = matrix_groups(cases)
+    directory = matrix_group_directory()
+    for group, rows in expected.items():
+        path = os.path.join(directory, group + ".json")
+        if not os.path.exists(path):
+            raise SystemExit(f"missing AWK matrix group file: {path}")
+        with open(path) as handle:
+            actual = json.load(handle)
+        if actual != rows:
+            raise SystemExit(f"AWK matrix group {group} differs from cases.json")
+
+    source_path = os.path.join(HERE, "..", "..", "test-awk.xsh")
+    with open(source_path) as handle:
+        source = handle.read()
+    declarations = re.findall(
+        r'^test test_awk_matrix_(.+)_shard_(\d{3}) \{ \|ctx\| '
+        r'check_matrix_shard\(ctx, "([a-z0-9_]+)", (\d+)\) \}$',
+        source,
+        re.MULTILINE,
+    )
+    declared = {}
+    for test_group, test_shard, call_group, call_shard in declarations:
+        if test_group != call_group or int(test_shard) != int(call_shard):
+            raise SystemExit(f"matrix test name and shard call disagree: {test_group}/{test_shard}")
+        declared.setdefault(call_group, []).append(int(call_shard))
+    wanted = {
+        group: list(range((len(rows) + MATRIX_SHARD_SIZE - 1) // MATRIX_SHARD_SIZE))
+        for group, rows in expected.items()
+    }
+    if declared != wanted:
+        raise SystemExit(f"matrix test shards differ from fixture coverage: {declared!r}")
+    return sum(len(rows) for rows in expected.values())
+
+
+def generate_matrix_groups():
+    with open(os.path.join(HERE, "cases.json")) as handle:
+        cases = json.load(handle)
+    groups = write_matrix_groups(cases)
+    print(f"wrote {len(groups)} AWK matrix groups for {sum(map(len, groups.values()))} fixtures")
+
+
+def audit_matrix_groups():
+    fixture_count = check_matrix_groups()
+    print(f"verified {fixture_count} AWK matrix fixtures across exact shard coverage")
 AWK = os.path.join(ROOT, "core", "awk.xsh")
 sys.path.insert(0, HERE)
 
@@ -210,6 +327,7 @@ def generate():
     with open(path, "w") as handle:
         json.dump(out, handle, indent=None, ensure_ascii=False, separators=(",", ":"))
         handle.write("\n")
+    write_matrix_groups(out)
     print(f"wrote {len(out)} cases")
 
 
@@ -226,6 +344,7 @@ def check():
     verbose = "-v" in sys.argv
     wanted = [a for a in sys.argv[2:] if a != "-v"]
     cases = json.load(open(os.path.join(HERE, "cases.json")))
+    check_matrix_groups(cases)
     if wanted:
         cases = [c for c in cases if any(w in c["name"] for w in wanted)]
     runnable = []
@@ -271,4 +390,4 @@ def check():
 
 
 if __name__ == "__main__":
-    {"generate": generate, "check": check}[sys.argv[1]]()
+    {"generate": generate, "check": check, "groups": generate_matrix_groups, "check-groups": audit_matrix_groups}[sys.argv[1]]()
