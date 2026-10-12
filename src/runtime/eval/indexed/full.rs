@@ -368,6 +368,15 @@ struct FullCheckedExprType {
     with_error_source: bool,
 }
 
+/// The writers of one statement-local callable slot of a driver step.
+#[derive(Default)]
+struct TemporarySlotWriters {
+    /// Values bound whole by unguarded `MatchExpr` arms.
+    initializers: Vec<usize>,
+    /// Statements, destructuring patterns and comprehension targets.
+    other: bool,
+}
+
 #[derive(Clone, Copy)]
 enum CallableAssignmentPathStep {
     Field(Name),
@@ -4806,6 +4815,14 @@ impl<'a> FullDecoder<'a> {
             .module_export(namespace, name, pure)
     }
 
+    /// Prove the type of every statement-local callable slot of a driver step.
+    ///
+    /// A slot that lowering synthesizes for a module receiver has exactly one
+    /// writer, a `MatchExpr` arm that binds the whole matched value, and takes
+    /// its type from that value. Any other temporary slot is a source binding
+    /// (a `with`, `for`, pattern or comprehension target) that must be written
+    /// somewhere; `verify_callable_slot_initializers` proves each such writer
+    /// against the slot type, as it does for function-local slots.
     fn verify_temporary_driver_slot_types(&self) -> Result<(), IrVerifyError> {
         let Some(owner) = driver_owner_index(self.owner) else {
             return Ok(());
@@ -4819,56 +4836,42 @@ impl<'a> FullDecoder<'a> {
             .slots
             .bounds(self.store.driver_slots.len())
             .ok_or_else(|| IrVerifyError::new("typed callee driver slot range is invalid"))?;
+        let temporaries: BTreeSet<usize> = self.store.driver_slots[slots.clone()]
+            .iter()
+            .filter(|slot| slot.flags & DRIVER_SLOT_TEMPORARY != 0)
+            .map(|slot| slot.slot as usize)
+            .collect();
+        if temporaries.is_empty() {
+            return Ok(());
+        }
+        let writers = self.temporary_slot_writers(&temporaries)?;
         for slot in self.store.driver_slots[slots]
             .iter()
             .filter(|slot| slot.flags & DRIVER_SLOT_TEMPORARY != 0)
         {
-            let slot_index = slot.slot as usize;
+            let writes = writers.get(&(slot.slot as usize));
             let expected = self.store.semantic.to_type(slot.type_id)?;
-            let mut initializer = None;
-            for instruction in self.instruction_range.clone() {
-                if self.store.tags[instruction] == FullTag::ExprMatch {
-                    let schema::ExprView::MatchExpr { value, mut arms, .. } =
-                        self.expression_view(instruction)?
-                    else {
-                        unreachable!("expression tag and generated view disagree")
-                    };
-                    for arm in &mut arms {
-                        let (pattern, guard, _) = arm?;
-                        let pattern_id = pattern.raw();
-                        let pattern = self.checked_pattern_view(pattern_id)?;
-                        match pattern {
-                            schema::PatternView::Bind { slot: bound }
-                                if bound == slot_index && guard.is_none() =>
-                            {
-                                if initializer.replace(value.raw() as usize).is_some() {
-                                    return Err(IrVerifyError::new(
-                                        "temporary driver slot has multiple structural initializers",
-                                    ));
-                                }
-                            }
-                            _ if self
-                                .pattern_capture_slots(pattern_id as usize)?
-                                .contains(&slot_index) =>
-                            {
-                                return Err(IrVerifyError::new(
-                                    "temporary driver slot initializer pattern is not a direct bind",
-                                ));
-                            }
-                            _ => {}
-                        }
-                    }
-                } else if self.store.tags[instruction].kind() == schema::InstructionKind::Stmt
-                    && self.statement_writes_slot(instruction, slot_index)?
-                {
-                    return Err(IrVerifyError::new(
-                        "temporary driver slot has a statement writer",
-                    ));
+            let initializers = writes.map_or(&[][..], |writes| &writes.initializers[..]);
+            let has_other_writer = writes.is_some_and(|writes| writes.other);
+            if initializers.is_empty() && !matches!(expected, Type::Module(_)) {
+                if has_other_writer {
+                    continue;
                 }
+                return Err(IrVerifyError::new("temporary driver slot has no writer"));
             }
-            let initializer = initializer.ok_or_else(|| {
-                IrVerifyError::new("temporary driver slot has no structural initializer")
-            })?;
+            let [initializer] = initializers else {
+                return Err(IrVerifyError::new(if initializers.is_empty() {
+                    "temporary driver slot has no structural initializer"
+                } else {
+                    "temporary driver slot has multiple structural initializers"
+                }));
+            };
+            if has_other_writer {
+                return Err(IrVerifyError::new(
+                    "temporary driver slot has a writer besides its structural initializer",
+                ));
+            }
+            let initializer = *initializer;
             let result = if matches!(expected, Type::Module(_)) {
                 let actual = self
                     .expression_checked_type_id(initializer)?
@@ -4894,6 +4897,109 @@ impl<'a> FullDecoder<'a> {
                 })?;
         }
         Ok(())
+    }
+
+    /// Group the writers of `temporaries` in one pass over the step.
+    ///
+    /// The `MatchExpr` that tests a pattern condition (`if let`, `while let`)
+    /// binds its captures directly too, but those slots are source bindings
+    /// proven by `verify_pattern_condition_writers`, not synthesized receivers.
+    fn temporary_slot_writers(
+        &self,
+        temporaries: &BTreeSet<usize>,
+    ) -> Result<BTreeMap<usize, TemporarySlotWriters>, IrVerifyError> {
+        let mut writers: BTreeMap<usize, TemporarySlotWriters> = BTreeMap::new();
+        let mut written = Vec::new();
+        let mut condition_roots = BTreeSet::new();
+        // (MatchExpr, bound slot, matched value) for each unguarded direct bind.
+        let mut direct_binds = Vec::new();
+        for instruction in self.instruction_range.clone() {
+            let tag = self.store.tags[instruction];
+            written.clear();
+            if tag.kind() == schema::InstructionKind::Stmt {
+                written.extend(self.statement_written_slots(instruction)?.0);
+                match tag {
+                    FullTag::StmtPatternIf => {
+                        let schema::StmtView::PatternIf { mut branches, .. } =
+                            self.statement_view(instruction)?
+                        else {
+                            unreachable!("statement tag and generated view disagree")
+                        };
+                        for branch in &mut branches {
+                            condition_roots.insert(branch?.0.raw() as usize);
+                        }
+                    }
+                    FullTag::StmtPatternWhile => {
+                        let schema::StmtView::PatternWhile { condition, .. } =
+                            self.statement_view(instruction)?
+                        else {
+                            unreachable!("statement tag and generated view disagree")
+                        };
+                        condition_roots.insert(condition.raw() as usize);
+                    }
+                    _ => {}
+                }
+            } else if tag == FullTag::ExprMatch {
+                let schema::ExprView::MatchExpr { value, mut arms, .. } =
+                    self.expression_view(instruction)?
+                else {
+                    unreachable!("expression tag and generated view disagree")
+                };
+                for arm in &mut arms {
+                    let (pattern, guard, _) = arm?;
+                    let pattern_id = pattern.raw();
+                    if let schema::PatternView::Bind { slot } =
+                        self.checked_pattern_view(pattern_id)?
+                        && guard.is_none()
+                    {
+                        if temporaries.contains(&slot) {
+                            direct_binds.push((instruction, slot, value.raw() as usize));
+                        }
+                        continue;
+                    }
+                    written.extend(self.pattern_capture_slots(pattern_id as usize)?);
+                }
+            } else if tag == FullTag::ExprPatternIf {
+                let schema::ExprView::PatternIf { mut branches, .. } =
+                    self.expression_view(instruction)?
+                else {
+                    unreachable!("expression tag and generated view disagree")
+                };
+                for branch in &mut branches {
+                    let (condition, _, captures) = branch?;
+                    condition_roots.insert(condition.raw() as usize);
+                    for capture in captures {
+                        written.push(capture?);
+                    }
+                }
+            } else if matches!(tag, FullTag::ExprListComp | FullTag::ExprMapComp) {
+                let (schema::ExprView::ListComp { mut qualifiers, .. }
+                | schema::ExprView::MapComp { mut qualifiers, .. }) =
+                    self.expression_view(instruction)?
+                else {
+                    unreachable!("expression tag and generated view disagree")
+                };
+                for qualifier in &mut qualifiers {
+                    if let decode::CompQualifierView::For { target, .. } = qualifier? {
+                        self.comp_target_written_slots(target, &mut written)?;
+                    }
+                }
+            }
+            for slot in written.drain(..) {
+                if temporaries.contains(&slot) {
+                    writers.entry(slot).or_default().other = true;
+                }
+            }
+        }
+        for (instruction, slot, value) in direct_binds {
+            let entry = writers.entry(slot).or_default();
+            if condition_roots.contains(&instruction) {
+                entry.other = true;
+            } else {
+                entry.initializers.push(value);
+            }
+        }
+        Ok(writers)
     }
 
     fn checked_expression_type_id(
@@ -5172,105 +5278,6 @@ impl<'a> FullDecoder<'a> {
             self.checked_expression_matches_type(value, expected)?;
         }
         Ok(())
-    }
-
-    fn comp_target_view_writes_slot(
-        &self,
-        target: decode::CompTargetView<'a>,
-        slot: usize,
-    ) -> Result<bool, IrVerifyError> {
-        match target {
-            decode::CompTargetView::Discard => Ok(false),
-            decode::CompTargetView::Slot(written) => Ok(written == slot),
-            decode::CompTargetView::Record { mut fields } => {
-                for field in &mut fields {
-                    let (_, target, _) = field?;
-                    if self.comp_target_view_writes_slot(target, slot)? {
-                        return Ok(true);
-                    }
-                }
-                Ok(false)
-            }
-        }
-    }
-
-    fn statement_writes_slot(
-        &self,
-        instruction: usize,
-        slot: usize,
-    ) -> Result<bool, IrVerifyError> {
-        Ok(match self.statement_view(instruction)? {
-            schema::StmtView::Let { slot: written, .. }
-            | schema::StmtView::LetInt { slot: written, .. }
-            | schema::StmtView::LetBool { slot: written, .. }
-            | schema::StmtView::Assign { slot: written, .. }
-            | schema::StmtView::AssignInt { slot: written, .. }
-            | schema::StmtView::AssignBool { slot: written, .. }
-            | schema::StmtView::AssignField { slot: written, .. }
-            | schema::StmtView::AssignFieldInt { slot: written, .. }
-            | schema::StmtView::AssignPath { slot: written, .. }
-            | schema::StmtView::DefaultParameter { slot: written, .. } => written == slot,
-            schema::StmtView::Guard {
-                target,
-                else_param_slot,
-                ..
-            } => self.comp_target_view_writes_slot(target, slot)? || else_param_slot == Some(slot),
-            schema::StmtView::With {
-                mut bindings,
-                else_param_slot,
-                mut captures,
-                ..
-            } => {
-                let mut writes = else_param_slot == Some(slot);
-                for binding in &mut bindings {
-                    let (written, _) = binding?;
-                    writes |= written == slot;
-                }
-                for capture in &mut captures {
-                    writes |= capture? == slot;
-                }
-                writes
-            }
-            schema::StmtView::PatternIf { mut branches, .. } => {
-                let mut writes = false;
-                for branch in &mut branches {
-                    let (_, _, captures) = branch?;
-                    for capture in captures {
-                        writes |= capture? == slot;
-                    }
-                }
-                writes
-            }
-            schema::StmtView::PatternWhile { mut captures, .. } => {
-                let mut writes = false;
-                for capture in &mut captures {
-                    writes |= capture? == slot;
-                }
-                writes
-            }
-            schema::StmtView::Match { mut arms, .. } => {
-                let mut writes = false;
-                for arm in &mut arms {
-                    let (pattern, _, _) = arm?;
-                    writes |= self
-                        .pattern_capture_slots(pattern.raw() as usize)?
-                        .contains(&slot);
-                }
-                writes
-            }
-            schema::StmtView::For { slot: written, .. }
-            | schema::StmtView::ForStrLines { slot: written, .. } => written == slot,
-            schema::StmtView::ForRecord { target, .. }
-            | schema::StmtView::LetRecord { target, .. } => {
-                self.comp_target_view_writes_slot(target, slot)?
-            }
-            schema::StmtView::ScanLines {
-                text_slot,
-                line_slot,
-                ..
-            } => text_slot == slot || line_slot == slot,
-            _ => false,
-        })
     }
 
     /// Use a local handle's target only when its slot has one immutable
@@ -8311,6 +8318,30 @@ impl<'a> FullDecoder<'a> {
         Ok(())
     }
 
+    /// The subject type the arms after `pattern` see. An unguarded `null` arm
+    /// consumes the absent case, so an optional binding (`if let f = maybe`)
+    /// lowers to a binding arm over the non-null value.
+    fn subject_after_arm(
+        &self,
+        pattern: u32,
+        guarded: bool,
+        subject_type: Option<Type>,
+    ) -> Result<Option<Type>, IrVerifyError> {
+        if guarded {
+            return Ok(subject_type);
+        }
+        let schema::PatternView::Literal(literal) = self.checked_pattern_view(pattern)? else {
+            return Ok(subject_type);
+        };
+        if literal.materialize()? != LoweredValue::Null {
+            return Ok(subject_type);
+        }
+        Ok(subject_type.map(|subject| match subject {
+            Type::Optional(inner) => *inner,
+            other => other,
+        }))
+    }
+
     fn verify_pattern_condition_writers(
         &self,
         condition: usize,
@@ -8421,13 +8452,14 @@ impl<'a> FullDecoder<'a> {
                 ));
             }
         };
-        let subject_type = self.checked_expression_type(value.raw() as usize)?;
+        let mut subject_type = self.checked_expression_type(value.raw() as usize)?;
         let mut pattern_captures = BTreeSet::new();
         for arm in &mut arms {
-            let (pattern, _, _) = arm?;
+            let (pattern, guard, _) = arm?;
             let pattern = pattern.raw();
             self.verify_pattern_writer_types(pattern, subject_type.as_ref())?;
             pattern_captures.extend(self.pattern_capture_slots(pattern as usize)?);
+            subject_type = self.subject_after_arm(pattern, guard.is_some(), subject_type)?;
         }
         let declared_captures = capture_slots.iter().copied().collect::<BTreeSet<_>>();
         if declared_captures.len() != capture_slots.len() || pattern_captures != declared_captures {
@@ -8445,12 +8477,18 @@ impl<'a> FullDecoder<'a> {
             if instruction_kind == schema::InstructionKind::Expr {
                 match self.expression_view(instruction)? {
                     schema::ExprView::MatchExpr { value, mut arms, .. } => {
-                        let subject_type = self.checked_expression_type(value.raw() as usize)?;
+                        let mut subject_type =
+                            self.checked_expression_type(value.raw() as usize)?;
                         for arm in &mut arms {
-                            let (pattern, _, _) = arm?;
+                            let (pattern, guard, _) = arm?;
                             self.verify_pattern_writer_types(
                                 pattern.raw(),
                                 subject_type.as_ref(),
+                            )?;
+                            subject_type = self.subject_after_arm(
+                                pattern.raw(),
+                                guard.is_some(),
+                                subject_type,
                             )?;
                         }
                     }
@@ -12623,6 +12661,104 @@ run true
             source_id,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn typed_callable_driver_with_binding_matches_its_result_payload() {
+        let program = fixture(
+            "typed-callable-driver-with-binding.xsh",
+            r#"type Scale = pure(n: Int) -> Int
+type Measure = pure(text: Str) -> Int
+pure double(n: Int) -> Int { n * 2 }
+pure measure(text: Str) -> Int { text.byte_len() }
+let value: Result[Scale] = Ok(double)
+let other: Measure = measure
+assert other("abc") == 3
+with selected = value {
+  assert selected(4) == 8
+} else { |failure|
+  assert false
+}
+"#,
+        );
+        FullVerifier::verify(&program).unwrap();
+
+        fn payload(program: &FullProgram, instruction: usize) -> &[u32] {
+            program
+                .store
+                .payload(program.store.data[instruction].range())
+                .unwrap()
+        }
+        // The call through `selected` is the typed call whose callee reads the
+        // step's only temporary slot; the call through `other` supplies a
+        // second signature.
+        let (step, temporary_row, temporary_slot) = program
+            .store
+            .driver_steps
+            .iter()
+            .enumerate()
+            .find_map(|(index, step)| {
+                let slots = step.slots.bounds(program.store.driver_slots.len())?;
+                let row = slots.clone().find(|row| {
+                    program.store.driver_slots[*row].flags & DRIVER_SLOT_TEMPORARY != 0
+                })?;
+                Some((index, row, program.store.driver_slots[row].slot))
+            })
+            .expect("a top-level with binding of a typed callable is a temporary driver slot");
+        let calls_through = |step: usize, slot: u32| {
+            program
+                .store
+                .driver_instruction_range(step)
+                .unwrap()
+                .find_map(|instruction| {
+                    if program.store.tags[instruction] != FullTag::ExprTypedCall {
+                        return None;
+                    }
+                    let callee = payload(&program, instruction)[0] as usize;
+                    (program.store.tags[callee] == FullTag::ExprParam
+                        && payload(&program, callee).first().copied() == Some(slot))
+                    .then_some((instruction, callee))
+                })
+        };
+        let selected_call = calls_through(step, temporary_slot)
+            .expect("the with body calls its binding through the temporary slot");
+        let alternate_signature = program
+            .store
+            .driver_steps
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index != step)
+            .find_map(|(index, _)| {
+                program
+                    .store
+                    .driver_instruction_range(index)
+                    .unwrap()
+                    .find(|instruction| program.store.tags[*instruction] == FullTag::ExprTypedCall)
+                    .map(|instruction| payload(&program, instruction)[2])
+            })
+            .expect("a second callable signature is called at top level");
+        let callee_fact = program
+            .store
+            .checked_expr_types
+            .iter()
+            .position(|fact| fact.instruction as usize == selected_call.1)
+            .expect("the callee has an exact checker fact");
+
+        let mut forged = program.clone();
+        let alternate_signature = TypeId::from_raw(alternate_signature).unwrap();
+        forged.store.driver_slots[temporary_row].type_id = alternate_signature;
+        forged.store.checked_expr_types[callee_fact].type_id = alternate_signature;
+        let call_signature = forged.store.data[selected_call.0].range().start as usize + 2;
+        forged.store.extra[call_signature] = alternate_signature.raw();
+
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("local callable slot type fact disagrees with its writer producer"),
+            "{}",
+            error.message
+        );
     }
 
     fn program_name(program: &FullProgram, text: &str) -> Name {

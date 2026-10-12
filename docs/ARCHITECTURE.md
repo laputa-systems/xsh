@@ -274,6 +274,16 @@ module, or metadata attached to a non-import step; and
 `typed_callable_module_receiver_facts_reject_another_import_slot` rejects a
 module receiver rewritten to a different import slot.
 
+A top-level statement's own callable bindings (`with`, `for`, patterns,
+comprehension targets, optional bindings) are temporary driver slots as well.
+Only a module receiver, or a slot with a `MatchExpr` initializer, needs that
+single initializer; every other temporary slot is checked against its writers
+exactly as a function local is, and must have at least one.
+`typed_callable_driver_with_binding_matches_its_result_payload` rejects a
+retyped `with` binding, and
+`test_typed_callable_bindings_inside_top_level_statements` covers the accepted
+forms.
+
 Specialized `Path` calls use the receiver in `CheckedApiCall`, including
 null-safe calls. A shared method name alone cannot select a filesystem
 instruction: imported procedures may export those names with their own

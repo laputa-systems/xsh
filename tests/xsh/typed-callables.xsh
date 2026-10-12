@@ -403,6 +403,78 @@ test test_typed_callable_with_success_and_error_slots_keep_their_own_types {
   assert use_with_callbacks(Err(double)) == 8
 }
 
+test test_typed_callable_success_value_binds_with_direct_with {
+  let result: Result[Scale] = Ok(double)
+  with selected = result {
+    assert selected(4) == 8
+  } else { |failure|
+    fail failure.message
+  }
+}
+
+pure apply_present(maybe: Scale?) -> Int {
+  if let scale = maybe {
+    return scale(4)
+  }
+  0
+}
+
+# An optional binding calls through the non-null value, not the optional.
+test test_typed_callable_optional_binding_calls_the_present_value {
+  assert apply_present(double) == 8
+  assert apply_present(null) == 0
+}
+
+# A top-level statement owns its callable-typed bindings (`with`, `for`,
+# patterns, comprehension targets) as a function body does, so each is checked
+# against the value that writes it.
+test test_typed_callable_bindings_inside_top_level_statements { |ctx|
+  let result = test.run_xsh(
+    ctx,
+    r"""type Scale = pure(n: Int) -> Int
+pure double(n: Int) -> Int { n * 2 }
+pure triple(n: Int) -> Int { n * 3 }
+let value: Result[Scale] = Ok(double)
+let scales: List[Scale] = [double, triple]
+let maybe: Scale? = double
+
+with selected = value {
+  assert selected(4) == 8
+} else { |failure|
+  assert false, failure.message
+}
+
+var total = 0
+for scale in scales {
+  total += scale(1)
+}
+assert total == 5
+
+match value {
+  Ok(scale) => assert scale(4) == 8
+  Err(failure) => assert false, failure.message
+}
+
+if let scale = maybe {
+  assert scale(4) == 8
+}
+
+var rounds = 0
+while let scale = maybe {
+  assert scale(4) == 8
+  rounds += 1
+  if rounds == 2 {
+    break
+  }
+}
+
+let doubled = [scale(2) for scale in scales]
+assert doubled == [4, 6]
+""",
+  )?
+  assert result.success, result.stderr
+}
+
 # A callable value captured by a stage block, and one that crosses the
 # workers of `par-map`, is the same checked call.
 test test_typed_callable_is_called_inside_stage_blocks {
