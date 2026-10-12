@@ -180,7 +180,7 @@ Usage:
   --exact             Match FILTER exactly
   --cov               Print source coverage
   --api               Include API coverage, with --cov
-  -j, --jobs N        Run N tests concurrently (default: half the CPUs)
+  -j, --jobs N        Run N tests concurrently (default: all CPUs capped at 32; max 8 per file)
   --timeout DURATION  Fail a test that runs longer (default: 120s; 0 or none disables)
   --nocapture         Show test output
   --fail-fast         Stop after the first failure

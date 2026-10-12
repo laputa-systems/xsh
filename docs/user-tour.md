@@ -346,7 +346,6 @@ acceptable. `grep` exits 1 for "no matches":
 
 ```xsh
 let scratch = fs.tempdir()?
-defer scratch.close()
 let log = fp"{scratch.host_path()?}/app.log"
 log.write("ok\nERROR disk full\nok\nERROR link down\n")
 
@@ -384,7 +383,6 @@ proc read_port(file: Path) -> Result[Int] {
 }
 
 let scratch = fs.tempdir()?
-defer scratch.close()
 let dir = scratch.host_path()?
 fp"{dir}/good".write("8080\n")
 fp"{dir}/bad".write("eighty\n")
@@ -496,7 +494,6 @@ let once = run.text STAGE=deploy printenv STAGE
 print f"one command saw {once.trim()}; the script still has {e"STAGE"?}"
 
 let scratch = fs.tempdir()?
-defer scratch.close()
 let tools = scratch.host_path()?
 let tool = fp"{tools}/hello-tool"
 tool.write("#!/bin/sh\necho \"hello from $STAGE\"\n", mode: 0o755)
@@ -672,7 +669,6 @@ const sample = """
   """
 
 let scratch = fs.tempdir()?
-defer scratch.close()
 let log = fp"{scratch.host_path()?}/access.log"
 log.write(sample)
 
@@ -853,7 +849,10 @@ Over an optional it binds the value that is not `null` the same way:
 
 `jq` is a second language you embed as strings inside the first. In XSH, JSON
 is just data, with one rule: decoded JSON has type `Any`, and you must check
-it against a schema before using its values.
+it against a schema before using its values. For an open shape, `json.get`
+reads a path and returns an opaque value to validate or compare; `json.set`
+and `json.remove` rebuild by path. Field and index navigation require a
+validated receiver.
 
 ```xsh
 type Service = {name: Str, port: Int, tags: List[Str]}
@@ -940,7 +939,6 @@ pure percent(part: Int, whole: Int) -> Int {
 # This script may touch files and run processes, and nothing else.
 proc main() [fs, process, error] {
   let scratch = fs.tempdir()?
-  defer scratch.close()
   let dir = scratch.host_path()?
   fp"{dir}/data".write("hello\n")
 
@@ -1044,7 +1042,6 @@ returns results in input order:
 
 ```xsh
 let scratch = fs.tempdir()?
-defer scratch.close()
 let root = scratch.host_path()?
 
 for file in [
@@ -1175,15 +1172,13 @@ rotate failed
 left behind: 0
 ```
 
-`tempdir dir { ... }` is a `defer` you do not have to write. Spelled out, it
-is a handle to a private directory, its cleanup registered on the next line,
-and the path: `let scratch = fs.tempdir()?`, `defer scratch.close()?`,
-`let dir = scratch.host_path()?`. Write that form when you want the handle
-itself, whose rooted operations cannot leave the directory:
+`tempdir dir { ... }` is convenient when the code needs only a path. When it
+needs rooted operations or must pass a directory capability, `fs.tempdir()`
+returns an `FsRoot`; its owning scope closes it after its defers. Call
+`scratch.close()` only for early release:
 
 ```xsh
 let scratch = fs.tempdir()?
-defer scratch.close()
 
 scratch.mkdir(p"logs")
 scratch.write(p"logs/app.log", "ok\n")
@@ -1240,7 +1235,6 @@ proc edit_config(file: Path, key: Str, value: Str) {
 }
 
 let scratch = fs.tempdir()?
-defer scratch.close()
 let config = fp"{scratch.host_path()?}/sshd_config"
 config.write("Port 22\n#PermitRootLogin prohibit-password\nPasswordAuthentication yes\n")
 
@@ -1460,7 +1454,6 @@ root, and rejects member paths that would escape the destination:
 
 ```xsh
 let scratch = fs.tempdir()?
-defer scratch.close()
 let dir = scratch.host_path()?
 
 let release = fp"{dir}/app-1.4"

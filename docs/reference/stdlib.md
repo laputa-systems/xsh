@@ -138,7 +138,7 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 - `fs.install(source: Path, dest: Path, mode: Int, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Installs a file with explicit destination and mode policy.
 - `fs.install_as(source: Path, dest: Path, mode: Int, owner: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}, group: {gid: Int, members: List[Str], name: Str}, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Installs a file with explicit destination and mode policy.
 - `fs.link(source: Path, dest: Path, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Creates a hard link, optionally following a final symlink in the source.
-- `fs.lock(path: Path, shared: Bool = default, nonblocking: Bool = default) -> Result[{id: Int, path: Path, shared: Bool}, Error]` — Acquires a filesystem lock and returns an explicit lock record.
+- `fs.lock(path: Path, shared: Bool = default, nonblocking: Bool = default) -> Result[FsLock, Error]` — Acquires a filesystem lock and returns an opaque FsLock.
 - `fs.makedev(major: Int, minor: Int) -> Int` — Converts between a device number and its major and minor parts.
 - `fs.mkfifo(path: Path, mode: Int) -> Result[Unit, Error]` — Creates a named FIFO at a path.
 - `fs.mknod(path: Path, kind: Str, mode: Int, major: Int = default, minor: Int = default) -> Result[Unit, Error]` — Creates a file, FIFO, socket, or device node with an explicit mode.
@@ -148,7 +148,7 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 - `fs.other_executable(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
 - `fs.owner_executable(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
 - `fs.path_limits(path: Path) -> Result[{name_max: Int, path_max: Int}, Error]` — Reads the host name and path byte limits for a path.
-- `fs.project_root(kind: Str, qualifier: Str, organization: Str, application: Str) -> Result[FsRoot, Error]` — Finds the project root from a starting path.
+- `fs.project_root(kind: Str, qualifier: Str, organization: Str, application: Str) -> Result[FsRoot, Error]` — Opens an application directory as an owned filesystem root.
 - `fs.remove_manifest(root: Path, manifest: List[Path], missing_ok: Bool = default, prune_dirs: Bool = default) -> Result[{missing: Int, pruned_dirs: Int, removed: Int}, Error]` — Removes files and empty parents listed by a manifest.
 - `fs.rename_exchange(source: Path, dest: Path) -> Result[Unit, Error]` — Atomically exchanges two existing directory entries.
 - `fs.rename_noreplace(source: Path, dest: Path) -> Result[Unit, Error]` — Renames a path atomically without replacing an existing destination.
@@ -164,12 +164,12 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 - `fs.sync() -> Result[Unit, Error]` — Flushes file or filesystem state to the host.
 - `fs.sync_path(path: Path, mode: Str = default) -> Result[Unit, Error]` — Synchronizes a file or its containing filesystem.
 - `fs.temp_sibling(path: Path) -> Result[Path, Error]` — Names a hidden temporary path beside a path, for producing a file that is then renamed over it.
-- `fs.tempdir() -> Result[FsRoot, Error]` — Creates a temporary resource under XSH ownership.
+- `fs.tempdir() -> Result[FsRoot, Error]` — Creates a temporary directory and returns its FsRoot.
 - `fs.tempdir_in(directory: Path) -> Result[FsRoot, Error]` — Creates a private temporary directory below a chosen parent.
-- `fs.tempfile() -> Result[{path: Path, root: FsRoot}, Error]` — Creates a temporary resource under XSH ownership.
+- `fs.tempfile() -> Result[{path: Path, root: FsRoot}, Error]` — Creates a temporary file and returns a record with its FsRoot and path.
 - `fs.umask() -> Result[Int, Error]` — Returns the process file-creation mask.
-- `fs.unlock(lock: {id: Int, path: Path, shared: Bool}) -> Result[Unit, Error]` — Releases a filesystem lock record.
-- `fs.user_root(kind: Str) -> Result[FsRoot, Error]` — Returns the current user's filesystem root path.
+- `fs.unlock(lock: FsLock) -> Result[Unit, Error]` — Releases an opaque filesystem lock handle.
+- `fs.user_root(kind: Str) -> Result[FsRoot, Error]` — Opens a configured user directory as an owned filesystem root.
 - `fs.walk(path: Path, gitignore: Bool = default, stat: Bool = default, hidden: Bool = default) -> Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error]` — Produces lazy structured filesystem entries.
 - `fs.world_writable(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
 - `fs.xattr_get(path: Path, name: Str, follow_symlinks: Bool = default) -> Result[Bytes, Error]` — Reads an extended attribute as raw bytes.
@@ -724,7 +724,7 @@ Process-scoped utility helpers.
 - `FsRoot.readlink_result(path: Path) -> Result[{errno: Int?, error_kind: Str?, state: Str, target: Path?}, Error]` — Observes a symlink target below a rooted filesystem capability.
 - `FsRoot.remove(path: Path, dir: Bool = default) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
 - `FsRoot.stat(path: Path, follow_symlinks: Bool = default) -> Result[{atime_ns: Int, birth_ns: Int?, blksize: Int, blocks_512: Int, ctime_ns: Int, dev: Int, gid: Int, ino: Int, kind: Str, mode: Int, mtime_ns: Int, nlink: Int, rdev: Int, size: Int, uid: Int}, Error]` — Returns complete stat metadata for a path below a rooted filesystem capability.
-- `FsRoot.symlink(target: Path, path: Path, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
+- `FsRoot.symlink(target: Path, path: Path, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Creates a symlink below a rooted filesystem capability.
 - `FsRoot.write(path: Path, data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Writes bytes or text below a rooted filesystem capability.
 - `FsRoot.write_atomic(path: Path, data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Writes bytes or text below a rooted filesystem capability.
 
@@ -917,7 +917,6 @@ Process-scoped utility helpers.
 - `FsDataRange {length: Int, offset: Int}` — Describes one run of allocated data in a file.
 - `FsEntry {accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}` — Describes one filesystem directory entry and its metadata.
 - `FsFilesystemStats {available_1k: Int, blocks_1k: Int, capacity_percent: Int, used_1k: Int}` — Reports capacity statistics for a filesystem.
-- `FsLock {id: Int, path: Path, shared: Bool}` — Represents an owned filesystem lock.
 - `FsMount {available_1k: Int, blocks_1k: Int, capacity_percent: Int, device: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}` — Describes one mounted filesystem.
 - `FsRemoveManifestResult {missing: Int, pruned_dirs: Int, removed: Int}` — Reports paths removed by a manifest operation.
 - `FsRootChildrenResult {children: List[Path], enumeration_succeeded: Bool, errno: Int?, error_kind: Str?, state: Str}` — Describes one bounded directory enumeration beneath a rooted filesystem capability.

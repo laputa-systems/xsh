@@ -45,7 +45,7 @@ composition model and replaces its semantics.
   which host effects they use; a declared clause is a checked upper bound.
 - **Predictable execution.** Evaluation order is source order. The concurrency
   units are host processes and bounded stream stages; there are no futures,
-  callbacks, event loops, or green threads.
+  asynchronous callbacks, event loops, or green threads.
 - **Methods first.** Operations on a value are methods (`xs.len()`,
   `p.read_text()`). Module functions exist where there is no natural receiver,
   such as `map.empty()` or `regex.compile(...)`.
@@ -64,6 +64,12 @@ line and column numbers, with columns counted in Unicode scalar values.
 Every diagnostic from loading, parsing, checking, linting, or evaluation
 carries a source span when one exists, and human and machine output render the
 same diagnostic value.
+
+Human source excerpts and their marker columns occupy at most 160 Unicode
+scalar values, including indentation and clipping ellipses. The window stays
+near the label; an ellipsis marks omitted source or an extended marker.
+Diagnostic messages, absolute line/column locations, machine spans, and fix
+spans retain their full values. Plain and colored output use the same window.
 
 A source file may nest constructs at most 128 levels deep, counting every
 expression, statement, block, pattern, and type that encloses a piece of
@@ -345,7 +351,8 @@ a script can carry arbitrary bytes to child processes.
 
 A sole rest parameter in `proc main(...argv: List[Bytes])` opts the entry
 script into raw argument bytes. In that entry context, immutable `args` also
-has type `List[Bytes]`, including in imported modules. Empty arguments and
+has type `List[Bytes]`, including in imported modules. Local or imported type
+aliases resolving to `List[Bytes]` retain the same entry semantics. Empty arguments and
 option-like arguments retain their original bytes. Decode text explicitly
 with `.utf8()` and construct byte paths with `Path.parse_bytes`; there is no
 lossy decoding. Fixed or mixed byte parameters and `cli main` do not opt into
@@ -1171,6 +1178,9 @@ over an enum covers every variant or ends in a catch-all
 (`check.non-exhaustive-match`, 6.8); a value `match` names the uncovered
 variants in its `check.match-value-exhaustive` error instead.
 `type Alias = Level` aliases the same nominal type.
+Diagnostics display an imported enum's declaration name, including inside
+container types. Declarations from different modules remain distinct nominal
+types even when those displayed names are equal.
 
 A Str-backed enum gives each payload-free variant a unique constant wire
 string:
@@ -1428,6 +1438,8 @@ A failed `assert` produces `AssertionError.Failed(message: Str)`.
   passed to `spawn`, `process.run`, or `process.spawn`.
 - `NetJob` is a live network transfer from `net.start` (see 11.8).
 - `FsRoot` is an open directory capability; see the standard modules.
+- `FsLock` is an opaque filesystem lock capability returned by `fs.lock`
+  (see 10.4 and 11.8).
 - `Regex` and `Digest` are immutable values with methods.
 
 Handles are values that alias one live host resource; see 11.8 for ownership.
@@ -1719,8 +1731,8 @@ Because the checker establishes the property, typed code never tests it
 again. Where an unchecked value reaches a checked slot at run time (an
 argument of a dynamic `Proc.call` or `Pure.call`), the slot's type is tested
 there, validation included, and a value that fails is the same `type-error` a
-value of the wrong type is. `first()` and `last()` on a dynamic (`Any`)
-receiver fail with `index-out-of-bounds` on an empty list.
+value of the wrong type is. An `Any` receiver must be validated before
+calling `first()` or `last()`.
 
 A rest parameter collects zero or more arguments, so it is a `List[T]` and
 cannot be declared `NonEmpty[T]`. `cli main` parameters do not take a
@@ -1854,34 +1866,39 @@ records, results of dynamic callables. A concrete value can always become
 `Any`, but `Any` never becomes concrete implicitly. Without validation, an
 `Any` value may only:
 
-- be navigated: `.name`, `?.name`, `[key]`, `?[key]`, `[a..b]`, `?`, method
-  calls with positional arguments, and `for` iteration are checked at runtime
-  and produce `Any`;
 - flow where `Any` is expected: an `Any` binding, parameter, return, record
   field, or `List[Any]` or `Map[Any]` element, including APIs such as
   `json.encode` that accept `Any`;
 - be compared with `==` or `!=`, tested with `in`/`not in` against a `List`,
   or used as a `group-by` or `unique-by` key, which compare by equality and are
   defined for every pair of values;
-- be validated by `.require(T)` or a type pattern.
+- be validated by `.require(T)`, a contextual `.require()`, or a type pattern;
+- be read or rebuilt by path with `json.get`, `json.set`, or `json.remove`.
+  `json.get(value, path)` returns `Result[Any]`; its fallback form returns
+  `Any` and uses the fallback when the path is absent.
+
+Field and index access, guarded navigation, slicing, iteration,
+comprehensions, pipeline sources, method calls, spread operands, `?`,
+`attempt`, and `wait` require validation first. A `List[Any]` or `Map[Any]`
+is a concrete container whose elements remain opaque.
 
 Every other use needs a concrete type that the data may not have, and is
 `check.dynamic-boundary`: a typed binding, parameter, return, or field; an
 arithmetic, ordering, or logical operand, including a `sort-by` key and
 `min`/`max` items; a condition; any other membership operand; an index into a
 concrete container; f-string interpolation, a command word, a `print`
-argument, or a `count` key; and named arguments to a dynamic method. `??`
+argument, or a `count` key. `??`
 applies only to `Optional` and `Result`, so a possibly-null field is validated
 as `T?` first.
 
 ```xsh
 let doc = json.decode(text)?
-let service = doc.service.name              # Any
-let n: Int = doc.count                      # error: check.dynamic-boundary
-let next = doc.count + 1                    # error: check.dynamic-boundary
-print f"{doc.service.name}"                 # error: check.dynamic-boundary
-let count = doc.count.require(Int)?         # Int
-let label = doc.label.require(Str?)? ?? "none"
+let service = json.get(doc, ["service", "name"])?          # Any
+let n: Int = json.get(doc, ["count"])?                    # error: check.dynamic-boundary
+let next = (json.get(doc, ["count"])?) + 1                # error: check.dynamic-boundary
+print f"{service}"                                      # error: check.dynamic-boundary
+let count = (json.get(doc, ["count"])?).require(Int)?      # Int
+let label = json.get(doc, ["label"], null).require(Str?)? ?? "none"
 ```
 
 When the context names the target type (an annotated binding, return, or
@@ -2011,6 +2028,8 @@ let tools = [{name: "xsh", kind: Binary}] |> where .kind == .Binary  # error: ch
 A pattern selects a variant the same way, from the type of the value it
 matches: `.Name`, `.Name(p, ...)` for an enum payload, and `.Name {field, ..}`
 for an error variant's fields are exactly the qualified patterns.
+An imported alias keeps the identity of the declared family; distinct modules'
+families with the same name remain distinct for type and pattern matching.
 
 ```xsh
 enum Kind { File, Binary, Tree(Int) }
@@ -2279,8 +2298,8 @@ from the end: `list[-1]` is the last item, and `list[-n]` requires
 `n <= len`. Only the literal does. An index computed at run time that turns
 out negative still fails with `index-out-of-range`, so an off-by-one never
 reads the last item silently, and `-0` is `0`. The rule belongs to reading an
-item of a `List`: `Str` and `Bytes` have no single-element indexing, a value
-of type `Any` is indexed as written, and an assignment target (`list[-1] = x`)
+item of a `List`: `Str` and `Bytes` have no single-element indexing, an `Any`
+must be validated before indexing, and an assignment target (`list[-1] = x`)
 does not count from the end. A negative literal that reaches past the start
 of a list literal is `check.index-out-of-range`:
 
@@ -2450,10 +2469,11 @@ item, and `yield @list` appends every item of a `List`, in the order the
 yields run; the value is a new `List[T]` when the block reaches its end. A
 `yield` belongs to the nearest `collect` whose block holds it, through any
 `if`, `match`, loop, bare block, `try`, or scope in between, and through a
-postfix `when` or `unless`. A function, a stage block, and a nested `collect`
-have their own yields: in a stage block inside the block a `yield` is not the
-`collect`'s (`check.yield` outside a producer). Inside a `stream` producer,
-the yields of a `collect` block append to its list and emit nothing.
+postfix `when` or `unless`. A function or stage callback ends the enclosing
+collect or producer's yield authority. A callback cannot yield to the producer
+or collect around it (`check.yield`); a nested `collect` creates its own yield
+target. Inside a `stream` producer, the yields of a `collect` block append to
+its list and emit nothing.
 
 `T` is the item type of the expected type when the context states a
 `List[T]`, and otherwise the common type of the yields, found as a list
@@ -3052,8 +3072,9 @@ the list or a slice of it when the body never reads the counter;
 `lint.prefer-for-index` rewrites it where the two are the same program.
 
 `loop { ... }` repeats until `break`; `break value` makes the loop an
-expression with that value. `break` and `continue` target the nearest loop and
-are not allowed inside stream stage blocks.
+expression with that value. `break` and `continue` target the nearest loop in
+the same callable or stage callback. A stage callback cannot break or continue
+an enclosing loop; loops created inside its own block remain valid targets.
 
 `repeat count times { ... }` runs its block once per item of `range(count)`.
 It is sugar, defined by its expansion:
@@ -3279,12 +3300,13 @@ accepts a postfix guard (`fail "no input" unless ready`). The message is a
 must return a `Result` whose error type is `Error`, as `Result[T]` is; in any
 other function, and at the top level of a script
 (`check.return-outside-callable`), the diagnostics are those of the `return`.
-Use `fail` for a
-failure that callers report and do not branch on, and a declared family for
-one they match: `lint.prefer-fail` rewrites the constructors of a private
-family that has one message-only variant and that nothing in its file names
-in a pattern or a type, and then deletes the family. An uncaught failure is
-reported as `validation` where it was reported under the family's name.
+Use `fail` for a failure that callers report and do not branch on, and a
+declared family for one they match. `lint.prefer-fail` reports private
+message-only families as candidates for an intentional source migration;
+it does not replace their constructors with plain errors or delete a family
+that remains in use. Such a replacement changes the nominal error, uncaught
+diagnostic, and runtime matching behavior. Its safe leading-dot return fixes
+preserve the declared family and variant.
 
 A function that declares an error family fails with one of its variants,
 written in the leading-dot form (5.5): `fail .Offline()` means exactly
@@ -3427,8 +3449,9 @@ locations. A primary cleanup failure in a function that returns a `Result` is
 the `Err` that function returns, from any of its blocks, so its caller matches
 or propagates it like any other; in any other function it is a failure of the
 call, which `try` captures. A deferred block cannot `return`, `yield`, `break`, or `continue`
-out of its body. Owned process handles and network jobs are cleaned up before
-the block's defers run (11.8).
+out of its body. Owned open streams, process handles, and network jobs are
+stopped before the block's defers run; roots and locks still owned by the block
+are released after its defers (11.8).
 
 `errdefer action` or `errdefer { ... }` registers cleanup that runs only when
 control leaves the enclosing block with an error:
@@ -3472,8 +3495,10 @@ or exits with a nonzero status.
 
 A `tempdir` scope (10.4) removes its directory with a deferred action of this
 kind, registered before the body runs. A `with` resource scope (10.4)
-releases each resource with one, registered as the resource is bound; it is
-the scope for `let h = OPEN?` directly followed by `defer h.close()`.
+releases each bound resource after the body's defers and returns a release
+failure as its `Err`. Ordinary blocks also release owned `FsRoot` and `FsLock`
+capabilities after their defers (11.8); use `with` when code must observe a
+release failure. The `with` form groups a resource binding and its body.
 
 `atomically replace dest as name { ... }` publishes a file that something
 other than XSH writes (an archiver, a compiler, an image builder): the block
@@ -3764,6 +3789,12 @@ and not on the native stack, and a call costs the same however many are
 open. Recursion over data stays far below the limit; write a loop where a
 list is long enough to reach it.
 
+Native adapters that enter another execution machine are bounded separately:
+at most 32 machines may be open on one evaluator. Entering another fails with
+`stack-overflow`. Unwinding restores the bound, so the evaluator remains usable
+after the failure. This bound applies to callbacks, producers, and deferred
+calls that enter a machine; the heap-call limit remains 100000.
+
 A function declared `Result[T, E]?` returns `null`, an `Ok`, or an `Err` as
 the value it is: an `Err` it returns is data for the caller, bound by a plain
 `let` like any other value, and not a failure of the call.
@@ -3935,7 +3966,7 @@ proc read_config(file: Path) [fs, error] -> Result[Config] {
 | Effect | Covers |
 |---|---|
 | `fs` | filesystem APIs (`fs`, `archive`, `diff`, `patch`, `user`, `group`, `module`, path I/O methods) |
-| `net` | `net` and `dns` |
+| `net` | `net`, `dns`, and the socket operations listed below |
 | `process` | `run`, `spawn`, `wait`, handle cancellation, effectful `process` APIs, `unix`, `linux`, `applet` |
 | `env` | `env`, `cd`, `system` |
 | `time` | `time` APIs and delayed `retry` |
@@ -3946,6 +3977,18 @@ A clause, including `[]`, is a checked upper bound: the body and every callee
 must stay within it, or the checker reports `check.effect-violation` with the
 call chain. `print` and `eprint` need no effect. Pure functions satisfy any
 bound.
+
+These calls require both `process` and `net`: `linux.socket`, `connect`,
+`bind`, `listen`, `accept`, `sendto`, `recvfrom`, `dhcp_socket`, `dhcp_send`,
+`dhcp_recv`, `dhcp_send_release`, `link_up`, `link_down`, `inet_addr_add`,
+`inet_addr_del`, `inet_route_add`, `inet_route_del`, and `unix.read_fd`,
+`write_fd`, `notify_ready`. The private configuration helpers create
+`AF_INET` sockets. A runtime family or raw descriptor cannot prove that
+communication stays local, so generic socket and descriptor calls need both
+effects even when a particular caller uses a local descriptor. Dedicated
+netlink operations remain `process` only. Closing a descriptor and querying
+its metadata retain their existing effects. These are static checker claims;
+no runtime sandbox is added.
 
 A proc or stream without a clause, exported or not, has its effects inferred
 from its body and callees (recursion included), and callers, including
@@ -4150,10 +4193,11 @@ reason (completion, propagation, `return`, loop control, cancellation, or
 failure), after the body's defers run. The scope's `Result` reports only
 entering and restoring. Failures inside the body propagate to their ordinary
 destination, so use `try` to capture the whole operation. Scopes never change
-the host process's own cwd or environment. A live stream or handle cannot
-escape a scope as its value, through an assignment, a `return`, or a `yield`;
-consume it inside. A producer that yields from inside a scope keeps its own
-directory and environment between pulls.
+the host process's own cwd or environment. A value containing a live
+`Stream[T]`, `ProcessHandle`, or `NetJob` cannot escape a `cd`, `env`, or
+`within` context scope as its value, through an outer assignment, a `return`,
+or a `yield`; consume it inside. A producer that yields from inside a `cd` or
+`env` scope keeps its own directory and environment between pulls.
 
 `tempdir` is the scope for scratch space. It has two heads:
 
@@ -4170,11 +4214,12 @@ let files = tempdir scratch {
 ```
 
 `tempdir NAME { ... }` runs its body with `NAME: Path` bound to a fresh, empty
-temporary directory at a path the runtime chooses. It is the scope that
-`let root = fs.tempdir()?`, `defer root.close()?`, and
-`let NAME = root.host_path()?` open over the rest of a block, without the
-handle: use that form when the code needs the `FsRoot`'s rooted operations or
-passes the handle on.
+temporary directory at a path the runtime chooses. Use it for path-scoped
+scratch space. When code needs rooted operations or must pass the capability
+on, keep the `FsRoot` returned by `fs.tempdir()` and obtain its path with
+`root.host_path()` when needed. The scope that owns the root closes it after
+its defers; call `root.close()` only for early release, or use `with` when the
+release failure must be reported.
 
 `tempdir NAME at PATH { ... }` runs its body with `NAME` bound to a directory
 at a path the program names:
@@ -4224,9 +4269,10 @@ name and then `{` or the word `at` follow on the same line; the path after
 `at` is a head expression like the source of a `for`, and the body takes no
 `|...|` parameters.
 
-Two lints lead to the scope. `lint.prefer-tempdir-scope` reports
-`let root = fs.tempdir()?` with its `defer root.close()?` where the handle is
-used only for its path, and `lint.prefer-tempdir` reports
+Two lints lead to the scope. `lint.prefer-tempdir-scope` reports the legacy
+form `let root = fs.tempdir()?` followed by `defer root.close()?` when the
+handle is used only for its path; scope ownership already closes the root
+after its defers. `lint.prefer-tempdir` reports
 `NAME.remove()`, `NAME.mkdir()`, and `defer NAME.remove()` in a row. Each
 offers the rewrite of the rest of the block into the scope's body only where that is the same
 program; in particular a last statement that is the block's value moves only
@@ -4315,6 +4361,12 @@ let size = with root = fs.open_root(site)? { root.read_text(p"index.html")?.byte
 | `FsRoot` | `fs.open_root`, `fs.tempdir`, `FsRoot.open_root` | `root.close()` |
 | `FsLock` | `fs.lock` | `fs.unlock(lock)` |
 
+`FsLock` is an opaque handle. Its `path` and `shared` fields are readable and
+immutable; it has no public identifier, cannot be constructed from a record,
+and is not JSON-compatible. Resource handles belong to the evaluator that
+created them. Using a foreign evaluator's handle fails before looking up or
+consuming any local resource, even if their internal identifiers coincide.
+
 Any other type is a check error (`check.with-resource`) that names these, and
 that includes `Any`, an unresolved type, and a `Result` that was not
 propagated:
@@ -4326,12 +4378,13 @@ with text = p"notes.txt".read_text()? { # error: check.with-resource
 ```
 
 There is no protocol a program can implement; the checker knows the resource
-types and how each is released. Of the other built-in handles, a
-`ProcessHandle`, a `NetJob`, and an open stream are already released by the
-block that owns them (11.8) and have no fallible release to state; the HTTP
-pools of `net.pool` are closed by name, not through a value; and the staged
-socket functions of the `linux` and `unix` modules are sequences, not one
-value with one release.
+types and how each is released. A `ProcessHandle`, a `NetJob`, and an open
+stream are released by the block that owns them (11.8). An ordinary block also
+releases its owned `FsRoot` and `FsLock` after the block's defers. Use `with`
+when a capability release must be reported as the scope's `Err`. The HTTP
+pools of `net.pool` are closed by name, not through a value; the staged socket
+functions of the `linux` and `unix` modules are sequences, not one value with
+one release.
 
 `NAME` is immutable and in scope for the body only (`_` binds nothing). The
 value is an ordinary expression: a failure in it, such as the `?` of
@@ -4369,21 +4422,20 @@ primary and the release failure is reported as a cleanup failure, exactly
 as a failing `defer` is while another failure propagates.
 
 A body may release its resource early, by `root.close()` or
-`fs.unlock(lock)`. Neither operation can be repeated (a second `close` or
-`unlock` fails with "handle is not active"), so the scope's own release
-accepts a value that is already released and does nothing. It still fails
-for a value that never named a live resource.
+`fs.unlock(lock)`. An explicit repeated release fails with "handle is not
+active". The scope's release skips a capability already released, and still
+fails for a value that never named a live resource.
 
 The value may leave the scope, as the tail or through an assignment, but it
 names a released resource afterwards. The scope needs the `fs` effect and is
 rejected in pure functions.
 
-`lint.prefer-with-scope`, an opt-in note (16.1; `[lint] prefer-with-scope = true`
-or `--only`), reports `let NAME = OPEN?` directly followed by
-`defer NAME.close()` or `defer fs.unlock(NAME)` where the handle stays in its
-block. It offers no rewrite: the two shapes differ where the release fails
-after the block reached its end, which a `defer` raises from the enclosing
-function and the scope returns as its `Err`.
+`lint.redundant-close` reports a deferred close of a locally created `FsRoot`
+when checked binding identities prove that removing it preserves cleanup
+order. Its fix removes the defer. Earlier deferred actions, aliases, escapes,
+unknown helper calls, and another explicit release prevent that fix. There is
+no corresponding fix for `defer fs.unlock(lock)`: its release failure is
+observable, while ordinary scope cleanup drops capability-release errors.
 
 ### 10.5 Environment access
 
@@ -4717,22 +4769,55 @@ server.cancel(signal: "TERM", kill_after: 2s)
 
 ### 11.8 Ownership of live resources
 
-Process handles, network jobs (`NetJob`), and open streams are owned by the
-lexical scope that created them. Returning a value that contains one, storing
-it into an outer binding, or breaking it out of a loop transfers ownership
-outward. When a scope exits, its owned non-detached handles are cancelled and
-reaped and its owned network jobs are cancelled and drained, before the scope's
-defers run. Detached handles are released to a background reaper instead. A
-`NetJob` is consumed by its first `wait()` or `cancel()`, and either one fails
-on a consumed job (`net-job-not-live`): only a process handle's `cancel` is
-idempotent. `process.kill(pid)` names a pid, not an owned handle, and fails
-with `process-missing` once the child is reaped. These are process and transfer fan-out, not an async runtime: there
-are no futures, callbacks, channels, `await`, or wait-any.
+The lexical scope that creates a live resource owns it. This applies to
+`ProcessHandle`, `NetJob`, open streams, `FsRoot`, and `FsLock`. When a value
+containing a resource becomes part of a value in an enclosing scope, ownership
+moves to that receiving scope: this happens for a returned or block value, a
+`break` value, an assignment to an outer binding, or a yielded value. A
+resource created in any nested scope inside the receiving scope moves with the
+value, so an intermediate scope does not release a resource that remains
+reachable from an outer value. Passing a handle as an argument lends it; it
+does not transfer ownership. `process.spawn(plan)` is separate: it returns a
+record containing the child's pid and releases the child to the background
+reaper instead of returning a live `ProcessHandle`.
 
-An `FsRoot` and an `fs.lock` lock are not owned this way: nothing releases
-one when its block ends, and it stays open until it is closed or the script
-ends. Bind it with a `with` scope (10.4), or register its release with
-`defer` (8.7).
+Scope exit has two phases around its deferred actions. First, the scope stops
+its owned activities: open streams are cancelled, non-detached process handles
+are cancelled and reaped, detached handles are released to a background
+reaper, and network jobs are cancelled and drained. Cancelling a suspended
+script producer runs that producer's own defers. Then the scope's `defer`
+actions run. After them, the scope closes its still-owned roots and unlocks its
+still-owned locks, newest first; closing a temporary root also removes its
+directory. A defer can use these capabilities and can release them early. An
+explicit `root.close()` or `fs.unlock(lock)` returns an error for an already
+released capability, while scope cleanup skips a capability released earlier.
+For an exact local `ProcessHandle`, `NetJob`, `FsRoot`, or `FsLock`, a direct
+unconditional consuming operation makes later uses of that binding a
+`check.use-after-release` error:
+
+```xsh
+let root = fs.tempdir()?
+root.close()?
+assert root.exists(p".")? # error: check.use-after-release
+```
+
+The check follows binding identity within its block. A release hidden in a
+branch, loop, deferred action, short-circuit expression, pipeline, or another
+function does not establish that the local was consumed. Reassigning a mutable
+local gives it a fresh live value. Alias locals, resources stored in containers,
+and values reached through projections are not tracked. `ProcessHandle.cancel`
+remains allowed after release because cancellation is idempotent.
+Ordinary block cleanup drops capability-release errors. A `with` resource
+scope (10.4) reports a release failure as its `Err` when the body reaches its
+end. Activities created by a defer are stopped as the scope finishes.
+
+A `NetJob` is consumed by its first `wait()` or `cancel()`, and either one
+fails on a consumed job (`net-job-not-live`): only a process handle's `cancel`
+is idempotent. `process.kill(pid)` names a pid, not an owned handle, and fails
+with `process-missing` once the child is reaped. These are process and transfer
+fan-out, not an async runtime: there are no futures, asynchronous callbacks,
+channels, or `await`. `process.wait_any` waits for one of the supplied process
+handles.
 
 ### 11.9 Command plans and builder blocks
 
@@ -4820,6 +4905,8 @@ on SIGINT --pre-cancel=150ms [fs, process, error] {
   with its own defers. A second handled signal escalates: no hook re-entry,
   immediate `SIGKILL` of owned process groups, and remaining cleanup may be
   skipped.
+- Shutdown during top-level initialization skips the automatic `main` call;
+  bindings whose initializers did not run remain uninitialized.
 - `--pre-cancel` (default `150ms`) is how long the hook may delay forwarding
   the signal to already running children. The signal is forwarded when the
   hook finishes or when the hook reaches a checkpoint after the budget. Work
@@ -4945,9 +5032,10 @@ uses the enclosing scope before the callback parameters are bound.
   (short-circuit).
 - `each` and `tee` callbacks are statement bodies: a `Result[Unit]` failure
   propagates.
-- `flat-map` accepts a `List` or `Stream` per item (a live stream is drained
-  before the next item). A `Result` of a list is unwrapped, and `Err` fails the
-  stage.
+- `flat-map` callbacks return a `List` or `Stream` per item (a live stream is
+  drained before the next item). A `Result` is not implicitly unwrapped; a
+  callback returning one is a check error (`check.flat-map`). Use `?` inside
+  the callback to propagate its error.
 - `fold` and `reduce` callbacks must return exactly the accumulator's type and
   run serially. A `Result[T]` accumulator keeps `Err` values as data.
 - `reduce-by` keeps one accumulator per key, and its callback must return the
@@ -5011,9 +5099,9 @@ runs as one stage that reduces on the workers; it stops and reports as
 
 `sort` and `sort-by` are stable. They order `Int`, `Str`, `Bool`, and `Path`
 values, and records whose fields are themselves orderable (compared field by
-field in field-name order). `desc: true` reverses. Keys of type `Any` are
-ordered by their runtime value and fail if it is not orderable; other key
-types are check-time errors.
+field in field-name order). `desc: true` reverses. An `Any` item or key must be
+validated to an orderable type before sorting; other unsupported types are
+check-time errors.
 
 ### 13.6 Guidance
 
@@ -5056,8 +5144,8 @@ Str-backed enums (as their wire strings). Everything else needs explicit convers
 errors, handles, command plans, ordinary enums, non-`Str`-keyed maps, and
 non-finite floats.
 
-`json.encode` and `json.write` emit ordinary JSON with record keys in sorted
-order (`pretty: true` indents deterministically). A set is written as an array
+`json.encode` and `json.write` sort record keys in both compact and pretty
+output; `pretty: true` changes indentation. A set is written as an array
 of its elements in key order, so a `Set[Str]` is a sorted array.
 `.require(Set[T])` accepts a set, or an array whose elements are distinct
 values of `T`; an array that repeats an element fails with `schema`, because
@@ -5343,9 +5431,9 @@ let text = notes.replace("DRAFT", with: "FINAL")
 }
   ```
 
-  A method called on an unchecked `Any` receiver takes no named argument at
-  all, so there the argument stays positional until the receiver is
-  validated. `fs.symlink(target, link)` keeps its two positional operands;
+  An unchecked `Any` receiver must be validated before any method call.
+  `FsRoot.symlink(target:, path:)` requires both labels and evaluates the
+  supplied operands in source order. `fs.symlink(target, link)` keeps its two positional operands;
   `lint.prefer-argument-label` rewrites it to `link.symlink(to: target)`.
   The method evaluates the link before the target, so the rewrite is offered
   only where the order cannot be observed: one operand is a literal, or both
@@ -5832,7 +5920,7 @@ These are deliberately absent:
   tilde and brace expansion;
 - truthiness and implicit conversions between strings, numbers, and Booleans;
 - exceptions and `try`/`catch` (failures are `Result` data);
-- futures, `await`, callbacks, event loops, and wait-any;
+- futures, `await`, asynchronous callbacks, and event loops;
 - generic functions and expression-level type arguments;
 - first-class command blocks and script-level job control;
 - tagged JSON.
