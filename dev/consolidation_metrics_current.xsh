@@ -703,7 +703,7 @@ proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int, s
   var variants: List[Evidence] = []
   var tags: Map[Bool] = {}
   var ordinals: Map[Bool] = {}
-  var expected_ordinal = 0
+  var previous_ordinal = -1
   var cursor = opening + 1
   while cursor < closing {
     let row = (lexed.tokens.get(cursor) ?? end_token).text
@@ -746,13 +746,17 @@ proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int, s
         ordinal_text += (lexed.tokens.get(ordinal_end) ?? end_token).text
         ordinal_end += 1
       }
+      if (lexed.tokens.get(ordinal_end) ?? end_token).text == "-" {
+        invalid(source_path, variant.line, f"negative instruction schema ordinal for {row}::{variant.text}")?
+      }
       match ordinal_text.parse_int() {
         Ok(ordinal) => {
           let ordinal_key = f"{ordinal}"
           if ordinals.get(ordinal_key) ?? false { invalid(source_path, variant.line, f"duplicate instruction schema ordinal {ordinal_key}")? }
           ordinals[ordinal_key] = true
-          if ordinal != expected_ordinal { invalid(source_path, variant.line, f"unknown instruction schema ordinal {ordinal_key}; expected {expected_ordinal}")? }
-          expected_ordinal += 1
+          if ordinal > 255 { invalid(source_path, variant.line, f"instruction schema ordinal {ordinal_key} is outside the u8 range")? }
+          if ordinal <= previous_ordinal { invalid(source_path, variant.line, f"instruction schema ordinals are not strictly increasing at {ordinal_key}")? }
+          previous_ordinal = ordinal
         }
         Err(_) => invalid(source_path, variant.line, f"malformed instruction schema ordinal for {row}::{variant.text}")?,
       }

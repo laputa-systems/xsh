@@ -3,7 +3,7 @@
   "original_scanner_path": "dev/consolidation_metrics.xsh",
   "original_scanner_sha256": "da2c3e70cf6cc08e79ff7eba3ce5ebaf05848203cd7f21797150141155f35e79",
   "successor_scanner_path": "dev/consolidation_metrics_current.xsh",
-  "successor_scanner_sha256": "2baa912b0a9cfbc8ce7bbab3aebe6dff20593bff4b44661729f8208a71b49146",
+  "successor_scanner_sha256": "035fe47aae2ebc14eb69c1b4d21394642bdab1db07eb120eafbd73e1b4fd3b7c",
   "original_baseline_path": "dev/consolidation/baseline.json",
   "original_baseline_sha256": "be63588c6888fb7907d5f1054ee4b1559559eb70d784fd7ae15797826d06dbd6",
   "corrected_baseline_path": "dev/consolidation/baseline-blanket-scope.json",
