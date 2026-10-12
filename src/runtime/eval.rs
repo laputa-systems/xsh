@@ -4385,7 +4385,12 @@ impl Evaluator {
             status = shutdown_status;
         }
 
-        if plan.auto_main_required && traceback.is_none() && abort.is_none() && !stopped {
+        if plan.auto_main_required
+            && traceback.is_none()
+            && abort.is_none()
+            && !stopped
+            && !self.signal_state.shutdown_complete
+        {
             let zero = zero_span();
             let call_result = self.call_indexed_direct_omitting(
                 LoweredFunctionKey::Name(main_function),

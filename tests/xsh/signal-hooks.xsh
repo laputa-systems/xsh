@@ -33,6 +33,76 @@ print "after"
   assert output.stdout == "hook\n"
 }
 
+test test_startup_signal_skips_main_before_its_captured_global_is_initialized { |ctx|
+  let root = test.temp_dir(ctx, name: "signal-before-main")?
+  let ready = fp"{root}/ready"
+  let child_script = fp"{root}/child.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  child_script.write(
+    """on TERM [] {
+  exit 143
+}
+
+let _ = match process.run(process.command_argv(
+  "sh",
+  ["sh", "-c", "printf ready > \\u{22}$1\\u{22}; while :; do sleep 1; done", "sh", Path(args[0])],
+)) {
+  Err(is Canceled) => 0
+  Err(problem) => {
+    test.fail(f"unexpected startup process error: {problem.message}")?
+    0
+  }
+  Ok(_) => 0
+}
+let late_captured_global = "initialized"
+
+proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
+  print $late_captured_global
+}
+""",
+  )?
+
+  let command = process.command_argv(
+    ctx.xsh_bin,
+    [ctx.xsh_bin.display(), child_script.display(), ready.display()],
+    root,
+    {},
+    b"",
+    stdout,
+    stderr,
+  )
+  let handle = spawn command?
+  defer {
+    if let Ok(_) = process.kill(handle.pid, signal: "0") {
+      handle.cancel(signal: "KILL", kill_after: 0ms)?
+    }
+  }
+
+  let started = time.now()
+  while ! ready.exists()? {
+    if time.now() - started > 2000 {
+      let errors = stderr.read_text()?
+      test.fail(f"startup barrier was not reached: {errors}")
+    }
+    time.sleep(10ms)?
+  }
+
+  process.kill(handle.pid, signal: "TERM")?
+  let finished = process.wait_timeout([handle], 2s)?
+  let output = stdout.read_text()?
+  let errors = stderr.read_text()?
+  if let child = finished {
+    let status = child.status.shell_code()?
+    assert status == 143, f"expected TERM status 143, got {status}: stdout={output}, stderr={errors}"
+  } else {
+    test.fail("startup-signal child did not stop")
+  }
+
+  assert output == ""
+  assert ! ("unknown captured name" in errors), errors
+}
+
 test test_signal_hook_trace_records_the_shutdown_path { |ctx|
   let traced = test.run_xsht_trace(
     ctx,
