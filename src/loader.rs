@@ -760,6 +760,9 @@ pub struct LoadedArenaWorkspace {
     pub entries: Vec<LoadedArenaEntry>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LoadCancelled;
+
 /// Parse entry roots into one arena and resolve shared imports once.
 ///
 /// Each entry keeps its own loading diagnostics while dependencies are added
@@ -768,6 +771,15 @@ pub struct LoadedArenaWorkspace {
 pub fn parse_load_entries_shared_arena_only(
     inputs: Vec<ArenaEntryInput>,
 ) -> LoadedArenaWorkspace {
+    parse_load_entries_shared_arena_only_with_cancellation(inputs, || false)
+        .expect("unconditional shared workspace loading cannot be cancelled")
+}
+
+pub fn parse_load_entries_shared_arena_only_with_cancellation(
+    inputs: Vec<ArenaEntryInput>,
+    mut cancellation_requested: impl FnMut() -> bool,
+) -> Result<LoadedArenaWorkspace, LoadCancelled> {
+    check_load_cancellation(&mut cancellation_requested)?;
     let mut sources = SourceMap::new();
     let token_capacity = inputs
         .iter()
@@ -777,6 +789,7 @@ pub fn parse_load_entries_shared_arena_only(
     let mut entries = Vec::with_capacity(inputs.len());
     let mut entry_loads = Vec::with_capacity(inputs.len());
     for input in inputs {
+        check_load_cancellation(&mut cancellation_requested)?;
         let (source_id, mut diagnostics) = add_source_bytes(&mut sources, &input.file, input.bytes);
         let source = sources
             .get(source_id)
@@ -791,6 +804,7 @@ pub fn parse_load_entries_shared_arena_only(
                 diagnostics: Vec::new(),
             }
         };
+        check_load_cancellation(&mut cancellation_requested)?;
         diagnostics.extend(parsed.diagnostics);
         entry_loads.push((input.file.clone(), input.module_roots, diagnostics.is_empty()));
         entries.push(LoadedArenaEntry {
@@ -804,13 +818,18 @@ pub fn parse_load_entries_shared_arena_only(
 
     let mut loaded = FxHashSet::default();
     {
-        let mut loader = ModuleLoader::new(&mut sources, &mut builder);
+        let mut loader = ModuleLoader::new_shared_workspace(&mut sources, &mut builder);
         let mut root_imports = Vec::with_capacity(entries.len());
         for ((file, module_roots, load_imports), entry) in
             entry_loads.iter().zip(&entries)
         {
             root_imports.push(if *load_imports {
-                loader.load_imports(Path::new(file), entry.statements, module_roots)
+                loader.load_imports_with_cancellation(
+                    Path::new(file),
+                    entry.statements,
+                    module_roots,
+                    &mut cancellation_requested,
+                )?
             } else {
                 Vec::new()
             });
@@ -823,6 +842,7 @@ pub fn parse_load_entries_shared_arena_only(
     }
 
     if let Some(entry) = entries.first() {
+        check_load_cancellation(&mut cancellation_requested)?;
         let mut embedded = EmbeddedModuleLoader::new(&mut sources, &mut builder);
         embedded.load_stdlib_modules(entry.source_id);
         for entry in &mut entries {
@@ -830,14 +850,26 @@ pub fn parse_load_entries_shared_arena_only(
         }
     }
 
+    check_load_cancellation(&mut cancellation_requested)?;
+
     let root_statements = entries
         .first()
         .map_or_else(ArenaRange::default, |entry| entry.statements);
     let program = builder.finish_with_statements(root_statements);
-    LoadedArenaWorkspace {
+    Ok(LoadedArenaWorkspace {
         sources: Arc::new(sources),
         program: Arc::new(program),
         entries,
+    })
+}
+
+fn check_load_cancellation(
+    cancellation_requested: &mut impl FnMut() -> bool,
+) -> Result<(), LoadCancelled> {
+    if cancellation_requested() {
+        Err(LoadCancelled)
+    } else {
+        Ok(())
     }
 }
 
@@ -873,16 +905,41 @@ pub struct ModuleLoader<'a, 'b> {
     modules: FxHashMap<String, LoadedModule>,
     stack: Vec<String>,
     source_overrides: FxHashMap<String, Vec<u8>>,
+    resolution_scoped: bool,
+    primary_contexts: FxHashMap<String, Vec<PathBuf>>,
+    contextual_modules: FxHashMap<(String, Vec<PathBuf>), String>,
+    context_ids: FxHashMap<Vec<PathBuf>, usize>,
+    next_context_id: usize,
 }
 
 impl<'a, 'b> ModuleLoader<'a, 'b> {
     pub fn new(sources: &'a mut SourceMap, arena: &'a mut ArenaProgramBuilder<'b>) -> Self {
+        Self::new_with_resolution_scope(sources, arena, false)
+    }
+
+    fn new_shared_workspace(
+        sources: &'a mut SourceMap,
+        arena: &'a mut ArenaProgramBuilder<'b>,
+    ) -> Self {
+        Self::new_with_resolution_scope(sources, arena, true)
+    }
+
+    fn new_with_resolution_scope(
+        sources: &'a mut SourceMap,
+        arena: &'a mut ArenaProgramBuilder<'b>,
+        resolution_scoped: bool,
+    ) -> Self {
         Self {
             sources,
             arena,
             modules: FxHashMap::default(),
             stack: Vec::new(),
             source_overrides: FxHashMap::default(),
+            resolution_scoped,
+            primary_contexts: FxHashMap::default(),
+            contextual_modules: FxHashMap::default(),
+            context_ids: FxHashMap::default(),
+            next_context_id: 1,
         }
     }
 
@@ -892,11 +949,29 @@ impl<'a, 'b> ModuleLoader<'a, 'b> {
     }
 
     pub fn load(&mut self, path: PathBuf, bytes: Vec<u8>, module_roots: Vec<PathBuf>) -> String {
-        let key = module_key(&path);
+        let mut never_cancel = || false;
+        self.load_with_cancellation(path, bytes, module_roots, &mut never_cancel)
+            .expect("unconditional module loading cannot be cancelled")
+    }
+
+    fn load_with_cancellation(
+        &mut self,
+        path: PathBuf,
+        bytes: Vec<u8>,
+        module_roots: Vec<PathBuf>,
+        cancellation_requested: &mut impl FnMut() -> bool,
+    ) -> Result<String, LoadCancelled> {
+        check_load_cancellation(cancellation_requested)?;
+        let physical_key = module_key(&path);
+        let key = self.identity_key(&physical_key, &module_roots);
         if self.modules.contains_key(&key) {
-            return key;
+            return Ok(key);
         }
-        let bytes = self.source_overrides.get(&key).cloned().unwrap_or(bytes);
+        let bytes = self
+            .source_overrides
+            .get(&physical_key)
+            .cloned()
+            .unwrap_or(bytes);
         let (source_id, mut diagnostics) =
             add_source_bytes(self.sources, &path.to_string_lossy(), bytes);
         let text = self
@@ -912,6 +987,7 @@ impl<'a, 'b> ModuleLoader<'a, 'b> {
         } else {
             ArenaRange::default()
         };
+        check_load_cancellation(cancellation_requested)?;
         self.modules.insert(
             key.clone(),
             LoadedModule {
@@ -926,11 +1002,47 @@ impl<'a, 'b> ModuleLoader<'a, 'b> {
             },
         );
         self.stack.push(key.clone());
-        let imports = self.load_imports(&path, statements, &module_roots);
+        let imports = self.load_imports_with_cancellation(
+            &path,
+            statements,
+            &module_roots,
+            cancellation_requested,
+        );
         self.stack.pop();
-        self.modules.get_mut(&key).expect("module was inserted").imports = imports;
-        let name = self.arena.name(&key);
+        self.modules.get_mut(&key).expect("module was inserted").imports = imports?;
+        let name = self.arena.name(&physical_key);
         self.arena.push_arena_module(key.clone(), name, statements);
+        Ok(key)
+    }
+
+    fn identity_key(&mut self, physical_key: &str, module_roots: &[PathBuf]) -> String {
+        if !self.resolution_scoped {
+            return physical_key.to_string();
+        }
+
+        let identity = (physical_key.to_string(), module_roots.to_vec());
+        if let Some(key) = self.contextual_modules.get(&identity) {
+            return key.clone();
+        }
+
+        let key = if let Some(primary_context) = self.primary_contexts.get(physical_key) {
+            debug_assert_ne!(primary_context, module_roots);
+            let context_id = if let Some(context_id) = self.context_ids.get(module_roots) {
+                *context_id
+            } else {
+                let context_id = self.next_context_id;
+                self.next_context_id += 1;
+                self.context_ids
+                    .insert(module_roots.to_vec(), context_id);
+                context_id
+            };
+            format!("{physical_key}\0{context_id}")
+        } else {
+            self.primary_contexts
+                .insert(physical_key.to_string(), module_roots.to_vec());
+            physical_key.to_string()
+        };
+        self.contextual_modules.insert(identity, key.clone());
         key
     }
 
@@ -940,8 +1052,21 @@ impl<'a, 'b> ModuleLoader<'a, 'b> {
         statements: ArenaRange,
         module_roots: &[PathBuf],
     ) -> Vec<LoadedImport> {
+        let mut never_cancel = || false;
+        self.load_imports_with_cancellation(importer, statements, module_roots, &mut never_cancel)
+            .expect("unconditional module loading cannot be cancelled")
+    }
+
+    fn load_imports_with_cancellation(
+        &mut self,
+        importer: &Path,
+        statements: ArenaRange,
+        module_roots: &[PathBuf],
+        cancellation_requested: &mut impl FnMut() -> bool,
+    ) -> Result<Vec<LoadedImport>, LoadCancelled> {
         let mut imports = Vec::new();
         for stmt in self.arena.statement_ids(statements) {
+            check_load_cancellation(cancellation_requested)?;
             let Some((use_id, path, span)) = self.arena.use_stmt_for_statement(stmt) else {
                 continue;
             };
@@ -958,7 +1083,7 @@ impl<'a, 'b> ModuleLoader<'a, 'b> {
                     self.arena.set_use_searched_candidates(use_id, paths);
                 }
                 Ok(UserModuleResolution::Found { path, bytes }) => {
-                    let target = module_key(&path);
+                    let target = self.identity_key(&module_key(&path), module_roots);
                     if self.stack.contains(&target) {
                         import.diagnostic = Some(
                             Diagnostic::error("cyclic module import")
@@ -966,7 +1091,12 @@ impl<'a, 'b> ModuleLoader<'a, 'b> {
                                 .with_label(Label::primary(span, "module import cycle starts here")),
                         );
                     } else {
-                        self.load(path, bytes, module_roots.to_vec());
+                        self.load_with_cancellation(
+                            path,
+                            bytes,
+                            module_roots.to_vec(),
+                            cancellation_requested,
+                        )?;
                     }
                     self.arena.set_use_resolved(use_id, Arc::from(target.as_str()));
                     import.target = Some(target);
@@ -981,7 +1111,7 @@ impl<'a, 'b> ModuleLoader<'a, 'b> {
             }
             imports.push(import);
         }
-        imports
+        Ok(imports)
     }
 
     pub fn finish(self) -> FxHashMap<String, LoadedModule> {
@@ -1327,6 +1457,127 @@ mod tests {
             sources.get(shared_module.source_id).unwrap().name(),
             shared.to_string_lossy(),
         );
+    }
+
+    #[test]
+    fn shared_workspace_reuses_same_context_and_separates_import_graphs() {
+        let root = tempfile::TempDir::new().expect("create shared-module fixture");
+        let first_context = root.path().join("first_context");
+        let second_context = root.path().join("second_context");
+        let common = root.path().join("common");
+        let first_modules = root.path().join("first_modules");
+        let second_modules = root.path().join("second_modules");
+        for directory in [
+            &first_context,
+            &second_context,
+            &common,
+            &first_modules,
+            &second_modules,
+        ] {
+            fs::create_dir_all(directory).expect("create module root");
+        }
+        let shared = common.join("shared.xsh");
+        let first_nested = first_modules.join("nested.xsh");
+        let second_nested = second_modules.join("nested.xsh");
+        fs::write(&shared, "use nested\n").expect("write shared module");
+        fs::write(&first_nested, "export const value = 1\n").expect("write first dependency");
+        fs::write(&second_nested, "export const value = 2\n").expect("write second dependency");
+
+        let inputs = [
+            (first_context.join("one.xsh"), vec![common.clone(), first_modules.clone()]),
+            (first_context.join("two.xsh"), vec![common.clone(), first_modules.clone()]),
+            (second_context.join("one.xsh"), vec![common, second_modules]),
+        ]
+        .into_iter()
+        .map(|(file, module_roots)| ArenaEntryInput {
+            file: file.to_string_lossy().into_owned(),
+            bytes: b"use shared\n".to_vec(),
+            module_roots,
+        })
+        .collect();
+        let loaded = parse_load_entries_shared_arena_only(inputs);
+        let program = &loaded.program;
+        let imported_module = |statements| {
+            program
+                .arena
+                .stmt_ids(statements)
+                .find_map(|statement| match program.arena.stmt(statement).kind {
+                    ArenaStmtKind::Use(use_id) => program
+                        .arena
+                        .use_stmt(use_id)
+                        .resolved
+                        .as_deref()
+                        .map(str::to_owned),
+                    _ => None,
+                })
+                .expect("entry and module import resolve")
+        };
+        let first_shared = imported_module(loaded.entries[0].statements);
+        assert_eq!(imported_module(loaded.entries[1].statements), first_shared);
+        let second_shared = imported_module(loaded.entries[2].statements);
+        assert_ne!(first_shared, second_shared);
+
+        let shared_key = module_key(&shared);
+        let shared_modules = program
+            .modules
+            .iter()
+            .filter(|module| module.name.as_str().as_str() == shared_key)
+            .collect::<Vec<_>>();
+        assert_eq!(shared_modules.len(), 2);
+        assert!(shared_modules
+            .iter()
+            .all(|module| module.name.as_str().as_str() == shared_key));
+        assert!(shared_modules.iter().any(|module| module.key == shared_key));
+        assert!(shared_modules.iter().any(|module| module.key.contains('\0')));
+        let mut keys = BTreeSet::new();
+        for module in &program.modules {
+            assert!(keys.insert(module.key.as_str()), "duplicate module key: {:?}", module.key);
+        }
+
+        let first_dependency = imported_module(
+            program
+                .modules
+                .iter()
+                .find(|module| module.key == first_shared)
+                .expect("first shared module is present")
+                .statements,
+        );
+        let second_dependency = imported_module(
+            program
+                .modules
+                .iter()
+                .find(|module| module.key == second_shared)
+                .expect("second shared module is present")
+                .statements,
+        );
+        assert_eq!(first_dependency, module_key(&first_nested));
+        assert_eq!(second_dependency, module_key(&second_nested));
+        assert_ne!(first_dependency, second_dependency);
+    }
+
+    #[test]
+    fn shared_workspace_loading_propagates_cancellation_during_recursive_imports() {
+        let root = tempfile::TempDir::new().expect("create cancellation fixture");
+        let entry = root.path().join("entry.xsh");
+        fs::write(root.path().join("shared.xsh"), "use nested\n")
+            .expect("write shared module");
+        fs::write(root.path().join("nested.xsh"), "const value = 1\n")
+            .expect("write nested module");
+        let mut polls = 0;
+        let result = parse_load_entries_shared_arena_only_with_cancellation(
+            vec![ArenaEntryInput {
+                file: entry.to_string_lossy().into_owned(),
+                bytes: b"use shared\n".to_vec(),
+                module_roots: Vec::new(),
+            }],
+            || {
+                polls += 1;
+                polls == 7
+            },
+        );
+
+        assert!(matches!(result, Err(LoadCancelled)));
+        assert_eq!(polls, 7, "cancellation is polled at the nested import");
     }
 
     #[test]

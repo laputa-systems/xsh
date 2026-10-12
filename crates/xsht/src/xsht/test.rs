@@ -26,7 +26,9 @@ use xsh::execution::script::XSH_COVERAGE_TRACE_DIR;
 use xsh::execution::value::{PathValue, RecordMap, ResultValue, RuntimeError, Value};
 use xsh::frontend::check::Type;
 use xsh::frontend::check::{CheckOptions, CheckSession, Checker};
-use xsh::frontend::load::{ArenaEntryInput, parse_load_entries_shared_arena_only};
+use xsh::frontend::load::{
+    ArenaEntryInput, LoadCancelled, parse_load_entries_shared_arena_only_with_cancellation,
+};
 use xsh::frontend::syntax::arena::{ArenaProgram, ArenaRange, ArenaStmtKind, FunctionDefId, StmtId};
 use xsh::process::{cancellation_escalated_signal, cancellation_requested_signal, path_bytes};
 
@@ -97,7 +99,11 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
     };
     match discover_native_tests(&test_roots, &configs, &options) {
         Ok(native) => cases.extend(native),
-        Err(message) => {
+        Err(NativeTestDiscoveryError::Cancelled) => {
+            return cancellation_output()
+                .expect("native test discovery only cancels after a signal request");
+        }
+        Err(NativeTestDiscoveryError::Failure(message)) => {
             if let Some(output) = cancellation_output() {
                 return output;
             }
@@ -682,15 +688,21 @@ struct NativeTestFile {
     child_module_path: Option<Arc<OsString>>,
 }
 
+enum NativeTestDiscoveryError {
+    Cancelled,
+    Failure(String),
+}
+
 fn discover_native_tests(
     roots: &[PathBuf],
     configs: &ConfigCache,
     options: &TestOptions,
-) -> Result<Vec<TestCase>, String> {
+) -> Result<Vec<TestCase>, NativeTestDiscoveryError> {
     let mut files = Vec::new();
     for root in roots {
         if root.exists() {
-            collect_xsh_files(root, configs, DiscoveryFor::Scripts, &mut files)?;
+            collect_xsh_files(root, configs, DiscoveryFor::Scripts, &mut files)
+                .map_err(NativeTestDiscoveryError::Failure)?;
         }
     }
     files.sort_unstable();
@@ -698,12 +710,17 @@ fn discover_native_tests(
 
     let mut test_files = Vec::new();
     for file in files {
+        if cancellation_requested_signal().is_some() {
+            return Err(NativeTestDiscoveryError::Cancelled);
+        }
         let file_name = file.to_string_lossy().into_owned();
         if !test_file_may_match(&file, &file_name, options) {
             continue;
         }
-        let module_roots =
-            FileToolConfig::new(configs.nearest_config_for_file(&file)?).module_roots();
+        let nearest_config = configs
+            .nearest_config_for_file(&file)
+            .map_err(NativeTestDiscoveryError::Failure)?;
+        let module_roots = FileToolConfig::new(nearest_config).module_roots();
         let child_module_path = child_module_path(&module_roots);
         test_files.push(NativeTestFile {
             path: file,
@@ -720,6 +737,9 @@ fn discover_native_tests(
     let mut inputs = Vec::new();
     let mut entry_file_indices = Vec::new();
     for (file_index, file) in test_files.iter().enumerate() {
+        if cancellation_requested_signal().is_some() {
+            return Err(NativeTestDiscoveryError::Cancelled);
+        }
         let file_name = file.path.to_string_lossy().into_owned();
         let bytes = match fs::read(&file.path) {
             Ok(bytes) => bytes,
@@ -743,7 +763,10 @@ fn discover_native_tests(
         entry_file_indices.push(file_index);
     }
 
-    let workspace = parse_load_entries_shared_arena_only(inputs);
+    let workspace = parse_load_entries_shared_arena_only_with_cancellation(inputs, || {
+        cancellation_requested_signal().is_some()
+    })
+    .map_err(|LoadCancelled| NativeTestDiscoveryError::Cancelled)?;
     let session = CheckSession::new(Arc::clone(&workspace.program), Arc::clone(&workspace.sources));
     assert_eq!(
         workspace.entries.len(),
@@ -799,7 +822,7 @@ fn discover_native_tests(
         report_rx.iter().collect::<Vec<_>>()
     });
     if cancellation_output().is_some() {
-        return Err("native test discovery interrupted".to_string());
+        return Err(NativeTestDiscoveryError::Cancelled);
     }
     assert_eq!(
         entry_reports.len(),

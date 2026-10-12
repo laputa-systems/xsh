@@ -225,10 +225,10 @@ impl ModuleRecords {
                     .get(dependency.key.as_str())
                     .unwrap_or_else(|| {
                         panic!(
-                            "module `{}` depends on `{}` before it is prepared; prepared: {:?}",
-                            module.key,
-                            dependency.key,
-                            prepared.keys().collect::<Vec<_>>(),
+                            "module `{}` depends on `{}` before it is prepared; {} modules were prepared",
+                            module.name.as_str(),
+                            dependency.name.as_str(),
+                            prepared.len(),
                         )
                     });
                 facts.merge_owner(view.program, record.owner_facts());
@@ -266,7 +266,7 @@ fn module_source_id(program: &ArenaProgram, module: &ArenaUserModule) -> SourceI
         .next()
         .map(|statement| program.arena.stmt(statement).span.source_id)
         .or_else(|| program.module_doc_for(module.statements).map(|span| span.source_id))
-        .unwrap_or_else(|| panic!("module source identity missing for `{}`", module.key))
+        .unwrap_or_else(|| panic!("module source identity missing for `{}`", module.name.as_str()))
 }
 
 fn module_import_keys<'a>(

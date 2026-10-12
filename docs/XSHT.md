@@ -205,10 +205,14 @@ handler block when replacing an identity-success `Result` match.
 diagnostic. `FILTER` matches a path prefix or a test-name substring; `--exact`
 takes `PATH::TEST_NAME`. `--list`, `--fail-fast`, `--keep-temp`, and
 `--nocapture` behave as named. Child output is captured per test and shown on
-failure. Matching files are loaded, checked, and prepared on a bounded pool of
-front-end workers; results return in path order. `--jobs` controls test
-execution and does not limit file preparation, so `--list` can use multiple
-CPUs.
+failure. Matching files are parsed and their imports loaded before they are
+checked and prepared on a bounded pool of front-end workers; results return in
+path order. Each test file's nearest `module_path` governs its full transitive
+import graph, even when another test file reaches the same physical module
+under a different config. Discovery checks for SIGINT/SIGTERM between file
+reads and at recursive import boundaries before checker workers start.
+`--jobs` controls test execution and does not limit file preparation, so
+`--list` can use multiple CPUs.
 
 Without `--jobs`, all visible logical CPUs run concurrently, capped at 32. The
 scheduler rotates ready source files and admits at most eight test cases from

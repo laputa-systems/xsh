@@ -85,6 +85,81 @@ fn test_roots_share_imported_modules_during_parallel_discovery() {
 }
 
 #[test]
+fn test_roots_resolve_shared_modules_in_their_nearest_config_context() {
+    let root = TempDir::new().expect("temporary native test project");
+    let left_tests = root.path().join("tests/left");
+    let right_tests = root.path().join("tests/right");
+    let common_modules = root.path().join("common");
+    let left_modules = root.path().join("left_modules");
+    let right_modules = root.path().join("right_modules");
+    for directory in [
+        &left_tests,
+        &right_tests,
+        &common_modules,
+        &left_modules,
+        &right_modules,
+    ] {
+        fs::create_dir_all(directory).expect("create native test fixture directory");
+    }
+    fs::write(
+        root.path().join("xsht-config.ini"),
+        "test_roots = tests\n",
+    )
+    .expect("write root test configuration");
+    fs::write(
+        left_tests.join("xsht-config.ini"),
+        "module_path = ../../left_modules\n",
+    )
+    .expect("write left module configuration");
+    fs::write(
+        right_tests.join("xsht-config.ini"),
+        "module_path = ../../right_modules\n",
+    )
+    .expect("write right module configuration");
+    fs::write(
+        common_modules.join("shared.xsh"),
+        "##! Shared native test module.\n##! Resolve its dependency from the importing test's project.\nuse nested\n## Return the value from the context-specific dependency.\nexport pure answer() -> Int { nested.value() }\n",
+    )
+    .expect("write shared module");
+    fs::write(
+        left_modules.join("nested.xsh"),
+        "##! Left native test dependency.\n## Return the left context's value.\nexport pure value() -> Int { 11 }\n",
+    )
+    .expect("write left nested dependency");
+    fs::write(
+        right_modules.join("nested.xsh"),
+        "##! Right native test dependency.\n## Return the right context's value.\nexport pure value() -> Int { 22 }\n",
+    )
+    .expect("write right nested dependency");
+    fs::write(
+        left_tests.join("first.xsh"),
+        "use shared\ntest left_context { |_| assert shared.answer() == 11 }\n",
+    )
+    .expect("write left test root");
+    fs::write(
+        right_tests.join("second.xsh"),
+        "use shared\ntest right_context { |_| assert shared.answer() == 22 }\n",
+    )
+    .expect("write right test root");
+
+    let output = Command::new(test_bin!("xsht"))
+        .args(["test", "--jobs", "4"])
+        .current_dir(root.path())
+        .env("XSH_MODULE_PATH", &common_modules)
+        .output()
+        .expect("run test roots with different module search contexts");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(output.stderr.is_empty());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("2 passed; 0 failed; 0 skipped"));
+}
+
+#[test]
 fn test_help_describes_native_test_concurrency_bounds() {
     let output = Command::new(test_bin!("xsht"))
         .args(["test", "--help"])
