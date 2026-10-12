@@ -1873,8 +1873,8 @@ impl FullBuilder {
             headers,
             identities: std::sync::OnceLock::new(),
         };
-        FullVerifier::verify(&program)
-            .map_err(|_| IrBuildError::format("full_ir_verification", None, 0, 0))?;
+        let verified = FullVerifier::verify(&program);
+        verified.map_err(|_| IrBuildError::format("full_ir_verification", None, 0, 0))?;
         Ok(program)
     }
 
@@ -5828,6 +5828,101 @@ impl<'a> FullDecoder<'a> {
             schema::ExprView::ModuleCall { op, .. } => {
                 Self::registered_api_operation_return_type(op).map(Some)
             }
+            schema::ExprView::FsFiles {
+                result_wrapped, ..
+            } => {
+                let registered =
+                    Self::registered_api_operation_return_type(RuntimeOp::FsFiles)?;
+                let result = if result_wrapped {
+                    registered
+                } else {
+                    match registered {
+                        Type::Result(ok, _) => *ok,
+                        _ => {
+                            return Err(IrVerifyError::new(
+                                "filesystem file scan registry signature is not a result",
+                            ));
+                        }
+                    }
+                };
+                Ok(Some(result))
+            }
+            schema::ExprView::FsWalk {
+                result_wrapped, ..
+            } => {
+                let registered =
+                    Self::registered_api_operation_return_type(RuntimeOp::FsWalk)?;
+                let result = if result_wrapped {
+                    registered
+                } else {
+                    match registered {
+                        Type::Result(ok, _) => *ok,
+                        _ => {
+                            return Err(IrVerifyError::new(
+                                "filesystem walk registry signature is not a result",
+                            ));
+                        }
+                    }
+                };
+                Ok(Some(result))
+            }
+            schema::ExprView::FsList { op, .. } => {
+                Self::registered_api_operation_return_type(op).map(Some)
+            }
+            schema::ExprView::FsMkdir { .. } => {
+                Self::registered_api_operation_return_type(RuntimeOp::FsMkdir).map(Some)
+            }
+            schema::ExprView::FsRemove { .. } => {
+                Self::registered_api_operation_return_type(RuntimeOp::FsRemove).map(Some)
+            }
+            schema::ExprView::FsTempDir { .. } => {
+                Self::registered_api_operation_return_type(RuntimeOp::FsTempDir).map(Some)
+            }
+            schema::ExprView::ArchiveTarCreate { .. } => {
+                Self::registered_api_operation_return_type(RuntimeOp::ArchiveTarCreate).map(Some)
+            }
+            schema::ExprView::PathReadText { .. } => Self::registered_path_method_return_type(
+                "read_text",
+                RuntimeOp::FsReadText,
+            )
+            .map(Some),
+            schema::ExprView::PathReadBytes { .. } => Self::registered_path_method_return_type(
+                "read_bytes",
+                RuntimeOp::FsRead,
+            )
+            .map(Some),
+            schema::ExprView::PathExists { .. } => Self::registered_path_method_return_type(
+                "exists",
+                RuntimeOp::FsExists,
+            )
+            .map(Some),
+            schema::ExprView::PathExecutable { .. } => Self::registered_path_method_return_type(
+                "executable",
+                RuntimeOp::FsExecutable,
+            )
+            .map(Some),
+            schema::ExprView::PathDu { .. } => {
+                Self::registered_path_method_return_type("du", RuntimeOp::FsDu).map(Some)
+            }
+            schema::ExprView::PathMetadata { .. } => Self::registered_path_method_return_type(
+                "metadata",
+                RuntimeOp::FsMetadata,
+            )
+            .map(Some),
+            schema::ExprView::PathWrite { atomic, .. } => {
+                let (name, op) = if atomic {
+                    ("write_atomic", RuntimeOp::FsWriteAtomic)
+                } else {
+                    ("write", RuntimeOp::FsWrite)
+                };
+                Self::registered_path_method_return_type(name, op).map(Some)
+            }
+            schema::ExprView::PathMkdir { .. } => {
+                Self::registered_path_method_return_type("mkdir", RuntimeOp::FsMkdir).map(Some)
+            }
+            schema::ExprView::PathRemove { .. } => {
+                Self::registered_path_method_return_type("remove", RuntimeOp::FsRemove).map(Some)
+            }
             schema::ExprView::PathReadlink { .. } => {
                 Self::registered_path_method_return_type("readlink", RuntimeOp::FsReadlink)
                     .map(Some)
@@ -6140,6 +6235,13 @@ impl<'a> FullDecoder<'a> {
         let require_child = |child: usize, expected: &Type| {
             self.require_checked_child_type(child, expected)
         };
+        let require_registered_return = |expected: Type, message| {
+            if expected == ty {
+                Ok(())
+            } else {
+                Err(IrVerifyError::new(message))
+            }
+        };
         let view = self.expression_view(instruction)?;
         match view {
             schema::ExprView::Int(_) if matches!(ty, Type::Int | Type::UInt) => {}
@@ -6312,6 +6414,68 @@ impl<'a> FullDecoder<'a> {
                     ));
                 }
             }
+            schema::ExprView::FsFiles {
+                result_wrapped, ..
+            } => {
+                let registered =
+                    Self::registered_api_operation_return_type(RuntimeOp::FsFiles)?;
+                let expected = if result_wrapped {
+                    registered
+                } else {
+                    match registered {
+                        Type::Result(ok, _) => *ok,
+                        _ => {
+                            return Err(IrVerifyError::new(
+                                "filesystem file scan registry signature is not a result",
+                            ));
+                        }
+                    }
+                };
+                require_registered_return(
+                    expected,
+                    "checked filesystem file scan disagrees with its registry signature",
+                )?;
+            }
+            schema::ExprView::FsWalk {
+                result_wrapped, ..
+            } => {
+                let registered =
+                    Self::registered_api_operation_return_type(RuntimeOp::FsWalk)?;
+                let expected = if result_wrapped {
+                    registered
+                } else {
+                    match registered {
+                        Type::Result(ok, _) => *ok,
+                        _ => {
+                            return Err(IrVerifyError::new(
+                                "filesystem walk registry signature is not a result",
+                            ));
+                        }
+                    }
+                };
+                require_registered_return(
+                    expected,
+                    "checked filesystem walk disagrees with its registry signature",
+                )?;
+            }
+            schema::ExprView::FsList { op, .. } => {
+                require_registered_return(
+                    Self::registered_api_operation_return_type(op)?,
+                    "checked filesystem listing disagrees with its registry signature",
+                )?;
+            }
+            schema::ExprView::FsMkdir { .. } => {
+                require_registered_return(
+                    Self::registered_api_operation_return_type(RuntimeOp::FsMkdir)?,
+                    "checked filesystem directory creation disagrees with its registry signature",
+                )?;
+            }
+            schema::ExprView::FsRemove { .. } => {
+                require_registered_return(
+                    Self::registered_api_operation_return_type(RuntimeOp::FsRemove)?,
+                    "checked filesystem removal disagrees with its registry signature",
+                )?;
+            }
             schema::ExprView::PathReadText { .. } => {
                 if Self::registered_path_method_return_type("read_text", RuntimeOp::FsReadText)?
                     != ty
@@ -6320,6 +6484,80 @@ impl<'a> FullDecoder<'a> {
                         "checked path read result disagrees with its registry signature",
                     ));
                 }
+            }
+            schema::ExprView::PathReadBytes { .. } => {
+                require_registered_return(
+                    Self::registered_path_method_return_type("read_bytes", RuntimeOp::FsRead)?,
+                    "checked path byte read disagrees with its registry signature",
+                )?;
+            }
+            schema::ExprView::PathExists { .. } => {
+                require_registered_return(
+                    Self::registered_path_method_return_type("exists", RuntimeOp::FsExists)?,
+                    "checked path existence result disagrees with its registry signature",
+                )?;
+            }
+            schema::ExprView::PathExecutable { .. } => {
+                require_registered_return(
+                    Self::registered_path_method_return_type(
+                        "executable",
+                        RuntimeOp::FsExecutable,
+                    )?,
+                    "checked path executable result disagrees with its registry signature",
+                )?;
+            }
+            schema::ExprView::PathDu { .. } => {
+                require_registered_return(
+                    Self::registered_path_method_return_type("du", RuntimeOp::FsDu)?,
+                    "checked path disk usage disagrees with its registry signature",
+                )?;
+            }
+            schema::ExprView::PathMetadata { .. } => {
+                require_registered_return(
+                    Self::registered_path_method_return_type("metadata", RuntimeOp::FsMetadata)?,
+                    "checked path metadata disagrees with its registry signature",
+                )?;
+            }
+            schema::ExprView::PathReadlink { .. } => {
+                require_registered_return(
+                    Self::registered_path_method_return_type("readlink", RuntimeOp::FsReadlink)?,
+                    "checked path readlink result disagrees with its registry signature",
+                )?;
+            }
+            schema::ExprView::PathResolve { .. } => {
+                require_registered_return(
+                    Self::registered_path_method_return_type("resolve", RuntimeOp::PathResolve)?,
+                    "checked path resolve result disagrees with its registry signature",
+                )?;
+            }
+            schema::ExprView::PathWrite { atomic, .. } => {
+                let (name, op) = if atomic {
+                    ("write_atomic", RuntimeOp::FsWriteAtomic)
+                } else {
+                    ("write", RuntimeOp::FsWrite)
+                };
+                require_registered_return(
+                    Self::registered_path_method_return_type(name, op)?,
+                    "checked path write disagrees with its registry signature",
+                )?;
+            }
+            schema::ExprView::PathMkdir { .. } => {
+                require_registered_return(
+                    Self::registered_path_method_return_type("mkdir", RuntimeOp::FsMkdir)?,
+                    "checked path directory creation disagrees with its registry signature",
+                )?;
+            }
+            schema::ExprView::PathRemove { .. } => {
+                require_registered_return(
+                    Self::registered_path_method_return_type("remove", RuntimeOp::FsRemove)?,
+                    "checked path removal disagrees with its registry signature",
+                )?;
+            }
+            schema::ExprView::ArchiveTarCreate { .. } => {
+                require_registered_return(
+                    Self::registered_api_operation_return_type(RuntimeOp::ArchiveTarCreate)?,
+                    "checked archive creation disagrees with its registry signature",
+                )?;
             }
             schema::ExprView::Index { base, .. }
             | schema::ExprView::IndexFromEnd { base, .. } => {
@@ -7083,12 +7321,14 @@ impl<'a> FullDecoder<'a> {
             let schema::ExprView::Try { value, .. } = self.expression_view(instruction)? else {
                 unreachable!("Try instruction tag and generated view disagree")
             };
+            let value_instruction = value.raw() as usize;
             let operand_type = self
-                .derive_checked_expression_type(value.raw() as usize)?
+                .derive_checked_expression_type(value_instruction)?
                 .ok_or_else(|| {
-                    IrVerifyError::new(
-                        "checked With propagation is missing its Result source type",
-                    )
+                    IrVerifyError::new(format!(
+                        "checked With propagation at instruction {instruction} is missing its Result source type at instruction {value_instruction} ({:?})",
+                        self.store.tags[value_instruction]
+                    ))
                 })?;
             let error = Self::checked_result_payload_type(Some(&operand_type), false)
                 .ok_or_else(|| {
@@ -16576,6 +16816,230 @@ pure apply_result(n: Int) -> Int {
         let error = FullVerifier::verify(&forged).unwrap_err();
         assert!(
             error.message.contains("checked return type disagrees with the function signature"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn with_fallible_path_results_match_their_registered_types() {
+        let source = r#"test test_with_fallible_path_results_match_their_registered_types {
+  let source_path = fp"source"
+  with raw_content = source_path.read_bytes()? {
+    let _ = raw_content
+  } else { |failure| let _ = failure.message }
+  with present = source_path.exists()? {
+    let _ = present
+  } else { |failure| let _ = failure.message }
+  with executable = source_path.executable()? {
+    let _ = executable
+  } else { |failure| let _ = failure.message }
+  with size = source_path.du()? {
+    let _ = size
+  } else { |failure| let _ = failure.message }
+  with entry = source_path.metadata()? {
+    let _ = entry
+  } else { |failure| let _ = failure.message }
+  with resolved_path = source_path.resolve()? {
+    let _ = resolved_path.display()
+  } else { |failure| let _ = failure.message }
+  with target_path = source_path.readlink()? {
+    let _ = target_path.display()
+  } else { |failure| let _ = failure.message }
+  with written = source_path.write("contents")? {
+    let _ = written
+  } else { |failure| let _ = failure.message }
+  with atomically_written = source_path.write_atomic("contents")? {
+    let _ = atomically_written
+  } else { |failure| let _ = failure.message }
+  with created = source_path.mkdir()? {
+    let _ = created
+  } else { |failure| let _ = failure.message }
+  with removed = source_path.remove()? {
+    let _ = removed
+  } else { |failure| let _ = failure.message }
+  with children = fs.children(source_path)? {
+    let _ = children
+  } else { |failure| let _ = failure.message }
+  with files = fs.files(source_path)? {
+    let _ = files
+  } else { |failure| let _ = failure.message }
+  with walked = fs.walk(source_path)? {
+    let _ = walked
+  } else { |failure| let _ = failure.message }
+  with root = fs.tempdir()? {
+    let _ = root
+  } else { |failure| let _ = failure.message }
+  with tar_result = archive.tar_create(source_path, source_path, [source_path])? {
+    let _ = tar_result
+  } else { |failure| let _ = failure.message }
+  with contents = source_path.read_text()? {
+    let _ = contents
+  } else { |failure| let _ = failure.message }
+}
+"#;
+        let program = fixture("typed-callable-path-result-producer.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+
+        let read_text_fact = program
+            .store
+            .checked_expr_types
+            .iter()
+            .find(|fact| {
+                program.store.tags[fact.instruction as usize] == FullTag::ExprPathReadText
+            })
+            .expect("read_text error source has a checked result type");
+        let alternate_type = read_text_fact.type_id;
+        let resolve_type = program
+            .store
+            .checked_expr_types
+            .iter()
+            .find(|fact| {
+                program.store.tags[fact.instruction as usize] == FullTag::ExprPathResolve
+            })
+            .expect("resolve error source has a checked result type")
+            .type_id;
+
+        for (tag, forged_type, expected_message) in [
+            (
+                FullTag::ExprPathReadText,
+                resolve_type,
+                "checked path read result disagrees with its registry signature",
+            ),
+            (
+                FullTag::ExprPathReadBytes,
+                alternate_type,
+                "checked path byte read disagrees with its registry signature",
+            ),
+            (
+                FullTag::ExprPathExists,
+                alternate_type,
+                "checked path existence result disagrees with its registry signature",
+            ),
+            (
+                FullTag::ExprPathExecutable,
+                alternate_type,
+                "checked path executable result disagrees with its registry signature",
+            ),
+            (
+                FullTag::ExprPathDu,
+                alternate_type,
+                "checked path disk usage disagrees with its registry signature",
+            ),
+            (
+                FullTag::ExprPathMetadata,
+                alternate_type,
+                "checked path metadata disagrees with its registry signature",
+            ),
+            (
+                FullTag::ExprPathResolve,
+                alternate_type,
+                "checked path resolve result disagrees with its registry signature",
+            ),
+            (
+                FullTag::ExprPathReadlink,
+                alternate_type,
+                "checked path readlink result disagrees with its registry signature",
+            ),
+            (
+                FullTag::ExprPathWrite,
+                alternate_type,
+                "checked path write disagrees with its registry signature",
+            ),
+            (
+                FullTag::ExprPathMkdir,
+                alternate_type,
+                "checked path directory creation disagrees with its registry signature",
+            ),
+            (
+                FullTag::ExprPathRemove,
+                alternate_type,
+                "checked path removal disagrees with its registry signature",
+            ),
+            (
+                FullTag::ExprFsList,
+                alternate_type,
+                "checked filesystem listing disagrees with its registry signature",
+            ),
+            (
+                FullTag::ExprFsFiles,
+                alternate_type,
+                "checked filesystem file scan disagrees with its registry signature",
+            ),
+            (
+                FullTag::ExprFsWalk,
+                alternate_type,
+                "checked filesystem walk disagrees with its registry signature",
+            ),
+            (
+                FullTag::ExprFsTempDir,
+                alternate_type,
+                "checked temporary-directory result disagrees with its registry signature",
+            ),
+            (
+                FullTag::ExprArchiveTarCreate,
+                alternate_type,
+                "checked archive creation disagrees with its registry signature",
+            ),
+        ] {
+            let fact_indices = program
+                .store
+                .checked_expr_types
+                .iter()
+                .enumerate()
+                .filter_map(|(index, fact)| {
+                    (program.store.tags[fact.instruction as usize] == tag).then_some(index)
+                })
+                .collect::<Vec<_>>();
+            assert!(!fact_indices.is_empty(), "{tag:?} has no checked source fact");
+            for fact_index in fact_indices {
+                let mut forged = program.clone();
+                forged.store.checked_expr_types[fact_index].type_id = forged_type;
+
+                let error = FullVerifier::verify(&forged).unwrap_err();
+                assert!(error.message.contains(expected_message), "{}", error.message);
+            }
+        }
+
+        for (tag, expected_message) in [
+            (
+                FullTag::ExprFsFiles,
+                "checked filesystem file scan disagrees with its registry signature",
+            ),
+            (
+                FullTag::ExprFsWalk,
+                "checked filesystem walk disagrees with its registry signature",
+            ),
+        ] {
+            let instruction = program
+                .store
+                .tags
+                .iter()
+                .position(|actual| *actual == tag)
+                .expect("wrapped filesystem scan producer");
+            let payload = program.store.data[instruction].range();
+            let wrapped_flag = payload.start as usize + 5;
+            assert_eq!(program.store.extra[wrapped_flag], 1);
+            let mut forged = program.clone();
+            forged.store.extra[wrapped_flag] = 0;
+
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(error.message.contains(expected_message), "{}", error.message);
+        }
+
+        let fs_list = program
+            .store
+            .tags
+            .iter()
+            .position(|actual| *actual == FullTag::ExprFsList)
+            .expect("filesystem child-list producer");
+        let op_index = program.store.extra[program.store.data[fs_list].range().start as usize]
+            as usize;
+        let mut forged = program.clone();
+        forged.store.runtime_ops[op_index] = RuntimeOp::FsDirs;
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error.message.contains("filesystem list operation is not `fs.children`"),
             "{}",
             error.message
         );

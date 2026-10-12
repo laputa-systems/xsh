@@ -961,3 +961,27 @@ test test_with_keeps_registry_results_for_environment_path_methods {
   }
   assert outcome != ""
 }
+
+test test_with_try_path_results_keep_registry_error_types { |ctx|
+  let root = test.temp_dir(ctx, name: "typed-callable-path-error-types")?
+  let file = fp"{root}/file"
+  file.write("contents")
+  let link = fp"{root}/link"
+  fs.symlink(file, link)
+
+  var resolved = ""
+  with resolved_path = link.resolve()? {
+    resolved = resolved_path.display()
+  } else { |failure|
+    resolved = failure.message
+  }
+  assert resolved == file.resolve()?.display()
+
+  var link_target = ""
+  with target_path = link.readlink()? {
+    link_target = target_path.display()
+  } else { |failure|
+    link_target = failure.message
+  }
+  assert link_target == file.display()
+}
