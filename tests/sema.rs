@@ -1771,7 +1771,7 @@ fn stream_callback_result_contracts_publish_matching_full_and_compact_types() {
         "sort-by { |item| Ok(item)? }",
         "group-by { |item| produce(item) }",
         "unique-by { |item| produce(item) }",
-        "flat-map { |item| Ok([item]) }",
+        "flat-map { |item| Ok([item])? }",
     ] {
         let source = format!(
             "error ItemError = Stop(item: Int)\npure produce(item: Int) -> Result[Int, ItemError] {{ if item == 2 {{ Err(ItemError.Stop(item)) }} else {{ item }} }}\nlet values = [1, 2, 3] |> {stage}\n"
@@ -1830,4 +1830,21 @@ fn stream_callback_result_contracts_publish_matching_full_and_compact_types() {
             assert_eq!(pipelines, 1, "{stage}");
         });
     }
+}
+
+#[test]
+fn flat_map_result_callback_requires_explicit_propagation_in_full_and_compact_checks() {
+    let source = "let values = [1, 2, 3] |> flat-map { |item| Ok([item]) }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == Some(DiagnosticCode::CheckFlatMap)
+    }));
+
+    let declarations = compact_check(&parsed.arena, source);
+    assert!(declarations.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == Some(DiagnosticCode::CheckFlatMap)
+    }));
 }
