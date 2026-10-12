@@ -951,21 +951,25 @@ impl Checker {
                     .collect(),
             )
         });
+        let mut parameters_by_name = super::FxHashMap::default();
+        if let Some(parameters) = &parameters {
+            for parameter in parameters.iter().filter(|parameter| !parameter.rest) {
+                // Keep the first parameter if malformed signatures repeat a name.
+                parameters_by_name.entry(parameter.name).or_insert(parameter);
+            }
+        }
         let mut checked = super::FxHashMap::default();
         for arg in args {
             let value = call_arg_expr_id_arena(&arg.kind);
             let ty = probe.check_expr_arena(arena, source, value, None);
             if matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. })
-                && let (Some(parameters), Type::Record(fields)) = (&parameters, &ty)
+                && let (Some(_), Type::Record(fields)) = (&parameters, &ty)
             {
                 let mut context = crate::sema::constants::SchemaExpectation::default();
                 let expected = fields
                     .iter()
                     .map(|(name, actual)| {
-                        if let Some(parameter) = parameters
-                            .iter()
-                            .find(|parameter| parameter.name == *name && !parameter.rest)
-                        {
+                        if let Some(parameter) = parameters_by_name.get(name) {
                             if let Some(schema) = &parameter.schema_expectation {
                                 context.children.insert(
                                     crate::sema::constants::SchemaComponent::Field(*name),
