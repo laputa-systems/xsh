@@ -1,5 +1,48 @@
 # Consolidation restart handoff
 
+## Wider component closure and scheduler failures — 2026-10-12
+
+Master `c031b1f3` includes final call readers (`01ec3b91`, `edf269e2`),
+checksum sharding with per-input output checks (`987bc1e4`, `af7b1897`),
+AWK sharding (`65af4019`), and indexed named-spread parameter lookup
+(`0d60d207`). All 4,000 checksum inputs and 2,112 AWK fixtures retain their
+original assertions and origins. Private checksum 49/49 and AWK 307/307 gates
+passed; their overlapping timings are not performance acceptance.
+
+Reviewed nested comprehension target binding (`c031b1f3`, private `cf6ba78e`)
+removes three allocations and 336 bytes per item in normal and forced-frame
+probes. Its private record/collection/map gates and atomic binding test passed;
+CPU latency remains unmeasured. PTY redirection fix `aa0c8f28` adds `O_NOCTTY`
+after a session-leader reproduction terminated XSHT with SIGHUP. The retained
+Rust boundary regression and 34 process native cases passed privately. The
+three stale musl applet failure TODOs were removed at `c06788f7` only after
+strict matching-fixture reproductions passed.
+
+Frozen `master-af7` combined binaries passed 120 indexed Rust units and all
+14 selected native files in both execution modes. Its first focused PTY case
+then exited with SIGHUP; the second was not run. That batch is qualified, not
+fully green. The new PTY and comprehension commits still need a combined gate.
+
+The default-32 full candidate correctness run was interrupted after 1,402.6
+seconds with 4,058 passes, 121 failures/timeouts and 92 skips; 8,557 manifest
+IDs remained unobserved. It is neither a complete suite nor a timing baseline.
+Sixteen preparation errors reproduce serially (fourteen missing helper `net`
+effects and two reads of child PID after consuming `wait`). A separate repair
+lane preserves the assertions. Isolated BusyBox AWK passes 49/49 at one worker
+but fails 34 cases at 32 workers because of existing five-second child
+deadlines. Fair scheduling and bounded per-file admission now belong to one
+complete scheduler lane; deadlines and coverage remain fixed. Other runtime
+failures need exact isolated diagnostics. The host has 16 physical cores and
+32 hardware threads. No fourfold speedup has been demonstrated.
+
+Wide lanes remain active: complete typed producer provenance and owned-master
+port; all 6,760 original module-publication comparisons and owned-master port;
+canonical stage-call checking without arena clones; configured-width lint
+closure including loud imported-config errors; compiler-driven blanket
+retirement; and feature-on XSHI thread stack bounds. Independent review is
+required before acceptance. Original baselines and historical artifacts remain
+unchanged; final review artifacts reside in the real master worktree.
+
 ## Wider closure lanes and accepted boundaries — 2026-10-12
 
 Master `4a14be26` accepts the runner preparation (`8e336d8d`), library-owned
