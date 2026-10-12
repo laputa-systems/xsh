@@ -6154,6 +6154,37 @@ impl<'a> FullDecoder<'a> {
             schema::ExprView::Bool(_) => Ok(Some(Type::Bool)),
             schema::ExprView::Duration(_) => Ok(Some(Type::Duration)),
             schema::ExprView::Unit => Ok(Some(Type::Unit)),
+            // These operators preserve their scalar type only when both exact
+            // operands agree; unsupported or unknown shapes stay unproved.
+            schema::ExprView::Binary {
+                op,
+                left,
+                right,
+                ..
+            } => {
+                let Some(left_type) =
+                    self.derive_checked_expression_type(left.raw() as usize)?
+                else {
+                    return Ok(None);
+                };
+                let Some(right_type) =
+                    self.derive_checked_expression_type(right.raw() as usize)?
+                else {
+                    return Ok(None);
+                };
+                let left_type = left_type.unvalidated();
+                let right_type = right_type.unvalidated();
+                let result = match (op, left_type, right_type) {
+                    (
+                        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div,
+                        Type::Float,
+                        Type::Float,
+                    ) => Some(Type::Float),
+                    (BinaryOp::Add, Type::Str, Type::Str) => Some(Type::Str),
+                    _ => None,
+                };
+                Ok(result)
+            }
             schema::ExprView::Param(slot) => {
                 let (has_local_write, initializer) = if driver_owner_index(self.owner).is_none() {
                     self.local_immutable_let_initializer(slot)?

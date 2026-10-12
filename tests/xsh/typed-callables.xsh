@@ -64,6 +64,26 @@ pure empty_callback_count() -> Int {
   callbacks.len()
 }
 
+pure floor_computed_float(value: Float) -> Int {
+  var result = 0
+  with rounded = (value + 0.5).floor() {
+    result = rounded
+  } else { |failure|
+    result = -1
+  }
+  result
+}
+
+pure parse_computed_string(value: Int) -> Int {
+  var result = 0
+  with parsed = (f"{value}" + "").parse_int() {
+    result = parsed
+  } else { |failure|
+    result = -1
+  }
+  result
+}
+
 proc callback_from_map(callbacks: Map[Scale]) [error] -> Result[Int] {
   with selected = callbacks.get("double") {
     return Ok(selected(4))
@@ -439,6 +459,14 @@ test test_registered_method_checks_intrinsic_formatted_string_receiver {
 
 test test_empty_typed_callable_map_is_a_valid_initializer {
   assert empty_callback_count() == 0
+}
+
+test test_registered_method_uses_computed_float_receiver {
+  assert floor_computed_float(1.6) == 2
+}
+
+test test_registered_method_uses_computed_string_receiver {
+  assert parse_computed_string(12) == 12
 }
 
 proc bump(n: Int) -> Int {
