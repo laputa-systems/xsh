@@ -186,7 +186,7 @@ lint_rules! {
     LintPreferInferredPrivateEffects: (RuleSetting::Configured(RuleOption::InferredPrivateEffects), [CheckerDiagnostics, ExpressionTypes, FunctionReturns, FunctionEffects, StatementPositions, ParameterTypes, StandardCallAndMembership, ReturnProofProbe], FixPolicy::ProducerProof, [RuleHook::Procedure(ProcedureSite::InferredEffects, |linter, definition, exported, entrypoint, span| linter.lint_inferred_proc_effects(definition, exported, entrypoint, span))]);
     LintPreferInferredPureReturn: (RuleSetting::OptIn(RuleOption::InferredPureReturns), [CheckerDiagnostics, ExpressionTypes, FunctionReturns, FunctionEffects, StatementPositions, ParameterTypes, ReturnProofProbe], FixPolicy::ProducerProof, [RuleHook::Statement(StatementSite::InferredPureReturn, |linter, statement, exported| if let ArenaStmtKind::PureDef(def) = linter.arena.stmt(statement).kind { linter.lint_inferred_pure_return(def, exported); })]);
     LintPreferInferredVariant: (RuleSetting::Always, [RedundantVariantQualifiers], FixPolicy::ProducerProof, [RuleHook::Pattern(run_inferred_variant_pattern_hook), RuleHook::Expression(|linter, expr| linter.lint_inferred_variant(expr))]);
-    LintPreferItemShorthand: (RuleSetting::Configured(RuleOption::ItemShorthand), [], FixPolicy::ProducerProof, [RuleHook::StreamStage(|linter, stage| linter.item_shorthands.extend(super::item_shorthand::stage_report(linter.arena, linter.source, stage))), RuleHook::Root(RootStage::SortItemShorthands, run_item_shorthand_finalizer), RuleHook::EveryExpression(run_item_shorthand_expression)]);
+    LintPreferItemShorthand: (RuleSetting::Configured(RuleOption::ItemShorthand), [], FixPolicy::ProducerProof, [RuleHook::StreamStage(|linter, stage| linter.item_shorthands.extend(super::item_shorthand::stage_report(linter.arena, linter.source, stage, linter.format_line_width))), RuleHook::Root(RootStage::SortItemShorthands, run_item_shorthand_finalizer), RuleHook::EveryExpression(run_item_shorthand_expression)]);
     LintPreferListCompoundAssignment: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::Statement(StatementSite::ListCompoundAssignment, |linter, statement, _| { if let ArenaStmtKind::Assign { target, op: super::AssignOp::Set, value } = linter.arena.stmt(statement).kind { linter.lint_list_compound_assignment(target, value, linter.arena.stmt(statement).span); } })]);
     LintPreferListElementAssignment: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::StatementSequence(StatementSequenceSite::ListElementReconstruction, |linter, statements| linter.lint_list_element_reconstruction(statements))]);
     LintPreferListPattern: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::Statement(StatementSite::ListPattern, |linter, statement, _| { if let ArenaStmtKind::If { branches, else_block } = linter.arena.stmt(statement).kind { let span = linter.arena.stmt(statement).span; linter.lint_list_pattern(branches, else_block, span); } })]);
@@ -303,6 +303,7 @@ fn run_item_shorthand_expression(linter: &mut Linter<'_>, expr: ExprId) {
             linter.arena,
             linter.source,
             right,
+        linter.format_line_width,
         ));
     }
 }

@@ -69,6 +69,19 @@ test test_prefer_guard_keeps_comments_else_and_multiple_actions { |ctx|
   }
 }
 
+test test_prefer_guard_uses_project_width_for_single_line_eligibility { |ctx|
+  let root = test.temp_dir(ctx, name: "guard-configured-width")?
+  fp"{root}/xsht-config.ini".write("[format]\nline-width = 40\n")
+  let file = fp"{root}/guard.xsh"
+  file.write("pure value(should_continue_when_validated: Bool, fallback_value_from_configuration: Int) -> Int {\n  if should_continue_when_validated { return fallback_value_from_configuration }\n  return 0\n}\n")
+
+  let checked = run.capture --text "xsht" check $file
+  assert checked.status.exited_with(0), checked.stderr
+  let linted = run.capture --text "xsht" lint --only lint.prefer-guard $file
+  assert linted.status.exited_with(0), linted.stderr
+  assert "lint.prefer-guard" not in linted.stderr, linted.stderr
+}
+
 test test_prefer_guard_drops_the_braces_of_a_single_statement_match_arm { |ctx|
   # `xsht fmt` prints an arm holding one guarded statement without braces,
   # so the fix to the only statement of a braced arm takes the braces too.

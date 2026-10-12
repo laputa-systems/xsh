@@ -19,6 +19,7 @@ use xsh::frontend::syntax::arena::{
 pub(super) fn positional_symlink(
     arena: &AstArena,
     source: &str,
+    line_width: usize,
     fs_is_shadowed: bool,
     expr: ExprId,
 ) -> Option<Diagnostic> {
@@ -35,12 +36,12 @@ pub(super) fn positional_symlink(
     {
         return None;
     }
-    symlink_function(arena, source, call.span, arena.call_args(args))
+    symlink_function(arena, source, line_width, call.span, arena.call_args(args))
 }
 
 /// Whether the line an edit starts on still fits the formatter's width after
 /// it, or did not fit before.
-fn fits_line(source: &str, span: Span, replacement: &str) -> bool {
+fn fits_line(source: &str, span: Span, replacement: &str, line_width: usize) -> bool {
     let line_start = source[..span.start()]
         .rfind('\n')
         .map_or(0, |offset| offset + 1);
@@ -50,8 +51,7 @@ fn fits_line(source: &str, span: Span, replacement: &str) -> bool {
     let before = source[line_start..line_end].chars().count();
     let removed = source[span.range()].chars().count();
     let after = before - removed + replacement.chars().count();
-    let width = super::super::format::DEFAULT_LINE_WIDTH;
-    after <= width || before > width
+    after <= line_width || before > line_width
 }
 
 /// The edit that replaces `call` with `replacement` as the formatter prints
@@ -67,15 +67,22 @@ fn fits_line(source: &str, span: Span, replacement: &str) -> bool {
 /// formatter leaves alone. In any other file, and where the formatter
 /// rejects the result, the call is replaced where it stands and the next
 /// format lays it out.
-fn formatted_replacement(source: &str, call: Span, replacement: String) -> (Span, String) {
+fn formatted_replacement(
+    source: &str,
+    call: Span,
+    replacement: String,
+    line_width: usize,
+) -> (Span, String) {
     let in_place = (call, replacement.clone());
     // A call that still fits its line stays on it; only one that does not is
     // worth formatting the file for.
-    if fits_line(source, call, &replacement) {
+    if fits_line(source, call, &replacement, line_width) {
         return in_place;
     }
     let format = |text: &str| {
-        let output = super::super::format::Formatter::new().format_source(call.source_id, text);
+        let output = super::super::format::Formatter::new()
+            .with_line_width(line_width)
+            .format_source(call.source_id, text);
         output.diagnostics.is_empty().then_some(output.formatted)
     };
     let mut rewritten = source.to_owned();
@@ -119,6 +126,7 @@ fn formatted_replacement(source: &str, call: Span, replacement: String) -> (Span
 fn symlink_function(
     arena: &AstArena,
     source: &str,
+    line_width: usize,
     call: Span,
     args: &[ArenaCallArg],
 ) -> Option<Diagnostic> {
@@ -167,8 +175,12 @@ fn symlink_function(
     } else {
         format!("to: {}", source.get(target.span.range())?)
     };
-    let (span, replacement) =
-        formatted_replacement(source, call, format!("{receiver}.symlink({argument})"));
+    let (span, replacement) = formatted_replacement(
+        source,
+        call,
+        format!("{receiver}.symlink({argument})"),
+        line_width,
+    );
     Some(diagnostic.with_fix_hint(FixHint::replacement(
         span,
         "call the method on the link",

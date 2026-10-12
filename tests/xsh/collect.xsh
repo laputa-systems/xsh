@@ -314,6 +314,7 @@ test test_collect_formats_stably_and_is_rewritten_by_its_lint { |ctx|
         yield n * n
   }
 }
+
 let count = collect   { yield 1 }.len()
 """
   let candidate = test.temp_file(ctx, name: "collect.xsh", contents: bytes.from_text(source))?
@@ -362,4 +363,17 @@ print f"{loud([1, 2]).len()}"
 """
   let ran = run.capture --text "xsh" $built
   assert ran.stdout == "1\n2\n2\n", ran.stderr
+}
+
+test test_prefer_collect_uses_project_width_for_replacement_layout { |ctx|
+  let root = test.temp_dir(ctx, name: "collect-configured-width")?
+  fp"{root}/xsht-config.ini".write("[format]\nline-width = 40\n")
+  let file = fp"{root}/build.xsh"
+  file.write("pure combine(left: Str, right: Str) -> Str { left + right }\nproc build(items: List[Str]) -> List[Str] {\n  var kept: List[Str] = []\n  for item in items {\n    kept = kept.push(combine(item, \"this string is long enough to wrap the generated call\"))\n  }\n  kept\n}\n")
+
+  let checked = run.capture --text "xsht" check $file
+  assert checked.status.exited_with(0), checked.stderr
+  let report = run.capture --text "xsht" lint --only lint.prefer-collect $file
+  assert report.status.exited_with(1), report.stderr
+  assert "yield combine(\n" in report.stderr, report.stderr
 }

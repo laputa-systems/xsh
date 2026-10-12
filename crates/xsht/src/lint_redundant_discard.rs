@@ -38,8 +38,12 @@ pub(super) fn lint_redundant_discard(linter: &mut super::Linter<'_>, statement: 
     // Without the binding the call is eight columns narrower, so the
     // formatter may lay it out differently; a statement the formatter cannot
     // place is only shortened.
-    let fix = match super::lint_prefer_test_expect::formatted_in_place(source, replaced, call_text)
-    {
+    let fix = match super::lint_prefer_test_expect::formatted_in_place(
+        source,
+        replaced,
+        call_text,
+        linter.format_line_width,
+    ) {
         Some(statement) => FixHint::replacement(replaced, "remove `let _ =`", statement),
         None => FixHint::deletion(binding, "remove `let _ =`"),
     };

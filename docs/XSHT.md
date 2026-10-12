@@ -124,6 +124,8 @@ shared baseline `CheckOutput`. `LintOptions.checked_output` supplies those facts
 explicitly; without it, rules that read the shared facts stay silent or withhold
 fixes. `xsht lint` checks the workspace once and passes the shared result to
 each lint run. Rule-specific rewrite proofs may still check a proposed candidate.
+Lint rewrite layout and single-line eligibility use the file's configured
+`[format] line-width`; standalone library lint keeps the formatter's default.
 
 A file with a check error is not linted, because its checked facts are
 incomplete; a check warning is reported beside the file's lint findings.

@@ -307,6 +307,20 @@ test test_list_compound_assignment_wraps_an_update_that_overflows_the_line { |ct
   assert_formatted(file)
 }
 
+test test_list_compound_assignment_uses_project_format_width { |ctx|
+  let root = test.temp_dir(ctx, name: "list-update-configured-width")?
+  fp"{root}/xsht-config.ini".write("[format]\nline-width = 40\n")
+  let file = fp"{root}/update.xsh"
+  let source = r"""proc build() [] -> List[Str] {
+  var values: List[Str] = []
+  values = values.push("this value is longer than forty characters")
+  values
+}
+"""
+  let report = reported(file, source)?
+  assert "help: rewrite as list compound assignment -> values += [\n    \"this value is longer than forty characters\",\n  ]\n" in report, report
+}
+
 test test_list_compound_assignment_rewrites_push_chains_only { |ctx|
   let root = test.temp_dir(ctx, name: "list-update-chains")?
   let file = fp"{root}/update.xsh"

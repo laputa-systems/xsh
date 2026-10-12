@@ -75,6 +75,21 @@ test test_only_runs_every_rule_that_a_lint_key_governs { |ctx|
   }
 }
 
+test test_item_shorthand_uses_project_width_for_single_line_eligibility { |ctx|
+  let root = test.temp_dir(ctx, name: "item-shorthand-configured-width")?
+  fp"{root}/xsht-config.ini".write("[format]\nline-width = 40\n")
+  let source = "type Hit = {url: Str}\nlet hits = [Hit(url: \"https://example.invalid/item\")]\nlet urls = hits |> map { |hit| hit.url.trim().upper().replace(\"this string makes the callback longer than forty columns\", with: \"short\") }\nprint urls.len()\n"
+  fp"{root}/main.xsh".write(source)
+
+  let checked = run.capture --text "xsht" check fp"{root}/main.xsh"
+  assert checked.status.exited_with(0), checked.stderr
+  let linted = run.capture --text "xsht" lint --only lint.prefer-item-shorthand fp"{root}/main.xsh"
+  assert linted.status.exited_with(1), linted.stderr
+  assert "help: rewrite this callback with an implicit item -> .url.trim()\n" in linted.stderr, linted.stderr
+  assert "  .replace(\n" in linted.stderr, linted.stderr
+  assert "this string makes the callback longer than forty columns" in linted.stderr, linted.stderr
+}
+
 # A project whose `check --annotate` writes return annotations keeps them: the
 # two rules that remove a return stay off there however they are asked for.
 test test_only_does_not_remove_returns_that_annotate_writes { |ctx|

@@ -97,9 +97,6 @@ Formatter and lint:
 - `xsht fmt` prints a bare-block match arm body as `({ ... })`, misindents a
   `"""` string that is the only argument of a nested multi-line call, and
   misindents a list that holds a raw string with an unbalanced `(`.
-- A lint fix formats at the default width, not the project's `[format]`
-  width. `lint.prefer-inferred-pure-return` is silent in a file that has a
-  `use`.
 - `lint.redundant-optional-fallback` rewrites `(x ?? 0) + 1` to `(x) + 1`,
   whose parentheses are then `check.redundant-parens`; the fix should drop
   them. `check.named-arg`, the error for a positional argument that needs a

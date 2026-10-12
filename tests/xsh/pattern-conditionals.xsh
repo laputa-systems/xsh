@@ -278,6 +278,20 @@ print $selected
   }
 }
 
+test test_pattern_conditional_lint_replacement_uses_project_format_width { |ctx|
+  let root = test.temp_dir(ctx, name: "pattern-conditional-width")?
+  fp"{root}/xsht-config.ini".write("[format]\nline-width = 40\n")
+  let file = fp"{root}/pattern-conditional.xsh"
+  file.write("let outcome = Ok(7)\nlet selected = match outcome { Ok(value) => value + 1, Err(_) => 0 }\nprint $selected\n")
+
+  let checked = run.capture --text "xsht" check $file
+  assert checked.status.exited_with(0), checked.stderr
+  let report = run.capture --text "xsht" lint --only "lint.pattern-conditional" $file
+  assert report.status.exited_with(1), report.stderr
+  assert "help: use a pattern conditional -> if let Ok(value) = outcome {\n" in report.stderr, report.stderr
+  assert "  value + 1\n} else {\n  0\n}" in report.stderr, report.stderr
+}
+
 test test_pattern_conditional_lint_retains_comments_guards_and_error_bindings { |ctx|
   for source in [
     """let outcome = Ok(7)

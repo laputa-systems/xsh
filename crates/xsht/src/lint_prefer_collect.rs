@@ -8,7 +8,7 @@ use xsh::frontend::syntax::arena::{
 use xsh::frontend::syntax::node::AssignOp;
 use xsh::frontend::syntax::parser::Parser;
 
-use super::super::format::{DEFAULT_LINE_WIDTH, Formatter};
+use super::super::format::Formatter;
 
 /// A local list that is declared empty and then only appended to, up to its
 /// first read, is the list a `collect` block builds:
@@ -55,8 +55,9 @@ use super::super::format::{DEFAULT_LINE_WIDTH, Formatter};
 pub(super) fn lint_built_lists(linter: &mut super::Linter<'_>, stmts: &[StmtId]) {
     let arena = linter.arena;
     let source = linter.source;
+    let line_width = linter.format_line_width;
     for index in 0..stmts.len() {
-        let Some(found) = built_list(arena, source, stmts, index) else {
+        let Some(found) = built_list(arena, source, stmts, index, line_width) else {
             continue;
         };
         // The comprehension lint rewrites the same statements.
@@ -117,7 +118,13 @@ struct Scan<'a> {
     appends: Vec<Append>,
 }
 
-fn built_list(arena: &AstArena, source: &str, stmts: &[StmtId], index: usize) -> Option<BuiltList> {
+fn built_list(
+    arena: &AstArena,
+    source: &str,
+    stmts: &[StmtId],
+    index: usize,
+    line_width: usize,
+) -> Option<BuiltList> {
     let declaration = arena.stmt(stmts[index]);
     let ArenaStmtKind::Var {
         target,
@@ -224,9 +231,9 @@ fn built_list(arena: &AstArena, source: &str, stmts: &[StmtId], index: usize) ->
     // or not its statements are already laid out to fit.
     let replacement = if format!("{indent}{replacement}")
         .lines()
-        .any(|line| line.chars().count() > DEFAULT_LINE_WIDTH)
+        .any(|line| line.chars().count() > line_width)
     {
-        laid_out(&replacement, indent)?
+        laid_out(&replacement, indent, line_width)?
     } else {
         replacement
     };
@@ -256,7 +263,7 @@ fn built_list(arena: &AstArena, source: &str, stmts: &[StmtId], index: usize) ->
 /// that indentation, laid out as the formatter lays them out there. They are
 /// formatted as the statements of a block, one level deep, in a line that is
 /// as much narrower as their own block is deeper.
-fn laid_out(statements: &str, indent: &str) -> Option<String> {
+fn laid_out(statements: &str, indent: &str, line_width: usize) -> Option<String> {
     const OPEN: &str = "loop {\n";
     const CLOSE: &str = "}\n";
     const LEVEL: &str = "  ";
@@ -272,7 +279,7 @@ fn laid_out(statements: &str, indent: &str) -> Option<String> {
         block.push('\n');
     }
     block.push_str(CLOSE);
-    let width = (DEFAULT_LINE_WIDTH + LEVEL.len()).checked_sub(indent.len())?;
+    let width = (line_width + LEVEL.len()).checked_sub(indent.len())?;
     let output = Formatter::new()
         .with_line_width(width)
         .format_source(SourceId::new(0), &block);

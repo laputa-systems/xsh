@@ -131,3 +131,20 @@ proc stage(root: Path, target: Path) [io, fs, error] {
   assert "lint.prefer-argument-label" in reported.stderr, reported.stderr
   assert candidate.read_text()? == source
 }
+
+test test_argument_label_uses_project_width_for_replacement_layout { |ctx|
+  let root = test.temp_dir(ctx, name: "argument-label-configured-width")?
+  fp"{root}/xsht-config.ini".write("[format]\nline-width = 40\n")
+  let file = fp"{root}/link.xsh"
+  let width = 40
+  let around = "  fs.symlink(root.parent(), \"\")".byte_len()
+  let filler = "llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+  let link = filler.byte_slice(0, width - around)
+  file.write(f"proc stage(root: Path) [fs, error] {{\n  fs.symlink(root.parent(), \"{link}\")\n}}\n")
+
+  let checked = run.capture --text "xsht" check $file
+  assert checked.status.exited_with(0), checked.stderr
+  let report = run.capture --text "xsht" lint --only lint.prefer-argument-label $file
+  assert report.status.exited_with(1), report.stderr
+  assert ".symlink(\n    to: root.parent(),\n  )" in report.stderr, report.stderr
+}

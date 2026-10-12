@@ -18,11 +18,18 @@ pub(super) fn stage_report(
     arena: &AstArena,
     source: &str,
     stage: &ArenaStreamStage,
+    line_width: usize,
 ) -> Option<Diagnostic> {
     if !passes_one_item(stage.kind) {
         return None;
     }
-    item_shorthand(arena, source, stage.block?, stage_callback(arena, stage))
+    item_shorthand(
+        arena,
+        source,
+        stage.block?,
+        stage_callback(arena, stage),
+        line_width,
+    )
 }
 
 /// The same report for the handler block on the right of a `??` the linter
@@ -31,11 +38,12 @@ pub(super) fn handler_report(
     arena: &AstArena,
     source: &str,
     handler: ExprId,
+    line_width: usize,
 ) -> Option<Diagnostic> {
     let ArenaExprKind::ValueBlock(block) = arena.expr(handler).kind else {
         return None;
     };
-    item_shorthand(arena, source, block, Callback::Handler)
+    item_shorthand(arena, source, block, Callback::Handler, line_width)
 }
 
 /// `fold` and `reduce` callbacks take the accumulator beside the item.
@@ -133,6 +141,7 @@ fn item_shorthand(
     source: &str,
     block: BlockId,
     callback: Callback,
+    line_width: usize,
 ) -> Option<Diagnostic> {
     let name = named_parameter(arena, block)?;
     let param_span = arena.span(arena.block_params(arena.block(block).params)[0].span);
@@ -215,7 +224,7 @@ fn item_shorthand(
     }
     let replacement = match callback {
         Callback::Stage { stage_start } => {
-            printed_stage_callback(source, stage_start, block_span, &replacement)
+            printed_stage_callback(source, stage_start, block_span, &replacement, line_width)
                 .unwrap_or(replacement)
         }
         Callback::Handler => replacement,
@@ -244,15 +253,16 @@ fn item_shorthand(
 /// a block holding one expression goes after the stage name without braces,
 /// `map { .url }` as `map .url`.
 ///
-/// The stage is formatted alone, so only a callback on one line is respelled.
-/// An unbraced expression takes in what follows the pipeline; unless the
-/// text after the block cannot continue an expression, the whole file must
-/// format the same with either spelling.
+/// The stage is formatted alone so its callback can keep the formatter's
+/// spelling and layout. An unbraced expression takes in what follows the
+/// pipeline; unless the text after the block cannot continue an expression,
+/// the whole file must format the same with either spelling.
 fn printed_stage_callback(
     source: &str,
     stage_start: usize,
     block: Span,
     braced: &str,
+    line_width: usize,
 ) -> Option<String> {
     let head = source.get(stage_start..block.start())?;
     if braced.contains('\n') || head.contains(['\n', '#']) {
@@ -260,13 +270,12 @@ fn printed_stage_callback(
     }
     let source_id = xsh::frontend::source::SourceId::new(0);
     let format = |text: &str| {
-        let output = Formatter::new().format_source(source_id, text);
+        let output = Formatter::new()
+            .with_line_width(line_width)
+            .format_source(source_id, text);
         output.diagnostics.is_empty().then_some(output.formatted)
     };
     let formatted = format(&format!("{PIPELINE_PREFIX}{head}{braced}\n"))?;
-    if formatted.trim_end().contains('\n') {
-        return None;
-    }
     let parsed = Parser::parse_source_arena_only(source_id, &formatted);
     if !parsed.diagnostics.is_empty() {
         return None;
@@ -275,12 +284,12 @@ fn printed_stage_callback(
     let outer = Callback::Stage {
         stage_start: PIPELINE_PREFIX.len(),
     };
-    let printed = callback_blocks(arena)
+    let printed_span = callback_blocks(arena)
         .into_iter()
         .find(|&(_, callback)| callback == outer)
         .map(|(printed, _)| arena.span(arena.block(printed).span))?;
-    // The stage ends the line, so its callback is the rest of it.
-    let printed = formatted.get(printed.start()..)?.trim_end();
+    // Keep only the callback, including any line breaks introduced for it.
+    let printed = formatted.get(printed_span.range())?;
     if printed == braced {
         return None;
     }

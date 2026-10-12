@@ -561,6 +561,7 @@ pub struct Linter<'a> {
     return_removal_before: Option<Option<CheckedReturnRemovalFacts>>,
     local_annotation_before: Option<Option<CheckedLocalAnnotationFacts>>,
     source: &'a str,
+    format_line_width: usize,
     source_cst: std::sync::OnceLock<xsh::frontend::syntax::cst::SyntaxTree>,
     runless_except: Vec<String>,
     interactive_command_replacement: Option<fn(&str) -> Option<&'static str>>,
@@ -713,13 +714,27 @@ fn type_expr_kind(arena: &AstArena, id: TypeExprId) -> ArenaTypeExprKind {
 
 impl<'a> Linter<'a> {
     pub fn lint(program: &'a ArenaProgram, source: &'a str, options: LintOptions) -> LintOutput {
+        Self::lint_with_line_width(
+            program,
+            source,
+            options,
+            super::format::DEFAULT_LINE_WIDTH,
+        )
+    }
+
+    pub(crate) fn lint_with_line_width(
+        program: &'a ArenaProgram,
+        source: &'a str,
+        options: LintOptions,
+        line_width: usize,
+    ) -> LintOutput {
         let view = CheckBundleView::for_root(
             program,
             program.statements,
             None,
             program.source_text_source_id(),
         );
-        Self::lint_view(&view, source, options)
+        Self::lint_view_with_line_width(&view, source, options, line_width)
     }
 
     /// Lint one source range that belongs to a checked workspace bundle.
@@ -732,16 +747,44 @@ impl<'a> Linter<'a> {
         source: &'a str,
         options: LintOptions,
     ) -> LintOutput {
+        Self::lint_module_with_line_width(
+            program,
+            source,
+            options,
+            super::format::DEFAULT_LINE_WIDTH,
+        )
+    }
+
+    pub(crate) fn lint_module_with_line_width(
+        program: &'a ArenaProgram,
+        source: &'a str,
+        options: LintOptions,
+        line_width: usize,
+    ) -> LintOutput {
         let view = CheckBundleView::for_module(
             program,
             program.statements,
             None,
             program.source_text_source_id(),
         );
-        Self::lint_module_view(&view, source, options)
+        Self::lint_module_view_with_line_width(&view, source, options, line_width)
     }
 
     pub fn lint_view(view: &CheckBundleView<'a>, source: &'a str, options: LintOptions) -> LintOutput {
+        Self::lint_view_with_line_width(
+            view,
+            source,
+            options,
+            super::format::DEFAULT_LINE_WIDTH,
+        )
+    }
+
+    fn lint_view_with_line_width(
+        view: &CheckBundleView<'a>,
+        source: &'a str,
+        options: LintOptions,
+        line_width: usize,
+    ) -> LintOutput {
         let selection = rules::RuleSelection::new(&options);
         let collect_callable_edges = selection.enabled(DiagnosticCode::LintUnusedCallable);
         let mut run = Self::lint_view_internal(
@@ -751,6 +794,7 @@ impl<'a> Linter<'a> {
             true,
             collect_callable_edges,
             true,
+            line_width,
         );
         if collect_callable_edges {
             let mut source_facts = FxHashMap::default();
@@ -782,6 +826,7 @@ impl<'a> Linter<'a> {
                     false,
                     true,
                     true,
+                    line_width,
                 );
                 if let Some(facts) = module_run.callable_edges {
                     source_facts.insert(source_id, facts);
@@ -802,6 +847,20 @@ impl<'a> Linter<'a> {
         source: &'a str,
         options: LintOptions,
     ) -> LintOutput {
+        Self::lint_module_view_with_line_width(
+            view,
+            source,
+            options,
+            super::format::DEFAULT_LINE_WIDTH,
+        )
+    }
+
+    fn lint_module_view_with_line_width(
+        view: &CheckBundleView<'a>,
+        source: &'a str,
+        options: LintOptions,
+        line_width: usize,
+    ) -> LintOutput {
         Self::lint_view_internal(
             view,
             source,
@@ -809,6 +868,7 @@ impl<'a> Linter<'a> {
             false,
             false,
             true,
+            line_width,
         )
         .output
     }
@@ -818,6 +878,7 @@ impl<'a> Linter<'a> {
         source: &'a str,
         options: LintOptions,
         collect_callable_edges: bool,
+        line_width: usize,
     ) -> LintRun {
         Self::lint_view_internal(
             view,
@@ -826,6 +887,7 @@ impl<'a> Linter<'a> {
             true,
             collect_callable_edges,
             true,
+            line_width,
         )
     }
 
@@ -834,6 +896,7 @@ impl<'a> Linter<'a> {
         source: &'a str,
         options: LintOptions,
         collect_callable_edges: bool,
+        line_width: usize,
     ) -> LintRun {
         Self::lint_view_internal(
             view,
@@ -842,6 +905,7 @@ impl<'a> Linter<'a> {
             false,
             collect_callable_edges,
             true,
+            line_width,
         )
     }
 
@@ -852,6 +916,7 @@ impl<'a> Linter<'a> {
         include_reachability: bool,
         collect_callable_edges: bool,
         defer_callable_reachability: bool,
+        line_width: usize,
     ) -> LintRun {
         let program = view.program();
         let source_id = view_source_id(view);
@@ -931,6 +996,7 @@ impl<'a> Linter<'a> {
             return_removal_before: None,
             local_annotation_before: None,
             source,
+            format_line_width: line_width,
             source_cst: std::sync::OnceLock::new(),
             runless_except: options.runless_except,
             interactive_command_replacement: options.interactive_command_replacement,
@@ -3045,7 +3111,9 @@ impl<'a> Linter<'a> {
         } else {
             format!("{replacement}\n")
         };
-        let formatted = super::format::Formatter::new().format_source(span.source_id, &fragment);
+        let formatted = super::format::Formatter::new()
+            .with_line_width(self.format_line_width)
+            .format_source(span.source_id, &fragment);
         if !formatted.diagnostics.is_empty() {
             return None;
         }
@@ -3444,7 +3512,7 @@ impl<'a> Linter<'a> {
             let line_start = self.source[..span.start()].rfind('\n').map_or(0, |i| i + 1);
             let prefix = &self.source[line_start..span.start()];
             let indent: String = prefix.chars().take_while(|ch| ch.is_whitespace()).collect();
-            if prefix.chars().count() + one_line.chars().count() > super::format::DEFAULT_LINE_WIDTH
+            if prefix.chars().count() + one_line.chars().count() > self.format_line_width
                 && !multiline_argument
             {
                 let elements: String = argument_sources
@@ -5607,6 +5675,7 @@ impl<'a> Linter<'a> {
             self.diagnostics.extend(lint_argument_label::positional_symlink(
                 self.arena,
                 self.source,
+                self.format_line_width,
                 fs_is_shadowed,
                 expr,
             ));

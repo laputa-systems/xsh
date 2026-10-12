@@ -273,6 +273,35 @@ test test_invalid_input { |ctx|
   assert_checked(file)
 }
 
+test test_test_expect_and_redundant_discard_use_project_width_for_replacements { |ctx|
+  let root = test.temp_dir(ctx, name: "expect-configured-width")?
+  fp"{root}/xsht-config.ini".write("[format]\nline-width = 40\n")
+
+  let expectation = fp"{root}/expect.xsh"
+  expectation.write(r"""test rejects { |ctx|
+  let output = test.run_script(ctx, "exit 1")?
+  assert output.status == 1, output.stderr
+  assert "this fragment is long enough to wrap the generated expectation" in output.stderr, output.stderr
+}
+""")
+  let checked = run.capture --text "xsht" check $expectation
+  assert checked.status.exited_with(0), checked.stderr
+  let expected = run.capture --text "xsht" lint --only lint.prefer-test-expect $expectation
+  assert expected.status.exited_with(1), expected.stderr
+  assert "test.expect(\n" in expected.stderr, expected.stderr
+
+  let discard = fp"{root}/discard.xsh"
+  discard.write(r"""proc perform(ctx: TestContext) [error] -> Result[Unit] {
+  let _ = test.expect(ctx, "exit 1", status: 1, stderr: ["this fragment is long enough to wrap the generated expectation"])?
+}
+""")
+  let discarded = run.capture --text "xsht" check $discard
+  assert discarded.status.exited_with(0), discarded.stderr
+  let redundant = run.capture --text "xsht" lint --only lint.redundant-discard $discard
+  assert redundant.status.exited_with(1), redundant.stderr
+  assert "test.expect(\n" in redundant.stderr, redundant.stderr
+}
+
 # `link.symlink(to: target)` is one column wider than `fs.symlink(target,
 # link)` when the link is a string literal, which the method spells `p"..."`.
 # Where that column is the first one past the formatter's width, the fix is

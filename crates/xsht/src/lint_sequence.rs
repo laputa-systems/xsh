@@ -1574,7 +1574,7 @@ impl<'a> Linter<'a> {
                 .map_or(0, |offset| offset + 1);
             let width = self.source[line_start..span.start()].chars().count()
                 + one_line.trim_end().chars().count();
-            if width <= super::super::format::DEFAULT_LINE_WIDTH && !one_line.trim_end().contains('\n') {
+            if width <= self.format_line_width && !one_line.trim_end().contains('\n') {
                 return one_line;
             }
         }
@@ -2262,12 +2262,15 @@ impl<'a> Linter<'a> {
         // Measure the formatter's spelling so redundant grouping never decides
         // whether the guard is reported; a condition whose line breaks the
         // formatter keeps also keeps its block.
-        let canonical = super::super::format::Formatter::new().format_source(span.source_id, &replacement);
+        let canonical = super::super::format::Formatter::new()
+            .with_line_width(self.format_line_width)
+            .format_source(span.source_id, &replacement);
         let replacement = canonical.formatted.trim_end();
         // Keep blocks whose condition or payload needs a readable multiline layout.
+        let single_line_limit = self.format_line_width.min(88);
         if !canonical.diagnostics.is_empty()
             || replacement.contains('\n')
-            || replacement.chars().count() > 88
+            || replacement.chars().count() > single_line_limit
         {
             return;
         }

@@ -714,6 +714,7 @@ fn lint_workspace_root(
                 &module.text,
                 options,
                 collect_callable_edges,
+                module.config.line_width,
             )
         } else {
             Linter::lint_module_view_with_callable_edges(
@@ -721,6 +722,7 @@ fn lint_workspace_root(
                 &module.text,
                 options,
                 collect_callable_edges,
+                module.config.line_width,
             )
         };
         timings.record(Stage::Lint, lint_started.elapsed());
@@ -800,7 +802,13 @@ fn collect_workspace_module_callable_edges<'a>(
     {
         options.function_effect_facts_checked = true;
     }
-    Linter::lint_module_view_with_callable_edges(view, source, options, true)
+    Linter::lint_module_view_with_callable_edges(
+        view,
+        source,
+        options,
+        true,
+        crate::xsht::format::DEFAULT_LINE_WIDTH,
+    )
         .callable_edges
         .expect("a claimed source walk returns callable edge facts")
 }
@@ -1512,7 +1520,12 @@ fn lint_one_file_with_fixes(
     let mut lint_options = config.lint_options.clone();
     lint_options.checked_output = lint_requires_check_output(&lint_options)
         .then(|| std::sync::Arc::clone(&checked));
-    let linted = Linter::lint(&checked_program.parsed.arena, &text, lint_options);
+    let linted = Linter::lint_with_line_width(
+        &checked_program.parsed.arena,
+        &text,
+        lint_options,
+        config.line_width,
+    );
 
     let mut ast_fixes = collect_fix_spans(&linted.diagnostics);
     ast_fixes.extend(collect_fix_spans(&checked.diagnostics));
@@ -1806,9 +1819,19 @@ fn apply_cst_fixes(
             .then(|| std::sync::Arc::clone(&checked));
         options.return_proof = Some(context);
         let linted = if is_module {
-            Linter::lint_module(&snapshot.program, &candidate, options)
+            Linter::lint_module_with_line_width(
+                &snapshot.program,
+                &candidate,
+                options,
+                config.line_width,
+            )
         } else {
-            Linter::lint(&snapshot.program, &candidate, options)
+            Linter::lint_with_line_width(
+                &snapshot.program,
+                &candidate,
+                options,
+                config.line_width,
+            )
         };
         fixes = collect_fix_spans_for_source(&linted.diagnostics, snapshot.source_id);
         fixes.extend(collect_fix_spans_for_source(

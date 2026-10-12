@@ -62,6 +62,19 @@ test test_multi_clause_list_accumulator_fix_checks_and_converges { |ctx|
   assert_all_fixes_check(ctx, source)
 }
 
+test test_list_comprehension_uses_project_width_for_replacement_layout { |ctx|
+  let root = test.temp_dir(ctx, name: "list-comprehension-configured-width")?
+  fp"{root}/xsht-config.ini".write("[format]\nline-width = 40\n")
+  let file = fp"{root}/collect.xsh"
+  file.write("let items = [\"alpha\"]\nvar names: List[Str] = []\nfor item in items {\n  names = names.push(item.trim().upper().replace(\"-\", with: \"_\"))\n}\n")
+
+  let checked = run.capture --text "xsht" check $file
+  assert checked.status.exited_with(0), checked.stderr
+  let report = run.capture --text "xsht" lint --only lint.prefer-list-comp $file
+  assert report.status.exited_with(1), report.stderr
+  assert "var names: List[Str] = [\n" in report.stderr, report.stderr
+}
+
 test test_multi_clause_map_accumulator_fix_keeps_annotation_and_filters { |ctx|
   let source = "let entries = [{key: \"a\", values: [1, 2]}]\nvar values: Map[Int] = {}\nfor entry in entries {\n  for value in entry.values {\n    if value > 1 {\n      values[entry.key] = value\n    }\n  }\n}\n"
   let file = script(ctx, source)?

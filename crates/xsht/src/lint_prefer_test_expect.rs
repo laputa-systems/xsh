@@ -201,7 +201,7 @@ fn script_run(linter: &super::Linter<'_>, stmts: &[StmtId], index: usize) -> Opt
         call.push_str(argument);
     }
     call.push_str(")?");
-    let replacement = formatted_in_place(source, replaced, &call)?;
+    let replacement = formatted_in_place(source, replaced, &call, linter.format_line_width)?;
     Some(
         Diagnostic::warning("a script run is followed by assertions that `test.expect` states")
             .with_code(DiagnosticCode::LintPreferTestExpect)
@@ -322,7 +322,12 @@ fn may_read(text: &str, name: &str) -> bool {
 /// The formatter breaks a line by its width, which depends on how deep the
 /// statement is nested, so the statement is formatted inside as many blocks
 /// as its indentation says it has around it.
-pub(super) fn formatted_in_place(source: &str, replaced: Span, statement: &str) -> Option<String> {
+pub(super) fn formatted_in_place(
+    source: &str,
+    replaced: Span,
+    statement: &str,
+    line_width: usize,
+) -> Option<String> {
     let line_start = source[..replaced.start()]
         .rfind('\n')
         .map_or(0, |at| at + 1);
@@ -338,8 +343,9 @@ pub(super) fn formatted_in_place(source: &str, replaced: Span, statement: &str) 
         closing.insert_str(0, &format!("{}}}\n", "  ".repeat(level)));
     }
     let fragment = format!("{opening}{indent}{statement}\n{closing}");
-    let formatted =
-        super::super::format::Formatter::new().format_source(replaced.source_id, &fragment);
+    let formatted = super::super::format::Formatter::new()
+        .with_line_width(line_width)
+        .format_source(replaced.source_id, &fragment);
     if !formatted.diagnostics.is_empty() {
         return None;
     }
