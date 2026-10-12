@@ -5283,11 +5283,106 @@ impl<'a> FullDecoder<'a> {
         let Some(initializer) = initializer else {
             return Ok(None);
         };
-        Ok(matches!(
-            self.expression_view(initializer)?,
-            schema::ExprView::FunctionRef { .. }
-        )
-        .then_some(initializer))
+        self.function_ref_source(initializer)
+    }
+
+    /// Recognize a direct function-reference expression after callers have
+    /// independently established the relevant slot-write constraints.
+    fn function_ref_source(&self, instruction: usize) -> Result<Option<usize>, IrVerifyError> {
+        match self.expression_view(instruction)? {
+            schema::ExprView::FunctionRef { .. } => Ok(Some(instruction)),
+            schema::ExprView::Null
+            | schema::ExprView::Unit
+            | schema::ExprView::Int(_)
+            | schema::ExprView::Float(_)
+            | schema::ExprView::Duration(_)
+            | schema::ExprView::Bool(_)
+            | schema::ExprView::Str(_)
+            | schema::ExprView::Bytes(_)
+            | schema::ExprView::PreparedRegex(_)
+            | schema::ExprView::PreparedConstant(_)
+            | schema::ExprView::Path(_)
+            | schema::ExprView::PathFrom { .. }
+            | schema::ExprView::Param(_)
+            | schema::ExprView::ComparisonChain { .. }
+            | schema::ExprView::Binary { .. }
+            | schema::ExprView::IfExpr { .. }
+            | schema::ExprView::PatternIf { .. }
+            | schema::ExprView::MatchExpr { .. }
+            | schema::ExprView::StrMatchExpr { .. }
+            | schema::ExprView::TagMatchExpr { .. }
+            | schema::ExprView::ResultFallback { .. }
+            | schema::ExprView::FmtString(_)
+            | schema::ExprView::PathFmtString { .. }
+            | schema::ExprView::Glob { .. }
+            | schema::ExprView::LastStatus { .. }
+            | schema::ExprView::Record(_)
+            | schema::ExprView::MapLiteral(_)
+            | schema::ExprView::RecordUpdate { .. }
+            | schema::ExprView::List(_)
+            | schema::ExprView::ListBuild(_)
+            | schema::ExprView::EmptyMap
+            | schema::ExprView::Range { .. }
+            | schema::ExprView::Tag { .. }
+            | schema::ExprView::ListComp { .. }
+            | schema::ExprView::MapComp { .. }
+            | schema::ExprView::ListPipeline { .. }
+            | schema::ExprView::Field { .. }
+            | schema::ExprView::Index { .. }
+            | schema::ExprView::IndexFromEnd { .. }
+            | schema::ExprView::Slice { .. }
+            | schema::ExprView::Method { .. }
+            | schema::ExprView::StrByteLen { .. }
+            | schema::ExprView::StrByteAt { .. }
+            | schema::ExprView::StrPredicate { .. }
+            | schema::ExprView::Require { .. }
+            | schema::ExprView::CheckedValue { .. }
+            | schema::ExprView::RunCapture(_)
+            | schema::ExprView::RunPipeline { .. }
+            | schema::ExprView::SpawnRun(_)
+            | schema::ExprView::SpawnCommand { .. }
+            | schema::ExprView::Wait { .. }
+            | schema::ExprView::Capture { .. }
+            | schema::ExprView::ValueBlock { .. }
+            | schema::ExprView::ErrorContext { .. }
+            | schema::ExprView::ContextScope { .. }
+            | schema::ExprView::Loop { .. }
+            | schema::ExprView::Retry { .. }
+            | schema::ExprView::FsFiles { .. }
+            | schema::ExprView::FsWalk { .. }
+            | schema::ExprView::FsList { .. }
+            | schema::ExprView::FsTempDir { .. }
+            | schema::ExprView::FsMkdir { .. }
+            | schema::ExprView::FsRemove { .. }
+            | schema::ExprView::PathReadText { .. }
+            | schema::ExprView::PathReadBytes { .. }
+            | schema::ExprView::PathExists { .. }
+            | schema::ExprView::PathExecutable { .. }
+            | schema::ExprView::PathDu { .. }
+            | schema::ExprView::PathMetadata { .. }
+            | schema::ExprView::PathReadlink { .. }
+            | schema::ExprView::PathResolve { .. }
+            | schema::ExprView::PathWrite { .. }
+            | schema::ExprView::PathMkdir { .. }
+            | schema::ExprView::PathRemove { .. }
+            | schema::ExprView::ArchiveTarCreate { .. }
+            | schema::ExprView::ModuleCall { .. }
+            | schema::ExprView::ProcessCommandArgv(_)
+            | schema::ExprView::ProcessCommandBuilder { .. }
+            | schema::ExprView::Abort { .. }
+            | schema::ExprView::Fail { .. }
+            | schema::ExprView::Ok(_)
+            | schema::ExprView::Err { .. }
+            | schema::ExprView::Error(_)
+            | schema::ExprView::Try { .. }
+            | schema::ExprView::Call { .. }
+            | schema::ExprView::DirectPureCall { .. }
+            | schema::ExprView::ExternalCall { .. }
+            | schema::ExprView::DynamicCall { .. }
+            | schema::ExprView::SelfCall { .. }
+            | schema::ExprView::TypedCall { .. }
+            | schema::ExprView::ProcCallResult(_) => Ok(None),
+        }
     }
 
     fn checked_expression_matches_type(
@@ -5576,7 +5671,87 @@ impl<'a> FullDecoder<'a> {
                     ))
                 }
             }
-            _ => {
+            schema::ExprView::Unit
+            | schema::ExprView::Int(_)
+            | schema::ExprView::Float(_)
+            | schema::ExprView::Duration(_)
+            | schema::ExprView::Bool(_)
+            | schema::ExprView::Str(_)
+            | schema::ExprView::Bytes(_)
+            | schema::ExprView::PreparedRegex(_)
+            | schema::ExprView::PreparedConstant(_)
+            | schema::ExprView::Path(_)
+            | schema::ExprView::PathFrom { .. }
+            | schema::ExprView::ComparisonChain { .. }
+            | schema::ExprView::Binary { .. }
+            | schema::ExprView::StrMatchExpr { .. }
+            | schema::ExprView::TagMatchExpr { .. }
+            | schema::ExprView::ResultFallback { .. }
+            | schema::ExprView::FmtString(_)
+            | schema::ExprView::PathFmtString { .. }
+            | schema::ExprView::Glob { .. }
+            | schema::ExprView::LastStatus { .. }
+            | schema::ExprView::MapLiteral(_)
+            | schema::ExprView::RecordUpdate { .. }
+            | schema::ExprView::List(_)
+            | schema::ExprView::ListBuild(_)
+            | schema::ExprView::EmptyMap
+            | schema::ExprView::Range { .. }
+            | schema::ExprView::Tag { .. }
+            | schema::ExprView::ListComp { .. }
+            | schema::ExprView::MapComp { .. }
+            | schema::ExprView::ListPipeline { .. }
+            | schema::ExprView::Field { .. }
+            | schema::ExprView::Index { .. }
+            | schema::ExprView::IndexFromEnd { .. }
+            | schema::ExprView::Slice { .. }
+            | schema::ExprView::Method { .. }
+            | schema::ExprView::StrByteLen { .. }
+            | schema::ExprView::StrByteAt { .. }
+            | schema::ExprView::StrPredicate { .. }
+            | schema::ExprView::Require { .. }
+            | schema::ExprView::RunCapture(_)
+            | schema::ExprView::RunPipeline { .. }
+            | schema::ExprView::SpawnRun(_)
+            | schema::ExprView::SpawnCommand { .. }
+            | schema::ExprView::Wait { .. }
+            | schema::ExprView::Capture { .. }
+            | schema::ExprView::ErrorContext { .. }
+            | schema::ExprView::ContextScope { .. }
+            | schema::ExprView::Retry { .. }
+            | schema::ExprView::FsFiles { .. }
+            | schema::ExprView::FsWalk { .. }
+            | schema::ExprView::FsList { .. }
+            | schema::ExprView::FsTempDir { .. }
+            | schema::ExprView::FsMkdir { .. }
+            | schema::ExprView::FsRemove { .. }
+            | schema::ExprView::PathReadText { .. }
+            | schema::ExprView::PathReadBytes { .. }
+            | schema::ExprView::PathExists { .. }
+            | schema::ExprView::PathExecutable { .. }
+            | schema::ExprView::PathDu { .. }
+            | schema::ExprView::PathMetadata { .. }
+            | schema::ExprView::PathReadlink { .. }
+            | schema::ExprView::PathResolve { .. }
+            | schema::ExprView::PathWrite { .. }
+            | schema::ExprView::PathMkdir { .. }
+            | schema::ExprView::PathRemove { .. }
+            | schema::ExprView::ArchiveTarCreate { .. }
+            | schema::ExprView::ModuleCall { .. }
+            | schema::ExprView::ProcessCommandArgv(_)
+            | schema::ExprView::ProcessCommandBuilder { .. }
+            | schema::ExprView::Abort { .. }
+            | schema::ExprView::Fail { .. }
+            | schema::ExprView::Ok(_)
+            | schema::ExprView::Err { .. }
+            | schema::ExprView::Error(_)
+            | schema::ExprView::Call { .. }
+            | schema::ExprView::DirectPureCall { .. }
+            | schema::ExprView::ExternalCall { .. }
+            | schema::ExprView::DynamicCall { .. }
+            | schema::ExprView::SelfCall { .. }
+            | schema::ExprView::TypedCall { .. }
+            | schema::ExprView::ProcCallResult(_) => {
                 Err(IrVerifyError::new(
                     "checked callable expression child has no structural producer proof",
                 ))
@@ -6272,6 +6447,17 @@ impl<'a> FullDecoder<'a> {
                 Err(IrVerifyError::new(message))
             }
         };
+        let reject_producer = || {
+            if fact.function_ref.is_some() {
+                Err(IrVerifyError::new(
+                    "checked function reference producer tag was changed",
+                ))
+            } else {
+                Err(IrVerifyError::new(
+                    "checked callable expression has no structural producer proof",
+                ))
+            }
+        };
         let view = self.expression_view(instruction)?;
         match view {
             schema::ExprView::Int(_) if matches!(ty, Type::Int | Type::UInt) => {}
@@ -6919,16 +7105,50 @@ impl<'a> FullDecoder<'a> {
                 require_child(key.raw() as usize, key_type)?;
                 require_child(value.raw() as usize, value_type)?;
             }
-            _ => {
-                if fact.function_ref.is_some() {
-                    return Err(IrVerifyError::new(
-                        "checked function reference producer tag was changed",
-                    ));
-                }
-                return Err(IrVerifyError::new(
-                    "checked callable expression has no structural producer proof",
-                ));
-            }
+            schema::ExprView::Int(_)
+            | schema::ExprView::Float(_)
+            | schema::ExprView::Duration(_)
+            | schema::ExprView::Bool(_)
+            | schema::ExprView::Str(_)
+            | schema::ExprView::Bytes(_)
+            | schema::ExprView::Path(_)
+            | schema::ExprView::PreparedRegex(_)
+            | schema::ExprView::Unit
+            | schema::ExprView::PreparedConstant(_)
+            | schema::ExprView::PathFrom { .. }
+            | schema::ExprView::ComparisonChain { .. }
+            | schema::ExprView::Binary { .. }
+            | schema::ExprView::FmtString(_)
+            | schema::ExprView::PathFmtString { .. }
+            | schema::ExprView::Glob { .. }
+            | schema::ExprView::LastStatus { .. }
+            | schema::ExprView::MapLiteral(_)
+            | schema::ExprView::EmptyMap
+            | schema::ExprView::Range { .. }
+            | schema::ExprView::Tag { .. }
+            | schema::ExprView::ListPipeline { .. }
+            | schema::ExprView::Slice { .. }
+            | schema::ExprView::Method { .. }
+            | schema::ExprView::StrByteLen { .. }
+            | schema::ExprView::StrByteAt { .. }
+            | schema::ExprView::StrPredicate { .. }
+            | schema::ExprView::Require { .. }
+            | schema::ExprView::CheckedValue { .. }
+            | schema::ExprView::RunCapture(_)
+            | schema::ExprView::RunPipeline { .. }
+            | schema::ExprView::SpawnRun(_)
+            | schema::ExprView::SpawnCommand { .. }
+            | schema::ExprView::Wait { .. }
+            | schema::ExprView::Capture { .. }
+            | schema::ExprView::ErrorContext { .. }
+            | schema::ExprView::Retry { .. }
+            | schema::ExprView::ProcessCommandArgv(_)
+            | schema::ExprView::ProcessCommandBuilder { .. }
+            | schema::ExprView::Abort { .. }
+            | schema::ExprView::Fail { .. }
+            | schema::ExprView::ExternalCall { .. }
+            | schema::ExprView::DynamicCall { .. }
+            | schema::ExprView::ProcCallResult(_) => return reject_producer(),
         }
         Ok(())
     }
@@ -7001,16 +7221,16 @@ impl<'a> FullDecoder<'a> {
             Err(error)
                 if error
                     .message
-                    .starts_with("typed callee slot has no checked type fact:")
-                    && self.checked_expression_type_id(value)?.is_none()
-                    && matches!(
-                        self.expression_view(value)?,
-                        schema::ExprView::FunctionRef { .. }
-                    ) =>
+                    .starts_with("typed callee slot has no checked type fact:") =>
             {
-                // An unannotated function reference has only broad Pure/Proc inference;
-                // contextual callable uses are checked from this immutable source at use sites.
-                return Ok(());
+                if self.checked_expression_type_id(value)?.is_none()
+                    && self.function_ref_source(value)?.is_some()
+                {
+                    // An unannotated function reference has only broad Pure/Proc inference;
+                    // contextual callable uses are checked from this immutable source at use sites.
+                    return Ok(());
+                }
+                return Err(error);
             }
             Err(error) => return Err(error),
         };
@@ -7058,13 +7278,119 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn checked_expression_type(&self, instruction: usize) -> Result<Option<Type>, IrVerifyError> {
-        match self.expression_checked_type_id(instruction) {
-            Ok(Some(type_id)) => self.store.semantic.to_type(type_id).map(Some),
-            Ok(None) if self.store.tags.get(instruction) == Some(&FullTag::ExprField) => self
+        let type_query = match self.expression_checked_type_id(instruction) {
+            Ok(Some(type_id)) => return self.store.semantic.to_type(type_id).map(Some),
+            Ok(None) => None,
+            Err(error)
+                if self.store.tags.get(instruction) != Some(&FullTag::ExprField) =>
+            {
+                return Err(error);
+            }
+            Err(error) => Some(error),
+        };
+        if self.store.tags[instruction].kind() != schema::InstructionKind::Expr {
+            return Ok(None);
+        }
+        let field_expression = match self.expression_view(instruction)? {
+            schema::ExprView::Field { .. } => true,
+            schema::ExprView::Null
+            | schema::ExprView::Unit
+            | schema::ExprView::Int(_)
+            | schema::ExprView::Float(_)
+            | schema::ExprView::Duration(_)
+            | schema::ExprView::Bool(_)
+            | schema::ExprView::Str(_)
+            | schema::ExprView::Bytes(_)
+            | schema::ExprView::PreparedRegex(_)
+            | schema::ExprView::PreparedConstant(_)
+            | schema::ExprView::Path(_)
+            | schema::ExprView::FunctionRef { .. }
+            | schema::ExprView::PathFrom { .. }
+            | schema::ExprView::Param(_)
+            | schema::ExprView::ComparisonChain { .. }
+            | schema::ExprView::Binary { .. }
+            | schema::ExprView::IfExpr { .. }
+            | schema::ExprView::PatternIf { .. }
+            | schema::ExprView::MatchExpr { .. }
+            | schema::ExprView::StrMatchExpr { .. }
+            | schema::ExprView::TagMatchExpr { .. }
+            | schema::ExprView::ResultFallback { .. }
+            | schema::ExprView::FmtString(_)
+            | schema::ExprView::PathFmtString { .. }
+            | schema::ExprView::Glob { .. }
+            | schema::ExprView::LastStatus { .. }
+            | schema::ExprView::Record(_)
+            | schema::ExprView::MapLiteral(_)
+            | schema::ExprView::RecordUpdate { .. }
+            | schema::ExprView::List(_)
+            | schema::ExprView::ListBuild(_)
+            | schema::ExprView::EmptyMap
+            | schema::ExprView::Range { .. }
+            | schema::ExprView::Tag { .. }
+            | schema::ExprView::ListComp { .. }
+            | schema::ExprView::MapComp { .. }
+            | schema::ExprView::ListPipeline { .. }
+            | schema::ExprView::Index { .. }
+            | schema::ExprView::IndexFromEnd { .. }
+            | schema::ExprView::Slice { .. }
+            | schema::ExprView::Method { .. }
+            | schema::ExprView::StrByteLen { .. }
+            | schema::ExprView::StrByteAt { .. }
+            | schema::ExprView::StrPredicate { .. }
+            | schema::ExprView::Require { .. }
+            | schema::ExprView::CheckedValue { .. }
+            | schema::ExprView::RunCapture(_)
+            | schema::ExprView::RunPipeline { .. }
+            | schema::ExprView::SpawnRun(_)
+            | schema::ExprView::SpawnCommand { .. }
+            | schema::ExprView::Wait { .. }
+            | schema::ExprView::Capture { .. }
+            | schema::ExprView::ValueBlock { .. }
+            | schema::ExprView::ErrorContext { .. }
+            | schema::ExprView::ContextScope { .. }
+            | schema::ExprView::Loop { .. }
+            | schema::ExprView::Retry { .. }
+            | schema::ExprView::FsFiles { .. }
+            | schema::ExprView::FsWalk { .. }
+            | schema::ExprView::FsList { .. }
+            | schema::ExprView::FsTempDir { .. }
+            | schema::ExprView::FsMkdir { .. }
+            | schema::ExprView::FsRemove { .. }
+            | schema::ExprView::PathReadText { .. }
+            | schema::ExprView::PathReadBytes { .. }
+            | schema::ExprView::PathExists { .. }
+            | schema::ExprView::PathExecutable { .. }
+            | schema::ExprView::PathDu { .. }
+            | schema::ExprView::PathMetadata { .. }
+            | schema::ExprView::PathReadlink { .. }
+            | schema::ExprView::PathResolve { .. }
+            | schema::ExprView::PathWrite { .. }
+            | schema::ExprView::PathMkdir { .. }
+            | schema::ExprView::PathRemove { .. }
+            | schema::ExprView::ArchiveTarCreate { .. }
+            | schema::ExprView::ModuleCall { .. }
+            | schema::ExprView::ProcessCommandArgv(_)
+            | schema::ExprView::ProcessCommandBuilder { .. }
+            | schema::ExprView::Abort { .. }
+            | schema::ExprView::Fail { .. }
+            | schema::ExprView::Ok(_)
+            | schema::ExprView::Err { .. }
+            | schema::ExprView::Error(_)
+            | schema::ExprView::Try { .. }
+            | schema::ExprView::Call { .. }
+            | schema::ExprView::DirectPureCall { .. }
+            | schema::ExprView::ExternalCall { .. }
+            | schema::ExprView::DynamicCall { .. }
+            | schema::ExprView::SelfCall { .. }
+            | schema::ExprView::TypedCall { .. }
+            | schema::ExprView::ProcCallResult(_) => false,
+        };
+        match type_query {
+            None if field_expression => self
                 .checked_field_receiver_type(instruction)?
                 .map_or(Ok(None), |_| self.derive_checked_field_type(instruction).map(Some)),
-            Ok(None) => Ok(None),
-            Err(error) if self.store.tags.get(instruction) == Some(&FullTag::ExprField) => {
+            None => Ok(None),
+            Some(error) if field_expression => {
                 if self.checked_field_receiver_type(instruction)?.is_none() {
                     return Ok(None);
                 }
@@ -7075,7 +7401,7 @@ impl<'a> FullDecoder<'a> {
                     Ok(Some(field_type))
                 }
             }
-            Err(error) => Err(error),
+            Some(error) => Err(error),
         }
     }
 
@@ -7600,12 +7926,103 @@ impl<'a> FullDecoder<'a> {
         if capture_slots.is_empty() {
             return Ok(());
         }
-        let schema::ExprView::MatchExpr { value, mut arms, .. } =
-            self.expression_view(condition)?
-        else {
-            return Err(IrVerifyError::new(
-                "pattern condition captures have no match producer",
-            ));
+        let (value, mut arms) = match self.expression_view(condition)? {
+            schema::ExprView::MatchExpr { value, arms, .. } => (value, arms),
+            schema::ExprView::Null
+            | schema::ExprView::Unit
+            | schema::ExprView::Int(_)
+            | schema::ExprView::Float(_)
+            | schema::ExprView::Duration(_)
+            | schema::ExprView::Bool(_)
+            | schema::ExprView::Str(_)
+            | schema::ExprView::Bytes(_)
+            | schema::ExprView::PreparedRegex(_)
+            | schema::ExprView::PreparedConstant(_)
+            | schema::ExprView::Path(_)
+            | schema::ExprView::FunctionRef { .. }
+            | schema::ExprView::PathFrom { .. }
+            | schema::ExprView::Param(_)
+            | schema::ExprView::ComparisonChain { .. }
+            | schema::ExprView::Binary { .. }
+            | schema::ExprView::IfExpr { .. }
+            | schema::ExprView::PatternIf { .. }
+            | schema::ExprView::StrMatchExpr { .. }
+            | schema::ExprView::TagMatchExpr { .. }
+            | schema::ExprView::ResultFallback { .. }
+            | schema::ExprView::FmtString(_)
+            | schema::ExprView::PathFmtString { .. }
+            | schema::ExprView::Glob { .. }
+            | schema::ExprView::LastStatus { .. }
+            | schema::ExprView::Record(_)
+            | schema::ExprView::MapLiteral(_)
+            | schema::ExprView::RecordUpdate { .. }
+            | schema::ExprView::List(_)
+            | schema::ExprView::ListBuild(_)
+            | schema::ExprView::EmptyMap
+            | schema::ExprView::Range { .. }
+            | schema::ExprView::Tag { .. }
+            | schema::ExprView::ListComp { .. }
+            | schema::ExprView::MapComp { .. }
+            | schema::ExprView::ListPipeline { .. }
+            | schema::ExprView::Field { .. }
+            | schema::ExprView::Index { .. }
+            | schema::ExprView::IndexFromEnd { .. }
+            | schema::ExprView::Slice { .. }
+            | schema::ExprView::Method { .. }
+            | schema::ExprView::StrByteLen { .. }
+            | schema::ExprView::StrByteAt { .. }
+            | schema::ExprView::StrPredicate { .. }
+            | schema::ExprView::Require { .. }
+            | schema::ExprView::CheckedValue { .. }
+            | schema::ExprView::RunCapture(_)
+            | schema::ExprView::RunPipeline { .. }
+            | schema::ExprView::SpawnRun(_)
+            | schema::ExprView::SpawnCommand { .. }
+            | schema::ExprView::Wait { .. }
+            | schema::ExprView::Capture { .. }
+            | schema::ExprView::ValueBlock { .. }
+            | schema::ExprView::ErrorContext { .. }
+            | schema::ExprView::ContextScope { .. }
+            | schema::ExprView::Loop { .. }
+            | schema::ExprView::Retry { .. }
+            | schema::ExprView::FsFiles { .. }
+            | schema::ExprView::FsWalk { .. }
+            | schema::ExprView::FsList { .. }
+            | schema::ExprView::FsTempDir { .. }
+            | schema::ExprView::FsMkdir { .. }
+            | schema::ExprView::FsRemove { .. }
+            | schema::ExprView::PathReadText { .. }
+            | schema::ExprView::PathReadBytes { .. }
+            | schema::ExprView::PathExists { .. }
+            | schema::ExprView::PathExecutable { .. }
+            | schema::ExprView::PathDu { .. }
+            | schema::ExprView::PathMetadata { .. }
+            | schema::ExprView::PathReadlink { .. }
+            | schema::ExprView::PathResolve { .. }
+            | schema::ExprView::PathWrite { .. }
+            | schema::ExprView::PathMkdir { .. }
+            | schema::ExprView::PathRemove { .. }
+            | schema::ExprView::ArchiveTarCreate { .. }
+            | schema::ExprView::ModuleCall { .. }
+            | schema::ExprView::ProcessCommandArgv(_)
+            | schema::ExprView::ProcessCommandBuilder { .. }
+            | schema::ExprView::Abort { .. }
+            | schema::ExprView::Fail { .. }
+            | schema::ExprView::Ok(_)
+            | schema::ExprView::Err { .. }
+            | schema::ExprView::Error(_)
+            | schema::ExprView::Try { .. }
+            | schema::ExprView::Call { .. }
+            | schema::ExprView::DirectPureCall { .. }
+            | schema::ExprView::ExternalCall { .. }
+            | schema::ExprView::DynamicCall { .. }
+            | schema::ExprView::SelfCall { .. }
+            | schema::ExprView::TypedCall { .. }
+            | schema::ExprView::ProcCallResult(_) => {
+                return Err(IrVerifyError::new(
+                    "pattern condition captures have no match producer",
+                ));
+            }
         };
         let subject_type = self.checked_expression_type(value.raw() as usize)?;
         let mut pattern_captures = BTreeSet::new();
@@ -7855,23 +8272,14 @@ impl<'a> FullDecoder<'a> {
         let Some(tag) = self.store.tags.get(instruction).copied() else {
             return Err(IrVerifyError::new("typed expression is out of bounds"));
         };
-        let words = self.store.payload(self.store.data[instruction].range())?;
-        match tag {
-            FullTag::ExprParam => {
-                let slot = *words
-                    .first()
-                    .ok_or_else(|| IrVerifyError::new("typed parameter slot is missing"))?
-                    as usize;
-                self.checked_slot_type(slot)
-            }
-            FullTag::ExprField => match self.derive_typed_callee_type(instruction) {
+        if tag.kind() != schema::InstructionKind::Expr {
+            return Ok(None);
+        }
+        match self.expression_view(instruction)? {
+            schema::ExprView::Param(slot) => self.checked_slot_type(slot),
+            schema::ExprView::Field { base, .. } => match self.derive_typed_callee_type(instruction) {
                 Ok(type_id) => Ok(Some(type_id)),
                 Err(error) => {
-                    let schema::ExprView::Field { base, .. } =
-                        self.expression_view(instruction)?
-                    else {
-                        unreachable!("field instruction tag and generated view disagree")
-                    };
                     if self
                         .checked_expression_type(base.raw() as usize)?
                         .is_none()
@@ -7886,18 +8294,16 @@ impl<'a> FullDecoder<'a> {
                     }
                 }
             },
-            FullTag::ExprCall | FullTag::ExprDirectPureCall => {
-                let function = IrFunctionId::from_raw(*words.first().ok_or_else(|| {
-                    IrVerifyError::new("typed call target is missing")
-                })?)
-                .ok_or_else(|| IrVerifyError::new("typed call target is invalid"))?;
-                self.function_return_type(function.index()).map(Some)
+            schema::ExprView::Call { function, .. }
+            | schema::ExprView::DirectPureCall { function, .. } => {
+                self.function_return_type(function.id.index()).map(Some)
             }
-            FullTag::ExprSelfCall => IrFunctionId::from_raw(self.owner)
+            schema::ExprView::SelfCall { .. } => IrFunctionId::from_raw(self.owner)
                 .ok_or_else(|| IrVerifyError::new("self call has no function owner"))
                 .and_then(|function| self.function_return_type(function.index()))
                 .map(Some),
-            FullTag::ExprTypedCall => {
+            schema::ExprView::TypedCall { .. } => {
+                let words = self.store.payload(self.store.data[instruction].range())?;
                 let raw = *words
                     .get(2)
                     .ok_or_else(|| IrVerifyError::new("typed call signature is missing"))?;
@@ -7909,7 +8315,92 @@ impl<'a> FullDecoder<'a> {
                     .signature_return_type(signature)
                     .map(Some)
             }
-            _ => Ok(None),
+            schema::ExprView::Null
+            | schema::ExprView::Unit
+            | schema::ExprView::Int(_)
+            | schema::ExprView::Float(_)
+            | schema::ExprView::Duration(_)
+            | schema::ExprView::Bool(_)
+            | schema::ExprView::Str(_)
+            | schema::ExprView::Bytes(_)
+            | schema::ExprView::PreparedRegex(_)
+            | schema::ExprView::PreparedConstant(_)
+            | schema::ExprView::Path(_)
+            | schema::ExprView::FunctionRef { .. }
+            | schema::ExprView::PathFrom { .. }
+            | schema::ExprView::ComparisonChain { .. }
+            | schema::ExprView::Binary { .. }
+            | schema::ExprView::IfExpr { .. }
+            | schema::ExprView::PatternIf { .. }
+            | schema::ExprView::MatchExpr { .. }
+            | schema::ExprView::StrMatchExpr { .. }
+            | schema::ExprView::TagMatchExpr { .. }
+            | schema::ExprView::ResultFallback { .. }
+            | schema::ExprView::FmtString(_)
+            | schema::ExprView::PathFmtString { .. }
+            | schema::ExprView::Glob { .. }
+            | schema::ExprView::LastStatus { .. }
+            | schema::ExprView::Record(_)
+            | schema::ExprView::MapLiteral(_)
+            | schema::ExprView::RecordUpdate { .. }
+            | schema::ExprView::List(_)
+            | schema::ExprView::ListBuild(_)
+            | schema::ExprView::EmptyMap
+            | schema::ExprView::Range { .. }
+            | schema::ExprView::Tag { .. }
+            | schema::ExprView::ListComp { .. }
+            | schema::ExprView::MapComp { .. }
+            | schema::ExprView::ListPipeline { .. }
+            | schema::ExprView::Index { .. }
+            | schema::ExprView::IndexFromEnd { .. }
+            | schema::ExprView::Slice { .. }
+            | schema::ExprView::Method { .. }
+            | schema::ExprView::StrByteLen { .. }
+            | schema::ExprView::StrByteAt { .. }
+            | schema::ExprView::StrPredicate { .. }
+            | schema::ExprView::Require { .. }
+            | schema::ExprView::CheckedValue { .. }
+            | schema::ExprView::RunCapture(_)
+            | schema::ExprView::RunPipeline { .. }
+            | schema::ExprView::SpawnRun(_)
+            | schema::ExprView::SpawnCommand { .. }
+            | schema::ExprView::Wait { .. }
+            | schema::ExprView::Capture { .. }
+            | schema::ExprView::ValueBlock { .. }
+            | schema::ExprView::ErrorContext { .. }
+            | schema::ExprView::ContextScope { .. }
+            | schema::ExprView::Loop { .. }
+            | schema::ExprView::Retry { .. }
+            | schema::ExprView::FsFiles { .. }
+            | schema::ExprView::FsWalk { .. }
+            | schema::ExprView::FsList { .. }
+            | schema::ExprView::FsTempDir { .. }
+            | schema::ExprView::FsMkdir { .. }
+            | schema::ExprView::FsRemove { .. }
+            | schema::ExprView::PathReadText { .. }
+            | schema::ExprView::PathReadBytes { .. }
+            | schema::ExprView::PathExists { .. }
+            | schema::ExprView::PathExecutable { .. }
+            | schema::ExprView::PathDu { .. }
+            | schema::ExprView::PathMetadata { .. }
+            | schema::ExprView::PathReadlink { .. }
+            | schema::ExprView::PathResolve { .. }
+            | schema::ExprView::PathWrite { .. }
+            | schema::ExprView::PathMkdir { .. }
+            | schema::ExprView::PathRemove { .. }
+            | schema::ExprView::ArchiveTarCreate { .. }
+            | schema::ExprView::ModuleCall { .. }
+            | schema::ExprView::ProcessCommandArgv(_)
+            | schema::ExprView::ProcessCommandBuilder { .. }
+            | schema::ExprView::Abort { .. }
+            | schema::ExprView::Fail { .. }
+            | schema::ExprView::Ok(_)
+            | schema::ExprView::Err { .. }
+            | schema::ExprView::Error(_)
+            | schema::ExprView::Try { .. }
+            | schema::ExprView::ExternalCall { .. }
+            | schema::ExprView::DynamicCall { .. }
+            | schema::ExprView::ProcCallResult(_) => Ok(None),
         }
     }
 
