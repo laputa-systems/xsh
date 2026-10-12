@@ -7872,7 +7872,12 @@ impl<'a> FullDecoder<'a> {
         let receiver = self
             .derive_checked_expression_type(base)?
             .ok_or_else(|| IrVerifyError::new("checked field receiver has no source type"))?;
-        let receiver = receiver.into_unvalidated();
+        // The checker accepts a field read on an optional receiver only where
+        // a null test narrowed it, but the slot's declared type keeps the `?`.
+        let receiver = match receiver.into_unvalidated() {
+            Type::Optional(inner) => inner.into_unvalidated(),
+            other => other,
+        };
         let receiver_id = if matches!(&receiver, Type::Record(_) | Type::Module(_)) {
             self.expression_checked_type_id(base)?
         } else {
