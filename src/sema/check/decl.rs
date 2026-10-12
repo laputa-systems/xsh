@@ -11,8 +11,9 @@ use crate::sema::check::{
     ModuleContractEntryKind, SchemaField, TagVariant, standard_record_type,
 };
 use crate::syntax::arena::{
-    ArenaBindingTargetKind, ArenaModuleContractEntryKind, ArenaProgram, ArenaRange, ArenaStmtKind,
-    ArenaTypeDef, ArenaTypeDefBody, ArenaUserModule, ErrorDefId, FunctionDefId, StmtId, TypeDefId, TypeExprId,
+    ArenaBindingTargetKind, ArenaChild, ArenaModuleContractEntryKind, ArenaProgram, ArenaRange,
+    ArenaStmtKind, ArenaTypeDef, ArenaTypeDefBody, ArenaUserModule, ErrorDefId, FunctionDefId,
+    StmtId, TypeDefId, TypeExprId,
 };
 use crate::source::SourceMap;
 use rustc_hash::FxHashMap;
@@ -114,19 +115,7 @@ impl Checker {
             let mut names = Vec::new();
             match kind {
                 ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Var { target, .. } => {
-                    let mut targets = vec![target];
-                    while let Some(target) = targets.pop() {
-                        match program.arena.binding_target(target).kind {
-                            ArenaBindingTargetKind::Name(name) => names.push(name),
-                            ArenaBindingTargetKind::Record { fields, .. } => targets.extend(
-                                program
-                                    .arena
-                                    .destructure_fields(fields)
-                                    .iter()
-                                    .map(|field| field.target),
-                            ),
-                        }
-                    }
+                    append_binding_target_names_arena(program, target, &mut names);
                 }
                 ArenaStmtKind::Use(id) => {
                     let declaration = program.arena.use_stmt(id);
@@ -138,16 +127,48 @@ impl Checker {
                 }
                 ArenaStmtKind::ProcDef(id)
                 | ArenaStmtKind::PureDef(id)
-                | ArenaStmtKind::StreamDef(id)
-                    if module && !program.arena.function_def(id).test_declaration =>
-                {
-                    names.push(program.arena.function_def(id).name);
+                | ArenaStmtKind::StreamDef(id) => {
+                    if module {
+                        let definition = program.arena.function_def(id);
+                        if !definition.test_declaration {
+                            names.push(definition.name);
+                        }
+                    }
                 }
-                ArenaStmtKind::TypeDef(id) if module => names.push(program.arena.type_def(id).name),
-                ArenaStmtKind::ErrorDef(id) if module => {
-                    names.push(program.arena.error_def(id).name)
+                ArenaStmtKind::TypeDef(id) => {
+                    if module {
+                        names.push(program.arena.type_def(id).name);
+                    }
                 }
-                _ => {}
+                ArenaStmtKind::ErrorDef(id) => {
+                    if module {
+                        names.push(program.arena.error_def(id).name);
+                    }
+                }
+                ArenaStmtKind::Const { .. }
+                | ArenaStmtKind::Export(_)
+                | ArenaStmtKind::Assign { .. }
+                | ArenaStmtKind::CliMain(_)
+                | ArenaStmtKind::SignalHook(_)
+                | ArenaStmtKind::Return(_)
+                | ArenaStmtKind::Yield(_)
+                | ArenaStmtKind::YieldDelegate(_)
+                | ArenaStmtKind::Defer(_, _)
+                | ArenaStmtKind::If { .. }
+                | ArenaStmtKind::While { .. }
+                | ArenaStmtKind::For { .. }
+                | ArenaStmtKind::With { .. }
+                | ArenaStmtKind::Loop { .. }
+                | ArenaStmtKind::Guard { .. }
+                | ArenaStmtKind::Sugar { .. }
+                | ArenaStmtKind::Assert { .. }
+                | ArenaStmtKind::Break { .. }
+                | ArenaStmtKind::Continue
+                | ArenaStmtKind::Exit(_)
+                | ArenaStmtKind::Match { .. }
+                | ArenaStmtKind::Command(_)
+                | ArenaStmtKind::TailBareIdent(_)
+                | ArenaStmtKind::Expr(_) => {}
             }
             if names.iter().any(|name| tests.contains(name)) {
                 self.error(
@@ -503,14 +524,6 @@ impl Checker {
                 self.check_signal_hook_arena(program, source, &hook, stmt.span);
                 continue;
             }
-            if !module_top_level_allowed_arena(program, stmt_id) {
-                self.error(
-                    stmt.span,
-                    "imported modules cannot run top-level mutation or commands",
-                    DiagnosticCode::CheckModuleTopLevel,
-                );
-                continue;
-            }
             match &stmt.kind {
                 ArenaStmtKind::Export(inner_id) => {
                     let previous_exported = self.current_exported;
@@ -618,7 +631,30 @@ impl Checker {
                             let hook = program.arena.signal_hook(hook_id).clone();
                             self.check_signal_hook_arena(program, source, &hook, inner.span);
                         }
-                        _ => {}
+                        ArenaStmtKind::Use(_)
+                        | ArenaStmtKind::Export(_)
+                        | ArenaStmtKind::Var { .. }
+                        | ArenaStmtKind::Assign { .. }
+                        | ArenaStmtKind::CliMain(_)
+                        | ArenaStmtKind::Return(_)
+                        | ArenaStmtKind::Yield(_)
+                        | ArenaStmtKind::YieldDelegate(_)
+                        | ArenaStmtKind::Defer(_, _)
+                        | ArenaStmtKind::If { .. }
+                        | ArenaStmtKind::While { .. }
+                        | ArenaStmtKind::For { .. }
+                        | ArenaStmtKind::With { .. }
+                        | ArenaStmtKind::Loop { .. }
+                        | ArenaStmtKind::Guard { .. }
+                        | ArenaStmtKind::Sugar { .. }
+                        | ArenaStmtKind::Assert { .. }
+                        | ArenaStmtKind::Break { .. }
+                        | ArenaStmtKind::Continue
+                        | ArenaStmtKind::Exit(_)
+                        | ArenaStmtKind::Match { .. }
+                        | ArenaStmtKind::Command(_)
+                        | ArenaStmtKind::TailBareIdent(_)
+                        | ArenaStmtKind::Expr(_) => {}
                     }
                     self.current_exported = previous_exported;
                 }
@@ -669,7 +705,35 @@ impl Checker {
                     let def = program.arena.function_def(*def_id).clone();
                     self.check_stream_function_arena(program, source, &def);
                 }
-                _ => {}
+                ArenaStmtKind::SignalHook(_) => {
+                    unreachable!("signal hooks are handled before module declaration dispatch")
+                }
+                ArenaStmtKind::Var { .. }
+                | ArenaStmtKind::Assign { .. }
+                | ArenaStmtKind::CliMain(_)
+                | ArenaStmtKind::Return(_)
+                | ArenaStmtKind::Yield(_)
+                | ArenaStmtKind::YieldDelegate(_)
+                | ArenaStmtKind::Defer(_, _)
+                | ArenaStmtKind::If { .. }
+                | ArenaStmtKind::While { .. }
+                | ArenaStmtKind::For { .. }
+                | ArenaStmtKind::With { .. }
+                | ArenaStmtKind::Loop { .. }
+                | ArenaStmtKind::Guard { .. }
+                | ArenaStmtKind::Sugar { .. }
+                | ArenaStmtKind::Assert { .. }
+                | ArenaStmtKind::Break { .. }
+                | ArenaStmtKind::Continue
+                | ArenaStmtKind::Exit(_)
+                | ArenaStmtKind::Match { .. }
+                | ArenaStmtKind::Command(_)
+                | ArenaStmtKind::TailBareIdent(_)
+                | ArenaStmtKind::Expr(_) => self.error(
+                    stmt.span,
+                    "imported modules cannot run top-level mutation or commands",
+                    DiagnosticCode::CheckModuleTopLevel,
+                ),
             }
         }
 
@@ -1049,6 +1113,36 @@ impl Checker {
     }
 }
 
+/// Collects destructured names through the arena's binding-target child relation.
+fn append_binding_target_names_arena(
+    program: &ArenaProgram,
+    target: crate::syntax::arena::BindingTargetId,
+    names: &mut Vec<Name>,
+) {
+    let mut targets = vec![target];
+    while let Some(target) = targets.pop() {
+        match program.arena.binding_target(target).kind {
+            ArenaBindingTargetKind::Name(name) => names.push(name),
+            ArenaBindingTargetKind::Record { .. } => {
+                program
+                    .arena
+                    .for_each_binding_target_child(target, |child| match child {
+                        ArenaChild::BindingTarget(target) => targets.push(target),
+                        ArenaChild::Stmt(_)
+                        | ArenaChild::Expr(_)
+                        | ArenaChild::Pattern(_)
+                        | ArenaChild::Block(_)
+                        | ArenaChild::AssignTarget(_)
+                        | ArenaChild::TypeExpr(_)
+                        | ArenaChild::BuilderBlock(_) => {
+                            unreachable!("binding targets only have binding-target children")
+                        }
+                    });
+            }
+        }
+    }
+}
+
 fn exported_stmt_kind_arena(program: &ArenaProgram, stmt_id: StmtId) -> (ArenaStmtKind, Span) {
     let stmt = program.arena.stmt(stmt_id);
     match stmt.kind {
@@ -1058,21 +1152,6 @@ fn exported_stmt_kind_arena(program: &ArenaProgram, stmt_id: StmtId) -> (ArenaSt
         }
         kind => (kind, stmt.span),
     }
-}
-
-fn module_top_level_allowed_arena(program: &ArenaProgram, stmt_id: StmtId) -> bool {
-    matches!(
-        &program.arena.stmt(stmt_id).kind,
-        ArenaStmtKind::Use(_)
-            | ArenaStmtKind::Let { .. }
-            | ArenaStmtKind::Const { .. }
-            | ArenaStmtKind::ProcDef(_)
-            | ArenaStmtKind::PureDef(_)
-            | ArenaStmtKind::StreamDef(_)
-            | ArenaStmtKind::TypeDef(_)
-            | ArenaStmtKind::ErrorDef(_)
-            | ArenaStmtKind::Export(_)
-    )
 }
 
 fn binding_target_simple_name_arena(
