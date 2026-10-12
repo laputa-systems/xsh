@@ -5828,13 +5828,11 @@ impl<'a> FullDecoder<'a> {
             schema::ExprView::ModuleCall { op, .. } => {
                 Self::registered_api_operation_return_type(op).map(Some)
             }
-            schema::ExprView::PathReadlink { path, .. } => {
-                self.verify_path_operand(path.raw() as usize)?;
+            schema::ExprView::PathReadlink { .. } => {
                 Self::registered_path_method_return_type("readlink", RuntimeOp::FsReadlink)
                     .map(Some)
             }
-            schema::ExprView::PathResolve { path, .. } => {
-                self.verify_path_operand(path.raw() as usize)?;
+            schema::ExprView::PathResolve { .. } => {
                 Self::registered_path_method_return_type("resolve", RuntimeOp::PathResolve)
                     .map(Some)
             }
@@ -6116,21 +6114,6 @@ impl<'a> FullDecoder<'a> {
         Self::update_derived_record_type(nested, rest, value_type)
     }
 
-    fn verify_path_operand(&self, instruction: usize) -> Result<(), IrVerifyError> {
-        let actual = self.derive_checked_expression_type(instruction)?;
-        if let Some(actual) = actual {
-            if actual.into_unvalidated() == Type::Path {
-                return Ok(());
-            }
-            return Err(IrVerifyError::new(
-                "checked path method receiver is not a Path",
-            ));
-        }
-        Err(IrVerifyError::new(
-            "checked path method receiver has no Path producer",
-        ))
-    }
-
     fn verify_checked_expression_producer(
         &self,
         instruction: usize,
@@ -6329,8 +6312,7 @@ impl<'a> FullDecoder<'a> {
                     ));
                 }
             }
-            schema::ExprView::PathReadText { path, .. } => {
-                self.verify_path_operand(path.raw() as usize)?;
+            schema::ExprView::PathReadText { .. } => {
                 if Self::registered_path_method_return_type("read_text", RuntimeOp::FsReadText)?
                     != ty
                 {

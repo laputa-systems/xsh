@@ -922,6 +922,34 @@ test test_path_read_checks_each_inline_path_result { |ctx|
     checked_projection = failure.message
   }
   assert checked_projection == "contents"
+
+  let indexed_paths: List[Path] = [fp"{root}/note"]
+  var indexed = ""
+  with text = indexed_paths[0].read_text() {
+    indexed = text
+  } else { |failure|
+    indexed = failure.message
+  }
+  assert indexed == "contents"
+
+  let named_paths: Map[Str, Path] = {note: fp"{root}/note"}
+  var mapped = ""
+  with text = named_paths["note"].read_text() {
+    mapped = text
+  } else { |failure|
+    mapped = failure.message
+  }
+  assert mapped == "contents"
+
+  var mutable_path: Path = fp"{root}/other"
+  mutable_path = fp"{root}/note"
+  var mutable_read = ""
+  with text = mutable_path.read_text() {
+    mutable_read = text
+  } else { |failure|
+    mutable_read = failure.message
+  }
+  assert mutable_read == "contents"
 }
 
 test test_with_keeps_registry_results_for_environment_path_methods {
