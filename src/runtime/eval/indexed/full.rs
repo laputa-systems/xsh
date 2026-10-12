@@ -4752,6 +4752,23 @@ impl<'a> FullDecoder<'a> {
                         ));
                     }
                 }
+                (
+                    LoweredModuleExportKind::Value,
+                    ModuleExportType::Pure { sig, optional: false },
+                )
+                | (
+                    LoweredModuleExportKind::Value,
+                    ModuleExportType::Proc { sig, optional: false },
+                ) => {
+                    // An exported callable alias is a `let` whose checked
+                    // type is the callable it names; its initializer must
+                    // carry that exact callable type.
+                    let callable = Type::Callable(Arc::new(crate::sema::types::TypedCallable {
+                        pure: matches!(checked, ModuleExportType::Pure { .. }),
+                        sig: sig.clone(),
+                    }));
+                    self.verify_registered_module_value(child, export.name, &callable)?;
+                }
                 _ => {
                     return Err(IrVerifyError::new(
                         "registered module export kind differs from its exact type",
@@ -5551,6 +5568,37 @@ impl<'a> FullDecoder<'a> {
                 }
                 Ok(())
             }
+            // A module's callable export read through the module slot: the
+            // module's exact type states the export's signature and purity.
+            schema::ExprView::Field { base, name, .. } => {
+                let receiver = self
+                    .derive_checked_expression_type(base.raw() as usize)?
+                    .map(Type::into_unvalidated);
+                let actual = match receiver {
+                    Some(Type::Module(module)) => match module.exports.get(&Name::intern(name)) {
+                        Some(ModuleExportType::Pure { sig, optional: false }) => {
+                            Some(crate::sema::types::TypedCallable { pure: true, sig: sig.clone() })
+                        }
+                        Some(ModuleExportType::Proc { sig, optional: false }) => {
+                            Some(crate::sema::types::TypedCallable { pure: false, sig: sig.clone() })
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                let (Some(actual), Type::Callable(expected)) = (actual, expected) else {
+                    return Err(IrVerifyError::new(
+                        "checked callable expression child has no structural producer proof",
+                    ));
+                };
+                if self.store.semantic.callable_type_fits(&actual, expected) {
+                    Ok(())
+                } else {
+                    Err(IrVerifyError::new(
+                        "checked module callable export disagrees with its expected type",
+                    ))
+                }
+            }
             schema::ExprView::Null => {
                 if matches!(expected, Type::Optional(_)) {
                     Ok(())
@@ -5756,7 +5804,6 @@ impl<'a> FullDecoder<'a> {
             | schema::ExprView::ListComp { .. }
             | schema::ExprView::MapComp { .. }
             | schema::ExprView::ListPipeline { .. }
-            | schema::ExprView::Field { .. }
             | schema::ExprView::Index { .. }
             | schema::ExprView::IndexFromEnd { .. }
             | schema::ExprView::Slice { .. }
@@ -7889,9 +7936,11 @@ impl<'a> FullDecoder<'a> {
             return self.store.semantic.to_type(field_id);
         }
         match receiver {
-            Type::Record(fields) => fields.get(&field).cloned().ok_or_else(|| {
-                IrVerifyError::new("checked field is absent from its record receiver")
-            }),
+            // A field the declared record lacks is readable only where a
+            // `"name" in record` test refined the receiver, and that
+            // refinement types the field `Any`. The slot keeps the declared
+            // record, so the refinement is not visible here.
+            Type::Record(fields) => Ok(fields.get(&field).cloned().unwrap_or(Type::Any)),
             Type::Module(exports) => exports.get(&field).map(|export| export.field_type()).ok_or_else(|| {
                 IrVerifyError::new("checked field is absent from its module receiver")
             }),
@@ -7952,22 +8001,34 @@ impl<'a> FullDecoder<'a> {
         family: Name,
         variant: Name,
     ) -> Result<(), IrVerifyError> {
-        if let Some(subject_type) = subject_type {
-            match subject_type {
-                Type::Any | Type::Unknown | Type::Error | Type::ProcessError => {}
-                Type::ErrorFamily(actual) if *actual == family => {}
-                Type::ErrorVariant {
-                    family: actual_family,
-                    variant: actual_variant,
-                } if *actual_family == family && *actual_variant == variant => {}
-                _ => {
-                    return Err(IrVerifyError::new(
-                        "error pattern disagrees with its checked subject type",
-                    ));
-                }
-            }
+        if let Some(subject_type) = subject_type
+            && !Self::error_pattern_may_match(subject_type, family, variant)
+        {
+            return Err(IrVerifyError::new(
+                "error pattern disagrees with its checked subject type",
+            ));
         }
         Ok(())
+    }
+
+    /// Whether a value of `subject_type` can be the error the pattern names.
+    ///
+    /// A union subject keeps its declared members even in the branch where an
+    /// `is` test narrowed it to the error member, so the pattern is consistent
+    /// when any member can hold that error.
+    fn error_pattern_may_match(subject_type: &Type, family: Name, variant: Name) -> bool {
+        match subject_type {
+            Type::Any | Type::Unknown | Type::Error | Type::ProcessError => true,
+            Type::ErrorFamily(actual) => *actual == family,
+            Type::ErrorVariant {
+                family: actual_family,
+                variant: actual_variant,
+            } => *actual_family == family && *actual_variant == variant,
+            Type::Union(members) => members
+                .iter()
+                .any(|member| Self::error_pattern_may_match(member, family, variant)),
+            _ => false,
+        }
     }
 
     fn pattern_variant_field_type(
@@ -20341,6 +20402,137 @@ pure apply() -> Int {
             error.message
         );
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn registered_callable_alias_export_matches_its_initializer_signature() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("xsh-callable-alias-export-{stamp}"));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("impl_int.xsh"),
+            "##! Integer implementation.\n\
+             ## Doubles a value.\n\
+             export pure render(value: Int) -> Int { value * 2 }\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("impl_text.xsh"),
+            "##! Text implementation.\n\
+             ## Echoes a value.\n\
+             export pure render(value: Str) -> Str { value }\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("first.xsh"),
+            "##! First alias module.\n\
+             use impl_int\n\
+             ## The aliased callable.\n\
+             export let format = impl_int.render\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("second.xsh"),
+            "##! Second alias module.\n\
+             use impl_text\n\
+             ## The aliased callable.\n\
+             export let format = impl_text.render\n",
+        )
+        .unwrap();
+        let script = root.join("main.xsh");
+        fs::write(
+            &script,
+            "use first\nuse second\nlet number = first.format\nlet text = second.format\nprint number(value: 1)\nprint text(value: \"a\")\n",
+        )
+        .unwrap();
+
+        let (sources, parsed) = crate::loader::parse_script(&script.to_string_lossy()).unwrap();
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.arena.span_source_id.unwrap();
+        let source = sources.get(source_id).unwrap().text().to_string();
+        let checked = Checker::check_arena_with_sources_and_options(
+            &parsed.arena,
+            &sources,
+            source_id,
+            crate::sema::check::CheckOptions {
+                reveal_types: true,
+                embedded_bodies: true,
+                ..crate::sema::check::CheckOptions::default()
+            },
+        );
+        let declarations = Checker::compact_declarations(&parsed.arena, checked);
+        assert!(
+            declarations.diagnostics.is_empty(),
+            "{:?}",
+            declarations.diagnostics
+        );
+        let program = FullBuilder::build_compact(
+            &parsed.arena,
+            &declarations,
+            &source,
+            Arc::new(sources),
+            source_id,
+        )
+        .unwrap();
+        FullVerifier::verify(&program).unwrap();
+
+        let import_step = |suffix: &str| {
+            program
+                .store
+                .driver_steps
+                .iter()
+                .position(|step| {
+                    step.tag == FullDriverTag::Use
+                        && program
+                            .store
+                            .payload(step.data.range())
+                            .ok()
+                            .and_then(|payload| payload.first().copied())
+                            .and_then(|key| program.store.string(key).ok())
+                            .is_some_and(|key| key.ends_with(suffix))
+                })
+                .unwrap_or_else(|| panic!("{suffix} import registration exists"))
+        };
+        let first = import_step("first.xsh");
+        let second = import_step("second.xsh");
+        // Both modules export `format` as a pure alias, so only the signature
+        // of the aliased callable tells the two registered types apart.
+        let mut forged = program.clone();
+        forged.store.driver_steps[first].registered_module_type =
+            program.store.driver_steps[second].registered_module_type;
+        let error = FullVerifier::verify(&forged).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("checked module callable export disagrees with its expected type"),
+            "{}",
+            error.message
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn error_pattern_subject_union_requires_a_member_that_can_hold_the_error() {
+        let owner = crate::symbol::SymbolOwner::new();
+        let _guard = owner.enter();
+        let family = Name::intern("FetchError");
+        let other = Name::intern("OtherError");
+        let variant = Name::intern("Usage");
+        let union = |members: Vec<Type>| Type::Union(members);
+        assert!(FullDecoder::error_pattern_may_match(
+            &union(vec![Type::Str, Type::ErrorFamily(family)]),
+            family,
+            variant
+        ));
+        assert!(!FullDecoder::error_pattern_may_match(
+            &union(vec![Type::Str, Type::ErrorFamily(other)]),
+            family,
+            variant
+        ));
+        assert!(!FullDecoder::error_pattern_may_match(&Type::Str, family, variant));
     }
 
     #[test]
