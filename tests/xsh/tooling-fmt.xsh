@@ -29,14 +29,14 @@ test test_fmt_writes_canonical_source { |ctx|
   let file = test.temp_file(
     ctx,
     name: "writes.xsh",
-    contents: bytes.from_text("proc main(args:List[Str])->Result[Unit]{return Ok()}\n"),
+    contents: bytes.from_text("proc main(...args:List[Str])->Result[Unit]{return Ok()}\n"),
   )?
   let formatted = run.capture --text "xsht" fmt $file
   assert formatted.status.exited_with(0), formatted.stderr
   assert formatted.stdout == ""
   assert formatted.stderr == ""
   # A short body written on one line stays on one line.
-  assert file.read_text()? == "proc main(args: List[Str]) -> Result[Unit] { return Ok() }\n"
+  assert file.read_text()? == "proc main(...args: List[Str]) -> Result[Unit] { return Ok() }\n"
 }
 
 test test_fmt_check_reports_unformatted_files { |ctx|
