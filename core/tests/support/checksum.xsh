@@ -10,15 +10,11 @@ export proc check_chunk(ctx: TestContext, util: Str, start: Int) [fs, process, e
   let expected = fp"{ctx.core_dir}/tests/data/checksum/{util}.txt".read_lines()?
   assert expected.len() == 1000, f"expected 1,000 {util} input digests"
   let block = bytes.from_text(["The quick brown fox jumps over the lazy dog\n" for _ in range(24)].join(""))
-  var actual_rows: List[Bytes] = []
-  var expected_rows: List[Bytes] = []
   for length in range(start, start + 100) {
     let result = uu.invoke(scene, util, [], stdin: block.slice(0, length))?
     uu.succeeds(result)
-    actual_rows += [result.stdout]
-    expected_rows += [bytes.from_text(expected[length] + "\n")]
+    assert result.stdout == bytes.from_text(expected[length] + "\n"), f"{util} input length {length} stdout bytes differ"
   }
-  assert bytes.concat(actual_rows) == bytes.concat(expected_rows), f"{util} input digests differ in range {start}..{start + 100}"
   Ok()
 }
 
