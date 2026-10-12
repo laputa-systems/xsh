@@ -853,6 +853,14 @@ impl IndexedMaterializedStage {
             self.argument_position += 1;
         }
         if let Some(expression) = self.arguments.get(self.argument_position).copied() {
+            // `sort` evaluates `desc` after collecting its input, so a live
+            // producer finishes (and runs its cleanup) before the option's
+            // effects; `sort-by` checks its direction before pulling.
+            if self.tag == FullStageTag::Sort && self.argument_position == 0 {
+                let input = self.input.take().expect("sort input remains through preflight");
+                let items = evaluator.lowered_pipeline_input_items(input, self.span)?;
+                self.input = Some(LoweredValue::List(items));
+            }
             if self.tag == FullStageTag::BytesChunks
                 && self.argument_position == 0
                 && lowered_bytes_value(

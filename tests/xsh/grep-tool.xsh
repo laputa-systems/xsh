@@ -302,8 +302,8 @@ test test_grep_pattern_aliases_match_whole_subject_aliases_without_losing_preced
   let stdout = script(
     ctx,
     "pattern-aliases.xsh",
-    "let whole = match 1 { (1 | 2) as original => original _ => 0 }\nlet separate = match 1 { 1 as original | 2 as original => original _ => 0 }\n",
-  )? |> found("match SUBJECT { (1 | 2) as original => BODY _ => 0 }", _)?
+    "let whole = match 1 { (1 | 2) as original => original, _ => 0 }\nlet separate = match 1 { 1 as original | 2 as original => original, _ => 0 }\n",
+  )? |> found("match SUBJECT { (1 | 2) as original => BODY, _ => 0 }", _)?
   assert "(1 | 2) as original" in stdout, stdout
   assert "1 as original | 2 as original" not in stdout, stdout
 }
