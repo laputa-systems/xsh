@@ -36,7 +36,7 @@ proc check_file(s: uu.Scene, name: Str, input: Bytes, short: Bool = false) [fs, 
 
 # Poll before each nonblocking read so buffering regressions fail within the
 # original deadline while the producer deliberately keeps stdin open.
-proc read_exact(reader: Int, count: Int, deadline: Int) [process, error, fs, time] -> Result[Bytes] {
+proc read_exact(reader: Int, count: Int, deadline: Int) [process, net, error, fs, time] -> Result[Bytes] {
   var result = b""
   while result.len() < count {
     assert time.now() < deadline, "Nothing was received through output pipe"
@@ -47,7 +47,7 @@ proc read_exact(reader: Int, count: Int, deadline: Int) [process, error, fs, tim
   Ok(result)
 }
 
-proc streaming(s: uu.Scene, short_read: Bool) [fs, process, env, error, time] -> Result[Unit] {
+proc streaming(s: uu.Scene, short_read: Bool) [fs, process, net, env, error, time] -> Result[Unit] {
   let deadline = time.now() + (if short_read { 5000 } else { 100 })
   uu.mkfifo(s, "stream-input")?
   uu.mkfifo(s, "stream-output")?

@@ -10,7 +10,7 @@ pure repeat_text(word: Str, count: Int) -> Str {
 
 # The only reader closes after the entire expected prefix, so the producer's
 # termination must be SIGPIPE rather than an ordinary exit with code 141.
-proc yes_prefix(s: uu.Scene, args: List[Path], expected: Bytes) [fs, process, env, time, error] -> Result[Unit, Error] {
+proc yes_prefix(s: uu.Scene, args: List[Path], expected: Bytes) [fs, process, net, env, time, error] -> Result[Unit, Error] {
   let fifo = uu.at(s, "stdout-pipe")
   fs.mkfifo(fifo, 0o600)?
   let reader = unix.open_fd(fifo, nonblock: true)?

@@ -10,7 +10,7 @@ proc ascii_block(size: Int) [error] -> Result[Bytes, Error] {
 }
 
 # FIFO writers keep one open descriptor so each delayed write remains a short record.
-proc fifo_copy(s: uu.Scene, args: List[Str], data: Bytes, width: Int, pause: Duration) [fs, process, env, time, error] -> Result[uu.Ran, Error] {
+proc fifo_copy(s: uu.Scene, args: List[Str], data: Bytes, width: Int, pause: Duration) [fs, process, net, env, time, error] -> Result[uu.Ran, Error] {
   uu.mkfifo(s, "fifo")?
   let plan = uu.command(s, "dd", args, timeout: 15s)?
   let child = spawn plan?

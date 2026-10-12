@@ -11,7 +11,7 @@ proc file_exists(s: uu.Scene, name: Str) [fs, error] -> Result[Bool, Error] {
 }
 
 # Keeping the replica open prevents terminal EOF while queued stderr is drained.
-proc terminal_stderr(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
+proc terminal_stderr(s: uu.Scene, args: List[Str]) [fs, process, net, env, error] -> Result[uu.Ran, Error] {
   let pair = unix.open_pty()?
   defer unix.close_fd(pair.master)?
   defer unix.close_fd(pair.replica)?

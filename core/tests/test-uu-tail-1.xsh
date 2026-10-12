@@ -7,7 +7,7 @@ proc fixture_bytes(ctx: TestContext, name: Str) [fs, error] -> Result[Bytes, Err
 }
 
 # Append through the held inode without a truncate event, as the upstream scene does.
-proc append_bytes(s: uu.Scene, name: Str, data: Bytes) [fs, process, error] -> Result[Unit, Error] {
+proc append_bytes(s: uu.Scene, name: Str, data: Bytes) [fs, process, net, error] -> Result[Unit, Error] {
   if !uu.at(s, name).exists()? { uu.touch(s, name)? }
   let fd = unix.open_fd(uu.at(s, name), write: true, nonblock: false, flags: ["append"])?
   defer unix.close_fd(fd)?
@@ -20,7 +20,7 @@ proc append_bytes(s: uu.Scene, name: Str, data: Bytes) [fs, process, error] -> R
   Ok()
 }
 
-proc append(s: uu.Scene, name: Str, data: Str) [fs, process, error] -> Result[Unit, Error] {
+proc append(s: uu.Scene, name: Str, data: Str) [fs, process, net, error] -> Result[Unit, Error] {
   append_bytes(s, name, bytes.from_text(data))
 }
 
@@ -59,7 +59,7 @@ proc wait_output(s: uu.Scene, out: Bytes, err: Bytes) [fs, process, time, error]
   uu.stderr_is_bytes(current, err)
 }
 
-proc random_input() [fs, process, error] -> Result[Str, Error] {
+proc random_input() [fs, process, net, error] -> Result[Str, Error] {
   let fd = unix.open_fd(p"/dev/urandom")?
   defer unix.close_fd(fd)?
   let data = unix.read_fd(fd, 1000)?

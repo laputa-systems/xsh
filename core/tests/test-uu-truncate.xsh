@@ -20,7 +20,7 @@ proc pipe_diagnostic(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> 
 }
 
 # Keep the replica alive while draining the exact terminal stderr bytes.
-proc terminal_diagnostic(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
+proc terminal_diagnostic(s: uu.Scene, args: List[Str]) [fs, process, net, env, error] -> Result[uu.Ran, Error] {
   let pair = unix.open_pty()?
   defer unix.close_fd(pair.master)?
   defer unix.close_fd(pair.replica)?

@@ -774,7 +774,7 @@ test test_uu_seq_zero_not_first { |ctx|
 }
 
 # Prefix reads are bounded; the live reader applies pipe backpressure to the producer.
-proc read_prefix(fd: Int, length: Int) [process, error] -> Result[Bytes, Error] {
+proc read_prefix(fd: Int, length: Int) [process, net, error] -> Result[Bytes, Error] {
   var result = b""
   while result.len() < length {
     assert "readable" in unix.poll_fd(fd, ["readable"], timeout_ms: 5000)?
@@ -786,7 +786,7 @@ proc read_prefix(fd: Int, length: Int) [process, error] -> Result[Bytes, Error] 
 }
 
 # Closing the sole pipe reader must let the producer terminate with SIGPIPE.
-proc infinite_prefix(s: uu.Scene, args: List[Str], expected: Bytes) [fs, process, env, error] {
+proc infinite_prefix(s: uu.Scene, args: List[Str], expected: Bytes) [fs, process, net, env, error] {
   uu.mkfifo(s, "output-pipe")?
   let reader = unix.open_fd(uu.at(s, "output-pipe"), nonblock: true)?
   var reader_open = true

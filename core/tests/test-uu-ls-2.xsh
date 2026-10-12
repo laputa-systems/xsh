@@ -3,7 +3,7 @@
 use support.uu as uu
 
 # Captures live outside the listed scene, including when ls shows hidden files.
-proc invoke(s: uu.Scene, args: List[Str], vars: Record = {}, terminal: Bool = false, stderr: Path? = null) [fs, process, env, error] -> Result[uu.Ran, Error] {
+proc invoke(s: uu.Scene, args: List[Str], vars: Record = {}, terminal: Bool = false, stderr: Path? = null) [fs, process, net, env, error] -> Result[uu.Ran, Error] {
   let captures = test.temp_dir(s.ctx, name: "ls-captures")?
   let output = fp"{captures}/stdout"
   let error_output = stderr ?? fp"{captures}/stderr"

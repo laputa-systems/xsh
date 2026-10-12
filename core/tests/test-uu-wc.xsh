@@ -16,7 +16,7 @@ proc fixture_input(s: uu.Scene, name: Str) [fs, error] -> Result[Bytes] {
 }
 
 # A producer must receive each result before supplying the next name.
-proc read_exact(reader: Int, count: Int, deadline: Int) [process, fs, error, time] -> Result[Bytes] {
+proc read_exact(reader: Int, count: Int, deadline: Int) [process, net, fs, error, time] -> Result[Bytes] {
   var result = b""
   while result.len() < count {
     assert time.now() < deadline, "wc did not produce the next progressive result"

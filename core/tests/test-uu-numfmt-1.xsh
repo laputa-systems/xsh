@@ -17,7 +17,7 @@ proc pipe_stderr(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Resu
 
 # The plain diagnostic fits the terminal queue; close the last replica after
 # the child exits so Linux's master EIO marks the end of captured output.
-proc tty_stderr(s: uu.Scene, args: List[Str], stdin: Bytes = b"") [fs, process, env, error] -> Result[uu.Ran, Error] {
+proc tty_stderr(s: uu.Scene, args: List[Str], stdin: Bytes = b"") [fs, process, net, env, error] -> Result[uu.Ran, Error] {
   let pty = unix.open_pty()?
   defer unix.close_fd(pty.master)
   var replica_open = true

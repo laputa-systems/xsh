@@ -29,7 +29,7 @@ proc pipe_diagnostic(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> 
 }
 
 # Keep each terminal replica open until its queued output has been drained.
-proc terminal_output(fd: Int) [process, error] -> Result[Bytes, Error] {
+proc terminal_output(fd: Int) [process, net, error] -> Result[Bytes, Error] {
   var output = b""
   while "readable" in unix.poll_fd(fd, ["readable"], timeout_ms: 0)? {
     let chunk = unix.read_fd(fd, 8192)?
@@ -45,7 +45,7 @@ proc terminal() [process, error] -> Result[UnixPty, Error] {
   Ok(pair)
 }
 
-proc invoke_terminal(s: uu.Scene, vars: Record) [fs, process, env, error] -> Result[uu.Ran, Error] {
+proc invoke_terminal(s: uu.Scene, vars: Record) [fs, process, net, env, error] -> Result[uu.Ran, Error] {
   let input = terminal()?
   defer unix.close_fd(input.master)?
   defer unix.close_fd(input.replica)?

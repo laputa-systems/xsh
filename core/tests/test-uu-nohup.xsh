@@ -10,7 +10,7 @@ proc terminal() [process, error] -> Result[UnixPty, Error] {
 }
 
 # A live replica keeps terminal EOF from becoming EIO; poll drains only queued bytes.
-proc terminal_output(fd: Int) [process, error] -> Result[Bytes, Error] {
+proc terminal_output(fd: Int) [process, net, error] -> Result[Bytes, Error] {
   var output = b""
   while "readable" in unix.poll_fd(fd, ["readable"], timeout_ms: 0)? {
     let chunk = unix.read_fd(fd, 8192)?
@@ -20,7 +20,7 @@ proc terminal_output(fd: Int) [process, error] -> Result[Bytes, Error] {
   Ok(output)
 }
 
-proc invoke_terminal(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, error] -> Result[uu.Ran, Error] {
+proc invoke_terminal(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, net, env, error] -> Result[uu.Ran, Error] {
   let input = terminal()?
   defer unix.close_fd(input.master)?
   defer unix.close_fd(input.replica)?

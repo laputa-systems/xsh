@@ -34,7 +34,7 @@ proc scene(ctx: TestContext) [fs, error] -> Result[uu.Scene] {
 }
 
 # Append through the kernel descriptor so the follower never sees a rewritten prefix.
-proc append_bytes(file: Path, data: Bytes) [fs, process, error] -> Result[Unit] {
+proc append_bytes(file: Path, data: Bytes) [fs, process, net, error] -> Result[Unit] {
   if !file.exists()? { file.write(b"")? }
   let fd = unix.open_fd(file, write: true, flags: ["append"])?
   defer unix.close_fd(fd)?

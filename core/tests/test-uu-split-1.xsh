@@ -46,7 +46,7 @@ proc random_lines(s: uu.Scene, name: Str, count: Int, width: Int = 32) [fs, erro
 }
 
 # The replica remains open while polling, so draining cannot block on terminal EOF.
-proc terminal_stderr(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
+proc terminal_stderr(s: uu.Scene, args: List[Str]) [fs, process, net, env, error] -> Result[uu.Ran, Error] {
   let pair = unix.open_pty()?
   defer unix.close_fd(pair.master)?
   defer unix.close_fd(pair.replica)?

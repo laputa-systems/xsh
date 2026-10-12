@@ -55,8 +55,9 @@ while ! release.exists()? { time.sleep(10ms) }
   let pidof = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pidof.xsh" -- ${owned[0].command}
   assert f"{child.pid}" in pidof.trim().split(" ")
   release.write("done")
+  let child_pid = child.pid
   assert (wait child?).exited_with(0)
-  test.error_kind(process.kill(child.pid, signal: "0"), "process-missing")
+  test.error_kind(process.kill(child_pid, signal: "0"), "process-missing")
 }
 
 test test_procps_cli_reports_no_matches { |ctx|
