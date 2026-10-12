@@ -264,7 +264,29 @@ fn site(
             linter.statement_positions.get(&tail.span) == Some(&StatementPosition::Statement)
         }
         ArenaStmtKind::Return(_) | ArenaStmtKind::Break { .. } | ArenaStmtKind::Continue => false,
-        _ => true,
+        ArenaStmtKind::Use(_)
+        | ArenaStmtKind::Export(_)
+        | ArenaStmtKind::TypeDef(_)
+        | ArenaStmtKind::ErrorDef(_)
+        | ArenaStmtKind::Const { .. }
+        | ArenaStmtKind::Let { .. }
+        | ArenaStmtKind::Var { .. }
+        | ArenaStmtKind::Assign { .. }
+        | ArenaStmtKind::ProcDef(_)
+        | ArenaStmtKind::CliMain(_)
+        | ArenaStmtKind::PureDef(_)
+        | ArenaStmtKind::StreamDef(_)
+        | ArenaStmtKind::SignalHook(_)
+        | ArenaStmtKind::Yield(_)
+        | ArenaStmtKind::YieldDelegate(_)
+        | ArenaStmtKind::Defer(_, _)
+        | ArenaStmtKind::While { .. }
+        | ArenaStmtKind::For { .. }
+        | ArenaStmtKind::With { .. }
+        | ArenaStmtKind::Guard { .. }
+        | ArenaStmtKind::Sugar { .. }
+        | ArenaStmtKind::Assert { .. }
+        | ArenaStmtKind::Exit(_) => true,
     };
     if !statement_tail {
         return None;
@@ -556,6 +578,38 @@ mod tests {
             let output = diagnostics(source);
             assert!(output.is_empty(), "{source}: {output:?}");
         }
+    }
+
+    #[test]
+    fn value_producing_tail_constructs_keep_the_tempdir_scope_outside_them() {
+        for tail in [
+            "Ok()",
+            "if ready { Ok() } else { Ok() }",
+            "match ready { true => Ok(), false => Ok() }",
+        ] {
+            let source = format!(
+                "proc finish(ready: Bool) [fs, error] -> Result[Unit] {{\n  let root = fs.tempdir()?\n  defer root.close()?\n  let dir = root.host_path()?\n  {tail}\n}}\n"
+            );
+            assert!(diagnostics(&source).is_empty(), "{source}");
+        }
+    }
+
+    #[test]
+    fn control_transfers_keep_their_existing_tempdir_boundary() {
+        for source in [
+            "proc finish() [fs, error] {\n  let root = fs.tempdir()?\n  defer root.close()?\n  let dir = root.host_path()?\n  return\n}\n",
+            "proc finish() [fs, error] {\n  loop {\n    let root = fs.tempdir()?\n    defer root.close()?\n    let dir = root.host_path()?\n    break\n  }\n}\n",
+            "proc finish(done: Bool) [fs, error] {\n  loop {\n    if done { break }\n    let root = fs.tempdir()?\n    defer root.close()?\n    let dir = root.host_path()?\n    continue\n  }\n}\n",
+        ] {
+            assert!(diagnostics(source).is_empty(), "{source}");
+        }
+    }
+
+    #[test]
+    fn a_tail_exit_remains_an_allowed_tempdir_scope_body() {
+        let source = "proc finish() [fs, error] -> Result[Unit] {\n  let root = fs.tempdir()?\n  defer root.close()?\n  let dir = root.host_path()?\n  exit 0\n}\n";
+        let output = diagnostics(source);
+        assert_eq!(output.len(), 1, "{source}: {output:?}");
     }
 
     #[test]

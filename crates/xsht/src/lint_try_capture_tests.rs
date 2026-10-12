@@ -215,6 +215,19 @@ fn local_capture_helpers_leave_native_tests_and_statement_boundaries_unchanged()
 }
 
 #[test]
+fn local_capture_helpers_decline_closed_but_non_scalar_expression_trees() {
+    for initializer in [
+        "let content = if true { \"7\" } else { \"8\" }\n  content.parse_int()?",
+        "let contents = [\"7\"]\n  \"7\".parse_int()?",
+    ] {
+        let source = format!(
+            "proc read_port() [error] -> Result[Int] {{\n  {initializer}\n}}\nlet port = read_port() ?? 8080\n"
+        );
+        assert!(migration(&source).is_empty(), "{source}");
+    }
+}
+
+#[test]
 fn checked_local_capture_rule_is_exposed_by_the_linter_library() {
     let source = "proc read_port() [error] -> Result[Int] { \"7\".parse_int()? }\nlet port = read_port() ?? 8080\nprint $port\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
