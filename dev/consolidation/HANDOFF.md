@@ -1,5 +1,68 @@
 # Consolidation restart handoff
 
+## Extension and lint closure lanes — 2026-10-12
+
+Master `a149123f` accepts the formatted-interpolation error-location oracle
+(`4d56f0dd`): a checked-valid runtime failure must identify line 2, column 17
+inside the interpolation rather than the outer string. It passed normal and
+forced-frame on the frozen source-equivalent abdd pair. Final-source rerun is
+still pending.
+
+Resource-scope callable reachability (`54f3404d`, private `7385a12c`) fixes
+a reproduced lint omission: expression-form resource bindings shadow an
+unrelated top-level callable after their initializers, so that callable is
+now correctly reported unused. The shared visitor enters/restores scope,
+processes initializers left-to-right and excludes `_`; no second full lint
+traversal was added. Independent source/receipt review found no blocker;
+private optimized lint-dead-code 20/20 and with-resource 19/19 passed.
+A direct lint-specific `_` shadow oracle was not added; the source guard and
+existing unnamed-resource test cover the boundary. The red/control fixtures
+and logs are preserved in real-main final-review evidence.
+
+Checker statement extension closure (`a149123f`, private `88947f35`) makes
+six expression context/control decisions and two statement policies exhaustive
+without changing current positive cases or fallback results. Independent
+review verifies the exact source; five focused files passed 65 tests in each
+mode, with zero skips. The file named source-before records an intermediate
+edit before the first compiler check, not the commit parent: its duplicate
+ValueBlock arm was removed after an unreachable-pattern warning. Original
+evidence is preserved with an explicit provenance clarification. This is not
+the final synthetic compiler experiment or a final zero-site claim. Source
+growth is advisory under the owner's performance-first policy.
+
+The expanded feature-touch audit found remaining runtime routing/dispatch and
+compact counter-size obligations. Their implementation waits for W4 to
+release overlapping runtime files. W4 also owns exhaustive schema-expectation
+classification and fixes legal imported-error/stream-signature proof failures.
+The stream regression explicitly declares Stream[Int]; lowered Stream[Any]
+storage fallback must not erase that declaration. Error-family aliases need
+canonical declaration identity, never suffix-only verifier equality.
+
+A separate stage-engine lane restores the approved Map/Where fast checks and
+historical SortBy/GroupBy field projections. It is sealed privately and under
+independent review; no timing acceptance is claimed. The cached Map plan adds
+one fixed execution allocation, with no per-row allocation delta. Review is
+checking list/stream errors against both current engine and frozen materializer.
+
+W9 retains the true cache/constructor-order fixes and all failed attempts. Its
+v4 comparison used separate absolute input mirrors, producing source-qualified
+Name differences; the exact core/arch replay proves that comparison condition
+invalid, not a candidate semantic difference. A fresh full v5 uses one common
+frozen absolute input root for both arms and preserves strict live Name
+spellings. Focused captures use distinct index/profile/side/binary-hash paths,
+refuse overwrite, and validate actual headers, input identities and terminals.
+No complete green publication matrix or W9 master port exists yet.
+
+Read-only final preparation now includes the ten semantic rows, all 152 live
+instruction routes and six retired ordinal holes, 46 stage routes, lint descent
+inventory, source-observer 900s plan, and final comparative/profile launch plan.
+These are qualified inventories, not an accepted review bundle. The fresh
+native nonregression reference will use final shared runtime/corpus/helper
+with only both scheduler patches and default-width policy reversed, giving
+the old contiguous queue and default eight workers. Original frozen baselines
+and interrupted runs remain unchanged; expected final IDs require fresh paired
+listing, not the invalid historical preparation-error manifests.
+
 ## Deterministic fixtures, GNU regressions and build tooling — 2026-10-12
 
 Master `724c53ba` includes deterministic DD FIFO production (`abdd589c`):
