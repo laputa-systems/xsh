@@ -1,5 +1,64 @@
 # Consolidation restart handoff
 
+## Private integration, complete owner parity and alias fix — 2026-10-12
+
+Before this checkpoint main is `fdf8d41b`, with no pending tracked edits.
+Root assembled `integration/consolidation-final-rehearsal` in
+`/home/josh/d/laputa-systems/xsh-consolidation-lanes/root-final-integration`.
+Its current head is `3e2b444d`; main source remains unchanged. The assembly
+contains W4 through `17db51da`, exhaustive witnesses `0b33906c`, runtime/counter
+closure `556d8d75`, W9 port `4b990e07`, nominal correction `40c9d792`, publication
+fix `7dc881ed`, context/scope fixes `14de6072` and `3f39188c`, and canonical
+documentation preparation `94409522`. Root resolved overlapping lowering
+imports, preserved checked import provenance with selected module lookup,
+and retained checked pattern registration with selected root statements.
+Pinned production-library and XSHT compile checks pass at the earlier
+`8b130232` snapshot; this is not final optimized verification.
+
+W9 owner parity is complete at sealed `7dc881ed`: all 1,690 frozen inputs and
+6,760 outcomes match. The final controller invocation initially failed because
+its reference directory contained `receipt.tsv` while the verifier globbed
+`*.receipt`. Original status, diagnostics and receipts remain unchanged.
+An isolated symlink adapter and the unchanged verifier pass, independently
+rerun by Root without rerunning cases. Real-main evidence is
+`.work/final-review-evidence/w9-owner-publication-7dc-proof`; copy/root receipt
+SHA-256 `e15dc5bd25b7caf17cb7b2b6c362144dcaf19c2f9ac0b633bf09478a12a8181a`.
+Independent owner review SHA-256 is
+`8219eca5adebd5eb4762b54f85d1ee7d6c7c1b785feeb2676a3b65142aa8f0dd`.
+Final combined source and check/preparation counts remain unverified.
+
+Contextual Error test seal `70e1f322` reproduces a direct import-alias schema
+mismatch while transitive calls pass. Narrow lowering correction `3e2b444d`
+canonicalizes annotated local and top-level runtime checks, retaining source
+diagnostic names and inferred facts. Independent review finds no defect,
+report SHA-256 `233108b7db0cfd3e81bfc2c534a143298b01fb1a96d85a00926506aebbb73993`.
+CLI root tests pass 3/3; callables 36 and resources 19 pass in each mode,
+as do six selected nominal/structured/imported Error executions in each mode.
+Supplemental receipt SHA-256 is
+`4e0631b804c7c6fc61874bab10434891ada3cf4be23c48798d44caa5dbab5da1`.
+The new top-level red was observed but its redirected log was overwritten;
+the original local red is retained. These are focused, pre-generic-W4 gates.
+
+The generic Method owner remains mutable on `17db51da`. Its corrected mutation
+swaps a same-owner Label parameter into List.push/Map.set without changing
+slot or source facts: disabling parameter proof accepts the forgery; restoring
+it rejects it. Root also reproduced two checker-valid baseline successes that
+the provisional candidate rejects: a dynamic formatted-string parse receiver,
+and an empty annotated Map containing typed callables. Both now have native
+regressions and narrow intrinsic/empty-container fixes under verification.
+Do not dismiss the empty Map as an invalid fixture or integrate mutable WIP.
+After the next seal, reactivate independent verifier review and the exhaustive
+witness port, including the new literal-key query. No scalar Path proof is
+authorized beyond the established callable/producer contract.
+
+Final performance tooling is now copied and reconciled under real-main
+`.work/final-review-evidence/final-performance-gates`. Its revised launch plan
+separates opt-level costs, the frozen seven-tool baseline, and the same-source
+release scheduler reverse-overlay comparison. Original tools/fixtures remain
+byte-identical in `original/`. No final builds, fresh lists, suites or timings
+have run. Generic W4 review/port, final integration, generated docs, structural
+and semantic evidence, full correctness and release performance still remain.
+
 ## Selected-context fix and latest constructor publication delta — 2026-10-12
 
 Main is `b3e7d965` before this checkpoint; W4/W9 remain private and unaccepted.
