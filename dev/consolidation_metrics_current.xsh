@@ -637,12 +637,73 @@ proc modules(source_path: Str, lexed: Lexed, attrs: List[Attribute], spans: List
 pure metric(name: Str, evidence: List[Evidence]) -> Metric { {name: name, value: evidence.len(), evidence: evidence} }
 pure evidence(source_path: Str, item: Token, detail: Str) -> Evidence { {path: source_path, line: item.line, detail: detail} }
 
+# Macro output is a template, but the eager helper is accepted only in the schema macro's generated match arm.
+pure token_sequence_matches(lexed: Lexed, opening: Int, expected: List[Str]) -> Bool {
+  var offset = 0
+  while offset < expected.len() {
+    if (lexed.tokens.get(opening + offset) ?? end_token).text != expected[offset] { return false }
+    offset += 1
+  }
+  true
+}
+
+proc validate_instruction_schema_definition(source_path: Str, lexed: Lexed, opening: Int) [error] -> Result[Unit] {
+  if source_path != "src/runtime/eval/indexed/full/schema.rs" { invalid(source_path, lexed.tokens[opening].line, "instruction schema eager helper is outside its generated source authority")? }
+  let closing = lexed.mates[f"{opening}"]
+  let eager_false_arm = ["(", "@", "eager_atom", ")", "=", ">", "{", "false", "}", ";"]
+  let eager_true_arm = ["(", "@", "eager_atom", "EagerAtom", ")", "=", ">", "{", "true", "}", ";"]
+  let classification_matcher = [
+    "$", "effects", ":", "expr", ";", "$", "class", ":", "ident", ";", "$", "strategy", ":", "ident",
+    "$", "(", ";", "$", "classification", ":", "ident", ")", "?", "]",
+  ]
+  let eager_helper_arguments = ["@", "eager_atom", "$", "(", "$", "classification", ")", "?"]
+  var false_arms = 0
+  var true_arms = 0
+  var classification_matchers = 0
+  var helper_calls = 0
+  var cursor = opening + 1
+  while cursor < closing {
+    if cursor + eager_false_arm.len() <= closing and token_sequence_matches(lexed, cursor, eager_false_arm) { false_arms += 1 }
+    if cursor + eager_true_arm.len() <= closing and token_sequence_matches(lexed, cursor, eager_true_arm) { true_arms += 1 }
+    if cursor + classification_matcher.len() <= closing and token_sequence_matches(lexed, cursor, classification_matcher) { classification_matchers += 1 }
+    if lexed.tokens[cursor].text == "instruction_schema" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" {
+      helper_calls += 1
+      let call_open = cursor + 2
+      if (lexed.tokens.get(call_open) ?? end_token).text != "(" {
+        invalid(source_path, lexed.tokens[cursor].line, "malformed instruction schema eager helper invocation")?
+      }
+      let call_close = lexed.mates[f"{call_open}"]
+      let anchor_start = cursor - 7
+      let repetition_start = cursor - 11
+      let repetition_context = ["$", "(", "$", "("]
+      let match_arm_context = ["Self", ":", ":", "$", "tag", "=", ">"]
+      if cursor < 11 {
+        invalid(source_path, lexed.tokens[cursor].line, "unrecognized instruction schema eager helper expansion")?
+      }
+      let valid_anchor = token_sequence_matches(lexed, repetition_start, repetition_context) and token_sequence_matches(lexed, anchor_start, match_arm_context)
+      let valid_arguments = call_close == call_open + eager_helper_arguments.len() + 1 and token_sequence_matches(lexed, call_open + 1, eager_helper_arguments)
+      let valid_repetition_end = (lexed.tokens.get(call_close + 1) ?? end_token).text == "," and (lexed.tokens.get(call_close + 2) ?? end_token).text == ")" and (lexed.tokens.get(call_close + 3) ?? end_token).text == "*" and (lexed.tokens.get(call_close + 4) ?? end_token).text == ")" and (lexed.tokens.get(call_close + 5) ?? end_token).text == "*"
+      if ! valid_anchor or ! valid_arguments or ! valid_repetition_end {
+        invalid(source_path, lexed.tokens[cursor].line, "unrecognized instruction schema eager helper expansion")?
+      }
+    }
+    cursor += 1
+  }
+  if false_arms != 1 or true_arms != 1 or classification_matchers != 1 or helper_calls != 1 {
+    invalid(source_path, lexed.tokens[opening].line, "unrecognized instruction schema eager classification definition")?
+  }
+  Ok()
+}
+
 # The macro call owns the four instruction tables that generate FullTag.
-proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int) [error] -> Result[List[Evidence]] {
+proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int, strict_classification: Bool) [error] -> Result[List[Evidence]] {
   let closing = lexed.mates[f"{opening}"]
   let expected_rows = ["BuildIntRow", "BuildBoolRow", "BuildExprRow", "BuildStmtRow"]
   var rows: List[Str] = []
   var variants: List[Evidence] = []
+  var tags: Map[Bool] = {}
+  var ordinals: Map[Bool] = {}
+  var expected_ordinal = 0
   var cursor = opening + 1
   while cursor < closing {
     let row = (lexed.tokens.get(cursor) ?? end_token).text
@@ -657,9 +718,12 @@ proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int) [
     let table_close = lexed.mates[f"{table_open}"]
     var entry = table_open + 1
     var entry_count = 0
+    var row_variants: List[Str] = []
     while entry < table_close {
       let variant = lexed.tokens.get(entry) ?? end_token
       if variant.text == "" or ! ident_start(first(variant.text)) { invalid(source_path, variant.line, f"malformed instruction schema entry in {row}")? }
+      if variant.text in row_variants { invalid(source_path, variant.line, f"duplicate instruction schema variant {row}::{variant.text}")? }
+      row_variants += [variant.text]
       var after_variant = entry + 1
       let fields = (lexed.tokens.get(after_variant) ?? end_token).text
       if fields in ["(", "{"] {
@@ -674,6 +738,8 @@ proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int) [
       if tag.text == "" or ! ident_start(first(tag.text)) or (lexed.tokens.get(after_variant + 3) ?? end_token).text != "=" {
         invalid(source_path, variant.line, f"malformed instruction schema tag for {row}::{variant.text}")?
       }
+      if tags.get(tag.text) ?? false { invalid(source_path, variant.line, f"duplicate instruction schema tag {tag.text}")? }
+      tags[tag.text] = true
       var ordinal_end = after_variant + 4
       var ordinal_text = ""
       while (lexed.tokens.get(ordinal_end) ?? end_token).text in "0123456789" {
@@ -681,7 +747,13 @@ proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int) [
         ordinal_end += 1
       }
       match ordinal_text.parse_int() {
-        Ok(_) => {}
+        Ok(ordinal) => {
+          let ordinal_key = f"{ordinal}"
+          if ordinals.get(ordinal_key) ?? false { invalid(source_path, variant.line, f"duplicate instruction schema ordinal {ordinal_key}")? }
+          ordinals[ordinal_key] = true
+          if ordinal != expected_ordinal { invalid(source_path, variant.line, f"unknown instruction schema ordinal {ordinal_key}; expected {expected_ordinal}")? }
+          expected_ordinal += 1
+        }
         Err(_) => invalid(source_path, variant.line, f"malformed instruction schema ordinal for {row}::{variant.text}")?,
       }
       let effects_open = ordinal_end
@@ -689,6 +761,26 @@ proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int) [
       let effects_close = lexed.mates[f"{effects_open}"]
       if effects_close <= effects_open or effects_close >= table_close or (lexed.tokens.get(effects_close + 1) ?? end_token).text != ";" {
         invalid(source_path, variant.line, f"malformed instruction schema terminator for {row}::{variant.text}: {(lexed.tokens.get(effects_close + 1) ?? end_token).text}")?
+      }
+      if strict_classification {
+        var separators: List[Int] = []
+        var contains_eager_marker = false
+        var marker_cursor = effects_open + 1
+        while marker_cursor < effects_close {
+          let marker = lexed.tokens[marker_cursor]
+          if marker.text == "EagerAtom" { contains_eager_marker = true }
+          if marker.text in ["(", "[", "{"] { marker_cursor = lexed.mates[f"{marker_cursor}"] + 1; continue }
+          if marker.text == ";" { separators += [marker_cursor] }
+          marker_cursor += 1
+        }
+        if separators.len() > 3 { invalid(source_path, variant.line, f"malformed instruction schema classification for {row}::{variant.text}")? }
+        if contains_eager_marker and separators.len() != 3 { invalid(source_path, variant.line, f"malformed instruction schema classification for {row}::{variant.text}")? }
+        if separators.len() == 3 {
+          let classification = lexed.tokens[separators[2] + 1]
+          if separators[2] + 2 != effects_close or classification.text != "EagerAtom" or row != "BuildExprRow" {
+            invalid(source_path, variant.line, f"unrecognized instruction schema classification for {row}::{variant.text}")?
+          }
+        }
       }
       variants += [evidence(source_path, variant, f"{row}::{variant.text}")]
       entry_count += 1
@@ -1133,6 +1225,8 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
   var factories: List[Evidence] = []
   var instruction_schema_calls = 0
   var instruction_schema_definition = false
+  var instruction_schema_definitions = 0
+  var instruction_schema_definition_opening = -1
   var hand_instruction_rows = false
   var pattern_schema_calls = 0
   var pattern_schema_definitions = 0
@@ -1151,13 +1245,23 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
         cursor = lexed.mates[f"{cursor + 3}"] + 1
         continue
       }
-      if name == "macro_rules" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" and (lexed.tokens.get(cursor + 2) ?? end_token).text == "instruction_schema" { instruction_schema_definition = true }
+      if name == "macro_rules" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" and (lexed.tokens.get(cursor + 2) ?? end_token).text == "instruction_schema" {
+        instruction_schema_definitions += 1
+        if instruction_schema_definitions > 1 { invalid(source_path, item.line, "multiple instruction schema definitions in one source file")? }
+        let opening = cursor + 3
+        if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "malformed instruction schema definition")? }
+        instruction_schema_definition = true
+        instruction_schema_definition_opening = opening
+        cursor = lexed.mates[f"{opening}"] + 1
+        continue
+      }
       if name == "macro_rules" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" and (lexed.tokens.get(cursor + 2) ?? end_token).text == "pattern_schema" { pattern_schema_definitions += 1 }
       if name == "instruction_schema" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" {
+        if inside_macro_definition(lexed, cursor) { invalid(source_path, item.line, "instruction schema invocation is nested in an unrelated macro definition")? }
         let opening = cursor + 2
         if (lexed.tokens.get(opening) ?? end_token).text != "{" { invalid(source_path, item.line, "instruction schema invocation must use a table block")? }
         instruction_schema_calls += 1
-        instructions += instruction_schema_variants(source_path, lexed, opening)?
+        instructions += instruction_schema_variants(source_path, lexed, opening, instruction_schema_definition)?
       }
       if name == "pattern_schema" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" {
         let opening = cursor + 2
@@ -1269,6 +1373,7 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
   if instruction_schema_calls > 1 { invalid(source_path, 1, "multiple instruction schema tables in one source file")? }
   if instruction_schema_definition and instruction_schema_calls != 1 { invalid(source_path, 1, "instruction schema definition has no supported table invocation")? }
   if source_path == "src/runtime/eval/indexed/full/schema.rs" and instruction_schema_calls != 1 { invalid(source_path, 1, "unrecognized generated instruction schema layout")? }
+  if instruction_schema_definition_opening >= 0 { validate_instruction_schema_definition(source_path, lexed, instruction_schema_definition_opening)? }
   if instruction_schema_calls > 0 and hand_instruction_rows { invalid(source_path, 1, "handwritten instruction rows overlap the generated schema")? }
   if pattern_schema_definitions > 1 { invalid(source_path, 1, "multiple pattern schema definitions in one source file")? }
   if pattern_schema_calls > 1 { invalid(source_path, 1, "multiple pattern schema tables in one source file")? }

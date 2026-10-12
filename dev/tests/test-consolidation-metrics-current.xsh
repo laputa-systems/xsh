@@ -37,6 +37,24 @@ pure pattern_table() -> Str {
   ].join("\n")
 }
 
+pure instruction_schema_source() -> Str {
+  [
+    "macro_rules! instruction_schema {",
+    "  (@eager_atom) => { false };",
+    "  (@eager_atom EagerAtom) => { true };",
+    "  ($($row:ident => $view:ident [$kind:ident] {$($variant:ident => $tag:ident = $ordinal:literal [$effects:expr; $class:ident; $strategy:ident $(; $classification:ident)?];)*})*) => {",
+    "    match self { $($(Self::$tag => instruction_schema!(@eager_atom $($classification)?),)*)* }",
+    "  };",
+    "}",
+    "instruction_schema! {",
+    "  BuildIntRow => IntView [Int] { Int => IntInt = 0 [0; Operands; FrameApply]; }",
+    "  BuildBoolRow => BoolView [Bool] { Bool => BoolBool = 1 [0; Operands; FrameApply]; }",
+    "  BuildExprRow => ExprView [Expr] { Null => ExprNull = 2 [0; Operands; FrameApply; EagerAtom]; }",
+    "  BuildStmtRow => StmtView [Stmt] { Break => StmtBreak = 3 [0; Operands; FrameApply]; }",
+    "}",
+  ].join("\n")
+}
+
 proc rejection_at(source_path: Str, source: Str) [error] -> Str {
   match metrics.scan_file(source_path, source) {
     Ok(_) => "accepted"
@@ -114,4 +132,27 @@ test test_canonical_observer_provenance_pins_the_frozen_same_source_report {
     Err(metrics.MetricError.Contract {detail}) => test.fail(detail)
     Err(error) => test.fail(error.message)
   }
+}
+
+test test_instruction_schema_macro_accepts_its_eager_atom_expansion {
+  let source = instruction_schema_source()
+  let scan = metrics.scan_file("src/runtime/eval/indexed/full/schema.rs", source)?
+  assert value(scan, "instruction_variants") == 4
+  assert "outside its generated source authority" in rejection_at("src/fixture.rs", source)
+}
+
+test test_instruction_schema_eager_classification_and_table_shape_fail_loudly {
+  let source = instruction_schema_source()
+  let source_path = "src/runtime/eval/indexed/full/schema.rs"
+  assert "unrecognized instruction schema eager helper expansion" in rejection_at(source_path, source.replace("@eager_atom $($classification)?", with: "@eager_atom EagerAtom"))
+  assert "unrecognized instruction schema classification" in rejection_at(source_path, source.replace("FrameApply; EagerAtom", with: "FrameApply; OtherAtom"))
+  assert "nested in an unrelated macro definition" in rejection_at("src/fixture.rs", "macro_rules! unrelated { () => { instruction_schema!(@eager_atom EagerAtom) }; }")
+  assert "unrecognized instruction schema eager helper expansion" in rejection_at(source_path, source.replace("match self { $($(Self::$tag => instruction_schema!(@eager_atom $($classification)?),)*)* }", with: "match self { $($(Self::$tag => instruction_schema!(@eager_atom $($classification)?), instruction_schema!(@eager_atom EagerAtom))*)* }"))
+  assert "duplicate instruction schema tag" in rejection_at(source_path, source.replace("BoolBool", with: "IntInt"))
+  assert "duplicate instruction schema variant" in rejection_at(source_path, source.replace("Bool => BoolBool = 1 [0; Operands; FrameApply];", with: "Bool => BoolBool = 1 [0; Operands; FrameApply]; Bool => BoolAgain = 2 [0; Operands; FrameApply];"))
+  assert "duplicate instruction schema ordinal" in rejection_at(source_path, source.replace("= 1 [0; Operands; FrameApply]", with: "= 0 [0; Operands; FrameApply]"))
+  assert "unknown instruction schema ordinal" in rejection_at(source_path, source.replace("= 3 [0; Operands; FrameApply]", with: "= 4 [0; Operands; FrameApply]"))
+  assert "malformed instruction schema ordinal" in rejection_at(source_path, source.replace("= 3 [0; Operands; FrameApply]", with: "= unknown [0; Operands; FrameApply]"))
+  assert "malformed instruction schema header" in rejection_at(source_path, source.replace("BuildBoolRow => BoolView [Bool]", with: "BuildBoolRow => OtherView [Bool]"))
+  assert "incomplete instruction schema table set" in rejection_at(source_path, source.replace("  BuildStmtRow => StmtView [Stmt] { Break => StmtBreak = 3 [0; Operands; FrameApply]; }\n", with: ""))
 }
