@@ -140,17 +140,20 @@ impl Checker {
         };
         self.conversions.insert(span, conversion);
         let reported = self.diagnostics.len();
+        let deferred = self.deferred_effect_checks.len();
         let result = Type::Result(
             Box::new(conversion.target().unwrap_or_else(|| to.clone())),
             Box::new(Type::Error),
         );
         let ty = self.check_propagation(&result, span);
         // The propagation rules are worded for `?`; say which form this is.
+        // A missing `error` effect may be reported later, from a deferred
+        // check, so its note is attached to that check as well.
+        let note = "`as` fails the enclosing function when the conversion fails, as `?` does";
         for diagnostic in &mut self.diagnostics[reported..] {
-            *diagnostic = diagnostic.clone().with_note(
-                "`as` fails the enclosing function when the conversion fails, as `?` does",
-            );
+            *diagnostic = diagnostic.clone().with_note(note);
         }
+        self.add_deferred_required_effect_note(deferred, span, note.into());
         ty
     }
 }
