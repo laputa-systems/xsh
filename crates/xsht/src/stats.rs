@@ -1,9 +1,9 @@
 //! `xsht frontend-stats` and `xsht runtime-stats`: profiling commands that are
 //! not listed in help.
 //!
-//! They live beside the binary's entry point instead of in the command table
-//! because they need the counting global allocator, which only the `xsht`
-//! binary installs; the `xsht` library can be linked into other programs.
+//! They stay private to the library and are dispatched by the binary entry
+//! because their allocation reports require the global allocator installed by
+//! the `xsht` executable.
 
 use std::io::Write;
 use std::path::PathBuf;

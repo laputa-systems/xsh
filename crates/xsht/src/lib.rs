@@ -1,3 +1,4 @@
+mod stats;
 pub mod xsht;
 
 #[cfg(feature = "native-tests")]

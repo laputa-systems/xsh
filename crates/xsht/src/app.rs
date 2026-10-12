@@ -11,6 +11,17 @@ use std::process::ExitCode;
 use xsh::diagnostic::{DiagnosticCode, DiagnosticFamily};
 use xsh::process::{clear_cancellation_request, install_cancellation_signal_handlers};
 
+/// Binary entry for the hidden statistics commands, which require the
+/// `xsht` binary's counting global allocator. Library callers should use
+/// [`main`] for the ordinary command-line interface.
+#[doc(hidden)]
+pub fn main_with_stats() -> ExitCode {
+    match crate::stats::run() {
+        Some(status) => status,
+        None => main(),
+    }
+}
+
 pub fn main() -> ExitCode {
     let args: Vec<String> = match std::env::args_os()
         .skip(1)

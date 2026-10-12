@@ -12,12 +12,6 @@ static ALLOC: CountingAllocator<mimalloc::MiMalloc> = CountingAllocator::new(mim
 #[global_allocator]
 static ALLOC: CountingAllocator = CountingAllocator::new(std::alloc::System);
 
-mod stats;
-mod xsht;
-
 fn main() -> ExitCode {
-    xsh::execution::script::on_preparation_stack(|| match stats::run() {
-        Some(status) => status,
-        None => xsht::app::main(),
-    })
+    xsh::execution::script::on_preparation_stack(xsht::app::main_with_stats)
 }
