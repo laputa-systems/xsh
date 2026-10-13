@@ -1,4 +1,4 @@
-use consolidation_metrics as metrics
+use consolidation_metrics_current as metrics
 
 type AuditRise = {metric: Str, baseline: Int, current: Int, ceiling: Int, approval: Str, reason: Str, remove_when: Str}
 
