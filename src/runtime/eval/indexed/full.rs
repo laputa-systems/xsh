@@ -4337,6 +4337,23 @@ impl<'a> FullDecoder<'a> {
             }
             _ => "typed call signature differs from its checked callee type",
         };
+        if self.store.tags.get(callee) == Some(&FullTag::ExprField)
+            && let Some(receiver) = self.checked_field_receiver_type(callee)?
+        {
+            if matches!(receiver.into_unvalidated(), Type::Record(_) | Type::Optional(_)) {
+                // Structural derivation validates any optional receiver against
+                // its null-narrowed branch before comparing the callable type.
+                let actual = self.derive_checked_field_type(callee)?;
+                if actual != self.store.semantic.to_type(signature)? {
+                    return Err(IrVerifyError::new(reason));
+                }
+                self.store
+                    .semantic
+                    .typed_callable_signature(signature)
+                    .map_err(|_| IrVerifyError::new("typed call callee is not a typed callable"))?;
+                return Ok(());
+            }
+        }
         let actual = match self.derive_typed_callee_type(callee) {
             Ok(actual) => actual,
             Err(error)
@@ -8175,6 +8192,791 @@ impl<'a> FullDecoder<'a> {
         self.derive_checked_expression_type(base.raw() as usize)
     }
 
+    fn checked_binding_path(
+        &self,
+        mut instruction: usize,
+    ) -> Result<Option<(usize, Vec<Name>)>, IrVerifyError> {
+        let mut fields = Vec::new();
+        loop {
+            match self.expression_view(instruction)? {
+                schema::ExprView::Param(slot) => {
+                    fields.reverse();
+                    return Ok(Some((slot, fields)));
+                }
+                schema::ExprView::Field { base, name, .. } if fields.len() < 128 => {
+                    fields.push(Name::intern(name));
+                    instruction = base.raw() as usize;
+                }
+                _ => return Ok(None),
+            }
+        }
+    }
+
+    fn checked_statement_ids(
+        &self,
+        mut statements: ListView<'a, BuildStmtId>,
+    ) -> Result<Vec<usize>, IrVerifyError> {
+        let mut ids = Vec::new();
+        for statement in &mut statements {
+            ids.push(statement?.raw() as usize);
+        }
+        Ok(ids)
+    }
+
+    fn checked_statement_blocks(
+        &self,
+        instruction: usize,
+    ) -> Result<Vec<Vec<usize>>, IrVerifyError> {
+        let mut blocks = Vec::new();
+        match self.store.tags[instruction] {
+            FullTag::StmtGuard => {
+                let schema::StmtView::Guard { else_body, .. } = self.statement_view(instruction)?
+                else {
+                    unreachable!("guard statement tag and generated view disagree")
+                };
+                blocks.push(self.checked_statement_ids(else_body)?);
+            }
+            FullTag::StmtWith => {
+                let schema::StmtView::With {
+                    body, else_body, ..
+                } = self.statement_view(instruction)?
+                else {
+                    unreachable!("with statement tag and generated view disagree")
+                };
+                blocks.push(self.checked_statement_ids(body)?);
+                blocks.push(self.checked_statement_ids(else_body)?);
+            }
+            FullTag::StmtIf => {
+                let schema::StmtView::If {
+                    mut branches,
+                    else_body,
+                } = self.statement_view(instruction)?
+                else {
+                    unreachable!("if statement tag and generated view disagree")
+                };
+                for branch in &mut branches {
+                    let (_, body) = branch?;
+                    blocks.push(self.checked_statement_ids(body)?);
+                }
+                if let Some(body) = else_body {
+                    blocks.push(self.checked_statement_ids(body)?);
+                }
+            }
+            FullTag::StmtIfBool => {
+                let schema::StmtView::IfBool {
+                    mut branches,
+                    else_body,
+                } = self.statement_view(instruction)?
+                else {
+                    unreachable!("boolean if statement tag and generated view disagree")
+                };
+                for branch in &mut branches {
+                    let (_, body) = branch?;
+                    blocks.push(self.checked_statement_ids(body)?);
+                }
+                if let Some(body) = else_body {
+                    blocks.push(self.checked_statement_ids(body)?);
+                }
+            }
+            FullTag::StmtWhile => {
+                let schema::StmtView::While { body, .. } = self.statement_view(instruction)? else {
+                    unreachable!("while statement tag and generated view disagree")
+                };
+                blocks.push(self.checked_statement_ids(body)?);
+            }
+            FullTag::StmtWhileBool => {
+                let schema::StmtView::WhileBool { body, .. } =
+                    self.statement_view(instruction)?
+                else {
+                    unreachable!("boolean while statement tag and generated view disagree")
+                };
+                blocks.push(self.checked_statement_ids(body)?);
+            }
+            FullTag::StmtPatternIf => {
+                let schema::StmtView::PatternIf {
+                    mut branches,
+                    else_body,
+                    ..
+                } = self.statement_view(instruction)?
+                else {
+                    unreachable!("pattern-if statement tag and generated view disagree")
+                };
+                for branch in &mut branches {
+                    let (_, body, _) = branch?;
+                    blocks.push(self.checked_statement_ids(body)?);
+                }
+                if let Some(body) = else_body {
+                    blocks.push(self.checked_statement_ids(body)?);
+                }
+            }
+            FullTag::StmtPatternWhile => {
+                let schema::StmtView::PatternWhile { body, .. } =
+                    self.statement_view(instruction)?
+                else {
+                    unreachable!("pattern-while statement tag and generated view disagree")
+                };
+                blocks.push(self.checked_statement_ids(body)?);
+            }
+            FullTag::StmtFor => {
+                let schema::StmtView::For { body, .. } = self.statement_view(instruction)? else {
+                    unreachable!("for statement tag and generated view disagree")
+                };
+                blocks.push(self.checked_statement_ids(body)?);
+            }
+            FullTag::StmtForRecord => {
+                let schema::StmtView::ForRecord { body, .. } =
+                    self.statement_view(instruction)?
+                else {
+                    unreachable!("record-for statement tag and generated view disagree")
+                };
+                blocks.push(self.checked_statement_ids(body)?);
+            }
+            FullTag::StmtForStrLines => {
+                let schema::StmtView::ForStrLines { body, .. } =
+                    self.statement_view(instruction)?
+                else {
+                    unreachable!("line-for statement tag and generated view disagree")
+                };
+                blocks.push(self.checked_statement_ids(body)?);
+            }
+            FullTag::StmtMatch => {
+                let schema::StmtView::Match { mut arms, .. } =
+                    self.statement_view(instruction)?
+                else {
+                    unreachable!("match statement tag and generated view disagree")
+                };
+                for arm in &mut arms {
+                    let (_, _, body) = arm?;
+                    blocks.push(self.checked_statement_ids(body)?);
+                }
+            }
+            FullTag::StmtStrMatch => {
+                let schema::StmtView::StrMatch {
+                    mut arms,
+                    fallback,
+                    ..
+                } = self.statement_view(instruction)?
+                else {
+                    unreachable!("string-match statement tag and generated view disagree")
+                };
+                for arm in &mut arms {
+                    let (_, body) = arm?;
+                    blocks.push(self.checked_statement_ids(body)?);
+                }
+                if let Some(body) = fallback {
+                    blocks.push(self.checked_statement_ids(body)?);
+                }
+            }
+            FullTag::StmtTagMatch => {
+                let schema::StmtView::TagMatch {
+                    mut arms,
+                    fallback,
+                    ..
+                } = self.statement_view(instruction)?
+                else {
+                    unreachable!("tag-match statement tag and generated view disagree")
+                };
+                for arm in &mut arms {
+                    let (_, body) = arm?;
+                    blocks.push(self.checked_statement_ids(body)?);
+                }
+                if let Some(body) = fallback {
+                    blocks.push(self.checked_statement_ids(body)?);
+                }
+            }
+            FullTag::StmtCd => {
+                let schema::StmtView::Cd { body, .. } = self.statement_view(instruction)? else {
+                    unreachable!("cd statement tag and generated view disagree")
+                };
+                blocks.push(self.checked_statement_ids(body)?);
+            }
+            FullTag::StmtEnv => {
+                let schema::StmtView::Env { body, .. } = self.statement_view(instruction)? else {
+                    unreachable!("environment statement tag and generated view disagree")
+                };
+                blocks.push(self.checked_statement_ids(body)?);
+            }
+            FullTag::StmtLoop => {
+                let schema::StmtView::Loop { body } = self.statement_view(instruction)? else {
+                    unreachable!("loop statement tag and generated view disagree")
+                };
+                blocks.push(self.checked_statement_ids(body)?);
+            }
+            FullTag::ExprCapture => {
+                let schema::ExprView::Capture { body, .. } = self.expression_view(instruction)?
+                else {
+                    unreachable!("capture expression tag and generated view disagree")
+                };
+                blocks.push(self.checked_statement_ids(body)?);
+            }
+            FullTag::ExprValueBlock => {
+                let schema::ExprView::ValueBlock { body, .. } =
+                    self.expression_view(instruction)?
+                else {
+                    unreachable!("value-block expression tag and generated view disagree")
+                };
+                blocks.push(self.checked_statement_ids(body)?);
+            }
+            FullTag::ExprErrorContext => {
+                let schema::ExprView::ErrorContext { body, .. } =
+                    self.expression_view(instruction)?
+                else {
+                    unreachable!("error-context expression tag and generated view disagree")
+                };
+                blocks.push(self.checked_statement_ids(body)?);
+            }
+            FullTag::ExprContextScope => {
+                let schema::ExprView::ContextScope { body, .. } =
+                    self.expression_view(instruction)?
+                else {
+                    unreachable!("context-scope expression tag and generated view disagree")
+                };
+                blocks.push(self.checked_statement_ids(body)?);
+            }
+            FullTag::ExprLoop => {
+                let schema::ExprView::Loop { body, .. } = self.expression_view(instruction)? else {
+                    unreachable!("loop expression tag and generated view disagree")
+                };
+                blocks.push(self.checked_statement_ids(body)?);
+            }
+            FullTag::ExprRetry => {
+                let schema::ExprView::Retry { body, .. } = self.expression_view(instruction)?
+                else {
+                    unreachable!("retry expression tag and generated view disagree")
+                };
+                blocks.push(self.checked_statement_ids(body)?);
+            }
+            _ => {}
+        }
+        Ok(blocks)
+    }
+
+    fn checked_block_prefix_roots(
+        &self,
+        roots: &[usize],
+        before: usize,
+    ) -> Result<Option<Vec<usize>>, IrVerifyError> {
+        let mut selected = None;
+        for (index, root) in roots.iter().copied().enumerate() {
+            if self.checked_instruction_is_in_roots(before, &[root])? {
+                if selected.is_some() {
+                    return Err(IrVerifyError::new(
+                        "checked optional field receiver belongs to multiple block children",
+                    ));
+                }
+                selected = Some(index);
+            }
+        }
+        let Some(selected) = selected else {
+            return Ok(None);
+        };
+        Ok(Some(roots[..selected].to_vec()))
+    }
+
+    fn checked_prefix_roots_preserve_binding_path(
+        &self,
+        roots: &[usize],
+        target: &(usize, Vec<Name>),
+    ) -> Result<bool, IrVerifyError> {
+        if roots.is_empty() {
+            return Ok(true);
+        }
+        for instruction in self.instruction_range.clone() {
+            if self.store.tags[instruction].kind() == schema::InstructionKind::Stmt
+                && self.checked_instruction_is_in_roots(instruction, roots)?
+                && self.checked_statement_writes_binding_path(instruction, target)?
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    /// A fact from an earlier short-circuit operand remains usable only when
+    /// every statement nested in the later operand preserves the same path.
+    fn checked_expression_preserves_binding_path(
+        &self,
+        expression: usize,
+        target: &(usize, Vec<Name>),
+    ) -> Result<bool, IrVerifyError> {
+        for instruction in self.instruction_range.clone() {
+            if self.store.tags[instruction].kind() == schema::InstructionKind::Stmt
+                && self.checked_instruction_is_in_roots(instruction, &[expression])?
+                && self.checked_statement_writes_binding_path(instruction, target)?
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    /// Collects the conditions active at a branch child and the roots whose
+    /// earlier writes can invalidate those facts. A while condition applies
+    /// only to the current iteration because the condition runs again next time.
+    fn checked_branch_conditions_for_child(
+        &self,
+        parent: usize,
+        child: usize,
+    ) -> Result<Option<(Vec<(usize, bool, bool)>, Vec<usize>)>, IrVerifyError> {
+        let mut prior_false = Vec::new();
+        match self.store.tags[parent] {
+            FullTag::StmtIf => {
+                let schema::StmtView::If {
+                    mut branches,
+                    else_body,
+                } = self.statement_view(parent)?
+                else {
+                    unreachable!("if statement tag and generated view disagree")
+                };
+                for branch in &mut branches {
+                    let (condition, body) = branch?;
+                    let body = self.checked_statement_ids(body)?;
+                    if body.contains(&child) {
+                        prior_false.push((condition.raw() as usize, true, false));
+                        return Ok(Some((prior_false, body)));
+                    }
+                    prior_false.push((condition.raw() as usize, false, false));
+                }
+                if let Some(body) = else_body {
+                    let body = self.checked_statement_ids(body)?;
+                    if body.contains(&child) {
+                        return Ok(Some((prior_false, body)));
+                    }
+                }
+            }
+            FullTag::StmtIfBool => {
+                let schema::StmtView::IfBool {
+                    mut branches,
+                    else_body,
+                } = self.statement_view(parent)?
+                else {
+                    unreachable!("boolean if statement tag and generated view disagree")
+                };
+                for branch in &mut branches {
+                    let (condition, body) = branch?;
+                    let body = self.checked_statement_ids(body)?;
+                    if body.contains(&child) {
+                        prior_false.push((condition.raw() as usize, true, true));
+                        return Ok(Some((prior_false, body)));
+                    }
+                    prior_false.push((condition.raw() as usize, false, true));
+                }
+                if let Some(body) = else_body {
+                    let body = self.checked_statement_ids(body)?;
+                    if body.contains(&child) {
+                        return Ok(Some((prior_false, body)));
+                    }
+                }
+            }
+            FullTag::ExprIf => {
+                let schema::ExprView::IfExpr {
+                    mut branches,
+                    else_value,
+                    ..
+                } = self.expression_view(parent)?
+                else {
+                    unreachable!("if expression tag and generated view disagree")
+                };
+                for branch in &mut branches {
+                    let (condition, value) = branch?;
+                    let value = value.raw() as usize;
+                    if self.checked_instruction_is_in_roots(child, &[value])? {
+                        prior_false.push((condition.raw() as usize, true, false));
+                        return Ok(Some((prior_false, vec![value])));
+                    }
+                    prior_false.push((condition.raw() as usize, false, false));
+                }
+                let else_value = else_value.raw() as usize;
+                if self.checked_instruction_is_in_roots(child, &[else_value])? {
+                    return Ok(Some((prior_false, vec![else_value])));
+                }
+            }
+            FullTag::StmtWhile => {
+                let schema::StmtView::While { condition, body } = self.statement_view(parent)? else {
+                    unreachable!("while statement tag and generated view disagree")
+                };
+                let body = self.checked_statement_ids(body)?;
+                if self.checked_instruction_is_in_roots(child, &body)? {
+                    return Ok(Some((
+                        vec![(condition.raw() as usize, true, false)],
+                        body,
+                    )));
+                }
+            }
+            FullTag::StmtWhileBool => {
+                let schema::StmtView::WhileBool { condition, body } =
+                    self.statement_view(parent)?
+                else {
+                    unreachable!("boolean while statement tag and generated view disagree")
+                };
+                let body = self.checked_statement_ids(body)?;
+                if self.checked_instruction_is_in_roots(child, &body)? {
+                    return Ok(Some((
+                        vec![(condition.raw() as usize, true, true)],
+                        body,
+                    )));
+                }
+            }
+            _ => {}
+        }
+        Ok(None)
+    }
+
+    /// A short-circuit outcome proves non-null only when every path to that
+    /// outcome carries the fact; facts from operands evaluated on one path combine.
+    fn checked_condition_pair_proves_nonnull(
+        &self,
+        left: usize,
+        right: usize,
+        when_true: bool,
+        is_and: bool,
+        is_boolean: bool,
+        target: &(usize, Vec<Name>),
+        expected_payload: &Type,
+    ) -> Result<bool, IrVerifyError> {
+        let proves = |condition, outcome| {
+            self.checked_condition_proves_nonnull(
+                condition,
+                outcome,
+                is_boolean,
+                target,
+                expected_payload,
+            )
+        };
+        let preserves_after_left = if is_boolean {
+            true
+        } else {
+            self.checked_expression_preserves_binding_path(right, target)?
+        };
+        if is_and {
+            if when_true {
+                Ok((proves(left, true)? && preserves_after_left) || proves(right, true)?)
+            } else {
+                let short_circuit_path = proves(left, false)?;
+                let evaluated_right_path =
+                    (proves(left, true)? && preserves_after_left) || proves(right, false)?;
+                Ok(short_circuit_path && evaluated_right_path)
+            }
+        } else if when_true {
+            let short_circuit_path = proves(left, true)?;
+            let evaluated_right_path =
+                (proves(left, false)? && preserves_after_left) || proves(right, true)?;
+            Ok(short_circuit_path && evaluated_right_path)
+        } else {
+            Ok((proves(left, false)? && preserves_after_left) || proves(right, false)?)
+        }
+    }
+
+    fn checked_condition_proves_nonnull(
+        &self,
+        condition: usize,
+        when_true: bool,
+        is_boolean: bool,
+        target: &(usize, Vec<Name>),
+        expected_payload: &Type,
+    ) -> Result<bool, IrVerifyError> {
+        if is_boolean {
+            let tag = *self.store.tags.get(condition).ok_or_else(|| {
+                IrVerifyError::new("optional narrowing condition is out of bounds")
+            })?;
+            let payload = FullPayload {
+                store: self.store,
+                cursor: FullCursor::new(self.store.payload(self.store.data[condition].range())?),
+            };
+            return match schema::BoolView::decode_from_decoder(self, tag, payload)? {
+                schema::BoolView::Not(value) => self.checked_condition_proves_nonnull(
+                    value.raw() as usize,
+                    !when_true,
+                    true,
+                    target,
+                    expected_payload,
+                ),
+                schema::BoolView::And(left, right) => self
+                    .checked_condition_pair_proves_nonnull(
+                        left.raw() as usize,
+                        right.raw() as usize,
+                        when_true,
+                        true,
+                        true,
+                        target,
+                        expected_payload,
+                    ),
+                schema::BoolView::Or(left, right) => self
+                    .checked_condition_pair_proves_nonnull(
+                        left.raw() as usize,
+                        right.raw() as usize,
+                        when_true,
+                        false,
+                        true,
+                        target,
+                        expected_payload,
+                    ),
+                schema::BoolView::LiteralCompareSlot { op, slot, value }
+                    if matches!(op, BinaryOp::Eq | BinaryOp::Ne)
+                        && value.materialize()? == LoweredValue::Null
+                        && target.0 == slot
+                        && target.1.is_empty() =>
+                {
+                    let Some(slot_type) = self
+                        .checked_slot_type(slot)?
+                        .map(|type_id| self.store.semantic.to_type(type_id))
+                        .transpose()?
+                    else {
+                        return Ok(false);
+                    };
+                    let Type::Optional(payload) = slot_type.into_unvalidated() else {
+                        return Ok(false);
+                    };
+                    Ok(payload.into_unvalidated()
+                        == expected_payload.clone().into_unvalidated()
+                        && (op == BinaryOp::Ne) == when_true)
+                }
+                _ => Ok(false),
+            };
+        }
+
+        let schema::ExprView::Binary {
+            op,
+            left,
+            right,
+            ..
+        } = self.expression_view(condition)?
+        else {
+            return Ok(false);
+        };
+        match op {
+            BinaryOp::Eq | BinaryOp::Ne => {
+                let subject = if matches!(
+                    self.expression_view(left.raw() as usize)?,
+                    schema::ExprView::Null
+                ) {
+                    right.raw() as usize
+                } else if matches!(
+                    self.expression_view(right.raw() as usize)?,
+                    schema::ExprView::Null
+                ) {
+                    left.raw() as usize
+                } else {
+                    return Ok(false);
+                };
+                if self.checked_binding_path(subject)?.as_ref() != Some(target) {
+                    return Ok(false);
+                }
+                let Some(subject_type) = self.derive_checked_expression_type(subject)? else {
+                    return Ok(false);
+                };
+                let Type::Optional(payload) = subject_type.into_unvalidated() else {
+                    return Ok(false);
+                };
+                Ok(payload.into_unvalidated() == expected_payload.clone().into_unvalidated()
+                    && (op == BinaryOp::Ne) == when_true)
+            }
+            BinaryOp::And | BinaryOp::Or => self.checked_condition_pair_proves_nonnull(
+                left.raw() as usize,
+                right.raw() as usize,
+                when_true,
+                op == BinaryOp::And,
+                false,
+                target,
+                expected_payload,
+            ),
+            _ => Ok(false),
+        }
+    }
+
+    fn checked_optional_receiver_is_narrowed(
+        &self,
+        field_instruction: usize,
+        receiver_instruction: usize,
+        expected_payload: &Type,
+    ) -> Result<bool, IrVerifyError> {
+        if self.instruction_proof.is_none() {
+            return Ok(false);
+        }
+        let Some(target) = self.checked_binding_path(receiver_instruction)? else {
+            return Ok(false);
+        };
+        let mut child = field_instruction;
+        for _ in 0..=self.instruction_range.len() {
+            let Some(parent) = self.instruction_parent_of(child)? else {
+                return Ok(false);
+            };
+            if let Some((conditions, body_roots)) =
+                self.checked_branch_conditions_for_child(parent, child)?
+            {
+                for (condition, when_true, is_boolean) in conditions {
+                    if !self.checked_parent_path_crosses_repeatable_loop(
+                        field_instruction,
+                        parent,
+                    )? && self.checked_condition_proves_nonnull(
+                        condition,
+                        when_true,
+                        is_boolean,
+                        &target,
+                        expected_payload,
+                    )? && self.checked_branch_preserves_binding_path(
+                        parent,
+                        &body_roots,
+                        field_instruction,
+                        &target,
+                    )? {
+                        return Ok(true);
+                    }
+                }
+            }
+            child = parent;
+        }
+        Err(IrVerifyError::new(
+            "checked optional field receiver has a cyclic parent path",
+        ))
+    }
+
+    fn checked_instruction_is_in_roots(
+        &self,
+        instruction: usize,
+        roots: &[usize],
+    ) -> Result<bool, IrVerifyError> {
+        let mut current = instruction;
+        for _ in 0..=self.instruction_range.len() {
+            if roots.contains(&current) {
+                return Ok(true);
+            }
+            let Some(parent) = self.instruction_parent_of(current)? else {
+                return Ok(false);
+            };
+            current = parent;
+        }
+        Err(IrVerifyError::new(
+            "checked optional field receiver has a cyclic instruction path",
+        ))
+    }
+
+    fn checked_statement_writes_binding_path(
+        &self,
+        instruction: usize,
+        target: &(usize, Vec<Name>),
+    ) -> Result<bool, IrVerifyError> {
+        if !self
+            .statement_written_slots(instruction)?
+            .0
+            .contains(&target.0)
+        {
+            return Ok(false);
+        }
+        let paths_overlap = |write: &[Name]| {
+            target.1.starts_with(write) || write.starts_with(&target.1)
+        };
+        match self.statement_view(instruction)? {
+            schema::StmtView::AssignField { field, .. }
+            | schema::StmtView::AssignFieldInt { field, .. } => {
+                Ok(paths_overlap(&[Name::intern(field)]))
+            }
+            schema::StmtView::AssignPath { path, .. } => {
+                let mut fields = Vec::new();
+                for step in path.0 {
+                    match step {
+                        LoweredAssignStep::Field(field) => {
+                            if target
+                                .1
+                                .get(fields.len())
+                                .is_some_and(|expected| expected != &field)
+                            {
+                                return Ok(false);
+                            }
+                            if fields.len() == target.1.len() {
+                                return Ok(true);
+                            }
+                            fields.push(field);
+                        }
+                        LoweredAssignStep::Index(_) => return Ok(true),
+                    }
+                }
+                Ok(paths_overlap(&fields))
+            }
+            _ => Ok(true),
+        }
+    }
+
+    /// Parent IDs establish ancestry; ordered block lists establish which writes
+    /// execute first, while selected blocks exclude mutually exclusive arms.
+    fn checked_branch_preserves_binding_path(
+        &self,
+        branch_parent: usize,
+        body_roots: &[usize],
+        before: usize,
+        target: &(usize, Vec<Name>),
+    ) -> Result<bool, IrVerifyError> {
+        let Some(mut prefix_roots) = self.checked_block_prefix_roots(body_roots, before)? else {
+            return Ok(false);
+        };
+
+        let mut child = before;
+        for _ in 0..=self.instruction_range.len() {
+            let Some(parent) = self.instruction_parent_of(child)? else {
+                return Err(IrVerifyError::new(
+                    "checked optional field receiver is outside its guard path",
+                ));
+            };
+            if parent == branch_parent {
+                return self.checked_prefix_roots_preserve_binding_path(&prefix_roots, target);
+            }
+            for roots in self.checked_statement_blocks(parent)? {
+                if !roots.is_empty() {
+                    if let Some(prefix) = self.checked_block_prefix_roots(&roots, before)? {
+                        prefix_roots.extend(prefix);
+                    }
+                }
+            }
+            child = parent;
+        }
+        Err(IrVerifyError::new(
+            "checked optional field receiver has a cyclic guard path",
+        ))
+    }
+
+    fn checked_instruction_is_repeatable_loop(&self, instruction: usize) -> bool {
+        matches!(
+            self.store.tags[instruction],
+            FullTag::StmtWhile
+                | FullTag::StmtWhileBool
+                | FullTag::StmtPatternWhile
+                | FullTag::StmtFor
+                | FullTag::StmtForRecord
+                | FullTag::StmtForStrLines
+                | FullTag::StmtLoop
+                | FullTag::ExprLoop
+                | FullTag::ExprRetry
+                | FullTag::ExprListComp
+                | FullTag::ExprMapComp
+                | FullTag::ExprPipeline
+        )
+    }
+
+    /// An enclosing guard cannot prove a value survives a loop backedge.
+    fn checked_parent_path_crosses_repeatable_loop(
+        &self,
+        mut child: usize,
+        ancestor: usize,
+    ) -> Result<bool, IrVerifyError> {
+        for _ in 0..=self.instruction_range.len() {
+            let Some(parent) = self.instruction_parent_of(child)? else {
+                return Err(IrVerifyError::new(
+                    "checked optional field receiver is outside its guard path",
+                ));
+            };
+            if parent == ancestor {
+                return Ok(false);
+            }
+            if self.checked_instruction_is_repeatable_loop(parent) {
+                return Ok(true);
+            }
+            child = parent;
+        }
+        Err(IrVerifyError::new(
+            "checked optional field receiver has a cyclic guard path",
+        ))
+    }
+
     fn derive_checked_field_type(&self, instruction: usize) -> Result<Type, IrVerifyError> {
         let payload = self.store.payload(self.store.data[instruction].range())?;
         let [base, name, ..] = payload else {
@@ -8185,10 +8987,17 @@ impl<'a> FullDecoder<'a> {
         let receiver = self
             .derive_checked_expression_type(base)?
             .ok_or_else(|| IrVerifyError::new("checked field receiver has no source type"))?;
-        // The checker accepts a field read on an optional receiver only where
-        // a null test narrowed it, but the slot's declared type keeps the `?`.
         let receiver = match receiver.into_unvalidated() {
-            Type::Optional(inner) => inner.into_unvalidated(),
+            Type::Optional(inner)
+                if self.checked_optional_receiver_is_narrowed(instruction, base, &inner)? =>
+            {
+                inner.into_unvalidated()
+            }
+            Type::Optional(_) => {
+                return Err(IrVerifyError::new(
+                    "checked optional field receiver has no non-null branch proof",
+                ));
+            }
             other => other,
         };
         let receiver_id = if matches!(&receiver, Type::Record(_) | Type::Module(_)) {
@@ -21434,6 +22243,450 @@ pure apply_field(holder: Holder, other: OtherHolder, holder_again: Holder, n: In
             u32::try_from(other_receiver).unwrap();
         let error = FullVerifier::verify(&shared_receiver).unwrap_err();
         assert!(error.message.contains("multiple parents"), "{}", error.message);
+    }
+
+    #[test]
+    fn typed_callable_fields_through_narrowed_optional_records_are_verified() {
+        let source = r#"type Scale = pure(n: Int) -> Int
+type Holder = {callback: Scale}
+type Container = {holder: Holder?}
+
+pure apply_optional_holder(holder: Holder?, n: Int) -> Int {
+  if holder == null { 0 } else { holder.callback(n) }
+}
+
+pure apply_optional_intermediate(container: Container, n: Int) -> Int {
+  if container.holder == null { 0 } else { container.holder.callback(n) }
+}
+
+pure apply_optional_expr_if(holder: Holder?, n: Int) -> Int {
+  return if holder != null { holder.callback(n) } else { 0 }
+}
+
+pure apply_optional_intermediate_expr_if(container: Container, n: Int) -> Int {
+  return if container.holder != null { container.holder.callback(n) } else { 0 }
+}
+
+pure apply_optional_while(holder: Holder?, n: Int) -> Int {
+  var result = 0
+  while holder != null {
+    result = holder.callback(n)
+    break
+  }
+  result
+}
+
+pure apply_optional_intermediate_while(container: Container, n: Int) -> Int {
+  var result = 0
+  while container.holder != null {
+    result = container.holder.callback(n)
+    break
+  }
+  result
+}
+
+pure apply_optional_and_true(holder: Holder?, n: Int, flag: Bool) -> Int {
+  return if holder != null and flag { holder.callback(n) } else { 0 }
+}
+
+pure apply_optional_or_false(holder: Holder?, n: Int, flag: Bool) -> Int {
+  return if holder == null or flag { 0 } else { holder.callback(n) }
+}
+
+pure apply_optional_sibling_write(holder: Holder?, n: Int, flag: Bool) -> Int {
+  var current = holder
+  if current != null {
+    if flag {
+      current = null
+      return 0
+    } else {
+      return current.callback(n)
+    }
+  } else {
+    return 0
+  }
+}
+"#;
+        let program = fixture("typed-callable-optional-records.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        assert_eq!(
+            function_instruction_indices(
+                &program,
+                "apply_optional_holder",
+                FullTag::ExprTypedCall,
+            )
+            .len(),
+            1,
+            "the narrowed optional parameter field call is typed",
+        );
+        assert_eq!(
+            function_instruction_indices(
+                &program,
+                "apply_optional_intermediate",
+                FullTag::ExprTypedCall,
+            )
+            .len(),
+            1,
+            "the nested optional field call is typed",
+        );
+        for (name, description) in [
+            (
+                "apply_optional_expr_if",
+                "the expression-if parameter field call is typed",
+            ),
+            (
+                "apply_optional_intermediate_expr_if",
+                "the expression-if nested field call is typed",
+            ),
+            (
+                "apply_optional_while",
+                "the while-body parameter field call is typed",
+            ),
+            (
+                "apply_optional_intermediate_while",
+                "the while-body nested field call is typed",
+            ),
+            (
+                "apply_optional_and_true",
+                "the short-circuit conjunction true path is typed",
+            ),
+            (
+                "apply_optional_or_false",
+                "the short-circuit disjunction false path is typed",
+            ),
+            (
+                "apply_optional_sibling_write",
+                "a write in the sibling arm does not invalidate the field read",
+            ),
+        ] {
+            assert_eq!(
+                function_instruction_indices(&program, name, FullTag::ExprTypedCall).len(),
+                1,
+                "{description}",
+            );
+        }
+        FullVerifier::verify(&program).unwrap();
+    }
+
+    #[test]
+    fn typed_callable_optional_field_rejects_a_flipped_null_guard() {
+        let program = fixture(
+            "typed-callable-optional-record-flipped-guard.xsh",
+            r#"type Scale = pure(n: Int) -> Int
+type Holder = {callback: Scale}
+pure apply_optional_holder(holder: Holder?, n: Int) -> Int {
+  if holder == null { 0 } else { holder.callback(n) }
+}
+"#,
+        );
+        let mut malformed = program;
+        let condition = function_instruction_indices(
+            &malformed,
+            "apply_optional_holder",
+            FullTag::BoolLiteralCompareSlot,
+        )
+        .into_iter()
+        .next()
+        .expect("the direct null guard lowers to a bool literal comparison");
+        let op = malformed.store.data[condition].range().start as usize;
+        let op = malformed.store.extra[op] as usize;
+        malformed.store.binary_ops[op] = BinaryOp::Ne;
+
+        let error = FullVerifier::verify(&malformed).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("checked optional field receiver has no non-null branch proof"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn typed_callable_optional_field_rejects_preceding_overlapping_writes() {
+        let program = fixture(
+            "typed-callable-optional-record-overlapping-write.xsh",
+            r#"type Scale = pure(n: Int) -> Int
+type Holder = {callback: Scale}
+type Container = {holder: Holder?}
+pure double(n: Int) -> Int { n * 2 }
+pure apply_direct_write(holder: Holder?, n: Int) -> Int {
+  var alternate: Holder? = null
+  if holder != null {
+    alternate = Holder(double)
+    holder.callback(n)
+  } else { 0 }
+}
+pure apply_nested_write(container: Container, n: Int) -> Int {
+  var alternate = Container(holder: null)
+  if container.holder != null {
+    alternate.holder = Holder(double)
+    container.holder.callback(n)
+  } else { 0 }
+}
+"#,
+        );
+        FullVerifier::verify(&program).unwrap();
+
+        for (function, assignment_tag) in [
+            ("apply_direct_write", FullTag::StmtAssign),
+            ("apply_nested_write", FullTag::StmtAssignField),
+        ] {
+            let mut malformed = program.clone();
+            let assignment = function_instruction_indices(&malformed, function, assignment_tag)
+                .into_iter()
+                .next()
+                .expect("the protected branch has one alternate binding write");
+            let payload = malformed.store.data[assignment].range();
+            assert_eq!(
+                malformed.store.extra[payload.start as usize],
+                2,
+                "the source assignment initially targets its alternate local",
+            );
+            malformed.store.extra[payload.start as usize] = 0;
+
+            let error = FullVerifier::verify(&malformed).unwrap_err();
+            assert!(
+                error
+                    .message
+                    .contains("checked optional field receiver has no non-null branch proof"),
+                "{function}: {}",
+                error.message
+            );
+        }
+    }
+
+    #[test]
+    fn typed_callable_optional_field_rejects_an_outer_guard_across_a_loop_backedge() {
+        let program = fixture(
+            "typed-callable-optional-record-loop-backedge.xsh",
+            r#"type Scale = pure(n: Int) -> Int
+type Holder = {callback: Scale}
+pure apply_outer_guard_loop(holder: Holder?, n: Int, repeat: Bool) -> Int {
+  var current = holder
+  var result = 0
+  if current != null {
+    while repeat {
+      result = current.callback(n)
+      current = null
+    }
+  }
+  result
+}
+"#,
+        );
+        assert_eq!(
+            function_instruction_indices(
+                &program,
+                "apply_outer_guard_loop",
+                FullTag::ExprTypedCall,
+            )
+            .len(),
+            1,
+            "the source checker carries its outer narrowing into the loop",
+        );
+        let error = FullVerifier::verify(&program).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("checked optional field receiver has no non-null branch proof"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn typed_callable_optional_field_uses_block_order_after_reordering() {
+        let program = fixture(
+            "typed-callable-optional-record-block-order.xsh",
+            r#"type Scale = pure(n: Int) -> Int
+type Holder = {callback: Scale}
+pure double(n: Int) -> Int { n * 2 }
+pure apply_reordered_write(holder: Holder?, n: Int) -> Int {
+  var alternate: Holder? = null
+  if holder != null {
+    holder.callback(n)
+    alternate = Holder(double)
+  }
+  0
+}
+"#,
+        );
+        FullVerifier::verify(&program).unwrap();
+
+        let mut malformed = program.clone();
+        let assignment = function_instruction_indices(
+            &malformed,
+            "apply_reordered_write",
+            FullTag::StmtAssign,
+        )
+        .into_iter()
+        .next()
+        .expect("the branch assigns its alternate local");
+        let assignment_payload = malformed.store.data[assignment].range();
+        assert_eq!(
+            malformed.store.extra[assignment_payload.start as usize],
+            2,
+            "the source assignment initially targets its alternate local",
+        );
+        malformed.store.extra[assignment_payload.start as usize] = 0;
+
+        let conditional = [FullTag::StmtIf, FullTag::StmtIfBool]
+            .into_iter()
+            .find_map(|tag| {
+                function_instruction_indices(&malformed, "apply_reordered_write", tag)
+                    .into_iter()
+                    .next()
+            })
+            .expect("the guarded body has a conditional");
+        let conditional_payload = malformed.store.payload(malformed.store.data[conditional].range())
+            .expect("conditional payload is valid");
+        let branches = IrBlockId::from_raw(conditional_payload[0]).unwrap();
+        let branch_words = malformed.store.payload(malformed.store.blocks[branches.index()].instructions)
+            .expect("branch list is valid");
+        let body = IrBlockId::from_raw(branch_words[2]).unwrap();
+        let body_words = malformed.store.blocks[body.index()]
+            .instructions
+            .bounds(malformed.store.extra.len())
+            .expect("guard body is valid");
+        let statement_count = malformed.store.extra[body_words.start] as usize;
+        let statements = &mut malformed.store.extra
+            [body_words.start + 1..body_words.start + 1 + statement_count];
+        let assignment_position = statements
+            .iter()
+            .position(|instruction| *instruction as usize == assignment)
+            .expect("assignment belongs to the guarded body");
+        assert_eq!(statement_count, 2, "the body has a read and an assignment");
+        let read_position = (0..statement_count)
+            .find(|index| *index != assignment_position)
+            .expect("the guarded body has a field read");
+        statements.swap(assignment_position, read_position);
+
+        let error = FullVerifier::verify(&malformed).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("checked optional field receiver has no non-null branch proof"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn typed_callable_optional_field_rejects_forged_short_circuit_guards() {
+        let program = fixture(
+            "typed-callable-optional-record-short-circuit.xsh",
+            r#"type Scale = pure(n: Int) -> Int
+type Holder = {callback: Scale}
+pure apply_and_true(holder: Holder?, n: Int, flag: Bool) -> Int {
+  return if holder != null and flag { holder.callback(n) } else { 0 }
+}
+pure apply_or_false(holder: Holder?, n: Int, flag: Bool) -> Int {
+  return if holder == null or flag { 0 } else { holder.callback(n) }
+}
+"#,
+        );
+        FullVerifier::verify(&program).unwrap();
+
+        for (function, original, forged) in [
+            ("apply_and_true", BinaryOp::Ne, BinaryOp::Eq),
+            ("apply_or_false", BinaryOp::Eq, BinaryOp::Ne),
+        ] {
+            let mut malformed = program.clone();
+            let comparison = function_instruction_indices(
+                &malformed,
+                function,
+                FullTag::BoolLiteralCompareSlot,
+            )
+            .into_iter()
+            .find(|instruction| {
+                let op = malformed.store.extra
+                    [malformed.store.data[*instruction].range().start as usize]
+                    as usize;
+                malformed.store.binary_ops.get(op) == Some(&original)
+            })
+            .expect("the null comparison is a checked boolean literal comparison");
+            let op = malformed.store.extra
+                [malformed.store.data[comparison].range().start as usize]
+                as usize;
+            malformed.store.binary_ops[op] = forged;
+
+            let error = FullVerifier::verify(&malformed).unwrap_err();
+            assert!(
+                error
+                    .message
+                    .contains("checked optional field receiver has no non-null branch proof"),
+                "{function}: {}",
+                error.message
+            );
+        }
+    }
+
+    #[test]
+    fn typed_callable_optional_field_rejects_short_circuit_condition_writes() {
+        for (filename, function, source) in [
+            (
+                "typed-callable-optional-record-and-write.xsh",
+                "apply_and_write",
+                r#"type Scale = pure(n: Int) -> Int
+type Holder = {callback: Scale}
+pure apply_and_write(holder: Holder?, n: Int, flag: Bool) -> Int {
+  var current = holder
+  var alternate: Holder? = null
+  return if current != null and (if flag { alternate = null; true } else { true }) {
+    current.callback(n)
+  } else { 0 }
+}
+"#,
+            ),
+            (
+                "typed-callable-optional-record-or-write.xsh",
+                "apply_or_write",
+                r#"type Scale = pure(n: Int) -> Int
+type Holder = {callback: Scale}
+pure apply_or_write(holder: Holder?, n: Int, flag: Bool) -> Int {
+  var current = holder
+  var alternate: Holder? = null
+  return if current == null or (if flag { alternate = null; false } else { false }) {
+    0
+  } else {
+    current.callback(n)
+  }
+}
+"#,
+            ),
+        ] {
+            let program = fixture(filename, source);
+            assert_eq!(
+                function_instruction_indices(&program, function, FullTag::ExprTypedCall).len(),
+                1,
+                "the source checker carries its earlier operand fact into {function}",
+            );
+
+            FullVerifier::verify(&program).unwrap();
+
+            let mut malformed = program.clone();
+            let assignment = function_instruction_indices(&malformed, function, FullTag::StmtAssign)
+                .into_iter()
+                .next()
+                .expect("the evaluated condition assigns its unrelated local");
+            let payload = malformed.store.data[assignment].range();
+            assert_eq!(
+                malformed.store.extra[payload.start as usize],
+                4,
+                "the condition initially assigns its alternate local",
+            );
+            malformed.store.extra[payload.start as usize] = 3;
+
+            let error = FullVerifier::verify(&malformed).unwrap_err();
+            assert!(
+                error
+                    .message
+                    .contains("checked optional field receiver has no non-null branch proof"),
+                "{function}: {}",
+                error.message
+            );
+        }
     }
 
     #[test]

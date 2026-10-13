@@ -19,6 +19,7 @@ type Holder = {callback: Scale}
 type PathHolder = {path: Path}
 type CallbackCollection = {callbacks: List[Scale]}
 type Bundle = {nested: Holder}
+type OptionalHolder = {holder: Holder?}
 type BroadcastAddress = {broadcast: Str?}
 type BroadcastInterface = {ipv4: BroadcastAddress?}
 
@@ -109,6 +110,62 @@ pure join(left: Str, right: Str) -> Str {
 
 pure get_holder() -> Holder {
   Holder(triple)
+}
+
+pure apply_optional_holder(holder: Holder?) -> Int {
+  if holder == null { 0 } else { holder.callback(4) }
+}
+
+pure apply_optional_intermediate(container: OptionalHolder) -> Int {
+  if container.holder == null { 0 } else { container.holder.callback(4) }
+}
+
+pure apply_optional_expr_if(holder: Holder?) -> Int {
+  return if holder != null { holder.callback(4) } else { 0 }
+}
+
+pure apply_optional_intermediate_expr_if(container: OptionalHolder) -> Int {
+  return if container.holder != null { container.holder.callback(4) } else { 0 }
+}
+
+pure apply_optional_while(holder: Holder?) -> Int {
+  var result = 0
+  while holder != null {
+    result = holder.callback(4)
+    break
+  }
+  result
+}
+
+pure apply_optional_intermediate_while(container: OptionalHolder) -> Int {
+  var result = 0
+  while container.holder != null {
+    result = container.holder.callback(4)
+    break
+  }
+  result
+}
+
+pure apply_optional_and_true(holder: Holder?, flag: Bool) -> Int {
+  return if holder != null and flag { holder.callback(4) } else { 0 }
+}
+
+pure apply_optional_or_false(holder: Holder?, flag: Bool) -> Int {
+  return if holder == null or flag { 0 } else { holder.callback(4) }
+}
+
+pure apply_optional_sibling_write(holder: Holder?, flag: Bool) -> Int {
+  var current = holder
+  if current != null {
+    if flag {
+      current = null
+      return 0
+    } else {
+      return current.callback(4)
+    }
+  } else {
+    return 0
+  }
 }
 
 pure optional_broadcast(item: BroadcastInterface) -> Str {
@@ -342,6 +399,30 @@ test test_typed_callable_record_field_is_called_like_a_method {
 
   let field = step.build
   assert field(/c)? == "release /c false"
+}
+
+test test_typed_callable_fields_on_narrowed_optional_records {
+  assert apply_optional_holder(null) == 0
+  assert apply_optional_holder(Holder(double)) == 8
+  assert apply_optional_intermediate({holder: null}) == 0
+  assert apply_optional_intermediate({holder: Holder(triple)}) == 12
+  assert apply_optional_expr_if(null) == 0
+  assert apply_optional_expr_if(Holder(double)) == 8
+  assert apply_optional_intermediate_expr_if({holder: null}) == 0
+  assert apply_optional_intermediate_expr_if({holder: Holder(triple)}) == 12
+  assert apply_optional_while(null) == 0
+  assert apply_optional_while(Holder(double)) == 8
+  assert apply_optional_intermediate_while({holder: null}) == 0
+  assert apply_optional_intermediate_while({holder: Holder(triple)}) == 12
+  assert apply_optional_and_true(null, true) == 0
+  assert apply_optional_and_true(Holder(double), false) == 0
+  assert apply_optional_and_true(Holder(double), true) == 8
+  assert apply_optional_or_false(null, false) == 0
+  assert apply_optional_or_false(Holder(triple), true) == 0
+  assert apply_optional_or_false(Holder(triple), false) == 12
+  assert apply_optional_sibling_write(null, true) == 0
+  assert apply_optional_sibling_write(Holder(double), true) == 0
+  assert apply_optional_sibling_write(Holder(triple), false) == 12
 }
 
 pure apply_validated_collection(callbacks: NonEmpty[Scale]) -> Int {
