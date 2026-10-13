@@ -105,7 +105,7 @@ export pure process_percent(
   current_cpu: syscpu.CpuCounters,
   previous_cpu: syscpu.CpuCounters?,
   core_count: Int,
-  per_core: Bool = false,
+  per_core = false,
 ) -> Rate {
   if previous_ticks == null or previous_cpu == null {
     return {state: .Warming, value: null}

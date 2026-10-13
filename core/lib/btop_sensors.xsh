@@ -263,8 +263,8 @@ export pure format_frequency_mhz(value: Float) -> Str {
 pure selected_frequency_mhz(sources: live.MonitorSources) -> List[Float] {
   let policy_values: List[Float] = collect {
     for policy in sources.frequency_policies |> sort-by .name {
-      let frequency = frequency_value_mhz(policy.scaling_current_khz)
-      if let value = frequency {
+      let policy_frequency = frequency_value_mhz(policy.scaling_current_khz)
+      if let value = policy_frequency {
         yield value
       }
     }
@@ -319,14 +319,14 @@ export pure frequency(sources: live.MonitorSources, mode: FrequencyMode) -> CpuF
   }
 }
 
-pure battery_percent(battery: live.MonitorBattery) -> Int? {
-  let reported = battery.capacity_percent
+pure battery_percent(sample: live.MonitorBattery) -> Int? {
+  let reported = sample.capacity_percent
   return reported when reported != null and (reported ?? -1) >= 0 and reported <= 100
 
-  let energy_now = battery.energy_now_uwh ?? -1
-  let energy_full = battery.energy_full_uwh ?? 0
-  let charge_now = battery.charge_now_uah ?? -1
-  let charge_full = battery.charge_full_uah ?? 0
+  let energy_now = sample.energy_now_uwh ?? -1
+  let energy_full = sample.energy_full_uwh ?? 0
+  let charge_now = sample.charge_now_uah ?? -1
+  let charge_full = sample.charge_full_uah ?? 0
   let ratio = if energy_now >= 0 and energy_full > 0 {
     energy_now.float() / energy_full.float()
   } else if charge_now >= 0 and charge_full > 0 {
@@ -338,13 +338,13 @@ pure battery_percent(battery: live.MonitorBattery) -> Int? {
   (ratio * 100.0).round() ?? 0
 }
 
-pure battery_watts(battery: live.MonitorBattery) -> Float? {
-  if battery.power_now_uw != null {
-    let microwatts = battery.power_now_uw
+pure battery_watts(sample: live.MonitorBattery) -> Float? {
+  if sample.power_now_uw != null {
+    let microwatts = sample.power_now_uw
     return null when microwatts < 0
     microwatts.float() / 1000000.0
-  } else if battery.current_now_ua != null and battery.voltage_now_uv != null {
-    let {current_now_ua: current, voltage_now_uv: voltage, ..} = battery
+  } else if sample.current_now_ua != null and sample.voltage_now_uv != null {
+    let {current_now_ua: current, voltage_now_uv: voltage, ..} = sample
     return null when current == 0 or voltage <= 0
     (if current < 0 { -current } else { current }).float() * voltage.float() / 1000000000000.0
   } else {
@@ -352,33 +352,33 @@ pure battery_watts(battery: live.MonitorBattery) -> Float? {
   }
 }
 
-pure battery_minutes(battery: live.MonitorBattery) -> Int? {
-  let status = (battery.status ?? "").lower()
+pure battery_minutes(sample: live.MonitorBattery) -> Int? {
+  let status = (sample.status ?? "").lower()
   if status == "charging" {
-    let now = battery.energy_now_uwh ?? -1
-    let full = battery.energy_full_uwh ?? -1
-    let power = battery.power_now_uw ?? -1
+    let now = sample.energy_now_uwh ?? -1
+    let full = sample.energy_full_uwh ?? -1
+    let power = sample.power_now_uw ?? -1
     if now >= 0 and full >= now and power > 0 {
       return ((full - now).float() / power.float() * 60.0).round() ?? 0
     }
-    let charge = battery.charge_now_uah ?? -1
-    let charge_full = battery.charge_full_uah ?? -1
-    let current = battery.current_now_ua ?? 0
+    let charge = sample.charge_now_uah ?? -1
+    let charge_full = sample.charge_full_uah ?? -1
+    let current = sample.current_now_ua ?? 0
     if charge >= 0 and charge_full >= charge and current != 0 {
       return ((charge_full - charge).float() / (if current < 0 { -current } else { current }).float() * 60.0).round() ?? 0
     }
   } else if status != "full" {
-    let now = battery.energy_now_uwh ?? -1
-    let power = battery.power_now_uw ?? -1
+    let now = sample.energy_now_uwh ?? -1
+    let power = sample.power_now_uw ?? -1
     return (now.float() / power.float() * 60.0).round() ?? 0 when now >= 0 and power > 0
-    let charge = battery.charge_now_uah ?? -1
-    let current = battery.current_now_ua ?? 0
+    let charge = sample.charge_now_uah ?? -1
+    let current = sample.current_now_ua ?? 0
     if charge >= 0 and current != 0 {
       return (charge.float() / (if current < 0 { -current } else { current }).float() * 60.0).round() ?? 0
     }
   }
 
-  battery.time_to_empty_minutes
+  sample.time_to_empty_minutes
 }
 
 pure battery(sources: live.MonitorSources) -> Battery {

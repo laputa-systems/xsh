@@ -58,8 +58,8 @@ proc send(handle: ProcessHandle, signal: Str, verbose: Bool, foreground: Bool, c
 
 # Return to the evaluator between bounded waits so signal hooks can forward
 # signals to the child while its own timeout or kill-after deadline is pending.
-proc wait_for(handle: ProcessHandle, duration: Duration) [process, error] -> Result[Status?] {
-  var remaining = duration
+proc wait_for(handle: ProcessHandle, wait_duration: Duration) [process, error] -> Result[Status?] {
+  var remaining = wait_duration
 
   while remaining > 0ms {
     let slice = if remaining > SIGNAL_POLL { SIGNAL_POLL } else { remaining }

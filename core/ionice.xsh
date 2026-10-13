@@ -40,10 +40,16 @@ type IoniceOptions = {
   operands: List[Str],
 }
 
+# The target kind and the name its argument has in diagnostics.
+type Target = {which: Str, what: Str, low: Int, high: Int}
+
 const CLASSES = ["none", "realtime", "best-effort", "idle"]
 const NUMBER = rx"^[ \t\n\u{b}\u{c}\r]*([+-]?)([0-9]+)$"
 const DIGITS_FIRST = rx"^[0-9]"
 const LEVEL_SPAN = 8192
+const PROCESS = {which: "process", what: "PID", low: -2147483648, high: 2147483647}
+const GROUP = {which: "group", what: "PGID", low: -2147483648, high: 2147483647}
+const USER = {which: "user", what: "UID", low: 0, high: 4294967294}
 
 # `problem` is "" for a number, "syntax" for text that is not one, and "range"
 # for a number outside the bounds asked for.
@@ -91,13 +97,6 @@ proc number_argument(text: Str, what: Str, low: Int, high: Int) [process, env] -
 
   parsed.value
 }
-
-# The target kind and the name its argument has in diagnostics.
-type Target = {which: Str, what: Str, low: Int, high: Int}
-
-const PROCESS = {which: "process", what: "PID", low: -2147483648, high: 2147483647}
-const GROUP = {which: "group", what: "PGID", low: -2147483648, high: 2147483647}
-const USER = {which: "user", what: "UID", low: 0, high: 4294967294}
 
 proc print_priority(who: Int, target: Target) [process, env, io] {
   match process.io_priority(who, target.which) {
@@ -297,12 +296,12 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     exit status
   }
 
-  if let Err(failure) = io.flush_stdout() {
-    gnu.write_failed(failure)
+  if let Err(flush_error) = io.flush_stdout() {
+    gnu.write_failed(flush_error)
   }
 
-  if let Err(failure) = unix.exec(process.command_argv(command, operands)) {
-    gnu.error(f"failed to execute {command}: {gnu.strerror(failure)}")
+  if let Err(exec_error) = unix.exec(process.command_argv(command, operands)) {
+    gnu.error(f"failed to execute {command}: {gnu.strerror(exec_error)}")
     exit 126
   }
 }

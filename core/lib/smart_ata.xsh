@@ -3,6 +3,9 @@
 use smart
 use smart_json as j
 
+## The header of the block that reads SMART data from the device.
+export const READ_HEADER = "=== START OF READ SMART DATA SECTION ===\n"
+
 # smartctl's tab-aligned blocks put continuation lines at column 40.
 const CONT = "\n\t\t\t\t\t"
 
@@ -67,9 +70,6 @@ export pure info_text(page: Bytes, local_time: Str, serials: Bool) -> Str {
   }
   out + "\n"
 }
-
-## The header of the block that reads SMART data from the device.
-export const READ_HEADER = "=== START OF READ SMART DATA SECTION ===\n"
 
 ## The overall-health verdict block. When the attribute table could be read,
 ## a failure names the attributes at or below their thresholds and a pass

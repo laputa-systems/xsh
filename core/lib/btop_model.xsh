@@ -12,6 +12,8 @@ use sys_proc as processes
 use system_report as report
 use system_report_live as system_live
 
+const PROCESS_METADATA_TTL_NS = 5000000000
+
 ## Groups one timestamp with complete source results from a single rooted tree.
 export type Observation = {
   source_id: Str,
@@ -231,7 +233,6 @@ export pure network_metric(value: NetworkPanel, name: Str?) -> NetworkMetric? {
   find_network_metric(value.interfaces, if name == null { value.interface_name } else { name })
 }
 
-const PROCESS_METADATA_TTL_NS = 5000000000
 type UidResult = {uid: Int?, state: MetadataState, entry: ProcessMetadata?}
 
 pure core_index(previous: Observation?) -> Map[Int, syscpu.CpuCounters] {
@@ -286,7 +287,7 @@ pure process_rate(
   previous_process: processes.Process?,
   row: processes.Process,
   gap: Bool,
-  per_core: Bool = false,
+  per_core = false,
 ) -> rates.Rate {
   return rate(rates.Unavailable) when row.cpu_ticks == null
 
@@ -365,7 +366,7 @@ export pure step_cached(
   current: Observation,
   previous: Observation?,
   metadata: MetadataCache,
-  gap: Bool = false,
+  gap = false,
 ) -> CachedStep {
   let baseline = same_source_baseline(current, previous)
   let prior_cores = core_index(baseline)
@@ -459,7 +460,7 @@ export pure step_cached(
 }
 
 ## Applies one source observation to the shared previous frame, if one exists.
-export pure step(current: Observation, previous: Observation?, gap: Bool = false) -> Model {
+export pure step(current: Observation, previous: Observation?, gap = false) -> Model {
   step_cached(current, previous, {source_id: current.source_id, by_pid: {}}, gap).value
 }
 

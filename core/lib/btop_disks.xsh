@@ -185,7 +185,7 @@ export pure step(
   previous: Source?,
   at_ns: Int,
   previous_at_ns: Int?,
-  gap: Bool = false,
+  gap = false,
 ) -> Panel {
   let indices = block.index_by_number(current.blocks.devices)
   var seen: Set[Str] = set.empty()

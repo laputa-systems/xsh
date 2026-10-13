@@ -4,6 +4,9 @@
 use smart
 use smart_json as j
 
+## The header of the block that reads health data from the device.
+export const READ_HEADER = "=== START OF READ SMART DATA SECTION ===\n"
+
 ## Standard INQUIRY fields.
 export type Inquiry = {device_type: Int, version: Int, vendor: Str, product: Str, revision: Str}
 
@@ -133,9 +136,6 @@ export pure info_text(id: Inquiry, serial: Str?, capacity: Capacity?, local_time
   out += row("Local Time is", local_time)
   out + "\n"
 }
-
-## The header of the block that reads health data from the device.
-export const READ_HEADER = "=== START OF READ SMART DATA SECTION ===\n"
 
 ## The `SMART Health Status` line.
 export pure health_text(report: Exceptions) -> Str {

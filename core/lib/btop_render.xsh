@@ -276,7 +276,7 @@ pure history_rows(
   height: Int,
   inverted: Bool,
   maximum: Float?,
-  minimum: Float = 0.0,
+  minimum = 0.0,
 ) -> Result[List[Str], Error] {
   let frame = graph.project(history, capabilities, width, height, inverted, maximum, minimum)?
   Ok(frame.rows)
@@ -589,22 +589,22 @@ export pure render_view_with_graphs(
   let network_height = lower_height - memory_height
   let memory_width = memory_panel_width(width)
   let process_width = width - memory_width
-  let cpu_content_rows = cpu_content(value, histories, capabilities, width - 2, cpu_height)?
-  let cpu_rows = panel(width, cpu_height, "CPU", cpu_content_rows)
+  let cpu_rows = cpu_content(value, histories, capabilities, width - 2, cpu_height)? |> panel(width, cpu_height, "CPU", _)
   let memory_left_width = (memory_width - 3) / 2
   let memory_left = memory_panel_content(value, histories.memory, capabilities, memory_left_width)?
   let memory_right_width = memory_width - 3 - memory_left_width
-  let disk_content = disk_panel_content(value, state, histories, capabilities, memory_right_width, memory_height - 2)?
-  let memory_rows = split_panel(memory_width, memory_height, "Memory / Disks", memory_left, disk_content)
-  let network_content_rows = network_panel_content(value, state, histories, capabilities, memory_width - 2)?
-  let network_rows = panel(memory_width, network_height, "Network", network_content_rows)
+  let memory_rows = disk_panel_content(value, state, histories, capabilities, memory_right_width, memory_height - 2)?
+    |> split_panel(memory_width, memory_height, "Memory / Disks", memory_left, _)
+  let network_rows = network_panel_content(value, state, histories, capabilities, memory_width - 2)?
+    |> panel(memory_width, network_height, "Network", _)
   let view = ui.resize(state, value, process_capacity(height))
-  let process_rows = panel(
-    process_width,
-    lower_height,
-    "Processes",
-    process_content(value, view, process_capacity(height), process_width - 2, local_display),
-  )
+  let process_rows = process_content(value, view, process_capacity(height), process_width - 2, local_display)
+    |> panel(
+      process_width,
+      lower_height,
+      "Processes",
+      _,
+    )
   var lines = cpu_rows
   var row_roles: List[color.Role?] = [color.Cpu for _ in range(cpu_height)]
   for index in range(lower_height) {

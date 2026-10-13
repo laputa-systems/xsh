@@ -330,19 +330,19 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] {
     if let ticket = due.ticket {
       let collection_plan = collection_schedule.take_due(collection_state, ticket.started_ns)?
       collection_state = collection_plan.state
-      var counters_due = false
-      var gauges_due = false
-      var storage_due = false
+      var sample_counters_due = false
+      var sample_gauges_due = false
+      var sample_storage_due = false
       for item in collection_plan.due {
         if item.class == .Counters {
-          counters_due = true
+          sample_counters_due = true
         } else if item.class == .Gauges {
-          gauges_due = true
+          sample_gauges_due = true
         } else if item.class == .Inventory or item.class == .Blocking {
-          storage_due = true
+          sample_storage_due = true
         }
       }
-      if ! counters_due {
+      if ! sample_counters_due {
         return Err(error.failure("sample deadline expired without due counter sources"))
       }
       let next_observation = source.capture(
@@ -351,9 +351,9 @@ proc interactive_live(count: Int?) [fs, process, time, io, error] {
         ticket.started_ns,
         units.page_size_bytes,
         units.clock_ticks_per_second,
-        if gauges_due { null } else { observation.telemetry },
-        cached_mounts: if storage_due { null } else { cached_mounts },
-        cached_mounts_at_ns: if storage_due { null } else { cached_mounts_at_ns },
+        if sample_gauges_due { null } else { observation.telemetry },
+        cached_mounts: if sample_storage_due { null } else { cached_mounts },
+        cached_mounts_at_ns: if sample_storage_due { null } else { cached_mounts_at_ns },
       )?
       let _ = scheduler.complete(ticket, time.monotonic()?)?
       previous = observation

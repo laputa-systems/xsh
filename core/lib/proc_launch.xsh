@@ -1,6 +1,9 @@
 ##! Process applet launch diagnostics and duration parsing.
 use gnu
 
+const DECIMAL = rx"^([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?"
+const HEXADECIMAL = rx"^0[xX](?:([0-9a-fA-F]+)(?:\.([0-9a-fA-F]*))?|\.([0-9a-fA-F]+))(?:[pP]([+-]?[0-9]+))?"
+
 ## Resolve launch failures before exec so the conventional 126/127 distinction
 ## remains visible even when the process API returns an untyped host error.
 export proc launch_status(command: Str) [process] -> Int {
@@ -22,9 +25,6 @@ export proc check_command(command: Str) [process, env] {
 }
 
 type Scanned = {value: Float, rest: Str}
-
-const DECIMAL = rx"^([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?"
-const HEXADECIMAL = rx"^0[xX](?:([0-9a-fA-F]+)(?:\.([0-9a-fA-F]*))?|\.([0-9a-fA-F]+))(?:[pP]([+-]?[0-9]+))?"
 
 pure is_space(text: Str) -> Bool {
   text == " " or text == "\t" or text == "\n" or text == "\u{b}" or text == "\u{c}" or text == "\r"

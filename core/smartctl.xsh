@@ -12,6 +12,101 @@ use lib.smart_scsi as scsi
 # SMART autosave and automatic offline) are rejected by name rather than
 # approximated.
 
+const HELP_TEXT = """Usage: smartctl [options] device
+
+============================================ SHOW INFORMATION OPTIONS =====
+
+  -h, --help, --usage
+         Display this help and exit
+
+  -V, --version, --copyright, --license
+         Print license, copyright, and version information and exit
+
+  -i, --info
+         Show identity information for device
+
+  -a, --all
+         Show all SMART information for device
+
+  -x, --xall
+         Show all information for device
+
+  --scan
+         Scan for devices
+
+  --scan-open
+         Scan for devices and try to open each device
+
+================================== SMARTCTL RUN-TIME BEHAVIOR OPTIONS =====
+
+  -j, --json[=c]
+         Print output in JSON format (c: compact)
+
+  -q TYPE, --quietmode=TYPE
+         Set smartctl quiet mode to one of: errorsonly, silent, noserial
+
+  -d TYPE, --device=TYPE
+         Specify device type to one of: ata, scsi, nvme[,0xNSID], sat[,auto][,N], auto
+         (ata and sat both reach ATA disks through SAT pass-through)
+
+  -T TYPE, --tolerance=TYPE
+         Tolerance: normal
+
+  -b TYPE, --badsum=TYPE
+         Set action on bad checksum to one of: warn, exit, ignore
+
+  -n MODE, --nocheck=MODE
+         No check if: never
+
+============================== DEVICE FEATURE ENABLE/DISABLE COMMANDS =====
+
+  -s VALUE, --smart=VALUE
+        Enable/disable SMART on device (on/off)
+
+======================================= READ AND DISPLAY DATA OPTIONS =====
+
+  -H, --health
+        Show device SMART health status
+
+  -c, --capabilities
+        Show device SMART capabilities
+
+  -A, --attributes
+        Show device SMART vendor-specific Attributes and values
+
+  -f FORMAT, --format=FORMAT
+        Set output format for attributes: old, brief
+
+  -l TYPE, --log=TYPE
+        Show device log. TYPE: error, selftest, selective, directory,
+        xerror, xselftest
+
+============================================ DEVICE SELF-TEST OPTIONS =====
+
+  -t TEST, --test=TEST
+        Run test. TEST: offline, short, long, conveyance
+
+  -X, --abort
+        Abort any non-captive test on device
+
+=================================================== SMARTCTL EXAMPLES =====
+
+  smartctl --all /dev/sda                    (Prints all SMART information)
+
+  smartctl --smart=on /dev/sda               (Enables SMART on first disk)
+
+  smartctl --test=long /dev/sda          (Executes extended disk self-test)
+"""
+
+const VERSION_TEXT = """smartctl comes with ABSOLUTELY NO WARRANTY. This is free
+software, and you are welcome to redistribute it under
+the terms of the GNU General Public License; either
+version 2, or (at your option) any later version.
+See https://www.gnu.org for further details.
+
+Output layouts follow smartmontools release 7.5.
+"""
+
 const BANNER_RELEASE = "7.5 2025-04-30 r5714"
 const COPYRIGHT = "Copyright (C) 2002-25, Bruce Allen, Christian Franke, www.smartmontools.org\n"
 const USAGE_TRAILER = "\nUse smartctl -h to get a usage summary\n\n"
@@ -340,101 +435,6 @@ pure platform(machine: Str, release: Str) -> Str {
 pure banner(machine: Str, release: Str) -> Str {
   f"smartctl {BANNER_RELEASE} [{platform(machine, release)}] (XSH core)\n{COPYRIGHT}\n"
 }
-
-const HELP_TEXT = """Usage: smartctl [options] device
-
-============================================ SHOW INFORMATION OPTIONS =====
-
-  -h, --help, --usage
-         Display this help and exit
-
-  -V, --version, --copyright, --license
-         Print license, copyright, and version information and exit
-
-  -i, --info
-         Show identity information for device
-
-  -a, --all
-         Show all SMART information for device
-
-  -x, --xall
-         Show all information for device
-
-  --scan
-         Scan for devices
-
-  --scan-open
-         Scan for devices and try to open each device
-
-================================== SMARTCTL RUN-TIME BEHAVIOR OPTIONS =====
-
-  -j, --json[=c]
-         Print output in JSON format (c: compact)
-
-  -q TYPE, --quietmode=TYPE
-         Set smartctl quiet mode to one of: errorsonly, silent, noserial
-
-  -d TYPE, --device=TYPE
-         Specify device type to one of: ata, scsi, nvme[,0xNSID], sat[,auto][,N], auto
-         (ata and sat both reach ATA disks through SAT pass-through)
-
-  -T TYPE, --tolerance=TYPE
-         Tolerance: normal
-
-  -b TYPE, --badsum=TYPE
-         Set action on bad checksum to one of: warn, exit, ignore
-
-  -n MODE, --nocheck=MODE
-         No check if: never
-
-============================== DEVICE FEATURE ENABLE/DISABLE COMMANDS =====
-
-  -s VALUE, --smart=VALUE
-        Enable/disable SMART on device (on/off)
-
-======================================= READ AND DISPLAY DATA OPTIONS =====
-
-  -H, --health
-        Show device SMART health status
-
-  -c, --capabilities
-        Show device SMART capabilities
-
-  -A, --attributes
-        Show device SMART vendor-specific Attributes and values
-
-  -f FORMAT, --format=FORMAT
-        Set output format for attributes: old, brief
-
-  -l TYPE, --log=TYPE
-        Show device log. TYPE: error, selftest, selective, directory,
-        xerror, xselftest
-
-============================================ DEVICE SELF-TEST OPTIONS =====
-
-  -t TEST, --test=TEST
-        Run test. TEST: offline, short, long, conveyance
-
-  -X, --abort
-        Abort any non-captive test on device
-
-=================================================== SMARTCTL EXAMPLES =====
-
-  smartctl --all /dev/sda                    (Prints all SMART information)
-
-  smartctl --smart=on /dev/sda               (Enables SMART on first disk)
-
-  smartctl --test=long /dev/sda          (Executes extended disk self-test)
-"""
-
-const VERSION_TEXT = """smartctl comes with ABSOLUTELY NO WARRANTY. This is free
-software, and you are welcome to redistribute it under
-the terms of the GNU General Public License; either
-version 2, or (at your option) any later version.
-See https://www.gnu.org for further details.
-
-Output layouts follow smartmontools release 7.5.
-"""
 
 proc current_time() [time, error] -> Clock {
   let milliseconds = time.now()

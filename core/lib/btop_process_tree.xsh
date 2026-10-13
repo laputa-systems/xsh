@@ -59,7 +59,7 @@ pure add_bytes(left: Int?, right: Int?) -> Int? {
 ## Builds one adjacency index, cutting self-links, reused-parent edges, and cycles.
 export pure build(
   rows: List[model.ProcessRow],
-  aggregate_children: Bool = false,
+  aggregate_children = false,
   ordered_rows: List[model.ProcessRow]? = null,
 ) -> ProcessTree {
   let ordered = if ordered_rows == null { rows |> sort-by .pid } else { ordered_rows ?? rows }

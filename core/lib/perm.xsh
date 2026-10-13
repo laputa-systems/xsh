@@ -261,7 +261,7 @@ proc change_owner(target: Path, ids: Owner, filter: Owner?, opts: Options, names
   let old: Owner = Owner(uid: if names.user == null { null } else { meta.uid }, gid: if ids.gid != null { meta.gid } else { null })
   let changed = (ids.uid != null and ids.uid != meta.uid) or (ids.gid != null and ids.gid != meta.gid)
   let noun = if names.user != null { "ownership" } else if names.group != null { "group" } else { "ownership" }
-  let result = fs.set_owner(target, uid: ids.uid, gid: ids.gid, follow_symlinks: opts.dereference)
+  let result = fs.set_owner(target, ...ids, follow_symlinks: opts.dereference)
   if let Err(failure) = result {
     if ! opts.quiet { gnu.error(f"changing {if ids.uid != null { "ownership" } else { "group" }} of {gnu.quote(name)}: {gnu.strerror(failure)}") }
     if opts.verbosity == "verbose" { gnu.write_text(f"failed to change {noun} of {gnu.quote(name)} from {owner_label(old, names.user == null)} to {names_label(names)}\n") }

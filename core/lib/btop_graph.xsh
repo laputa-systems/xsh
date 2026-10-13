@@ -195,7 +195,7 @@ export pure project(
   height: Int,
   inverted: Bool,
   maximum: Float?,
-  minimum: Float = 0.0,
+  minimum = 0.0,
 ) -> Result[Frame, Error] {
   if width <= 0 or width > MAX_GRAPH_WIDTH or height <= 0 or height > MAX_GRAPH_HEIGHT {
     return Err(error.failure("graph dimensions are outside their bounds"))

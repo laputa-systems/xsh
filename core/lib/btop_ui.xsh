@@ -59,8 +59,8 @@ pure identity(row: model.ProcessRow) -> Identity {
   {pid: row.pid, start_ticks: row.start_ticks}
 }
 
-pure identity_key(identity: Identity) -> Str {
-  f"{identity.pid}:{identity.start_ticks}"
+pure identity_key(process_identity: Identity) -> Str {
+  f"{process_identity.pid}:{process_identity.start_ticks}"
 }
 
 pure same_identity(left: Identity?, right: Identity) -> Bool {
@@ -383,11 +383,11 @@ pure select_network_interface(state: State, value: model.Model, direction: Int) 
   let interfaces = value.network.interfaces
   return state when interfaces.is_empty()
   let selected_name = active_network_interface(state, value)
-  var selected_index = null
+  var selected_interface_index = null
   for index in range(interfaces.len()) {
-    if interfaces[index].name == selected_name { selected_index = index }
+    if interfaces[index].name == selected_name { selected_interface_index = index }
   }
-  let current = selected_index ?? 0
+  let current = selected_interface_index ?? 0
   let next = if direction < 0 {
     if current == 0 { interfaces.len() - 1 } else { current - 1 }
   } else if current + 1 == interfaces.len() {
@@ -490,14 +490,14 @@ pure bounded_scroll(state: State, rows: List[model.ProcessRow], selected: Identi
 pure reconcile(
   state: State,
   value: model.Model,
-  local_display: List[processes.LocalProcessDisplay] = [],
+  display_metadata: List[processes.LocalProcessDisplay] = [],
 ) -> State {
   let current = {
     ...state,
     collapsed: active_collapses(state, value),
     network_interface: active_network_interface(state, value),
   }
-  let rows = visible_processes(value, current, local_display)
+  let rows = visible_processes(value, current, display_metadata)
   return {...current, selected: null, scroll: 0} when rows.is_empty()
   let selected = if selected_index(rows, current.selected) != null {
     current.selected
@@ -595,9 +595,9 @@ pure move(
   state: State,
   value: model.Model,
   amount: Int,
-  local_display: List[processes.LocalProcessDisplay],
+  display_metadata: List[processes.LocalProcessDisplay],
 ) -> State {
-  let rows = visible_processes(value, state, local_display)
+  let rows = visible_processes(value, state, display_metadata)
   return {...state, selected: null, scroll: 0} when rows.is_empty()
   let start = selected_index(rows, state.selected) ?? 0
   let target = if start + amount < 0 {
@@ -628,39 +628,39 @@ pure browse_key(
   state: State,
   value: model.Model,
   key: input.Key,
-  local_display: List[processes.LocalProcessDisplay],
+  display_metadata: List[processes.LocalProcessDisplay],
 ) -> State {
   match key {
-    input.Up => move(state, value, -1, local_display)
-    input.Down => move(state, value, 1, local_display)
-    input.PageUp => move(state, value, -(if state.visible_rows < 1 { 1 } else { state.visible_rows }), local_display)
-    input.PageDown => move(state, value, if state.visible_rows < 1 { 1 } else { state.visible_rows }, local_display)
+    input.Up => move(state, value, -1, display_metadata)
+    input.Down => move(state, value, 1, display_metadata)
+    input.PageUp => move(state, value, -(if state.visible_rows < 1 { 1 } else { state.visible_rows }), display_metadata)
+    input.PageDown => move(state, value, if state.visible_rows < 1 { 1 } else { state.visible_rows }, display_metadata)
     input.Home => {
-      let rows = visible_processes(value, state, local_display)
+      let rows = visible_processes(value, state, display_metadata)
       if rows.is_empty() { {...state, selected: null, scroll: 0} } else { {...state, selected: identity(rows[0]), scroll: 0} }
     }
     input.End => {
-      let rows = visible_processes(value, state, local_display)
-      if rows.is_empty() { {...state, selected: null, scroll: 0} } else { move(state, value, rows.len(), local_display) }
+      let rows = visible_processes(value, state, display_metadata)
+      if rows.is_empty() { {...state, selected: null, scroll: 0} } else { move(state, value, rows.len(), display_metadata) }
     }
-    input.Left => reconcile({...state, sort: previous_sort(state.sort)}, value, local_display)
-    input.Right => reconcile({...state, sort: next_sort(state.sort)}, value, local_display)
-    input.Text("b") => reconcile(select_network_interface(state, value, -1), value, local_display)
-    input.Text("n") => reconcile(select_network_interface(state, value, 1), value, local_display)
-    input.Text("r") => reconcile({...state, reverse: !state.reverse}, value, local_display)
-    input.Text("c") => reconcile({...state, process_cpu_per_core: !state.process_cpu_per_core}, value, local_display)
-    input.Text("z") => reconcile(toggle_network_offset(state, value), value, local_display)
-    input.Text("a") => reconcile({...state, network_auto: !state.network_auto}, value, local_display)
-    input.Text("y") => reconcile({...state, network_sync: !state.network_sync}, value, local_display)
-    input.Text("%") => reconcile({...state, process_memory_bytes: !state.process_memory_bytes}, value, local_display)
+    input.Left => reconcile({...state, sort: previous_sort(state.sort)}, value, display_metadata)
+    input.Right => reconcile({...state, sort: next_sort(state.sort)}, value, display_metadata)
+    input.Text("b") => reconcile(select_network_interface(state, value, -1), value, display_metadata)
+    input.Text("n") => reconcile(select_network_interface(state, value, 1), value, display_metadata)
+    input.Text("r") => reconcile({...state, reverse: !state.reverse}, value, display_metadata)
+    input.Text("c") => reconcile({...state, process_cpu_per_core: !state.process_cpu_per_core}, value, display_metadata)
+    input.Text("z") => reconcile(toggle_network_offset(state, value), value, display_metadata)
+    input.Text("a") => reconcile({...state, network_auto: !state.network_auto}, value, display_metadata)
+    input.Text("y") => reconcile({...state, network_sync: !state.network_sync}, value, display_metadata)
+    input.Text("%") => reconcile({...state, process_memory_bytes: !state.process_memory_bytes}, value, display_metadata)
     input.Text("d") => {...state, show_disks: !state.show_disks}
     input.Text("i") => {...state, disk_io_mode: !state.disk_io_mode}
-    input.Text("e") => reconcile({...state, tree_view: !state.tree_view}, value, local_display)
-    input.Text("E") => if state.tree_view { reconcile(toggle_all_children(state, value), value, local_display) } else { state }
-    input.Text("+") => if state.tree_view { reconcile(collapse_selected(state, value, "expand"), value, local_display) } else { state }
-    input.Text("-") => if state.tree_view { reconcile(collapse_selected(state, value, "collapse"), value, local_display) } else { state }
-    input.Text(" ") => if state.tree_view { reconcile(collapse_selected(state, value, "toggle"), value, local_display) } else { state }
-    input.Text("C") => if state.tree_view { reconcile(toggle_selected_children(state, value), value, local_display) } else { state }
+    input.Text("e") => reconcile({...state, tree_view: !state.tree_view}, value, display_metadata)
+    input.Text("E") => if state.tree_view { reconcile(toggle_all_children(state, value), value, display_metadata) } else { state }
+    input.Text("+") => if state.tree_view { reconcile(collapse_selected(state, value, "expand"), value, display_metadata) } else { state }
+    input.Text("-") => if state.tree_view { reconcile(collapse_selected(state, value, "collapse"), value, display_metadata) } else { state }
+    input.Text(" ") => if state.tree_view { reconcile(collapse_selected(state, value, "toggle"), value, display_metadata) } else { state }
+    input.Text("C") => if state.tree_view { reconcile(toggle_selected_children(state, value), value, display_metadata) } else { state }
     input.Text("f") | .Text("/") => {...state, editing_filter: true, filter_draft: state.filter}
     input.Delete => reconcile({...state, filter: "", filter_draft: ""}, value)
     else => state
@@ -674,7 +674,7 @@ export pure reduce(
   value: model.Model,
   local_display: List[processes.LocalProcessDisplay] = [],
 ) -> State {
-  if let input.Pressed(key) = event {
+  if let .Pressed(key) = event {
     let updated = if state.editing_filter { edit_key(state, key) } else { browse_key(state, value, key, local_display) }
     reconcile(updated, value, local_display)
   } else {

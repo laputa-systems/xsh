@@ -753,8 +753,8 @@ proc device_signatures(name: Str) -> Result[List[Signature]] {
       tables += [{offset: item.offset, type: table_type, usage: "partition-table", magic: item.magic, recognized: true, uuid: "", label: ""}]
       continue
     }
-    let usage = if item.type == "swap" { "other" } else { "filesystem" }
-    systems += [{offset: item.offset, type: item.type, usage: usage, magic: item.magic, recognized: true, uuid: identity.uuid, label: identity.label}]
+    let device_usage = if item.type == "swap" { "other" } else { "filesystem" }
+    systems += [{offset: item.offset, type: item.type, usage: device_usage, magic: item.magic, recognized: true, uuid: identity.uuid, label: identity.label}]
     if item.type == "vfat" and ! fat {
       fat = true
       let lead = bytes.read_at(node, 0, 1)?

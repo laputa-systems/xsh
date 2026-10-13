@@ -645,7 +645,7 @@ pure make_session(cmd: Str, fd: Int, format: Str, parsed: Parsed) -> Session {
 # modify a device (`device-self-test`, `set-feature`) do. A failing ioctl is reported with the
 # strerror text under `what`; a device status as nvme-cli's `NVMe status`.
 # `--dry-run` sends nothing and ends the command.
-proc admin(dev: Session, what: Str, opcode: Int, nsid: Int, cdw10: Int, length: Int, cdw11: Int = 0, cdw12: Int = 0, cdw13: Int = 0, cdw14: Int = 0, change: Bool = false) [process, env, io, error] -> Reply {
+proc admin(dev: Session, what: Str, opcode: Int, nsid: Int, cdw10: Int, length: Int, cdw11 = 0, cdw12 = 0, cdw13 = 0, cdw14 = 0, change = false) [process, env, io, error] -> Reply {
   if dev.verbose {
     eprint f"{dev.cmd}: opcode {hex(opcode)} nsid {hex(nsid)} cdw10 {hex(cdw10)} cdw11 {hex(cdw11)} cdw12 {hex(cdw12)} cdw13 {hex(cdw13)} cdw14 {hex(cdw14)} data_len {length}"
   }
@@ -944,7 +944,7 @@ pure power_state_lines(states: List[dec.PowerState]) -> List[Str] {
 # Everything a device command has resolved before it sends anything.
 type Begun = {parsed: Parsed, dev: Session, format: Str}
 
-proc begin(cmd: Str, own: List[Str], argv: List[Str], binary_allowed: Bool = true) [fs, process, env, io, error] -> Begun {
+proc begin(cmd: Str, own: List[Str], argv: List[Str], binary_allowed = true) [fs, process, env, io, error] -> Begun {
   let parsed = parse(cmd, own, argv)
   let fd = open_device(cmd, parsed)
   let format = output_format(parsed, binary_allowed)

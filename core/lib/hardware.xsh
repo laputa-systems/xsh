@@ -426,7 +426,7 @@ export pure cpu_rows(section: report.CpuSection, columns: List[Str], selection: 
     }
     rows += [cells]
   }
-  return ["# " + checked.join(",")] + [row.join(",") for row in rows] when parse
+  return ["# " + checked.join(","), @[row.join(",") for row in rows]] when parse
   aligned_lines(checked, rows, true)
 }
 
@@ -550,7 +550,7 @@ pure quantity(value: Int, divisor: Int, signed: Bool, digits = 1) -> Str {
   let prefix = if value < 0 { "-" } else if signed { "+" } else { "" }
   let magnitude = if value < 0 { -value } else { value }
   var scale = 1
-  for _ in range(digits) { scale *= 10 }
+  repeat digits times { scale *= 10 }
   let fraction = (magnitude % divisor * scale + divisor / 2) / divisor
   f"{prefix}{magnitude / divisor + fraction / scale}.{decimal(fraction % scale, digits)}"
 }
@@ -582,7 +582,7 @@ export pure sensor_chip_name(channel: report.SensorChannel) -> Str {
 ## Renders human sensor labels and limits or raw feature names in source units.
 export pure sensor_lines(channels: List[report.SensorChannel], fahrenheit: Bool, raw: Bool, no_adapter = false) -> List[Str] {
   var lines = []
-  let chips = channels |> map { |channel| sensor_chip_name(channel) } |> unique-by . |> sort()
+  let chips = channels |> map(sensor_chip_name) |> unique-by . |> sort()
   for chip in chips {
     lines += [chip]
     if ! no_adapter { lines += ["Adapter: Unknown adapter"] }
@@ -712,7 +712,7 @@ export pure rfkill_table_lines(devices: List[LinuxRfkill], columns: List[Str], h
   var lines = []
   if raw {
     if headings { lines += [checked.join(" ")] }
-    for row in rows { lines += [row |> map { |value| radio_raw(value) }.join(" ")] }
+    for row in rows { lines += [(row |> map(radio_raw)).join(" ")] }
     return lines
   }
   aligned_lines(checked, rows, headings)

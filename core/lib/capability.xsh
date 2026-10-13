@@ -55,13 +55,13 @@ export const CAPABILITIES: List[CapabilityName] = [
   {name: "cap_checkpoint_restore", bit: 40},
 ]
 
-pure power(bit: Int) -> Int { var value = 1; for _ in range(bit) { value *= 2 }; value }
+pure power(index: Int) -> Int { var value = 1; repeat index times { value *= 2 }; value }
 pure empty() -> Mask { {low: 0, high: 0} }
 pure union(a: Mask, b: Mask) -> Mask { {low: a.low.bit_or(b.low), high: a.high.bit_or(b.high)} }
 pure minus(a: Mask, b: Mask) -> Mask { {low: a.low.clear_bits(b.low), high: a.high.clear_bits(b.high)} }
 pure equal(a: Mask, b: Mask) -> Bool { a == b }
-pure contains(mask: Mask, bit: Int) -> Bool { if bit < 32 { mask.low.bit_and(power(bit)) != 0 } else { mask.high.bit_and(power(bit - 32)) != 0 } }
-pure singleton(bit: Int) -> Mask { if bit < 32 { {low: power(bit), high: 0} } else { {low: 0, high: power(bit - 32)} } }
+pure contains(mask: Mask, index: Int) -> Bool { if index < 32 { mask.low.bit_and(power(index)) != 0 } else { mask.high.bit_and(power(index - 32)) != 0 } }
+pure singleton(index: Int) -> Mask { if index < 32 { {low: power(index), high: 0} } else { {low: 0, high: power(index - 32)} } }
 
 ## Resolve a known capability name or an explicit numeric bit in the ABI range.
 export pure bit(name: Str) -> Result[Int, Error] {

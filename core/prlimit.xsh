@@ -52,10 +52,6 @@ Available output columns:
 For more details see prlimit(1).
 """
 
-# One resource: its option letter, the name `process.rlimit` knows it by, and
-# the text of the listing, which is in the order util-linux prints it.
-type Resource = {name: Str, letter: Str, rlimit: Str, description: Str, units: Str}
-
 const RESOURCES = [
   {name: "AS", letter: "v", rlimit: "as", description: "address space limit", units: "bytes"},
   {name: "CORE", letter: "c", rlimit: "core", description: "max core file size", units: "bytes"},

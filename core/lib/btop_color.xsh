@@ -16,6 +16,25 @@ export enum Role: Str {
 ## Stores one palette entry in truecolor channels.
 export type Rgb = {red: Int, green: Int, blue: Int}
 
+const ANSI16: List[Rgb] = [
+  {red: 0, green: 0, blue: 0},
+  {red: 128, green: 0, blue: 0},
+  {red: 0, green: 128, blue: 0},
+  {red: 128, green: 128, blue: 0},
+  {red: 0, green: 0, blue: 128},
+  {red: 128, green: 0, blue: 128},
+  {red: 0, green: 128, blue: 128},
+  {red: 192, green: 192, blue: 192},
+  {red: 128, green: 128, blue: 128},
+  {red: 255, green: 0, blue: 0},
+  {red: 0, green: 255, blue: 0},
+  {red: 255, green: 255, blue: 0},
+  {red: 0, green: 0, blue: 255},
+  {red: 255, green: 0, blue: 255},
+  {red: 0, green: 255, blue: 255},
+  {red: 255, green: 255, blue: 255},
+]
+
 ## Returns the one fixed truecolor value assigned to a panel role.
 export pure truecolor(role: Role) -> Rgb {
   match role {
@@ -52,25 +71,6 @@ pure xterm256(rgb: Rgb) -> Int {
   let gray_distance = distance(rgb, gray_component, gray_component, gray_component)
   if gray_distance < cube_distance { 232 + gray_level } else { cube }
 }
-
-const ANSI16: List[Rgb] = [
-  {red: 0, green: 0, blue: 0},
-  {red: 128, green: 0, blue: 0},
-  {red: 0, green: 128, blue: 0},
-  {red: 128, green: 128, blue: 0},
-  {red: 0, green: 0, blue: 128},
-  {red: 128, green: 0, blue: 128},
-  {red: 0, green: 128, blue: 128},
-  {red: 192, green: 192, blue: 192},
-  {red: 128, green: 128, blue: 128},
-  {red: 255, green: 0, blue: 0},
-  {red: 0, green: 255, blue: 0},
-  {red: 255, green: 255, blue: 0},
-  {red: 0, green: 0, blue: 255},
-  {red: 255, green: 0, blue: 255},
-  {red: 0, green: 255, blue: 255},
-  {red: 255, green: 255, blue: 255},
-]
 
 pure ansi16(rgb: Rgb) -> Int {
   var selected = 0

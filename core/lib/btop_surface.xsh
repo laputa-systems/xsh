@@ -161,7 +161,7 @@ export pure meter(value: Float?, width: Int) -> Str {
 }
 
 ## Builds one padded table row from columns with explicit cell widths.
-export pure table_row(columns: List[Str], widths: List[Int], separator: Str = " ") -> Result[Str, Error] {
+export pure table_row(columns: List[Str], widths: List[Int], separator = " ") -> Result[Str, Error] {
   guard columns.len() == widths.len() else {
     return Err(error.failure("table column and width counts differ"))
   }

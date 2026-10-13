@@ -235,17 +235,17 @@ export proc load(root: FsRoot, devpath: Str) [fs, error] -> Result[Device?, Erro
   let record = database_name(subsystem, sysname, major, minor, ifindex)
   if record != null and root.exists(fp"run/udev/data/{record}") {
     for line in root.read_text(fp"run/udev/data/{record}")?.lines() {
-      let text = line.byte_slice(2)
+      let database_value = line.byte_slice(2)
       if line.starts_with("S:") {
-        symlinks += [text]
+        symlinks += [database_value]
       } else if line.starts_with("G:") {
-        tags += [text]
+        tags += [database_value]
       } else if line.starts_with("L:") {
-        link_priority = src.parse_integer(text) ?? 0
+        link_priority = src.parse_integer(database_value) ?? 0
       } else if line.starts_with("I:") {
-        initialized = text
+        initialized = database_value
       } else if line.starts_with("E:") {
-        let pair = text.split("=", maxsplit: 1)
+        let pair = database_value.split("=", maxsplit: 1)
         if pair.len() == 2 and pair[0] != "" {
           properties = upsert(properties, pair[0], pair[1])
         }

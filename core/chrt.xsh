@@ -59,10 +59,6 @@ type ChrtOptions = {
   operands: List[Str],
 }
 
-# The policies in the order `--max` lists them, with the names util-linux
-# prints for each.
-type Policy = {name: Str, label: Str}
-
 const POLICIES = [
   {name: "other", label: "SCHED_OTHER"},
   {name: "fifo", label: "SCHED_FIFO"},
