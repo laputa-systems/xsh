@@ -109,7 +109,6 @@ export proc docker_backend(ctx: context.Context) [fs, process, env, error, io] -
   stages.ensure_dir(ctx.coverage_dir)
   let image = docker.ensure_image(ctx)?
   let identity = unix.id()?
-  let cargo_environment = docker.cargo_environment_argv(ctx)?
   let argv = [
     "docker",
     "run",
@@ -136,7 +135,6 @@ export proc docker_backend(ctx: context.Context) [fs, process, env, error, io] -
     f"HOST_UID={identity.uid}",
     "-e",
     f"HOST_GID={identity.gid}",
-    @cargo_environment,
     image,
     "cargo",
     "run",

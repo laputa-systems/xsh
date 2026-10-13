@@ -1,7 +1,6 @@
 ##! Docker image, mount, platform, and direct internal-XSH invocation policy.
 use context
 use stage as stages
-use targets
 
 ## Computes the Docker image name from the supported environment override.
 export proc image_name() [env, error] -> Result[Str, Error] {
@@ -66,18 +65,6 @@ export proc ensure_image(ctx: context.Context) [process, env, error, io] -> Resu
   image
 }
 
-## Makes the pinned target flags visible before Cargo bootstraps the inner
-## development script; the script cannot supply flags until it is running.
-export pure cargo_environment_argv(ctx: context.Context) -> Result[List[Str], Error] {
-  let environment = targets.docker_test_env(ctx.target.triple)?
-  collect {
-    for name in environment.keys() |> sort {
-      yield "-e"
-      yield f"{name}={environment.get(name)?.require(Str)?}"
-    }
-  }
-}
-
 ## Constructs a direct `docker run` argv ending in a Cargo-to-XSH internal command.
 ## The inner lifecycle creates a new context, so target and profile travel in
 ## the container environment rather than relying on host process inheritance.
@@ -93,7 +80,6 @@ export pure internal_argv(
   extra: List[Str],
   git_common_dir: Path? = null,
 ) -> Result[List[Str], Error] {
-  let cargo_environment = cargo_environment_argv(ctx)?
   let git_mount = if git_common_dir == null { [] } else { ["-v", f"{git_common_dir}:{git_common_dir}:ro"] }
   # PID 1 must reap orphaned jobs after an interactive shell exits.
   var argv = ["docker", "run", "--rm", "--init", "--platform", selected_platform]
@@ -136,7 +122,6 @@ export pure internal_argv(
     f"HOST_UID={host_uid}",
     "-e",
     f"HOST_GID={host_gid}",
-    @cargo_environment,
     @git_mount,
     image,
     "cargo",

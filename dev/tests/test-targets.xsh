@@ -534,3 +534,12 @@ test test_gate_docker_argv_mounts_worktree_git_before_the_image {
   assert argv[-1] == "src/sema/check/records.rs"
   assert argv[-2] == "gate-lane"
 }
+
+test test_gate_docker_bootstrap_omits_target_only_rustflags {
+  let ctx = fixtures.linux_context(/repo, "verification")?
+  let argv = docker_workflows.internal_argv(ctx, "docker", "linux/amd64", "gate-lane", false, 1000, 1000, "", [])?
+  assert "TARGET=x86_64-unknown-linux-musl" in argv
+  for arg in argv {
+    assert "_RUSTFLAGS=" not in arg, arg
+  }
+}
