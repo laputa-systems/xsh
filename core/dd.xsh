@@ -311,7 +311,7 @@ proc prepare_stdout_seek(offset: Int) [process] -> Result[Int] {
   unix.seek_fd(1, offset, whence: "current")
 }
 
-proc seek_output_fifo(dest: Path, offset: Int, block_size: Int) [fs, process, net, error] -> Result[Unit] {
+proc seek_output_fifo(dest: Path, offset: Int, block_size: Int) [fs, process, net, error] {
   let fd = unix.open_fd(dest, nonblock: false)?
   var discarded = 0
   while discarded < offset {
