@@ -4813,6 +4813,267 @@
       "status": "fragment",
       "scope": "Finite sets keyed by Fin domainSize, with extensional membership, set operations, canonical increasing iteration, and an insertion-order mutation witness.",
       "boundary": "Independent ordinal-key model only; no XSH checker/runtime correspondence, general key semantics, Rust conformance, or full value-algebra proof."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListAccess.nonnegative_literal_reads_its_position",
+      "module": "Xsh.Semantics.ListAccess",
+      "declaration": "Xsh.Semantics.ListAccess.nonnegative_literal_reads_its_position",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "List read, assignment-index, and slice-bound behavior for represented indices.",
+      "boundary": "No parser, diagnostic-phase behavior, indexed-store update, String or Bytes slicing, signed-overflow behavior, or Rust evaluator correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListAccess.negative_literal_reads_from_the_end",
+      "module": "Xsh.Semantics.ListAccess",
+      "declaration": "Xsh.Semantics.ListAccess.negative_literal_reads_from_the_end",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "List read, assignment-index, and slice-bound behavior for represented indices.",
+      "boundary": "No parser, diagnostic-phase behavior, indexed-store update, String or Bytes slicing, signed-overflow behavior, or Rust evaluator correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListAccess.negative_zero_literal_is_zero",
+      "module": "Xsh.Semantics.ListAccess",
+      "declaration": "Xsh.Semantics.ListAccess.negative_zero_literal_is_zero",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "List read, assignment-index, and slice-bound behavior for represented indices.",
+      "boundary": "No parser, diagnostic-phase behavior, indexed-store update, String or Bytes slicing, signed-overflow behavior, or Rust evaluator correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListAccess.too_negative_literal_is_rejected",
+      "module": "Xsh.Semantics.ListAccess",
+      "declaration": "Xsh.Semantics.ListAccess.too_negative_literal_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "List read, assignment-index, and slice-bound behavior for represented indices.",
+      "boundary": "No parser, diagnostic-phase behavior, indexed-store update, String or Bytes slicing, signed-overflow behavior, or Rust evaluator correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListAccess.computed_negative_index_is_rejected",
+      "module": "Xsh.Semantics.ListAccess",
+      "declaration": "Xsh.Semantics.ListAccess.computed_negative_index_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "List read, assignment-index, and slice-bound behavior for represented indices.",
+      "boundary": "No parser, diagnostic-phase behavior, indexed-store update, String or Bytes slicing, signed-overflow behavior, or Rust evaluator correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListAccess.negative_assignment_literal_does_not_count_from_end",
+      "module": "Xsh.Semantics.ListAccess",
+      "declaration": "Xsh.Semantics.ListAccess.negative_assignment_literal_does_not_count_from_end",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "List read, assignment-index, and slice-bound behavior for represented indices.",
+      "boundary": "No parser, diagnostic-phase behavior, indexed-store update, String or Bytes slicing, signed-overflow behavior, or Rust evaluator correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListAccess.normalized_slice_bounds_are_clamped",
+      "module": "Xsh.Semantics.ListAccess",
+      "declaration": "Xsh.Semantics.ListAccess.normalized_slice_bounds_are_clamped",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "List read, assignment-index, and slice-bound behavior for represented indices.",
+      "boundary": "No parser, diagnostic-phase behavior, indexed-store update, String or Bytes slicing, signed-overflow behavior, or Rust evaluator correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListAccess.out_of_range_slice_bounds_clamp_to_the_list",
+      "module": "Xsh.Semantics.ListAccess",
+      "declaration": "Xsh.Semantics.ListAccess.out_of_range_slice_bounds_clamp_to_the_list",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "List read, assignment-index, and slice-bound behavior for represented indices.",
+      "boundary": "No parser, diagnostic-phase behavior, indexed-store update, String or Bytes slicing, signed-overflow behavior, or Rust evaluator correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListAccess.negative_slice_bounds_count_from_the_end",
+      "module": "Xsh.Semantics.ListAccess",
+      "declaration": "Xsh.Semantics.ListAccess.negative_slice_bounds_count_from_the_end",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "List read, assignment-index, and slice-bound behavior for represented indices.",
+      "boundary": "No parser, diagnostic-phase behavior, indexed-store update, String or Bytes slicing, signed-overflow behavior, or Rust evaluator correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListAccess.reversed_slice_bounds_produce_an_empty_list",
+      "module": "Xsh.Semantics.ListAccess",
+      "declaration": "Xsh.Semantics.ListAccess.reversed_slice_bounds_produce_an_empty_list",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "List read, assignment-index, and slice-bound behavior for represented indices.",
+      "boundary": "No parser, diagnostic-phase behavior, indexed-store update, String or Bytes slicing, signed-overflow behavior, or Rust evaluator correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Semantics.ListAccess.computed_negative_from_end_mutation_is_detectable",
+      "module": "Xsh.Semantics.ListAccess",
+      "declaration": "Xsh.Semantics.ListAccess.computed_negative_from_end_mutation_is_detectable",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "List read, assignment-index, and slice-bound behavior for represented indices.",
+      "boundary": "No parser, diagnostic-phase behavior, indexed-store update, String or Bytes slicing, signed-overflow behavior, or Rust evaluator correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Values.DurationOps.addition_returns_in_range_sum",
+      "module": "Xsh.Values.DurationOps",
+      "declaration": "Xsh.Values.DurationOps.addition_returns_in_range_sum",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked unsigned-millisecond duration arithmetic, ratios, and time conversions.",
+      "boundary": "No parsing, evaluation, source spans, compound assignment, or Rust correspondence. The mathematical-Int time.millis saturation case is unreachable from signed-64-bit XSH IntValue inputs."
+    },
+    {
+      "id": "fragment.Xsh.Values.DurationOps.addition_rejects_out_of_range_sum",
+      "module": "Xsh.Values.DurationOps",
+      "declaration": "Xsh.Values.DurationOps.addition_rejects_out_of_range_sum",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked unsigned-millisecond duration arithmetic, ratios, and time conversions.",
+      "boundary": "No parsing, evaluation, source spans, compound assignment, or Rust correspondence. The mathematical-Int time.millis saturation case is unreachable from signed-64-bit XSH IntValue inputs."
+    },
+    {
+      "id": "fragment.Xsh.Values.DurationOps.subtraction_returns_ordered_difference",
+      "module": "Xsh.Values.DurationOps",
+      "declaration": "Xsh.Values.DurationOps.subtraction_returns_ordered_difference",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked unsigned-millisecond duration arithmetic, ratios, and time conversions.",
+      "boundary": "No parsing, evaluation, source spans, compound assignment, or Rust correspondence. The mathematical-Int time.millis saturation case is unreachable from signed-64-bit XSH IntValue inputs."
+    },
+    {
+      "id": "fragment.Xsh.Values.DurationOps.subtraction_rejects_larger_right_operand",
+      "module": "Xsh.Values.DurationOps",
+      "declaration": "Xsh.Values.DurationOps.subtraction_rejects_larger_right_operand",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked unsigned-millisecond duration arithmetic, ratios, and time conversions.",
+      "boundary": "No parsing, evaluation, source spans, compound assignment, or Rust correspondence. The mathematical-Int time.millis saturation case is unreachable from signed-64-bit XSH IntValue inputs."
+    },
+    {
+      "id": "fragment.Xsh.Values.DurationOps.multiplication_returns_in_range_product",
+      "module": "Xsh.Values.DurationOps",
+      "declaration": "Xsh.Values.DurationOps.multiplication_returns_in_range_product",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked unsigned-millisecond duration arithmetic, ratios, and time conversions.",
+      "boundary": "No parsing, evaluation, source spans, compound assignment, or Rust correspondence. The mathematical-Int time.millis saturation case is unreachable from signed-64-bit XSH IntValue inputs."
+    },
+    {
+      "id": "fragment.Xsh.Values.DurationOps.multiplication_rejects_out_of_range_product",
+      "module": "Xsh.Values.DurationOps",
+      "declaration": "Xsh.Values.DurationOps.multiplication_rejects_out_of_range_product",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked unsigned-millisecond duration arithmetic, ratios, and time conversions.",
+      "boundary": "No parsing, evaluation, source spans, compound assignment, or Rust correspondence. The mathematical-Int time.millis saturation case is unreachable from signed-64-bit XSH IntValue inputs."
+    },
+    {
+      "id": "fragment.Xsh.Values.DurationOps.multiplication_rejects_negative_factor",
+      "module": "Xsh.Values.DurationOps",
+      "declaration": "Xsh.Values.DurationOps.multiplication_rejects_negative_factor",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked unsigned-millisecond duration arithmetic, ratios, and time conversions.",
+      "boundary": "No parsing, evaluation, source spans, compound assignment, or Rust correspondence. The mathematical-Int time.millis saturation case is unreachable from signed-64-bit XSH IntValue inputs."
+    },
+    {
+      "id": "fragment.Xsh.Values.DurationOps.division_returns_quotient_for_positive_divisor",
+      "module": "Xsh.Values.DurationOps",
+      "declaration": "Xsh.Values.DurationOps.division_returns_quotient_for_positive_divisor",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked unsigned-millisecond duration arithmetic, ratios, and time conversions.",
+      "boundary": "No parsing, evaluation, source spans, compound assignment, or Rust correspondence. The mathematical-Int time.millis saturation case is unreachable from signed-64-bit XSH IntValue inputs."
+    },
+    {
+      "id": "fragment.Xsh.Values.DurationOps.division_rejects_nonpositive_divisor",
+      "module": "Xsh.Values.DurationOps",
+      "declaration": "Xsh.Values.DurationOps.division_rejects_nonpositive_divisor",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked unsigned-millisecond duration arithmetic, ratios, and time conversions.",
+      "boundary": "No parsing, evaluation, source spans, compound assignment, or Rust correspondence. The mathematical-Int time.millis saturation case is unreachable from signed-64-bit XSH IntValue inputs."
+    },
+    {
+      "id": "fragment.Xsh.Values.DurationOps.ratio_returns_validated_count",
+      "module": "Xsh.Values.DurationOps",
+      "declaration": "Xsh.Values.DurationOps.ratio_returns_validated_count",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked unsigned-millisecond duration arithmetic, ratios, and time conversions.",
+      "boundary": "No parsing, evaluation, source spans, compound assignment, or Rust correspondence. The mathematical-Int time.millis saturation case is unreachable from signed-64-bit XSH IntValue inputs."
+    },
+    {
+      "id": "fragment.Xsh.Values.DurationOps.ratio_rejects_zero_denominator",
+      "module": "Xsh.Values.DurationOps",
+      "declaration": "Xsh.Values.DurationOps.ratio_rejects_zero_denominator",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked unsigned-millisecond duration arithmetic, ratios, and time conversions.",
+      "boundary": "No parsing, evaluation, source spans, compound assignment, or Rust correspondence. The mathematical-Int time.millis saturation case is unreachable from signed-64-bit XSH IntValue inputs."
+    },
+    {
+      "id": "fragment.Xsh.Values.DurationOps.ratio_overflow_iff_validator_rejects",
+      "module": "Xsh.Values.DurationOps",
+      "declaration": "Xsh.Values.DurationOps.ratio_overflow_iff_validator_rejects",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked unsigned-millisecond duration arithmetic, ratios, and time conversions.",
+      "boundary": "No parsing, evaluation, source spans, compound assignment, or Rust correspondence. The mathematical-Int time.millis saturation case is unreachable from signed-64-bit XSH IntValue inputs."
+    },
+    {
+      "id": "fragment.Xsh.Values.DurationOps.ratio_rejects_interval_count_overflow",
+      "module": "Xsh.Values.DurationOps",
+      "declaration": "Xsh.Values.DurationOps.ratio_rejects_interval_count_overflow",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked unsigned-millisecond duration arithmetic, ratios, and time conversions.",
+      "boundary": "No parsing, evaluation, source spans, compound assignment, or Rust correspondence. The mathematical-Int time.millis saturation case is unreachable from signed-64-bit XSH IntValue inputs."
+    },
+    {
+      "id": "fragment.Xsh.Values.DurationOps.duration_max_ratio_overflows_int",
+      "module": "Xsh.Values.DurationOps",
+      "declaration": "Xsh.Values.DurationOps.duration_max_ratio_overflows_int",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked unsigned-millisecond duration arithmetic, ratios, and time conversions.",
+      "boundary": "No parsing, evaluation, source spans, compound assignment, or Rust correspondence. The mathematical-Int time.millis saturation case is unreachable from signed-64-bit XSH IntValue inputs."
+    },
+    {
+      "id": "fragment.Xsh.Values.DurationOps.time_millis_clamp_exact_saturation_laws",
+      "module": "Xsh.Values.DurationOps",
+      "declaration": "Xsh.Values.DurationOps.time_millis_clamp_exact_saturation_laws",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked unsigned-millisecond duration arithmetic, ratios, and time conversions.",
+      "boundary": "No parsing, evaluation, source spans, compound assignment, or Rust correspondence. The mathematical-Int time.millis saturation case is unreachable from signed-64-bit XSH IntValue inputs."
+    },
+    {
+      "id": "fragment.Xsh.Values.DurationOps.time_seconds_one_is_one_thousand_milliseconds",
+      "module": "Xsh.Values.DurationOps",
+      "declaration": "Xsh.Values.DurationOps.time_seconds_one_is_one_thousand_milliseconds",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked unsigned-millisecond duration arithmetic, ratios, and time conversions.",
+      "boundary": "No parsing, evaluation, source spans, compound assignment, or Rust correspondence. The mathematical-Int time.millis saturation case is unreachable from signed-64-bit XSH IntValue inputs."
+    },
+    {
+      "id": "fragment.Xsh.Values.DurationOps.time_seconds_clamp_exact_saturation_laws",
+      "module": "Xsh.Values.DurationOps",
+      "declaration": "Xsh.Values.DurationOps.time_seconds_clamp_exact_saturation_laws",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked unsigned-millisecond duration arithmetic, ratios, and time conversions.",
+      "boundary": "No parsing, evaluation, source spans, compound assignment, or Rust correspondence. The mathematical-Int time.millis saturation case is unreachable from signed-64-bit XSH IntValue inputs."
+    },
+    {
+      "id": "fragment.Xsh.Values.DurationOps.checked_add_rejects_wrapping_mutation",
+      "module": "Xsh.Values.DurationOps",
+      "declaration": "Xsh.Values.DurationOps.checked_add_rejects_wrapping_mutation",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked unsigned-millisecond duration arithmetic, ratios, and time conversions.",
+      "boundary": "No parsing, evaluation, source spans, compound assignment, or Rust correspondence. The mathematical-Int time.millis saturation case is unreachable from signed-64-bit XSH IntValue inputs."
     }
   ],
   "source_identity": null

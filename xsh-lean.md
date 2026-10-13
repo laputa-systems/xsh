@@ -6,8 +6,9 @@ scalar and base-machine fragments, validation, nominal identity/provenance,
 union-membership, byte-lexical RelPath, and recursive `.require` fragments,
 bounded refinements, non-empty filtering, environment/store, effects including
 bounded failure witnesses, edge-order laws, and five bounded primitive
-classifications, argv expansion, finite ordered-set laws, raw-IR, and transport
-codec/law fragments are integrated.
+classifications, argv expansion, finite ordered-set laws, List access bounds,
+and duration operations, raw-IR, and transport codec/law fragments are
+integrated.
 The XSH language contract defines Float `==` and `!=` by IEEE value equality;
 runtime, constant-folding, and fuzz-oracle comparisons implement that rule,
 and `Xsh.Values.FloatEquality` defines an executable comparator over raw
@@ -16,12 +17,12 @@ runtime and constant-folded signed-zero, NaN, and nested comparisons. Consolidat
 acceptance and the post-consolidation G0b source freeze remain pending gates.
 The owner requested wider staggered lanes; continue on disjoint domains with
 the coordinated build and memory limits. These independent fragments make no
-source or Rust conformance claim and close no full G2 or G3 obligation; all 72
-inventoried universal theorem obligations remain planned. The Raw decoder
+source or Rust conformance claim and close no full G1, G2, or G3 obligation; all
+72 inventoried universal theorem obligations remain planned. The Raw decoder
 fragments prove successful word-read length, payload length and table bounds,
 plus rejection of one concrete out-of-bounds payload
 range. They do not close G7a, establish complete decoder soundness, or prove
-Rust conformance. The inventory now names 203 fragment roots; its 50 Python
+Rust conformance. The inventory now names 232 fragment roots; its 50 Python
 tests check inventory consistency, mutation controls, and finite-case evidence
 boundaries. The new RelPath roots cover the independent byte-list model only;
 they establish no Rust checker/runtime correspondence, symlink confinement,
@@ -31,10 +32,17 @@ explicit alignment for permission and pull-sequence correspondence, and use
 structural `Expr` site labels that cannot distinguish identical occurrences.
 They do not execute producers or establish Rust conformance or full
 `EFF-LATENT`/`EFF-SEMANTIC` semantics. No `BASE-*` obligation is complete.
-The 29 new roots cover argv word/splice expansion, five named primitive effect
-classifications under the represented lexical rules, and ordered-set laws over
-finite ordinal keys. They establish no parser, Rust implementation, or full
-G1/G3 correspondence.
+The earlier 29 roots cover argv word/splice expansion, five named primitive
+effect classifications under the represented lexical rules, and ordered-set laws
+over finite ordinal keys. They establish no parser, Rust implementation, or full
+G1/G3 correspondence. The latest 29 roots cover List index and slice rules plus
+checked millisecond-duration operations. The List fragment excludes parsing,
+diagnostic phases, store updates, String/Bytes slicing, and Rust correspondence.
+The Duration fragment excludes parsing, evaluation, source spans, compound
+assignment, and Rust correspondence; its generalized mathematical-Int
+`time.millis` saturation case is unreachable from signed-64-bit XSH `IntValue`
+inputs. The inventory remains provisional, with null source identity, no finite
+conformance cases, and all 72 universal obligations planned.
 **Prepared:** 2026-10-13. **Checkout:** `/home/josh/d/laputa-systems/xsh`.
 **Scope:** Formalize the whole frozen XSH core in Lean, prove its semantic and
 lowering obligations, and connect those independent statements to the Rust
@@ -445,6 +453,7 @@ Lean's bundled fresh checker is `leanchecker --fresh`; it was introduced in Lean
 | Nominal identity, provenance, and union membership | Commit `b3e08a564` adds `Xsh.Validation.Nominal`; the root now imports it and the inventory lists all 10 public theorem declarations, including the ID-collapse and provenance-erasure mutation witnesses. The inventory checker reports 89 owner sets, 113 fragment roots, and 72 planned obligations; all 50 Python inventory tests pass. Schema 2 remains provisional with null source identity and no finite conformance cases. | This finite model does not validate record schemas or `.require` inputs, prove union exhaustiveness, or establish source/Rust conformance or full G2. The single `lake build Xsh` invocation stopped before compilation because its relative config path was resolved beneath `.work/`; no axiom audit or fresh kernel check was run. |
 | Lexical relative-path boundary | Commits `74ff794f6` and `d5ea8c97d` add and refine `Xsh.Validation.RelPath`, and `Xsh.lean` imports it. The coverage inventory lists all 21 public theorem roots; its checker reports 89 owner sets, 134 fragment roots, and 72 planned obligations, and all 50 Python tests pass. `lake build Xsh` passes; the transitive axiom allowlist passes for 5,668 declarations; the prohibited-term scan and guarded fresh kernel check pass. Schema 2 remains provisional with null source identity and no finite conformance cases. | This is an independent byte-list model only. It does not establish Rust checker/runtime correspondence, symlink-aware filesystem confinement, or full G2/VAL closure. |
 | Recursive `.require` validation fragment | Commits `047bf1e58` and `4b0e8748a` add `Xsh.Validation.RecursiveRequire`, and `Xsh.lean` imports it. The finite target grammar uses explicit predecessor fuel, validates required nested fields and list elements, accepts `null` for optional values, preserves extra uniquely named fields, and rejects duplicate record keys. Its 11 `SPEC_PROVED` roots cover nested success and rejection, exact value erasure and provenance, recoverable nonmutation, and mutations that skip nested checks or duplicate-key rejection. The inventory checker reports 89 owner sets, 145 fragment roots, and 72 planned obligations; all 50 Python inventory tests pass. `lake build Xsh` succeeds and the transitive axiom allowlist passes for 5,894 declarations. Schema 2 remains provisional, with null source identity and no finite conformance cases. | This is an independent finite model only. It establishes no Rust correspondence or full G2/VAL proof. |
+| List access and checked duration fragments | Commits `819512a71` and `cc08766a3` add `Xsh.Semantics.ListAccess` and `Xsh.Values.DurationOps`; the root imports both. The inventory records exactly 11 and 18 `SPEC_PROVED` roots respectively, bringing it to 232 roots across 89 owners. The inventory checker and all 50 Python tests pass; `lake build Xsh`, the transitive axiom allowlist for 6,434 declarations and its negative controls, the prohibited-term scan, and guarded fresh kernel check pass. Schema 2 remains provisional with null source identity, no finite conformance cases, and all 72 obligations planned. | List access does not model parser or diagnostic phases, store updates, String/Bytes slicing, or Rust behavior. Duration operations do not model parsing, evaluation, spans, compound assignment, or Rust behavior; the generalized mathematical-Int `time.millis` saturation case is unreachable from signed-64-bit `IntValue` inputs. These fragments close no full G1/G2/G3 obligation. |
 
 ## For the owner afterwards
 

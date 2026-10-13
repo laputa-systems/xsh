@@ -120,7 +120,7 @@ class InventoryCheckerTests(unittest.TestCase):
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
         )
-        self.assertEqual(203, len(result["fragment_roots"]))
+        self.assertEqual(232, len(result["fragment_roots"]))
         self.assertEqual(72, len(result["obligations"]))
         self.assertEqual("provisional-during-consolidation", coverage["source_state"])
         self.assertIsNone(coverage["source_identity"])
@@ -156,6 +156,53 @@ class InventoryCheckerTests(unittest.TestCase):
                 "Xsh.Values.IntegerOps.euclidean_remainder_mutation_changes_sign",
             },
             integer_ops_roots,
+        )
+        list_access_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Semantics.ListAccess"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Semantics.ListAccess.nonnegative_literal_reads_its_position",
+                "Xsh.Semantics.ListAccess.negative_literal_reads_from_the_end",
+                "Xsh.Semantics.ListAccess.negative_zero_literal_is_zero",
+                "Xsh.Semantics.ListAccess.too_negative_literal_is_rejected",
+                "Xsh.Semantics.ListAccess.computed_negative_index_is_rejected",
+                "Xsh.Semantics.ListAccess.negative_assignment_literal_does_not_count_from_end",
+                "Xsh.Semantics.ListAccess.normalized_slice_bounds_are_clamped",
+                "Xsh.Semantics.ListAccess.out_of_range_slice_bounds_clamp_to_the_list",
+                "Xsh.Semantics.ListAccess.negative_slice_bounds_count_from_the_end",
+                "Xsh.Semantics.ListAccess.reversed_slice_bounds_produce_an_empty_list",
+                "Xsh.Semantics.ListAccess.computed_negative_from_end_mutation_is_detectable",
+            },
+            list_access_roots,
+        )
+        duration_roots = {
+            root["declaration"] for root in roots
+            if root["module"] == "Xsh.Values.DurationOps"
+        }
+        self.assertEqual(
+            {
+                "Xsh.Values.DurationOps.addition_returns_in_range_sum",
+                "Xsh.Values.DurationOps.addition_rejects_out_of_range_sum",
+                "Xsh.Values.DurationOps.subtraction_returns_ordered_difference",
+                "Xsh.Values.DurationOps.subtraction_rejects_larger_right_operand",
+                "Xsh.Values.DurationOps.multiplication_returns_in_range_product",
+                "Xsh.Values.DurationOps.multiplication_rejects_out_of_range_product",
+                "Xsh.Values.DurationOps.multiplication_rejects_negative_factor",
+                "Xsh.Values.DurationOps.division_returns_quotient_for_positive_divisor",
+                "Xsh.Values.DurationOps.division_rejects_nonpositive_divisor",
+                "Xsh.Values.DurationOps.ratio_returns_validated_count",
+                "Xsh.Values.DurationOps.ratio_rejects_zero_denominator",
+                "Xsh.Values.DurationOps.ratio_overflow_iff_validator_rejects",
+                "Xsh.Values.DurationOps.ratio_rejects_interval_count_overflow",
+                "Xsh.Values.DurationOps.duration_max_ratio_overflows_int",
+                "Xsh.Values.DurationOps.time_millis_clamp_exact_saturation_laws",
+                "Xsh.Values.DurationOps.time_seconds_one_is_one_thousand_milliseconds",
+                "Xsh.Values.DurationOps.time_seconds_clamp_exact_saturation_laws",
+                "Xsh.Values.DurationOps.checked_add_rejects_wrapping_mutation",
+            },
+            duration_roots,
         )
         self.assertTrue(
             any(

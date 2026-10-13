@@ -4,9 +4,10 @@ This is the Lean foundation for the XSH soundness campaign. It is pinned to
 Lean 4.34.1 and uses only Lean's bundled libraries; no XSH runtime or product
 build depends on it. The current `Xsh` root imports every module under
 `formal/Xsh/`. These modules define and prove fragments for exact scalar and
-word representations; lexical environments, activations, and captured cells; a
-checked integer evaluator with typed scalar values; validated boundaries and
-atomic typed-store writes; and effect lattices, recursive summaries, lexical
+word representations; lexical environments, activations, and captured cells;
+checked integer outcomes and millisecond-duration operations over typed scalar
+values; List index and slice bounds; validated boundaries and atomic typed-store
+writes; and effect lattices, recursive summaries, lexical
 bounds, and delayed-work origins. Failed typed writes preserve the old store
 and produce an uncatchable type error; `.require(UInt)` remains recoverable.
 The effect fragments also prove that an abstract finite pull prefix preserves
@@ -69,7 +70,7 @@ Finite private Rust bridge fixtures exercise selected JSON limits, table
 bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
-G0b source freeze remain pending. The provisional inventory has 203 fragment
+G0b source freeze remain pending. The provisional inventory has 232 fragment
 roots across 89 core owner sets and still marks all 72 universal theorem
 obligations planned. Integer operation fragments prove
 checked conversion's exact signed-range split and total outcomes for addition,
@@ -77,6 +78,18 @@ subtraction, multiplication, division, and remainder. Concrete mutation
 witnesses distinguish checked overflow from wrapping addition and truncating
 remainder from Euclidean remainder. These are results about the Lean integer
 model; they do not establish Rust arithmetic conformance or checker integration.
+
+`Xsh.Semantics.ListAccess` has eleven roots for List reads, assignment-index
+normalization, and clamped slice bounds. Literal negative reads count from the
+end while computed negative indices and negative assignment indices are rejected.
+The model does not cover parsing, diagnostic phases, store updates, String or
+Bytes slicing, signed overflow, or the Rust evaluator.
+
+`Xsh.Values.DurationOps` has eighteen roots for checked millisecond addition,
+subtraction, multiplication, division, interval ratios, and time conversions.
+Its `time.millis` saturation law uses mathematical `Int`; actual XSH signed-64-bit
+`IntValue` inputs cannot reach the unsigned duration maximum. The model does not
+cover parsing, evaluation, source spans, compound assignment, or Rust behavior.
 `Xsh.Validation.Nominal` models declaration identity as module plus declaration
 name, tracks constructor and `.require` introduction provenance, erases nominal
 wrappers to their represented values, and checks nominal union membership. Its
@@ -118,11 +131,11 @@ recursive solver answer and detects a first-edge-only mutation. These 15 roots
 cover bounded failure classification and graph operations; they do not
 establish Rust checker or graph-construction correspondence or full G3.
 
-The inventory names 203 rooted Lean fragment declarations across 89 core owner
+The inventory names 232 rooted Lean fragment declarations across 89 core owner
 sets. Its 50 Python tests check inventory shape, root reachability, mutation
 controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full
-G1 closure or whole-language soundness claim is made.
+G1, G2, or G3 closure or whole-language soundness claim is made.
 
 The base-machine fragment includes a typed `time.now()` request for signed
 epoch milliseconds. `Xsh.Semantics.BaseHostTrace` labels internal steps,
