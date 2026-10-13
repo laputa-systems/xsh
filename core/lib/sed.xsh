@@ -986,7 +986,7 @@ proc parse_chunk(state: Parser, chunk: Chunk, options: Options) [fs, io, error, 
 ## Compile `-e` and `-f` chunks into a program. Syntax failures carry GNU's
 ## location prefix.
 export proc compile(chunks: List[Chunk], options: Options) [fs, io, error, process, env] -> Result[Parser, Error] {
-  var state: Parser = {commands: [], blocks: [], labels: {}, pending: -1, first: true, quiet: false, opened: []}
+  var state: Parser = Parser(commands: [], blocks: [], labels: {}, pending: -1, first: true, quiet: false, opened: [])
   for chunk in chunks { state = parse_chunk(state, chunk, options)? }
   if !state.blocks.is_empty() {
     return Err(SedError.Invalid(f"{state.blocks[0].where}: unmatched '{{'"))
@@ -1449,7 +1449,7 @@ pure split_records(data: Bytes, delim: Int) -> List[Bytes] {
 # Open the next named input. A missing or unreadable file is reported and
 # skipped (status 2 at exit); a directory ends the run.
 proc open_next(cursor: Cursor, name: Str, delim: Int) [fs, io, error, process, env] -> Loaded {
-  let next: Cursor = {...cursor, next_name: cursor.next_name + 1, position: 0, count: 0}
+  let next: Cursor = Cursor(next_name: cursor.next_name + 1, position: 0, count: 0, trailing: cursor.trailing, current: cursor.current, line: cursor.line, bad: cursor.bad, fatal: cursor.fatal)
   if name == "" {
     gnu.error("can't read : No such file or directory")
     return {cursor: {...next, bad: next.bad + 1}, records: []}
@@ -1967,7 +1967,7 @@ export proc execute(program: Program, options: Options, in_place: InPlace, names
     bufs += [[]]
     missing += [false]
   }
-  var m: Machine = {hold: {text: b"", chomped: true}, out: {bufs: bufs, missing: missing}, last_regex: null, status: -1, quit: false, bad: 0, rdata: {}, roffset: {}}
+  var m: Machine = Machine(hold: {text: b"", chomped: true}, out: {bufs: bufs, missing: missing}, last_regex: null, status: -1, quit: false, bad: 0, rdata: {}, roffset: {})
   if in_place.enabled {
     if names.is_empty() {
       gnu.error("no input files")
