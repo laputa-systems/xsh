@@ -1633,7 +1633,7 @@ pure make_alphabet(pattern: Str, subject: Str) -> Alphabet {
   {chars: chars, free: free, invalid: invalid}
 }
 
-const NO_ALPHABET: Alphabet = {chars: {}, free: [], invalid: ""}
+const NO_ALPHABET: Alphabet = Alphabet(chars: {}, free: [], invalid: "")
 
 # GNU word-boundary operators (\\<, \\>, \\y, \\B) cannot be expressed to the
 # host engine; one at the very start or end of a pattern is supported by
