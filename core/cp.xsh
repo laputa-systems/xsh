@@ -439,7 +439,7 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
   }
   if ! linked {
     if opts.symlink {
-      if ! source.display().starts_with("/") and target.parent().resolve()? != p".".resolve()? {
+      if ! source.starts_with(p"/") and target.parent().resolve()? != p".".resolve()? {
         invalid(f"{gnu.quote_bytes(target.bytes())}: can make relative symbolic copies only in current directory")
       }
       target.symlink(to: source)

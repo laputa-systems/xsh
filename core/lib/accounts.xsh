@@ -129,7 +129,7 @@ export proc login_user(name: Str, identity: UnixId) [fs, env, process, error] ->
   }
   if !id_valid(entry.uid) or !id_valid(entry.gid) { return Err(AccountError.Policy("invalid account identity")) }
   if entry.shell == "" or !entry.shell.starts_with("/") { return Err(AccountError.Policy("account requires an absolute login shell")) }
-  if !entry.home.display().starts_with("/") { return Err(AccountError.Policy("account requires an absolute home directory")) }
+  if !entry.home.starts_with(p"/") { return Err(AccountError.Policy("account requires an absolute home directory")) }
   Ok(entry)
 }
 

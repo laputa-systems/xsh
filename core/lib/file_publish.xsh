@@ -130,7 +130,7 @@ export proc canonical(entry: Path) -> Result[Path, Error] {
         Ok(meta) => {
           if meta.kind == "symlink" {
             let target = entry.readlink()?
-            let resolved = if target.display().starts_with("/") { target } else { fp"{entry.parent()}/{target}" }
+            let resolved = if target.starts_with(p"/") { target } else { fp"{entry.parent()}/{target}" }
             return canonical(resolved)
           }
         }
