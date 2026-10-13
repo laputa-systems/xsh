@@ -5,7 +5,7 @@ impl Type {
     /// Whether a value of this type can contain a host resource handle.
     /// Unknown or erased shapes stay conservative because their runtime
     /// contents cannot be inspected from the static type.
-    pub(crate) fn may_hold_resource(&self) -> bool {
+    pub fn may_hold_resource(&self) -> bool {
         let mut pending = vec![self];
         // Fx keeps the checker free of the process-random seed std's hasher
         // fetches from getrandom, which an applet must run without.

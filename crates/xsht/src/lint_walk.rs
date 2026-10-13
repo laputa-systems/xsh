@@ -1882,11 +1882,12 @@ impl<'a> Linter<'a> {
         if let Some(edges) = &mut self.callable_edges {
             edges.define(Name::intern(name));
         }
+        // Removing an unread owner would shorten its lexical lifetime.
         let resource_owned = self.checked_output.as_deref().is_some_and(|checked| {
             checked
                 .local_binding_types
                 .get(&span)
-                .is_some_and(type_may_hold_resource)
+                .is_some_and(Type::may_hold_resource)
         });
         if let Some(scope) = self.scopes.last_mut() {
             scope.insert(
@@ -1952,61 +1953,6 @@ impl<'a> Linter<'a> {
             ArenaExprOrRun::Run(run) => self.arena.span(self.arena.run_form(*run).span),
         }
     }
-}
-
-/// A checked local can be unused as a value and still own a resource until its
-/// lexical scope ends. Keep its binding out of `lint.unused-local` so removing
-/// it cannot shorten that lifetime.
-fn type_may_hold_resource(ty: &Type) -> bool {
-    let mut pending = vec![ty];
-    while let Some(ty) = pending.pop() {
-        match ty {
-            Type::ProcessHandle | Type::NetJob | Type::FsRoot | Type::FsLock | Type::Stream(_) => {
-                return true;
-            }
-            Type::List(item) | Type::Set(item) | Type::Optional(item) => pending.push(item),
-            Type::Map(key, value) | Type::Result(key, value) => {
-                pending.push(key);
-                pending.push(value);
-            }
-            Type::Record(fields) => pending.extend(fields.values()),
-            Type::Union(members) => pending.extend(members),
-            Type::Validated(validated) => pending.push(validated.base()),
-            Type::Any
-            | Type::Unknown
-            | Type::Invalid
-            | Type::ErasedRecord
-            | Type::Module(_)
-            | Type::DynamicModule
-            | Type::Error
-            | Type::ErrorFamily(_)
-            | Type::ErrorVariant { .. }
-            | Type::ErrorFacet(_)
-            | Type::ProcessError
-            | Type::Callable(_)
-            | Type::BuiltinParameter(_)
-            | Type::Inference(_) => return true,
-            Type::Null
-            | Type::Bool
-            | Type::Int
-            | Type::UInt
-            | Type::Float
-            | Type::Duration
-            | Type::Str
-            | Type::Bytes
-            | Type::Digest
-            | Type::Regex
-            | Type::Path
-            | Type::Status
-            | Type::EnvPathList
-            | Type::Pure
-            | Type::Proc
-            | Type::Command
-            | Type::Unit
-            | Type::Tag(_) => {}
-        }
-    }
-    false
 }
 
 #[cfg(test)]
