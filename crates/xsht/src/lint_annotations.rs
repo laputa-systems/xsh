@@ -470,6 +470,12 @@ impl<'a> Linter<'a> {
         exported: bool,
         binding_span: Span,
     ) {
+        if matches!(
+            self.arena.binding_target(target).kind,
+            ArenaBindingTargetKind::Name(name) if name == "_"
+        ) {
+            return;
+        }
         if self.lint_solved_local_annotation(
             target,
             mutable,

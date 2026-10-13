@@ -88,6 +88,18 @@ fn an_annotation_that_widens_the_initializer_is_not_needless() {
 }
 
 #[test]
+fn type_annotated_discards_keep_static_assertions() {
+    let source = "let names = [\"printf\"]\nlet paths = [p\"printf\"]\nlet _: Command = process.command_argv(\"printf\", names)\nlet _: Command = process.command_argv(p\"printf\", paths)\n";
+    assert!(lint(source).is_empty(), "{:?}", lint(source));
+}
+
+#[test]
+fn type_annotated_named_bindings_remain_removable() {
+    let source = "let names = [\"printf\"]\nlet command: Command = process.command_argv(\"printf\", names)\n";
+    assert_eq!(flagged(source), ["Command"]);
+}
+
+#[test]
 fn a_dynamic_list_annotation_stays_when_removing_it_breaks_a_typed_boundary() {
     let source = "pure row() -> Record { {value: 1} }\npure measure(rows: List[Any]) -> Int { rows.len() }\npure lookup() -> Int {\n  let raw: Any = 1\n  let one: List[Any] = [raw]\n  let rows: List[Any] = [row()]\n  measure(rows) + one.len()\n}\n";
     let diagnostics = lint(source);
