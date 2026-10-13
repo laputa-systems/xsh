@@ -108,7 +108,7 @@ pure join(left: Str, right: Str) -> Str {
 }
 
 pure get_holder() -> Holder {
-  Holder(callback: triple)
+  Holder(triple)
 }
 
 pure optional_broadcast(item: BroadcastInterface) -> Str {
@@ -321,11 +321,11 @@ test test_typed_callable_record_field_is_called_like_a_method {
 
   assert get_holder().callback(7) == 21
 
-  var holder: Holder = Holder(callback: double)
+  var holder: Holder = Holder(double)
   holder.callback = triple
   assert holder.callback(3) == 9
 
-  var bundle: Bundle = Bundle(nested: Holder(callback: double))
+  var bundle: Bundle = Bundle(Holder(double))
   bundle.nested.callback = triple
   assert bundle.nested.callback(3) == 9
 
@@ -345,7 +345,7 @@ test test_typed_callable_record_field_is_called_like_a_method {
 }
 
 pure apply_validated_collection(callbacks: NonEmpty[Scale]) -> Int {
-  var holder: CallbackCollection = CallbackCollection(callbacks: [double])
+  var holder: CallbackCollection = CallbackCollection([double])
   holder.callbacks = callbacks
   let updated = {...holder, callbacks: callbacks}
   updated.callbacks[0](7)
@@ -556,6 +556,10 @@ test test_empty_typed_callable_map_is_a_valid_initializer {
 
 test test_typed_callable_map_literal_is_checked_and_called {
   assert callback_from_literal_map()? == 8
+
+  let callbacks: Map[Scale] = {["double"]: double}
+  assert callback_from_map(callbacks)? == 8
+  assert callback_from_record(CallbackRecord(double))? == 8
 }
 
 test test_registered_method_uses_computed_float_receiver {
@@ -603,8 +607,9 @@ test test_alias_that_kept_its_signature_fits_a_callable_type {
 }
 
 test test_record_spread_keeps_a_compatible_callable_field {
-  let specific: SpecificBuilderRecord = SpecificBuilderRecord(build: release_build)
-  let widened: BuilderRecord = {...specific}
+  let specific: SpecificBuilderRecord = SpecificBuilderRecord(release_build)
+  let spread = {...specific}
+  let widened: BuilderRecord = spread
   assert widened.build(/a)? == "release /a false"
 }
 
@@ -1090,7 +1095,7 @@ test test_path_read_checks_each_inline_path_result { |ctx|
   }
   assert updated_projection == "contents"
 
-  let checked_holder: PathHolder = PathHolder(path: fp"{root}/note")
+  let checked_holder: PathHolder = PathHolder(fp"{root}/note")
   var checked_projection = ""
   with text = checked_holder.path.read_text() {
     checked_projection = text
