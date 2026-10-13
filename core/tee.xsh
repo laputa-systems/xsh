@@ -66,7 +66,7 @@ proc output_pollable(fd: Int) [fs, error] -> Result[Bool] {
   Ok(metadata.kind in ["fifo", "socket"])
 }
 
-proc write_output(output: Output, data: Bytes) [process, error, io] -> Result[Unit] {
+proc write_output(output: Output, data: Bytes) [process, error, io] {
   unix.dup_fd(output.fd, 1)
   io.write_stdout_bytes(data)
   io.flush_stdout()

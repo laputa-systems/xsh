@@ -49,7 +49,7 @@ type Ran = {status: Int, stdout: Str, stderr: Str}
 # A device list in the shape sysfs presents: class links, a bus device link,
 # `dev` number links, a controller with a disk and a partition below it, a
 # network interface, and a character device, with database records for some.
-proc ensure_directory(root: FsRoot, directory: Path) [fs, error] -> Result[Unit] {
+proc ensure_directory(root: FsRoot, directory: Path) [fs, error] {
   if ! root.exists(directory) {
     root.mkdir(directory, parents: true)
   }

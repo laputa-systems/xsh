@@ -29,14 +29,14 @@ proc collate(s: uu.Scene, pattern: Regex) [fs, error] -> Result[Bytes, Error] {
 }
 
 # Every byte-oriented input starts at the same seed and keeps the frozen random stream.
-proc seeded_bytes(s: uu.Scene, name: Str, length: Int) [fs, error] -> Result[Unit, Error] {
+proc seeded_bytes(s: uu.Scene, name: Str, length: Int) [fs, error] {
   let source = fp"{s.ctx.core_dir}/tests/data/uutils/split/seeded-123.bin".read_bytes()?
   uu.write_bytes(s, name, source[..length])
   Ok()
 }
 
 # The upstream line corpus uses independent alphanumeric data and includes each newline.
-proc random_lines(s: uu.Scene, name: Str, count: Int, width: Int = 32) [fs, error] -> Result[Unit, Error] {
+proc random_lines(s: uu.Scene, name: Str, count: Int, width: Int = 32) [fs, error] {
   let source = bytes.read_at(p"/dev/urandom", 0, count * width)?
   assert source.len() == count * width
   let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"

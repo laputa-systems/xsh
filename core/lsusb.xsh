@@ -5,7 +5,7 @@ use lib.sys_usb as usb
 
 type Options = {verbose: Bool, tree: Bool, ids: Str, slot: Str, device: Path?, help: Bool, version: Bool, operands: List[Str]}
 
-proc inventory(opts: Options) -> Result[Unit] {
+proc inventory(opts: Options) {
   var slot = opts.slot
   if opts.device != null {
     let device_path = opts.device

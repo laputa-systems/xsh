@@ -2,7 +2,7 @@
 
 use support.uu
 
-proc signal_target(s: uu.Scene, args: List[Str], signal: Str, alive: Bool) [fs, process, env, error, time] -> Result[Unit, Error] {
+proc signal_target(s: uu.Scene, args: List[Str], signal: Str, alive: Bool) [fs, process, env, error, time] {
   let command = uu.command(s, "env", args.extend(["sleep", "1000"]))?
   let child = spawn command?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
@@ -16,7 +16,7 @@ proc signal_target(s: uu.Scene, args: List[Str], signal: Str, alive: Bool) [fs, 
 }
 
 # Start with SIGPIPE ignored, so env must restore its default in the command.
-proc default_pipe(s: uu.Scene, option: Str) [fs, process, env, error] -> Result[Unit, Error] {
+proc default_pipe(s: uu.Scene, option: Str) [fs, process, env, error] {
   let argv = uu.argv(s, "env", [Path(option), p"sh", p"-c", p"trap - PIPE; seq 999999 2>err | head -n1 > out"])?
   let words = [p"sh", p"-c", Path(r"""trap '' PIPE; exec "$@"; """), p"env-parent"].extend(argv)
   let status = process.run(process.command_argv(p"/bin/sh", words, s.root, {}, b"", uu.at(s, "stdout"), uu.at(s, "stderr")))?

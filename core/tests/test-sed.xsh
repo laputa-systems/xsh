@@ -346,7 +346,7 @@ proc describe_file(work: Path, name: Str) [fs, error] -> Result[Str] {
 
 # Fixture state every case starts from: links, a dangling link, an unreadable
 # file, a read-only file, and a read-only directory.
-proc prepare_work(ctx: TestContext, work: Path) [fs, error] -> Result[Unit] {
+proc prepare_work(ctx: TestContext, work: Path) [fs, error] {
   let _ = fs.copy_tree(fp"{ctx.core_dir}/tests/data/sed/fixtures", work, overwrite: true)?
   fp"{work}/link.txt".symlink(to: p"a.txt")
   fp"{work}/dangling".symlink(to: p"nowhere")
@@ -357,7 +357,7 @@ proc prepare_work(ctx: TestContext, work: Path) [fs, error] -> Result[Unit] {
   Ok()
 }
 
-proc apply_setup(work: Path, command: Str) [fs, error] -> Result[Unit] {
+proc apply_setup(work: Path, command: Str) [fs, error] {
   let words = command.split(" ")
   if words[0] == "mkdir" {
     fp"{work}/{words[1]}".mkdir()
@@ -439,7 +439,7 @@ proc check_group(ctx: TestContext, prefix: Str, expected: Map[Str]) [fs, process
 }
 
 # Each test runs a slice of the table; the slices only balance the run time.
-proc expect_groups(ctx: TestContext, prefixes: List[Str]) [fs, process, error] -> Result[Unit] {
+proc expect_groups(ctx: TestContext, prefixes: List[Str]) [fs, process, error] {
   let expected = expected_transcripts(ctx)?
   for prefix in prefixes {
     let failures = check_group(ctx, prefix, expected)?

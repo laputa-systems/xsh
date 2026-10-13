@@ -440,7 +440,7 @@ pure route_option(gateways: List[Bytes]) -> Bytes {
   bytes.concat([header].extend(gateways))
 }
 
-proc socket_option(fd: Int, level: Int, name: Int, value: Int, label: Str) [process, error] -> Result[Unit] {
+proc socket_option(fd: Int, level: Int, name: Int, value: Int, label: Str) [process, error] {
   if let Err(failure) = linux.setsockopt_int(fd, level, name, value) {
     return Err(describe(f"setsockopt {label}", failure))
   }
@@ -529,7 +529,7 @@ proc set_ttl(s: Settings, fd: Int, ttl: Int) [process, error] -> Result[Unit] {
   }
 }
 
-proc connect_target(s: Settings, fd: Int, port: Int) [process, net, error] -> Result[Unit] {
+proc connect_target(s: Settings, fd: Int, port: Int) [process, net, error] {
   let address = {family: if s.v6 { "inet6" } else { "inet" }, address: s.target, port: port}
 
   if let Err(failure) = linux.connect(fd, address) {
@@ -895,7 +895,7 @@ proc pick_icmp_sockets(s: Settings) [process, net, error] -> Result[Str] {
   Ok("raw")
 }
 
-proc run_trace(s: Settings, raw_fd: Int, icmp_mode: Str) [process, env, io, time, net, error] -> Result[Unit] {
+proc run_trace(s: Settings, raw_fd: Int, icmp_mode: Str) [process, env, io, time, net, error] {
   let c = linux.net_constants()
   let ident = (process.current_pid() ?? 1).bit_and(65535)
   let udp_fd = if s.method == "udp" or s.method == "udp-fixed" { open_socket(s, c.SOCK_DGRAM, 0, true)? } else { -1 }
@@ -1007,7 +1007,7 @@ pure method_help(method: Str) -> Str {
 
 # Picks the ICMP socket type, opens the raw socket an ICMP or TCP trace needs,
 # and runs the probes.
-proc trace(s: Settings, tcp_raw_fd: Int) [process, env, io, time, net, error] -> Result[Unit] {
+proc trace(s: Settings, tcp_raw_fd: Int) [process, env, io, time, net, error] {
   let c = linux.net_constants()
   var raw_fd = tcp_raw_fd
   var icmp_mode = ""

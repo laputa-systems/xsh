@@ -108,7 +108,7 @@ export pure lane_plan(ctx: context.Context, profile: tests.TestProfile, selectio
   plan
 }
 
-proc docs_gate(ctx: context.Context, profile: tests.TestProfile) [fs, process, env, error, io] -> Result[Unit, Error] {
+proc docs_gate(ctx: context.Context, profile: tests.TestProfile) [fs, process, env, error, io] {
   documentation.check(ctx.root, documentation.DocTools(
     xsh: tests.product_path(ctx, profile, "xsh"), xsht: tests.product_path(ctx, profile, "xsht")))
 }

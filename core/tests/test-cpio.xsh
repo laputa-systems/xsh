@@ -31,7 +31,7 @@ pure archive_of(format: Str) -> Bytes {
 # The tree the GNU fixtures were made from: a hard link, a symbolic link, an
 # empty file, a FIFO, an odd-sized binary file and a name with a space, all with
 # one modification time.
-proc build_tree(root: Path) [fs, error] -> Result[Unit] {
+proc build_tree(root: Path) [fs, error] {
   fp"{root}/dir".mkdir()
   fp"{root}/dir/data.bin".write(b"\x00\x01\x02\xfe\xff\nabc\x00Z")
   fp"{root}/a.txt".write(b"hello\n")

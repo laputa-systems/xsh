@@ -75,7 +75,7 @@ pure first(value: Str) -> Str { value.split("").get(0) ?? "" }
 pure ident_part(value: Str) -> Bool { ident_start(value) or (value != "" and value in "0123456789") }
 # Missing lookahead is an explicit end-of-input token.
 const end_token: Token = Token(text: "", start: 0, end: 0, line: 0, last_line: 0, literal: false)
-proc invalid(source_path: Str, line: Int, detail: Str) [error] -> Result[Unit] { Err(MetricError.Invalid(path: source_path, line:, detail:)) }
+proc invalid(source_path: Str, line: Int, detail: Str) [error] { Err(MetricError.Invalid(path: source_path, line:, detail:)) }
 
 # Literal contents never enter the token stream as identifiers or delimiters.
 # Offsets are Unicode scalar indices; line ownership is independent of byte width.
@@ -652,7 +652,7 @@ pure token_sequence_matches(lexed: Lexed, opening: Int, expected: List[Str]) -> 
   true
 }
 
-proc validate_instruction_schema_definition(source_path: Str, lexed: Lexed, opening: Int) [error] -> Result[Unit] {
+proc validate_instruction_schema_definition(source_path: Str, lexed: Lexed, opening: Int) [error] {
   if source_path != "src/runtime/eval/indexed/full/schema.rs" { invalid(source_path, lexed.tokens[opening].line, "instruction schema eager helper is outside its generated source authority") }
   let closing = lexed.mates[f"{opening}"]
   let eager_false_arm = ["(", "@", "eager_atom", ")", "=", ">", "{", "false", "}", ";"]
@@ -1583,7 +1583,7 @@ const SOURCE_ADVISORY_METRICS = ["source_lines_src", "source_lines_xsht"]
 const FINAL_ZERO_METRICS = ["manual_payload_calls", "optional_raw_calls", "wide_arena_wildcards", "blanket_dead_code_lines"]
 
 # Source totals remain in reports and audits but do not participate in structural rise checks.
-proc validate_policy_report(report: Report) [error] -> Result[Unit, Error] {
+proc validate_policy_report(report: Report) [error] {
   guard report.schema == 1 else { return Err(MetricError.Contract(detail: "unsupported consolidation metric schema")) }
   assert_not_risen(report, report)
   for name in SOURCE_ADVISORY_METRICS {
@@ -1756,7 +1756,7 @@ proc commit_source_oids(root: Path, commit: Str) [process, error] -> Result[List
   }
 }
 
-proc verify_artifact(root: Path, artifact: ReviewArtifact) [fs, error] -> Result[Unit, Error] {
+proc verify_artifact(root: Path, artifact: ReviewArtifact) [fs, error] {
   if artifact.path.trim() != artifact.path or artifact.path == "" or artifact.path.starts_with("/") or "\\" in artifact.path {
     return Err(MetricError.Contract(detail: "review artifact path must be workspace-relative"))
   }

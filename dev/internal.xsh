@@ -86,7 +86,7 @@ export proc linux_split_resource_test(ctx: context.Context) [fs, process, env, e
   ])
 }
 
-proc gate_git_directory(ctx: context.Context) [process, error, io] -> Result[Unit, Error] {
+proc gate_git_directory(ctx: context.Context) [process, error, io] {
   stages.execute(stages.command("gate-git-safe-directory", ctx.target.triple, "git",
     ["git", "config", "--global", "--add", "safe.directory", ctx.root.display()], ctx.root, {}))
 }

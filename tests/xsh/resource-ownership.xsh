@@ -36,7 +36,7 @@ pure resource_return_early_root(root: FsRoot) -> FsRoot {
   root
 }
 
-proc resource_borrow_root(root: FsRoot) [fs, error] -> Result[Unit] {
+proc resource_borrow_root(root: FsRoot) [fs, error] {
   root.write(p"borrowed", "live")
 }
 

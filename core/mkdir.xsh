@@ -70,7 +70,7 @@ pure lexical_parent(target: Path) -> Path {
   if parent == "" { p"/" } else { fp"{parent}" }
 }
 
-proc create_directory(target: Path, parents: Bool, mode: Int?, verbose: Bool, parent_mode: Int) [fs, process, env, io, error] -> Result[Unit] {
+proc create_directory(target: Path, parents: Bool, mode: Int?, verbose: Bool, parent_mode: Int) [fs, process, env, io, error] {
   if parents {
     if let Ok(meta) = fs.stat(target, follow_symlinks: true) { return when meta.kind == "dir" }
 

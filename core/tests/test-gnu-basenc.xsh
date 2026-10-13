@@ -25,14 +25,14 @@ proc file_case(s: uu.Scene, util: Str, args: List[Str], input: Str) -> Result[uu
   uu.invoke(s, util, args.extend(["input"]), vars: {LANGUAGE: "C", LANG: "C", LC_ALL: "C"})
 }
 
-proc decoded_case(s: uu.Scene, util: Str, input: Str, expected: Str) -> Result[Unit] {
+proc decoded_case(s: uu.Scene, util: Str, input: Str, expected: Str) {
   let result = file_case(s, util, ["--decode"], input)?
   uu.succeeds(result)
   uu.stdout_only(result, expected)
   Ok()
 }
 
-proc encoded_case(s: uu.Scene, util: Str, args: List[Str], input: Str, expected: Str) -> Result[Unit] {
+proc encoded_case(s: uu.Scene, util: Str, args: List[Str], input: Str, expected: Str) {
   let result = file_case(s, util, args, input)?
   uu.succeeds(result)
   uu.stdout_only(result, expected)

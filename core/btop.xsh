@@ -174,7 +174,7 @@ proc dump_frames(
   model_path: Str?,
   screen_path: Str?,
   display: terminal.Inputs,
-) [fs, error] -> Result[Unit, Error] {
+) [fs, error] {
   if let output_path = model_path {
     let lines = collect {
       for frame in frames {
@@ -206,13 +206,13 @@ proc dump_frames(
   return
 }
 
-proc headless_replay(bundle: replay.Bundle, count: Int?, dump_model_path: Str?, dump_screen_path: Str?) [fs, error] -> Result[Unit, Error] {
+proc headless_replay(bundle: replay.Bundle, count: Int?, dump_model_path: Str?, dump_screen_path: Str?) [fs, error] {
   let observations = limited_observations(bundle.observations, count)
   let frames = limited_models(replay.models(observations), count)
   dump_frames(frames, dump_model_path, dump_screen_path, bundle.display)
 }
 
-proc interactive_replay(bundle: replay.Bundle, count: Int?) [process, time, io, error] -> Result[Unit, Error] {
+proc interactive_replay(bundle: replay.Bundle, count: Int?) [process, time, io, error] {
   let selected_observations = limited_observations(bundle.observations, count)
   let frames = replay.models(selected_observations)
   let session = terminal.begin_with(bundle.display)?
@@ -257,7 +257,7 @@ proc interactive_replay(bundle: replay.Bundle, count: Int?) [process, time, io, 
   return
 }
 
-proc interactive_live(count: Int?) [fs, process, time, io, error] -> Result[Unit, Error] {
+proc interactive_live(count: Int?) [fs, process, time, io, error] {
   let session = terminal.begin()?
   defer { terminal.finish(session) }
 

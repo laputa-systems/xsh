@@ -2,7 +2,7 @@ use support.uu
 
 type Input = {name: Str, data: Bytes}
 
-proc check_case(s: uu.Scene, util: Str, args: List[Str], files: List[Input], input: Bytes, output: Str, diagnostic: Str, code: Int) [fs, process, env, error] -> Result[Unit, Error] {
+proc check_case(s: uu.Scene, util: Str, args: List[Str], files: List[Input], input: Bytes, output: Str, diagnostic: Str, code: Int) [fs, process, env, error] {
   for file in files { uu.write_bytes(s, file.name, file.data) }
   let r = uu.invoke(s, util, args, stdin: input, timeout: 30s)?
   uu.fails_with_code(r, code)
@@ -507,7 +507,7 @@ test test_gnu_cksum_cksum_a_log { |ctx|
   }
 }
 
-proc tagged_roundtrip(s: uu.Scene, util: Str, base: List[Str], lengths: List[Int], names: List[Str], tag: List[Str], check_name: Str, openssl_name: Str) [fs, process, env, error] -> Result[Unit, Error] {
+proc tagged_roundtrip(s: uu.Scene, util: Str, base: List[Str], lengths: List[Int], names: List[Str], tag: List[Str], check_name: Str, openssl_name: Str) [fs, process, env, error] {
   var checks = ""
   var expected = ""
   for name in names {

@@ -60,12 +60,12 @@ pure file_kind(kind: Str, size: Int) -> Str {
 
 # Keep reports buffered until completion. Return write failures so removal continues
 # and the caller reports a broken output stream once after processing operands.
-proc report_removed(name: Bytes, directory: Bool) [process, env, io, error] -> Result[Unit] {
+proc report_removed(name: Bytes, directory: Bool) [process, env, io, error] {
   let verb = if directory { "removed directory" } else { "removed" }
   io.write_stdout(f"{verb} {gnu.quote_bytes(name)}\n")
 }
 
-proc report_progress(name: Bytes, opts: RmOptions) [process, env, io, error] -> Result[Unit] {
+proc report_progress(name: Bytes, opts: RmOptions) [process, env, io, error] {
   return when ! opts.progress or opts.verbose or unix.tty_attrs(2) is Err(_)
   io.write_stderr(f"\rRemoving {gnu.quote_bytes(name)}... done\n")
   io.flush_stderr()

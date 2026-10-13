@@ -9,7 +9,7 @@ type Action = {kind: ActionKind, entries: List[acl.Entry]}
 type Work = {name: Str, actions: List[Action], mask_policy: Str, recursive: Bool, traversal: Str, testing: Bool}
 type Restore = {name: Str, entries: List[acl.Entry], uid: Int?, gid: Int?, special: Int}
 
-proc apply(target: Path, actions: List[Action], mask_policy: Str, testing: Bool, recursive = false) [fs, process, io, error] -> Result[Unit, Error] {
+proc apply(target: Path, actions: List[Action], mask_policy: Str, testing: Bool, recursive = false) [fs, process, io, error] {
   let stat = fs.stat(target, follow_symlinks: true)?
   var entries = acl.read(target)?
   var access_mask = false; var default_mask = false; var access_changed = false; var default_changed = false
@@ -120,7 +120,7 @@ proc parse_restore(text: Str) [fs, error] -> Result[List[Restore], Error] {
   records
 }
 
-proc restore_record(target: Path, record: Restore) [fs, error] -> Result[Unit, Error] {
+proc restore_record(target: Path, record: Restore) [fs, error] {
   acl.store(target, record.entries)
   if record.uid != null or record.gid != null { fs.set_owner(target, uid: record.uid, gid: record.gid) }
   target.chmod(acl.mode(record.entries)? + record.special)

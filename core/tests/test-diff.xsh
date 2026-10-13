@@ -155,7 +155,7 @@ proc check(ctx: TestContext, root: Path, entry: Recorded) [fs, process, error] -
 
 # Run every recorded case whose id starts with `prefix` and fail with the
 # differences of up to three of them.
-proc run_group(ctx: TestContext, prefix: Str) [fs, process, error] -> Result[Unit] {
+proc run_group(ctx: TestContext, prefix: Str) [fs, process, error] {
   let root = fixtures(ctx, f"diff-{prefix}")?
   let all = load(fp"{ctx.core_dir}/tests/data/diff/cases.txt")?
   let chosen = [item for item in all if item.id.starts_with(prefix + "_")]

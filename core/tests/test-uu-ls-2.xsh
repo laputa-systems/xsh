@@ -47,13 +47,13 @@ proc invoke_fd(s: uu.Scene, args: List[Str], file: Path) [fs, process, env, erro
   Ok({util: "ls", args: args, status: status, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
 }
 
-proc stdout_lacks(r: uu.Ran, needle: Str) [error] -> Result[Unit, Error] {
+proc stdout_lacks(r: uu.Ran, needle: Str) [error] {
   let output = r.stdout as Str
   assert !(needle in output), f"unexpected {needle}: {output}"
   Ok()
 }
 
-proc stderr_lacks(r: uu.Ran, needle: Str) [error] -> Result[Unit, Error] {
+proc stderr_lacks(r: uu.Ran, needle: Str) [error] {
   let output = r.stderr as Str
   assert !(needle in output), f"unexpected {needle}: {output}"
   Ok()

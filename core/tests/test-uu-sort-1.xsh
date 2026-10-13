@@ -923,7 +923,7 @@ test test_uu_sort_debug_key_annotations { |ctx|
 }
 
 # Keep the three locale annotation launches and the original normalization together.
-proc locale_annotations(s: uu.Scene, locale: Str) [fs, process, env, error] -> Result[Unit] {
+proc locale_annotations(s: uu.Scene, locale: Str) [fs, process, env, error] {
   var output = ""
   for locale in ["C", locale] {
     let r = uu.invoke(s, "sort", ["--debug", "-k2g", "-k1b,1"], stdin: bytes.from_text("   1²---++3   1,234  Mi\n"), vars: {LC_ALL: locale})?

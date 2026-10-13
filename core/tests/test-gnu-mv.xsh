@@ -626,7 +626,7 @@ test test_gnu_mv_trailing_slash_log { |ctx|
   assert r.stderr.utf8()?.replace("No such file or directory", with: "Not a directory") == "cp: cannot create regular file 'no-such/': Not a directory\n"
 }
 
-proc update_files(s: uu.Scene) [fs, time, error] -> Result[Unit, Error] {
+proc update_files(s: uu.Scene) [fs, time, error] {
   uu.write(s, "old", "old\n")
   let yesterday = (time.now() - 86400000) * 1000000
   fs.set_times(uu.at(s, "old"), atime_ns: yesterday, mtime_ns: yesterday)

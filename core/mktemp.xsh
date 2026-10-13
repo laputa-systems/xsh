@@ -68,7 +68,7 @@ pure contains_separator(value: Bytes) -> Bool {
   false
 }
 
-proc create_directory(target: Path) [fs, error] -> Result[Unit] {
+proc create_directory(target: Path) [fs, error] {
   let parent_root = fs.open_root(target.parent())?
   let components = target.components()
   parent_root.mkdir(components[components.len() - 1], mode: 0o700.clear_bits(fs.umask()?))

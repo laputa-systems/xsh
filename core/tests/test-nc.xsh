@@ -35,7 +35,7 @@ proc run_nc(ctx: TestContext, args: List[Str], stdin: Bytes = b"") [fs, process,
 
 # Polls a spawned process's stderr until it shows `needle`, which is how a
 # listener says it is ready without a probe connection stealing its accept.
-proc await_text(file: Path, needle: Str) [fs, time, error] -> Result[Unit] {
+proc await_text(file: Path, needle: Str) [fs, time, error] {
   let started = time.now()
   while time.now() - started < 10000 {
     return Ok() when (file.read_text() ?? "").find(needle) != null
@@ -60,7 +60,7 @@ proc closed_port() [net, process, error] -> Result[Int] {
   Ok(held.port)
 }
 
-proc wait_readable(fd: Int) [net, process, error] -> Result[Unit] {
+proc wait_readable(fd: Int) [net, process, error] {
   let events = unix.poll_fd(fd, ["readable"], 10000)?
   return Err(error.failure("nothing arrived within 10 seconds")) when events.is_empty()
   Ok()
@@ -78,7 +78,7 @@ proc read_to_eof(fd: Int) [net, process, error] -> Result[Bytes] {
   Ok(bytes.concat(chunks))
 }
 
-proc send_all(fd: Int, data: Bytes) [net, process, error] -> Result[Unit] {
+proc send_all(fd: Int, data: Bytes) [net, process, error] {
   var rest = data
   while ! rest.is_empty() {
     rest = rest.slice(unix.write_fd(fd, rest)?)

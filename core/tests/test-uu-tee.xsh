@@ -22,7 +22,7 @@ proc broken_stdout(s: uu.Scene, args: List[Str], input: Bytes, idle: Bool = fals
   Ok({util: "tee", args: args, status: status.shell_code()?, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
 }
 
-proc check_file(s: uu.Scene, name: Str, input: Bytes, short: Bool = false) [fs, error] -> Result[Unit] {
+proc check_file(s: uu.Scene, name: Str, input: Bytes, short: Bool = false) [fs, error] {
   assert uu.file_exists(s, name)?
   let actual = uu.read(s, name)?
   if short {
@@ -47,7 +47,7 @@ proc read_exact(reader: Int, count: Int, deadline: Int) [process, net, error, fs
   Ok(result)
 }
 
-proc streaming(s: uu.Scene, short_read: Bool) [fs, process, net, env, error, time] -> Result[Unit] {
+proc streaming(s: uu.Scene, short_read: Bool) [fs, process, net, env, error, time] {
   let deadline = time.now() + (if short_read { 5000 } else { 100 })
   uu.mkfifo(s, "stream-input")
   uu.mkfifo(s, "stream-output")

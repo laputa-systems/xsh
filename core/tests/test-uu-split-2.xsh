@@ -22,7 +22,7 @@ proc collate_outputs(files: List[Path]) [fs, error] -> Result[Bytes, Error] {
 }
 
 # A recorded entropy sample keeps each 32-character alphanumeric record identical in both runs.
-proc random_line_input(s: uu.Scene, name: Str, count: Int) [fs, error] -> Result[Unit, Error] {
+proc random_line_input(s: uu.Scene, name: Str, count: Int) [fs, error] {
   let entropy = fp"{s.ctx.core_dir}/tests/data/uutils/split/seeded-123.bin".read_bytes()?
   assert entropy.len() == 16384
   let alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
@@ -38,7 +38,7 @@ proc random_line_input(s: uu.Scene, name: Str, count: Int) [fs, error] -> Result
   Ok()
 }
 
-proc random_byte_input(s: uu.Scene, name: Str, count: Int) [fs, error] -> Result[Unit, Error] {
+proc random_byte_input(s: uu.Scene, name: Str, count: Int) [fs, error] {
   let recorded = fp"{s.ctx.core_dir}/tests/data/uutils/split/seeded-123.bin".read_bytes()?
   assert count <= recorded.len()
   uu.write_bytes(s, name, recorded[..count])

@@ -557,7 +557,7 @@ proc bind_source(fd: Int, family: Str, opts: Options) [net, fs, process, io, err
 # One connect attempt, bounded by -w when given. The kernel reports a connect
 # that ran out of its send timeout as EINPROGRESS; the utility names that
 # ETIMEDOUT.
-proc connect_bounded(fd: Int, target: Record, opts: Options) [net, process, error] -> Result[Unit] {
+proc connect_bounded(fd: Int, target: Record, opts: Options) [net, process, error] {
   let c = linux.net_constants()
   return linux.connect(fd, target) when opts.timeout < 0
   linux.set_socket_timeout(fd, c.SO_SNDTIMEO, if opts.timeout == 0 { 1 } else { opts.timeout })
@@ -614,7 +614,7 @@ proc readable(fd: Int, slice_ms: Int) [net, process] -> Bool {
   ! (unix.poll_fd(fd, ["readable"], slice_ms) ?? []).is_empty()
 }
 
-proc write_all(fd: Int, data: Bytes) [net, process, error] -> Result[Unit] {
+proc write_all(fd: Int, data: Bytes) [net, process, error] {
   var rest = data
   while ! rest.is_empty() {
     let written = unix.write_fd(fd, rest)?

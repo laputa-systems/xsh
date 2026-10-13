@@ -1016,7 +1016,7 @@ test test_uu_install_install_nested_paths_copy_file { |ctx|
 }
 
 # The script must reach disk before another process executes it.
-proc write_strip(s: uu.Scene, name: Str, content: Str) [fs, error] -> Result[Unit, Error] {
+proc write_strip(s: uu.Scene, name: Str, content: Str) [fs, error] {
   uu.write(s, name, content)
   fs.fsync(uu.at(s, name))
   uu.set_mode(s, name, 0o755)

@@ -198,7 +198,7 @@ proc directories(image: Path, initial: State) -> Result[State] {
   Ok(state)
 }
 
-proc flush_changes(image: Path, state: State) -> Result[Unit] {
+proc flush_changes(image: Path, state: State) {
   let layout = state.layout
   for {key: cluster, value: replacement} in state.changes {
     var offset = 0

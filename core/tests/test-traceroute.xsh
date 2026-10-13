@@ -45,7 +45,7 @@ proc drain(fd: Int) [process, net, error] -> Result[List[Bytes]] {
   Ok(found)
 }
 
-proc assert_hop(line: Str, index: Int, address: Str, probes: Int) [error] -> Result[Unit] {
+proc assert_hop(line: Str, index: Int, address: Str, probes: Int) [error] {
   var pattern = f"^{if index < 10 { " " } else { "" }}{index}  {address}"
 
   for _ in range(probes) {

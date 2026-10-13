@@ -226,7 +226,7 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
 # starting tree, the arguments, standard input, and the exact standard
 # output, standard error, exit status, and resulting tree. The cases are
 # split over several tests so the runner can work on them in parallel.
-proc run_shard(ctx: TestContext, shard: Int, shards: Int) [fs, process, env, error] -> Result[Unit, Error] {
+proc run_shard(ctx: TestContext, shard: Int, shards: Int) [fs, process, env, error] {
   let corpus = fp"{ctx.core_dir}/tests/data/patch"
   let names = collect {
     for entry in fs.children(corpus, stat: true)? {

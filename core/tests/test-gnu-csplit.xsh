@@ -4,7 +4,7 @@ pure piece_name(index: Int) -> Str {
   if index < 10 { f"xx0{index}" } else { f"xx{index}" }
 }
 
-proc clear_pieces(s: uu.Scene) [fs, error] -> Result[Unit, Error] {
+proc clear_pieces(s: uu.Scene) [fs, error] {
   for entry in fs.children(s.root)? {
     if entry.name.starts_with("xx") { entry.path.remove() }
   }

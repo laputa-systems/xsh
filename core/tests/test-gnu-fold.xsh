@@ -3,7 +3,7 @@ use support.uu
 const BUFFER = 262144
 const UTF8 = "fr_FR.UTF-8"
 
-proc fold_file(s: uu.Scene, name: Str, input: Bytes, args: List[Str], expected: Bytes) [fs, process, env, error] -> Result[Unit, Error] {
+proc fold_file(s: uu.Scene, name: Str, input: Bytes, args: List[Str], expected: Bytes) [fs, process, env, error] {
   uu.write_bytes(s, name, input)
   let r = uu.invoke(s, "fold", [@args, name], vars: {LC_ALL: UTF8}, timeout: 30s)?
   uu.succeeds(r)

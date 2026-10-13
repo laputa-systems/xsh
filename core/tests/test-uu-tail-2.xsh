@@ -34,7 +34,7 @@ proc scene(ctx: TestContext) [fs, error] -> Result[uu.Scene] {
 }
 
 # Append through the kernel descriptor so the follower never sees a rewritten prefix.
-proc append_bytes(file: Path, data: Bytes) [fs, process, net, error] -> Result[Unit] {
+proc append_bytes(file: Path, data: Bytes) [fs, process, net, error] {
   if !file.exists() { file.write(b"") }
   let fd = unix.open_fd(file, write: true, flags: ["append"])?
   defer unix.close_fd(fd)
@@ -86,7 +86,7 @@ proc start(s: uu.Scene, args: List[Str], held_stdin: Bool = false) [fs, process,
   Ok({child: child, out: out, err: err, args: args})
 }
 
-proc alive(p: Live) [fs, process, error] -> Result[Unit] {
+proc alive(p: Live) [fs, process, error] {
   process.kill(p.child.pid, signal: "0")
   let stat = fp"/proc/{p.child.pid}/stat".read_text()?
   assert ") Z " not in stat and ") X " not in stat, "tail must remain alive"
@@ -94,7 +94,7 @@ proc alive(p: Live) [fs, process, error] -> Result[Unit] {
 }
 
 # Cancellation kills and reaps the child even when an assertion exits early.
-proc cleanup(p: Live) [process, error] -> Result[Unit] {
+proc cleanup(p: Live) [process, error] {
   p.child.cancel(signal: "KILL", kill_after: 0ms)
   Ok()
 }
@@ -105,7 +105,7 @@ proc finish(p: Live) [fs, process, error] -> Result[uu.Ran] {
   Ok({util: "tail", args: p.args, status: status.shell_code()?, stdout: p.out.read_bytes()?, stderr: p.err.read_bytes()?})
 }
 
-proc checkpoint(p: Live, file: Path, expected: Str) [fs, process, time, error] -> Result[Unit] {
+proc checkpoint(p: Live, file: Path, expected: Str) [fs, process, time, error] {
   let began = time.now()
   while expected not in file.read_text()? {
     alive(p)

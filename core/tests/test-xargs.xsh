@@ -94,7 +94,7 @@ use core.lib.findutils_fixture as fixture
 # Every command line of the recorded GNU xargs corpus, in four shares that run
 # in parallel; the corpus and the fixture tree are described in
 # tests/data/findutils/regen.xsh.
-proc check_share(ctx: TestContext, part: Int) [fs, process, time, error] -> Result[Unit, Error] {
+proc check_share(ctx: TestContext, part: Int) [fs, process, time, error] {
   let root = test.temp_dir(ctx, name: f"xargs-corpus-{part}")?
   let work = test.temp_dir(ctx, name: f"xargs-corpus-out-{part}")?
   fixture.build(root)

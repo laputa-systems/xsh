@@ -868,7 +868,7 @@ pure without_bits(mode: Int, mask: Int) -> Int {
 }
 
 # Remove a file and then any directories left empty above it.
-proc remove_file(name: Str) [fs, error] -> Result[Unit, Error] {
+proc remove_file(name: Str) [fs, error] {
   fp"{name}".remove()
   var parent = dirname_of(name)
   while parent != "" {
@@ -929,7 +929,7 @@ proc make_backup(opts: Options, name: Str, exists: Bool, original: Bytes, mode: 
   if mode >= 0 { fp"{target}".write(original, mode) } else { fp"{target}".write(original) }
 }
 
-proc write_rejects(opts: Options, scan: patch_parse.Scan, outcome: Outcome, reject_name: Str, strip: Int, cr_marked: Bool) [fs, io, process, env, error] -> Result[Unit, Error] {
+proc write_rejects(opts: Options, scan: patch_parse.Scan, outcome: Outcome, reject_name: Str, strip: Int, cr_marked: Bool) [fs, io, process, env, error] {
   let as_context = if opts.reject_format != null { opts.reject_format == "context" } else { scan.kind != "unified" and scan.kind != "git" }
   let old_header = if outcome.reversed { scan.new_name } else { scan.old_name }
   let new_header = if outcome.reversed { scan.old_name } else { scan.new_name }

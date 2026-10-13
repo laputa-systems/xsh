@@ -21,7 +21,7 @@ proc invoke(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, 
   Ok({util: "du", args: args, status: status, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
 }
 
-proc stdout_lacks(r: uu.Ran, needle: Str) [error] -> Result[Unit, Error] {
+proc stdout_lacks(r: uu.Ran, needle: Str) [error] {
   let actual = r.stdout as Str
   assert !(needle in actual), f"unexpected {needle}: {actual}"
   Ok()

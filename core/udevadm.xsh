@@ -676,7 +676,7 @@ proc trigger(argv: List[Str]) [fs, env, process, io, error] {
 
 type SettleOptions = {timeout: Str?, exit_if_exists: Str?, help: Bool, version: Bool, operands: List[Str]}
 
-proc settle(argv: List[Str]) [fs, env, process, io, time, error] -> Result[Unit, Error] {
+proc settle(argv: List[Str]) [fs, env, process, io, time, error] {
   let opts: SettleOptions = cli.applet(argv, {
     gnu: {prog: "udevadm settle", status: 1},
     timeout: {form: "-t --timeout SECONDS"},
@@ -758,7 +758,7 @@ pure monitor_selected(event: LinuxUevent, filters: List[Str]) -> Bool {
   false
 }
 
-proc monitor(argv: List[Str]) [env, process, io, time, error] -> Result[Unit, Error] {
+proc monitor(argv: List[Str]) [env, process, io, time, error] {
   let opts: MonitorOptions = cli.applet(argv, {
     gnu: {
       prog: "udevadm monitor",
@@ -817,7 +817,7 @@ proc monitor(argv: List[Str]) [env, process, io, time, error] -> Result[Unit, Er
 
 type ControlOptions = {help: Bool, version: Bool, operands: List[Str]}
 
-proc control(argv: List[Str]) [env, process, io, error] -> Result[Unit, Error] {
+proc control(argv: List[Str]) [env, process, io, error] {
   let opts: ControlOptions = cli.applet(argv, {
     gnu: {
       prog: "udevadm control",

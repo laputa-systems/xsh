@@ -1,6 +1,6 @@
 use support.uu
 
-proc check_case(s: uu.Scene, name: Str, args: List[Str], input: Bytes, output: Bytes, diagnostic: Str, code: Int) [fs, process, env, error] -> Result[Unit, Error] {
+proc check_case(s: uu.Scene, name: Str, args: List[Str], input: Bytes, output: Bytes, diagnostic: Str, code: Int) [fs, process, env, error] {
   let r = if name.ends_with(".r") {
     uu.write_bytes(s, "input", input)
     uu.invoke_from_path(s, "tr", args, uu.at(s, "input"), timeout: 30s)?

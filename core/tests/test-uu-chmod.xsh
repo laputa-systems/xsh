@@ -2,14 +2,14 @@
 
 use support.uu
 
-proc make_file(s: uu.Scene, name: Str, mode: Int) [fs, error] -> Result[Unit, Error] {
+proc make_file(s: uu.Scene, name: Str, mode: Int) [fs, error] {
   uu.touch(s, name)
   uu.set_mode(s, name, mode.bit_and(0o7777))
   Ok()
 }
 
 # Upstream scene symlinks use absolute targets; relative links are explicit.
-proc absolute_link(s: uu.Scene, target: Str, name: Str) [fs, error] -> Result[Unit, Error] {
+proc absolute_link(s: uu.Scene, target: Str, name: Str) [fs, error] {
   uu.symlink(s, uu.at(s, target).display(), name)
   Ok()
 }

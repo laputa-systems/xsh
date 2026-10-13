@@ -4,7 +4,7 @@ proc packed(s: uu.Scene, name: Str) [fs, error] -> Result[Bytes] {
   fp"{s.ctx.core_dir}/tests/data/busybox/bunzip2/{name}.bz2".read_bytes()
 }
 
-proc prepare(s: uu.Scene) [fs, error] -> Result[Unit] {
+proc prepare(s: uu.Scene) [fs, error] {
   uu.write_bytes(s, "t1.bz2", packed(s, "hello")?)
   uu.write_bytes(s, "t2.bz2", packed(s, "hello")?)
   Ok()

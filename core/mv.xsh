@@ -51,7 +51,7 @@ pure same_entry_display(value: Path, destination: Bool = false) -> Str {
   if shown == "./" { if destination { "./." } else { "." } } else { shown }
 }
 
-proc preserve_move_metadata(source: Path, target: Path, metadata: MoveMetadata) -> Result[Unit] {
+proc preserve_move_metadata(source: Path, target: Path, metadata: MoveMetadata) {
   let follow = metadata.kind != "symlink"
   fs.set_owner(target, uid: metadata.uid, gid: metadata.gid, follow_symlinks: follow)
   let names = match fs.xattr_list(source, follow_symlinks: follow) {
@@ -109,7 +109,7 @@ proc copy_move_node(source: Path, target: Path, copies: List[FileIdentity]) -> R
   copies
 }
 
-proc remove_move_tree(entry_path: Path, verbose: Bool = false) -> Result[Unit] {
+proc remove_move_tree(entry_path: Path, verbose: Bool = false) {
   let metadata = fs.stat(entry_path)?
   if metadata.kind == "dir" {
     for entry in fs.children(entry_path)? {
@@ -125,7 +125,7 @@ proc remove_move_tree(entry_path: Path, verbose: Bool = false) -> Result[Unit] {
   Ok()
 }
 
-proc report_move_copy(source: Path, target: Path) -> Result[Unit] {
+proc report_move_copy(source: Path, target: Path) {
   if fs.stat(source)?.kind == "dir" {
     print f"created directory {gnu.quote(target.display())}"
     for entry in fs.children(source)? {

@@ -1,6 +1,6 @@
 use support.uu
 
-proc created(s: uu.Scene, r: uu.Ran, directory: Bool) [fs, error] -> Result[Unit, Error] {
+proc created(s: uu.Scene, r: uu.Ran, directory: Bool) [fs, error] {
   uu.succeeds(r)
   assert r.stdout.len() > 1 and r.stdout.ends_with(b"\n")
   let entry = uu.at_bytes(s, r.stdout[0..r.stdout.len() - 1])?

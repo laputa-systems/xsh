@@ -209,7 +209,7 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
 
 # Intermediate directories keep the default mode the kernel gives new directories
 # (modified by the umask), not the installed mode, so -m never reaches them.
-proc make_ancestors(dest: Path, verbose = false) -> Result[Unit] {
+proc make_ancestors(dest: Path, verbose = false) {
   return when files.present(dest)
   make_ancestors(dest.parent(), verbose)
   if let Err(failure) = dest.mkdir() {

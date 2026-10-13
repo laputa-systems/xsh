@@ -402,7 +402,7 @@ pure detected_format(raw: Bytes) -> Str {
   if raw[..2] == b"\x1f\x8b" { "gz" } else if raw[..3] == b"BZh" { "bz2" } else if raw[..6] == b"\xfd7zXZ\x00" { "xz" } else { "" }
 }
 
-proc list_members(opts: Options) [fs, io, error, process, env, time] -> Result[Unit] {
+proc list_members(opts: Options) [fs, io, error, process, env, time] {
   let members = read_members(archive_data(opts)?)?
   for member in members {
     continue unless selected(canonical(member.name), opts.members, opts.excludes)
@@ -425,7 +425,7 @@ proc is_directory(target: Path) [fs, error] -> Result[Bool] {
 }
 
 # Makes the parent directories of an extraction target exist.
-proc ensure_parent(target: Path) [fs, error] -> Result[Unit] {
+proc ensure_parent(target: Path) [fs, error] {
   let parent = target.parent()
   if ! is_directory(parent) {
     parent.mkdir(parents: true)
@@ -479,7 +479,7 @@ proc extract_one(member: Member, target: Path, root: Path, data: Bytes, opts: Op
   Ok(null)
 }
 
-proc extract_members(opts: Options) [fs, io, error, process, env] -> Result[Unit] {
+proc extract_members(opts: Options) [fs, io, error, process, env] {
   let data = archive_data(opts)?
   let members = read_members(data)?
   let root = fp"{opts.root}"
@@ -595,7 +595,7 @@ proc member_chunks(name: Str, source: Path, opts: Options) [fs, error] -> Result
 
 # Writes archive bytes to the archive file or standard output, through the
 # compression named by -z, -j or -J when one was given.
-proc write_archive(opts: Options, data: Bytes) [fs, io, error, process, env] -> Result[Unit] {
+proc write_archive(opts: Options, data: Bytes) [fs, io, error, process, env] {
   if opts.compression == "" {
     if opts.archive_path == null {
       gnu.write_bytes(data)
@@ -618,7 +618,7 @@ proc write_archive(opts: Options, data: Bytes) [fs, io, error, process, env] -> 
   Ok()
 }
 
-proc create_archive(opts: Options) [fs, io, error, process, env] -> Result[Unit] {
+proc create_archive(opts: Options) [fs, io, error, process, env] {
   if opts.members.is_empty() { return Err(TarError.Invalid(message: "Cowardly refusing to create an empty archive")) }
   let root = fp"{opts.root}"
   let chunks = collect {

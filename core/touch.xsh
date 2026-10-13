@@ -51,7 +51,7 @@ pure obsolete_stamp(operand: Str) -> Str? {
 
 # Sets the selected timestamps: an explicit instant, or the kernel's current
 # time when none was given; the unselected one is left unchanged.
-proc set_times(target: Path, atime: date_parse.Instant?, mtime: date_parse.Instant?, access: Bool, modify: Bool, follow_symlinks: Bool) [fs] -> Result[Unit, Error] {
+proc set_times(target: Path, atime: date_parse.Instant?, mtime: date_parse.Instant?, access: Bool, modify: Bool, follow_symlinks: Bool) [fs] {
   var atime_sec = null
   var atime_nsec = null
   var mtime_sec = null

@@ -6,7 +6,7 @@ let CONTENTS = "abcd"
 
 
 # Upstream scene symlinks use absolute targets; link assertions remove the scene prefix.
-proc absolute_link(s: uu.Scene, target: Str, name: Str) [fs, error] -> Result[Unit, Error] {
+proc absolute_link(s: uu.Scene, target: Str, name: Str) [fs, error] {
   uu.symlink(s, uu.at(s, target).display(), name)
 }
 
@@ -21,7 +21,7 @@ proc file_exists(s: uu.Scene, name: Str) [fs, error] -> Result[Bool, Error] {
   uu.file_exists(s, name)
 }
 
-proc setup_link(s: uu.Scene, source: Str) [fs, error] -> Result[Unit, Error] {
+proc setup_link(s: uu.Scene, source: Str) [fs, error] {
   match source {
     "file_link" => { uu.touch(s, "file"); absolute_link(s, "file", "file_link") },
     "dir_link" => { uu.mkdir(s, "dir"); absolute_link(s, "dir", "dir_link") },

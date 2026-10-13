@@ -335,7 +335,7 @@ pure normalized(data: Bytes, root: Str) -> Bytes {
   }
 }
 
-proc check_matrix_shard(ctx: TestContext, family: Str, shard: Int) [fs, process, env, error] -> Result[Unit] {
+proc check_matrix_shard(ctx: TestContext, family: Str, shard: Int) [fs, process, env, error] {
   let cases = matrix_cases(ctx, family)?
   let start = shard * 8
   assert start < cases.len(), f"empty AWK matrix shard {family}/{shard}"

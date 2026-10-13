@@ -41,7 +41,7 @@ pure mode_octal(mode: Int) -> Str {
   f"{bits / 512}{bits / 64 % 8}{bits / 8 % 8}{bits % 8}"
 }
 
-proc invalid(message: Str) -> Result[Unit] {
+proc invalid(message: Str) {
   Err(CopyError.Invalid(message:))
 }
 

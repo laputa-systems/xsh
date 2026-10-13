@@ -87,7 +87,7 @@ use core.lib.findutils_fixture as fixture
 # Every command line of the recorded GNU find corpus, in six shares that run
 # in parallel; the corpus and the fixture tree are described in
 # tests/data/findutils/regen.xsh.
-proc check_share(ctx: TestContext, part: Int) [fs, process, time, error] -> Result[Unit, Error] {
+proc check_share(ctx: TestContext, part: Int) [fs, process, time, error] {
   let root = test.temp_dir(ctx, name: f"find-corpus-{part}")?
   let work = test.temp_dir(ctx, name: f"find-corpus-out-{part}")?
   fixture.build(root)

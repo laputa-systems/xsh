@@ -4,7 +4,7 @@ proc pieces(s: uu.Scene) [fs, error] -> Result[List[Path], Error] {
   Ok(collect { for entry in fs.children(s.root, ordered: true)? { yield entry.path when entry.name.starts_with("x") } })
 }
 
-proc clear_pieces(s: uu.Scene) [fs, error] -> Result[Unit, Error] {
+proc clear_pieces(s: uu.Scene) [fs, error] {
   for file in pieces(s)? { file.remove() }
   Ok()
 }

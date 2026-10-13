@@ -2,7 +2,7 @@
 
 use support.uu
 
-proc fixtures(s: uu.Scene) [fs, error] -> Result[Unit, Error] {
+proc fixtures(s: uu.Scene) [fs, error] {
   for name in ["hello_world.txt", "how_are_you.txt", "existing_file.txt"] {
     uu.fixture(s, "cp", name, name)
   }

@@ -1368,7 +1368,7 @@ pure swap_data(data: Bytes, halfwords: Bool, swap_bytes: Bool) -> Bytes {
 
 # Creates the file with owner-only permissions, as GNU cpio does before the
 # final mode is applied. Under --sparse, zero blocks become holes.
-proc write_file(file: Path, data: Bytes, sparse: Bool) [fs, error] -> Result[Unit, Error] {
+proc write_file(file: Path, data: Bytes, sparse: Bool) [fs, error] {
   return file.write(data, 384) when ! sparse or data.len() < 512
   file.write(b"", 384)
   let zeros = bytes.zero(512)?

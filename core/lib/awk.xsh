@@ -2795,7 +2795,7 @@ pure fatal_error(text: Str) -> Error { AwkError.Fatal(message: f"fatal: {text}",
 # A failure reported without a source location.
 pure bare_fatal(text: Str) -> Error { AwkError.Plain(message: f"fatal: {text}", pending: "") }
 
-proc write_all(fd: Int, data: Bytes) -> Result[Unit] {
+proc write_all(fd: Int, data: Bytes) {
   var rest = data
   while ! rest.is_empty() {
     let count = unix.write_fd(fd, rest)?
@@ -2803,7 +2803,7 @@ proc write_all(fd: Int, data: Bytes) -> Result[Unit] {
     rest = rest.slice(count, length: rest.len() - count)
   }
 }
-proc warn_plain(text: Str) -> Result[Unit] {
+proc warn_plain(text: Str) {
   write_all(2, bytes.from_text(f"awk: warning: {text}\n"))
 }
 
@@ -3258,7 +3258,7 @@ proc close_stream(open_readers: Map[Reader], open_writers: Map[Writer], target: 
 }
 # Everything still open is closed at exit: files and commands first (waiting
 # for the commands); standard output is flushed by the caller afterwards.
-proc close_all(open_readers: Map[Reader], open_writers: Map[Writer], lossy: Bool) -> Result[Unit] {
+proc close_all(open_readers: Map[Reader], open_writers: Map[Writer], lossy: Bool) {
   for key in open_writers.keys() {
     let writer = open_writers.get(key) ?? no_writer()
     if writer.fd >= 0 and ! writer.pending.is_empty() {

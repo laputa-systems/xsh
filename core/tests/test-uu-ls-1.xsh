@@ -65,7 +65,7 @@ proc ls_run(s: uu.Scene, args: List[Str], vars: Record = {}, stdout: Path? = nul
 
 type QuotingCheck = {style: Str, regular: Str, directory: Str}
 
-proc quoting_directory(ctx: TestContext, dirname: Str, checks: List[QuotingCheck], extra_args: List[Str]) [fs, process, env, error] -> Result[Unit, Error] {
+proc quoting_directory(ctx: TestContext, dirname: Str, checks: List[QuotingCheck], extra_args: List[Str]) [fs, process, env, error] {
   for check in checks {
     let s = uu.scene(ctx)?
     uu.mkdir(s, dirname)
@@ -1141,7 +1141,7 @@ proc acl_fixture_entry(tag: Int, permissions: Int, id: Int = 4294967295) [error]
   Ok(bytes.concat([bytes.pack_le(tag, 2)?, bytes.pack_le(permissions, 2)?, bytes.pack_le(id, 4)?]))
 }
 
-proc default_acl_fixture(target: Path, named_bin: Bool = false) [fs, error] -> Result[Unit, Error] {
+proc default_acl_fixture(target: Path, named_bin: Bool = false) [fs, error] {
   let mode = fs.stat(target)?.mode
   var entries = [b"\x02\0\0\0", acl_fixture_entry(1, mode / 64 % 8)?]
   if named_bin { entries += [acl_fixture_entry(2, 7, user.lookup("bin")?.uid)?] }
@@ -1152,7 +1152,7 @@ proc default_acl_fixture(target: Path, named_bin: Bool = false) [fs, error] -> R
   Ok()
 }
 
-proc access_acl_fixture(target: Path, uid: Int) [fs, error] -> Result[Unit, Error] {
+proc access_acl_fixture(target: Path, uid: Int) [fs, error] {
   let mode = fs.stat(target)?.mode
   let data = bytes.concat([b"\x02\0\0\0", acl_fixture_entry(1, mode / 64 % 8)?, acl_fixture_entry(2, 6, uid)?,
     acl_fixture_entry(4, mode / 8 % 8)?, acl_fixture_entry(16, (mode / 8 % 8).bit_or(6))?, acl_fixture_entry(32, mode % 8)?])

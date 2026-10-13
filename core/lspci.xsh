@@ -5,7 +5,7 @@ use lib.sys_pci as pci
 
 type Options = {numeric: Bool, driver: Bool, verbose: Bool, domain: Bool, tree: Bool, slot: Str, ids: Str, database: Path?, help: Bool, version: Bool, operands: List[Str]}
 
-proc inventory(opts: Options, argv: List[Str]) -> Result[Unit] {
+proc inventory(opts: Options, argv: List[Str]) {
   let tokens = cli.tokens(argv, ["s", "d", "i"])?
   let numeric = tokens |> where .kind == "short" and .name == "n" |> count()
   let verbose = tokens |> where .kind == "short" and .name == "v" |> count()

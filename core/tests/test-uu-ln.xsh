@@ -3,7 +3,7 @@
 use support.uu
 
 # Scene setup symlinks name absolute targets, including dangling targets.
-proc scene_symlink(s: uu.Scene, target: Str, name: Str) -> Result[Unit, Error] {
+proc scene_symlink(s: uu.Scene, target: Str, name: Str) {
   uu.at(s, name).symlink(to: uu.at(s, target))
   Ok()
 }

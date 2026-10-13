@@ -2,7 +2,7 @@
 use lib.gnu
 use lib.system_control as control
 
-proc main(...argv: List[Str]) -> Result[Unit] {
+proc main(...argv: List[Str]) {
   let opts = cli.applet(argv, {
     gnu: {permute: false, unsupported: {"-c": "acquiring a controlling terminal is not available", "--ctty": "acquiring a controlling terminal is not available"}},
     fork: {form: "-f --fork", default: false}, wait: {form: "-w --wait", default: false},
