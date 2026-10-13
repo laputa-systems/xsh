@@ -297,7 +297,7 @@ pure lex(piece: Piece, mode: Int) -> Result[Lexed] {
   Ok({tokens: tokens + [TokEnd], starts: [@starts, size], lines: [@lines, line], notes: notes})
 }
 
-pure spelling(token: Token) -> Str { match token { TokWord(word) => word; TokCall(word) => word; TokOp(op) => op; else => "" } }
+pure spelling(token: Token) -> Str { match token { TokWord(word) | TokCall(word) => word; TokOp(op) => op; else => "" } }
 pure peek(p: Parser) -> Token { p.tokens[p.at] }
 pure peek_at(p: Parser, offset: Int) -> Token { p.tokens.get(p.at + offset) ?? TokEnd }
 pure is_at(p: Parser, content: Str) -> Bool { spelling(peek(p)) == content }
@@ -387,7 +387,7 @@ pure separators(parser: Parser) -> Parser {
   p
 }
 pure name(parser: Parser) -> Result[Parsed[Str]] {
-  match peek(parser) { TokWord(word) => Ok({parser: advance(parser), value: word}); TokCall(word) => Ok({parser: advance(parser), value: word}); else => Err(unexpected(parser)) }
+  match peek(parser) { TokWord(word) | TokCall(word) => Ok({parser: advance(parser), value: word}); else => Err(unexpected(parser)) }
 }
 pure expression_node(parser: Parser, node: Expression) -> Parsed[Int] {
   var p = parser
@@ -422,9 +422,7 @@ const KEYWORDS = ["BEGIN", "END", "function", "func", "if", "else", "while", "fo
 # The tokens that can start an operand of an implicit concatenation.
 pure starts_operand(p: Parser) -> Bool {
   match peek(p) {
-    TokNumber(_) => true
-    TokText(_) => true
-    TokRegex(_) => true
+    TokNumber(_) | TokText(_) | TokRegex(_) => true
     TokWord(word) => word not in ["else", "in", "while", "BEGIN", "END", "function", "func", "if", "for", "do", "break", "continue", "next", "nextfile", "exit", "return", "delete", "print", "printf"] and word != "getline"
     TokCall(word) => true
     TokOp(symbol) => symbol in ["$", "(", "++", "--", "!", "-", "+"]
@@ -467,7 +465,7 @@ pure word_term(parser: Parser, word: Str, tight: Bool) -> Result[Parsed[Int]] {
       }
     }
     if word in ["sub", "gsub"] and args.value.len() == 3 {
-      let changeable = match after.program.expressions[args.value[2]] { Variable(_) => true; Index(_, _) => true; Field(_) => true; Text(_) => true; Number(_) => true; else => false }
+      let changeable = match after.program.expressions[args.value[2]] { Variable(_) | Index(_, _) | Field(_) | Text(_) | Number(_) => true; else => false }
       if ! changeable { return Err(syntax_error(caret_error(after.piece, after.starts[after.at - 1], f"{word} third parameter is not a changeable object"))) }
     }
     if word == "index" and args.value.len() == 2 and is_regex_literal(after.program, args.value[1]) {
@@ -526,7 +524,7 @@ pure constant_value(program: Program, id: Int) -> Float? {
 # A parenthesized variable is a value, not a place to assign.
 pure lvalue(program: Program, id: Int) -> Bool {
   return false when id in program.grouped
-  match program.expressions[id] { Variable(_) => true; Field(_) => true; Index(_, _) => true; else => false }
+  match program.expressions[id] { Variable(_) | Field(_) | Index(_, _) => true; else => false }
 }
 pure is_field_post_increment(program: Program, id: Int) -> Bool {
   if let Increment(target, _, true) = program.expressions[id] {
@@ -1094,10 +1092,10 @@ pure numeric_prefix(content: Str) -> Result[Float] {
 pure number(value: Scalar) -> Result[Float] {
   match value { Empty => Ok(0.0); Numeric(n) => Ok(n); Nan(_) => Ok(not_a_number()); String(content) => numeric_prefix(content); Input(content, n) => if n != null { Ok(n) } else { numeric_prefix(content) } }
 }
-pure numeric(value: Scalar) -> Bool { match value { Empty => true; Numeric(_) => true; Nan(_) => true; Input(_, n) => n != null; else => false } }
+pure numeric(value: Scalar) -> Bool { match value { Empty | Numeric(_) | Nan(_) => true; Input(_, n) => n != null; else => false } }
 pure truth(value: Scalar) -> Result[Bool] {
   return Ok(number(value)? != 0.0) when numeric(value)
-  Ok(match value { String(content) => ! content.is_empty(); Input(content, _) => ! content.is_empty(); else => false })
+  Ok(match value { String(content) | Input(content, _) => ! content.is_empty(); else => false })
 }
 # NaN equals itself in XSH, so it is recognized as the non-infinite special.
 pure is_nan(n: Float) -> Bool { n - n != 0.0 and ! (n > 0.0) and ! (n < 0.0) }
@@ -1130,8 +1128,7 @@ pure float_text(n: Float, conversion: Str) -> Result[Str] {
 pure plain_text(value: Scalar) -> Result[Str] {
   match value {
     Empty => Ok("")
-    String(content) => Ok(content)
-    Input(content, _) => Ok(content)
+    String(content) | Input(content, _) => Ok(content)
     Nan(positive) => Ok(if positive { "+nan" } else { "-nan" })
     Numeric(n) => float_text(n, "%.6g")
   }
@@ -2468,9 +2465,7 @@ pure compile_call(x: List[Expression], names: List[Str], name: Str, args: List[I
       ops += compile_regex_source(x, names, args[0])? + compile_expression(x, names, args[1])?
       return Ok(ops + [OpArrayBuiltin(name, [SpotRecord], 2)]) when args.len() == 2
       match x[args[2]] {
-        Variable(_) => { let place = compile_place(x, names, args[2])?; return Ok(ops + place.ops + [OpArrayBuiltin(name, [place.spot], 2)]) }
-        Field(_) => { let place = compile_place(x, names, args[2])?; return Ok(ops + place.ops + [OpArrayBuiltin(name, [place.spot], 2)]) }
-        Index(_, _) => { let place = compile_place(x, names, args[2])?; return Ok(ops + place.ops + [OpArrayBuiltin(name, [place.spot], 2)]) }
+        Variable(_) | Field(_) | Index(_, _) => { let place = compile_place(x, names, args[2])?; return Ok(ops + place.ops + [OpArrayBuiltin(name, [place.spot], 2)]) }
         else => { return Ok(ops + compile_expression(x, names, args[2])? + [OpArrayBuiltin(name, [SpotNone], 2)]) }
       }
     }
@@ -3361,8 +3356,7 @@ pure strtonum(text: Str) -> Result[Float] {
 pure type_name(value: Scalar) -> Str {
   match value {
     Empty => "unassigned"
-    Numeric(_) => "number"
-    Nan(_) => "number"
+    Numeric(_) | Nan(_) => "number"
     String(_) => "string"
     Input(_, n) => if n != null { "strnum" } else { "string" }
   }
