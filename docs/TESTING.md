@@ -402,9 +402,10 @@ use `--lib` for units and optimized `--test cli --test stdlib_preparation`
 for CLI and repeated-input preparation. Builds without the feature compile
 the disabled stub. Linux runs use the pinned image.
 
-The PTY scenario drivers are absent from this tree. Retained goldens in
-`tests/fixtures/interactive-parity/<os>/` are historical evidence, not a
-currently runnable gate.
+The files in `tests/fixtures/interactive-parity/<os>/` are historical PTY
+transcripts recorded from `ish`. Their replay driver is absent, so they are
+reference evidence rather than executable tests. The available gates do not
+establish end-to-end terminal parity.
 
 ## What not to run
 
