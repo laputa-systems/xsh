@@ -36,8 +36,7 @@ proc main(...argv: List[Str]) [fs, process, time, error] {
       }
     }
     for item in ranked |> sort-by(desc: true) .basis_points {
-      let row = item.row
-      let percent = item.percent
+      let {row, percent, ..} = item
       let memory = 100.0 * row.rss_bytes.float() / current.memory.total.float()
       print f"{row.pid} {row.user} {row.priority} {row.nice} {row.vsize_bytes / 1024} {row.rss_bytes / 1024} {row.status} {percent.format(1)} {memory.format(1)} {procps.clock(row.cpu_ticks / row.ticks_per_second)} {if opts.full { row.argv } else { row.command }}"
     }

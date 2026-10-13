@@ -460,9 +460,7 @@ proc crosses_symlink(name: Str) [fs, error] -> Bool {
 }
 
 proc one_patch(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], scan: patch_parse.Scan, named: Str?) [fs, io, process, env, error] -> PatchStatus {
-  let old_raw = scan.old_name
-  let new_raw = scan.new_name
-  let git = scan.git
+  let {old_name: old_raw, new_name: new_raw, git, ..} = scan
   let first = read_one(lines, scan.body, scan.kind, false)
   var creating = false
   var deleting = false

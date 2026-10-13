@@ -900,8 +900,7 @@ pure explore(program: Program, chars: List[Int], from: Int, single: Bool) -> Lis
   let tracked = program.backrefs
   var seen: List[Bool] = if memo { [false for _ in range(size * width)] } else { [] }
   let blank = if tracked { [-1 for _ in range(program.slots)] } else { [] }
-  let icase = program.icase
-  let utf8 = program.utf8
+  let {icase, utf8, ..} = program
   var start = from
   while start <= n {
     break when ! single and program.anchored and start > 0

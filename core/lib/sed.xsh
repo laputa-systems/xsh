@@ -1389,8 +1389,7 @@ pure substitute(spec: RegexSpec, text: Bytes, sub: Substitution, extended: Bool)
       let captures = find_match(spec, subject, search, extended)?
       break when captures.is_empty()
       guard let whole = captures[0] else { return Err(SedError.Invalid("missing whole-match capture")) }
-      let begin = whole.start
-      let end = whole.end
+      let {start: begin, end, ..} = whole
       if begin == end and previous_end == begin {
         break when end == text.len()
         search = end + 1
@@ -1602,9 +1601,7 @@ proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error
   let name_count = names.len()
   let commands = ctx.program.commands
   let total = commands.len()
-  let extended = ctx.options.extended
-  let delim = ctx.delim
-  let in_place = ctx.in_place
+  let {options: {extended, ..}, delim, in_place, ..} = ctx
   var ranges: List[RangeState] = []
   for command in commands {
     let initial: RangeState = if command.first == .Line(0) { .Active } else { .Inactive }

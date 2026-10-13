@@ -265,8 +265,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
     },
   )?
   let {show_args, show_pids, show_parents, show_help: help, ..} = opts
-  let ascii = opts.ascii
-  let operands = opts.operands
+  let {ascii, operands, ..} = opts
 
   if help {
     print_help()

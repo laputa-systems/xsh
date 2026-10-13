@@ -1026,8 +1026,7 @@ proc run_unix_listener(socket_path: Str, opts: Options) [net, fs, process, time,
 
 proc main(...argv: List[Str]) [net, fs, process, time, env, io, error] {
   let parsed = parse_options(argv)
-  let opts = parsed.opts
-  let operands = parsed.operands
+  let {opts, operands, ..} = parsed
 
   if opts.rtable != null {
     fatal("no alternate routing table support available")

@@ -821,8 +821,7 @@ proc run_batches(plan: Run, deferred: List[Deferred], kinds: List[Str]) [fs, io,
 
 proc main(...operands: List[Bytes]) {
   let prepared = gnu.prepare_arguments(operands)
-  let args = prepared.text
-  let raw = prepared.raw
+  let {text: args, raw, ..} = prepared
   var follow = 0
   var at = 0
   let start_ns = time.now() * 1000000

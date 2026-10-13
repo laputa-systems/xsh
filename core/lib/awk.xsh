@@ -2728,8 +2728,7 @@ pure compile_statement(x: List[Expression], s: List[Statement], names: List[Str]
 # Lays out BEGIN code, the record loop with its rules, END code, and the
 # functions after a final Halt.
 pure link(program: Program) -> Result[Linked] {
-  let x = program.expressions
-  let s = program.statements
+  let {expressions: x, statements: s, ..} = program
   var labels = program.site
   let begin_ops: List[Op] = collect {
     for id in program.begin { yield @compile_statement(x, s, [], id)? }
@@ -3682,9 +3681,7 @@ proc emit_stdout(text: Str, lossy: Bool) -> Result[Unit] {
 
 # Runs a linked program over ARGV-selected input and returns the exit status.
 proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignments: List[Str], interactive: Bool, mode: Int) -> Result[Int] {
-  let ops = linked.ops
-  let labels = linked.labels
-  let entries = linked.entries
+  let {ops, labels, entries, ..} = linked
   let functions = program.functions
   var globals: Map[Scalar] = {FS: String(" "), OFS: String(" "), RS: String("\n"), RT: String(""), ORS: String("\n"), SUBSEP: String("\u{1c}"), OFMT: String("%.6g"), CONVFMT: String("%.6g"), NR: Numeric(0.0), FNR: Numeric(0.0), NF: Numeric(0.0), RSTART: Numeric(0.0), RLENGTH: Numeric(0.0), FILENAME: String(""), ARGIND: Numeric(0.0), BINMODE: Numeric(0.0), LINT: Numeric(0.0), TEXTDOMAIN: String("messages"), IGNORECASE: Numeric(0.0), FPAT: String("[^[:space:]]+"), FIELDWIDTHS: String(""), ERRNO: String(""), PREC: Numeric(53.0), ROUNDMODE: String("N")}
   var arrays: Map[Table] = {}

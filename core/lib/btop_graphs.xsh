@@ -73,8 +73,7 @@ pure first_disk(devices: List[disks.Device]) -> disks.Device? {
 # Keeps a combined disk graph unavailable unless both byte-rate directions exist.
 pure disk_sum_rate(device: disks.Device?) -> rates.Rate {
   if let current = device {
-    let read = current.read_bytes_per_second
-    let write = current.write_bytes_per_second
+    let {read_bytes_per_second: read, write_bytes_per_second: write, ..} = current
     if read.state == .Observed and write.state == .Observed and read.value != null and write.value != null {
       return {state: rates.Observed, value: (read.value) + (write.value)}
     }

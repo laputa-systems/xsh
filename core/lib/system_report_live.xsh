@@ -3592,18 +3592,7 @@ proc read_huge_page_pool(root: FsRoot, huge_path: Path, node_id: Int?, field: St
 proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> report.SystemReport {
   let source = read_value(root, p"proc/meminfo", max_bytes: 1048576)
   let meminfo = memory.parse(source)
-  let total = meminfo.total.bytes
-  let free = meminfo.free.bytes
-  let available = meminfo.available.bytes
-  let buffers = meminfo.buffers.bytes
-  let cached = meminfo.cached.bytes
-  let active = meminfo.active.bytes
-  let inactive = meminfo.inactive.bytes
-  let dirty = meminfo.dirty.bytes
-  let writeback = meminfo.writeback.bytes
-  let swap_total = meminfo.swap_total.bytes
-  let swap_free = meminfo.swap_free.bytes
-  let counters = meminfo.counters
+  let {total: {bytes: total, ..}, free: {bytes: free, ..}, available: {bytes: available, ..}, buffers: {bytes: buffers, ..}, cached: {bytes: cached, ..}, active: {bytes: active, ..}, inactive: {bytes: inactive, ..}, dirty: {bytes: dirty, ..}, writeback: {bytes: writeback, ..}, swap_total: {bytes: swap_total, ..}, swap_free: {bytes: swap_free, ..}, counters, ..} = meminfo
   var issues = base.issues
   issues += src.with_section("memory", meminfo.issues)
 

@@ -518,8 +518,7 @@ pure sdiff_layout(fmt: Format) -> Layout {
 
 pure sdiff_line(left: Bytes?, left_open: Bool, mark: Str, right: Bytes?, right_open: Bool, fmt: Format) -> Bytes {
   let layout = sdiff_layout(fmt)
-  let half = layout.half
-  let second = layout.second
+  let {half, second, ..} = layout
   var chunks = []
   var column = 0
   var newline = false

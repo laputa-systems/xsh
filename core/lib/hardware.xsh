@@ -204,8 +204,7 @@ export pure usb_matches(device: usb.UsbDevice, ids: Str, slot: Str) -> Result[Bo
   let filter = id_selector(ids)?
   if filter.class != null or filter.program != null { return Err(HardwareError.InvalidSelector("USB identifiers accept vendor:product only")) }
   let selected = usb_selector(slot)?
-  let bus = selected.bus
-  let number = selected.device
+  let {bus, device: number, ..} = selected
   (filter.vendor == null or filter.vendor == device.vendor_id) and
     (filter.product == null or filter.product == device.product_id) and
     (bus == null or bus == device.bus_number) and (number == null or number == device.device_number)

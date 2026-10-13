@@ -1101,8 +1101,7 @@ proc print_summary() [fs, process, env, io, error] {
   let counts = sockets.summary() ?? { |failure| fail(failure.message, 1); return }
   let ip4 = counts.raw4 + counts.udp4 + counts.tcp4
   let ip6 = counts.raw6 + counts.udp6 + counts.tcp6
-  let waiting = counts.time_wait
-  let allocated = counts.allocated
+  let {time_wait: waiting, allocated, ..} = counts
   var out = f"Total: {counts.used}\n"
   out += f"TCP:   {allocated + waiting} (estab {counts.established}, closed {allocated + waiting - counts.tcp4 - counts.tcp6}, orphaned {counts.orphaned}, timewait {waiting})\n\n"
   out += "Transport Total     IP        IPv6\n"

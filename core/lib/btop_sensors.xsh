@@ -346,8 +346,7 @@ pure battery_watts(battery: live.MonitorBattery) -> Float? {
     return null when microwatts < 0
     microwatts.float() / 1000000.0
   } else if battery.current_now_ua != null and battery.voltage_now_uv != null {
-    let current = battery.current_now_ua
-    let voltage = battery.voltage_now_uv
+    let {current_now_ua: current, voltage_now_uv: voltage, ..} = battery
     return null when current == 0 or voltage <= 0
     (if current < 0 { -current } else { current }).float() * voltage.float() / 1000000000000.0
   } else {

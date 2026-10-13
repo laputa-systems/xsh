@@ -279,9 +279,7 @@ pure sparseness(entry: Entry) -> Str {
 proc directive_text(entry: Entry, segment: Segment) [fs, time, error] -> Result[Bytes, Error] {
   let meta = entry.meta
   let raw = entry.path.bytes()
-  let flags = segment.flags
-  let width = segment.width
-  let precision = segment.precision
+  let {flags, width, precision, ..} = segment
   match segment.spec {
     "d" => Ok(pad_number(f"{entry.depth}", false, flags, width, precision, ""))
     "m" => Ok(pad_number(octal_digits(meta.mode.bit_and(0o7777)), false, flags, width, precision, if "#" in flags and meta.mode.bit_and(0o7777) != 0 { "0" } else { "" }))

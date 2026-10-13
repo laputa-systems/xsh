@@ -624,8 +624,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
           let ref_to = if ! first.is_empty() { first[0].end } else { 0 }
 
           for hit in words.find(line) {
-            let from = hit.start
-            let to = hit.end
+            let {start: from, end: to, ..} = hit
 
             continue when from == to
 

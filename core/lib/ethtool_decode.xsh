@@ -680,8 +680,7 @@ pure port_name(port: Int) -> Str {
 
 ## The link-settings block of `ethtool DEV`.
 export pure settings_lines(settings: LinkSettings) -> List[Str] {
-  let supported = settings.supported
-  let advertising = settings.advertising
+  let {supported, advertising, ..} = settings
   let ports = [mode.name for mode in LM_PORTS if mode_set(supported, mode.bit)]
   var lines: List[Str] = [f"\tSupported ports: [ {ports.join(" ")} ]"]
   for line in mode_block("Supported link modes:   ", supported) { lines += ["\t" + line] }
