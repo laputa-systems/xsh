@@ -7,6 +7,7 @@ use super::{
     lint_code_selected, pipeline_argument_expr, same_ordering_operand, span_may_contain_comment,
     widen_over_grouping,
 };
+use super::walk::{BindingOrigin, CallableVisibility};
 use xsh::frontend::check::CheckBundleView;
 
 #[cfg(test)]
@@ -79,7 +80,7 @@ enum RuleHook {
     Function(FunctionSite, FunctionHook),
     Procedure(ProcedureSite, ProcedureHook),
     BeforeStatement(for<'source> fn(&mut Linter<'source>, StmtId)),
-    Binding(for<'source> fn(&mut Linter<'source>, &str, Span)),
+    Binding(for<'source> fn(&mut Linter<'source>, &str, Span, BindingOrigin)),
     ExpressionGroup(ExpressionGroupSite, ExpressionHook),
     RunCheck(RunCheckSite, RunCheckHook),
     SequenceExit(SequenceExitSite, SequenceExitHook),
@@ -319,8 +320,25 @@ fn run_unused_local_hook(linter: &mut Linter<'_>, unused: &[(String, Binding)]) 
     }
 }
 
-fn run_shadowing_hook(linter: &mut Linter<'_>, name: &str, span: Span) {
-    if linter.is_defined_in_outer_scope(name) && !is_predeclared_script_args(name) && name != "_" {
+// Exported parameter names are part of named calls, so matching a module
+// callable is intentional.
+fn run_shadowing_hook(
+    linter: &mut Linter<'_>,
+    name: &str,
+    span: Span,
+    origin: BindingOrigin,
+) {
+    let public_callable_label = matches!(
+        origin,
+        BindingOrigin::FunctionParameter {
+            visibility: CallableVisibility::Exported
+        }
+    ) && linter.module_callable_names.contains(name);
+    if linter.is_defined_in_outer_scope(name)
+        && !is_predeclared_script_args(name)
+        && name != "_"
+        && !public_callable_label
+    {
         linter.diagnostics.push(
             Diagnostic::error("binding shadows an outer name")
                 .with_code(DiagnosticCode::LintShadowing)
@@ -1266,12 +1284,17 @@ pub(super) fn before_statement(linter: &mut Linter<'_>, statement: StmtId) {
         }
     }
 }
-pub(super) fn binding(linter: &mut Linter<'_>, name: &str, span: Span) {
+pub(super) fn binding(
+    linter: &mut Linter<'_>,
+    name: &str,
+    span: Span,
+    origin: BindingOrigin,
+) {
     for rule in LINT_RULES {
         if !linter.rule_selection.enabled(rule.code) { continue; }
         for hook in rule.hooks {
             if let RuleHook::Binding(callback) = hook {
-                callback(linter, name, span);
+                callback(linter, name, span, origin);
             }
         }
     }
@@ -1406,7 +1429,48 @@ pub(super) fn root_hooks<'source>(
 #[cfg(test)]
 mod tests {
     use super::{CheckedFact, LINT_RULES, LintOptions, Linter, RuleSelection, lint_codes, rule};
-    use xsh::diagnostic::{DiagnosticCode, DiagnosticFamily};
+    use xsh::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticFamily};
+
+    fn shadowing_diagnostics(source: &str) -> Vec<Diagnostic> {
+        use xsh::frontend::check::Checker;
+        use xsh::frontend::source::SourceId;
+        use xsh::frontend::syntax::parser::Parser;
+
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}\n{source}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}\n{source}", checked.diagnostics);
+        Linter::lint(
+            &parsed.arena,
+            source,
+            LintOptions {
+                only: Some(vec![DiagnosticCode::LintShadowing]),
+                ..LintOptions::default()
+            },
+        )
+        .diagnostics
+    }
+
+    fn exported_callable(kind: &str, name: &str, parameter: &str) -> String {
+        match kind {
+            "pure" => format!("export pure {name}({parameter}: Int) -> Int {{ {parameter} }}\n"),
+            "proc" => format!("export proc {name}({parameter}: Int) [] {{}}\n"),
+            "stream" => format!(
+                "export stream {name}({parameter}: Int) [] -> Stream[Int] {{ yield {parameter} }}\n"
+            ),
+            _ => unreachable!(),
+        }
+    }
+
+    fn named_call(kind: &str, name: &str, parameter: &str) -> String {
+        match kind {
+            "pure" => format!("pure invoke() -> Int {{ {name}({parameter}: 1) }}\n"),
+            "proc" => format!("proc invoke() [] {{ {name}({parameter}: 1) }}\n"),
+            "stream" => format!("proc invoke() [] {{ let _ = {name}({parameter}: 1) }}\n"),
+            _ => unreachable!(),
+        }
+    }
+
     #[test]
     fn table_contains_every_lint_code_once() {
         let codes: Vec<_> = LINT_RULES.iter().map(|rule| rule.code).collect();
@@ -1582,6 +1646,48 @@ mod tests {
             1,
             "{:?}",
             with_facts.diagnostics
+        );
+    }
+
+    #[test]
+    fn exported_callable_labels_may_match_module_callable_names() {
+        for kind in ["proc", "pure", "stream"] {
+            for sibling_first in [true, false] {
+                let sibling = "pure peer() -> Int { 1 }\n";
+                let exported = exported_callable(kind, "target", "peer");
+                let mut source = if sibling_first {
+                    format!("{sibling}{exported}")
+                } else {
+                    format!("{exported}{sibling}")
+                };
+                source.push_str(&named_call(kind, "target", "peer"));
+                assert!(
+                    shadowing_diagnostics(&source).is_empty(),
+                    "{kind}, sibling_first={sibling_first}: {source}"
+                );
+            }
+
+            let self_name = format!("{kind}_self");
+            let mut source = exported_callable(kind, &self_name, &self_name);
+            source.push_str(&named_call(kind, &self_name, &self_name));
+            assert!(
+                shadowing_diagnostics(&source).is_empty(),
+                "{kind} self label: {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn shadowing_still_covers_private_bindings_and_module_values() {
+        let source = "pure peer() -> Int { 1 }\npure private_target(peer: Int) -> Int { peer }\nlet existing = 1\nexport pure value_target(existing: Int) -> Int { existing }\npure local_name() -> Int { 1 }\npure pattern_name() -> Int { 2 }\npure callback_name() -> Int { 3 }\npure exercise(flag: Bool, items: List[Int]) -> Int {\n  let local_name = 4\n  let matched = match flag { pattern_name => 5 }\n  let mapped = items |> map { |callback_name| callback_name }\n  local_name + matched + mapped[0]\n}\n";
+        let diagnostics = shadowing_diagnostics(source);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintShadowing))
+                .count(),
+            5,
+            "{diagnostics:?}"
         );
     }
 }

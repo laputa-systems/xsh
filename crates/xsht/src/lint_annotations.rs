@@ -272,7 +272,10 @@ impl<'a> Linter<'a> {
             entrypoint,
             statement_span,
         );
-        self.lint_function(def_id);
+        self.lint_function(
+            def_id,
+            super::walk::CallableVisibility::from_exported(exported),
+        );
     }
 
     pub(super) fn lint_redundant_result_unit(&mut self, def_id: FunctionDefId, exported: bool) {

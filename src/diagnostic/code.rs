@@ -642,7 +642,7 @@ diagnostic_codes! {
         LintRemovedRecordRequire = "lint.removed-record-require", warning, "Replace the removed `record.require` with a named schema and `.require(Schema)`";
         LintRunStatus = "lint.run-status", warning, "Remove `?` from a `run` of a command whose nonzero status is expected";
         LintRunless = "lint.runless", error, "Reject external commands when linting with `--runless`, except allowed names";
-        LintShadowing = "lint.shadowing", error, "Flag a binding that shadows a name from an outer scope";
+        LintShadowing = "lint.shadowing", error, "Flag a binding that shadows an outer name, except exported callable labels matching module callables";
         LintStageCallable = "lint.stage-callable", warning, "Name the callable directly instead of a transparent stream stage block";
         LintStreamOptions = "lint.stream-options", warning, "Replace stream stage flags with ordinary named arguments";
         LintStringlyTypedMatch = "lint.stringly-typed-match", warning, "Suggest a tag union type for a match with three or more string-literal arms";

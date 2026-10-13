@@ -566,6 +566,7 @@ pub struct Linter<'a> {
     runless_except: Vec<String>,
     interactive_command_replacement: Option<fn(&str) -> Option<&'static str>>,
     scopes: Vec<FxHashMap<String, Binding>>,
+    module_callable_names: FxHashSet<String>,
     diagnostics: Vec<Diagnostic>,
     checked_binding_uses: BTreeMap<BindingId, BTreeSet<ExprId>>,
     borrowed_root_receivers: BTreeMap<BindingId, BTreeSet<ExprId>>,
@@ -1001,6 +1002,7 @@ impl<'a> Linter<'a> {
             runless_except: options.runless_except,
             interactive_command_replacement: options.interactive_command_replacement,
             scopes: vec![FxHashMap::default()],
+            module_callable_names: FxHashSet::default(),
             diagnostics: Vec::new(),
             checked_binding_uses: BTreeMap::new(),
             borrowed_root_receivers: BTreeMap::new(),
@@ -1440,6 +1442,7 @@ impl<'a> Linter<'a> {
 
     fn lint_program(&mut self, view: &CheckBundleView<'a>, statements: &[StmtId]) {
         self.collect_assigned_names(statements);
+        self.module_callable_names.clear();
         rules::root_hooks(self, rules::RootStage::ImportBlock, view, statements);
         rules::root_hooks(self, rules::RootStage::TopLevelConstOrder, view, statements);
         rules::root_hooks(self, rules::RootStage::PreparedConstants, view, statements);
@@ -1475,6 +1478,7 @@ impl<'a> Linter<'a> {
                 | ArenaStmtKind::StreamDef(def_id)
                 | ArenaStmtKind::PureDef(def_id) => {
                     let name = self.arena.function_def(*def_id).name;
+                    self.module_callable_names.insert(name.to_string());
                     self.define(name.as_str().as_str(), stmt.span, false);
                 }
                 _ => {}

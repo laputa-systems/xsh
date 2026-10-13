@@ -22,6 +22,28 @@ use super::{
     simple_command_value_expr, type_expr_kind,
 };
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum CallableVisibility {
+    Exported,
+    Private,
+}
+
+impl CallableVisibility {
+    pub(super) fn from_exported(exported: bool) -> Self {
+        if exported {
+            Self::Exported
+        } else {
+            Self::Private
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum BindingOrigin {
+    Local,
+    FunctionParameter { visibility: CallableVisibility },
+}
+
 pub(super) struct LintExprVisitor<'a, 'b> {
     linter: &'a mut Linter<'b>,
     suppress_expr_autofixes: bool,
@@ -1055,7 +1077,10 @@ impl<'a> Linter<'a> {
                 }
                 rules::statement(self, stmt_id, rules::StatementSite::TypedCallableParameters, exported);
                 rules::statement(self, stmt_id, rules::StatementSite::InferredPureReturn, exported);
-                self.lint_propagating_function(def, true, |linter| linter.lint_function(def));
+                let visibility = CallableVisibility::from_exported(exported);
+                self.lint_propagating_function(def, true, |linter| {
+                    linter.lint_function(def, visibility)
+                });
                 if let Some(edges) = &mut self.callable_edges {
                     edges.leave_owner();
                 }
@@ -1312,7 +1337,11 @@ impl<'a> Linter<'a> {
         }
     }
 
-    pub(super) fn lint_function(&mut self, def_id: FunctionDefId) {
+    pub(super) fn lint_function(
+        &mut self,
+        def_id: FunctionDefId,
+        visibility: CallableVisibility,
+    ) {
         let previous_candidate = self.stream_producers.enter_function(def_id);
         let def = self.arena.function_def(def_id).clone();
         self.push_scope();
@@ -1345,10 +1374,11 @@ impl<'a> Linter<'a> {
                 self.lint_expr(default);
                 self.stream_producers.restore_projection(observing);
             }
-            self.define(
+            self.define_function_parameter(
                 param.name.as_str().as_str(),
                 self.arena.span(param.span),
                 true,
+                visibility,
             );
         }
         self.lint_block_statements(def.body);
@@ -1878,7 +1908,32 @@ impl<'a> Linter<'a> {
     }
 
     pub(super) fn define(&mut self, name: &str, span: Span, report_unused: bool) {
-        rules::binding(self, name, span);
+        self.define_with_origin(name, span, report_unused, BindingOrigin::Local);
+    }
+
+    fn define_function_parameter(
+        &mut self,
+        name: &str,
+        span: Span,
+        report_unused: bool,
+        visibility: CallableVisibility,
+    ) {
+        self.define_with_origin(
+            name,
+            span,
+            report_unused,
+            BindingOrigin::FunctionParameter { visibility },
+        );
+    }
+
+    fn define_with_origin(
+        &mut self,
+        name: &str,
+        span: Span,
+        report_unused: bool,
+        origin: BindingOrigin,
+    ) {
+        rules::binding(self, name, span, origin);
         if let Some(edges) = &mut self.callable_edges {
             edges.define(Name::intern(name));
         }
