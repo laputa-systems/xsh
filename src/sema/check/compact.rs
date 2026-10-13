@@ -125,6 +125,11 @@ pub struct CompactBodyFacts {
     pub from_end_indexes: FxHashMap<ExprId, u32>,
     /// The operation each `value as TARGET` expression performs.
     pub conversions: FxHashMap<ExprId, super::Conversion>,
+    /// Resolved built-in `range` call expressions whose bounds can establish
+    /// iteration cardinality.
+    pub builtin_range_calls: FxHashSet<ExprId>,
+    /// Checked sites where failure can leave the current body or error scope.
+    pub propagating_error_spans: std::collections::BTreeSet<Span>,
     /// The resource kind of each binding of a managed `with` scope.
     pub resource_scopes: FxHashMap<ExprId, Vec<crate::modules::ManagedResource>>,
     /// Explicit checked ownership transfers keyed by statement or block in
@@ -154,6 +159,7 @@ impl CompactBodyFacts {
             argument_bindings: checked.argument_bindings.clone(),
             module_commands: checked.module_commands.clone(),
             resource_transfers: checked.resource_transfers.clone(),
+            propagating_error_spans: checked.propagating_error_spans.clone(),
             ..Self::default()
         };
         facts.expr_types.reserve(checked.expr_types.len());
@@ -161,6 +167,9 @@ impl CompactBodyFacts {
             let id = ExprId::from_index(index);
             let expression = arena.expr(id);
             let span = expression.span;
+            if checked.builtin_range_calls.contains(&span) {
+                facts.builtin_range_calls.insert(id);
+            }
             if let Some(ty) = checked.expr_types.get(&span) {
                 facts.expr_types.insert(id, ty.clone());
             }

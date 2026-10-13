@@ -683,6 +683,9 @@ impl Checker {
     }
 
     pub(super) fn require_effect(&mut self, effect: Effect, span: Span, subject: &str) {
+        if effect == Effect::Error {
+            self.propagating_error_spans.insert(span);
+        }
         let captured = self.boundary.retry_attempt_depth > 0;
         if self.record_effects || self.collecting_effects {
             self.effect_graph

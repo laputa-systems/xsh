@@ -573,6 +573,9 @@ pub struct CheckOutput {
     /// from the conversion table. Lowering builds the operation from this
     /// and never looks at the operand's type or the target again.
     pub conversions: BTreeMap<Span, Conversion>,
+    pub(crate) builtin_range_calls: BTreeSet<Span>,
+    /// Checked source sites where failure can leave the current block.
+    pub(crate) propagating_error_spans: BTreeSet<Span>,
     /// The resource kind of each binding of a managed `with` scope, in binding
     /// order, keyed by the scope. A scope with a rejected binding has none.
     pub resource_scopes: BTreeMap<Span, Vec<crate::modules::ManagedResource>>,
@@ -694,6 +697,9 @@ impl CheckOutput {
             .append(&mut module.record_require_migrations);
         self.error_constructors
             .append(&mut module.error_constructors);
+        self.builtin_range_calls.append(&mut module.builtin_range_calls);
+        self.propagating_error_spans
+            .append(&mut module.propagating_error_spans);
         self.optional_binding_spans
             .append(&mut module.optional_binding_spans);
         self.collect_yields.append(&mut module.collect_yields);
@@ -1312,6 +1318,8 @@ pub struct Checker {
     collect_yields: BTreeMap<Span, Span>,
     from_end_indexes: BTreeMap<Span, u32>,
     conversions: BTreeMap<Span, Conversion>,
+    builtin_range_calls: BTreeSet<Span>,
+    propagating_error_spans: BTreeSet<Span>,
     resource_scopes: BTreeMap<Span, Vec<crate::modules::ManagedResource>>,
     resource_transfers: ResourceTransferFacts,
     text_patterns: BTreeMap<Span, TextPattern>,
@@ -1566,6 +1574,8 @@ impl Checker {
             collect_yields: self.collect_yields,
             from_end_indexes: self.from_end_indexes,
             conversions: self.conversions,
+            builtin_range_calls: self.builtin_range_calls,
+            propagating_error_spans: self.propagating_error_spans,
             resource_scopes: self.resource_scopes,
             resource_transfers: self.resource_transfers,
             text_patterns: self.text_patterns,
@@ -1672,6 +1682,8 @@ impl Checker {
             collect_yields: BTreeMap::new(),
             from_end_indexes: BTreeMap::new(),
             conversions: BTreeMap::new(),
+            builtin_range_calls: BTreeSet::new(),
+            propagating_error_spans: BTreeSet::new(),
             resource_scopes: BTreeMap::new(),
             resource_transfers: ResourceTransferFacts::default(),
             text_patterns: BTreeMap::new(),

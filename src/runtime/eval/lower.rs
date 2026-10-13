@@ -2619,6 +2619,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 tail_is_value,
                 &self.bodies.expr_types,
                 &self.declarations.tag_variants_by_name,
+                &self.bodies.conversions,
+                &self.bodies.builtin_range_calls,
+                &self.bodies.propagating_error_spans,
             );
         if !body_cannot_fall_through {
             if matches!(return_kind, LoweredReturnKind::Plain(LoweredType::Stream)) {

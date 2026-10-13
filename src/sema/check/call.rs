@@ -1533,6 +1533,7 @@ impl Checker {
                 Type::Path
             }
             "range" => {
+                self.builtin_range_calls.insert(span);
                 if args.len() != 1 && args.len() != 2 {
                     self.error(
                         span,

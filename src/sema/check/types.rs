@@ -74,6 +74,7 @@ impl Checker {
             );
             return Type::Unknown;
         };
+        self.propagating_error_spans.insert(span);
         let allowed = self
             .boundary.current_effects
             .as_ref()
@@ -126,6 +127,7 @@ impl Checker {
             );
             return Type::Unknown;
         };
+        self.propagating_error_spans.insert(span);
         if let Some(errors) = self.boundary.error_boundary_errors.last_mut() {
             errors.push((err, span));
         }
@@ -178,15 +180,18 @@ impl Checker {
         return_ty: &Type,
         span: Span,
     ) {
-        if self.boundary.retry_attempt_depth > 0
-            && !return_ty.is_result()
+        if !return_ty.is_result()
             && !matches!(return_ty, Type::Stream(_))
             && effects
                 .as_ref()
                 .is_some_and(|effects| effects.contains(&Effect::Error))
-            && let Some(errors) = self.boundary.error_boundary_errors.last_mut()
         {
-            errors.push((Type::Error, span));
+            self.propagating_error_spans.insert(span);
+            if self.boundary.retry_attempt_depth > 0
+                && let Some(errors) = self.boundary.error_boundary_errors.last_mut()
+            {
+                errors.push((Type::Error, span));
+            }
         }
     }
 
