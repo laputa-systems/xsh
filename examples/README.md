@@ -1,23 +1,20 @@
-# Curated Showcases
+# Examples
 
-`examples/` contains a small set of executable programs that demonstrate how
-multiple XSH modules fit together. It is not a feature-probe directory:
-focused behavior, errors, edge cases, and platform coverage belong in
-`tests/xsh/stdlib/*.xsh` or the nearest native test module.
+Run an example from the repository root with `xsh examples/NAME.xsh`.
+Examples are complete, small programs that show several XSH modules working
+together.
 
-`examples/catalog.json` is the executable showcase manifest. It records each
-program's arguments, expected status and output, and trace policy. The runtime
-gate in `tests/runtime/examples.rs` executes every cataloged program, checks
-formatting and linting, and verifies that the manifest covers every
-`examples/*.xsh` file.
+| Program | What it demonstrates |
+|---|---|
+| [`json.xsh`](json.xsh) | Typed JSON files and JSON Lines records. |
+| [`streams.xsh`](streams.xsh) | Filesystem records, sorting, and bounded parallel mapping. |
+| [`processes.xsh`](processes.xsh) | Host and user identity, signals, child processes, and command timing. |
+| [`release-package.xsh`](release-package.xsh) | Creating and extracting an archive, applying a patch, and compressing a file. |
+| [`typed-cli-options.xsh`](typed-cli-options.xsh) | Typed options, repeated values, command dispatch, and regular-expression matching. |
 
-| Showcase | Composition focus | Canonical documentation | Focused coverage |
-|---|---|---|---|
-| `json.xsh` | typed JSON read/write, JSON-lines, and schema checks at a persistence boundary | `docs/SPEC.md` section 14 | `tests/xsh/stdlib/json.xsh` |
-| `streams.xsh` | filesystem records through serial and bounded parallel stream stages | `docs/SPEC.md` section 13 | `tests/xsh/stdlib/streams.xsh` |
-| `processes.xsh` | process discovery, structured command plans, concurrent waits, and host identity records | `docs/SPEC.md` sections 11-12 | `tests/xsh/stdlib/process.xsh`, `tests/xsh/stdlib/system.xsh` |
-| `release-package.xsh` | staged archive creation, safe extraction, rooted patching, and byte-preserving compression | `xsht api module:archive module:patch` | `tests/xsh/stdlib/archive.xsh`, `tests/xsh/stdlib/diff.xsh`, `tests/xsh/stdlib/patch.xsh` |
-| `typed-cli-options.xsh` | typed options, command dispatch, path conversion, and regex-backed input records | `docs/SPEC.md`, `xsht api module:cli module:regex` | `tests/xsh/stdlib/args.xsh` |
+`typed-cli-options.xsh` accepts options after `--`, for example:
 
-Put larger production-like programs in `showcase/`; do not turn a focused
-native test into an example merely to demonstrate one API call.
+```sh
+xsh examples/typed-cli-options.xsh -- --root target/demo --jobs=3 \
+  --define A=1 --define B=2 --verbose
+```

@@ -29,7 +29,8 @@ headless mode derives one model frame for each selected replay sample. A replay
 ends when its last selected frame is processed; headless replay performs no
 terminal access and does not wait between frames. Model dumps contain one JSON model per line.
 Screen dumps contain one JSON record per line with the timestamp, dimensions,
-minimum-size state, and rendered lines; their diagnostic canvas is 80 by 24.
+minimum-size state, and rendered lines; their canvas uses the `rows` and `cols`
+recorded in the replay manifest.
 Live process command lines are added only to the interactive display; they do
 not enter model or screen dumps or replay observations.
 

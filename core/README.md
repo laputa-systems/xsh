@@ -1,30 +1,16 @@
-# Core Applet Style
+# Core Applet Contracts
 
-Each `core/*.xsh` applet is a standalone command script by default. Duplicate
-small helpers locally when that keeps an applet self-contained and easy to
-inspect. Shared libraries under `core/lib/` are reserved for audited command
-families whose behavior must stay consistent across multiple applets, such as
-auth account parsing and shadow-file updates. `lib/text_input.xsh` preserves
-the file and stdin operand order shared by the line-oriented applets.
-`lib/gnu.xsh` owns the GNU-compatibility surface the compat applets must agree
-on exactly: the invoked name (`process.script_path()`, never symlink-resolved),
-`PROG: message` diagnostics with GNU name quoting and `strerror` text, usage
-errors with the `Try 'PHRASE --help'` hint and a caller-chosen exit status,
-`--help` and `--version` first lines, stdout write failures, and byte-stream
-operand and stdout helpers. `tr` preserves GNU's two-line ambiguous-octal
-warning and emits it before later set-parse errors. The audited command families also share
-`lib/perm.xsh` for permission and ownership policy, `lib/file_publish.xsh` for
-move/link/install publication, `lib/fs_misc.xsh` for path and size policy,
-`lib/text_a2.xsh` for byte records and display columns, `lib/bytes_enc*.xsh` for
-binary encodings and conversion, `lib/checksums.xsh` for checksum formats and
-verification, and `lib/proc_launch.xsh` for executable lookup and exit status.
+`core/lib/gnu.xsh` centralizes GNU-compatible diagnostics, usage hints, help and
+version lines, stdout errors, and byte-stream helpers. It uses the invoked
+script name without resolving symlinks. `tr` emits its ambiguous-octal warning
+before later set-parse errors.
 `base32`, `base64`, and `basenc` preserve a decoded prefix before reporting
 invalid input, use GNU option-argument diagnostics, and report stdout failures
 with the `write error:` prefix.
 `comm` checks ordering as each input advances, checks file 1 first after a
-shared row, and activates default checks only after an unpairable row; reaching
-EOF rechecks the final pair of records from that input.
-`expand` counts input bytes as columns in the C and POSIX locales and uses
+shared row, and activates default checks only after an unpairable row; EOF
+rechecks the final pair of records from that input. `expand` counts input
+bytes as columns in the C and POSIX locales and uses
 Unicode display columns in UTF-8 locales. It preserves input bytes; backspace
 moves one column left and newline resets the tab position.
 `nl` appends the default second section-delimiter character after a single
@@ -32,50 +18,14 @@ byte in C/POSIX or a single UTF-8 character in a UTF-8 locale; malformed bytes
 remain separate characters. Section matching preserves the delimiter bytes.
 `tail --follow=name` can reopen a disappeared, previously opened name while
 another operand remains live. Without `--retry`, it exits when no named
-operand remains open.
-
-
-An applet never spells a `/proc` or `/sys` path itself
-(`dev/checks/check_kernel_reads.py` fails the build when one does); it asks the
-owner of that kernel interface. Beyond the native modules, those owners are
-`lib/selinux.xsh` (whether the kernel lists or mounts selinuxfs, shared by
-`mkdir`, `mknod`, `mv`, `install` and `ss`), `lib/proc_target.xsh` (the
-namespace, root and working-directory files of a target pid, for `nsenter`),
-`lib/efivars.xsh` (the efivarfs directory and whether the platform has one),
-and `lib/net_sockets.xsh` (the socket counters, local port range and cgroup ids
-`ss` prints, and the raw-socket table it falls back to when the kernel has no
-raw_diag handler). Process task ids come from `process.threads`, the
-supplementary group list from `unix.id().supplementary`, the file-descriptor
-limit ceiling from `linux.sysctl_get`, and the inherited environment as bytes
-from `env.entries()`.
-
-Shared semantic libraries remain XSH: `lib/awk.xsh` owns its lexer, parser and
-interpreter, `lib/sed.xsh` owns addressing and execution, the `lib/fat*.xsh`
-family owns geometry and checking, and `lib/date_parse.xsh` owns human date
-grammar. Native operations supply reusable byte, numeric, codec and host
-boundaries. The search, hardware, procps, kmod, storage, compression and inode
-attribute families also share typed XSH helpers under `lib/`.
-
-`dev/release.xsh::package_core` installs applets without the `.xsh` suffix as
-executable commands. It keeps that suffix for `core/lib/` modules so adjacent
-`use lib.auth` imports resolve after extraction; modules install with mode
-`0644`.
-
-The `core/` audit found one stable repeated host boundary: reading text files
-and `-` stdin operands in order. `fold`, `rev`, `shuf`, and `tr` now share
-`lib/text_input.xsh` with `cut`, `head`, `tail`, `uniq`, and `sort`. Applet usage
-errors remain local because their messages and accepted operand shapes differ;
-`cli.applet` and `cli.parse` already own their option parsing. The one
-exception is an applet that reproduces a GNU utility: it reports usage
-errors, operating-system errors, and quoted names through `lib/gnu.xsh`, so
-wording and exit statuses cannot drift, and it chooses its own status (1 by
-default, 2 for `ls`, `cmp`, `diff`, and `grep`, 125 for `env`, `nice`,
-`nohup`, `timeout`, `stdbuf`, and `chroot`).
+operand remains open. Applets read kernel interfaces through their owning
+module under `core/lib/`; `dev/checks/check_kernel_reads.py` rejects direct
+`/proc` and `/sys` paths in applet scripts.
 
 `taskset`, `chrt`, `ionice`, and `prlimit` reproduce the util-linux utilities
 over the typed `process.affinity`, `scheduler`, `io_priority`, and `rlimit`
 families. They keep util-linux's own diagnostics (`failed to set pid N's
-affinity: ...`) through `lib/gnu.xsh`, parse options in `getopt_long` order
+affinity: ...`) through `core/lib/gnu.xsh`, parse options in `getopt_long` order
 with the glibc wording, and exit 1 on failure and 126 or 127 when the command
 cannot be executed. The listing `prlimit` prints before running a command is
 written in full, where util-linux loses its unflushed rows at `exec`.
@@ -84,22 +34,18 @@ written in full, where util-linux loses its unflushed rows at `exec`.
 output, because nvme-cli's diagnostics differ from GNU coreutils. It removes
 the Rust errno suffix without changing that wording.
 
-Prefer typed standard-module APIs over shelling out or parsing command text.
-Use `cli.parse` for ordinary option records, including short aliases and
-clusters, and reserve `cli.tokens` for applets whose option grammar is itself
-the feature. Keep usage errors local and explicit unless the applet follows
-GNU diagnostics (see above), preserve Unix-compatible stdout shapes, and cover
-behavior through `core/tests/*.xsh`.
-
 `core/setpriv.xsh` parses its own command line instead of using `cli.applet`:
 util-linux reports a duplicate or conflicting option in command-line order and
 names the earlier one, and the first operand starts the command, neither of
 which a parsed option record keeps. Privilege state is read and changed only
-through `linux.privileges()` and the `linux` and `unix` setters, in the order
-the script header documents. Where util-linux silently skips a request the
-kernel refused (an ambient capability that is not inheritable, adding back a
-capability already dropped from the bounding set), the applet fails with the
-kernel's wording; `+all` stays tolerant and covers only what can still apply.
+through `linux.privileges()` and the `linux` and `unix` setters. Changes apply
+in this order: bounding set, securebits, `no_new_privs`, supplementary groups,
+GIDs, UIDs, inheritable and ambient capabilities, then the parent-death signal
+and ptracer. The kernel clears the parent-death signal when credentials
+change, so it is applied last. Where util-linux silently skips a request the
+kernel refused (an ambient capability that is not inheritable or a capability
+already dropped from the bounding set), the applet fails with the kernel's
+wording; `+all` stays tolerant and covers only what can still apply.
 `unshare` and `nsenter` run their command through `linux.run_in_namespaces`,
 which makes every namespace change in a forked child (a user namespace needs a
 single-threaded process, and scripts do not run in one), so the command is
@@ -112,7 +58,7 @@ denied, the case every unprivileged `unshare --map-root-user` creates.
 
 `iw` reproduces the wireless configuration tool over the generic-netlink
 primitives (`linux.genl_family_id`, `netlink_open`, `netlink_request`,
-`recvfrom`); `lib/nl80211.xsh` owns the nl80211 attribute codec, the
+`recvfrom`); `core/lib/nl80211.xsh` owns the nl80211 attribute codec, the
 decoders, and the report formats, and `iw.xsh` owns the command line and the
 order of requests. The surface is `dev`, `dev DEV info|link|scan [dump|trigger|
 abort]|station dump|get|set type|channel|freq|txpower`, `phy`, `list`,
@@ -127,9 +73,9 @@ wireless hardware. Report parts the decoders do not implement are omitted
 rather than approximated: VHT, HE, and EHT capability blocks, the HT
 operation and capability elements of a BSS, the vendor-specific elements
 other than WPA, TID and TXQ statistics, MLO links, and DMG capability names.
-`--debug`, `event -f`, and `station dump -v` are not accepted. Tests run the
-applet under `test.linux_fake` with a `netlink_fixture` of recorded
-exchanges (SPEC section 17), so no test reaches a wireless device.
+`--debug`, `event -f`, and `station dump -v` are not accepted.
+`core/tests/test-iw.xsh` runs the applet under `test.linux_fake` with recorded
+`netlink_fixture` exchanges, so tests do not reach a wireless device.
 
 `system-report` is documented in `core/SYSTEM-REPORT.md`.
 
@@ -140,3 +86,32 @@ valid UTF-8.
 `tee` keeps output descriptors open, streams bounded chunks, and appends in
 place. Its output-error modes isolate failed outputs and keep healthy outputs
 receiving data; no-pipe modes observe broken outputs while input is idle.
+
+## Applet behavior
+
+`core/more.xsh` concatenates bytes without file banners when stdout is redirected
+or no controlling terminal is available. Inherited terminal descriptors alone
+do not enable paging. Missing files and directory read errors produce status 1
+while later operands are still read; no operands reads stdin through EOF. Short
+files exit at EOF; `-e` also exits after a completely filled final screen. The
+BusyBox 1.36.1 baseline accepts `-d`, `-e`, `-f`, `-l`, `-s`, and `-u` without
+their display effects. XSH implements those effects, their long aliases, and
+the extensions `-c`/`-p` and `-n`/`-F`/`-P`. Coverage is in
+`core/tests/test-more.xsh` and `tests/core_compat_extra/more.rs`.
+
+`core/lib/date_dircolors.xsh::DATABASE` preserves the GNU coreutils 9.12
+built-in database, including terminal filters and suffix order. Shell
+assignments and `--print-ls-colors` use the same `TERM` and `COLORTERM`
+selection; listing color codes does not enable unmatched sections.
+
+`core/ls.xsh` preserves operand and directory-name bytes through parsing and
+name ordering. Its fixed-width byte key keeps distinct malformed UTF-8 names
+distinct and ordered; argument restoration uses each original argv index.
+
+`core/sort.xsh` retains each sort record as its original `Bytes`, with a valid
+UTF-8 view only when decoding succeeds. Record boundaries and key/range offsets
+stay byte-based, and in-memory sorting, spill runs, merge readers, and output
+carry the original bytes so malformed UTF-8 survives unchanged. Native Linux
+sort uses bytewise collation. Numeric conventions and month names can use
+locale metadata, but the runtime has no libc `strcoll` binding for
+`LC_COLLATE`; GNU non-C collation is outside the native sort contract.

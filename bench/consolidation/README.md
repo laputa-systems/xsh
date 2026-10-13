@@ -34,26 +34,22 @@ are part of the timed command and their executable hashes are recorded.
 The overlay starts from an immutable `Dockerfile.test` image ID. It adds
 dash 0.5.12 and Oils/YSH 0.37.0 source builds, Nushell 0.107.0's official musl
 binary, and Elvish 0.21.0's official binary. Bash 5.3.9 and Python 3.14.8 come
-from that base image. Archives for both architectures are pinned by SHA-256;
-the overlay never mutates the parent image. No Rust dependencies are added.
+from that base image. Download URLs and SHA-256 pins for both architectures
+are in `versions.lock.json`; the overlay does not mutate its parent image.
 Preparation creates a dedicated local base alias because BuildKit treats bare
 image IDs as registry tags; the alias must resolve to the pinned image ID.
 
-Primary release sources: [Nushell 0.107.0](https://www.nushell.sh/blog/2025-09-02-nushell_0_107_0.html),
-[Nushell release artifacts](https://github.com/nushell/nushell/releases/tag/0.107.0),
-[Elvish binary distribution](https://elv.sh/get/all-binaries.html),
-[Oils installation](https://github.com/oils-for-unix/oils/blob/master/INSTALL.txt),
-and [Debian's upstream dash archive](https://deb.debian.org/debian/pool/main/d/dash/).
-Dash's upstream download host was unavailable at preparation; the pinned
-unmodified upstream tarball is served by Debian. Version selection is fixed
-for reproducibility and does not claim to be the newest release.
-
-Prepare inputs and the overlay on disk outside `/tmp`:
+Prepare inputs and the overlay under ignored `.work/`. Set `TMPDIR` there for
+any temporary files:
 
 ```sh
+mkdir -p .work/tmp .work/consolidation
+export TMPDIR="$PWD/.work/tmp"
 python3 -B bench/consolidation/fixtures.py .work/consolidation/comparative-fixtures
 python3 -B bench/consolidation/prepare.py .work/consolidation/comparative-overlay --build
 ```
+
+Before creating `.work/`, make sure it is ignored through `.git/info/exclude`.
 
 Coordinate the machine compiler queue before `--build`. Preparation builds
 dash with `make -j2`, then Oils with its sequential optimized build; both
