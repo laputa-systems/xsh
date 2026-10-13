@@ -194,9 +194,8 @@ fn stmt_control_flow(arena: &ArenaProgram, id: StmtId) -> ControlFlow {
             let body = block_control_flow(arena, block);
             let can_skip = bool_literal(arena, condition) != Some(true);
             ControlFlow {
-                breaks_target: false,
-                completes: condition_flow.breaks_target
-                    || (condition_flow.completes && (can_skip || body.breaks_target)),
+                breaks_target: condition_flow.breaks_target,
+                completes: condition_flow.completes && (can_skip || body.breaks_target),
             }
         }
         ArenaStmtKind::For { iter, .. } => {
@@ -5435,6 +5434,18 @@ mod return_flow_tests {
         let diagnostics = diagnostics(source);
         assert!(
             !diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_break_in_a_while_condition_targets_the_enclosing_loop() {
+        let source = "pure choose() -> Int {\n  loop {\n    while ctx \"condition\" {\n      break\n      true\n    } {\n      return 1\n    }\n    break\n  }\n}\n";
+        let diagnostics = diagnostics(source);
+        assert!(
+            diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
             "{diagnostics:?}"
