@@ -516,6 +516,15 @@ impl<'a> Linter<'a> {
             return;
         }
         let deletion_span = Span::new(ty_span.source_id, deletion_start, deletion_end);
+        // A dynamic collection's checked initializer type can equal the
+        // annotation even though later uses require the erased element type.
+        // Confirm that removing `List[Any]` preserves the checked local and
+        // expression types before offering the fix.
+        if matches!(&annotation_ty, Type::List(inner) if inner.as_ref() == &Type::Any)
+            && !self.local_annotation_removal_preserves_contract(deletion_span, binding_span)
+        {
+            return;
+        }
         self.diagnostics.push(
             Diagnostic::new(Severity::Warning, "needless type annotation")
                 .with_code(DiagnosticCode::LintNeedlessAnnotation)

@@ -1,5 +1,5 @@
 use super::{LintOptions, Linter};
-use xsh::diagnostic::{Diagnostic, DiagnosticCode};
+use xsh::diagnostic::{Diagnostic, DiagnosticCode, Severity};
 use xsh::frontend::check::Checker;
 use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::parser::Parser;
@@ -85,4 +85,33 @@ fn an_annotation_that_makes_a_function_dynamic_is_not_needless() {
 fn an_annotation_that_widens_the_initializer_is_not_needless() {
     let source = "type Port = Int range 1..=65535\n\nproc show(port: Port, ports: List[Port], names: NonEmpty[Str], rel: RelPath) {\n  let number: Int = port\n  let numbers: List[Int] = ports\n  let listed: List[Str] = names\n  let place: Path = rel\n  let maybe: Int? = number\n  let either: Union[Int, Str] = number\n  print $number (numbers.len()) (listed.len()) $place (maybe ?? 0) (either is Int)\n}\n";
     assert!(lint(source).is_empty(), "{:?}", lint(source));
+}
+
+#[test]
+fn a_dynamic_list_annotation_stays_when_removing_it_breaks_a_typed_boundary() {
+    let source = "pure row() -> Record { {value: 1} }\npure measure(rows: List[Any]) -> Int { rows.len() }\npure lookup() -> Int {\n  let raw: Any = 1\n  let one: List[Any] = [raw]\n  let rows: List[Any] = [row()]\n  measure(rows) + one.len()\n}\n";
+    let diagnostics = lint(source);
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert_eq!(
+        &source[diagnostics[0].labels[0].span.range()],
+        "List[Any]"
+    );
+    assert_eq!(
+        diagnostics[0].labels[0].span.start(),
+        source.find("one: List[Any]").unwrap() + "one: ".len(),
+        "only the independently inferred list remains removable"
+    );
+
+    let rewritten = source.replace("let rows: List[Any]", "let rows");
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), &rewritten);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, &rewritten);
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == Severity::Error),
+        "the unannotated List[Record] must fail at the List[Any] call boundary: {:?}",
+        checked.diagnostics
+    );
 }

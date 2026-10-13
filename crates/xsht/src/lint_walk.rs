@@ -1882,6 +1882,12 @@ impl<'a> Linter<'a> {
         if let Some(edges) = &mut self.callable_edges {
             edges.define(Name::intern(name));
         }
+        let resource_owned = self.checked_output.as_deref().is_some_and(|checked| {
+            checked
+                .local_binding_types
+                .get(&span)
+                .is_some_and(type_may_hold_resource)
+        });
         if let Some(scope) = self.scopes.last_mut() {
             scope.insert(
                 name.to_string(),
@@ -1893,7 +1899,7 @@ impl<'a> Linter<'a> {
                     absence_lookup: false,
                     materialized_record: false,
                     immutable_byte_length: None,
-                    report_unused: report_unused && name != "_",
+                    report_unused: report_unused && name != "_" && !resource_owned,
                 },
             );
         }
@@ -1945,5 +1951,93 @@ impl<'a> Linter<'a> {
             ArenaExprOrRun::Expr(expr) => self.arena.expr(*expr).span,
             ArenaExprOrRun::Run(run) => self.arena.span(self.arena.run_form(*run).span),
         }
+    }
+}
+
+/// A checked local can be unused as a value and still own a resource until its
+/// lexical scope ends. Keep its binding out of `lint.unused-local` so removing
+/// it cannot shorten that lifetime.
+fn type_may_hold_resource(ty: &Type) -> bool {
+    let mut pending = vec![ty];
+    while let Some(ty) = pending.pop() {
+        match ty {
+            Type::ProcessHandle | Type::NetJob | Type::FsRoot | Type::FsLock | Type::Stream(_) => {
+                return true;
+            }
+            Type::List(item) | Type::Set(item) | Type::Optional(item) => pending.push(item),
+            Type::Map(key, value) | Type::Result(key, value) => {
+                pending.push(key);
+                pending.push(value);
+            }
+            Type::Record(fields) => pending.extend(fields.values()),
+            Type::Union(members) => pending.extend(members),
+            Type::Validated(validated) => pending.push(validated.base()),
+            Type::Any
+            | Type::Unknown
+            | Type::Invalid
+            | Type::ErasedRecord
+            | Type::Module(_)
+            | Type::DynamicModule
+            | Type::Error
+            | Type::ErrorFamily(_)
+            | Type::ErrorVariant { .. }
+            | Type::ErrorFacet(_)
+            | Type::ProcessError
+            | Type::Callable(_)
+            | Type::BuiltinParameter(_)
+            | Type::Inference(_) => return true,
+            Type::Null
+            | Type::Bool
+            | Type::Int
+            | Type::UInt
+            | Type::Float
+            | Type::Duration
+            | Type::Str
+            | Type::Bytes
+            | Type::Digest
+            | Type::Regex
+            | Type::Path
+            | Type::Status
+            | Type::EnvPathList
+            | Type::Pure
+            | Type::Proc
+            | Type::Command
+            | Type::Unit
+            | Type::Tag(_) => {}
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod unused_local_resource_tests {
+    use super::super::{LintOptions, Linter};
+    use xsh::diagnostic::DiagnosticCode;
+    use xsh::frontend::check::Checker;
+    use xsh::frontend::source::SourceId;
+    use xsh::frontend::syntax::parser::Parser;
+
+    #[test]
+    fn scope_owned_resource_bindings_are_not_reported_as_unused() {
+        let source = "proc hold_lock() [fs, error] -> Result[Unit] {\n  let lock = fs.lock(p\"unused-lint-lock\")?\n  Ok()\n}\nproc hold_stream() [process, error] {\n  let kept = run.stream --text printf value\n}\npure ignore_scalar() -> Int {\n  let unused = 1\n  0\n}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let diagnostics = Linter::lint(
+            &parsed.arena,
+            source,
+            LintOptions {
+                checked_output: Some(std::sync::Arc::new(checked)),
+                only: Some(vec![DiagnosticCode::LintUnusedLocal]),
+                ..LintOptions::default()
+            },
+        )
+        .diagnostics;
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert_eq!(
+            diagnostics[0].message,
+            "unused local variable `unused`"
+        );
     }
 }
