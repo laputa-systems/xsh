@@ -411,11 +411,11 @@ const SPECIAL_VARIABLES = ["ARGC", "ARGIND", "ARGV", "BINMODE", "CONVFMT", "ENVI
 # The fewest and most arguments each built-in function accepts; sprintf and
 # the bitwise functions that take any number are not listed.
 const BUILTIN_ARITY: Map[List[Int]] = {
-  "length": [0, 1], "substr": [2, 3], "index": [2, 2], "split": [2, 4], "sub": [2, 3], "gsub": [2, 3], "match": [2, 3],
-  "sin": [1, 1], "cos": [1, 1], "atan2": [2, 2], "exp": [1, 1], "log": [1, 1], "sqrt": [1, 1], "int": [1, 1],
-  "rand": [0, 0], "srand": [0, 1], "tolower": [1, 1], "toupper": [1, 1], "system": [1, 1], "close": [1, 2], "fflush": [0, 1],
-  "lshift": [2, 2], "rshift": [2, 2], "compl": [1, 1], "strtonum": [1, 1], "systime": [0, 0], "strftime": [0, 3],
-  "mktime": [1, 2], "gensub": [3, 4], "asort": [1, 3], "asorti": [1, 3], "patsplit": [2, 4], "typeof": [1, 2], "isarray": [1, 1],
+  length: [0, 1], substr: [2, 3], index: [2, 2], split: [2, 4], sub: [2, 3], gsub: [2, 3], match: [2, 3],
+  sin: [1, 1], cos: [1, 1], atan2: [2, 2], exp: [1, 1], log: [1, 1], sqrt: [1, 1], int: [1, 1],
+  rand: [0, 0], srand: [0, 1], tolower: [1, 1], toupper: [1, 1], system: [1, 1], close: [1, 2], fflush: [0, 1],
+  lshift: [2, 2], rshift: [2, 2], compl: [1, 1], strtonum: [1, 1], systime: [0, 0], strftime: [0, 3],
+  mktime: [1, 2], gensub: [3, 4], asort: [1, 3], asorti: [1, 3], patsplit: [2, 4], typeof: [1, 2], isarray: [1, 1],
 }
 const KEYWORDS = ["BEGIN", "END", "function", "func", "if", "else", "while", "for", "do", "break", "continue", "next", "nextfile", "exit", "return", "delete", "in", "getline", "print", "printf"]
 
@@ -1327,7 +1327,7 @@ pure shown_char(code: Int) -> Str {
   one.utf8() ?? "?"
 }
 const REGEX_SPECIAL = [".", "[", "]", "(", ")", "*", "+", "?", "{", "}", "|", "^", "$", "\\"]
-const SIMPLE_ESCAPES: Map[Int] = {"a": 7, "b": 8, "f": 12, "n": 10, "r": 13, "t": 9, "v": 11}
+const SIMPLE_ESCAPES: Map[Int] = {a: 7, b: 8, f: 12, n: 10, r: 13, t: 9, v: 11}
 
 # The replacement for a pattern character: ASCII text passes through, other
 # characters take their alphabet byte. Escaped when the byte is a metacharacter.
@@ -3618,7 +3618,7 @@ proc run_machine(program: Program, linked: Linked, arguments: List[Str], assignm
   let labels = linked.labels
   let entries = linked.entries
   let functions = program.functions
-  var globals: Map[Scalar] = {"FS": String(" "), "OFS": String(" "), "RS": String("\n"), "RT": String(""), "ORS": String("\n"), "SUBSEP": String("\u{1c}"), "OFMT": String("%.6g"), "CONVFMT": String("%.6g"), "NR": Numeric(0.0), "FNR": Numeric(0.0), "NF": Numeric(0.0), "RSTART": Numeric(0.0), "RLENGTH": Numeric(0.0), "FILENAME": String(""), "ARGIND": Numeric(0.0), "BINMODE": Numeric(0.0), "LINT": Numeric(0.0), "TEXTDOMAIN": String("messages"), "IGNORECASE": Numeric(0.0), "FPAT": String("[^[:space:]]+"), "FIELDWIDTHS": String(""), "ERRNO": String(""), "PREC": Numeric(53.0), "ROUNDMODE": String("N")}
+  var globals: Map[Scalar] = {FS: String(" "), OFS: String(" "), RS: String("\n"), RT: String(""), ORS: String("\n"), SUBSEP: String("\u{1c}"), OFMT: String("%.6g"), CONVFMT: String("%.6g"), NR: Numeric(0.0), FNR: Numeric(0.0), NF: Numeric(0.0), RSTART: Numeric(0.0), RLENGTH: Numeric(0.0), FILENAME: String(""), ARGIND: Numeric(0.0), BINMODE: Numeric(0.0), LINT: Numeric(0.0), TEXTDOMAIN: String("messages"), IGNORECASE: Numeric(0.0), FPAT: String("[^[:space:]]+"), FIELDWIDTHS: String(""), ERRNO: String(""), PREC: Numeric(53.0), ROUNDMODE: String("N")}
   var arrays: Map[Table] = {}
   var operand_cells: Map[Cell] = {"0": Cell(value: String("awk"), seq: 0)}
   for at in range(arguments.len()) { operand_cells = operand_cells.set(f"{at + 1}", Cell(value: input(arguments[at])?, seq: at + 1)) }

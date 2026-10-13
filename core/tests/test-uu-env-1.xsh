@@ -298,7 +298,7 @@ test test_uu_env_shebang_error { |ctx|
 # origin: uutils test_env::test_simple_braced_variable
 test test_uu_env_simple_braced_variable { |ctx|
   let s = uu.scene(ctx)?
-  let r1 = uu.invoke(s, "env", [r"""-Secho ${TEST_VAR_12345}"""], vars: {"TEST_VAR_12345": "value"})?
+  let r1 = uu.invoke(s, "env", [r"""-Secho ${TEST_VAR_12345}"""], vars: {TEST_VAR_12345: "value"})?
   uu.succeeds(r1)
   uu.stdout_is(r1, "value\n")
 }

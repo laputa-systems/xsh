@@ -181,7 +181,7 @@ test test_uu_sort_legacy_plus_minus_accepts_with_size_max { |ctx|
 test test_uu_sort_locale_c_byte_order { |ctx|
   {
   let s = uu.scene(ctx)?
-  let r = uu.invoke(s, "sort", [], stdin: bytes.from_text("a\nA\nb\nB\n"), vars: {"LC_ALL": "C"})?
+  let r = uu.invoke(s, "sort", [], stdin: bytes.from_text("a\nA\nb\nB\n"), vars: {LC_ALL: "C"})?
   uu.succeeds(r)
   uu.stdout_is(r, "A\nB\na\nb\n")
   }
@@ -191,7 +191,7 @@ test test_uu_sort_locale_c_byte_order { |ctx|
 test test_uu_sort_locale_collation_c_locale { |ctx|
   {
   let s = uu.scene(ctx)?
-  let r = uu.invoke(s, "sort", [], stdin: bytes.from_text("é\ne\nE\na\nA\nz\n"), vars: {"LC_ALL": "C"})?
+  let r = uu.invoke(s, "sort", [], stdin: bytes.from_text("é\ne\nE\na\nA\nz\n"), vars: {LC_ALL: "C"})?
   uu.succeeds(r)
   uu.stdout_is(r, "A\nE\na\ne\nz\né\n")
   }
@@ -218,7 +218,7 @@ test test_uu_sort_locale_collation_utf8 { |ctx|
 test test_uu_sort_locale_posix_byte_order { |ctx|
   {
   let s = uu.scene(ctx)?
-  let r = uu.invoke(s, "sort", [], stdin: bytes.from_text("a\nA\nb\nB\n"), vars: {"LC_ALL": "POSIX"})?
+  let r = uu.invoke(s, "sort", [], stdin: bytes.from_text("a\nA\nb\nB\n"), vars: {LC_ALL: "POSIX"})?
   uu.succeeds(r)
   uu.stdout_is(r, "A\nB\na\nb\n")
   }
@@ -228,7 +228,7 @@ test test_uu_sort_locale_posix_byte_order { |ctx|
 test test_uu_sort_locale_utf8_with_key_field { |ctx|
   {
   let s = uu.scene(ctx)?
-  let r = uu.invoke(s, "sort", ["-k3"], stdin: bytes.from_text("a b 5433 down data path1 path2 path3 path4 path5\nc d 5435 down data path1 path2 path3 path4 path5\ne f 5436 down data path1 path2 path3 path4 path5\n"), vars: {"LANG": "en_US.utf8"})?
+  let r = uu.invoke(s, "sort", ["-k3"], stdin: bytes.from_text("a b 5433 down data path1 path2 path3 path4 path5\nc d 5435 down data path1 path2 path3 path4 path5\ne f 5436 down data path1 path2 path3 path4 path5\n"), vars: {LANG: "en_US.utf8"})?
   uu.succeeds(r)
   uu.stdout_is(r, "a b 5433 down data path1 path2 path3 path4 path5\nc d 5435 down data path1 path2 path3 path4 path5\ne f 5436 down data path1 path2 path3 path4 path5\n")
   }
@@ -446,7 +446,7 @@ test test_uu_sort_month_default2 { |ctx|
 test test_uu_sort_month_sort_french_embedded_blanks { |ctx|
   let s = uu.scene(ctx)?
   if !locale_available(s, "fr_FR.UTF-8") { test.skip("requested UTF-8 locale unavailable") }
-  let r = uu.invoke(s, "sort", ["-M"], stdin: bytes.from_text("juin\nav   ril\nmars\n"), vars: {"LC_ALL": "fr_FR.UTF-8"})?
+  let r = uu.invoke(s, "sort", ["-M"], stdin: bytes.from_text("juin\nav   ril\nmars\n"), vars: {LC_ALL: "fr_FR.UTF-8"})?
   uu.succeeds(r)
   uu.stdout_is(r, "av   ril\nmars\njuin\n")
 }

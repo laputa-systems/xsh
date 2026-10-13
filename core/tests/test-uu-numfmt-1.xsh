@@ -73,7 +73,7 @@ test test_uu_numfmt_debug_warnings { |ctx|
   uu.succeeds(r2)
   uu.stdout_is(r2, "4.0K\n")
   uu.stderr_is(r2, "numfmt: --header ignored with command-line input\n")
-  let r3 = uu.invoke(s, "numfmt", ["--debug", "--grouping", "--from=si", "4.0K"], vars: {"LC_ALL": "C"})?
+  let r3 = uu.invoke(s, "numfmt", ["--debug", "--grouping", "--from=si", "4.0K"], vars: {LC_ALL: "C"})?
   uu.succeeds(r3)
   uu.stdout_is(r3, "4000\n")
   uu.stderr_is(r3, "numfmt: grouping has no effect in this locale\n")

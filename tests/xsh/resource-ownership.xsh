@@ -170,7 +170,7 @@ test resource_middle_block_job_assignment_survives { |ctx|
 test resource_stats_container_retains_its_child {
   let summary = {
     let child = spawn run sleep 30 ?
-    {blanks: 0, blobs: {"child": child}, code: 0, comments: 0}
+    {blanks: 0, blobs: {child: child}, code: 0, comments: 0}
   }
   let child = summary.blobs.get("child")?
   defer child.cancel(kill_after: 0ms)

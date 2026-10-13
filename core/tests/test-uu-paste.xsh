@@ -158,7 +158,7 @@ test test_uu_paste_paste_delimiter_escape_sequences { |ctx|
 test test_uu_paste_multi_byte_delimiter { |ctx|
   let s = uu.scene(ctx)?
   for d in ["-d", "--delimiters"] {
-    let r = uu.invoke(s, "paste", [d, "!ß@", "-s"], stdin: bytes.from_text("1\n2\n3\n4\n5\n6\n"), vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", [d, "!ß@", "-s"], stdin: bytes.from_text("1\n2\n3\n4\n5\n6\n"), vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_only(r, "1!2ß3@4!5ß6\n")
   }
@@ -171,7 +171,7 @@ test test_uu_paste_data { |ctx|
   uu.write(s, "in0", "a")
   uu.write(s, "in1", "b")
   {
-    let r = uu.invoke(s, "paste", ["in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "a\tb\n")
   }
@@ -179,7 +179,7 @@ test test_uu_paste_data { |ctx|
   uu.write(s, "in0", "a\n")
   uu.write(s, "in1", "b")
   {
-    let r = uu.invoke(s, "paste", ["in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "a\tb\n")
   }
@@ -187,7 +187,7 @@ test test_uu_paste_data { |ctx|
   uu.write(s, "in0", "a")
   uu.write(s, "in1", "b\n")
   {
-    let r = uu.invoke(s, "paste", ["in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "a\tb\n")
   }
@@ -195,7 +195,7 @@ test test_uu_paste_data { |ctx|
   uu.write(s, "in0", "a\n")
   uu.write(s, "in1", "b\n")
   {
-    let r = uu.invoke(s, "paste", ["in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "a\tb\n")
   }
@@ -203,7 +203,7 @@ test test_uu_paste_data { |ctx|
   uu.write(s, "in0", "a")
   uu.write(s, "in1", "b")
   {
-    let r = uu.invoke(s, "paste", ["-z", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-z", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "a\tb\0")
   }
@@ -211,7 +211,7 @@ test test_uu_paste_data { |ctx|
   uu.write(s, "in0", "a\0")
   uu.write(s, "in1", "b")
   {
-    let r = uu.invoke(s, "paste", ["-z", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-z", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "a\tb\0")
   }
@@ -219,7 +219,7 @@ test test_uu_paste_data { |ctx|
   uu.write(s, "in0", "a")
   uu.write(s, "in1", "b\0")
   {
-    let r = uu.invoke(s, "paste", ["-z", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-z", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "a\tb\0")
   }
@@ -227,7 +227,7 @@ test test_uu_paste_data { |ctx|
   uu.write(s, "in0", "a\0")
   uu.write(s, "in1", "b\0")
   {
-    let r = uu.invoke(s, "paste", ["-z", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-z", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "a\tb\0")
   }
@@ -235,7 +235,7 @@ test test_uu_paste_data { |ctx|
   uu.write(s, "in0", "1\na")
   uu.write(s, "in1", "2\nb")
   {
-    let r = uu.invoke(s, "paste", ["-d", " ", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-d", " ", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1 2\na b\n")
   }
@@ -243,7 +243,7 @@ test test_uu_paste_data { |ctx|
   uu.write(s, "in0", "1\na\n")
   uu.write(s, "in1", "2\nb")
   {
-    let r = uu.invoke(s, "paste", ["-d", " ", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-d", " ", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1 2\na b\n")
   }
@@ -251,7 +251,7 @@ test test_uu_paste_data { |ctx|
   uu.write(s, "in0", "1\na")
   uu.write(s, "in1", "2\nb\n")
   {
-    let r = uu.invoke(s, "paste", ["-d", " ", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-d", " ", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1 2\na b\n")
   }
@@ -259,7 +259,7 @@ test test_uu_paste_data { |ctx|
   uu.write(s, "in0", "1\na\n")
   uu.write(s, "in1", "2\nb\n")
   {
-    let r = uu.invoke(s, "paste", ["-d", " ", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-d", " ", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1 2\na b\n")
   }
@@ -267,7 +267,7 @@ test test_uu_paste_data { |ctx|
   uu.write(s, "in0", "1\0a")
   uu.write(s, "in1", "2\0b")
   {
-    let r = uu.invoke(s, "paste", ["-zd", " ", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-zd", " ", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1 2\0a b\0")
   }
@@ -275,7 +275,7 @@ test test_uu_paste_data { |ctx|
   uu.write(s, "in0", "1\0a\0")
   uu.write(s, "in1", "2\0b")
   {
-    let r = uu.invoke(s, "paste", ["-zd", " ", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-zd", " ", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1 2\0a b\0")
   }
@@ -283,7 +283,7 @@ test test_uu_paste_data { |ctx|
   uu.write(s, "in0", "1\0a")
   uu.write(s, "in1", "2\0b\0")
   {
-    let r = uu.invoke(s, "paste", ["-zd", " ", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-zd", " ", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1 2\0a b\0")
   }
@@ -291,7 +291,7 @@ test test_uu_paste_data { |ctx|
   uu.write(s, "in0", "1\0a\0")
   uu.write(s, "in1", "2\0b\0")
   {
-    let r = uu.invoke(s, "paste", ["-zd", " ", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-zd", " ", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1 2\0a b\0")
   }
@@ -299,7 +299,7 @@ test test_uu_paste_data { |ctx|
   uu.write(s, "in0", "1\na\n")
   uu.write(s, "in1", "2\nb\n")
   {
-    let r = uu.invoke(s, "paste", ["-d", "💣", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-d", "💣", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1💣2\na💣b\n")
   }
@@ -307,7 +307,7 @@ test test_uu_paste_data { |ctx|
   uu.write(s, "in0", "1\na\n")
   uu.write(s, "in1", "2\nb\n")
   {
-    let r = uu.invoke(s, "paste", ["-d", "💣", "-s", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-d", "💣", "-s", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1💣a\n2💣b\n")
   }
@@ -315,7 +315,7 @@ test test_uu_paste_data { |ctx|
   uu.write(s, "in0", "1 \na \n")
   uu.write(s, "in1", "2\t\nb\t\n")
   {
-    let r = uu.invoke(s, "paste", ["-d", "|", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-d", "|", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1 |2\t\na |b\t\n")
   }
@@ -323,7 +323,7 @@ test test_uu_paste_data { |ctx|
   uu.write(s, "in0", "1\n2\n")
   uu.write(s, "in1", "a\nb\n")
   {
-    let r = uu.invoke(s, "paste", ["-d", "¢", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-d", "¢", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1¢a\n2¢b\n")
   }
@@ -331,14 +331,14 @@ test test_uu_paste_data { |ctx|
   uu.write(s, "in0", "1\n2\n")
   uu.write(s, "in1", "a\nb\n")
   {
-    let r = uu.invoke(s, "paste", ["-d", "€", "in0", "in1"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-d", "€", "in0", "in1"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1€a\n2€b\n")
   }
   # utf8-4byte-delim
   uu.write(s, "in0", "1\n2\n3\n")
   {
-    let r = uu.invoke(s, "paste", ["-d", "😀", "-s", "in0"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-d", "😀", "-s", "in0"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "1😀2😀3\n")
   }
@@ -347,7 +347,7 @@ test test_uu_paste_data { |ctx|
   uu.write(s, "in1", "1\n2\n3\n")
   uu.write(s, "in2", "x\ny\nz\n")
   {
-    let r = uu.invoke(s, "paste", ["-d", "¢€", "in0", "in1", "in2"], vars: {"LC_ALL": "C.UTF-8"})?
+    let r = uu.invoke(s, "paste", ["-d", "¢€", "in0", "in1", "in2"], vars: {LC_ALL: "C.UTF-8"})?
     uu.succeeds(r)
     uu.stdout_is(r, "a¢1€x\nb¢2€y\nc¢3€z\n")
   }
@@ -359,7 +359,7 @@ test test_uu_paste_non_utf8_delimiter { |ctx|
   uu.write(s, "f1", "1\n2\n")
   uu.write(s, "f2", "a\nb\n")
   let delimiter = bytes.from_ints([162, 227])? as Path
-  let r = uu.invoke_paths(s, "paste", [p"-d", delimiter, p"f1", p"f2"], vars: {"LC_ALL": "zh_CN.gb18030"})?
+  let r = uu.invoke_paths(s, "paste", [p"-d", delimiter, p"f1", p"f2"], vars: {LC_ALL: "zh_CN.gb18030"})?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, bytes.concat([b"1", bytes.from_ints([162, 227])?, b"a\n2", bytes.from_ints([162, 227])?, b"b\n"]))
 }

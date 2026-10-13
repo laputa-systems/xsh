@@ -450,7 +450,7 @@ test test_unix_exec_env_rejects_invalid_strings_before_redirection { |ctx|
   let output = fp"{root}/must-not-exist"
   let command = process.command_argv(p"/bin/true", ["true"], stdout: output)
   let bad_key: Map[Str, Str] = {"BAD=KEY": "value"}
-  let bad_value: Map[Str, Str] = {"VALID": "bad\u{0}value"}
+  let bad_value: Map[Str, Str] = {VALID: "bad\u{0}value"}
   let empty: Map[Str, Str] = {}
   test.error_kind(unix.exec_env(command, bad_key), "unix-exec-env")
   test.error_kind(unix.exec_env(command, bad_value), "unix-exec-env")

@@ -566,13 +566,13 @@ proc block_values(device: block.BlockDevice, table: mounts.MountTable, cols: Lis
   let size = device.size_bytes
   let kind = if device.kind == "partition" { "part" } else if device.name.starts_with("loop") { "loop" } else if ! device.slave_indices.is_empty() { "dm" } else { "disk" }
   let fields: Map[Str] = {
-    "NAME": if paths { f"/dev/{device.name}" } else { device.name }, "KNAME": device.name, "PATH": f"/dev/{device.name}",
+    NAME: if paths { f"/dev/{device.name}" } else { device.name }, KNAME: device.name, PATH: f"/dev/{device.name}",
     "MAJ:MIN": if device.major != null and device.minor != null { f"{device.major}:{device.minor}" } else { "" },
-    "SIZE": if size == null { "" } else if byte_sizes { f"{size}" } else { bytes.human(size) },
-    "RM": if device.removable == null { "" } else if device.removable { "1" } else { "0" },
-    "RO": if device.read_only == null { "" } else if device.read_only { "1" } else { "0" },
-    "TYPE": kind, "PKNAME": device.parent_name ?? "", "MOUNTPOINT": if mounted.is_empty() { "" } else { mounted[-1] }, "MOUNTPOINTS": mounted.join("\n"),
-    "FSTYPE": metadata.type, "UUID": metadata.uuid, "LABEL": metadata.label, "MODEL": device.model.value ?? "",
+    SIZE: if size == null { "" } else if byte_sizes { f"{size}" } else { bytes.human(size) },
+    RM: if device.removable == null { "" } else if device.removable { "1" } else { "0" },
+    RO: if device.read_only == null { "" } else if device.read_only { "1" } else { "0" },
+    TYPE: kind, PKNAME: device.parent_name ?? "", MOUNTPOINT: if mounted.is_empty() { "" } else { mounted[-1] }, MOUNTPOINTS: mounted.join("\n"),
+    FSTYPE: metadata.type, UUID: metadata.uuid, LABEL: metadata.label, MODEL: device.model.value ?? "",
     "LOG-SEC": if device.logical_sector_bytes == null { "" } else { f"{device.logical_sector_bytes}" },
     "PHY-SEC": if device.physical_sector_bytes == null { "" } else { f"{device.physical_sector_bytes}" },
   }
@@ -790,7 +790,7 @@ proc wipefs(argv: List[Str]) {
       continue
     }
     for item in selected {
-      let values: Map[Str] = {"DEVICE": fp"{name}".basename(), "OFFSET": hexadecimal(item.offset), "TYPE": item.type, "UUID": item.uuid, "LABEL": item.label, "LENGTH": f"{item.magic.len()}", "USAGE": item.usage}
+      let values: Map[Str] = {DEVICE: fp"{name}".basename(), OFFSET: hexadecimal(item.offset), TYPE: item.type, UUID: item.uuid, LABEL: item.label, LENGTH: f"{item.magic.len()}", USAGE: item.usage}
       let cells = [values.get(column) ?? "" for column in cols]
       rows += [cells]
       if "-J" in args.flags {
@@ -1325,17 +1325,17 @@ proc list_layout(name: Str, layout: DiskLayout, request: Str) {
   var rows = []
   for item in layout.partitions {
     let known: Map[Str] = {
-      "Device": partition_node(name, item.index), "Boot": if item.bootable { "*" } else { "" },
-      "Start": f"{item.start}", "End": f"{item.end}", "Sectors": f"{item.size}", "Size": human_size(item.size * layout.sector_size, false),
-      "Id": item.type, "Type": if layout.label == "dos" { type_name(DOS_TYPE_NAMES, item.type) } else { type_name(GPT_TYPE_NAMES, item.type) },
-      "Type-UUID": item.type, "Attrs": item.attrs, "Name": item.name, "UUID": item.uuid,
+      Device: partition_node(name, item.index), Boot: if item.bootable { "*" } else { "" },
+      Start: f"{item.start}", End: f"{item.end}", Sectors: f"{item.size}", Size: human_size(item.size * layout.sector_size, false),
+      Id: item.type, Type: if layout.label == "dos" { type_name(DOS_TYPE_NAMES, item.type) } else { type_name(GPT_TYPE_NAMES, item.type) },
+      "Type-UUID": item.type, Attrs: item.attrs, Name: item.name, UUID: item.uuid,
     }
     rows += [[known.get(column) ?? "" for column in cols]]
   }
   let numeric = ["Start", "End", "Sectors", "Size", "Id"]
   # Minimum widths of the fdisk columns; they apply once the data outgrows
   # the heading.
-  let minimums: Map[Int] = {"Device": 10, "Start": 5, "End": 5, "Sectors": 5, "Size": 5, "Type-UUID": 36, "UUID": 36}
+  let minimums: Map[Int] = {Device: 10, Start: 5, End: 5, Sectors: 5, Size: 5, "Type-UUID": 36, UUID: 36}
   gnu.write_text("\n")
   for line in table_lines(cols, [column in numeric for column in cols], [minimums.get(column) ?? 0 for column in cols], rows, true) { gnu.write_text(line + "\n") }
 }
@@ -1357,7 +1357,7 @@ proc partition_command(command: Str, argv: List[Str]) {
       if table.label == "none" { operand_failed(name, "failed to read partition table") }
       if "--noheadings" not in args.flags { gnu.write_text(cols.join(" ") + "\n") }
       for item in table.partitions {
-        let row: Map[Str] = {"NR": f"{item.index}", "START": f"{item.start}", "END": f"{item.end}", "SECTORS": f"{item.size}", "SIZE": f"{item.size * table.sector_size}", "NAME": item.name, "UUID": item.uuid, "TYPE": item.type}
+        let row: Map[Str] = {NR: f"{item.index}", START: f"{item.start}", END: f"{item.end}", SECTORS: f"{item.size}", SIZE: f"{item.size * table.sector_size}", NAME: item.name, UUID: item.uuid, TYPE: item.type}
         gnu.write_text([row.get(column) ?? "" for column in cols].join(" ") + "\n")
       }
     }

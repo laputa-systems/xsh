@@ -75,7 +75,7 @@ along with this program. If not, see http://www.gnu.org/licenses/.
 
 const LONG_OPTIONS = ["assign", "load", "include", "source", "file", "exec", "field-separator", "characters-as-bytes", "traditional", "copyright", "dump-variables", "debug", "gen-pot", "help", "trace", "csv", "lint", "bignum", "use-lc-numeric", "non-decimal-data", "pretty-print", "optimize", "profile", "posix", "re-interval", "no-optimize", "sandbox", "lint-old", "version"]
 const OPTIONS_WITH_VALUE = ["assign", "load", "include", "source", "file", "exec", "field-separator"]
-const SHORT_LONG: Map[Str] = {"v": "assign", "l": "load", "i": "include", "e": "source", "f": "file", "E": "exec", "F": "field-separator", "b": "characters-as-bytes", "c": "traditional", "C": "copyright", "d": "dump-variables", "D": "debug", "g": "gen-pot", "h": "help", "I": "trace", "k": "csv", "L": "lint", "M": "bignum", "N": "use-lc-numeric", "n": "non-decimal-data", "o": "pretty-print", "O": "optimize", "p": "profile", "P": "posix", "r": "re-interval", "s": "no-optimize", "S": "sandbox", "t": "lint-old", "V": "version"}
+const SHORT_LONG: Map[Str] = {v: "assign", l: "load", i: "include", e: "source", f: "file", E: "exec", F: "field-separator", b: "characters-as-bytes", c: "traditional", C: "copyright", d: "dump-variables", D: "debug", g: "gen-pot", h: "help", I: "trace", k: "csv", L: "lint", M: "bignum", N: "use-lc-numeric", n: "non-decimal-data", o: "pretty-print", O: "optimize", p: "profile", P: "posix", r: "re-interval", s: "no-optimize", S: "sandbox", t: "lint-old", V: "version"}
 const SHORT_WITH_VALUE = ["v", "l", "i", "e", "f", "E", "F"]
 const SHORT_OPTIONAL_VALUE = ["d", "D", "L", "o", "p"]
 
