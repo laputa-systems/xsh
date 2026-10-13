@@ -90,6 +90,13 @@ proc callback_from_map(callbacks: Map[Scale]) [error] -> Result[Int] {
   } else { |failure| return Err(failure) }
 }
 
+proc callback_from_literal_map() [error] -> Result[Int] {
+  let callbacks: Map[Str, Scale] = {["double"]: double}
+  with selected = callbacks.get("double") {
+    return Ok(selected(4))
+  } else { |failure| return Err(failure) }
+}
+
 proc callback_from_record(callbacks: CallbackRecord) [error] -> Result[Int] {
   with selected = callbacks.get("double") {
     return Ok(selected(4))
@@ -545,6 +552,10 @@ test test_registered_method_checks_intrinsic_formatted_string_receiver {
 
 test test_empty_typed_callable_map_is_a_valid_initializer {
   assert empty_callback_count() == 0
+}
+
+test test_typed_callable_map_literal_is_checked_and_called {
+  assert callback_from_literal_map()? == 8
 }
 
 test test_registered_method_uses_computed_float_receiver {
