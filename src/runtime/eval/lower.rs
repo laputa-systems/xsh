@@ -7,6 +7,7 @@ use crate::sema::check::{
     CompactBodyFacts, CompactDeclOutput, Conversion,
     ResourceTransferSite, block_callable_body_cannot_fall_through_arena,
 };
+use crate::sema::arguments::ArgumentValueSource;
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
 use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::{Name, QualifiedName, Symbol};
@@ -59,7 +60,6 @@ pub(super) struct SlotScope {
     /// The `?` written on a deferred call. `defer f()?` is `defer f()`, so its
     /// failure is placed at the call, as the bare form's is.
     deferred_propagation: Option<ExprId>,
-    bound_call_entries: FxHashSet<ExprId>,
     collect_slots: FxHashMap<ExprId, usize>,
     // Layout entries restore the enclosing runtime names when a block ends.
     declared: Vec<(Name, Option<usize>)>,
@@ -74,62 +74,76 @@ pub(super) struct SlotSnapshot {
 
 /// Source-ordered bindings and one lowered value for each static expansion entry.
 pub(super) struct LoweredArgumentValues {
-    pub(super) values: Vec<BuildExprId>,
+    pub(super) arguments: Vec<CallArgument>,
     pub(super) bindings: Vec<(BuildExprId, usize)>,
 }
 
+/// One call argument after static named-spread expansion. Source arguments
+/// retain their real source identity for constant planning; record fields use
+/// the checked projection source and the value already lowered from it.
+#[derive(Clone)]
+pub(super) struct CallArgument {
+    pub(super) name: Option<Name>,
+    pub(super) splice: bool,
+    pub(super) source: ArgumentValueSource,
+    pub(super) ty: Type,
+    pub(super) span: Span,
+    pub(super) lowered: Option<BuildExprId>,
+}
+
 struct LoweredFsFilesArgs {
-    root: ExprId,
-    gitignore: Option<ExprId>,
-    stat: Option<ExprId>,
-    hidden: Option<ExprId>,
-    exts: Option<ExprId>,
+    root: CallArgument,
+    gitignore: Option<CallArgument>,
+    stat: Option<CallArgument>,
+    hidden: Option<CallArgument>,
+    exts: Option<CallArgument>,
 }
 
 struct LoweredFsListArgs {
-    path: ExprId,
-    stat: Option<ExprId>,
-    ordered: Option<ExprId>,
+    path: CallArgument,
+    stat: Option<CallArgument>,
+    ordered: Option<CallArgument>,
 }
 
 struct LoweredArchiveTarCreateArgs {
-    path: ExprId,
-    root: ExprId,
-    entries: ExprId,
-    compression: Option<ExprId>,
-    overwrite: Option<ExprId>,
+    path: CallArgument,
+    root: CallArgument,
+    entries: CallArgument,
+    compression: Option<CallArgument>,
+    overwrite: Option<CallArgument>,
 }
 
 struct LoweredPathMkdirArgs {
-    parents: Option<ExprId>,
+    parents: Option<CallArgument>,
 }
 
 struct LoweredPathRemoveArgs {
-    missing_ok: Option<ExprId>,
+    missing_ok: Option<CallArgument>,
 }
 
 struct LoweredPathWriteArgs {
-    data: ExprId,
+    data: CallArgument,
 }
 
 /// The checker's binding of a registered call's source entries to the
 /// parameters of its selected overload.
 struct CheckedApiArguments {
     sig: &'static ModuleFnSig,
-    values: Vec<Option<ExprId>>,
+    values: Vec<Option<CallArgument>>,
 }
 
 impl CheckedApiArguments {
-    fn get(&self, name: &str) -> Option<ExprId> {
+    fn get(&self, name: &str) -> Option<CallArgument> {
         self.values[self
             .sig
             .params
             .iter()
             .position(|param| param.name == name)?]
+            .clone()
     }
 
     /// Parameter-ordered values with absent trailing defaults dropped.
-    fn ordered(&self) -> Vec<Option<ExprId>> {
+    fn ordered(&self) -> Vec<Option<CallArgument>> {
         let mut values = self.values.clone();
         while values.last().is_some_and(Option::is_none) {
             values.pop();
@@ -141,33 +155,33 @@ impl CheckedApiArguments {
 struct LoweredModuleCallArgs {
     semantic_rule: crate::modules::signature::SemanticRule,
     op: RuntimeOp,
-    args: Vec<Option<ExprId>>,
+    args: Vec<Option<CallArgument>>,
 }
 
 struct LoweredHashVerifyFileArgs {
-    path: ExprId,
+    path: CallArgument,
     /// The algorithm the checksum argument's name selected.
     algorithm: &'static str,
-    expected: ExprId,
+    expected: CallArgument,
 }
 
 struct LoweredProcessCommandArgvArgs {
-    target: ExprId,
-    argv: ExprId,
-    cwd: Option<ExprId>,
-    env: Option<ExprId>,
-    stdin: Option<ExprId>,
-    stdout: Option<ExprId>,
-    stderr: Option<ExprId>,
-    stdout_append: Option<ExprId>,
-    stderr_append: Option<ExprId>,
-    timeout: Option<ExprId>,
-    detach: Option<ExprId>,
-    new_session: Option<ExprId>,
-    ignore_hup: Option<ExprId>,
-    cpu_max: Option<ExprId>,
-    accept: Option<ExprId>,
-    same_group: Option<ExprId>,
+    target: CallArgument,
+    argv: CallArgument,
+    cwd: Option<CallArgument>,
+    env: Option<CallArgument>,
+    stdin: Option<CallArgument>,
+    stdout: Option<CallArgument>,
+    stderr: Option<CallArgument>,
+    stdout_append: Option<CallArgument>,
+    stderr_append: Option<CallArgument>,
+    timeout: Option<CallArgument>,
+    detach: Option<CallArgument>,
+    new_session: Option<CallArgument>,
+    ignore_hup: Option<CallArgument>,
+    cpu_max: Option<CallArgument>,
+    accept: Option<CallArgument>,
+    same_group: Option<CallArgument>,
 }
 
 
@@ -211,7 +225,7 @@ mod types;
 mod values;
 
 use api::{
-    positional_call_args, single_positional_arena_call_arg, lowered_str_byte_op,
+    call_positional_arguments, positional_call_args, single_positional_arena_call_arg, lowered_str_byte_op,
     script_argument_slots, lower_process_command_argv_args, lowered_module_call_args,
     lower_hash_verify_file_args, compact_call_arg_expr, lower_archive_tar_create_args,
     lower_path_mkdir_args, lower_path_remove_args, lower_path_write_args, lower_fs_files_args,
@@ -478,7 +492,6 @@ pub(in crate::runtime::eval) fn probe_compact_lower_constructed_bodies_in_scope(
         function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch::default())),
         with_error_source_exprs: FxHashMap::default(),
-        spread_programs: Rc::default(),
     };
     probe.probe_program();
     probe.output
@@ -570,7 +583,6 @@ pub(super) fn lower_compact_function_units_into(
         .map(|function| function.key)
         .collect::<Vec<_>>();
     let function_defs = Rc::new(RefCell::new(Some(Rc::clone(&index))));
-    let spread_programs = Rc::default();
     let empty_pures = FxHashSet::default();
     let empty_procs = FxHashSet::default();
     let empty_qualified_pures = FxHashSet::default();
@@ -603,7 +615,6 @@ pub(super) fn lower_compact_function_units_into(
         function_defs: Rc::clone(&function_defs),
         scratch: Rc::new(RefCell::new(BuildScratch::default())),
         with_error_source_exprs: FxHashMap::default(),
-        spread_programs: Rc::clone(&spread_programs),
     };
     let mut prefixes: FxHashMap<Option<Name>, CompactTopLevelPrefix> = FxHashMap::default();
     for function in index.defs.iter().copied() {
@@ -628,7 +639,6 @@ pub(super) fn lower_compact_function_units_into(
             function_defs: Rc::clone(&function_defs),
             scratch: Rc::new(RefCell::new(BuildScratch::default())),
             with_error_source_exprs: FxHashMap::default(),
-            spread_programs: Rc::clone(&spread_programs),
         };
         let (scc_member_count, scc_group) = index.scc_metadata(&function);
         let unit = probe.lower_function_unit(
@@ -675,7 +685,6 @@ pub(super) fn lower_compact_top_level_program_with_probe(
         function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch::default())),
         with_error_source_exprs: FxHashMap::default(),
-        spread_programs: Rc::default(),
     };
     let root = program.arena.stmt_ids(scope.root_statements).collect::<Vec<_>>();
     let lowered = probe.lower_program_statements(&root);
@@ -714,7 +723,6 @@ fn compact_top_level_known(
         function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch::default())),
         with_error_source_exprs: FxHashMap::default(),
-        spread_programs: Rc::default(),
     };
     probe.collect_top_level_known(&statements)
 }
@@ -749,7 +757,6 @@ fn compact_function_top_level_known(
         function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch::default())),
         with_error_source_exprs: FxHashMap::default(),
-        spread_programs: Rc::default(),
     };
     let mut prefix = CompactTopLevelPrefix::for_namespace(program, scope, namespace);
     prefix.advance_to_recording(&probe, function_id);
@@ -1273,14 +1280,6 @@ struct CompactLowerConstructProbe<'a, 'defs> {
     function_defs: Rc<RefCell<Option<Rc<CompactFunctionIndex>>>>,
     scratch: Rc<RefCell<BuildScratch>>,
     with_error_source_exprs: FxHashMap<ExprId, usize>,
-    /// A copy of `program` and `bodies` that named-spread calls append their
-    /// argument projections to, shared by every probe over the same two.
-    ///
-    /// The projections of a call are synthetic nodes, which need a program
-    /// that can grow. Copying the program for each call is work proportional
-    /// to the whole program per call; this copy is made for the first call of
-    /// a pass and extended by the later ones.
-    spread_programs: Rc<RefCell<Option<Box<SpreadPrograms>>>>,
 }
 
 fn with_error_source_exprs(program: &ArenaProgram, initializer: ExprId) -> Vec<ExprId> {
@@ -1323,21 +1322,6 @@ fn with_error_source_exprs(program: &ArenaProgram, initializer: ExprId) -> Vec<E
     let mut sources = sources.into_iter().collect::<Vec<_>>();
     sources.sort_unstable_by_key(|expr| expr.index());
     sources
-}
-
-/// A program and its body facts with the argument projections of
-/// named-spread calls appended. Nothing is removed or renumbered, so every
-/// node of the original has the same identity here.
-struct SpreadPrograms {
-    program: ArenaProgram,
-    bodies: CompactBodyFacts,
-}
-
-#[cfg(test)]
-thread_local! {
-    /// How many times this thread copied a whole program for a named-spread
-    /// call.
-    static SPREAD_PROGRAM_COPIES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2928,7 +2912,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         function_defs: Rc::new(RefCell::new(None)),
                         scratch: self.scratch.clone(),
                         with_error_source_exprs: FxHashMap::default(),
-                        spread_programs: Rc::clone(&self.spread_programs),
                     };
                     probe.lower_program_statements(&module_statement_ids)
                 };
@@ -5858,7 +5841,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 ))
             }
             ArenaExprKind::Call { callee, args } => {
-                self.lower_call(id, callee, args, slots, current_function, item_slot)
+                self.lower_call(id, callee, args, None, slots, current_function, item_slot)
             }
             ArenaExprKind::BuilderCall { call, block } => self.lower_process_command_builder(
                 call,
@@ -6685,73 +6668,6 @@ mod compact_expr_kind_tests {
 
         assert_eq!(COMPACT_EXPR_KIND_COUNT, 52);
         assert_eq!(COMPACT_EXPR_KIND_CATALOG, EXPECTED);
-    }
-}
-
-#[cfg(test)]
-mod named_spread_tests {
-    /// Builds `source` and returns how many whole-program copies its
-    /// named-spread calls made.
-    fn program_copies(source: &str) -> u64 {
-        let name = "named-spread.xsh";
-        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
-            name,
-            crate::loader::entry_source_from_text(name, source.to_string()),
-            Vec::new(),
-        );
-        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        let source_id = sources.files()[0].id();
-        let declarations = crate::sema::check::Checker::check_compact_declarations(
-            &parsed.arena,
-            &sources,
-            source_id,
-        );
-        assert!(
-            declarations.diagnostics.is_empty(),
-            "{:?}",
-            declarations.diagnostics
-        );
-        let before = super::SPREAD_PROGRAM_COPIES.with(std::cell::Cell::get);
-        let built = super::super::FullBuilder::build_compact(
-            &parsed.arena,
-            &declarations,
-            source,
-            std::sync::Arc::new(sources),
-            source_id,
-        );
-        assert!(built.is_ok(), "the program lowers");
-        super::SPREAD_PROGRAM_COPIES.with(std::cell::Cell::get) - before
-    }
-
-    // The projections of a named-spread call are appended to a copy of the
-    // program. Each call once made its own copy, which is work proportional
-    // to the whole program per call; the calls of one pass now share one.
-    #[test]
-    fn named_spread_calls_share_one_program_copy_per_pass() {
-        const CALLS: usize = 40;
-        let mut source = String::from(
-            "type Point = {x: Int, y: Int}\n\nproc sum(x: Int, y: Int) -> Int {\n  x + y\n}\n\n",
-        );
-        for index in 0..CALLS {
-            source.push_str(&format!(
-                "proc call{index}(point: Point) -> Int {{\n  sum(...point)\n}}\n\n"
-            ));
-        }
-        source.push_str("let origin: Point = {x: 1, y: 2}\n");
-        for index in 0..CALLS {
-            source.push_str(&format!(
-                "print f\"{{sum(...origin) + call{index}(origin)}}\"\n"
-            ));
-        }
-        let copies = std::thread::Builder::new()
-            .stack_size(64 * 1024 * 1024)
-            .spawn(move || program_copies(&source))
-            .expect("spawn the lowering thread")
-            .join()
-            .expect("the program lowers");
-        // The functions are one pass and the top-level statements another;
-        // 80 calls once made 80 copies or more.
-        assert!((1..=4).contains(&copies), "{copies} program copies");
     }
 }
 

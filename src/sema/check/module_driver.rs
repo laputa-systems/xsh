@@ -1007,7 +1007,7 @@ mod tests {
             .lock()
             .expect("CLI plan cache poisoned")
             .keys()
-            .filter(|(expression, _)| {
+            .filter(|((expression, _), _)| {
                 program.arena.expr(*expression).span.source_id == module_source
             })
             .count();
@@ -1099,7 +1099,7 @@ mod tests {
             .lock()
             .expect("CLI plan cache poisoned")
             .keys()
-            .filter(|(expression, _)| {
+            .filter(|((expression, _), _)| {
                 program.arena.expr(*expression).span.source_id == module_source
             })
             .count();
@@ -1172,7 +1172,7 @@ mod tests {
             1,
             "the shared canonical descriptor has one published plan"
         );
-        let (expression, _) = published_plans.keys().next().expect("published plan");
+        let ((expression, _), _) = published_plans.keys().next().expect("published plan");
         assert_eq!(
             program.arena.expr(*expression).span.source_id,
             shared_source,

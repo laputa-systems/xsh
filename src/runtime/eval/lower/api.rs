@@ -1,5 +1,5 @@
 use super::{
-    Arc, ArenaCallArg, ArenaCallArgKind, BuildExprId, CallableParamType, CheckedApiArguments,
+    Arc, ArenaCallArg, ArenaCallArgKind, BuildExprId, CallArgument, CallableParamType, CheckedApiArguments,
     CheckedApiCall, CompactLowerConstructProbe, ExprId, LoweredArchiveTarCreateArgs,
     LoweredFsFilesArgs, LoweredFsListArgs, LoweredHashVerifyFileArgs, LoweredModuleCallArgs,
     LoweredPathMkdirArgs, LoweredPathRemoveArgs, LoweredPathWriteArgs,
@@ -16,6 +16,12 @@ pub(super) fn positional_call_args(args: &[ArenaCallArg]) -> Option<Vec<ExprId>>
         positional.push(expr);
     }
     Some(positional)
+}
+
+pub(super) fn call_positional_arguments(args: &[CallArgument]) -> Option<Vec<CallArgument>> {
+    args.iter()
+        .all(|arg| arg.name.is_none() && !arg.splice)
+        .then(|| args.to_vec())
 }
 
 pub(super) fn single_positional_arena_call_arg(args: &[ArenaCallArg]) -> Option<ExprId> {
@@ -78,14 +84,14 @@ pub(super) fn lower_process_command_argv_args(
 pub(super) fn lowered_module_call_args(
     module: Name,
     name: Name,
-    args: &[ArenaCallArg],
+    args: &[CallArgument],
     plan: Option<&CheckedApiCall>,
 ) -> Option<LoweredModuleCallArgs> {
     let plan = plan?;
     let sig = plan.sig;
     let mut lowered_args = vec![None; sig.params.len()];
     for (arg, &slot) in args.iter().zip(&plan.argument_slots) {
-        lowered_args[slot] = Some(compact_call_arg_expr(arg)?);
+        lowered_args[slot] = Some(arg.clone());
     }
     while lowered_args.last().is_some_and(Option::is_none) {
         lowered_args.pop();
@@ -104,19 +110,18 @@ pub(super) fn lowered_module_call_args(
     })
 }
 
-pub(super) fn lower_hash_verify_file_args(args: &[ArenaCallArg]) -> Option<LoweredHashVerifyFileArgs> {
-    let [path, checksum] = crate::sema::arguments::bind_hash_verify_file_arguments(args)?;
-    let (path, checksum) = (&args[path], &args[checksum]);
-    let path = match path.kind {
-        ArenaCallArgKind::Positional(expr) => expr,
-        ArenaCallArgKind::Named { name, value, .. } if name == "path" => value,
-        ArenaCallArgKind::Named { .. }
-        | ArenaCallArgKind::Splice { .. }
-        | ArenaCallArgKind::NamedSpread { .. } => return None,
+pub(super) fn lower_hash_verify_file_args(args: &[CallArgument]) -> Option<LoweredHashVerifyFileArgs> {
+    let [first, second] = args else { return None };
+    let binds_path = |arg: &CallArgument| arg.name.is_none() || arg.name == Some(Name::intern("path"));
+    let (path, checksum) = match (binds_path(first), binds_path(second)) {
+        (true, false) => (first, second),
+        (false, true) => (second, first),
+        _ => return None,
     };
-    let ArenaCallArgKind::Named { name, value, .. } = checksum.kind else {
+    if path.splice || checksum.splice {
         return None;
-    };
+    }
+    let name = checksum.name?;
     // The name is carried as text so the embedded implementation selects the
     // algorithm; the digest primitive it then calls is chosen by that name.
     let algorithm = match name.as_str().as_str() {
@@ -127,9 +132,9 @@ pub(super) fn lower_hash_verify_file_args(args: &[ArenaCallArg]) -> Option<Lower
         _ => return None,
     };
     Some(LoweredHashVerifyFileArgs {
-        path,
+        path: path.clone(),
         algorithm,
-        expected: value,
+        expected: checksum.clone(),
     })
 }
 
@@ -204,7 +209,7 @@ pub(super) fn lower_fs_list_args(args: &CheckedApiArguments) -> Option<LoweredFs
 impl<'p> CompactLowerConstructProbe<'p, '_> {
     pub(super) fn lower_module_argument_values(
         &mut self,
-        args: &[Option<ExprId>],
+        args: &[Option<CallArgument>],
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
@@ -212,7 +217,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         args.iter()
             .map(|arg| match arg {
                 Some(arg) => self
-                    .lower_expr(*arg, slots, current_function, item_slot)
+                    .lower_call_argument(arg, slots, current_function, item_slot)
                     .map(Some),
                 None => Some(None),
             })
@@ -224,8 +229,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     pub(super) fn checked_method_call_args(
         &self,
         call: ExprId,
-        args: &[ArenaCallArg],
-    ) -> Option<Vec<(ExprId, Type)>> {
+        args: &[CallArgument],
+    ) -> Option<Vec<(CallArgument, Type)>> {
         let plan = self
             .bodies
             .api_calls
@@ -233,7 +238,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .filter(|plan| plan.receiver.is_some())?;
         let mut values = vec![None; plan.params.len()];
         for (arg, &slot) in args.iter().zip(&plan.argument_slots) {
-            values[slot] = Some((compact_call_arg_expr(arg)?, plan.params[slot].clone()));
+            values[slot] = Some((arg.clone(), plan.params[slot].clone()));
         }
         Some(values.into_iter().flatten().collect())
     }
@@ -248,7 +253,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     pub(super) fn checked_path_method_arguments(
         &self,
         call: ExprId,
-        args: &[ArenaCallArg],
+        args: &[CallArgument],
     ) -> Option<CheckedApiArguments> {
         self.bodies
             .api_calls
@@ -264,8 +269,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     pub(super) fn path_write_mode_args(
         &self,
         call: ExprId,
-        args: &[ArenaCallArg],
-    ) -> Option<(ExprId, ExprId)> {
+        args: &[CallArgument],
+    ) -> Option<(CallArgument, CallArgument)> {
         let checked = self.checked_path_method_arguments(call, args)?;
         Some((checked.get("data")?, checked.get("mode")?))
     }
@@ -278,8 +283,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     pub(super) fn path_chmod_operands(
         &self,
         call: ExprId,
-        args: &[ArenaCallArg],
-    ) -> Option<Vec<Option<ExprId>>> {
+        args: &[CallArgument],
+    ) -> Option<Vec<Option<CallArgument>>> {
         let checked = self.checked_path_method_arguments(call, args)?;
         (checked.sig.op == RuntimeOp::FsChmod).then(|| checked.ordered())
     }
@@ -293,8 +298,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         &self,
         call: ExprId,
         name: Name,
-        args: &[ArenaCallArg],
-    ) -> Option<(RuntimeOp, Vec<Option<ExprId>>)> {
+        args: &[CallArgument],
+    ) -> Option<(RuntimeOp, Vec<Option<CallArgument>>)> {
         if lowered_method_name(&name.as_str()) {
             return None;
         }
@@ -306,7 +311,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     pub(super) fn checked_api_arguments(
         &self,
         call: ExprId,
-        args: &[ArenaCallArg],
+        args: &[CallArgument],
     ) -> Option<CheckedApiArguments> {
         let plan = self.bodies.api_calls.get(&call)?;
         if plan.argument_slots.len() != args.len() {
@@ -316,7 +321,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         for (arg, &slot) in args.iter().zip(&plan.argument_slots) {
             if values
                 .get_mut(slot)?
-                .replace(compact_call_arg_expr(arg)?)
+                .replace(arg.clone())
                 .is_some()
             {
                 return None;
@@ -331,19 +336,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     pub(super) fn prepared_cli_plan(
         &self,
         call: &LoweredModuleCallArgs,
-        args: &[ArenaCallArg],
+        args: &[CallArgument],
     ) -> Option<Arc<crate::runtime::eval::call_plan::ModuleCallPlan>> {
         if call.semantic_rule == crate::modules::signature::SemanticRule::CliCommands {
             let index = if call.args.len() == 2 { 1 } else { 2 };
-            let commands = crate::sema::arguments::ArgumentValueSource::Expression(
-                call.args.get(index).copied().flatten()?,
-            );
+            let commands = call.args.get(index)?.as_ref()?.source;
             let fallback = call
                 .args
                 .get(3)
-                .copied()
-                .flatten()
-                .map(crate::sema::arguments::ArgumentValueSource::Expression);
+                .and_then(|argument| argument.as_ref())
+                .map(|argument| argument.source);
             return self
                 .declarations
                 .prepared_constants
@@ -354,11 +356,45 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         if call.semantic_rule != crate::modules::signature::SemanticRule::CliDescriptor {
             return None;
         }
-        let schema = crate::modules::cli::descriptor_argument(args)?;
+        let schema = call_descriptor_argument(args)?.source;
         self.declarations
             .prepared_constants
-            .cli_descriptor_plan(&self.program.arena, schema, call.op == RuntimeOp::CliApplet)?
+            .cli_descriptor_source_plan(
+                &self.program.arena,
+                schema,
+                call.op == RuntimeOp::CliApplet,
+            )?
             .ok()
             .map(|plan| Arc::new(super::super::ModuleCallPlan::SignatureCli(plan)))
     }
+}
+
+fn call_descriptor_argument(args: &[CallArgument]) -> Option<CallArgument> {
+    let mut occupied = [false; 4];
+    let mut positional = 0;
+    let mut schema = None;
+    for arg in args {
+        if arg.splice {
+            return None;
+        }
+        let slot = if let Some(name) = arg.name {
+            ["argv", "schema", "env", "command"]
+                .iter()
+                .position(|field| name.as_str().as_str() == *field)?
+        } else {
+            while occupied.get(positional) == Some(&true) {
+                positional += 1;
+            }
+            let slot = positional;
+            positional += 1;
+            slot
+        };
+        if let Some(occupied) = occupied.get_mut(slot) {
+            *occupied = true;
+        }
+        if slot == 1 {
+            schema = Some(arg.clone());
+        }
+    }
+    schema
 }

@@ -19692,7 +19692,22 @@ pure selected() -> Str {
                 "../../../../tests/fixtures/frontend-indexed/cli-constant-descriptors.xsh"
             );
             let program = fixture("cli-constant-descriptors.xsh", source);
-            assert_eq!(program.store.prepared_module_call_plans.len(), 2);
+            assert_eq!(program.store.prepared_module_call_plans.len(), 3);
+            assert_eq!(
+                program
+                    .store
+                    .prepared_module_call_plans
+                    .iter()
+                    .filter(|plan| {
+                        matches!(
+                            plan.as_ref(),
+                            crate::runtime::eval::ModuleCallPlan::SignatureCli(_)
+                        ) && plan.matches_operation(RuntimeOp::CliApplet)
+                    })
+                    .count(),
+                2,
+                "direct and named-spread applet descriptors both retain prepared plans"
+            );
             FullVerifier::verify(&program).unwrap();
             let instruction = program
                 .store
@@ -19738,6 +19753,15 @@ pure selected() -> Str {
                 )
                 .expect("descriptor function exists");
             assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from("6/4/3"))));
+            let result = evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "descriptor_spread_values")),
+                    LoweredFunctionKind::Proc,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("spread descriptor function exists");
+            assert_eq!(result.unwrap(), Value::ok(Value::Unit));
         });
     }
 

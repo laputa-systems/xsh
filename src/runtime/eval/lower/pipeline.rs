@@ -415,8 +415,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let mut values = vec![None; params.len()];
         let mut types = vec![None; params.len()];
         let mut booleans = vec![Some(false); params.len()];
-        for ((argument, &slot), value) in expanded.iter().zip(argument_slots).zip(lowered.values) {
-            values[slot] = Some(value);
+        for ((argument, &slot), lowered_argument) in expanded
+            .iter()
+            .zip(argument_slots)
+            .zip(&lowered.arguments)
+        {
+            values[slot] = Some(lowered_argument.lowered?);
             types[slot] = Some(argument.ty.clone());
             booleans[slot] = match argument.value {
                 ArgumentValueSource::Expression(expr) => match self.program.arena.expr(expr).kind {
@@ -832,7 +836,6 @@ mod tests {
             function_defs: std::rc::Rc::new(std::cell::RefCell::new(None)),
             scratch: std::rc::Rc::new(std::cell::RefCell::new(super::super::BuildScratch::default())),
             with_error_source_exprs: crate::runtime::eval::lower::FxHashMap::default(),
-            spread_programs: std::rc::Rc::default(),
         };
         let mut slots = SlotScope::default();
         let outer_binding = crate::sema::check::BindingId::args();

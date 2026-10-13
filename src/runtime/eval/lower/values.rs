@@ -1,8 +1,8 @@
 use super::{
-    Arc, ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaCallArg, ArenaCallArgKind,
+    Arc, ArenaAssignTargetKind, ArenaBindingTargetKind,
     ArenaExprKind, ArenaFmtPart, ArenaRecordFieldKind, AstArena, BTreeMap, BindingTargetId,
     BuildExprId, BuildExprRow, CompactErrorFamilyKey, CompactLowerConstructProbe, DurationValue,
-    ExprId, FxHashMap, LoweredAssignStep, LoweredCompFields, LoweredCompTarget, LoweredErrorExpr,
+    CallArgument, ExprId, FxHashMap, LoweredAssignStep, LoweredCompFields, LoweredCompTarget, LoweredErrorExpr,
     LoweredFmtPart, LoweredRecordEntry, LoweredRecordUpdates, LoweredType, LoweredValue, Name,
     PathValue, QualifiedName, RegexValue, SlotScope, Span, Type, compact_error_family_display,
     compact_error_family_identity,
@@ -483,7 +483,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         &mut self,
         call: ExprId,
         callee: ExprId,
-        args: &[ArenaCallArg],
+        args: &[CallArgument],
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
@@ -515,7 +515,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         call: ExprId,
         family_key: CompactErrorFamilyKey,
         variant: Name,
-        args: &[ArenaCallArg],
+        args: &[CallArgument],
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
@@ -533,12 +533,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let mut bindings = Vec::new();
         let checked = info.fields.values().any(Type::has_unsigned_constraint);
         for (arg, field) in args.iter().zip(&binding.fields) {
-            let (ArenaCallArgKind::Named { value, .. } | ArenaCallArgKind::Positional(value)) =
-                arg.kind
-            else {
+            if arg.splice {
                 return None;
-            };
-            let lowered = self.lower_expr(value, slots, current_function, item_slot)?;
+            }
+            let lowered = self.lower_call_argument(arg, slots, current_function, item_slot)?;
             let lowered = if checked {
                 let slot = slots.reserve("error payload argument");
                 bindings.push((lowered, slot));
@@ -546,7 +544,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 self.checked_unsigned_value(
                     bound,
                     info.fields.get(field)?,
-                    self.program.arena.expr(value).span,
+                    arg.span,
                 )
             } else {
                 lowered
@@ -668,6 +666,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     None => CompactErrorFamilyKey::Local(family),
                 };
                 let key = self.resolve_compact_error_family_owner(key);
+                let args = self.source_call_arguments(&args)?;
                 let (error, bindings) = self.lower_error_variant_payload(
                     id,
                     key,

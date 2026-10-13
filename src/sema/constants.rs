@@ -2121,7 +2121,7 @@ pub struct PreparedConstants {
     pub(crate) cli_plans: Arc<
         std::sync::Mutex<
             FxHashMap<
-                (ExprId, bool),
+                ((ExprId, Option<Name>), bool),
                 Result<
                     Arc<crate::modules::cli::CliDescriptorPlan>,
                     crate::runtime::value::RuntimeError,
@@ -2169,7 +2169,7 @@ mod prepared_constant_tests {
             .cli_plans
             .lock()
             .expect("descriptor cache lock")
-            .insert((ExprId::from_index(0), true), Ok(plan));
+            .insert(((ExprId::from_index(0), None), true), Ok(plan));
         constants
     }
 
@@ -2182,7 +2182,7 @@ mod prepared_constant_tests {
         let plans = output.cli_plans.lock().expect("descriptor cache lock");
         assert_eq!(plans.len(), 1);
         let retained = plans
-            .get(&(ExprId::from_index(0), true))
+            .get(&((ExprId::from_index(0), None), true))
             .expect("canonical plan was retained")
             .as_ref()
             .expect("plan is valid");
@@ -2385,8 +2385,9 @@ impl PreparedConstants {
     }
 
     // Different importing owners can resolve the same immutable descriptor
-    // expression. Its canonical origin is one cache key, so equal results are
-    // one fact while conflicting results indicate inconsistent checking.
+    // source. Its canonical origin and optional field form one cache key, so
+    // equal results are one fact while conflicting results indicate
+    // inconsistent checking.
     pub(super) fn merge_cli_plan_facts(&mut self, other: &Self) {
         assert!(
             !Arc::ptr_eq(&self.cli_plans, &other.cli_plans),
@@ -2526,9 +2527,23 @@ impl PreparedConstants {
     ) -> Option<
         Result<Arc<crate::modules::cli::CliDescriptorPlan>, crate::runtime::value::RuntimeError>,
     > {
-        let origin = self.cli_descriptor_origin(arena, expr, 0);
-        let key = (origin, applet);
-        let constant = self.analyze_expression(arena, expr)?;
+        self.cli_descriptor_source_plan(
+            arena,
+            crate::sema::arguments::ArgumentValueSource::Expression(expr),
+            applet,
+        )
+    }
+
+    pub(crate) fn cli_descriptor_source_plan(
+        &self,
+        arena: &AstArena,
+        source: crate::sema::arguments::ArgumentValueSource,
+        applet: bool,
+    ) -> Option<
+        Result<Arc<crate::modules::cli::CliDescriptorPlan>, crate::runtime::value::RuntimeError>,
+    > {
+        let (constant, origin, field) = self.cli_constant_source(arena, source)?;
+        let key = ((origin, field), applet);
         if let Some(plan) = self
             .cli_plans
             .lock()
@@ -2563,7 +2578,7 @@ impl PreparedConstants {
         Some(plan)
     }
 
-    fn cli_command_source(
+    fn cli_constant_source(
         &self,
         arena: &AstArena,
         source: crate::sema::arguments::ArgumentValueSource,
@@ -2614,9 +2629,9 @@ impl PreparedConstants {
     ) -> Option<
         Result<Arc<crate::modules::cli::CliDescriptorPlan>, crate::runtime::value::RuntimeError>,
     > {
-        let (constant, origin, field) = self.cli_command_source(arena, commands)?;
+        let (constant, origin, field) = self.cli_constant_source(arena, commands)?;
         let fallback = match fallback {
-            Some(source) => Some(self.cli_command_source(arena, source)?),
+            Some(source) => Some(self.cli_constant_source(arena, source)?),
             None => None,
         };
         let key = (
