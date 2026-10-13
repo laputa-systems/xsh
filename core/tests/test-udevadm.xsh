@@ -177,33 +177,36 @@ test test_udevadm_info_attribute_walk_climbs_parents { |ctx|
   let ran = udevadm(ctx, tree, ["info", "-a", "-p", "/class/block/sda1"])?
   assert ran.status == 0, ran.stderr
   # eudev opens the walk with a blank line, which a block string would drop.
-  assert ran.stdout == "\n" + """Udevadm info starts with the device specified by the devpath and then
-walks up the chain of parent devices. It prints for every device
-found, all possible attributes in the udev rules key format.
-A rule to match, can be composed by the attributes of the device
-and the attributes from one single parent device.
-
-  looking at device '/devices/pci0000:00/0000:00:1f.2/block/sda/sda1':
-    KERNEL=="sda1"
-    SUBSYSTEM=="block"
-    DRIVER==""
-    ATTR{partition}=="1"
-
-  looking at parent device '/devices/pci0000:00/0000:00:1f.2/block/sda':
-    KERNELS=="sda"
-    SUBSYSTEMS=="block"
-    DRIVERS==""
-    ATTRS{ro}=="0"
-    ATTRS{size}=="41943040"
-
-  looking at parent device '/devices/pci0000:00/0000:00:1f.2':
-    KERNELS=="0000:00:1f.2"
-    SUBSYSTEMS=="pci"
-    DRIVERS=="ahci"
-    ATTRS{device}=="0x2922"
-    ATTRS{vendor}=="0x8086"
-
-"""
+  assert ran.stdout == """
+    
+    Udevadm info starts with the device specified by the devpath and then
+    walks up the chain of parent devices. It prints for every device
+    found, all possible attributes in the udev rules key format.
+    A rule to match, can be composed by the attributes of the device
+    and the attributes from one single parent device.
+    
+      looking at device '/devices/pci0000:00/0000:00:1f.2/block/sda/sda1':
+        KERNEL==\"sda1\"
+        SUBSYSTEM==\"block\"
+        DRIVER==\"\"
+        ATTR{partition}==\"1\"
+    
+      looking at parent device '/devices/pci0000:00/0000:00:1f.2/block/sda':
+        KERNELS==\"sda\"
+        SUBSYSTEMS==\"block\"
+        DRIVERS==\"\"
+        ATTRS{ro}==\"0\"
+        ATTRS{size}==\"41943040\"
+    
+      looking at parent device '/devices/pci0000:00/0000:00:1f.2':
+        KERNELS==\"0000:00:1f.2\"
+        SUBSYSTEMS==\"pci\"
+        DRIVERS==\"ahci\"
+        ATTRS{device}==\"0x2922\"
+        ATTRS{vendor}==\"0x8086\"
+    
+    
+    """
   # Multi-line, unprintable, write-only, and link attributes are not printed.
   let lo = udevadm(ctx, tree, ["info", "-a", "-p", "/class/net/lo"])?.stdout
   assert "ATTR{mtu}==\"65536\"" in lo

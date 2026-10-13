@@ -101,15 +101,30 @@ test test_env_split_string_rejects_unsupported_variable_syntax { |ctx|
 
   assert missing_brace.status == 125
   assert missing_brace.stdout == ""
-  assert missing_brace.stderr == r"env: only ${VARNAME} expansion is supported, error at: ${FOO" + "\n"
+  assert missing_brace.stderr == """
+    env: only \${VARNAME} expansion is supported, error at: \${FOO
+    
+    """
   assert default_value.status == 125
-  assert default_value.stderr == r"env: only ${VARNAME} expansion is supported, error at: ${FOO:-value}" + "\n"
+  assert default_value.stderr == """
+    env: only \${VARNAME} expansion is supported, error at: \${FOO:-value}
+    
+    """
   assert digit_name.status == 125
-  assert digit_name.stderr == r"env: only ${VARNAME} expansion is supported, error at: ${1FOO}" + "\n"
+  assert digit_name.stderr == """
+    env: only \${VARNAME} expansion is supported, error at: \${1FOO}
+    
+    """
   assert unexpected_character.status == 125
-  assert unexpected_character.stderr == r"env: only ${VARNAME} expansion is supported, error at: ${FOO?}" + "\n"
+  assert unexpected_character.stderr == """
+    env: only \${VARNAME} expansion is supported, error at: \${FOO?}
+    
+    """
   assert unbraced.status == 125
-  assert unbraced.stderr == r"env: only ${VARNAME} expansion is supported, error at: $TEST_VAR_12345" + "\n"
+  assert unbraced.stderr == """
+    env: only \${VARNAME} expansion is supported, error at: \$TEST_VAR_12345
+    
+    """
 }
 
 test test_env_split_string_double_quoted_escape_reports_backslash { |ctx|
