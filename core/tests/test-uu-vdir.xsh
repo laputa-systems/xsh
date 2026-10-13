@@ -79,7 +79,7 @@ test test_uu_vdir_column_output { |ctx|
   uu.stdout_contains(first, "some-file1")
   let second = invoke(s, ["-C"])?
   uu.succeeds(second)
-  assert ! rx"[rwx-]{10}.*some-file1$".matches(second.stdout.utf8()?)
+  assert ! rx"[rwx-]{10}.*some-file1$".matches(second.stdout as Str)
 }
 
 # origin: uutils test_vdir::test_default_format_overrides
@@ -124,7 +124,7 @@ test test_uu_vdir_help_shows_vdir_not_ls { |ctx|
   let r = invoke(s, ["--help"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "vdir [OPTION]")
-  assert ! ("ls [OPTION]" in r.stdout.utf8()?)
+  assert ! ("ls [OPTION]" in r.stdout as Str)
 }
 
 # origin: uutils test_vdir::test_invalid_option_exit_code
@@ -176,7 +176,7 @@ test test_uu_vdir_time_selection_preserves_name_sort { |ctx|
       let r = invoke(s, args)?
       uu.succeeds(r)
       uu.no_stderr(r)
-      if zero { uu.stdout_is_bytes(r, b"b\0a\0") } else { assert rx"(?s)2001 a\n.*2002 b\n".matches(r.stdout.utf8()?) }
+      if zero { uu.stdout_is_bytes(r, b"b\0a\0") } else { assert rx"(?s)2001 a\n.*2002 b\n".matches(r.stdout as Str) }
     }
   }
 }

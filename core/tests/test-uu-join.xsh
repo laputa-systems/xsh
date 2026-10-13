@@ -455,10 +455,10 @@ test test_uu_join_non_unicode { |ctx|
   let r1 = uu.invoke(s, "join", ["non-unicode_1.bin", "non-unicode_2.bin"])?
   uu.succeeds(r1)
   uu.stdout_only_bytes(r1, uu.read(s, "non-unicode.expected")?)
-  let r2 = uu.invoke_paths(s, "join", [p"-t", Path.parse_bytes(b"\xa7")?, p"non-unicode_1.bin", p"non-unicode_2.bin"])?
+  let r2 = uu.invoke_paths(s, "join", [p"-t", b"\xa7" as Path, p"non-unicode_1.bin", p"non-unicode_2.bin"])?
   uu.succeeds(r2)
   uu.stdout_only_bytes(r2, uu.read(s, "non-unicode_sep.expected")?)
-  let r3 = uu.invoke_paths(s, "join", [p"-t", Path.parse_bytes(b"\xa7\xa7")?, p"non-unicode_1.bin", p"non-unicode_2.bin"])?
+  let r3 = uu.invoke_paths(s, "join", [p"-t", b"\xa7\xa7" as Path, p"non-unicode_1.bin", p"non-unicode_2.bin"])?
   uu.fails(r3)
   # The invalid separator is quoted losslessly in GNU diagnostics.
   uu.stderr_is(r3, "join: multi-character tab '\\247\\247'\n")
@@ -471,7 +471,7 @@ test test_uu_join_join_non_utf8_paths { |ctx|
   let second = uu.at_bytes(s, b"test_\xff\xfe_2.txt")?
   first.write(b"a 1\n")
   second.write(b"a 2\n")
-  let r1 = uu.invoke_paths(s, "join", [Path.parse_bytes(b"test_\xff\xfe_1.txt")?, Path.parse_bytes(b"test_\xff\xfe_2.txt")?])?
+  let r1 = uu.invoke_paths(s, "join", [b"test_\xff\xfe_1.txt" as Path, b"test_\xff\xfe_2.txt" as Path])?
   uu.succeeds(r1)
   uu.stdout_only(r1, "a 1 2\n")
 }
@@ -513,7 +513,7 @@ test test_uu_join_wrong_line_order { |ctx|
   uu.stderr_is(r1, "join: fields_4.txt:5: is not sorted: 11 g 5 gh\njoin: input is not in sorted order\n")
   let r2 = uu.invoke(s, "join", ["--check-order", "fields_2.txt", "fields_4.txt"])?
   uu.fails(r2)
-  assert "7 g f 4 fg" not in r2.stdout.utf8()?
+  assert "7 g f 4 fg" not in r2.stdout as Str
   uu.stderr_is(r2, "join: fields_4.txt:5: is not sorted: 11 g 5 gh\n")
 }
 
@@ -527,6 +527,6 @@ test test_uu_join_both_files_wrong_line_order { |ctx|
   uu.stderr_is(r1, "join: fields_5.txt:4: is not sorted: 3\njoin: fields_4.txt:5: is not sorted: 11 g 5 gh\njoin: input is not in sorted order\n")
   let r2 = uu.invoke(s, "join", ["--check-order", "fields_4.txt", "fields_5.txt"])?
   uu.fails(r2)
-  assert "5 e 3 ef" not in r2.stdout.utf8()?
+  assert "5 e 3 ef" not in r2.stdout as Str
   uu.stderr_is(r2, "join: fields_5.txt:4: is not sorted: 3\n")
 }

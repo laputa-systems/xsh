@@ -29,7 +29,7 @@ test test_pathchk_without_a_name_reports_required_argument { |ctx|
 
 test test_pathchk_accepts_non_utf8_path_names { |ctx|
   let root = test.temp_dir(ctx, name: "pathchk-invalid-utf8")?
-  let non_utf8_path = Path.parse_bytes(b"\xff\xfe")?
+  let non_utf8_path = b"\xff\xfe" as Path
   let script = fp"{ctx.core_dir}/pathchk.xsh"
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"

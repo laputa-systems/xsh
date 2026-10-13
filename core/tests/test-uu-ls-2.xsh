@@ -32,7 +32,7 @@ proc invoke_pipe(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Resu
   let argv = [p"/bin/sh", p"-c", Path(r"""status=$1; shift; ("$@"; rc=$?; printf '%s\n' "$rc" >"$status") | cat; """), p"ls-pipe", code].extend(words)
   let completed = process.run(process.command_argv(p"/bin/sh", argv, s.root, stdout: out, stderr: err, timeout: 30s))?
   assert completed.exited_with(0), "stdout capture pipeline failed"
-  let status = code.read_text()?.trim().parse_int()?
+  let status = code.read_text()?.trim() as Int
   Ok({util: "ls", args: args, status: status, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
 }
 
@@ -48,28 +48,28 @@ proc invoke_fd(s: uu.Scene, args: List[Str], file: Path) [fs, process, env, erro
 }
 
 proc stdout_lacks(r: uu.Ran, needle: Str) [error] -> Result[Unit, Error] {
-  let output = r.stdout.utf8()?
+  let output = r.stdout as Str
   assert !(needle in output), f"unexpected {needle}: {output}"
   Ok()
 }
 
 proc stderr_lacks(r: uu.Ran, needle: Str) [error] -> Result[Unit, Error] {
-  let output = r.stderr.utf8()?
+  let output = r.stderr as Str
   assert !(needle in output), f"unexpected {needle}: {output}"
   Ok()
 }
 
 # Offset pairs index the full byte stream, including escapes and rendered headers.
 proc offset_names(data: Bytes, tag: Str, trim: Bool = false) [error] -> Result[List[Str], Error] {
-  let output = data.utf8()?
+  let output = data as Str
   let tagged = [line for line in output.lines() if line.starts_with(tag)]
   assert tagged.len() == 1, f"missing or duplicated {tag}: {output}"
-  let positions = [word.parse_int()? for word in tagged[0].fields()[1..]]
+  let positions = [word as Int for word in tagged[0].fields()[1..]]
   assert positions.len() % 2 == 0
   var names = []
   for pair in range(positions.len() / 2) {
     let index = pair * 2
-    let name = data[positions[index]..positions[index + 1]].utf8()?
+    let name = data[positions[index]..positions[index + 1]] as Str
     names += [if trim { name.trim() } else { name }]
   }
   Ok(names)
@@ -200,7 +200,7 @@ test test_uu_ls_ls_devices { |ctx|
   {
   let r = invoke_pipe(s, ["-al", "/dev/null"])?
   uu.succeeds(r)
-  assert rx"[^ ] 1, 3 [^ ]".matches(r.stdout.utf8()?)
+  assert rx"[^ ] 1, 3 [^ ]".matches(r.stdout as Str)
   
   }
   {
@@ -391,7 +391,7 @@ test test_uu_ls_ls_dired_normal_style_offsets { |ctx|
   assert r.stdout.utf8()?.starts_with("  total 0\n")
   uu.stdout_contains(r, "//DIRED// 55 58 104 108\n")
   # GNU's offsets index the uncolored listing even when normal style emits SGR prefixes.
-  let uncolored = bytes.from_text(rx"\x1b\[[0-9;]*m".replace(r.stdout.utf8()?, with: ""))
+  let uncolored = bytes.from_text(rx"\x1b\[[0-9;]*m".replace(r.stdout as Str, with: ""))
   assert offset_names(uncolored, "//DIRED//")? == ["box", "note"]
 }
 
@@ -466,7 +466,7 @@ test test_uu_ls_ls_dired_position_vs_hyperlink { |ctx|
   {
   let r = invoke(s, ["-C", "--dired", "--hyperlink", "a"])?
   uu.succeeds(r)
-  assert rx"^-([r-][w-][xt-]){3}".matches(r.stdout.utf8()?)
+  assert rx"^-([r-][w-][xt-]){3}".matches(r.stdout as Str)
   uu.stdout_contains(r, "file://")
   stdout_lacks(r, "//DIRED//")
   
@@ -787,7 +787,7 @@ test test_uu_ls_ls_hyperlink_utf8_encoding { |ctx|
   uu.stdout_contains(r, "caf%c3%a9.txt")
   uu.stdout_contains(r, "file%3awith%3acolons.txt")
   uu.stdout_contains(r, "file%20with%20spaces.txt")
-  let output = r.stdout.utf8()?
+  let output = r.stdout as Str
   assert output.split("\x1b\\").len() - 1 == (output.split("\x1b]8;;file://").len() - 1) * 2
 }
 
@@ -994,19 +994,19 @@ test test_uu_ls_ls_inode { |ctx|
   let long_pattern = rx" *(\d+) [-bcdlpsDx]([r-][w-][xt-]){3}[.+]? +\d .+ test_inode"
   let short = invoke(s, ["test_inode", "-i"])?
   uu.succeeds(short)
-  assert short_pattern.matches(short.stdout.utf8()?)
-  let short_inode = short_pattern.captures(short.stdout.utf8()?)[1]
+  assert short_pattern.matches(short.stdout as Str)
+  let short_inode = short_pattern.captures(short.stdout as Str)[1]
   let plain = invoke(s, ["test_inode"])?
   uu.succeeds(plain)
-  assert !short_pattern.matches(plain.stdout.utf8()?)
+  assert !short_pattern.matches(plain.stdout as Str)
   stdout_lacks(plain, short_inode)
   let long = invoke(s, ["-li", "test_inode"])?
   uu.succeeds(long)
-  assert long_pattern.matches(long.stdout.utf8()?)
-  let long_inode = long_pattern.captures(long.stdout.utf8()?)[1]
+  assert long_pattern.matches(long.stdout as Str)
+  let long_inode = long_pattern.captures(long.stdout as Str)[1]
   let without = invoke(s, ["-l", "test_inode"])?
   uu.succeeds(without)
-  assert !long_pattern.matches(without.stdout.utf8()?)
+  assert !long_pattern.matches(without.stdout as Str)
   stdout_lacks(without, long_inode)
   assert short_inode == long_inode
 }
@@ -1052,7 +1052,7 @@ test test_uu_ls_ls_invalid_block_size_in_env_var { |ctx|
 test test_uu_ls_ls_invalid_quoting_style_env_var_non_utf8 { |ctx|
   let s = uu.scene(ctx)?
   uu.touch(s, "alpha")
-  let r = invoke(s, ["alpha"], vars: {QUOTING_STYLE: Path.parse_bytes(b"\xff")?})?
+  let r = invoke(s, ["alpha"], vars: {QUOTING_STYLE: b"\xff" as Path})?
   uu.succeeds(r)
   uu.stdout_is(r, "alpha\n")
   uu.stderr_contains(r, "ignoring invalid value of environment variable QUOTING_STYLE")
@@ -1144,7 +1144,7 @@ test test_uu_ls_ls_long { |ctx|
       continue
     }
     uu.succeeds(r)
-    assert rx"[-bcCdDlMnpPsStTx?]([r-][w-][xt-]){3}.*".matches(r.stdout.utf8()?)
+    assert rx"[-bcCdDlMnpPsStTx?]([r-][w-][xt-]){3}.*".matches(r.stdout as Str)
   }
 }
 
@@ -1166,7 +1166,7 @@ test test_uu_ls_ls_long_dangling_symlink_color { |ctx|
   uu.symlink(s, uu.at(s, "foo").display(), "dir1/dangling_symlink")
   let r = invoke(s, ["-l", "--color=always", "dir1/dangling_symlink"], vars: {LS_COLORS: "ln=target:or=40:mi=34"})?
   uu.succeeds(r)
-  let name = rx"(?:\x1b\[[0-9;]*m)*\x1b\[([0-9;]*)mdir1/dangling_symlink\x1b\[0m".captures(r.stdout.utf8()?)
+  let name = rx"(?:\x1b\[[0-9;]*m)*\x1b\[([0-9;]*)mdir1/dangling_symlink\x1b\[0m".captures(r.stdout as Str)
   assert !name.is_empty()
   assert name[1] == "40"
   uu.stdout_contains(r, f"\x1b[34m{uu.at(s, "foo").display()}\x1b[0m")
@@ -1186,11 +1186,11 @@ test test_uu_ls_ls_long_format { |ctx|
       continue
     }
     uu.succeeds(r)
-    assert rx"\n[-bcCdDlMnpPsStTx?]([r-][w-][xt-]){3}[.+]? +\d+ [^ ]+ +[^ ]+( +[^ ]+)? +\d+ [A-Z][a-z]{2} {0,2}\d{0,2} {0,2}[0-9:]+ ".matches(r.stdout.utf8()?)
+    assert rx"\n[-bcCdDlMnpPsStTx?]([r-][w-][xt-]){3}[.+]? +\d+ [^ ]+ +[^ ]+( +[^ ]+)? +\d+ [A-Z][a-z]{2} {0,2}\d{0,2} {0,2}[0-9:]+ ".matches(r.stdout as Str)
   }
   let r = invoke(s, ["-lan", "test-long-dir"])?
   uu.succeeds(r)
-  assert rx"\nd([r-][w-][xt-]){3}[.+]? +\d+ \d+ +\d+( +\d+)? +\d+ [A-Z][a-z]{2} {0,2}\d{0,2} {0,2}[0-9:]+ \.\.".matches(r.stdout.utf8()?)
+  assert rx"\nd([r-][w-][xt-]){3}[.+]? +\d+ \d+ +\d+( +\d+)? +\d+ [A-Z][a-z]{2} {0,2}\d{0,2} {0,2}[0-9:]+ \.\.".matches(r.stdout as Str)
 }
 
 # origin: uutils test_ls::test_ls_long_formats
@@ -1200,47 +1200,47 @@ test test_uu_ls_ls_long_formats { |ctx|
   {
   let r = invoke(s, ["-l", "--author", "test-long-formats"])?
   uu.succeeds(r)
-  assert rx"[xrw-]{9}[.+]? \d ([-0-9_a-z.A-Z]+ ){3}0".matches(r.stdout.utf8()?)
+  assert rx"[xrw-]{9}[.+]? \d ([-0-9_a-z.A-Z]+ ){3}0".matches(r.stdout as Str)
   
   }
   {
   let r = invoke(s, ["-l1", "--author", "test-long-formats"])?
   uu.succeeds(r)
-  assert rx"[xrw-]{9}[.+]? \d ([-0-9_a-z.A-Z]+ ){3}0".matches(r.stdout.utf8()?)
+  assert rx"[xrw-]{9}[.+]? \d ([-0-9_a-z.A-Z]+ ){3}0".matches(r.stdout as Str)
   
   }
   {
   let r = invoke(s, ["-n", "--author", "test-long-formats"])?
   uu.succeeds(r)
-  assert rx"[xrw-]{9}[.+]? \d (\d+ ){3}0".matches(r.stdout.utf8()?)
+  assert rx"[xrw-]{9}[.+]? \d (\d+ ){3}0".matches(r.stdout as Str)
   
   }
   for option in ["-l", "-g --author", "-o --author", "-lG --author", "-l --no-group --author"] {
     let args = option.split(" ").extend(["test-long-formats"])
     let r = invoke(s, args)?
     uu.succeeds(r)
-    assert rx"[xrw-]{9}[.+]? \d ([-0-9_a-z.A-Z]+ ){2}0".matches(r.stdout.utf8()?)
+    assert rx"[xrw-]{9}[.+]? \d ([-0-9_a-z.A-Z]+ ){2}0".matches(r.stdout as Str)
     let numbered = invoke(s, ["-n"].extend(args))?
     uu.succeeds(numbered)
-    assert rx"[xrw-]{9}[.+]? \d (\d+ ){2}0".matches(numbered.stdout.utf8()?)
+    assert rx"[xrw-]{9}[.+]? \d (\d+ ){2}0".matches(numbered.stdout as Str)
   }
   for option in ["-g", "-gl", "-o", "-ol", "-oG", "-lG", "-l --no-group", "-gG --author"] {
     let args = option.split(" ").extend(["test-long-formats"])
     let r = invoke(s, args)?
     uu.succeeds(r)
-    assert rx"[xrw-]{9}[.+]? \d [-0-9_a-z.A-Z]+ 0".matches(r.stdout.utf8()?)
+    assert rx"[xrw-]{9}[.+]? \d [-0-9_a-z.A-Z]+ 0".matches(r.stdout as Str)
     let numbered = invoke(s, ["-n"].extend(args))?
     uu.succeeds(numbered)
-    assert rx"[xrw-]{9}[.+]? \d \d+ 0".matches(numbered.stdout.utf8()?)
+    assert rx"[xrw-]{9}[.+]? \d \d+ 0".matches(numbered.stdout as Str)
   }
   for option in ["-og", "-ogl", "-lgo", "-gG", "-g --no-group", "-og --no-group", "-og --format=long", "-ogCl", "-og --format=vertical -l", "-og1", "-og1l"] {
     let args = option.split(" ").extend(["test-long-formats"])
     let r = invoke(s, args)?
     uu.succeeds(r)
-    assert rx"[xrw-]{9}[.+]? \d 0".matches(r.stdout.utf8()?)
+    assert rx"[xrw-]{9}[.+]? \d 0".matches(r.stdout as Str)
     let numbered = invoke(s, ["-n"].extend(args))?
     uu.succeeds(numbered)
-    assert rx"[xrw-]{9}[.+]? \d 0".matches(numbered.stdout.utf8()?)
+    assert rx"[xrw-]{9}[.+]? \d 0".matches(numbered.stdout as Str)
   }
 }
 
@@ -1455,7 +1455,7 @@ test test_uu_ls_ls_order_time { |ctx|
     for format in ["-g", "--format=long", "--dired"] {
       let r = invoke(s, [field, format])?
       uu.succeeds(r)
-      assert rx"(?s)test-1\n.*test-2\n.*test-3\n.*test-4\n".matches(r.stdout.utf8()?)
+      assert rx"(?s)test-1\n.*test-2\n.*test-3\n.*test-4\n".matches(r.stdout as Str)
     }
   }
   # Access-time updates vary by mount policy; compare the metadata-defined time order.
@@ -1509,7 +1509,7 @@ test test_uu_ls_ls_ordering { |ctx|
   {
   let r = invoke(s, ["-Rl"])?
   uu.succeeds(r)
-  assert rx"some-dir1:\ntotal 0".matches(r.stdout.utf8()?)
+  assert rx"some-dir1:\ntotal 0".matches(r.stdout as Str)
   
   }
 }

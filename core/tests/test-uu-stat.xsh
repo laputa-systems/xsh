@@ -13,9 +13,9 @@ proc unsigned(value: Int) [error] -> Result[Str, Error] {
   var carry = 0
   var digits = []
   for offset in range(20) {
-    let maximum_digit = "18446744073709551615".byte_slice(19 - offset, length: 1).parse_int()?
+    let maximum_digit = "18446744073709551615".byte_slice(19 - offset, length: 1) as Int
     let index = inverse.byte_len() - 1 - offset
-    let subtract = if index < 0 { 0 } else { inverse.byte_slice(index, length: 1).parse_int()? }
+    let subtract = if index < 0 { 0 } else { inverse.byte_slice(index, length: 1) as Int }
     let digit = maximum_digit - subtract - carry
     digits = [f"{if digit < 0 { digit + 10 } else { digit }}"].extend(digits)
     carry = if digit < 0 { 1 } else { 0 }
@@ -297,7 +297,7 @@ test test_uu_stat_format_created_time { |ctx|
   let r = uu.invoke(s, "stat", ["-c", "%w", "/bin"])?
   uu.succeeds(r)
 
-  let actual_fields = rx"\s".replace(r.stdout.utf8()?, with: "\u{0}").split("\u{0}")
+  let actual_fields = rx"\s".replace(r.stdout as Str, with: "\u{0}").split("\u{0}")
   let expected_fields = rx"\s".replace(expected + "\n", with: "\u{0}").split("\u{0}")
   assert ! expected_fields.is_empty()
   if expected != "-" {
@@ -315,7 +315,7 @@ test test_uu_stat_format_created_seconds { |ctx|
   let r = uu.invoke(s, "stat", ["-c", "%W", "/bin"])?
   uu.succeeds(r)
 
-  let actual_fields = rx"\s".replace(r.stdout.utf8()?, with: "\u{0}").split("\u{0}")
+  let actual_fields = rx"\s".replace(r.stdout as Str, with: "\u{0}").split("\u{0}")
   let expected_fields = rx"\s".replace(expected + "\n", with: "\u{0}").split("\u{0}")
   assert ! expected_fields.is_empty()
   if expected != "0" {
@@ -487,11 +487,11 @@ test test_uu_stat_mount_point_width_and_alignment { |ctx|
   let s = uu.scene(ctx)?
   let r0 = uu.invoke(s, "stat", ["-c", "%15m", "/"])?
   uu.succeeds(r0)
-  let right = r0.stdout.utf8()?
+  let right = r0.stdout as Str
   assert right.trim().byte_len() <= 15 and right.byte_len() >= 15
   let r1 = uu.invoke(s, "stat", ["-c", "%-15m", "/"])?
   uu.succeeds(r1)
-  let left = r1.stdout.utf8()?
+  let left = r1.stdout as Str
   assert left.trim().byte_len() <= 15 and left.byte_len() >= 15
 }
 
@@ -723,7 +723,7 @@ test test_uu_stat_error_message_preserves_non_utf8_filename { |ctx|
   let s = uu.scene(ctx)?
   for value in [{name: b"missing-\xff", quoted: "'missing-'$'\\377'"}, {name: b"missing-\xc3\xa9", quoted: "'missing-'$'\\303\\251'"}] {
     for options in [[], [p"-L"], [p"-f"]] {
-      let r = uu.invoke_paths(s, "stat", options.extend([Path.parse_bytes(value.name)?]), vars: {LC_ALL: "C"})?
+      let r = uu.invoke_paths(s, "stat", options.extend([value.name as Path]), vars: {LC_ALL: "C"})?
       uu.fails_with_code(r, 1)
       uu.stderr_contains(r, value.quoted)
     }

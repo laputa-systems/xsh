@@ -161,11 +161,11 @@ test test_uu_basename_too_many_args_output { |ctx|
 # origin: uutils test_basename::test_invalid_utf8_args
 test test_uu_basename_invalid_utf8_args { |ctx|
   let s = uu.scene(ctx)?
-  let param = Path.parse_bytes(b"/tmp/some-\xc0-file.k\xf3")?
+  let param = b"/tmp/some-\xc0-file.k\xf3" as Path
   let r = uu.invoke_paths(s, "basename", [param])?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, b"some-\xc0-file.k\xf3\n")
-  let suffix = Path.parse_bytes(b".k\xf3")?
+  let suffix = b".k\xf3" as Path
   let stripped = uu.invoke_paths(s, "basename", [param, suffix])?
   uu.succeeds(stripped)
   uu.stdout_is_bytes(stripped, b"some-\xc0-file\n")

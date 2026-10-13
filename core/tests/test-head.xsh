@@ -143,7 +143,7 @@ test test_head_getopt_diagnostics_and_help { |ctx|
 
 test test_head_accepts_non_utf8_file_path_arguments { |ctx|
   let root = test.temp_dir(ctx, name: "head-raw-path")?
-  let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  let file = bytes.concat([root.bytes(), b"/file\xff"]) as Path
   file.write(b"one\ntwo\nthree\n")
   let output = fp"{root}/out"
   let error = fp"{root}/err"

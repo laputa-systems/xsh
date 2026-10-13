@@ -118,7 +118,7 @@ test test_coreutils_forwards_undecodable_operands_unchanged { |ctx|
   let captures = test.temp_dir(ctx, name: "coreutils-bytes")?
   let out = fp"{captures}/stdout"
   let err = fp"{captures}/stderr"
-  let name = Path.parse_bytes(b"/tmp/some-\xc0-file.k\xf3")?
+  let name = b"/tmp/some-\xc0-file.k\xf3" as Path
   let words: List[Union[Str, Path]] = [ctx.xsh_bin, fp"{root}/coreutils", "basename", name]
   let status = process.run(process.command_argv(ctx.xsh_bin, words, root, {LC_ALL: "C"}, b"", out, err))?
   assert status.exit_code()? == 0, err.read_text()?

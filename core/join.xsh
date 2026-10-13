@@ -248,7 +248,7 @@ proc read_input(name: Bytes) [fs, process, env, error, io] -> Bytes {
     return data
   }
 
-  let target = Path.parse_bytes(name)?
+  let target = name as Path
   guard let data = target.read_bytes() else { |failure|
     gnu.error(f"{gnu.quote_bytes(name, always: false)}: {gnu.strerror(failure)}")
     exit 1

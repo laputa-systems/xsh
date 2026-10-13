@@ -338,7 +338,7 @@ pure lossless_text(data: Bytes) -> Result[Str] {
     let width = utf8_width(byte)
     let end = at + width
     if byte < 128 {
-      output += data[at..end].utf8()?
+      output += data[at..end] as Str
       at = end
     } else if width > 1 and end <= data.len() {
       if let Ok(character) = data[at..end].utf8() {

@@ -61,7 +61,7 @@ test test_uu_echo_nine_bit_octal { |ctx|
 test test_uu_echo_non_utf_8 { |ctx|
   let s = uu.scene(ctx)?
   let data = b"Swer an rehte g\xfcete wendet s\xeen gem\xfcete, dem volget s\xe6lde und \xeare."
-  let r = uu.invoke_paths(s, "echo", [p"-n", Path.parse_bytes(data)?])?
+  let r = uu.invoke_paths(s, "echo", [p"-n", data as Path])?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, data)
 }

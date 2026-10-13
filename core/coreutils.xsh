@@ -121,7 +121,7 @@ proc main(...argv: List[Bytes]) [process, env, error, io, fs] {
   var forwarded: List[Path] = [file]
 
   for operand in operands {
-    forwarded += [Path.parse_bytes(operand)?]
+    forwarded += [operand as Path]
   }
 
   let plan = process.command_argv(file, forwarded)

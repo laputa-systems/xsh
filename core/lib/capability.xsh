@@ -68,7 +68,7 @@ export pure bit(name: Str) -> Result[Int, Error] {
   let normalized = name.lower()
   for entry in CAPABILITIES { return entry.bit when normalized == entry.name or normalized == entry.name.byte_slice(4) }
   if rx"^[0-9]+$".matches(normalized) {
-    let value = normalized.parse_int()?
+    let value = normalized as Int
     return value when value >= 0 and value < 64
   }
   Err(CapabilityError.Invalid(f"unknown capability {name}"))

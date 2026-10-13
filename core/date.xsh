@@ -104,7 +104,7 @@ proc format_date(instant: date_parse.Instant, format: Bytes, utc: Bool, style: D
   while at < format.len() {
     let width = utf8_char_width(format, at)
     if width == 0 {
-      if piece_start < at { pieces += [bytes.from_text(format_text(instant, format[piece_start..at].utf8()?, utc, style)?)] }
+      if piece_start < at { pieces += [bytes.from_text(format_text(instant, format[piece_start..at] as Str, utc, style)?)] }
       pieces += [format[at..at + 1]]
       at += 1
       piece_start = at
@@ -112,7 +112,7 @@ proc format_date(instant: date_parse.Instant, format: Bytes, utc: Bool, style: D
       at += width
     }
   }
-  if piece_start < format.len() { pieces += [bytes.from_text(format_text(instant, format[piece_start..format.len()].utf8()?, utc, style)?)] }
+  if piece_start < format.len() { pieces += [bytes.from_text(format_text(instant, format[piece_start..format.len()] as Str, utc, style)?)] }
   Ok(bytes.concat(pieces))
 }
 
@@ -593,7 +593,7 @@ proc main(...raw: List[Bytes]) [time, process, env, io, fs, error] {
     return
   }
   if source == "reference" {
-    match fs.stat(Path.parse_bytes(reference)?, follow_symlinks: true) {
+    match fs.stat(reference as Path, follow_symlinks: true) {
       Ok(meta) => { gnu.write_bytes(bytes.concat([format_date(date_parse.instant_from_ns(meta.mtime_ns), format, utc, style)?, b"\n"])); return }
       Err(failure) => { gnu.error(f"{gnu.quote_bytes(reference, always: false)}: {gnu.strerror(failure)}"); exit 1 }
     }

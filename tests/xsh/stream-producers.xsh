@@ -55,7 +55,7 @@ test test_process_stream_is_stopped_before_its_scope_defers { |ctx|
       time.sleep(10ms)
     }
     assert pidfile.exists()?, "the process stream must start its child before the owning scope exits"
-    let pid = pidfile.read_text()?.trim().parse_int()?
+    let pid = pidfile.read_text()?.trim() as Int
     defer {
       let kept = owned
       assert process.kill(pid, signal: "0") is Err(_), "the stream process must be reaped before the owning scope's defer"
@@ -83,7 +83,7 @@ test test_discarded_process_streams_remain_owned_until_scope_exit { |ctx|
       time.sleep(10ms)
     }
     assert first_pidfile.exists()?, "the first stream process must start"
-    let first_pid = first_pidfile.read_text()?.trim().parse_int()?
+    let first_pid = first_pidfile.read_text()?.trim() as Int
     pids += [first_pid]
     current = null
     let first_survived_discard = process.kill(first_pid, signal: "0") is Ok(_)
@@ -94,7 +94,7 @@ test test_discarded_process_streams_remain_owned_until_scope_exit { |ctx|
       time.sleep(10ms)
     }
     assert second_pidfile.exists()?, "the replacement stream process must start"
-    let second_pid = second_pidfile.read_text()?.trim().parse_int()?
+    let second_pid = second_pidfile.read_text()?.trim() as Int
     pids += [second_pid]
     current = null
     let both_survived_reassignment = process.kill(first_pid, signal: "0") is Ok(_) and process.kill(second_pid, signal: "0") is Ok(_)

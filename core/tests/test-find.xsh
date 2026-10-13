@@ -110,13 +110,13 @@ test test_find_matches_recorded_gnu_output_5 { |ctx| check_share(ctx, 5) }
 # points, name patterns and -exec arguments are matched and passed unchanged.
 test test_find_accepts_non_utf8_operands { |ctx|
   let root = test.temp_dir(ctx, name: "find-raw-operands")?
-  let dir = Path.parse_bytes(bytes.concat([root.bytes(), b"/d\xff"]))?
+  let dir = bytes.concat([root.bytes(), b"/d\xff"]) as Path
   dir.mkdir()
   Path.parse_bytes(bytes.concat([dir.bytes(), b"/n\xfe.txt"]))?.write("x")
   let out = fp"{root}/out"
   let err = fp"{root}/err"
   let script = fp"{ctx.core_dir}/find.xsh"
-  let pattern = Path.parse_bytes(b"n\xfe*")?
+  let pattern = b"n\xfe*" as Path
   let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, p"--", script, p"--", dir, p"-name", pattern, p"-printf", p"%f\\n"], root, {LC_ALL: "C"}, b"", out, err)
   let status = process.run(plan)?
   assert status.exited_with(0), err.read_text()?

@@ -33,7 +33,7 @@ test test_gnu_nl_multibyte_log { |ctx|
   for c in cases {
     let input = bytes.concat([c.section, c.section, c.section, b"\na\n", c.section, c.section, b"\nb\n", c.section, b"\nc\n"])
     uu.write_bytes(s, "inp", input)
-    let args = [p"-p", p"-ha", p"-fa", p"-d", Path.parse_bytes(c.argument)?]
+    let args = [p"-p", p"-ha", p"-fa", p"-d", c.argument as Path]
     let vars = {LC_ALL: "fr_FR.utf-8", LANGUAGE: "C"}
     let words = uu.argv(s, "nl", args, vars)?
     let out = uu.at(s, "out")

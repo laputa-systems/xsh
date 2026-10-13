@@ -44,7 +44,7 @@ test test_uu_support_directory_stdin { |ctx|
 
 test test_uu_support_non_utf8_argv { |ctx|
   let s = uu.scene(ctx)?
-  let name = Path.parse_bytes(b"file\xff")?
+  let name = b"file\xff" as Path
   let file = uu.at_bytes(s, b"file\xff")?
   file.write(b"data\xff")
   let r = uu.invoke_paths(s, "cat", [name])?
@@ -95,8 +95,8 @@ test test_uu_support_clears_environment_and_preserves_defaults { |ctx|
   uu.succeeds(r)
   uu.stdout_contains(r, "LC_ALL=C\n")
   uu.stdout_contains(r, "TZ=UTC\n")
-  assert "HOME=" not in r.stdout.utf8()?
-  assert "TMPDIR=" not in r.stdout.utf8()?
+  assert "HOME=" not in r.stdout as Str
+  assert "TMPDIR=" not in r.stdout as Str
   for line in r.stdout.utf8()?.split("\n") {
     if line != "" {
       assert line.split("=")[0] in ["LC_ALL", "TZ", "PATH", "LD_PRELOAD", "LLVM_PROFILE_FILE"]
@@ -206,7 +206,7 @@ test test_uu_support_child_umask_preserves_runner_and_launch_contract { |ctx|
 
 test test_uu_support_child_umask_applies_to_path_and_parallel_commands { |ctx|
   let s = uu.scene(ctx)?
-  let raw = Path.parse_bytes(b"raw\xff")?
+  let raw = b"raw\xff" as Path
   uu.stdout_only_bytes(uu.invoke_paths(s, "echo", [raw], umask: 0o077)?, b"raw\xff\n")
   uu.succeeds(uu.invoke_paths(s, "mkdir", [p"from-path"], umask: 0o077)?)
   assert uu.mode(s, "from-path")? == 0o700
@@ -249,7 +249,7 @@ test test_uu_support_argv_shell_wrapper_preserves_launch_contract { |ctx|
   assert status.exited_with(0)
   assert output.read_bytes()? == b"POSIX\nUTC\npreserved\n"
   assert error.read_bytes()? == b""
-  let raw = Path.parse_bytes(b"raw\xff")?
+  let raw = b"raw\xff" as Path
   let echo = [p"/bin/sh", p"-c", Path(r"""exec "$@"; """), p"uu-wrapper"]
     .extend(uu.argv(s, "echo", [p"--", raw])?)
   assert process.run(process.command_argv(p"/bin/sh", echo, s.root,

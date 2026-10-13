@@ -460,7 +460,7 @@ test test_uu_tail_fifo_with_pid { |ctx|
     if uu.at(s, ".dummy-pid").exists() and uu.read_text(s, ".dummy-pid")?.trim() != "" { break }
     time.sleep(10ms)
   }
-  let pid = uu.read_text(s, ".dummy-pid")?.trim().parse_int()?
+  let pid = uu.read_text(s, ".dummy-pid")?.trim() as Int
   uu.mkfifo(s, "FIFO")
   let plan = follow(s, ["-f", f"--pid={pid}", "FIFO"])?
   let child = spawn plan ?
@@ -722,7 +722,7 @@ test test_uu_tail_follow_name_truncate1 { |ctx|
   let s = uu.scene(ctx)?
   uu.fixture(s, "tail", "follow_name.txt", "follow_name.txt")
   let expected = fixture_bytes(ctx, "follow_name.expected")?
-  let text = expected.utf8()?
+  let text = expected as Str
   let prefix = text.split("END(25)\n")[0] + "END(25)\n"
   let plan = follow(s, ["--follow=name", "follow_name.txt"])?
   let child = spawn plan ?
@@ -972,7 +972,7 @@ test test_uu_tail_follow_with_pid { |ctx|
     if uu.at(s, ".dummy-pid").exists() and uu.read_text(s, ".dummy-pid")?.trim() != "" { break }
     time.sleep(10ms)
   }
-  let pid = uu.read_text(s, ".dummy-pid")?.trim().parse_int()?
+  let pid = uu.read_text(s, ".dummy-pid")?.trim() as Int
   let plan = follow(s, ["-f", f"--pid={pid}", "foobar.txt", "foobar2.txt"])?
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
@@ -1015,7 +1015,7 @@ test test_uu_tail_following_with_pid { |ctx|
     if uu.at(s, ".dummy-pid").exists() and uu.read_text(s, ".dummy-pid")?.trim() != "" { break }
     time.sleep(10ms)
   }
-  let pid = uu.read_text(s, ".dummy-pid")?.trim().parse_int()?
+  let pid = uu.read_text(s, ".dummy-pid")?.trim() as Int
   let plan = follow(s, ["--pid", f"{pid}", "-f", uu.at(s, "f").display()], merged: true)?
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)

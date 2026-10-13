@@ -128,7 +128,7 @@ export pure decode(raw: Str) -> Result[Bytes, Error] {
     let text = rx"[[:space:]]".replace(raw.byte_slice(2), with: "")
     return Err(AttributeError.Encoding("bad input encoding")) when text.byte_len() % 2 != 0 or ! rx"^[0-9A-Fa-f]*$".matches(text)
     var values = []
-    for index in range(text.byte_len() / 2) { values += [("0x" + text.byte_slice(index * 2, length: 2)).parse_int()?] }
+    for index in range(text.byte_len() / 2) { values += [("0x" + text.byte_slice(index * 2, length: 2)) as Int] }
     return bytes.from_ints(values)
   }
   if raw.starts_with("0s") or raw.starts_with("0S") {
@@ -159,7 +159,7 @@ export pure field(value: Str, width: Int, left = true) -> Str {
 ## Decode a dump value without requiring its raw text bytes to be UTF-8.
 export pure decode_bytes(raw: Bytes) -> Result[Bytes, Error] {
   if raw.len() >= 2 and raw[0..2] in [b"0x", b"0X", b"0s", b"0S"] {
-    return decode(raw.utf8()?)
+    return decode(raw as Str)
   }
   unquote_bytes(raw, quoted: true)
 }

@@ -52,7 +52,7 @@ proc interface_names(replies: List[LinuxNetlinkMessage]) [error] -> Result[List[
   for reply in replies {
     for attribute in attributes(reply.payload, 16)? {
       if attribute.kind == 3 {
-        names += [attribute.data.slice(0, attribute.data.len() - 1).utf8()?]
+        names += [attribute.data.slice(0, attribute.data.len() - 1) as Str]
       }
     }
   }
@@ -619,7 +619,7 @@ proc proc_route_address(word: Str) [error] -> Result[Str] {
   }
   var octets = []
   for index in [3, 2, 1, 0] {
-    let value = f"0x{pairs[index]}".parse_int()?
+    let value = f"0x{pairs[index]}" as Int
     octets += [f"{value}"]
   }
   Ok(octets.join("."))

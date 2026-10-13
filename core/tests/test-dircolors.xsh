@@ -36,7 +36,7 @@ test test_dircolors_value_comment_without_space { |ctx|
 
 test test_dircolors_non_utf8_file_operand { |ctx|
   let root = test.temp_dir(ctx, name: "dircolors-non-utf8")?
-  let database = Path.parse_bytes(bytes.concat([root.bytes(), b"/colors-\xff\xfe"]))?
+  let database = bytes.concat([root.bytes(), b"/colors-\xff\xfe"]) as Path
   database.write(b"NORMAL 00\n*.txt 32\n")
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
@@ -49,7 +49,7 @@ test test_dircolors_non_utf8_file_operand { |ctx|
 
 test test_dircolors_missing_non_utf8_file_operand_reports_name { |ctx|
   let root = test.temp_dir(ctx, name: "dircolors-missing-non-utf8")?
-  let missing = Path.parse_bytes(bytes.concat([root.bytes(), b"/absent-\xff\xfe"]))?
+  let missing = bytes.concat([root.bytes(), b"/absent-\xff\xfe"]) as Path
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/dircolors.xsh"

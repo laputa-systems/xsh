@@ -144,7 +144,7 @@ export proc authenticate(entry: auth.PasswdEntry) [fs, env, process, error, io] 
 
 pure age_field(text: Str) -> Result[Int] {
   return Ok(-1) when text == "" or text == "-1"
-  let value = text.parse_int()?
+  let value = text as Int
   return Err(AccountError.Policy(message: "invalid shadow age field")) when value < 0
   Ok(value)
 }

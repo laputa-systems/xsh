@@ -77,7 +77,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   var reference = 0
   if opts.reference != null {
     let name = argument_bytes(opts.reference ?? "", prepared.raw)
-    let info = fs.stat(Path.parse_bytes(name)?, follow_symlinks: true)
+    let info = fs.stat(name as Path, follow_symlinks: true)
     if let Err(failure) = info { cannot_stat(name, failure); exit 1 }
     reference = info?.size
   }
@@ -85,7 +85,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   var failed = false
   for operand in opts.paths {
     let name = argument_bytes(operand, prepared.raw)
-    let target = Path.parse_bytes(name)?
+    let target = name as Path
     let metadata = fs.stat(target, follow_symlinks: true)
     if let Err(failure) = metadata {
       continue when opts.no_create and failure.errno == 2

@@ -89,7 +89,7 @@ export proc load_labels(paths: List[Path]) -> Result[Map[Str], Error] {
 
 pure component(text: Str, maximum: Int, hexadecimal: Bool) -> Result[Int?] {
   return null when text == "" or text == "*"
-  let parsed = if hexadecimal { pci.parse_hex_value(text)? } else { text.parse_int()? }
+  let parsed = if hexadecimal { pci.parse_hex_value(text)? } else { text as Int }
   if parsed < 0 or parsed > maximum { return Err(HardwareError.InvalidSelector(f"selector component '{text}' is out of range")) }
   parsed
 }

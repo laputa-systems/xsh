@@ -227,7 +227,7 @@ test test_csplit_matches_gnu_current_line_rules { |ctx|
 
 test test_csplit_non_utf8_operand_names_the_file_by_bytes { |ctx|
   let root = test.temp_dir(ctx, name: "csplit-non-utf8")?
-  let name = Path.parse_bytes(b"\xff\xfe")?
+  let name = b"\xff\xfe" as Path
   Path.parse_bytes(bytes.concat([bytes.from_text(f"{root}/"), b"\xff\xfe"]))?.write(b"line1\nline2\nline3\nline4\nline5\n")
 
   let words: List[Union[Str, Path]] = [ctx.xsh_bin, fp"{ctx.core_dir}/csplit.xsh", name, "3"]

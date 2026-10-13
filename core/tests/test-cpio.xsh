@@ -515,7 +515,7 @@ test test_cpio_owner_option_and_header_truncation_warnings { |ctx|
   fp"{root}/f".write(b"x")
   let owned = cpio(ctx, root, ["-o", "-H", "newc", "-R", "7:8", "--quiet"], b"f\n")?
   let listed = cpio(ctx, root, ["-itvn", "--quiet"], owned.stdout)?
-  assert "     7        8 " in listed.stdout.utf8()? or " 7        8 " in listed.stdout.utf8()?
+  assert "     7        8 " in listed.stdout as Str or " 7        8 " in listed.stdout as Str
   let wide = cpio(ctx, root, ["-o", "-H", "bin", "-R", "70000:1", "--renumber-inodes", "--quiet"], b"f\n")?
   assert wide.stderr == ""
   let warned = cpio(ctx, root, ["-o", "-H", "bin", "-R", "70000:1", "-W", "truncate", "--renumber-inodes", "--quiet"], b"f\n")?

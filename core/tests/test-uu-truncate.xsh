@@ -384,7 +384,7 @@ test test_uu_truncate_reference_file_not_found { |ctx|
 test test_uu_truncate_reference_non_utf8_path { |ctx|
   let s = uu.scene(ctx)?
   uu.touch(s, "truncate_test_2")
-  let reference = Path.parse_bytes(b"test_\xff\xfe.txt")?
+  let reference = b"test_\xff\xfe.txt" as Path
   let r = uu.invoke_paths(s, "truncate", [p"-s", p"+5KB", reference])?
   uu.succeeds(r)
   let copied = uu.invoke_paths(s, "truncate", [p"--reference", reference, p"truncate_test_2"])?
@@ -526,7 +526,7 @@ test test_uu_truncate_truncate_bytes_size { |ctx|
 test test_uu_truncate_truncate_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
   uu.write(s, "test_��.txt", "test content")
-  let filename = Path.parse_bytes(b"test_\xff\xfe.txt")?
+  let filename = b"test_\xff\xfe.txt" as Path
   let r = uu.invoke_paths(s, "truncate", [p"-s", p"10", filename])?
   uu.succeeds(r)
 }

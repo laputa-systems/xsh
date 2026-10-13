@@ -25,7 +25,7 @@ test test_gnu_paste_multi_byte_log { |ctx|
   let empty = uu.invoke(s, "paste", ["-s", "-d", "€\\0", "f3"], vars: {LC_ALL: "fr_FR.UTF-8"})?
   uu.succeeds(empty)
   uu.stdout_is_bytes(empty, bytes.from_text("1€23\n"))
-  let invalid = Path.parse_bytes(b"\xff|\xed\xba\xad|\xc2\x89|\xed\xa6\xbf\xed\xbf\xbf")?
+  let invalid = b"\xff|\xed\xba\xad|\xc2\x89|\xed\xa6\xbf\xed\xbf\xbf" as Path
   let raw = uu.invoke_paths(s, "paste", [p"-d", invalid, p"f1", p"f2"], vars: {LC_ALL: "fr_FR.UTF-8"})?
   uu.succeeds(raw)
   uu.stdout_is_bytes(raw, b"1\xffa\n2\xffb\n")
@@ -35,9 +35,9 @@ test test_gnu_paste_multi_byte_log { |ctx|
   uu.succeeds(ordinary)
   assert escaped.stdout == ordinary.stdout
   for item in [
-    {args: [p"-d", Path.parse_bytes(b"\xa2\xe3")?, p"f1", p"f2"], out: b"1\xa2\xe3a\n2\xa2\xe3b\n"},
-    {args: [p"-s", p"-d", Path.parse_bytes(b"\xa2\xe3")?, p"f3"], out: b"1\xa2\xe32\xa2\xe33\n"},
-    {args: [p"-d", Path.parse_bytes(b"\xff")?, p"f1", p"f2"], out: b"1\xffa\n2\xffb\n"},
+    {args: [p"-d", b"\xa2\xe3" as Path, p"f1", p"f2"], out: b"1\xa2\xe3a\n2\xa2\xe3b\n"},
+    {args: [p"-s", p"-d", b"\xa2\xe3" as Path, p"f3"], out: b"1\xa2\xe32\xa2\xe33\n"},
+    {args: [p"-d", b"\xff" as Path, p"f1", p"f2"], out: b"1\xffa\n2\xffb\n"},
   ] {
     let r = uu.invoke_paths(s, "paste", item.args, vars: {LC_ALL: "zh_CN.gb18030"})?
     uu.succeeds(r)

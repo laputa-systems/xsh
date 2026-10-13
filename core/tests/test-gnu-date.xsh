@@ -75,11 +75,11 @@ test test_gnu_date_reference_log { |ctx|
   let a = uu.invoke(s, "date", ["+%s", "-r", "a"], vars: vars)?
   let b = uu.invoke(s, "date", ["+%s", "-r", "b"], vars: vars)?
   uu.succeeds(a); uu.succeeds(b)
-  assert a.stdout.utf8()?.trim().parse_int()? < b.stdout.utf8()?.trim().parse_int()?
+  assert a.stdout.utf8()?.trim() as Int < b.stdout.utf8()?.trim() as Int
   let explicit = uu.invoke(s, "date", ["+%s", "-d", earlier], vars: vars)?
   let current = uu.invoke(s, "date", ["+%s"], vars: vars)?
-  if explicit.stdout.utf8()?.trim().parse_int()? < current.stdout.utf8()?.trim().parse_int()? {
-    assert a.stdout.utf8()?.trim().parse_int()? < current.stdout.utf8()?.trim().parse_int()?
+  if explicit.stdout.utf8()?.trim() as Int < current.stdout.utf8()?.trim() as Int {
+    assert a.stdout.utf8()?.trim() as Int < current.stdout.utf8()?.trim() as Int
   }
   uu.symlink(s, "t1", "t1s")
   let target = uu.invoke(s, "date", ["-r", "t1"], vars: vars)?

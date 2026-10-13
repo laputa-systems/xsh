@@ -64,7 +64,7 @@ test test_printenv_help_and_version { |ctx|
 }
 
 test test_printenv_values_are_printed_as_bytes { |ctx|
-  let raw = Path.parse_bytes(b"/tmp/lib.so\xff")?
+  let raw = b"/tmp/lib.so\xff" as Path
   let vars = {LC_ALL: "C", RAW_VALUE: raw, PATHLIKE: "a:b//c/"}
 
   let named = applet_run(ctx, ["RAW_VALUE"], vars: vars)?

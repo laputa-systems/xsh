@@ -318,7 +318,7 @@ test test_uu_realpath_realpath_non_utf8_paths { |ctx|
   let name = b"test_\xff\xfe.txt"
   let file = uu.at_bytes(s, name)?
   file.write(b"")
-  let r = uu.invoke_paths(s, "realpath", [Path.parse_bytes(name)?])?
+  let r = uu.invoke_paths(s, "realpath", [name as Path])?
   uu.succeeds(r)
   assert bytes.from_text("test_") in r.stdout
   assert bytes.from_text(".txt") in r.stdout

@@ -480,7 +480,7 @@ test test_uu_env_env_list_signal_handling_reports_ignore { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "env", ["--ignore-signal=INT", "--list-signal-handling", "true"])?
   uu.succeeds(r)
-  let stderr = r.stderr.utf8()?
+  let stderr = r.stderr as Str
   assert "INT" in stderr and "IGNORE" in stderr
 }
 
@@ -523,7 +523,7 @@ test test_uu_env_reject_shell_style_variable_expansions { |ctx|
 # origin: uutils test_env::test_non_utf8_env_vars
 test test_uu_env_non_utf8_env_vars { |ctx|
   let s = uu.scene(ctx)?
-  let value = Path.parse_bytes(b"hello\x80world")?
+  let value = b"hello\x80world" as Path
   let r = uu.invoke(s, "env", [], vars: {NON_UTF8_VAR: value})?
   uu.succeeds(r)
   assert b"NON_UTF8_VAR='hello'$'\\200''world'" in r.stdout

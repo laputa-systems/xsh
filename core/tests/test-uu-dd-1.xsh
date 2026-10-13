@@ -551,7 +551,7 @@ test test_uu_dd_final_stats_unspec { |ctx|
   let r = uu.invoke(s, "dd", [], stdin: b"")?
   uu.succeeds(r)
   uu.stderr_contains(r, "0+0 records in\n0+0 records out\n0 bytes copied, ")
-  assert rx"[0-9](\.[0-9]+)?(e-[0-9][0-9])? s, ".matches(r.stderr.utf8()?)
+  assert rx"[0-9](\.[0-9]+)?(e-[0-9][0-9])? s, ".matches(r.stderr as Str)
   uu.stderr_contains(r, "0.0 kB/s")
 }
 
@@ -655,7 +655,7 @@ test test_uu_dd_diagnostics_plain_message_when_stderr_is_a_pipe { |ctx|
   uu.fails_with_code(r, 1)
   uu.stderr_contains(r, "dd: unrecognized operand 'bsx=1'\n")
   uu.stderr_contains(r, "--help' for more information.")
-  assert ! ("╭─" in r.stderr.utf8()?)
+  assert ! ("╭─" in r.stderr as Str)
 }
 
 # origin: uutils test_dd::diagnostics::test_unknown_mode_leaves_the_terminal_in_charge
@@ -664,7 +664,7 @@ test test_uu_dd_diagnostics_unknown_mode_leaves_the_terminal_in_charge { |ctx|
   let r = uu.invoke(s, "dd", ["bsx=1"], stdin: b"" , vars: {UUTILS_DIAG: "sometimes"})?
   uu.fails_with_code(r, 1)
   uu.stderr_contains(r, "dd: unrecognized operand 'bsx=1'\n")
-  assert ! ("╭─" in r.stderr.utf8()?)
+  assert ! ("╭─" in r.stderr as Str)
 }
 
 # origin: uutils test_dd::help
@@ -674,7 +674,7 @@ test test_uu_dd_help { |ctx|
   uu.succeeds(r)
   uu.stdout_contains(r, "\n  bs=BYTES")
   uu.stdout_contains(r, "\nEach CONV symbol may be:\n")
-  assert ! ("###" in r.stdout.utf8()?)
-  assert ! ("```" in r.stdout.utf8()?)
+  assert ! ("###" in r.stdout as Str)
+  assert ! ("```" in r.stdout as Str)
 }
 

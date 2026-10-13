@@ -16,8 +16,8 @@ proc warnings(data: Bytes) {
     let item = atom(data, at)
     if data.byte_at(at) == 92 {
       if at + 1 == data.len() { gnu.error("warning: an unescaped backslash at end of string is not portable") } else if at + 3 < data.len() and (data.byte_at(at + 1) ?? 0) in [52, 53, 54, 55] and (data.byte_at(at + 2) ?? 0) in [48, 49, 50, 51, 52, 53, 54, 55] and (data.byte_at(at + 3) ?? 0) in [48, 49, 50, 51, 52, 53, 54, 55] {
-        let raw = data[at..at + 4].utf8()?
-        let final = data[at + 3..at + 4].utf8()?
+        let raw = data[at..at + 4] as Str
+        let final = data[at + 3..at + 4] as Str
         gnu.error(f"warning: the ambiguous octal escape {raw} is being\n\tinterpreted as the 2-byte sequence \\{item.value / 64}{item.value / 8 % 8}{item.value % 8}, {final}")
       }
     }
@@ -115,7 +115,7 @@ proc parse_set(data: Bytes, fill: Count, second: Bool) -> List[Run] {
     if data.byte_at(at) == 91 and data.byte_at(at + 1) == 58 and data.byte_at(at + 2) != 42 {
       let close = find_sequence(data, b":]", at + 2)
       if close == null { set_error("missing terminating ] in character class"); exit 1 }
-      let name = data[at + 2..close].utf8()?
+      let name = data[at + 2..close] as Str
       if name == "" { set_error(f"missing character class name {gnu.quote_value("[::]")}") }
       if name not in ["alnum", "alpha", "blank", "cntrl", "digit", "graph", "lower", "print", "punct", "space", "upper", "xdigit"] { set_error(f"invalid character class {gnu.quote_value(name)}") }
       var first = true

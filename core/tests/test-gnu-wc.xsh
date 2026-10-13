@@ -6,7 +6,7 @@ test test_gnu_wc_wc_cpu_log { |ctx|
   let disabled = "glibc.cpu.hwcaps=-ASIMD,-AVX2,-AVX512F"
   let debug = uu.invoke(s, "wc", ["-l", "--debug", "/dev/null"], vars: {GLIBC_TUNABLES: disabled})?
   uu.succeeds(debug)
-  assert !rx"using.*hardware support".matches(debug.stderr.utf8()?)
+  assert !rx"using.*hardware support".matches(debug.stderr as Str)
   let shuffled = uu.invoke(s, "shuf", ["-i", "0-1000"])?
   uu.succeeds(shuffled)
   let selected = shuffled.stdout.utf8()?.lines()[0].parse_int() ?? -1
@@ -185,7 +185,7 @@ test test_gnu_wc_wc_total_log { |ctx|
   let files = ["big" for n in range(8)]
   let overflow = uu.invoke(s, "wc", ["--total=only", "-c"] + files, timeout: 10s)?
   let hidden = uu.invoke(s, "wc", ["--total=never", "-c"] + files, timeout: 10s)?
-  assert overflow.status == 1, f"total=only status {overflow.status}, stderr {overflow.stderr.utf8()?}; total=never status {hidden.status}, stderr {hidden.stderr.utf8()?}"
+  assert overflow.status == 1, f"total=only status {overflow.status}, stderr {overflow.stderr as Str}; total=never status {hidden.status}, stderr {hidden.stderr as Str}"
   uu.stdout_is(overflow, "18446744073709551615\n")
   uu.succeeds(hidden)
   uu.stdout_is(hidden, [" 2305843009213693952 big\n" for n in range(8)].join(""))

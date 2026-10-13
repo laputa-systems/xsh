@@ -42,7 +42,7 @@ test test_uu_unlink_unlink_non_utf8_paths { |ctx|
   let target = uu.at_bytes(s, b"test_\xff\xfe.txt")?
   target.write("")
   assert target.is_file()?
-  let r = uu.invoke_paths(s, "unlink", [Path.parse_bytes(b"test_\xff\xfe.txt")?])?
+  let r = uu.invoke_paths(s, "unlink", [b"test_\xff\xfe.txt" as Path])?
   uu.succeeds(r)
   assert ! target.exists()?
 }

@@ -31,7 +31,7 @@ proc boot_stdout() [fs, process, time, error] -> Result[Str, Error] {
     } else {
       let lines = [line for line in p"/proc/stat".read_text()?.lines().collect() if line.starts_with("btime ")]
       assert lines.len() == 1, "expected one kernel boot epoch"
-      seconds = [lines[0].split(" ").collect()[1].parse_int()?]
+      seconds = [lines[0].split(" ").collect()[1] as Int]
     }
   }
   var expected = ""

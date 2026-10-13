@@ -38,7 +38,7 @@ test test_nl_numeric_errors_match_gnu { |ctx|
 
 test test_nl_preserves_non_utf8_paths_and_number_separators { |ctx|
   let root = test.temp_dir(ctx, name: "nl-raw-arguments")?
-  let input = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  let input = bytes.concat([root.bytes(), b"/file\xff"]) as Path
   input.write("test")
   let output = test.temp_path(ctx, name: "numbered")
   let command = "separator=$(printf '\\377\\376'); exec \"$1\" \"$2\" -- --number-separator=\"$separator\" \"$3\" > \"$4\""

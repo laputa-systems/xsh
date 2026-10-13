@@ -90,7 +90,7 @@ test test_uu_yes_long_output { |ctx|
 # origin: uutils test_yes::test_non_utf8
 test test_uu_yes_non_utf8 { |ctx|
   let s = uu.scene(ctx)?
-  let word = Path.parse_bytes(b"\xbf\xff\xee")?
+  let word = b"\xbf\xff\xee" as Path
   let expected = bytes.concat([b"\xbf\xff\xee bar\n" for _ in range(5000)])
   yes_prefix(s, [word, p"bar"], expected)
 }

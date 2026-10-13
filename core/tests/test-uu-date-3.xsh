@@ -11,7 +11,7 @@ test test_uu_date_non_utf8_operands_are_octal_escaped { |ctx|
     {args: [b"-d", b"2031-07-23", b"%Y\xd8"], expected: "the argument '%Y\\330' lacks a leading '+'"},
   ]
   for item in cases {
-    let args = [Path.parse_bytes(arg)? for arg in item.args]
+    let args = [arg as Path for arg in item.args]
     let r = uu.invoke_paths(s, "date", args)?
     uu.fails_with_code(r, 1)
     uu.stderr_contains(r, item.expected)

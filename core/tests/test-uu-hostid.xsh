@@ -24,5 +24,5 @@ test test_uu_hostid_output_format { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "hostid", [])?
   uu.succeeds(r)
-  assert regex.compile("^[0-9a-f]{8}\n$")?.matches(r.stdout.utf8()?)
+  assert regex.compile("^[0-9a-f]{8}\n$")?.matches(r.stdout as Str)
 }

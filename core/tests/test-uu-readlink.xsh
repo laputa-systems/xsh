@@ -325,7 +325,7 @@ test test_uu_readlink_readlink_non_utf8_paths { |ctx|
   uu.touch(s, "target_file")
   let name = b"symlink_\xff\xfe"
   uu.at_bytes(s, name)?.symlink(to: uu.at(s, "target_file"))
-  let r = uu.invoke_paths(s, "readlink", [Path.parse_bytes(name)?])?
+  let r = uu.invoke_paths(s, "readlink", [name as Path])?
   uu.succeeds(r)
   uu.stdout_contains(r, "target_file")
 }

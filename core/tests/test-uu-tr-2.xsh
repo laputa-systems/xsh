@@ -87,7 +87,7 @@ test test_uu_tr_truncate_multi { |ctx|
 # origin: uutils test_tr::test_truncate_non_utf8_set
 test test_uu_tr_truncate_non_utf8_set { |ctx|
   let s = uu.scene(ctx)?
-  let r = uu.invoke_paths(s, "tr", [Path.parse_bytes(b"a\xfe\xffz")?, p"01234"], stdin: b"\x01amp\xfe\xff")?
+  let r = uu.invoke_paths(s, "tr", [b"a\xfe\xffz" as Path, p"01234"], stdin: b"\x01amp\xfe\xff")?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, b"\x010mp12")
 }

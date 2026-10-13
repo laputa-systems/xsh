@@ -216,7 +216,7 @@ proc identity() [process, error] -> Result[Identity] {
 # Metadata of NAME, following symlinks unless `follow` is false. A missing or
 # dangling name is an error.
 proc stat_name(name: Bytes, follow: Bool) [fs, error] -> Result[FsEntry] {
-  let target = Path.parse_bytes(name)?
+  let target = name as Path
 
   return target.metadata() when ! follow
 
@@ -315,8 +315,8 @@ pure is_switch(word: Str) -> Bool {
 # symlinks, so a hard link or a symlink to the same file matches. A name that
 # does not resolve is never the same file as another.
 proc same_file(left: Bytes, right: Bytes) [fs, error] -> Result[Bool] {
-  let left_path = Path.parse_bytes(left)?
-  let right_path = Path.parse_bytes(right)?
+  let left_path = left as Path
+  let right_path = right as Path
 
   guard let left_entry = fs.stat(left_path, follow_symlinks: true) else {
     return Ok(false)

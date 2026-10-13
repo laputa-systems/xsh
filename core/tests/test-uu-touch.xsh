@@ -307,7 +307,7 @@ test test_uu_touch_touch_no_such_file_error_msg { |ctx|
 test test_uu_touch_touch_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
   let file = uu.at_bytes(s, b"test_\xff\xfe.txt")?
-  let r = uu.invoke_paths(s, "touch", [Path.parse_bytes(b"test_\xff\xfe.txt")?])?
+  let r = uu.invoke_paths(s, "touch", [b"test_\xff\xfe.txt" as Path])?
   uu.succeeds(r)
   uu.no_output(r)
   assert fs.stat(file) is Ok(_)

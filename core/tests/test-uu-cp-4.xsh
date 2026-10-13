@@ -771,7 +771,7 @@ test test_uu_cp_cp_recursive_non_utf8_source { |ctx|
   uu.at_bytes(s, b"dir\x80")?.mkdir()
   uu.mkdir(s, "dir2")
   uu.at_bytes(s, b"dir\x80/a")?.write("")
-  let r = uu.invoke_paths(s, "cp", [p"-r", Path.parse_bytes(b"dir\x80/.")?, p"dir2"])?
+  let r = uu.invoke_paths(s, "cp", [p"-r", b"dir\x80/." as Path, p"dir2"])?
   uu.succeeds(r)
   uu.no_output(r)
   assert uu.exists(s, "dir2/a")?

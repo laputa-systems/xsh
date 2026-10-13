@@ -53,7 +53,7 @@ test test_uu_dir_default_output { |ctx|
   uu.stdout_contains(r, "some-file1")
   let again = uu.invoke(s, "dir", [])?
   uu.succeeds(again)
-  assert ! regex.compile("[rwx-]{10}.*some-file1$")?.matches(again.stdout.utf8()?)
+  assert ! regex.compile("[rwx-]{10}.*some-file1$")?.matches(again.stdout as Str)
 }
 
 # origin: uutils test_dir::test_dir
@@ -68,7 +68,7 @@ test test_uu_dir_help_shows_dir_not_ls { |ctx|
   let r = uu.invoke(s, "dir", ["--help"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "dir [OPTION]")
-  assert ! ("ls [OPTION]" in r.stdout.utf8()?)
+  assert ! ("ls [OPTION]" in r.stdout as Str)
 }
 
 # origin: uutils test_dir::test_invalid_option_exit_code
@@ -103,7 +103,7 @@ test test_uu_dir_long_output { |ctx|
   uu.stdout_contains(r, "some-file1")
   let again = uu.invoke(s, "dir", ["-l"])?
   uu.succeeds(again)
-  assert regex.compile("[rwx-]{10}.*some-file1\n$")?.matches(again.stdout.utf8()?)
+  assert regex.compile("[rwx-]{10}.*some-file1\n$")?.matches(again.stdout as Str)
 }
 
 # origin: uutils test_dir::test_quoting_defaults

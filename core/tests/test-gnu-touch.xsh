@@ -126,7 +126,7 @@ test test_gnu_touch_not_owner_log { |ctx|
   assert root_meta.uid != user.current()?.uid and root_meta.gid != group.current()?.gid
   let r = uu.invoke(s, "touch", ["/"])?
   uu.fails(r)
-  let output = bytes.concat([r.stdout, r.stderr]).utf8()?
+  let output = bytes.concat([r.stdout, r.stderr]) as Str
   assert output in ["touch: setting times of '/': Permission denied\n", "touch: setting times of '/': Operation not permitted\n", "touch: setting times of '/': Read-only file system\n"]
 }
 

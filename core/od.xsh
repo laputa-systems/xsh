@@ -121,7 +121,7 @@ pure float_text(value: Float, format: Str) -> Result[Str] {
   var precision = 1
   while precision <= maximum {
     let text = normalized_float(value.format_number("g", precision)?)
-    let rounded = text.parse_float()?
+    let rounded = text as Float
     if narrow {
       if (rounded - value).abs() <= float_rounding_limit(value, format) and text.byte_len() < best.byte_len() { best = text }
     } else if rounded == value and text.byte_len() < best.byte_len() { best = text }

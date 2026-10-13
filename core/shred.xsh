@@ -108,7 +108,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     remove = matches[0]
   }
   let source_bytes = if opts.source == null { b"/dev/urandom" } else { gnu.argument_bytes(opts.source ?? "", prepared.raw) }
-  let source = Path.parse_bytes(source_bytes)?
+  let source = source_bytes as Path
   if opts.source != null {
     let info = fs.stat(source, follow_symlinks: true)
     if let Err(failure) = info { gnu.error(f"{quote_maybe_bytes(source_bytes)}: {gnu.strerror(failure)}"); exit 1 }
@@ -118,7 +118,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   var source_offset = 0
   for path_name in opts.paths {
     let name = gnu.argument_bytes(path_name, prepared.raw)
-    let target = Path.parse_bytes(name)?
+    let target = name as Path
     let metadata = fs.stat(target, follow_symlinks: true)
     if let Err(failure) = metadata { name_error(name, failure); failed = true; continue }
     let info = metadata?
@@ -170,7 +170,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
         while true {
           var renamed_name = ""
           for digit in digits { renamed_name += alphabet.byte_slice(digit, length: 1) }
-          let next = Path.parse_bytes(bytes.concat([parent_dir.bytes(), b"/", bytes.from_text(renamed_name)]))?
+          let next = bytes.concat([parent_dir.bytes(), b"/", bytes.from_text(renamed_name)]) as Path
           let renamed = fs.rename_noreplace(last, next)
           if let Err(failure) = renamed {
             if failure.errno != 17 {

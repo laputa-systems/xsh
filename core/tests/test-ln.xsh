@@ -136,9 +136,9 @@ test test_ln_verbose_reports_backup_before_the_link { |ctx|
 
 test test_ln_preserves_non_utf8_source_and_destination_names { |ctx|
   let root = test.temp_dir(ctx)?
-  let source = Path.parse_bytes(bytes.concat([root.bytes(), b"/source\xff\xfe"]))?
-  let hard_link = Path.parse_bytes(bytes.concat([root.bytes(), b"/hard\xff\xfe"]))?
-  let symbolic_link = Path.parse_bytes(bytes.concat([root.bytes(), b"/symbolic\xff\xfe"]))?
+  let source = bytes.concat([root.bytes(), b"/source\xff\xfe"]) as Path
+  let hard_link = bytes.concat([root.bytes(), b"/hard\xff\xfe"]) as Path
+  let symbolic_link = bytes.concat([root.bytes(), b"/symbolic\xff\xfe"]) as Path
   source.write("payload")
   let script = fp"{ctx.core_dir}/ln.xsh"
   let out = fp"{root}/stdout"
@@ -156,9 +156,9 @@ test test_ln_preserves_non_utf8_source_and_destination_names { |ctx|
 
 test test_ln_target_directory_accepts_non_utf8_source_name { |ctx|
   let root = test.temp_dir(ctx)?
-  let source = Path.parse_bytes(bytes.concat([root.bytes(), b"/source\xff\xfe"]))?
+  let source = bytes.concat([root.bytes(), b"/source\xff\xfe"]) as Path
   let directory = fp"{root}/links"
-  let link = Path.parse_bytes(bytes.concat([directory.bytes(), b"/source\xff\xfe"]))?
+  let link = bytes.concat([directory.bytes(), b"/source\xff\xfe"]) as Path
   source.write("payload")
   directory.mkdir()
   let script = fp"{ctx.core_dir}/ln.xsh"

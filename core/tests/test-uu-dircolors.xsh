@@ -181,7 +181,7 @@ test test_uu_dircolors_dircolors_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
   let filename = uu.at_bytes(s, b"\xff\xfe")?
   filename.write(b"NORMAL 00\n*.txt 32\n")
-  let r = uu.invoke_paths(s, "dircolors", [Path.parse_bytes(b"\xff\xfe")?], vars: {SHELL: "bash"})?
+  let r = uu.invoke_paths(s, "dircolors", [b"\xff\xfe" as Path], vars: {SHELL: "bash"})?
   uu.succeeds(r)
   uu.stdout_contains(r, "LS_COLORS=")
   uu.stdout_contains(r, "*.txt=32")

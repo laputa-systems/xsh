@@ -67,7 +67,7 @@ test test_chmod_malformed_option_like_mode_is_invalid_mode { |ctx|
 
 test test_chmod_accepts_non_utf8_operand_bytes { |ctx|
   let root = test.temp_dir(ctx, name: "raw-operand")?
-  let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  let file = bytes.concat([root.bytes(), b"/file\xff"]) as Path
   file.write("x")
   file.chmod(0o644)
   let result = perm_run(ctx, ["755", file])?
@@ -237,7 +237,7 @@ test test_chmod_recursive_reports_inaccessible_descendant { |ctx|
 
 test test_chmod_recursive_preserves_non_utf8_child_names { |ctx|
   let root = test.temp_dir(ctx, name: "raw-name")?
-  let child = Path.parse_bytes(bytes.concat([root.bytes(), b"/child\xff"]))?
+  let child = bytes.concat([root.bytes(), b"/child\xff"]) as Path
   child.write("x")
   child.chmod(0o644)
   let result = perm_run(ctx, ["-R", "700", root.display()])?

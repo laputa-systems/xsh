@@ -77,7 +77,7 @@ test test_uu_rm_dash_hint_absent_without_matching_file { |ctx|
   let s = safe_scene(ctx)?
   let r1 = uu.invoke(s, "rm", ["-q"])?
   uu.fails_with_code(r1, 1)
-  assert ! ("to remove the file" in r1.stderr.utf8()?)
+  assert ! ("to remove the file" in r1.stderr as Str)
 }
 
 # origin: uutils test_rm::test_dash_hint_is_shell_escaped
@@ -131,7 +131,7 @@ test test_uu_rm_dot_protection_multiple_slashes { |ctx|
     uu.touch(s, "d/file2")
     let r = uu.invoke(s, "rm", ["-rf", operand])?
     uu.fails(r)
-    let message = r.stderr.utf8()?
+    let message = r.stderr as Str
     assert "refusing to remove" in message or "dangerous to operate" in message
     assert dir_exists(s, "d")?
     assert file_exists(s, "file1")?
@@ -903,7 +903,7 @@ test test_uu_rm_verbose_write_error_does_not_panic { |ctx|
   uu.fails(r1)
   uu.fails_with_code(r1, 1)
   uu.stderr_contains(r1, "No space left on device")
-  assert ! ("panicked" in r1.stderr.utf8()?)
+  assert ! ("panicked" in r1.stderr as Str)
   assert ! file_exists(s, "test_rm_verbose_write_error_file")?
 }
 
@@ -916,7 +916,7 @@ test test_uu_rm_verbose_write_error_does_not_panic_dir { |ctx|
   uu.fails(r1)
   uu.fails_with_code(r1, 1)
   uu.stderr_contains(r1, "No space left on device")
-  assert ! ("panicked" in r1.stderr.utf8()?)
+  assert ! ("panicked" in r1.stderr as Str)
   assert ! file_exists(s, "test_rm_verbose_write_error_dir/a")?
   assert ! dir_exists(s, "test_rm_verbose_write_error_dir")?
 }

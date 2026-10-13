@@ -19,7 +19,7 @@ proc main(...argv: List[Bytes]) [fs, error, process, env, io] {
     gnu.usage_error(f"extra operand {gnu.quote_bytes(extra)}")
   }
   let operand = gnu.argument_bytes(opts.operands[0], prepared.raw)
-  let target = Path.parse_bytes(operand)?
+  let target = operand as Path
   if let Ok(meta) = fs.stat(target) {
     if meta.kind == "dir" { gnu.error(f"cannot unlink {gnu.quote_bytes(operand)}: Is a directory"); exit 1 }
   }

@@ -3,7 +3,7 @@ use support.uu as uu
 proc stat_text(s: uu.Scene, args: List[Str], vars: Record = {}) -> Result[Str] {
   let result = uu.invoke(s, "stat", args, vars: vars)?
   uu.succeeds(result)
-  Ok(result.stdout.utf8()?)
+  Ok(result.stdout as Str)
 }
 
 proc hidden_proc(s: uu.Scene, words: List[Path]) -> Result[Status] {
@@ -104,7 +104,7 @@ test test_gnu_stat_stat_nanoseconds_log { |ctx|
   uu.succeeds(uu.invoke(s, "touch", ["-d", "1970-01-01 18:43:33.023456789", "k"], vars: vars)?)
   let listing = uu.invoke(s, "ls", ["--full-time"], vars: vars)?
   uu.succeeds(listing)
-  if "18:43:33.023456789" not in listing.stdout.utf8()? { test.skip("filesystem does not retain subsecond timestamps") }
+  if "18:43:33.023456789" not in listing.stdout as Str { test.skip("filesystem does not retain subsecond timestamps") }
   for item in [
     {format: "%Y", output: "67413"},
     {format: "%.Y", output: "67413.023456789"},
@@ -125,7 +125,7 @@ test test_gnu_stat_stat_nanoseconds_log { |ctx|
     assert stat_text(s, ["-c", item.format, "recent"], vars)? == item.output + "\n"
   }
   uu.succeeds(uu.invoke(s, "touch", ["-d", "@-0.876543211", "old"], vars: vars)?)
-  let seconds = stat_text(s, ["-c", "%Y", "old"], vars)?.trim().parse_int()?
+  let seconds = stat_text(s, ["-c", "%Y", "old"], vars)?.trim() as Int
   let tenth = stat_text(s, ["-c", "%.1Y", "old"], vars)?.trim()
   if seconds < 1 and tenth != "0.0" {
     for item in [{format: "%Y", output: "-1"}, {format: "%.Y", output: "-0.876543211"}, {format: "%.3Y", output: "-0.876"}, {format: "%.9Y", output: "-0.876543211"}] {

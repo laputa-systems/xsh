@@ -358,7 +358,7 @@ test test_uu_paste_non_utf8_delimiter { |ctx|
   let s = uu.scene(ctx)?
   uu.write(s, "f1", "1\n2\n")
   uu.write(s, "f2", "a\nb\n")
-  let delimiter = Path.parse_bytes(bytes.from_ints([162, 227])?)?
+  let delimiter = bytes.from_ints([162, 227])? as Path
   let r = uu.invoke_paths(s, "paste", [p"-d", delimiter, p"f1", p"f2"], vars: {"LC_ALL": "zh_CN.gb18030"})?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, bytes.concat([b"1", bytes.from_ints([162, 227])?, b"a\n2", bytes.from_ints([162, 227])?, b"b\n"]))

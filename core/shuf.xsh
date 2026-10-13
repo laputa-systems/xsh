@@ -541,7 +541,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   } else {
     let name = opts.operands.get(0) ?? "-"
     let raw_name = gnu.argument_bytes(name, prepared.raw)
-    let input = Path.parse_bytes(raw_name)?
+    let input = raw_name as Path
     let read = if name == "-" { gnu.read_operand(name) } else { input.read_bytes() }
 
     guard let data = read else { |failure|

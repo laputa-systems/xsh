@@ -10,7 +10,7 @@ proc matches_template(pattern: Str, filename: Str) {
 }
 
 proc output_name(r: uu.Ran) [error] -> Result[Str] {
-  let name = r.stdout.utf8()?
+  let name = r.stdout as Str
   var end = name.byte_len()
   while end > 0 and name.byte_slice(end - 1, length: 1).trim().is_empty() { end -= 1 }
   Ok(name.byte_slice(0, length: end))
@@ -488,7 +488,7 @@ test test_uu_mktemp_non_utf8_tmpdir_directory_creation { |ctx|
 # origin: uutils test_mktemp::test_invalid_utf8_suffix
 test test_uu_mktemp_invalid_utf8_suffix { |ctx|
   let s = uu.scene(ctx)?
-  let suffix = Path.parse_bytes(b"\xc3|\xed\xba\xad")?
+  let suffix = b"\xc3|\xed\xba\xad" as Path
   uu.succeeds(uu.invoke_paths(s, "mktemp", [p"-p", s.root, p"--suffix", suffix, p"tmpXXXXXX"])?)
 }
 

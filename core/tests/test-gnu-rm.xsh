@@ -25,7 +25,7 @@ test test_gnu_rm_cycle_log { |ctx|
   uu.set_mode(s, "a/b", 0o555)
   let r = uu.invoke(s, "rm", ["-rf", "a", "a"])?
   let strip = regex.compile(":[^:\n]*\n")?
-  assert strip.replace(bytes.concat([r.stdout, r.stderr]).utf8()?, with: "\n") == "rm: cannot remove 'a/b/file'\nrm: cannot remove 'a/b/file'\n"
+  assert strip.replace(bytes.concat([r.stdout, r.stderr]) as Str, with: "\n") == "rm: cannot remove 'a/b/file'\nrm: cannot remove 'a/b/file'\n"
 }
 
 # origin: gnu rm/d-1.log
@@ -75,7 +75,7 @@ test test_gnu_rm_dash_hint_log { |ctx|
   let absent = uu.invoke(s, "rm", ["-foo"])?
   uu.fails_with_code(absent, 1)
   uu.no_stdout(absent)
-  assert ! ("to remove the file" in absent.stderr.utf8()?)
+  assert ! ("to remove the file" in absent.stderr as Str)
   for item in [
     {name: "-foo", hint: "Try 'rm ./-foo' to remove the file '-foo'.\nTry 'rm --help' for more information.\n"},
     {name: "-foo\nbar", hint: r"""Try 'rm ./'-foo'$'\n''bar'' to remove the file '-foo'$'\n''bar'.
@@ -325,7 +325,7 @@ test test_gnu_rm_r_4_log { |ctx|
     let r = uu.invoke(s, "rm", ["-fr", name])?
     uu.fails(r)
     let diagnostic = regex.compile("^rm: refusing to remove '\\.' or '\\.\\.' directory: skipping '.*'\n$")?
-    assert diagnostic.matches(r.stderr.utf8()?)
+    assert diagnostic.matches(r.stderr as Str)
   }
   present(s, ["d/a"])
 }

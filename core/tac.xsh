@@ -106,7 +106,7 @@ proc source_for(name: Bytes) [fs, error] -> Result[tio.Source, Error] {
     return tio.open_source(text)
   }
 
-  let input_path = Path.parse_bytes(name)?
+  let input_path = name as Path
   let target = input_path.resolve()?
   let entry = target.metadata()?
   let kind = entry.mode / 4096 % 16
@@ -235,7 +235,7 @@ proc regex_byte_text(data: Bytes) [error] -> Result[RegexText] {
     source_offsets += [index + 1]
   }
 
-  Ok({text: bytes.concat(chars).utf8()?, source_offsets: source_offsets})
+  Ok({text: bytes.concat(chars) as Str, source_offsets: source_offsets})
 }
 
 # GNU tac searches regex separators backward, using each prior match start as

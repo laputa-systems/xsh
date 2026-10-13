@@ -318,8 +318,8 @@ test test_uu_head_multiple_nonexistent_files { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "head", ["bogusfile1", "bogusfile2"], stdin: b"")?
   uu.fails(r)
-  assert !("==> bogusfile1 <==" in r.stdout.utf8()?)
-  assert !("==> bogusfile2 <==" in r.stdout.utf8()?)
+  assert !("==> bogusfile1 <==" in r.stdout as Str)
+  assert !("==> bogusfile2 <==" in r.stdout as Str)
   uu.stderr_contains(r, "cannot open 'bogusfile1' for reading: No such file or directory")
   uu.stderr_contains(r, "cannot open 'bogusfile2' for reading: No such file or directory")
 
@@ -570,7 +570,7 @@ test test_uu_head_unreadable_file_prints_no_header { |ctx|
   uu.fails(r)
   uu.stdout_is(r, "==> readable <==\nhello")
   uu.fails_with_code(r, 1)
-  assert !("==> unreadable <==" in r.stdout.utf8()?)
+  assert !("==> unreadable <==" in r.stdout as Str)
   uu.stderr_contains(r, "cannot open 'unreadable' for reading: Permission denied")
 }
 

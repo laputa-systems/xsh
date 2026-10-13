@@ -203,7 +203,7 @@ test test_shuf_large_ranges { |ctx|
 
 test test_shuf_invalid_utf8_operands_are_raw_bytes { |ctx|
   let root = test.temp_dir(ctx, name: "shuf-invalid-utf8-echo")?
-  let args: List[Union[Str, Path]] = ["-e", Path.parse_bytes(b"a\xFFb")?, "ok"]
+  let args: List[Union[Str, Path]] = ["-e", b"a\xFFb" as Path, "ok"]
   let result = shuf_raw_run(ctx, root, args)?
   assert result.status == 0, result.stderr
   assert result.stderr == ""
@@ -212,7 +212,7 @@ test test_shuf_invalid_utf8_operands_are_raw_bytes { |ctx|
 
 test test_shuf_reads_invalid_utf8_operand_file { |ctx|
   let root = test.temp_dir(ctx, name: "shuf-invalid-utf8-file")?
-  let name = Path.parse_bytes(b"a\xFFb")?
+  let name = b"a\xFFb" as Path
   cd root {
     name.write("foo\n")
   }

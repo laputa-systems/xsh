@@ -1108,8 +1108,8 @@ test test_uu_install_install_creating_leading_dirs_verbose { |ctx|
   uu.mkdir(s, "dir1")
   let r = uu.invoke(s, "install", ["-Dv", "create_leading_test_file", uu.at(s, "dir1/no-dir2/no-dir3/test_file").display()])?
   uu.succeeds(r)
-  assert regex.compile("(?m)^install: creating directory.*no-dir[23]'$")?.matches(r.stdout.utf8()?)
-  assert !regex.compile("(?m)^install: creating directory.*dir1'$")?.matches(r.stdout.utf8()?)
+  assert regex.compile("(?m)^install: creating directory.*no-dir[23]'$")?.matches(r.stdout as Str)
+  assert !regex.compile("(?m)^install: creating directory.*dir1'$")?.matches(r.stdout as Str)
   uu.no_stderr(r)
   assert file_exists(s, "dir1/no-dir2/no-dir3/test_file")?
 }
@@ -1268,7 +1268,7 @@ test test_uu_install_diagnostics_plain_message_when_stderr_is_a_pipe { |ctx|
   uu.touch(s, "source")
   let r = uu.invoke(s, "install", ["-m", "u+rw?x", "source", "dest"])?
   uu.fails_with_code(r, 1)
-  let stderr = r.stderr.utf8()?
+  let stderr = r.stderr as Str
   assert stderr.starts_with("install: ")
   assert !(":1:" in stderr)
 }

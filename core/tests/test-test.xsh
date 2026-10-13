@@ -394,7 +394,7 @@ proc raw_applet_run(ctx: TestContext, args: List[Path]) [fs, process, error] -> 
 }
 
 test test_test_undecodable_operands_keep_their_bytes { |ctx|
-  let bad = Path.parse_bytes(b"fo\x80o")?
+  let bad = b"fo\x80o" as Path
 
   let result = raw_applet_run(ctx, [fp"123", fp"-ne", bad])?
   assert result.status == 2
@@ -407,10 +407,10 @@ test test_test_undecodable_operands_keep_their_bytes { |ctx|
   assert raw_applet_run(ctx, [bad, fp"!=", bad])?.status == 1
 
   let root = test.temp_dir(ctx, name: "test-undecodable-file")?
-  let name = Path.parse_bytes(bytes.concat([bytes.from_text(f"{root}/"), b"fo\x80o"]))?
+  let name = bytes.concat([bytes.from_text(f"{root}/"), b"fo\x80o"]) as Path
   name.write("data")
   assert raw_applet_run(ctx, [fp"-f", name])?.status == 0, "a file operand names its real bytes"
-  assert raw_applet_run(ctx, [fp"-f", Path.parse_bytes(b"/nonexistent/fo\x80o")?])?.status == 1
+  assert raw_applet_run(ctx, [fp"-f", b"/nonexistent/fo\x80o" as Path])?.status == 1
 }
 
 test test_test_terminal_descriptor_operator { |ctx|

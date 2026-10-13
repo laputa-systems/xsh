@@ -1055,7 +1055,7 @@ test test_uu_csplit_csplit_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
   let filename = uu.at_bytes(s, b"\xff\xfe")?
   filename.write(b"line1\nline2\nline3\nline4\nline5\n")
-  let r = uu.invoke_paths(s, "csplit", [Path.parse_bytes(b"\xff\xfe")?, p"3"])?
+  let r = uu.invoke_paths(s, "csplit", [b"\xff\xfe" as Path, p"3"])?
   uu.succeeds(r)
 }
 

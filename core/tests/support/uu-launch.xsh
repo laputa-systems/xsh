@@ -3,7 +3,7 @@
 type Launch = {caller_keys: List[Str], umask: Int?}
 
 proc main(...words: List[Bytes]) [env, process, fs, error] {
-  let launch = json.decode(words[0].utf8()?)?.require(Launch)?
+  let launch = json.decode(words[0] as Str)?.require(Launch)?
   let kept = ["PATH", "LD_PRELOAD", "LLVM_PROFILE_FILE"].extend(launch.caller_keys)
   var environment: Map[Str, Bytes] = {LC_ALL: b"C", TZ: b"UTC"}
   for entry in env.entries()? {
@@ -11,7 +11,7 @@ proc main(...words: List[Bytes]) [env, process, fs, error] {
       if name in kept { environment[name] = entry.value }
     }
   }
-  let argv = [Path.parse_bytes(word)? for word in words[1..]]
+  let argv = [word as Path for word in words[1..]]
   if let mask = launch.umask {
     assert mask >= 0 and mask <= 0o777, "umask must contain only permission bits"
     # A shell changes only this child mask. Re-enter the launcher to clear shell

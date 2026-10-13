@@ -912,7 +912,7 @@ proc swap_command(command: Str, argv: List[Str]) {
     return
   }
   require_operands(args, 1, if command == "mkswap" { 1 } else { -1 })
-  let priority = (args.values.get("-p") ?? "-1").parse_int()?
+  let priority = (args.values.get("-p") ?? "-1") as Int
   if priority < -1 or priority > 32767 or ("-p" in args.values and priority < 0) { gnu.usage_error("priority must be between 0 and 32767") }
   for name in args.operands {
     if command == "mkswap" {
@@ -968,9 +968,9 @@ proc blockdev(argv: List[Str]) {
 }
 
 proc byte_count(value: Str) -> UInt {
-  return value.parse_uint()? when rx"^[0-9]+$".matches(value)
+  return value as UInt when rx"^[0-9]+$".matches(value)
   if rx"^[0-9]+[KMGT]$".matches(value) {
-    let number = value.byte_slice(0, value.byte_len() - 1).parse_uint()?
+    let number = value.byte_slice(0, value.byte_len() - 1) as UInt
     let suffix = value.byte_slice(value.byte_len() - 1)
     let factor: UInt = if suffix == "K" { 1024 } else if suffix == "M" { 1048576 } else if suffix == "G" { 1073741824 } else { 1099511627776 }
     return number * factor
@@ -1043,9 +1043,9 @@ type PartitionInput = {index: Int, start: Int, end: Int, size: Int, type: Str, u
 
 proc sector_count(value: Str, sector_size: Int) -> Int {
   let text = value.trim()
-  return text.parse_int()? when rx"^[0-9]+$".matches(text)
+  return text as Int when rx"^[0-9]+$".matches(text)
   if rx"^[0-9]+[KMGT]$".matches(text) {
-    let number = text.byte_slice(0, text.byte_len() - 1).parse_int()?
+    let number = text.byte_slice(0, text.byte_len() - 1) as Int
     let suffix = text.byte_slice(text.byte_len() - 1)
     let factor = if suffix == "K" { 1024 } else if suffix == "M" { 1048576 } else if suffix == "G" { 1073741824 } else { 1099511627776 }
     return (number * factor + sector_size - 1) / sector_size
@@ -1080,15 +1080,15 @@ proc write_sfdisk(name: Str, args: Arguments) {
       if line.byte_slice(5).trim() != "sectors" { unsupported("partition input unit other than sectors") }
       continue
     }
-    if line.starts_with("sector-size:") { sector_size = line.byte_slice(12).trim().parse_int()?; continue }
+    if line.starts_with("sector-size:") { sector_size = line.byte_slice(12).trim() as Int; continue }
     if line.starts_with("device:") {
       if line.byte_slice(7).trim() != name { gnu.usage_error("partition input device disagrees with operand") }
       continue
     }
     # The usable range of a dump is checked against its partitions; the writer
     # picks the range itself, so only the entry count has to match its fixed 128.
-    if line.starts_with("first-lba:") { first_lba = line.byte_slice(10).trim().parse_uint()?; continue }
-    if line.starts_with("last-lba:") { last_lba = line.byte_slice(9).trim().parse_uint()?; continue }
+    if line.starts_with("first-lba:") { first_lba = line.byte_slice(10).trim() as UInt; continue }
+    if line.starts_with("last-lba:") { last_lba = line.byte_slice(9).trim() as UInt; continue }
     if line.starts_with("table-length:") {
       if line.byte_slice(13).trim() != "128" { unsupported("custom GPT table length") }
       continue

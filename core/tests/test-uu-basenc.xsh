@@ -194,7 +194,7 @@ test test_uu_basenc_base58_large_file_no_chunking { |ctx|
   uu.write(s, "large_file.txt", input)
   let r = uu.invoke(s, "basenc", ["--base58", "large_file.txt"])?
   uu.succeeds(r)
-  let encoded = r.stdout.utf8()?
+  let encoded = r.stdout as Str
   let trimmed = rx"\s+$".replace(encoded, with: "")
   assert trimmed.ends_with("ZNRRacEnhrY83ZEYkpwWVZNFK5DFRasr\nw693NsNGtiQ9fYAj")
 }

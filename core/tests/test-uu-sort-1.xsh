@@ -877,11 +877,11 @@ test test_uu_sort_debug_key_annotations { |ctx|
     for key in [f"-k2{mode}", f"-k1.3{mode}", f"-k1{mode}"] {
       let r = uu.invoke(s, "sort", ["-s", key, "--debug"], stdin: b"1\n\n44\n33\n2\n")?
       uu.succeeds(r)
-      output += r.stdout.utf8()?
+      output += r.stdout as Str
     }
     let r = uu.invoke(s, "sort", ["-s", "-k2g", "--debug"], stdin: b"1\t2\n2\t\n3\t1\n")?
     uu.succeeds(r)
-    output += r.stdout.utf8()?
+    output += r.stdout as Str
   }
   for case in [
     {args: ["-s", "-k1M", "--debug"], input: "FEB\n\nJAN\n"},
@@ -905,7 +905,7 @@ test test_uu_sort_debug_key_annotations { |ctx|
   ] {
     let r = uu.invoke(s, "sort", case.args, stdin: bytes.from_text(case.input))?
     uu.succeeds(r)
-    output += r.stdout.utf8()?
+    output += r.stdout as Str
   }
   let zero = uu.invoke(s, "sort", ["-s", "-k2b,2", "--debug"], stdin: b"\x00\ta\n")?
   uu.succeeds(zero)
@@ -916,7 +916,7 @@ test test_uu_sort_debug_key_annotations { |ctx|
   ] {
     let r = uu.invoke(s, "sort", case.args, stdin: bytes.from_text(case.input))?
     uu.succeeds(r)
-    output += r.stdout.utf8()?
+    output += r.stdout as Str
   }
   uu.fixture(s, "sort", "debug-key-annotations.expected", "debug-key-annotations.expected")
   assert output == uu.read_text(s, "debug-key-annotations.expected")?
@@ -928,11 +928,11 @@ proc locale_annotations(s: uu.Scene, locale: Str) [fs, process, env, error] -> R
   for locale in ["C", locale] {
     let r = uu.invoke(s, "sort", ["--debug", "-k2g", "-k1b,1"], stdin: bytes.from_text("   1²---++3   1,234  Mi\n"), vars: {LC_ALL: locale})?
     uu.succeeds(r)
-    output += r.stdout.utf8()?
+    output += r.stdout as Str
   }
   let r = uu.invoke(s, "sort", ["--debug", "-k1,1n", "-k1,1g", "-k1,1h", "-k2,2n", "-k2,2g", "-k2,2h", "-k3,3n", "-k3,3g", "-k3,3h"], stdin: b"+1234 1234Gi 1,234M\n", vars: {LC_ALL: locale})?
   uu.succeeds(r)
-  output += r.stdout.utf8()?
+  output += r.stdout as Str
   let normalized = [if line.starts_with("^^ ") { "^ no match for key" } else { line } for line in output.lines()].join("\n") + "\n"
   uu.fixture(s, "sort", "debug-key-annotations-locale.expected", "debug-key-annotations-locale.expected")
   assert normalized == uu.read_text(s, "debug-key-annotations-locale.expected")?
@@ -945,7 +945,7 @@ test test_uu_sort_debug_key_annotations_locale { |ctx|
   if let Ok(locale) = env.get("LOCALE_FR_UTF8") {
     if locale != "none" {
       let probe = uu.invoke(s, "sort", ["-g", "--debug", "/dev/null"], vars: {LC_NUMERIC: locale, LC_MESSAGES: "C"})?
-      if "numbers use .*,.* as a decimal point" in probe.stderr.utf8()? { locale_annotations(s, locale) }
+      if "numbers use .*,.* as a decimal point" in probe.stderr as Str { locale_annotations(s, locale) }
     }
   }
 }

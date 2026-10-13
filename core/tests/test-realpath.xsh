@@ -49,7 +49,7 @@ test test_realpath_empty_relative_options_fail { |ctx|
 
 test test_realpath_accepts_non_utf8_existing_paths { |ctx|
   let root = test.temp_dir(ctx, name: "realpath-invalid-utf8")?.resolve()?
-  let target = Path.parse_bytes(bytes.concat([root.bytes(), b"/test_\xff\xfe.txt"]))?
+  let target = bytes.concat([root.bytes(), b"/test_\xff\xfe.txt"]) as Path
   target.write("ok")
   let script = fp"{ctx.core_dir}/realpath.xsh"
   let stdout = fp"{root}/stdout"

@@ -14,7 +14,7 @@ export proc ids(text: Str) [error] -> Result[List[Int], Error] {
   var out = []
   for word in text.replace(" ", with: ",").split(",") {
     return Err(error.failure(f"invalid process id: {word}")) when ! rx"^[0-9]+$".matches(word)
-    let value = word.parse_int()?
+    let value = word as Int
     return Err(error.failure(f"invalid process id: {word}")) when value <= 0
     out = out.push(value)
   }
@@ -125,8 +125,8 @@ export type SamplingOptions = {interval: Float, count: Int}
 ## Parses the positional interval/count interface shared by sampling tools.
 export proc sampling_args(operands: List[Str]) [error] -> Result[SamplingOptions, Error] {
   return Err(error.failure("expected [INTERVAL [COUNT]]")) when operands.len() > 2
-  let interval = if operands.is_empty() { 1.0 } else { operands[0].parse_float()? }
-  let count = if operands.len() > 1 { operands[1].parse_int()? } else if operands.is_empty() { 1 } else { 9223372036854775807 }
+  let interval = if operands.is_empty() { 1.0 } else { operands[0] as Float }
+  let count = if operands.len() > 1 { operands[1] as Int } else if operands.is_empty() { 1 } else { 9223372036854775807 }
   return Err(error.failure("interval and count must be positive")) when interval <= 0.0 or count <= 0
   {interval: interval, count: count}
 }

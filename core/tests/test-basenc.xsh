@@ -43,7 +43,7 @@ test test_basenc_base16_reports_write_error { |ctx|
 
 test test_basenc_reads_non_utf8_file_operand { |ctx|
   let root = test.temp_dir(ctx, name: "basenc-raw-operand")?
-  let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  let file = bytes.concat([root.bytes(), b"/file\xff"]) as Path
   file.write(b"foo")
   let output = fp"{root}/out"
   let error = fp"{root}/err"

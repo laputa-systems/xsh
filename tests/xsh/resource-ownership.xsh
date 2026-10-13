@@ -552,7 +552,7 @@ test resource_fused_worker_teardown_stops_its_owned_child {
   }
   assert grouped.len() == 2
   for key in grouped.keys() {
-    let pid = key.parse_int()?
+    let pid = key as Int
     worker_pids += [pid]
     assert ! (process.list()? |> any .pid == pid), "fused worker teardown stops and reaps its child"
     assert process.kill(pid, signal: "0") is Err(_), "fused worker PID is absent after teardown"

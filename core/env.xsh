@@ -184,7 +184,7 @@ proc print_environment(environment: Map[Str, Bytes], null_delimited: Bool) [proc
 # value that is not valid UTF-8, and env passes such values through unchanged.
 proc inherited_environment() [env, error] -> Result[Map[Str, Bytes]] {
   var environment: Map[Str, Bytes] = {}
-  for item in env.entries()? { environment[item.name.utf8()?] = item.value }
+  for item in env.entries()? { environment[item.name as Str] = item.value }
   Ok(environment)
 }
 
@@ -315,7 +315,7 @@ proc run_command(command_argv: List[Bytes], cwd: Path?, environment: Map[Str, By
   } else { null }
 
   let words: List[Path] = collect {
-    for argument in command_argv { yield Path.parse_bytes(argument)? }
+    for argument in command_argv { yield argument as Path }
   }
   let target = words[0]
   if verbose {
@@ -429,7 +429,7 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
         name_bytes = raw_word[8..]
         option_index += 1
       }
-      let name = name_bytes.utf8()?
+      let name = name_bytes as Str
       if name == "" or name.find("=") != null { gnu.error(f"cannot unset {gnu.quote(name)}: Invalid argument"); exit 125 }
       unset_names += [name]
       continue
@@ -438,10 +438,10 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
     if raw_word == b"--chdir" or byte_prefix(raw_word, b"--chdir=") {
       if raw_word == b"--chdir" {
         if option_index + 1 >= argv.len() { gnu.error("option '--chdir' requires an argument"); exit 125 }
-        cwd = Path.parse_bytes(argv[option_index + 1])?
+        cwd = argv[option_index + 1] as Path
         option_index += 2
       } else {
-        cwd = Path.parse_bytes(raw_word[8..])?
+        cwd = raw_word[8..] as Path
         option_index += 1
       }
       continue
@@ -469,7 +469,7 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
         null
       } else {
         let value_start = if action == "ignore" { 16 } else { 17 }
-        let value = raw_word[value_start..].utf8()?
+        let value = raw_word[value_start..] as Str
         let names = signal_names(value)
         validate_signal_names(names)
         names
@@ -482,7 +482,7 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
       let names: List[Str]? = if raw_word == b"--block-signal" {
         null
       } else {
-        let listed = signal_names(raw_word[15..].utf8()?)
+        let listed = signal_names(raw_word[15..] as Str)
         validate_signal_names(listed)
         listed
       }
@@ -492,7 +492,7 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
     }
 
     if byte_prefix(raw_word, b"--") {
-      gnu.error(f"unrecognized option '{raw_word.utf8()?}'")
+      gnu.error(f"unrecognized option '{raw_word as Str}'")
       io.write_stderr(f"Try '{gnu.phrase()} --help' for more information.\n")
       exit 125
     }
@@ -502,7 +502,7 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
       var consume_word = false
       var split_seen = false
       while cursor < raw_word.len() {
-        let option = raw_word[cursor..cursor + 1].utf8()?
+        let option = raw_word[cursor..cursor + 1] as Str
         cursor += 1
         if option == "i" { ignore_inherited = true; continue }
         if option == "v" { verbose = true; continue }
@@ -515,11 +515,11 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
             consume_word = true
           }
           if option == "u" {
-            let name = argument.utf8()?
+            let name = argument as Str
             if name == "" or name.find("=") != null { gnu.error(f"cannot unset {gnu.quote(name)}: Invalid argument"); exit 125 }
             unset_names += [name]
           } else if option == "C" {
-            cwd = Path.parse_bytes(argument)?
+            cwd = argument as Path
           } else if option == "a" {
             argv0 = argument
           } else {
@@ -544,7 +544,7 @@ proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
   var assignment_index = 0
   while assignment_index < argv.len() and assignment_separator(argv[assignment_index]) != null {
     let separator = assignment_separator(argv[assignment_index]) ?? 0
-    let name = argv[assignment_index][0..separator].utf8()?
+    let name = argv[assignment_index][0..separator] as Str
     let value = argv[assignment_index][separator + 1..]
     if name == "" { gnu.error("cannot set '': Invalid argument"); exit 125 }
     assignments[name] = value

@@ -103,7 +103,7 @@ test test_tac_getopt_diagnostics_and_help { |ctx|
 
 test test_tac_accepts_non_utf8_path_and_literal_separator_arguments { |ctx|
   let root = test.temp_dir(ctx, name: "tac-raw-arguments")?
-  let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  let file = bytes.concat([root.bytes(), b"/file\xff"]) as Path
   file.write(b"line1\nline2\n")
   let output = fp"{root}/out"
   let error = fp"{root}/err"
@@ -115,7 +115,7 @@ test test_tac_accepts_non_utf8_path_and_literal_separator_arguments { |ctx|
   assert file_status.exit_code()? == 0, error.read_text()?
   assert output.read_bytes()? == b"line2\nline1\n"
 
-  let separator = Path.parse_bytes(b"\xe9")?
+  let separator = b"\xe9" as Path
   let separator_argv: List[Union[Str, Path]] = [ctx.xsh_bin.display(), script.display(), "-s", separator]
   let separator_plan = process.command_argv(ctx.xsh_bin, separator_argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"1\xe92", output, error)
   let separator_status = process.run(separator_plan)?
@@ -130,7 +130,7 @@ test test_tac_regex_separator_accepts_non_utf8_bytes { |ctx|
   let output = fp"{root}/out"
   let error = fp"{root}/err"
   let script = fp"{ctx.core_dir}/tac.xsh"
-  let separator = Path.parse_bytes(b"\xe9")?
+  let separator = b"\xe9" as Path
   let argv: List[Union[Str, Path]] = [ctx.xsh_bin.display(), script.display(), "-r", "-s", separator]
   let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"a.b.\xe9c.d?", output, error)
   let status = process.run(plan)?
@@ -139,7 +139,7 @@ test test_tac_regex_separator_accepts_non_utf8_bytes { |ctx|
   assert output.read_bytes()? == b"c.d?a.b.\xe9"
   assert error.read_text()? == ""
 
-  let class_separator = Path.parse_bytes(b"[.\xe9?]")?
+  let class_separator = b"[.\xe9?]" as Path
   let class_argv: List[Union[Str, Path]] = [ctx.xsh_bin.display(), script.display(), "-r", "-s", class_separator]
   let class_plan = process.command_argv(ctx.xsh_bin, class_argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"a.b.\xe9c.d?", output, error)
   let class_status = process.run(class_plan)?
@@ -156,7 +156,7 @@ test test_tac_attached_non_utf8_separator_options { |ctx|
   let script = fp"{ctx.core_dir}/tac.xsh"
 
   for option in [b"--separator=\xe9", b"--sep=\xe9", b"-s\xe9", b"-rs\xe9"] {
-    let argv: List[Union[Str, Path]] = [ctx.xsh_bin.display(), script.display(), "--", "--separator=", Path.parse_bytes(option)?]
+    let argv: List[Union[Str, Path]] = [ctx.xsh_bin.display(), script.display(), "--", "--separator=", option as Path]
     let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"1\xe92\xe9", output, error)
     let status = process.run(plan)?
 
@@ -165,7 +165,7 @@ test test_tac_attached_non_utf8_separator_options { |ctx|
     assert error.read_text()? == ""
   }
 
-  let raw_name = Path.parse_bytes(b"--separator=\xe9")?
+  let raw_name = b"--separator=\xe9" as Path
   fp"{root}/{raw_name}".write(b"a\nb\n")
   let argv: List[Union[Str, Path]] = [ctx.xsh_bin.display(), script.display(), "--", "--", raw_name]
   let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"", output, error)

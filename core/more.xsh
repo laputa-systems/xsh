@@ -405,7 +405,7 @@ proc load(name: Bytes) [fs, process, env, error, io] -> Source? {
     return {label: ":", lines: data.lines(), size: data.len(), data: data}
   }
 
-  let file = Path.parse_bytes(name)?
+  let file = name as Path
 
   match fs.stat(file) {
     Ok(info) => {

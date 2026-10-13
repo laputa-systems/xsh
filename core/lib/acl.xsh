@@ -82,7 +82,7 @@ export pure encode(entries: List[Entry]) -> Result[Bytes, Error] {
 
 ## Parse rwx positional permissions, symbolic subsets, or a single octal digit.
 export pure parse_permissions(text: Str) -> Result[Int, Error] {
-  return text.parse_int()? when rx"^[0-7]$".matches(text)
+  return text as Int when rx"^[0-7]$".matches(text)
   return Err(AclError.Invalid("invalid ACL permissions")) when text == "" or ! rx"^[rwxX-]+$".matches(text)
   var value = 0
   for ch in text { value = value.bit_or(if ch == "r" { 4 } else if ch == "w" { 2 } else if ch in ["x", "X"] { 1 } else { 0 }) }

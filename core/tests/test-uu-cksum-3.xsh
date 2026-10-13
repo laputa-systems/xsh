@@ -384,7 +384,7 @@ test test_uu_cksum_test_check_untagged_sha_invalid_length_case_1_sha2 { |ctx|
   uu.stdout_contains(r, "b: OK")
   uu.stdout_contains(r, "c: OK")
   uu.stdout_contains(r, "d: OK")
-  assert !("e: FAILED" in r.stdout.utf8()?)
+  assert !("e: FAILED" in r.stdout as Str)
   uu.stderr_contains(r, "improperly formatted")
 }
 
@@ -402,7 +402,7 @@ test test_uu_cksum_test_check_untagged_sha_invalid_length_case_2_sha3 { |ctx|
   uu.stdout_contains(r, "b: OK")
   uu.stdout_contains(r, "c: OK")
   uu.stdout_contains(r, "d: OK")
-  assert !("e: FAILED" in r.stdout.utf8()?)
+  assert !("e: FAILED" in r.stdout as Str)
   uu.stderr_contains(r, "improperly formatted")
 }
 
@@ -414,7 +414,7 @@ test test_uu_cksum_test_check_untagged_with_invalid_length_case_1_md5 { |ctx|
   let r = uu.invoke(s, "cksum", ["-a", "md5", "-c"], stdin: bytes.from_text("e3b0  b\nd41d8cd98f00b204e9800998ecf8427e  a"))?
   uu.succeeds(r)
   uu.stdout_contains(r, "a: OK")
-  assert !("b: FAILED" in r.stdout.utf8()?)
+  assert !("b: FAILED" in r.stdout as Str)
   uu.stderr_contains(r, "WARNING: 1 line is improperly formatted")
 }
 
@@ -426,7 +426,7 @@ test test_uu_cksum_test_check_untagged_with_invalid_length_case_2_sha1 { |ctx|
   let r = uu.invoke(s, "cksum", ["-a", "sha1", "-c"], stdin: bytes.from_text("e3b0  b\nda39a3ee5e6b4b0d3255bfef95601890afd80709  a"))?
   uu.succeeds(r)
   uu.stdout_contains(r, "a: OK")
-  assert !("b: FAILED" in r.stdout.utf8()?)
+  assert !("b: FAILED" in r.stdout as Str)
   uu.stderr_contains(r, "WARNING: 1 line is improperly formatted")
 }
 
@@ -438,7 +438,7 @@ test test_uu_cksum_test_check_untagged_with_invalid_length_case_3_sha224 { |ctx|
   let r = uu.invoke(s, "cksum", ["-a", "sha224", "-c"], stdin: bytes.from_text("e3b0  b\nd14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f  a"))?
   uu.succeeds(r)
   uu.stdout_contains(r, "a: OK")
-  assert !("b: FAILED" in r.stdout.utf8()?)
+  assert !("b: FAILED" in r.stdout as Str)
   uu.stderr_contains(r, "WARNING: 1 line is improperly formatted")
 }
 
@@ -450,7 +450,7 @@ test test_uu_cksum_test_check_untagged_with_invalid_length_case_4_sha256 { |ctx|
   let r = uu.invoke(s, "cksum", ["-a", "sha256", "-c"], stdin: bytes.from_text("e3b0  b\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  a"))?
   uu.succeeds(r)
   uu.stdout_contains(r, "a: OK")
-  assert !("b: FAILED" in r.stdout.utf8()?)
+  assert !("b: FAILED" in r.stdout as Str)
   uu.stderr_contains(r, "WARNING: 1 line is improperly formatted")
 }
 
@@ -462,7 +462,7 @@ test test_uu_cksum_test_check_untagged_with_invalid_length_case_5_sha384 { |ctx|
   let r = uu.invoke(s, "cksum", ["-a", "sha384", "-c"], stdin: bytes.from_text("e3b0  b\n38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b  a"))?
   uu.succeeds(r)
   uu.stdout_contains(r, "a: OK")
-  assert !("b: FAILED" in r.stdout.utf8()?)
+  assert !("b: FAILED" in r.stdout as Str)
   uu.stderr_contains(r, "WARNING: 1 line is improperly formatted")
 }
 
@@ -474,7 +474,7 @@ test test_uu_cksum_test_check_untagged_with_invalid_length_case_6_sha512 { |ctx|
   let r = uu.invoke(s, "cksum", ["-a", "sha512", "-c"], stdin: bytes.from_text("e3b0  b\ncf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e  a"))?
   uu.succeeds(r)
   uu.stdout_contains(r, "a: OK")
-  assert !("b: FAILED" in r.stdout.utf8()?)
+  assert !("b: FAILED" in r.stdout as Str)
   uu.stderr_contains(r, "WARNING: 1 line is improperly formatted")
 }
 
@@ -486,7 +486,7 @@ test test_uu_cksum_test_check_untagged_with_invalid_length_case_7_sm3 { |ctx|
   let r = uu.invoke(s, "cksum", ["-a", "sm3", "-c"], stdin: bytes.from_text("e3b0  b\n1ab21d8355cfa17f8e61194831e81a8f22bec8c728fefb747ed035eb5082aa2b  a"))?
   uu.succeeds(r)
   uu.stdout_contains(r, "a: OK")
-  assert !("b: FAILED" in r.stdout.utf8()?)
+  assert !("b: FAILED" in r.stdout as Str)
   uu.stderr_contains(r, "WARNING: 1 line is improperly formatted")
 }
 
@@ -653,7 +653,7 @@ test test_uu_cksum_cksum_check_empty_line { |ctx|
   let r = uu.invoke(s, "cksum", ["--check", "CHECKSUM"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "f: OK\nf: OK\nf: OK\nf: OK\n")
-  assert !("line is improperly formatted" in r.stderr.utf8()?)
+  assert !("line is improperly formatted" in r.stderr as Str)
 }
 
 # origin: uutils test_cksum::test_cksum_check_space
@@ -685,12 +685,12 @@ test test_uu_cksum_cksum_check { |ctx|
   let r0 = uu.invoke(s, "cksum", ["--check", "CHECKSUM"])?
   uu.succeeds(r0)
   uu.stdout_contains(r0, "f: OK\nf: OK\nf: OK\nf: OK\n")
-  assert !("line is improperly formatted" in r0.stderr.utf8()?)
+  assert !("line is improperly formatted" in r0.stderr as Str)
   
   let r1 = uu.invoke(s, "cksum", ["--check", "--strict", "CHECKSUM"])?
   uu.succeeds(r1)
   uu.stdout_contains(r1, "f: OK\nf: OK\nf: OK\nf: OK\n")
-  assert !("line is improperly formatted" in r1.stderr.utf8()?)
+  assert !("line is improperly formatted" in r1.stderr as Str)
   
   uu.append(s, "CHECKSUM", "incorrect data")
   let r2 = uu.invoke(s, "cksum", ["--check", "CHECKSUM"])?
@@ -721,7 +721,7 @@ test test_uu_cksum_cksum_check_invalid { |ctx|
   uu.touch(s, "CHECKSUM")
   let genCHECKSUM = uu.invoke(s, "cksum", ["-a", "sha384", "f"])?
   uu.succeeds(genCHECKSUM)
-  uu.append(s, "CHECKSUM", genCHECKSUM.stdout.utf8()?)
+  uu.append(s, "CHECKSUM", genCHECKSUM.stdout as Str)
   uu.append(s, "CHECKSUM", "again incorrect data\naze\n")
   let r0 = uu.invoke(s, "cksum", ["--check", "--strict", "CHECKSUM"])?
   uu.fails(r0)
@@ -742,7 +742,7 @@ test test_uu_cksum_cksum_check_failed { |ctx|
   uu.touch(s, "CHECKSUM")
   let genCHECKSUM = uu.invoke(s, "cksum", ["-a", "sha384", "f"])?
   uu.succeeds(genCHECKSUM)
-  uu.append(s, "CHECKSUM", genCHECKSUM.stdout.utf8()?)
+  uu.append(s, "CHECKSUM", genCHECKSUM.stdout as Str)
   uu.append(s, "CHECKSUM", "again incorrect data\naze\nSM3 (input) = 7cfb120d4fabea2a904948538a438fdb57c725157cb40b5aee8d937b8351477e\n")
   let r0 = uu.invoke(s, "cksum", ["--check", "--strict", "CHECKSUM"])?
   uu.fails(r0)
@@ -762,7 +762,7 @@ test test_uu_cksum_cksum_check_failed { |ctx|
   uu.write(s, "f2", "42")
   let genCHECKSUM2 = uu.invoke(s, "cksum", ["-a", "sha384", "f2"])?
   uu.succeeds(genCHECKSUM2)
-  uu.append(s, "CHECKSUM2", genCHECKSUM2.stdout.utf8()?)
+  uu.append(s, "CHECKSUM2", genCHECKSUM2.stdout as Str)
   uu.append(s, "CHECKSUM2", "again incorrect data\naze\nSM3 (input2) = 7cfb120d4fabea2a904948538a438fdb57c725157cb40b5aee8d937b8351477e\nagain incorrect data\naze\nSM3 (input2) = 7cfb120d4fabea2a904948538a438fdb57c725157cb40b5aee8d937b8351477e\n")
   let r2 = uu.invoke(s, "cksum", ["--check", "CHECKSUM", "CHECKSUM2"])?
   uu.fails(r2)
@@ -780,16 +780,16 @@ test test_uu_cksum_cksum_mixed { |ctx|
   uu.touch(s, "CHECKSUM")
   let gen0 = uu.invoke(s, "cksum", ["-a", "sha384", "f"])?
   uu.succeeds(gen0)
-  uu.append(s, "CHECKSUM", gen0.stdout.utf8()?)
+  uu.append(s, "CHECKSUM", gen0.stdout as Str)
   let gen1 = uu.invoke(s, "cksum", ["-a", "blake2b", "f"])?
   uu.succeeds(gen1)
-  uu.append(s, "CHECKSUM", gen1.stdout.utf8()?)
+  uu.append(s, "CHECKSUM", gen1.stdout as Str)
   let gen2 = uu.invoke(s, "cksum", ["-a", "blake2b", "-l", "384", "f"])?
   uu.succeeds(gen2)
-  uu.append(s, "CHECKSUM", gen2.stdout.utf8()?)
+  uu.append(s, "CHECKSUM", gen2.stdout as Str)
   let gen3 = uu.invoke(s, "cksum", ["-a", "sm3", "f"])?
   uu.succeeds(gen3)
-  uu.append(s, "CHECKSUM", gen3.stdout.utf8()?)
+  uu.append(s, "CHECKSUM", gen3.stdout as Str)
   let r = uu.invoke(s, "cksum", ["--check", "-a", "sm3", "CHECKSUM"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "f: OK")

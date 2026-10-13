@@ -114,6 +114,6 @@ test test_uu_sum_invalid_metadata { |ctx|
 test test_uu_sum_sum_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
   uu.at_bytes(s, b"\xff\xfe")?.write(b"test content")
-  let r = uu.invoke_paths(s, "sum", [Path.parse_bytes(b"\xff\xfe")?])?
+  let r = uu.invoke_paths(s, "sum", [b"\xff\xfe" as Path])?
   uu.succeeds(r)
 }

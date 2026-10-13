@@ -44,9 +44,9 @@ test test_gnu_du_apparent_log { |ctx|
     uu.succeeds(together)
     var sum = 0
     for line in separate.stdout.utf8()?.split("\n") {
-      if line != "" { sum += line.split("\t")[0].parse_int()? }
+      if line != "" { sum += line.split("\t")[0] as Int }
     }
-    assert sum == together.stdout.utf8()?.split("\t")[0].parse_int()?
+    assert sum == together.stdout.utf8()?.split("\t")[0] as Int
   }
 }
 
@@ -190,8 +190,8 @@ test test_gnu_du_hard_link_log { |ctx|
   let counted = uu.invoke(s, "du", ["-l", "test-dir"])?
   uu.succeeds(normal)
   uu.succeeds(counted)
-  let size = normal.stdout.utf8()?.split("\t")[0].parse_int()?
-  if size > 0 { assert counted.stdout.utf8()?.split("\t")[0].parse_int()? > size }
+  let size = normal.stdout.utf8()?.split("\t")[0] as Int
+  if size > 0 { assert counted.stdout.utf8()?.split("\t")[0] as Int > size }
 }
 
 # origin: gnu du/inacc-dest.log
@@ -424,7 +424,7 @@ test test_gnu_du_2g_log { |ctx|
   assert flushed.status.exited_with(0), flushed.stderr
   let r = uu.invoke(allocated, "du", ["-k", "big"])?
   uu.succeeds(r)
-  let line = r.stdout.utf8()?
+  let line = r.stdout as Str
   assert line.ends_with("\tbig\n")
   let kb = line.split("\t")[0]
   assert rx"^2[0-9]{6}$".matches(kb), line

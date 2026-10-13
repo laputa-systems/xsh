@@ -215,7 +215,7 @@ test test_uu_df_df_trailing_zeros { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "df", ["-h", "--output=size,used", "--total"])?
   uu.succeeds(r)
-  assert ! rx"[[:space:]][1-9][A-Z]".matches(r.stdout.utf8()?)
+  assert ! rx"[[:space:]][1-9][A-Z]".matches(r.stdout as Str)
 }
 
 # origin: uutils test_df::test_df_rounding
@@ -223,7 +223,7 @@ test test_uu_df_df_rounding { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "df", ["-H", "--output=size,used", "--total"])?
   uu.succeeds(r)
-  assert ! rx"[[:space:]][0-9]{3}\\.[0-9][A-Z]".matches(r.stdout.utf8()?)
+  assert ! rx"[[:space:]][0-9]{3}\\.[0-9][A-Z]".matches(r.stdout as Str)
 }
 
 # origin: uutils test_df::test_order_same
@@ -343,9 +343,9 @@ test test_uu_df_total { |ctx|
   var computed = [0, 0, 0]
   for i in range(1, output.len() - 1) {
     let columns = output[i].words()
-    for column in range(3) { computed[column] += columns[column].parse_int()? }
+    for column in range(3) { computed[column] += columns[column] as Int }
   }
-  for column in range(3) { assert computed[column] == reported[column].parse_int()? }
+  for column in range(3) { assert computed[column] == reported[column] as Int }
 }
 
 # origin: uutils test_df::test_total_label_in_correct_column
@@ -367,9 +367,9 @@ test test_uu_df_use_percentage { |ctx|
   let output = lines(r)?
   for i in range(1, output.len()) {
     let fields = output[i].words()
-    let used = fields[0].parse_int()?
-    let avail = fields[1].parse_int()?
-    let reported = fields[2].replace("%", with: "").parse_int()?
+    let used = fields[0] as Int
+    let avail = fields[1] as Int
+    let reported = fields[2].replace("%", with: "") as Int
     assert reported == (100 * used + used + avail - 1) / (used + avail)
   }
 }
@@ -382,13 +382,13 @@ test test_uu_df_iuse_percentage { |ctx|
   let output = lines(r)?
   for i in range(1, output.len()) {
     let fields = output[i].words()
-    let total = fields[0].parse_int()?
-    let used = fields[1].parse_int()?
+    let total = fields[0] as Int
+    let used = fields[1] as Int
     if fields[2] == "-" {
       assert total == 0
       assert used == 0
     } else {
-      let reported = fields[2].replace("%", with: "").parse_int()?
+      let reported = fields[2].replace("%", with: "") as Int
       assert reported == (100 * used + total - 1) / total
     }
   }
@@ -757,7 +757,7 @@ test test_uu_df_df_all_shows_binfmt_misc { |ctx|
   if mounted {
   let r = uu.invoke(s, "df", ["--all", "--output=fstype,target"])?
   uu.succeeds(r)
-  assert "binfmt_misc" in r.stdout.utf8()?
+  assert "binfmt_misc" in r.stdout as Str
   }
 }
 
@@ -771,7 +771,7 @@ test test_uu_df_df_hides_binfmt_misc_by_default { |ctx|
   if mounted {
   let r = uu.invoke(s, "df", ["--output=fstype,target"])?
   uu.succeeds(r)
-  assert ! ("binfmt_misc" in r.stdout.utf8()?)
+  assert ! ("binfmt_misc" in r.stdout as Str)
   }
 }
 

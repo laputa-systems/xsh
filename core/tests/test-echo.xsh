@@ -39,7 +39,7 @@ test test_echo_joins_arguments_with_spaces { |ctx|
 }
 
 test test_echo_preserves_non_utf8_argument_bytes { |ctx|
-  let invalid = Path.parse_bytes(b"argument-\xfc")?
+  let invalid = b"argument-\xfc" as Path
   let result = applet_run_paths(ctx, [p"-n", invalid])?
   assert result.status == 0, result.stderr
   assert result.bytes == b"argument-\xfc"

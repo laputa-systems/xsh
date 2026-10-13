@@ -77,10 +77,10 @@ test test_env_forwards_non_utf8_command_arguments { |ctx|
   let raw_format_stderr = fp"{root}/raw-format-stderr"
   let printf = fp"{ctx.core_dir}/printf.xsh"
   let env_script = fp"{ctx.core_dir}/env.xsh"
-  let invalid = Path.parse_bytes(b"\xff")?
+  let invalid = b"\xff" as Path
   let argv = [ctx.xsh_bin, p"--", env_script, ctx.xsh_bin, p"--", printf, p"%s", invalid]
   let status = process.run(process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", stdout, stderr))?
-  let raw_format = Path.parse_bytes(b"Swer \xff")?
+  let raw_format = b"Swer \xff" as Path
   let raw_format_argv = [ctx.xsh_bin, p"--", env_script, ctx.xsh_bin, p"--", printf, raw_format]
   let raw_format_status = process.run(process.command_argv(ctx.xsh_bin, raw_format_argv, root, {LC_ALL: "C"}, b"", raw_format_stdout, raw_format_stderr))?
 
@@ -361,7 +361,7 @@ test test_env_block_signal_validates_names_and_blocks_them_in_the_command { |ctx
 test test_env_passes_non_utf8_values_through_unchanged { |ctx|
   let root = test.temp_dir(ctx, name: "env-raw")?
   let stdout = fp"{root}/stdout"
-  let raw = Path.parse_bytes(b"a\x80b")?
+  let raw = b"a\x80b" as Path
   let argv = [ctx.xsh_bin.display(), "--", fp"{ctx.core_dir}/env.xsh".display()]
   let listed = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", PATH: "/bin:/usr/bin", RAW_VALUE: raw}, b"", stdout, fp"{root}/stderr")
   assert process.run(listed)?.exit_code()? == 0

@@ -7,7 +7,7 @@ test test_gnu_nproc_nproc_avail_log { |ctx|
   let s = uu.scene(ctx)?
   let all = uu.invoke(s, "nproc", ["--all"])?
   let available = uu.invoke(s, "nproc", [], vars: {OMP_NUM_THREADS: ""})?
-  assert available.stdout.utf8()?.trim().parse_int()? <= all.stdout.utf8()?.trim().parse_int()?
+  assert available.stdout.utf8()?.trim() as Int <= all.stdout.utf8()?.trim() as Int
 }
 
 # origin: gnu nproc/nproc-override.log
@@ -15,7 +15,7 @@ test test_gnu_nproc_nproc_override_log { |ctx|
   let s = uu.scene(ctx)?
   let baseline = uu.invoke(s, "nproc", [])?
   uu.succeeds(baseline)
-  let available = baseline.stdout.utf8()?.trim().parse_int()?
+  let available = baseline.stdout.utf8()?.trim() as Int
   assert available > 0
   let rows: List[OverrideCase] = [
     {vars: {}, expected: f"{available}"},
@@ -40,7 +40,7 @@ test test_gnu_nproc_nproc_override_log { |ctx|
   for index in range(rows.len()) {
     let item = rows[index]
     let r = uu.invoke(s, "nproc", [], vars: item.vars)?
-    if r.stdout.utf8()?.trim() != item.expected { failures += [f"override row {index}: {r.stdout.utf8()?} expected {item.expected}"] }
+    if r.stdout.utf8()?.trim() != item.expected { failures += [f"override row {index}: {r.stdout as Str} expected {item.expected}"] }
   }
   assert failures.is_empty(), failures.join("\n")
 }
@@ -50,19 +50,19 @@ test test_gnu_nproc_nproc_positive_log { |ctx|
   let s = uu.scene(ctx)?
   for args in [["--all"], []] {
     let r = uu.invoke(s, "nproc", args)?
-    assert r.stdout.utf8()?.trim().parse_int()? > 0
+    assert r.stdout.utf8()?.trim() as Int > 0
   }
   for value in ["-1000", "0", "1", "1000"] {
     let r = uu.invoke(s, "nproc", [], vars: {OMP_NUM_THREADS: value})?
-    assert r.stdout.utf8()?.trim().parse_int()? > 0
+    assert r.stdout.utf8()?.trim() as Int > 0
   }
   for value in ["0", " 1", "1000"] {
     let r = uu.invoke(s, "nproc", ["--ignore=" + value])?
-    assert r.stdout.utf8()?.trim().parse_int()? > 0
+    assert r.stdout.utf8()?.trim() as Int > 0
   }
   for value in ["-1", "N"] { uu.fails_with_code(uu.invoke(s, "nproc", ["--ignore=" + value])?, 1) }
   let subtract = uu.invoke(s, "nproc", ["--ignore=40"], vars: {OMP_NUM_THREADS: "42"})?
-  assert subtract.stdout.utf8()?.trim().parse_int()? == 2
+  assert subtract.stdout.utf8()?.trim() as Int == 2
   let overflow = uu.invoke(s, "nproc", ["--ignore", "18446744073709551616"], vars: {OMP_NUM_THREADS: "42"})?
   assert overflow.stdout.utf8()?.trim() == "1"
 }

@@ -224,7 +224,7 @@ proc install_directory(raw: Path, opts: Options, mode: Int, uid: Int?, gid: Int?
     raw_bytes = raw_bytes[..raw_bytes.len() - 1]
   }
   while raw_bytes.ends_with(b"/.") { raw_bytes = raw_bytes[..raw_bytes.len() - 2] }
-  let dest = if raw_bytes.is_empty() { p"/" } else { Path.parse_bytes(raw_bytes)? }
+  let dest = if raw_bytes.is_empty() { p"/" } else { raw_bytes as Path }
   let existed = files.present(dest)?
   make_ancestors(dest.parent(), opts.verbose)
   dest.mkdir(parents: true)
@@ -327,9 +327,9 @@ proc main(...argv: List[Bytes]) {
   }
   if opts.compare and mode.bit_and(0o7000) != 0 { gnu.error("the --compare (-C) option is ignored when you specify a mode with non-permission bits") }
   var operands = []
-  for operand in opts.operands { operands += [Path.parse_bytes(gnu.argument_bytes(operand, prepared.raw))?] }
+  for operand in opts.operands { operands += [gnu.argument_bytes(operand, prepared.raw) as Path] }
   let target_directory: Path? = if let target_text = opts.target {
-    Path.parse_bytes(gnu.argument_bytes(target_text, prepared.raw))?
+    gnu.argument_bytes(target_text, prepared.raw) as Path
   } else { null }
   if opts.directory {
     if target_directory != null or opts.no_target_directory { gnu.usage_error("target directory not allowed when installing a directory") }

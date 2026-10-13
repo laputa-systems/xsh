@@ -10,7 +10,7 @@ proc byte_case(name: Str, args: List[Bytes], input: Bytes?, output: Bytes = b"",
 proc repeated(value: Bytes, count: Int) -> Bytes { bytes.concat([value for _ in range(count)]) }
 proc diagnostic(message: Str) -> Str { f"cut: {message}\nTry 'cut --help' for more information.\n" }
 proc run_case(s: uu.Scene, c: CutCase, transport: Str, locale: Str) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  let args = [Path.parse_bytes(word)? for word in c.args]
+  let args = [word as Path for word in c.args]
   let actual_args = if transport == "file" { args.extend([p"input"]) } else { args }
   let vars = {LC_ALL: locale}
   let argv = uu.argv(s, "cut", actual_args, vars)?
@@ -29,9 +29,9 @@ proc check_case(s: uu.Scene, c: CutCase, locale: Str) [fs, process, env, error] 
   let transports = if c.input == null { ["none"] } else { ["file", "redirect", "pipe"] }
   for transport in transports {
     let r = run_case(s, c, transport, locale)?
-    assert r.status == c.status, f"{c.name}/{locale}/{transport}: expected status {c.status}, got {r.status}; {r.stderr.utf8()?}"
+    assert r.status == c.status, f"{c.name}/{locale}/{transport}: expected status {c.status}, got {r.status}; {r.stderr as Str}"
     assert r.stdout == c.output, f"{c.name}/{locale}/{transport}: output length {r.stdout.len()}, expected {c.output.len()}"
-    assert r.stderr == bytes.from_text(c.stderr), f"{c.name}/{locale}/{transport}: {r.stderr.utf8()?}"
+    assert r.stderr == bytes.from_text(c.stderr), f"{c.name}/{locale}/{transport}: {r.stderr as Str}"
   }
 }
 # origin: gnu cut/cut.log

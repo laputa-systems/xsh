@@ -12,14 +12,14 @@ proc verify_total(output: Str) [error] {
     let fields = row.captures(lines[index])
     assert fields.len() == 6, f"invalid df row: {lines[index]}"
     if fields[1] == "total" and fields[5] == "-" {
-      assert size == fields[2].parse_int()?
-      assert used == fields[3].parse_int()?
-      assert available == fields[4].parse_int()?
+      assert size == fields[2] as Int
+      assert used == fields[3] as Int
+      assert available == fields[4] as Int
       saw_total = true
     } else {
-      if fields[2] != "-" { size += fields[2].parse_int()? }
-      if fields[3] != "-" { used += fields[3].parse_int()? }
-      if fields[4] != "-" { available += fields[4].parse_int()? }
+      if fields[2] != "-" { size += fields[2] as Int }
+      if fields[3] != "-" { used += fields[3] as Int }
+      if fields[4] != "-" { available += fields[4] as Int }
     }
   }
   assert saw_total, "missing totals row"
@@ -65,7 +65,7 @@ test test_gnu_df_total_verify_log { |ctx|
   for args in [["--total", "-P", "--block-size=512"], ["--total", "-i", "-P"]] {
     let r = uu.invoke(s, "df", args)?
     uu.succeeds(r)
-    verify_total(r.stdout.utf8()?)
+    verify_total(r.stdout as Str)
   }
 }
 

@@ -64,7 +64,7 @@ test test_df_k_and_portability_select_units_and_header { |ctx|
   assert lines[0].words().join(" ") == "Filesystem 1024-blocks Used Available Capacity Mounted on"
   let fields = lines[1].words()
   let total = stats.blocks * stats.fragment_size
-  assert fields[1].parse_int()? == (total + 1023) / 1024
+  assert fields[1] as Int == (total + 1023) / 1024
   let portable = run.capture --text DF_BLOCK_SIZE=1 ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" -- -P $root
   assert portable.status.exited_with(0), portable.stderr
   assert portable.stdout.lines().collect()[0].words().join(" ") == "Filesystem 1024-blocks Used Available Capacity Mounted on"
@@ -124,8 +124,8 @@ test test_df_reports_filesystem_capacity_counters { |ctx|
   assert lines.len() == 2
   let fields = lines[1].words()
   assert fields[0] == f"{expected_size}"
-  let used = fields[1].parse_int()?
-  let available = fields[2].parse_int()?
+  let used = fields[1] as Int
+  let available = fields[2] as Int
   let used_delta = if used > expected_used { used - expected_used } else { expected_used - used }
   let available_delta = if available > expected_available { available - expected_available } else { expected_available - available }
   assert used_delta <= 16 * stats.fragment_size
@@ -220,7 +220,7 @@ test test_df_human_inode_counts_scale_like_block_counts { |ctx|
   let root = test.temp_dir(ctx, name: "df-human-inodes")?
   let raw = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" -- -B1 --output=itotal $root
   assert raw.status.exited_with(0), raw.stderr
-  let files = raw.stdout.lines().collect()[1].trim().parse_int()?
+  let files = raw.stdout.lines().collect()[1].trim() as Int
   let human = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" -- -h --output=itotal $root
   assert human.status.exited_with(0), human.stderr
   let value = human.stdout.lines().collect()[1].trim()

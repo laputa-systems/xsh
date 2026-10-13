@@ -7,7 +7,7 @@ error ModeError = Invalid : Usage
 pure octal(raw: Str) -> Result[Int] {
   return Err(ModeError.Invalid("invalid mode")) when ! rx"^[0-7]+$".matches(raw)
   var value = 0
-  for digit in raw { value = value * 8 + digit.parse_int()? }
+  for digit in raw { value = value * 8 + digit as Int }
   return Err(ModeError.Invalid("invalid mode")) when value > 0o7777
   value
 }
@@ -214,7 +214,7 @@ proc main(...argv: List[Bytes]) [fs, error, process, env, io] {
   var targets = opts.operands
   let umask = fs.umask()?
   if let file = opts.reference {
-    let reference_path = Path.parse_bytes(file)?
+    let reference_path = file as Path
     match fs.stat(reference_path, follow_symlinks: true) {
       Ok(meta) => reference = meta.mode.bit_and(0o7777)
       Err(failure) => { gnu.error(f"failed to get attributes of {gnu.quote_bytes(file)}: {gnu.strerror(failure)}"); exit 1 }
@@ -232,7 +232,7 @@ proc main(...argv: List[Bytes]) [fs, error, process, env, io] {
     if targets.is_empty() { gnu.missing_operand_after(spec) }
   }
   var success = true
-  for target in targets { if ! change(Path.parse_bytes(target)?, spec, reference, opts, true, [], umask) { success = false } }
+  for target in targets { if ! change(target as Path, spec, reference, opts, true, [], umask) { success = false } }
   if let Err(failure) = io.flush_stdout() { gnu.write_failed(failure) }
   if ! success { exit 1 }
 }

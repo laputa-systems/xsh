@@ -101,7 +101,7 @@ test test_uu_unexpand_multiple_files { |ctx|
 # origin: uutils test_unexpand::test_non_utf8_filename
 test test_uu_unexpand_non_utf8_filename { |ctx|
   let s = unexpand_scene(ctx)?
-  let name = Path.parse_bytes(b"\xff\xfe")?
+  let name = b"\xff\xfe" as Path
   uu.at_bytes(s, b"\xff\xfe")?.write(b"        a\n")
   let r = uu.invoke_paths(s, "unexpand", [name])?
   uu.succeeds(r)

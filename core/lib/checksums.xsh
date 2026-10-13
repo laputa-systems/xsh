@@ -458,7 +458,7 @@ proc digest(name: Str, algorithm: Str, length: Int) [fs, io] -> Result[Digest] {
 }
 
 proc digest_path(name: Bytes, algorithm: Str, length: Int) [fs, io, error] -> Result[Digest] {
-  if name == b"-" { hash.digest_stdin(algorithm, length: length) } else { hash.digest_file(Path.parse_bytes(name)?, algorithm, length: length) }
+  if name == b"-" { hash.digest_stdin(algorithm, length: length) } else { hash.digest_file(name as Path, algorithm, length: length) }
 }
 
 proc name_error_bytes(name: Bytes, failure: Error) [process, env] -> Unit {

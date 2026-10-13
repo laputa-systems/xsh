@@ -139,8 +139,8 @@ test test_ps_orders_secondary_keys_within_primary_ties { |ctx|
   var previous_pid = 9223372036854775807
   for line in output.trim().split("\n") {
     let fields = line.split(" ") |> where . != ""
-    let uid = fields[0].parse_int()?
-    let pid = fields[1].parse_int()?
+    let uid = fields[0] as Int
+    let pid = fields[1] as Int
     assert uid >= previous_uid
     if uid == previous_uid { assert pid < previous_pid }
     previous_uid = uid
@@ -566,7 +566,7 @@ test test_iostat_prints_cpu_and_device_blocks_for_each_report { |ctx|
       let shares = line.fields()
       assert shares.len() == 6 and are_fixed_point(shares), line
       var total = 0.0
-      for share in shares { total = total + share.parse_float()? }
+      for share in shares { total = total + share as Float }
       # An interval too short to cross a kernel tick reports all zeros.
       assert total == 0.0 or (total > 99.9 and total < 100.1), "the six CPU shares add up to the whole interval"
       cpu_next = false
@@ -632,7 +632,7 @@ test test_pidstat_command_filter_and_memory_columns { |ctx|
   assert rows.len() == 1
   let columns = rows[0].fields()
   assert columns.len() == 6 and columns[1] == f"{target.pid}" and columns[5] == target.name
-  assert columns[2].parse_int()? > 0 and columns[3].parse_int()? > 0 and is_fixed_point(columns[4])
+  assert columns[2] as Int > 0 and columns[3] as Int > 0 and is_fixed_point(columns[4])
   let none = sample_tool(ctx, "pidstat", ["-C", f"^{target.name}x$", "0.01", "1"])?
   assert none.status.exited_with(0)
   assert none.stdout.trim() == "UID PID %usr %system %CPU CPU Command"

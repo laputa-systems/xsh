@@ -178,7 +178,7 @@ proc copy_across_devices(source: Path, target: Path, policy: Str, verbose: Bool,
     } else {
       let raw = entry.path.bytes()
       let suffix = raw[staged_bytes.len()..]
-      Path.parse_bytes(bytes.concat([target.bytes(), suffix]))?
+      bytes.concat([target.bytes(), suffix]) as Path
     }
     published_copies += [{dev: entry.dev, ino: entry.ino, path: published_path}]
   }

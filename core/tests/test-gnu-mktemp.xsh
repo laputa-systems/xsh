@@ -26,22 +26,22 @@ test test_gnu_mktemp_bad_unicode_log { |ctx|
   uu.at_bytes(s, bad)?.write("a\n")
   for locale in ["C", "fr_FR", "fr_FR.UTF-8"] {
     let vars = {LC_ALL: locale}
-    let suffix = Path.parse_bytes(bytes.concat([b"--suffix=", bad]))?
+    let suffix = bytes.concat([b"--suffix=", bad]) as Path
     let file1 = uu.invoke_paths(s, "mktemp", [p"--tmpdir=.", suffix], vars: vars)?
     created(s, file1, false)
     let dir1 = uu.invoke_paths(s, "mktemp", [p"--tmpdir=.", p"-d", suffix], vars: vars)?
     created(s, dir1, true)
     let dir_bytes = dir1.stdout[0..dir1.stdout.len() - 1]
-    let tmpdir = Path.parse_bytes(bytes.concat([b"--tmpdir=", dir_bytes]))?
+    let tmpdir = bytes.concat([b"--tmpdir=", dir_bytes]) as Path
     for directory in [false, true] {
       let args = if directory { [p"-d", tmpdir] } else { [tmpdir] }
       created(s, uu.invoke_paths(s, "mktemp", args, vars: vars)?, directory)
     }
     for directory in [false, true] {
       let args = if directory { [p"-d"] } else { [] }
-      created(s, uu.invoke_paths(s, "mktemp", args, vars: {LC_ALL: locale, TMPDIR: Path.parse_bytes(dir_bytes)?})?, directory)
+      created(s, uu.invoke_paths(s, "mktemp", args, vars: {LC_ALL: locale, TMPDIR: dir_bytes as Path})?, directory)
     }
-    let pattern_word = Path.parse_bytes(bytes.concat([bad, b"XXXXXX"]))?
+    let pattern_word = bytes.concat([bad, b"XXXXXX"]) as Path
     for directory in [false, true] {
       let args = if directory { [p"-d", p"-t", pattern_word] } else { [p"-t", pattern_word] }
       created(s, uu.invoke_paths(s, "mktemp", args, vars: {LC_ALL: locale, TMPDIR: "."})?, directory)
@@ -111,7 +111,7 @@ test test_gnu_mktemp_mktemp_log { |ctx|
     let r = uu.invoke(s, "mktemp", row.args, vars: row.vars)?
     uu.succeeds(r)
     uu.no_stderr(r)
-    assert regex.compile(row.pattern)?.matches(r.stdout.utf8()?), f"{row.args.join(" ")}: {r.stdout.utf8()?}"
+    assert regex.compile(row.pattern)?.matches(r.stdout as Str), f"{row.args.join(" ")}: {r.stdout as Str}"
     let name = r.stdout.utf8()?.trim()
     let entry = uu.at(s, name)
     if row.kind == "dry" {
@@ -127,7 +127,7 @@ test test_gnu_mktemp_mktemp_log { |ctx|
   let bad_dir = uu.invoke(s, "mktemp", [], vars: {TMPDIR: "no/such/dir"})?
   uu.fails_with_code(bad_dir, 1)
   uu.no_stdout(bad_dir)
-  let normalized = regex.compile("(no/such/dir/)[^']+': .*\n")?.replace(bad_dir.stderr.utf8()?, with: "$1...\n")
+  let normalized = regex.compile("(no/such/dir/)[^']+': .*\n")?.replace(bad_dir.stderr as Str, with: "$1...\n")
   assert normalized == "mktemp: failed to create file via template 'no/such/dir/...\n"
 }
 

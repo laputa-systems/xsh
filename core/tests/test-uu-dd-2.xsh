@@ -138,7 +138,7 @@ test test_uu_dd_null_stats { |ctx|
   uu.succeeds(r)
   uu.stderr_contains(r, "0+0 records in\n0+0 records out\n0 bytes copied, ")
   uu.stderr_contains(r, "0.0 kB/s")
-  assert rx"\d(\.\d+)?(e-\d\d)? s, ".matches(r.stderr.utf8()?)
+  assert rx"\d(\.\d+)?(e-\d\d)? s, ".matches(r.stderr as Str)
 }
 
 # origin: uutils test_dd::test_oflag_direct_partial_block

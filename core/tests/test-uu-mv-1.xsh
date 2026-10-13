@@ -776,7 +776,7 @@ test test_uu_mv_mv_cross_device_permission_denied { |ctx|
   other.chmod(0o555)
   let r = uu.invoke(s, "mv", ["-f", "k", target.display()])?
   uu.fails(r)
-  let message = r.stderr.utf8()?
+  let message = r.stderr as Str
   assert "Permission denied" in message or "permission denied" in message
   other.chmod(0o755)
 }

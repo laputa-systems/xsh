@@ -5,7 +5,7 @@ use support.uu as uu
 # The upstream count assertions parse an unsigned byte after trimming whitespace.
 proc count(r: uu.Ran) [error] -> Result[Int, Error] {
   uu.succeeds(r)
-  let value = r.stdout.utf8()?.trim().parse_int()?
+  let value = r.stdout.utf8()?.trim() as Int
   assert value >= 0 and value <= 255, f"nproc count outside u8 range: {value}"
   Ok(value)
 }

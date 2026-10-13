@@ -8,12 +8,12 @@ test test_gnu_chown_deref_log { |ctx|
   let dangling = uu.invoke(s, "chown", ["--dereference", owner, "dangle"])?
   uu.fails(dangling)
   let strip = regex.compile(":[^:\n]*\n")?
-  assert strip.replace(dangling.stderr.utf8()?, with: "\n") == "chown: cannot dereference 'dangle'\n"
+  assert strip.replace(dangling.stderr as Str, with: "\n") == "chown: cannot dereference 'dangle'\n"
   uu.mkdir(s, "cyc/b/c")
   uu.symlink(s, uu.at(s, "cyc").display(), "cyc/b/c/d")
   let cycle = uu.invoke(s, "chown", ["-vRL", owner, "cyc"], timeout: 10s)?
   uu.succeeds(cycle)
-  let output = bytes.concat([cycle.stdout, cycle.stderr]).utf8()?
+  let output = bytes.concat([cycle.stdout, cycle.stderr]) as Str
   assert "'cyc/b/c/d'" in output
   assert ! ("'cyc/b/c/d/b'" in output)
 }

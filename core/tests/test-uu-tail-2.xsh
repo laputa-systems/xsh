@@ -1594,7 +1594,7 @@ test test_uu_tail_when_output_closed_then_no_broken_pipe { |ctx|
   let argv = uu.argv(s, "tail", [Path(arg) for arg in args])?
   let shell = Path(r"""status=$1; shift; ( "$@"; rc=$?; printf '%s\n' "$rc" >"$status" ) | { exit 0; }""")
   let result = wrapped(s, args, [p"/bin/sh", p"-c", shell, p"sh", status_file].extend(argv))?
-  let status = status_file.read_text()?.trim().parse_int()?
+  let status = status_file.read_text()?.trim() as Int
   assert status != 0, "closed stdout must make tail fail"
   uu.no_stderr(result)
 }

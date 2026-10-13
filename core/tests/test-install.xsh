@@ -269,7 +269,7 @@ test test_install_failed_replacement_names_target_and_preserves_it { |ctx|
 test test_install_accepts_non_utf8_target_directory { |ctx|
   let root = test.temp_dir(ctx)?
   let source = fp"{root}/source"
-  let directory = Path.parse_bytes(bytes.concat([root.bytes(), b"/target_dir_\xff\xfe"]))?
+  let directory = bytes.concat([root.bytes(), b"/target_dir_\xff\xfe"]) as Path
   source.write("payload")
   directory.mkdir()
   let script = fp"{ctx.core_dir}/install.xsh"
@@ -284,9 +284,9 @@ test test_install_accepts_non_utf8_target_directory { |ctx|
 
 test test_install_accepts_non_utf8_source_and_destination_paths { |ctx|
   let root = test.temp_dir(ctx)?
-  let source = Path.parse_bytes(bytes.concat([root.bytes(), b"/source\xff\xfe"]))?
+  let source = bytes.concat([root.bytes(), b"/source\xff\xfe"]) as Path
   let directory = fp"{root}/target_dir"
-  let installed = Path.parse_bytes(bytes.concat([directory.bytes(), b"/source\xff\xfe"]))?
+  let installed = bytes.concat([directory.bytes(), b"/source\xff\xfe"]) as Path
   source.write("payload")
   directory.mkdir()
   let script = fp"{ctx.core_dir}/install.xsh"
@@ -299,8 +299,8 @@ test test_install_accepts_non_utf8_source_and_destination_paths { |ctx|
   assert installed.read_text()? == "payload"
 
   let plain_source = fp"{root}/plain_source"
-  let target_directory = Path.parse_bytes(bytes.concat([root.bytes(), b"/install_\xff\xfe"]))?
-  let target = Path.parse_bytes(bytes.concat([target_directory.bytes(), b"/target.txt"]))?
+  let target_directory = bytes.concat([root.bytes(), b"/install_\xff\xfe"]) as Path
+  let target = bytes.concat([target_directory.bytes(), b"/target.txt"]) as Path
   plain_source.write("other")
   let parents_command = process.command_argv(ctx.xsh_bin,
     [ctx.xsh_bin, script, "-D", plain_source, target], root, {}, b"", out, err)

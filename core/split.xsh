@@ -672,7 +672,7 @@ proc filter_bytes_from_stdin(command: Str, naming: Naming, size: Int, verbose: B
       exit 1
     }
 
-    let name = Path.parse_bytes(output_name(tail, naming))?
+    let name = output_name(tail, naming) as Path
 
     if verbose {
       gnu.write_text(f"creating file {gnu.quote_bytes(name.bytes())}\n")
@@ -818,7 +818,7 @@ proc feed_filter_record(
       exit 1
     }
 
-    let name = Path.parse_bytes(output_name(tail, naming))?
+    let name = output_name(tail, naming) as Path
 
     if verbose {
       gnu.write_text(f"creating file {gnu.quote_bytes(name.bytes())}\n")
@@ -885,7 +885,7 @@ proc filter_round_robin_stdin(command: Str, naming: Naming, count: Int, sep: Int
           exit 1
         }
 
-        let name = Path.parse_bytes(output_name(tail, naming))?
+        let name = output_name(tail, naming) as Path
 
         if verbose {
           gnu.write_text(f"creating file {gnu.quote_bytes(name.bytes())}\n")
@@ -906,7 +906,7 @@ proc filter_round_robin_stdin(command: Str, naming: Naming, count: Int, sep: Int
 # Read blocks until EOF even when metadata reports no size, as for devices
 # and pipes. The block-size option controls read granularity, not an input cap.
 proc read_input(name: Bytes, block_size: Int) [fs, process, error, io] -> Result[Bytes] {
-  let fd = if name == b"-" { 0 } else { unix.open_fd(Path.parse_bytes(name)?)? }
+  let fd = if name == b"-" { 0 } else { unix.open_fd(name as Path)? }
   defer { if fd != 0 { unix.close_fd(fd) } }
   var parts = []
   while true {
@@ -1292,7 +1292,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   var input_dev = -1
 
   if input_name != b"-" {
-    let input_path = Path.parse_bytes(input_name)?
+    let input_path = input_name as Path
     if let Ok(found) = fs.stat(input_path, follow_symlinks: true) {
       input_ino = found.ino
       input_dev = found.dev
@@ -1384,7 +1384,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       exit 1
     }
 
-    let name = Path.parse_bytes(output_name(tail, naming))?
+    let name = output_name(tail, naming) as Path
 
     if input_ino >= 0 {
       if let Ok(found) = fs.stat(name, follow_symlinks: true) {

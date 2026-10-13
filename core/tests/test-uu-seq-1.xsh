@@ -807,7 +807,7 @@ proc infinite_prefix(s: uu.Scene, args: List[Str], expected: Bytes) [fs, process
 test test_uu_seq_separator_non_utf8 { |ctx|
   let s = uu.scene(ctx)?
   for arg in [b"-s\xff\xfe", b"--separator=\xff\xfe"] {
-    let r = uu.invoke_paths(s, "seq", [Path.parse_bytes(arg)?, p"2"], timeout: 3s)?
+    let r = uu.invoke_paths(s, "seq", [arg as Path, p"2"], timeout: 3s)?
     uu.succeeds(r)
     uu.stdout_is_bytes(r, b"1\xff\xfe2\n")
   }
@@ -850,7 +850,7 @@ test test_uu_seq_format_precision_above_formatter_limit { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "seq", ["-f", "%.66000f", "4", "4"], timeout: 3s)?
   uu.succeeds(r)
-  let output = r.stdout.utf8()?
+  let output = r.stdout as Str
   assert output.byte_len() == 66003
   assert output.starts_with("4.")
   let digits = [char for char in output.byte_slice(2)]

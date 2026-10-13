@@ -138,7 +138,7 @@ export proc options(argv: List[Bytes], chmod = false) [process, env] -> Result[O
 export proc uid(raw: Str) [fs, error] -> Result[Int, Error] {
   if ! raw.starts_with("+") { if let Ok(account) = user.lookup(raw) { return account.uid } }
   if rx"^[ \t\n\u{b}\u{c}\r]*\+?[0-9]+$".matches(raw) {
-    let value = raw.trim().parse_int()?
+    let value = raw.trim() as Int
     return Err(PermError.Invalid("invalid user")) when value < 0 or value >= 4294967295
     return value
   }
@@ -149,7 +149,7 @@ export proc uid(raw: Str) [fs, error] -> Result[Int, Error] {
 export proc gid(raw: Str) [fs, error] -> Result[Int, Error] {
   if ! raw.starts_with("+") { if let Ok(account) = group.lookup(raw) { return account.gid } }
   if rx"^[ \t\n\u{b}\u{c}\r]*\+?[0-9]+$".matches(raw) {
-    let value = raw.trim().parse_int()?
+    let value = raw.trim() as Int
     return Err(PermError.Invalid("invalid group")) when value < 0 or value >= 4294967295
     return value
   }
@@ -314,7 +314,7 @@ export proc ownership(argv: List[Bytes], group_only = false) [fs, error, process
   var targets = opts.operands
   var names: OwnerNames = {user: null, group: null}
   if let reference = opts.reference {
-    let reference_path = Path.parse_bytes(reference)?
+    let reference_path = reference as Path
     match fs.stat(reference_path, follow_symlinks: true) {
       Ok(meta) => {
         ids = {uid: if group_only { null } else { meta.uid }, gid: meta.gid}
@@ -353,7 +353,7 @@ export proc ownership(argv: List[Bytes], group_only = false) [fs, error, process
     }
   }
   var success = true
-  for target in targets { if ! owner_tree(Path.parse_bytes(target)?, ids, filter, opts, names, true, []) { success = false } }
+  for target in targets { if ! owner_tree(target as Path, ids, filter, opts, names, true, []) { success = false } }
   if let Err(failure) = io.flush_stdout() { gnu.write_failed(failure) }
   if ! success { exit 1 }
 }

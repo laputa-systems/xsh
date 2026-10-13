@@ -72,7 +72,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     var current = bytes.from_text(name)
     var ancestor = false
     loop {
-      let directory = Path.parse_bytes(current)?
+      let directory = current as Path
       if opts.verbose { gnu.write_text(f"rmdir: removing directory, {gnu.quote_bytes(current)}\n") }
       match directory.remove_dir() {
         Ok(_) => {}

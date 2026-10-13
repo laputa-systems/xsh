@@ -403,7 +403,7 @@ test test_uu_sort_merge_write_error_does_not_panic { |ctx|
     uu.fails(r)
     uu.fails_with_code(r, 2)
     uu.stderr_contains(r, "No space left on device")
-    assert !("panicked" in r.stderr.utf8()?)
+    assert !("panicked" in r.stderr as Str)
   }
 }
 

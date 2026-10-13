@@ -420,7 +420,7 @@ test test_uu_stty_sane { |ctx|
   uu.succeeds(sane)
   let restored = uu.invoke(s, "stty", ["--file", tty.name])?
   uu.succeeds(restored)
-  assert ! ("intr = ^A" in restored.stdout.utf8()?)
+  assert ! ("intr = ^A" in restored.stdout as Str)
 }
 
 # origin: uutils test_stty::valid_baud_formats
@@ -504,7 +504,7 @@ test test_uu_stty_save_restore_after_change { |ctx|
   uu.succeeds(restored)
   let shown = uu.invoke(s, "stty", ["--file", tty.name])?
   uu.succeeds(shown)
-  assert ! ("intr = ^A" in shown.stdout.utf8()?)
+  assert ! ("intr = ^A" in shown.stdout as Str)
 }
 
 # origin: uutils test_stty::test_row_column_hex_octal

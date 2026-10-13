@@ -131,7 +131,7 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
     let at = old.find("/w/") ?? 0
     let decoded_tail = decode_name(old.byte_slice(at + 3))
     let parent = fp"{work}/w"
-    fp"{old}".rename(to: Path.parse_bytes(bytes.concat([parent.bytes(), b"/", decoded_tail]))?)
+    fp"{old}".rename(to: bytes.concat([parent.bytes(), b"/", decoded_tail]) as Path)
   }
   # Empty directories are not kept by git either. Every directory of the
   # recorded final tree is created up front: GNU patch makes missing parents
@@ -150,7 +150,7 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
       let words = line.split(" ")
       if words[0] == "chmod" { fp"{work}/w/{words[2]}".chmod(octal(words[1])) }
       if words[0] == "touch" {
-        let seconds = words[1].parse_int()?
+        let seconds = words[1] as Int
         fs.set_times(fp"{work}/w/{words[2]}", atime_sec: seconds, mtime_sec: seconds)
       }
     }
@@ -177,7 +177,7 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
   let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), "--"].extend(arguments), fp"{work}/w", vars, input, out, err)
   let status = process.run(plan)?
   var problems = []
-  let expected_status = fp"{root}/out/status".read_text()?.trim().parse_int()?
+  let expected_status = fp"{root}/out/status".read_text()?.trim() as Int
   if status.exit_code()? != expected_status {
     problems += [f"{name}: exit status {status.exit_code()?}, expected {expected_status}"]
   }

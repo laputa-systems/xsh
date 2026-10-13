@@ -252,7 +252,7 @@ test test_uu_numfmt_non_utf8_delimiter { |ctx|
   for delim in [b"\xff", b"\xa2\xe3"] {
     let input = bytes.concat([b"1", delim, b"2K"])
     let expected = bytes.concat([b"1", delim, b"2000\n"])
-    let r = uu.invoke_paths(s, "numfmt", [p"--from=si", p"--field=2", p"-d", Path.parse_bytes(delim)?, Path.parse_bytes(input)?])?
+    let r = uu.invoke_paths(s, "numfmt", [p"--from=si", p"--field=2", p"-d", delim as Path, input as Path])?
     if delim.len() == 1 {
       uu.succeeds(r)
       uu.stdout_is_bytes(r, expected)

@@ -59,7 +59,7 @@ test test_md5sum_escaped_unicode_file_roundtrip { |ctx|
   file.write("abc")
   let emitted = invoke(ctx, [file.display()], b"")?
   assert emitted.status == 0
-  assert emitted.stdout.utf8()?.starts_with("\\900150983cd24fb0d6963f7d28e17f72  "), f"path={file}, output={emitted.stdout.utf8()?}"
+  assert emitted.stdout.utf8()?.starts_with("\\900150983cd24fb0d6963f7d28e17f72  "), f"path={file}, output={emitted.stdout as Str}"
   let list = test.temp_file(ctx, name: "escaped-check-list", contents: emitted.stdout)?
   let checked = invoke(ctx, ["--check", list.display()], b"")?
   assert checked.status == 0
@@ -211,7 +211,7 @@ test test_md5sum_alternate_format_accepts_indented_records { |ctx|
   assert checked.stdout == bytes.from_text(f"{file}: OK\n'{starred}': OK\n")
   assert checked.stderr == ""
 
-  let raw_file = Path.parse_bytes(bytes.concat([root.bytes(), b"/*raw\xff"]))?
+  let raw_file = bytes.concat([root.bytes(), b"/*raw\xff"]) as Path
   raw_file.write("")
   let raw_input = bytes.concat([
     bytes.from_text(f"d41d8cd98f00b204e9800998ecf8427e {file}\n"),

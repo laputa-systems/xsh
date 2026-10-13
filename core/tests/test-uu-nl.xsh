@@ -730,22 +730,22 @@ test test_uu_nl_multi_byte_one_char_section_delimiter { |ctx|
 # origin: uutils test_nl::test_section_delimiter_non_utf8
 test test_uu_nl_section_delimiter_non_utf8 { |ctx|
   let s = uu.scene(ctx)?
-  let r0 = uu.invoke_paths(s, "nl", [Path.parse_bytes(b"-d\xff\xfe")?], stdin: b"a\n\xff\xfe\xff\xfe\xff\xfe\nb")?
+  let r0 = uu.invoke_paths(s, "nl", [b"-d\xff\xfe" as Path], stdin: b"a\n\xff\xfe\xff\xfe\xff\xfe\nb")?
   uu.succeeds(r0)
   uu.stdout_is(r0, "     1\ta\n\n       b\n")
-  let r1 = uu.invoke_paths(s, "nl", [Path.parse_bytes(b"-d\xff\xfe")?], stdin: b"a\n\xff\xfe\xff\xfe\nb")?
+  let r1 = uu.invoke_paths(s, "nl", [b"-d\xff\xfe" as Path], stdin: b"a\n\xff\xfe\xff\xfe\nb")?
   uu.succeeds(r1)
   uu.stdout_is(r1, "     1\ta\n\n     1\tb\n")
-  let r2 = uu.invoke_paths(s, "nl", [Path.parse_bytes(b"-d\xff\xfe")?], stdin: b"a\n\xff\xfe\nb")?
+  let r2 = uu.invoke_paths(s, "nl", [b"-d\xff\xfe" as Path], stdin: b"a\n\xff\xfe\nb")?
   uu.succeeds(r2)
   uu.stdout_is(r2, "     1\ta\n\n       b\n")
-  let r3 = uu.invoke_paths(s, "nl", [Path.parse_bytes(b"--section-delimiter=\xff\xfe")?], stdin: b"a\n\xff\xfe\xff\xfe\xff\xfe\nb")?
+  let r3 = uu.invoke_paths(s, "nl", [b"--section-delimiter=\xff\xfe" as Path], stdin: b"a\n\xff\xfe\xff\xfe\xff\xfe\nb")?
   uu.succeeds(r3)
   uu.stdout_is(r3, "     1\ta\n\n       b\n")
-  let r4 = uu.invoke_paths(s, "nl", [Path.parse_bytes(b"--section-delimiter=\xff\xfe")?], stdin: b"a\n\xff\xfe\xff\xfe\nb")?
+  let r4 = uu.invoke_paths(s, "nl", [b"--section-delimiter=\xff\xfe" as Path], stdin: b"a\n\xff\xfe\xff\xfe\nb")?
   uu.succeeds(r4)
   uu.stdout_is(r4, "     1\ta\n\n     1\tb\n")
-  let r5 = uu.invoke_paths(s, "nl", [Path.parse_bytes(b"--section-delimiter=\xff\xfe")?], stdin: b"a\n\xff\xfe\nb")?
+  let r5 = uu.invoke_paths(s, "nl", [b"--section-delimiter=\xff\xfe" as Path], stdin: b"a\n\xff\xfe\nb")?
   uu.succeeds(r5)
   uu.stdout_is(r5, "     1\ta\n\n       b\n")
 }
@@ -753,22 +753,22 @@ test test_uu_nl_section_delimiter_non_utf8 { |ctx|
 # origin: uutils test_nl::test_one_byte_section_delimiter
 test test_uu_nl_one_byte_section_delimiter { |ctx|
   let s = uu.scene(ctx)?
-  let r0 = uu.invoke_paths(s, "nl", [Path.parse_bytes(b"-d\xff")?], stdin: b"a\n\xff:\xff:\xff:\nb")?
+  let r0 = uu.invoke_paths(s, "nl", [b"-d\xff" as Path], stdin: b"a\n\xff:\xff:\xff:\nb")?
   uu.succeeds(r0)
   uu.stdout_is(r0, "     1\ta\n\n       b\n")
-  let r1 = uu.invoke_paths(s, "nl", [Path.parse_bytes(b"-d\xff")?], stdin: b"a\n\xff:\xff:\nb")?
+  let r1 = uu.invoke_paths(s, "nl", [b"-d\xff" as Path], stdin: b"a\n\xff:\xff:\nb")?
   uu.succeeds(r1)
   uu.stdout_is(r1, "     1\ta\n\n     1\tb\n")
-  let r2 = uu.invoke_paths(s, "nl", [Path.parse_bytes(b"-d\xff")?], stdin: b"a\n\xff:\nb")?
+  let r2 = uu.invoke_paths(s, "nl", [b"-d\xff" as Path], stdin: b"a\n\xff:\nb")?
   uu.succeeds(r2)
   uu.stdout_is(r2, "     1\ta\n\n       b\n")
-  let r3 = uu.invoke_paths(s, "nl", [Path.parse_bytes(b"--section-delimiter=\xff")?], stdin: b"a\n\xff:\xff:\xff:\nb")?
+  let r3 = uu.invoke_paths(s, "nl", [b"--section-delimiter=\xff" as Path], stdin: b"a\n\xff:\xff:\xff:\nb")?
   uu.succeeds(r3)
   uu.stdout_is(r3, "     1\ta\n\n       b\n")
-  let r4 = uu.invoke_paths(s, "nl", [Path.parse_bytes(b"--section-delimiter=\xff")?], stdin: b"a\n\xff:\xff:\nb")?
+  let r4 = uu.invoke_paths(s, "nl", [b"--section-delimiter=\xff" as Path], stdin: b"a\n\xff:\xff:\nb")?
   uu.succeeds(r4)
   uu.stdout_is(r4, "     1\ta\n\n     1\tb\n")
-  let r5 = uu.invoke_paths(s, "nl", [Path.parse_bytes(b"--section-delimiter=\xff")?], stdin: b"a\n\xff:\nb")?
+  let r5 = uu.invoke_paths(s, "nl", [b"--section-delimiter=\xff" as Path], stdin: b"a\n\xff:\nb")?
   uu.succeeds(r5)
   uu.stdout_is(r5, "     1\ta\n\n       b\n")
 }
@@ -776,7 +776,7 @@ test test_uu_nl_one_byte_section_delimiter { |ctx|
 # origin: uutils test_nl::test_number_separator_non_utf8
 test test_uu_nl_number_separator_non_utf8 { |ctx|
   let s = uu.scene(ctx)?
-  let r = uu.invoke_paths(s, "nl", [Path.parse_bytes(b"--number-separator=\xff\xfe")?], stdin: b"test")?
+  let r = uu.invoke_paths(s, "nl", [b"--number-separator=\xff\xfe" as Path], stdin: b"test")?
   uu.succeeds(r)
   uu.stdout_is_bytes(r, b"     1\xff\xfetest\n")
 }
@@ -786,7 +786,7 @@ test test_uu_nl_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
   let filename = uu.at_bytes(s, b"\xff\xfe")?
   filename.write(b"line 1\nline 2\nline 3\n")
-  let r = uu.invoke_paths(s, "nl", [Path.parse_bytes(b"\xff\xfe")?])?
+  let r = uu.invoke_paths(s, "nl", [b"\xff\xfe" as Path])?
   uu.succeeds(r)
   uu.stdout_contains(r, "1\t")
   uu.stdout_contains(r, "2\t")

@@ -823,7 +823,7 @@ test test_uu_numfmt_diagnostics_input_from_stdin_keeps_its_plain_message { |ctx|
   let s = uu.scene(ctx)?
   let r = tty_stderr(s, [], bytes.from_text("12abc\n"))?
   uu.fails_with_code(r, 2)
-  assert trim_end(r.stderr.utf8()?) == "numfmt: invalid suffix in input: '12abc'"
+  assert trim_end(r.stderr as Str) == "numfmt: invalid suffix in input: '12abc'"
 }
 
 # origin: uutils test_numfmt::diagnostics::test_a_line_of_fields_keeps_its_plain_message
@@ -831,7 +831,7 @@ test test_uu_numfmt_diagnostics_a_line_of_fields_keeps_its_plain_message { |ctx|
   let s = uu.scene(ctx)?
   let r = tty_stderr(s, ["--field=2", "x 12abc"], bytes.from_text(""))?
   uu.fails_with_code(r, 2)
-  assert trim_end(r.stderr.utf8()?) == "numfmt: invalid suffix in input: '12abc'"
+  assert trim_end(r.stderr as Str) == "numfmt: invalid suffix in input: '12abc'"
 }
 
 # origin: uutils test_numfmt::diagnostics::test_other_option_errors_keep_their_plain_message
@@ -839,7 +839,7 @@ test test_uu_numfmt_diagnostics_other_option_errors_keep_their_plain_message { |
   let s = uu.scene(ctx)?
   let r = tty_stderr(s, ["--format=%f", "--delimiter=ab", "1000"], bytes.from_text(""))?
   uu.fails_with_code(r, 1)
-  assert trim_end(r.stderr.utf8()?) == "numfmt: the delimiter must be a single character"
+  assert trim_end(r.stderr as Str) == "numfmt: the delimiter must be a single character"
 }
 
 # origin: uutils test_numfmt::diagnostics::test_plain_message_when_stderr_is_a_pipe

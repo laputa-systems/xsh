@@ -507,7 +507,7 @@ test test_gnu_ls_m_option_log { |ctx|
   uu.stdout_is(narrow, "a,\nb\n")
   let sized = uu.invoke(s, "ls", ["-sm", "a", "b"])?
   uu.succeeds(sized)
-  let leading = rx"^[0-9]".replace(sized.stdout.utf8()?, with: "0")
+  let leading = rx"^[0-9]".replace(sized.stdout as Str, with: "0")
   let normalized = rx", [0-9][0-9]* b".replace(leading, with: ", 12 b")
   assert normalized == "0 a, 12 b\n"
   for name in ["bb", "c"] { uu.touch(s, name) }
@@ -549,8 +549,8 @@ test test_gnu_ls_dired_log { |ctx|
   let names = ["0aaa_link", "1a", "2æ", "3dir", "aaa"]
   assert offsets.len() == 11
   for i in range(names.len()) {
-    let start = offsets[1 + i * 2].parse_int()?
-    let end = offsets[2 + i * 2].parse_int()?
+    let start = offsets[1 + i * 2] as Int
+    let end = offsets[2 + i * 2] as Int
     assert r.stdout.slice(start, end - start).utf8()?.split(" -> ")[0] == names[i]
   }
   uu.mkdir(s, "newline-dir")
@@ -559,8 +559,8 @@ test test_gnu_ls_dired_log { |ctx|
   uu.succeeds(newline)
   let pair = [line for line in newline.stdout.utf8()?.lines() if line.starts_with("//DIRED//")][0].words()
   assert pair.len() == 3
-  let start = pair[1].parse_int()?
-  let end = pair[2].parse_int()?
+  let start = pair[1] as Int
+  let end = pair[2] as Int
   assert newline.stdout.slice(start, end - start) == b"n\nl"
 }
 

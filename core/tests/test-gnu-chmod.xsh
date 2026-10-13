@@ -175,7 +175,7 @@ test test_gnu_chmod_symlinks_log { |ctx|
   uu.symlink(s, uu.at(s, "cyc").display(), "cyc/b/c/d")
   let cycle = uu.invoke(s, "chmod", ["-vRL", "+r", "cyc"], timeout: 10s)?
   uu.succeeds(cycle)
-  let combined = bytes.concat([cycle.stdout, cycle.stderr]).utf8()?
+  let combined = bytes.concat([cycle.stdout, cycle.stderr]) as Str
   assert "'cyc/b/c/d'" in combined
   assert "'cyc/b/c/d/b'" not in combined
 }

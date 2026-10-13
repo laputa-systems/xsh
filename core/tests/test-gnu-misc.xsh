@@ -163,7 +163,7 @@ test test_gnu_misc_uname_labeled_log { |ctx|
   for label in ["Kernel name: ", "Node name: ", "Kernel release: ", "Kernel version: ", "Machine: ", "Operating system: "] { assert lines |> any { |line| line.starts_with(label) } }
   let standard = uu.invoke(s, "uname", ["-a"])?
   uu.succeeds(standard)
-  let text = standard.stdout.utf8()?
+  let text = standard.stdout as Str
   assert text.split("\n").len() == 2
   for label in ["Kernel name:", "Node name:", "Kernel release:"] { assert label not in text }
 }
@@ -320,9 +320,9 @@ test test_gnu_misc_sleep_log { |ctx|
   let locale = {LC_ALL: "fr_FR.utf8"}
   let first = uu.invoke(s, "printf", ["%0.3f", "0.001"], vars: locale)?
   uu.succeeds(first)
-  let second = uu.invoke(s, "printf", ["%0.3f", first.stdout.utf8()?], vars: locale)?
+  let second = uu.invoke(s, "printf", ["%0.3f", first.stdout as Str], vars: locale)?
   uu.succeeds(second)
-  let decimal = second.stdout.utf8()?
+  let decimal = second.stdout as Str
   assert decimal in ["0.001", "0,001"]
   let sleeper = uu.argv(s, "sleep", [Path(decimal)], vars: locale)?
   let args = [Path("1" + decimal)].extend(sleeper)
@@ -344,7 +344,7 @@ test test_gnu_misc_kill_log { |ctx|
   let term = uu.invoke(s, "kill", ["-l", "HUP", "TERM"])?.stdout.utf8()?.trim().split("\n")[1]
   uu.stdout_is(uu.invoke(s, "kill", ["-l", term])?, "TERM\n")
   uu.stdout_is(uu.invoke(s, "kill", ["-l", "143", "271"])?, "TERM\nTERM\n")
-  let last = uu.invoke(s, "kill", ["-l", "--", names[names.len() - 1]])?.stdout.utf8()?.trim().parse_int()?
+  let last = uu.invoke(s, "kill", ["-l", "--", names[names.len() - 1]])?.stdout.utf8()?.trim() as Int
   let numbers = [f"{i}" for i in range(last + 1)]
   for option in ["-l", "-t"] { uu.succeeds(uu.invoke(s, "kill", [option, "--"].extend(numbers))?) }
   uu.stdout_is(uu.invoke(s, "kill", ["-l", names[0]])?, "0\n")

@@ -522,16 +522,16 @@ test test_cp_recursive_fifo_replaces_existing_destination_file { |ctx|
 
 test test_cp_undecodable_operands_reach_the_kernel_unchanged { |ctx|
   let root = test.temp_dir(ctx, name: "cp-raw-operands")?
-  let source = Path.parse_bytes(bytes.concat([root.bytes(), b"/raw-\xff"]))?
+  let source = bytes.concat([root.bytes(), b"/raw-\xff"]) as Path
   source.write("raw\n")
-  let dest = Path.parse_bytes(bytes.concat([root.bytes(), b"/out-\xfe"]))?
+  let dest = bytes.concat([root.bytes(), b"/out-\xfe"]) as Path
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- $source $dest
   assert dest.read_bytes()? == b"raw\n"
 
-  let dir = Path.parse_bytes(bytes.concat([root.bytes(), b"/dir-\xfd"]))?
+  let dir = bytes.concat([root.bytes(), b"/dir-\xfd"]) as Path
   dir.mkdir()
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -t $dir $source
-  let copied = Path.parse_bytes(bytes.concat([dir.bytes(), b"/raw-\xff"]))?
+  let copied = bytes.concat([dir.bytes(), b"/raw-\xff"]) as Path
   assert copied.read_bytes()? == b"raw\n"
 }
 

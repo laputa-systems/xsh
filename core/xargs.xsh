@@ -345,9 +345,9 @@ proc build_argv(items: List[Item], command: List[Str], raw: List[gnu.RawArgument
   for word in command {
     let text = gnu.argument_bytes(word, raw)
     let joined = if replace and ! items.is_empty() { substitute(text, marker, c_string(items[0].data)) } else { text }
-    argv += [Path.parse_bytes(joined)?]
+    argv += [joined as Path]
   }
-  if ! replace { for item in items { argv += [Path.parse_bytes(c_string(item.data))?] } }
+  if ! replace { for item in items { argv += [c_string(item.data) as Path] } }
   var total = 0
   for word in argv {
     total += word.bytes().len() + 1

@@ -69,7 +69,7 @@ proc main(...argv: List[Bytes]) [fs, io, error, process, env] {
   if files.is_empty() { files = [b"-"] }
   var failed = false
   for name in files {
-    let result = if name == b"-" { hash.checksum_stdin(algorithm) } else { hash.checksum(Path.parse_bytes(name)?, algorithm) }
+    let result = if name == b"-" { hash.checksum_stdin(algorithm) } else { hash.checksum(name as Path, algorithm) }
     match result {
       Ok(value) => {
         let block_size = if sysv { 512 } else { 1024 }

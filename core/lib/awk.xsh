@@ -251,11 +251,11 @@ pure lex(piece: Piece, mode: Int) -> Result[Lexed] {
           at = look
         }
       }
-      let text = source[start..at].utf8()?
+      let text = source[start..at] as Str
       var value = 0.0
       if mode == 0 and octal_literal(text) {
         for position in range(start, at) { value = value * 8.0 + digit_value(source.byte_at(position) ?? 48).float() }
-      } else { value = (if text.ends_with(".") { text + "0" } else { text }).parse_float()? }
+      } else { value = (if text.ends_with(".") { text + "0" } else { text }) as Float }
       tokens += [TokNumber(value)]
       starts += [start]
       lines += [line]
@@ -265,7 +265,7 @@ pure lex(piece: Piece, mode: Int) -> Result[Lexed] {
     if letter(byte) {
       at += 1
       while letter(source.byte_at(at) ?? 0) or digit(source.byte_at(at) ?? 0) { at += 1 }
-      let word = source[start..at].utf8()?
+      let word = source[start..at] as Str
       var named = word
       if mode != 0 and (word in GNU_VARIABLES or word in GNU_FUNCTIONS or (mode == 2 and word == "func")) { named = "\u{1}" + word }
       tokens += [if source.byte_at(at) == 40 { TokCall(named) } else { TokWord(named) }]
@@ -1067,7 +1067,7 @@ pure not_a_number() -> Float { let zero = 0.0; zero / zero }
 pure input(content: Str) -> Result[Scalar] {
   let plain = trimmed(content)
   let end = decimal_end(plain)
-  if end != null and end == plain.byte_len() { return Ok(Input(content, plain.parse_float()?)) }
+  if end != null and end == plain.byte_len() { return Ok(Input(content, plain as Float)) }
   let kind = ieee_kind(plain)
   return Ok(Input(content, infinity())) when kind == 1
   return Ok(Input(content, -infinity())) when kind == 2
@@ -1084,7 +1084,7 @@ pure numeric_prefix(content: Str) -> Result[Float] {
     return Ok(not_a_number()) when kind >= 3
     return Ok(0.0)
   }
-  Ok(plain.byte_slice(0, length: end).parse_float()?)
+  Ok(plain.byte_slice(0, length: end) as Float)
 }
 pure number(value: Scalar) -> Result[Float] {
   match value { Empty => Ok(0.0); Numeric(n) => Ok(n); Nan(_) => Ok(not_a_number()); String(content) => numeric_prefix(content); Input(content, n) => if n != null { Ok(n) } else { numeric_prefix(content) } }

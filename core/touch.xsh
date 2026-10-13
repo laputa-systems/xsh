@@ -118,7 +118,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
   var mtime: date_parse.Instant? = null
   if let reference = opts.reference {
     let reference_bytes = argument_bytes(reference, prepared.raw)
-    let reference_path = Path.parse_bytes(reference_bytes)?
+    let reference_path = reference_bytes as Path
     match fs.stat(reference_path, follow_symlinks: ! opts.no_dereference) {
       Ok(meta) => { atime = date_parse.instant_from_ns(meta.atime_ns)
         mtime = date_parse.instant_from_ns(meta.mtime_ns) }
@@ -193,7 +193,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
       }
       }
     }
-    let target = if name == b"-" { p"/dev/stdout" } else { Path.parse_bytes(name)? }
+    let target = if name == b"-" { p"/dev/stdout" } else { name as Path }
     # Try timestamps before opening: directories and unwritable owned files
     # can be touched without obtaining a writable descriptor.
     var creating = false

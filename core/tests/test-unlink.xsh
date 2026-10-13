@@ -14,7 +14,7 @@ test test_unlink_removes_link_and_refuses_directory { |ctx|
 
 test test_unlink_accepts_non_utf8_operand { |ctx|
   let root = test.temp_dir(ctx, name: "unlink-raw-path")?
-  let target = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  let target = bytes.concat([root.bytes(), b"/file\xff"]) as Path
   target.write("remove")
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
@@ -57,7 +57,7 @@ test test_unlink_extra_operand_reports_gnu_usage_error { |ctx|
 
 test test_unlink_removes_non_utf8_operand { |ctx|
   let root = test.temp_dir(ctx)?
-  let target = Path.parse_bytes(bytes.concat([root.bytes(), b"/target\xff\xfe"]))?
+  let target = bytes.concat([root.bytes(), b"/target\xff\xfe"]) as Path
   target.write("payload")
   let script = fp"{ctx.core_dir}/unlink.xsh"
   let out = fp"{root}/stdout"

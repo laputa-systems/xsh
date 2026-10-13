@@ -74,7 +74,7 @@ test test_uu_du_du_bind_mount_simulation { |ctx|
   uu.succeeds(r1)
   uu.stdout_contains(r1, "mount_test/subdir")
   uu.stdout_contains(r1, "mount_test")
-  assert !("mount_test/subdir/cycle_link" in r1.stdout.utf8()?)
+  assert !("mount_test/subdir/cycle_link" in r1.stdout as Str)
 }
 
 # origin: uutils test_du::test_du_complex_exclude_patterns
@@ -85,15 +85,15 @@ test test_uu_du_du_complex_exclude_patterns { |ctx|
   uu.mkdir(s, "azerty/xcwww/amazing")
   let r1 = invoke(s, ["--exclude=azerty/*/[^q]*", "azerty"])?
   uu.succeeds(r1)
-  assert !("amazing" in r1.stdout.utf8()?)
+  assert !("amazing" in r1.stdout as Str)
   uu.stdout_contains(r1, "qzerty")
-  assert !("azeaze" in r1.stdout.utf8()?)
+  assert !("azeaze" in r1.stdout as Str)
   uu.stdout_contains(r1, "xcwww")
   let r2 = invoke(s, ["--exclude=azerty/*/[!q]*", "azerty"])?
   uu.succeeds(r2)
-  assert !("amazing" in r2.stdout.utf8()?)
+  assert !("amazing" in r2.stdout as Str)
   uu.stdout_contains(r2, "qzerty")
-  assert !("azeaze" in r2.stdout.utf8()?)
+  assert !("azeaze" in r2.stdout as Str)
   uu.stdout_contains(r2, "xcwww")
 }
 
@@ -114,8 +114,8 @@ test test_uu_du_du_exclude_several_components { |ctx|
   uu.mkdir(s, "a/u/y")
   let r1 = invoke(s, ["--exclude=a/u", "--exclude=a/b", "a"])?
   uu.succeeds(r1)
-  assert !("a/u" in r1.stdout.utf8()?)
-  assert !("a/b" in r1.stdout.utf8()?)
+  assert !("a/u" in r1.stdout as Str)
+  assert !("a/b" in r1.stdout as Str)
 }
 
 # origin: uutils test_du::test_du_files0_from
@@ -233,11 +233,11 @@ test test_uu_du_du_hard_links_multiple_links_in_args { |ctx|
   let r1 = invoke(s, ["dir1/file", "dir1/link"])?
   uu.succeeds(r1)
   uu.stdout_contains(r1, "dir1/file")
-  assert !("dir1/link" in r1.stdout.utf8()?)
+  assert !("dir1/link" in r1.stdout as Str)
   let r2 = invoke(s, ["-L", "dir1/file", "dir1/link"])?
   uu.succeeds(r2)
   uu.stdout_contains(r2, "dir1/file")
-  assert !("dir1/link" in r2.stdout.utf8()?)
+  assert !("dir1/link" in r2.stdout as Str)
 }
 
 # origin: uutils test_du::test_du_inaccessible_directory
@@ -489,11 +489,11 @@ test test_uu_du_du_count_links_hardlinks_separately { |ctx|
   uu.hard_link(s, "dir/file", "dir/hard_link")
   let without = invoke(s, ["-b", "dir"])?
   uu.succeeds(without)
-  let size_without = without.stdout.utf8()?.split("\t")[0].parse_int()?
+  let size_without = without.stdout.utf8()?.split("\t")[0] as Int
   for arg in ["-l", "--count-links"] {
     let counted = invoke(s, ["-b", arg, "dir"])?
     uu.succeeds(counted)
-    assert counted.stdout.utf8()?.split("\t")[0].parse_int()? >= size_without
+    assert counted.stdout.utf8()?.split("\t")[0] as Int >= size_without
   }
 }
 
@@ -569,7 +569,7 @@ test test_uu_du_du_exclude_2 { |ctx|
     let result = invoke(s, [f"--exclude={pattern}", "azerty"])?
     uu.succeeds(result)
     let excluded = pattern in ["azeaze", "azea*", "azeaz?"]
-    assert "azerty/xcwww/azeaze" in result.stdout.utf8()? == !excluded
+    assert "azerty/xcwww/azeaze" in result.stdout as Str == !excluded
   }
 }
 
@@ -586,20 +586,20 @@ test test_uu_du_du_exclude_mix { |ctx|
   uu.stdout_contains(first, "azerty/xcwww/azeaze")
   let excluded = invoke(s, ["--exclude=azeaze", "azerty"])?
   uu.succeeds(excluded)
-  assert !("azerty/xcwww/azeaze" in excluded.stdout.utf8()?)
+  assert !("azerty/xcwww/azeaze" in excluded.stdout as Str)
   let one = invoke(s, ["--exclude=qzerty", "azerty"])?
   uu.succeeds(one)
-  assert !("qzerty" in one.stdout.utf8()?)
+  assert !("qzerty" in one.stdout as Str)
   uu.stdout_contains(one, "azerty")
   uu.stdout_contains(one, "xcwww")
   let file = invoke(s, ["--exclude-from=file-ignore1", "azerty"])?
   uu.succeeds(file)
-  assert !("azeaze" in file.stdout.utf8()?)
+  assert !("azeaze" in file.stdout as Str)
   uu.stdout_contains(file, "qzerty")
   uu.stdout_contains(file, "xcwww")
   let mix = invoke(s, ["--exclude=qzerty", "--exclude-from=file-ignore1", "--exclude-from=file-ignore2", "azerty"])?
   uu.succeeds(mix)
-  for name in ["amazing", "qzerty", "azeaze"] { assert !(name in mix.stdout.utf8()?) }
+  for name in ["amazing", "qzerty", "azeaze"] { assert !(name in mix.stdout as Str) }
   uu.stdout_contains(mix, "xcwww")
 }
 
@@ -668,7 +668,7 @@ test test_uu_du_du_hard_links_multiple_dirs_in_args { |ctx|
   let r = invoke(s, ["dir1", "dir2"])?
   uu.succeeds(r)
   let lines = r.stdout.utf8()?.lines()
-  assert lines[0].split("\t")[0].parse_int()? > lines[1].split("\t")[0].parse_int()?
+  assert lines[0].split("\t")[0] as Int > lines[1].split("\t")[0] as Int
 }
 
 # origin: uutils test_du::test_du_inodes
@@ -720,7 +720,7 @@ test test_uu_du_du_inodes_total_text { |ctx|
   assert "total" in lines[2]
   let parts = lines[2].split("\t")
   assert parts.len() == 2
-  assert parts[0].parse_int()? >= 0
+  assert parts[0] as Int >= 0
 }
 
 # origin: uutils test_du::test_du_inodes_with_count_links
@@ -840,11 +840,11 @@ test test_uu_du_du_no_dereference { |ctx|
     let first = invoke(s, [arg])?
     uu.succeeds(first)
     uu.stdout_contains(first, "a_dir")
-    assert !("symlink" in first.stdout.utf8()?)
+    assert !("symlink" in first.stdout as Str)
     let no = invoke(s, ["--dereference", arg])?
     uu.succeeds(no)
     uu.stdout_contains(no, "a_dir")
-    assert !("symlink" in no.stdout.utf8()?)
+    assert !("symlink" in no.stdout as Str)
     let follow = invoke(s, [arg, "--dereference"])?
     uu.succeeds(follow)
     uu.stdout_is(follow, expected(s, follow: true)?.lines.join(""))
@@ -951,7 +951,7 @@ test test_uu_du_du_binary_threshold { |ctx|
   let r = invoke(s, ["--apparent-size", "--threshold=0b10011100010000"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "links")
-  assert !("deeper_dir" in r.stdout.utf8()?)
+  assert !("deeper_dir" in r.stdout as Str)
 }
 
 # origin: uutils test_du::test_du_exclude_invalid_syntax

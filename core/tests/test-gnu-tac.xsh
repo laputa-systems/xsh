@@ -39,7 +39,7 @@ test test_gnu_tac_tac_locale_log { |ctx|
     {locale: "fr_FR.UTF-8", separator: b"\xff|\xed\xba\xad|\xc2\x89|\xed\xa6\xbf\xed\xbf\xbf"},
   ] {
     uu.write_bytes(s, "inp", bytes.concat([b"1", row.separator, b"2", row.separator, b"3", row.separator]))
-    let option = Path.parse_bytes(bytes.concat([b"--separator=", row.separator]))?
+    let option = bytes.concat([b"--separator=", row.separator]) as Path
     let r = uu.invoke_paths(s, "tac", [option, p"inp"], vars: {LC_ALL: row.locale}, timeout: 10s)?
     uu.succeeds(r)
     assert bytes.concat([r.stdout, b"\n"]) == bytes.concat([b"3", row.separator, b"2", row.separator, b"1", row.separator, b"\n"])

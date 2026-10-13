@@ -113,7 +113,7 @@ test test_uu_tac_no_line_separators { |ctx|
 # origin: uutils test_tac::test_non_utf8_separator
 test test_uu_tac_non_utf8_separator { |ctx|
   let s = uu.scene(ctx)?
-  let r = uu.invoke_paths(s, "tac", [p"-s", Path.parse_bytes(b"\xe9")?], stdin: b"1\xe92")?
+  let r = uu.invoke_paths(s, "tac", [p"-s", b"\xe9" as Path], stdin: b"1\xe92")?
   uu.succeeds(r)
   uu.no_stderr(r)
   uu.stdout_is_bytes(r, b"21\xe9")
@@ -281,7 +281,7 @@ test test_uu_tac_tac_file_truncated_during_read_does_not_crash { |ctx|
 test test_uu_tac_tac_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
   uu.at_bytes(s, b"\xff\xfe")?.write(b"line1\nline2\nline3\n")
-  let r = uu.invoke_paths(s, "tac", [Path.parse_bytes(b"\xff\xfe")?])?
+  let r = uu.invoke_paths(s, "tac", [b"\xff\xfe" as Path])?
   uu.succeeds(r)
   uu.stdout_is(r, "line3\nline2\nline1\n")
 }

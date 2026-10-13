@@ -1740,7 +1740,7 @@ proc can_stream_sort_merge(inputs: List[SortInput], opts: SortOptions, check_ena
 
   let limit = process.rlimit("nofile")?
   let open_limit = if let soft = limit.soft { soft - 3 } else { inputs.len() }
-  let batch_limit = if let size = opts.batch_size { size.parse_int()? } else { open_limit }
+  let batch_limit = if let size = opts.batch_size { size as Int } else { open_limit }
   let maximum = if batch_limit < open_limit { batch_limit } else { open_limit }
   inputs.len() <= maximum
 }
@@ -2095,7 +2095,7 @@ proc sort_merge_batch_limit(opts: SortOptions) [process, error] -> Int {
   let available = if let soft = limit.soft { if soft > 8 { soft - 6 } else { 2 } } else { 32 }
   let bounded = if available > 64 { 64 } else { available }
   if let requested = opts.batch_size {
-    let size = requested.parse_int()?
+    let size = requested as Int
     if size < bounded { size } else { bounded }
   } else {
     bounded
@@ -2502,7 +2502,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
   if sort_needs_numeric_conventions(opts) {
     let conventions = system.locale_numeric_info(sort_locale_name("LC_NUMERIC"))?
-    opts = {...opts, decimal_point: conventions.decimal_point.utf8()?, thousands_separator: conventions.thousands_separator}
+    opts = {...opts, decimal_point: conventions.decimal_point as Str, thousands_separator: conventions.thousands_separator}
   }
   var needs_months = is_month_sort(opts)
   for spec in opts.key {
@@ -2699,7 +2699,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         gnu.error("when reading file names from standard input, no file name of '-' allowed")
         exit 2
       }
-      let input_path = Path.parse_bytes(name)?
+      let input_path = name as Path
       inputs += [{name: name, path: input_path, stdin: name == b"-", compressed: null}]
     }
   } else if paths.is_empty() {

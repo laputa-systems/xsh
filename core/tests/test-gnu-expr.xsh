@@ -206,7 +206,7 @@ test test_gnu_expr_expr_multibyte_log { |ctx|
     {locale: "C.UTF-8", args: [b"substr", b"\xce\xb1bc\xce\xb4ef", b"3", b"2"], out: b"c\xce\xb4\x0a", status: 0},
     {locale: "C.UTF-8", args: [b"match", b"\xce\xb1bc\xce\xb4ef", b".bc"], out: b"3\x0a", status: 0},
   ] {
-    let r = uu.invoke_paths(s, "expr", [Path.parse_bytes(word)? for word in item.args], vars: {LC_ALL: item.locale, LANGUAGE: "C", LANG: "C"}, timeout: 5s)?
+    let r = uu.invoke_paths(s, "expr", [word as Path for word in item.args], vars: {LC_ALL: item.locale, LANGUAGE: "C", LANG: "C"}, timeout: 5s)?
     if r.status != item.status or r.stdout != item.out or r.stderr != b"" {
       failures += [f"{item.locale} expr {[byte_text(word) for word in item.args].join(" / ")}: status {r.status} expected {item.status}; output bytes {byte_text(r.stdout)} expected {byte_text(item.out)}; stderr {byte_text(r.stderr)}"]
     }

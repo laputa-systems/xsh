@@ -9,10 +9,10 @@ test test_rm_force_recursive { |ctx|
 
 test test_rm_accepts_non_utf8_operands { |ctx|
   let root = test.temp_dir(ctx, name: "rm-raw-path")?
-  let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  let file = bytes.concat([root.bytes(), b"/file\xff"]) as Path
   file.write("remove")
-  let directory = Path.parse_bytes(bytes.concat([root.bytes(), b"/directory\xfe"]))?
-  let child = Path.parse_bytes(bytes.concat([directory.bytes(), b"/child\xfd"]))?
+  let directory = bytes.concat([root.bytes(), b"/directory\xfe"]) as Path
+  let child = bytes.concat([directory.bytes(), b"/child\xfd"]) as Path
   directory.mkdir()
   child.write("remove")
   let stdout = fp"{root}/stdout"

@@ -134,13 +134,13 @@ test test_join_non_utf8_separator { |ctx|
   let root = test.temp_dir(ctx, name: "join-raw-sep")?
   fp"{root}/s1".write(b"a\xa7b\n")
   fp"{root}/s2".write(b"a\xa7c\n")
-  let sep: List[Union[Str, Path]] = ["-t", Path.parse_bytes(b"\xa7")?, "s1", "s2"]
+  let sep: List[Union[Str, Path]] = ["-t", b"\xa7" as Path, "s1", "s2"]
 
   let joined = join_run_mixed(ctx, root, sep)?
   assert joined.status == 0, joined.stderr
   assert joined.stdout == b"a\xa7b\xa7c\n"
 
-  let two: List[Union[Str, Path]] = ["-t", Path.parse_bytes(b"\xa7\xa7")?, "s1", "s2"]
+  let two: List[Union[Str, Path]] = ["-t", b"\xa7\xa7" as Path, "s1", "s2"]
   let multi = join_run_mixed(ctx, root, two)?
   assert multi.status == 1
   assert multi.stderr == "join: multi-character tab '\\247\\247'\n", multi.stderr
@@ -150,13 +150,13 @@ test test_join_non_utf8_file_names { |ctx|
   let root = test.temp_dir(ctx, name: "join-raw-names")?
   Path.parse_bytes(bytes.concat([root.bytes(), b"/one-\xff\xfe.txt"]))?.write(b"a 1\n")
   Path.parse_bytes(bytes.concat([root.bytes(), b"/two-\xff\xfe.txt"]))?.write(b"a 2\n")
-  let names: List[Union[Str, Path]] = [Path.parse_bytes(b"one-\xff\xfe.txt")?, Path.parse_bytes(b"two-\xff\xfe.txt")?]
+  let names: List[Union[Str, Path]] = [b"one-\xff\xfe.txt" as Path, b"two-\xff\xfe.txt" as Path]
 
   let joined = join_run_mixed(ctx, root, names)?
   assert joined.status == 0, joined.stderr
   assert joined.stdout == b"a 1 2\n"
 
-  let missing: List[Union[Str, Path]] = [Path.parse_bytes(b"nosuch-\xff")?, Path.parse_bytes(b"two-\xff\xfe.txt")?]
+  let missing: List[Union[Str, Path]] = [b"nosuch-\xff" as Path, b"two-\xff\xfe.txt" as Path]
   let absent = join_run_mixed(ctx, root, missing)?
   assert absent.status == 1
   assert absent.stderr.starts_with("join: 'nosuch-"), absent.stderr

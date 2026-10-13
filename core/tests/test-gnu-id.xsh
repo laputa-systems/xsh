@@ -56,7 +56,7 @@ test test_gnu_id_zero_log { |ctx|
         lookup_status(plain, suffix == "n")
         lookup_status(zero, suffix == "n")
         assert zero.stdout.len() >= 1, "zero output must include a terminator"
-        let restored = (zero.stdout[..-1].utf8()? + "\n").replace("\0", with: " ")
+        let restored = (zero.stdout[..-1] as Str + "\n").replace("\0", with: " ")
         if plain.stdout != bytes.from_text(restored) { failures += [f"{flag}[z] {name}: terminator or separator differs"] }
       }
     }

@@ -638,7 +638,7 @@ proc main(...argv: List[Bytes]) [fs, env, io, time, error] {
   for item in paths {
     let item_bytes = argument_bytes(item, prepared.raw)
     let stdin_operand = item_bytes == b"-"
-    let target = if stdin_operand { fp"/dev/stdin" } else { Path.parse_bytes(item_bytes)? }
+    let target = if stdin_operand { fp"/dev/stdin" } else { item_bytes as Path }
     if file_system and stdin_operand {
       gnu.error("using '-' to denote standard input does not work in file system mode")
       exit 1

@@ -106,7 +106,7 @@ test test_uu_pathchk_empty_path_portability_message { |ctx|
 # origin: uutils test_pathchk::test_pathchk_non_utf8_paths
 test test_uu_pathchk_pathchk_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
-  let filename = Path.parse_bytes(b"\xff\xfe")?
+  let filename = b"\xff\xfe" as Path
   uu.succeeds(uu.invoke_paths(s, "pathchk", [filename])?)
 }
 

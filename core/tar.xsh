@@ -126,7 +126,7 @@ pure padded(size: Int) -> Int {
 # Extended records have the form "LEN KEY=VALUE\n", where LEN counts the whole record.
 # Only path and linkpath change a member's name or link; other records are ignored.
 pure pax_overrides(body: Bytes) -> Result[PaxOverrides] {
-  let text = body.utf8()?
+  let text = body as Str
   var overrides: PaxOverrides = {path: null, linkpath: null}
   var position = 0
   while position < text.byte_len() {

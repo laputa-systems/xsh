@@ -451,7 +451,7 @@ test test_gnu_cksum_cksum_base64_untagged_log { |ctx|
       uu.succeeds(checked)
       uu.stdout_only(checked, "inp: OK\n")
       if algorithm != "blake2b" {
-        let data = digest.stdout.utf8()?
+        let data = digest.stdout as Str
         let cut = data.byte_len() - "  inp\n".byte_len() - 1
         uu.write(s, "truncated", data.byte_slice(0, length: cut) + "  inp\n")
         let invalid = uu.invoke(s, "cksum", ["-a", algorithm, "--check", "truncated"])?
@@ -515,7 +515,7 @@ proc tagged_roundtrip(s: uu.Scene, util: Str, base: List[Str], lengths: List[Int
       let r = uu.invoke(s, util, base + ["-l", f"{length}"] + tag + [name])?
       uu.succeeds(r)
       uu.no_stderr(r)
-      checks += r.stdout.utf8()?
+      checks += r.stdout as Str
       expected += (if name in [" b", "*c", " "] { "'" + name + "'" } else { name }) + ": OK\n"
     }
   }
@@ -545,7 +545,7 @@ test test_gnu_cksum_b2sum_log { |ctx|
     for length in [0, 128] {
       let r = uu.invoke(s, util, base + untag + ["--text", "-l", f"{length}", "/dev/null"])?
       uu.succeeds(r)
-      values += r.stdout.utf8()?
+      values += r.stdout as Str
       uu.write_bytes(s, "check.b2sum", r.stdout)
       for options in [["-l", f"{length}"], []] {
         uu.succeeds(uu.invoke(s, util, base + options + ["--strict", "-c", "check.b2sum"])?)
@@ -577,7 +577,7 @@ test test_gnu_cksum_cksum_sha3_log { |ctx|
   for length in [224, 256, 384, 512] {
     let r = uu.invoke(s, "cksum", base + ["--untagged", "--text", "-l", f"{length}", "/dev/null"])?
     uu.succeeds(r)
-    values += r.stdout.utf8()?
+    values += r.stdout as Str
     uu.write_bytes(s, "check.sha3", r.stdout)
     for options in [["-l", f"{length}"], []] {
       uu.succeeds(uu.invoke(s, "cksum", base + options + ["--strict", "-c", "check.sha3"])?)
@@ -637,7 +637,7 @@ test test_gnu_cksum_cksum_log { |ctx|
   let disabled = "glibc.cpu.hwcaps=-AVX512F,-AVX2,-AVX,-PMULL"
   let debug = uu.invoke(s, "cksum", ["--debug", "/dev/null"], vars: {GLIBC_TUNABLES: disabled})?
   uu.succeeds(debug)
-  assert !regex.compile(r"using.*hardware support")?.matches(debug.stderr.utf8()?)
+  assert !regex.compile(r"using.*hardware support")?.matches(debug.stderr as Str)
   var all = b""
   let octets = bytes.from_ints([n for n in range(256)])?
   for offset in range(-1, 7) {
@@ -678,12 +678,12 @@ test test_gnu_cksum_md5sum_bsd_log { |ctx|
     uu.write(s, name, name + "\n")
     let r = uu.invoke(s, "md5sum", ["--text", name])?
     uu.succeeds(r)
-    let line = r.stdout.utf8()?
+    let line = r.stdout as Str
     standard += line
     reverse += line.byte_slice(0, length: 33) + line.byte_slice(34)
     let tag = uu.invoke(s, "md5sum", ["--tag", name])?
     uu.succeeds(tag)
-    tags += tag.stdout.utf8()?
+    tags += tag.stdout as Str
     expected += (if name in [" b", "*c", " "] { "'" + name + "'" } else { name }) + ": OK\n"
   }
   for case in [{name: "check.md5sum", content: standard}, {name: "check.md5", content: reverse}, {name: "check.md5", content: tags}] {
@@ -708,7 +708,7 @@ test test_gnu_cksum_md5sum_bsd_log { |ctx|
     uu.touch(s, name)
     let r = uu.invoke(s, "md5sum", ["--tag", name])?
     uu.succeeds(r)
-    escapes += r.stdout.utf8()?
+    escapes += r.stdout as Str
   }
   uu.write(s, "check.md5", escapes)
   let checked = uu.invoke(s, "md5sum", ["--strict", "-c", "check.md5"])?

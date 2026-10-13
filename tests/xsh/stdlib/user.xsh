@@ -71,7 +71,7 @@ test test_unix_id_supplementary_is_the_kernel_group_list {
   var from_status = []
   for line in fp"/proc/self/status".lines()? {
     if line.starts_with("Groups:") {
-      for word in line.byte_slice(7).fields() { from_status += [word.parse_int()?] }
+      for word in line.byte_slice(7).fields() { from_status += [word as Int] }
     }
   }
   assert identity.supplementary == from_status

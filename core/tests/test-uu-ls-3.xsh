@@ -13,7 +13,7 @@ proc ls_invoke(s: uu.Scene, args: List[Str], vars: Record = {}, stdout: Path? = 
 }
 
 proc stdout_matches(r: uu.Ran, expression: Str) [error] {
-  assert regex.compile(expression)?.matches(r.stdout.utf8()?), f"ls {r.args.join(" ")}: {r.stdout.utf8()?} does not match {expression}"
+  assert regex.compile(expression)?.matches(r.stdout as Str), f"ls {r.args.join(" ")}: {r.stdout as Str} does not match {expression}"
 }
 
 proc stdout_contains_line(r: uu.Ran, expected: Str) [error] {
@@ -208,7 +208,7 @@ test test_uu_ls_ls_walk_glob { |ctx|
   uu.touch(s, "some-dir/test-2~")
   let r = ls_invoke(s, ["-1", "--ignore-backups", "some-dir"])?
   uu.succeeds(r)
-  let output = r.stdout.utf8()?
+  let output = r.stdout as Str
   assert !("test-2~" in output)
   assert !(".." in output)
   assert !regex.compile(r"^\.\n")?.matches(output)
@@ -221,12 +221,12 @@ test test_uu_ls_ls_subdired_complex { |ctx|
   for name in ["dir1/a1", "dir1/a22", "dir1/a333", "dir1/c2/a4444"] { uu.touch(s, name) }
   let r = ls_invoke(s, ["--dired", "-l", "-R", "dir1"])?
   uu.succeeds(r)
-  let output = r.stdout.utf8()?
+  let output = r.stdout as Str
   let lines = [line for line in output.split("\n") if line.starts_with("//SUBDIRED//")]
   assert lines.len() > 0
-  let positions = [word.parse_int()? for word in lines[0].split(" ")[1..] if word != ""]
+  let positions = [word as Int for word in lines[0].split(" ")[1..] if word != ""]
   assert positions.len() % 2 == 0
-  let names = [r.stdout[positions[i * 2]..positions[i * 2 + 1]].utf8()? for i in range(positions.len() / 2)]
+  let names = [r.stdout[positions[i * 2]..positions[i * 2 + 1]] as Str for i in range(positions.len() / 2)]
   assert names == ["dir1", "dir1/c2", "dir1/d"]
 }
 
@@ -572,7 +572,7 @@ test test_uu_ls_ls_time_style_precedence_last_wins { |ctx|
   stdout_matches(first, r"\d{2}:\d{2}:\d{2}")
   let second = ls_invoke(s, ["--full-time", "--time-style=long-iso", "-l", "timefile"])?
   uu.succeeds(second)
-  assert !regex.compile(r"\d{2}:\d{2}:\d{2}")?.matches(second.stdout.utf8()?)
+  assert !regex.compile(r"\d{2}:\d{2}:\d{2}")?.matches(second.stdout as Str)
 }
 
 # origin: uutils test_ls::test_ls_time_sort_without_long

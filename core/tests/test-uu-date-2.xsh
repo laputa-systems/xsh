@@ -153,10 +153,10 @@ test test_uu_date_date_rfc_8601 { |ctx|
   let s = uu.scene(ctx)?
   let r32 = uu.invoke(s, "date", ["--iso-8601=ns"])?
   uu.succeeds(r32)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2},\\d{9}[+-]\\d{2}:\\d{2}\\n$")?.matches(r32.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2},\\d{9}[+-]\\d{2}:\\d{2}\\n$")?.matches(r32.stdout as Str)
   let r33 = uu.invoke(s, "date", ["--i=ns"])?
   uu.succeeds(r33)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2},\\d{9}[+-]\\d{2}:\\d{2}\\n$")?.matches(r33.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2},\\d{9}[+-]\\d{2}:\\d{2}\\n$")?.matches(r33.stdout as Str)
 }
 
 # origin: uutils test_date::test_date_rfc_8601_date
@@ -164,10 +164,10 @@ test test_uu_date_date_rfc_8601_date { |ctx|
   let s = uu.scene(ctx)?
   let r34 = uu.invoke(s, "date", ["--iso-8601=date"])?
   uu.succeeds(r34)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}\\n$")?.matches(r34.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}\\n$")?.matches(r34.stdout as Str)
   let r35 = uu.invoke(s, "date", ["--i=date"])?
   uu.succeeds(r35)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}\\n$")?.matches(r35.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}\\n$")?.matches(r35.stdout as Str)
 }
 
 # origin: uutils test_date::test_date_rfc_8601_default
@@ -175,10 +175,10 @@ test test_uu_date_date_rfc_8601_default { |ctx|
   let s = uu.scene(ctx)?
   let r36 = uu.invoke(s, "date", ["--iso-8601"])?
   uu.succeeds(r36)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}\\n$")?.matches(r36.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}\\n$")?.matches(r36.stdout as Str)
   let r37 = uu.invoke(s, "date", ["--i"])?
   uu.succeeds(r37)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}\\n$")?.matches(r37.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}\\n$")?.matches(r37.stdout as Str)
 }
 
 # origin: uutils test_date::test_date_rfc_8601_hour
@@ -186,16 +186,16 @@ test test_uu_date_date_rfc_8601_hour { |ctx|
   let s = uu.scene(ctx)?
   let r38 = uu.invoke(s, "date", ["--iso-8601=hour"])?
   uu.succeeds(r38)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r38.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r38.stdout as Str)
   let r39 = uu.invoke(s, "date", ["--iso-8601=hours"])?
   uu.succeeds(r39)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r39.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r39.stdout as Str)
   let r40 = uu.invoke(s, "date", ["--i=hour"])?
   uu.succeeds(r40)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r40.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r40.stdout as Str)
   let r41 = uu.invoke(s, "date", ["--i=hours"])?
   uu.succeeds(r41)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r41.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r41.stdout as Str)
 }
 
 # origin: uutils test_date::test_date_rfc_8601_invalid_arg
@@ -212,16 +212,16 @@ test test_uu_date_date_rfc_8601_minute { |ctx|
   let s = uu.scene(ctx)?
   let r44 = uu.invoke(s, "date", ["--iso-8601=minute"])?
   uu.succeeds(r44)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r44.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r44.stdout as Str)
   let r45 = uu.invoke(s, "date", ["--iso-8601=minutes"])?
   uu.succeeds(r45)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r45.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r45.stdout as Str)
   let r46 = uu.invoke(s, "date", ["--i=minute"])?
   uu.succeeds(r46)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r46.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r46.stdout as Str)
   let r47 = uu.invoke(s, "date", ["--i=minutes"])?
   uu.succeeds(r47)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r47.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r47.stdout as Str)
 }
 
 # origin: uutils test_date::test_date_rfc_8601_second
@@ -229,16 +229,16 @@ test test_uu_date_date_rfc_8601_second { |ctx|
   let s = uu.scene(ctx)?
   let r48 = uu.invoke(s, "date", ["--iso-8601=second"])?
   uu.succeeds(r48)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r48.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r48.stdout as Str)
   let r49 = uu.invoke(s, "date", ["--iso-8601=seconds"])?
   uu.succeeds(r49)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r49.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r49.stdout as Str)
   let r50 = uu.invoke(s, "date", ["--i=second"])?
   uu.succeeds(r50)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r50.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r50.stdout as Str)
   let r51 = uu.invoke(s, "date", ["--i=seconds"])?
   uu.succeeds(r51)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r51.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}\\n$")?.matches(r51.stdout as Str)
 }
 
 # origin: uutils test_date::test_date_stdin_invalid_utf8_line
@@ -278,61 +278,61 @@ test test_uu_date_date_string_human { |ctx|
   let s = uu.scene(ctx)?
   let r56 = uu.invoke(s, "date", ["-d", "1 year ago", "+%Y-%m-%d %S:%M"])?
   uu.succeeds(r56)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r56.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r56.stdout as Str)
   let r57 = uu.invoke(s, "date", ["-d", "1 year", "+%Y-%m-%d %S:%M"])?
   uu.succeeds(r57)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r57.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r57.stdout as Str)
   let r58 = uu.invoke(s, "date", ["-d", "2 months ago", "+%Y-%m-%d %S:%M"])?
   uu.succeeds(r58)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r58.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r58.stdout as Str)
   let r59 = uu.invoke(s, "date", ["-d", "15 days ago", "+%Y-%m-%d %S:%M"])?
   uu.succeeds(r59)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r59.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r59.stdout as Str)
   let r60 = uu.invoke(s, "date", ["-d", "1 week ago", "+%Y-%m-%d %S:%M"])?
   uu.succeeds(r60)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r60.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r60.stdout as Str)
   let r61 = uu.invoke(s, "date", ["-d", "5 hours ago", "+%Y-%m-%d %S:%M"])?
   uu.succeeds(r61)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r61.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r61.stdout as Str)
   let r62 = uu.invoke(s, "date", ["-d", "30 minutes ago", "+%Y-%m-%d %S:%M"])?
   uu.succeeds(r62)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r62.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r62.stdout as Str)
   let r63 = uu.invoke(s, "date", ["-d", "10 seconds", "+%Y-%m-%d %S:%M"])?
   uu.succeeds(r63)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r63.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r63.stdout as Str)
   let r64 = uu.invoke(s, "date", ["-d", "last day", "+%Y-%m-%d %S:%M"])?
   uu.succeeds(r64)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r64.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r64.stdout as Str)
   let r65 = uu.invoke(s, "date", ["-d", "last monday", "+%Y-%m-%d %S:%M"])?
   uu.succeeds(r65)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r65.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r65.stdout as Str)
   let r66 = uu.invoke(s, "date", ["-d", "last week", "+%Y-%m-%d %S:%M"])?
   uu.succeeds(r66)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r66.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r66.stdout as Str)
   let r67 = uu.invoke(s, "date", ["-d", "last month", "+%Y-%m-%d %S:%M"])?
   uu.succeeds(r67)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r67.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r67.stdout as Str)
   let r68 = uu.invoke(s, "date", ["-d", "last year", "+%Y-%m-%d %S:%M"])?
   uu.succeeds(r68)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r68.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r68.stdout as Str)
   let r69 = uu.invoke(s, "date", ["-d", "this monday", "+%Y-%m-%d %S:%M"])?
   uu.succeeds(r69)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r69.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r69.stdout as Str)
   let r70 = uu.invoke(s, "date", ["-d", "next day", "+%Y-%m-%d %S:%M"])?
   uu.succeeds(r70)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r70.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r70.stdout as Str)
   let r71 = uu.invoke(s, "date", ["-d", "next monday", "+%Y-%m-%d %S:%M"])?
   uu.succeeds(r71)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r71.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r71.stdout as Str)
   let r72 = uu.invoke(s, "date", ["-d", "next week", "+%Y-%m-%d %S:%M"])?
   uu.succeeds(r72)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r72.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r72.stdout as Str)
   let r73 = uu.invoke(s, "date", ["-d", "next month", "+%Y-%m-%d %S:%M"])?
   uu.succeeds(r73)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r73.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r73.stdout as Str)
   let r74 = uu.invoke(s, "date", ["-d", "next year", "+%Y-%m-%d %S:%M"])?
   uu.succeeds(r74)
-  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r74.stdout.utf8()?)
+  assert regex.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\n$")?.matches(r74.stdout as Str)
 }
 
 # origin: uutils test_date::test_date_tz_abbreviation_australian_timezones
@@ -1037,26 +1037,26 @@ test test_uu_date_date_set_hyphen_prefixed_values { |ctx|
   let s = uu.scene(ctx)?
   let r250 = uu.invoke(s, "date", ["--set", "-1 hour"], vars: {"LC_ALL":"C", "TZ":"UTC0"})?
   uu.fails(r250)
-  assert regex.compile("^\\w{3} \\w{3} {1,2}\\d{1,2} \\d{2}:\\d{2}:\\d{2} UTC \\d{4}\n$")?.matches(r250.stdout.utf8()?)
+  assert regex.compile("^\\w{3} \\w{3} {1,2}\\d{1,2} \\d{2}:\\d{2}:\\d{2} UTC \\d{4}\n$")?.matches(r250.stdout as Str)
   assert r250.stderr.utf8()?.starts_with("date: cannot set date: ")
   let r251 = uu.invoke(s, "date", ["--set", "-2 days"], vars: {"LC_ALL":"C", "TZ":"UTC0"})?
   uu.fails(r251)
-  assert regex.compile("^\\w{3} \\w{3} {1,2}\\d{1,2} \\d{2}:\\d{2}:\\d{2} UTC \\d{4}\n$")?.matches(r251.stdout.utf8()?)
+  assert regex.compile("^\\w{3} \\w{3} {1,2}\\d{1,2} \\d{2}:\\d{2}:\\d{2} UTC \\d{4}\n$")?.matches(r251.stdout as Str)
   assert r251.stderr.utf8()?.starts_with("date: cannot set date: ")
   let r252 = uu.invoke(s, "date", ["--set", "-3 weeks"], vars: {"LC_ALL":"C", "TZ":"UTC0"})?
   uu.fails(r252)
-  assert regex.compile("^\\w{3} \\w{3} {1,2}\\d{1,2} \\d{2}:\\d{2}:\\d{2} UTC \\d{4}\n$")?.matches(r252.stdout.utf8()?)
+  assert regex.compile("^\\w{3} \\w{3} {1,2}\\d{1,2} \\d{2}:\\d{2}:\\d{2} UTC \\d{4}\n$")?.matches(r252.stdout as Str)
   assert r252.stderr.utf8()?.starts_with("date: cannot set date: ")
   let r253 = uu.invoke(s, "date", ["--set", "-1 month"], vars: {"LC_ALL":"C", "TZ":"UTC0"})?
   uu.fails(r253)
-  assert regex.compile("^\\w{3} \\w{3} {1,2}\\d{1,2} \\d{2}:\\d{2}:\\d{2} UTC \\d{4}\n$")?.matches(r253.stdout.utf8()?)
+  assert regex.compile("^\\w{3} \\w{3} {1,2}\\d{1,2} \\d{2}:\\d{2}:\\d{2} UTC \\d{4}\n$")?.matches(r253.stdout as Str)
   assert r253.stderr.utf8()?.starts_with("date: cannot set date: ")
 }
 
 # origin: uutils test_date::test_format_percent_before_non_utf8_byte
 test test_uu_date_format_percent_before_non_utf8_byte { |ctx|
   let s = uu.scene(ctx)?
-  let r = uu.invoke_paths(s, "date", [p"-u", p"-d", p"2031-07-23T04:05:06", Path.parse_bytes(b"+w%\xd0z")?])?
+  let r = uu.invoke_paths(s, "date", [p"-u", p"-d", p"2031-07-23T04:05:06", b"+w%\xd0z" as Path])?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"w%\xd0z\n")
 }
@@ -1064,7 +1064,7 @@ test test_uu_date_format_percent_before_non_utf8_byte { |ctx|
 # origin: uutils test_date::test_format_with_non_utf8_bytes
 test test_uu_date_format_with_non_utf8_bytes { |ctx|
   let s = uu.scene(ctx)?
-  let r = uu.invoke_paths(s, "date", [p"-u", p"-d", p"2031-07-23T04:05:06", Path.parse_bytes(b"+\xc5[%Y]\xa7%%\xe4")?])?
+  let r = uu.invoke_paths(s, "date", [p"-u", p"-d", p"2031-07-23T04:05:06", b"+\xc5[%Y]\xa7%%\xe4" as Path])?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"\xc5[2031]\xa7%\xe4\n")
 }
@@ -1072,7 +1072,7 @@ test test_uu_date_format_with_non_utf8_bytes { |ctx|
 # origin: uutils test_date::test_format_with_gb18030_bytes
 test test_uu_date_format_with_gb18030_bytes { |ctx|
   let s = uu.scene(ctx)?
-  let r = uu.invoke_paths(s, "date", [p"-u", p"-d", p"2031-07-23T04:05:06", Path.parse_bytes(b"+%Y\xc4\xea%-m\xd4\xc2%-d\xc8\xd5")?])?
+  let r = uu.invoke_paths(s, "date", [p"-u", p"-d", p"2031-07-23T04:05:06", b"+%Y\xc4\xea%-m\xd4\xc2%-d\xc8\xd5" as Path])?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"2031\xc4\xea7\xd4\xc223\xc8\xd5\n")
 }
@@ -1091,7 +1091,7 @@ test test_uu_date_date_reference_is_non_utf8_path { |ctx|
   let file = uu.at_bytes(s, b"reference_\xff\xfe.txt")?
   file.write("")
   fs.set_times(file, mtime_sec: 1234)
-  let r = uu.invoke_paths(s, "date", [p"--reference", Path.parse_bytes(b"reference_\xff\xfe.txt")?, p"+%s"])?
+  let r = uu.invoke_paths(s, "date", [p"--reference", b"reference_\xff\xfe.txt" as Path, p"+%s"])?
   uu.succeeds(r)
   uu.stdout_only(r, "1234\n")
 }
@@ -1116,7 +1116,7 @@ test test_uu_date_date_rfc_3339 { |ctx|
     for precision in ["ns", "seconds"] {
       let r = uu.invoke(s, "date", [f"{param}={precision}"])?
       uu.succeeds(r)
-      assert rx"(\d+)-(0[1-9]|1[012])-(0[1-9]|[12]\d|3[01])\s([01]\d|2[0-3]):([0-5]\d):([0-5]\d|60)(\.\d+)?(([Zz])|([\+|\-]([01]\d|2[0-3])))".matches(r.stdout.utf8()?)
+      assert rx"(\d+)-(0[1-9]|1[012])-(0[1-9]|[12]\d|3[01])\s([01]\d|2[0-3]):([0-5]\d):([0-5]\d|60)(\.\d+)?(([Zz])|([\+|\-]([01]\d|2[0-3])))".matches(r.stdout as Str)
     }
   }
 }
@@ -1190,7 +1190,7 @@ test test_uu_date_date_tz_with_relative_time { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "date", ["-d", "1 hour ago", "+%Y-%m-%d %H:%M:%S %Z"], vars: {"TZ": "America/Vancouver"})?
   uu.succeeds(r)
-  assert rx"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} P[DS]T\n$".matches(r.stdout.utf8()?)
+  assert rx"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} P[DS]T\n$".matches(r.stdout as Str)
 }
 
 # origin: uutils test_date::test_date_tz_abbreviation_with_relative_date

@@ -186,7 +186,7 @@ test test_split_filter_byte_chunks_keep_processing_until_timeout { |ctx|
 test test_split_non_utf8_input_path { |ctx|
   let root = test.temp_dir(ctx, name: "split-raw-input")?
   let input_name = b"input-\xff"
-  let input = Path.parse_bytes(bytes.concat([root.bytes(), b"/", input_name]))?
+  let input = bytes.concat([root.bytes(), b"/", input_name]) as Path
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let command = r"""name=$(printf 'input-\377'); exec "$1" "$2" "$name" """
@@ -224,8 +224,8 @@ test test_split_non_utf8_prefix_and_additional_suffix { |ctx|
     stderr,
     timeout: 5s,
   ))?
-  let first = Path.parse_bytes(bytes.concat([root.bytes(), b"/p\xffaa\xfe"]))?
-  let second = Path.parse_bytes(bytes.concat([root.bytes(), b"/p\xffab\xfe"]))?
+  let first = bytes.concat([root.bytes(), b"/p\xffaa\xfe"]) as Path
+  let second = bytes.concat([root.bytes(), b"/p\xffab\xfe"]) as Path
 
   assert status.exited_with(0), stderr.read_text()?
   assert first.read_bytes()? == b"A"
@@ -321,8 +321,8 @@ test test_split_non_utf8_equals_option_value_keeps_its_name { |ctx|
     stderr,
     timeout: 5s,
   ))?
-  let first = Path.parse_bytes(bytes.concat([root.bytes(), b"/qaa\xfe"]))?
-  let second = Path.parse_bytes(bytes.concat([root.bytes(), b"/qab\xfe"]))?
+  let first = bytes.concat([root.bytes(), b"/qaa\xfe"]) as Path
+  let second = bytes.concat([root.bytes(), b"/qab\xfe"]) as Path
 
   assert status.exited_with(0), stderr.read_text()?
   assert first.read_bytes()? == b"A"

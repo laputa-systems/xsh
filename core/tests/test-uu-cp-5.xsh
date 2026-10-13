@@ -316,7 +316,7 @@ test test_uu_cp_non_utf8_src { |ctx|
   let s = uu.scene(ctx)?
   let src = uu.at_bytes(s, b"\xff\xffsrc")?
   src.write("")
-  let r = uu.invoke_paths(s, "cp", [Path.parse_bytes(b"\xff\xffsrc")?, p"dest"])?
+  let r = uu.invoke_paths(s, "cp", [b"\xff\xffsrc" as Path, p"dest"])?
   uu.succeeds(r)
   uu.no_output(r)
   assert uu.file_exists(s, "dest")?
@@ -326,7 +326,7 @@ test test_uu_cp_non_utf8_src { |ctx|
 test test_uu_cp_non_utf8_dest { |ctx|
   let s = uu.scene(ctx)?
   uu.fixture(s, "cp", "hello_world.txt", "hello_world.txt")
-  let name = Path.parse_bytes(b"\xff\xffdest")?
+  let name = b"\xff\xffdest" as Path
   let r = uu.invoke_paths(s, "cp", [p"hello_world.txt", name])?
   uu.succeeds(r)
   uu.no_output(r)
@@ -338,7 +338,7 @@ test test_uu_cp_non_utf8_target { |ctx|
   let s = uu.scene(ctx)?
   uu.fixture(s, "cp", "hello_world.txt", "hello_world.txt")
   uu.at_bytes(s, b"\xff\xffdest")?.mkdir()
-  let r = uu.invoke_paths(s, "cp", [p"-t", Path.parse_bytes(b"\xff\xffdest")?, p"hello_world.txt"])?
+  let r = uu.invoke_paths(s, "cp", [p"-t", b"\xff\xffdest" as Path, p"hello_world.txt"])?
   uu.succeeds(r)
   uu.no_output(r)
   assert uu.at_bytes(s, b"\xff\xffdest/hello_world.txt")?.is_file()?

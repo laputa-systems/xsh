@@ -156,9 +156,9 @@ proc main(...argv: List[Bytes]) {
     exit 1
   }
   var paths = []
-  for raw_path in opts.paths { paths += [Path.parse_bytes(gnu.argument_bytes(raw_path, prepared.raw))?] }
+  for raw_path in opts.paths { paths += [gnu.argument_bytes(raw_path, prepared.raw) as Path] }
   let target_directory: Path? = if let target_text = opts.target {
-    Path.parse_bytes(gnu.argument_bytes(target_text, prepared.raw))?
+    gnu.argument_bytes(target_text, prepared.raw) as Path
   } else { null }
   # GNU follows a symbolic link named by -t even under -n, and every failure to
   # examine it is an access error. This runs before the -T conflict checks.

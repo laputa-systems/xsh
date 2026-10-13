@@ -26,7 +26,7 @@ test test_gnu_od_big_w_log { |ctx|
       uu.stdout_is(r, "0000000 x >x<\n0000001\n")
       let counted = [p"/bin/sh", p"-c", Path(r""""$@" | wc -c; """), p"od-wide-count"].extend(command_words)
       let count = wrapped(s, counted, input: b"x", timeout: 240s)
-      assert count.stdout.utf8()?.trim().parse_int()? == width * 4 + 21
+      assert count.stdout.utf8()?.trim() as Int == width * 4 + 21
     }
   }
 }
@@ -151,7 +151,7 @@ test test_gnu_od_od_float_log { |ctx|
   ] {
     let values = [254 for _ in range(row.width)].extend([255]).extend([254 for _ in range(row.width - 1)]).extend([10])
     let r = uu.invoke(s, "od", ["-t", row.format], stdin: bytes.from_ints(values)?)?
-    let text = r.stdout.utf8()?
+    let text = r.stdout as Str
     assert "0-" not in text
     let words = [word for word in text.replace("\n", with: " ").split(" ") if word != ""]
     if words.len() >= 3 { assert words[1] != row.obsolete or words[2] != row.obsolete }

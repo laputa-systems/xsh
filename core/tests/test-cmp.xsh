@@ -139,7 +139,7 @@ test test_cmp_chunk_boundary_and_zero_limit_missing_file { |ctx|
   assert bytes.write_at(right, 65536, b"b")? == 1
   let result = invoke(ctx, [left.display(), right.display()])?
   assert result.status == 1
-  assert result.stdout.utf8()?.ends_with("differ: char 65537, line 1\n"), result.stdout.utf8()?
+  assert result.stdout.utf8()?.ends_with("differ: char 65537, line 1\n"), result.stdout as Str
   let missing = test.temp_path(ctx, name: "missing")
   assert invoke(ctx, ["-n0", missing.display(), right.display()])?.status == 2
 }
@@ -161,7 +161,7 @@ test test_cmp_directory_operand_is_a_read_error { |ctx|
   fp"{root}/f".write("x\n")
   let result = invoke(ctx, ["d", "f"], cwd: root)?
   assert result.status == 2
-  assert result.stderr.utf8()? == "cmp: d: Is a directory\n", result.stderr.utf8()?
+  assert result.stderr as Str == "cmp: d: Is a directory\n", result.stderr as Str
   assert invoke(ctx, ["d", "d"], cwd: root)?.status == 0
 }
 
@@ -177,7 +177,7 @@ test test_cmp_unreadable_file_is_trouble_unless_silent { |ctx|
   fp"{root}/ok".write("x\n")
   let loud = invoke(ctx, ["secret", "ok"], cwd: root)?
   assert loud.status == 2
-  assert loud.stderr.utf8()? == "cmp: secret: Permission denied\n", loud.stderr.utf8()?
+  assert loud.stderr as Str == "cmp: secret: Permission denied\n", loud.stderr as Str
   let quiet = invoke(ctx, ["-s", "secret", "ok"], cwd: root)?
   assert quiet.status == 2
   assert quiet.stderr == b""

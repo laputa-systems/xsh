@@ -22,7 +22,7 @@ proc invoke(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, 
 }
 
 proc stdout_lacks(r: uu.Ran, needle: Str) [error] -> Result[Unit, Error] {
-  let actual = r.stdout.utf8()?
+  let actual = r.stdout as Str
   assert !(needle in actual), f"unexpected {needle}: {actual}"
   Ok()
 }
@@ -245,7 +245,7 @@ test test_uu_du_du_threshold_no_suggested_values { |ctx|
   let s = scene(ctx)?
   let r = invoke(s, ["--threshold"])?
   uu.fails(r)
-  assert !("[possible values: ]" in r.stderr.utf8()?)
+  assert !("[possible values: ]" in r.stderr as Str)
 }
 
 # origin: uutils test_du::test_du_threshold_with_leading_whitespace
@@ -324,11 +324,11 @@ test test_uu_du_du_time { |ctx|
   }
   let change = invoke(s, ["--time=ctime", "date_test"])?
   uu.succeeds(change)
-  assert rx"0\t[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}\tdate_test".matches(change.stdout.utf8()?)
+  assert rx"0\t[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}\tdate_test".matches(change.stdout as Str)
   if fs.stat(s.root)?.birth_ns != null {
     let birth = invoke(s, ["--time=birth", "date_test"])?
     uu.succeeds(birth)
-    assert rx"0\t[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}\tdate_test".matches(birth.stdout.utf8()?)
+    assert rx"0\t[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}\tdate_test".matches(birth.stdout as Str)
   }
 }
 

@@ -219,7 +219,7 @@ test test_uu_md5sum_sha1_with_md5sum_should_fail { |ctx|
   let r0 = uu.invoke(s, "md5sum", ["--check", uu.at(s, "f.sha1").display()], stdin: b"")?
   uu.fails(r0)
   uu.stderr_contains(r0, "f.sha1: no properly formatted checksum lines found")
-  assert ! ("WARNING: 1 line is improperly formatted" in r0.stderr.utf8()?)
+  assert ! ("WARNING: 1 line is improperly formatted" in r0.stderr as Str)
 }
 
 # origin: uutils test_md5sum::test_check_md5_comment_line
@@ -373,7 +373,7 @@ test test_uu_md5sum_check_space_star_or_not { |ctx|
   let r0 = uu.invoke(s, "md5sum", ["--check", uu.at(s, "in.md5").display()], stdin: b"")?
   uu.fails(r0)
   uu.stdout_contains(r0, "c: FAILED")
-  assert ! ("a: FAILED" in r0.stdout.utf8()?)
+  assert ! ("a: FAILED" in r0.stdout as Str)
   uu.stderr_contains(r0, "WARNING: 1 line is improperly formatted")
   uu.write(s, "in.md5", "d41d8cd98f00b204e9800998ecf8427e a\n\n            d41d8cd98f00b204e9800998ecf8427e *c\n")
   let r1 = uu.invoke(s, "md5sum", ["--check", uu.at(s, "in.md5").display()], stdin: b"")?

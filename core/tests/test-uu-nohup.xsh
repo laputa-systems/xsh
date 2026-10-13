@@ -115,7 +115,7 @@ test test_uu_nohup_nohup_fallback_to_home { |ctx|
   uu.set_mode(s, "readonly_dir", 0o755)
   let home_nohup = f"{home_dir}/nohup.out"
   time.sleep(50ms)
-  assert home_nohup in r.stderr.utf8()? or Path(home_nohup).exists()?
+  assert home_nohup in r.stderr as Str or Path(home_nohup).exists()?
 }
 
 # origin: uutils test_nohup::test_nohup_command_not_found

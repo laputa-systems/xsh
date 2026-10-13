@@ -216,7 +216,7 @@ pure wrap(text: Str, width: Int) -> Str {
 # reaches the filesystem unchanged. Stdin is the only operand that is not a path.
 proc read_operand(name: Bytes) [fs, error, io] -> Result[Bytes, Error] {
   return io.stdin_bytes() when name == b"-"
-  let target = Path.parse_bytes(name)?
+  let target = name as Path
   target.read_bytes()
 }
 

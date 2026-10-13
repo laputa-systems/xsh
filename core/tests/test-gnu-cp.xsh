@@ -199,10 +199,10 @@ test test_gnu_cp_debug_log { |ctx|
   uu.touch(s, "file")
   let r = uu.invoke(s, "cp", ["--debug", "file", "file.cp"])?
   uu.succeeds(r)
-  assert regex.compile("copy offload:.*reflink:.*sparse detection:")?.matches(r.stdout.utf8()?)
+  assert regex.compile("copy offload:.*reflink:.*sparse detection:")?.matches(r.stdout as Str)
   let attributes = uu.invoke(s, "cp", ["--debug", "--attributes-only", "file", "file.cp"])?
   uu.succeeds(attributes)
-  assert !regex.compile("copy offload:.*reflink:.*sparse detection:")?.matches(attributes.stdout.utf8()?)
+  assert !regex.compile("copy offload:.*reflink:.*sparse detection:")?.matches(attributes.stdout as Str)
   uu.touch(s, "file.cp")
   let skipped = uu.invoke(s, "cp", ["--debug", "--update=none", "file", "file.cp"])?
   uu.succeeds(skipped)
@@ -665,7 +665,7 @@ test test_gnu_cp_sparse_2_log { |ctx|
   let detected = uu.invoke(s, "cp", ["--debug", "--reflink=never", "--sparse=always", "k", "k2"])?
   uu.succeeds(detected)
   assert uu.read(s, "k")? == uu.read(s, "k2")?
-  assert regex.compile("sparse detection: .*zeros")?.matches(detected.stdout.utf8()?)
+  assert regex.compile("sparse detection: .*zeros")?.matches(detected.stdout as Str)
   let dense = uu.invoke(s, "cp", ["--debug", "--sparse=never", "k", "k2"])?
   uu.succeeds(dense)
   assert uu.read(s, "k")? == uu.read(s, "k2")?
@@ -721,12 +721,12 @@ test test_gnu_cp_sparse_perf_log { |ctx|
   let cross_device = uu.invoke(s, "cp", ["--debug", source.display(), "k2"])?
   uu.succeeds(cross_device)
   assert source.read_bytes()? == uu.read(s, "k2")?
-  assert !(": avoided" in cross_device.stdout.utf8()?)
+  assert !(": avoided" in cross_device.stdout as Str)
   uu.write(s, "might-look-sparse", ["y\n" for _ in range(0, 1024 * 1024)].join(""))
   let compressible = uu.invoke(s, "cp", ["--debug", "might-look-sparse", "might-look-sparse.cp"])?
   uu.succeeds(compressible)
   assert uu.read(s, "might-look-sparse")? == uu.read(s, "might-look-sparse.cp")?
-  assert !(": avoided" in compressible.stdout.utf8()?)
+  assert !(": avoided" in compressible.stdout as Str)
   uu.touch(s, "f")
   uu.truncate(s, "f", 1024 * 1024 * 1024 * 1024)
   let large = uu.invoke(s, "cp", ["--reflink=never", "f", "f2"], timeout: 10s)?

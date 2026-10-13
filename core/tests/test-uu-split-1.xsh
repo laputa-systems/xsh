@@ -78,7 +78,7 @@ test test_uu_split_diagnostics_snippet_underlines_a_count_with_no_number { |ctx|
   let r = terminal_stderr(s, ["-l", "qq", "/dev/null"])?
   uu.fails_with_code(r, 1)
   uu.stderr_contains(r, "invalid number of lines")
-  assert !("not a known unit" in r.stderr.utf8()?)
+  assert !("not a known unit" in r.stderr as Str)
 }
 
 # origin: uutils test_split::test_additional_suffix_dir_separator

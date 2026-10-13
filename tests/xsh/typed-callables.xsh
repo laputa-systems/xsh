@@ -1157,7 +1157,7 @@ test test_with_try_path_results_keep_registry_error_types { |ctx|
     assert contextual(4) == 8
   } else { |failure| test.fail(failure.message) }
 
-  with parsed = "12".parse_int()? {
+  with parsed = "12" as Int {
     assert parsed == 12
   } else { |failure| test.fail(failure.message) }
 }

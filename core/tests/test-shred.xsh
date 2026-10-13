@@ -88,7 +88,7 @@ test test_shred_known_random_source_keeps_the_twenty_pass_order { |ctx|
 
 test test_shred_non_utf8_path { |ctx|
   let root = test.temp_dir(ctx, name: "shred-path-bytes")?
-  let target = Path.parse_bytes(bytes.concat([root.bytes(), b"/file_\xff\xfe"]))?
+  let target = bytes.concat([root.bytes(), b"/file_\xff\xfe"]) as Path
   target.write("secret")
   let args: List[Union[Str, Path]] = ["-n", "0", "-z", "-x", target]
   let result = run_applet_paths(ctx, root, args)?

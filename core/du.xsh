@@ -394,7 +394,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
   var depth = 9223372036854775807
   if let raw = opts.depth {
     if ! rx"^[0-9]+$".matches(raw) { gnu.usage_error(f"invalid maximum depth {gnu.quote_value(raw)}") }
-    depth = raw.parse_int()?
+    depth = raw as Int
   }
   if opts.summarize {
     if opts.depth != null and depth != 0 { gnu.usage_error("summarizing conflicts with --max-depth") }

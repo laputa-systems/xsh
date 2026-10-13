@@ -19,7 +19,7 @@ export pure basename_bytes(raw: Bytes) -> Bytes {
 
 ## Join a parent with a raw filename without decoding it.
 export pure child(parent: Path, name: Bytes) -> Result[Path, Error] {
-  let leaf = Path.parse_bytes(name)?
+  let leaf = name as Path
   Ok(if parent.bytes().byte_at(parent.bytes().len() - 1) == 47 { fp"{parent}{leaf}" } else { fp"{parent}/{leaf}" })
 }
 

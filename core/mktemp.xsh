@@ -151,7 +151,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       }
     }
     let name = bytes.concat([prefix, bytes.from_text(random), suffix])
-    let target = Path.parse_bytes(name)?
+    let target = name as Path
     if opts.dry { gnu.write_bytes(bytes.concat([name, b"\n"])); return }
     let made = if opts.directory {
       create_directory(target)

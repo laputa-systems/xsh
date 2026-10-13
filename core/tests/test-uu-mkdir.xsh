@@ -111,7 +111,7 @@ test test_uu_mkdir_diagnostics_plain_message_when_stderr_is_a_pipe { |ctx|
   let s = uu.scene(ctx)?
   let r = uu.invoke(s, "mkdir", ["-m", "u+rw?x", "some_dir"])?
   uu.fails_with_code(r, 1)
-  let stderr = r.stderr.utf8()?
+  let stderr = r.stderr as Str
   assert stderr.starts_with("mkdir: ")
   assert ! (":1:" in stderr)
 }

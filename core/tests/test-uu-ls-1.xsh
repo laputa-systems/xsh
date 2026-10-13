@@ -404,8 +404,8 @@ test test_uu_ls_ls_a_A { |ctx|
   uu.stdout_contains(r1, "..")
   let r2 = ls_run(s, ["-a", "-A"])?
   uu.succeeds(r2)
-  assert "." not in r2.stdout.utf8()?
-  assert ".." not in r2.stdout.utf8()?
+  assert "." not in r2.stdout as Str
+  assert ".." not in r2.stdout as Str
 }
 
 # origin: uutils test_ls::test_ls_a_dotdot_no_error_on_wasi
@@ -501,8 +501,8 @@ test test_uu_ls_invalid_utf8_operands_sort_by_raw_bytes { |ctx|
   let s = uu.scene(ctx)?
   uu.at_bytes(s, b"aa\xfe")?.write(b"")
   uu.at_bytes(s, b"aa\xff")?.write(b"")
-  let high = Path.parse_bytes(b"aa\xff")?
-  let low = Path.parse_bytes(b"aa\xfe")?
+  let high = b"aa\xff" as Path
+  let low = b"aa\xfe" as Path
   let r = uu.invoke_paths(s, "ls", [p"--quoting-style=literal", p"-1", high, low], vars: {LC_ALL: "C"})?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"aa\xfe\naa\xff\n")
@@ -511,7 +511,7 @@ test test_uu_ls_invalid_utf8_operands_sort_by_raw_bytes { |ctx|
 test test_uu_ls_invalid_utf8_operand_after_double_dash { |ctx|
   let s = uu.scene(ctx)?
   uu.at_bytes(s, b"-\xff")?.write(b"")
-  let operand = Path.parse_bytes(b"-\xff")?
+  let operand = b"-\xff" as Path
   let r = uu.invoke_paths(s, "ls", [p"--quoting-style=literal", p"-1", p"--", operand], vars: {LC_ALL: "C"})?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"-\xff\n")
@@ -521,7 +521,7 @@ test test_uu_ls_invalid_utf8_operand_does_not_alias_marker_text { |ctx|
   let s = uu.scene(ctx)?
   uu.touch(s, "--xsh-raw-arg:4")
   uu.at_bytes(s, b"aa\xfe")?.write(b"")
-  let operand = Path.parse_bytes(b"aa\xfe")?
+  let operand = b"aa\xfe" as Path
   let r = uu.invoke_paths(
     s,
     "ls",
@@ -536,7 +536,7 @@ test test_uu_ls_invalid_utf8_operand_after_posix_operand { |ctx|
   let s = uu.scene(ctx)?
   uu.touch(s, "first")
   uu.at_bytes(s, b"-\xff")?.write(b"")
-  let operand = Path.parse_bytes(b"-\xff")?
+  let operand = b"-\xff" as Path
   let r = uu.invoke_paths(s, "ls", [p"-1", p"first", operand], vars: {LC_ALL: "C", POSIXLY_CORRECT: "1"})?
   uu.succeeds(r)
   uu.stdout_only_bytes(r, b"-\xff\nfirst\n")
@@ -545,7 +545,7 @@ test test_uu_ls_invalid_utf8_operand_after_posix_operand { |ctx|
 test test_uu_ls_invalid_utf8_option_is_rejected_with_raw_diagnostic { |ctx|
   let s = uu.scene(ctx)?
   for argument in [b"-\xff", b"--bad\xff"] {
-    let r = uu.invoke_paths(s, "ls", [Path.parse_bytes(argument)?], vars: {LC_ALL: "C"})?
+    let r = uu.invoke_paths(s, "ls", [argument as Path], vars: {LC_ALL: "C"})?
     uu.fails_with_code(r, 2)
     uu.no_stdout(r)
     uu.stderr_is_bytes(
@@ -585,7 +585,7 @@ test test_uu_ls_ls_al_no_capabilities_insufficient_on_wasi { |ctx|
   let r = ls_run(s, ["-al"])?
   uu.succeeds(r)
   uu.no_stderr(r)
-  assert "Capabilities insufficient" not in r.stdout.utf8()?
+  assert "Capabilities insufficient" not in r.stdout as Str
 }
 
 # origin: uutils test_ls::quoting::test_c_dot_utf8_renders_utf8
@@ -675,7 +675,7 @@ test test_uu_ls_f_flag_disables_implicit_color { |ctx|
   uu.touch(s, "file.txt")
   let r = ls_run(s, ["-f"])?
   uu.succeeds(r)
-  assert "\u{1b}[" not in r.stdout.utf8()?
+  assert "\u{1b}[" not in r.stdout as Str
 }
 
 # origin: uutils test_ls::test_explicit_color_always_works_with_f
@@ -685,10 +685,10 @@ test test_uu_ls_explicit_color_always_works_with_f { |ctx|
   uu.touch(s, "file.txt")
   let first = ls_run(s, ["--color=always", "-f"])?
   uu.succeeds(first)
-  assert "\u{1b}[" not in first.stdout.utf8()?
+  assert "\u{1b}[" not in first.stdout as Str
   let second = ls_run(s, ["-f", "--color=always"])?
   uu.succeeds(second)
-  assert "\u{1b}[" not in second.stdout.utf8()?
+  assert "\u{1b}[" not in second.stdout as Str
 }
 
 # origin: uutils test_ls::test_f_flag_combined_behavior
@@ -702,7 +702,7 @@ test test_uu_ls_f_flag_combined_behavior { |ctx|
   uu.stdout_contains(r, "zebra.txt")
   uu.stdout_contains(r, "apple.txt")
   uu.stdout_contains(r, "directory")
-  assert "\u{1b}[" not in r.stdout.utf8()?
+  assert "\u{1b}[" not in r.stdout as Str
 }
 
 # origin: uutils test_ls::test_f_with_long_format
@@ -821,7 +821,7 @@ test test_uu_ls_ls_commas_trailing { |ctx|
   uu.append(s, "test-commas-trailing-1", [f"{i}" for i in range(2000)].join("\n"))
   let r = ls_run(s, ["-sm", "./test-commas-trailing-1", "./test-commas-trailing-2"])?
   uu.succeeds(r)
-  assert rx"\S\n$".matches(r.stdout.utf8()?)
+  assert rx"\S\n$".matches(r.stdout as Str)
 }
 
 # origin: uutils test_ls::test_ls_block_size_override
@@ -952,7 +952,7 @@ test test_uu_ls_ls_dangling_symlink_or_and_missing_colors { |ctx|
   uu.symlink(s, uu.at(s, "nowhere").display(), "dangling")
   let r = ls_run(s, ["-o", "--time-style=+:TIME:", "--color=always", "dangling"], vars: {LS_COLORS: "ln=target:or=40:mi=34"})?
   uu.succeeds(r)
-  let captures = rx"\x1b\[0m\x1b\[([0-9;]*)mdangling\x1b\[0m -> \x1b\[([0-9;]*)m".captures(r.stdout.utf8()?)
+  let captures = rx"\x1b\[0m\x1b\[([0-9;]*)mdangling\x1b\[0m -> \x1b\[([0-9;]*)m".captures(r.stdout as Str)
   assert captures.len() >= 3
   assert captures[1] == "40"
   assert captures[2] == "34"
@@ -964,7 +964,7 @@ test test_uu_ls_ls_dangling_symlink_ln_or_priority { |ctx|
   uu.symlink(s, uu.at(s, "nowhere").display(), "dangling")
   let r = ls_run(s, ["-o", "--time-style=+:TIME:", "--color=always", "dangling"], vars: {LS_COLORS: "ln=34:mi=35:or=36"})?
   uu.succeeds(r)
-  let captures = rx"\x1b\[0m\x1b\[([0-9;]*)mdangling\x1b\[0m -> \x1b\[([0-9;]*)m".captures(r.stdout.utf8()?)
+  let captures = rx"\x1b\[0m\x1b\[([0-9;]*)mdangling\x1b\[0m -> \x1b\[([0-9;]*)m".captures(r.stdout as Str)
   assert captures.len() >= 3
   assert captures[1] == "36"
   assert captures[2] == "35"
@@ -976,7 +976,7 @@ test test_uu_ls_ls_dangling_symlink_ln_and_missing_colors { |ctx|
   uu.symlink(s, uu.at(s, "nowhere").display(), "dangling")
   let r = ls_run(s, ["-o", "--time-style=+:TIME:", "--color=always", "dangling"], vars: {LS_COLORS: "ln=34:mi=35"})?
   uu.succeeds(r)
-  let captures = rx"\x1b\[0m\x1b\[([0-9;]*)mdangling\x1b\[0m -> \x1b\[([0-9;]*)m".captures(r.stdout.utf8()?)
+  let captures = rx"\x1b\[0m\x1b\[([0-9;]*)mdangling\x1b\[0m -> \x1b\[([0-9;]*)m".captures(r.stdout as Str)
   assert captures.len() >= 3
   assert captures[1] == "34"
   assert captures[2] == "35"
@@ -1094,10 +1094,10 @@ test test_uu_ls_ls_deref_command_line { |ctx|
   uu.stdout_is(r4, "sym_file\n")
   let r5 = ls_run(s, ["-l", "--dereference-command-line", "sym_file"])?
   uu.succeeds(r5)
-  assert "->" not in r5.stdout.utf8()?
+  assert "->" not in r5.stdout as Str
   let r6 = ls_run(s, ["-lH", "sym_file"])?
   uu.succeeds(r6)
-  assert "sym_file ->" not in r6.stdout.utf8()?
+  assert "sym_file ->" not in r6.stdout as Str
   let r7 = ls_run(s, ["-l", "--dereference-command-line"])?
   uu.succeeds(r7)
   uu.stdout_contains(r7, "sym_file ->")
@@ -1132,7 +1132,7 @@ test test_uu_ls_ls_color_does_not_make_quoted_names_align_as_unquoted { |ctx|
       uu.no_stdout(colored)
       uu.stderr_is(colored, "ls: invalid line width: '=80'\n")
     } else { uu.succeeds(colored) }
-    assert rx"\x1b\[[0-9;]*[A-Za-z]".replace(colored.stdout.utf8()?, with: "") == plain.stdout.utf8()?
+    assert rx"\x1b\[[0-9;]*[A-Za-z]".replace(colored.stdout as Str, with: "") == plain.stdout as Str
   }
 }
 
@@ -1168,12 +1168,12 @@ test test_uu_ls_acl_display { |ctx|
   default_acl_fixture(uu.at(s, "with_acl"))
   let first = ls_run(s, ["-la", s.root.display()])?
   uu.succeeds(first)
-  assert rx"[a-z-]*\+ .*with_acl".matches(first.stdout.utf8()?)
-  assert rx"[a-z-]* .*without_acl".matches(first.stdout.utf8()?)
+  assert rx"[a-z-]*\+ .*with_acl".matches(first.stdout as Str)
+  assert rx"[a-z-]* .*without_acl".matches(first.stdout as Str)
   let moved = ls_run({...s, root: p"/"}, ["-la", s.root.display()])?
   uu.succeeds(moved)
-  assert rx"[a-z-]*\+ .*with_acl".matches(moved.stdout.utf8()?)
-  assert rx"[a-z-]* .*without_acl".matches(moved.stdout.utf8()?)
+  assert rx"[a-z-]*\+ .*with_acl".matches(moved.stdout as Str)
+  assert rx"[a-z-]* .*without_acl".matches(moved.stdout as Str)
 }
 
 # origin: uutils test_ls::test_acl_display_symlink
@@ -1184,7 +1184,7 @@ test test_uu_ls_acl_display_symlink { |ctx|
   uu.symlink(s, uu.at(s, "dir").display(), "link")
   let r = ls_run(s, ["-lLd", "link"])?
   uu.succeeds(r)
-  assert rx"[a-z-]*\+\s\d+\s.*link".matches(r.stdout.utf8()?)
+  assert rx"[a-z-]*\+\s\d+\s.*link".matches(r.stdout as Str)
   let listed = ls_run(s, ["-l"])?
   uu.succeeds(listed)
   let columns = [rx"^[^0-9]*".captures(line)[0].byte_len() for line in listed.stdout.utf8()?.lines()[1..] if rx"[0-9]".matches(line)]
@@ -1200,7 +1200,7 @@ test test_uu_ls_acl_display_symlink_without_dereference { |ctx|
   uu.symlink(s, uu.at(s, "dir").display(), "link")
   let r = ls_run(s, ["-ld", "link"])?
   uu.succeeds(r)
-  assert "+" not in r.stdout.utf8()?
+  assert "+" not in r.stdout as Str
 }
 
 # origin: uutils test_ls::test_acl_padding_not_inflated
@@ -1245,35 +1245,35 @@ test test_uu_ls_ls_a { |ctx|
   uu.touch(s, "some-dir/.test-2")
   let r0 = ls_run(s, ["-1"])?
   uu.succeeds(r0)
-  assert ".test-1" not in r0.stdout.utf8()?
-  assert ".." not in r0.stdout.utf8()?
-  assert ! rx"^\.\n".matches(r0.stdout.utf8()?)
+  assert ".test-1" not in r0.stdout as Str
+  assert ".." not in r0.stdout as Str
+  assert ! rx"^\.\n".matches(r0.stdout as Str)
   let r1 = ls_run(s, ["-a", "-1"])?
   uu.succeeds(r1)
   uu.stdout_contains(r1, ".test-1")
   uu.stdout_contains(r1, "..")
-  assert rx"^\.\n".matches(r1.stdout.utf8()?)
+  assert rx"^\.\n".matches(r1.stdout as Str)
   let r2 = ls_run(s, ["-A", "-1"])?
   uu.succeeds(r2)
   uu.stdout_contains(r2, ".test-1")
-  assert ".." not in r2.stdout.utf8()?
-  assert ! rx"^\.\n".matches(r2.stdout.utf8()?)
+  assert ".." not in r2.stdout as Str
+  assert ! rx"^\.\n".matches(r2.stdout as Str)
   let r3 = ls_run(s, ["-1", "some-dir"])?
   uu.succeeds(r3)
-  assert ".test-2" not in r3.stdout.utf8()?
-  assert ".." not in r3.stdout.utf8()?
-  assert ! rx"^\.\n".matches(r3.stdout.utf8()?)
+  assert ".test-2" not in r3.stdout as Str
+  assert ".." not in r3.stdout as Str
+  assert ! rx"^\.\n".matches(r3.stdout as Str)
   let r4 = ls_run(s, ["-a", "-1", "some-dir"])?
   uu.succeeds(r4)
   uu.stdout_contains(r4, ".test-2")
   uu.stdout_contains(r4, "..")
   uu.no_stderr(r4)
-  assert rx"^\.\n".matches(r4.stdout.utf8()?)
+  assert rx"^\.\n".matches(r4.stdout as Str)
   let r5 = ls_run(s, ["-A", "-1", "some-dir"])?
   uu.succeeds(r5)
   uu.stdout_contains(r5, ".test-2")
-  assert ".." not in r5.stdout.utf8()?
-  assert ! rx"^\.\n".matches(r5.stdout.utf8()?)
+  assert ".." not in r5.stdout as Str
+  assert ! rx"^\.\n".matches(r5.stdout as Str)
 }
 
 # origin: uutils test_ls::test_ls_align_unquoted
@@ -1342,8 +1342,8 @@ test test_uu_ls_ls_color { |ctx|
   uu.touch(s, "test-color")
   let default = ls_run(s, [])?
   uu.succeeds(default)
-  assert "\u{1b}[0m\u{1b}[01;34ma\u{1b}[0m" not in default.stdout.utf8()?
-  assert "\u{1b}[01;34mz\u{1b}[0m\n" not in default.stdout.utf8()?
+  assert "\u{1b}[0m\u{1b}[01;34ma\u{1b}[0m" not in default.stdout as Str
+  assert "\u{1b}[01;34mz\u{1b}[0m\n" not in default.stdout as Str
   for param in ["--color", "--col", "--color=always", "--col=always"] {
   let r = ls_run(s, [param])?
   uu.succeeds(r)
@@ -1351,8 +1351,8 @@ test test_uu_ls_ls_color { |ctx|
   }
   let never = ls_run(s, ["--color=never"])?
   uu.succeeds(never)
-  assert "\u{1b}[0m\u{1b}[01;34ma\u{1b}[0m" not in never.stdout.utf8()?
-  assert "\u{1b}[01;34mz\u{1b}[0m\n" not in never.stdout.utf8()?
+  assert "\u{1b}[0m\u{1b}[01;34ma\u{1b}[0m" not in never.stdout as Str
+  assert "\u{1b}[01;34mz\u{1b}[0m\n" not in never.stdout as Str
   let nested = ls_run(s, ["--color", "a"])?
   uu.succeeds(nested)
   uu.stdout_is(nested, "nested_dir\nnested_file\n")
@@ -1379,10 +1379,10 @@ test test_uu_ls_ls_allocation_size { |ctx|
   uu.succeeds(irregular)
   let scaled = ls_run(s, ["-l", "--block-size=512", "irregular-file"])?
   uu.succeeds(scaled)
-  assert rx"[^ ] 2 [^ ]".matches(scaled.stdout.utf8()?)
+  assert rx"[^ ] 2 [^ ]".matches(scaled.stdout as Str)
   let filesystem = uu.invoke(s, "df", ["-PT", s.root.display()])?
   uu.succeeds(filesystem)
-  let captures = rx"Filesystem\s+Type\s+.+[\r\n]+([^\s]+)\s+([^\s]+)\s+".captures(filesystem.stdout.utf8()?)
+  let captures = rx"Filesystem\s+Type\s+.+[\r\n]+([^\s]+)\s+([^\s]+)\s+".captures(filesystem.stdout as Str)
   assert captures.len() >= 3
   let f2fs = captures[2] == "f2fs"
   let size4k = if f2fs { 4100 } else { 4096 }

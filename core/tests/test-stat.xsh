@@ -208,7 +208,7 @@ test test_stat_format_errors_point_into_terminal_arguments { |ctx|
 }
 
 test test_stat_reports_non_utf8_missing_names { |ctx|
-  let names = [Path.parse_bytes(b"missing-\xff")?, Path.parse_bytes(b"missing-\xc3\xa9")?]
+  let names = [b"missing-\xff" as Path, b"missing-\xc3\xa9" as Path]
   let quoted_names = ["'missing-'$'\\377'", "'missing-'$'\\303\\251'"]
   for index in range(names.len()) {
     let name = names[index]
@@ -224,7 +224,7 @@ test test_stat_reports_non_utf8_missing_names { |ctx|
 
 test test_stat_preserves_non_utf8_names_in_output_bytes { |ctx|
   let root = test.temp_dir(ctx, name: "stat-raw-name")?
-  let name = Path.parse_bytes(bytes.concat([root.bytes(), b"/raw-\xff"]))?
+  let name = bytes.concat([root.bytes(), b"/raw-\xff"]) as Path
   name.write("data")
   let quoted_name = bytes.from_text(f"'{root}/raw-'$'\\377'")
 

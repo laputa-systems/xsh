@@ -16,7 +16,7 @@ test test_uu_uptime_uptime { |ctx|
   uu.succeeds(r)
   uu.stdout_contains(r, " up ")
   uu.stdout_contains(r, "load average:")
-  assert ! (",  ," in r.stdout.utf8()?)
+  assert ! (",  ," in r.stdout as Str)
 }
 
 # origin: uutils test_uptime::test_uptime_for_file_without_utmpx_records

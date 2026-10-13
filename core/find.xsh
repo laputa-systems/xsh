@@ -171,7 +171,7 @@ proc time_reference(text: Str, start_ns: Int) [process, env, error, time] -> Res
 # The metadata of a reference file named in an expression. Missing files are
 # an error at parse time, before anything is printed.
 proc stat_reference(name: Str, follow: Bool, raw: List[gnu.RawArgument]) [fs, process, env, error] -> Result[fmt.Meta, Error] {
-  match fs.stat(Path.parse_bytes(gnu.argument_bytes(name, raw))?, follow_symlinks: follow) {
+  match fs.stat(gnu.argument_bytes(name, raw) as Path, follow_symlinks: follow) {
     Ok(found) => Ok(snapshot(found))
     Err(failure) => { search.reject(f"{gnu.quote(name)}: {gnu.strerror(failure)}"); Ok(snapshot(fs.stat(p".")?)) }
   }
@@ -542,7 +542,7 @@ pure replace_marker(word: Bytes, value: Bytes) -> Bytes {
 proc write_output(name: Str, data: Bytes, raw: List[gnu.RawArgument]) [fs, io, process, env, error] -> Result[Unit, Error] {
   if name == "/dev/stdout" { gnu.write_bytes(data); return Ok() }
   if name == "/dev/stderr" { io.write_stderr(data.utf8() ?? ""); io.flush_stderr(); return Ok() }
-  let target = Path.parse_bytes(gnu.argument_bytes(name, raw))?
+  let target = gnu.argument_bytes(name, raw) as Path
   let size = match fs.stat(target) { Ok(found) => found.size; Err(_) => 0 }
   let _ = bytes.write_at(target, size, data, create: true)?
   Ok()
@@ -579,7 +579,7 @@ proc command_succeeds(words: List[Path], directory: Path?) [fs, process, env, er
 }
 
 proc dot_name(raw: Bytes) [error] -> Result[Path, Error] {
-  Ok(Path.parse_bytes(bytes.concat([b"./", search.basename_bytes(raw)]))?)
+  Ok(bytes.concat([b"./", search.basename_bytes(raw)]) as Path)
 }
 
 proc evaluate(target: Path, meta: fmt.Meta, depth: Int, start: Path, plan: Run, index: Int) [fs, io, process, env, error, time] -> Result[Decision, Error] {
@@ -682,7 +682,7 @@ proc evaluate(target: Path, meta: fmt.Meta, depth: Int, start: Path, plan: Run, 
       let in_directory = node.kind in ["execdir","okdir"]
       let value = if in_directory { dot_name(raw)?.bytes() } else { raw }
       var words = []
-      for word in node.argv { words += [Path.parse_bytes(replace_marker(gnu.argument_bytes(word, plan.raw), value))?] }
+      for word in node.argv { words += [replace_marker(gnu.argument_bytes(word, plan.raw), value) as Path] }
       var proceed = true
       if node.kind in ["ok","okdir"] {
         io.write_stderr(f"< {node.argv[0]} ... {raw.utf8() ?? gnu.quote_bytes(raw)} > ? ")
@@ -780,7 +780,7 @@ proc run_batches(plan: Run, deferred: List[Deferred], kinds: List[Str]) [fs, io,
     var initial_size = 0
     for word in node.argv[..node.argv.len() - 1] {
       let bytes_of_word = gnu.argument_bytes(word, plan.raw)
-      initial += [Path.parse_bytes(bytes_of_word)?]
+      initial += [bytes_of_word as Path]
       initial_size += bytes_of_word.len() + 1
     }
     var batch = []
@@ -789,7 +789,7 @@ proc run_batches(plan: Run, deferred: List[Deferred], kinds: List[Str]) [fs, io,
     for item in deferred {
       continue when item.node != index
       let cwd: Path? = if node.kind == "execdir+" { item.directory } else { null }
-      let name = Path.parse_bytes(item.name)?
+      let name = item.name as Path
       let needed = item.name.len() + 1
       if ! batch.is_empty() and (cwd != directory or initial_size + size + needed > BATCH_LIMIT) {
         io.flush_stdout()

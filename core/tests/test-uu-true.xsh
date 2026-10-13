@@ -18,7 +18,7 @@ test test_uu_true_version { |ctx|
   # GNU uses a two-component version and additional product notices; check the
   # version banner without imposing uutils' single-line SemVer branding.
   uu.stdout_str_starts_with(r, "true (")
-  assert regex.compile("^true \\([^\n]+\\) [0-9]+\\.[0-9]+(\\.[0-9]+)?\n")?.matches(r.stdout.utf8()?)
+  assert regex.compile("^true \\([^\n]+\\) [0-9]+\\.[0-9]+(\\.[0-9]+)?\n")?.matches(r.stdout as Str)
 }
 
 # origin: uutils test_true::test_help

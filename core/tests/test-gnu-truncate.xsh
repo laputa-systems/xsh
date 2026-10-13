@@ -60,7 +60,7 @@ test test_gnu_truncate_truncate_overflow_log { |ctx|
   uu.fails_with_code(uu.invoke(s, "truncate", ["-s+9223372036854775807", "non-empty-file"])?, 1)
   let stats = run.capture --text stat -f -c%s $s.root
   assert stats.status.exited_with(0)
-  let block_size = stats.stdout.trim().parse_int()?
+  let block_size = stats.stdout.trim() as Int
   let overflow = 9223372036854775807 / block_size + 1
   uu.fails_with_code(uu.invoke(s, "truncate", ["--io-blocks", f"--size={overflow}", "file"])?, 1)
 }

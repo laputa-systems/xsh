@@ -79,7 +79,7 @@ test test_gnu_ln_non_utf8_src_log { |ctx|
   source.write(b"a\n")
   assert source.is_file()?
   uu.mkdir(s, "dst")
-  let name = Path.parse_bytes(raw)?
+  let name = raw as Path
   uu.succeeds(uu.invoke_paths(s, "ln", [name, p"dst"])?)
   let dest = uu.at_bytes(s, bytes.concat([b"dst/", raw]))?
   assert dest.is_file()?
@@ -117,7 +117,7 @@ test test_gnu_ln_sf_1_log { |ctx|
   uu.fails(same)
   assert bytes.concat([same.stdout, same.stderr]).utf8()?.trim().ends_with("are the same file")
   let limit = uu.invoke(s, "stat", ["-f", "-c", "%l", "."])?
-  let name_max = if limit.status == 0 { limit.stdout.utf8()?.trim().parse_int()? } else { 1 }
+  let name_max = if limit.status == 0 { limit.stdout.utf8()?.trim() as Int } else { 1 }
   let bounded = if name_max < 1048576 { name_max } else { 1 }
   let long_name = ["0" for _ in range(bounded + 1)].join("")
   for flag in ["-s", "-sf"] {

@@ -97,8 +97,8 @@ test test_uu_shred_random_source_dir { |ctx|
   uu.write(s, "foo.txt", "a")
   let r = uu.invoke(s, "shred", ["-v", "--random-source=source", "foo.txt"])?
   uu.fails(r)
-  assert !("pass 2/3" in r.stderr.utf8()?)
-  assert !("pass 3/3" in r.stderr.utf8()?)
+  assert !("pass 2/3" in r.stderr as Str)
+  assert !("pass 3/3" in r.stderr as Str)
 }
 
 # origin: uutils test_shred::test_random_source_open_error_includes_cause
@@ -139,7 +139,7 @@ test test_uu_shred_shred_empty { |ctx|
   uu.touch(s, "test_shred_remove_a")
   let empty = uu.invoke(s, "shred", ["-uv", "test_shred_remove_a"])?
   uu.succeeds(empty)
-  assert !("1/3 (random)" in empty.stderr.utf8()?)
+  assert !("1/3 (random)" in empty.stderr as Str)
   assert !file_exists(s, "test_shred_remove_a")?
   uu.touch(s, "test_shred_remove_a")
   uu.write(s, "test_shred_remove_a", "1")
@@ -189,7 +189,7 @@ test test_uu_shred_shred_inaccessible_file_reports_real_error { |ctx|
   let r = uu.invoke(s, "shred", ["locked/file"])?
   uu.fails(r)
   uu.stderr_contains(r, "Permission denied")
-  assert !("No such file" in r.stderr.utf8()?)
+  assert !("No such file" in r.stderr as Str)
 }
 
 # origin: uutils test_shred::test_shred_nineteen_passes_first_and_last_are_random
@@ -207,7 +207,7 @@ test test_uu_shred_shred_nineteen_passes_first_and_last_are_random { |ctx|
 # origin: uutils test_shred::test_shred_non_utf8_paths
 test test_uu_shred_shred_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
-  let name = Path.parse_bytes(b"test_\xff\xfe.txt")?
+  let name = b"test_\xff\xfe.txt" as Path
   let file = uu.at_bytes(s, b"test_\xff\xfe.txt")?
   file.write("test content")
   let r = uu.invoke_paths(s, "shred", [name])?

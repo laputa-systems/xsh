@@ -609,7 +609,7 @@ test test_uu_split_split_non_utf8_paths { |ctx|
   let s = split_scene(ctx)?
   let file = uu.at_bytes(s, b"\xff\xfe")?
   file.write(b"line1\nline2\nline3\nline4\nline5\n")
-  let r = uu.invoke_paths(s, "split", [Path.parse_bytes(b"\xff\xfe")?])?
+  let r = uu.invoke_paths(s, "split", [b"\xff\xfe" as Path])?
   uu.succeeds(r)
   assert uu.exists(s, "xaa")?
 }
@@ -618,7 +618,7 @@ test test_uu_split_split_non_utf8_paths { |ctx|
 test test_uu_split_split_non_utf8_argument_unix { |ctx|
   let s = split_scene(ctx)?
   random_line_input(s, "test_split_non_utf8_argument", 2000)
-  let r = uu.invoke_paths(s, "split", [p"--additional-suffix", Path.parse_bytes(b"fo\x80o")?, p"test_split_non_utf8_argument"])?
+  let r = uu.invoke_paths(s, "split", [p"--additional-suffix", b"fo\x80o" as Path, p"test_split_non_utf8_argument"])?
   uu.succeeds(r)
 }
 
@@ -628,7 +628,7 @@ test test_uu_split_split_non_utf8_prefix_is_byte_preserving { |ctx|
   uu.write(s, "input.txt", "AB")
   uu.write(s, "p�aa", "keep-aa")
   uu.write(s, "p�ab", "keep-ab")
-  let r = uu.invoke_paths(s, "split", [p"-b", p"1", p"input.txt", Path.parse_bytes(b"p\xff")?])?
+  let r = uu.invoke_paths(s, "split", [p"-b", p"1", p"input.txt", b"p\xff" as Path])?
   uu.succeeds(r)
   assert byte_named_outputs(s, b"p\xff")? == [b"p\xffaa", b"p\xffab"]
   uu.file_is(s, "p�aa", "keep-aa")
@@ -639,7 +639,7 @@ test test_uu_split_split_non_utf8_prefix_is_byte_preserving { |ctx|
 test test_uu_split_split_non_utf8_additional_suffix_is_byte_preserving { |ctx|
   let s = split_scene(ctx)?
   uu.write(s, "input.txt", "AB")
-  let r = uu.invoke_paths(s, "split", [p"-b", p"1", p"input.txt", p"--additional-suffix", Path.parse_bytes(b"\xff\xfe")?])?
+  let r = uu.invoke_paths(s, "split", [p"-b", p"1", p"input.txt", p"--additional-suffix", b"\xff\xfe" as Path])?
   uu.succeeds(r)
   assert byte_named_outputs(s, b"xa", b"\xff\xfe")? == [b"xaa\xff\xfe", b"xab\xff\xfe"]
 }

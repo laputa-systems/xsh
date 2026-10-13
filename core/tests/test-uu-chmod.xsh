@@ -453,7 +453,7 @@ test test_uu_chmod_chmod_symlink_cycles { |ctx|
     assert f"mode of '{name}' retained as 0755 (rwxr-xr-x)" in lines
   }
   for name in ["a/b/c/d/b", "a/b/c/d/b/c", "a/b/c/d/b/c/d"] {
-    assert ! (f"mode of '{name}' retained as 0755 (rwxr-xr-x)" in r.stdout.utf8()?)
+    assert ! (f"mode of '{name}' retained as 0755 (rwxr-xr-x)" in r.stdout as Str)
   }
 }
 

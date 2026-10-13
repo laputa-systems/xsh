@@ -279,7 +279,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   var write_error = null
   let root = fs.stat(p"/")?
   for name in targets {
-    let target = Path.parse_bytes(name)?
+    let target = name as Path
     let base = search.basename_bytes(target.bytes())
     if base == b"." or base == b".." {
       gnu.error(f"refusing to remove '.' or '..' directory: skipping {gnu.quote_bytes(operand_label(name))}")

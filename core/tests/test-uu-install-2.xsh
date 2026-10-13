@@ -145,7 +145,7 @@ test test_uu_install_install_non_utf8_dir { |ctx|
   let r = uu.invoke_paths(s, "install", [p"source", p"--target-directory", dir])?
   uu.succeeds(r)
   uu.no_output(r)
-  let installed = Path.parse_bytes(bytes.concat([dir.bytes(), b"/source"]))?
+  let installed = bytes.concat([dir.bytes(), b"/source"]) as Path
   assert installed.exists()?
 }
 
@@ -161,7 +161,7 @@ test test_uu_install_install_non_utf8_paths { |ctx|
   {
     let s = uu.scene(ctx)?
     uu.touch(s, "source.txt")
-    let target = Path.parse_bytes(b"\xFF\xFEdir/target.txt")?
+    let target = b"\xFF\xFEdir/target.txt" as Path
     uu.succeeds(uu.invoke_paths(s, "install", [p"-D", p"source.txt", target])?)
   }
 }
@@ -294,8 +294,8 @@ test test_uu_install_install_same_file { |ctx|
 test test_uu_install_install_set_owner_nonexistent_uid_and_gid { |ctx|
   if user.current()?.uid != 0 { test.skip("requires root to set unused uid and gid") }
   let records = p"/etc/passwd".read_text()?.lines()
-  let used_uids = [fields[2].parse_int()? for fields in [line.split(":") for line in records] if fields.len() >= 4]
-  let used_gids = [fields[3].parse_int()? for fields in [line.split(":") for line in records] if fields.len() >= 4]
+  let used_uids = [fields[2] as Int for fields in [line.split(":") for line in records] if fields.len() >= 4]
+  let used_gids = [fields[3] as Int for fields in [line.split(":") for line in records] if fields.len() >= 4]
   var uid = 60000
   var gid = 60000
   while uid in used_uids { uid += 1 }

@@ -201,7 +201,7 @@ test test_uu_tsort_split_on_any_whitespace { |ctx|
 # origin: uutils test_tsort::test_tsort_non_utf8_paths
 test test_uu_tsort_tsort_non_utf8_paths { |ctx|
   let s = tsort_scene(ctx)?
-  let name = Path.parse_bytes(b"\xff\xfe")?
+  let name = b"\xff\xfe" as Path
   uu.at_bytes(s, b"\xff\xfe")?.write(b"a b\nb c\n")
   let r = uu.invoke_paths(s, "tsort", [name])?
   uu.succeeds(r)

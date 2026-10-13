@@ -214,7 +214,7 @@ test test_uu_fmt_fmt_non_utf8_paths { |ctx|
   let s = uu.scene(ctx)?
   let filename = uu.at_bytes(s, b"\xff\xfe")?
   filename.write(b"hello world this is a test")
-  let r = uu.invoke_paths(s, "fmt", [Path.parse_bytes(b"\xff\xfe")?])?
+  let r = uu.invoke_paths(s, "fmt", [b"\xff\xfe" as Path])?
   uu.succeeds(r)
 }
 

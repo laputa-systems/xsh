@@ -231,7 +231,7 @@ test test_uu_wc_files0_stops_after_stdout_write_error { |ctx|
   let s = wc_scene(ctx)?
   let r = uu.invoke(s, "wc", ["--files0-from=-", "--total=never"], stdin: b"/dev/null\0/dev/null\0/dev/null\0", stdout: p"/dev/full")?
   uu.fails(r)
-  assert r.stderr.utf8()?.split("write error: No space left on device").len() - 1 == 1, r.stderr.utf8()?
+  assert r.stderr.utf8()?.split("write error: No space left on device").len() - 1 == 1, r.stderr as Str
 }
 
 # origin: uutils test_wc::test_files_from_pseudo_filesystem
@@ -329,7 +329,7 @@ test test_uu_wc_simd_respects_glibc_tunables { |ctx|
   let s = wc_scene(ctx)?
   let debug = uu.invoke(s, "wc", ["-l", "--debug", "/dev/null"], vars: {GLIBC_TUNABLES: "glibc.cpu.hwcaps=-AVX2,-AVX512F"})?
   uu.succeeds(debug)
-  let diagnostic = debug.stderr.utf8()?
+  let diagnostic = debug.stderr as Str
   assert ! ("using hardware support" in diagnostic), diagnostic
   assert "support not detected" in diagnostic, diagnostic
   for lines in [0, 1, 7, 128, 513, 999] {

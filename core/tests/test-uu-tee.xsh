@@ -284,7 +284,7 @@ test test_uu_tee_linux_only_tee_no_more_writeable_1 { |ctx|
   let input = numbered_input(10)
   let r = uu.invoke(s, "tee", ["/dev/full", "tee_file_out"], stdin: input)?
   uu.fails(r)
-  uu.stdout_contains(r, input.utf8()?)
+  uu.stdout_contains(r, input as Str)
   uu.stderr_is(r, "tee: /dev/full: No space left on device\n")
   assert uu.read(s, "tee_file_out")? == input
 }
@@ -346,7 +346,7 @@ test test_uu_tee_readonly { |ctx|
   let r = uu.invoke(s, "tee", ["tee_file_out", "tee_file_out2"], stdin: b"hello")?
   uu.fails(r)
   uu.stdout_is(r, "hello")
-  assert "Permission denied" in r.stderr.utf8()? or "Access is denied" in r.stderr.utf8()?
+  assert "Permission denied" in r.stderr as Str or "Access is denied" in r.stderr as Str
   assert uu.read(s, "tee_file_out")? == b"world"
   assert uu.read(s, "tee_file_out2")? == b"hello"
 }

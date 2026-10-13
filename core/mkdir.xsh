@@ -13,7 +13,7 @@ pure parse_mode(spec: Str, umask: Int) -> Result[Int] {
   if rx"^[0-7]+$".matches(spec) {
     var value = 0
     for digit in spec {
-      value = value * 8 + digit.parse_int()?
+      value = value * 8 + digit as Int
       return Err(AppletError.Usage("invalid mode")) when value > 0o7777
     }
     return value

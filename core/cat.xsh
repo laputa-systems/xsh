@@ -97,7 +97,7 @@ proc source_for(name: Bytes) [fs, error] -> Result[tio.Source, Error] {
     return tio.open_source(text)
   }
 
-  let input_path = Path.parse_bytes(name)?
+  let input_path = name as Path
   let target = input_path.resolve()?
   let entry = target.metadata()?
   let kind = entry.mode / 4096 % 16

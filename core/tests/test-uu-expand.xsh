@@ -15,7 +15,7 @@ test test_uu_expand_with_tab { |ctx|
   let r = uu.invoke(s, "expand", ["with-tab.txt"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "        ")
-  assert !("\t" in r.stdout.utf8()?)
+  assert !("\t" in r.stdout as Str)
 }
 
 # origin: uutils test_expand::test_with_trailing_tab
@@ -25,7 +25,7 @@ test test_uu_expand_with_trailing_tab { |ctx|
   let r = uu.invoke(s, "expand", ["with-trailing-tab.txt"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "with tabs=>  ")
-  assert !("\t" in r.stdout.utf8()?)
+  assert !("\t" in r.stdout as Str)
 }
 
 # origin: uutils test_expand::test_with_trailing_tab_i

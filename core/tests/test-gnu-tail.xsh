@@ -625,7 +625,7 @@ test test_gnu_tail_tail_log { |ctx|
       let r = if transport == "file" { uu.invoke(s, "tail", case.args.extend(["input"]), vars: vars)? } else if transport == "redirect" { uu.invoke_from_path(s, "tail", case.args, uu.at(s, "input"), vars: vars)? } else { uu.invoke(s, "tail", case.args, bytes.from_text(case.input), vars: vars)? }
       assert r.status == case.status, f"{case.name}/{transport}: status {r.status}"
       uu.stdout_is(r, case.output)
-      let diagnostics = r.stderr.utf8()?
+      let diagnostics = r.stderr as Str
       let normalized = if case.normalize { rx"': .*".replace(diagnostics, with: "'") } else { diagnostics }
       assert normalized == case.error, f"{case.name}/{transport}: stderr {diagnostics}"
     }

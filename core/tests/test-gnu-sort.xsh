@@ -146,7 +146,7 @@ test test_gnu_sort_sort_debug_keys_log { |ctx|
     {args: ["-s", "-k1.2b", "--debug"], input: "1 2\n1 3\n", expected: "1 2\n __\n1 3\n __\n", strip_nul: false},
   ] {
     let r = uu.invoke(s, "sort", item.args, stdin: bytes.from_text(item.input))?
-    let actual = if item.strip_nul { r.stdout.utf8()?.replace("\0", with: "") } else { r.stdout.utf8()? }
+    let actual = if item.strip_nul { r.stdout.utf8()?.replace("\0", with: "") } else { r.stdout as Str }
     if actual != item.expected { failures += [f"{item.args.join(" ")}: {actual} expected {item.expected}"] }
   }
   for item in [
@@ -156,7 +156,7 @@ test test_gnu_sort_sort_debug_keys_log { |ctx|
   ] {
     let r = uu.invoke(s, "sort", item.args, stdin: bytes.from_text(item.input), vars: {LC_ALL: item.locale, LC_MESSAGES: "C"})?
     let normalize = regex.compile("(?m)^\\^ .*\\n")?
-    let actual = normalize.replace(r.stdout.utf8()?, with: "^ no match for key\n")
+    let actual = normalize.replace(r.stdout as Str, with: "^ no match for key\n")
     if actual != item.expected { failures += [f"{item.locale} {item.args.join(" ")}: {actual} expected {item.expected}"] }
   }
   assert failures.is_empty(), failures.join("\n")
@@ -225,7 +225,7 @@ test test_gnu_sort_sort_files0_from_log { |ctx|
   uu.fails_with_code(regular, 2)
   uu.no_stdout(regular)
   let strip = regex.compile("no input from[^\n]*")?
-  assert strip.replace(regular.stderr.utf8()?, with: "") == "sort: \n"
+  assert strip.replace(regular.stderr as Str, with: "") == "sort: \n"
   let device = uu.invoke(s, "sort", ["--files0-from=/dev/null"])?
   uu.fails_with_code(device, 2)
   uu.stderr_only(device, "sort: no input from '/dev/null'\n")
@@ -265,7 +265,7 @@ test test_gnu_sort_sort_float_log { |ctx|
   ] {
     let r = uu.invoke(s, "sort", ["-sg"], stdin: bytes.from_text(item.input), vars: {LC_ALL: item.locale})?
     uu.succeeds(r)
-    if r.stdout != bytes.from_text(item.expected) { failures += [f"{item.locale}: {r.stdout.utf8()?} expected {item.expected}"] }
+    if r.stdout != bytes.from_text(item.expected) { failures += [f"{item.locale}: {r.stdout as Str} expected {item.expected}"] }
   }
   let equivalent = uu.invoke(s, "sort", ["-gu"], stdin: b"10\n1e1\n")?
   assert equivalent.stdout.utf8()?.lines().collect().len() == 1
@@ -286,8 +286,8 @@ test test_gnu_sort_sort_locale_log { |ctx|
       {locale: "fr_FR.UTF-8", left: b"file1", right: b"file-2"},
     ] {
       let vars: Record = if setting == "LC_ALL" { {LC_ALL: item.locale} } else { {LC_ALL: "", LC_COLLATE: item.locale} }
-      let left = Path.parse_bytes(item.left)?
-      let right = Path.parse_bytes(item.right)?
+      let left = item.left as Path
+      let right = item.right as Path
       uu.at_bytes(s, item.left)?.write("")
       uu.at_bytes(s, item.right)?.write("")
       let input = bytes.concat([item.left, b"\n", item.right, b"\n"])
@@ -325,10 +325,10 @@ test test_gnu_sort_sort_merge_fdlimit_log { |ctx|
   if batch.status == 77 { test.skip("cannot change the descriptor limit"); return }
   uu.fails_with_code(batch, 2)
   let plain = shell_sort(s, ["-m", "--batch-size=16"].extend(files), r"""ulimit -n 19 || exit 77; exec "$@";""")?
-  assert plain.status == 0 or ! ("open failed" in plain.stderr.utf8()?)
+  assert plain.status == 0 or ! ("open failed" in plain.stderr as Str)
   for extra in [[], ["--random-source=some-data"]] {
     let random = shell_sort(s, ["-mR"].extend(extra).extend(["--batch-size=16"]).extend(files), r"""ulimit -n 20 || exit; exec "$@";""")?
-    assert random.status == 0 or ! ("open failed" in random.stderr.utf8()?)
+    assert random.status == 0 or ! ("open failed" in random.stderr as Str)
   }
   uu.write(s, "out", "6\n")
   let occupied = shell_sort(s, ["-n", "-m", "--batch-size=7", "-o", "out", "out", "in/1", "in/2", "in/3", "in/4", "in/5", "out"], r"""exec 3<&- 4<&- 5<&- 6<&- 7</dev/null 8<&7 9<&7; ulimit -n 10 || exit; exec "$@";""")?

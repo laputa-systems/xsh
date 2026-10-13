@@ -105,7 +105,7 @@ test test_chgrp_verbose_permission_error_uses_separate_streams { |ctx|
 
 test test_chgrp_accepts_non_utf8_operand_bytes { |ctx|
   let root = test.temp_dir(ctx, name: "raw-group-operand")?
-  let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  let file = bytes.concat([root.bytes(), b"/file\xff"]) as Path
   file.write("x")
   let current = group.current()?
   let result = perm_run(ctx, [current.name, file])?

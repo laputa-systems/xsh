@@ -47,9 +47,9 @@ test test_gnu_split_non_utf8_log { |ctx|
   let s = uu.scene(ctx)?
   let raw = b"\xff|\xed\xba\xad|\xc2\x89|\xed\xa6\xbf\xed\xbf\xbf"
   uu.at_bytes(s, raw)?.write(b"a\n")
-  uu.succeeds(uu.invoke_paths(s, "split", [p"-b1", p"-", Path.parse_bytes(raw)?], stdin: b"AB")?)
+  uu.succeeds(uu.invoke_paths(s, "split", [p"-b1", p"-", raw as Path], stdin: b"AB")?)
   for suffix in [b"aa", b"ab"] { assert uu.at_bytes(s, bytes.concat([raw, suffix]))?.is_file()? }
-  let option = Path.parse_bytes(bytes.concat([b"--additional-suffix=", raw]))?
+  let option = bytes.concat([b"--additional-suffix=", raw]) as Path
   uu.succeeds(uu.invoke_paths(s, "split", [p"-b1", option, p"-", p"q"], stdin: b"AB")?)
   for prefix in [b"qaa", b"qab"] { assert uu.at_bytes(s, bytes.concat([prefix, raw]))?.is_file()? }
 }
@@ -179,7 +179,7 @@ test test_gnu_split_l_chunk_log { |ctx|
   uu.write(s, "in", text)
   let wrong = uu.invoke(s, "split", ["-n", "l/16/15", "in"])?
   uu.fails_with_code(wrong, 1)
-  assert rx"': [^\n]*".replace(wrong.stderr.utf8()?, with: "'") == "split: invalid chunk number: '16'\n"
+  assert rx"': [^\n]*".replace(wrong.stderr as Str, with: "'") == "split: invalid chunk number: '16'\n"
   let matrix = [
     {count: 6, sizes: [14, 16, 16, 8, 16, 10]},
     {count: 8, sizes: [14, 8, 8, 10, 14, 8, 8, 10]},
@@ -265,7 +265,7 @@ proc minimum_vm(s: uu.Scene, args: List[Str]) [fs, process, env, time, error] ->
   let conf = process.which("getconf")?
   let plan = process.command_argv(conf, [conf, p"PAGESIZE"], s.root, {}, b"", uu.at(s, "page-out"), uu.at(s, "page-err"))
   assert process.run(plan)?.exit_code()? == 0
-  let page_kib = uu.read_text(s, "page-out")?.trim().parse_int()? / 1024
+  let page_kib = uu.read_text(s, "page-out")?.trim() as Int / 1024
   let candidates = [multiplier * 5000 for multiplier in range(1, 11)].extend([100000, 200000, 400000, 800000])
   for candidate in candidates {
     let code = vm_status(s, args, candidate, discovery: true)?

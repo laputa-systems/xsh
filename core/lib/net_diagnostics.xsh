@@ -42,7 +42,7 @@ export proc dig_options(argv: List[Str]) [error] -> Result[DnsOptions, Error] {
   for token in cli.tokens(argv, ["p", "t"])? {
     if token.kind != "operand" {
       match token.name {
-        "p" => port = token.value.parse_int()?
+        "p" => port = token.value as Int
         "t" => record = record_name(token.value)?
         "h" | "help" => help = true
         "v" | "version" => version = true
@@ -54,7 +54,7 @@ export proc dig_options(argv: List[Str]) [error] -> Result[DnsOptions, Error] {
     if word.starts_with("@") {
       return Err(DiagnosticError.Usage("missing nameserver after @")) when word == "@"
       server = word.byte_slice(1)
-    } else if word == "+short" { short = true } else if word == "+noshort" { short = false } else if word.starts_with("+time=") { timeout = time.millis(word.byte_slice(6).parse_int()? * 1000) } else if word.starts_with("+tries=") { attempts = word.byte_slice(7).parse_int()? } else if word.starts_with("+") { return Err(DiagnosticError.Usage(f"unsupported modifier '{word}'")) } else if word.upper() == "IN" { continue } else if word.upper() in ["A", "AAAA"] { record = record_name(word)? } else if name == "" { name = word } else { return Err(DiagnosticError.Usage("only one question is supported per invocation")) }
+    } else if word == "+short" { short = true } else if word == "+noshort" { short = false } else if word.starts_with("+time=") { timeout = time.millis(word.byte_slice(6) as Int * 1000) } else if word.starts_with("+tries=") { attempts = word.byte_slice(7) as Int } else if word.starts_with("+") { return Err(DiagnosticError.Usage(f"unsupported modifier '{word}'")) } else if word.upper() == "IN" { continue } else if word.upper() in ["A", "AAAA"] { record = record_name(word)? } else if name == "" { name = word } else { return Err(DiagnosticError.Usage("only one question is supported per invocation")) }
   }
   if name == "" and ! help and ! version { return Err(DiagnosticError.Usage("expected NAME [A|AAAA]")) }
   if timeout <= 0ms or attempts < 1 { return Err(DiagnosticError.Usage("timeout and tries must be positive")) }
@@ -72,7 +72,7 @@ export proc nslookup_options(argv: List[Str]) [error] -> Result[DnsOptions, Erro
   var help = false
   var version = false
   for word in argv {
-    if word.starts_with("-type=") { record = record_name(word.byte_slice(6))? } else if word.starts_with("-query=") { record = record_name(word.byte_slice(7))? } else if word.starts_with("-port=") { port = word.byte_slice(6).parse_int()? } else if word.starts_with("-timeout=") { timeout = time.millis(word.byte_slice(9).parse_int()? * 1000) } else if word.starts_with("-retry=") { attempts = word.byte_slice(7).parse_int()? } else if word in ["-h", "--help"] { help = true } else if word in ["-version", "--version"] { version = true } else if word.starts_with("-") { return Err(DiagnosticError.Usage(f"unsupported option '{word}'")) } else if name == "" { name = word } else if server == "" { server = word } else { return Err(DiagnosticError.Usage("expected NAME [SERVER]")) }
+    if word.starts_with("-type=") { record = record_name(word.byte_slice(6))? } else if word.starts_with("-query=") { record = record_name(word.byte_slice(7))? } else if word.starts_with("-port=") { port = word.byte_slice(6) as Int } else if word.starts_with("-timeout=") { timeout = time.millis(word.byte_slice(9) as Int * 1000) } else if word.starts_with("-retry=") { attempts = word.byte_slice(7) as Int } else if word in ["-h", "--help"] { help = true } else if word in ["-version", "--version"] { version = true } else if word.starts_with("-") { return Err(DiagnosticError.Usage(f"unsupported option '{word}'")) } else if name == "" { name = word } else if server == "" { server = word } else { return Err(DiagnosticError.Usage("expected NAME [SERVER]")) }
   }
   if name == "" and ! help and ! version { return Err(DiagnosticError.Usage("expected NAME [SERVER]")) }
   if timeout <= 0ms or attempts < 1 { return Err(DiagnosticError.Usage("timeout and retry must be positive")) }

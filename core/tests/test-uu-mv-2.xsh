@@ -166,7 +166,7 @@ test test_uu_mv_mv_interactive_with_dir_as_target { |ctx|
   uu.touch(s, f"{target_dir}/{file}")
   let r1 = uu.invoke(s, "mv", [file, target_dir, "-i"], stdin: bytes.from_text("n"))?
   uu.fails(r1)
-  assert !("cannot move" in r1.stderr.utf8()?)
+  assert !("cannot move" in r1.stderr as Str)
   uu.no_stdout(r1)
 }
 

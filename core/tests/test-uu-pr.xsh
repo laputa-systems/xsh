@@ -448,7 +448,7 @@ test test_uu_pr_missing_file_error_message { |ctx|
   let r0 = uu.invoke(s, "pr", ["nonexistent_file"], stdin: bytes.from_text(""))?
   uu.fails_with_code(r0, 1)
   uu.stderr_contains(r0, "pr: nonexistent_file: ")
-  assert ! ("(os error" in r0.stderr.utf8()?)
+  assert ! ("(os error" in r0.stderr as Str)
 }
 
 # origin: uutils test_pr::test_with_mpr_and_columns_options
@@ -653,10 +653,10 @@ test test_uu_pr_with_long_header_option { |ctx|
   let s = uu.scene(ctx)?
   let r0 = uu.invoke(s, "pr", ["-h", "new file"], stdin: bytes.from_text("a"))?
   uu.succeeds(r0)
-  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                     new file                     Page 1\n\n\na\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n".matches(r0.stdout.utf8()?)
+  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                     new file                     Page 1\n\n\na\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n".matches(r0.stdout as Str)
   let r1 = uu.invoke(s, "pr", ["--header=new file"], stdin: bytes.from_text("a"))?
   uu.succeeds(r1)
-  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                     new file                     Page 1\n\n\na\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n".matches(r1.stdout.utf8()?)
+  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                     new file                     Page 1\n\n\na\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n".matches(r1.stdout as Str)
 }
 
 # origin: uutils test_pr::test_page_header_width
@@ -664,7 +664,7 @@ test test_uu_pr_page_header_width { |ctx|
   let s = uu.scene(ctx)?
   let r0 = uu.invoke(s, "pr", [], stdin: bytes.from_text("a"))?
   uu.succeeds(r0)
-  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\na\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n".matches(r0.stdout.utf8()?)
+  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\na\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n".matches(r0.stdout as Str)
 }
 
 # origin: uutils test_pr::test_form_feed_newlines
@@ -672,7 +672,7 @@ test test_uu_pr_form_feed_newlines { |ctx|
   let s = uu.scene(ctx)?
   let r0 = uu.invoke(s, "pr", ["-f"], stdin: bytes.from_text("\x0c\x0c"))?
   uu.succeeds(r0)
-  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\n\n\x0c\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 2\n\n\n\n\x0c".matches(r0.stdout.utf8()?)
+  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\n\n\x0c\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 2\n\n\n\n\x0c".matches(r0.stdout as Str)
 }
 
 # origin: uutils test_pr::test_new_line_followed_by_form_feed
@@ -680,7 +680,7 @@ test test_uu_pr_new_line_followed_by_form_feed { |ctx|
   let s = uu.scene(ctx)?
   let r0 = uu.invoke(s, "pr", ["-f"], stdin: bytes.from_text("abc\n\x0c"))?
   uu.succeeds(r0)
-  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\nabc\n\x0c".matches(r0.stdout.utf8()?)
+  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\nabc\n\x0c".matches(r0.stdout as Str)
 }
 
 # origin: uutils test_pr::test_form_feed_followed_by_new_line
@@ -688,7 +688,7 @@ test test_uu_pr_form_feed_followed_by_new_line { |ctx|
   let s = uu.scene(ctx)?
   let r0 = uu.invoke(s, "pr", [], stdin: bytes.from_text("\x0c\nabc"))?
   uu.succeeds(r0)
-  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 2\n\n\nabc\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n".matches(r0.stdout.utf8()?)
+  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 2\n\n\nabc\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n".matches(r0.stdout as Str)
 }
 
 # origin: uutils test_pr::test_columns
@@ -696,7 +696,7 @@ test test_uu_pr_columns { |ctx|
   let s = uu.scene(ctx)?
   let r0 = uu.invoke(s, "pr", ["-2"], stdin: bytes.from_text("a\nb\n"))?
   uu.succeeds(r0)
-  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\na\t\t\t\t    b\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n".matches(r0.stdout.utf8()?)
+  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\na\t\t\t\t    b\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n".matches(r0.stdout as Str)
 }
 
 # origin: uutils test_pr::test_merge
@@ -706,7 +706,7 @@ test test_uu_pr_merge { |ctx|
   uu.write(s, "g", "b\n")
   let r0 = uu.invoke(s, "pr", ["-m", "f", "g"], stdin: bytes.from_text(""))?
   uu.succeeds(r0)
-  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\na\t\t\t\t    b\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n".matches(r0.stdout.utf8()?)
+  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\na\t\t\t\t    b\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n".matches(r0.stdout as Str)
 }
 
 # origin: uutils test_pr::test_merge_one_long_one_short
@@ -716,7 +716,7 @@ test test_uu_pr_merge_one_long_one_short { |ctx|
   uu.write(s, "g", "b\n")
   let r0 = uu.invoke(s, "pr", ["-l", "11", "-m", "f", "g"], stdin: bytes.from_text(""))?
   uu.succeeds(r0)
-  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\na\t\t\t\t    b\n\n\n\n\n\n\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 2\n\n\na\t\t\t\t    \n\n\n\n\n\n".matches(r0.stdout.utf8()?)
+  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\na\t\t\t\t    b\n\n\n\n\n\n\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 2\n\n\na\t\t\t\t    \n\n\n\n\n\n".matches(r0.stdout as Str)
 }
 
 # origin: uutils test_pr::test_simple_expand_tab
@@ -724,7 +724,7 @@ test test_uu_pr_simple_expand_tab { |ctx|
   let s = uu.scene(ctx)?
   let r0 = uu.invoke(s, "pr", ["-e"], stdin: bytes.from_text("hello\tworld\nabc\tdef\n\tleading\ntrail\t\n8chars00\t\n"))?
   uu.succeeds(r0)
-  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\nhello   world\nabc     def\n        leading\ntrail   \n8chars00        \n".matches(r0.stdout.utf8()?)
+  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\nhello   world\nabc     def\n        leading\ntrail   \n8chars00        \n".matches(r0.stdout as Str)
 }
 
 # origin: uutils test_pr::test_simple_expand_tab_with_digit_argument
@@ -732,16 +732,16 @@ test test_uu_pr_simple_expand_tab_with_digit_argument { |ctx|
   let s = uu.scene(ctx)?
   let r0 = uu.invoke(s, "pr", ["-e2"], stdin: bytes.from_text("hello\tworld\nabc\tdef\n\tleading\ntrail\t\n8chars00\t\n"))?
   uu.succeeds(r0)
-  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\nhello world\nabc def\n  leading\ntrail \n8chars00  \n".matches(r0.stdout.utf8()?)
+  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\nhello world\nabc def\n  leading\ntrail \n8chars00  \n".matches(r0.stdout as Str)
   let r1 = uu.invoke(s, "pr", ["-e3"], stdin: bytes.from_text("hello\tworld\nabc\tdef\n\tleading\ntrail\t\n8chars00\t\n"))?
   uu.succeeds(r1)
-  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\nhello world\nabc   def\n   leading\ntrail \n8chars00 \n".matches(r1.stdout.utf8()?)
+  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\nhello world\nabc   def\n   leading\ntrail \n8chars00 \n".matches(r1.stdout as Str)
   let r2 = uu.invoke(s, "pr", ["-e8"], stdin: bytes.from_text("hello\tworld\nabc\tdef\n\tleading\ntrail\t\n8chars00\t\n"))?
   uu.succeeds(r2)
-  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\nhello   world\nabc     def\n        leading\ntrail   \n8chars00        \n".matches(r2.stdout.utf8()?)
+  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\nhello   world\nabc     def\n        leading\ntrail   \n8chars00        \n".matches(r2.stdout as Str)
   let r3 = uu.invoke(s, "pr", ["-e10"], stdin: bytes.from_text("hello\tworld\nabc\tdef\n\tleading\ntrail\t\n8chars00\t\n"))?
   uu.succeeds(r3)
-  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\nhello     world\nabc       def\n          leading\ntrail     \n8chars00  \n".matches(r3.stdout.utf8()?)
+  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\nhello     world\nabc       def\n          leading\ntrail     \n8chars00  \n".matches(r3.stdout as Str)
 }
 
 # origin: uutils test_pr::test_simple_expand_tab_with_char_argument
@@ -749,10 +749,10 @@ test test_uu_pr_simple_expand_tab_with_char_argument { |ctx|
   let s = uu.scene(ctx)?
   let r0 = uu.invoke(s, "pr", ["-ea"], stdin: bytes.from_text("hello\tworld\nabc\tdef\n\tleading\ntrail\t\n8chars00\t\n"))?
   uu.succeeds(r0)
-  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\nhello   world\n        bc      def\n        le      ding\ntr      il      \n8ch     rs00    \n".matches(r0.stdout.utf8()?)
+  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\nhello   world\n        bc      def\n        le      ding\ntr      il      \n8ch     rs00    \n".matches(r0.stdout as Str)
   let r1 = uu.invoke(s, "pr", ["-ee"], stdin: bytes.from_text("hello\tworld\nabc\tdef\n\tleading\ntrail\t\n8chars00\t\n"))?
   uu.succeeds(r1)
-  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\nh       llo     world\nabc     d       f\n        l       ading\ntrail   \n8chars00        \n".matches(r1.stdout.utf8()?)
+  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\nh       llo     world\nabc     d       f\n        l       ading\ntrail   \n8chars00        \n".matches(r1.stdout as Str)
 }
 
 # origin: uutils test_pr::test_simple_expand_tab_with_both_arguments
@@ -760,13 +760,13 @@ test test_uu_pr_simple_expand_tab_with_both_arguments { |ctx|
   let s = uu.scene(ctx)?
   let r0 = uu.invoke(s, "pr", ["-ea2"], stdin: bytes.from_text("hello\tworld\nabc\tdef\n\tleading\ntrail\t\n8chars00\t\n"))?
   uu.succeeds(r0)
-  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\nhello   world\n  bc    def\n        le  ding\ntr  il  \n8ch rs00        \n".matches(r0.stdout.utf8()?)
+  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\nhello   world\n  bc    def\n        le  ding\ntr  il  \n8ch rs00        \n".matches(r0.stdout as Str)
   let r1 = uu.invoke(s, "pr", ["-ee3"], stdin: bytes.from_text("hello\tworld\nabc\tdef\n\tleading\ntrail\t\n8chars00\t\n"))?
   uu.succeeds(r1)
-  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\nh  llo  world\nabc     d   f\n        l   ading\ntrail   \n8chars00        \n".matches(r1.stdout.utf8()?)
+  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\nh  llo  world\nabc     d   f\n        l   ading\ntrail   \n8chars00        \n".matches(r1.stdout as Str)
   let r2 = uu.invoke(s, "pr", ["-et10"], stdin: bytes.from_text("hello\tworld\nabc\tdef\n\tleading\ntrail\t\n8chars00\t\n"))?
   uu.succeeds(r2)
-  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\nhello   world\nabc     def\n        leading\n          rail  \n8chars00        \n".matches(r2.stdout.utf8()?)
+  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\nhello   world\nabc     def\n        leading\n          rail  \n8chars00        \n".matches(r2.stdout as Str)
 }
 
 # origin: uutils test_pr::test_with_date_format
@@ -774,7 +774,7 @@ test test_uu_pr_with_date_format { |ctx|
   let s = uu.scene(ctx)?
   let formatted = uu.invoke(s, "pr", ["-D", "%Y__%s"], stdin: b"a")?
   uu.succeeds(formatted)
-  assert rx"\n\n[0-9]{4}__[0-9]{10}                                                  Page 1\n\n\na\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n".matches(formatted.stdout.utf8()?)
+  assert rx"\n\n[0-9]{4}__[0-9]{10}                                                  Page 1\n\n\na\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n".matches(formatted.stdout as Str)
   let literal0 = uu.invoke(s, "pr", ["-D", "Hello!"], stdin: b"a")?
   uu.succeeds(literal0)
   uu.stdout_only(literal0, "\n\nHello!                                                            Page 1\n\n\na\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n")
@@ -791,16 +791,16 @@ test test_uu_pr_with_date_format_env { |ctx|
   let s = uu.scene(ctx)?
   let r0 = uu.invoke(s, "pr", [], stdin: bytes.from_text("a"), vars: {POSIXLY_CORRECT: "1", LC_ALL: "POSIX"})?
   uu.succeeds(r0)
-  assert rx"\n\n[A-Z][a-z][a-z] [ 0-9][0-9] [0-9][0-9]:[0-9][0-9] [0-9]{4}                                                 Page 1\n\n\na\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n".matches(r0.stdout.utf8()?)
+  assert rx"\n\n[A-Z][a-z][a-z] [ 0-9][0-9] [0-9][0-9]:[0-9][0-9] [0-9]{4}                                                 Page 1\n\n\na\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n".matches(r0.stdout as Str)
   let r1 = uu.invoke(s, "pr", [], stdin: bytes.from_text("a"), vars: {POSIXLY_CORRECT: "1", LC_TIME: "POSIX"})?
   uu.succeeds(r1)
-  assert rx"\n\n[A-Z][a-z][a-z] [ 0-9][0-9] [0-9][0-9]:[0-9][0-9] [0-9]{4}                                                 Page 1\n\n\na\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n".matches(r1.stdout.utf8()?)
+  assert rx"\n\n[A-Z][a-z][a-z] [ 0-9][0-9] [0-9][0-9]:[0-9][0-9] [0-9]{4}                                                 Page 1\n\n\na\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n".matches(r1.stdout as Str)
   let r2 = uu.invoke(s, "pr", [], stdin: bytes.from_text("a"), vars: {LC_TIME: "POSIX"})?
   uu.succeeds(r2)
-  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\na\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n".matches(r2.stdout.utf8()?)
+  assert rx"\n\n[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]                                                  Page 1\n\n\na\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n".matches(r2.stdout as Str)
   let r3 = uu.invoke(s, "pr", [], stdin: bytes.from_text("a"), vars: {POSIXLY_CORRECT: "1", LC_TIME: "C"})?
   uu.succeeds(r3)
-  assert rx"\n\n[A-Z][a-z][a-z] [ 0-9][0-9] [0-9][0-9]:[0-9][0-9] [0-9]{4}                                                 Page 1\n\n\na\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n".matches(r3.stdout.utf8()?)
+  assert rx"\n\n[A-Z][a-z][a-z] [ 0-9][0-9] [0-9][0-9]:[0-9][0-9] [0-9]{4}                                                 Page 1\n\n\na\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n".matches(r3.stdout as Str)
 }
 
 # origin: uutils test_pr::test_columns_last_page

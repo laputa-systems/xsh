@@ -5,7 +5,7 @@ use support.uu as uu
 proc numbers(data: Bytes, separator: Str = "\n") [error] -> Result[List[Int], Error] {
   var result = []
   for word in data.utf8()?.split(separator) {
-    if word != "" { assert rx"^[+-]?[0-9]+$".matches(word); result += [word.parse_int()?] }
+    if word != "" { assert rx"^[+-]?[0-9]+$".matches(word); result += [word as Int] }
   }
   Ok(result)
 }
@@ -36,7 +36,7 @@ test test_uu_shuf_output_is_random_permutation { |ctx|
   uu.succeeds(r)
   uu.no_stderr(r)
   assert sorted_numbers(r.stdout, "\n")? == [value for value in range(1, 11)]
-  assert r.stdout.utf8()? != "1\n2\n3\n4\n5\n6\n7\n8\n9\n10"
+  assert r.stdout as Str != "1\n2\n3\n4\n5\n6\n7\n8\n9\n10"
 }
 
 # origin: uutils test_shuf::test_explicit_stdin_file
@@ -216,7 +216,7 @@ test test_uu_shuf_echo_separators_in_arguments { |ctx|
 # origin: uutils test_shuf::test_echo_invalid_unicode_in_arguments
 test test_uu_shuf_echo_invalid_unicode_in_arguments { |ctx|
   let s = uu.scene(ctx)?
-  let r = uu.invoke_paths(s, "shuf", [p"-e", Path.parse_bytes(b"a\xffb")?, p"ok"])?
+  let r = uu.invoke_paths(s, "shuf", [p"-e", b"a\xffb" as Path, p"ok"])?
   uu.succeeds(r)
   uu.no_stderr(r)
   assert 255 in [r.stdout.byte_at(index) for index in range(r.stdout.len())]
@@ -227,7 +227,7 @@ test test_uu_shuf_invalid_unicode_in_filename { |ctx|
   let s = uu.scene(ctx)?
   let name = uu.at_bytes(s, b"a\xffb")?
   name.write("foo\n")
-  let r = uu.invoke_paths(s, "shuf", [Path.parse_bytes(b"a\xffb")?])?
+  let r = uu.invoke_paths(s, "shuf", [b"a\xffb" as Path])?
   uu.succeeds(r)
   uu.no_stderr(r)
   uu.stdout_is_bytes(r, b"foo\n")

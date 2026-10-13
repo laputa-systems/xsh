@@ -791,7 +791,7 @@ test test_uu_ln_symlink_target_dir_non_utf8_source_name { |ctx|
   uu.mkdir(s, target_dir)
   let source = uu.at_bytes(s, source_bytes)?
   source.write("")
-  let run1 = uu.invoke_paths(s, "ln", [p"-s", p"-t", Path(target_dir), Path.parse_bytes(source_bytes)?])?
+  let run1 = uu.invoke_paths(s, "ln", [p"-s", p"-t", Path(target_dir), source_bytes as Path])?
   uu.succeeds(run1)
   uu.no_stderr(run1)
   var entries = []
@@ -808,11 +808,11 @@ test test_uu_ln_ln_non_utf8_paths { |ctx|
   let name = b"test_\xff\xfe.txt"
   let link_name = b"link_\xff\xfe.txt"
   uu.at_bytes(s, name)?.write("")
-  uu.succeeds(uu.invoke_paths(s, "ln", [Path.parse_bytes(name)?, Path.parse_bytes(link_name)?])?)
+  uu.succeeds(uu.invoke_paths(s, "ln", [name as Path, link_name as Path])?)
   assert uu.at_bytes(s, name)?.is_file()?
   assert uu.at_bytes(s, link_name)?.is_file()?
   let symlink_name = b"symlink_\xff\xfe.txt"
-  uu.succeeds(uu.invoke_paths(s, "ln", [p"-s", Path.parse_bytes(name)?, Path.parse_bytes(symlink_name)?])?)
+  uu.succeeds(uu.invoke_paths(s, "ln", [p"-s", name as Path, symlink_name as Path])?)
   assert uu.at_bytes(s, symlink_name)?.is_symlink()?
 }
 

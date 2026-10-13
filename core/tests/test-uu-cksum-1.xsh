@@ -600,8 +600,8 @@ test test_uu_cksum_cksum_check_mode_ignore_missing { |ctx|
   let s = check_scene(ctx, 6)?
   let r1 = uu.invoke(s, "cksum", ["--ignore-missing", "--check", "CHECKSUMS-missing"])?
   uu.fails(r1)
-  assert "nonexistent: No such file or directory" not in r1.stdout.utf8()?
-  assert "nonexistent: FAILED open or read" not in r1.stdout.utf8()?
+  assert "nonexistent: No such file or directory" not in r1.stdout as Str
+  assert "nonexistent: FAILED open or read" not in r1.stdout as Str
   uu.stderr_contains(r1, "CHECKSUMS-missing: no file was verified")
 }
 
@@ -652,9 +652,9 @@ test test_uu_cksum_cksum_check_mode_status_and_warn { |ctx|
   uu.stderr_contains(r1, "WARNING: 1 computed checksum did NOT match")
   let r2 = uu.invoke(s, "cksum", ["--warn", "--status", "--check", "CHECKSUMS"])?
   uu.fails(r2)
-  assert "CHECKSUMS: 9: improperly formatted BLAKE2b checksum line" not in r2.stderr.utf8()?
-  assert "WARNING: 3 lines are improperly formatted" not in r2.stderr.utf8()?
-  assert "WARNING: 1 computed checksum did NOT match" not in r2.stderr.utf8()?
+  assert "CHECKSUMS: 9: improperly formatted BLAKE2b checksum line" not in r2.stderr as Str
+  assert "WARNING: 3 lines are improperly formatted" not in r2.stderr as Str
+  assert "WARNING: 1 computed checksum did NOT match" not in r2.stderr as Str
 }
 
 # origin: uutils test_cksum::cksum_check_mode::test_status_warn_and_ignore_missing
@@ -663,7 +663,7 @@ test test_uu_cksum_cksum_check_mode_status_warn_and_ignore_missing { |ctx|
   let r1 = uu.invoke(s, "cksum", ["--status", "--warn", "--ignore-missing", "--check", "CHECKSUMS-missing"])?
   uu.fails(r1)
   uu.stderr_contains(r1, "CHECKSUMS-missing: no file was verified")
-  assert "nonexistent: No such file or directory" not in r1.stdout.utf8()?
+  assert "nonexistent: No such file or directory" not in r1.stdout as Str
 }
 
 # origin: uutils test_cksum::cksum_check_mode::test_status_with_comment

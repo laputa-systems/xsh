@@ -30,7 +30,7 @@ test test_gnu_mv_atomic_log { |ctx|
   uu.symlink(s, "t2", "s2")
   let r = traced_move(s, ["-T", "s1", "s2"])?
   uu.succeeds(r)
-  assert ! regex.compile("unlink.*\"s1\"")?.matches(r.stderr.utf8()?)
+  assert ! regex.compile("unlink.*\"s1\"")?.matches(r.stderr as Str)
   assert ! uu.exists(s, "s1")?
   assert uu.read_link(s, "s2")? == "t1"
 }
@@ -43,7 +43,7 @@ test test_gnu_mv_atomic2_log { |ctx|
   uu.hard_link(s, "b", "b2")
   let r = traced_move(s, ["a", "b"])?
   uu.succeeds(r)
-  assert ! regex.compile("unlink.*\"b\"")?.matches(r.stderr.utf8()?)
+  assert ! regex.compile("unlink.*\"b\"")?.matches(r.stderr as Str)
   assert ! uu.exists(s, "a")?
   assert fs.stat(uu.at(s, "b"))?.nlink == 1
 }
@@ -78,7 +78,7 @@ test test_gnu_mv_backup_is_src_log { |ctx|
   fp"{remote}/a~".write("a2\n")
   let r = uu.invoke(s, "mv", ["--b=simple", f"{remote}/a~", f"{remote}/a"])?
   uu.fails(r)
-  assert bytes.concat([r.stdout, r.stderr]).utf8()? == f"mv: backing up '{remote}/a' might destroy source;  '{remote}/a~' not moved\n"
+  assert bytes.concat([r.stdout, r.stderr]) as Str == f"mv: backing up '{remote}/a' might destroy source;  '{remote}/a~' not moved\n"
 }
 
 # origin: gnu mv/childproof.log
@@ -145,7 +145,7 @@ test test_gnu_mv_force_log { |ctx|
   for target in ["mvforce", "mvforce2"] {
     let r = uu.invoke(s, "mv", ["mvforce", target])?
     uu.fails(r)
-    assert bytes.concat([r.stdout, r.stderr]).utf8()? == f"mv: 'mvforce' and '{target}' are the same file\n"
+    assert bytes.concat([r.stdout, r.stderr]) as Str == f"mv: 'mvforce' and '{target}' are the same file\n"
     uu.file_is(s, "mvforce", "force-contents\n")
   }
 }
@@ -288,7 +288,7 @@ test test_gnu_mv_into_self_2_log { |ctx|
   uu.symlink(s, file.display(), "symlink")
   let r = uu.invoke(s, "mv", ["symlink", file.display()])?
   uu.fails(r)
-  assert bytes.concat([r.stdout, r.stderr]).utf8()? == f"mv: 'symlink' and '{file}' are the same file\n"
+  assert bytes.concat([r.stdout, r.stderr]) as Str == f"mv: 'symlink' and '{file}' are the same file\n"
   uu.succeeds(uu.invoke(s, "mv", [file.display(), "symlink"])?)
 }
 
@@ -298,7 +298,7 @@ test test_gnu_mv_into_self_3_log { |ctx|
   for name in ["is3-dir1", "is3-dir2"] { uu.mkdir(s, name) }
   let r = uu.invoke(s, "mv", ["is3-dir1", "is3-dir2", "is3-dir2"])?
   uu.fails(r)
-  assert bytes.concat([r.stdout, r.stderr]).utf8()? == "mv: cannot move 'is3-dir2' to a subdirectory of itself, 'is3-dir2/is3-dir2'\n"
+  assert bytes.concat([r.stdout, r.stderr]) as Str == "mv: cannot move 'is3-dir2' to a subdirectory of itself, 'is3-dir2/is3-dir2'\n"
 }
 
 # origin: gnu mv/into-self-4.log
@@ -317,7 +317,7 @@ test test_gnu_mv_into_self_log { |ctx|
   uu.touch(s, "toself-file")
   let r = uu.invoke(s, "mv", ["toself-dir", "toself-file", "toself-dir"])?
   uu.fails(r)
-  assert bytes.concat([r.stdout, r.stderr]).utf8()? == "mv: cannot move 'toself-dir' to a subdirectory of itself, 'toself-dir/toself-dir'\n"
+  assert bytes.concat([r.stdout, r.stderr]) as Str == "mv: cannot move 'toself-dir' to a subdirectory of itself, 'toself-dir/toself-dir'\n"
   assert ! uu.exists(s, "toself-file")?
   assert uu.dir_exists(s, "toself-dir")?
   assert ! uu.exists(s, "toself-dir/toself-dir")?
@@ -457,7 +457,7 @@ test test_gnu_mv_part_fail_log { |ctx|
   defer remote.chmod(0o700)
   let r = uu.invoke(s, "mv", ["-f", "k", remote.display()])?
   uu.fails(r)
-  let actual = r.stderr.utf8()?
+  let actual = r.stderr as Str
   assert actual == f"mv: inter-device move failed: 'k' to '{remote}/k'; unable to remove target: Permission denied\n" or actual == f"mv: cannot move 'k' to '{remote}/k': Permission denied\n"
 }
 
@@ -557,7 +557,7 @@ test test_gnu_mv_perm_1_log { |ctx|
   defer uu.set_mode(s, "no-write", 0o755)
   let r = uu.invoke(s, "mv", ["no-write/dir", "."])?
   uu.fails(r)
-  assert bytes.concat([r.stdout, r.stderr]).utf8()? == "mv: cannot move 'no-write/dir' to './dir': Permission denied\n"
+  assert bytes.concat([r.stdout, r.stderr]) as Str == "mv: cannot move 'no-write/dir' to './dir': Permission denied\n"
 }
 
 # origin: gnu mv/symlink-onto-hardlink-to-self.log

@@ -67,11 +67,11 @@ test test_uu_chown_chown_dot_separator_warning { |ctx|
   uu.stderr_contains(r, "warning: '.' should be ':'")
   let both = uu.invoke(s, "chown", [f"{user_name}.{group_name}", "--verbose", "test_chown_dot_warn"])?
   uu.stderr_contains(both, "warning: '.' should be ':'")
-  let output = both.stdout.utf8()?
+  let output = both.stdout as Str
   assert "retained as" in output or "changed ownership" in output
   let colon = uu.invoke(s, "chown", [f"{user_name}:", "test_chown_dot_warn"])?
   uu.succeeds(colon)
-  assert "warning" not in colon.stderr.utf8()?
+  assert "warning" not in colon.stderr as Str
 }
 
 # origin: uutils test_chown::test_chown_owner_group
@@ -279,7 +279,7 @@ test test_uu_chown_chown_reference_file_with_non_utf8_path { |ctx|
   uu.touch(s, "file")
   let reference = uu.at_bytes(s, b"reference_\xff\xfe")?
   reference.write(b"")
-  let r = uu.invoke_paths(s, "chown", [p"--verbose", p"--reference", Path.parse_bytes(b"reference_\xff\xfe")?, p"file"])?
+  let r = uu.invoke_paths(s, "chown", [p"--verbose", p"--reference", b"reference_\xff\xfe" as Path, p"file"])?
   uu.succeeds(r)
   uu.stdout_contains(r, "ownership of 'file' retained as")
   uu.no_stderr(r)
@@ -311,7 +311,7 @@ test test_uu_chown_chown_symlink_cycles { |ctx|
     uu.stdout_contains(r, f"ownership of '{file}' retained as {user_name}")
   }
   for file in ["a/b/c/d/b", "a/b/c/d/b/c", "a/b/c/d/b/c/d"] {
-    assert f"ownership of '{file}' retained as {user_name}" not in r.stdout.utf8()?
+    assert f"ownership of '{file}' retained as {user_name}" not in r.stdout as Str
   }
 }
 

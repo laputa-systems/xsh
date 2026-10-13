@@ -532,7 +532,7 @@ proc xz_number(text: Str, option: Str, sizes: Bool) [error, process, env] -> Res
     gnu.error(f"Value of the option '{option}' must be in the range [0, {if sizes { "9223372036854775807" } else { "16384" }}]")
     exit 1
   }
-  let value = text.byte_slice(0, length: end).parse_int()?
+  let value = text.byte_slice(0, length: end) as Int
   if ! sizes and value > 16384 {
     gnu.error(f"Value of the option '{option}' must be in the range [0, 16384]")
     exit 1
@@ -812,7 +812,7 @@ export proc execute(argv: List[Str], tool: Str, decoding: Bool, cat: Bool) [fs, 
       # The window log is a compression hint, so a valid value changes nothing
       # the decoder sees; the reference tool also lets a non-number through.
       if rx"^[0-9]+$".matches(token.value) {
-        let window = token.value.parse_int()?
+        let window = token.value as Int
         if window < 10 or window > 31 {
           gnu.error("error 11 : Parameter is out of bound")
           exit 11
@@ -824,7 +824,7 @@ export proc execute(argv: List[Str], tool: Str, decoding: Bool, cat: Bool) [fs, 
       pass_through = false
     } else if option == "fast" {
       if format == "zstd" {
-        let speed = if token.value == "" { 1 } else { token.value.parse_int()? }
+        let speed = if token.value == "" { 1 } else { token.value as Int }
         if speed < 1 { gnu.usage_error("fast level must be at least 1") }
         level = -(if speed > 131072 { 131072 } else { speed })
       } else { level = 1 }
@@ -835,7 +835,7 @@ export proc execute(argv: List[Str], tool: Str, decoding: Bool, cat: Bool) [fs, 
     } else if tuning_option(format, option) {
       continue
     } else if token.kind == "short" and rx"^[0-9]+$".matches(option) {
-      level = option.parse_int()?
+      level = option as Int
       if (format != "zstd" and level > 9) or (format in ["gz", "bz2"] and level == 0) { gnu.usage_error("invalid compression level") }
     } else if option in ["repetitive-fast", "repetitive-best"] and format == "bz2" {
       if quiet == 0 { gnu.error(f"--{option} is redundant in versions 0.9.5 and above") }

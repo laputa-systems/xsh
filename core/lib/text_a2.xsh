@@ -362,7 +362,7 @@ export proc open_source(name: Str) -> Result[TextSource, Error] {
 ## Open a byte-preserving file operand; `-` borrows standard input.
 export proc open_source_bytes(name: Bytes) -> Result[TextSource, Error] {
   return Ok(Stdin) when name == b"-"
-  Ok(File(unix.open_fd(Path.parse_bytes(name)?)?))
+  Ok(File(unix.open_fd(name as Path)?))
 }
 
 ## Read one bounded chunk, allowing a short read and returning empty at EOF.
