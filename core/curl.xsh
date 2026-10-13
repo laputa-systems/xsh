@@ -855,7 +855,7 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
 
   let jar: List[Cookie] = collect {
     for cookie in settings.cookies {
-      if cookie.find("=") == null { yield @load_jar(cookie) }
+      yield @load_jar(cookie) when cookie.find("=") == null
     }
   }
 
