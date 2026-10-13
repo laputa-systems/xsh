@@ -218,7 +218,7 @@ proc lex(source_path: Str, source: Str) [error] -> Result[Lexed] {
       yield {text: source.byte_slice(offsets[start], length: offsets[cursor] - offsets[start]), start: start, end: cursor, line: start_line, last_line: line, literal: literal}
     }
   }
-  var stack: List[Int] = []
+  var stack = []
   var mates: Map[Int] = {}
   var token_table: Map[Int, Token] = {}
   var index = 0
@@ -306,7 +306,7 @@ proc production_cfg(source_path: Str, lexed: Lexed, predicates: List[CfgPredicat
     }
   }
   let cfg_source: Lexed = Lexed(tokens: cfg_tokens, mates: cfg_mates, size: lexed.size, lines: lexed.lines)
-  var atoms: List[Str] = []
+  var atoms = []
   for predicate in predicates {
     let end = predicate.end
     var cursor = predicate.start
@@ -325,7 +325,7 @@ proc production_cfg(source_path: Str, lexed: Lexed, predicates: List[CfgPredicat
 
 proc attributes(source_path: Str, lexed: Lexed) [error] -> Result[List[Attribute]] {
   var cursor = 0
-  var scopes: List[Int] = []
+  var scopes = []
   let found: List[Attribute] = collect {
     while cursor < lexed.tokens.len() {
       let name = (lexed.tokens.get(cursor) ?? end_token).text
@@ -599,7 +599,7 @@ proc modules(source_path: Str, lexed: Lexed, attrs: List[Attribute], spans: List
       if (lexed.tokens.get(cursor) ?? end_token).text == "mod" and ident_start(first((lexed.tokens.get(cursor + 1) ?? end_token).text)) {
         let name = (lexed.tokens.get(cursor + 1) ?? end_token).text
         let parent = if inline.is_empty() { directory } else { inline[-1].directory }
-        var explicit: Str? = null
+        var explicit = null
         var previous = cursor - 1
         if (lexed.tokens.get(previous) ?? end_token).text == ")" { previous = lexed.mates[f"{previous}"] - 1 }
         if (lexed.tokens.get(previous) ?? end_token).text == "pub" { previous -= 1 }
@@ -704,7 +704,7 @@ proc validate_instruction_schema_definition(source_path: Str, lexed: Lexed, open
 proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int, strict_classification: Bool) [error] -> Result[List[Evidence]] {
   let closing = lexed.mates[f"{opening}"]
   let expected_rows = ["BuildIntRow", "BuildBoolRow", "BuildExprRow", "BuildStmtRow"]
-  var rows: List[Str] = []
+  var rows = []
   var variants: List[Evidence] = []
   var tags: Map[Bool] = {}
   var ordinals: Map[Bool] = {}
@@ -723,7 +723,7 @@ proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int, s
     let table_close = lexed.mates[f"{table_open}"]
     var entry = table_open + 1
     var entry_count = 0
-    var row_variants: List[Str] = []
+    var row_variants = []
     while entry < table_close {
       let variant = lexed.tokens.get(entry) ?? end_token
       if variant.text == "" or ! ident_start(first(variant.text)) { invalid(source_path, variant.line, f"malformed instruction schema entry in {row}") }
@@ -806,7 +806,7 @@ proc instruction_schema_variants(source_path: Str, lexed: Lexed, opening: Int, s
 proc legacy_stage_enum_variants(source_path: Str, lexed: Lexed, opening: Int) [error] -> Result[List[Str]] {
   let closing = lexed.mates[f"{opening}"]
   var cursor = opening + 1
-  var variants: List[Str] = []
+  var variants = []
   while cursor < closing {
     let variant = lexed.tokens[cursor]
     if ! ident_start(first(variant.text)) or variant.text in variants { invalid(source_path, variant.line, "malformed or repeated handwritten FullStageTag variant") }
@@ -823,12 +823,12 @@ proc legacy_stage_enum_variants(source_path: Str, lexed: Lexed, opening: Int) [e
 proc legacy_stage_codec_variants(source_path: Str, lexed: Lexed, opening: Int) [error] -> Result[List[Str]] {
   let closing = lexed.mates[f"{opening}"]
   var cursor = opening + 1
-  var variants: List[Str] = []
+  var variants = []
   while cursor < closing {
     if lexed.tokens[cursor].text == "," { cursor += 1; continue }
     let row = lexed.tokens[cursor]
-    var paths: List[Str] = []
-    var arrows: List[Int] = []
+    var paths = []
+    var arrows = []
     var member = cursor
     while member < closing and lexed.tokens[member].text != "," {
       let value = lexed.tokens[member].text
@@ -851,10 +851,10 @@ proc legacy_stage_codec_variants(source_path: Str, lexed: Lexed, opening: Int) [
 
 proc legacy_pipeline_stage_layout(source_path: Str, lexed: Lexed, spans: List[Span]) [error] -> Result[LegacyPipelineStageLayout] {
   var tag_definitions = 0
-  var tag_variants: List[Str] = []
+  var tag_variants = []
   var codec_definitions = 0
   var codec_tables = 0
-  var codec_variants: List[Str] = []
+  var codec_variants = []
   var semantic_definitions = 0
   var cursor = 0
   while cursor < lexed.tokens.len() {
@@ -901,7 +901,7 @@ proc pipeline_stage_schema_variants(source_path: Str, lexed: Lexed, opening: Int
     invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "malformed pipeline stage schema context")
   }
   cursor += 2
-  var context: List[Str] = []
+  var context = []
   while cursor < closing and lexed.tokens[cursor].text != ";" { context += [lexed.tokens[cursor].text]; cursor += 1 }
   let core_context = ["stage_builder", "stage_decoder", "stage_payload"]
   let view_context = [@core_context, "stage_view_context", "stage_view_input", "stage_view_value", "stage_view_expectations"]
@@ -1055,7 +1055,7 @@ pure function_return_contains(lexed: Lexed, region: FunctionRegion, value: Str) 
 }
 
 pure qualified_variant_count(lexed: Lexed, region: FunctionRegion, type_name: Str) -> Int {
-  var variants: List[Str] = []
+  var variants = []
   var cursor = region.body_start
   while cursor + 2 < region.body_end {
     if lexed.tokens[cursor].text == type_name and lexed.tokens[cursor + 1].text == ":" and lexed.tokens[cursor + 2].text == ":" {
@@ -1127,8 +1127,8 @@ proc pattern_schema_variants(source_path: Str, lexed: Lexed, opening: Int) [erro
     invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "unrecognized pattern schema table boundary")
   }
   cursor = rows_open + 1
-  var names: List[Str] = []
-  var ordinals: List[Str] = []
+  var names = []
+  var ordinals = []
   var seen_names: Map[Bool] = {}
   var seen_ordinals: Map[Bool] = {}
   var found: List[Evidence] = []
@@ -1353,7 +1353,7 @@ proc structural(source_path: Str, lexed: Lexed, spans: List[Span], attrs: List[A
         let closing = lexed.mates[f"{opening}"]
         var member = opening + 1
         var in_pattern = true
-        var names: List[Str] = []
+        var names = []
         var wildcard = false
         var last_wildcard = false
         while member < closing {
@@ -1450,7 +1450,7 @@ export proc scan_file(source_path: Str, source: Str) [error] -> Result[SourceSca
 }
 
 proc module_target(root: Path, owner: Str, edge: RustModule) [fs, error] -> Result[Str] {
-  var candidates: List[Path] = []
+  var candidates = []
   if edge.explicit_path != null { candidates = [if edge.explicit_path.starts_with("/") { fp"{edge.explicit_path}" } else { fp"{root}/{edge.directory}/{edge.explicit_path}" }] } else { candidates = [fp"{root}/{edge.directory}/{edge.name}.rs", fp"{root}/{edge.directory}/{edge.name}/mod.rs"] }
   let existing = collect { for candidate in candidates { yield candidate.resolve()?.strip_prefix(root)?.display() when candidate.exists() } }
   if existing.len() != 1 { return Err(MetricError.Invalid(path: owner, line: edge.line, detail: f"module {edge.name} resolves to {existing.len()} files")) }

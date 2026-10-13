@@ -1705,7 +1705,7 @@ proc read_sort_records(sources: List[SortInput], zero_terminated: Bool) [fs, io,
 
 ## Merge one current record from each input; ties keep the earlier input first.
 pure merge_sort_records(sources: List[List[SortRecord]], opts: SortOptions, has_key: Bool, key_field: Int) -> List[SortRecord] {
-  var positions: List[Int] = [0 for _ in sources]
+  var positions = [0 for _ in sources]
   let merged: List[SortRecord] = collect {
     loop {
       var selected = null
