@@ -295,7 +295,7 @@ export proc invoke(xsh_bin: Path, script: Path, root: Path, work: Path, c: Case)
     var tail: List[Bytes] = [b"--- after ---\n"]
     let cap = fp"{scratch}/cap"
     if cap.exists() { tail += [b"cap:\n", cap.read_bytes()?] }
-    var names = ["scratch"] |> map { |name| bytes.from_text(name) } |> collect()
+    var names = ["scratch"] |> map(bytes.from_text) |> collect()
     names += listing(scratch, root.bytes().len() + 1)?
     let keyed = collect {
       for name in names { yield hex(name) }

@@ -157,7 +157,7 @@ proc emit_buffer(words: List[Word], begin: Int, end: Int, flushing: Bool, first:
 # Optimize each suffix once. Costs favor sentence boundaries, discourage
 # false sentence breaks after initials, and balance neighboring filled lines.
 proc paragraph(lines: List[Bytes], width: Int, goal: Int, quick: Bool, first: Str, later: Str, uniform: Bool) {
-  let words = lines |> flat-map { |line| word_parts(line) }
+  let words = lines |> flat-map(word_parts)
   return when words.is_empty()
   if quick {
     var breaks = []

@@ -447,8 +447,8 @@ export pure step_cached(
       process_state: current.processes.state,
       processes: process_rows
         |> sort-by .pid
-        |> sort-by { |row| process_sort_rate_tenths(row) }
-        |> sort-by { |row| process_sort_availability(row) },
+        |> sort-by(process_sort_rate_tenths)
+        |> sort-by(process_sort_availability),
       storage: disks.step(current.storage, storage_previous, current.at_ns, storage_previous_at, gap),
     },
     metadata: {
