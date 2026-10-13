@@ -728,7 +728,7 @@ unix.exec(process.command_argv("{xsh}", ["{xsh}", "{inner}"]))?
 
 # `same_group` keeps the child in the caller's process group. Cancelling it
 # must signal only that pid: a group signal would also terminate this test.
-test test_spawn_same_group_stays_in_the_callers_group_and_cancels_only_the_child { |ctx|
+test test_spawn_same_group_stays_in_the_callers_group_and_cancels_only_the_child { |_|
   let own = process.group_id()?
   let leader_plan = process.command_argv("sleep", ["sleep", "10"])
   let leader = spawn leader_plan?
@@ -743,7 +743,7 @@ test test_spawn_same_group_stays_in_the_callers_group_and_cancels_only_the_child
   test.error_kind(process.kill(shared_pid, signal: "0"), "process-missing")
 }
 
-test test_spawn_same_group_conflicts_with_a_new_group_or_session { |ctx|
+test test_spawn_same_group_conflicts_with_a_new_group_or_session { |_|
   let with_detach = process.command_argv("sleep", ["sleep", "10"], detach: true, same_group: true)
   test.error_kind(spawn with_detach, "spawn-options")
   let with_session = process.command_argv("sleep", ["sleep", "10"], new_session: true, same_group: true)

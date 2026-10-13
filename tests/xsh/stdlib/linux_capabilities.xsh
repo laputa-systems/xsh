@@ -39,7 +39,7 @@ pure bits_of(mask: Int) -> List[Int] {
   found
 }
 
-test test_privileges_report_sorted_capability_numbers_and_the_kernel_limit { |ctx|
+test test_privileges_report_sorted_capability_numbers_and_the_kernel_limit { |_|
   let state = linux.privileges()?
   assert state.last_capability >= 0 and state.last_capability < 64
   for numbers in [state.effective, state.permitted, state.inheritable, state.bounding, state.ambient] {
@@ -55,7 +55,7 @@ test test_privileges_report_sorted_capability_numbers_and_the_kernel_limit { |ct
   assert state.parent_death_signal >= 0
 }
 
-test test_privileges_match_the_masks_in_proc_status { |ctx|
+test test_privileges_match_the_masks_in_proc_status { |_|
   let state = linux.privileges()?
   var lists = {
     label: bits_of(hex_value(line.byte_slice(label.byte_len() + 1).trim()))
@@ -99,7 +99,7 @@ unix.exec(process.command_argv(args[0], [args[0], args[1]]))?
   assert result.stdout == "10\n"
 }
 
-test test_capability_numbers_are_validated_before_the_kernel { |ctx|
+test test_capability_numbers_are_validated_before_the_kernel { |_|
   test.error_kind(linux.drop_bounding_capability(64), "invalid-argument")
   test.error_kind(linux.drop_bounding_capability(-1), "invalid-argument")
   test.error_kind(linux.set_ambient_capability(64, false), "invalid-argument")
@@ -148,7 +148,7 @@ if before.bounding.is_empty() {
   assert result.stdout in ["skip\n", "true 0 false\n", "false 1 true\n"]
 }
 
-test test_unknown_capability_number_is_refused_by_the_kernel { |ctx|
+test test_unknown_capability_number_is_refused_by_the_kernel { |_|
   # The kernel checks CAP_SETPCAP before it validates the number.
   let expected = if 8 in linux.privileges()?.effective { 22 } else { 1 }
   assert errno_of(linux.drop_bounding_capability(63)) == expected
@@ -218,7 +218,7 @@ if candidate < 0 {
   assert result.stdout in ["skip\n", "0 0 true 0 false\n"]
 }
 
-test test_ptracer_accepts_none_any_and_a_pid_or_reports_einval { |ctx|
+test test_ptracer_accepts_none_any_and_a_pid_or_reports_einval { |_|
   # Without the Yama security module the kernel rejects PR_SET_PTRACER.
   for pid in [0, -1, process.current_pid()?] {
     let outcome = linux.set_ptracer(pid)
@@ -226,7 +226,7 @@ test test_ptracer_accepts_none_any_and_a_pid_or_reports_einval { |ctx|
   }
 }
 
-test test_set_resuid_and_resgid_validate_and_accept_current_identity { |ctx|
+test test_set_resuid_and_resgid_validate_and_accept_current_identity { |_|
   let me = unix.id()?
   test.error_kind(unix.set_resuid(real: 4294967295, effective: null, saved: null), "unix-set-resuid")
   test.error_kind(unix.set_resgid(real: null, effective: -1, saved: null), "unix-set-resgid")
@@ -235,7 +235,7 @@ test test_set_resuid_and_resgid_validate_and_accept_current_identity { |ctx|
   assert unix.set_resgid(real: me.gid, effective: me.egid, saved: me.egid) is Ok(_)
 }
 
-test test_set_resuid_reports_the_kernel_refusal_without_privilege { |ctx|
+test test_set_resuid_reports_the_kernel_refusal_without_privilege { |_|
   let me = unix.id()?
   # CAP_SETUID and CAP_SETGID let any ID through.
   if 7 in linux.privileges()?.effective or 6 in linux.privileges()?.effective { test.skip("process holds CAP_SETUID or CAP_SETGID") }

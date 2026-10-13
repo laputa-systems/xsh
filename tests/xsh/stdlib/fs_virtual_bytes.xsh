@@ -1,4 +1,4 @@
-test test_fs_read_bytes_reads_zero_size_virtual_files { |ctx|
+test test_fs_read_bytes_reads_zero_size_virtual_files { |_|
   if system.uname()?.sysname != "Linux" {
     test.skip("procfs is a Linux fixture")
   }

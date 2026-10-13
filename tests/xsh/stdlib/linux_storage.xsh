@@ -577,7 +577,7 @@ test test_real_ioctls_on_a_regular_file_fail_with_kernel_errno { |ctx|
   assert failure_of(linux.sg_io(1073741824, b"\x00\x00\x00\x00\x00\x00"), "linux-sg-io").errno == 9
 }
 
-test test_storage_primitives_report_unsupported_off_linux { |ctx|
+test test_storage_primitives_report_unsupported_off_linux { |_|
   guard ! is_linux() else {
     test.skip("covers non-Linux hosts")
     return

@@ -73,14 +73,14 @@ test test_pattern_conditionals_produce_values_and_keep_literal_results {
 test test_pattern_conditional_expressions_advance_and_clear_branch_captures {
   let outcome = Ok({message: "ready", code: 7})
   let outer = "outer"
-  let selected = if let Ok({message: outer, code: 8}) = outcome {
+  let selected = if let Ok({message: _, code: 8}) = outcome {
     "wrong"
   } else if let Ok({message: outer, code: 7}) = outcome {
     outer
   } else {
     "missing"
   }
-  let fallback = if let Ok({message: outer, code: 8}) = outcome {
+  let fallback = if let Ok({message: _, code: 8}) = outcome {
     "wrong"
   } else if let Err(_) = outcome {
     "wrong"

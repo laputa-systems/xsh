@@ -51,7 +51,7 @@ proc errno_of_cpus(result: Result[List[Int]]) -> Int {
   }
 }
 
-test test_affinity_lists_the_cpus_the_kernel_allows { |ctx|
+test test_affinity_lists_the_cpus_the_kernel_allows { |_|
   if ! p"/proc/self/status".exists() {
     test.skip("the host has no /proc/self/status")
   }
@@ -80,7 +80,7 @@ test test_affinity_lists_the_cpus_the_kernel_allows { |ctx|
   assert expand_cpu_list(listed) == cpus
 }
 
-test test_set_affinity_restricts_another_process_only { |ctx|
+test test_set_affinity_restricts_another_process_only { |_|
   let cpus = process.affinity()?
 
   if cpus.len() < 2 {
@@ -103,7 +103,7 @@ test test_set_affinity_restricts_another_process_only { |ctx|
   assert process.affinity(child.pid)? == cpus
 }
 
-test test_affinity_failures_carry_the_kernels_answer { |ctx|
+test test_affinity_failures_carry_the_kernels_answer { |_|
   let cpus = process.affinity()?
 
   assert errno_of_cpus(process.affinity(2147483647)) == 3
@@ -115,7 +115,7 @@ test test_affinity_failures_carry_the_kernels_answer { |ctx|
   test.error_kind(process.affinity(2147483648), "pid-range")
 }
 
-test test_scheduler_policy_is_read_and_changed_for_another_process { |ctx|
+test test_scheduler_policy_is_read_and_changed_for_another_process { |_|
   let child = process.spawn(process.command_argv("sleep", ["sleep", "60"]))?
   defer process.kill(child.pid, signal: "KILL")
 
@@ -139,7 +139,7 @@ test test_scheduler_policy_is_read_and_changed_for_another_process { |ctx|
   assert process.scheduler()?.policy == process.scheduler(process.current_pid()?)?.policy
 }
 
-test test_scheduler_failures_carry_the_kernels_answer { |ctx|
+test test_scheduler_failures_carry_the_kernels_answer { |_|
   let child = process.spawn(process.command_argv("sleep", ["sleep", "60"]))?
   defer process.kill(child.pid, signal: "KILL")
 
@@ -158,7 +158,7 @@ test test_scheduler_failures_carry_the_kernels_answer { |ctx|
   }
 }
 
-test test_scheduler_priorities_report_each_policys_range { |ctx|
+test test_scheduler_priorities_report_each_policys_range { |_|
   for name in ["other", "batch", "idle", "deadline"] {
     let range = process.scheduler_priorities(name)?
     assert range.min == 0 and range.max == 0, name
@@ -177,7 +177,7 @@ test test_scheduler_priorities_report_each_policys_range { |ctx|
   test.error_kind(process.scheduler_priorities("nosuch"), "invalid-argument")
 }
 
-test test_scheduler_time_slice_can_be_set_for_the_fair_policies { |ctx|
+test test_scheduler_time_slice_can_be_set_for_the_fair_policies { |_|
   let child = process.spawn(process.command_argv("sleep", ["sleep", "60"]))?
   defer process.kill(child.pid, signal: "KILL")
 
@@ -195,7 +195,7 @@ test test_scheduler_time_slice_can_be_set_for_the_fair_policies { |ctx|
   assert process.scheduler(child.pid)?.runtime_ns != 3000000
 }
 
-test test_io_priority_is_read_and_changed_for_another_process { |ctx|
+test test_io_priority_is_read_and_changed_for_another_process { |_|
   let child = process.spawn(process.command_argv("sleep", ["sleep", "60"]))?
   defer process.kill(child.pid, signal: "KILL")
 
@@ -220,7 +220,7 @@ test test_io_priority_is_read_and_changed_for_another_process { |ctx|
   }
 }
 
-test test_io_priority_failures_carry_the_kernels_answer { |ctx|
+test test_io_priority_failures_carry_the_kernels_answer { |_|
   let child = process.spawn(process.command_argv("sleep", ["sleep", "60"]))?
   defer process.kill(child.pid, signal: "KILL")
 
@@ -236,7 +236,7 @@ test test_io_priority_failures_carry_the_kernels_answer { |ctx|
   }
 }
 
-test test_resource_limits_are_read_and_changed_for_another_process { |ctx|
+test test_resource_limits_are_read_and_changed_for_another_process { |_|
   let child = process.spawn(process.command_argv("sleep", ["sleep", "60"]))?
   defer process.kill(child.pid, signal: "KILL")
 
@@ -267,7 +267,7 @@ test test_resource_limits_are_read_and_changed_for_another_process { |ctx|
   assert clamped.soft == 5 and clamped.hard == 8
 }
 
-test test_resource_limit_failures_carry_the_kernels_answer { |ctx|
+test test_resource_limit_failures_carry_the_kernels_answer { |_|
   match process.rlimit("nofile", pid: 2147483647) {
     Ok(_) => test.fail("a missing process has no limits")
     Err(failure) => assert (failure.errno ?? -1) == 3
