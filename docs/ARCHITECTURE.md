@@ -24,6 +24,12 @@ build and test procedures in [`TESTING.md`](TESTING.md), and tool behavior in
 | `crates/xsh-fuzz` | The soundness fuzzer and its reference evaluator and sandboxed runner. |
 | `crates/xsh-applets` | Native applet support, including `mdev`. |
 
+A subsystem belongs in its own crate only when its stable Rust boundary does
+not depend on XSH source spans, values, diagnostics, or evaluator state.
+`xsh-net` is the model: the XSH adapter converts records to plain Rust requests
+and translates results and errors back, while spans, mocks, and evaluator state
+stay on the XSH side.
+
 ## The `libxsh` façade
 
 First-party library consumers use the root crate's public modules:
@@ -72,8 +78,8 @@ order; the `xsh` executable does not read the rest of the `xsht` configuration.
 tables shared by the lexer and parser. The parser writes typed rows into
 `ArenaProgram`; the CST preserves source structure for tools and is not an
 execution representation. A sugar form keeps its source operands beside its
-core expansion: semantic passes use the expansion, while source tools use the
-operands.
+core expansion: semantic passes use the expansion; source-preserving and
+structural tools use the operands.
 
 **Checking.** `Checker` owns type and signature decisions and validates import
 bindings. It publishes the facts required by lowering and tooling, including
@@ -108,13 +114,15 @@ directly to native runtime operations.
 1. **Verify before execute.** Only a `FullProgram` accepted by
    `FullVerifier::verify` can be installed. Unsupported or malformed indexed
    data fails preparation.
-2. **The checker owns semantic decisions.** Lowering consumes checked facts; it
-   does not re-check bodies, select overloads, or bind call arguments.
+2. **One decision pipeline; routes preserve parity.** The checker makes each
+   semantic decision once. Routes that must agree, such as full and compact
+   checking or in-place and frame execution for eligible instructions, share
+   an implementation or are covered by parity tests. Lowering consumes checked
+   facts; it does not re-check bodies, select overloads, or bind arguments.
 3. **Preserve source-visible behavior.** Lowering and fast paths retain
    evaluation order, error kinds and spans, cleanup, status, and trace events.
 4. **Keep one meaning for each construct.** Syntax tables have one owner; sugar
-   has one core expansion. If two execution routes must agree, share their
-   implementation or cover their parity in tests.
+   has one core expansion.
 5. **Keep host effects at their boundary.** Process and signal operations stay
    in the host substrate; the evaluator decides how their structured outcomes
    affect XSH control flow.
@@ -124,7 +132,9 @@ directly to native runtime operations.
 1. Define observable behavior in the SPEC template and snippets, then render
    generated docs as described in [`TESTING.md`](TESTING.md).
 2. Add grammar, arena storage, and parsing under `src/syntax/`. Preserve the
-   CST and update source-tool consumers that inspect the new form.
+   CST and extend the exhaustive immediate-child enumerators in
+   `src/syntax/arena.rs`. Each recursive consumer keeps its own traversal
+   policy; update the consumers whose behavior needs the new form.
 3. Check the behavior in `src/sema/check/` and publish any facts later stages
    need.
 4. Lower those facts and add verifier rules for any new indexed representation
@@ -141,10 +151,11 @@ to remain a core statement because declaration discovery does not inspect
 inside sugar.
 
 The parser stores both the source operands and the core expansion in the arena.
-Semantic passes follow the expansion; formatter, grep, and spelling-based lint
-follow the operands. Add one parser expansion, preserve source spans for
-diagnostics, and cover it with a hand-written core equivalent and the
-desugared-corpus parity check in `crates/xsht/`.
+Semantic passes follow the expansion; source-preserving and structural tools,
+including formatter, grep, and spelling-based lint, follow the written
+operands. Add one parser expansion, preserve source spans for diagnostics, and
+cover it with a hand-written core equivalent and the desugared-corpus parity
+check in `crates/xsht/`.
 
 ## Adding a validated type
 
@@ -179,6 +190,10 @@ terminal handoff, waits, cancellation, and detached reaping. The signal
 substrate (`src/runtime/signal.rs`) records signals in the handler; the
 evaluator interprets them at checkpoints. Script code never runs in a signal
 handler, and process groups are the unit of cancellation.
+
+Post-fork child setup is limited to async-signal-safe descriptor, signal, and
+group/session operations followed by `exec`; it performs no allocation or
+locking. Internal descriptors are close-on-exec.
 
 Process operations return structured outcomes. The evaluator decides status,
 `Result` propagation, and runtime errors. Trace events retain structured argv,
